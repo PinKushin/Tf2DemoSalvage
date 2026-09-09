@@ -238,10 +238,20 @@ public sealed class AppliedTimeTests
         at.X.ShouldBeGreaterThan(0f, "the POSITION is interpolated");
         at.X.ShouldBeLessThan(100f);
 
+        // **Snapped at ARRIVAL, which is where the engine snaps it** (B383). `m_flModelScale` is a plain
+        // networked member assigned on receipt, so at tick 20 it is already 0.75 while the position it
+        // sits beside is still eight ticks behind. This asserted 1f and passed only because state was
+        // selected at the DELAYED target — the update had arrived and was being ignored.
         at.Scale.ShouldBe(
-            1f,
-            "m_flModelScale has no interpolator; a networked change snaps, and the only ramp the " +
-            "client has is a MODELSCALE data object game code creates with an explicit duration");
+            0.75f,
+            "m_flModelScale has no interpolator; a networked change snaps at the moment it arrives, and " +
+            "the only ramp the client has is a MODELSCALE data object game code creates with a duration");
+
+        // **The control, and it is what "not interpolated" actually means.** Before the update arrives the
+        // value is the previous one exactly, and after it the new one exactly — never anything between.
+        // Asserting one sample cannot tell a snap from a blend that happens to pass through it.
+        track.At(19d).ShouldNotBeNull().Scale.ShouldBe(
+            1f, "the second update has not arrived at tick 19");
     }
 
     /// <remarks>

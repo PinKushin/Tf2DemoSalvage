@@ -25,7 +25,7 @@ public sealed class TimelineMomentsTests
 
         TimelineMoments moments = new(DemoTimeline.ForTracks([track]));
 
-        moments.OnNewModel(7, [false, true]);
+        moments.OnNewModel(7, [false, true], staticProp: false);
 
         track.PoseParameterLoops.Count.ShouldBe(2);
         track.PoseParameterLoops[0].ShouldBeFalse();
@@ -46,7 +46,7 @@ public sealed class TimelineMomentsTests
 
         TimelineMoments moments = new(DemoTimeline.ForTracks([track]));
 
-        moments.OnNewModel(999, [true]);
+        moments.OnNewModel(999, [true], staticProp: false);
 
         track.PoseParameterLoops.ShouldBeEmpty("the wrong entity's track must be left alone");
     }

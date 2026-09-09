@@ -708,7 +708,129 @@ public sealed record SceneProp(
 /// </remarks>
 public sealed class ScenePropTrack
 {
+    /// <summary>
+    /// The STATE each update stated, by arrival — everything that is not interpolated (B382).
+    /// </summary>
+    /// <remarks>
+    /// **State is not a history in the engine and does not need one.** `m_fEffects`, `m_nSequence`,
+    /// `m_flModelScale`, `m_nBody` and the rest are plain networked members assigned on receipt; only the
+    /// variables `AddVar` registers have a changetime at all (<c>c_baseentity.cpp:875</c>). So the right
+    /// answer for state is "the latest update at or before the drawn moment", which is a list keyed by
+    /// ARRIVAL — and collapsing a repeat is correct here, because a state that did not change states
+    /// nothing new.
+    ///
+    /// **The interpolated values are NOT read from this list.** They live in
+    /// <see cref="_simulation"/>, <see cref="_animation"/> and <see cref="_poseParameters"/> — one per
+    /// registered variable, as the engine keeps them, which is the whole of B382.
+    /// </remarks>
     private readonly List<(int Tick, ScenePose Pose)> _keyframes = [];
+
+    /// <summary>
+    /// Origin and angles, stamped with <c>GetSimulationTime()</c> (B382).
+    /// </summary>
+    /// <remarks>
+    /// **Appended when `originChanged || anglesChanged || simTimeChanged`**, which is the condition
+    /// `PostDataUpdate` uses to fire the simulation latch group (<c>c_baseentity.cpp:2575</c>). Never
+    /// collapsed, because `AddToHead` is unconditional.
+    ///
+    /// **Origin and angles share one history, and the equivalence is provable.** Both are registered
+    /// `LATCH_SIMULATION_VAR` with no further flags (<c>c_baseentity.cpp:905</c>, <c>:906</c>), so they
+    /// are appended in the same call with the same changetime and their entry lists are parallel
+    /// entry-for-entry. **What would falsify it:** a `LATCH_SIMULATION_VAR` variable also carrying
+    /// `EXCLUDE_AUTO_LATCH`, or one latched outside `OnLatchInterpolatedVariables`. Neither exists.
+    /// </remarks>
+    private readonly InterpolatedHistory _simulation = new(SimulationComponents);
+
+    /// <summary>How many floats a simulation entry carries — an origin and an angle.</summary>
+    private const int SimulationComponents = 6;
+
+    /// <summary>How many floats a cycle entry carries — the cycle, and the sequence it belongs to.</summary>
+    /// <remarks>
+    /// **`m_iv_flCycle` is a <c>CInterpolatedVar&lt;float&gt;</c>, so the engine's width is one.** The
+    /// second component is this project's, and it is here because the engine does not need it: it clears
+    /// the whole history when a sequence starts (<c>c_baseanimating.cpp:4747</c>), where a viewer that can
+    /// scrub cannot clear anything. So each entry records which animation it belongs to and
+    /// <see cref="InterpolateCycle"/> refuses to blend across a change. Marked non-looping and never read
+    /// from a respaced sample — see <see cref="CycleSequence"/>. B383 is the divergence that remains.
+    /// </remarks>
+    private const int CycleComponents = 2;
+
+    /// <summary>Which component of a cycle entry holds the sequence.</summary>
+    private const int CycleSequence = 1;
+
+    /// <summary>
+    /// The cycle, stamped with <c>GetAnimTime()</c> (B382).
+    /// </summary>
+    /// <remarks>
+    /// **Appended when `animTimeChanged`** (<c>c_baseentity.cpp:2584</c>), which is a different moment
+    /// from the simulation latch: measured on the 2013 SourceTV foundry recording, the two clocks
+    /// disagree by more than eight ticks on 95.5% of the updates carrying both.
+    ///
+    /// **Not shared with the pose parameters, unlike origin and angles.** The engine registers
+    /// `m_flCycle` with `EXCLUDE_AUTO_INTERPOLATE` added when the entity animates client-side
+    /// (<c>c_baseanimating.cpp:896</c>) while `m_flPoseParameter` beside it never carries that
+    /// (<c>:890</c>) — different flags, so no equivalence argument is available and they are not merged.
+    /// <see cref="_poseParameters"/> is that separate history.
+    ///
+    /// **The cycle component is marked looping**, as `m_iv_flCycle.SetLooping( IsSequenceLooping(
+    /// GetSequence() ) )` does (<c>c_baseanimating.cpp:4472</c>) — so a respaced third sample crosses
+    /// the wrap the short way instead of running the animation backwards through itself. **Set once,
+    /// where the engine sets it per frame from the sequence**: this project has never distinguished a
+    /// looping sequence from a one-shot here, and `InterpolateCycle` already blends every same-sequence
+    /// pair with `LoopingLerp`, so a flag matching that keeps the two consistent rather than
+    /// introducing a second answer. Named in B382 as not established.
+    ///
+    /// **Only the cycle wraps.** The sequence in component <see cref="CycleSequence"/> is not a value the
+    /// engine interpolates at all, so it is left non-looping and read only from a stored entry.
+    /// </remarks>
+    private readonly InterpolatedHistory _animation = Cycles();
+
+    /// <summary>The cycle history: a wrapping cycle and a sequence that does not.</summary>
+    /// <returns>The history, with component 0 marked looping and nothing else.</returns>
+    private static InterpolatedHistory Cycles()
+    {
+        InterpolatedHistory history = new(CycleComponents);
+
+        history.SetLooping(looping: true);
+
+        return history;
+    }
+
+    /// <summary>
+    /// The pose parameters, stamped with <c>GetAnimTime()</c> and reset with the sequence (B382).
+    /// </summary>
+    /// <remarks>
+    /// **Its own history because the engine gives it one** — `AddVar( m_flPoseParameter,
+    /// &amp;m_iv_flPoseParameter, LATCH_ANIMATION_VAR )` (<c>c_baseanimating.cpp:890</c>) — and one entry
+    /// carries every parameter, because `m_iv_flPoseParameter` is a
+    /// <c>CInterpolatedVarArray&lt; float, MAXSTUDIOPOSEPARAM &gt;</c>: the array is the ENTRY's width,
+    /// not a list per parameter.
+    ///
+    /// **Its width is the MODEL's parameter count, not <c>MAXSTUDIOPOSEPARAM</c>** —
+    /// `m_iv_flPoseParameter.SetMaxCount( hdr->GetNumPoseParameters() )` (<c>:1124</c>), which
+    /// <see cref="OnNewModel"/> is. It starts at one, the engine's `MAX(1,newmax)` floor, and grows when
+    /// the model becomes known. **Sizing it from the constant instead was measurable**: a corpus test host
+    /// reached 11 GB, because a match has hundreds of tracks and tens of thousands of updates each while a
+    /// sentry has two parameters and most props have none.
+    ///
+    /// **The looping flags come from the model with the width**, out of `Pose.loop != 0.0f` (<c>:1130</c>),
+    /// so nothing here is set looping by default. That closes the divergence B382 filed as unestablished:
+    /// the fixup and <see cref="PoseBetween"/> now read one table rather than agreeing by construction.
+    /// </remarks>
+    private readonly InterpolatedHistory _poseParameters = new(1);
+
+    /// <summary>The last values received, for the engine's three changed-tests.</summary>
+    /// <remarks>
+    /// **`PostDataUpdate` compares against the previous NETWORKED values** — `m_vecOldOrigin`,
+    /// `m_vecOldAngRotation`, `m_flOldSimulationTime`, `m_flOldAnimTime` — not against the history head.
+    /// Comparing against the head would be a different test whenever an update arrives that restates a
+    /// value the head does not hold.
+    /// </remarks>
+    private (float X, float Y, float Z, float Pitch, float Yaw, float Roll)? _lastReceived;
+
+    private int? _lastSimulationTime;
+
+    private int? _lastAnimationTime;
 
     /// <summary>
     /// For each keyframe, the last tick the demo restated that same pose.
@@ -762,18 +884,6 @@ public sealed class ScenePropTrack
     /// rather than a second list to maintain.
     /// </remarks>
     private readonly List<int> _animationAppliedAt = [];
-
-    /// <summary>For each keyframe, the animation time of the last restatement of that pose.</summary>
-    private readonly List<int> _animationHeldUntil = [];
-
-    /// <summary>Whether any keyframe carried an animation clock of its own.</summary>
-    /// <remarks>
-    /// **False for a player and for most props, and that is the fast path.** TF2's players use
-    /// client-side animation and <c>SendProxy_AnimTime</c> asserts they encode no animation time,
-    /// so their tracks skip the second lookup entirely. It is set only when a keyframe arrives with
-    /// an animation time away from its arrival tick — anything else has nothing to correct.
-    /// </remarks>
-    private bool _hasAnimationClock;
 
     /// <summary>
     /// How far behind the requested tick a pose is sampled — the engine's <c>cl_interp</c>.
@@ -1293,18 +1403,52 @@ public sealed class ScenePropTrack
         Candidate(born + InterpolationDelayTicks);
         Candidate(born + InterpolationDelayTicks + 1);
 
-        int index = IndexAt((int)Math.Floor(tick - InterpolationDelayTicks));
+        // **The candidates come from the SIMULATION HISTORY, because that is what `At` reads** (B382).
+        // They used to come from `_heldUntil` and the next keyframe's arrival, which was the same
+        // arithmetic performed on a different structure — and a scheduler that describes a sampler it no
+        // longer shares a shape with is the failure `Alive` records: the two disagreed about when a track
+        // was finished, no further wake was scheduled, and the stepped sampler froze on a stale pose.
+        int now = (int)Math.Floor(tick);
+
+        // A packet landing changes what the history can bracket, so its arrival is a wake in its own
+        // right — the engine is told by `NoteChanged` at that moment.
+        if (_simulation.ArrivesAfter(now) is { } arrival)
+        {
+            Candidate(arrival);
+            Candidate(arrival + 1);
+        }
+
+        if (_animation.ArrivesAfter(now) is { } animationArrival)
+        {
+            Candidate(animationArrival);
+            Candidate(animationArrival + 1);
+        }
+
+        // **The STATE boundary, which is not a history changetime and has to be named separately.**
+        // `At` takes `Hidden`, `Sequence`, `RenderMode` and the rest from the keyframe at or before the
+        // tick asked for, so the answer changes shape at the NEXT keyframe's own tick — a moment no
+        // interpolation changetime falls on. Dropping it made `PropsAt` disagree with `At` about entity
+        // 648 on `tf2-2007-build3258-pov-cp_granary` at tick 5334: the pose said drawable and the drawn
+        // set, built from a stale wake, did not have it. That is the third time this entity has caught a
+        // scheduler that stopped describing the sampler.
+        //
+        // **No delay added, since B383 removed the delay from the state selection.** It was
+        // `keyframe.Tick + delay` while state came from the delayed target, and the two have to move
+        // together or the scheduler drifts again.
+        int state = IndexAt(now);
+
+        if (state >= 0 && state + 1 < _keyframes.Count)
+        {
+            Candidate(_keyframes[state + 1].Tick);
+            Candidate(_keyframes[state + 1].Tick + 1);
+        }
 
         bool changing = false;
 
-        if (index >= 0 && index + 1 < _keyframes.Count)
+        if (_simulation.Bracket(tick - InterpolationDelayTicks, now) is { } pair)
         {
-            int toTick = _keyframes[index + 1].Tick;
-            int fromTick = _heldUntil.Count > index ? _heldUntil[index] : _keyframes[index].Tick;
-
-            // The causality gate opening: until the destination keyframe's own tick, `At` holds
-            // the earlier pose however far the delayed target has crept into the segment.
-            Candidate(toTick);
+            int fromTick = _simulation.ChangeTimeAt(pair.Older);
+            int toTick = _simulation.ChangeTimeAt(pair.Newer);
 
             // The lerp starting (the restated tick plus the delay) and ending (the destination
             // plus the delay), each padded one past for the floor.
@@ -1313,13 +1457,17 @@ public sealed class ScenePropTrack
             Candidate(toTick + InterpolationDelayTicks);
             Candidate(toTick + InterpolationDelayTicks + 1);
 
-            // The last term is the "nothing had arrived yet" branch still being in force: while
-            // the delayed target sits at or before the first keyframe, `At` serves that keyframe
-            // whatever the segment is doing. `>=` and not `>`, per the superset rule above — at
-            // exactly `born + delay` the lerp begins within the same tick, and judging the track
-            // parked there held it one tick stale.
+            // **Mid-lerp is now "the delayed target lies inside the pair's own interval", and there is no
+            // separate causality term because the reach bound is the causality gate.** `Bracket` cannot
+            // return an entry that had not arrived, so a pair existing at all means the client had both.
+            // The last term is the "nothing had arrived yet" branch still being in force: while the
+            // delayed target sits at or before the first keyframe, `At` serves that keyframe whatever the
+            // segment is doing. `>=` and not `>`, per the superset rule above — at exactly
+            // `born + delay` the lerp begins within the same tick, and judging the track parked there
+            // held it one tick stale.
             changing = blend
-                && tick >= toTick
+                && toTick > fromTick
+                && tick >= fromTick + InterpolationDelayTicks
                 && tick < toTick + InterpolationDelayTicks + 1
                 && tick >= born + InterpolationDelayTicks;
         }
@@ -1443,6 +1591,15 @@ public sealed class ScenePropTrack
     public void Add(int tick, ScenePose pose, int appliedAt) =>
         Add(tick, pose, appliedAt, animationAppliedAt: tick);
 
+    /// <summary>Adds a keyframe stated and applying at the same tick.</summary>
+    /// <param name="tick">When the demo stated it, and when it applied.</param>
+    /// <param name="pose">The pose.</param>
+    /// <remarks>
+    /// For callers with no lag to account for — every test that builds a track by hand, and any
+    /// entity whose recording never said when it simulated.
+    /// </remarks>
+    public void Add(int tick, ScenePose pose) => Add(tick, pose, tick);
+
     /// <summary>Records a pose, with an applied time for each of the engine's two latch clocks.</summary>
     /// <param name="tick">When the demo stated it — the packet's own tick.</param>
     /// <param name="pose">The pose.</param>
@@ -1457,9 +1614,79 @@ public sealed class ScenePropTrack
     /// </remarks>
     public void Add(int tick, ScenePose pose, int appliedAt, int animationAppliedAt)
     {
-        // Noticed once per keyframe rather than tested per sample: a track whose every animation
-        // time is its arrival tick has nothing for the second lookup to find.
-        _hasAnimationClock |= animationAppliedAt != tick;
+        // **The engine's three changed-tests, against the previous NETWORKED values** (B382).
+        // `PostDataUpdate` (`c_baseentity.cpp:2570`):
+        //
+        //     bool originChanged   = ( m_vecOldOrigin      != GetLocalOrigin() );
+        //     bool anglesChanged   = ( m_vecOldAngRotation != GetLocalAngles() );
+        //     bool simTimeChanged  = ( m_flSimulationTime  != m_flOldSimulationTime );
+        //     bool simulationChanged = originChanged || anglesChanged || simTimeChanged;
+        //
+        // **`simTimeChanged` is the term that keeps a stationary entity's history fresh**, and it is why
+        // an entry must be appended for an update that moved nothing: a door held shut still simulates,
+        // so the engine has a recent entry carrying the shut position, and the next real movement
+        // interpolates over a few ticks rather than over the whole hold.
+        (float X, float Y, float Z, float Pitch, float Yaw, float Roll) received =
+            (pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll);
+
+        // **Exact comparison, because Valve's is exact.** `m_vecOldOrigin != GetLocalOrigin()` is
+        // `Vector::operator!=`, a component-wise float compare with no tolerance — a position that
+        // differs in its last bit IS a change to the engine, and a tolerance here would drop an entry
+        // the engine appends. `.Equals` says the same thing in a form the analyzer accepts; a bare `!=`
+        // on floats is refused by S1244, which is a good rule that this one case has to opt out of by
+        // spelling the comparison rather than by suppressing the warning.
+        bool movedOrTurned = _lastReceived is not { } before ||
+            DiffersFrom(before.X, received.X) || DiffersFrom(before.Y, received.Y) ||
+            DiffersFrom(before.Z, received.Z) || DiffersFrom(before.Pitch, received.Pitch) ||
+            DiffersFrom(before.Yaw, received.Yaw) || DiffersFrom(before.Roll, received.Roll);
+
+        if (movedOrTurned || _lastSimulationTime != appliedAt)
+        {
+            // `AddToHead` is unconditional — an identical value still gets an entry, and those identical
+            // entries are what give a restated pose a third spline sample equal to its second.
+            //
+            // **One generation, because origin and angles are never `Reset()`.** Only the animating
+            // variables are, and only on a new sequence.
+            Span<float> values =
+            [
+                received.X, received.Y, received.Z,
+                received.Pitch, received.Yaw, received.Roll,
+            ];
+
+            _simulation.Add(appliedAt, tick, values);
+        }
+
+        if (_lastAnimationTime != animationAppliedAt)
+        {
+            // **The sequence rides beside the cycle, and it is this project's rather than Valve's.** The
+            // engine's cycle history is floats alone because it CLEARS the history when a sequence starts
+            // — `if ( m_nNewSequenceParity != m_nPrevNewSequenceParity ) … m_iv_flCycle.Reset()`
+            // (`c_baseanimating.cpp:4747`) — and a viewer that can scrub backwards cannot clear anything.
+            // So the entry records what was playing when it was appended and `InterpolateCycle` refuses to
+            // blend across a change. **B383 is what remains**: the engine's trigger is the PARITY counter,
+            // so it fires on a restart of the SAME sequence, and its reset discards the older cycles
+            // rather than holding them.
+            Span<float> cycle = [pose.Cycle, pose.Sequence];
+
+            _animation.Add(animationAppliedAt, tick, cycle);
+
+            // **Exactly the history's width, which is the model's parameter count** — the engine copies
+            // `m_flPoseParameter` into an entry of `m_nMaxCount` floats and nothing wider. A model with
+            // more parameters than the demo states leaves the rest at zero, which is what the engine's
+            // own array holds for them.
+            Span<float> parameters = stackalloc float[_poseParameters.Width];
+
+            for (int index = 0; index < parameters.Length && index < pose.PoseParameters.Count; index++)
+            {
+                parameters[index] = pose.PoseParameters[index];
+            }
+
+            _poseParameters.Add(animationAppliedAt, tick, parameters);
+        }
+
+        _lastReceived = received;
+        _lastSimulationTime = appliedAt;
+        _lastAnimationTime = animationAppliedAt;
 
         if (_keyframes.Count > 0 && _keyframes[^1].Pose == pose)
         {
@@ -1474,25 +1701,34 @@ public sealed class ScenePropTrack
             // reason for ten seconds, and then, on the way back, sinking below its own frame into
             // the floor.
             _heldUntil[^1] = appliedAt;
-            _animationHeldUntil[^1] = animationAppliedAt;
             return;
         }
 
         _keyframes.Add((tick, pose));
         _heldUntil.Add(appliedAt);
         _appliedAt.Add(appliedAt);
-        _animationHeldUntil.Add(animationAppliedAt);
         _animationAppliedAt.Add(animationAppliedAt);
     }
 
-    /// <summary>Adds a keyframe stated and applying at the same tick.</summary>
-    /// <param name="tick">When the demo stated it, and when it applied.</param>
-    /// <param name="pose">The pose.</param>
+    /// <summary>Whether two received floats are not the same value, bit for bit.</summary>
     /// <remarks>
-    /// For callers with no lag to account for — every test that builds a track by hand, and any
-    /// entity whose recording never said when it simulated.
+    /// **The engine's test is exact and this has to be too.** `m_vecOldOrigin != GetLocalOrigin()` is
+    /// `Vector::operator!=`, a component-wise compare with no tolerance, so a position differing in its
+    /// last bit IS a change and gets a history entry. A tolerance here would drop an entry the engine
+    /// appends, which is the collapse B382 is about, one step smaller.
+    ///
+    /// **Written as a bit compare rather than `!=` or `.Equals` because S1244 refuses both**, and the
+    /// rule it enforces is a good one — an exact float compare is nearly always a defect. This is the
+    /// exception, so it says so in a form that is exact by construction rather than suppressing the
+    /// analyzer and leaving the next reader to wonder which it was.
+    ///
+    /// **What this does differently from the engine, stated:** two NaNs compare EQUAL here and unequal in
+    /// `Vector::operator!=`. A networked origin is never NaN — `SendPropVector` has no encoding for one —
+    /// so no input reaches that difference.
     /// </remarks>
-    public void Add(int tick, ScenePose pose) => Add(tick, pose, tick);
+    private static bool DiffersFrom(float first, float second) =>
+        BitConverter.SingleToInt32Bits(first) != BitConverter.SingleToInt32Bits(second);
+
 
     /// <summary>Records that the entity ceased to exist.</summary>
     /// <param name="tick">The first tick it was gone.</param>
@@ -1565,16 +1801,20 @@ public sealed class ScenePropTrack
             return _keyframes[0].Pose;
         }
 
-        // **The pair is chosen by CHANGETIME, which is what the engine's walk does** (B377).
-        // Choosing the arrival-adjacent pair and then reading its changetimes is a different answer
-        // whenever the two clocks disagree, and they disagree on 26,064 of entity 9's 27,478
-        // keyframes — 1,631 of them applying EARLIER than the keyframe before them.
-        if (Neighbours(target) is not { } pair)
+        // **The pair comes from the SIMULATION HISTORY, chosen by changetime** (B382, B377). The history
+        // holds an entry per update, uncollapsed, so a restated pose leaves identical entries at
+        // different changetimes — and that is what gives the spline below a third sample equal to its
+        // second, which is what stops a closing door rising before it drops.
+        // **`arrivedBy` is the requested tick, not the delayed target** (B94). The client's history holds
+        // what has ARRIVED by now and interpolates within it towards a moment already past; bounding the
+        // reach at the target instead would hide an update the client had genuinely received.
+        if (_simulation.Bracket(target, (int)Math.Floor(tick)) is not { } pair)
         {
             return earlier;
         }
 
-        int index = pair.Older;
+        ReadOnlySpan<float> olderEntry = _simulation.ValuesAt(pair.Older);
+        ReadOnlySpan<float> newerEntry = _simulation.ValuesAt(pair.Newer);
 
         // **The STATE fields follow ARRIVAL and only the interpolated numbers follow the changetime
         // pair, because in the engine they are not the same mechanism.** `m_fEffects`, `m_nSequence`,
@@ -1587,44 +1827,48 @@ public sealed class ScenePropTrack
         // keeps one simulation time for minutes, so every state change it made collapses onto a single
         // tick. `NoDrawTrackTests` then caught the very same entity it caught before — 648 on
         // `tf2-2007-build3258-pov-cp_granary` at tick 5261, hidden and never handed back.
-        ScenePose from = _keyframes[IndexAt((int)Math.Floor(target))].Pose;
+        //
+        // **And it is the latest update at or before the tick ASKED FOR, not the delayed target** (B383).
+        // This selected at `target` and so lagged every state change by the interpolation window, which is
+        // a delay the engine does not have: `ShouldDraw` reads `m_fEffects` live, `BuildTransformations`
+        // reads `m_nSequence` live, and `C_BaseEntity::Interpolate` touches nothing but the var map
+        // (`c_baseentity.cpp:6405`). So a client draws the CURRENT sequence with a cycle eight ticks old,
+        // and reproducing that is what lets a sequence change reset the cycle history without pairing the
+        // new animation's cycle with the old sequence.
+        ScenePose from = earlier;
 
-        (int statedTick, ScenePose moving) = _keyframes[index];
-        (int arrivedAt, ScenePose toward) = _keyframes[pair.Newer];
-
-        // **The interpolation runs on when the value APPLIED, not on when the packet arrived**
-        // (B273). The engine stamps a simulation-latched variable's history entry with the entity's
-        // own `GetSimulationTime()` (`OnLatchInterpolatedVariables`, `c_baseentity.cpp:2806`), and
-        // for a player on a SourceTV recording that is up to four ticks from the packet's own tick,
-        // on half the updates. The list is still keyed by arrival, which is what keeps the state a
-        // pose carries in the order the demo stated it.
-        int toTick = AppliedAt(pair.Newer);
-
-        // **A keyframe later than the tick being asked for has not arrived yet.** This is the whole
-        // of the causality rule: a client at tick 100 cannot be pulled toward an update stated at
-        // tick 610, and a reader holding the entire demo can. Holding the earlier pose is what the
-        // client shows, and skipping this check is what walked a shutter open over ten seconds.
-        if (arrivedAt > tick)
-        {
-            return from;
-        }
-
-        // **The movement starts where the pose was last RESTATED, not where it was first stated.**
-        // A stationary entity's repeats are collapsed, so the stored keyframe can be seconds older
-        // than the last moment the demo confirmed that pose — and interpolating from the older tick
-        // spreads a tenth of a second of travel over the whole hold.
-        int fromTick = _heldUntil.Count > index ? _heldUntil[index] : statedTick;
-
-        tick = target;
+        // **The changetimes come from the history entries themselves**, which is the point of B382: no
+        // side-table reconstructs when a value applied, because the entry that carries the value carries
+        // its own changetime, exactly as `CInterpolatedVarEntry` does.
+        int fromTick = _simulation.ChangeTimeAt(pair.Older);
+        int toTick = _simulation.ChangeTimeAt(pair.Newer);
 
         // **A span of zero gives a fraction of zero and the walk CONTINUES, which is the engine's
-        // shape** (B377). `GetInterpolationInfo` guards the division with `if ( dt > 0.0001f )` and
-        // leaves `frac` at its initial zero otherwise, then returns true — so the simulation fields
-        // hold at the older sample while every other clock still answers for itself. Bailing out of
-        // the whole sample here is what discarded the animation clock's own interpolation.
+        // shape.** `GetInterpolationInfo` guards the division with `if ( dt > 0.0001f )` and leaves
+        // `frac` at its initial zero otherwise, then returns true — so the simulation fields hold at the
+        // older sample while every other clock still answers for itself.
         float fraction = toTick > fromTick
-            ? (float)Math.Clamp((tick - fromTick) / (toTick - fromTick), 0.0, 1.0)
+            ? (float)Math.Clamp((target - fromTick) / (toTick - fromTick), 0.0, 1.0)
             : 0f;
+
+        // The pose pair the angle slerp and the position curve read, built from the history rather than
+        // from a keyframe: a history entry is the six interpolated floats and nothing else.
+        // **Aliased because `from` is a LINQ contextual keyword**, so `from with { … }` at the start of
+        // a statement parses as a query expression. The state local keeps its name — it is read fifty
+        // times below — and this is the one place the parser needs a different one.
+        ScenePose shape = from;
+
+        ScenePose moving = shape with
+        {
+            X = olderEntry[0], Y = olderEntry[1], Z = olderEntry[2],
+            Pitch = olderEntry[3], Yaw = olderEntry[4], Roll = olderEntry[5],
+        };
+
+        ScenePose toward = shape with
+        {
+            X = newerEntry[0], Y = newerEntry[1], Z = newerEntry[2],
+            Pitch = newerEntry[3], Yaw = newerEntry[4], Roll = newerEntry[5],
+        };
 
         (float pitch, float yaw, float roll) = SlerpAngles(moving, toward, fraction);
 
@@ -1632,16 +1876,28 @@ public sealed class ScenePropTrack
         // the client splines whenever there is an older entry, and falls back to linear only when
         // there is not, or when INTERPOLATE_LINEAR_ONLY is set on the variable.
         //
-        // **The third sample is WRONG here and is not patched — B382 replaces the structure.** The
-        // engine appends an entry per update and never collapses, so a door held open leaves several
-        // entries carrying the SAME open position, and `oldest` is open as well: the curve leaves it
-        // with zero incoming velocity. Collapsing repeats makes `_keyframes[index - 1]` the previous
-        // DISTINCT pose — a mid-opening height for a door — so the spline carries the opening's velocity
-        // into the close and the door rises before it drops.
+        // **The third sample is the entry BEFORE the older one, taken from the history** — `int
+        // oldestindex = i+1;` (`interpolatedvar.h:851`). Hermite applies only when the two older
+        // changetimes differ: `dt2 = older_change_time - oldest_change_time > 0.0001f`.
         //
-        // A special case for a restated pose was written here and removed: it made the symptom go away
-        // and left one keyframe list serving two histories, which is the actual defect. See D155.
-        ScenePose? previous = index > 0 ? Renormalise(index, toTick - fromTick) : null;
+        // **This is what B382 was for.** A door held open leaves several entries carrying the same open
+        // position at different changetimes, because `AddToHead` is unconditional — so `oldest` is open
+        // as well and the curve leaves that position with zero incoming velocity. The old collapsed list
+        // made this the previous DISTINCT pose, a mid-opening height, and the spline carried the
+        // opening's velocity into the close: the door rose before it dropped.
+        //
+        // **Respaced by `TimeFixup_Hermite` before the curve sees it** (`interpolatedvar.h:1410`),
+        // which is where the engine does it — inside `_Interpolate_Hermite`, on the history, before the
+        // per-component loop. `null` is its empty-older-interval case and means linear.
+        Span<float> oldestEntry = stackalloc float[SimulationComponents];
+
+        ScenePose? previous = _simulation.TimeFixup(pair, oldestEntry)
+            ? (shape with
+            {
+                X = oldestEntry[0], Y = oldestEntry[1], Z = oldestEntry[2],
+                Pitch = oldestEntry[3], Yaw = oldestEntry[4], Roll = oldestEntry[5],
+            })
+            : null;
 
         // **The animation-latched pair take the OTHER clock, which is a second lookup** (B274).
         // `OnLatchInterpolatedVariables` is called once per latch group and stamps each with its own
@@ -1650,12 +1906,17 @@ public sealed class ScenePropTrack
         // updates carrying both, so sharing one set of neighbours between them is not an
         // approximation of the engine, it is a different answer.
         //
-        // Skipped whole for a track that never carried an animation clock, which is every player
-        // and most props — `SendProxy_AnimTime` asserts a client-side-animated entity encodes none.
+        // **Not skipped for a track whose two clocks happen to agree, and that was a real defect**
+        // (B382). This used to be gated on `animationAppliedAt != tick` having been seen at least once,
+        // on the reasoning that a track without a separate clock could share the simulation pair. It
+        // cannot: the simulation pair carries only the six position and angle components, so a shared
+        // pair gave both ends the SAME cycle and the cycle stopped interpolating entirely. The engine
+        // registers `m_flCycle` unconditionally (`c_baseanimating.cpp:896`), so the history always
+        // exists — and when the clocks agree its changetimes are the arrival ticks, which is the answer
+        // the shared path was trying to reach.
         (ScenePose animationFrom, ScenePose animationTo, ScenePose? animationPrevious,
-            float animationFraction) = _hasAnimationClock
-            ? AnimationNeighbours(target, moving, toward, previous, fraction)
-            : (moving, toward, previous, fraction);
+            float animationFraction) =
+            AnimationNeighbours(target, (int)Math.Floor(tick), shape, moving, toward, previous, fraction);
 
         // **A client-side-animated entity's cycle is NOT interpolated, and the engine enforces that
         // structurally rather than with a test** (B276).
@@ -1836,8 +2097,13 @@ public sealed class ScenePropTrack
             // **Interpolated, because the engine puts them in the interpolation list**:
             // `AddVar( m_flPoseParameter, &m_iv_flPoseParameter, LATCH_ANIMATION_VAR, true )`
             // (`c_baseanimating.cpp:890`). A sentry's barrel would otherwise step between updates.
-            PoseParameters = BlendPoses(
-                animationFrom.PoseParameters, animationTo.PoseParameters, animationFraction),
+            //
+            // **From their OWN history, bracketed on their own changetimes** (B382). One `AddVar` means
+            // one `CInterpolatedVar`, and asking the cycle's pair for them was the merge B382 undoes.
+            PoseParameters = PoseBetween(
+                shape.PoseParameters,
+                _poseParameters.Bracket(target, (int)Math.Floor(tick)),
+                animationFraction),
 
             // Discrete: a counter part-way between two values names neither.
             ResetEventsParity = from.ResetEventsParity,
@@ -1909,87 +2175,6 @@ public sealed class ScenePropTrack
         return previous is { } older && older.Sequence == from.Sequence
             ? LoopingCurve(older.Cycle, from.Cycle, to.Cycle, fraction)
             : LoopingLerp(from.Cycle, to.Cycle, fraction);
-    }
-
-    /// <summary>Rebuilds the sample before <paramref name="index"/> at an even spacing.</summary>
-    /// <param name="index">Position of the keyframe the interpolation starts from.</param>
-    /// <param name="span">Ticks from that keyframe to the one after it.</param>
-    /// <returns>The synthetic earlier sample, or <c>null</c> when hermite does not apply.</returns>
-    /// <remarks>
-    /// **<c>TimeFixup_Hermite</c>, and it is not an optimisation — it is what makes the spline
-    /// usable on real data.** A hermite curve assumes its three samples are evenly spaced, and a
-    /// demo's are not: the server sends when it sends, and a packet arriving late leaves a gap of
-    /// a different size from the one before it. Valve rebuilds the oldest sample rather than
-    /// feeding the spline uneven spacing —
-    ///
-    /// <code>
-    /// float frac = dt1 / dt2;
-    /// fixup.changetime = start->changetime - dt1;
-    /// fixup.value = Lerp( 1-frac, prev->value, start->value );
-    /// </code>
-    ///
-    /// — placing a synthetic sample exactly <c>dt1</c> before the start. Skipping it does not
-    /// produce a slightly different curve; it produces one that overshoots whenever the packet
-    /// spacing wobbles, which on a real demo is most of the time.
-    /// </remarks>
-    private ScenePose? Renormalise(int index, int span)
-    {
-        ScenePose previous = _keyframes[index - 1].Pose;
-
-        // **The gap between the two older samples, measured on the clock the interpolation runs
-        // on** (B278). `GetInterpolationInfo` (`interpolatedvar.h:851`) makes the spline conditional
-        // on it:
-        //
-        //     float dt2 = older_change_time - oldest_change_time;
-        //     if ( dt2 > 0.0001f )
-        //         pInfo->m_bHermite = true;
-        //
-        // so a third entry sharing a CHANGETIME with the second gives linear, not a spline.
-        //
-        // **This measured arrivals while everything around it had moved to applied times** — my
-        // own B273, which changed what `span` means and left this behind. Two keyframes can now
-        // carry one applied time, for an entity that did not re-simulate between two packets, and
-        // the arrival gap was positive so the spline ran through a zero-length interval. Measured
-        // on a fixture: 74.22 where the engine gives 77.5.
-        int gap = AppliedAt(index) - AppliedAt(index - 1);
-
-        if (gap <= 0 || span <= 0)
-        {
-            return null;
-        }
-
-        if (Math.Abs(span - gap) <= 0.0001f)
-        {
-            // Already evenly spaced, so the stored sample is the one the spline wants.
-            return previous;
-        }
-
-        ScenePose start = _keyframes[index].Pose;
-        float fraction = 1f - ((float)span / gap);
-
-        return new ScenePose
-        {
-            X = float.Lerp(previous.X, start.X, fraction),
-            Y = float.Lerp(previous.Y, start.Y, fraction),
-            Z = float.Lerp(previous.Z, start.Z, fraction),
-            Scale = float.Lerp(previous.Scale, start.Scale, fraction),
-
-            // **Held at the previous sample rather than blended** (B312). The engine's interpolated
-            // set is exactly what `AddVar` registers, and B277 enumerated it: origin, angles, eye
-            // angles, velocity, view offset, punch, cycle, pose parameters, encoded controllers,
-            // flex weights, viewtarget, lean, shift, IK target, the ragdoll's transform and the
-            // overlay layers. These three are not among them — `BuildTransformations` reads them
-            // straight off `C_TFPlayer` — so blending two values would invent a ramp no recording
-            // contains, which is the same mistake B277 corrected for `m_flModelScale`.
-            HeadScale = previous.HeadScale,
-            TorsoScale = previous.TorsoScale,
-            HandScale = previous.HandScale,
-
-            Sequence = previous.Sequence,
-            Cycle = previous.Sequence == start.Sequence
-                ? LoopingLerp(previous.Cycle, start.Cycle, fraction)
-                : previous.Cycle,
-        };
     }
 
     /// <summary>Hermite through three samples, or linear when there is no third.</summary>
@@ -2138,91 +2323,6 @@ public sealed class ScenePropTrack
     /// no production caller, which is `docs/memory/a-superseded-type-keeps-its-tests.md`. Making
     /// it the one definition gives it a caller and removes the pair that could disagree.
     /// </remarks>
-    /// <summary>The two keyframes whose SIMULATION times bracket a moment, as the engine picks them.</summary>
-    /// <param name="target">The moment being drawn, already an interpolation delay behind.</param>
-    /// <returns>The older and newer keyframe indices, or null when no pair brackets the moment.</returns>
-    /// <remarks>
-    /// **`GetInterpolationInfo` walks the history newest-first and compares CHANGETIMES**
-    /// (<c>interpolatedvar.h:815</c>):
-    ///
-    /// <code>
-    /// for ( int i = 0; i &lt; varHistory.Count(); i++ )
-    /// {
-    ///     pInfo-&gt;older = i;
-    ///     float older_change_time = m_VarHistory[ i ].changetime;
-    ///     if ( targettime &lt; older_change_time ) { pInfo-&gt;newer = pInfo-&gt;older; continue; }
-    ///     …
-    /// }
-    /// </code>
-    ///
-    /// So the pair is guaranteed to BRACKET the target on the interpolation's own clock, whatever
-    /// order the entries arrived in. **This project chose the arrival-adjacent pair and then read its
-    /// changetimes**, which is a different answer whenever the two clocks disagree — and it produced
-    /// the owner's *"kinda jittery and its not a FPS thing"*: two arrival-adjacent keyframes sharing a
-    /// simulation time gave <c>dt == 0</c> and the sampler held the older pose, so the entity stalled
-    /// and then jumped. Measured on `tf2-2026-pub-pov-clean` entity 9: an average drawn step of 0.89
-    /// units carrying single steps of 32.3, and eighteen stalls in three hundred samples.
-    ///
-    /// **Entered from a bounded start rather than from the newest keyframe of the match**, and that is
-    /// faithful rather than a shortcut: the engine's history is pruned to the interpolation window, so
-    /// it never has more than a handful of entries to walk. Ours holds the whole recording, and
-    /// walking it from the end would be O(match) per sample.
-    /// </remarks>
-    private (int Older, int Newer)? Neighbours(double target)
-    {
-        int start = IndexAt((int)Math.Floor(target));
-
-        if (start < 0)
-        {
-            return null;
-        }
-
-
-        // **Climb until this entry's simulation time is PAST the target**, which is where the engine's
-        // newest-first walk begins. A simulation time never exceeds its own arrival tick, so the climb
-        // is bounded by how far a server's clock can lag a packet — a handful of keyframes, and capped
-        // so a pathological track cannot turn a sample into a scan.
-        int limit = start;
-
-        while (limit + 1 < _keyframes.Count &&
-               AppliedAt(limit) <= target &&
-               limit - start < HistoryScan)
-        {
-            limit++;
-        }
-
-        int newer = -1;
-
-        for (int index = limit; index >= 0 && limit - index <= HistoryScan; index--)
-        {
-            if (AppliedAt(index) > target)
-            {
-                newer = index;
-                continue;
-            }
-
-            // **`if ( pInfo->newer == varHistory.InvalidIndex() ) { pInfo->newer = pInfo->older; …
-            // return true; }`** — the target is past every entry, so the engine sets the pair to the
-            // SAME entry and reports that the value holds (`interpolatedvar.h:831`). Returning null
-            // here instead made `At` abandon the whole sample, which threw away the animation clock's
-            // own answer along with the position's: `At_WhenTheTwoClocksDisagree_EachFieldFollowsItsOwn`
-            // caught it, reading a cycle of 0.4 where its own history brackets the moment at 0.096.
-            return (index, newer < 0 ? index : newer);
-        }
-
-        return null;
-    }
-
-    /// <summary>How many keyframes either side of a moment the neighbour walk may look at.</summary>
-    /// <remarks>
-    /// **A bound on the engine's own history depth, not a guess at content.** `CInterpolatedVar`
-    /// prunes entries older than the interpolation window, so its walk is over a few entries; this is
-    /// generous against the eight-tick delay at TF2's rates and still refuses to let one sample scan a
-    /// whole match. A track whose clocks disagree by more than this holds its pose, which is what the
-    /// engine does when its own history cannot bracket the moment.
-    /// </remarks>
-    private const int HistoryScan = 32;
-
     private int IndexAt(int tick)
     {
         if (!Alive(tick))
@@ -2253,88 +2353,91 @@ public sealed class ScenePropTrack
         return low;
     }
 
-    /// <summary>The pair of keyframes the ANIMATION clock puts either side of a moment.</summary>
+    /// <summary>The pair the ANIMATION history puts either side of a moment.</summary>
     /// <param name="target">The moment being drawn.</param>
+    /// <param name="arrivedBy">The tick being played, bounding the reach as <see cref="At(double)"/> does.</param>
+    /// <param name="shape">The state fields, which this fills a cycle and a sequence into.</param>
     /// <param name="from">What the simulation clock chose, used when the animation clock cannot.</param>
     /// <param name="to">Its later neighbour.</param>
     /// <param name="previous">The older sample the spline wants, on the simulation clock.</param>
     /// <param name="fraction">How far between the simulation pair.</param>
     /// <returns>The animation pair, its older sample, and how far between them the moment is.</returns>
     /// <remarks>
+    /// **Its own history, chosen by its own changetimes, which is the second half of B382.** The engine
+    /// keeps one `CInterpolatedVar` per registered variable and `OnLatchInterpolatedVariables` appends to
+    /// each whose latch group fired (<c>c_baseentity.cpp:2814</c>), so the cycle's neighbours are found
+    /// among animation stamps and never among the position's. This walked the shared keyframe list with a
+    /// side-table of animation times — the same divergence the simulation pair had, one clock over, and
+    /// the sibling the structural fix had to reach.
+    ///
     /// **Falls back to the simulation pair rather than to nothing**, in the two cases where the
     /// animation clock has no answer: the moment is before the first animation stamp, or past the
     /// last. Holding the caller's pair there gives the behaviour this had before the second clock
     /// existed, which is the right thing for an entity whose animation is not moving.
     /// </remarks>
     private (ScenePose From, ScenePose To, ScenePose? Previous, float Fraction) AnimationNeighbours(
-        double target, ScenePose from, ScenePose to, ScenePose? previous, float fraction)
+        double target, int arrivedBy, ScenePose shape,
+        ScenePose from, ScenePose to, ScenePose? previous, float fraction)
     {
-        int index = AnimationIndexAt((int)Math.Floor(target));
-
-        if (index < 0 || index + 1 >= _keyframes.Count)
+        if (_animation.Bracket(target, arrivedBy) is not { } pair)
         {
             return (from, to, previous, fraction);
         }
 
-        int fromTick = _animationHeldUntil[index];
-        int toTick = _animationAppliedAt[index + 1];
+        int fromTick = _animation.ChangeTimeAt(pair.Older);
+        int toTick = _animation.ChangeTimeAt(pair.Newer);
 
-        if (toTick <= fromTick)
-        {
-            return (from, to, previous, fraction);
-        }
+        // **A span of zero gives a fraction of zero and the walk CONTINUES, exactly as on the simulation
+        // clock.** `GetInterpolationInfo` guards its division with `if ( dt > 0.0001f )` and returns true
+        // regardless (`interpolatedvar.h:831`), so the cycle HOLDS at the older entry. Handing the
+        // simulation pair back here instead was a real defect, and the test that names it is
+        // `At_WhenTheTwoClocksAgree_TheCycleFollowsThePosition`: it read a cycle of 0 where the entry that
+        // should have been held says 0.4, because the fallback pair carries the arrival keyframe's cycle
+        // rather than the history's.
+        float animationFraction = toTick > fromTick
+            ? (float)Math.Clamp((target - fromTick) / (toTick - fromTick), 0.0, 1.0)
+            : 0f;
 
-        // **The spline's third sample needs a non-zero older interval on THIS clock too** (B278).
-        // `GetInterpolationInfo` splines only when `dt2 = older_change_time - oldest_change_time`
-        // exceeds 0.0001, and for an animation-latched variable those changetimes are animation
-        // times. An entity that animated at one moment across two packets — which is the ordinary
-        // case for anything holding a pose — would otherwise spline through nothing.
-        ScenePose? older =
-            index > 0 && _animationAppliedAt[index] - _animationAppliedAt[index - 1] > 0
-                ? _keyframes[index - 1].Pose
-                : null;
+        // **The spline's third sample needs a non-zero older interval on THIS clock too** (B278), and
+        // `TimeFixup` is what says so — it refuses when `dt2` is empty, exactly as `GetInterpolationInfo`
+        // declines to set `m_bHermite` (`interpolatedvar.h:851`). An entity that animated at one moment
+        // across two packets — the ordinary case for anything holding a pose — therefore blends linearly
+        // rather than splining through nothing.
+        Span<float> oldestCycle = stackalloc float[CycleComponents];
+
+        ScenePose? older = _animation.TimeFixup(pair, oldestCycle)
+            ? Animated(shape, pair.Oldest, oldestCycle[0])
+            : null;
 
         return (
-            _keyframes[index].Pose,
-            _keyframes[index + 1].Pose,
+            Animated(shape, pair.Older, _animation.ValuesAt(pair.Older)[0]),
+            Animated(shape, pair.Newer, _animation.ValuesAt(pair.Newer)[0]),
             older,
-            (float)Math.Clamp((target - fromTick) / (toTick - fromTick), 0.0, 1.0));
+            animationFraction);
     }
 
-    /// <summary>The last keyframe whose ANIMATION applied at or before a tick.</summary>
-    /// <param name="tick">The moment being drawn.</param>
-    /// <returns>Its index, or −1 when the track holds nothing yet.</returns>
+    /// <summary>One end of the cycle blend, as a pose carrying the state fields around it.</summary>
+    /// <param name="shape">The state fields, which are not interpolated and come from arrival.</param>
+    /// <param name="index">Which animation entry, for the sequence it was recorded under.</param>
+    /// <param name="cycle">The cycle, which may be a respaced sample rather than a stored one.</param>
+    /// <returns>The pose the cycle blend reads.</returns>
     /// <remarks>
-    /// **The same search over the same array, on the other clock** (B274). A server stamps
-    /// animation time monotonically, so the keyframes are ordered by it as well as by arrival —
-    /// which is what lets the second history be a second KEY rather than a second list.
+    /// **The sequence comes from the STORED entry, never from a respaced one.** It is not a component the
+    /// engine interpolates — a value between two sequence numbers names an animation neither end was
+    /// playing — so it is read here by index while the cycle is passed in, because the cycle may be the
+    /// synthetic sample <c>TimeFixup_Hermite</c> built and the sequence never is.
+    ///
+    /// **The pose parameters are NOT carried here**, though they share this clock: they are their own
+    /// history and their own width, so putting them on a pose per end would allocate an array per end per
+    /// entity per frame. <see cref="PoseBetween"/> reads them from that history directly.
     /// </remarks>
-    private int AnimationIndexAt(int tick)
-    {
-        if (_animationAppliedAt.Count == 0)
+    private ScenePose Animated(ScenePose shape, int index, float cycle) =>
+        shape with
         {
-            return -1;
-        }
+            Cycle = cycle,
+            Sequence = (int)_animation.ValuesAt(index)[CycleSequence],
+        };
 
-        int low = 0;
-        int high = _animationAppliedAt.Count - 1;
-
-        while (low < high)
-        {
-            int middle = low + ((high - low + 1) / 2);
-
-            if (_animationAppliedAt[middle] <= tick)
-            {
-                low = middle;
-            }
-            else
-            {
-                high = middle - 1;
-            }
-        }
-
-        return low;
-    }
 
     /// <summary>Which pose parameters of this entity's model wrap, by index.</summary>
     /// <remarks>
@@ -2348,37 +2451,163 @@ public sealed class ScenePropTrack
     /// layer cannot open a model, so the scene layer sets it when it resolves one — a frame later
     /// than the entity's first appearance, which is also when the engine's history is empty.
     /// </remarks>
-    public IReadOnlyList<bool> PoseParameterLoops { get; set; } = [];
+    public IReadOnlyList<bool> PoseParameterLoops { get; private set; } = [];
 
-    /// <summary>Interpolates each pose parameter, wrapping the ones the model says wrap.</summary>
+    /// <summary>Tells the track what its model says, which is Valve's <c>OnNewModel</c> (B383).</summary>
+    /// <param name="looping">Whether each of the model's pose parameters wraps, in the model's order.</param>
+    /// <param name="at">The tick the model became known, which stamps a wipe's replacement entries.</param>
+    /// <param name="staticPropModel">
+    /// Whether the model carries <c>STUDIOHDR_FLAGS_STATIC_PROP</c>, which exempts it from the cycle
+    /// history's reset — see <see cref="SequenceRestarted"/>.
+    /// </param>
     /// <remarks>
-    /// **Returns one of the inputs when they agree, rather than allocating a copy.** Interpolation
-    /// runs per sampled entity per frame, and the common case by far is two keyframes carrying the
-    /// same values — a sentry that has not moved, or an entity whose parameters never change. The
-    /// arrays are treated as immutable throughout, which is what makes handing one out safe.
+    /// **Three lines of `C_BaseAnimating::OnNewModel`, in the engine's order** — the resize first, then
+    /// the flags, because the resize WIPES the flags (<c>c_baseanimating.cpp:1124</c>):
     ///
-    /// **A length mismatch takes the earlier keyframe's**, since that is the one the caller would
-    /// have got with no interpolation at all. It happens when an entity's model changes under it,
-    /// and blending a two-parameter model's values into a five-parameter one would pair values by
-    /// position across two unrelated orderings.
+    /// <code>
+    /// m_iv_flPoseParameter.SetMaxCount( hdr->GetNumPoseParameters() );
+    /// for ( i = 0; i &lt; hdr->GetNumPoseParameters() ; i++ )
+    /// {
+    ///     const mstudioposeparamdesc_t &amp;Pose = hdr->pPoseParameter( i );
+    ///     m_iv_flPoseParameter.SetLooping( Pose.loop != 0.0f, i );
+    /// }
+    /// </code>
+    ///
+    /// **The WIDTH is the model's parameter count, and getting that from a constant was measurable.**
+    /// Sizing every track's history at <c>MAXSTUDIOPOSEPARAM</c> put a corpus test host at 11 GB; a
+    /// sentry has two parameters, and most props have none.
+    ///
+    /// **A method rather than a settable property, because the assignment has to do work.** The property
+    /// version could be set without resizing the history, which is how the two came apart in the first
+    /// place.
     /// </remarks>
-    private IReadOnlyList<float> BlendPoses(
-        IReadOnlyList<float> from, IReadOnlyList<float> to, float fraction)
+    public void OnNewModel(IReadOnlyList<bool> looping, int at, bool staticPropModel)
     {
-        if (from.Count == 0 || from.Count != to.Count)
+        ArgumentNullException.ThrowIfNull(looping);
+
+        StaticPropModel = staticPropModel;
+
+        Span<float> stated = stackalloc float[Math.Max(1, looping.Count)];
+
+        for (int index = 0; index < stated.Length; index++)
         {
-            return from;
+            stated[index] = _keyframes.Count > 0 && index < _keyframes[^1].Pose.PoseParameters.Count
+                ? _keyframes[^1].Pose.PoseParameters[index]
+                : 0f;
         }
 
-        if (ReferenceEquals(from, to) || Same(from, to))
+        _poseParameters.SetMaxCount(looping.Count, at, stated);
+
+        PoseParameterLoops = looping;
+
+        for (int index = 0; index < looping.Count; index++)
         {
-            return from;
+            _poseParameters.SetLooping(looping[index], index);
+        }
+    }
+
+    /// <summary>Whether this track's model carries <c>STUDIOHDR_FLAGS_STATIC_PROP</c>.</summary>
+    /// <remarks>
+    /// **It exempts the model from the cycle history's reset, and the reason Valve gives is CPU rather
+    /// than behaviour** (<c>c_baseanimating.cpp:4740</c>): *"It's important not to call Reset() on a
+    /// static prop, because if we call Reset(), then the entity will stay in the interpolated entities
+    /// list forever, wasting CPU."* Reproduced anyway, because the exemption's EFFECT is behavioural
+    /// whatever its motive — a static-prop model keeps its older cycles across a sequence change.
+    /// </remarks>
+    public bool StaticPropModel { get; private set; }
+
+    /// <summary>Restarts the animating histories, as a new sequence does in the engine (B383).</summary>
+    /// <param name="at">The tick the parity change arrived.</param>
+    /// <remarks>
+    /// **`C_BaseAnimating::PostDataUpdate`, and the trigger is a PARITY COUNTER**
+    /// (<c>c_baseanimating.cpp:4738</c>):
+    ///
+    /// <code>
+    /// // reset prev cycle if new sequence
+    /// if (m_nNewSequenceParity != m_nPrevNewSequenceParity)
+    /// {
+    ///     MDLCACHE_CRITICAL_SECTION();
+    ///     CStudioHdr *hdr = GetModelPtr();
+    ///     if ( hdr &amp;&amp; !( hdr->flags() &amp; STUDIOHDR_FLAGS_STATIC_PROP ) )
+    ///         m_iv_flCycle.Reset();
+    /// }
+    /// </code>
+    ///
+    /// **A counter, not a comparison of sequence numbers**, so it fires when the SAME animation is started
+    /// again — `m_nNewSequenceParity = ( m_nNewSequenceParity + 1 ) &amp; EF_PARITY_MASK` in
+    /// `ResetSequenceInfo` (<c>:5574</c>) — and does not fire on a renumber the server did not announce.
+    /// A sequence comparison gets both of those wrong, and that comparison is what this project used.
+    ///
+    /// **Only the CYCLE is reset, not the pose parameters.** The engine names `m_iv_flCycle` alone, and the
+    /// pose parameters keep interpolating across a sequence change.
+    /// </remarks>
+    public void SequenceRestarted(int at)
+    {
+        if (StaticPropModel)
+        {
+            return;
         }
 
-        float[] blended = new float[from.Count];
+        Span<float> stated =
+        [
+            _keyframes.Count > 0 ? _keyframes[^1].Pose.Cycle : 0f,
+            _keyframes.Count > 0 ? _keyframes[^1].Pose.Sequence : 0f,
+        ];
+
+        _animation.Reset(at, stated);
+    }
+
+    /// <summary>Interpolates each pose parameter from its own history, wrapping what the model wraps.</summary>
+    /// <param name="stated">The arrival keyframe's parameters, which set how many the model has.</param>
+    /// <param name="pair">The pose-parameter history's own bracketing indices, or null when it cannot.</param>
+    /// <param name="fraction">How far between them the moment is.</param>
+    /// <returns>The blended parameters, or <paramref name="stated"/> when there is nothing to blend.</returns>
+    /// <remarks>
+    /// **The COUNT comes from the keyframe and the VALUES from the history** (B382). The history's entry
+    /// is <c>MAXSTUDIOPOSEPARAM</c> wide because `m_iv_flPoseParameter` is
+    /// <c>CInterpolatedVarArray&lt; float, MAXSTUDIOPOSEPARAM &gt;</c> and the engine's is too; how many
+    /// of those the model actually declares is a property of the model, and handing back a
+    /// twenty-four-long list for a two-parameter sentry would make every consumer's `Count` a lie.
+    ///
+    /// **Returns the stated list when the two ends agree, rather than allocating a copy.** Interpolation
+    /// runs per sampled entity per frame, and the common case by far is two entries carrying the same
+    /// values — a sentry that has not moved, or an entity whose parameters never change. The arrays are
+    /// treated as immutable throughout, which is what makes handing one out safe.
+    ///
+    /// **Linear, where the engine splines.** `_Interpolate_Hermite` runs over the pose-parameter array
+    /// like any other (<c>interpolatedvar.h:1438</c>); this blends the pair only. Pre-existing, unchanged
+    /// by B382, and named there as not established rather than assumed away.
+    /// </remarks>
+    private IReadOnlyList<float> PoseBetween(
+        IReadOnlyList<float> stated, (int Older, int Newer, int Oldest)? pair, float fraction)
+    {
+        if (stated.Count == 0 || pair is not { } at)
+        {
+            return stated;
+        }
+
+        ReadOnlySpan<float> from = _poseParameters.ValuesAt(at.Older);
+        ReadOnlySpan<float> to = _poseParameters.ValuesAt(at.Newer);
+
+        int count = Math.Min(stated.Count, from.Length);
+
+        if (from[..count].SequenceEqual(to[..count]))
+        {
+            return stated;
+        }
+
+        float[] blended = new float[stated.Count];
 
         for (int index = 0; index < blended.Length; index++)
         {
+            // Past the history's width the model declares a parameter the entry cannot hold, so the
+            // stated value stands rather than a blend of nothing.
+            if (index >= count)
+            {
+                blended[index] = stated[index];
+                continue;
+            }
+
             blended[index] = index < PoseParameterLoops.Count && PoseParameterLoops[index]
                 ? LoopingLerp(from[index], to[index], fraction)
                 : from[index] + ((to[index] - from[index]) * fraction);
@@ -2387,26 +2616,6 @@ public sealed class ScenePropTrack
         return blended;
     }
 
-    /// <summary>Whether two equal-length parameter lists hold the same values.</summary>
-    /// <remarks>
-    /// Compared BIT for bit, which is the question being asked: not "are these two numbers close"
-    /// but "did this entity send anything different between the two keyframes". A tolerance would
-    /// be wrong here — a parameter that moved by a hair still moved, and the answer decides whether
-    /// an allocation is skipped rather than what any value becomes.
-    /// </remarks>
-    private static bool Same(IReadOnlyList<float> from, IReadOnlyList<float> to)
-    {
-        for (int index = 0; index < from.Count; index++)
-        {
-            if (BitConverter.SingleToInt32Bits(from[index])
-                != BitConverter.SingleToInt32Bits(to[index]))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
 
     /// <summary>Interpolates a normalised value that wraps, allowing for it having passed 1.</summary>
     /// <param name="from">The earlier value, 0..1.</param>

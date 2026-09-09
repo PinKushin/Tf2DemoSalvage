@@ -377,9 +377,9 @@ public sealed class MomentPresenterTests
         public int? Recorder { get; init; }
 
         /// <summary>Which entities were told what, so a test can assert the fact travelled.</summary>
-        public List<(int Entity, IReadOnlyList<bool> Looping)> NewModels { get; } = [];
+        public List<(int Entity, IReadOnlyList<bool> Looping, bool StaticProp)> NewModels { get; } = [];
 
-        public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping) =>
-            NewModels.Add((entityIndex, looping));
+        public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping, bool staticProp) =>
+            NewModels.Add((entityIndex, looping, staticProp));
     }
 }

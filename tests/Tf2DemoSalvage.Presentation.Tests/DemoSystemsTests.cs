@@ -248,7 +248,7 @@ public sealed class DemoSystemsTests
 
         // Nothing to tell: this stub has no tracks to teach, and dropping the fact is what a source
         // with no interpolator does.
-        public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping)
+        public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping, bool staticProp)
         {
         }
     }

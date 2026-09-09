@@ -330,7 +330,34 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # sharing one simulation time, and a later arrival carrying an earlier one), one bounds every step
 # across a track carrying both, and the fourth is the clean-track control without which a search that
 # simply reached further back would satisfy the other three and smear every ordinary interpolation.
-run Tf2DemoSalvage.Core.Tests     core     1811
+#
+# 1811 -> 1825 on 2026-09-09: closed DRIFT, not 14 new tests, measured in the same pass as animation's
+# 111 -> 252 below and for the same reason. Nothing was added or removed here. Measured in a clean main
+# worktree, because this tree's own core.trx was red at the time with the conformance tests B382 was
+# about to satisfy.
+#
+# 1825 -> 1827 on 2026-09-09: two for B382, `RestatedPoseSplineConformanceTests` -- swept twice each,
+# once over the hold and once over the close, because a sabotage restoring the entry collapse reddened
+# two OTHER tests and left these green. The rise it looks for lands in the four ticks between the
+# closing update's ARRIVAL and the interpolation delay, which both earlier sweeps stepped over.
+# One existing test changed its claim rather than its count:
+# HermiteWindow_AClosingDoor_DoesNotUndershootPastShut became ..._UndershootsExactlyAsTheEngineDoes,
+# because reading `RemoveEntriesPreviousTo` -- `Truncate(i+3)` keeps two arbitrarily old entries --
+# refuted the premise the old name asserted. D156.
+#
+# **`InterpolationNeighbourConformanceTests` is NOT part of that +2**, and a first version of this note
+# credited it. Those four arrived with B377 in cafd1caa and are inside main's 1825 already. The floor
+# value was right while the arithmetic behind it was wrong, which is the kind of note that survives.
+#
+# 1827 -> 1831 on 2026-09-09: four for B383, the cycle history's RESET on a new sequence. Two are the
+# reset itself and its scrub control -- the engine deletes the older run and we cannot, so the boundary
+# has to answer "discarded" going forward and "still there" going back. One is Valve's
+# STUDIOHDR_FLAGS_STATIC_PROP exemption, whose expected value is a hermite through the surviving samples
+# and was written down as 0.2 before the spline was accounted for; it is 0.2625 and the derivation is in
+# the test. The fourth is the pose-parameter history's WIDTH, which is the model's own count -- the
+# callback used to report only which parameters wrap and returned an empty array when none did, losing
+# the count with it.
+run Tf2DemoSalvage.Core.Tests     core     1831
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -438,7 +465,14 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # whole suite until a trigger stored as its own negation was added. Wiring (3), because the
 # arithmetic passing says nothing about whether a bone ever reaches it — measured DRIVEN 10 on a
 # real demo.
-run Tf2DemoSalvage.Animation.Tests animation 111
+#
+# 111 -> 252 on 2026-09-09: closed DRIFT, not 141 new tests. Nothing was added or removed in this
+# pass -- the floor had been left 141 below the count it guards, and a floor 141 short cannot catch
+# 141 tests vanishing, which is the only thing a floor is for. Re-measured with
+# `TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh` and set to the total the .trx reported. No
+# per-test note here on purpose: these tests were written by whoever raised the suite, and their
+# reasons are not mine to invent.
+run Tf2DemoSalvage.Animation.Tests animation 252
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
@@ -777,7 +811,10 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # (a trigger brush, and nodraw/sky/hint) and the third is the control that matters more: 83
 # func_illusionary and 18 func_door on cp_process_final are brush entities with real textures, so a
 # filter that dropped them would delete most of the map's moving parts. TOOLSBLACK survives on purpose.
-run Tf2DemoSalvage.Scene.Tests    scene     584
+#
+# 584 -> 669 on 2026-09-09: closed DRIFT, not 85 new tests, measured in the same pass as animation's
+# 111 -> 252 above and for the same reason. Nothing was added or removed here.
+run Tf2DemoSalvage.Scene.Tests    scene     669
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1183,7 +1220,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 444
 # controls a reader answering everything would also pass. The last two cover the event list playback
 # will need and the incomplete-walk signal B376 was found with — that one is sensitive only to
 # sabotaging every bounds guard at once, because each guard alone is sufficient.
-run Tf2DemoSalvage.Content.Tests  content   1040
+#
+# 1040 -> 1136 on 2026-09-09: closed DRIFT, not 96 new tests, measured in the same pass as
+# animation's 111 -> 252 above and for the same reason. Nothing was added or removed here.
+run Tf2DemoSalvage.Content.Tests  content   1136
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -1532,7 +1572,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # reading off the front of the list, an unwritten variable being frame zero, and the red component
 # being the value. This is what closed B339's INT divergence: it was inert only because the frame
 # was computed at the bind instead of read from the variable ten shipped materials write directly.
-run Tf2DemoSalvage.Rendering.Tests rendering 754
+#
+# 754 -> 769 on 2026-09-09: closed DRIFT, not 15 new tests, measured in the same pass as animation's
+# 111 -> 252 above and for the same reason. Nothing was added or removed here.
+run Tf2DemoSalvage.Rendering.Tests rendering 769
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

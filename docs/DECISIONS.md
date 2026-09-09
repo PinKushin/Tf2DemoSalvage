@@ -8184,5 +8184,115 @@ derived from the engine and they are the right assertions; they simply go red un
 right, which is the correct order.
 
 **Enforcement**: the owner asked for a hook or skill, so the judgment half is
-`.claude/skills/parity-structural-fix/` — loaded when a filed divergence is being worked on, and it
-refuses the symptom route explicitly.
+`.claude/skills/tf2-parity-structural-fix/` — loaded when a filed divergence is being worked on, and it
+refuses the symptom route explicitly. (The directory needs the `tf2-` prefix; a hook rejects one without
+it, and this line named the unprefixed path for a while.)
+
+## D156 — a guard built on a misread of the engine comes out, even when it prevents an ugly frame (2026-09-09)
+
+**The owner's order for the work, which is what put this question in front of me:**
+
+> *"yea door fix and parity first, then b382, if that itself isnt the door issue, then we can worry about
+> the fps"*
+
+### The guard, and what it was built on
+
+`HermiteWindowTests` and the window it guards were written to stop a door sinking through its own frame
+(B94). Half of that fix was right and stays: a client cannot interpolate toward an update it has not
+RECEIVED, and this reader holds the whole recording, so an arrival bound is genuinely missing and is now
+stored per history entry.
+
+The other half was a span limit — refuse a spline when its samples are far apart — and its stated
+justification was that Valve's pruning keeps the three samples close together. Reading
+`RemoveEntriesPreviousTo` (`interpolatedvar.h:782`) kills that: it keeps `Truncate( i + 3 )`, the first
+stale entry **plus two more**, so those two can be arbitrarily old. `INTERPOLATE_LINEAR_ONLY`, the only
+switch that disables hermite, is set on exactly one variable in the whole client — `m_viewtarget`
+(`c_baseflex.cpp:133`), not the origin.
+
+So the engine's own arithmetic for the test's fixture, worked out before the value was read back:
+`frac = dt1/dt2 = 200`, `Lerp( 1-200, 600, 584 ) = 3784`, `Lerp_Hermite( 0.96, 3784, 584, 584 )` =
+**579.085** — five units below a shut height of 584. **TF2 undershoots there too.**
+
+### The decision
+
+The window is removed and the test now asserts 579.085. This follows the standing decision rather than
+reopening it — *"Valve's way. Always"*, and *"a divergence is a defect, whatever it costs to fix"* — and
+the removed guard was a divergence with a comfortable-sounding rationale, which is the kind that survives
+review.
+
+**It goes both ways, and the second half is the one that shows the mechanism.** A replacement assertion —
+"the drawn height never exceeds the highest height the demo stated" — failed at 117.395 against 111, on a
+door held open after rising at 4.625 units per tick. Also not a defect. `TimeFixup2_Hermite` respaced at
+`frac = 36/4 = 9`, putting the synthetic sample at `Lerp( 1-9, 92.5, 111 ) = -55.5`, whose slope to the
+older sample is `(111 - -55.5)/36 = 4.625` — **the door's real speed.** Respacing PRESERVES the velocity,
+which is its entire purpose, and a curve handed a real velocity and a dead stop overshoots before it
+settles. **TF2's doors are slightly springy**, and flattening that would be a second guard of our own.
+
+**Flagged rather than asked**, because it alters something the owner can see: a door can now dip below
+shut and rise above open in the same frames TF2 would. Two things bound how much that matters, and both
+are recorded in B382 as not established. It needs a restatement long after a door stops with nothing in
+between, and a `func_door` that has stopped also stops simulating — so its updates stop entirely and the
+shape may not occur on a real recording at all. The measurement that settles it is `jitter` on a match
+demo, and it belongs to B370.
+
+**What would reverse this**: the owner deciding he wants the viewer to look better than TF2 here. That is
+his call and it is a different decision from parity — D89 says the target is BETTER than TF2, and this
+would be the first place that meant deliberately not reproducing a Valve artefact. It is not being taken
+unasked.
+
+## D157 — build the engine's BOTTOM layer first; a top-down port retrofits every fact into the wrong object (2026-09-09)
+
+**The owner, on why B382 turned out to be a large refactor rather than a small fix:**
+
+> *"these problems happened because we started top down and not bottom up i think"*
+
+He is right, and B382 is the worked example rather than an isolated case.
+
+### The two shapes
+
+The engine builds interpolation from the bottom: `CInterpolatedVarArrayBase` is a dumb list of entries,
+each a changetime and `m_nMaxCount` floats, and it knows nothing about what the floats mean. `AddVar`
+registers one per networked member with a latch group (`c_baseentity.cpp:875`).
+`OnLatchInterpolatedVariables` appends to every watcher whose group fired (`:2814`). Only above all of
+that does anything ask "what pose should be drawn".
+
+This project started at the top. `ScenePropTrack.At` was written as *"what pose should be drawn"*, over one
+list of whole `ScenePose` records, and every engine fact learned afterwards had to be retrofitted into
+that object:
+
+| the engine's fact | what it became here | what that cost |
+|---|---|---|
+| one history per registered variable | one list, two search KEYS | B274, B382 |
+| the animation latch has its own changetime | a side-table of applied times | B278, B382 |
+| `AddToHead` is unconditional | collapse plus `_heldUntil` to reconstruct the hold | B382, and the door |
+| the history holds only ARRIVED entries | a guard inside `At` | B94, lost again in the rewrite |
+| `oldest` is the entry before `older` | `_keyframes[index - 1]`, the previous DISTINCT pose | the door leaving open early |
+| `TimeFixup_Hermite` | a private method on the track, whose call site a refactor silently dropped | nearly deleted as dead code |
+
+Each row is a fact about a small object expressed as a property of a large one. None of them is wrong on
+its own; together they made a structure that was neither ours nor Valve's, which is what the parity skill
+warns about.
+
+### It infected the tests too, and that is the part worth remembering
+
+Every test written for this area asserted on the drawn pose — the top layer. So when the fix's own
+conformance test needed to detect a missing HISTORY ENTRY, it could not: while a value is held the
+bracketing pair is degenerate and the drawn pose is correct whatever the history contains. Three sweeps in
+a row were written and none could fail for the fault it named. What finally worked was one exact value at
+the single tick where the bottom layer's contents reach the top: 111 at tick 304, against 94.85 collapsed.
+
+**A test at the top of a stack cannot see a defect in the bottom of it unless the two happen to be
+coupled at the moment sampled.** That is the same rule as
+`docs/memory/output-level-assertion-or-it-is-not-done.md`, pointing the other way: an output-level
+assertion is necessary and it is not sufficient.
+
+### What this changes going forward
+
+- **Port the engine's smallest named object first, with its own tests, before anything that consumes it.**
+  `InterpolatedHistory` is that object and it should have existed before `At` did.
+- **When a divergence is filed, ask which layer it belongs to.** B383's cycle reset belongs on the
+  history, not in `InterpolateCycle`; the state-selection divergence under it belongs to "a member
+  assigned on receipt", not to `At`.
+- **`ScenePose` is the remaining top-down object**: one record carrying interpolated values and plain state
+  together, which is why "state at the delayed target" was even expressible. Named here rather than fixed,
+  because splitting it is its own change.

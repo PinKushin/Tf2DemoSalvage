@@ -803,8 +803,8 @@ internal class MainForm : Form, IFrameSteps
         // engine, where `m_iv_flPoseParameter.SetLooping` is called. Read through the property
         // rather than captured, because the source arrives with a demo and this runs before one is
         // open.
-        _models.ModelResolved = (entity, looping) =>
-            _moments.Source?.OnNewModel(entity, looping);
+        _models.ModelResolved = (entity, looping, staticProp) =>
+            _moments.Source?.OnNewModel(entity, looping, staticProp);
         _frames = new FrameReporter(ledger, _models, new StopwatchTime(), _renderLog);
 
         // **Registered here, after every system exists, and this is the only place the list is

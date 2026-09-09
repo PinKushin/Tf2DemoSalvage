@@ -129,6 +129,21 @@ in any public writeup found:
   image data is and the reader computed it, so 288 shipped effects decoded to rainbow noise that kept
   its silhouettes — mips are stored smallest first, so the largest one barely shifts
   ([52](52-a-particle-plays-a-sheet.md)).
+- **A taunt names its own sequence inside a compiled scene** — `SaveToBinaryBuffer`'s top-level event
+  list holds only the events with NO actor (`choreoscene.cpp:3711`), so a walk that reads it finds
+  nothing for every taunt in the game; the gestures are down the actor → channel → event tree.
+  `StartGestureSceneEvent` then resolves the parameter with `LookupSequence`, matching a sequence LABEL
+  and not an activity, and `StopGestureSceneEvent` clears the slot only for a scene containing a LOOP
+  ([53](53-a-taunt-names-its-sequence-in-a-scene.md)).
+- **A variable owns its own interpolation history, and the prune keeps two STALE entries** — the count
+  of histories is the count of `AddVar` registrations, and their changetimes are their latch group's
+  clock, which disagrees with the other group's by over eight ticks on 95.5% of updates carrying both.
+  `RemoveEntriesPreviousTo` keeps `Truncate( i + 3 )`, so a spline's third sample can be seconds old and
+  `TimeFixup2_Hermite` will happily extrapolate it — `Lerp( 1-200, 600, 584 ) = 3784`, putting a closing
+  door at 579.085 against a shut height of 584, **in the engine**. A "hermite window" had been built on
+  the opposite belief and was this project's rule, not Valve's. What the engine really refuses is a
+  sample it has not RECEIVED, which is structural in a live client and therefore invisible as a rule
+  ([54](54-a-variable-owns-its-own-history.md)).
 
 ## Conventions used throughout
 

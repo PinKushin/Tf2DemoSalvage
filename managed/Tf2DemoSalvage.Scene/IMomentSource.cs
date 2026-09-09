@@ -84,7 +84,12 @@ public interface IMomentSource
     /// the long way round — for a sentry crossing due south, 358 degrees backwards over an
     /// interpolation window.
     /// </remarks>
-    public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping);
+    /// <param name="staticProp">
+    /// Whether the model carries <c>STUDIOHDR_FLAGS_STATIC_PROP</c>, which exempts it from the cycle
+    /// history's reset on a new sequence (<c>c_baseanimating.cpp:4740</c>). It travels the same way and
+    /// for the same reason: only the model says it.
+    /// </param>
+    public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping, bool staticProp);
 }
 
 /// <summary>A demo's timeline, as a moment source.</summary>
@@ -200,11 +205,15 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     public int? Recorder => timeline.RecorderEntityIndex;
 
     /// <inheritdoc />
-    public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping)
+    public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping, bool staticProp)
     {
         if (timeline.TrackFor(entityIndex) is { } track)
         {
-            track.PoseParameterLoops = looping;
+            // **`_lastTick` is the engine's `curtime` here**, and a resize seeds its replacement entries
+            // with it: `SetMaxCount` wipes and `Reset()` stamps `gpGlobals->curtime`
+            // (`interpolatedvar.h:749`). A model resolves during a frame, so the frame being drawn is the
+            // moment it happened.
+            track.OnNewModel(looping, (int)Math.Floor(_lastTick), staticProp);
         }
     }
 

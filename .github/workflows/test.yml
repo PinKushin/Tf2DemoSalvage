@@ -165,7 +165,22 @@ jobs:
           # 1593 -> 1598 on 2026-08-30: PlayerConditionConformanceTests (5), the five condition
           # bitfields. Synthetic and file-free.
           # 1598 -> 1600 on 2026-08-30: kRenderNone (B240), two synthetic cases.
-          ./build/assert-test-count.sh '**/core.trx' 1599 Core
+          #
+          # 1599 -> 1831 on 2026-09-09: mostly closed DRIFT. This floor sat 226 below what main
+          # actually ran, which a floor cannot catch because a floor only catches a DROP — and the
+          # reason nobody noticed is the `always()` fix below: both upload-artifact steps were
+          # `if: failure()`, so no GREEN run ever produced the .trx these numbers were meant to be
+          # checked against, and every one of them stayed arithmetic. 1825 is main's measured count;
+          # the last six are B382's two and B383's four, added by the commit above this one.
+          #
+          # **This line is the two-copies defect and it bites SILENTLY.** `build/gate.sh` holds the
+          # same floors, and a change to one is not a change to the other: git merges this line
+          # without a conflict, so a branch that raises gate.sh and forgets this one lands its new
+          # tests against a floor that quietly stays low. Flagged by the session re-measuring the CI
+          # floors, which is also raising the other five here. See
+          # docs/memory/one-place-or-it-drifts.md — the fix is for this workflow to READ the floors
+          # rather than restate them, and until it does, both files move together or neither does.
+          ./build/assert-test-count.sh '**/core.trx' 1831 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them

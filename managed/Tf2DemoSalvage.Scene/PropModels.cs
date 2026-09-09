@@ -1139,6 +1139,13 @@ public static class PropModels
                             // controllers and indexes the skeleton being posed, not an included
                             // animation model's.
                             Controllers = StudioBoneControllers.Read(modelFile),
+
+                            // **`STUDIOHDR_FLAGS_STATIC_PROP`, carried because it exempts the model
+                            // from the cycle history's reset** (B383). `PostDataUpdate` skips
+                            // `m_iv_flCycle.Reset()` for a static-prop model
+                            // (`c_baseanimating.cpp:4740`), so a track cannot decide whether to reset
+                            // without knowing this, and only the model says it.
+                            StaticProp = model.IsStaticProp,
                         }
                         : null,
                     IlluminationOf(modelFile),
@@ -1455,6 +1462,16 @@ public static class PropModels
         IReadOnlyList<StudioPoseParameter> PoseParameters,
         IReadOnlyList<IReadOnlyList<int>> MasterPose)
     {
+        /// <summary>Whether the model was compiled with <c>$staticprop</c>.</summary>
+        /// <remarks>
+        /// **<c>STUDIOHDR_FLAGS_STATIC_PROP</c>, and it decides whether a sequence change resets the
+        /// cycle interpolation** (B383). `C_BaseAnimating::PostDataUpdate` skips `m_iv_flCycle.Reset()`
+        /// for such a model (<c>c_baseanimating.cpp:4740</c>), so the track needs it and only the model
+        /// has it. An init-only property rather than a positional parameter because five test builders
+        /// construct this record and none of them cares.
+        /// </remarks>
+        public bool StaticProp { get; init; }
+
         /// <summary>One sequence's weight list, remapped to this model's bones, read once.</summary>
         /// <remarks>
         /// **Cached because it never changes and is read per layer per entity per frame** (D87).

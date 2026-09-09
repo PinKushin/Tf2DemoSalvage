@@ -160,12 +160,16 @@ public sealed class PoseParameterConformanceTests
     [Test]
     public void At_ALoopingPoseParameterAcrossTheWrap_TakesTheShortWay()
     {
-        ScenePropTrack track = new(entityIndex: 3, "models/buildables/sentry3.mdl")
-        {
-            // aim_pitch does not loop; aim_yaw does. Both stated, because a fixture that flagged
-            // everything could not tell "used the model's answer" from "wrapped unconditionally".
-            PoseParameterLoops = [false, true],
-        };
+        ScenePropTrack track = new(entityIndex: 3, "models/buildables/sentry3.mdl");
+
+        // aim_pitch does not loop; aim_yaw does. Both stated, because a fixture that flagged everything
+        // could not tell "used the model's answer" from "wrapped unconditionally".
+        //
+        // **Through `OnNewModel` rather than by assigning the table** (B383). The engine's `SetMaxCount`
+        // and `SetLooping` are one call site and the resize WIPES the flags
+        // (`interpolatedvar.h:1272`), so setting the table alone would leave the history one component
+        // wide and silently drop the second parameter.
+        track.OnNewModel([false, true], at: 0, staticPropModel: false);
 
         track.Add(0, new ScenePose { PoseParameters = [0.5f, 0.997f] });
         track.Add(10, new ScenePose { PoseParameters = [0.5f, 0.003f] });

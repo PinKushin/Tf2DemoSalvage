@@ -1225,7 +1225,8 @@ public sealed class EntityModelSet : IModelBodygroups
         // fired from the one place that knows an entity's model has just been resolved. Only the
         // model says which parameters wrap, and the interpolation that needs to know runs a layer
         // below models — so it is told rather than left to look.
-        ModelResolved?.Invoke(prop.EntityIndex, LoopingPoseParameters(skinned));
+        ModelResolved?.Invoke(
+            prop.EntityIndex, LoopingPoseParameters(skinned), skinned.StaticProp);
 
         return animating;
     }
@@ -2945,35 +2946,44 @@ public sealed class EntityModelSet : IModelBodygroups
         }
     }
 
-    /// <summary>Told when an entity's model is resolved, with which pose parameters wrap.</summary>
+    /// <summary>Told when an entity's model is resolved, with the facts the interpolator needs.</summary>
     /// <remarks>
     /// **A callback rather than a call, because this layer must not know what is listening.** The
     /// only consumer is the interpolator, which lives under the scene rather than beside it; the
     /// window wires the two together where it already registers every other system.
+    ///
+    /// **Entity, then which parameters wrap, then whether the model is a static prop** — the three things
+    /// `C_BaseAnimating::OnNewModel` and `PostDataUpdate` need from the studio header and cannot get
+    /// anywhere else (<c>c_baseanimating.cpp:1124</c>, <c>:4740</c>).
     /// </remarks>
-    public Action<int, IReadOnlyList<bool>>? ModelResolved { get; set; }
+    public Action<int, IReadOnlyList<bool>, bool>? ModelResolved { get; set; }
 
-    /// <summary>Which of a model's pose parameters wrap, or empty when none do.</summary>
+    /// <summary>Which of a model's pose parameters wrap, one entry per parameter it declares.</summary>
     /// <remarks>
-    /// **Empty is the common answer and is cheaper than an array of false.** Of a sentry gun's two
-    /// parameters only <c>aim_yaw</c> loops, and most models have none at all — the caller reads a
-    /// missing index as "does not wrap", which is what <c>SetLooping(false)</c> leaves it at.
+    /// **Its LENGTH is the model's parameter count and is load-bearing** (B383) — it is what sizes the
+    /// interpolation history, because `SetMaxCount( hdr->GetNumPoseParameters() )` precedes the
+    /// per-parameter `SetLooping` in the engine. Of a sentry gun's two parameters only <c>aim_yaw</c>
+    /// loops, so an all-false array is the common case and must still be two long.
     /// </remarks>
     private static bool[] LoopingPoseParameters(PropModels.SkinnedModel model)
     {
         IReadOnlyList<StudioPoseParameter> parameters = model.PoseParameters;
-        bool[]? looping = null;
+
+        // **Always the model's parameter COUNT, even when none of them loops** (B383). This returned an
+        // empty array in that case — an allocation saved, and the count destroyed with it. The count is
+        // what sizes the interpolation history: `m_iv_flPoseParameter.SetMaxCount(
+        // hdr->GetNumPoseParameters() )` comes BEFORE the per-parameter `SetLooping`
+        // (`c_baseanimating.cpp:1124`), and they are two calls in the engine because they are two facts.
+        // Collapsing them into one `bool[]` and then eliding the all-false case reported every ordinary
+        // model as having no parameters at all.
+        bool[] looping = new bool[parameters.Count];
 
         for (int index = 0; index < parameters.Count; index++)
         {
-            if (parameters[index].Loop != 0f)
-            {
-                looping ??= new bool[parameters.Count];
-                looping[index] = true;
-            }
+            looping[index] = parameters[index].Loop != 0f;
         }
 
-        return looping ?? [];
+        return looping;
     }
 
     /// <summary>Where a prop stands, as a row-major 3×4, reusing the array it had last frame.</summary>
