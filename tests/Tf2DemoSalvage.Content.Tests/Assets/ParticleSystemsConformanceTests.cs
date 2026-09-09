@@ -80,7 +80,8 @@ public sealed class ParticleSystemsConformanceTests
 
         ParticleStore store = new();
 
-        int index = ParticleSystems.Spawn(system, store, Vector3.Zero, lives: 1f);
+        int index = ParticleSystems.Spawn(
+            system, store, ParticleControlPoint.Unoriented(Vector3.Zero), lives: 1f, seconds: 1f / 66f);
 
         index.ShouldBe(0);
         store.RadiusOf(0).ShouldBe(10f);
@@ -101,11 +102,11 @@ public sealed class ParticleSystemsConformanceTests
 
         ParticleStore store = new();
 
-        ParticleSystems.Spawn(system, store, Vector3.Zero, lives: 1f).ShouldBe(0);
-        ParticleSystems.Spawn(system, store, Vector3.Zero, lives: 1f).ShouldBe(1);
+        Spawn(system, store).ShouldBe(0);
+        Spawn(system, store).ShouldBe(1);
 
         // The third is refused, and the store is unchanged by the refusal.
-        ParticleSystems.Spawn(system, store, Vector3.Zero, lives: 1f).ShouldBe(-1);
+        Spawn(system, store).ShouldBe(-1);
         store.Count.ShouldBe(2);
     }
 
@@ -222,4 +223,9 @@ public sealed class ParticleSystemsConformanceTests
 
         return [.. file];
     }
+
+    /// <summary>A spawn at the origin, for the tests that are about the CAP rather than placement.</summary>
+    private static int Spawn(ParticleSystem system, ParticleStore store) =>
+        ParticleSystems.Spawn(
+            system, store, ParticleControlPoint.Unoriented(Vector3.Zero), lives: 1f, seconds: 1f / 66f);
 }

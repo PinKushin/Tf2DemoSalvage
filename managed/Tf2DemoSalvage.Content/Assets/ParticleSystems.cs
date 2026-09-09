@@ -139,8 +139,13 @@ public static class ParticleSystems
     /// <summary>Births one particle with the defaults its DEFINITION declares.</summary>
     /// <param name="system">The definition, which carries the spawn values.</param>
     /// <param name="into">The store to add to.</param>
-    /// <param name="at">Where the particle is born.</param>
-    /// <param name="lives">How long it lives, in seconds.</param>
+    /// <param name="point">Where the system is attached, and which way it faces.</param>
+    /// <param name="lives">How long it lives when no initializer says otherwise, in seconds.</param>
+    /// <param name="seconds">
+    /// How long this step is, which an initializer that gives a particle SPEED needs: Verlet stores
+    /// no velocity, so a speed is written as how far behind the particle its previous position is
+    /// put. The engine's own initializers read the collection's step for the same reason.
+    /// </param>
     /// <returns>Its index, or -1 when the system is already at <c>max_particles</c>.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -158,7 +163,12 @@ public static class ParticleSystems
     /// a system at its cap emits nothing rather than growing. Returning -1 says so; silently adding
     /// would make a trail denser than the effect asks for.
     /// </remarks>
-    public static int Spawn(ParticleSystem system, ParticleStore into, Vector3 at, float lives)
+    public static int Spawn(
+        ParticleSystem system,
+        ParticleStore into,
+        ParticleControlPoint point,
+        float lives,
+        float seconds)
     {
         ArgumentNullException.ThrowIfNull(system);
         ArgumentNullException.ThrowIfNull(into);
@@ -170,7 +180,7 @@ public static class ParticleSystems
             return -1;
         }
 
-        int index = into.Add(at, lives);
+        int index = into.Add(point.At, lives);
 
         into.Resize(index, (float)Number(system, "radius", 1d));
 
@@ -250,12 +260,109 @@ public static class ParticleSystems
 
                     break;
 
+                // **A puff is born somewhere in a ball, moving**, and a trail whose particles all
+                // start at one point is a line rather than a plume. `rockettrail` asks for a
+                // 1.2-unit sphere, one unit per second outward, and ten units per second down the
+                // control point's LOCAL Z — which is why the point carries a basis
+                // (<see cref="ParticleControlPoint"/>).
+                case "Position Within Sphere Random":
+                    Place(one, into, index, point, seconds);
+                    break;
+
+                // **`Rotation Random` is what stops a trail looking like a grid.** `rockettrail`
+                // gives every puff `rotation_initial -45` plus 0..45 degrees, so no two cards line
+                // up. Stored in RADIANS, because that is what the renderer's basis rotation takes
+                // and the conversion belongs where the file's own unit is known.
+                case "Rotation Random":
+                    float initial = (float)one.Number("rotation_initial", 0d);
+                    float turnedLeast = (float)one.Number("rotation_offset_min", 0d);
+
+                    into.Rotation[index] = float.DegreesToRadians(
+                        initial + ParticleRandom.Between(
+                            into.Id[index],
+                            RotationDraw,
+                            turnedLeast,
+                            (float)one.Number("rotation_offset_max", turnedLeast)));
+
+                    break;
+
                 default:
                     break;
             }
         }
 
         return index;
+    }
+
+    /// <summary>Places and launches one particle — <c>Position Within Sphere Random</c>.</summary>
+    /// <remarks>
+    /// **The distribution is Valve's**, `RandomVectorInUnitSphere` (`mathlib_base.cpp:4203`) via
+    /// <see cref="ParticleRandom.InUnitSphere"/>, cube root and all.
+    ///
+    /// **Velocity is expressed by moving PREV_XYZ backwards**, because Verlet stores no velocity —
+    /// `MovementBasic` carries `position - previous` forward as this step's displacement, so a
+    /// particle's speed at birth IS how far behind it its previous position is put. That is the
+    /// only way to say "moving" in a scheme that records where things WERE
+    /// (`particles.h:68`, *"prev coordinates for verlet integration"*).
+    ///
+    /// **Two speeds are added, and they are in different frames.** `speed_min`/`speed_max` are
+    /// along the outward direction the sphere sample gave; `speed_in_local_coordinate_system` is in
+    /// the control point's own basis. `rockettrail` uses `(0 0 -10)`, ten units per second down the
+    /// rocket's local Z, which reads as the trail being pushed away from the projectile.
+    ///
+    /// *Interpolated:* that `distance_min` and `distance_max` bound the sample's RADIUS rather than
+    /// replacing it — the initializers ship only in the binary. With `distance_min = 0`, which is
+    /// what `rockettrail` declares, the two readings are identical, so this cannot be wrong on the
+    /// effect it was written for. `distance_bias` is applied per axis to the direction, and is
+    /// `(1 1 1)` here.
+    /// </remarks>
+    private static void Place(
+        ParticleFunction one,
+        ParticleStore into,
+        int index,
+        ParticleControlPoint point,
+        float seconds)
+    {
+        (Vector3 sample, float radius) = ParticleRandom.InUnitSphere(into.Id[index], PositionDraw);
+
+        Vector4 bias = one.Vector("distance_bias", new Vector4(1f, 1f, 1f, 0f));
+
+        Vector3 direction = new(sample.X * bias.X, sample.Y * bias.Y, sample.Z * bias.Z);
+
+        // A sample can land on the centre, where there is no direction to speak of.
+        Vector3 outward = direction.LengthSquared() > 0f
+            ? Vector3.Normalize(direction)
+            : Vector3.UnitZ;
+
+        float least = (float)one.Number("distance_min", 0d);
+        float most = (float)one.Number("distance_max", least);
+
+        into.Position[index] = point.At + (outward * (least + (radius * (most - least))));
+
+        float speedLeast = (float)one.Number("speed_min", 0d);
+
+        float speed = ParticleRandom.Between(
+            into.Id[index],
+            SpeedDraw,
+            speedLeast,
+            (float)one.Number("speed_max", speedLeast));
+
+        Vector4 localLeast = one.Vector("speed_in_local_coordinate_system_min", default);
+        Vector4 localMost = one.Vector("speed_in_local_coordinate_system_max", localLeast);
+
+        float along = ParticleRandom.Sample(into.Id[index], LocalSpeedDraw);
+
+        Vector3 local = new(
+            localLeast.X + ((localMost.X - localLeast.X) * along),
+            localLeast.Y + ((localMost.Y - localLeast.Y) * along),
+            localLeast.Z + ((localMost.Z - localLeast.Z) * along));
+
+        Vector3 velocity = (outward * speed)
+            + (point.Forward * local.X)
+            + (point.Right * local.Y)
+            + (point.Up * local.Z);
+
+        into.Previous[index] = into.Position[index] - (velocity * seconds);
     }
 
     /// <summary>
@@ -272,6 +379,21 @@ public static class ParticleSystems
 
     /// <summary>Which table entry <c>Alpha Random</c> reads.</summary>
     public const int AlphaDraw = 3072;
+
+    /// <summary>Which table entry <c>Rotation Random</c> reads.</summary>
+    public const int RotationDraw = 512;
+
+    /// <summary>
+    /// Where the sphere sample starts — it takes THIS entry and the two after it, per
+    /// <c>RandomVector</c>'s own convention, so nothing else may claim 1537 or 1538.
+    /// </summary>
+    public const int PositionDraw = 1536;
+
+    /// <summary>Which table entry the outward speed reads.</summary>
+    public const int SpeedDraw = 2560;
+
+    /// <summary>Which table entry the local-frame speed reads.</summary>
+    public const int LocalSpeedDraw = 3584;
 
     /// <summary>A number the definition declares, or a default when it does not.</summary>
     private static double Number(ParticleSystem system, string named, double otherwise) =>

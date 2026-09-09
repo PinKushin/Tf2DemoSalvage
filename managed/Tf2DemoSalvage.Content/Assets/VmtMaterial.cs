@@ -293,6 +293,37 @@ public sealed class VmtMaterial
         SecondTexture is { Length: > 0 };
 
     /// <summary>The material's second texture, without extension, or null.</summary>
+    /// <summary>How a <c>SpriteCard</c> blends — <c>spritecard.cpp:255-270</c>.</summary>
+    /// <remarks>
+    /// **The branch order is the engine's**: `$addself` and `$addoverblend` are tested before
+    /// `$additive`, so a material setting both takes the first. `$additive2ndtexture` joins them in
+    /// the engine and is not read here because no shipped material sets it — measured as 0 of 697
+    /// with `particles materials`, which is the same shape as `$modblend`
+    /// (`docs/findings/12-shader-parity.md`).
+    /// </remarks>
+    public SpriteBlend SpriteBlending
+    {
+        get
+        {
+            if (Truthy("$addself") || Truthy("$addoverblend"))
+            {
+                return SpriteBlend.AddOver;
+            }
+
+            return Truthy("$additive") ? SpriteBlend.Additive : SpriteBlend.Translucent;
+        }
+    }
+
+    /// <summary>Whether a key is present and not zero.</summary>
+    /// <remarks>
+    /// **Absent and "0" are the same answer** and both mean off, but they arrive differently: a flag
+    /// left out is absent, and one explicitly disabled is the string "0". Treating presence alone as
+    /// on makes `$additive 0` additive.
+    /// </remarks>
+    private bool Truthy(string key) =>
+        Value(key) is { Length: > 0 } text &&
+        !text.Trim().Equals("0", System.StringComparison.Ordinal);
+
     public string? SecondTexture => Value("$texture2");
 
     /// <summary>Whether a modulating material doubles its result.</summary>

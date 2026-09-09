@@ -3723,8 +3723,28 @@ internal class MainForm : Form, IFrameSteps
                 if (string.Equals(
                     prop.ClassName, ParticleEffects.RocketClass, StringComparison.Ordinal))
                 {
-                    _projectilesNow.Add(
-                        (prop.EntityIndex, new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z)));
+                    // **The rocket's own frame, not just its position.** `CreateTrails` attaches
+                    // with `PATTACH_POINT_FOLLOW`, so the control point carries the projectile's
+                    // orientation — and `rockettrail` pushes its particles ten units per second
+                    // down that point's LOCAL Z. Passing a bare position would blow every trail in
+                    // the game the same way regardless of where its rocket pointed.
+                    // Forward takes no roll, because rolling about the forward axis cannot move it.
+                    (float fx, float fy, float fz) = AngleVectors.Forward(
+                        prop.Pose.Pitch, prop.Pose.Yaw);
+
+                    (float px, float py, float pz) = AngleVectors.Right(
+                        prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll);
+
+                    (float qx, float qy, float qz) = AngleVectors.Up(
+                        prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll);
+
+                    _projectilesNow.Add((
+                        prop.EntityIndex,
+                        new ParticleControlPoint(
+                            new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
+                            new Vector3(fx, fy, fz),
+                            new Vector3(px, py, pz),
+                            new Vector3(qx, qy, qz))));
                 }
             }
 
@@ -3743,7 +3763,10 @@ internal class MainForm : Form, IFrameSteps
                 _loaded?.Assets?.ParticleSequences ?? []);
         }
 
-        _device.SetParticles(_particleQuads, _loaded?.Assets?.ParticleSheet);
+        _device.SetParticles(
+            _particleQuads,
+            _loaded?.Assets?.ParticleSheet,
+            _loaded?.Assets?.ParticleBlend ?? SpriteBlend.Translucent);
     }
 
     /// <summary>The effects running for this demo.</summary>
@@ -3753,7 +3776,7 @@ internal class MainForm : Form, IFrameSteps
     private readonly List<DetailSpriteVertex> _particleQuads = [];
 
     /// <summary>This tick's projectiles, reused for the same reason.</summary>
-    private readonly List<(int Entity, Vector3 At)> _projectilesNow = [];
+    private readonly List<(int Entity, ParticleControlPoint At)> _projectilesNow = [];
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
     // its eight timestamp parameters became a `FramePhases` record — the same correction

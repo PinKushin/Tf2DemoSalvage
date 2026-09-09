@@ -7,6 +7,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 
 using Silk.NET.Core.Native;
@@ -1635,6 +1636,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Hands this frame's particle quads and their material to the device (B373).</summary>
     /// <param name="corners">Six per particle, already camera-facing — see <c>ParticleSprites</c>.</param>
     /// <param name="sheet">The material the particle system declares, or null to draw none.</param>
+    /// <param name="blend">
+    /// How that material blends, from its own `$additive`/`$addself`/`$addoverblend` — 304 of TF2's
+    /// 697 `SpriteCard` materials are additive, so this is not a default worth hardcoding.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="corners"/> is null.</exception>
     /// <remarks>
     /// **A SECOND `DetailSpriteRenderer` rather than sharing the grass one**, because the two carry
@@ -1650,7 +1655,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// stale-pairing fault `SetDetailProps` documents for the grass: a rocket that has exploded must
     /// take its trail with it.
     /// </remarks>
-    public void SetParticles(IReadOnlyList<DetailSpriteVertex> corners, MapTexture? sheet)
+    public void SetParticles(
+        IReadOnlyList<DetailSpriteVertex> corners, MapTexture? sheet, SpriteBlend blend)
     {
         ArgumentNullException.ThrowIfNull(corners);
 
@@ -1675,6 +1681,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         }
 
         _particleSprites.SetSheet(_particleSheet);
+        _particleSprites.SetBlend(blend);
         _particleSprites.Upload(_device, _context, corners);
     }
 

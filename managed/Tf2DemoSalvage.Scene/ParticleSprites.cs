@@ -87,8 +87,19 @@ public static class ParticleSprites
             }
 
             Vector3 centre = particles.PositionOf(index);
-            Vector3 across = right * radius;
-            Vector3 above = up * radius;
+
+            // **`ROTATION` spins the CARD about the view axis**, which is what the engine does with
+            // it: `spritecard.cpp:271` passes rotation in texcoord 2 beside the frame blend and the
+            // vertex shader turns the quad. This pass builds corners on the CPU, so the basis is
+            // rotated here instead and the result is identical.
+            //
+            // **Without it a trail is a visible grid.** `rockettrail` gives every puff
+            // `rotation_initial -45` plus 0..45 degrees precisely so that no two cards line up; drawn
+            // axis-aligned, the same five tiles repeat in lockstep across the whole plume.
+            (float sine, float cosine) = MathF.SinCos(particles.RotationOf(index));
+
+            Vector3 across = ((right * cosine) + (up * sine)) * radius;
+            Vector3 above = ((up * cosine) - (right * sine)) * radius;
 
             float alpha = particles.AlphaOf(index);
 

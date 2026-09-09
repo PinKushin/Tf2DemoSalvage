@@ -64,7 +64,7 @@ public sealed class ParticleEffects
     /// when it scrubs.
     /// </remarks>
     public void Update(
-        IReadOnlyList<(int Entity, Vector3 At)> projectiles,
+        IReadOnlyList<(int Entity, ParticleControlPoint At)> projectiles,
         ParticleSystem? definition,
         float seconds)
     {
@@ -77,7 +77,7 @@ public sealed class ParticleEffects
 
         _alive.Clear();
 
-        foreach ((int entity, Vector3 at) in projectiles)
+        foreach ((int entity, ParticleControlPoint at) in projectiles)
         {
             _alive.Add(entity);
 

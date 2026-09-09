@@ -230,6 +230,11 @@ public sealed class ParticleStore
     /// <returns>Its sequence number.</returns>
     public int SequenceOf(int index) => Sequence[index];
 
+    /// <summary>How far one particle's card is turned, in radians.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <returns>Its rotation.</returns>
+    public float RotationOf(int index) => Rotation[index];
+
     /// <summary>A particle's own id, which no later particle reuses.</summary>
     /// <param name="index">Which slot it is in.</param>
     /// <returns>Its id.</returns>

@@ -19,8 +19,8 @@ public sealed class ParticleEffectsTests
         // than staying where the rocket was when it spawned.
         ParticleEffects effects = new();
 
-        effects.Update([(7, new Vector3(0f, 0f, 0f))], Trail(), 1f / 66f);
-        effects.Update([(7, new Vector3(100f, 0f, 0f))], Trail(), 1f / 66f);
+        effects.Update([(7, At(0f))], Trail(), 1f / 66f);
+        effects.Update([(7, At(100f))], Trail(), 1f / 66f);
 
         effects.Count.ShouldBe(1);
 
@@ -55,7 +55,7 @@ public sealed class ParticleEffectsTests
 
         for (int tick = 0; tick < 5; tick++)
         {
-            effects.Update([(7, new Vector3(tick * 10f, 0f, 0f))], Trail(), 1f / 66f);
+            effects.Update([(7, At(tick * 10f))], Trail(), 1f / 66f);
         }
 
         int laid = Count(effects);
@@ -76,7 +76,7 @@ public sealed class ParticleEffectsTests
         // accumulate empty effects for the whole recording.
         ParticleEffects effects = new();
 
-        effects.Update([(7, Vector3.Zero)], Trail(), 1f / 66f);
+        effects.Update([(7, At(0f))],Trail(), 1f / 66f);
         effects.Count.ShouldBe(1);
 
         // Well past the one-second lifetime the fixture declares.
@@ -95,7 +95,7 @@ public sealed class ParticleEffectsTests
         // CI run. That must cost the trail and nothing else.
         ParticleEffects effects = new();
 
-        effects.Update([(7, Vector3.Zero)], null, 1f / 66f);
+        effects.Update([(7, At(0f))],null, 1f / 66f);
 
         effects.Count.ShouldBe(0);
     }
@@ -111,6 +111,14 @@ public sealed class ParticleEffectsTests
     }
 
     /// <summary>A system emitting steadily, with a one-second life.</summary>
+    /// <summary>A rocket somewhere along the x axis, facing along it.</summary>
+    /// <remarks>
+    /// **Oriented rather than <c>Unoriented</c>**, because these tests are about a trail FOLLOWING
+    /// a rocket and a control point with no facing is a different subject.
+    /// </remarks>
+    private static ParticleControlPoint At(float x) =>
+        new(new Vector3(x, 0f, 0f), Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+
     private static ParticleSystem Trail()
     {
         Dictionary<string, DmxValue> none = new(StringComparer.Ordinal);

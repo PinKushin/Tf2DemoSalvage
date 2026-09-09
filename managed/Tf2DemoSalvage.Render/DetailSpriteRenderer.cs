@@ -6,6 +6,8 @@ using Silk.NET.Core.Native;
 using Silk.NET.Direct3D.Compilers;
 using Silk.NET.Direct3D11;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Render;
 
 /// <summary>
@@ -99,6 +101,11 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
     private ComPtr<ID3D11Buffer> _camera;
     private ComPtr<ID3D11SamplerState> _sampler;
     private ComPtr<ID3D11BlendState> _blend;
+    private ComPtr<ID3D11BlendState> _additiveBlend;
+    private ComPtr<ID3D11BlendState> _addOverBlend;
+
+    /// <summary>Which of the three blends this pass draws with.</summary>
+    private SpriteBlend _mode = SpriteBlend.Translucent;
     private ComPtr<ID3D11DepthStencilState> _testNoWrite;
     private ComPtr<ID3D11RasterizerState> _noCull;
 
@@ -109,6 +116,27 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
 
     /// <summary>How many corners the last upload put in it.</summary>
     private int _corners;
+
+    /// <summary>One blend state, since the three differ only in two fields.</summary>
+    private static ComPtr<ID3D11BlendState> MakeBlend(
+        ComPtr<ID3D11Device> device, Blend source, Blend destination)
+    {
+        BlendDesc description = default;
+
+        description.RenderTarget[0].BlendEnable = 1;
+        description.RenderTarget[0].SrcBlend = source;
+        description.RenderTarget[0].DestBlend = destination;
+        description.RenderTarget[0].BlendOp = BlendOp.Add;
+        description.RenderTarget[0].SrcBlendAlpha = Blend.One;
+        description.RenderTarget[0].DestBlendAlpha = Blend.InvSrcAlpha;
+        description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
+        description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+
+        ComPtr<ID3D11BlendState> blend = default;
+        SilkMarshal.ThrowHResult(device.CreateBlendState(in description, ref blend));
+
+        return blend;
+    }
 
     private DetailSpriteRenderer(
         ComPtr<ID3D11VertexShader> vertexShader,
@@ -216,6 +244,31 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
     /// (<c>detailobjectsystem.cpp:44</c>). The dictionary's entries are sub-rectangles of it.
     /// </remarks>
     public void SetSheet(ComPtr<ID3D11ShaderResourceView> sheet) => _sheet = sheet;
+
+    /// <summary>Which blend this pass draws with — the material's, not a fixed one.</summary>
+    /// <param name="mode">The blend the material selects.</param>
+    /// <remarks>
+    /// **Read from published source**, `spritecard.cpp:255-270`, and it is a three-way choice rather
+    /// than a flag:
+    ///
+    /// <code>
+    /// if ( bAdditive2ndTexture || bAddOverBlend || bAddSelf )
+    ///     EnableAlphaBlending( SHADER_BLEND_ONE, SHADER_BLEND_ONE_MINUS_SRC_ALPHA );
+    /// else if ( IS_FLAG_SET(MATERIAL_VAR_ADDITIVE) )
+    ///     EnableAlphaBlending( SHADER_BLEND_SRC_ALPHA, SHADER_BLEND_ONE );
+    /// else
+    ///     EnableAlphaBlending( SHADER_BLEND_SRC_ALPHA, SHADER_BLEND_ONE_MINUS_SRC_ALPHA );
+    /// </code>
+    ///
+    /// **It is not a rare case: 304 of TF2's 697 `SpriteCard` materials set `$additive`**, measured
+    /// with `particles materials`. Drawing all of them translucent makes every spark, glow and muzzle
+    /// flash in the game darker than the engine draws it and lets them occlude what is behind them
+    /// instead of adding to it.
+    ///
+    /// **A detail sprite never calls this and keeps the translucent default**, which is what
+    /// `detailsprites` is: the pass is shared, the material's choice is not.
+    /// </remarks>
+    public void SetBlend(SpriteBlend mode) => _mode = mode;
 
     /// <summary>Whether there is anything to draw.</summary>
     public bool HasSprites => _sheet.Handle is not null && _corners > 0;
@@ -333,7 +386,15 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetSamplers(0, 1, ref _sampler);
         context.PSSetShaderResources(0, 1, ref _sheet);
-        context.OMSetBlendState(_blend, factor, 0xFFFFFFFF);
+        context.OMSetBlendState(
+            _mode switch
+            {
+                SpriteBlend.Additive => _additiveBlend,
+                SpriteBlend.AddOver => _addOverBlend,
+                _ => _blend,
+            },
+            factor,
+            0xFFFFFFFF);
         context.OMSetDepthStencilState(_testNoWrite, 0);
         context.RSSetState(_noCull);
 
@@ -359,6 +420,8 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         _camera.Dispose();
         _sampler.Dispose();
         _blend.Dispose();
+        _additiveBlend.Dispose();
+        _addOverBlend.Dispose();
         _testNoWrite.Dispose();
         _noCull.Dispose();
         _layout.Dispose();
@@ -436,21 +499,17 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
 
         if (_blend.Handle is null)
         {
-            BlendDesc description = default;
+            _blend = MakeBlend(device, Blend.SrcAlpha, Blend.InvSrcAlpha);
+        }
 
-            description.RenderTarget[0].BlendEnable = 1;
-            description.RenderTarget[0].SrcBlend = Blend.SrcAlpha;
-            description.RenderTarget[0].DestBlend = Blend.InvSrcAlpha;
-            description.RenderTarget[0].BlendOp = BlendOp.Add;
-            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
-            description.RenderTarget[0].DestBlendAlpha = Blend.InvSrcAlpha;
-            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
-            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+        if (_additiveBlend.Handle is null)
+        {
+            _additiveBlend = MakeBlend(device, Blend.SrcAlpha, Blend.One);
+        }
 
-            ComPtr<ID3D11BlendState> blend = default;
-            SilkMarshal.ThrowHResult(device.CreateBlendState(in description, ref blend));
-
-            _blend = blend;
+        if (_addOverBlend.Handle is null)
+        {
+            _addOverBlend = MakeBlend(device, Blend.One, Blend.InvSrcAlpha);
         }
 
         if (_testNoWrite.Handle is null)

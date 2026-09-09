@@ -25,7 +25,7 @@ public sealed class ParticleEffectConformanceTests
 
         for (int step = 0; step < 10; step++)
         {
-            effect.Step(Vector3.Zero, seconds: 1f / 66f);
+            effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), seconds: 1f / 66f);
         }
 
         // 99 per second over 10/66 of a second = 15.
@@ -41,7 +41,7 @@ public sealed class ParticleEffectConformanceTests
 
         for (int step = 0; step < 30; step++)
         {
-            effect.Step(Vector3.Zero, seconds: 1f / 66f);
+            effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), seconds: 1f / 66f);
         }
 
         effect.Particles.Count.ShouldBeGreaterThan(0);
@@ -56,7 +56,7 @@ public sealed class ParticleEffectConformanceTests
 
         for (int step = 0; step < 200; step++)
         {
-            effect.Step(Vector3.Zero, seconds: 1f / 66f);
+            effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), seconds: 1f / 66f);
         }
 
         // A lifetime of 1 second at 66 a second settles near 66, and certainly not near 200.
@@ -77,7 +77,7 @@ public sealed class ParticleEffectConformanceTests
 
         for (int step = 0; step < 20; step++)
         {
-            effect.Step(Vector3.Zero, seconds: 1f / 66f);
+            effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), seconds: 1f / 66f);
         }
 
         effect.Particles.Count.ShouldBe(5);

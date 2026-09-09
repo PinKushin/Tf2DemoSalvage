@@ -423,6 +423,75 @@ public sealed class ParticleProbe : IProbe
             return;
         }
 
+        // **What every shipped `SpriteCard` actually declares**, because two open items in B373 are
+        // only worth building if some material uses them. `$modblend` is the precedent: it is
+        // declared in three VMTs, read by nothing, and its correct implementation is nothing
+        // (`docs/findings/12-shader-parity.md`). A census of REQUESTS is the only thing that can
+        // tell those apart from a real gap
+        // (`docs/memory/a-census-of-requests-beats-a-list-of-features.md`).
+        if (filter.Equals("materials", StringComparison.OrdinalIgnoreCase))
+        {
+            string[] keys =
+            [
+                "$dualsequence", "$additive2ndtexture", "$texture2", "$sequence_blend_mode",
+                "$extractgreenalpha", "$maxlumframeblend1", "$maxlumframeblend2", "$ramptexture",
+                "$additive", "$addoverblend", "$addself", "$blendframes", "$overbrightfactor",
+                "$orientation", "$depthblend", "$nocull",
+            ];
+
+            Dictionary<string, int> declared = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string key in keys)
+            {
+                declared[key] = 0;
+            }
+
+            int cards = 0;
+            int materials = 0;
+
+            foreach (string archive in archives)
+            {
+                VpkArchive open = VpkArchive.Open(archive);
+
+                foreach (string path in open.Paths)
+                {
+                    if (!path.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) ||
+                        open.ReadFile(path) is not { Length: > 0 } raw)
+                    {
+                        continue;
+                    }
+
+                    materials++;
+
+                    VmtMaterial material = VmtMaterial.Parse(raw);
+
+                    if (!material.Shader.Contains("SpriteCard", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    cards++;
+
+                    foreach (string key in keys.Where(one => material.Value(one) is { Length: > 0 }))
+                    {
+                        declared[key]++;
+                    }
+                }
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {cards} SpriteCard materials of {materials} shipped"));
+
+            foreach (string key in keys)
+            {
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture, $"    {key,-22} {declared[key],5}"));
+            }
+
+            return;
+        }
+
         // **The simulator run on Valve's OWN definition, end to end.** The synthetic tests prove
         // each operator does what its parameters say; this proves the layers join — a real `.pcf`
         // through `DmxFile`, `ParticleSystems`, a `ParticleStore` and the operators, with the
@@ -479,7 +548,15 @@ public sealed class ParticleProbe : IProbe
 
                 for (int tick = 0; tick < 20; tick++)
                 {
-                    effect.Step(new Vector3(tick * 4f, 0f, 0f), step);
+                    // Flying down +X with the world axes as its own, so a local-frame speed of
+                    // (0 0 -10) reads as straight down and is recognisable in the output.
+                    effect.Step(
+                        new ParticleControlPoint(
+                            new Vector3(tick * 4f, 0f, 0f),
+                            Vector3.UnitX,
+                            Vector3.UnitY,
+                            Vector3.UnitZ),
+                        step);
                 }
 
                 output.WriteLine(string.Create(
@@ -487,6 +564,30 @@ public sealed class ParticleProbe : IProbe
                     $"  after 20 steps: {store.Count} alive, " +
                     $"first alpha {(store.Count > 0 ? store.AlphaOf(0) : 0f):0.###}, " +
                     $"first radius {(store.Count > 0 ? store.RadiusOf(0) : 0f):0.###}"));
+
+                // **The two initializers that have no other witness.** A sphere spawn shows as
+                // spread ACROSS the flight axis — the emitter walks down +X, so any Y or Z extent
+                // came from the sphere and from the local-frame speed, and zero would mean the
+                // initializer never ran. Rotation shows as a spread of angles; every particle at
+                // the same angle is a trail drawn as a grid.
+                float acrossLeast = float.MaxValue;
+                float acrossMost = float.MinValue;
+                float turnLeast = float.MaxValue;
+                float turnMost = float.MinValue;
+
+                for (int one = 0; one < store.Count; one++)
+                {
+                    acrossLeast = Math.Min(acrossLeast, store.PositionOf(one).Z);
+                    acrossMost = Math.Max(acrossMost, store.PositionOf(one).Z);
+                    turnLeast = Math.Min(turnLeast, store.RotationOf(one));
+                    turnMost = Math.Max(turnMost, store.RotationOf(one));
+                }
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  spread across the flight axis: {acrossMost - acrossLeast:0.###} units; " +
+                    $"rotation {float.RadiansToDegrees(turnLeast):0.#} to " +
+                    $"{float.RadiansToDegrees(turnMost):0.#} degrees"));
 
                 List<DetailSpriteVertex> corners = [];
 

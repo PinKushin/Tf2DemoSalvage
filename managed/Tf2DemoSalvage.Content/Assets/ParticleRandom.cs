@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
@@ -97,6 +98,47 @@ public static class ParticleRandom
         // The table is [0,1) so this cannot exceed `most`, but a table that ever contained 1.0
         // would silently hand out an index one past the end of a sequence array.
         return Math.Clamp(drawn, least, most);
+    }
+
+    /// <summary>A point inside the unit sphere, uniformly — <c>RandomVectorInUnitSphere</c>.</summary>
+    /// <param name="particle">The particle's id.</param>
+    /// <param name="offset">Which draw this is; the next two entries are taken as well.</param>
+    /// <returns>The point, and its distance from the centre.</returns>
+    /// <remarks>
+    /// **Read from published source**, `src/mathlib/mathlib_base.cpp:4203`, with Valve's own
+    /// citation — *Graphics Gems III*, "Nonuniform random point sets via warping":
+    ///
+    /// <code>
+    /// float flPhi    = acos( 1 - 2 * u );
+    /// float flTheta  = 2 * M_PI * v;
+    /// float flRadius = powf( w, 1.0f / 3.0f );
+    /// pVector->x = flRadius * flSinPhi * flCosTheta;   // y uses SinTheta, z is flCosPhi
+    /// return flRadius;
+    /// </code>
+    ///
+    /// **The cube root is what makes it uniform in VOLUME**, and it is the part a hand-rolled
+    /// version gets wrong: three uniform components scaled to a radius bunch every particle toward
+    /// the centre, so a puff spawns as a dense core with a thin halo instead of an even ball.
+    ///
+    /// **Three CONSECUTIVE table entries**, which is the collection's own convention for a vector:
+    /// `RandomVector` reads `nBaseId`, `nBaseId + 1` and `nBaseId + 2` (`particles.h:1819`).
+    /// </remarks>
+    public static (Vector3 Point, float Radius) InUnitSphere(int particle, int offset)
+    {
+        float u = Sample(particle, offset);
+        float v = Sample(particle, offset + 1);
+        float w = Sample(particle, offset + 2);
+
+        float phi = MathF.Acos(1f - (2f * u));
+        float theta = 2f * MathF.PI * v;
+        float radius = MathF.Cbrt(w);
+
+        (float sinPhi, float cosPhi) = MathF.SinCos(phi);
+        (float sinTheta, float cosTheta) = MathF.SinCos(theta);
+
+        return (
+            new Vector3(radius * sinPhi * cosTheta, radius * sinPhi * sinTheta, radius * cosPhi),
+            radius);
     }
 
     /// <summary>Fills the table with numbers that are uniform, unpatterned and always the same.</summary>

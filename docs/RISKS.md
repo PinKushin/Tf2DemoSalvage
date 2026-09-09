@@ -26152,12 +26152,36 @@ only visible at all once the texture underneath them was right.
 rainbow square behind the rocket. After: a soft grey plume. The control that proved it was ours was
 tick 106400, where the rocket is gone and so is the patch.
 
-**STILL OPEN, and named so a green suite does not imply otherwise:** `ROTATION` is decoded, stored
-and ignored, where `rockettrail` tilts every puff by 0..45 degrees off `-45`; the blend MODE is the
-detail pass's rather than the one `SpriteCard` picks; only the first of a frame's four coordinate
-sets is read; `Position Within Sphere Random` is unimplemented, so particles are born at a point
-rather than in the 1.2-unit sphere with the `-10` local-Z speed the file gives them; and no
-comparison against TF2 running the same demo has been made, which is the owner's to judge.
+**BUILT, closing three more of the five that were open:**
+
+- **`Position Within Sphere Random`.** Particles were born at a point, so a trail was a line rather
+  than a plume. The distribution is Valve's own and published —
+  `RandomVectorInUnitSphere` (`mathlib_base.cpp:4203`), citing *Graphics Gems III*, "Nonuniform
+  random point sets via warping": `phi = acos(1 - 2u)`, `theta = 2πv`, **`radius = w^(1/3)`**. The
+  cube root is the part a hand-rolled version drops, and dropping it bunches every particle toward
+  the centre — a dense core with a thin halo instead of an even ball, which is why the test asserts
+  the *distribution* (half the points beyond r = 0.7937) rather than only the bound.
+- **`Rotation Random`.** Measured after: rotation now spans **−44.6° to −0.8°**, which is exactly
+  `rotation_initial -45` plus `0..45`. Drawn axis-aligned, the same five tiles repeated in lockstep
+  across the plume — a visible grid.
+- **The blend MODE is now the material's**, per `spritecard.cpp:255-270`, and the branch ORDER is
+  load-bearing: `$addself`/`$addoverblend` are tested before `$additive`, so testing `$additive`
+  first gives 41 shipped materials the wrong blend. **Measured with `particles materials`: 304 of
+  TF2's 697 `SpriteCard` materials set `$additive`** — not an edge case, nearly half of every effect
+  in the game.
+
+**CLOSED as a non-gap, measured rather than assumed.** Three of a sheet frame's four coordinate sets
+are read by NO shipped material: `$texture2` 0, `$additive2ndtexture` 0, `$ramptexture` 0,
+`$extractgreenalpha` 0 of 697. Implementing them would be dead code — the `$modblend` case exactly
+(`docs/findings/12-shader-parity.md`). `$dualsequence` is set by **one** material in the whole game,
+which is a named gap rather than an open question.
+
+**STILL OPEN, and named so a green suite does not imply otherwise:** `rockettrail` declares two
+CHILDREN — `rockettrail_burst` and `rockettrail_fire`, on `brightglow_y_nomodel` and
+`sc_brightglow_y_nomodel` — and `ParticleEffect` does not spawn them, so a rocket has smoke and no
+glow. And **no comparison against TF2 running the same demo has been made**, which is the owner's to
+judge: the trail was captured before and after and went from a rainbow square to a grey plume, but
+*"looks like smoke"* is not *"looks like TF2"*.
 
 ### B374 FIXED 2026-09-09: a 7.3 VTF says where its pixels are, and the reader computed them instead
 

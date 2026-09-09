@@ -206,6 +206,64 @@ scale, both mean something. It is the same rule `RadiusAtBirth` already carries,
 within the first tenth of a life. Ours was lerping there *from white*, because `Color Random` had
 never run — so the one operator that was implemented had been quietly given the wrong starting point.
 
+## A census closed one open item without writing any code
+
+*Measured — `particles materials`, over every shipped `.vmt`.*
+
+```
+697 SpriteCard materials of 25,750 shipped
+  $texture2  0     $additive2ndtexture  0     $ramptexture  0     $extractgreenalpha  0
+  $dualsequence  1
+  $additive  304   $addself  41    $addoverblend  3    $blendframes  100
+```
+
+**Three of a frame's four coordinate sets are read by nothing**, so implementing them would be dead
+code — the `$modblend` case exactly (`docs/findings/12-shader-parity.md`), where the correct
+implementation of a shipped-but-unread parameter is nothing at all. `$dualsequence` is one material
+in the whole game: a named gap rather than an open question.
+
+**The same census turned an assumed non-issue into a real one.** `$additive` is set by 304 of 697 —
+44% — and this project drew every particle translucent. `spritecard.cpp:255-270` picks between three
+blends, and the ORDER matters in a way that is easy to get backwards:
+
+```cpp
+if ( bAdditive2ndTexture || bAddOverBlend || bAddSelf )
+    EnableAlphaBlending( SHADER_BLEND_ONE, SHADER_BLEND_ONE_MINUS_SRC_ALPHA );
+else if ( IS_FLAG_SET(MATERIAL_VAR_ADDITIVE) )
+    EnableAlphaBlending( SHADER_BLEND_SRC_ALPHA, SHADER_BLEND_ONE );
+else
+    EnableAlphaBlending( SHADER_BLEND_SRC_ALPHA, SHADER_BLEND_ONE_MINUS_SRC_ALPHA );
+```
+
+`$addself` and `$addoverblend` **outrank** `$additive`, so testing the obvious one first gives 41
+materials the wrong blend and none of them throws.
+
+## The plume, and the cube root that makes it one
+
+*Read from published source.* `Position Within Sphere Random` was unimplemented, so every particle
+was born at the emitter and a trail was a line. Valve's sampler is published in full —
+`mathlib_base.cpp:4203`, citing *Graphics Gems III*:
+
+```cpp
+float flPhi    = acos( 1 - 2 * u );
+float flTheta  = 2 * M_PI * v;
+float flRadius = powf( w, 1.0f / 3.0f );
+```
+
+**The cube root is the whole of it.** Uniform in VOLUME means half the points lie beyond
+r = 0.5^(1/3) = 0.7937, because that radius encloses half the ball; a uniform radius puts only ~21%
+there and spawns a dense core with a thin halo. So the test asserts the distribution, not the bound —
+a bound-only assertion passes with the cube root removed.
+
+**Velocity has to be written as a position.** Verlet stores none: `MovementBasic` carries
+`position - previous` forward as the step's displacement, so a spawn speed IS how far behind the
+particle its previous position is placed. That is why `Spawn` needs the step, exactly as the engine's
+initializers read the collection's own.
+
+*Measured after:* spread across the flight axis went from 0 to **4.306 units**, and rotation from a
+single value to **−44.6° … −0.8°** — which is `rotation_initial -45` plus `0..45`, read straight back
+out of the file.
+
 ## What is still not done
 
 - **`ROTATION` is decoded, stored and ignored.** The engine passes it in texcoord 2 beside the frame

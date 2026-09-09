@@ -818,6 +818,15 @@ public sealed class MapAssets
     /// </remarks>
     public IReadOnlyList<SheetSequence> ParticleSequences { get; private init; } = [];
 
+    /// <summary>How that material blends — the material's own choice, not a fixed one.</summary>
+    /// <remarks>
+    /// **304 of TF2's 697 `SpriteCard` materials are additive**, so this is not an edge case:
+    /// drawing them all translucent makes every spark and glow in the game darker than the engine
+    /// draws it. `rocketrailsmoke` is one of the translucent ones, which is why the trail looked
+    /// right before this existed.
+    /// </remarks>
+    public SpriteBlend ParticleBlend { get; private init; } = SpriteBlend.Translucent;
+
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
     /// <remarks>
     /// **Read and discarded until 2026-09-06.** `BspDetailProps.Read` has always returned it as the
@@ -1226,7 +1235,8 @@ public sealed class MapAssets
         // CI run, where there is no TF2 to read, and a rocket must still draw its model.
         (ParticleSystem? rocketTrail,
          MapTexture? particleSheet,
-         IReadOnlyList<SheetSequence> particleSequences) =
+         IReadOnlyList<SheetSequence> particleSequences,
+         SpriteBlend particleBlend) =
             LoadRocketTrail(assets, pak, archives, maximumTextureSize);
 
         // **Entity models are loaded here, with the map's own props, and that is the point.**
@@ -1549,6 +1559,7 @@ public sealed class MapAssets
             RocketTrail = rocketTrail,
             ParticleSheet = particleSheet,
             ParticleSequences = particleSequences,
+            ParticleBlend = particleBlend,
             DetailModelNames = detailModelNames,
             EntityModels = models,
             UnimplementedParameters = census,
@@ -1975,12 +1986,13 @@ public sealed class MapAssets
     private static (
         ParticleSystem? System,
         MapTexture? Sheet,
-        IReadOnlyList<SheetSequence> Sequences) LoadRocketTrail(
+        IReadOnlyList<SheetSequence> Sequences,
+        SpriteBlend Blend) LoadRocketTrail(
         ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize)
     {
         if (archives.Read("particles/rockettrail.pcf") is not { Length: > 0 } file)
         {
-            return (null, null, []);
+            return (null, null, [], SpriteBlend.Translucent);
         }
 
         IReadOnlyDictionary<string, ParticleSystem> systems = ParticleSystems.Read(file);
@@ -2004,7 +2016,7 @@ public sealed class MapAssets
             assets.LogInformation(
                 "{Message}", "particles/rockettrail.pcf declares no rockettrail system");
 
-            return (null, null, []);
+            return (null, null, [], SpriteBlend.Translucent);
         }
 
         string material = trail.Parameters.TryGetValue("material", out DmxValue named2) &&
@@ -2016,7 +2028,8 @@ public sealed class MapAssets
             ? Resolve(assets, material, pak, archives, maximumTextureSize).Texture
             : null;
 
-        IReadOnlyList<SheetSequence> sequences = Sequences(material, pak, archives);
+        (IReadOnlyList<SheetSequence> sequences, SpriteBlend blend) =
+            Sequences(material, pak, archives);
 
         assets.LogInformation(
             "{Message}",
@@ -2024,9 +2037,9 @@ public sealed class MapAssets
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"rocket trail '{trail.Name}': {trail.Operators.Count} operators, " +
                 $"material '{material}' {(sheet is null ? "did NOT resolve" : "resolved")}, " +
-                $"{sequences.Count} sheet sequences"));
+                $"{sequences.Count} sheet sequences, {blend} blending"));
 
-        return (trail, sheet, sequences);
+        return (trail, sheet, sequences, blend);
     }
 
     /// <summary>The sprite-sheet sequences a particle material's texture carries.</summary>
@@ -2041,31 +2054,35 @@ public sealed class MapAssets
     /// looking for a `.vtf` beside the `.vmt` finds nothing and reports a texture that ships as
     /// absent (`docs/memory/an-empty-search-needs-a-control.md`).
     /// </remarks>
-    private static IReadOnlyList<SheetSequence> Sequences(
+    private static (IReadOnlyList<SheetSequence> Sequences, SpriteBlend Blend) Sequences(
         string material, PakFile pak, GameArchives archives)
     {
         if (material.Length == 0)
         {
-            return [];
+            return ([], SpriteBlend.Translucent);
         }
 
         string vmtPath = $"materials/{material}.vmt";
 
         if ((pak.ReadFile(vmtPath) ?? archives.Read(vmtPath)) is not { Length: > 0 } vmt)
         {
-            return [];
+            return ([], SpriteBlend.Translucent);
         }
 
-        if (VmtMaterial.Parse(vmt).PrimaryTexture is not { Length: > 0 } texture)
+        VmtMaterial parsed = VmtMaterial.Parse(vmt);
+
+        if (parsed.PrimaryTexture is not { Length: > 0 } texture)
         {
-            return [];
+            return ([], parsed.SpriteBlending);
         }
 
         string vtfPath = $"materials/{texture.Replace('\\', '/')}.vtf";
 
-        return (pak.ReadFile(vtfPath) ?? archives.Read(vtfPath)) is { Length: > 0 } bytes
-            ? VtfSheet.Read(bytes)
-            : [];
+        return (
+            (pak.ReadFile(vtfPath) ?? archives.Read(vtfPath)) is { Length: > 0 } bytes
+                ? VtfSheet.Read(bytes)
+                : [],
+            parsed.SpriteBlending);
     }
 
     private static ResolvedMaterial Resolve(

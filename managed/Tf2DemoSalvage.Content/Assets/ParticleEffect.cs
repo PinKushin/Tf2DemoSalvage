@@ -89,7 +89,7 @@ public sealed class ParticleEffect
     /// appears at its raw spawn state; reaping last means one that died this step is gone before
     /// anything draws it.
     /// </remarks>
-    public void Step(Vector3 at, float seconds)
+    public void Step(ParticleControlPoint at, float seconds)
     {
         Particles.Tick(seconds);
 
@@ -132,7 +132,7 @@ public sealed class ParticleEffect
     }
 
     /// <summary>Emits this step's share of particles, carrying the remainder.</summary>
-    private void Emit(Vector3 at, float seconds)
+    private void Emit(ParticleControlPoint at, float seconds)
     {
         foreach (ParticleFunction emitter in System.Emitters)
         {
@@ -157,7 +157,7 @@ public sealed class ParticleEffect
             {
                 _owed -= 1f;
 
-                if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime) < 0)
+                if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds) < 0)
                 {
                     // At `max_particles`. Dropping the owed fraction too, because a system at its
                     // cap has not banked a debt — it simply did not emit.
