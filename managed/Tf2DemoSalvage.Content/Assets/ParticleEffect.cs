@@ -98,6 +98,31 @@ public sealed class ParticleEffect
         Particles.Reap();
     }
 
+    /// <summary>Advances without emitting, for an effect whose emitter is gone.</summary>
+    /// <param name="seconds">How long the step is.</param>
+    /// <remarks>
+    /// **A rocket explodes and its trail hangs in the air**, fading on the particles' own schedule
+    /// rather than vanishing with the blast. So the effect outlives the entity, and this is what it
+    /// does in the meantime: operate and reap, emit nothing.
+    ///
+    /// **Not `Step` with the last position**, which is the bug this replaced — that keeps emitting
+    /// at wherever the trail happens to be and grows it for ever.
+    /// </remarks>
+    public void Fade(float seconds)
+    {
+        Particles.Tick(seconds);
+
+        foreach (ParticleFunction one in System.Operators)
+        {
+            if (_operators.TryGetValue(one.Function, out IParticleOperator? run))
+            {
+                run.Operate(Particles, one, seconds);
+            }
+        }
+
+        Particles.Reap();
+    }
+
     /// <summary>Emits this step's share of particles, carrying the remainder.</summary>
     private void Emit(Vector3 at, float seconds)
     {
