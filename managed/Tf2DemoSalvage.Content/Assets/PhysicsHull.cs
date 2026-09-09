@@ -148,6 +148,90 @@ public static class PhysicsHull
         return ledges;
     }
 
+    /// <summary>The same read, reporting how many leaves it could not turn into a ledge.</summary>
+    /// <param name="solid">The solid's bytes, from <c>VPHY</c> onward.</param>
+    /// <param name="dropped">How many tree LEAVES produced no ledge.</param>
+    /// <returns>The ledges the tree yields.</returns>
+    /// <remarks>
+    /// **A dropped leaf is silent otherwise, and a silent drop here is a hole in the floor.** The
+    /// tree says a ledge is there; <see cref="ReadLedge"/> answers null on a bad offset, an
+    /// impossible triangle count or a point index outside the blob, and <see cref="Walk"/> then
+    /// skips it without a word. The result is collision that is missing in scattered places while
+    /// every count still looks plausible — which is exactly how a corpse came to fall through a
+    /// floor the map plainly has (B369).
+    ///
+    /// **So the number is reported rather than inferred**, per B243: a caller comparing ledge
+    /// counts against some other route would be deriving this by a second path, and the second path
+    /// is free to be wrong.
+    /// </remarks>
+    public static IReadOnlyList<PhysicsLedge> Read(ReadOnlySpan<byte> solid, out int dropped)
+    {
+        dropped = 0;
+
+        if (solid.Length < SurfaceOffset + SurfaceSize)
+        {
+            return [];
+        }
+
+        int surface = SurfaceOffset;
+
+        if (BitConverter.ToInt32(solid[(surface + MagicOffset)..]) is not (Ivps or Spvi or 0))
+        {
+            return [];
+        }
+
+        int root = surface + BitConverter.ToInt32(solid[(surface + LedgeTreeOffset)..]);
+
+        if (root < 0 || root + NodeHeaderSize > solid.Length)
+        {
+            return [];
+        }
+
+        List<PhysicsLedge> ledges = [];
+        int leaves = 0;
+
+        Count(solid, root, ledges, MaximumDepth, ref leaves);
+
+        dropped = leaves - ledges.Count;
+
+        return ledges;
+    }
+
+    /// <summary>Walks the tree exactly as <see cref="Walk"/> does, counting the leaves it meets.</summary>
+    private static void Count(
+        ReadOnlySpan<byte> solid, int node, List<PhysicsLedge> into, int budget, ref int leaves)
+    {
+        if (budget <= 0 || node < 0 || node + NodeHeaderSize > solid.Length)
+        {
+            return;
+        }
+
+        int right = BitConverter.ToInt32(solid[node..]);
+
+        if (right == 0)
+        {
+            leaves++;
+
+            int ledge = node + BitConverter.ToInt32(solid[(node + 4)..]);
+
+            Vector3 centre = new(
+                BitConverter.ToSingle(solid[(node + 0x08)..]),
+                BitConverter.ToSingle(solid[(node + 0x0C)..]),
+                BitConverter.ToSingle(solid[(node + 0x10)..]));
+
+            if (ReadLedge(solid, ledge, centre, BitConverter.ToSingle(solid[(node + 0x14)..]))
+                is { } read)
+            {
+                into.Add(read);
+            }
+
+            return;
+        }
+
+        Count(solid, node + NodeHeaderSize, into, budget - 1, ref leaves);
+        Count(solid, node + right, into, budget - 1, ref leaves);
+    }
+
     /// <summary>Walks one ledge-tree node, collecting the ledges beneath it.</summary>
     /// <remarks>
     /// **A leaf is `offset_right_node == 0`**, and its ledge offset is relative to the node and

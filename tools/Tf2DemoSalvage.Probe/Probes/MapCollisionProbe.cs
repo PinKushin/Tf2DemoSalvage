@@ -352,6 +352,33 @@ public sealed class MapCollisionProbe : IProbe
                 $"{swept.ToString("0.###", CultureInfo.InvariantCulture)} of the way " +
                 $"(terrain alone {terrain.ToString("0.###", CultureInfo.InvariantCulture)})"));
 
+            // **Is a missing floor the FILE's or the READER's?** The tree walk and a linear step
+            // through the same bytes are independent routes to the same ledges, so they disagree
+            // only if one of them is wrong — see LinearLedgeCount.
+            foreach (MapPhysicsModel counted in
+                BspPhysicsCollision.Read(BspLumpData.Read(file, header.Lump(PhysCollideLump))))
+            {
+                if (counted.ModelIndex != 0)
+                {
+                    continue;
+                }
+
+                for (int solid = 0; solid < counted.Solids.Count; solid++)
+                {
+                    PhysicsBrushSolid where = counted.Solids[solid];
+
+                    _ = PhysicsHull.Read(
+                        BspLumpData.Read(file, header.Lump(PhysCollideLump))
+                            .Span.Slice(where.Offset, where.Length),
+                        out int dropped);
+
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"  model 0 solid {solid}: {counted.Hulls[solid].Count} ledges read, " +
+                        $"{dropped} LEAVES DROPPED (a dropped leaf is a hole in the floor)"));
+                }
+            }
+
             // **The census, because one point has no denominator.** A single spot where a corpse
             // falls through says nothing about whether this project's physics world is broadly
             // right or broadly wrong. Dropping a ray at every node of a grid and comparing what the
@@ -1033,4 +1060,5 @@ public sealed class MapCollisionProbe : IProbe
 
         return (models, solids);
     }
+
 }

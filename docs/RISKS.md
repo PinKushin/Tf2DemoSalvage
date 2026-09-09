@@ -25270,7 +25270,7 @@ read.
 **Evidence class: read-from-source** for the table and every consumer; **authored specimen** for the
 decode.
 
-### B369 OPEN: the map's own physics collision is not read, and it is what a corpse lands on
+### B369 CLOSED 2026-09-08: the map's own physics collision is not read, and it is what a corpse lands on
 
 **A TF2 corpse is simulated against the map's baked collision, and this project reads 34 of the 64
 BSP lumps without that one.** `LUMP_PHYSCOLLIDE` is lump 29 (`bspfile.h:310`); the engine hands its
@@ -25309,13 +25309,39 @@ and beside them is plain KeyValues carrying contents flags and a surface-materia
 closed format, needed in two places** — so understanding it once unlocks both a corpse's own shape
 and the world it falls onto.
 
-**What is NOT established:** the hull format itself. The compact-ledge half-edge structure was read
-in the binary (finding 51 — the narrow phase walks it with the offset tables `DAT_180124fb8` /
-`DAT_180124fc8`, and IVP's own `ivp_compact_ledge_solver.cxx` is named in the assert strings), but
-nothing has been decoded from a file.
+**CLOSED 2026-09-08. Everything above is done, and the sentences below it were stale.** The lump is
+read (`BspPhysicsCollision`), the hull format is decoded and file-verified (`PhysicsHull`, and
+`docs/findings/51`'s "The collision hull format, decoded"), and it is WIRED: `MapLevel.PhysicsWorld`
+builds `IvpWorldCollision` out of it, per solid, with each solid's own contents mask from the
+KeyValues text — so `CONTENTS_PLAYERCLIP` (65536) is excluded from what a corpse collides with,
+which is why a clip brush does not act as a floor.
 
-**Also not established:** what `virtualterrain` means, and whether displacements carry collision
-separately — `LUMP_PHYSDISP` is lump 28 and is likewise unread.
+**The reader loses nothing, and that is measured rather than assumed.** `PhysicsHull.Read` now
+reports how many tree LEAVES produced no ledge, because the three null paths in `ReadLedge` were
+silently skipped by `Walk` and a silently skipped leaf is a hole in the floor:
+
+```
+koth_harvest_final  model 0 solid 0: 2671 ledges read, 0 LEAVES DROPPED
+cp_badlands         16 solids, 64,378 ledges,          0 LEAVES DROPPED
+ctf_2fort           16 solids, 25,898 ledges,          0 LEAVES DROPPED
+pl_upward            4 solids,  4,872 ledges,          0 LEAVES DROPPED
+```
+
+**So our physics world equals the file.** Where the file has no ledge, TF2's own ragdoll has no
+floor either — it collides against this same lump, not against the BSP tree the player traces
+against. On `koth_harvest_final` there are 29 of 6331 columns where a `CONTENTS_SOLID` brush exists
+and no ledge does; that asymmetry is the compiler's, and matching it IS parity.
+
+**The "5 seeds, 4 settle" figure was never a defect**, and `CorpseDropProbe` says so itself: the
+fifth seed is the position where the demo's ragdoll SPAWNS rather than where it rests, kept as a
+known-wrong default because the wrongness is the finding — *"leaves the world here, and that is
+expected"* (`CorpseDropProbe.cs:153`). Read it as **4 of the 4 valid seeds**.
+
+**Still open, and NOT part of this:** what `virtualterrain` means, and whether displacements carry
+collision separately — `LUMP_PHYSDISP` is lump 28 and is unread. Displacement collision is built
+from the displacement lump instead (`DisplacementCollision`, 533 of 533 built on
+`koth_harvest_final`), so nothing is missing today; the question is whether the engine's route
+differs.
 
 **Evidence class: read-from-source** for the layout; **measured** over 234 maps, with a control, for
 the contents.
