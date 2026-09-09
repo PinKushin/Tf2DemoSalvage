@@ -25758,8 +25758,28 @@ baseclass, so the input is on the wire and nothing reads it.
 **There is no particle system in this project** — zero types matching `Particle` in `managed/`. So
 this is a new subsystem rather than a fix, and it is filed rather than started.
 
+**The size of it, measured with the new `particles` probe rather than asserted:**
+
+```
+4 archives, 134 .pcf files, 23.1 MB total
+header: <!-- dmx encoding binary 2 format pcf 1 -->
+'rockettrail' named by 9 of 134 files; PARTICLES/ROCKETTRAIL.PCF is its own
+```
+
+**So the work is three things, none of which exists here:** a binary DMX reader (`encoding binary
+2`), the PCF schema on top of it — a particle system is a tree of emitters, initializers, operators
+and renderers, each a typed attribute bag — and a simulator that runs Valve's operator set per
+frame, plus sprite rendering for the result.
+
+**This is a MISSING FEATURE, not a divergence, and the distinction is the project's own.**
+`.claude/skills/valve-parity-audit` opens by saying the job *"is not to find features Valve has and
+we lack — that list is long, visible, and mostly uninteresting"*, and to rank by *"what we already
+draw"*. A rocket is now on screen with the right model, the right position and the right facing,
+all from the wire; its trail is a subsystem to build, and building it is a decision about scope
+rather than a defect to close.
+
 *Evidence class: read-from-source for the effect names and their conditions; measured for the
-absence of a particle system.*
+absence of a particle system here and for the shape and size of what TF2 ships.*
 
 **Two instrument artefacts on the way here, recorded so they are not repeated.** `props <demo>`
 samples ONE tick and a projectile lives about a second, so two hand-picked ticks showing none was an
