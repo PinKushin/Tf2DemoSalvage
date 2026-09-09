@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/valves-way.ps1\"",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tf2-valves-way.ps1\"",
             "shell": "powershell",
             "timeout": 15,
             "statusMessage": "Valve's way"
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/parity-cited.ps1\"",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tf2-parity-cited.ps1\"",
             "shell": "powershell",
             "timeout": 15,
             "statusMessage": "checking parity commits cite the engine"
@@ -33,14 +33,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/verify-build-output.ps1\"",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tf2-verify-build-output.ps1\"",
             "shell": "powershell",
             "timeout": 15,
             "statusMessage": "checking the build actually succeeded"
           },
           {
             "type": "command",
-            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/flag-unread.ps1\"",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tf2-flag-unread.ps1\"",
             "shell": "powershell",
             "timeout": 15,
             "statusMessage": "checking engine flags were looked up"

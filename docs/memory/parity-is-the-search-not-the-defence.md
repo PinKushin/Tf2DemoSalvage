@@ -153,7 +153,7 @@ animating and the owner found it, not a test.
   teaches nothing; `|= FOO` on the line above your answer changes what your answer means.
 - **The signal was in what was READ, not in what was written.** The flag never reached a comment, a
   commit or a diff, so no review of the change could have caught it — and that is why
-  `.claude/hooks/flag-unread.ps1` watches tool OUTPUT, firing once per flag per session on a flag
+  `.claude/hooks/tf2-flag-unread.ps1` watches tool OUTPUT, firing once per flag per session on a flag
   that is composed or tested rather than merely named.
 
 ---

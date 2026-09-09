@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -225,6 +226,91 @@ public sealed class RagdollPropsTests
     }
 
     /// <summary>A corpse of a medic, spoken about between ticks 100 and 200.</summary>
+    /// <remarks>
+    /// **A gibbed corpse draws its PIECES and no body** (B371). `CreateTFGibs` spawns the gibs and
+    /// then removes the ragdoll — `EndFadeOut()`, or `SetRenderMode( kRenderNone )`
+    /// (`c_tf_player.cpp:1124-1133`) — so the body appearing alongside them would be a whole corpse
+    /// standing inside its own remains.
+    ///
+    /// **Both halves are asserted, because either alone would pass while the feature is broken**: a
+    /// count of nine says nothing if the body is there too, and "no body" says nothing if nothing
+    /// replaced it.
+    /// </remarks>
+    [Test]
+    public void Fill_ForAGibbedCorpse_DrawsThePiecesAndNotTheBody()
+    {
+        List<SceneProp> scene = [];
+
+        int drawn = RagdollProps.Fill(
+            [Corpse(SceneTeams.Blu) with { Gib = true }],
+            tick: 150d,
+            Classes,
+            scene,
+            gibsOf: Gibs,
+            intervalPerTick: 0.015f);
+
+        drawn.ShouldBe(3);
+
+        scene.Count.ShouldBe(3);
+        scene.ShouldAllBe(prop => prop.ClassName == RagdollProps.GibClassName);
+
+        scene.ShouldNotContain(
+            prop => prop.ClassName == RagdollProps.RagdollClassName,
+            "the engine removes the ragdoll for a gib death");
+
+        scene[0].ModelPath.ShouldBe("models/player/gibs/medicgib001.mdl");
+    }
+
+    /// <remarks>
+    /// **A gib leaves on its OWN fade, which is shorter than a corpse's.** `fadetime` is 10 on every
+    /// TF2 gib against `cl_ragdoll_fade_time`'s 15 for a body, so pieces go first. Fifty seconds
+    /// after death is past every piece's fade.
+    /// </remarks>
+    [Test]
+    public void Fill_ForAGibbedCorpsePastItsFade_DrawsNothing()
+    {
+        List<SceneProp> scene = [];
+
+        // 100 ticks at 0.015 is 1.5s and inside the fade; 4000 is 60s and well past it. The corpse
+        // window itself is widened so the fade is what ends this, not the entity's lifetime.
+        RagdollProps.Fill(
+            [Corpse(SceneTeams.Blu) with { Gib = true, LastTick = 100000 }],
+            tick: 4100d,
+            Classes,
+            scene,
+            gibsOf: Gibs,
+            intervalPerTick: 0.015f)
+            .ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **No gib list means no pieces AND still no body**, because the engine has already removed
+    /// the body — falling back to it would be a divergence rather than a graceful degradation. This
+    /// is the state while a class model is still being read.
+    /// </remarks>
+    [Test]
+    public void Fill_ForAGibbedCorpseWithNoListYet_DrawsNothing()
+    {
+        List<SceneProp> scene = [];
+
+        RagdollProps.Fill(
+            [Corpse(SceneTeams.Blu) with { Gib = true }], tick: 150d, Classes, scene)
+            .ShouldBe(0);
+
+        scene.ShouldBeEmpty();
+    }
+
+    /// <summary>Three pieces, standing in for a class model's nine.</summary>
+    private static IReadOnlyList<PhysicsBreakPiece> Gibs(string model) =>
+        model == "models/player/medic.mdl"
+            ?
+            [
+                new PhysicsBreakPiece(@"player\gibs\medicgib001", 0f, 10f),
+                new PhysicsBreakPiece(@"player\gibs\medicgib002", 0f, 10f),
+                new PhysicsBreakPiece(@"player\gibs\random_organ", 0f, 10f),
+            ]
+            : [];
+
     private static SceneRagdoll Corpse(int team) =>
         new(EntityIndex: 40,
             Serial: 1,

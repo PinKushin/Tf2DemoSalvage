@@ -338,6 +338,103 @@ public sealed class RagdollBodyConformanceTests
     private static ConstraintAxis Axis => new(0f, 0f, 0f);
 
     /// <summary>Two solids joined by one constraint, named for the skeleton below.</summary>
+    /// <remarks>
+    /// **A gib's solid names no bone, and that is normal rather than broken** (B371). Measured on
+    /// `models/player/gibs/medicgib001.mdl`: the solid is `medicgib001_reference` and the model's
+    /// only bone is `polymsh`. `Build` refuses it — correctly, because a ragdoll's solids each
+    /// drive a named bone — and the engine never asks: `CreateGibsFromList` reaches
+    /// `BreakModelCreateSingle` (`props_shared.cpp:1497`), which makes a `prop_physics` body from
+    /// the VCollide alone.
+    ///
+    /// **Both halves are asserted together**, because the point is the DIFFERENCE between them. A
+    /// test that only showed `BuildProp` working would pass just as well if `Build` had been
+    /// loosened to accept unnamed solids — which is the change that must not happen, since it would
+    /// silence a real ragdoll defect to permit a normal prop.
+    /// </remarks>
+    [Test]
+    public void BuildProp_ForASolidNamingNoBone_BuildsWhereBuildRefuses()
+    {
+        PhysicsModel physics = Prop("medicgib001_reference");
+
+        RagdollBody.Build(physics, PropSkeleton())
+            .ShouldBeNull("a ragdoll solid must name a bone");
+
+        RagdollBody prop = RagdollBody.BuildProp(physics)!;
+
+        prop.Elements.Count.ShouldBe(1);
+        prop.Constraints.Count.ShouldBe(0, "a single body has nothing to be jointed to");
+        prop.Elements[0].BoneIndex.ShouldBe(0, "a one-bone prop's body IS the model transform");
+        prop.Elements[0].Hull.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <remarks>
+    /// **A body with no hull could not be collided with**, so it is refused rather than returned as
+    /// a gib that would fall through the world for ever. The `.phy` is a stranger's file (D32) and
+    /// a solid without a hull is exactly the shape a truncated one leaves behind.
+    /// </remarks>
+    [Test]
+    public void BuildProp_WithNoHull_Refuses() =>
+        RagdollBody.BuildProp(
+            PhysicsModel.From(
+                [new PhysicsSolid(0, "gib_reference", "", "flesh", 5f, 1f, 0f, 0f, 10f, 0f)],
+                [],
+                1,
+                checksum: 0,
+                collisionRules: null,
+                hulls: null))
+            .ShouldBeNull();
+
+    /// <remarks>
+    /// **The `.phy`'s own mass and surface reach the body**, because a gib that weighs nothing or
+    /// slides like ice is a gib that behaves wrongly on the ground it was just given.
+    /// </remarks>
+    [Test]
+    public void BuildProp_ForAProp_CarriesItsMassAndSurface()
+    {
+        RagdollBody prop = RagdollBody.BuildProp(Prop("gib_reference"))!;
+
+        prop.Elements[0].Mass.ShouldBe(5f);
+        prop.Elements[0].SurfaceProp.ShouldBe("flesh");
+    }
+
+    /// <summary>A single-solid prop with one hull, as every gib model is.</summary>
+    private static PhysicsModel Prop(string solidName)
+    {
+        PhysicsLedge ledge = new(
+            [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
+            [(0, 1, 2)],
+            Vector3.Zero,
+            0.1f);
+
+        return PhysicsModel.From(
+            [new PhysicsSolid(0, solidName, "", "flesh", 5f, 1f, 0f, 0f, 10f, 0f)],
+            [],
+            1,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [[ledge]]);
+    }
+
+    /// <summary>A gib's skeleton: one bone, named nothing the <c>.phy</c> mentions.</summary>
+    /// <remarks>
+    /// `polymsh` is the real name on every TF2 gib, measured — an exporter's default, which is
+    /// exactly why it matches no solid.
+    /// </remarks>
+    private static IReadOnlyList<StudioBone> PropSkeleton() =>
+        [
+            new StudioBone(
+                "polymsh",
+                -1,
+                (0f, 0f, 0f),
+                (0f, 0f, 0f, 1f),
+                new float[]
+                {
+                    1f, 0f, 0f, 0f,
+                    0f, 1f, 0f, 0f,
+                    0f, 0f, 1f, 0f,
+                }),
+        ];
+
     private static PhysicsModel Physics() =>
         PhysicsWith(
             [

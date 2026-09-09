@@ -372,12 +372,36 @@ public sealed record MapLevel(
                     ? placed
                     : Vector3.Zero;
 
-                foreach (IReadOnlyList<PhysicsLedge> hull in model.Hulls)
+                // **What each solid is MADE of, which decides who collides with it.** The engine
+                // sets it on every world solid it creates — `pObject->SetContents(
+                // g_SolidSetup.GetContentsMask() )` (`physics_shared.cpp:648`) — and then refuses
+                // any pair whose masks do not overlap (`game/client/physics.cpp:249`).
+                //
+                // **A solid the text does not name falls back to `CONTENTS_SOLID`**, which is what
+                // a brush is unless it says otherwise, rather than to zero — a zero would make it
+                // collide with nothing at all and delete geometry that is really there.
+                Dictionary<int, int> contents = [];
+
+                foreach ((int index, int mask) in MapSurfaceTable.Parse(model.Text).StaticSolids)
                 {
-                    foreach (PhysicsLedge ledge in hull)
+                    contents[index] = mask;
+                }
+
+                for (int solid = 0; solid < model.Hulls.Count; solid++)
+                {
+                    int mask = contents.TryGetValue(solid, out int declared)
+                        ? declared
+                        : IvpWorldCollision.ContentsSolid;
+
+                    foreach (PhysicsLedge ledge in model.Hulls[solid])
                     {
                         world.Add(
-                            ledge.Points, ledge.Triangles, ledge.Center, ledge.Radius, origin);
+                            ledge.Points,
+                            ledge.Triangles,
+                            ledge.Center,
+                            ledge.Radius,
+                            origin,
+                            mask);
                     }
                 }
             }

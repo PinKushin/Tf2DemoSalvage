@@ -77,6 +77,15 @@ public readonly record struct RagdollAxes(Vector3 X, Vector3 Y, Vector3 Z)
 /// Empty when the `.phy` carries no readable hull for this solid, which makes a body that cannot
 /// collide rather than one that collides wrongly.
 /// </param>
+/// <param name="Faces">
+/// **The ledge TRIANGLES that go with those points, indexing <paramref name="Hull"/>** (B306).
+/// `PhysicsLedge` has carried them out of the `IVPS` compact ledge all along and this reader used
+/// to drop them, leaving the solver a bare point cloud — which is precisely why its narrow phase
+/// had to be vertex-against-plane rather than the engine's hull-against-triangle.
+///
+/// **Rebased across ledges**, since each ledge indexes its own points and a solid may be built from
+/// several.
+/// </param>
 /// <param name="SurfaceProp">
 /// **What this body is made of, by name** — `flesh` for every element of a player. The engine
 /// resolves it through `physprops-&gt;GetSurfaceIndex( solid.surfaceprop )` and hands the index to
@@ -94,6 +103,7 @@ public readonly record struct RagdollElement(
     float RotationDamping,
     float Volume,
     IReadOnlyList<Vector3> Hull,
+    IReadOnlyList<(int A, int B, int C)> Faces,
     string SurfaceProp);
 
 /// <summary>
@@ -273,6 +283,9 @@ public sealed class RagdollBody
                 return null;
             }
 
+            (List<Vector3> Points, List<(int A, int B, int C)> Faces) shape =
+                HullInBoneSpace(physics, index);
+
             elements[index] = new RagdollElement(
                 bone,
 
@@ -285,7 +298,8 @@ public sealed class RagdollBody
                 solid.Damping,
                 solid.RotationDamping,
                 solid.Volume,
-                HullInBoneSpace(physics, index),
+                shape.Points,
+                shape.Faces,
                 solid.SurfaceProperty);
         }
 
@@ -499,24 +513,101 @@ public sealed class RagdollBody
     /// **So the only change of frame left is the unit one**, IVP metres to Source units, which is
     /// the seam this project keeps in one place ([[ivp-is-a-third-convention]]).
     /// </remarks>
-    private static List<Vector3> HullInBoneSpace(PhysicsModel physics, int solid)
+    /// <summary>One rigid body from a physics prop's <c>.phy</c> — a GIB, chiefly (B371).</summary>
+    /// <param name="physics">The prop's physics model.</param>
+    /// <returns>A one-element body, or null when the file carries no solid or no hull.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="physics"/> is null.</exception>
+    /// <remarks>
+    /// **A prop is not a ragdoll, and <see cref="Build"/> is right to refuse one.** That builder
+    /// requires every solid to name a bone, because a ragdoll's solids each drive a named bone —
+    /// `Studio_BoneIndexByName( params.pStudioHdr, solid.name )`, and `RagdollAddSolid` proceeds
+    /// only `if ( boneIndex >= 0 )` (`ragdoll_shared.cpp:182-185`). A gib does not satisfy that and
+    /// is not supposed to: measured on `models/player/gibs/medicgib001.mdl`, the solid is
+    /// `medicgib001_reference` and the model's only bone is `polymsh`.
+    ///
+    /// **The engine never asks.** `CreateGibsFromList` reaches `BreakModelCreateSingle`
+    /// (`props_shared.cpp:1497`), which makes a `prop_physics`-style object straight from the
+    /// VCollide — one rigid body, no bone binding, no constraints. **Kept as its own entry point
+    /// rather than a fallback inside `Build`**, because a solid that names no bone is a defect in a
+    /// ragdoll and is normal in a prop; folding them together would silence the first to permit the
+    /// second.
+    ///
+    /// **Bound to bone 0 for the pose write**, which for a one-bone prop is the model's own
+    /// transform — so the simulation's output places the model exactly as a prop's transform does.
+    /// </remarks>
+    public static RagdollBody? BuildProp(PhysicsModel physics)
+    {
+        ArgumentNullException.ThrowIfNull(physics);
+
+        if (physics.Solids.Count == 0)
+        {
+            return null;
+        }
+
+        PhysicsSolid solid = physics.Solids[0];
+
+        (List<Vector3> points, List<(int A, int B, int C)> faces) = HullInBoneSpace(physics, 0);
+
+        if (points.Count == 0)
+        {
+            // No hull is no body: it could not be collided with, and a gib that falls through the
+            // world is worse than one that is not drawn.
+            return null;
+        }
+
+        return new RagdollBody(
+            [
+                new RagdollElement(
+                    BoneIndex: 0,
+                    ParentIndex: -1,
+                    OriginParentSpace: Vector3.Zero,
+                    AxesParentSpace: RagdollAxes.Identity,
+                    solid.Mass,
+                    solid.Inertia,
+                    solid.Damping,
+                    solid.RotationDamping,
+                    solid.Volume,
+                    points,
+                    faces,
+                    solid.SurfaceProperty),
+            ],
+            [],
+
+            // A single body has nothing to collide with itself, so there are no rules to carry.
+            null);
+    }
+
+    private static (List<Vector3> Points, List<(int A, int B, int C)> Faces) HullInBoneSpace(
+        PhysicsModel physics, int solid)
     {
         if (solid >= physics.Hulls.Count)
         {
-            return [];
+            return ([], []);
         }
 
         List<Vector3> hull = [];
+        List<(int A, int B, int C)> faces = [];
 
         foreach (PhysicsLedge ledge in physics.Hulls[solid])
         {
+            // **Each ledge indexes its OWN points, so a solid built from several needs its
+            // triangles rebased** as their vertices are appended to one shared list. Getting this
+            // wrong points a face at another ledge's geometry, which is a hull that is subtly the
+            // wrong shape rather than an obvious failure.
+            int rebase = hull.Count;
+
             foreach (Vector3 point in ledge.Points)
             {
                 hull.Add(IvpWorldCollision.ToSource(point));
             }
+
+            foreach ((int a, int b, int c) in ledge.Triangles)
+            {
+                faces.Add((a + rebase, b + rebase, c + rebase));
+            }
         }
 
-        return hull;
+        return (hull, faces);
     }
 
     private static int BoneIndexByName(IReadOnlyList<StudioBone> bones, string name)

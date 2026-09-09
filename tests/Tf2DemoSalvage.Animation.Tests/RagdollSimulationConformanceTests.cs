@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Numerics;
 
@@ -83,16 +84,32 @@ public sealed class RagdollSimulationConformanceTests
     }
 
     /// <remarks>
-    /// **A joint's three axes are not interchangeable, so the permutation is asserted.** The engine
-    /// orders them by mechanics; this orders them by declared range, which is a stated departure —
-    /// and either way the WIDEST must land on the axis the twist is measured about, because that is
-    /// the one whose bounds are negated and swapped.
+    /// **The twist axis is chosen by MECHANICS, which is the engine's rule** — `FUN_1800393d0`
+    /// takes the axis whose rotation moves the two anchors most, weighted by inverse mass, and only
+    /// then orders the remaining two by declared range.
     ///
-    /// The ranges below are 10°, 90° and 40°, all different, so a transcription that took them in
-    /// declaration order lands somewhere else.
+    /// **This test asserted the opposite until B306, and it was asserting our own departure.** The
+    /// twist used to be given the WIDEST range, which is a guess this project made when the anchor
+    /// term looked unavailable — and a wrong permutation decides which limit clamps which motion,
+    /// so it let elbows swing where they should twist. The owner, on the first corpse to draw above
+    /// ground: *"thats contorted as hell, theres some other parity point you havent noticed"*.
+    ///
+    /// **The prediction is arithmetic from the fixture, not from the code.** `RagdollSkeletons`
+    /// puts the child at a bind offset of `(3, 4, 0)` from its parent, and rotation about an axis
+    /// carries the anchor by `|axis x anchor|`:
+    ///
+    /// | axis | moved |
+    /// |---|---|
+    /// | x | `sqrt(4² + 0²)` = 4 |
+    /// | y | `sqrt(3² + 0²)` = 3 |
+    /// | z | `sqrt(3² + 4²)` = **5** |
+    ///
+    /// So Z turns the joint and takes the twist — and Z's declared range is the MIDDLE one at 40°,
+    /// which is what makes this fixture able to tell the two rules apart. The ranges are 10°, 90°
+    /// and 40°, all different, so declaration order lands somewhere else again.
     /// </remarks>
     [Test]
-    public void Create_WithThreeUnequalAxisRanges_GivesTheTwistTheWidestOne()
+    public void Create_WithThreeUnequalAxisRanges_GivesTheTwistTheAxisItTurnsAbout()
     {
         RagdollConstraint constraint = new(
             0,
@@ -108,8 +125,8 @@ public sealed class RagdollSimulationConformanceTests
 
         const float Radian = 0.017453292f;
 
-        joint.Twist.Lower.ShouldBe(-45f * Radian, Tolerance, "the 90° axis, negated hi");
-        joint.Twist.Upper.ShouldBe(45f * Radian, Tolerance);
+        joint.Twist.Lower.ShouldBe(-20f * Radian, Tolerance, "the Z axis, which the anchor turns about");
+        joint.Twist.Upper.ShouldBe(20f * Radian, Tolerance);
     }
 
     /// <remarks>
@@ -226,8 +243,185 @@ public sealed class RagdollSimulationConformanceTests
     private static RagdollSimulation Simulation() =>
         RagdollSimulation.Create(RagdollBody.Build(Physics(), Skeleton())!, Step, Start());
 
+    /// <remarks>
+    /// **A joint pulls its bodies TOGETHER, and the sign is the whole of it.** A ball-and-socket
+    /// with the two halves swapped drives them apart instead, and the error grows every sweep — so
+    /// this is not a refinement of the position, it is the difference between a ragdoll and an
+    /// explosion. It was measured as one: a corpse pass that took fifteen seconds took past twenty
+    /// minutes, because bodies flung across the map make the collision broadphase examine
+    /// everything.
+    ///
+    /// **The condition is a joint pulled apart along its own axis** — the child moved a further
+    /// four units from where its bind pose puts it — and the measurement is the separation after a
+    /// step, which must be SMALLER. A test that only asserted the bodies moved would pass either
+    /// way, which is the whole failure this predicts against.
+    ///
+    /// **Gravity needs no switching off, because the measurement is RELATIVE**: it pulls both
+    /// bodies equally, so it cancels out of the separation and only the joint can change it.
+    /// </remarks>
+    [Test]
+    public void Step_WithAJointPulledApart_BringsTheBodiesCloserTogether()
+    {
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            RagdollBody.Build(Physics(), Skeleton())!,
+            Step,
+            [
+                (Vector3.Zero, Quaternion.Identity),
+                (new Vector3(7f, 4f, 0f), Quaternion.Identity),
+            ]);
+
+        // Bound at (3, 4, 0) and started at (7, 4, 0), so the joint is four units open.
+        float before = Separation(simulation);
+
+        before.ShouldBe(4f, Tolerance, "the fixture opens the joint by exactly four units");
+
+        simulation.Step();
+        simulation.Step();
+
+        Separation(simulation).ShouldBeLessThan(
+            before, "a ball-and-socket closes its error rather than growing it");
+    }
+
+    /// <remarks>
+    /// **A jointed ragdoll WITH hulls, resting on a floor — the condition that hung the viewer.**
+    /// Joints alone are cheap and contacts alone are cheap; it took both together, and there was no
+    /// fixture with both, so the only instrument was a viewer run that takes the desktop, orphans
+    /// itself when killed, and cannot be told apart from a wait on the machine-wide lock. Three
+    /// runs were spent on that confusion.
+    ///
+    /// **The bound is what makes this a test rather than a second hang.** A step that needs more
+    /// than a few slices is already the defect; asserting a generous ceiling fails in
+    /// milliseconds where the real thing failed in four hundred seconds.
+    /// </remarks>
+    [Test]
+    public void Simulate_AJointedRagdollRestingOnAFloor_TakesABoundedNumberOfSlices()
+    {
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            RagdollBody.Build(Solid(), Skeleton())!,
+            Step,
+            [
+                (new Vector3(0f, 0f, 40f), Quaternion.Identity),
+                (new Vector3(3f, 4f, 40f), Quaternion.Identity),
+            ]);
+
+        simulation.Environment.World = FlatFloor();
+
+        for (int step = 0; step < 200; step++)
+        {
+            simulation.Step();
+
+            IvpRigidBody root = simulation.Environment.Bodies[0];
+            IvpRigidBody child = simulation.Environment.Bodies[1];
+
+            float fastest = MathF.Max(Speed(root), Speed(child));
+
+            // **Asserted inside the loop, because the end state cannot tell a settle from an orbit.**
+            // A ragdoll that tore itself apart and flew off would be reported by its final position
+            // too, but only just — and the number that says which happened is the speed at the
+            // moment it goes wrong. Two thousand is the environment's own clamp, so anything near
+            // it means the solve saturated rather than converged.
+            fastest.ShouldBeLessThan(
+                400f,
+                $"step {step}: nothing here may approach the velocity clamp, and " +
+                $"root {root.Position} child {child.Position}");
+        }
+
+        // Two hundred steps, and a settled body needs one slice each.
+        simulation.Environment.Slices.ShouldBeLessThan(
+            2000, "a resting ragdoll must not subdivide its step over and over");
+
+        ((double)simulation.State()[0].Position.Z).ShouldBeGreaterThan(
+            0d, "and it is resting ON the floor, which is what makes the slice count mean anything");
+    }
+
+    private static float Speed(IvpRigidBody body) =>
+        MathF.Sqrt(
+            (body.Velocity.X * body.Velocity.X) +
+            (body.Velocity.Y * body.Velocity.Y) +
+            (body.Velocity.Z * body.Velocity.Z));
+
+    /// <summary>The two-solid ragdoll with real collision hulls on both bodies.</summary>
+    /// <remarks>
+    /// **Authored in IVP metres**, because that is what a `.phy` holds and what
+    /// <c>RagdollBody.HullInBoneSpace</c> converts from — a fixture written in Source units would
+    /// describe a file that does not exist and would be 39 times too big.
+    /// </remarks>
+    private static PhysicsModel Solid()
+    {
+        const float Half = 4f * Metre;
+
+        List<Vector3> points =
+        [
+            new(-Half, -Half, -Half), new(Half, -Half, -Half),
+            new(Half, Half, -Half), new(-Half, Half, -Half),
+            new(-Half, -Half, Half), new(Half, -Half, Half),
+            new(Half, Half, Half), new(-Half, Half, Half),
+        ];
+
+        List<(int A, int B, int C)> triangles =
+        [
+            (4, 5, 6), (4, 6, 7), (0, 2, 1), (0, 3, 2),
+            (0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
+            (1, 2, 6), (1, 6, 5), (3, 0, 4), (3, 4, 7),
+        ];
+
+        List<PhysicsLedge> hull = [new PhysicsLedge(points, triangles, Vector3.Zero, Half * 2f)];
+
+        return PhysicsModel.From(
+            [
+                new PhysicsSolid(0, "bip_root", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f),
+                new PhysicsSolid(1, "bip_child", "bip_root", "flesh", 2f, 1f, 0f, 0f, 20f, 0f),
+            ],
+            [new RagdollConstraint(0, 1, Axis, Axis, Axis)],
+            2,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [hull, hull]);
+    }
+
+    private const float Metre = 0.0254f;
+
+    private static IvpWorldCollision FlatFloor()
+    {
+        IvpWorldCollision world = new();
+
+        world.AddTriangle(
+            new Vector3(-500f, -500f, 0f),
+            new Vector3(500f, -500f, 0f),
+            new Vector3(500f, 500f, 0f));
+
+        world.AddTriangle(
+            new Vector3(-500f, -500f, 0f),
+            new Vector3(500f, 500f, 0f),
+            new Vector3(-500f, 500f, 0f));
+
+        return world;
+    }
+
+    /// <summary>How far the child is from where its joint says it should be.</summary>
+    private static float Separation(RagdollSimulation simulation)
+    {
+        (Vector3 Position, Quaternion Orientation)[] state = simulation.State();
+
+        return (state[1].Position - (state[0].Position + new Vector3(3f, 4f, 0f))).Length();
+    }
+
+    /// <summary>The two bodies where their bind pose puts them, a joint's length apart.</summary>
+    /// <remarks>
+    /// **Both used to start at the origin, and that describes a ragdoll that cannot exist.**
+    /// `RagdollSkeletons.Straight` binds the child at `(3, 4, 0)` from its parent, so two bodies
+    /// stacked on the same point are already a joint's length out of place before the first step.
+    /// Nothing noticed while the joints were angular only — an angular constraint cannot see where
+    /// a body IS — and the moment the ball-and-socket arrived it correctly hauled them together,
+    /// which read as the root drifting sideways by 0.045 units.
+    ///
+    /// **The code was right and the fixture was wrong**, so the fixture moved. Every prediction
+    /// these tests make is about the ROOT, which still starts at the origin, so none of them
+    /// changes meaning — and `Step_TwiceUnderGravity_MovesTheRootDownInSourceSpace` now measures a
+    /// root that is not being pulled by a joint error the test never meant to create.
+    /// </remarks>
     private static (Vector3, Quaternion)[] Start() =>
-        [(Vector3.Zero, Quaternion.Identity), (Vector3.Zero, Quaternion.Identity)];
+        [(Vector3.Zero, Quaternion.Identity), (new Vector3(3f, 4f, 0f), Quaternion.Identity)];
 
     private static readonly ConstraintAxis Axis = new(-30f, 30f, 0f);
 

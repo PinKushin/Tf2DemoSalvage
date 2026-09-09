@@ -3590,6 +3590,37 @@ public sealed class EntityModelSet : IModelBodygroups
             return death;
         }
 
+        // **The player's OWN sequence, which is what the engine actually copies** (B316).
+        //
+        //     m_flAnimTime = pPlayer->m_flAnimTime;
+        //     SetSequence( pPlayer->GetSequence() );
+        //     m_flPlaybackRate = pPlayer->GetPlaybackRate();
+        //
+        // `c_tf_player.cpp:757-766`, under `!pPlayer->IsLocalPlayer()` — and a SourceTV recording
+        // has no local player, so every corpse in one takes that branch. `ACT_DIERAGDOLL` below is
+        // NOT this: it is a stiff rest pose, and a corpse seeded from it starts its physics with
+        // its limbs spread instead of crumpling from whatever the player was mid-way through.
+        // Measured on `z1800`: an engineer's corpse stood bolt upright with its arms out for the
+        // first tenth of a second before the solve pulled it down — the owner's *"contorted t pose
+        // like state"*.
+        //
+        // **The inputs come from the corpse rather than the player**, because a player's speed is
+        // never on the wire; `RagdollProps` reads them off `m_vecRagdollVelocity` and `m_bOnGround`,
+        // which are the same two facts the player's own activity was chosen from.
+        if (prop.Pose.Speed is { } speed &&
+            SequenceFor(
+                prop.ModelPath,
+                speed,
+                prop.Pose.Flags,
+
+                // The corpse is drawn, so the animation is chosen the way a drawn player's is;
+                // `alive` here selects the standing activities rather than gating on life.
+                alive: true,
+                slot: prop.Pose.Slot ?? "PRIMARY") is >= 0 and int copied)
+        {
+            return copied;
+        }
+
         // **A negative answer is left alone rather than written.** −1 means "this model has no such
         // sequence", and storing it would freeze the corpse on frame zero of nothing.
         int resting = corpse.ForActivity(RagdollRestActivity);
@@ -3727,6 +3758,20 @@ public sealed class EntityModelSet : IModelBodygroups
             ? PlayerAnimation.For(
                 skinned, speed, flags, alive, slot, airborneSeconds, airwalking, waterLevel)
             : -1;
+
+    /// <summary>The pieces a model breaks into, empty when it declares none (B371).</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>Its <c>break</c> blocks, or an empty list.</returns>
+    /// <remarks>
+    /// **Empty rather than null for a model that is not loaded YET**, which is a real state: a
+    /// corpse can be drawn before its class model has been read. A gibbed corpse then draws no
+    /// pieces for those frames, which is right — the alternative would be to draw its body, and the
+    /// engine has already removed that.
+    /// </remarks>
+    public IReadOnlyList<PhysicsBreakPiece> BreakPiecesOf(string modelPath) =>
+        _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames)
+            ? frames.BreakPieces ?? []
+            : [];
 
     /// <summary>Every baked frame's batches for one model.</summary>
     /// <param name="modelPath">The model's path.</param>
@@ -4583,7 +4628,10 @@ public sealed class EntityModelSet : IModelBodygroups
                         (int)CurrentTick,
                         IntervalPerTick,
                         seconds,
-                        prop.FirstTick);
+                        prop.FirstTick,
+                        prop.Force,
+                        prop.ForceBone,
+                        prop.RagdollVelocity);
                 }
 
                 long setupAt = System.Diagnostics.Stopwatch.GetTimestamp();

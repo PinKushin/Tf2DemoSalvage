@@ -7,6 +7,7 @@ using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
@@ -135,6 +136,11 @@ public static class DemoModels
         foreach (string model in game.ModelPaths())
         {
             paths.Add(model);
+
+            foreach (string gib in GibsOf(model, game))
+            {
+                paths.Add(gib);
+            }
         }
 
         if (timeline is not { } demo)
@@ -226,6 +232,11 @@ public static class DemoModels
         foreach (string model in game.ModelPaths())
         {
             paths.Add(model);
+
+            foreach (string gib in GibsOf(model, game))
+            {
+                paths.Add(gib);
+            }
         }
 
         // **The extra models items hang on themselves**, which appear in no track and in no string
@@ -279,5 +290,68 @@ public static class DemoModels
         }
 
         return worn;
+    }
+
+    /// <summary>The gib models a class model's <c>.phy</c> declares.</summary>
+    /// <param name="model">The class model, as the roster names it.</param>
+    /// <param name="game">The install the <c>.phy</c> is read from.</param>
+    /// <returns>Every piece's model path, or nothing when the model ships no break list.</returns>
+    /// <remarks>
+    /// **The engine precaches these with the model itself and by the same call.**
+    /// <c>CTFPlayer::PrecachePlayerModels</c> (<c>tf_player.cpp:2848</c>) runs
+    /// <c>PrecacheModel( pszModel )</c> and then <c>PrecacheGibsForModel( iModel )</c> for every
+    /// class — which is <c>PrecachePropsForModel( iModel, "break" )</c>
+    /// (<c>props_shared.cpp:1239</c>), walking the collide data's key values and precaching every
+    /// <c>breakModel.modelName</c> it finds under <c>break</c>.
+    ///
+    /// **Nothing else in this file can bring a gib in**, which is why the omission drew nothing
+    /// rather than drawing late: a gib is in no <c>ScenePropTrack</c>, no string table and no item
+    /// schema, because it is not an entity until a player gibs. By then the loader is a dictionary
+    /// rather than an on-demand read, so a gib missing from these sets packs to nothing for ever —
+    /// B195 one layer over, and the reason it belongs in BOTH <see cref="Needed"/> and
+    /// <see cref="ToPack"/>.
+    ///
+    /// **A missing or malformed <c>.phy</c> yields nothing rather than throwing.** Most models ship
+    /// none, and a file that will not parse is reported where it is read for its geometry —
+    /// <c>PropModels.ReadBreakPieces</c> logs it against the model — so failing the whole demo load
+    /// here would lose every other model to one bad file while saying no more than that read does.
+    /// </remarks>
+    private static IReadOnlyList<string> GibsOf(string model, GameContent game) =>
+        [.. BreakPiecesOf(model, game).Select(piece => PhysicsModel.GibPath(piece.Model))];
+
+    /// <summary>The break list a model's <c>.phy</c> declares, read from the install.</summary>
+    /// <param name="model">The model, as the roster or a track names it.</param>
+    /// <param name="game">The install the <c>.phy</c> is read from.</param>
+    /// <returns>The pieces, or nothing when the model ships no break list.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Public because a corpse needs the same list at draw time and must not read it a second
+    /// way.** <see cref="RagdollProps.Fill"/> takes a supplier of exactly this, and the viewer's
+    /// answers it out of the frame cache — which only ever holds a model something has already
+    /// DRAWN. A gibbed corpse draws no body, so its class model can be absent from that cache and
+    /// the supplier then answers "no pieces" for a model that declares nine
+    /// (<c>docs/memory/a-lookup-is-not-a-loader.md</c>). Reading the <c>.phy</c> is what the engine
+    /// does — <c>PrecachePropsForModel</c> parses the collide data's key values directly — and it
+    /// is cheap enough to do per model, since a <c>.phy</c>'s text is a few hundred bytes beside
+    /// the megabytes of geometry the same load already paid for.
+    /// </remarks>
+    public static IReadOnlyList<PhysicsBreakPiece> BreakPiecesOf(string model, GameContent game)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(game);
+
+        if (game.Archives.Read(Path.ChangeExtension(model, ".phy")) is not { Length: > 0 } file)
+        {
+            return [];
+        }
+
+        try
+        {
+            return PhysicsModel.Read(file).BreakPieces;
+        }
+        catch (InvalidDataException)
+        {
+            return [];
+        }
     }
 }

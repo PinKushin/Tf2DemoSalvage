@@ -3538,8 +3538,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // types does not hold a position to give. A degenerate projection has no eye; the zero
         // below leaves reflections at map centre, which is why EyePosition returns null rather than
         // guessing and the shader is told there is no cubemap in that case.
-        (float X, float Y, float Z) eye = EyePosition.From(matrix) ?? (0f, 0f, 0f);
-        float hasEye = EyePosition.From(matrix) is null ? 0f : 1f;
+        (float X, float Y, float Z)? found = EyePosition.From(matrix);
+        (float X, float Y, float Z) eye = found ?? (0f, 0f, 0f);
+        float hasEye = found is null ? 0f : 1f;
 
         // The matrix, then a float4 whose first component is the category-view switch, then the
         // eye. Constant buffers are sized in whole sixteen-byte registers, so the padding is not

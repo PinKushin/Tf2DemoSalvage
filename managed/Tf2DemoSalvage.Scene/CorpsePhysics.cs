@@ -64,6 +64,74 @@ public sealed class CorpsePhysics
     /// <summary>How many steps have been run, across all corpses.</summary>
     public int Steps { get; private set; }
 
+    /// <summary>Stopwatch ticks spent stepping corpses forward.</summary>
+    /// <remarks>
+    /// **The one unbounded cost in this type**, and the only number that separates "a corpse is
+    /// expensive" from "seeking is expensive": a seek replays every tick since a death, so the same
+    /// per-tick cost that vanishes in a frame is minutes when six hundred run at once.
+    /// </remarks>
+    public long SteppingTicks { get; private set; }
+
+    /// <summary>How many sub-intervals the last corpse's steps were walked in.</summary>
+    public long Slices { get; private set; }
+
+    /// <summary>
+    /// **A corpse is only simulated while it is DRAWN, and that is a divergence** (B58).
+    /// </summary>
+    /// <remarks>
+    /// **The engine keeps a ragdoll in the physics environment whether or not the view can see
+    /// it.** `cl_ragdoll_physics_enable` decides whether one exists at all; after that it is
+    /// `physenv`'s, and visibility governs drawing alone. Here the advance happens inside the loop
+    /// over DRAWN props, so a corpse behind the camera stops dead and resumes when it comes back
+    /// into view.
+    ///
+    /// **It was found by the instrument disagreeing with itself.** The same tick, from two
+    /// cameras: from one, three corpses reported leaving the world; from a wider one that did not
+    /// draw them, none did — because none of them had been stepped at all.
+    ///
+    /// **Fixing it is not a line.** This project's animation is draw-driven end to end — an
+    /// `AnimatingEntity` exists because something posed it — so simulating an unseen corpse means
+    /// giving it an entity nothing is drawing. Written down here rather than left as a surprise.
+    /// </remarks>
+    public static bool SimulatesOnlyWhatIsDrawn => true;
+
+    /// <summary>For each corpse that left the world, when, where, and its contacts then.</summary>
+    /// <remarks>
+    /// **The position is the point of the record.** The tick says a corpse sank rather than
+    /// started below; only the place says WHERE the world let it through, and the resting place
+    /// cannot stand in for it — three corpses measured on `z1800` slid between three hundred and
+    /// eight hundred units after crossing, so probing where they stopped asks about the wrong
+    /// geometry.
+    /// </remarks>
+    public IReadOnlyDictionary<int, (int Tick, int Contacts, (double X, double Y, double Z) At)>
+        Fell => _fell;
+
+    private readonly Dictionary<int, (int Tick, int Contacts, (double X, double Y, double Z) At)>
+        _fell = [];
+
+    private readonly Dictionary<int, (double X, double Y, double Z)> _touched = [];
+
+    /// <summary>How far below its last contact a body must be to have left the world, not sunk.</summary>
+    /// <remarks>
+    /// **This was an absolute <c>-50</c> world height and it could not work.** A fixed z asks
+    /// "is the body below fifty units", which is a question about the MAP rather than about the
+    /// body: on `cp_granary` the ground under a real corpse sits near z −416, so every corpse there
+    /// is already "fallen" before it is dropped and the detector reports nothing — measured while
+    /// tracing corpses that were genuinely sinking (B306), where it stayed silent throughout.
+    ///
+    /// **A fall is leaving the surface you were ON**, which is what the record beside it already
+    /// says: *"The last contact is the lip of the hole."* So the threshold is relative to that
+    /// point, and it is map-independent by construction. Sixty-four units is the terrain slab's own
+    /// thickness (`IvpWorldCollision.TerrainDepth`) — a body still within it is inside the ground
+    /// the solve is trying to push it out of, and a body below it has passed through the whole slab
+    /// and is not coming back.
+    /// </remarks>
+    private const double FallenThrough = -64d;
+
+    /// <summary>The same, in seconds.</summary>
+    public double SteppingSeconds =>
+        SteppingTicks / (double)System.Diagnostics.Stopwatch.Frequency;
+
     /// <summary>Where the simulation has put each corpse's root body, by entity index.</summary>
     /// <remarks>
     /// **Carried out of the solver rather than recomputed** (B243). A corpse's simulated position is
@@ -106,6 +174,16 @@ public sealed class CorpsePhysics
 
     private readonly Dictionary<int, Vector3> _seeded = [];
 
+    /// <summary>How hard each corpse was hit — the magnitude of <c>m_vecForce</c>.</summary>
+    /// <remarks>
+    /// **Carried out of the seed that used it** (B243). A corpse that flies too far has two causes
+    /// that look identical from outside — the wire's force being larger than expected, and this
+    /// project applying it wrongly — and only the number the code actually used separates them.
+    /// </remarks>
+    public IReadOnlyDictionary<int, (float X, float Y, float Z)> Blows => _blows;
+
+    private readonly Dictionary<int, (float X, float Y, float Z)> _blows = [];
+
     /// <summary>Forgets every simulation — a new demo, or a map change.</summary>
     public void Clear()
     {
@@ -124,6 +202,9 @@ public sealed class CorpsePhysics
     /// The tick this corpse died, so a seek simulates it forward from there rather than seeding it
     /// standing at whatever tick it was first drawn at. Null falls back to that drawn tick.
     /// </param>
+    /// <param name="force">The killing blow — <c>m_vecForce</c>, an impulse in kg·in/s.</param>
+    /// <param name="forceBone">Which body it landed on — <c>m_nForceBone</c>.</param>
+    /// <param name="velocity">What the corpse was already carrying — <c>m_vecRagdollVelocity</c>.</param>
     /// <returns><c>true</c> when the entity now has a simulation attached.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -140,7 +221,10 @@ public sealed class CorpsePhysics
         int tick,
         float interval,
         double seconds,
-        int? bornAt = null)
+        int? bornAt = null,
+        (float X, float Y, float Z)? force = null,
+        int? forceBone = null,
+        (float X, float Y, float Z)? velocity = null)
     {
         ArgumentNullException.ThrowIfNull(ragdoll);
         ArgumentNullException.ThrowIfNull(entity);
@@ -162,7 +246,15 @@ public sealed class CorpsePhysics
             int birth = bornAt is { } known && known <= tick ? known : tick;
 
             live = Seed(
-                entityIndex, ragdoll, entity, birth, interval, seconds - ((tick - birth) * interval));
+                force,
+                forceBone,
+                velocity,
+                entityIndex,
+                ragdoll,
+                entity,
+                birth,
+                interval,
+                seconds - ((tick - birth) * interval));
 
             if (live is null)
             {
@@ -174,12 +266,67 @@ public sealed class CorpsePhysics
         // life — is handled above by rebuilding, so this only ever counts forward.
         bool stepped = live.SteppedTo < tick;
 
+        long steppingFrom = System.Diagnostics.Stopwatch.GetTimestamp();
+
         while (live.SteppedTo < tick)
         {
             live.Simulation.Step();
             live.SteppedTo++;
             Steps++;
+
+            // **The tick a corpse first drops out of the world, caught as it happens** (B58). The
+            // resting place says only where it stopped; three corpses on `z1800` end at the same
+            // three depths through every change, and what separates "it started there" from "it
+            // fell through on the way" is WHEN — with the contact count at that moment beside it,
+            // because a body falling with contacts is one the solve failed to hold and a body
+            // falling without any is one nothing ever saw.
+            if (live.Simulation.Environment.Bodies.Count == 0)
+            {
+                continue;
+            }
+
+            (double X, double Y, double Z) at = live.Simulation.Environment.Bodies[0].Position;
+
+            // **The HIGHEST place it ever touched anything, which is the lip of the hole.** The
+            // threshold below fires long after the event — a corpse crossing a floor at z 200 is
+            // recorded three hundred units and a second of sideways travel later, and probing THAT
+            // spot asks about the wrong geometry. Two probes were spent on the wrong answer before
+            // this existed.
+            //
+            // **Highest rather than most recent, because a body sinking THROUGH a surface keeps
+            // finding contacts the whole way down** (B306). Measured: a corpse on `cp_granary`
+            // descended from −424 to −654 with ninety-odd contacts at every step, so a
+            // most-recent reference followed it down and the gap between the two never grew —
+            // the detector could not fire no matter how far the body sank. The surface it landed
+            // ON does not move.
+            if (live.Simulation.Environment.Contacts > 0 &&
+                (!_touched.TryGetValue(entityIndex, out (double X, double Y, double Z) touched) ||
+                 at.Z > touched.Z))
+            {
+                _touched[entityIndex] = at;
+            }
+
+            // **Measured against the last place it touched anything, not against a world height.**
+            // See <see cref="FallenThrough"/>: a body that never touched has nothing to have fallen
+            // THROUGH, so it is not reported until it does.
+            if (!_fell.ContainsKey(entityIndex) &&
+                _touched.TryGetValue(entityIndex, out (double X, double Y, double Z) last) &&
+                at.Z - last.Z < FallenThrough)
+            {
+                _fell[entityIndex] = (
+                    live.SteppedTo,
+                    live.Simulation.Environment.Contacts,
+                    last);
+            }
         }
+
+        // **Timed because catching a corpse up is the one unbounded thing here** (B58). A seek to a
+        // tick long after a death replays every tick between, and a cost per tick that looks
+        // trivial in a frame is minutes when six hundred of them run at once — which is what the
+        // owner saw as a hang on seeking.
+        SteppingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - steppingFrom;
+
+        Slices = live.Simulation.Environment.Slices;
 
         entity.Ragdoll = live.Write;
 
@@ -225,6 +372,9 @@ public sealed class CorpsePhysics
     /// would drift a little further from the animation every time it was rebuilt.
     /// </remarks>
     private Running? Seed(
+        (float X, float Y, float Z)? force,
+        int? forceBone,
+        (float X, float Y, float Z)? velocity,
         int entityIndex,
         RagdollBody ragdoll,
         AnimatingEntity entity,
@@ -273,6 +423,25 @@ public sealed class CorpsePhysics
             ragdoll, interval, start, Surfaces);
 
         simulation.Environment.World = World;
+
+        // **The killing blow, applied at creation exactly as `RagdollCreate` does** (B58). It is
+        // staged rather than set, so it lands on this corpse's first step — the engine's own
+        // one-step lag, not a delay invented here.
+        if (velocity is { } inherited)
+        {
+            simulation.Inherit(inherited);
+        }
+
+        if (force is { } blow)
+        {
+            simulation.Kill(blow, forceBone ?? -1);
+
+            // **The whole vector, not its length.** A magnitude cannot reproduce the event: the two
+            // corpses that leave the world on `z1800` are the two that were hit hardest, and a
+            // probe replaying them with a guessed DIRECTION throws a different corpse off the map
+            // and rests the two that really go. Which is the wrong bug, arrived at confidently.
+            _blows[entityIndex] = blow;
+        }
 
         Running live = new(simulation, tick, tick);
 

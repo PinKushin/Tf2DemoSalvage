@@ -135,6 +135,15 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// </remarks>
     public Func<ItemSchema?>? Items { get; set; }
 
+    /// <summary>Where a model's <c>break</c> pieces come from — its gib list (B371).</summary>
+    /// <remarks>
+    /// **A supplier read per call, for the same reason <see cref="ClassModels"/> is**: the model
+    /// carrying the list is opened on the archives' own schedule, so a source bound once would hold
+    /// an empty answer for the life of the demo. Null until the renderer sets it, which is the
+    /// state in which a gibbed corpse draws nothing at all.
+    /// </remarks>
+    public Func<string, IReadOnlyList<PhysicsBreakPiece>>? Gibs { get; set; }
+
 
     /// <inheritdoc />
     public float IntervalPerTick => timeline.IntervalPerTick;
@@ -172,7 +181,15 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
             // times. Null is the first frame, where treating every corpse as unseen is right: their
             // timers have only just started.
             RagdollProps.Fill(
-                timeline.Corpses, tick, classes, into, _fade, interpolate, Items?.Invoke());
+                timeline.Corpses,
+                tick,
+                classes,
+                into,
+                _fade,
+                interpolate,
+                Items?.Invoke(),
+                Gibs,
+                timeline.IntervalPerTick);
         }
     }
 

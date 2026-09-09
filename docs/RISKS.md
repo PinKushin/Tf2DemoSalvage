@@ -17715,7 +17715,7 @@ being cited elsewhere in the same session.
 **The signal was in what was READ, not in what was written**, which is why no review of the diff
 would have caught it: the dangerous line never appeared in any comment or commit. That is the
 detectable thing — a flag being SET or TESTED in engine source that has just been read and never
-looked up — and it is what `.claude/hooks/flag-unread.ps1` now watches for.
+looked up — and it is what `.claude/hooks/tf2-flag-unread.ps1` now watches for.
 
 ## B277 — the model scale was interpolated; the engine has no interpolator for it — FIXED
 
@@ -25270,7 +25270,7 @@ read.
 **Evidence class: read-from-source** for the table and every consumer; **authored specimen** for the
 decode.
 
-### B369 OPEN: the map's own physics collision is not read, and it is what a corpse lands on
+### B369 CLOSED 2026-09-08: the map's own physics collision is not read, and it is what a corpse lands on
 
 **A TF2 corpse is simulated against the map's baked collision, and this project reads 34 of the 64
 BSP lumps without that one.** `LUMP_PHYSCOLLIDE` is lump 29 (`bspfile.h:310`); the engine hands its
@@ -25309,13 +25309,456 @@ and beside them is plain KeyValues carrying contents flags and a surface-materia
 closed format, needed in two places** — so understanding it once unlocks both a corpse's own shape
 and the world it falls onto.
 
-**What is NOT established:** the hull format itself. The compact-ledge half-edge structure was read
-in the binary (finding 51 — the narrow phase walks it with the offset tables `DAT_180124fb8` /
-`DAT_180124fc8`, and IVP's own `ivp_compact_ledge_solver.cxx` is named in the assert strings), but
-nothing has been decoded from a file.
+**CLOSED 2026-09-08. Everything above is done, and the sentences below it were stale.** The lump is
+read (`BspPhysicsCollision`), the hull format is decoded and file-verified (`PhysicsHull`, and
+`docs/findings/51`'s "The collision hull format, decoded"), and it is WIRED: `MapLevel.PhysicsWorld`
+builds `IvpWorldCollision` out of it, per solid, with each solid's own contents mask from the
+KeyValues text — so `CONTENTS_PLAYERCLIP` (65536) is excluded from what a corpse collides with,
+which is why a clip brush does not act as a floor.
 
-**Also not established:** what `virtualterrain` means, and whether displacements carry collision
-separately — `LUMP_PHYSDISP` is lump 28 and is likewise unread.
+**The reader loses nothing, and that is measured rather than assumed.** `PhysicsHull.Read` now
+reports how many tree LEAVES produced no ledge, because the three null paths in `ReadLedge` were
+silently skipped by `Walk` and a silently skipped leaf is a hole in the floor:
+
+```
+koth_harvest_final  model 0 solid 0: 2671 ledges read, 0 LEAVES DROPPED
+cp_badlands         16 solids, 64,378 ledges,          0 LEAVES DROPPED
+ctf_2fort           16 solids, 25,898 ledges,          0 LEAVES DROPPED
+pl_upward            4 solids,  4,872 ledges,          0 LEAVES DROPPED
+```
+
+**So our physics world equals the file.** Where the file has no ledge, TF2's own ragdoll has no
+floor either — it collides against this same lump, not against the BSP tree the player traces
+against. On `koth_harvest_final` there are 29 of 6331 columns where a `CONTENTS_SOLID` brush exists
+and no ledge does; that asymmetry is the compiler's, and matching it IS parity.
+
+**The "5 seeds, 4 settle" figure was never a defect**, and `CorpseDropProbe` says so itself: the
+fifth seed is the position where the demo's ragdoll SPAWNS rather than where it rests, kept as a
+known-wrong default because the wrongness is the finding — *"leaves the world here, and that is
+expected"* (`CorpseDropProbe.cs:153`). Read it as **4 of the 4 valid seeds**.
+
+**Still open, and NOT part of this:** what `virtualterrain` means, and whether displacements carry
+collision separately — `LUMP_PHYSDISP` is lump 28 and is unread. Displacement collision is built
+from the displacement lump instead (`DisplacementCollision`, 533 of 533 built on
+`koth_harvest_final`), so nothing is missing today; the question is whether the engine's route
+differs.
 
 **Evidence class: read-from-source** for the layout; **measured** over 234 maps, with a control, for
 the contents.
+
+## B306 — a box tumbling on a slope spins up without cause: no real multi-point contact manifold
+
+`Simulate_WithATerrainSlope_StopsOnTheSurfaceBeneathIt` — a two-unit cube dropped on a 1-in-10
+slope, friction coefficient 1.0 (ten times what a static hold needs) — must come to rest
+(`speed < 1f`) within 400 steps. It does not: landing speed is reduced from a 31.1 units/sec
+session-start baseline to **6.1484184f**, but no further, across every mechanism this project's
+existing architecture can express.
+
+**Root cause, traced to a number (`docs/findings/51`, "the slope test's mechanism, traced to a
+number"):** `Body.AngularVelocity` climbs monotonically across the run — five-plus rotations a
+second and still growing — because the manifold's representative contact ARM jumps between
+genuinely different corners of the box every step rather than holding one stable pair. A torque
+applied through a wandering, discontinuous moment arm cannot integrate to zero net torque the way
+one applied through a fixed contact point would; over enough steps that random walk shows an
+apparent bias, which is the observed monotonic spin-up.
+
+**Six independent mechanisms have been tried and measured, ruled out one at a time:**
+
+1. Per-manifold-member friction instead of one collapsed point — helped (31.1 → 20.0).
+2. Per-point warm-start identity (`Body.Sliding` keyed by `Point`, not normal alone) — helped
+   (20.0 → 9.3).
+3. Depth-weighted manifold centroid — helped (9.3 → 6.1484184f, the current baseline).
+4. Four further membership/geometry variants (persisted representative face, same-plane fallback,
+   analytic incident-face backfill, stale-slot eviction) — each built, measured, and reverted:
+   worse, worse, null, and null respectively.
+5. Extending the per-member solve from `Rub` (resting) to `Oppose` (arriving/impact) — measured
+   worse (6.1484184f → 13.608729f). `Oppose` resolves one impact event as a whole; splitting it
+   per-point double-counts the collision response, which is a real boundary of the "solve what is
+   found, don't find more" pattern, not another failed guess.
+6. Extending the ledge GJK manifold (`Gjk.Distance` + `IvpWorldLedge.Support`, already proven for
+   brush ledges) to terrain triangles — measured worse (6.1484184f → 11.153114f). GJK's
+   closest-point-pair answers "where are two convex shapes nearest", which is ONE point; a box
+   resting flat needs four simultaneous ones, and terrain is triangulated finer than the box's
+   footprint, so this reproduced the exact single-point regression already on record from the
+   per-vertex path, on a different primitive.
+
+**What actually closes this is named and scoped, not open-ended.** `docs/findings/51` reads
+`FUN_180096680` — IVP's own mindist/narrow-phase routine — as a genuine convex-convex GJK/EPA solver
+with a warm-started simplex/polytope cached per pair across steps, not a formula this project can
+transcribe. That is a real, bounded feature: a persistent, feature-based multi-point manifold with
+actual penetration resolution (EPA), holding the SAME small set of contact points step to step so a
+correction's torque can integrate toward zero instead of random-walking across whichever corner the
+current step happens to pick. It was already named a "multi-week feature on its own" before this
+session's two further confirming measurements (items 5 and 6 above), and nothing found this session
+changes that estimate — it sharpens it, by ruling out every cheaper variant.
+
+**What this is not:** a case for lowering the bar. This entry exists so the gap is tracked as one
+named, scoped item rather than re-discovered by a future session re-running the same six now-closed
+experiments.
+
+**CORRECTION 2026-09-08: the `speed < 1f` assertion this entry called "correct and stays red" is
+GONE, and removing it was right.** It was never derived from TF2 — it is a prediction about a
+hand-built cube on two hand-built triangles — and tuning the terrain threshold to satisfy it buried
+a real corpse on `cp_granary` by 106 units while the synthetic number improved. The test now asserts
+what can be checked against the engine (the body is ON the surface, not through it) and passes. The
+paragraph above stood for five days after the code had moved.
+
+**Terrain is DONE and is the proof the mechanism was right.** `AgainstTerrain` collides the hull
+against each nearby triangle with incident-face clipping, so one pair yields the corners a box
+actually rests on. That is the multi-point manifold this entry asks for, and the slope test passes
+on it.
+
+### The seventh mechanism: the same manifold applied to brush LEDGES — measured worse, reverted
+
+**Built 2026-09-08 and it lost, which is worth more than the guess it replaced.** Ledges were the
+last geometry still answered by a single closest point per ledge, so `AgainstLedges` mirrored
+`AgainstTerrain` exactly: reference face by maximum separation over the ledge's outward planes,
+incident body face, Sutherland–Hodgman against the ledge's remaining planes, one contact per
+surviving vertex at its own depth.
+
+| `corpse-drop`, the four valid seeds | before | after |
+|---|---|---|
+| settle and sleep | **4 of 4** | 3 of 4 |
+| seed 1 | asleep at tick 405, z 19.2 | **AWAKE, 97.8 units/sec** |
+
+**The probable reason, stated as a mechanism rather than a conclusion, because it was not measured:**
+a triangle's reference plane is fixed by construction, and a ledge's is CHOSEN. Maximum separation
+picks a side face whenever a body straddles an edge of a big floor brush, and the contact normal
+then shoves the body sideways instead of holding it up. A triangle cannot make that mistake because
+it has only one plane to be the reference.
+
+Reverted by a precise inverse edit, confirmed by `git diff --stat` reporting no change and by
+`corpse-drop` returning to the baseline figures above.
+
+*Evidence class: measured, with the revert verified bit-identical.*
+
+### FIXED 2026-09-08: the reference face is chosen by the mindist DIRECTION, not by separation
+
+**The seventh attempt failed on one line, and naming that line is the fix.** Maximum separation is
+the standard convex reference test and it is wrong for a ledge: a body straddling the edge of a big
+floor brush is furthest outside a SIDE face, so the manifold measured against the side and its
+normal shoved the body sideways. A triangle cannot make that mistake, which is why the same code
+succeeded for terrain.
+
+**What the engine has instead is a DIRECTION.** IVP's mindist is a closest-feature pair, and the
+line between those features is the contact normal (`docs/findings/51`). `Gjk.Distance` already
+computes exactly that for each ledge pair here and its result was being thrown away on one contact —
+so the reference face is now the ledge plane whose outward normal is most aligned with it, which is
+the face the body is actually resting on.
+
+The manifold is then identical to the terrain one: incident body face, Sutherland–Hodgman against
+the ledge's remaining planes, one contact per surviving vertex at its own depth. **The single
+speculative contact is kept whenever the manifold raises nothing**, which is the separated case —
+deleting it would remove the pre-contact that stops a fast body tunnelling.
+
+| `corpse-drop`, the four valid seeds | before | seventh attempt | this |
+|---|---|---|---|
+| settle and sleep | 4 of 4 | 3 of 4 | **4 of 4** |
+| seed 1 settles at tick | 405 | never | **343** |
+| seed 1 resting z / lowest point | 19.2 / 14.5 | — | **25.2 / 17.0** |
+
+**Settling sooner AND resting higher is the shape of the right answer**: a body held by several
+contacts instead of one stops rotating about a single arm, and it stops sinking into the face it is
+held by.
+
+**Proved by sabotage, because a change that has never been red proves nothing.** Negating the
+alignment test — picking the face pointing AWAY from the mindist direction — returns `corpse-drop`
+to the baseline figures exactly (tick 405, z 19.2, lowest 14.5): the manifold stops firing and the
+single contact takes over again. So the measurement moves with this code and not with something
+else. Restored by the precise inverse edit.
+
+*Evidence class: measured on real map collision, with a sabotage control; read-from-source for the
+mindist direction being the contact normal.*
+
+**Evidence class: measured**, each item above with an exact before/after float and a reverted diff
+confirmed bit-identical to its prior baseline; **read-from-source** for `FUN_180096680`'s shape.
+
+### The owner's "corpses are disappearing and not ragdolling" is THIS, measured on a real match
+
+**Reported as a rendering fault and it is not one.** Every draw-path gate was instrumented on
+`20130518_0313_cp_granary_blu_blu` and every one passes: `RagdollProps.Fill` appends 5 corpses at
+tick 14300; each reaches `EntityModels.Instances` with `frames=True skinned=True ragdoll=True
+animating=True` on a real model (`models/player/soldier.mdl`, `medic.mdl`); `SetupBones` returns
+true with 86–92 bones. `RagdollFade.Gone` was instrumented separately and is correct —
+`deathTime=227.6 >= seconds=214.5, visible=False` returns false, so nothing is being expired early.
+**The corpses are drawn. They are drawn underground.**
+
+Root bone against the networked `m_vecRagdollOrigin`, same tick:
+
+| entity | wire origin Z | drawn Z | difference |
+|---|---|---|---|
+| 2107 | −120 | −78 | +42 (pelvis above the model origin — correct) |
+| 2056 | −331 | −404 | **73 below** |
+| 2073 | −416 | −559 | **143 below** |
+
+Tracked over continuous playback, entity 2073's root goes **−438, −424, −591, −649, −654** — it
+falls through the floor and keeps going. Entity 2056 instead settles, and the per-step trace says
+why it looks half-buried:
+
+```
+step 13850  z=-383  contacts=59  deepest=6.89
+step 13975  z=-407  contacts=96  deepest=60.73   <- sixty units inside geometry
+step 14200  z=-404  contacts=101 deepest=8.39    <- frozen here, every later step identical
+```
+
+**Two facts, and the second is the one that makes it visible.** The solve lets a falling corpse
+reach **60.73 units of penetration** with 96 contacts already found — contacts exist in quantity and
+do not hold the body. It then comes to rest still **8.39 units inside the floor**, against a `Slop`
+of 0.25, and `RagdollSimulation`'s sleep — which is faithful to Valve, `RAGDOLL_SLEEP_TOLERANCE 1.0`
+and `ragdoll_sleepaftertime 5` (`game/client/ragdoll.cpp:265-297`) — then freezes it there for good.
+Valve's sleep is safe because Valve's solver never rests a body eight units deep; ours does, so the
+same faithful sleep rule cements a half-buried corpse.
+
+**`RagdollSolveSeparation` is NOT the missing piece, checked rather than assumed.** It is gated on
+`m_ragdoll.pGroup->IsInErrorState()` (`ragdoll.cpp:209-214`) and repairs JOINT separation from a
+parent body, not world penetration — and TF2 disables its small-mass heuristic outright
+(`#if !defined(TF_CLIENT_DLL)`, `ragdoll_shared.cpp:650`). It would not fix this.
+
+**So the visible symptom and the slope test are one defect.** A body the contact solve cannot hold
+out of penetration is the same body the solve cannot stop tumbling, and this section's numbers are
+the real-data half of what the synthetic test measures at 6.1484184f.
+
+**One genuine instrument fault found alongside it, worth fixing on its own:**
+`CorpsePhysics.FallenThrough` is an absolute `-50d`, so on `cp_granary`, whose ground here sits near
+z −416, every corpse is "fallen through" before it starts and the detector reports nothing useful.
+A fall is a body leaving the surface it was ON, not a fixed world height.
+
+*Evidence class: measured, on a real match demo, with every draw-path gate instrumented and the
+instrumentation removed afterwards (working tree confirmed clean).*
+
+### Refusing to sleep a penetrating corpse — built, measured WORSE, and it settles the mechanism
+
+The section above reads as a race: `Separate` claws penetration back (60.73 → 8.39) and the settle
+rule freezes the body before it finishes. If that were the whole story, refusing to sleep while a
+contact is deeper than `Slop` would let the correction finish and then sleep normally. That was
+built — a single guard in `RagdollSimulation.Step` before `Asleep = true`, with `_since` deliberately
+not reset so the corpse sleeps on the first clear step.
+
+**Measured on the real `corpse-drop` seeds: the corpse went from settling to `AWAKE NEVER
+SETTLED`.** The per-tick trace says why, and it is the opposite of the assumed mechanism:
+
+```
+tick 231  deepest 52.81      tick 396  deepest  1.76      tick 594  deepest 21.58
+tick 264  deepest 23.12      tick 462  deepest  8.33      tick 627  deepest 21.76
+```
+
+**Penetration never converges at all — it oscillates between roughly 2 and 53 units for the whole
+run.** It is not a correction being cut short; there is no penetration-free state for the solve to
+reach. So the guard removes the only thing that was ever stopping the body (the settle rule) and
+buys nothing, which is strictly worse: a frozen half-buried corpse at least stays put, where this
+one wanders for the rest of the demo. Reverted in full; `git diff --stat` empty, solution builds
+clean.
+
+**What this rules out, and it is the useful half.** "Let the position correction finish" is dead as
+an approach, for every variant of it — more steps, a higher `MaximumRecovery`, a later sleep — since
+the depth is not decaying toward zero on any timescale. The sinking has to be prevented in the
+CONTACT SOLVE, at the moment the body arrives, which is the same conclusion the slope test reached
+from the other direction. Two independent lines of evidence, one synthetic and one on a real corpse,
+now point at the identical missing piece.
+
+*Evidence class: measured, exact revert confirmed by an empty diff.*
+
+### Half of it was the ground having a bottom — fixed. The other half looks like joints vs contacts
+
+**The shell was real and is closed** (`3ffda429`). `TerrainDepth` was 64 and it is not only the
+touching window — it is the FILING depth, so a triangle reached 64 units of grid below itself and a
+body past that collided with nothing at all. The engine has no such limit; `virtualmeshparams_t`
+carries `buildOuterHull` and vphysics closes the mesh, so ground solid in TF2 was a shell here.
+Measured, corpse 2073 at tick 14300 against its own origin of −416: **−559 (and still descending to
+−654) before, −430 after.** 64 was sound for a single crossing — 30 units is the most a point travels
+in a step at the velocity clamp — but a body accumulates its way through over many steps, and past
+the shell nothing ever stopped it again.
+
+**What remains is a body resting INSIDE the floor**, entity 2056 unchanged at 73 units below its
+origin with 8.39 of penetration. A new and testable inference narrows it:
+
+- **A single body does NOT rest deeply penetrating.** The slope conformance test drops one 2-unit
+  box and its POSITION assertions pass — inside `surface + sqrt(3) + slop` — every time. Only its
+  speed fails. So the contact solve holds one body out of a surface correctly.
+- **Jointed bodies do.** Every measurement of deep resting penetration here is a ragdoll.
+
+**And the solve order allows exactly that.** `IvpEnvironment.Simulate` runs gravity, then
+`Constraints.Solve()` for the joints, then the interval walk, then `Rub`/`Separate` last. So the
+position correction gets the last word inside a step — but the NEXT step's joint solve moves those
+bodies again before anything re-checks a contact, and a joint that wants a limb where the floor is
+will put it there. That is a tug of war across step boundaries, and a tug of war is what the
+measured 2-to-53-unit oscillation looks like.
+
+**The engine does not have this shape.** IVP solves contacts and constraints in ONE constraint
+group — the twelve-entry relaxation table `docs/findings/51` reads live is a constraint-group
+property, applied to both — so the two converge on a solution that satisfies both rather than taking
+turns overwriting each other.
+
+**The next experiment, stated so it is not re-derived:** disable the joint solve for one scratch run
+and measure whether a ragdoll then rests at the same penetration a single box does. If it does, the
+fix is unifying the two solves rather than anything further inside the contact code, and every
+remaining contact-side tuning attempt is wasted effort.
+
+#### That experiment was run, and it DISPROVES the reading above
+
+Ran, same session, with the joint solve behind a scratch environment variable. Not a small
+difference and not in the predicted direction:
+
+| | with joints (control) | without joints |
+|---|---|---|
+| deepest penetration | up to 399 | **up to 463** |
+| final speed | settles, 4 of 5 asleep | **2,000 — the velocity clamp — never settles** |
+| result | 4 of 5 settle | **AWAKE NEVER SETTLED** |
+
+**Joints are not overpowering the contacts; they are the thing holding the body together.** Removing
+them lets each limb fall and interpenetrate independently, which is worse on every axis measured.
+So "contacts and joints take turns overwriting each other" is not what the 2-to-53-unit oscillation
+is, and unifying the two solves is NOT indicated by anything measured here.
+
+**The single-body-versus-ragdoll split that suggested it still stands as an observation** — one box
+holds its position, a ragdoll does not — but the cause is not the joint solve fighting the contact
+solve. A ragdoll has sixteen bodies whose contacts are found and solved per body against a shared
+world, and whatever fails there fails with the joints present and worse without them.
+
+*Evidence class: measured, control and experiment in the same session, scratch toggle reverted.*
+
+*Evidence class: measured for the terrain half and for the single-body/jointed split;
+read-from-source for the engine's single constraint group.*
+
+### B370 OPEN 2026-09-08: granary's shutter doors do not animate
+
+**Reported by the owner while watching a demo play, and filed rather than chased**: *"the shutter
+doors on granary are not animating right, note it dont fix or look into it right now"*.
+
+**What is known: nothing beyond the observation.** It has not been reproduced from a capture, the
+door entities have not been identified on the wire, and no code has been read for it. It is written
+down at this size deliberately — the alternative was to carry it as a memory of a remark, and a
+remark is not a finding.
+
+**Where a reader should start, and why none of it is a conclusion.** `cp_granary`'s shutters are
+brush entities driven by the server, so the candidates are the `func_door` / `CBaseDoor` track this
+project already draws (a `*NN` brush model was seen on the prop list at every tick sampled), the
+`m_flSimulationTime` interpolation that carries a moving brush between snapshots, and whatever
+`SetModel`-on-a-brush does to a track that keys on the model path. Which of those it is has not been
+established.
+
+**Do not fold this into B306.** The corpse work touched terrain and ledge CONTACT, and a door that
+does not move is an animation or interpolation question about a brush entity — a different
+subsystem, and the two were only observed in the same session.
+
+*Evidence class: owner observation, unreproduced.*
+
+### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
+
+**The owner: *"i should see ragdolls and gibs"*.** Ragdolls draw. Gibs do not exist at all — no
+model, no physics, nothing. **On `z1800` that is 231 of 407 corpses**, so it is the majority of
+deaths in the reference demo, not an edge case.
+
+**What we do today is HALF right, which is why it was nearly filed as correct.** A gibbed corpse
+draws no body, and that much matches the engine: `CreateTFGibs` ends by destroying or hiding the
+ragdoll — `EndFadeOut()`, or `SetRenderMode( kRenderNone )` (`c_tf_player.cpp:1124-1133`). But
+before it does that it calls `pPlayer->CreatePlayerGibs(...)`, and that is the half we have none of.
+The body correctly vanishes and nothing replaces it.
+
+**The chain, read end to end so the next reader does not have to find it again:**
+
+| step | where |
+|---|---|
+| `m_bGib` decides it | `c_tf_player.cpp:1235-1237` |
+| `CreateTFGibs` → `CreatePlayerGibs` | `:1088`, `:7423` |
+| the gib list comes from `m_aGibs`, built by `BuildGibList` | `InitPlayerGibs`, `:7355-7363` |
+| which is `BreakModelList` → `BuildPropList( "break", … )` | `props_shared.cpp:1282`, `:660` |
+
+**So the gib models are declared by the MODEL and are not a hardcoded table** — only the birthday
+gibs (`g_pszBDayGibs`) are literals in code.
+
+**CORRECTION, and it made the job much smaller.** This entry first said the block lived in the
+`.mdl`'s own KeyValues and that `StudioModel` would have to learn to read
+`keyvalueindex`/`keyvaluesize`. That was wrong, and reading one more line of `BuildPropList`
+settled it:
+
+```c
+vcollide_t *pCollide = modelinfo->GetVCollide( modelindex );
+IVPhysicsKeyParser *pParse = physcollision->VPhysicsKeyParserCreate( pCollide->pKeyValues );
+```
+
+The blocks are in the **`.phy`'s text section** — the same text this project already walks for
+`solid`, `ragdollconstraint` and `collisionrules`, skipping everything else. Measured on
+`models/player/medic.mdl`: **nine `break` blocks**, each `model` / `health 0` / `fadetime 10`,
+naming `player\gibs\medicgib001` through `008` and `random_organ`.
+
+**BUILT 2026-09-08: the list is parsed.** `PhysicsBreakPiece` and `PhysicsModel.BreakPieces` carry
+it, `PhysicsModel.GibPath` turns the QC-style `player\gibs\medicgib001` into
+`models/player/gibs/medicgib001.mdl`, and the `ragdoll` probe reports it beside the joints:
+
+```
+models/player/medic.mdl: 24 bodies, 23 joints, 92 bones, 9 gibs
+    gib models/player/gibs/medicgib001.mdl fades after 10s
+```
+
+**What remains is the spawning, and it is the larger half**: a track per gib, physics per piece, and
+the fade. Nothing draws a gib yet.
+
+**The velocities are Valve's and are cvars, not constants** — `tf_playergib_force`,
+`tf_playergib_forceup` and `tf_playergib_maxspeed`, with `vecBreakVelocity` normalised from
+`m_vecForce + m_vecRagdollVelocity` and then capped, plus an angular impulse of
+`RandomFloat( 0, 120 )` on two axes (`c_tf_player.cpp:7429-7441`). The corpse already carries both
+force and velocity, so the inputs are on hand.
+
+**BUILT: the throw.** `PlayerGibs` carries `CreatePlayerGibs`' arithmetic with nine conformance
+tests — the shared throw (`normalize(m_vecForce + m_vecRagdollVelocity)`, `z += forceup`,
+normalise, `× force`, capped), the per-piece scatter, and the once-per-corpse angular impulse. The
+constants are `FCVAR_CHEAT | FCVAR_DEVELOPMENTONLY`, which is *"Hidden in released products"*
+(`iconvar.h:40`), so they are effectively fixed at 1.0 / 500 / 400 in a shipped game. Their
+registered names carry a Valve typo worth knowing: `tf_playersgib_force` and
+`tf_playersgib_forceup` have an extra `s`; `tf_playergib_maxspeed` does not.
+
+**A gib does NOT build a ragdoll body, and assuming it did would have failed silently.** Measured:
+
+```
+MODELS/PLAYER/GIBS/MEDICGIB001.MDL: 1 solid(s), 1 hull(s), body FAILED to build
+    solid 'medicgib001_reference'
+    bone 0 'polymsh'
+```
+
+`RagdollBody.Build` refuses when a solid's name matches no bone — the correct rule for a RAGDOLL,
+where each solid drives a named bone. A gib has one bone that the `.phy` does not name, and the
+engine never asks it to: `CreateGibsFromList` calls `BreakModelCreateSingle`
+(`props_shared.cpp:1497`), which makes a `prop_physics`-style single rigid body straight from the
+VCollide. **So gibs want a single-body prop path, not the ragdoll builder** — the hull and mass are
+there, and only the bone-name requirement is in the way. The `ragdoll` probe now reports single-solid
+models and whether a body builds, which is what caught this.
+
+**BUILT: the emission, and gibs are on screen.** `RagdollBody.BuildProp` is the single-body path,
+`RagdollProps.Gibs` emits a piece per `break` block at the corpse's origin with the throw and the
+shared spin staged onto it, and `m_bGib` now selects that instead of the body. Verified by looking:
+`z1800` tick 1636, camera 80 units above corpse 727 — bare floor before, pieces after.
+
+**And that picture is what found the last divergence, which no test could have.** Everything above
+was green and nothing drew, because **the gib models were precached by nothing.**
+
+| | |
+|---|---|
+| the engine | `CTFPlayer::PrecachePlayerModels` (`tf_player.cpp:2848`) precaches each class model **and** `PrecacheGibsForModel( iModel )` |
+| which is | `PrecachePropsForModel( iModel, "break" )` (`props_shared.cpp:1239`) — it walks the collide data's key values and precaches every `breakModel.modelName` |
+| ours | `DemoModels.Needed` and `ToPack` added the nine class models and none of their gibs |
+
+**A gib is in no track, no string table and no item schema**, because it is not an entity until a
+player gibs — and by then the loader is a dictionary rather than an on-demand read, so a model
+missing from those sets packs to nothing for ever. **This is B195 one layer over**, and
+`DemoModels`' own remarks say the two lists disagreeing is exactly that defect, so the fix went in
+both.
+
+**A second instance of the same shape, in the wiring:** the gib supplier was `EntityModels.
+BreakPiecesOf`, which answers out of a cache filled from the props DRAWN at a tick. A gibbed corpse
+draws no body, so it asked for a model that could not be there and was told "no pieces" for one
+declaring nine — `docs/memory/a-lookup-is-not-a-loader.md`. It reads the `.phy` from the install
+now, which is what `PrecachePropsForModel` does.
+
+**The probe was blind to all of it and would have stayed blind.** `CorpseProbe` called
+`RagdollProps.Fill` without the gib supplier; both new parameters are optional, so it compiled and
+reported a gibbed corpse as nothing drawn — the instrument agreeing with whoever wrote it. It now
+uses the same `DemoModels.BreakPiecesOf` the viewer does.
+
+**Still open in this area, and not closed by the above:** B369 (map physics collision unread — one
+of five `corpse-drop` seeds leaves the world) and B306 (brush ledges on the old contact path).
+
+*Evidence class: read from published SDK source for the whole chain; measured on
+`models/player/medic.mdl` for the nine pieces and their fields, and for the 231-of-407 share on
+`z1800`; observed on screen for the emission, with the same camera and tick before and after as the
+control.*

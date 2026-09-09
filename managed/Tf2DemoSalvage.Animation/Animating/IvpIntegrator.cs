@@ -83,6 +83,77 @@ public sealed class IvpRigidBody
     /// </remarks>
     public float InverseMass { get; set; } = 1f;
 
+    /// <summary>Velocity waiting to be added at the next step — <c>core+0x120/0x124/0x128</c>.</summary>
+    /// <remarks>
+    /// **A push does not reach a body's velocity where it is applied; it is STAGED.**
+    /// `FUN_180077950` drains this pair into the real velocities and zeroes it, once per body per
+    /// step, from inside the same gate as gravity:
+    ///
+    /// <code>
+    /// *(float *)(core + 0x130) = *(float *)(core + 0x110) + *(float *)(core + 0x130);
+    /// *(float *)(core + 0x140) = *(float *)(core + 0x120) + *(float *)(core + 0x140);
+    /// ...
+    /// *(undefined8 *)(core + 0x124) = 0;   *(undefined4 *)(core + 0x120) = 0;
+    /// *(undefined8 *)(core + 0x114) = 0;   *(undefined4 *)(core + 0x110) = 0;
+    /// </code>
+    ///
+    /// **So an impulse applied between steps lands on the NEXT one**, which is the same one-step
+    /// lag the integrator has by moving on the previous velocity. A ragdoll's creation force is
+    /// applied through exactly this — `ApplyForceCenter` and `AddVelocity` stage, they do not set.
+    /// </remarks>
+    public (float X, float Y, float Z) PendingVelocity { get; set; }
+
+    /// <summary>Angular velocity waiting the same way — <c>core+0x110/0x114/0x118</c>.</summary>
+    public (float X, float Y, float Z) PendingAngularVelocity { get; set; }
+
+    /// <summary>How fast this body loses speed — <c>core+0x50</c>, the <c>.phy</c>'s <c>damping</c>.</summary>
+    /// <remarks>
+    /// **Zero on every element of every TF2 ragdoll**, measured — so this is the term that does
+    /// nothing for a corpse and everything for a prop. Carried because the engine has it.
+    ///
+    /// **0.1 by default and not zero**, which is `g_PhysDefaultObjectParams`
+    /// (`game/shared/physics_shared.cpp:43-56`) — the same struct <see cref="Friction"/> already
+    /// takes its 1 from. A body that names no damping is not a body without damping, and defaulting
+    /// to zero made every such body frictionless in rotation as well as translation.
+    /// </remarks>
+    public float Damping { get; set; } = 0.1f;
+
+    /// <summary>How fast it loses spin — <c>core+0x30/0x34/0x38</c>, the <c>rotdamping</c>.</summary>
+    /// <remarks>
+    /// **IVP holds three of these and Valve supplies one.** `core+0x30` is a per-axis vector and
+    /// `objectparams_t::rotdamping` is a scalar, so the engine writes the same number into all
+    /// three lanes; a scalar here is that, not a simplification of it. It matters for a corpse:
+    /// rotational damping runs 4 to 16 per joint across the game's ragdolls.
+    /// </remarks>
+    ///
+    /// **0.1 by default, from `g_PhysDefaultObjectParams`** (`physics_shared.cpp:43-56`), for the
+    /// reason beside <see cref="Damping"/>: zero is not the engine's answer for a body that names
+    /// no value, and a body with no rotational damping never stops spinning once something sets it
+    /// turning.
+    public float RotationDamping { get; set; } = 0.1f;
+
+    /// <summary>How many collisions this body has taken in the current step.</summary>
+    /// <remarks>
+    /// **`maxCollisionsPerObjectPerTimestep`, whose own comment says what happens at the limit** —
+    /// *"object will be frozen after this many collisions (visual hitching vs. CPU cost)"*
+    /// (`performance.h:21`). TF2 sets it to 10, raising Valve's default of 6 immediately after
+    /// `Defaults()` (`physics.cpp:224`).
+    ///
+    /// **It is the engine's safety net for exactly the body this project could not hold**: one
+    /// thrown hard enough to collide again and again inside a single step, which without a limit
+    /// grinds its way through the surface it is hitting.
+    /// </remarks>
+    public int Collisions { get; set; }
+
+
+    /// <summary>Whether this body has been frozen for the rest of the step.</summary>
+    /// <remarks>
+    /// **Frozen, not asleep.** It lasts until the step ends and the count is cleared; the engine's
+    /// word for it is the same one its comment uses, and the cost it trades against is *"visual
+    /// hitching"*.
+    /// </remarks>
+    public bool Frozen { get; set; }
+
     /// <summary>This body's coefficient of friction — its surface's, from the game's own table.</summary>
     /// <remarks>
     /// **`surfacephysicsparams_t::friction`**, looked up by the `surfaceprop` its `.phy` solid
@@ -100,7 +171,69 @@ public sealed class IvpRigidBody
     /// `PhysicsHull` — converted at the seam, because this simulation runs in Source units where
     /// IVP's own runs in metres.
     /// </remarks>
-    public IReadOnlyList<(float X, float Y, float Z)> Hull { get; set; } = [];
+    public IReadOnlyList<(float X, float Y, float Z)> Hull
+    {
+        get => _hull;
+
+        set => _hull = value ?? [];
+    }
+
+    /// <summary>The hull's FACES, indexing <see cref="Hull"/> — the ledge triangles from the `.phy`.</summary>
+    /// <remarks>
+    /// **Read all along and thrown away one line before the physics saw them** (B306).
+    /// `PhysicsLedge` carries `Points` AND `Triangles` out of the `IVPS` compact ledge, and
+    /// `RagdollBody.HullInBoneSpace` kept only the points — so a body reached the solver as a bare
+    /// point cloud.
+    ///
+    /// **That is what forced the narrow phase to be ours rather than the engine's.** With no faces
+    /// there is no incident face to clip, no edge to test another edge against, and no way to ask
+    /// vphysics' own question — the hull against a triangle (`virtualmesh.h`,
+    /// `IVirtualMeshEvent::GetTrianglesInSphere`) — so what remained was sampling each vertex
+    /// against a triangle PLANE inside a slab, and every compensator around it.
+    ///
+    /// **Empty is legitimate** and means the same as it always did: a body whose solid declared no
+    /// ledge geometry, which the per-vertex path already handles.
+    /// </remarks>
+    public IReadOnlyList<(int A, int B, int C)> Faces
+    {
+        get => _faces;
+
+        set => _faces = value ?? [];
+    }
+
+    /// <summary>Each contact FEATURE's tangential slip, carried between steps, keyed by normal.</summary>
+    /// <remarks>
+    /// **A friction contact in IVP SURVIVES between PSIs, and this is what that survival needs.**
+    /// `FUN_1800857c0` builds its right-hand side as `weight × stored − current velocity`, reading
+    /// the tangential pair at `contact+0x68`/`+0x6c` that its own previous solve wrote back. The
+    /// contact object is persistent — cached on the mindist, split and merged by `FUN_180086e80` as
+    /// an object's contact list changes — so friction converges across steps instead of being
+    /// rediscovered from nothing in each one.
+    ///
+    /// **Keyed by the manifold's NORMAL, and the key is the whole of it.** This was keyed by hull
+    /// point first, which looks equivalent and is not: a manifold's representative is whichever of
+    /// its vertices comes first in the contact list, and that changes as a body rocks — so each
+    /// step's warm start read a slot the previous step had not written. Measured, the difference is
+    /// total. Keyed by point, a body on a one-in-ten slope ACCELERATED, 8.2 units a second at six
+    /// seconds and 18.5 at twelve. With the warm start switched off entirely it came to rest.
+    /// A normal is stable for exactly as long as the feature is, which is what the mindist's own
+    /// identity means.
+    ///
+    /// **Warm starting is not an optimisation here; it is where a resting body's holding force
+    /// comes from** — a stateless pass can only react to the slide it can already see.
+    /// </remarks>
+    public IList<(
+        (float X, float Y, float Z) Normal,
+        float Holding,
+        float First,
+        float Second,
+        (float X, float Y, float Z) Local,
+        int Point)> Sliding { get; } = [];
+
+
+    private IReadOnlyList<(float X, float Y, float Z)> _hull = [];
+
+    private IReadOnlyList<(int A, int B, int C)> _faces = [];
 
     /// <summary>When this body was last stepped — <c>core+0x1d0</c>, absolute.</summary>
     public double LastStepped { get; set; }

@@ -55,6 +55,7 @@
 - [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions describe your parser.
 - [Output-level assertion or it is not done](output-level-assertion-or-it-is-not-done.md) — only it catches wiring.
 - [An empty search needs a control](an-empty-search-needs-a-control.md) — absence is often about the grep.
+- [A map cannot have a hole](a-map-cannot-have-a-hole.md) — name the reading, not the geometry.
 - [Wire names are strings](wire-names-are-strings.md) — SENDINFO_NAME sends under its second argument.
 - [A running client caches its config](a-running-client-caches-its-config.md) — a stale read fakes a failed fix.
 - [Nothing is closed](nothing-is-closed.md) — SDK, headers, shipped data, binaries, decompiler.
@@ -96,6 +97,7 @@
 - [A loop is state, not an event](a-loop-is-state-not-an-event.md) — ask what should be PLAYING.
 - [An optimisation is not a skippable departure](an-optimisation-is-not-a-skippable-departure.md) — Valve's earn their place.
 - [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89; performance buys nothing.
+- [Parity is the first hypothesis](parity-is-the-first-hypothesis.md) — D148; a cost symptom is parity evidence.
 - [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md) — six at 3 ms, remainder at 126.
 - [Refactors are when to check parity](refactors-are-when-to-check-parity.md) — a new type hides divergence.
 - [Decide home and parity before writing](decide-home-and-parity-before-writing.md) — both, before the code.
@@ -166,6 +168,7 @@
 - [The view origin is the camera, not a player](the-view-origin-is-the-camera-not-a-player.md) — first-person-only killed every distance fade.
 - [Baking yields to parity](baking-yields-to-parity.md) — D143; ours, so it changes when the engine will not fit.
 - [A lookup is not a loader](a-lookup-is-not-a-loader.md) — MapAssets.Geometry answers from a dictionary built at load.
+- [Precache what the engine precaches](precache-what-the-engine-precaches.md) — an event-spawned model is in no track.
 - [A TF2 corpse is simulated, not sent](a-tf2-corpse-is-simulated-not-sent.md) — the wire carries a force, not a pose.
 - [Two accumulators cannot see order](two-accumulators-cannot-see-order.md) — the observer must read the observed.
 - [A calling shape is not a purpose](a-calling-shape-is-not-a-purpose.md) — name a function by what it WRITES.

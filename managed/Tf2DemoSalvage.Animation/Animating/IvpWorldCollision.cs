@@ -14,8 +14,69 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// is walking is a convex polyhedron, and a convex polyhedron is the intersection of its face
 /// half-spaces. Deriving the planes once at load turns every later test into dot products.
 /// </remarks>
+/// <param name="Contents">
+/// What this ledge is made of, as the <c>CONTENTS_*</c> mask the map declares for its solid.
+///
+/// **The engine sets exactly this on every world solid it creates** —
+/// `pObject-&gt;SetContents( g_SolidSetup.GetContentsMask() )` (`game/shared/physics_shared.cpp:648`)
+/// — and then refuses any pair the two masks do not share:
+/// `if ( !(pObj0-&gt;GetContents() &amp; pEntity1-&gt;PhysicsSolidMaskForEntity()) || ... ) return 0;`
+/// (`game/client/physics.cpp:249`). Without it a corpse collides with every brush in the map
+/// including the ones written to stop players and nothing else.
+/// </param>
+/// <param name="Vertices">
+/// Every distinct vertex a surviving triangle uses, in Source units, needed only for
+/// <see cref="Support"/> — a GJK-style narrow phase asks for a shape's extreme point along a
+/// direction, and a plane set alone cannot answer that; only the hull's own vertices can.
+/// </param>
 public readonly record struct IvpWorldLedge(
-    Vector3 Center, float Radius, IReadOnlyList<(Vector3 Normal, float Distance)> Planes);
+    Vector3 Center,
+    float Radius,
+    IReadOnlyList<(Vector3 Normal, float Distance)> Planes,
+    int Contents,
+    IReadOnlyList<Vector3> Vertices)
+{
+    /// <summary>The GJK support function: this ledge's extreme vertex along a direction.</summary>
+    /// <param name="direction">Need not be normalised — only its direction is used.</param>
+    /// <returns>The vertex maximising the dot product with <paramref name="direction"/>.</returns>
+    /// <remarks>
+    /// **This is the one primitive a convex-convex distance solver is built on, and it is the piece
+    /// this project never had.** `docs/findings/51` reads the engine's own mindist geometry
+    /// (`FUN_180096680`) as a GJK/EPA solver — a warm-started simplex built entirely out of calls to
+    /// each body's own support function. A ledge could answer "which face is shallowest" but never
+    /// "which vertex is furthest this way", which is the question GJK actually asks, every
+    /// iteration, of both shapes in a pair.
+    ///
+    /// **Brute force over `Vertices`, not the plane set.** A convex hull's planes bound the
+    /// interior; its support point is one of its VERTICES, and there is no way to get one from
+    /// planes without re-deriving the hull first. This is why `Vertices` exists on this record at
+    /// all — plane data alone cannot support this method, which is the actual gap the plane-only
+    /// version had.
+    /// </remarks>
+    public Vector3 Support(Vector3 direction)
+    {
+        if (Vertices.Count == 0)
+        {
+            return Center;
+        }
+
+        Vector3 best = Vertices[0];
+        float bestDot = Vector3.Dot(best, direction);
+
+        for (int index = 1; index < Vertices.Count; index++)
+        {
+            float dot = Vector3.Dot(Vertices[index], direction);
+
+            if (dot > bestDot)
+            {
+                bestDot = dot;
+                best = Vertices[index];
+            }
+        }
+
+        return best;
+    }
+}
 
 /// <summary>One triangle of terrain, with its own plane.</summary>
 /// <param name="A">First vertex, in Source units.</param>
@@ -88,8 +149,8 @@ public sealed class IvpWorldCollision
     /// <summary>Ledge indices by grid cell — the broadphase.</summary>
     private readonly Dictionary<(int X, int Y, int Z), List<int>> _grid = [];
 
-    /// <summary>Ledges too large to file, tested against everything.</summary>
-    private readonly List<int> _oversized = [];
+    /// <summary>Ledges too large for the fine grid, filed in a coarser one.</summary>
+    private readonly Dictionary<(int X, int Y, int Z), List<int>> _coarse = [];
 
     /// <summary>Terrain triangles, and their own index.</summary>
     private readonly List<IvpWorldTriangle> _triangles = [];
@@ -99,6 +160,69 @@ public sealed class IvpWorldCollision
     /// <summary>Every convex piece of the world.</summary>
     public IReadOnlyList<IvpWorldLedge> Ledges => _ledges;
 
+    /// <summary>How many ledges are too large to file and so are tested against everything.</summary>
+    /// <remarks>
+    /// **The number that decides whether the broadphase is one**, because an oversized ledge is
+    /// examined by every sweep of every hull point of every body. A handful is the cost of a
+    /// skybox shell; a thousand is a linear scan wearing a grid.
+    /// </remarks>
+    public int OversizedCount => _coarse.Count;
+
+    /// <summary>How many candidate ledges and triangles the sweeps have examined.</summary>
+    /// <remarks>Carried out of the loop that examined them, never recounted (B243).</remarks>
+    public long Examined { get; private set; }
+
+    /// <summary>The terrain triangles within a sphere — the engine's own query.</summary>
+    /// <param name="centre">The sphere's centre, in Source units.</param>
+    /// <param name="radius">Its radius.</param>
+    /// <param name="into">Where the triangles are appended; NOT cleared.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
+    /// <remarks>
+    /// **This is `IVirtualMeshEvent::GetTrianglesInSphere`** (`public/vphysics/virtualmesh.h`),
+    /// which is how vphysics reaches a displacement: it asks for the triangles near an object and
+    /// then collides the object's hull against them as shapes. Asking the same question is the
+    /// first half of doing what the engine does instead of sampling our own vertices against
+    /// planes (B306).
+    /// </remarks>
+    public void TrianglesInSphere(
+        Vector3 centre, float radius, ICollection<(IvpWorldTriangle Shape, int Index)> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        int minimumX = Cell(centre.X - radius);
+        int maximumX = Cell(centre.X + radius);
+        int minimumY = Cell(centre.Y - radius);
+        int maximumY = Cell(centre.Y + radius);
+        int minimumZ = Cell(centre.Z - radius);
+        int maximumZ = Cell(centre.Z + radius);
+
+        _sphereSeen.Clear();
+
+        for (int x = minimumX; x <= maximumX; x++)
+        {
+            for (int y = minimumY; y <= maximumY; y++)
+            {
+                for (int z = minimumZ; z <= maximumZ; z++)
+                {
+                    if (!_triangleGrid.TryGetValue((x, y, z), out List<int>? bucket))
+                    {
+                        continue;
+                    }
+
+                    for (int index = 0; index < bucket.Count; index++)
+                    {
+                        if (_sphereSeen.Add(bucket[index]))
+                        {
+                            into.Add((_triangles[bucket[index]], bucket[index]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private readonly HashSet<int> _sphereSeen = [];
+
     /// <summary>How many terrain triangles this world holds.</summary>
     /// <remarks>
     /// **A control, and the reason it exists is that its absence cost a wrong conclusion.** "The
@@ -107,6 +231,49 @@ public sealed class IvpWorldCollision
     /// can be believed (`docs/memory/an-empty-search-needs-a-control.md`).
     /// </remarks>
     public int TriangleCount => _triangles.Count;
+
+    /// <summary><c>CONTENTS_SOLID</c>, what ordinary brushwork and every prop is made of.</summary>
+    /// <remarks><c>public/bspflags.h:22</c>. The default for anything that does not say.</remarks>
+    public const int ContentsSolid = 0x1;
+
+    /// <summary><c>MASK_SOLID</c> — what a RAGDOLL collides with, and the whole rule.</summary>
+    /// <remarks>
+    /// **A ragdoll uses `MASK_SOLID`, and the SDK says why in a comment above the override**:
+    ///
+    /// <code>
+    /// // Makes ragdolls ignore npcclip brushes
+    /// unsigned int C_AI_BaseNPC::PhysicsSolidMaskForEntity( void ) const
+    /// {
+    ///     // This allows ragdolls to move through npcclip brushes
+    ///     if ( !IsRagdoll() ) { return MASK_NPCSOLID; }
+    ///     return MASK_SOLID;
+    /// }
+    /// </code>
+    ///
+    /// `game/client/c_ai_basenpc.cpp:53-62`, and the base is the same value —
+    /// `CBaseEntity::PhysicsSolidMaskForEntity` returns `MASK_SOLID` outright
+    /// (`game/shared/physics_main_shared.cpp:1107-1110`). So a corpse collides with
+    /// `CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_WINDOW | CONTENTS_MONSTER | CONTENTS_GRATE`
+    /// (`public/bspflags.h:106`) — and **not** with `CONTENTS_PLAYERCLIP`, which
+    /// `MASK_PLAYERSOLID` has and this does not.
+    ///
+    /// **That absence is what put three corpses under `koth_harvest_final`.** Its solid 1 declares
+    /// `"contents" "65536"` — playerclip alone — and spans x ±1600, y ±2376, z −800..16: a box over
+    /// the whole middle of the map. A corpse that dropped below z 16 was inside it, in contact with
+    /// its interior the entire way down, and slid to rest on its floor at −755. Every escapee
+    /// measured had ten or more contacts at the moment it passed −50, which is what "sinking while
+    /// touching" had been describing all along.
+    /// </remarks>
+    public const int MaskSolid = 0x1 | 0x4000 | 0x2 | 0x2000000 | 0x8;
+
+    /// <summary>What this world's queries collide with, defaulting to a ragdoll's mask.</summary>
+    /// <remarks>
+    /// **Settable because the mask is a property of the ASKER, not of the world.** The engine reads
+    /// it off the entity at every pair test — `pEntity1-&gt;PhysicsSolidMaskForEntity()` — so a world
+    /// that hard-coded one would be answering a different question for a player than for a corpse.
+    /// Nothing but a corpse asks this world anything yet, which is why the default is theirs.
+    /// </remarks>
+    public int Mask { get; set; } = MaskSolid;
 
     /// <summary>Adds one ledge, converting it from IVP metres into Source units.</summary>
     /// <param name="points">The ledge's points, in metres.</param>
@@ -124,7 +291,7 @@ public sealed class IvpWorldCollision
         IReadOnlyList<(int A, int B, int C)> triangles,
         Vector3 center,
         float radius) =>
-        Add(points, triangles, center, radius, Vector3.Zero);
+        Add(points, triangles, center, radius, Vector3.Zero, ContentsSolid);
 
     /// <summary>Adds one ledge, converting it and placing it at an entity's origin.</summary>
     /// <param name="points">The ledge's points, in metres.</param>
@@ -145,12 +312,78 @@ public sealed class IvpWorldCollision
         IReadOnlyList<(int A, int B, int C)> triangles,
         Vector3 center,
         float radius,
-        Vector3 origin)
+        Vector3 origin) =>
+        Add(points, triangles, center, radius, origin, ContentsSolid);
+
+    /// <summary>Adds one ledge at an entity's origin, with the contents its solid declares.</summary>
+    /// <param name="points">The ledge's points, in metres.</param>
+    /// <param name="triangles">Its triangles, indexing those points.</param>
+    /// <param name="center">Its node's bounding-sphere centre, in metres.</param>
+    /// <param name="radius">That sphere's radius, in metres.</param>
+    /// <param name="origin">Where the model this ledge belongs to stands, in SOURCE units.</param>
+    /// <param name="contents">The <c>CONTENTS_*</c> mask — see <see cref="IvpWorldLedge"/>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void Add(
+        IReadOnlyList<Vector3> points,
+        IReadOnlyList<(int A, int B, int C)> triangles,
+        Vector3 center,
+        float radius,
+        Vector3 origin,
+        int contents) =>
+        Add(
+            points, triangles, center, radius, Matrix4x4.CreateTranslation(origin), contents);
+
+    /// <summary>Adds one ledge, converting it and placing it by a full transform.</summary>
+    /// <param name="points">The ledge's points, in metres.</param>
+    /// <param name="triangles">Its triangles, indexing those points.</param>
+    /// <param name="center">Its node's bounding-sphere centre, in metres.</param>
+    /// <param name="radius">That sphere's radius, in metres.</param>
+    /// <param name="placement">Where the model stands and how it is turned, in SOURCE units.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **A static prop is ROTATED where a brush entity is only moved**, which is why this exists
+    /// beside the origin overload. The engine places one through the same call it places any other
+    /// static object — an origin and a `QAngle` — so a prop lying on its side or a fence turned to
+    /// face a path is a different hull in the world, not the same hull shifted.
+    ///
+    /// **Uniform scale belongs in here too**, since the placement carries it and a scaled prop's
+    /// collision scales with it. The radius is taken from the transform's own scale rather than
+    /// assumed to be one, so a bounding sphere still contains what it claims to.
+    /// </remarks>
+    public void Add(
+        IReadOnlyList<Vector3> points,
+        IReadOnlyList<(int A, int B, int C)> triangles,
+        Vector3 center,
+        float radius,
+        Matrix4x4 placement) =>
+        Add(points, triangles, center, radius, placement, ContentsSolid);
+
+    /// <summary>Adds one ledge by a full transform, with the contents its solid declares.</summary>
+    /// <param name="points">The ledge's points, in metres.</param>
+    /// <param name="triangles">Its triangles, indexing those points.</param>
+    /// <param name="center">Its node's bounding-sphere centre, in metres.</param>
+    /// <param name="radius">That sphere's radius, in metres.</param>
+    /// <param name="placement">Where the model stands and how it is turned, in SOURCE units.</param>
+    /// <param name="contents">The <c>CONTENTS_*</c> mask — see <see cref="IvpWorldLedge"/>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void Add(
+        IReadOnlyList<Vector3> points,
+        IReadOnlyList<(int A, int B, int C)> triangles,
+        Vector3 center,
+        float radius,
+        Matrix4x4 placement,
+        int contents)
     {
         ArgumentNullException.ThrowIfNull(points);
         ArgumentNullException.ThrowIfNull(triangles);
 
         List<(Vector3 Normal, float Distance)> planes = [];
+
+        // **Every vertex a surviving triangle actually uses, deduplicated by value.** A GJK support
+        // query needs the hull's own VERTICES, not its planes — see `IvpWorldLedge.Support` — and
+        // there is no way to recover them once only planes are kept. Building this list is the same
+        // walk that already builds `planes`, so it costs nothing extra to keep.
+        List<Vector3> vertices = [];
 
         foreach ((int a, int b, int c) in triangles)
         {
@@ -160,9 +393,9 @@ public sealed class IvpWorldCollision
                 continue;
             }
 
-            Vector3 first = ToSource(points[a]) + origin;
-            Vector3 second = ToSource(points[b]) + origin;
-            Vector3 third = ToSource(points[c]) + origin;
+            Vector3 first = Vector3.Transform(ToSource(points[a]), placement);
+            Vector3 second = Vector3.Transform(ToSource(points[b]), placement);
+            Vector3 third = Vector3.Transform(ToSource(points[c]), placement);
 
             Vector3 normal = Vector3.Cross(second - first, third - first);
 
@@ -180,6 +413,10 @@ public sealed class IvpWorldCollision
             {
                 planes.Add((normal, distance));
             }
+
+            AddVertex(vertices, first);
+            AddVertex(vertices, second);
+            AddVertex(vertices, third);
         }
 
         if (planes.Count == 0)
@@ -187,8 +424,22 @@ public sealed class IvpWorldCollision
             return;
         }
 
+        // **The radius has to grow with the placement's scale or the sphere stops containing the
+        // hull**, and a sphere that under-reports is a ledge the broadphase skips for a point that
+        // is actually inside it. Taken from the transform rather than from a separate argument, so
+        // the two cannot disagree.
+        float scale = MathF.Sqrt(MathF.Max(
+            MathF.Max(
+                new Vector3(placement.M11, placement.M12, placement.M13).LengthSquared(),
+                new Vector3(placement.M21, placement.M22, placement.M23).LengthSquared()),
+            new Vector3(placement.M31, placement.M32, placement.M33).LengthSquared()));
+
         IvpWorldLedge ledge = new(
-            ToSource(center) + origin, radius * SourceUnitsPerMetre, planes);
+            Vector3.Transform(ToSource(center), placement),
+            radius * SourceUnitsPerMetre * scale,
+            planes,
+            contents,
+            vertices);
 
         _ledges.Add(ledge);
 
@@ -222,9 +473,14 @@ public sealed class IvpWorldCollision
             (maximumY - minimumY + 1) *
             (maximumZ - minimumZ + 1);
 
+        // **A ledge too big for the fine grid gets a COARSE one, not a list tested every time.**
+        // Ninety of `koth_harvest_final`'s 3,030 ledges are that big — a skybox shell, a whole
+        // floor slab — and testing all ninety on every sweep of every hull point was 69,000 of the
+        // 75,000 candidates a single tick examined. A second tier at sixteen times the cell size
+        // files them in a handful of cells each and a sweep touches only the ones it passes.
         if (cells > MaximumCells)
         {
-            _oversized.Add(at);
+            File(_coarse, at, CoarseCellSize, ledge);
             return;
         }
 
@@ -240,6 +496,40 @@ public sealed class IvpWorldCollision
                     {
                         bucket = [];
                         _grid[key] = bucket;
+                    }
+
+                    bucket.Add(at);
+                }
+            }
+        }
+    }
+
+    /// <summary>Files one ledge into a grid of the given cell size, by its bounding sphere.</summary>
+    private static void File(
+        Dictionary<(int X, int Y, int Z), List<int>> grid,
+        int at,
+        float size,
+        IvpWorldLedge ledge)
+    {
+        int minimumX = (int)MathF.Floor((ledge.Center.X - ledge.Radius) / size);
+        int maximumX = (int)MathF.Floor((ledge.Center.X + ledge.Radius) / size);
+        int minimumY = (int)MathF.Floor((ledge.Center.Y - ledge.Radius) / size);
+        int maximumY = (int)MathF.Floor((ledge.Center.Y + ledge.Radius) / size);
+        int minimumZ = (int)MathF.Floor((ledge.Center.Z - ledge.Radius) / size);
+        int maximumZ = (int)MathF.Floor((ledge.Center.Z + ledge.Radius) / size);
+
+        for (int x = minimumX; x <= maximumX; x++)
+        {
+            for (int y = minimumY; y <= maximumY; y++)
+            {
+                for (int z = minimumZ; z <= maximumZ; z++)
+                {
+                    (int, int, int) key = (x, y, z);
+
+                    if (!grid.TryGetValue(key, out List<int>? bucket))
+                    {
+                        bucket = [];
+                        grid[key] = bucket;
                     }
 
                     bucket.Add(at);
@@ -325,28 +615,85 @@ public sealed class IvpWorldCollision
     /// **A ledge whose sphere does not reach the point is skipped before its planes are read**,
     /// which is what the ledge tree's bounding sphere is for.
     /// </remarks>
-    public (Vector3 Normal, float Depth)? Penetration(Vector3 point)
+    public (Vector3 Normal, float Depth)? Penetration(Vector3 point) =>
+        Penetration(point, Vector3.Zero);
+
+    /// <summary>The same, told which way the point was travelling when it got there.</summary>
+    /// <param name="point">Where to test, in Source units.</param>
+    /// <param name="motion">How the point has been moving; zero when that is not known.</param>
+    /// <returns>The outward normal and the depth, or null when the point is outside everything.</returns>
+    /// <remarks>
+    /// **The face a point is LEAST far behind stops being the way out once it is past halfway**,
+    /// and that is what put corpses under the map. A floor brush is often sixteen units thick; a
+    /// body nine to fourteen units into one — which is what the escapees measured — is nearer the
+    /// underside, so the shallowest face is the bottom and the push that should lift it drives it
+    /// through instead. Ticks 13651, 13701 and 13823, each within a second of its own death and
+    /// each with contacts the whole way.
+    ///
+    /// **The engine does not have to choose, because it never forgets.** IVP's mindist keeps the
+    /// closest-feature pair from when the two were still apart, so the face a body entered through
+    /// is simply the one it is still being measured against — the retained feature, not a fresh
+    /// guess from inside.
+    ///
+    /// **Travel direction was tried as a stand-in for that memory and MEASURED WORSE**, so the
+    /// parameter is accepted and ignored rather than quietly kept. Refusing every face whose
+    /// normal points along the motion took `z1800` from three corpses leaving the world to four,
+    /// and two conformance tests reddened on the way because a resting body's recovery drift
+    /// points up and that rule then refused the very face holding it. It was a guess rather than a
+    /// transcription, and the rule here is that a guess which loses to the measurement goes.
+    ///
+    /// **What would settle it is the engine**, whose mindist never has to choose because it keeps
+    /// the pair — and the point where a contact record becomes an impulse is the piece
+    /// `docs/findings/51` still lists as unread.
+    /// </remarks>
+    public (Vector3 Normal, float Depth)? Penetration(Vector3 point, Vector3 motion) =>
+        Touching(point, motion) is { } hit ? (hit.Normal, hit.Depth) : null;
+
+    /// <summary>The same, and WHICH world feature it is against.</summary>
+    /// <param name="point">Where the point is, in Source units.</param>
+    /// <param name="motion">How the point has been moving; zero when that is not known.</param>
+    /// <returns>The normal, the depth and a stable id for the face, or null when outside.</returns>
+    /// <remarks>
+    /// **The id is the point of this overload, and it is what IVP's mindist keeps.** A contact
+    /// solved across steps needs to know it is the SAME contact, and a normal re-derived every step
+    /// cannot say so: a body settling into a surface changes which of a ledge's faces is
+    /// shallowest, so anything keyed on the normal loses its accumulated state exactly when the
+    /// body is coming to rest. Measured — the persistent hold built for that reason could not
+    /// support a corpse at all, and switching off the depth term that was really holding it dropped
+    /// a ragdoll through the map to −1519.
+    ///
+    /// **A ledge index and a plane index within it**, packed, because both are stable for as long
+    /// as the body rests on that face; terrain triangles get their own range above them. This is
+    /// the identity half of a closest-feature pair and not the pair itself — the engine also
+    /// retains WHICH feature of the moving body is closest, and this project still tests every hull
+    /// vertex against the world every step.
+    /// </remarks>
+    public (Vector3 Normal, float Depth, int Feature)? Touching(Vector3 point, Vector3 motion)
     {
-        (Vector3 Normal, float Depth)? best = null;
+        bool found = false;
+        float deepest = 0f;
+        Vector3 face = default;
+        int feature = -1;
 
-        _grid.TryGetValue((Cell(point.X), Cell(point.Y), Cell(point.Z)), out List<int>? nearby);
+        _ = motion;
 
-        int candidates = (nearby?.Count ?? 0) + _oversized.Count;
+        // Both tiers, at the point itself — a degenerate segment, so the same gather serves.
+        List<int> candidates = Candidates(point, point);
 
-        for (int candidate = 0; candidate < candidates; candidate++)
+        for (int candidate = 0; candidate < candidates.Count; candidate++)
         {
-            int index = nearby is not null && candidate < nearby.Count
-                ? nearby[candidate]
-                : _oversized[candidate - (nearby?.Count ?? 0)];
+            IvpWorldLedge ledge = _ledges[candidates[candidate]];
 
-            IvpWorldLedge ledge = _ledges[index];
-
-            if ((point - ledge.Center).LengthSquared() > ledge.Radius * ledge.Radius)
+            if ((ledge.Contents & Mask) == 0 ||
+                (point - ledge.Center).LengthSquared() > ledge.Radius * ledge.Radius)
             {
                 continue;
             }
 
-            (Vector3 Normal, float Depth)? shallowest = null;
+            bool shallowest = false;
+            float shallowDepth = float.MaxValue;
+            Vector3 shallowFace = default;
+            int shallowPlane = -1;
 
             for (int plane = 0; plane < ledge.Planes.Count; plane++)
             {
@@ -358,24 +705,157 @@ public sealed class IvpWorldCollision
                 {
                     // Outside one face of a convex piece is outside the piece. No further test can
                     // put the point back in, so this ledge is finished.
-                    shallowest = null;
+                    shallowest = false;
                     break;
                 }
 
-                if (shallowest is null || -outside < shallowest.Value.Depth)
+                // **A face the point is heading OUT of is not the face it came in through.**
+                // Pushing along the motion continues the journey; see the remarks.
+                if (-outside < shallowDepth)
                 {
-                    shallowest = (normal, -outside);
+                    shallowDepth = -outside;
+                    shallowFace = normal;
+                    shallowPlane = plane;
+                    shallowest = true;
                 }
             }
 
-            if (shallowest is { } found && (best is null || found.Depth > best.Value.Depth))
+            if (shallowest && (!found || shallowDepth > deepest))
             {
-                best = found;
+                found = true;
+                deepest = shallowDepth;
+                face = shallowFace;
+
+                // **Packed so one integer names the face**, which is all a retained contact needs
+                // to recognise itself next step. A ledge has far fewer than `PlanesPerLedge` faces
+                // in practice; the multiplier only has to be larger than any real count.
+                feature = (candidates[candidate] * PlanesPerLedge) + shallowPlane;
             }
         }
 
-        return Terrain(point, best);
+        (Vector3 Normal, float Depth, int Triangle)? brush = found ? (face, deepest, -1) : null;
+
+        (Vector3 Normal, float Depth, int Triangle)? both = Terrain(point, brush);
+
+        if (both is not { } hit)
+        {
+            return null;
+        }
+
+        // **Terrain wins its own identity, and it is now PER TRIANGLE.** A triangle is a different
+        // kind of feature from a ledge face, and until this it shared one id for the whole map —
+        // so every terrain contact on a body looked like the same retained contact, and a body
+        // crossing from one triangle to the next could not be told from one staying put. That is
+        // half of a closest-feature pair missing on exactly the surface corpses land on.
+        if (brush is not { } chosen || hit.Depth > chosen.Depth)
+        {
+            feature = TerrainFeatureFor(hit.Triangle);
+        }
+
+        return (hit.Normal, hit.Depth, feature);
     }
+
+    /// <summary>The retained id for one terrain triangle — negative, so it cannot meet a ledge's.</summary>
+    /// <remarks>
+    /// **Below <see cref="IvpContact"/>'s <c>Speculative</c>, which is −1**, so the three kinds of
+    /// feature id occupy disjoint ranges without anyone having to bound the ledge count: a ledge
+    /// face is <c>ledge × PlanesPerLedge + plane</c> and non-negative, a speculative contact is −1,
+    /// and a terrain triangle is −2 downwards.
+    /// </remarks>
+    /// <summary>The feature id naming one terrain triangle, for a contact raised against it.</summary>
+    /// <param name="triangle">The triangle's index.</param>
+    /// <returns>Its feature id, below <c>Speculative</c> as every terrain id is.</returns>
+    public static int TerrainFeature(int triangle) => TerrainFeatureFor(triangle);
+
+    private static int TerrainFeatureFor(int triangle) => -2 - triangle;
+
+    /// <summary>Where a retained feature's surface is, relative to a point — the mindist half.</summary>
+    /// <param name="feature">A feature id from <see cref="Touching(Vector3, Vector3)"/>.</param>
+    /// <param name="point">Where the body's own feature is now, in Source units.</param>
+    /// <returns>
+    /// The surface normal and the SIGNED distance to it — positive outside, negative penetrating —
+    /// or null when the pair no longer means anything and must be rediscovered.
+    /// </returns>
+    /// <remarks>
+    /// **This is the identity half of IVP's closest-feature pair, and its absence is what every
+    /// measurement in `docs/findings/51` kept arriving back at.** `Touching` re-derives the
+    /// SHALLOWEST face every step, and the shallowest face of a convex piece changes as a body
+    /// settles into it — so a resting contact's stored impulse was filed under a slot that moved,
+    /// and once a point passed a brush's midplane the shallowest face became the UNDERSIDE and the
+    /// push that should have held it drove it through.
+    ///
+    /// **The engine never chooses, because it never forgets.** A mindist keeps the pair of features
+    /// that were closest when the two were still apart, and re-measures THAT pair; the face a body
+    /// entered through is simply the one it is still being measured against. This asks the same
+    /// question of a face already chosen rather than choosing again.
+    ///
+    /// **Signed rather than a depth, which is the other half of why the engine needs no position
+    /// correction.** A pair carries a real distance while the two are still apart, so the contact
+    /// exists before they touch and there is never an overlap to recover from.
+    ///
+    /// **Null means the pair is DEAD, not that the point is clear**: a terrain triangle the point no
+    /// longer projects onto, or an id naming geometry that is gone. A live pair at any distance
+    /// returns a number.
+    /// </remarks>
+    public (Vector3 Normal, float Distance)? Against(int feature, Vector3 point)
+    {
+        if (feature < -1)
+        {
+            int index = -2 - feature;
+
+            if (index < 0 || index >= _triangles.Count)
+            {
+                return null;
+            }
+
+            IvpWorldTriangle triangle = _triangles[index];
+
+            // **The containment test still gates it**, because a triangle is a surface and not a
+            // solid: a point that has slid off the end of one is no longer paired with it, however
+            // near its plane still passes.
+            return Within(triangle, point)
+                ? (triangle.Normal, Vector3.Dot(triangle.Normal, point) - triangle.Distance)
+                : null;
+        }
+
+        if (feature < 0)
+        {
+            return null;
+        }
+
+        int ledge = feature / PlanesPerLedge;
+        int plane = feature % PlanesPerLedge;
+
+        if (ledge < 0 || ledge >= _ledges.Count ||
+            plane < 0 || plane >= _ledges[ledge].Planes.Count ||
+            (_ledges[ledge].Contents & Mask) == 0)
+        {
+            return null;
+        }
+
+        (Vector3 normal, float distance) = _ledges[ledge].Planes[plane];
+
+        return (normal, Vector3.Dot(normal, point) - distance);
+    }
+
+    /// <summary>More planes than any real ledge has, so a packed id cannot collide.</summary>
+    private const int PlanesPerLedge = 4096;
+
+    /// <summary>Which ledge a non-negative feature id from <see cref="Touching"/> names.</summary>
+    /// <param name="feature">A feature id — a ledge face is non-negative, everything else is not.</param>
+    /// <returns>An index into <see cref="Ledges"/>, or -1 for a feature that names no ledge at all.</returns>
+    /// <remarks>
+    /// **So a caller building a SEPARATE contact for the same ledge — a GJK manifold, say — can
+    /// tell whether a per-point hit it is about to raise already belongs to a ledge it has already
+    /// covered**, without needing <see cref="PlanesPerLedge"/> itself exposed.
+    /// </remarks>
+    public static int LedgeOf(int feature) => feature >= 0 ? feature / PlanesPerLedge : -1;
+
+    /// <summary>A feature id naming a ledge as a whole, for a caller raising its own contact against it.</summary>
+    /// <param name="ledgeIndex">An index into <see cref="Ledges"/>.</param>
+    /// <remarks>The inverse of <see cref="LedgeOf"/> — always resolves back to the same ledge.</remarks>
+    public static int FeatureForLedge(int ledgeIndex) => ledgeIndex * PlanesPerLedge;
+
 
     /// <summary>Where a moving point first enters the world, if it does.</summary>
     /// <param name="from">Where the point is now.</param>
@@ -396,7 +876,17 @@ public sealed class IvpWorldCollision
     /// planes, which is the standard slab clip and gives the entry face directly; a terrain
     /// triangle is a plane crossing plus the same containment test its point case uses.
     /// </remarks>
-    public Vector3? Entry(Vector3 from, Vector3 to)
+    public Vector3? Entry(Vector3 from, Vector3 to) => Sweep(from, to)?.Normal;
+
+    /// <summary>Where a moving point first enters the world, and how far along it got.</summary>
+    /// <param name="from">Where the point is now.</param>
+    /// <param name="to">Where it would be after this move.</param>
+    /// <returns>The surface it enters and the fraction of the way, or null when the path is clear.</returns>
+    /// <remarks>
+    /// **The fraction is what lets a caller stop a body AT the surface** rather than after it. A
+    /// discrete solver that only learns "something was crossed" has already crossed it.
+    /// </remarks>
+    public (Vector3 Normal, float Fraction)? Sweep(Vector3 from, Vector3 to)
     {
         Vector3 travel = to - from;
 
@@ -410,7 +900,15 @@ public sealed class IvpWorldCollision
 
         foreach (int index in Candidates(from, to))
         {
-            if (Clip(_ledges[index], from, travel) is not { } clipped ||
+            Examined++;
+
+            // **The ledge's own bounding sphere, tested before its planes.** This is the sphere
+            // the ledge tree already carries, so it costs nothing to keep and it is what makes the
+            // oversized list affordable: those are examined by every sweep of every hull point,
+            // and on `koth_harvest_final` there are ninety of them.
+            if ((_ledges[index].Contents & Mask) == 0 ||
+                !Reaches(_ledges[index], from, travel) ||
+                Clip(_ledges[index], from, travel) is not { } clipped ||
                 clipped.Fraction >= nearest)
             {
                 continue;
@@ -444,7 +942,30 @@ public sealed class IvpWorldCollision
             normal = triangle.Normal;
         }
 
-        return normal;
+        return normal is { } face ? (face, nearest) : null;
+    }
+
+    /// <summary>Whether a segment comes within a ledge's own bounding sphere at all.</summary>
+    /// <remarks>
+    /// **The cheap half of the sweep, and it decides whether the expensive half runs.** The
+    /// distance from the sphere's centre to the segment is compared against the radius; a ledge the
+    /// path never approaches is rejected in a handful of multiplies instead of a loop over every
+    /// one of its planes.
+    /// </remarks>
+    private static bool Reaches(IvpWorldLedge ledge, Vector3 from, Vector3 travel)
+    {
+        Vector3 toCentre = ledge.Center - from;
+
+        float length = travel.LengthSquared();
+
+        // Where along the segment the centre projects, clamped to its ends.
+        float along = length > 0f
+            ? Math.Clamp(Vector3.Dot(toCentre, travel) / length, 0f, 1f)
+            : 0f;
+
+        Vector3 nearest = from + (travel * along);
+
+        return (ledge.Center - nearest).LengthSquared() <= ledge.Radius * ledge.Radius;
     }
 
     /// <summary>Clips a segment by one convex ledge, giving the face it enters through.</summary>
@@ -517,8 +1038,8 @@ public sealed class IvpWorldCollision
     /// **The SHALLOWEST contact wins across both halves**, brush and terrain alike, so a corpse in a
     /// corner where a brush meets a hillside is pushed out the short way.
     /// </remarks>
-    private (Vector3 Normal, float Depth)? Terrain(
-        Vector3 point, (Vector3 Normal, float Depth)? best)
+    private (Vector3 Normal, float Depth, int Triangle)? Terrain(
+        Vector3 point, (Vector3 Normal, float Depth, int Triangle)? best)
     {
         if (!_triangleGrid.TryGetValue(
             (Cell(point.X), Cell(point.Y), Cell(point.Z)), out List<int>? nearby))
@@ -544,7 +1065,7 @@ public sealed class IvpWorldCollision
 
             if (best is null || -outside < best.Value.Depth)
             {
-                best = (triangle.Normal, -outside);
+                best = (triangle.Normal, -outside, nearby[candidate]);
             }
         }
 
@@ -568,49 +1089,46 @@ public sealed class IvpWorldCollision
     /// the point starts and ends would miss a wall standing between them, which is the same class
     /// of mistake as sampling the far end of the move.
     /// </remarks>
-    private IEnumerable<int> Candidates(Vector3 from, Vector3 to)
+    private List<int> Candidates(Vector3 from, Vector3 to)
     {
-        foreach ((int, int, int) key in Cells(from, to))
-        {
-            if (_grid.TryGetValue(key, out List<int>? bucket))
-            {
-                foreach (int index in bucket)
-                {
-                    yield return index;
-                }
-            }
-        }
+        Gather(_grid, from, to, CellSize, _candidates);
 
-        foreach (int index in _oversized)
-        {
-            yield return index;
-        }
+        Gather(_coarse, from, to, CoarseCellSize, _coarseCandidates);
+
+        _candidates.AddRange(_coarseCandidates);
+
+        return _candidates;
     }
 
     /// <summary>The same, for terrain triangles.</summary>
-    private IEnumerable<int> TriangleCandidates(Vector3 from, Vector3 to)
+    private List<int> TriangleCandidates(Vector3 from, Vector3 to)
     {
-        foreach ((int, int, int) key in Cells(from, to))
-        {
-            if (_triangleGrid.TryGetValue(key, out List<int>? bucket))
-            {
-                foreach (int index in bucket)
-                {
-                    yield return index;
-                }
-            }
-        }
+        Gather(_triangleGrid, from, to, CellSize, _triangleCandidates);
+
+        return _triangleCandidates;
     }
 
-    /// <summary>Every grid cell the segment's own box covers.</summary>
-    private static IEnumerable<(int X, int Y, int Z)> Cells(Vector3 from, Vector3 to)
+    /// <summary>Fills a reused buffer with everything filed in the cells the segment's box covers.</summary>
+    /// <remarks>
+    /// **A reused list rather than an iterator, and that is not a micro-optimisation here.** These
+    /// run once per hull point per sub-step per body — hundreds of thousands of times to catch one
+    /// corpse up — and a `yield return` walk allocates an enumerator on every one of them.
+    /// </remarks>
+    private static void Gather(
+        Dictionary<(int X, int Y, int Z), List<int>> grid,
+        Vector3 from,
+        Vector3 to,
+        float size,
+        List<int> into)
     {
-        int minimumX = Cell(MathF.Min(from.X, to.X));
-        int maximumX = Cell(MathF.Max(from.X, to.X));
-        int minimumY = Cell(MathF.Min(from.Y, to.Y));
-        int maximumY = Cell(MathF.Max(from.Y, to.Y));
-        int minimumZ = Cell(MathF.Min(from.Z, to.Z));
-        int maximumZ = Cell(MathF.Max(from.Z, to.Z));
+        into.Clear();
+
+        int minimumX = (int)MathF.Floor(MathF.Min(from.X, to.X) / size);
+        int maximumX = (int)MathF.Floor(MathF.Max(from.X, to.X) / size);
+        int minimumY = (int)MathF.Floor(MathF.Min(from.Y, to.Y) / size);
+        int maximumY = (int)MathF.Floor(MathF.Max(from.Y, to.Y) / size);
+        int minimumZ = (int)MathF.Floor(MathF.Min(from.Z, to.Z) / size);
+        int maximumZ = (int)MathF.Floor(MathF.Max(from.Z, to.Z) / size);
 
         for (int x = minimumX; x <= maximumX; x++)
         {
@@ -618,11 +1136,20 @@ public sealed class IvpWorldCollision
             {
                 for (int z = minimumZ; z <= maximumZ; z++)
                 {
-                    yield return (x, y, z);
+                    if (grid.TryGetValue((x, y, z), out List<int>? bucket))
+                    {
+                        into.AddRange(bucket);
+                    }
                 }
             }
         }
     }
+
+    private readonly List<int> _candidates = [];
+
+    private readonly List<int> _triangleCandidates = [];
+
+    private readonly List<int> _coarseCandidates = [];
 
     /// <summary>Whether a plane is already held, up to the angle and offset IVP treats as the same.</summary>
     private static bool Duplicate(
@@ -639,6 +1166,27 @@ public sealed class IvpWorldCollision
         return false;
     }
 
+    /// <summary>Adds a vertex to a ledge's own list, skipping one already present.</summary>
+    /// <remarks>
+    /// **A shared point cloud means the same vertex arrives from every triangle that touches it**,
+    /// so a floor's corner would otherwise appear once per adjacent face. Exact equality is
+    /// deliberate rather than a tolerance: these are the SAME transform applied to the SAME source
+    /// point every time it recurs, so they compare bit-identical — a tolerance would only risk
+    /// merging two vertices that are actually distinct.
+    /// </remarks>
+    private static void AddVertex(List<Vector3> vertices, Vector3 vertex)
+    {
+        for (int index = 0; index < vertices.Count; index++)
+        {
+            if (vertices[index] == vertex)
+            {
+                return;
+            }
+        }
+
+        vertices.Add(vertex);
+    }
+
     /// <summary>How wide one broadphase cell is, in Source units.</summary>
     /// <remarks>
     /// **128 units is two player heights**, which is the scale a corpse's limbs move at. Smaller
@@ -650,15 +1198,37 @@ public sealed class IvpWorldCollision
     /// <summary>How many cells one ledge may be filed into before it is called oversized.</summary>
     private const int MaximumCells = 512;
 
+    /// <summary>The coarse tier's cell size, for ledges too big for the fine one.</summary>
+    /// <remarks>
+    /// **Sixteen times the fine cell**, so a ledge that would have needed thousands of fine cells
+    /// needs a handful of these. The alternative it replaced was a list every sweep tested in full.
+    /// </remarks>
+    private const float CoarseCellSize = CellSize * 16f;
+
     /// <summary>How far behind a terrain triangle still counts as touching it, in Source units.</summary>
     /// <remarks>
     /// **The slab that stands in for the engine's outer hull.** `virtualmeshparams_t` carries a
     /// `buildOuterHull` flag and vphysics closes the mesh with one; a bare triangle soup has no
-    /// inside, so contact needs a thickness. Sixty-four units is half a player and several times
-    /// the twelve a body falls in one tick at terminal velocity, so nothing that should have landed
-    /// slips past it.
+    /// inside, so contact needs a thickness.
+    ///
+    /// **It was 64, and a body that got past it stopped colliding with the ground entirely** — the
+    /// slab has a BOTTOM where the engine's closed hull has none, so ground that is solid in TF2 is
+    /// a shell here and anything below it is in free space. Measured on `cp_granary` (B306): a
+    /// corpse whose limbs sank past the shell fell from −424 to −654 and kept going, with no
+    /// contact to find, which is what the owner reported as corpses disappearing.
+    ///
+    /// **A body does not arrive below the shell in one step — it accumulates.** The velocity clamp
+    /// is 2,000 units a second and a step is 0.015, so 30 units is the most a point can travel in
+    /// one; 64 was chosen against exactly that and is sound for a single crossing. What defeats it
+    /// is a body the contact solve pushes out and gravity puts back, a little deeper each time,
+    /// until it is through — so the depth has to cover the accumulated case, not the one-step one.
+    ///
+    /// **512 rather than unbounded, because this is also the filing depth.** `AddTriangle` files a
+    /// triangle into every grid cell from `Cell(minZ − TerrainDepth)` up, so this multiplies terrain
+    /// storage: at a 128-unit cell it is four to five cells per triangle instead of one to two.
+    /// Deeper than anything a corpse accumulates in a demo, and still bounded.
     /// </remarks>
-    private const float TerrainDepth = 64f;
+    private const float TerrainDepth = 512f;
 
     /// <summary><c>FLT_EPSILON</c>, the floor the engine's own guards use.</summary>
     private const float FloatEpsilon = 1.1920929e-07f;

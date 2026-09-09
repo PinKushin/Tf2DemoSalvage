@@ -1169,7 +1169,8 @@ public static class PropModels
                     // **A missing `.phy` is the normal case and says nothing**, so it is not logged:
                     // most models ship none, and `Find` returning null here is how a hat differs
                     // from a player rather than a failure to read one.
-                    ReadRagdoll(Find(stem + ".phy"), bones, props, path)));
+                    ReadRagdoll(Find(stem + ".phy"), bones, props, path),
+                    ReadBreakPieces(Find(stem + ".phy"), props, path)));
         }
         catch (InvalidDataException failure)
         {
@@ -1206,11 +1207,42 @@ public static class PropModels
 
         try
         {
-            return RagdollBody.Build(PhysicsModel.Read(file), bones);
+            PhysicsModel physics = PhysicsModel.Read(file);
+
+            // **A ragdoll first, then a PROP** (B371). `Build` refuses a solid that names no bone,
+            // which is right for a ragdoll and normal for a prop — every gib is the second kind:
+            // one solid called `medicgib001_reference` against one bone called `polymsh`. The
+            // engine builds those with `BreakModelCreateSingle`, not the ragdoll path, so a null
+            // here is not the end of the question.
+            return RagdollBody.Build(physics, bones) ?? RagdollBody.BuildProp(physics);
         }
         catch (Exception failure) when (failure is InvalidDataException or ArgumentException)
         {
             props.LogWarning(failure, "reading the ragdoll of {Path}", path);
+            return null;
+        }
+    }
+
+    /// <summary>The model's <c>break</c> pieces, or null when it declares none (B371).</summary>
+    /// <remarks>
+    /// **Read from the same bytes as the ragdoll and swallowing the same failures**, because a
+    /// `.phy` this project cannot parse must cost a gib list rather than a model.
+    /// </remarks>
+    private static IReadOnlyList<PhysicsBreakPiece>? ReadBreakPieces(
+        byte[]? file, ILogger props, string path)
+    {
+        if (file is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        try
+        {
+            return PhysicsModel.Read(file).BreakPieces;
+        }
+        catch (Exception failure) when (failure is InvalidDataException or ArgumentException)
+        {
+            props.LogWarning(failure, "reading the break list of {Path}", path);
             return null;
         }
     }
@@ -2704,6 +2736,12 @@ public static class PropModels
     /// the answer for nearly every model, since only 37 of the 4,755 the game ships declare ragdoll
     /// joints at all.
     /// </param>
+    /// <param name="BreakPieces">
+    /// The pieces this model breaks into — its <c>.phy</c>'s <c>break</c> blocks (B371). Nine on a
+    /// player class and empty on nearly everything else, measured. Carried beside the ragdoll
+    /// because both come out of the same file in the same read, and fetching the gib list later
+    /// would mean opening one model's `.phy` twice.
+    /// </param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -2760,7 +2798,8 @@ public static class PropModels
         // **Null is the common answer and is not a warning.** Most models ship no `.phy` at all,
         // and of the 4,755 that do only 37 declare ragdoll joints — every other one is a single
         // collision solid with nothing to simulate.
-        RagdollBody? Ragdoll = null)
+        RagdollBody? Ragdoll = null,
+        IReadOnlyList<PhysicsBreakPiece>? BreakPieces = null)
     {
         /// <summary>The render bounds for one sequence, in model space.</summary>
         /// <param name="sequence">Which sequence is playing.</param>

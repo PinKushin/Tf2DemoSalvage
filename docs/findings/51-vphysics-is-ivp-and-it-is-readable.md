@@ -2019,6 +2019,325 @@ measure.
 *Evidence class: measured, with the camera's independently-built world as the control and its own
 confound stated.*
 
+### Damping, read — and it is what the gravity note said was missing
+
+**`IvpGravity`'s own remarks named two unread calls and one of them is the damping.**
+`FUN_180074c80` makes `FUN_180078250(core, dt)` and `FUN_180077950(core)` before adding `g·dt`,
+inside the same `0x10` gate. The first fetches the terms and the second is still unread.
+
+```c
+void FUN_180078250(longlong core, double dt)
+{
+  if (1 < *(byte *)(core + 1)) {
+    local_18 = *(float *)(core + 0x30) + DAT_1800ea968;   // 0.1
+    local_10 = *(float *)(core + 0x38) + DAT_1800ea968;
+    local_14 = *(float *)(core + 0x34) + DAT_1800ea968;
+    FUN_180077a20(core, dt, &local_18, (double)(*(float *)(core + 0x50) + DAT_1800ea968));
+    return;
+  }
+  FUN_180077a20(core, dt, (float *)(core + 0x30), (double)*(float *)(core + 0x50));
+}
+```
+
+So **`core+0x30/0x34/0x38` is a three-axis rotation damping and `core+0x50` a single speed
+damping**, which is exactly the pair a `.phy` spells as `rotdamping` and `damping`.
+
+`FUN_180077a20` applies them:
+
+| what | when | factor |
+|---|---|---|
+| angular, per axis | `Σ (rot·dt)² ≥ 0.5` | `exp(−rot·dt)` |
+| angular, per axis | below that | `1 − rot·dt` |
+| linear | `speed·dt ≥ 0.25` | `exp(−speed·dt)` |
+| linear | below that | `1 − speed·dt` |
+
+writing the first into `core+0x130/0x134/0x138` and the second into `core+0x140/0x144/0x148`.
+
+**Which of those is angular is read from the other side rather than assumed**: gravity accumulates
+into `+0x140`, and an acceleration is added to a linear velocity.
+
+**Every constant settled in the disassembly**, per
+`docs/memory/settle-a-constant-in-the-disassembly.md`: `DAT_1800ea984` = `0.5`, `DAT_1800ea988` =
+`1.0`, `DAT_1800efdf8` = `0.25` (double), `DAT_1800ea9b8` = `1.0` (double), and both XOR masks are
+sign bits — which is what makes those calls `exp(−x)` rather than `exp(x)`.
+
+**Still open:** the byte at `core+1`. When it is 2 or more, every damping term gains `0.1` — the
+same `0.1` as `g_PhysDefaultObjectParams`, which is suggestive and is not evidence. Nothing traced
+writes it. `FUN_180077950(core)` remains unread.
+
+*Evidence class: read from the decompiled binary, with every constant re-read in the disassembly;
+the angular/linear split is differential against the gravity site.*
+
+### The PSI's phases, and the lookahead used as a DISTANCE GATE
+
+**`FUN_180082560` was read as a call list; here it is as phases.** The `(**...)(profiler, N)` calls
+number the stages, so the structure is not guesswork:
+
+| phase | call | what |
+|---|---|---|
+| 1 | the `env+0x158[]` reverse loop, slot 0 per entry | the controller list — gravity is one of these |
+| 2 | `FUN_180075a90(env+0x10, psi, buffer)` | collect into a 0x80-entry buffer |
+| 3 | `FUN_18009a590(psi, buffer1, buffer2)` | buffer 1 in, buffer 2 out |
+| 4 | `FUN_18009a690(psi, buffer2)` | the contact-pair re-check scheduler |
+| 5 | `FUN_1800983e0(env+0x20)` | walk the mindist list, `FUN_180095cb0` per record |
+| 6 | `FUN_1800985a0(env+0x20)` | walk it again, `FUN_180099380(record, 1, 1)` per record |
+
+**`FUN_180099380` is where the lookahead is spent, and it settles what the parameter MEANS:**
+
+```c
+local_a8 = (double)(*(float *)(lVar3 + 0x254) + *(float *)(lVar2 + 0x254));
+local_90 = (double)*(float *)(lVar2 + 0x1dc) + local_a8 + (double)*(float *)(lVar3 + 0x1dc);
+…
+dVar5  = (double)*(float *)(&DAT_18012d548 + (ulonglong)(byte)(uVar6 >> 0x16) * 4);   // margin
+dVar13 = (double)*(float *)(param_1 + 0xa8);                                          // distance
+if ((double)(float)*(double *)(lVar4 + 0x108) * local_90 * _DAT_1800f5108 + dVar5 < dVar13) {
+    … reschedule …
+} else {
+    … escalate: FUN_180098dd0 … 
+}
+```
+
+So a pair is EXAMINED when its distance falls below `lookAheadTime × (a per-core speed bound summed
+over both) + the material margin`. **The lookahead is a gate on when to look, not a force applied
+early** — which is what `lookAheadTimeObjectsVsWorld = 1.0f` means in practice, and it is why
+transcribing the prediction as an impulse stopped a falling body dead sixty-six units above a floor.
+
+`lVar4+0x108` is the environment's own lookahead time; the margin table `DAT_18012d548` is the
+256-entry per-material float already noted above, whose base `DAT_18012d664` dumps as `0.0`.
+
+**`FUN_180098dd0` was called the escalation above and it is not one — it is a REMOVAL.** Read, it
+unlinks a mindist from four doubly-linked lists and from an array at `manager+0x20` whose count sits
+at `+0x1a`; there is no impulse anywhere in it. And the branch it sits in is the FAR one, not the
+near one: the test reads `if (lookAheadTime × speedBound + margin < distance)`, so the pair taken
+out of the list is the pair too far apart to matter, and what follows installs a travel allowance
+per object (`FUN_180097bd0`, split between the two by their speed bounds) saying how far either may
+move before the pair must be looked at again.
+
+So both halves of that sentence were wrong: the deactivation was read as an escalation, and the
+point where a contact becomes an impulse is not on this path at all. It is in the next section.
+
+*Evidence class: read from the decompiled binary; the phase numbering is read from the profiler
+argument rather than inferred. The correction to `FUN_180098dd0` is read from the function itself.*
+
+## There are TWO contact solvers, and a resting corpse uses the other one
+
+**This is the correction that makes the section below only half the story, and it was found by
+following a cost.** `FUN_18008e290` is the IMPACT solver — one mindist, one arrival, a hundred
+passes to kill one approach. A body already lying on a floor never goes near it. Resting contacts
+live in the **friction system** (`ivp_intern\ivp_friction.cxx`), and its driver is `FUN_1800836b0`:
+
+```c
+uVar11 = (ulonglong)*(ushort *)(param_1 + 0x6a);              // how many friction systems
+do {
+    lVar1 = *(longlong *)(*(longlong *)(param_1 + 0x70) + uVar11 * 8);   // one system
+    fVar15 = 0.0;
+    …
+    fVar15 += contact[0x88] * contact[0x78] * contact[0x60];  // summed over EVERY contact first
+    …
+    fVar15 = fVar15 * *param_2 * *param_2;                    // the system's shared budget
+    do {
+        plVar9 = system.contacts[lVar8];
+        if (limit exceeded) { … clamp this contact against fVar15 … }
+        if (*(char *)((longlong)plVar9 + 100) == '\x01') { FUN_180085100(plVar9, param_2); }
+        else { fVar16 += FUN_1800857c0(plVar9, param_2); }    // ONE application, per contact
+        lVar8 = lVar8 + -1;
+    } while (-1 < lVar8);
+} while (true);
+```
+
+**Three things, and each one contradicts something this project built:**
+
+- **One pass over the contacts, not a hundred and not two.** The walk is a single descending loop.
+- **The set is solved as a SET.** A scalar is accumulated across every contact of the system
+  BEFORE any impulse is applied, and each contact is then clamped against that shared budget. Our
+  solve has no notion of a group at all — each contact converges alone, knowing nothing about its
+  neighbours.
+- **The grouping is the friction SYSTEM**, which is why `FUN_180086e80` exists to split and merge
+  them when an object's contact list changes — a fact already recorded above and filed as an
+  identity predicate rather than as the thing that defines the solve's scope.
+
+**This is what "our contact set is not the engine's mindist set" turns out to mean**, and it
+explains both failures on the way to it. Wrapping the impact solver's hundred-pass bound around
+every contact of a ragdoll re-solved settled contacts a hundred times a slice — six ticks of one
+corpse past four hundred seconds. Moving the bound inside one contact stopped the hang and then
+overshot, resting a two-unit cube 2.04 above a plane it can be at most `sqrt(3)` above, because
+each contact drove its own approach to zero with no shared budget to divide.
+
+**Neither shape was the engine's, and no amount of tuning either would have got there.** The
+resting solve is a different function, reached from a different place, over a different set.
+
+**What is NOT established:** what `contact+0x60`, `+0x78` and `+0x88` hold — the three factors whose
+product forms the budget — and what the byte at `contact+0x64` selects, which sends a contact to
+`FUN_180085100` instead of `FUN_1800857c0`. `param_2[0]` is squared into the budget and its
+provenance is unread. Those are the next things to read, and none of them is guessable.
+
+**And the obvious way to look them up does NOT work, which is worth writing down before someone
+spends the run on it.** The friction-system contact is a DIFFERENT structure from the 0x110-byte
+record `FUN_18008d0c0` allocates — that one is written at `+0x24`, `+0x72`, `+0x76`, `+0x94`,
+`+0xc4`, `+0xd4` and `+0xf4`, and never at any of the four above. Nor does a whole-program grep for
+the offsets find the writer: searching all 2,813 functions for `0x60`, `0x64`, `0x78` and `0x88`
+together returns **zero**, because the decompiler renders a field by the type of the pointer holding
+it — the same byte appears as `*(float *)(param_1 + 0x78)` through one and as `plVar9 + 0xf` through
+another, and `FUN_1800857c0` does both within a dozen lines.
+
+So the route in is the structure's allocation, or a trace out of `FUN_180086e80`, which splits and
+merges these systems and therefore has to know how one is built. Recorded as a failed search rather
+than left for the next reader to repeat.
+
+*Evidence class: read from the decompiled binary. The identification of `FUN_1800836b0` as the
+friction-system driver is read from its own structure — a loop over `param_1+0x70` indexed by a
+count at `+0x6a`, calling the per-contact solve already traced — and from `ivp_friction.cxx` being
+the only IVP source file named by the two functions beside it.*
+
+## Friction is a WARM-STARTED 2×2 SOLVE, not an impulse opposing the slide
+
+**Read after a per-contact Coulomb pass measured worse**, which is what sent me back to the
+function rather than to another adjustment. `FUN_1800857c0` solves one resting contact and its
+shape is nothing like "push back along the slide":
+
+```c
+FUN_18009ca70(local_1b8, coreA, coreB, mindist, mindist + 0x16, mindist + 0x18, 0);
+dVar6 = param_2[1] * f(contact + 0x6c) - local_64;      // TARGET, from the STORED impulse
+dVar5 = param_2[1] * f(contact + 0xd)  - local_68;
+bVar7 = FUN_1800868d0(local_c8, local_c0, local_c0, local_a0, …);   // invert a 2x2
+local_1e8 = local_1d0 * dVar6 + local_1d8 * dVar5;      // the pair of magnitudes
+local_1e4 = local_1c0 * dVar6 + local_1c8 * dVar5;
+if (dVar4 * dVar4 < local_1e4*local_1e4 + local_1e8*local_1e8) { … scale both to dVar4 … }
+FUN_18009c620(local_1b8, coreA, coreB, &local_1e8);     // apply BOTH at once
+```
+
+**Four things, and each one is a departure from what this project does:**
+
+- **Two tangent directions solved TOGETHER**, through a symmetric 2×2 effective-mass matrix
+  inverted by `FUN_1800868d0` (its arguments are `a, b, b, d` — the same value twice, which is what
+  makes it symmetric). A single impulse along the slide direction is a different operator, and it
+  is what measured worse: a sliding body went from twelve units a second to 17.8.
+- **The target is warm-started from a STORED impulse.** `contact+0x68` and `+0x6c` hold the
+  tangential pair from the previous solve, and the right-hand side is
+  `weight × stored − current velocity`. So friction converges across steps rather than being
+  rediscovered each one, which is exactly what a resting body needs and what a stateless contact
+  cannot do.
+- **The cone clamp is on the PAIR**, after the solve, scaling both components to the limit
+  `f(+0x78) · f(+0x88) · dt` rather than clamping a single magnitude.
+- **The clamp in the driver is a SUM, and it is a ceiling rather than a division.**
+  `FUN_1800836b0` accumulates `Σ contact[0x88]·contact[0x78]·contact[0x60]` over the whole friction
+  system, squares the step into it, and caps each contact's stored pair against that total. A system
+  with more contacts has a LARGER ceiling — this bounds runaway accumulation, it does not share a
+  fixed budget out.
+
+**So the missing structure is persistence, and that is the honest size of it.** A friction contact
+in IVP survives between PSIs carrying its tangential impulse; ours is rebuilt from scratch every
+slice. Warm starting is not an optimisation here, it is where the resting force comes from, and a
+stateless transcription of the surrounding arithmetic cannot stand in for it.
+
+**What is NOT established:** the identity of `contact+0x60`, `+0x78` and `+0x88` individually — only
+that `+0x78 · +0x88` forms the Coulomb limit, because the pair is used together and never apart.
+`param_2[0]` and `param_2[1]` are the step and the relaxation weight by their use and not by a
+producer. `FUN_18009ca70` builds the two tangent Jacobians and has not been read.
+
+*Evidence class: read from the decompiled binary. The symmetry of `FUN_1800868d0`'s matrix is read
+from its duplicated argument; the warm start is read from the right-hand side referencing the same
+fields the solve writes back.*
+
+## The impact solver, found — and it is a fixed sub-impulse in a friction cone
+
+**`FUN_18008e290` is the consumer of the contact record**, reached from the mindist event through
+`FUN_18008ed60`, which builds the solver's ~0x150-byte working struct on the stack and hands it
+over. It is the piece the section above and *Contact response is accumulated, not applied* both
+named as missing, and it was found by asking which functions read the record's mass term and write a
+core's velocity — six in the whole binary, and this is the one between them.
+
+**The working struct, from the two functions together:**
+
+| byte | holds |
+|---|---|
+| `+0x30`, `+0x38` | each core's 3×3 rotation, as doubles |
+| `+0x40`/`+0x60`, `+0x50`/`+0x70` | each core's working angular / linear velocity |
+| `+0x80`/`+0xa0`, `+0x90`/`+0xb0` | the per-application delta for each, so it can be undone |
+| `+0xc0` | the relative velocity at the contact |
+| `+0xd0` | **the impulse direction** |
+| `+0xe0` | the fallback direction, used when the pair is separating |
+| `+0x110`, `+0x118` | the two cores |
+| `+0x120`, `+0x128` | each core's contact anchor |
+| `+0x130` | the elasticity input |
+| `+0x134`, `+0x138` | **`cos θ` and `sin θ` of the friction cone** |
+| `+0x140` | the normal — `mindist+0x20`, or a negated copy when the roles are swapped |
+
+**The working velocity is `core+0x130/+0x140` plus `core+0x110/+0x120`, and the first pair is the
+live one.** `FUN_180099a00`, the integrator, advances the position by `core+0x170` and only then
+copies `core+0x140` into it, which is the one-step lag this project already reproduces — and it
+proves `+0x140` is the velocity rather than a delta accumulator. The `+0x110/+0x120` pair is a
+second velocity added on top, folded in and cleared by this function's tail under a `flags & 0xc0`
+gate.
+
+**The loop is the finding.** Every constant in it was dumped in the disassembly rather than read out
+of the decompiled expression, per `docs/memory/settle-a-constant-in-the-disassembly.md`:
+
+```c
+fVar17 = dot(relativeVelocity, normal);
+if (fVar17 <= _DAT_1800ee398) {                    // -1.0E-4, a float: genuinely approaching
+    FUN_180090240(param_1);                        // choose the direction
+    dVar12 = DAT_1800fd880 / (dVar19 + dVar18);    // -0.1 (double) over the two mass terms
+    dVar24 = -dot(relativeVelocity, direction);
+    for (; (0.0 < dVar24 && (iVar15 < 100)); iVar15 = iVar15 + 1) {
+        FUN_18008f1c0(param_1, dVar12 * dVar19 * (dVar18 + dVar18) * (double)fVar17);
+        FUN_18008fc00(param_1);                    // recompute the relative velocity
+        dVar24 = -dot(relativeVelocity, direction);
+        FUN_180090240(param_1);                    // re-choose the direction
+    }
+```
+
+Three things follow, and each contradicts what a textbook sequential-impulse solver does.
+
+- **The magnitude is fixed and comes from the approach speed measured BEFORE the loop.** `fVar17` is
+  never recomputed; only the test reads the live velocity. The expression reduces to
+  `-0.2 · mA·mB/(mA+mB) · v₀`, so each pass removes a fifth of the original approach and the loop
+  converges as `0.8ⁿ`. That is what a bound of a hundred is for.
+- **A static partner is `1.0e5 ×` its partner's mass term.** `DAT_1800fd870` dumps as `100000.0`
+  (double), substituted for whichever core carries `flags & 2` — so the harmonic mean collapses to
+  the moving body's own effective mass. Infinite mass by a large number rather than by a branch.
+- **There is ONE impulse and friction is a constraint on its DIRECTION.** `FUN_180090240` sets the
+  direction to the normalised relative velocity; if that leans further from the normal than the
+  cone allows — `if (-cos θ < dot)` — it is clamped onto the cone edge,
+  `dir = normal·(−cos θ) + tangent·sin θ`. There is no tangential impulse anywhere.
+
+**The cone pair is built in `FUN_18008ed60` and it is a series, not a table lookup:**
+
+```c
+dVar3 = (sqrt(*(float *)(param_1 + 0x80)) + 1.0) * *(float *)(param_4 + 0x78);   // tan θ
+dVar1 = FUN_1800d4398(dVar3);
+fVar2 = (1.0 - dVar1*dVar1 * 0.5) + dVar1*dVar1 * _DAT_1800fd858 * dVar1*dVar1;
+local_44 = CONCAT44((float)((double)fVar2 * dVar3), fVar2);                       // (cos θ, sin θ)
+```
+
+`1 − s²/2 + C·s⁴` is the series for `1/sqrt(1 + s²)`, and the partner is that times `s`, which makes
+the pair `(cos θ, sin θ)` with `tan θ = s`. **`mindist+0x80` has no traced producer**, so the
+`(sqrt(x) + 1)` factor on the material's friction is between one and unknown — flagged rather than
+rounded off, and this project takes it as one, which is the minimum of the engine's range.
+
+**After the loop there is a calibrated impulse, and it is measured rather than solved.** The target
+separating speed is `dVar24 + sqrt(n)·0.01 + sqrt(1 − (1−e)/(n·0.5 + 1))·dVar24` — with
+`DAT_1800eb150` dumping as `0.01` (double), metres per second, a floor that grows with the impact
+count so a pair cannot chatter forever. If that target is positive **and the loop did not hit its
+bound**, the solver applies a unit impulse, remeasures, subtracts its own accumulated deltas back
+out of both bodies, and reapplies the exact multiple the measurement calls for. `DAT_1800f50f8` =
+`1.0e-4` guards the division.
+
+**What is NOT established:** the elasticity source at `mindist+0x80` and what `param_4` counts —
+read as an impact or recursion count from its use under two square roots, not from a producer.
+`FUN_1800d4398` is taken to be a small-angle helper from the series that consumes it, not from a
+name. The tail's `flags & 0xc0` gate has no traced writer either.
+
+**And it names the divergence that mattered.** This project solved contacts with the joint group's
+`additionalIterations + 2`, a number read for joints and never for contacts, with a separate Coulomb
+friction pass — a shape invented here because this function was unread. Both are now the engine's:
+`IvpEnvironment.Resolve` runs the condition-terminated loop bounded at a hundred, and
+`IvpContact.Direction` is the cone clamp.
+
+*Evidence class: read from the decompiled binary for every function; every constant re-read as a
+raw lane in the disassembly. The `(cos θ, sin θ)` identification is ARITHMETIC — the series is
+matched to `1/sqrt(1+s²)` — rather than read from a name.*
+
 ### The point array
 
 Sixteen-byte stride at `ledge + c_point_offset`: three little-endian floats and four bytes that were
@@ -2038,6 +2357,75 @@ itself, `pfVar13 = (float *)((ulonglong)*param2 * 0x10 + *param4)`.
 **file-verified** against three shipped `.phy` files for the container, the surface header, the tree,
 eleven ledges, the point array and the 132-edge fan test; NOT ESTABLISHED and listed above for the
 unidentified fields.*
+
+## The ball-and-socket, found — and it is what holds a ragdoll together
+
+**The correction below is right about `FUN_180036f80` and was read as saying more than it does.**
+All three axes `FUN_180036e10` dispatches ARE angular; the conclusion drawn from that — that the
+ragdoll constraint has no translation solve at all — does not follow, because the translation solve
+is not in the dispatcher. It is in the dispatcher's CALLER, `FUN_180038620`, immediately after it
+returns, behind a flag:
+
+```c
+FUN_180036e10(param_1, param_2, (longlong)param_3);       // the three angular axes
+if (*(char *)(param_1 + 0x157) != '\0') {
+    // each body's anchor, carried into world space by its own rotation
+    fVar39 = az * Rz + origin + ay * Ry + ax * Rx;                    // body A
+    fVar22 = bz * Rz + origin + by * Ry + bx * Rx;                    // body B
+    *param_3     = fVar22 - fVar39;                                   // THE POSITION ERROR
+    …
+    FUN_180038070(param_3 + 4, &local_b8, coreA, coreB, &armA, &armB);  // the 3x3 K matrix
+    fVar17 = *(float *)(param_1 + 0x14c);                              // gain on the velocity
+    fVar22 = *(float *)(param_1 + 0x150) * fVar51 * param_2[1];        // gain on the error
+    fVar21 = (0.0 - fVar17 * fVar52 * local_b8) + fVar22 * fVar21;     // per axis
+    …                                                                  // times K inverse
+    if ((*pbVar3 & 0x12) == 0) { core[0x130] += …;  core[0x140] += …; }   // BOTH bodies,
+    if ((*pbVar4 & 0x12) == 0) { core[0x130] += …;  core[0x140] += …; }   // equal and opposite
+}
+```
+
+**Two things make this the missing piece.** It is the only place in the constraint path that writes
+LINEAR velocity — the three angular axes never touch `+0x140` — and it is the only term anywhere
+that reads a POSITION rather than a velocity. A solver made only of velocity constraints has no way
+to notice that two bodies have drifted apart; this is the term that pulls them back.
+
+`FUN_180038070` builds the standard ball-socket effective-mass matrix, reading each core's inverse
+inertia at `+0x40..0x48` and inverse mass at `+0x4c` and forming the cross-product terms — the same
+quantities the contact record precomputes, as a full 3×3 rather than one scalar.
+
+**This project implements the three angular axes and nothing else**, so its ragdolls are seventeen
+bodies that fall independently and stay together only because they started together. It is what the
+measurement had been pointing at without naming: on `z1800` the escaping corpses' ROOT body sits
+outside all geometry at z −50 while the corpse still reports six to eleven contacts — the limbs are
+resting on a floor the pelvis has already gone through, which is a ragdoll coming apart rather than
+a body sinking.
+
+**Both gains are 1.0 and translation is ON, and all three are settled in the disassembly.** The
+chain is `CreateRagdollConstraint` → `FUN_18000d510` → `FUN_18000eac0`, which builds a template on
+its stack with `FUN_18000c750` and hands it to `FUN_1800368c0`; `FUN_180037890` then copies
+template `+0xc8`/`+0xcc`/`+0xd3` to constraint `+0x14c`/`+0x150`/`+0x157`. The template's own
+constructor writes them literally:
+
+```
+18000c7cb  MOV dword ptr [RBX + 0xc8],0x3f800000     ; the velocity gain = 1.0
+18000c7d5  MOV dword ptr [RBX + 0xcc],0x3f800000     ; the error gain    = 1.0
+18000c7df  MOV byte ptr  [RBX + 0xd3],0x1            ; translation ENABLED
+```
+
+Nothing between there and the constraint overwrites any of the three, so **every ragdoll joint TF2
+creates is a ball-and-socket with unit gains** — and the error term is additionally scaled by the
+driver's relaxation weight, `param_2[1]`, which is the same `0.4` the angular axes use.
+
+**What is NOT established: the two per-body scales** `fVar51` and `fVar52`, selected by a lane mask
+between the function's `param_4`/`param_5` arguments and a value from an `rsqrt` Newton refinement.
+Their ordinary value for a normalised axis is one, and that is what this project takes with the
+assumption stated rather than buried.
+
+*Evidence class: read from the decompiled binary for the solve; the three constants re-read as raw
+instruction operands in the disassembly per
+`docs/memory/settle-a-constant-in-the-disassembly.md`. The identification of `FUN_180038070` as the
+ball-socket K matrix is ARITHMETIC — matched to the standard form from the fields it reads — rather
+than read from a name.*
 
 ## Correction: there is no anchor axis — all THREE constraint axes are angular
 
@@ -2797,3 +3185,567 @@ wrong in the way nothing in a corpse's pose reports.
 *Evidence class: read from published SDK source for the call and the declaration; the friction
 consequence is read from the decompiled binary; the bind-pose invariant is arithmetic on the two
 published matrix semantics, and is pinned by a synthetic test with a turned skeleton.*
+
+## The map's own collision is not the map's brushes, and a corpse falls through the difference
+
+**A corpse on `koth_harvest_final` free-falls a thousand units at (-972.6, -1400.3), and the solver
+is not at fault.** `corpse-drop` drops a straight ray before it simulates anything now, and the ray
+says there is nothing between z 77.5 and z -1024. The corpse comes to rest at -1015, on the floor of
+the world. Given that world, that is the correct answer.
+
+**vbsp builds the world's physics from three passes and a mesh, and each one bounds what a corpse
+can land on** (`utils/vbsp/ivp.cpp:1314-1336`):
+
+```cpp
+ConvertWorldBrushesToPhysCollide( collisionList, shrinkSize, mergeTolerance, MASK_SOLID );
+ConvertWorldBrushesToPhysCollide( collisionList, shrinkSize, mergeTolerance, CONTENTS_PLAYERCLIP );
+ConvertWorldBrushesToPhysCollide( collisionList, shrinkSize, mergeTolerance, CONTENTS_MONSTERCLIP );
+…
+if ( g_bNoVirtualMesh || !physcollision->SupportsVirtualMesh() )
+    Disp_AddCollisionModels( collisionList, &dmodels[0], MASK_SOLID );
+else
+    Disp_BuildVirtualMesh( MASK_SOLID );
+```
+
+Harvest's world model declares exactly two solids — `"contents" "33570827"` (`MASK_SOLID`) and
+`"contents" "65536"` (`CONTENTS_PLAYERCLIP`) — plus `virtualterrain {}`. There is no monsterclip
+solid because the map has no monsterclip brushes, which is why the count is two and not three.
+
+**The world is built with `NO_SHRINK`, and only brush ENTITIES are shrunk** — `BuildWorldPhysModel(
+collisionList[i], NO_SHRINK, VPHYSICS_MERGE )` against `ConvertModelToPhysCollide( …,
+VPHYSICS_SHRINK, VPHYSICS_MERGE )`, `ivp.cpp:1531` and `:1535`, where `VPHYSICS_SHRINK` is `0.5f`
+*"shrink BSP brushes by this much for collision"* (`:37`). So a systematic half-unit gap under the
+world was a candidate and is not the answer; under a `func_` brush it would be.
+
+**World brushes are MERGED, which is why a ledge is a box the size of a quarter of the map.** One of
+harvest's solid ledges spans x -4032..1472, y -3008..0, z -1056..-1024 — that is not a misplaced
+hull, it is a merged floor slab, and reading it as a placement error cost an hour. 2,844 of the
+map's 3,030 ledges have six faces, with 4, 5, 7 and 8 also present, which is what merged
+axis-aligned brushwork looks like.
+
+**`Disp_BuildVirtualMesh` tesselates from the ALLOWED verts, and power 4 turns the whole mechanism
+off** (`utils/vbsp/disp_ivp.cpp:268-320`):
+
+```cpp
+helper.m_pActiveVerts = pDispInfo->GetAllowedVerts().Base();
+::TesselateDisplacement( &helper );
+…
+params.buildOuterHull = true;
+```
+
+and `ivp.cpp:1320` — *"Map using power 4 displacements, terrain physics cannot be compressed"* —
+sets `g_bNoVirtualMesh`, after which the terrain is baked into the polysoup as ordinary ledges
+instead. **So a map's terrain is in one of two entirely different places depending on its highest
+displacement power**, and harvest is power 2..3, so its terrain is a virtual mesh and is absent from
+`LUMP_PHYSCOLLIDE` by design.
+
+### What is measured, and what is still open
+
+Our terrain is COMPLETE: **20,608 triangles built against 20,608 the lump's powers ask for**, over
+all 533 displacements — arithmetic from `2 * 4^power`, not a second reading. The terrain sweep is
+not at fault either: dropped through the middle of its own nearest triangle it hits at 0.492, which
+is the control an absence claim needs.
+
+**So the hole is real and it is small: 26 of 6,331 floored columns on harvest, 107 of 6,041 on
+2fort, 138 of 6,561 on dustbowl.** Scattered rather than in a block, which rules out a truncated
+ledge-tree walk — and that was checked directly as well, by raising the reader's depth guard from
+64 to 4,096 and measuring the same 3,030 ledges.
+
+**A larger figure from the same session is NOT this one and should not be quoted as it.** The
+neighbourhood census reports 698 of 1,089 columns where the two worlds stop more than 32 units
+apart, 696 of them with the physics world lower. That question is looser: a `func_` brush entity is
+in `LUMP_PHYSCOLLIDE` and not in the world's leaf tree, so the two legitimately disagree in both
+directions. The figure that means "a corpse has nothing to land on" is the whole-map one, and it is
+0.4% rather than 64%.
+
+### The mindist pair's shape, read from `vphysics.dll` — and where the trail stops
+
+**A mindist has TWO feature-kind fields, one per synapse, not one.** `FUN_1800b2460`
+(`ivp_mindist_recursive.cxx`) dispatches on a short at `+0x5a` for one object and another at
+`+0x92` for the other, each 0–3, with the "none of these" branch calling `Error(...)` at line 0x5d
+and 0x32 respectively — an assert, not a real case. That is the pair, explicit in the struct: this
+object's closest feature and that object's closest feature, held independently.
+
+**Recompute happens through a vtable, not inline.** When both features read as "unknown"
+(`FUN_1800b2460`'s fallthrough), it calls `FUN_18008ecb0` directly; when at least one kind is
+resolved it instead calls through `(**(code**)(*(longlong*)(lVar2+0x20)))(...)` — a virtual
+dispatch on the mindist's own vtable at `+0x20` — then converts the result via
+`FUN_180097d60` and reschedules with `FUN_1800b29b0`. So updating an established pair and creating
+a fresh one are genuinely different code paths, which is the "track vs. derive" split the sticky-face
+attempt collapsed into one.
+
+**The reschedule (`FUN_1800b29b0`) is bookkeeping, not geometry**: it reads two bodies' positions at
+`+0x158`/`+0x150`/`+0x160` relative to each body's own transform time-delta at `+0x1d0`, extrapolates
+by velocity (`+0x174`/`+0x170`/`+0x178`), and hands the extrapolated points to `FUN_180096680`.
+
+**`FUN_180096680` is where the trail stops, and it is not a distance formula — it is GJK/EPA.** The
+decompile shows a hashed vertex cache (open-addressed, `puVar12[(int)uVar17]` probing on a computed
+hash of a support-point id), building a simplex/polytope over calls to each body's own support
+function (`(**(code**)(*plVar13+0x18))`), with per-entry state cached across STEPS so the walk does
+not restart from nothing every call. That is IVP's actual narrow phase — a real convex-convex
+closest-points solver with warm-started simplex state — not a formula this project can transcribe
+into a few lines.
+
+**What this settles:** the project's "one retained pair" model was never going to be the fix by
+itself, because the engine's pair is backed by a stateful GJK solver whose OWN warm start is the
+thing doing the work session after session — re-deriving the shallowest ledge face each step (what
+this project does) and re-deriving a GJK simplex each step (what a naive port would do) are the same
+class of mistake for the same reason.
+
+**What is NOT established, and is where this stops rather than where it is finished:** porting a
+convex-convex GJK/EPA solver is a multi-week feature on its own, is exactly what
+`docs/DECISIONS.md`'s "feature-based narrow phase, not a smaller list" already names as the real
+fix, and per this project's decompiler rule nothing here gets pasted into source — only the shape
+above. Building it is future work, not a same-session divergence to close.
+
+### A retained face is not a mindist — built, measured worse, reversed
+
+**The missing closest-feature pair has been named by five measurements, so it was built. It lost.**
+The attempt: keep the world feature each hull point landed on, and re-measure the point against
+THAT face rather than re-deriving the shallowest one every step.
+
+| | before | after |
+|---|---|---|
+| corpses settling and sleeping (`corpse-drop`, five drops) | 4 of 5 | **3 of 5** |
+| free lift added per tick | 5,551–21,198 | 6,383–17,431 |
+| slope conformance test | 33.5 units a second | unchanged |
+| deepest penetration, sampled ticks | 2.66, 6.44 | 1.29, 4.80 |
+
+Penetration is the one thing that behaved as predicted. Everything else was flat or worse.
+
+**Why it lost, and the distinction is the whole finding: a retained face is STICKY, and a mindist is
+not.** IVP tracks which pair of features is closest and updates that pair incrementally as the two
+bodies move — *track and update*. Freezing one face and continuing to ask about it is only the
+second half of that. On a seventeen-body ragdoll the genuinely closest feature changes several times
+a second, so a frozen face measures a surface the body has already left, for as long as the pair is
+held. That is worse than re-deriving, which is at least measuring something the body is near.
+
+**So "keep the pair" is not implementable as "remember the answer".** It needs the incremental
+tracking that makes the kept pair still be the closest one — which is the part of the mindist system
+`docs/findings/51` has always listed as unread, and it is unread still.
+
+**Two pieces of the attempt survive because they are correct independently of it:**
+
+- **Terrain features are identified PER TRIANGLE**, where every terrain contact in the map used to
+  share one id (`int.MaxValue`). That was documented as a known coarseness and it made a body
+  crossing from one triangle to the next indistinguishable from one staying put — on exactly the
+  surface corpses land on. Ids are negative now, below `Speculative`'s −1, so the three kinds cannot
+  collide without anyone bounding the ledge count.
+- **`IvpWorldCollision.Against(feature, point)`** re-measures a NAMED feature and returns a SIGNED
+  distance — positive outside, negative penetrating, null when the pair is dead. Any correct version
+  of the mindist needs exactly this, and it is what the sticky version was built on.
+
+### The word "hole" was wrong, and so was the subject
+
+**The owner, on the first version of this: *"they literally cant have holes because hammer doesnt
+allow holes, so idk what you mean by holes"*. He is right and the correction is worth more than the
+finding was.** The map has no hole in it. What has a gap is a reading of the map, and the whole
+question is WHICH reading.
+
+**Our physics world is complete, and this is the measurement that settles it.**
+`koth_harvest_final`'s `LUMP_BRUSHES` declares **2,722 solid and 314 playerclip brushes** against
+**3,030 ledges** read out of `LUMP_PHYSCOLLIDE` — and vbsp writes one convex per referenced brush,
+`VisitLeaves_r( planes, dmodels[0].headnode ); planes.AddBrushes();` (`ivp.cpp:1278-1279`). Model 0's
+two solids read 2,671 and 312 against those 2,722 and 314. Nothing is being dropped.
+
+**So the 26 columns are the CAMERA's reading, not the corpse's.** Our `BspLeafTree.Sweep` stops on
+brushes that vphysics has no collision for — a displacement's base brush is solid in `LUMP_BRUSHES`
+and absent from `LUMP_PHYSCOLLIDE` by design, because `virtualterrain {}` hands that ground to the
+virtual mesh instead. A corpse and a camera therefore SHOULD disagree there, and the instrument was
+reporting the disagreement as a defect in the corpse's world.
+
+**Which also disposes of the corpse that started this.** Its seed is where the demo's ragdoll
+SPAWNS, not where it comes to rest; the probe drops it from rest at a point the real corpse only
+passes over. The instrument's own defaults were the error, not the world — the fourth time a probe
+here has produced a confident wrong answer and the reason
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md` exists.
+
+**What is genuinely open**: `LUMP_PHYSICS_DISPLACEMENT` (28), where vbsp writes each displacement's
+virtual-mesh collide, is not read by this project at all — we rebuild the mesh from `LUMP_DISPINFO`.
+Since the tesselation is now Valve's own, the two should agree, and comparing them is the check that
+would prove it rather than assume it.
+
+**A second defect is separable from the first and both are present.** Seeded at y -1416, ON good
+ground with a floor at z 0 beneath it, a corpse still travels 63 units north into the hole before
+falling. Ground that is missing and a corpse that will not stay put are different faults.
+
+### The slope test's mechanism, traced to a number — uncommanded spin-up, not rocking
+
+Two attempts to loosen `Separate`'s `total = Max(0, carried + extra)` clamp were built and measured
+worse (linear velocity for the release decision, 31→67 units/sec; bounding the release to half of
+`carried` per step, 31→42). Both assumed the zero-out was itself the fault. A third, decisive trace
+— body velocity and angular velocity printed alongside `arm` on every rub — settles what the first
+two could only guess at.
+
+**The body is not rocking. It is being spun up, continuously and without a physical cause.**
+`Body.AngularVelocity` about Y, sampled across the run: −32.36, −32.51, −32.53, −33.46, −33.43,
+−33.94, −34.36, −34.58 rad/s — over five full rotations a second, and MONOTONICALLY GROWING. A box
+sliding down a real 1-in-10 slope under gravity and friction alone does not spontaneously spin up;
+something in the solve is injecting angular momentum every step, the rotational counterpart of the
+`Lifted` linear-energy pump `IvpEnvironment.Lifted` already measures.
+
+**The cause is visible in the same trace: `arm` — the manifold's representative contact point —
+jumps between genuinely different corners of the box every step**, not a stable pair: 0.769, 0.107,
+0.443, 0.397, 0.489, 0.659, 0.208, 0.328 (X-components across eight consecutive rubs). A single
+torque applied at a wandering, arbitrarily-ordered moment arm does not converge to damping rotation
+the way a torque applied at a FIXED contact point would — each step's correction is computed as if
+it opposes the current slip, but the arm it is applied through has no continuity with the arm the
+PREVIOUS step corrected through, so nothing here can ever integrate to zero net torque. Over enough
+steps that produces a random walk with an apparent bias, which is exactly a monotonic climb.
+
+**This is the sixth independent measurement pointing at the same root cause**, and the first with a
+number precise enough to say WHAT the missing narrow phase costs rather than only that it is
+missing: a stable multi-point manifold — the actual feature-based narrow phase five earlier
+sections already name — would apply every step's torque through the SAME small set of contact
+points, which is the only thing that can make repeated torque corrections converge instead of
+random-walking. `IvpWorldLedge.Support` and `Gjk.Distance`, built and wired this session, give a
+single closest-point PAIR per body-ledge pair; they do not yet give the multi-point manifold this
+symptom needs. That remains the open, scoped, multi-week item.
+
+### Two real fixes narrowed the gap; the residual is not a convergence-time problem
+
+Two fixes landed on the mechanism the spin-up trace pointed at: friction solved at every manifold
+member's own arm instead of one collapsed point (31.1 → 20.0 units/sec), and each member keyed to
+its own warm-start slot rather than colliding on one shared by normal alone (20.0 → 9.3). Both
+measured with zero regression across the suite, the gate, and all four real corpse-drop seeds.
+
+**A scratch run at 1,600 steps — four times the test's 400 — corrects an over-read of the second
+fix's own trace.** A sixteen-line sample taken right after the second fix showed angular velocity
+falling steadily, which looked like ordinary convergence still in progress. Extending the run
+disproves that: speed at step 400 is 7.95, close to the committed measurement, but by step 800 it is
+back up to 22.86, then 18.8, then 18.2 at 1,599. **This is not decaying toward rest — it is
+oscillating, net roughly flat, well past the point four times as much simulated time as the failing
+test already allows.**
+
+**The likely mechanism is a genuine physical one this solver cannot arrest by construction, not a
+bug still to find.** A rigid box that starts tumbling on a one-directional slope, rather than
+sliding flat, can keep re-gaining energy each time it rolls over one of its own corners — gravity
+does work on the fall, and Coulomb friction only opposes SLIP at a contact, never rotation. A body
+in a genuine tumble can have near-zero slip at its instantaneous contact point the whole time (which
+matches the measured `wanted` values staying tiny, well under the cone's `allowed` budget, for most
+of the run) while still carrying substantial linear and angular kinetic energy from the tumble
+itself. The two fixes reduced how BADLY the spurious contact churn spins the body up; they did not
+stop the spin-up from starting, because that requires the actual stable manifold — a real narrow
+phase never lets the body tumble in the first place, holding a face-face contact through the
+churn that currently starts the tumble.
+
+**So the remaining gap is not "needs more steps" and not a fifth tunable in the friction layer.**
+It is the same feature-based narrow phase five earlier sections and the spin-up trace all name,
+now confirmed as the actual bottleneck by a direct measurement that a longer run does not converge.
+
+### Two more leads, both checked and ruled out before another patch
+
+**Iterating the friction solve, the way `IvpConstraintGroup.Solve()` iterates ragdoll joints, was
+considered and rejected by READING rather than by measuring.** `IvpConstraintGroup`'s twelve-entry
+relaxation table (`0.4, 0.4, 0.4, 0.4, 1.0, 1.0, 0.8, 0.6, 0.8, 0.8, 0.8, 0.8`) looked like exactly
+what a body touching several points at once would need — a Gauss-Seidel pass repeated within one
+step, letting several simultaneous contacts converge against each other the way real multi-point
+manifolds do. But that table is `FUN_18003c780`'s JOINT relaxation, a different constraint group
+from contacts entirely, and this project's own earlier reading already establishes the contact
+system's real cardinality: `FUN_1800836b0` "walks each system exactly once" per PSI — single-pass,
+not iterated. Building an iterated friction solve would have been a FABRICATED divergence, adding
+behaviour the engine does not have, not fixing one it does. Caught before any code was written,
+which is what reading the engine before designing is for.
+
+**The initial impact was checked for a spurious kick and found clean.** If the tumble's true origin
+were the very first touchdown imparting more spin than a real impact would, no amount of ongoing
+friction tuning could ever have helped — a real tumbling box cannot be arrested by friction either,
+so the fix would have to be at `Oppose`, not `Rub`. Traced directly: angular velocity during the
+arrival passes climbs to roughly 4 rad/s by the end of the first `Simulate()` call, for a box
+landing at an angle on a slope. That is not an obviously wrong number for an impact of that kind,
+and it is far short of the eventual tumble's magnitude — so the spin-up compounds during the
+ONGOING resting phase, consistent with everything measured above, not from one bad initial kick.
+
+**A third lead looked promising and dissolved on closer reading — recorded so it is not re-raised.**
+`IvpEnvironment._resting` is literally `_contacts` (`private List<IvpContact> _resting => _contacts;`)
+and `_contacts` is cleared at the top of every slice's `Advance()` call, so `Rub()` — called once
+after the whole interval is walked — only ever sees whatever the LAST slice's `Find()` populated.
+That looked like a real bug: a point that mattered in an earlier slice but not the final one would
+never reach friction at all. It is not, because `IvpContact.Find` is not incremental — every call
+unconditionally re-tests every hull point against the world from scratch, so the final slice's
+`_contacts` already IS the body's complete current touching set, not a partial one missing earlier
+slices' points. Checked by reading `Find`'s loop bound again rather than by writing an accumulator
+and measuring whether it helped.
+
+### Discovery-time churn is real, and hysteresis for it measured worse
+
+A fourth trace — logging which hull point indices `Find` reports touching on every single call, not
+just the group-level summary — found something none of the grouping-level fixes could have reached:
+some `Find` calls report ZERO points touching entirely, sandwiched between calls (same tick, same
+body) that find one. That is a complete miss for a whole slice: no contact object is created, so
+neither `Separate` nor `Rub` runs for the body that slice, regardless of the manifold or warm-start
+fixes already landed — those only ever improve the solve for a point that DID register as touching.
+
+**A hysteresis margin was built and measured worse.** `IvpWorldCollision.Touching` gained an
+overload accepting a margin (a point up to that far OUTSIDE a face still counts), and
+`IvpRigidBody.HasRestedAt(point)` gave `Find` a way to apply that margin only to a corner with an
+established rest identity — never to a genuinely new point, and never widening the shared test's
+default for any other caller. Landing speed went from 9.3 units a second to 14.8. Reverted in full;
+verified bit-identical to the prior commit afterward.
+
+**Why it lost, worth recording precisely:** preventing a point from dropping OUT of the touching set
+matters less than what happens once a widened test admits one. A point at a shallower angle than the
+real contact gets solved as if it were fully resting rather than barely so, and the false positives
+this creates apparently cost more than the true dropouts they prevent. The discovery-time churn this
+was built to fix is real and measured; this particular remedy for it is not the answer.
+
+### An analytic same-plane fallback within one call — also measured worse
+
+A fifth attempt, distinct in kind from the hysteresis just reverted: instead of widening one point's
+OWN spatial query, let a point whose query fails be tested directly against the PLANE an earlier
+point in the SAME `Find()` call already confirmed — no memory across steps, pure within-call
+geometric consistency, the thing a real face-face contact gives for free by having one shared plane
+rather than several independent point queries.
+
+**Measured worse still: 9.3 units a second became 23.6, the largest regression of any attempt so
+far.** Reverted in full; bit-identical to the prior commit confirmed afterward (9.306977f exactly).
+
+**A pattern is now visible across all three per-point remedies for the discovery-time churn**
+(hysteresis, this same-plane fallback, and by extension anything else that makes MORE points count
+as touching within a single `Find()` call): each one that admits more contacts than the current
+code independently finds makes the tumble WORSE, not better. That is the opposite of what "the
+discovery-time churn is dropping real contacts" would predict, and it is worth stating plainly:
+whatever is actually driving the spin is not well-modelled as "not enough contacts are recognised".
+The two changes that DID help (solving friction at every already-found point, and giving each its
+own warm-start slot) both worked with the EXISTING contact set rather than trying to enlarge it.
+That is the shape the next attempt should have, if there is a sixth: solve what is already found
+better, do not find more of it.
+
+### Weighting depth to match the arm's own weighting - also measured worse, and a real prior warning explains why
+
+The pattern from the last section suggested a further instance: `Separate` receives `deepest`, the
+group's plain MAXIMUM depth, applied through `arm`, the group's now depth-WEIGHTED centroid — two
+different combinations of the same set, magnitude and lever no longer describing the same effective
+point. Weighting depth the same way `arm` is weighted (rather than taking the max) looked like the
+same fix applied a second time.
+
+**Measured worse: 6.15 units a second became 12.7.** Reverted; bit-identical to the prior commit
+confirmed (6.1484184f exactly).
+
+**A comment already in this file, from an earlier session's own reversal, explains why before this
+one repeats the mistake.** `IvpEnvironment._resting`'s remarks record that POOLING contacts across
+slices was tried, improved the slope test (33.5 → 19.2), and simultaneously dropped corpse-drop's
+real settling rate from four of five to two — because "a pooled contact carries the DEPTH and the
+ARM it was measured at, from a position the body has since left. `Separate` takes the deepest of a
+manifold, so stale depths make the position correction larger and the free lift with it." **`deepest`
+being the MAX rather than an average is not an oversight the weighted centroid change should have
+carried over to — it is a deliberate guard against under-correction**, and averaging it away
+reintroduces exactly the failure mode that specific guard exists for. The pattern from the previous
+section ("solve the set better, don't find more of it") is real but not unconditional: not every
+combination that is MORE consistent with the arm's own weighting is more correct, when the original
+choice of combination was already a considered trade-off rather than an oversight.
+
+### The cone's full-share budget is correct as it stands — a third division scheme also lost
+
+Two prior measurements bracket how the friction cone's summed budget is handed to a manifold's
+members: full share to every member (kept, committed) beat an equal division by count (reverted).
+A depth-proportional share — the same weighting the centroid uses, giving a barely-touching point a
+small fraction of the budget and a pressed-in point most of it — sat between those two conceptually
+and looked like the natural next refinement.
+
+**Measured worse than either: 6.15 units a second became 17.1.** Reverted; bit-identical to the
+prior commit confirmed. Between the three measured points — full share, equal division, and
+depth-proportional share — full share is not merely the best of the two tried before; it beats a
+THIRD, more physically-motivated scheme too. Whatever makes full-share work is not "it happens to
+avoid under-dividing the budget", since a scheme that divides MORE generously than equal division
+(depth-proportional gives most of the budget to whichever point is deepest, more like full share for
+that one point) still loses badly. Recorded so this exact family of idea — divide the SAME cone
+budget some other way — is not retried a third time without a new reason to expect a different
+result.
+
+### An analytically-derived incident face — genuinely different in kind, and a NULL result
+
+Every earlier attempt to admit more contacts shared one property: each re-queried the WORLD for a
+point the world's own per-point pass had already answered once, inheriting whatever noise made that
+answer flicker. A materially different mechanism was built: given the dominant contact normal this
+step, transform it into the body's OWN local frame, find which local hull vertices sit lowest along
+it (the box's own incident face, purely a function of current orientation), and raise a contact for
+any of those vertices the per-point pass missed — asking the BODY's geometry instead of the world
+a second time.
+
+**Measured bit-identical to the committed baseline: 6.1484184f, unchanged to the last decimal.** Not
+a regression — a true null. The likely reason: during an active tumble the box's instantaneous
+incident face relative to a fixed external normal is not a flat face at all, it is close to a single
+point or edge, which is exactly what the per-point pass already finds on its own — there is nothing
+left over to backfill until the body is closer to resting flat, which this run may never reach
+within the window measured. Reverted for zero benefit at real added complexity; verified bit-
+identical to the prior commit.
+
+**What this does establish, positively**: the "admit more contacts" family is now ruled out by a
+FOURTH, structurally distinct mechanism, closing off the last obvious variant of it — geometric
+derivation, not just repeated world queries in different shapes. Nothing about contact MEMBERSHIP,
+tried four separate ways, has moved this test. Whatever remains is in the SOLVE, or in aggregate
+dynamics (rotational energy from repeated impacts, a genuinely tumbling rigid body) that only a
+real, EPA-capable narrow phase with actual penetration resolution — not a differently-selected point
+set — can address.
+
+### Stale-slot reactivation across many revolutions — also a clean null
+
+A genuinely different axis from every prior check: `Body.Sliding` is never pruned, and the measured
+spin is a steady, single-axis roll rather than an oscillation — meaning a tumbling box cycles through
+a small, repeating set of orientations, and a slot from several revolutions ago could be reactivated
+by a later normal that happens to match closely, reading back `Holding`/slip measured at a
+completely different velocity. A small capacity cap (`Body.EvictStaleSlots`, evicting the oldest
+slot past eight) was built to test this.
+
+**Bit-identical to the baseline again: 6.1484184f.** Either `Sliding` never reaches the cap in this
+run, or stale reactivation was not occurring at a magnitude this test can show. Reverted; verified
+bit-identical.
+
+**Fifth confirmation, on a fifth genuinely distinct axis** — after four membership mechanisms and
+now warm-start staleness — that the remaining gap survives every angle this session can construct
+from the existing architecture without the actual persistent, feature-based manifold.
+
+**Correcting my own later mis-citation of this same finding.** Several commits after this section
+was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
+repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
+three above. It does not: the fifth seed IS this section's 2277 spawn point, and this section
+already explains why dropping it from rest there proves nothing about the demo. Read every later
+"corpse-drop: 4 of 5" in this branch's commit history with that correction in mind.
+
+### The per-member `Rub` fix does not transfer to `Oppose` — a real asymmetry, not an oversight
+
+`Manifolds`'s resting branch calls `Rub` once per manifold member at that member's own arm (Fix 1,
+this session) rather than once at a single blended arm — treating a body touching several points as
+touching several points, not one. The arriving branch still called `contact.Oppose(arm)` once, at
+the blended representative arm, the whole time Fix 1 was landing on the other half of the same
+method. That looked like a missed spot: the same reasoning ("a manifold is several points, not one")
+should apply to the impact solve too.
+
+Built the obvious mirror — loop `members[member].Begin(); Passes += members[member].Oppose(members[member].Arm);`
+per member, same shape as the `Rub` loop.
+
+**Measured WORSE: 13.608729f, more than double the 6.1484184f baseline.** Reverted to the single
+`contact.Oppose(arm)` call; rebuilt; re-ran; confirmed bit-identical to baseline. `git diff --stat`
+empty before rebuilding.
+
+**Why this is a real result and not just another null.** `Oppose` is the impact/approach solver —
+it fires per-slice during the interval walk, once per contact still arriving, and is meant to
+resolve a COLLISION event, not distribute a resting load. Splitting one impact into N independent
+per-member impulses double- (or N-fold-) counts the impact response where the resting case is
+correctly summed as separable per-point support. The two solves are not the same kind of problem
+just because they share a manifold data structure — `Rub`'s "solve what is already found, at every
+point that has it" principle is about distributing SUSTAINED load across contact points that persist
+across a step; `Oppose` is answering "how hard did this body just hit", and hitting is a property of
+the approach as a whole, not additively decomposable across points sharing a normal. This is the
+first attempt this session where the general pattern ("solve the existing found set more precisely
+rather than finding more of it") actively made a result worse instead of null — the pattern has a
+real boundary at the arrive/rest split itself, not just at membership.
+
+*Evidence class: measured, exact revert confirmed bit-identical.*
+
+### Extending the ledge GJK manifold to terrain — the same one-point failure, now on terrain
+
+The ledge GJK manifold pass in `IvpContact.Find` (one `Gjk.Distance` per (body, ledge) pair,
+replacing the per-vertex walk) explicitly leaves terrain per-point — its own comment names this as
+the remaining gap: *"terrain and the speculative/tunnel-prevention path below are what remain
+per-point."* A triangle is already a three-vertex convex hull, so `IvpWorldLedge.Support`'s brute
+force over `Vertices` needed no new primitive — it was built to answer exactly this the moment a
+triangle was wrapped in the same record type.
+
+Added `IvpWorldCollision.NearbyTriangles(centre, radius)`, gathering terrain triangles near a body
+from the existing `_triangleGrid` and exposing each as a degenerate `IvpWorldLedge` (its three
+vertices, centroid as `Center`, max vertex distance as `Radius`). Wired it into `Find` right after
+the ledge loop: one `Gjk.Distance(BodySupport, triangleLedge.Support)` call per nearby triangle,
+covering it (skipping the per-vertex fallback for that triangle) exactly the way a covered ledge is
+skipped.
+
+**Measured WORSE: 11.153114f, nearly double the 6.1484184f baseline.** Reverted in full — the new
+`NearbyTriangles` method, the `TerrainFeatureForContact`/`TriangleOf` accessors, and the `Find` wiring
+— confirmed `git diff --stat` empty, rebuilt (0 warnings), re-ran, bit-identical baseline.
+
+**Why this failed for exactly the reason already on record two sections up.** This file's own
+comment at the per-vertex loop says it outright: *"Every touching point raises a contact, and ONE
+PER BODY was tried instead… reproducing the count alone measured worse: penetration went from 7 to
+27."* GJK's closest-point-pair answers "where are these two convex shapes nearest", which for a box
+resting flat on a triangle is ONE point — the same collapse the ledge manifold already accepts for a
+convex BRUSH (a box on a flat brush face has the same problem, and is not fully immune to it either,
+it is just less commonly hit because brush ledges are rarely a single thin triangle a box spans).
+Terrain is triangulated far more finely relative to a resting box than most ledges are, so nearly
+every resting contact hit exactly this collapse: a box spanning 2-4 triangles got 2-4 independent
+single-point GJK contacts, each blind to the others, instead of either the four-corner per-vertex
+patch it had before or one true multi-point manifold across the covered triangles combined.
+
+**What this establishes**: the GJK-manifold mechanism itself is not the general answer to "stop
+sampling more points than the engine would" — it is specifically an answer for a SINGLE dominant
+contact per pair, and a resting box on flat ground has FOUR simultaneous ones. Extending it blindly
+to a surface triangulated finer than the resting footprint reproduces the single-point-per-pair
+regression on a new surface, not a manifold. The real fix, per the pattern across every failed
+lever this session, needs a true multi-point manifold: either merge GJK results across
+CO-PLANAR nearby triangles into one shared support set before calling `Gjk.Distance` once, or an
+actual SAT/EPA face-clip between the box's incident face and the merged terrain patch — not a
+per-primitive GJK call, however the primitive is chosen.
+
+*Evidence class: measured, exact revert confirmed bit-identical.*
+
+*Evidence class: read from published SDK source for vbsp's passes, the shrink sizes and the power-4
+switch; measured on `koth_harvest_final`, `ctf_2fort` and `cp_dustbowl` for every count; arithmetic
+for the terrain denominator.*
+
+### The engine collides the HULL against each triangle; we sample vertices against planes (B306)
+
+**Read from published source, and it names the substitution exactly.** `virtualmesh.h` declares the
+callback vphysics uses to reach a displacement:
+
+```c
+virtual void GetTrianglesInSphere( void *userData, const Vector &center, float radius,
+                                   virtualmeshtrianglelist_t *pList ) = 0;
+```
+
+The engine asks the displacement for the triangles within a SPHERE around the object, then collides
+the object — a convex hull — against those triangles as shapes. `virtualmeshparams_t` carries
+`buildOuterHull` beside it and `virtualmeshlist_t` carries a `pHull`.
+
+**Ours inverts both halves.** `IvpContact.Find` walks the body's own hull VERTICES and asks
+`IvpWorldCollision.Touching` which triangle PLANE each vertex is least far behind, within a 64-unit
+slab. A vertex against a plane is not a hull against a triangle: it cannot report an edge-edge
+touch, it knows nothing of the triangle's extent beyond a containment test, and its "depth" is a
+plane distance rather than a penetration between two shapes. Everything this project has had to
+invent — `Separate`, `Slop`, `Recovery`, `MaximumRecovery`, `TerrainDepth` — exists to clean up
+after that substitution, and none of it appears in the engine.
+
+**The primitive to port with is already here.** `Gjk.Distance` and `IvpWorldLedge.Support` give the
+closest-feature pair between two convex shapes, and a triangle is a three-vertex convex hull — so
+this needs no new primitive, only the engine's question (hull vs triangle) instead of ours (vertex
+vs plane).
+
+**And it explains the attempt already lost.** Extending the GJK pass to terrain measured
+6.1484184f → 11.153114f because it REPLACED the per-vertex path through a covered-triangle set: a
+box spanning two triangles then got two single closest points where it previously had four corners.
+The primitive was right and the wiring was wrong. A correct port replaces the vertex sampling
+wholesale, and keeps a persistent closest-feature pair per (body, triangle) the way IVP's mindist
+does rather than re-deriving one each step — only then are the compensators removable.
+
+*Evidence class: read from published SDK source for the callback and the params; measured for the
+6.1484184f → 11.153114f attempt.*
+
+### And the faces are already parsed — they are discarded one line before the physics (B306)
+
+**`PhysicsLedge` carries `Points` AND `Triangles`** — the real faces out of the `IVPS` compact-ledge
+structure, already read from a `.phy` and from a map's `LUMP_PHYSCOLLIDE`. Then
+`RagdollSimulation` builds a body with
+
+```csharp
+Hull = Points(element.Hull),
+```
+
+which flattens every ledge to a bare point cloud and drops the triangles before the physics ever
+sees them.
+
+**That one line forced everything downstream.** With no faces on a body there is no incident face to
+clip, no edge to test another edge against, and no way to ask the engine's question at all — so the
+narrow phase became the only thing a point cloud supports: sample each vertex against a triangle
+PLANE inside a slab. `Separate`, `Slop`, `Recovery`, `MaximumRecovery` and `TerrainDepth` are all
+cleanup for that, and none of them exists in vphysics.
+
+**So the port is not blocked on reading a closed format.** Valve's face data is in memory and is
+being thrown away. Carrying `PhysicsLedge` through to `IvpRigidBody` instead of flattening it is the
+first step, and it is what makes hull-vs-triangle contact — the engine's own question, per
+`virtualmesh.h`'s `GetTrianglesInSphere` — expressible at all.
+
+**Order of work, so it is not started from the wrong end again:** carry the faces onto the body;
+add hull-vs-triangle contact using them and the existing `Gjk`/`Support`; keep the closest-feature
+pair per (body, triangle) across steps as the mindist does; remove the vertex sampling; then delete
+the compensators, which have nothing left to compensate for.
+
+*Evidence class: read from this project's own source.*

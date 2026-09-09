@@ -107,16 +107,47 @@ public sealed class RagdollProbe : IProbe
             return;
         }
 
-        if (physics.Constraints.Count == 0)
-        {
-            // A single-solid `.phy` is a physics prop, not a ragdoll — 326 of the 327 matching
-            // `soldier` are gibs. Skipped rather than reported, so the ragdolls stand out.
-            return;
-        }
-
         IReadOnlyList<StudioBone> bones = StudioBones.Read(modelBytes);
 
         RagdollBody? body = RagdollBody.Build(physics, bones);
+
+        if (physics.Constraints.Count == 0)
+        {
+            // **A single-solid `.phy` is a physics prop, and a GIB is one** (B371) — 326 of the 327
+            // matching `soldier` are gibs. This used to return silently so the ragdolls stood out,
+            // which was right while only ragdolls mattered and is wrong now that the thing being
+            // built spawns these: a gib whose hull will not load has to be visible here, not
+            // absent.
+            //
+            // **Whether a BODY builds is the load-bearing part**, because `RagdollBody.Build`
+            // returns null when a solid's name matches no bone — and the gib spawn reuses the
+            // corpse's simulation, so a gib that cannot build a body cannot be thrown. Reported
+            // rather than assumed.
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{model}: physics prop, {physics.Solids.Count} solid(s), " +
+                $"{physics.Hulls.Count} hull(s), {physics.BreakPieces.Count} gibs, " +
+                $"ragdoll body {(body is null ? "refused (correct for a prop)" : "builds")}, " +
+                $"prop body {(RagdollBody.BuildProp(physics) is null ? "FAILED" : "builds")}"));
+
+            if (body is null && RagdollBody.BuildProp(physics) is null)
+            {
+                // Which name did not match, and what the skeleton actually offers — the two halves
+                // of `Studio_BoneIndexByName`'s answer, printed together so the mismatch is
+                // readable rather than inferred.
+                foreach (PhysicsSolid solid in physics.Solids)
+                {
+                    output.WriteLine($"    solid '{solid.Name}' parent '{solid.Parent}'");
+                }
+
+                for (int bone = 0; bone < Math.Min(bones.Count, 6); bone++)
+                {
+                    output.WriteLine($"    bone {bone} '{bones[bone].Name}'");
+                }
+            }
+
+            return;
+        }
 
         if (body is null)
         {
@@ -137,7 +168,16 @@ public sealed class RagdollProbe : IProbe
 
         output.WriteLine(
             $"{model}: {body.Elements.Count} bodies, {body.Constraints.Count} joints, " +
-            $"{bones.Count} bones");
+            $"{bones.Count} bones, {physics.BreakPieces.Count} gibs");
+
+        // **The gibs this model comes apart into** (B371). `InitPlayerGibs` builds exactly this
+        // list and `CreatePlayerGibs` spawns from it, so a class with none here can never gib —
+        // which is worth seeing beside the ragdoll rather than inferred from its absence.
+        foreach (PhysicsBreakPiece piece in physics.BreakPieces)
+        {
+            output.WriteLine(
+                $"    gib {PhysicsModel.GibPath(piece.Model)} fades after {piece.FadeTime:0.#}s");
+        }
 
         // **The hulls, because a body with no hull cannot land on anything** (B58). Printed per
         // solid rather than totalled: a reader that finds the tree but walks one branch reports a

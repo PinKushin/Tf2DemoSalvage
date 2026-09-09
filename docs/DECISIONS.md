@@ -4255,6 +4255,16 @@ A local cache follows from both: the measurement boxes should not re-download on
 `TF2DEMOSALVAGE_GCOR_ONLY` exists precisely because run time is the thing being managed. The natural
 shape is the cache being what tests read, and the fetch being what fills it.
 
+**lcor consolidates onto `D:` in the same move, by symlink rather than by copying.** The owner,
+2026-08-26, first on what lcor actually is — *"the FULL lcor includes the 3 gigs of esea and etf2l
+demos, and the benroads demos, and the 20 demos found by another agent on d:, and the tf2 research
+repo"* — and then on where it should be: *"i kinda want all the lcor demos in the d: demo archive,
+although that still leaves a bunch of demos actually in another repo too, but we might be able to use
+symlinks for those or for all of the consolidation so nothing has to actually move"*. Symlinks mean
+nothing is copied and no repo loses its own copy, which is what makes the consolidation reversible.
+`tools/corpus/local/` is therefore the part a test currently sees, not the pool — a distinction that
+misleads about scale in both directions if it is forgotten.
+
 Related and still to decide: whether anything stays committed at all. A handful of tiny specimens in
 the repository means `git clone && dotnet test` works with no network, which has real value for a
 contributor and for CI. That is a smaller question than it was, and worth answering deliberately
@@ -7232,7 +7242,7 @@ this repo's own history confirms — `managed/Tf2DemoSalvage.{Scene,Render,Viewe
 where every defect this project has shipped was a divergence from the engine.
 
 **The automation is a PreToolUse hook at the one gate every change already passes**:
-`.claude/hooks/parity-cited.ps1` refuses a `git commit` that stages `.cs` files in those buckets
+`.claude/hooks/tf2-parity-cited.ps1` refuses a `git commit` that stages `.cs` files in those buckets
 unless the commit text carries an engine citation (`file.cpp`/`.h` reference or a source-sdk path)
 or an explicit `[no-parity]` tag with its reason — the same refuse-until-the-reason-is-written
 shape as `build/gate.sh`'s floors. Verified live in both directions before being committed: an
@@ -7859,3 +7869,139 @@ per-pass relaxation weight. That closed the last unread multiplier in the clamp 
 **What this decision is NOT:** a claim that decompiled C is untrustworthy. It is the right tool for
 the question it answers, and the failure both times was asking it a question about identity. See
 `docs/memory/settle-a-constant-in-the-disassembly.md`.
+
+## D148 — when anything is wrong, parity is the FIRST hypothesis (2026-09-07)
+
+**The owner, after watching an afternoon go into the wrong reading of a hang:**
+
+> *"basically any time theres anything wrong, look at valve parity first"*
+
+and, on the hang itself:
+
+> *"if this is partiy it shouldnt be doing this"*
+
+**This is a third rule and the two that existed do not cover it.** D89 governs DESIGN — what to
+build when there is a choice, and the answer is always the engine's way. The standing note that
+*"performance never buys a departure from parity"* governs TRADES — refusing to sell parity for
+speed. Neither says anything about DIAGNOSIS, which is where every defect this session actually
+lived:
+
+| what looked wrong | what it was |
+|---|---|
+| corpses sank through a floor they were touching | a contact solve invented, because `FUN_18008e290` was unread |
+| corpses walked through crates and doorways | `CreateVPhysicsRepresentations` — the props the engine adds two lines after building the world |
+| corpses slid to rest 755 units under the map | a playerclip brush; a ragdoll's `MASK_SOLID` excludes `CONTENTS_PLAYERCLIP` |
+| six ticks of one corpse took past 400 seconds | a 100-pass loop transcribed at the wrong SCOPE |
+
+Not one was a coding mistake in the ordinary sense. Four for four.
+
+**The speed case is the same rule at its sharpest, and it is the one that keeps being missed.** The
+engine simulates a server full of ragdolls at sixty-six ticks a second. When our transcription of it
+cannot keep up, the likely cause is that we are running a DIFFERENT algorithm, not the same one
+slowly — so a cost symptom is evidence about parity before it is evidence about optimisation. The
+100-pass loop was read correctly out of the binary and applied to the wrong thing: the engine bounds
+one mindist pair, and it was wrapped around every contact of a whole ragdoll. The symptom was pure
+cost. The defect was pure parity.
+
+**Enforced by `~/.claude/hooks/block-fix-without-parity.ps1`**, which refuses a commit that
+describes something wrong and cites nothing in the engine. The escape is `not-parity:` with what it
+is instead, greppable so the exceptions stay auditable. The reasoning lives in the script header per
+the ladder in `~/.claude/CLAUDE.md`.
+
+**Why a hook when the prose already existed.** D89 loads on every turn and it was followed — the
+engine WAS read, at length, all session. What failed was asking the parity question about the
+SYMPTOM rather than about the design. Prose cannot catch that because it reads as already-obeyed; a
+hook fires at the one moment it matters, which is when a diagnosis is being written into the
+permanent record and becomes the remembered one.
+
+**A second, narrower rule came out of the same failure and belongs beside it: when transcribing a
+loop, state what ONE ITERATION is over on the engine's side.** `iVar15 < 100` bounds the passes over
+a single mindist pair. Writing that sentence down would have caught the scope error immediately, and
+no amount of re-reading the function did.
+
+## D149 — the map cannot have a hole, so name the READING that does (2026-09-07)
+
+**The owner, cutting a whole line of investigation short: *"they literally cant have holes because
+hammer doesnt allow holes, so idk what you mean by holes"*.** He is right, and the direction the
+correction points matters more than the fact.
+
+I had measured columns on `koth_harvest_final` where a ray fell through ground and reported them as
+holes in the map's collision. A `.bsp` is compiled from a sealed solid; the geometry is not the
+thing with a gap in it. What has a gap is a READING, and there are at least four readings of the
+same map in this project — the physics ledges out of `LUMP_PHYSCOLLIDE`, the terrain rebuilt from
+`LUMP_DISPINFO`, the brush tree out of `LUMP_BRUSHES`, and whatever a probe assembles from those.
+Saying "hole" instead of naming which one collapses all four into a claim about Valve's data.
+
+**Making the question "which reading" produced the answer in one measurement.** `LUMP_BRUSHES`
+declares 2,722 solid and 314 playerclip brushes; we read 3,030 ledges, model 0's two solids giving
+2,671 and 312. vbsp writes one convex per referenced brush, so our physics world is complete and the
+gaps were in the CAMERA's reading — which stops on displacement base brushes that vphysics
+deliberately has no collision for. The corpse's world and the camera's world SHOULD disagree there.
+
+**So the rule: a defect is never in the map. Name the reading, and give it its denominator from the
+file.** "The physics world floors 6,331 columns where the camera world floors 6,331" is a claim that
+can be wrong; "the map has holes" is a claim that cannot be right.
+
+**This is the same shape as `docs/memory/an-empty-search-needs-a-control.md` one level up.** That
+rule says an absence is usually about the grep; this one says an absence is usually about which of
+several parallel readings you asked.
+
+## D151 — `run-exclusive.ps1` waits for a GUI application, because an agent drives it (2026-09-08)
+
+**The owner: *"run exclusive is built around test suites if you need to update it to work properly
+with probes and me taking it through an ai, then do it"*.**
+
+PowerShell's call operator blocks for a console application and returns IMMEDIATELY for a
+Windows-subsystem one, so every viewer launch through the script released the machine-wide lock
+while the app was still starting. Two quiet consequences: the lock was dropped while the app owned
+the desktop — the exact collision the script exists to prevent — and the caller was told the run had
+finished, so an agent read a screenshot that did not exist yet and launched another instance. Three
+viewers piled up before the pattern was recognised.
+
+**The script is not in any git repository**, so its reasoning lives in its own header (tier 9) and
+is not restated here: the PE-subsystem test, why the console path is deliberately unchanged, and
+why the GUI wait is unbounded. `C:\Users\pinku\source\repos\PinKushin\run-exclusive.ps1`.
+
+**Worth keeping because the first fix broke every other caller.** Returning the exit code from a
+function merged the command's stdout into the same output stream, so `exit (Invoke-Held …)` consumed
+it and console runs printed nothing — a silent regression across four repos. Caught by asking the
+console path for a value it must produce, `dotnet --version`, and getting an empty string. The
+control is the rule, not the fix.
+
+## D150 — `CLAUDE.md` is bare rules and pointers, and a restatement in it is a defect (2026-09-08)
+
+**The owner: *"yea we have a massive project slaude file, it needs to be made a lot smaller"*.** It
+was 499 lines and 40,588 bytes; it is now 288 and 21,618 — 47% smaller by bytes — with no rule
+dropped. Every cut was a fact that already had an owner, replaced by a one-line pointer to it.
+
+**The reason is cost, and it compounds in the direction nobody notices.** This file loads on every
+turn of every session, so a paragraph of reasoning nobody needed this turn is paid for thousands of
+times, and a MEASUREMENT in it is worse than absent: it reads as current while nothing ever corrects
+it. The global standards' tier ladder already said this — tier 2 and tier 4 are *bare rule plus
+pointer*, and measurements are tier 5 — and this file was violating its own house rule at length.
+
+**What came out, and where it went:**
+
+| Was in `CLAUDE.md` | Now owned by |
+|---|---|
+| the two-phase gate's per-assembly counts, corpus sizes and timings, B89's UI figures, the viewer's fps | `docs/verification/` (B1, created for this) |
+| the Ghidra invocation, the JDK 21 trap, `DisasmWithData` | `docs/DECOMPILING.md` |
+| a table of 18 probes with descriptions | the tool's own no-argument listing, out of `IProbe.Summary` |
+| the corpus's era gaps, the 21/22 specimens, what a demo can date | `docs/TIMELINE.md` |
+| lcor's real extent and the `D:` consolidation | D81 |
+| why synthetic fixtures come first, and what stays in the corpus | D38 |
+| the test-naming convention's history and safety checks | `docs/memory/test-naming-convention.md` |
+| the document-routing table, which existed in three drifted copies | `docs/findings/README.md`, one copy |
+| the language constraints as originally written | D2, which had already superseded them |
+
+**Four of those were already stale, and that is the argument.** The test count read 4,690 against
+5,522 — sitting two paragraphs above this file's own warning that a per-assembly table *"drifted by
+about four hundred tests while the warning sat directly beneath it"*. The probe table named eighteen
+and claimed forty-four against a directory holding forty-nine. The language bullet described a C
+decode core that D2 records as never built and warns against resurrecting *"from an old conversation
+transcript or stale docs"* — this file being the stale doc. And the routing table had drifted a row
+apart across `CLAUDE.md`, `docs/findings/README.md` and `docs/verification/README.md`.
+
+**So the standing rule, stated at the top of the file itself:** when you find a restatement in
+`CLAUDE.md`, move it to the document that owns it and leave a pointer. A snapshot labelled "this will
+go stale" is still a stale number that somebody reads.
