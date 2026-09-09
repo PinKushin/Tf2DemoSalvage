@@ -26003,6 +26003,23 @@ three pieces and the third has a documented trap:
      grid through `SEQUENCE_NUMBER`, a published attribute nothing writes, so a particle takes the
      entire texture — which reads as a rainbow block rather than smoke. This is the gap listed
      above, now confirmed rather than predicted.
+
+     **CORRECTION: this was called "bounded, and the attribute is published", and only half of that
+     is true.** The ATTRIBUTE is published; the sheet's payload FORMAT is not. Reading it out:
+
+     - The VTF side IS published. `vtf.h:531` gives `ResourceEntryInfo { uint32 eType; uint32
+       resData; }` after `VTFFileHeaderV7_3_t`'s `numResources`, the id is
+       `VTF_RSRC_SHEET = MK_VTF_RSRC_ID( 0x10, 0, 0 )`, and the **high byte of `eType` is FLAGS**
+       (`MK_VTF_RSRCF`) — so `RSRCF_HAS_NO_DATA_CHUNK` (`0x02 << 24`) means `resData` IS the data
+       rather than an offset to it, and reading the offset unconditionally would return garbage.
+     - The payload is NOT. `CSheet` is forward-declared at `particles.h:41` and defined nowhere in
+       the SDK; `FindOrLoadSheet` (`:374`) is the only mention. The parse lives in the closed
+       material system.
+
+     **So the sequence sheet is a closed-format read of the same kind as the compact ledges**, not
+     the bounded fix it was described as. Its container is published and its contents are not, which
+     is the same shape `docs/findings/51` met — and the honest estimate changed the moment the header
+     was actually opened rather than assumed.
    - **One blob rather than a trail**, because a paused tick gives the rocket one position and every
      particle spawns in the same place. A trail needs the rocket's motion, so this is a playback
      observation and not a still one.
