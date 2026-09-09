@@ -63,6 +63,8 @@ public static class ParticleOperators
             new AlphaFadeOut(),
             new AlphaFadeIn(),
             new RadiusScale(),
+            new AlphaFadeAndDecay(),
+            new ColourFade(),
         ])
         {
             all[one.Named] = one;
@@ -268,6 +270,129 @@ public sealed class RadiusScale : IParticleOperator
 
             particles.Radius[index] =
                 particles.RadiusAtBirth[index] * (from + ((to - from) * through));
+        }
+    }
+}
+
+/// <summary>
+/// <c>Alpha Fade and Decay</c> — the fade a rocket trail actually uses.
+/// </summary>
+/// <remarks>
+/// **Implemented because the real effect asks for it, which the frequency ranking did not say.**
+/// `rockettrail` names this and `Color Fade`, not `Alpha Fade Out Random` — ranking by what TF2
+/// ships is not the same as what ONE effect needs, and running the definition end to end is what
+/// showed the difference (B373).
+///
+/// **Its four times are all life FRACTIONS**, read from the shipped definition:
+///
+/// <code>
+/// start_alpha 1   start_fade_in_time  0     end_fade_in_time  0.1
+/// end_alpha   0   start_fade_out_time 0.1   end_fade_out_time 1
+/// </code>
+///
+/// So alpha rises from zero to `start_alpha` across the fade-in window, holds, then falls to
+/// `end_alpha` across the fade-out window. *Interpolated:* that both ramps are linear, and that the
+/// windows are expressed against the life fraction rather than in seconds.
+///
+/// **"and Decay" is the second half of the name and it is not decoration** — this operator also
+/// ends the particle, which is why an effect carrying it needs no separate `Lifespan Decay`.
+/// </remarks>
+public sealed class AlphaFadeAndDecay : IParticleOperator
+{
+    /// <inheritdoc/>
+    public string Named => "Alpha Fade and Decay";
+
+    /// <inheritdoc/>
+    public void Operate(ParticleStore particles, ParticleFunction parameters, float seconds)
+    {
+        ArgumentNullException.ThrowIfNull(particles);
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        _ = seconds;
+
+        float startAlpha = (float)parameters.Number("start_alpha", 1d);
+        float endAlpha = (float)parameters.Number("end_alpha", 0d);
+
+        float inFrom = (float)parameters.Number("start_fade_in_time", 0d);
+        float inTo = (float)parameters.Number("end_fade_in_time", 0d);
+        float outFrom = (float)parameters.Number("start_fade_out_time", 1d);
+        float outTo = (float)parameters.Number("end_fade_out_time", 1d);
+
+        for (int index = 0; index < particles.Count; index++)
+        {
+            float through = particles.Through(index);
+
+            if (through < inTo)
+            {
+                // Rising into the particle's own alpha.
+                particles.Alpha[index] = startAlpha * Ramp(through, inFrom, inTo);
+            }
+            else if (through <= outFrom)
+            {
+                // Held between the two windows.
+                particles.Alpha[index] = startAlpha;
+            }
+            else
+            {
+                particles.Alpha[index] =
+                    startAlpha + ((endAlpha - startAlpha) * Ramp(through, outFrom, outTo));
+            }
+        }
+
+        particles.Reap();
+    }
+
+    /// <summary>Where a value sits between two bounds, clamped — 0 before, 1 after.</summary>
+    /// <remarks>
+    /// **A zero-width window is 1 rather than a division by zero**, which is the case a definition
+    /// carrying `start_fade_in_time` equal to `end_fade_in_time` produces — and it means "already
+    /// finished", not "never".
+    /// </remarks>
+    internal static float Ramp(float at, float from, float to) =>
+        to - from <= float.Epsilon ? 1f : Math.Clamp((at - from) / (to - from), 0f, 1f);
+}
+
+/// <summary>
+/// <c>Color Fade</c> — takes a particle's tint toward a declared colour across its life.
+/// </summary>
+/// <remarks>
+/// **The other operator the real rocket trail names.** Its parameters, from the shipped definition:
+/// `color_fade` is the target, `fade_start_time` and `fade_end_time` bound the window as life
+/// fractions, and `ease_in_and_out` selects a smoothstep rather than a straight line.
+///
+/// **The FROM colour is the spawn tint, not the current one** — the same reason `Radius Scale`
+/// reads a spawn radius (`GetReadInitialAttributes`, `particles.h:602`). Reading the current tint
+/// would make every step a fresh interpolation from wherever the last one landed, which converges
+/// on the target far too quickly and cannot be seen in a single-step test.
+/// </remarks>
+public sealed class ColourFade : IParticleOperator
+{
+    /// <inheritdoc/>
+    public string Named => "Color Fade";
+
+    /// <inheritdoc/>
+    public void Operate(ParticleStore particles, ParticleFunction parameters, float seconds)
+    {
+        ArgumentNullException.ThrowIfNull(particles);
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        _ = seconds;
+
+        Vector4 target = parameters.Vector("color_fade", default);
+        float from = (float)parameters.Number("fade_start_time", 0d);
+        float to = (float)parameters.Number("fade_end_time", 1d);
+        bool eased = parameters.Number("ease_in_and_out", 0d) != 0d;
+
+        Vector3 fade = new(target.X, target.Y, target.Z);
+
+        for (int index = 0; index < particles.Count; index++)
+        {
+            float at = AlphaFadeAndDecay.Ramp(particles.Through(index), from, to);
+
+            // Smoothstep, which is what "ease in and out" means: 3t² − 2t³.
+            float mixed = eased ? at * at * (3f - (2f * at)) : at;
+
+            particles.Tint[index] = Vector3.Lerp(particles.TintAtBirth[index], fade, mixed);
         }
     }
 }

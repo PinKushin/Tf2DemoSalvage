@@ -71,6 +71,9 @@ public sealed class ParticleStore
     /// <summary>Each particle's tint, 0..255 per channel — <c>TINT_RGB</c>.</summary>
     internal Vector3[] Tint = new Vector3[Initial];
 
+    /// <summary>Each particle's tint at spawn, for the same reason as <see cref="RadiusAtBirth"/>.</summary>
+    internal Vector3[] TintAtBirth = new Vector3[Initial];
+
     /// <summary>Each particle's alpha, 0..1 — <c>ALPHA</c>.</summary>
     internal float[] Alpha = new float[Initial];
 
@@ -95,6 +98,11 @@ public sealed class ParticleStore
     /// <param name="index">Which particle.</param>
     /// <returns>Its radius.</returns>
     public float RadiusOf(int index) => Radius[index];
+
+    /// <summary>One particle's tint, 0..255 per channel.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <returns>Its colour.</returns>
+    public Vector3 TintOf(int index) => Tint[index];
 
     /// <summary>How opaque one particle is.</summary>
     /// <param name="index">Which particle.</param>
@@ -140,6 +148,7 @@ public sealed class ParticleStore
         Radius[Count] = 1f;
         RadiusAtBirth[Count] = 1f;
         Tint[Count] = new Vector3(255f, 255f, 255f);
+        TintAtBirth[Count] = Tint[Count];
         Alpha[Count] = 1f;
         Rotation[Count] = 0f;
 
@@ -188,6 +197,7 @@ public sealed class ParticleStore
             Radius[index] = Radius[last];
             RadiusAtBirth[index] = RadiusAtBirth[last];
             Tint[index] = Tint[last];
+            TintAtBirth[index] = TintAtBirth[last];
             Alpha[index] = Alpha[last];
             Rotation[index] = Rotation[last];
 
@@ -209,6 +219,7 @@ public sealed class ParticleStore
         Array.Resize(ref Radius, size);
         Array.Resize(ref RadiusAtBirth, size);
         Array.Resize(ref Tint, size);
+        Array.Resize(ref TintAtBirth, size);
         Array.Resize(ref Alpha, size);
         Array.Resize(ref Rotation, size);
     }

@@ -25943,10 +25943,27 @@ could not see it, which is `docs/memory/output-level-assertion-or-it-is-not-done
 of a particle at spawn time"*. So the store carries a spawn radius and the scale reads that,
 writing the current one. After: **radius 2**, and a twenty-step regression test now covers it.
 
-**The same run says what is still missing for this effect specifically**, which the ranking alone
-did not: `rockettrail` uses **`Alpha Fade and Decay`** and **`Color Fade`**, and neither is
-implemented — the ranking picked `Alpha Fade Out Random` instead, which this effect does not use.
-That is why alpha stays 1. **2 of 4 operators for the real rocket trail.**
+**The same run said what the ranking could not: which operators this EFFECT needs.** `rockettrail`
+uses `Alpha Fade and Decay` and `Color Fade`, and the frequency ranking had pointed at
+`Alpha Fade Out Random`, which this effect never names. **Ranking by what TF2 ships is not the same
+as what one effect needs**, and only running the definition showed it.
+
+**Both are now implemented, from their own declared parameters**, and the whole definition runs:
+
+```
+'rockettrail_!': 4 of 4 operators implemented, 0 not
+after 20 steps: 13 alive, first alpha 0.522, first radius 1.178
+ParticleSprites: 78 corners for 13 particles
+```
+
+Thirteen alive rather than twenty because `Alpha Fade and Decay` also ends particles — the "and
+Decay" half of its name, which is why an effect carrying it needs no separate `Lifespan Decay`.
+
+**`Color Fade` reads the SPAWN tint for the same reason `Radius Scale` reads the spawn radius**, and
+it has its own test: reading the current tint makes every step a fresh interpolation from wherever
+the last landed, converging far ahead of the declared window — the identical compounding shape, and
+equally invisible in a one-step test. Sabotaging it to read the current tint reddens exactly that
+test.
 
 **And the verification gap is unchanged by any of this.** The operators' parameter combination is
 still interpolated, and what would settle it is a capture of the same effect in TF2 beside ours

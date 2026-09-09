@@ -144,6 +144,80 @@ public sealed class ParticleOperatorConformanceTests
     }
 
     [Test]
+    public void AlphaFadeAndDecay_BetweenItsTwoWindows_HoldsTheStartAlpha()
+    {
+        // The real rockettrail's own numbers: fade in over 0..0.1 of the life, hold, then fade out
+        // over 0.1..1. Sampled at a quarter through, which is inside the fade-out window, so the
+        // alpha is on its way down from 1 rather than held.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 4f);
+        particles.Tick(1f);
+
+        Step(particles, "Alpha Fade and Decay", Rocket(), seconds: 0f, previous: null);
+
+        // A quarter through, one sixth of the way across the 0.1..1 fade-out window.
+        particles.AlphaOf(0).ShouldBe(1f - ((0.25f - 0.1f) / 0.9f), 0.001d);
+    }
+
+    [Test]
+    public void AlphaFadeAndDecay_InsideTheFadeInWindow_IsStillRising()
+    {
+        // The control for the test above: at 5% of the life the particle is inside the 0..0.1 fade
+        // IN window, so alpha is half of start_alpha rather than nearly all of it. An operator
+        // implementing only the fade-out would return 1 here and pass the other test.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 20f);
+        particles.Tick(1f);
+
+        Step(particles, "Alpha Fade and Decay", Rocket(), seconds: 0f, previous: null);
+
+        particles.AlphaOf(0).ShouldBe(0.5f, 0.001d);
+    }
+
+    [Test]
+    public void ColorFade_ReadsTheSpawnTint_SoItDoesNotConvergeEarly()
+    {
+        // **Reading the CURRENT tint would make every step a fresh interpolation from wherever the
+        // last one landed**, converging on the target far faster than the declared window - the
+        // same compounding shape that took a radius to 265, and equally invisible in one step.
+        //
+        // Ten steps at a fixed halfway point must leave the tint halfway, not at the target.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 4f);
+        particles.Tick(2f);
+
+        Dictionary<string, DmxValue> black = new(StringComparer.Ordinal)
+        {
+            ["color_fade"] = new DmxValue(DmxAttributeType.Colour, Vector: new Vector4(0f, 0f, 0f, 0f)),
+            ["fade_start_time"] = new DmxValue(DmxAttributeType.Real, 0d),
+            ["fade_end_time"] = new DmxValue(DmxAttributeType.Real, 1d),
+        };
+
+        for (int step = 0; step < 10; step++)
+        {
+            Step(particles, "Color Fade", black, seconds: 0f, previous: null);
+        }
+
+        // Halfway from 255 to 0, linear because ease_in_and_out is absent and defaults off.
+        particles.TintOf(0).X.ShouldBe(127.5f, 0.01d);
+    }
+
+    /// <summary>The real rockettrail's own Alpha Fade and Decay parameters.</summary>
+    private static Dictionary<string, DmxValue> Rocket() =>
+        new(StringComparer.Ordinal)
+        {
+            ["start_alpha"] = new DmxValue(DmxAttributeType.Real, 1d),
+            ["end_alpha"] = new DmxValue(DmxAttributeType.Real, 0d),
+            ["start_fade_in_time"] = new DmxValue(DmxAttributeType.Real, 0d),
+            ["end_fade_in_time"] = new DmxValue(DmxAttributeType.Real, 0.1d),
+            ["start_fade_out_time"] = new DmxValue(DmxAttributeType.Real, 0.1d),
+            ["end_fade_out_time"] = new DmxValue(DmxAttributeType.Real, 1d),
+        };
+
+    [Test]
     public void All_EveryOperator_IsFoundByTheNameAPcfUses()
     {
         // The registry is keyed by `functionName` because that is all a `.pcf` carries. A mismatch
