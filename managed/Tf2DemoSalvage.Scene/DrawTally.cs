@@ -49,6 +49,41 @@ public sealed class DrawTally
     private readonly Dictionary<string, int> _noBatchesBy = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _notStudioBy = new(StringComparer.Ordinal);
 
+    /// <summary>Everything this tally has ever counted, which the per-frame fields cannot answer.</summary>
+    /// <remarks>
+    /// **The per-frame counters are cleared by every `Begin`, so nothing could ask what a whole
+    /// recording lost.** The log line reports a frame, rate-limited and only on a change, which is
+    /// right for watching and useless for an audit: a model that failed to load in one frame out of
+    /// a hundred thousand never appears in a line anybody reads.
+    ///
+    /// **Carried from the same calls that count the frame** (B243), not a second route. A census that
+    /// re-derived these by walking the demo again would be measuring its own walk, which is how five
+    /// instruments gave confident wrong answers in one session.
+    /// </remarks>
+    private readonly Dictionary<string, int> _everNoGeometry = new(StringComparer.Ordinal);
+
+    private readonly Dictionary<string, int> _everNotStudio = new(StringComparer.Ordinal);
+
+    private long _everAskedFor;
+    private long _everDrawn;
+    private long _everCulled;
+    private long _everNotDrawn;
+
+    /// <summary>Cumulative totals over every frame this tally has seen.</summary>
+    /// <remarks>
+    /// **For an audit rather than for the log.** The owner's question is what a whole demo fails to
+    /// draw — *"missing meshes or materials or textures, or something isnt being draw"* — and that is
+    /// a question about totals, which the frame counters and the rate-limited line both erase.
+    /// </remarks>
+    public (long AskedFor, long Drawn, long Culled, long NotDrawn) Totals =>
+        (_everAskedFor, _everDrawn, _everCulled, _everNotDrawn);
+
+    /// <summary>Every model that ever failed to produce geometry, with how many times.</summary>
+    public IReadOnlyDictionary<string, int> EverNoGeometry => _everNoGeometry;
+
+    /// <summary>Every model ever rejected as not being a studio model, with how many times.</summary>
+    public IReadOnlyDictionary<string, int> EverNotStudio => _everNotStudio;
+
     /// <summary>Starts a frame's count.</summary>
     /// <param name="askedFor">How many props the scene offered.</param>
     /// <param name="pass">Which pass is counting — <c>world</c> or <c>viewmodel</c>.</param>
@@ -64,6 +99,7 @@ public sealed class DrawTally
     {
         _pass = pass;
         _askedFor = askedFor;
+        _everAskedFor += askedFor;
         _notStudio = 0;
         _culled = 0;
         _noBatches = 0;
@@ -86,7 +122,11 @@ public sealed class DrawTally
     /// suddenly rejects everything looks exactly like a rendering failure, and the count is what
     /// separates them (B254).
     /// </remarks>
-    public void Culled() => _culled++;
+    public void Culled()
+    {
+        _culled++;
+        _everCulled++;
+    }
 
     /// <summary>Records a prop whose model kind this renderer cannot draw.</summary>
     /// <param name="prop">The prop.</param>
@@ -120,6 +160,15 @@ public sealed class DrawTally
         string rejected = $"{name}#{prop.Kind}";
 
         _notStudioBy[rejected] = _notStudioBy.GetValueOrDefault(rejected) + 1;
+
+        // **The KIND is kept in the cumulative map too, because it is the whole diagnosis.** A prop
+        // rejected as `#Unknown` is a model reference this project does not classify; one rejected as
+        // a kind it knows is a renderer that has no path for that kind. Losing the kind here would
+        // turn two different gaps into one number.
+        string ever = prop.ModelPath.Length == 0 ? $"<no model>#{prop.Kind}"
+            : $"{prop.ModelPath}#{prop.Kind}";
+
+        _everNotStudio[ever] = _everNotStudio.GetValueOrDefault(ever) + 1;
     }
 
     /// <summary>Records a prop whose model produced no geometry.</summary>
@@ -138,6 +187,10 @@ public sealed class DrawTally
         string name = System.IO.Path.GetFileName(modelPath);
 
         _noBatchesBy[name] = _noBatchesBy.GetValueOrDefault(name) + 1;
+
+        // The full path in the cumulative map, because an audit has to go and find the file — where
+        // the per-frame map keeps only the leaf name, which is what a log line has room for.
+        _everNoGeometry[modelPath] = _everNoGeometry.GetValueOrDefault(modelPath) + 1;
     }
 
     /// <summary>Records a prop the entity itself asks not to be drawn.</summary>
@@ -152,10 +205,18 @@ public sealed class DrawTally
     /// (`CalcAbsolutePosition`, `c_baseentity.cpp:4350`), which is why they cannot simply be
     /// dropped upstream — see `EntityState.IsDrawn`.
     /// </remarks>
-    public void NotDrawn() => _notDrawn++;
+    public void NotDrawn()
+    {
+        _notDrawn++;
+        _everNotDrawn++;
+    }
 
     /// <summary>Records a prop that will be drawn.</summary>
-    public void Drawn() => _drawn++;
+    public void Drawn()
+    {
+        _drawn++;
+        _everDrawn++;
+    }
 
     /// <summary>The last state reported for each pass, so an unchanged one stays silent.</summary>
     /// <remarks>

@@ -45,10 +45,9 @@ public sealed class JitterProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (arguments.Count < 2 ||
-            !int.TryParse(arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int entity))
+        if (arguments.Count < 2)
         {
-            output.WriteLine("jitter <demo> <entity> [tick] [ticks]");
+            output.WriteLine("jitter <demo> <entity|model substring> [tick] [ticks]");
             return;
         }
 
@@ -59,6 +58,16 @@ public sealed class JitterProbe : IProbe
         }
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+
+        // **A model substring rather than an index, because a door has no index anybody knows.**
+        // A brush entity's model is `*NN` and its edict slot is whatever the server handed out, so
+        // asking "are the doors smooth" needs the population rather than one number (B370, B377).
+        if (!int.TryParse(
+            arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int entity))
+        {
+            Survey(output, timeline, arguments[1]);
+            return;
+        }
 
         if (timeline.TrackFor(entity) is not { } track)
         {
@@ -154,6 +163,13 @@ public sealed class JitterProbe : IProbe
             $"  worst step-to-step speed change {worst:F3} units at tick {worstAt:F1}; " +
             $"{stalls} stalls (a moving sample followed by a still one)"));
 
+        // **How long the DRAWN motion takes against how long the demo says it took** (B370). A door's
+        // `speed` is on the map — granary's are 300 units a second — so a 111-unit shutter is 0.37
+        // seconds of travel, and the owner's report is that it looks slower than that: *"he is very
+        // very close to the door by the time it opens"*. A duration is the only number that says so;
+        // smoothness and direction both look fine on a motion that is simply stretched.
+        Durations(output, track, samples, timeline.IntervalPerTick);
+
         // **The keyframes around the worst moment, with BOTH clocks**, because that is what decides
         // which pair the sampler chose. `Tick` is when the packet arrived and `AppliedAt` is the
         // entity's own `GetSimulationTime()`, and the engine's `GetInterpolationInfo` searches on the
@@ -200,6 +216,243 @@ public sealed class JitterProbe : IProbe
             CultureInfo.InvariantCulture,
             $"  {away:N0} of {track.Keyframes.Count:N0} keyframes apply away from their arrival tick; " +
             $"{backwards:N0} apply EARLIER than the keyframe before them"));
+    }
+
+    /// <summary>Each motion run of one track, sampled around its own window.</summary>
+    /// <param name="output">Where to report.</param>
+    /// <param name="track">The track.</param>
+    /// <param name="interval">Seconds per tick.</param>
+    /// <remarks>
+    /// **The window comes from the track's keyframes, not from a tick anybody chose.** A door's
+    /// opening is about twenty-five ticks inside a fifty-thousand-tick recording, and the first attempt
+    /// at this measured nothing because the tick was picked by hand and the track was not even alive
+    /// there — entity 49 has seven tracks on one demo, because a round restart recreates the doors.
+    ///
+    /// **Sampled past the run's end by the interpolation delay**, since what is drawn at tick T is the
+    /// state at T minus the delay: a window that stopped at the last stated tick would cut the drawn
+    /// motion off before it finished.
+    /// </remarks>
+    private static void Runs(TextWriter output, ScenePropTrack track, float interval)
+    {
+        int reported = 0;
+        int index = 1;
+
+        while (index < track.Keyframes.Count && reported < 3)
+        {
+            if (Math.Abs(track.Keyframes[index].Pose.Z - track.Keyframes[index - 1].Pose.Z) <= 1f)
+            {
+                index++;
+                continue;
+            }
+
+            // Walk to the end of this run: consecutive keyframes that keep moving.
+            int last = index;
+
+            while (last + 1 < track.Keyframes.Count &&
+                   track.Keyframes[last + 1].Tick - track.Keyframes[last].Tick <= 12 &&
+                   Math.Abs(track.Keyframes[last + 1].Pose.Z - track.Keyframes[last].Pose.Z) > 0.01f)
+            {
+                last++;
+            }
+
+            List<(double Tick, float X, float Y, float Z)> samples = [];
+
+            for (int step = 0; step <= 600; step++)
+            {
+                double at = track.Keyframes[index - 1].Tick + (step / 10d);
+
+                if (at > track.Keyframes[last].Tick + 40)
+                {
+                    break;
+                }
+
+                if (track.At(at) is { } pose)
+                {
+                    samples.Add((at, pose.X, pose.Y, pose.Z));
+                }
+            }
+
+            if (samples.Count > 2)
+            {
+                Run(output, track, index - 1, last, samples, interval);
+                reported++;
+            }
+
+            index = last + 1;
+        }
+    }
+
+    /// <summary>Each run of continuous motion, drawn against stated, so a stretched one shows.</summary>
+    /// <param name="output">Where to report.</param>
+    /// <param name="track">The track, for the keyframes that say what the motion really was.</param>
+    /// <param name="samples">The drawn positions, already sampled at sub-tick steps.</param>
+    /// <param name="interval">Seconds per tick, so a duration can be stated in seconds.</param>
+    /// <remarks>
+    /// **Compares two durations rather than two positions**, because a stretched motion is correct at
+    /// both ends. A door that starts where it should and finishes where it should, taking three times
+    /// as long in between, passes every smoothness and direction check — and is exactly what the owner
+    /// described. `func_door speed='300'` on granary makes a 111-unit shutter 0.37 seconds.
+    /// </remarks>
+    private static void Durations(
+        TextWriter output,
+        ScenePropTrack track,
+        List<(double Tick, float X, float Y, float Z)> samples,
+        float interval)
+    {
+        // **The STATED motion first: consecutive keyframes whose Z differs.** These are the moments the
+        // demo actually spoke, so the span between the first and last of a run is what the server took.
+        int firstMoving = -1;
+        int lastMoving = -1;
+
+        for (int index = 1; index < track.Keyframes.Count; index++)
+        {
+            if (Math.Abs(track.Keyframes[index].Pose.Z - track.Keyframes[index - 1].Pose.Z) <= 0.01f)
+            {
+                continue;
+            }
+
+            if (firstMoving < 0 ||
+                track.Keyframes[index].Tick - track.Keyframes[lastMoving].Tick > 30)
+            {
+                if (firstMoving >= 0)
+                {
+                    Run(output, track, firstMoving, lastMoving, samples, interval);
+                }
+
+                firstMoving = index - 1;
+            }
+
+            lastMoving = index;
+        }
+
+        if (firstMoving >= 0)
+        {
+            Run(output, track, firstMoving, lastMoving, samples, interval);
+        }
+    }
+
+    /// <summary>One run of stated motion, and how long the drawn position took to cover it.</summary>
+    private static void Run(
+        TextWriter output,
+        ScenePropTrack track,
+        int from,
+        int to,
+        List<(double Tick, float X, float Y, float Z)> samples,
+        float interval)
+    {
+        float startZ = track.Keyframes[from].Pose.Z;
+        float endZ = track.Keyframes[to].Pose.Z;
+        float travel = Math.Abs(endZ - startZ);
+
+        if (travel <= 1f)
+        {
+            return;
+        }
+
+        int statedTicks = track.Keyframes[to].Tick - track.Keyframes[from].Tick;
+
+        // **The drawn run is measured by when the sampled Z leaves one end and reaches the other**, in
+        // the sampled window only. A run outside the window reports nothing rather than a wrong number.
+        double began = double.NaN;
+        double ended = double.NaN;
+
+        foreach ((double tick, _, _, float z) in samples)
+        {
+            float along = Math.Abs(z - startZ);
+
+            if (double.IsNaN(began) && along > travel * 0.05f)
+            {
+                began = tick;
+            }
+
+            if (!double.IsNaN(began) && along >= travel * 0.95f)
+            {
+                ended = tick;
+                break;
+            }
+        }
+
+        if (double.IsNaN(began) || double.IsNaN(ended))
+        {
+            return;
+        }
+
+        double drawnTicks = ended - began;
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"    motion of {travel:F1} units: demo states {statedTicks} ticks " +
+            $"({statedTicks * interval:F2}s), drawn over {drawnTicks:F1} ticks " +
+            $"({drawnTicks * interval:F2}s) — {(statedTicks > 0 ? drawnTicks / statedTicks : 0d):F2}x"));
+    }
+
+    /// <summary>Every track whose model matches, with the two numbers that decide whether it moves right.</summary>
+    /// <param name="output">Where to report.</param>
+    /// <param name="timeline">The recording.</param>
+    /// <param name="model">A substring of the model path — <c>*</c> matches every brush entity.</param>
+    /// <remarks>
+    /// **Reports the DIRECTION the drawn motion takes, not just its smoothness** (B370). The owner's
+    /// report about granary's shutters was that they ran BACKWARDS — *"they would close when a player
+    /// was walking through them, even if they were open before the player got to them"* — and a
+    /// backwards span is exactly what a keyframe applying earlier than its predecessor produces. So the
+    /// number that matters here is how many keyframes carry a decreasing simulation time, and how far
+    /// the drawn position moves against its own net direction.
+    /// </remarks>
+    private static void Survey(TextWriter output, DemoTimeline timeline, string model)
+    {
+        List<ScenePropTrack> matched =
+        [
+            .. timeline.Props.Where(track =>
+                track.ModelPath.Contains(model, StringComparison.OrdinalIgnoreCase)),
+        ];
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {matched.Count:N0} tracks whose model contains '{model}'"));
+
+        foreach (ScenePropTrack track in matched.OrderBy(one => one.EntityIndex))
+        {
+            int backwards = 0;
+            int away = 0;
+            double travelled = 0d;
+
+            for (int index = 1; index < track.Keyframes.Count; index++)
+            {
+                if (track.AppliedAt(index) < track.AppliedAt(index - 1))
+                {
+                    backwards++;
+                }
+
+                if (track.AppliedAt(index) != track.Keyframes[index].Tick)
+                {
+                    away++;
+                }
+
+                travelled += Math.Abs(track.Keyframes[index].Pose.Z - track.Keyframes[index - 1].Pose.Z);
+            }
+
+            // **Only the tracks that actually MOVE**, because a door that never opened in this
+            // recording says nothing about whether a door opens correctly, and there are twenty of
+            // them on the map.
+            if (travelled <= 0.5d)
+            {
+                continue;
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    entity {track.EntityIndex,5} '{track.ModelPath}': " +
+                $"{track.Keyframes.Count:N0} keyframes, {travelled:F1} units of vertical travel, " +
+                $"{away:N0} apply off their arrival tick, {backwards:N0} apply BACKWARDS"));
+
+            // **Each motion run's DRAWN duration against its STATED duration** (B370). The owner's
+            // second report is that the doors are slow — *"he is very very close to the door by the
+            // time it opens"* — and a stretched motion is correct at both ends, so only a duration
+            // shows it. The window comes from the track's own keyframes rather than from a tick
+            // somebody guessed, because a door's opening is twenty-five ticks in a fifty-thousand-tick
+            // recording and picking that by hand is how the first attempt measured nothing.
+            Runs(output, track, interval);
+        }
     }
 
     private static double Distance(

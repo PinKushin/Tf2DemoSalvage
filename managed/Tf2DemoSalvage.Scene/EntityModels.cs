@@ -2748,6 +2748,18 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     public int SubstitutedFlinches { get; private set; }
 
+    /// <summary>What this set has drawn and failed to draw over its whole life.</summary>
+    /// <remarks>
+    /// **Exposed so a whole recording can be audited rather than a frame watched.** The owner's
+    /// question is what a demo asks for and never gets — *"missing meshes or materials or textures, or
+    /// something isnt being draw"* — and every existing report is per frame, rate-limited and only on
+    /// a change, so a model that fails once in a hundred thousand frames appears in no line anybody
+    /// reads.
+    ///
+    /// **Carried from the draw loop's own calls** (B243), not recomputed by a second walk.
+    /// </remarks>
+    public DrawTally Tally => _tally;
+
     /// <summary>Areaportal windows given their distance blend — the wiring check for B358.</summary>
     /// <remarks>
     /// **Counted where the blend is WRITTEN, not where a window is recognised**, which is the

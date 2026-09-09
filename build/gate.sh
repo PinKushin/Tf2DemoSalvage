@@ -772,7 +772,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # props of ONE model carry their own entity indices -- and asserts the path really is shared, without
 # which the test would pass against two different models. The other pins the -1 default, because
 # entity 0 is the worldspawn and a zero default would have every hand-built instance claim to be it.
-run Tf2DemoSalvage.Scene.Tests    scene     581
+#
+# 581 -> 584 on 2026-09-09: three for B381, a brush ENTITY's tool surfaces. Two were red before the fix
+# (a trigger brush, and nodraw/sky/hint) and the third is the control that matters more: 83
+# func_illusionary and 18 func_door on cp_process_final are brush entities with real textures, so a
+# filter that dropped them would delete most of the map's moving parts. TOOLSBLACK survives on purpose.
+run Tf2DemoSalvage.Scene.Tests    scene     584
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

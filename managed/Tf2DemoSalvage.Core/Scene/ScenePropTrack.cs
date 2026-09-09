@@ -1631,6 +1631,16 @@ public sealed class ScenePropTrack
         // Hermite when a third sample exists, which is the engine's default rather than an extra:
         // the client splines whenever there is an older entry, and falls back to linear only when
         // there is not, or when INTERPOLATE_LINEAR_ONLY is set on the variable.
+        //
+        // **The third sample is WRONG here and is not patched — B382 replaces the structure.** The
+        // engine appends an entry per update and never collapses, so a door held open leaves several
+        // entries carrying the SAME open position, and `oldest` is open as well: the curve leaves it
+        // with zero incoming velocity. Collapsing repeats makes `_keyframes[index - 1]` the previous
+        // DISTINCT pose — a mid-opening height for a door — so the spline carries the opening's velocity
+        // into the close and the door rises before it drops.
+        //
+        // A special case for a restated pose was written here and removed: it made the symptom go away
+        // and left one keyframe list serving two histories, which is the actual defect. See D155.
         ScenePose? previous = index > 0 ? Renormalise(index, toTick - fromTick) : null;
 
         // **The animation-latched pair take the OTHER clock, which is a second lookup** (B274).

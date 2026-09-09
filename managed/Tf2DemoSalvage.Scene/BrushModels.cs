@@ -120,6 +120,29 @@ public static class BrushModels
                     continue;
                 }
 
+                // **A brush ENTITY's tool surfaces are dropped, exactly as the world's are** (B381).
+                // This gated only on the vertex count while `MapWorld` drops a surface for the
+                // not-drawn flags — so every `trigger_multiple`, every `nodraw` back face and every
+                // sky brush belonging to an entity became drawable geometry here.
+                //
+                // **That is the owner's report**: triggers drawing on a process map. Measured on
+                // `cp_process_final` and already recorded in `MapWorld`'s own comment, `TOOLSTRIGGER`
+                // is 318 faces at 0 visible — the flag is there, and only the world path was reading
+                // it.
+                //
+                // **What hid it, and why it was map-dependent:** a networked trigger usually carries
+                // `EF_NODRAW`, so the runtime dropped the entity and nobody saw its geometry. That is a
+                // second gate doing the first one's job, per entity and per demo, and absent the moment
+                // a trigger is networked without the flag.
+                //
+                // **`TOOLSBLACK` survives this, and must.** It carries no flags because the engine
+                // really does draw it — the void behind a window, under a grate, inside a vent — and
+                // the areaportal windows B358 fixed are made of it.
+                if (!surface.IsVisible)
+                {
+                    continue;
+                }
+
                 // **The face's own rectangle in the shared atlas, exactly as MapWorld looks it up.**
                 // Rectangles are indexed by face, and the atlas is packed from every face in the
                 // lump — world and entity alike — so a door's faces are already in it. A face with

@@ -8143,3 +8143,46 @@ for anything. This is why the stale main-menu frames from the B161 runs were wor
 were the wrong moment AND a picture of something this project will never render.
 
 **Evidence class: owner statement**, unprompted, on every half.
+
+---
+
+## D155 — a symptom patch on a filed structural divergence is worse than nothing (2026-09-09)
+
+**The owner, on a special case I added to `ScenePropTrack.At` that made the door symptom disappear:**
+
+> *"yea i dont care if your hack worked, you shouldnt even have done the hack actually, because that was
+> a waste when it needs to be ripped out and replaced to do the B382 properly, which is what you are
+> going to do, you will make a hook or skill to do force you to do it if you need to"*
+
+### What happened
+
+B382 was already filed: one keyframe list serves two interpolation histories where the engine keeps two,
+appended under `originChanged || anglesChanged || simTimeChanged` and `animTimeChanged` separately. Its
+third listed consequence was that the Hermite spline's third sample is the previous DISTINCT pose rather
+than the same restated pose, so a closing door carries the opening's velocity and rises before it drops.
+
+I then wrote a special case — *if the pose was restated, use that pose as the third sample* — watched the
+conformance test go green, and reported the door fixed. **The divergence it was a consequence OF was
+still there, and the patch is in the code that has to be deleted to remove it.**
+
+### The rule
+
+**When a structural divergence is filed, the symptom is not a separate task.** Patching it:
+
+- **spends the work twice**, because the patch lives in the code the real fix replaces;
+- **removes the evidence** — a green test and a working door make the structural defect look academic,
+  which is exactly how B382 would have survived another month;
+- **and reads as a fix in the log**, which is the part that misleads somebody later.
+
+This is `filing-a-divergence-is-not-fixing-it` turned around: that memory is about not stopping at the
+filing. This is about not stopping at the SYMPTOM either. Both end in the same place — the divergence
+still there, and something in the repository claiming otherwise.
+
+**What to do instead:** state the engine's structure, replace ours with it, and let the symptom test be
+the thing that proves the replacement. The conformance tests written for the symptom are kept — they were
+derived from the engine and they are the right assertions; they simply go red until the structure is
+right, which is the correct order.
+
+**Enforcement**: the owner asked for a hook or skill, so the judgment half is
+`.claude/skills/parity-structural-fix/` — loaded when a filed divergence is being worked on, and it
+refuses the symptom route explicitly.

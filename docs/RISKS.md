@@ -26720,6 +26720,280 @@ control.*
 
 ---
 
+### B382 OPEN 2026-09-09: one keyframe list serves two interpolation histories, and the engine keeps two
+
+**The owner caught this in a sentence of mine that was excusing it.** I wrote that our hold-extension
+*"is Valve's `simTimeChanged` term, reached by a different route"*, and he answered:
+
+> *"why are we using a different route, thats a problem i think, that shows underlying parity issues"*
+
+He is right, and the reassurance was the defect. D89 is explicit that performance never buys a departure
+from parity, and the route is different for a performance reason.
+
+#### Corrected 2026-09-09: it is one history PER VARIABLE, not two
+
+**The first version of this entry said "two histories" and that is wrong.**
+`OnLatchInterpolatedVariables` walks the entity's whole var map and calls `NoteChanged` on each watcher
+whose type matches the latch group (`c_baseentity.cpp:2814`):
+
+```cpp
+float changetime = GetLastChangeTime( flags );
+int c = m_VarMap.m_Entries.Count();
+for ( int i = 0; i < c; i++ )
+{
+    IInterpolatedVar *watcher = m_VarMap.m_Entries[ i ].watcher;
+    int type = watcher->GetType();
+    if ( !(type & flags) )        continue;
+    if ( type & EXCLUDE_AUTO_LATCH ) continue;
+    if ( watcher->NoteChanged( changetime, bUpdateLastNetworkedValue ) )
+        e->m_bNeedsToInterpolate = true;
+}
+```
+
+**So every registered variable owns its own entry list.** The flags only decide WHEN it is latched and
+WHICH clock stamps it. The registrations are the contract:
+
+| variable | registered | file:line |
+|---|---|---|
+| `m_vecOrigin` | `LATCH_SIMULATION_VAR` | `c_baseentity.cpp:905` |
+| `m_angRotation` | `LATCH_SIMULATION_VAR` | `c_baseentity.cpp:906` |
+| `m_flEncodedController` | `LATCH_ANIMATION_VAR` | `c_baseanimating.cpp:889` |
+| `m_flPoseParameter` | `LATCH_ANIMATION_VAR` | `c_baseanimating.cpp:890` |
+| `m_flCycle` | `LATCH_ANIMATION_VAR`, plus `EXCLUDE_AUTO_INTERPOLATE` when client-side animated | `c_baseanimating.cpp:896` |
+| each `m_AnimOverlay` element | `LATCH_ANIMATION_VAR`, one watcher per layer | `c_baseanimatingoverlay.cpp:107` |
+| `m_vecVelocity` | **commented out** — not interpolated at all | `c_baseentity.cpp:912` |
+
+And the flag values (`interpolatedvar.h:30`): `LATCH_ANIMATION_VAR 1<<0`, `LATCH_SIMULATION_VAR 1<<1`,
+`EXCLUDE_AUTO_LATCH 1<<2`, `EXCLUDE_AUTO_INTERPOLATE 1<<3`, `INTERPOLATE_LINEAR_ONLY 1<<4`,
+`INTERPOLATE_OMIT_UPDATE_LAST_NETWORKED 1<<5`.
+
+**One equivalence is provable and is the design this will be replaced with.** Origin and angles are both
+`LATCH_SIMULATION_VAR` with no extra flags, so they are appended in the same call, with the same
+changetime, and `AddToHead` is unconditional — their histories are entry-for-entry parallel, and one
+container carrying both is the same answer. **What would falsify it:** a variable registered
+`LATCH_SIMULATION_VAR` that also carries `EXCLUDE_AUTO_LATCH`, or one latched outside
+`OnLatchInterpolatedVariables`. Neither exists in the registrations above.
+
+**No such equivalence holds on the animation side**, because its variables carry DIFFERENT flags: the
+cycle gains `EXCLUDE_AUTO_INTERPOLATE` for a client-side-animated entity while the pose parameters beside
+it do not, and every overlay layer is its own watcher.
+
+#### What the engine does
+
+`C_BaseEntity::PostDataUpdate` (`c_baseentity.cpp:2570`) tests the previous NETWORKED values and decides
+which latch groups fire:
+
+```cpp
+bool animTimeChanged = ( m_flAnimTime        != m_flOldAnimTime );
+bool originChanged   = ( m_vecOldOrigin      != GetLocalOrigin() );
+bool anglesChanged   = ( m_vecOldAngRotation != GetLocalAngles() );
+bool simTimeChanged  = ( m_flSimulationTime  != m_flOldSimulationTime );
+
+bool simulationChanged = originChanged || anglesChanged || simTimeChanged;
+
+if ( animTimeChanged )    OnLatchInterpolatedVariables( LATCH_ANIMATION_VAR );
+if ( simulationChanged )  OnLatchInterpolatedVariables( LATCH_SIMULATION_VAR );
+```
+
+and `NoteChanged` calls `AddToHead` **unconditionally** — the `bRet` "differs/identical" result is only a
+hint that lets the caller skip interpolation work, never a reason to omit the entry
+(`interpolatedvar.h:649`). So a history is per variable group, appended under its own condition, and
+never collapsed.
+
+#### What this project does
+
+One `_keyframes` list, appended whenever the whole `ScenePose` differs from the last one — and
+`ScenePose` carries `Sequence`, `Cycle`, `Hidden`, `Scale`, `Body`, `MinigunState`, `Chamber` and the
+pose parameters alongside the origin and angles. Four side-tables then try to recover which clock each
+entry belongs to: `_appliedAt`/`_heldUntil` for simulation, `_animationAppliedAt`/`_animationHeldUntil`
+for animation.
+
+**Three consequences, none of which is equivalence:**
+
+- **An animation-only update appends a SIMULATION neighbour.** A cycle change with no movement creates a
+  keyframe and `_appliedAt` gets a value at that index, so the position interpolation acquires a
+  neighbour the engine's simulation history would never hold. `Neighbours` can then bracket the target
+  with a pair whose positions are identical.
+- **A position-only update appends an ANIMATION neighbour**, the same fault mirrored, which is what
+  B274 was working around when it gave the animation clock its own search.
+- **The Hermite spline differs even where the hold is right.** `simTimeChanged` makes the engine append a
+  SECOND entry with the same position and a newer changetime, so `oldest` and the `dt2 > 0.0001f` test
+  see two distinct entries. We collapse to one entry with a stretched `_heldUntil`, so the third sample
+  is a different keyframe entirely and the curve is not the same curve.
+
+#### Why it has survived, and what closing it needs
+
+The collapse is defended in `ScenePropTrack`'s own class comment on memory grounds — a demo is about
+106,000 frames and a match carries a few hundred model-bearing entities, so a pose per entity per frame
+is tens of millions of records. That argument is about our storage, not about the engine, and it cannot
+license a different answer.
+
+**The replacement, stated before it is built:**
+
+- **A SIMULATION history** of `(changetime, origin, angles)`, appended when
+  `originChanged || anglesChanged || simTimeChanged`, stamped `GetSimulationTime()`. Origin and angles
+  share it under the equivalence proved above.
+- **An ANIMATION history** of `(changetime, cycle, pose parameters)`, appended when `animTimeChanged`,
+  stamped `GetAnimTime()`. The cycle keeps its `EXCLUDE_AUTO_INTERPOLATE` behaviour for a
+  client-side-animated entity, which is already implemented and must survive the move.
+- **STATE — everything else `ScenePose` carries** (sequence, hidden, scale, body, minigun state, chamber):
+  not interpolated at all, taken from the latest update at or before the drawn moment by ARRIVAL. B377
+  already split this out of the pair, so it is in place.
+- **No collapsing in either history.** An entry per update, as `AddToHead` does.
+- **Reach bounded, storage not.** Every entry is kept so a scrub backwards still has data; the neighbour
+  search considers only what the engine's pruned history would have held —
+  `interpolation_amount + EXTRA_INTERPOLATION_HISTORY_STORED` (0.05 s), plus the first stale entry and two
+  more, which is what `Truncate( i + 3 )` leaves. The owner set this requirement: *"we should be able to
+  get valve parity there and still scrub and rewind the demo, we just have to make it work in both
+  directions."*
+
+`_heldUntil` and `_animationHeldUntil` are DELETED by this, not reinterpreted: they exist only to
+reconstruct restatements that an uncollapsed history simply contains.
+
+#### A symptom patch was written here and removed (D155)
+
+The third consequence above was patched directly — *if the pose was restated, use that pose as the
+spline's third sample* — and the conformance test went green. The owner rejected it:
+
+> *"i dont care if your hack worked, you shouldnt even have done the hack actually, because that was a
+> waste when it needs to be ripped out and replaced to do the B382 properly"*
+
+It is reverted. The two conformance tests it was written against are KEPT and are red until the structure
+is right, which is the correct order — `RestatedPoseSplineConformanceTests`. D155 records the rule and
+`.claude/skills/tf2-parity-structural-fix/` enforces it.
+
+**What is NOT established:** whether any of the three consequences is currently visible. B370's slow
+doors are the suspected symptom and are not yet traced to it — the live suspect there is still
+`m_flSimulationTime`'s 8-bit window being unwrapped against the wrong base for an entity that speaks
+rarely, which is a decode question and cheaper to settle first.
+
+*Evidence class: read-from-source for both sides. No measurement, and no visible symptom yet attributed.*
+
+### B380 OPEN 2026-09-09: the sticky launcher fills the whole screen in first person on a 2008 demo
+
+**Reported by the owner while watching `tf2-2008-build3420-stv-cp_granary`**, and filed with his own
+uncertainty intact because the uncertainty is the useful part:
+
+> *"this sticky bomb taking up the whole screen in first person cam, might not be a regression but a
+> compatability issue… there is a SS of the stick launcher taking up the whole screen in the 08 demo
+> btw, and it actually might not be reload although i think it is, but im not positive because in 08 i
+> dont think auto reload had been added into the game yet, so actually it might be the sticky charging,
+> not reload, but still idk"*
+
+**The demo, named**: `tools/corpus/demos/tf2-2008-build3420-stv-cp_granary.dem`, first-person camera,
+the owner playing demoman. A screenshot exists on his machine.
+
+**Three candidate triggers and none is established:** a reload animation, the sticky charge-up, or a
+viewmodel placement that is wrong for this era rather than wrong in general. The owner's own doubt about
+auto-reload existing in 2008 is worth keeping — if it did not, the animation being played cannot be a
+reload, and that alone would narrow it.
+
+**Why "compatibility" is a live reading rather than a hedge.** This is a 2008 demo and the map on disk
+is today's `cp_granary.bsp`. `docs/memory/a-demo-names-a-map-version.md` is precisely about that: a
+mismatched `.bsp` imitates bugs. A viewmodel is not map geometry, so the map version does not explain
+this one directly — but the same era gap applies to the weapon's own model and to
+`vm_weapon_bone_1`-style placement, which B242 and B248 both touched.
+
+**What is NOT established:** whether a modern demo shows it, which is the first thing to check, because
+that is what separates a regression from an era problem. Nothing has been read for it.
+
+*Evidence class: owner observation with a screenshot, unreproduced by any instrument.*
+
+### B370 2026-09-09: the granary shutters — the mechanism is now measured, and the 2008 demo cannot show it
+
+**The owner's note asked for this to be recorded rather than chased, and it now has a measured cause.**
+The `jitter` probe surveys every brush-entity track and reports how many keyframes carry a simulation
+time EARLIER than the keyframe before them, which is the shape that inverts an interpolation span:
+
+| demo | moving door tracks | keyframes applying BACKWARDS |
+|---|---|---|
+| `tf2-2008-build3420-stv-cp_granary` (era specimen) | 12 | **0** on every one |
+| `20130518_0313_cp_granary_blu_blu` (real 2013 match) | many | **13 to 58 per track** |
+
+**So the era specimen cannot reproduce it and the real match can**, which is exactly what CLAUDE.md
+says about era specimens: they are the owner's solo recordings, and here that means few entities, low
+update pressure, and simulation times that never interleave. The owner confirmed the shutters behave in
+the 2008 demo — *"they actually did work fine in this demo"* — so a green result there was never
+evidence.
+
+**That backwards-applying keyframe is B377's mechanism.** A pair chosen by arrival adjacency whose
+changetimes run backwards gives a negative span, and a door interpolated over a negative span plays its
+motion in reverse — which is the owner's original report exactly: *"they were backwards basically, they
+would close when a player was walking through them, even if they were open before the player got to
+them"*.
+
+**Also measured: an edict slot carries many door tracks.** Entity 49 has seven tracks on this demo and
+entity 52 has five, because a round restart recreates the doors. That is the
+`an-entity-index-does-not-name-a-track` trap, and the tracks are correctly kept apart — worth recording
+because a reader chasing a door by index would find seven of them.
+
+**Left OPEN until the owner has looked at the 2013 demo.** The mechanism is measured and the fix is in,
+but *"does it still look backwards"* is a question only he can answer, and the demo he originally saw it
+on was a modern POV that is not yet identified — *"idk whos pov it was, maybe benroads"*.
+
+*Evidence class: measured, both demos, same instrument. The causal link to B377 is read-from-source plus
+arithmetic; it has NOT been confirmed by watching.*
+
+### B378 OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
+
+**Found by the `viewer-census` probe the owner asked for**, on its first run against a real match:
+
+```
+20130518_0313_cp_granary_blu_blu.dem: 50,934 frames, 1,349 prop tracks, 12 player tracks
+  1,019 frames sampled: 66,226 props offered, 38,891 drawn, 574 kRenderNone
+  NOT DRAWABLE: 2 distinct
+      12069x <no model>#Studio
+      11209x materials/Sprites/light_glow03.vmt#Sprite
+```
+
+**`SceneModelKind.Sprite` is produced and consumed by nothing.** `ScenePropTrack.Classify`
+(`ScenePropTrack.cs:1417`) returns it for a model reference that is a `.vmt`, and a grep for the value
+across the whole solution finds exactly one hit — its own assignment. So every `env_sprite` in every
+demo is offered to the draw path, rejected as not a studio model, and counted. Eleven per frame on
+`cp_granary`.
+
+**What is visible when it is wrong:** lamp glows are missing. `Sprites/light_glow03` is the halo TF2
+draws around a light source, and it is one of the things a player notices by its absence rather than by
+its presence — which is exactly why the owner could say *"i cant think of anything offhand"* while
+suspecting something was missing. He also said *"i always use to play on low gfx"*, and a glow sprite is
+not something low settings remove.
+
+**Detail sprites are NOT this.** `DetailSprites` and `DetailModels` implement `CDetailModel::
+DrawTypeSprite` for the map's grass, which is a different system reading a different lump. The gap is
+entity sprites — `CSprite`, drawn by `C_Sprite::DrawModel`.
+
+**What is NOT established:** how many sprites a modern match carries, whether any is large enough to
+matter beyond a glow, and whether `m_flScale`/`m_nRenderMode`'s sprite-specific meanings are decoded.
+Only the count and the classification are measured.
+
+*Evidence class: measured on one real match; read-from-source for the single-reference claim, which is a
+grep over this project rather than over the engine.*
+
+### B379 OPEN 2026-09-09: 12,069 props are offered with no model at all
+
+**The other half of the same census line**, and unlike the sprites it is not yet diagnosed. Twelve
+thousand offers across 1,019 sampled frames — about twelve per frame — of a prop whose `ModelPath` is
+empty, classified `Studio` by default and rejected.
+
+**The class census points at weapons**, though it does not prove they are the same population:
+
+```
+  28 entity classes carry a prop track
+    NO MODEL     3x CTFScatterGun     NO MODEL     3x CTFShotgun_Soldier
+    NO MODEL     3x CTFFists          NO MODEL     2x CTFPipebombLauncher
+    NO MODEL     2x CTFSniperRifle
+```
+
+A weapon's world model comes from `m_iWorldModelIndex` rather than `m_nModelIndex` (B221's area), so a
+weapon track with no model path may be correct and resolved elsewhere — or may be a weapon nobody draws.
+**Twelve per frame is too many for the five tracks above**, so at least one other population is in there.
+
+**What is NOT established:** which entities they are. The census counts the rejection and names the model
+(there is none), which is not enough — it needs the entity index and class carried to the rejection.
+That is the next change to `DrawTally.NotDrawable`, and it is deliberately not guessed at here.
+
+*Evidence class: measured. The cause is UNKNOWN.*
+
 ### B377 FIXED 2026-09-09: the interpolation pair was chosen by ARRIVAL, and that is the jitter
 
 **The owner's report:** *"i think we still have some interp to do too, the demos are kinda jittery and
