@@ -26662,6 +26662,113 @@ control.*
 
 ---
 
+### B377 FIXED 2026-09-09: the interpolation pair was chosen by ARRIVAL, and that is the jitter
+
+**The owner's report:** *"i think we still have some interp to do too, the demos are kinda jittery and
+its not a FPS thing"*. It is not a frame-rate thing, and it was not a smoothing tuning question — the
+sampler was picking the wrong two keyframes.
+
+**`GetInterpolationInfo` walks the history newest-first and compares CHANGETIMES**
+(`interpolatedvar.h:815`):
+
+```cpp
+float targettime = currentTime - interpolation_amount;
+for ( int i = 0; i < varHistory.Count(); i++ )
+{
+    pInfo->older = i;
+    float older_change_time = m_VarHistory[ i ].changetime;
+    if ( targettime < older_change_time ) { pInfo->newer = pInfo->older; continue; }
+    …
+    float dt = newer_change_time - older_change_time;
+    if ( dt > 0.0001f )
+        pInfo->frac = ( targettime - older_change_time ) / dt;
+}
+```
+
+So `older` and `newer` **are guaranteed to bracket the target on the interpolation's own clock**,
+whatever order the entries arrived in. This project chose the ARRIVAL-adjacent pair — `IndexAt` binary
+searches `_keyframes[].Tick` — and then read that pair's changetimes out of `_appliedAt`. Whenever the
+two clocks disagree those are different answers, and B273 had already measured that they disagree
+constantly.
+
+#### Measured, on `tf2-2026-pub-pov-clean` entity 9
+
+The `jitter` probe samples the production sampler ten times a tick and differences the drawn position:
+
+| | before | after |
+|---|---|---|
+| worst single-step speed change, tick 5000 + 30 | **32.268 units** | **4.578** |
+| stalls (a moving sample then a still one) | **26** of 300 | **0** |
+| worst change, tick 14000 + 30 | **37.356** | **3.803** |
+| path length over 30 ticks | 265.7 units | 105.4 |
+| net displacement over the same window | 58.2 | 72.1 |
+| **wander** (path − net) | **207.5** | **33.3** |
+
+**The average drawn step is 0.89 units, so a 32-unit step is thirty-six times it.** And the wander
+number is the one that names the mechanism: 207 units of back-and-forth on a 60-unit journey is not a
+stutter, it is the drawn position moving the wrong way and being pulled back.
+
+**Two shapes did it, both taken from the track rather than imagined:**
+
+- `5013 applied 5015` beside `5014 applied 5015` — arrival-adjacent, ONE changetime. `dt` is zero, so
+  the sampler took `toTick <= fromTick` and held the older pose. The engine's walk skips past both to
+  the entry before them and interpolates over a real span.
+- `5010 applied 5012` beside `5010 applied 5011` — same arrival tick, the later entry carrying the
+  EARLIER changetime, so an arrival-ordered span runs backwards.
+
+**Of entity 9's 27,478 keyframes, 26,064 apply away from their arrival tick and 1,631 apply EARLIER
+than the keyframe before them.** Non-monotonic, which also retires the assumption written beside
+`AnimationIndexAt` that a server stamps these clocks monotonically — true of animation time in that
+measurement, false of simulation time here.
+
+#### Moving the pair moved the STATE with it, and two tests caught it within the hour
+
+**State fields and interpolated fields are not the same mechanism in the engine.** `m_fEffects`,
+`m_nSequence`, `m_flModelScale` and the rest are plain networked members assigned on receipt; only the
+variables `AddVar` registers have a history and a changetime at all (`c_baseentity.cpp:875`). This
+project's `ScenePose` carries both, and `At` rebuilt every field off the pair — so selecting the pair on
+the simulation clock silently moved the state onto that clock too.
+
+**`AppliedTimeTests` had already written down why that is wrong**, from the first time it was tried: an
+entity that does not simulate keeps one simulation time for minutes, so every state change it made
+collapses onto a single tick. And `NoDrawTrackTests` caught **the very same entity it caught then** —
+648 on `tf2-2007-build3258-pov-cp_granary` at tick 5261, *"the pose says drawable=True and the drawn set
+says present=False"*. Hidden and never handed back.
+
+The second catch was `At_WhenTheTwoClocksDisagree_EachFieldFollowsItsOwn`, which read a cycle of 0.4
+where its own history brackets the moment at 0.096: returning null from the neighbour walk when the
+target is past every entry abandoned the whole sample, throwing away the animation clock's answer with
+the position's. The engine does not do that either — it sets the pair to the same entry and reports the
+value holds (`interpolatedvar.h:831`), and a degenerate span leaves `frac` at zero and **continues**,
+because `if ( dt > 0.0001f )` guards only the division.
+
+So `At` now takes three things from three places: state from the ARRIVAL-selected keyframe, position and
+angles from the simulation-clock pair, and cycle and pose parameters from the animation-clock pair. That
+is the engine's own division, and the two tests that failed are the ones that describe it.
+
+#### The walk is entered from a bounded start, and that is faithful rather than a shortcut
+
+`CInterpolatedVar` prunes its history to the interpolation window, so the engine never walks more than
+a handful of entries. Ours holds the whole recording, so walking from the newest keyframe of the match
+would be O(match) per sample per entity. `Neighbours` binary searches arrival to get near, climbs until
+an entry's simulation time is past the target — which is where the engine's walk begins — and then
+scans down exactly as the engine does, capped at 32 keyframes either side.
+
+#### What is NOT established
+
+- **Whether this is all of the jitter.** It is a large part of it and it is measured, but the owner is
+  the instrument for "does it still look jittery" — this fixes what the probe could see.
+- **Whether B370's granary shutters are the same defect.** That entry names `m_flSimulationTime`
+  interpolation of a moving brush as a candidate, and this is exactly that mechanism on a different
+  population. It has not been re-checked, and the owner asked for it to be noted rather than chased.
+- **Angles and the animation clock.** The fix is on the simulation pair. `AnimationNeighbours` already
+  searched its own clock, so it never had this fault; whether ITS search should also tolerate
+  non-monotonic stamps is unmeasured.
+
+*Evidence class: read-from-source for the engine's walk; measured for every number above, before and
+after, with the arrival-pair selection temporarily restored to take the before-figures through the same
+instrument.*
+
 ### B376 OPEN 2026-09-09: two compiled scenes out of 9,939 drift two bytes inside a long EXPRESSION event
 
 **Found by censusing the scene reader over the WHOLE archive instead of over the taunts** — B351's

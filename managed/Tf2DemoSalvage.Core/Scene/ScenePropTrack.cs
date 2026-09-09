@@ -1350,6 +1350,18 @@ public sealed class ScenePropTrack
     public int AppliedAt(int index) =>
         _appliedAt.Count > index ? _appliedAt[index] : _keyframes[index].Tick;
 
+    /// <summary>The last tick the demo restated a keyframe's pose, which is where movement begins.</summary>
+    /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
+    /// <returns>The tick of the last restatement, or the keyframe's own when it was stated once.</returns>
+    /// <remarks>
+    /// **Exposed for the same reason as <see cref="AppliedAt(int)"/>: it is the number the
+    /// interpolation used**, and a diagnostic that re-derived it would be checking its own arithmetic.
+    /// A stationary entity's repeats are collapsed, so this is what separates the duration of a
+    /// movement from the duration of a hold.
+    /// </remarks>
+    public int HeldUntil(int index) =>
+        _heldUntil.Count > index ? _heldUntil[index] : _keyframes[index].Tick;
+
     /// <summary>When the ANIMATION in a keyframe applied, which is the engine's other clock.</summary>
     /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
     /// <returns>The applied tick, or the keyframe's own when the entity sent no animation time.</returns>
@@ -1553,15 +1565,32 @@ public sealed class ScenePropTrack
             return _keyframes[0].Pose;
         }
 
-        int index = IndexAt((int)Math.Floor(target));
-
-        if (index < 0 || index + 1 >= _keyframes.Count)
+        // **The pair is chosen by CHANGETIME, which is what the engine's walk does** (B377).
+        // Choosing the arrival-adjacent pair and then reading its changetimes is a different answer
+        // whenever the two clocks disagree, and they disagree on 26,064 of entity 9's 27,478
+        // keyframes — 1,631 of them applying EARLIER than the keyframe before them.
+        if (Neighbours(target) is not { } pair)
         {
             return earlier;
         }
 
-        (int statedTick, ScenePose from) = _keyframes[index];
-        (int arrivedAt, ScenePose to) = _keyframes[index + 1];
+        int index = pair.Older;
+
+        // **The STATE fields follow ARRIVAL and only the interpolated numbers follow the changetime
+        // pair, because in the engine they are not the same mechanism.** `m_fEffects`, `m_nSequence`,
+        // `m_flModelScale` and the rest are plain networked members assigned on receipt; only the
+        // variables `AddVar` registers have a history and a changetime at all
+        // (`c_baseentity.cpp:875`).
+        //
+        // **Selecting state on the simulation clock is a known trap, and moving the pair moved the
+        // state with it.** `AppliedTimeTests` records the first time: an entity that does not simulate
+        // keeps one simulation time for minutes, so every state change it made collapses onto a single
+        // tick. `NoDrawTrackTests` then caught the very same entity it caught before — 648 on
+        // `tf2-2007-build3258-pov-cp_granary` at tick 5261, hidden and never handed back.
+        ScenePose from = _keyframes[IndexAt((int)Math.Floor(target))].Pose;
+
+        (int statedTick, ScenePose moving) = _keyframes[index];
+        (int arrivedAt, ScenePose toward) = _keyframes[pair.Newer];
 
         // **The interpolation runs on when the value APPLIED, not on when the packet arrived**
         // (B273). The engine stamps a simulation-latched variable's history entry with the entity's
@@ -1569,7 +1598,7 @@ public sealed class ScenePropTrack
         // for a player on a SourceTV recording that is up to four ticks from the packet's own tick,
         // on half the updates. The list is still keyed by arrival, which is what keeps the state a
         // pose carries in the order the demo stated it.
-        int toTick = _appliedAt.Count > index + 1 ? _appliedAt[index + 1] : arrivedAt;
+        int toTick = AppliedAt(pair.Newer);
 
         // **A keyframe later than the tick being asked for has not arrived yet.** This is the whole
         // of the causality rule: a client at tick 100 cannot be pulled toward an update stated at
@@ -1586,16 +1615,18 @@ public sealed class ScenePropTrack
         // spreads a tenth of a second of travel over the whole hold.
         int fromTick = _heldUntil.Count > index ? _heldUntil[index] : statedTick;
 
-        if (toTick <= fromTick)
-        {
-            return earlier;
-        }
-
         tick = target;
 
-        float fraction = (float)Math.Clamp((tick - fromTick) / (toTick - fromTick), 0.0, 1.0);
+        // **A span of zero gives a fraction of zero and the walk CONTINUES, which is the engine's
+        // shape** (B377). `GetInterpolationInfo` guards the division with `if ( dt > 0.0001f )` and
+        // leaves `frac` at its initial zero otherwise, then returns true — so the simulation fields
+        // hold at the older sample while every other clock still answers for itself. Bailing out of
+        // the whole sample here is what discarded the animation clock's own interpolation.
+        float fraction = toTick > fromTick
+            ? (float)Math.Clamp((tick - fromTick) / (toTick - fromTick), 0.0, 1.0)
+            : 0f;
 
-        (float pitch, float yaw, float roll) = SlerpAngles(from, to, fraction);
+        (float pitch, float yaw, float roll) = SlerpAngles(moving, toward, fraction);
 
         // Hermite when a third sample exists, which is the engine's default rather than an extra:
         // the client splines whenever there is an older entry, and falls back to linear only when
@@ -1613,8 +1644,8 @@ public sealed class ScenePropTrack
         // and most props — `SendProxy_AnimTime` asserts a client-side-animated entity encodes none.
         (ScenePose animationFrom, ScenePose animationTo, ScenePose? animationPrevious,
             float animationFraction) = _hasAnimationClock
-            ? AnimationNeighbours(target, from, to, previous, fraction)
-            : (from, to, previous, fraction);
+            ? AnimationNeighbours(target, moving, toward, previous, fraction)
+            : (moving, toward, previous, fraction);
 
         // **A client-side-animated entity's cycle is NOT interpolated, and the engine enforces that
         // structurally rather than with a test** (B276).
@@ -1648,9 +1679,9 @@ public sealed class ScenePropTrack
 
         return new ScenePose
         {
-            X = Curve(previous?.X, from.X, to.X, fraction),
-            Y = Curve(previous?.Y, from.Y, to.Y, fraction),
-            Z = Curve(previous?.Z, from.Z, to.Z, fraction),
+            X = Curve(previous?.X, moving.X, toward.X, fraction),
+            Y = Curve(previous?.Y, moving.Y, toward.Y, fraction),
+            Z = Curve(previous?.Z, moving.Z, toward.Z, fraction),
             Pitch = pitch,
             Yaw = yaw,
             Roll = roll,
@@ -2097,6 +2128,91 @@ public sealed class ScenePropTrack
     /// no production caller, which is `docs/memory/a-superseded-type-keeps-its-tests.md`. Making
     /// it the one definition gives it a caller and removes the pair that could disagree.
     /// </remarks>
+    /// <summary>The two keyframes whose SIMULATION times bracket a moment, as the engine picks them.</summary>
+    /// <param name="target">The moment being drawn, already an interpolation delay behind.</param>
+    /// <returns>The older and newer keyframe indices, or null when no pair brackets the moment.</returns>
+    /// <remarks>
+    /// **`GetInterpolationInfo` walks the history newest-first and compares CHANGETIMES**
+    /// (<c>interpolatedvar.h:815</c>):
+    ///
+    /// <code>
+    /// for ( int i = 0; i &lt; varHistory.Count(); i++ )
+    /// {
+    ///     pInfo-&gt;older = i;
+    ///     float older_change_time = m_VarHistory[ i ].changetime;
+    ///     if ( targettime &lt; older_change_time ) { pInfo-&gt;newer = pInfo-&gt;older; continue; }
+    ///     …
+    /// }
+    /// </code>
+    ///
+    /// So the pair is guaranteed to BRACKET the target on the interpolation's own clock, whatever
+    /// order the entries arrived in. **This project chose the arrival-adjacent pair and then read its
+    /// changetimes**, which is a different answer whenever the two clocks disagree — and it produced
+    /// the owner's *"kinda jittery and its not a FPS thing"*: two arrival-adjacent keyframes sharing a
+    /// simulation time gave <c>dt == 0</c> and the sampler held the older pose, so the entity stalled
+    /// and then jumped. Measured on `tf2-2026-pub-pov-clean` entity 9: an average drawn step of 0.89
+    /// units carrying single steps of 32.3, and eighteen stalls in three hundred samples.
+    ///
+    /// **Entered from a bounded start rather than from the newest keyframe of the match**, and that is
+    /// faithful rather than a shortcut: the engine's history is pruned to the interpolation window, so
+    /// it never has more than a handful of entries to walk. Ours holds the whole recording, and
+    /// walking it from the end would be O(match) per sample.
+    /// </remarks>
+    private (int Older, int Newer)? Neighbours(double target)
+    {
+        int start = IndexAt((int)Math.Floor(target));
+
+        if (start < 0)
+        {
+            return null;
+        }
+
+
+        // **Climb until this entry's simulation time is PAST the target**, which is where the engine's
+        // newest-first walk begins. A simulation time never exceeds its own arrival tick, so the climb
+        // is bounded by how far a server's clock can lag a packet — a handful of keyframes, and capped
+        // so a pathological track cannot turn a sample into a scan.
+        int limit = start;
+
+        while (limit + 1 < _keyframes.Count &&
+               AppliedAt(limit) <= target &&
+               limit - start < HistoryScan)
+        {
+            limit++;
+        }
+
+        int newer = -1;
+
+        for (int index = limit; index >= 0 && limit - index <= HistoryScan; index--)
+        {
+            if (AppliedAt(index) > target)
+            {
+                newer = index;
+                continue;
+            }
+
+            // **`if ( pInfo->newer == varHistory.InvalidIndex() ) { pInfo->newer = pInfo->older; …
+            // return true; }`** — the target is past every entry, so the engine sets the pair to the
+            // SAME entry and reports that the value holds (`interpolatedvar.h:831`). Returning null
+            // here instead made `At` abandon the whole sample, which threw away the animation clock's
+            // own answer along with the position's: `At_WhenTheTwoClocksDisagree_EachFieldFollowsItsOwn`
+            // caught it, reading a cycle of 0.4 where its own history brackets the moment at 0.096.
+            return (index, newer < 0 ? index : newer);
+        }
+
+        return null;
+    }
+
+    /// <summary>How many keyframes either side of a moment the neighbour walk may look at.</summary>
+    /// <remarks>
+    /// **A bound on the engine's own history depth, not a guess at content.** `CInterpolatedVar`
+    /// prunes entries older than the interpolation window, so its walk is over a few entries; this is
+    /// generous against the eight-tick delay at TF2's rates and still refuses to let one sample scan a
+    /// whole match. A track whose clocks disagree by more than this holds its pose, which is what the
+    /// engine does when its own history cannot bracket the moment.
+    /// </remarks>
+    private const int HistoryScan = 32;
+
     private int IndexAt(int tick)
     {
         if (!Alive(tick))

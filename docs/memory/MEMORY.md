@@ -181,3 +181,4 @@
 - [A computed offset is a guess the file can answer](a-computed-offset-is-a-guess-the-file-can-answer.md) — read the directory; 288 textures decoded to noise without ever throwing.
 - [An entity index does not name a track](an-entity-index-does-not-name-a-track.md) — edict slots are reused; key on index PLUS tick.
 - [A vector keys its halves differently](a-vector-keys-its-halves-differently.md) — plain-prop elements key FLAT, the length keys by PATH.
+- [The interpolation pair is found by changetime](the-interpolation-pair-is-found-by-changetime.md) — an arrival-adjacent pair need not bracket the target; that was the jitter.

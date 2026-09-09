@@ -8080,3 +8080,66 @@ occupant and only the by-user-id map remembers everybody.
 same demo and tick produce two entirely different first-person views. And the POV branch was proved
 NOT to fire on `cp_process_f12`, which reports `Client: SourceTV Demo` — so the default correctly
 left it alone.
+
+---
+
+## D154 — TF2 cannot load a demo at boot, and the owner's install is not the stock HUD (2026-09-09)
+
+**Two corrections, both from the owner watching what a session was doing rather than from anything
+this project measured.** They land together because they are about the same instrument: the reference
+capture tool, `tools/tf2-reference-capture.ps1`.
+
+### A demo cannot be loaded from the command line
+
+The owner, on seeing Steam's screenshot overlay come up:
+
+> *"yea tf2 cant load a demo at boot, you have to start the client then load the demo lol, its fine,
+> I was just wondering why the SS thing on steam was up, and was wondering what you were trying to
+> do"*
+
+**The tool's first launch passed `+exec` with a config containing `playdemo`, and that is not a
+working route.** It happened to reach the right place anyway, because the tool then uses `-hijack` to
+send commands into the already-running client — which IS "start the client then load the demo". So the
+`+exec`-at-boot half was doing nothing, and four runs handing back a stale main-menu shot is consistent
+with exactly that: the client sat on its menu because the demo was never loaded by the flag, and only
+the hijacked commands moved it.
+
+**What this means for the tool:** the launch and the load are two steps and must stay two steps.
+Nothing should be added to the boot line that assumes a demo can be named there.
+
+### The owner's TF2 shows Garm3n, not the stock HUD
+
+> *"thats not the stock hud/menu btw, that is my custom Garm3n update"*
+
+**So a screenshot taken from this install is not a picture of TF2's default interface**, and the HUD
+work that comes next cannot use one as a reference for stock layout. This is the practical edge of
+`docs/memory/custom-folder-and-choosable-huds.md`, which already records that a custom HUD is
+deliberate and must not be "fixed": the same fact makes the install unusable as a stock reference
+without saying which HUD produced the picture.
+
+**Two consequences, and neither is a preference to be revisited:**
+
+- **A captured reference frame must record which HUD was in force**, or it is a measurement of an
+  unknown. `custom/` is where the answer is, and it is per-run rather than a property of the game.
+- **Stock layout comes from the SHIPPED `.res` files**, not from a screenshot — `resource/ui/*.res`
+  and `scripts/hudlayout.res` in the game's own VPKs, which are unaffected by anything in `custom/`.
+  That is the same "read what the game ships" rule that answered `$modblend` and the game-event field
+  widths.
+
+### Who removes the HUD, and what is out of scope for good
+
+> *"for the hud, we will have to remove it from my tf2 install for parity SS's if you do those, but
+> the main menu is something we will never deal with"*
+
+**A stock-HUD comparison shot is available, and taking `custom/` out is the OWNER'S action.** Nothing
+in this project moves, renames or disables anything under his `custom/` folder — that is his install and
+his configuration, and `custom-folder-and-choosable-huds.md` already says a custom HUD is deliberate.
+So the sequence for a parity capture is: ask, he clears it, the shot is taken, and the capture records
+that stock was in force.
+
+**The main menu is permanently out of scope.** Not deferred, not "later" — a demo viewer never draws
+one, so no finding, risk or test should be opened about it, and a menu screenshot is never a reference
+for anything. This is why the stale main-menu frames from the B161 runs were worthless twice over: they
+were the wrong moment AND a picture of something this project will never render.
+
+**Evidence class: owner statement**, unprompted, on every half.

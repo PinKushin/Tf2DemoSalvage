@@ -324,7 +324,13 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # with the engine's per-frame stepping however long a pose is held, so one holds for twenty seconds
 # and lands where half a window does; the control is a scene with no loop, without which a fold
 # applied unconditionally would restart every one-shot taunt in the game for ever.
-run Tf2DemoSalvage.Core.Tests     core     1807
+#
+# 1807 -> 1811 on 2026-09-09: four for B377, the interpolation pair being chosen by CHANGETIME rather
+# than by arrival -- the owner's jitter. Two are the measured shapes that broke it (two arrivals
+# sharing one simulation time, and a later arrival carrying an earlier one), one bounds every step
+# across a track carrying both, and the fourth is the clean-track control without which a search that
+# simply reached further back would satisfy the other three and smear every ordinary interpolation.
+run Tf2DemoSalvage.Core.Tests     core     1811
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
