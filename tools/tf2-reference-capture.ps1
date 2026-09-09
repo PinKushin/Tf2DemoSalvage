@@ -547,7 +547,64 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
             }
         }
     }
-    elseif ($key = Find-ScreenshotKey) {
+    # **`startmovie` first, because it is the path built for exactly this.** `screenshot` and `jpeg`
+    # are interactive conveniences and neither writes anything while a demo is loaded; `startmovie`
+    # is the engine's frame dumper, driven by `host_framerate` so each frame is a fixed step rather
+    # than whatever the clock did. `raw` is named explicitly to avoid the codec dialog that plain
+    # `startmovie` opens and which no unattended run can answer.
+    if (-not $found) {
+        $movie = 'tf2refmovie'
+
+        # **First person, because it is the one camera the two sides are guaranteed to agree on.**
+        # A golden comparison needs the same eye as well as the same tick, and a roaming spectator
+        # camera is wherever the seek left it — the first capture came back looking at the map from
+        # outside, which is a real TF2 frame of nothing comparable. `spec_mode 4` is
+        # `OBS_MODE_IN_EYE`, so both sides take their view from the demo rather than from a person
+        # flying.
+        Send-Command 'spec_mode 4'
+
+        # **A mode without a TARGET is still a free camera.** `spec_mode 4` alone left the view
+        # outside the map looking in, which is a real TF2 frame of nothing comparable; `spec_next`
+        # attaches it to a player, and only then is the eye the demo's own.
+        Send-Command 'spec_next'
+
+        Start-Sleep -Seconds 3
+
+        Send-Command "host_framerate $FrameRate"
+        Send-Command "startmovie $movie raw"
+
+        Start-Sleep -Seconds 12
+
+        Send-Command 'endmovie'
+
+        Start-Sleep -Seconds 5
+
+        # Movie frames land beside the executable rather than in `tf/screenshots`, so both are
+        # searched rather than assumed.
+        $frames = @()
+
+        foreach ($where in @($game, $tf)) {
+            $frames += Get-ChildItem $where -Filter "$movie*.tga" -ErrorAction SilentlyContinue
+        }
+
+        if ($frames) {
+            # The LAST frame, because the first few are written while the engine is still settling
+            # into the fixed frame rate.
+            $pick = $frames | Sort-Object Name | Select-Object -Last 1
+
+            Copy-Item $pick.FullName $Out -Force
+            $found = Get-Item $Out
+
+            Write-Host "  startmovie wrote $($frames.Count) frames; took $($pick.Name)"
+
+            $frames | ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+        }
+        else {
+            Write-Host '  startmovie produced no frames'
+        }
+    }
+
+    if (-not $found -and ($key = Find-ScreenshotKey)) {
         # A handful of presses across the slow playback, for the same reason the captures were
         # polled: the target tick is a window in real time, not an instant.
         $codes = @{
