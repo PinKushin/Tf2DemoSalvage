@@ -25544,7 +25544,7 @@ subsystem, and the two were only observed in the same session.
 
 *Evidence class: owner observation, unreproduced.*
 
-### B371 OPEN 2026-09-08: gibs are not implemented, and that is most deaths
+### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 
 **The owner: *"i should see ragdolls and gibs"*.** Ragdolls draw. Gibs do not exist at all — no
 model, no physics, nothing. **On `z1800` that is 231 of 407 corpses**, so it is the majority of
@@ -25625,10 +25625,41 @@ VCollide. **So gibs want a single-body prop path, not the ragdoll builder** — 
 there, and only the bone-name requirement is in the way. The `ragdoll` probe now reports single-solid
 models and whether a body builds, which is what caught this.
 
-**Still to do:** that single-body path, hiding the ragdoll for a gib death (`m_bGib` is decoded and
-read by NOTHING today, so a gibbed death currently draws a whole corpse where TF2 draws pieces), and
-the ten-second fade.
+**BUILT: the emission, and gibs are on screen.** `RagdollBody.BuildProp` is the single-body path,
+`RagdollProps.Gibs` emits a piece per `break` block at the corpse's origin with the throw and the
+shared spin staged onto it, and `m_bGib` now selects that instead of the body. Verified by looking:
+`z1800` tick 1636, camera 80 units above corpse 727 — bare floor before, pieces after.
+
+**And that picture is what found the last divergence, which no test could have.** Everything above
+was green and nothing drew, because **the gib models were precached by nothing.**
+
+| | |
+|---|---|
+| the engine | `CTFPlayer::PrecachePlayerModels` (`tf_player.cpp:2848`) precaches each class model **and** `PrecacheGibsForModel( iModel )` |
+| which is | `PrecachePropsForModel( iModel, "break" )` (`props_shared.cpp:1239`) — it walks the collide data's key values and precaches every `breakModel.modelName` |
+| ours | `DemoModels.Needed` and `ToPack` added the nine class models and none of their gibs |
+
+**A gib is in no track, no string table and no item schema**, because it is not an entity until a
+player gibs — and by then the loader is a dictionary rather than an on-demand read, so a model
+missing from those sets packs to nothing for ever. **This is B195 one layer over**, and
+`DemoModels`' own remarks say the two lists disagreeing is exactly that defect, so the fix went in
+both.
+
+**A second instance of the same shape, in the wiring:** the gib supplier was `EntityModels.
+BreakPiecesOf`, which answers out of a cache filled from the props DRAWN at a tick. A gibbed corpse
+draws no body, so it asked for a model that could not be there and was told "no pieces" for one
+declaring nine — `docs/memory/a-lookup-is-not-a-loader.md`. It reads the `.phy` from the install
+now, which is what `PrecachePropsForModel` does.
+
+**The probe was blind to all of it and would have stayed blind.** `CorpseProbe` called
+`RagdollProps.Fill` without the gib supplier; both new parameters are optional, so it compiled and
+reported a gibbed corpse as nothing drawn — the instrument agreeing with whoever wrote it. It now
+uses the same `DemoModels.BreakPiecesOf` the viewer does.
+
+**Still open in this area, and not closed by the above:** B369 (map physics collision unread — one
+of five `corpse-drop` seeds leaves the world) and B306 (brush ledges on the old contact path).
 
 *Evidence class: read from published SDK source for the whole chain; measured on
 `models/player/medic.mdl` for the nine pieces and their fields, and for the 231-of-407 share on
-`z1800`.*
+`z1800`; observed on screen for the emission, with the same camera and tick before and after as the
+control.*

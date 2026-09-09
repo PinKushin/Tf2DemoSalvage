@@ -1018,9 +1018,18 @@ internal class MainForm : Form, IFrameSteps
         _demoSystems = new DemoSystems(
             _spectator, _moment, _moments, appearances, _sound, _playback, _loops, _loggers);
 
-        // **The gib list is a fact about a loaded MODEL**, so it comes from the model set rather
-        // than the install (B371). Set here because this is the one place that holds both.
-        _demoSystems.Gibs = _models.BreakPiecesOf;
+        // **The gib list comes from the INSTALL, not from the model set** (B371). It was wired to
+        // `_models.BreakPiecesOf` on the reasoning that a break list is a fact about a loaded model
+        // — and that is the trap `docs/memory/a-lookup-is-not-a-loader.md` names: the model set
+        // answers out of a cache filled from the props DRAWN at a tick, and a gibbed corpse draws
+        // no body, so it asked for a model that could not be there and got "no pieces" for one that
+        // declares nine. Nothing was drawn at all, which is what the picture showed.
+        //
+        // The engine reads it at precache time, from the collide data, before anything spawns:
+        // `PrecachePropsForModel` (`props_shared.cpp:1239`). So does this.
+        _demoSystems.Gibs = model => _game is { } install
+            ? DemoModels.BreakPiecesOf(model, install)
+            : [];
 
         _playback.MomentChanged += (_, moment) =>
         {

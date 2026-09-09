@@ -367,14 +367,31 @@ public sealed class CorpseProbe : IProbe
         // read" against an install that has it — an instrument answering about itself. This is also
         // the accessor production uses, so the probe and the viewer cannot disagree about which
         // schema they filtered with.
-        ItemSchema? schema =
+        //
+        // **Opened ONCE and kept**, because the gib supplier below needs the same install. This
+        // line used to open it, take `.Weapons.Items` and throw the rest away, so a second consumer
+        // would have paid to read every archive again.
+        GameContent? install =
             new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-                    .FindGameFolder() is { } install
-                ? GameContent.Open(install, NullLoggerFactory.Instance).Weapons.Items
+                    .FindGameFolder() is { } gameFolder
+                ? GameContent.Open(gameFolder, NullLoggerFactory.Instance)
                 : null;
+
+        ItemSchema? schema = install?.Weapons.Items;
 
         output.WriteLine(
             $"  item schema {(schema is null ? "NOT read — the two econ skips are inert" : "read")}");
+
+        // **A gibbed corpse draws PIECES, so the probe needs the same break lists the viewer uses.**
+        // Reading them from the INSTALL rather than from anything already drawn is the whole point:
+        // a model set only holds what has been DRAWN, and a gibbed corpse never draws its body
+        // (`docs/memory/a-lookup-is-not-a-loader.md`).
+        Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibList =
+            install is null ? null : model => DemoModels.BreakPiecesOf(model, install);
+
+        output.WriteLine(
+            "  gib lists " +
+            (gibList is null ? "NOT read — no install, so a gibbed corpse draws nothing" : "read"));
 
         // **Do TF2's player models actually HAVE the two death animations?** The whole death branch
         // resolves a LABEL through `SequenceByLabel`, and a label that does not exist resolves to -1
@@ -434,8 +451,22 @@ public sealed class CorpseProbe : IProbe
 
             drawnAt.Clear();
 
+            // **The gib supplier, because without it this probe measured a path production does not
+            // run** (B371). `Fill`'s last two parameters are optional, so omitting them compiled
+            // and reported a gibbed corpse as nothing drawn — the probe agreeing with whoever wrote
+            // the probe, which is the failure `CLAUDE.md`'s probe section names. It reads the
+            // `.phy` through the same `DemoModels.BreakPiecesOf` the viewer is wired to, so the two
+            // cannot disagree about what a model declares.
             RagdollProps.Fill(
-                timeline.Corpses, when, ClassModel, drawnAt, fade, visible: null, items: schema);
+                timeline.Corpses,
+                when,
+                ClassModel,
+                drawnAt,
+                fade,
+                visible: null,
+                items: schema,
+                gibsOf: gibList,
+                intervalPerTick: timeline.IntervalPerTick);
 
             output.WriteLine($"  tick {when}: {alive} entities alive, {drawnAt.Count} drawn");
 
