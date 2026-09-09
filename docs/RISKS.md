@@ -26176,12 +26176,34 @@ are read by NO shipped material: `$texture2` 0, `$additive2ndtexture` 0, `$rampt
 (`docs/findings/12-shader-parity.md`). `$dualsequence` is set by **one** material in the whole game,
 which is a named gap rather than an open question.
 
-**STILL OPEN, and named so a green suite does not imply otherwise:** `rockettrail` declares two
-CHILDREN — `rockettrail_burst` and `rockettrail_fire`, on `brightglow_y_nomodel` and
-`sc_brightglow_y_nomodel` — and `ParticleEffect` does not spawn them, so a rocket has smoke and no
-glow. And **no comparison against TF2 running the same demo has been made**, which is the owner's to
-judge: the trail was captured before and after and went from a rainbow square to a grey plume, but
-*"looks like smoke"* is not *"looks like TF2"*.
+**BUILT: children, which is the last of B373's open list.** `rockettrail` declares two —
+`rockettrail_burst` and `rockettrail_fire` — and a rocket had smoke and no glow without them.
+
+- **A child is a full collection sharing the parent's control point.** Read from source:
+  `SetControlPoint` and `SetControlPointOrientation` each walk `m_Children` and pass position AND
+  orientation down (`particles.h:1595`, `:1629`), so a child follows the rocket exactly as the
+  parent's own particles do.
+- **A parent is not finished while a child has particles** — *"make sure all children are finished"*
+  (`particles.h:1630`). Dropping an effect on its own count cut the fire off the moment the smoke
+  ran out.
+- **Drawing needed a batch per MATERIAL**, which is the limit `Device3D.SetParticles` had already
+  written down for itself: *"a batching question to answer when a second effect exists rather than
+  now"*. A second effect now exists, so the device takes a list of batches and uploads each
+  material's texture once for the map's lifetime.
+- **Both child materials are `$additive 1`**, so the blend work above is what makes them read as
+  glows rather than dark patches — a case where two fixes only pay off together.
+- **A cycle terminates rather than being detected**: a name is removed from the lookup once used, so
+  a `.pcf` naming itself costs one level instead of the stack. A `.pcf` is input this project does
+  not control.
+
+*Measured, after:* `rockettrail_burst` 27 particles alive on `effects/brightglow_y_nomodel`,
+`rockettrail_fire` 27 on `effects/sc_brightglow_y_nomodel`, alongside the parent's 45.
+
+**STILL OPEN, and it is the only thing left on this entry:** **no comparison against TF2 running the
+same demo has been made.** The trail was captured before and after — a rainbow square became a grey
+plume, then a diffuse one — with the rocket's absence at tick 106400 as the control that the patch
+was ours at all. But *"looks like smoke"* is not *"looks like TF2"*, and that judgement needs a
+reference capture from the owner's own install.
 
 ### B374 FIXED 2026-09-09: a 7.3 VTF says where its pixels are, and the reader computed them instead
 

@@ -3712,7 +3712,7 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        _particleQuads.Clear();
+        IReadOnlyList<ParticleBatch> batches = [];
 
         if (_loaded?.Assets?.RocketTrail is { } trail)
         {
@@ -3748,7 +3748,11 @@ internal class MainForm : Form, IFrameSteps
                 }
             }
 
-            _particles.Update(_projectilesNow, trail, _timeline?.IntervalPerTick ?? (1f / 66f));
+            _particles.Update(
+                _projectilesNow,
+                trail,
+                _timeline?.IntervalPerTick ?? (1f / 66f),
+                _loaded?.Assets?.ParticleSystemsByName);
 
             (float rx, float ry, float rz) = AngleVectors.Right(
                 viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
@@ -3756,24 +3760,21 @@ internal class MainForm : Form, IFrameSteps
             (float ux, float uy, float uz) = AngleVectors.Up(
                 viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
 
-            _particles.Build(
+            batches = _particles.Build(
                 new Vector3(rx, ry, rz),
                 new Vector3(ux, uy, uz),
-                _particleQuads,
-                _loaded?.Assets?.ParticleSequences ?? []);
+                _loaded?.Assets?.ParticleMaterials ?? NoParticleMaterials);
         }
 
-        _device.SetParticles(
-            _particleQuads,
-            _loaded?.Assets?.ParticleSheet,
-            _loaded?.Assets?.ParticleBlend ?? SpriteBlend.Translucent);
+        _device.SetParticles(batches);
     }
 
     /// <summary>The effects running for this demo.</summary>
     private readonly ParticleEffects _particles = new();
 
-    /// <summary>This frame's quads, reused so a frame costs no allocation.</summary>
-    private readonly List<DetailSpriteVertex> _particleQuads = [];
+    /// <summary>What a machine with no TF2 has: no particle materials at all.</summary>
+    private static readonly IReadOnlyDictionary<string, ParticleMaterial> NoParticleMaterials =
+        new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>This tick's projectiles, reused for the same reason.</summary>
     private readonly List<(int Entity, ParticleControlPoint At)> _projectilesNow = [];

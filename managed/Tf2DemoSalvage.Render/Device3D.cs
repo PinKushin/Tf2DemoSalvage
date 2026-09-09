@@ -1269,9 +1269,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // **After the models rather than before them, unlike the grass**, because a
                 // particle is not standing on the ground: it hangs in the air among the models and
                 // must be depth-tested against them, which needs their depth already written.
-                if (_particleSprites is not null && _worldCamera is { } particleCamera)
+                if (_worldCamera is { } particleCamera)
                 {
-                    _particleSprites.Draw(_device, _context, particleCamera.Matrix);
+                    DrawParticleBatches(particleCamera.Matrix);
                 }
             }
             else
@@ -1634,13 +1634,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     }
 
     /// <summary>Hands this frame's particle quads and their material to the device (B373).</summary>
-    /// <param name="corners">Six per particle, already camera-facing — see <c>ParticleSprites</c>.</param>
-    /// <param name="sheet">The material the particle system declares, or null to draw none.</param>
-    /// <param name="blend">
-    /// How that material blends, from its own `$additive`/`$addself`/`$addoverblend` — 304 of TF2's
-    /// 697 `SpriteCard` materials are additive, so this is not a default worth hardcoding.
+    /// <param name="batches">
+    /// One per material with quads this frame, each six corners per particle and already
+    /// camera-facing — see <c>ParticleSprites</c>. A rocket runs three systems on three materials.
     /// </param>
-    /// <exception cref="ArgumentNullException"><paramref name="corners"/> is null.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="batches"/> is null.</exception>
     /// <remarks>
     /// **A SECOND `DetailSpriteRenderer` rather than sharing the grass one**, because the two carry
     /// different materials and a shared instance would have each frame overwrite the other's sheet.
@@ -1651,42 +1649,81 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// pass take them unchanged: it wants explicit positions with a tint and an alpha, and a
     /// billboarded particle is exactly that.
     ///
-    /// **No corners or no sheet clears the pass rather than leaving the last frame's**, which is the
+    /// **An empty list clears the pass rather than leaving the last frame's**, which is the
     /// stale-pairing fault `SetDetailProps` documents for the grass: a rocket that has exploded must
     /// take its trail with it.
+    ///
+    /// **Textures are cached by their `MapTexture`, not re-uploaded per frame.** A material keeps
+    /// its texture for the map's lifetime, and re-creating three of them sixty times a second is
+    /// pure cost — the limit this method used to carry ("one material at a time") is now the number
+    /// of distinct materials on screen.
     /// </remarks>
-    public void SetParticles(
-        IReadOnlyList<DetailSpriteVertex> corners, MapTexture? sheet, SpriteBlend blend)
+    public void SetParticles(IReadOnlyList<ParticleBatch> batches)
     {
-        ArgumentNullException.ThrowIfNull(corners);
+        ArgumentNullException.ThrowIfNull(batches);
 
-        if (corners.Count == 0 || sheet is null)
+        _particleBatches.Clear();
+
+        foreach (ParticleBatch batch in batches)
         {
-            _particleSprites?.SetSheet(default);
+            if (batch.Corners.Count == 0 || batch.Material.Sheet is not { } sheet)
+            {
+                continue;
+            }
+
+            // **Uploaded once per material, not per frame**: re-creating a texture sixty times a
+            // second for an effect that keeps the same material all its life is pure cost. The key
+            // is the texture instance, which `MapAssets` resolved once at load.
+            if (!_particleSheets.TryGetValue(sheet, out ComPtr<ID3D11ShaderResourceView> view))
+            {
+                view = WorldRenderer.UploadTexture(_device, _context, sheet);
+                _particleSheets[sheet] = view;
+            }
+
+            _particleBatches.Add((view, batch.Material.Blend, batch.Corners));
+        }
+    }
+
+    /// <summary>Draws each material's particles, one pass per material.</summary>
+    /// <param name="viewProjection">The camera, row major, sixteen floats.</param>
+    /// <remarks>
+    /// **A draw per material is the minimum, not an optimisation.** An additive glow and translucent
+    /// smoke cannot share a call because the blend state differs, and a rocket runs three systems on
+    /// three materials.
+    ///
+    /// **One renderer reused across them**, because the corners are re-uploaded per batch anyway and
+    /// a renderer per material would mean a shader and a layout per material for no gain.
+    /// </remarks>
+    private void DrawParticleBatches(float[] viewProjection)
+    {
+        if (_particleBatches.Count == 0)
+        {
             return;
         }
 
         _particleSprites ??= DetailSpriteRenderer.Create(_device);
 
-        // **Uploaded once, not per frame**: re-creating a texture sixty times a second for a
-        // trail that keeps the same material all its life is pure cost.
-        //
-        // **One material at a time, and that is a stated limit rather than an oversight.** Every
-        // rocket in a demo uses `rockettrail`, so one sheet serves them; an effect with a different
-        // material would need a sheet per material and a draw per sheet, which is a batching
-        // question to answer when a second effect exists rather than now (B373).
-        if (_particleSheet.Handle is null)
+        foreach ((ComPtr<ID3D11ShaderResourceView> sheet,
+                  SpriteBlend blend,
+                  IReadOnlyList<DetailSpriteVertex> corners) in _particleBatches)
         {
-            _particleSheet = WorldRenderer.UploadTexture(_device, _context, sheet);
+            _particleSprites.SetSheet(sheet);
+            _particleSprites.SetBlend(blend);
+            _particleSprites.Upload(_device, _context, corners);
+            _particleSprites.Draw(_device, _context, viewProjection);
         }
-
-        _particleSprites.SetSheet(_particleSheet);
-        _particleSprites.SetBlend(blend);
-        _particleSprites.Upload(_device, _context, corners);
     }
 
     private DetailSpriteRenderer? _particleSprites;
-    private ComPtr<ID3D11ShaderResourceView> _particleSheet;
+
+    /// <summary>One uploaded texture per particle material, kept for the map's lifetime.</summary>
+    private readonly Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> _particleSheets = [];
+
+    /// <summary>This frame's batches, reused so a frame costs no allocation.</summary>
+    private readonly List<(
+        ComPtr<ID3D11ShaderResourceView> Sheet,
+        SpriteBlend Blend,
+        IReadOnlyList<DetailSpriteVertex> Corners)> _particleBatches = [];
 
     private DetailSpriteRenderer? _detailSprites;
     private ComPtr<ID3D11ShaderResourceView> _detailSheet;

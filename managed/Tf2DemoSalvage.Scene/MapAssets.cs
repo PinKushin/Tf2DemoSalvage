@@ -803,29 +803,25 @@ public sealed class MapAssets
     /// </remarks>
     public ParticleSystem? RocketTrail { get; private init; }
 
-    /// <summary>The material that trail draws with, or null when it did not resolve.</summary>
+    /// <summary>Every system the trail's file declares, by name, so a child can be resolved.</summary>
     /// <remarks>
-    /// **The definition names it** — `effects\rocketrailsmoke.vmt` — so this resolves what the file
-    /// asks for rather than a chosen texture, through the same `Resolve` the grass sheet uses.
+    /// **A child is referred to BY NAME**, which is why the whole file is kept rather than the one
+    /// system: `rockettrail` names `rockettrail_burst` and `rockettrail_fire`, and the reference
+    /// could point outside this file entirely.
     /// </remarks>
-    public MapTexture? ParticleSheet { get; private init; }
+    public IReadOnlyDictionary<string, ParticleSystem> ParticleSystemsByName
+    { get; private init; } = new Dictionary<string, ParticleSystem>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The animation sequences that texture declares, empty when it carries none.</summary>
+    /// <summary>Every material those systems name, by its normalised path.</summary>
     /// <remarks>
-    /// **`smokelit` holds four, each a different permutation of the same five 128×128 tiles**, which
-    /// is what stops every puff of one trail animating in lockstep. Empty is an ordinary answer: a
-    /// particle material need not be a sheet, and one that is not takes the whole image.
+    /// **One entry per MATERIAL rather than per system**, because that is what a draw call costs and
+    /// what the sheet and the blend belong to. `smokelit` holds four sequences, each a different
+    /// permutation of the same five 128×128 tiles, which is what stops every puff of one trail
+    /// animating in lockstep — and 304 of TF2's 697 `SpriteCard` materials are additive, so the
+    /// blend cannot be a constant either.
     /// </remarks>
-    public IReadOnlyList<SheetSequence> ParticleSequences { get; private init; } = [];
-
-    /// <summary>How that material blends — the material's own choice, not a fixed one.</summary>
-    /// <remarks>
-    /// **304 of TF2's 697 `SpriteCard` materials are additive**, so this is not an edge case:
-    /// drawing them all translucent makes every spark and glow in the game darker than the engine
-    /// draws it. `rocketrailsmoke` is one of the translucent ones, which is why the trail looked
-    /// right before this existed.
-    /// </remarks>
-    public SpriteBlend ParticleBlend { get; private init; } = SpriteBlend.Translucent;
+    public IReadOnlyDictionary<string, ParticleMaterial> ParticleMaterials
+    { get; private init; } = new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
     /// <remarks>
@@ -1234,9 +1230,8 @@ public sealed class MapAssets
         // **A missing install or a missing file costs the trail and nothing else** — this is every
         // CI run, where there is no TF2 to read, and a rocket must still draw its model.
         (ParticleSystem? rocketTrail,
-         MapTexture? particleSheet,
-         IReadOnlyList<SheetSequence> particleSequences,
-         SpriteBlend particleBlend) =
+         IReadOnlyDictionary<string, ParticleSystem> particleSystems,
+         IReadOnlyDictionary<string, ParticleMaterial> particleMaterials) =
             LoadRocketTrail(assets, pak, archives, maximumTextureSize);
 
         // **Entity models are loaded here, with the map's own props, and that is the point.**
@@ -1557,9 +1552,8 @@ public sealed class MapAssets
             DetailSpriteRectangles = detailRectangles,
             DetailSpriteSheet = detailSheet,
             RocketTrail = rocketTrail,
-            ParticleSheet = particleSheet,
-            ParticleSequences = particleSequences,
-            ParticleBlend = particleBlend,
+            ParticleSystemsByName = particleSystems,
+            ParticleMaterials = particleMaterials,
             DetailModelNames = detailModelNames,
             EntityModels = models,
             UnimplementedParameters = census,
@@ -1985,14 +1979,13 @@ public sealed class MapAssets
     /// </remarks>
     private static (
         ParticleSystem? System,
-        MapTexture? Sheet,
-        IReadOnlyList<SheetSequence> Sequences,
-        SpriteBlend Blend) LoadRocketTrail(
+        IReadOnlyDictionary<string, ParticleSystem> Systems,
+        IReadOnlyDictionary<string, ParticleMaterial> Materials) LoadRocketTrail(
         ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize)
     {
         if (archives.Read("particles/rockettrail.pcf") is not { Length: > 0 } file)
         {
-            return (null, null, [], SpriteBlend.Translucent);
+            return (null, EmptySystems, EmptyMaterials);
         }
 
         IReadOnlyDictionary<string, ParticleSystem> systems = ParticleSystems.Read(file);
@@ -2016,7 +2009,7 @@ public sealed class MapAssets
             assets.LogInformation(
                 "{Message}", "particles/rockettrail.pcf declares no rockettrail system");
 
-            return (null, null, [], SpriteBlend.Translucent);
+            return (null, EmptySystems, EmptyMaterials);
         }
 
         string material = trail.Parameters.TryGetValue("material", out DmxValue named2) &&
@@ -2024,23 +2017,52 @@ public sealed class MapAssets
             ? declared.Replace('\\', '/').Replace(".vmt", string.Empty, StringComparison.OrdinalIgnoreCase)
             : string.Empty;
 
-        MapTexture? sheet = material.Length > 0
-            ? Resolve(assets, material, pak, archives, maximumTextureSize).Texture
-            : null;
+        // **Every system in the file, not just the trail**, because a child is named rather than
+        // embedded: `rockettrail` pulls in `rockettrail_burst` and `rockettrail_fire`, each with its
+        // own material, and resolving them at load is what keeps playback free of file reads (D86).
+        Dictionary<string, ParticleMaterial> materials =
+            new(StringComparer.OrdinalIgnoreCase);
 
-        (IReadOnlyList<SheetSequence> sequences, SpriteBlend blend) =
-            Sequences(material, pak, archives);
+        foreach (ParticleSystem one in systems.Values)
+        {
+            string named = ParticleEffects.MaterialOf(one);
+
+            if (named.Length == 0 || materials.ContainsKey(named))
+            {
+                continue;
+            }
+
+            (IReadOnlyList<SheetSequence> frames, SpriteBlend how) =
+                Sequences(named, pak, archives);
+
+            materials[named] = new ParticleMaterial(
+                Resolve(assets, named, pak, archives, maximumTextureSize).Texture, frames, how);
+        }
+
+        ParticleMaterial own = materials.TryGetValue(material, out ParticleMaterial found)
+            ? found
+            : ParticleMaterial.None;
 
         assets.LogInformation(
             "{Message}",
             string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"rocket trail '{trail.Name}': {trail.Operators.Count} operators, " +
-                $"material '{material}' {(sheet is null ? "did NOT resolve" : "resolved")}, " +
-                $"{sequences.Count} sheet sequences, {blend} blending"));
+                $"{trail.Children.Count} children, material '{material}' " +
+                $"{(own.Sheet is null ? "did NOT resolve" : "resolved")}, " +
+                $"{own.Sequences.Count} sheet sequences, {own.Blend} blending; " +
+                $"{materials.Count} particle materials loaded"));
 
-        return (trail, sheet, sequences, blend);
+        return (trail, systems, materials);
     }
+
+    /// <summary>What a machine with no TF2 gets: no systems and no materials.</summary>
+    private static readonly IReadOnlyDictionary<string, ParticleSystem> EmptySystems =
+        new Dictionary<string, ParticleSystem>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The same for materials.</summary>
+    private static readonly IReadOnlyDictionary<string, ParticleMaterial> EmptyMaterials =
+        new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The sprite-sheet sequences a particle material's texture carries.</summary>
     /// <remarks>

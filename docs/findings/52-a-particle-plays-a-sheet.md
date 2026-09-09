@@ -264,6 +264,34 @@ initializers read the collection's own.
 single value to **−44.6° … −0.8°** — which is `rotation_initial -45` plus `0..45`, read straight back
 out of the file.
 
+## A rocket is three systems, and the draw call is per material
+
+*Read from published source.* A child particle system shares the parent's control point, and the
+engine says so twice — `SetControlPoint` and `SetControlPointOrientation` each walk `m_Children` and
+pass their values down (`particles.h:1595`, `:1629`). A parent is also not finished while a child
+still has particles: *"make sure all children are finished"* (`:1630`).
+
+```
+rockettrail        effects/rocketrailsmoke        translucent   45 particles
+  rockettrail_burst  effects/brightglow_y_nomodel     additive   27
+  rockettrail_fire   effects/sc_brightglow_y_nomodel  additive   27
+```
+
+**The simulation was the easy half.** The hard half was that three systems means three materials,
+and `Device3D.SetParticles` took exactly one sheet — a limit its own remarks had already written
+down as *"a batching question to answer when a second effect exists rather than now"*. A second
+effect existed, so it now takes a list of batches, one per material, with each material's texture
+uploaded once for the map's lifetime rather than per frame.
+
+**Two fixes that only pay off together.** Both child materials are `$additive 1`. Had children been
+added before the blend selection, they would have drawn as dark translucent patches over the rocket
+instead of glows — visibly wrong in a different way, and easy to blame on the children rather than
+on the blend.
+
+**A cycle terminates rather than being detected**: a name is removed from the lookup once used, so a
+`.pcf` naming itself costs one level of recursion instead of the stack. That file is input this
+project does not control.
+
 ## What is still not done
 
 - **`ROTATION` is decoded, stored and ignored.** The engine passes it in texcoord 2 beside the frame
@@ -273,10 +301,9 @@ out of the file.
   rest (`spritecard.cpp:255-270`).
 - **Only the first of four coordinate sets is read**, so `$additive2ndtexture` and second-sequence
   materials would draw their first sequence alone.
-- **`Position Within Sphere Random` is unimplemented**, so particles are born at a point rather than
-  spread through the 1.2-unit sphere the file gives them, with `speed_in_local_coordinate_system`
-  `(0 0 -10)`.
+- **`$dualsequence` is unimplemented**, and exactly one shipped material sets it — a named gap
+  rather than an open question.
 - **No comparison against TF2 running the same demo has been made.** The trail was captured before
-  and after and it went from a rainbow square to a grey plume, with the rocket's absence at tick
-  106400 as the control that it was ours at all — but *"looks like smoke"* is not *"looks like TF2"*,
-  and that judgement is the owner's.
+  and after: a rainbow square became a grey plume, then a diffuse one, with the rocket's absence at
+  tick 106400 as the control that it was ours at all. But *"looks like smoke"* is not *"looks like
+  TF2"*, and that judgement needs a reference capture from the owner's own install.

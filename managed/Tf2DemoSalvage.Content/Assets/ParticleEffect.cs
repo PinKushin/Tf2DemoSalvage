@@ -48,15 +48,89 @@ public sealed class ParticleEffect
     /// <summary>The fraction of a particle owed from previous steps.</summary>
     private float _owed;
 
+    /// <summary>Whether this effect and every child of it has run out of particles.</summary>
+    /// <remarks>
+    /// **A parent is not finished while a child still has particles**, which the engine states in
+    /// as many words — *"make sure all children are finished"* (`particles.h:1630`). Dropping an
+    /// effect on its own emptiness would cut a rocket's fire off the moment its smoke ran out.
+    /// </remarks>
+    public bool Empty
+    {
+        get
+        {
+            if (Particles.Count > 0)
+            {
+                return false;
+            }
+
+            foreach (ParticleEffect child in Children)
+            {
+                if (!child.Empty)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>The systems this one runs alongside itself.</summary>
+    /// <remarks>
+    /// **A child is a full collection, not a decoration.** `rockettrail` declares two —
+    /// `rockettrail_burst` and `rockettrail_fire` — each with its own emitters, operators and
+    /// MATERIAL, which is why drawing them needs a draw per material rather than one more batch.
+    /// Without them a rocket has smoke and no glow.
+    /// </remarks>
+    public IReadOnlyList<ParticleEffect> Children { get; }
+
     /// <summary>Starts an instance of one system.</summary>
     /// <param name="system">The definition.</param>
+    /// <param name="others">
+    /// Every system that could be a child, by name, or null for an instance with none. A child is
+    /// referred to BY NAME and may live in another file, so the caller resolves rather than this.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="system"/> is null.</exception>
-    public ParticleEffect(ParticleSystem system)
+    /// <remarks>
+    /// **A child that cannot be resolved is skipped rather than throwing**, because a `.pcf` names
+    /// children across files and this project reads one. Skipping loses a glow; refusing loses the
+    /// trail as well.
+    ///
+    /// **A system is never its own child**, and the guard is not paranoia: a cycle here would
+    /// recurse until the stack ran out, at load, on a file this project does not control.
+    /// </remarks>
+    public ParticleEffect(
+        ParticleSystem system, IReadOnlyDictionary<string, ParticleSystem>? others = null)
     {
         ArgumentNullException.ThrowIfNull(system);
 
         System = system;
         _operators = ParticleOperators.All();
+
+        List<ParticleEffect> children = [];
+
+        foreach (string named in system.Children)
+        {
+            if (others is not null &&
+                !string.Equals(named, system.Name, StringComparison.OrdinalIgnoreCase) &&
+                others.TryGetValue(named, out ParticleSystem? child))
+            {
+                children.Add(new ParticleEffect(child, Without(others, system.Name)));
+            }
+        }
+
+        Children = children;
+    }
+
+    /// <summary>The same lookup with one name removed, so a cycle cannot recurse for ever.</summary>
+    private static Dictionary<string, ParticleSystem> Without(
+        IReadOnlyDictionary<string, ParticleSystem> systems, string named)
+    {
+        Dictionary<string, ParticleSystem> rest = new(systems, StringComparer.OrdinalIgnoreCase);
+
+        rest.Remove(named);
+
+        return rest;
     }
 
     /// <summary>How many of this system's operators this project implements.</summary>
@@ -91,6 +165,15 @@ public sealed class ParticleEffect
     /// </remarks>
     public void Step(ParticleControlPoint at, float seconds)
     {
+        // **A child gets the parent's control point, position AND orientation.** Read from source:
+        // `SetControlPoint` and `SetControlPointOrientation` each walk `m_Children` and pass the
+        // same values down (`particles.h:1595`, `:1629`). So a rocket's fire and burst follow the
+        // rocket exactly as its smoke does, rather than being placed once where it spawned.
+        foreach (ParticleEffect child in Children)
+        {
+            child.Step(at, seconds);
+        }
+
         Particles.Tick(seconds);
 
         Emit(at, seconds);
@@ -118,6 +201,11 @@ public sealed class ParticleEffect
     /// </remarks>
     public void Fade(float seconds)
     {
+        foreach (ParticleEffect child in Children)
+        {
+            child.Fade(seconds);
+        }
+
         Particles.Tick(seconds);
 
         foreach (ParticleFunction one in System.Operators)

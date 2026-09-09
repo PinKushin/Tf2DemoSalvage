@@ -24,9 +24,7 @@ public sealed class ParticleEffectsTests
 
         effects.Count.ShouldBe(1);
 
-        List<DetailSpriteVertex> corners = [];
-
-        effects.Build(Vector3.UnitX, Vector3.UnitZ, corners, sheet: []);
+        List<DetailSpriteVertex> corners = Corners(effects);
 
         // Particles were laid at both ends of the flight, so the trail spans them.
         float leftmost = float.MaxValue;
@@ -103,14 +101,38 @@ public sealed class ParticleEffectsTests
     /// <summary>How many particles all the running effects hold.</summary>
     private static int Count(ParticleEffects effects)
     {
-        List<DetailSpriteVertex> corners = [];
-
-        effects.Build(Vector3.UnitX, Vector3.UnitZ, corners, sheet: []);
+        List<DetailSpriteVertex> corners = Corners(effects);
 
         return corners.Count / ParticleSprites.CornersPerParticle;
     }
 
     /// <summary>A system emitting steadily, with a one-second life.</summary>
+    /// <summary>Every corner the effects build this frame, across every material.</summary>
+    /// <remarks>
+    /// **The test system's material resolves to one entry with no sheet and no sequences**, which is
+    /// what a particle drawn from a non-sheet texture takes: the whole image. These tests are about
+    /// where quads ARE, not what is on them.
+    /// </remarks>
+    private static List<DetailSpriteVertex> Corners(ParticleEffects effects)
+    {
+        List<DetailSpriteVertex> corners = [];
+
+        foreach (ParticleBatch batch in effects.Build(Vector3.UnitX, Vector3.UnitZ, Materials()))
+        {
+            corners.AddRange(batch.Corners);
+        }
+
+        return corners;
+    }
+
+    /// <summary>The one material the test system names.</summary>
+    private static Dictionary<string, ParticleMaterial> Materials() =>
+        new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            [ParticleEffects.MaterialOf(Trail())] =
+                new ParticleMaterial(null, [], SpriteBlend.Translucent),
+        };
+
     /// <summary>A rocket somewhere along the x axis, facing along it.</summary>
     /// <remarks>
     /// **Oriented rather than <c>Unoriented</c>**, because these tests are about a trail FOLLOWING

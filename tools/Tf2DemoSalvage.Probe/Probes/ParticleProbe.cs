@@ -542,7 +542,9 @@ public sealed class ParticleProbe : IProbe
 
                 // **The real runtime**, emitting at the system's own rate rather than one a step:
                 // emit, operate, reap, with the emitter moving as a rocket would.
-                ParticleEffect effect = new(trail);
+                // **With the whole file, so children resolve.** Passing the trail alone is the
+                // control: it gives a rocket smoke and no glow, and the counts below say which.
+                ParticleEffect effect = new(trail, systems);
                 ParticleStore store = effect.Particles;
                 const float step = 1f / 66f;
 
@@ -588,6 +590,22 @@ public sealed class ParticleProbe : IProbe
                     $"  spread across the flight axis: {acrossMost - acrossLeast:0.###} units; " +
                     $"rotation {float.RadiansToDegrees(turnLeast):0.#} to " +
                     $"{float.RadiansToDegrees(turnMost):0.#} degrees"));
+
+                // **Each child by name, with its own material and its own particle count.** A
+                // child that resolved but never emitted looks identical to one that was never
+                // resolved, from the parent's side — so both numbers are printed.
+                foreach (ParticleEffect child in effect.Children)
+                {
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"    child '{child.System.Name}': {child.Particles.Count} alive, " +
+                        $"material '{ParticleEffects.MaterialOf(child.System)}'"));
+                }
+
+                if (effect.Children.Count == 0)
+                {
+                    output.WriteLine("    no children resolved");
+                }
 
                 List<DetailSpriteVertex> corners = [];
 
