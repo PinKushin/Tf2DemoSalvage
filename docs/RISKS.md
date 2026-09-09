@@ -22470,7 +22470,65 @@ numbers now come from the code the ragdoll work will use.
 **Still not readable, and still the open question:** the `IVPS` hulls, which are what a falling body
 contacts the world with. `"volume"` is given per solid, which is not a shape.
 
-### B329 OPEN 2026-09-04: `$vertexcolor` on 55 brush materials — probably inert, and that is not established
+### B329 OPEN 2026-09-09: `$vertexcolor` reaches FIFTEEN drawn faces, and they are overlays
+
+**2026-09-09 — the question is now bounded, and the owner reframed it before it was measured.** This
+entry asked whether the flag is inert and could not settle it, because the engine's world mesh builder
+is unpublished and `CVertexBuilder` points at a buffer nothing initialises. The owner refused that
+framing:
+
+> *"those materials are used somewhere, so they need to resolve and maybe draw if they are not triggers
+> or something, since drawing triggers can and does happen sometimes, with certain bugs"*
+
+and then, narrowing it further:
+
+> *"they may be nodraw, so it might not even be a matter of drawing them, triggers are not drawn, and
+> they are how some occlusion and doors work"*
+
+**So the question became three measurable ones — which faces carry such a material, whether those faces
+draw, and whether the material resolves — and the `vertexcolor-faces` probe answers all three.** On
+`cp_process_f12`, 12,935 surfaces and 189 materials:
+
+```
+$vertexcolor faces: 889 DRAWN, 0 on tool surfaces; 0 faces whose material could not be read
+  DRAWN    874  TOOLS/TOOLSINVISIBLEDISPLACEMENT
+  DRAWN     13  OVERLAYS/DUST_GRADIENT01
+  DRAWN      2  OVERLAYS/DUST_GRADIENT02
+control: 12,046 faces carry a material that was read and does NOT declare it
+```
+
+- **874 are `toolsinvisibledisplacement`, and they are already handled** — `MapWorld` excludes that one
+  material by name (`MapWorld.cs:1089`), as collision-only terrain the engine never draws. Note they do
+  NOT carry a not-drawn surface flag, so the flag test alone would have drawn all 874.
+- **15 are dust-gradient overlays, and they are the whole reachable case.** This entry predicted exactly
+  that symptom — *"two dust-gradient overlays on this map drawing flat"* — before anything was measured.
+- **Nothing fails to resolve.** Zero faces.
+
+**Both reachable materials carry `$vertexalpha` beside `$vertexcolor`, and that is the mechanism.**
+`overlays/dust_gradient01.vmt` is `UnlitGeneric` with `$translucent 1`, `$vertexcolor 1`,
+`$vertexalpha 1`, `$color "[ .8 .7 .6 ]"` and `$alpha .08`; `BaseVSShader.cpp:1712` adds `VERTEX_COLOR`
+to the vertex format for EITHER flag. So the vertex supplies alpha as well as colour, and for a
+translucent overlay at `$alpha .08` the alpha is what decides whether anything is seen at all. **That
+makes this an OVERLAY question rather than a world-face one** — overlays have their own vertex data, and
+`docs/memory/clip-the-surface-to-the-projection.md` is about that path.
+
+**The probe reported a 507-face gap that was its own.** Reading only the game's archives, every one of
+those 507 was a cubemap patch the compiler wrote into the MAP —
+`maps/cp_process_f12/glass/glasswindow001a_-1096_-448_1040` — which the project searches for first
+(`BspLumpIndex.PakFile`, *"the map's embedded content, searched before the game's"*). Reading the
+pakfile first took it to zero. The control is what made that visible rather than a finding: 12,046 faces
+read fine, so the reader was working and the failures all had one shape.
+
+**Still OPEN, and now for a stated reason:** what `v.vColor` holds for those fifteen overlay faces is
+unmeasured, and it is an overlay-path question. What is retired is the framing — this is not 55
+materials of unknown consequence, it is fifteen faces on one map with a known shader and a known alpha.
+
+*Evidence class: measured for every count and both materials; read-from-source for the vertex-format
+rule and Valve's two-branch shader. What the vertex stream CONTAINS is still unestablished.*
+
+#### The original entry
+
+
 
 **Re-opened from a 2026-08 note that called it "wholly unimplemented"**, which is true of the flag
 and may be true of nothing else. What is established now, against what is not, because the gap
