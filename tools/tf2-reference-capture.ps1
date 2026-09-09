@@ -75,7 +75,18 @@ param(
 
     # How many ticks BEFORE the target to stop at, so playback runs through it slowly rather than
     # freezing on it. A rocket lives about 57 ticks, so 40 puts the capture inside its flight.
-    [int] $Lead = 40
+    [int] $Lead = 40,
+
+    # How fast playback runs through the target. A twentieth turns 40 ticks into about twelve
+    # seconds of real time, which is a window to poll rather than an instant to hit.
+    [double] $Timescale = 0.05,
+
+    # Stop on the tick and WAIT, instead of trying to take the picture. Everything this tool does
+    # automatically works except the shutter; with this switch a person presses F5 and gets the
+    # frame in seconds, which is worth more than a tool that is nearly finished.
+    [switch] $HoldForManualShot,
+
+    [int] $HoldSeconds = 300
 )
 
 $ErrorActionPreference = 'Stop'
@@ -186,6 +197,120 @@ public static extern bool ShowWindow(System.IntPtr handle, int how);
     Write-Host '  brought the game to the front'
 }
 
+# Copies the game window's pixels straight off the screen.
+#
+# **This is the shutter, and it deliberately does not go through the engine.** `jpeg` and
+# `screenshot` are accepted without error while a demo is loaded and write nothing anywhere - not
+# to `tf/screenshots`, not as `.tga`, not into Steam's own store, all of which were checked. The
+# window is showing the frame regardless, so it is read from there.
+function Save-Window {
+    param([string] $Path)
+
+    Add-Type -AssemblyName System.Drawing
+
+    if (-not ('Tf2Ref.Rect' -as [type])) {
+        Add-Type -Namespace Tf2Ref -Name Rect -MemberDefinition @'
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+public struct Box { public int Left, Top, Right, Bottom; }
+
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool GetWindowRect(System.IntPtr handle, out Box box);
+
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern System.IntPtr GetForegroundWindow();
+
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool PrintWindow(System.IntPtr handle, System.IntPtr dc, uint flags);
+'@
+    }
+
+    $process.Refresh()
+    $handle = $process.MainWindowHandle
+
+    if ($handle -eq [System.IntPtr]::Zero) {
+        Write-Warning 'The game has no window to read.'
+        return $false
+    }
+
+    # **Refuse rather than capture whatever is on top.** A screenshot of the wrong window is a wrong
+    # answer that looks like a right one, which is the failure this whole exercise keeps meeting.
+    if ([Tf2Ref.Rect]::GetForegroundWindow() -ne $handle) {
+        Write-Warning 'The game is not the foreground window; the capture would be of something else.'
+        return $false
+    }
+
+    $box = New-Object Tf2Ref.Rect+Box
+    [Tf2Ref.Rect]::GetWindowRect($handle, [ref] $box) | Out-Null
+
+    $wide = $box.Right - $box.Left
+    $tall = $box.Bottom - $box.Top
+
+    if ($wide -le 0 -or $tall -le 0) {
+        Write-Warning "The game window has no size ($wide x $tall)."
+        return $false
+    }
+
+    $bitmap = New-Object System.Drawing.Bitmap $wide, $tall
+    $canvas = [System.Drawing.Graphics]::FromImage($bitmap)
+
+    # **`PrintWindow` with `PW_RENDERFULLCONTENT`, not `CopyFromScreen`.** BitBlt off the screen DC
+    # returns black for a hardware-composited Direct3D swapchain, which is what forty consecutive
+    # black captures were - taken while the demo was demonstrably PLAYING, so it was never about the
+    # pause. `PW_RENDERFULLCONTENT` (2) asks the compositor for the window's real contents and is
+    # the documented way to capture a D3D window.
+    $dc = $canvas.GetHdc()
+    $printed = [Tf2Ref.Rect]::PrintWindow($handle, $dc, 2)
+    $canvas.ReleaseHdc($dc)
+
+    if (-not $printed) {
+        # The older route, kept as a fallback rather than removed: it works for an ordinary window
+        # and costs nothing to try when the modern one refuses.
+        $canvas.CopyFromScreen($box.Left, $box.Top, 0, 0, $bitmap.Size)
+    }
+
+    $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+
+    $canvas.Dispose()
+    $bitmap.Dispose()
+
+    Write-Host "  captured the window, $wide x $tall (PrintWindow: $printed)"
+
+    return $true
+}
+
+# Whether a capture has anything in it at all.
+#
+# **A black frame is the failure this tool keeps producing**, so it is detected rather than handed
+# back as a reference. Sampling a grid is enough: a rendered TF2 frame is never uniformly black,
+# and a non-presenting swapchain is exactly that.
+function Test-Brightness {
+    param([string] $Path)
+
+    Add-Type -AssemblyName System.Drawing
+
+    $bitmap = [System.Drawing.Bitmap]::FromFile($Path)
+
+    try {
+        $total = 0
+        $counted = 0
+
+        for ($y = 4; $y -lt $bitmap.Height; $y += 32) {
+            for ($x = 4; $x -lt $bitmap.Width; $x += 32) {
+                $pixel = $bitmap.GetPixel($x, $y)
+                $total += $pixel.R + $pixel.G + $pixel.B
+                $counted++
+            }
+        }
+
+        $mean = if ($counted -gt 0) { $total / (3 * $counted) } else { 0 }
+
+        return $mean -gt 6
+    }
+    finally {
+        $bitmap.Dispose()
+    }
+}
+
 # Sends one console command to the instance already running.
 function Send-Command {
     param([string] $Command)
@@ -237,11 +362,25 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
     # back: nothing appeared in the log after it and no image was ever written. So the pause is used
     # only as the ARRIVAL SIGNAL, and playback then continues at a tenth speed, which gives seconds
     # of real time around the target instead of a frozen instant.
-    $stopAt = [Math]::Max(0, $Tick - $Lead)
+    # **Never pause, at any point.** A paused engine stops presenting, and then NOTHING can read the
+    # frame — `jpeg` writes no file, and reading the window off the screen gives 1280x720 of pure
+    # black. Pausing was how the seek was made exact; it is also why every capture failed.
+    #
+    # So playback is slowed instead. `demo_timescale` is set BEFORE the seek, and the seek lands
+    # short of the target, so the engine arrives already rendering and crawls through the tick over
+    # seconds of real time. That gives a window wide enough to poll rather than an instant to hit.
+    # **Force windowed at RUNTIME, because the launch option loses to the saved config.** TF2 stores
+    # the video mode in `config.cfg` and restores it, so `-windowed` can be overridden by whatever
+    # the owner last played at. Exclusive fullscreen is not redirected by the compositor, which is
+    # why `PrintWindow` returned success and a black bitmap — this project already knows that
+    # hazard from its own UI suite (`docs/memory/the-viewer-suite-wants-the-gpu.md`).
+    Send-Command "mat_setvideomode $Width $Height 1"
 
-    Send-Command "demo_pauseatservertick $stopAt"
+    Start-Sleep -Seconds 5
 
-    $from = [Math]::Max(0, $Tick - 900)
+    Send-Command "demo_timescale $Timescale"
+
+    $from = [Math]::Max(0, $Tick - $Lead)
 
     Send-Command "demo_gototick $from"
 
@@ -252,10 +391,24 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
     # message then turned up as the LAST line of the log, after the screenshot had already been
     # asked for. Synchronise on the condition, never on the clock
     # (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`).
-    if (-not (Wait-ForLog -Pattern "Demo paused at server tick $stopAt" -Until $deadline `
-            -What "arrived at tick $stopAt, $Lead before the target")) {
-        throw "The demo never reached tick $stopAt. Check it is inside the demo's own length."
+    # **Without a pause there is no arrival line, so the seek is waited out by the log going quiet.**
+    # That heuristic was wrong when it had 20 seconds of patience and something to race; here there
+    # is nothing after it to lose, and the capture loop below polls for a real frame anyway - so a
+    # premature exit costs a few black captures rather than the run.
+    $quiet = 0
+    $last = -1
+
+    while ((Get-Date) -lt $deadline -and $quiet -lt 6 -and -not $process.HasExited) {
+        Start-Sleep -Seconds 5
+
+        $size = (Get-Item $log -ErrorAction SilentlyContinue).Length
+
+        if ($size -eq $last) { $quiet++ } else { $quiet = 0 }
+
+        $last = $size
     }
+
+    Write-Host '  seek has settled; playing through the tick slowly'
 
     # **Paused is exact but does not render, so it cannot screenshot.** `demo_pauseatservertick`
     # lands the engine on the requested tick — the log says `Demo paused at server tick 106270` —
@@ -276,45 +429,65 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
         throw 'The hijack no longer reaches the running game after the seek. The commands before it did land - the demo paused on the requested tick - so this is about WHEN, not about the mechanism.'
     }
 
-    # **Disarm the pause before resuming, or it fires again immediately.**
-    # `demo_pauseatservertick` stays set, so a resumed demo advances one tick, meets the same
-    # condition and pauses again — the engine never renders a frame, and `jpeg` has nothing to
-    # capture however many times it is asked. This is the guard-that-is-the-mechanism shape:
-    # the thing that made the seek exact is the thing preventing the picture
-    # (`docs/memory/a-guard-you-remove-may-be-the-mechanism.md`).
-    Send-Command 'demo_pauseatservertick 0'
-    Send-Command 'demo_timescale 0.1'
-    Send-Command 'demo_resume'
-    Send-Command 'demo_togglepause'
-
-    # **A screenshot needs a rendered frame, and an unfocused TF2 renders none.** Every command was
-    # accepted silently — no unknown-command error anywhere in the log, and the `echo` control came
-    # back — while `jpeg` still wrote nothing. The engine sleeps instead of drawing when its window
-    # is not in front, so there was no back buffer to capture. `engine_no_focus_sleep 0` in the
-    # config is half of the answer and this is the other half.
+    # The engine only draws when its window is in front, and only a drawn frame can be read.
     Show-Window
 
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 2
 
-    # **Several shots as it passes, not one.** At a tenth speed the target tick is seconds of real
-    # time away rather than an instant, and asking repeatedly costs nothing while a single ask
-    # depends on the round trip landing inside a window this script cannot see.
-    for ($shot = 0; $shot -lt 12 -and -not $found; $shot++) {
-        Send-Command "jpeg $shotName$shot"
+    if ($HoldForManualShot) {
+        Send-Command 'demo_timescale 0'
+        Send-Command "demo_pauseatservertick $Tick"
 
-        Start-Sleep -Seconds 2
+        Write-Host ''
+        Write-Host "TF2 is at tick $Tick. Press F5 in the game window to take the screenshot."
+        Write-Host "It lands in $shots (and in Steam's own store)."
+        Write-Host "Holding for $HoldSeconds seconds, then closing the game."
+        Write-Host ''
 
-        if (Test-Path $shots) {
-            $new = Get-ChildItem $shots -Filter '*.jpg' |
-                Where-Object { $before -notcontains $_.Name }
+        $until = (Get-Date).AddSeconds($HoldSeconds)
+
+        while ((Get-Date) -lt $until -and -not $process.HasExited) {
+            Start-Sleep -Seconds 5
+
+            $new = @()
+
+            if (Test-Path $shots) {
+                $new = Get-ChildItem $shots -Filter '*.*' |
+                    Where-Object { $before -notcontains $_.Name }
+            }
 
             if ($new) {
                 $found = $new | Sort-Object LastWriteTime | Select-Object -Last 1
+                Copy-Item $found.FullName $Out -Force
+                Write-Host "  got it: $($found.Name)"
+                break
             }
         }
     }
+    else {
 
-    Send-Command 'echo TF2REF_ASKED_FOR_THE_SCREENSHOT'
+    # **Poll for a frame with something in it.** A black capture means the engine did not present,
+    # which is a real answer rather than something to retry blindly - so they are counted and
+    # reported rather than silently swallowed.
+    $black = 0
+
+    for ($attempt = 0; $attempt -lt 40 -and -not $found; $attempt++) {
+        if (Save-Window -Path $Out) {
+            if (Test-Brightness -Path $Out) {
+                $found = Get-Item $Out
+                break
+            }
+
+            $black++
+        }
+
+        Start-Sleep -Milliseconds 700
+    }
+
+        if (-not $found) {
+            Write-Warning "$black captures were black - the engine never presented a frame. Try -HoldForManualShot."
+        }
+    }
 }
 
 # **Killed rather than left**, because a tool that takes the desktop must give it back even when it
@@ -326,9 +499,7 @@ if (-not $process.HasExited) {
 }
 
 if ($found) {
-    Copy-Item $found.FullName $Out -Force
-    Write-Host "wrote $Out from $($found.Name)"
-    Remove-Item $found.FullName -Force
+    Write-Host "wrote $Out"
 }
 
 # Clean up what was put in the game's folder, whether or not it worked.

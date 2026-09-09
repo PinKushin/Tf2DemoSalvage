@@ -9952,15 +9952,34 @@ Every command was accepted silently: no `Unknown command` for `demo_resume`, `de
 `jpeg` or `screenshot` anywhere in the log. An `echo` control sent at the same moment DID appear, so
 the commands were landing.
 
-**The one case that worked was the main menu**, which is the clue worth starting from: a screenshot
-taken with no level loaded lands in `tf/screenshots` normally. Whatever suppresses it in a demo is
-the whole remaining question — the candidates not yet eliminated are that `demo_resume` does not
-actually unpause (nothing was logged either way, and no frame appears to have advanced), and that
-the engine will not render at all while its window is not genuinely foreground, which
-`SetForegroundWindow` from a background process does not reliably achieve.
+**The one case that worked was the main menu**: a screenshot with no level loaded lands in
+`tf/screenshots` normally.
 
-**So the golden comparison is still NOT DONE**, and B373's last item stays open. This entry moved
-from "filed" to "one step short", which is progress worth having but is not the measurement.
+**Reading the frame OUT of the window instead of asking the engine for it does not work either**,
+and eliminating that took four more runs:
+
+- `Graphics.CopyFromScreen` over the window rect returns 1280×720 of pure black. The window is
+  confirmed foreground first — the capture refuses otherwise, because a screenshot of the wrong
+  window is a wrong answer that looks like a right one.
+- `PrintWindow` with `PW_RENDERFULLCONTENT` **returns success** and a black bitmap, which is the
+  signature of a swapchain the compositor cannot redirect.
+- Forcing `mat_setvideomode <w> <h> 1` at runtime — because TF2 restores the video mode from
+  `config.cfg` and can override `-windowed` — changed nothing.
+- **And it is not the pause.** Forty consecutive black captures were taken while the demo was
+  demonstrably PLAYING, with the log streaming capture events throughout. Every theory that blamed
+  the paused engine was wrong.
+
+**So eleven runs say: this engine will not hand over a frame to this machine's capture paths.** What
+has NOT been tried is a real keystroke into the focused window (F5 is bound to `screenshot`), which
+is the one route a person uses and the one an unattended script cannot take.
+
+**Hence `-HoldForManualShot`.** The tool does everything automatically except the shutter, so the
+switch stops on the tick with playback frozen, prints where the file will land, and waits for a
+person to press F5 — collecting the result and cleaning up as usual. Ten seconds of the owner's
+time, against an instrument that is otherwise finished.
+
+**The golden comparison is still NOT DONE**, and B373's last item stays open. This entry moved from
+"filed" to "one keypress short".
 
 ### B160, measured at last: two defects stacked (2026-08-23)
 
