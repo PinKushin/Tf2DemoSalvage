@@ -26107,6 +26107,106 @@ server-side in `Spawn` and reaches the client as an ordinary `m_nModelIndex`
 *Evidence class: measured, with controls on both the mention count and the census; read-from-source
 for the network table and the model names.*
 
+**BUILT 2026-09-09: the sheet, the frame clock, the crossfade and the draws — the whole of
+`render_animated_sprites` except rotation and blend mode.** The full account, with its controls and
+its wrong turns, is `docs/findings/52-a-particle-plays-a-sheet.md`; what changed here:
+
+- **`VtfSheet` reads the sprite sheet out of VTF resource `0x10`.** `CSheet` is forward-declared at
+  `particles.h:41` and defined nowhere, so the payload was measured with tiling as the control —
+  `smokelit.vtf`'s four sequences are four permutations of the same five 128×128 tiles, and the
+  `.pcf`'s own `sequence_max = 3` agrees from a different file through a different reader.
+- **The frame is `age × 3`, wrapping**, from `rockettrail`'s own `use animation rate as FPS = 1`,
+  `animation rate = 3`, `animation_fit_lifetime = 0`. A life fraction had already been written into
+  a comment before the file was asked; it would have played five frames once, slowly.
+- **The crossfade is not optional.** `BLENDFRAMES` defaults to `1` (`spritecard.cpp:143`) and
+  `rocketrailsmoke.vmt` does not set it, so `DetailSpriteVertex` gained a second coordinate set and a
+  blend, and the pass lerps. Detail sprites pass the same coordinates twice with a blend of zero,
+  which is an identity — one sprite pipeline, not two.
+- **`Sequence Random` and `Lifetime Random` are drawn Valve's way** — a table indexed by
+  `(seed + offset + particleId)`, `particles.h:1782`. **This corrected a divergence bought for
+  nothing:** the code took the MIDPOINT of `lifetime_min` and `lifetime_max` to keep a replay
+  reproducible under D136, justified by a comment saying the bounds were equal. `rockettrail`
+  declares 0.8 and 1.2, so every particle in a trail lived exactly one second and the plume died all
+  at once — and the engine's own draw is deterministic anyway, so the trade never existed.
+
+**BUILT the same day: three initializers the file declares and nothing ran.** Chasing why the trail
+drew as coloured noise went through the particle code first, and found these on the way — each one
+present in `rockettrail.pcf`, each one with no reader:
+
+- **`Color Random`** — a rocket trail is firelight on smoke, `color1 = (247 194 117)` to
+  `color2 = (251 142 0)`. Every particle was drawn at full white, so `Color Fade` was lerping from
+  white toward `(195 190 202)` instead of from orange.
+- **`Alpha Random`** — `alpha_min 96`, `alpha_max 128`, **of 255**. Particles spawned at 1.0, more
+  than twice as opaque as declared.
+- **`Alpha Fade and Decay` REPLACED alpha instead of scaling the spawn value.** The same rule
+  `RadiusAtBirth` already records for radius, and `GetReadInitialAttributes` (`particles.h:602`)
+  states in general. **The file is what settles it:** `rockettrail` declares `Alpha Random` *and*
+  `start_alpha 1`, so on the absolute reading the operator wipes the initializer on the first frame
+  and a parameter TF2 ships on this effect and every other could never do anything.
+
+None of the three was the rainbow — that was B374 — but all three were real, and the first two were
+only visible at all once the texture underneath them was right.
+
+**Captured and looked at**, which is the only check that could have found any of this:
+`cp_process_f12` tick 106270, camera `-3950 -1660 880 5 180`, rocket entity 398. Before: a saturated
+rainbow square behind the rocket. After: a soft grey plume. The control that proved it was ours was
+tick 106400, where the rocket is gone and so is the patch.
+
+**STILL OPEN, and named so a green suite does not imply otherwise:** `ROTATION` is decoded, stored
+and ignored, where `rockettrail` tilts every puff by 0..45 degrees off `-45`; the blend MODE is the
+detail pass's rather than the one `SpriteCard` picks; only the first of a frame's four coordinate
+sets is read; `Position Within Sphere Random` is unimplemented, so particles are born at a point
+rather than in the 1.2-unit sphere with the `-10` local-Z speed the file gives them; and no
+comparison against TF2 running the same demo has been made, which is the owner's to judge.
+
+### B374 FIXED 2026-09-09: a 7.3 VTF says where its pixels are, and the reader computed them instead
+
+**288 of TF2's 34,246 textures decoded to noise, and every one of them is an effect.** `VtfTexture`
+located the image data at `headerSize + thumbnail` — the 7.2 layout, where the pixels are the next
+thing after the header. From **version 7.3 the header is followed by a resource table**, the images
+are two entries in it (`VTF_LEGACY_RSRC_LOW_RES_IMAGE` = `0x01`, `VTF_LEGACY_RSRC_IMAGE` = `0x30`,
+`src/public/vtf/vtf.h`), and **anything else the file carries sits between them**.
+
+**Measured** — `dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- vtf census`:
+
+```
+34246 textures, 28233 at 7.3 or later,
+288 whose pixels are NOT where header+thumbnail lands
+  EFFECTS/WORKSHOP/CIRCUITBREAK/WELDING_SMOKE.VTF: computed 176, table says 27708 (+27532 out)
+  EFFECTS/WORKSHOP/TEAM_RECOGNITION/REDTEAM.VTF:   computed 240, table says  6388  (+6148 out)
+  EFFECTS/SMOKE/SMOKELIT.VTF:                      computed 184, table says  1620  (+1436 out)
+```
+
+**Why it survived: it produced a picture rather than an error, and nearly the right one.** VTF stores
+mips **smallest first**, so the largest mip sits at the end of the file and a 1,436-byte shift moves
+it by a fraction of its own size. `smokelit`'s five smoke puffs kept their silhouettes — recognisably
+smoke, in the right places, at the right sizes — and filled with saturated rainbow speckle, because
+the bytes being decoded as colour were the sheet resource's UV floats.
+
+**The wrong turn, kept because it cost the most time.** Rainbow output from a DXT5 file reads as a
+DXT5 fault, so the DXT decoder was audited first (it is correct), then `BlockFormat` and `BlockPitch`
+(also correct), then the GPU upload path, then the material's shader combos. The tell that was missed
+for a long time: **DXT1 textures decoded correctly and DXT5 ones did not** — which was never about
+DXT at all. Sheet-carrying textures happen to be DXT5 because they are effects, and effects have
+alpha. A correlation in the sample was read as a mechanism.
+
+**How it was finally caught: by looking, at coarse resolution.** `vtf <path>` now prints the texture
+as a character grid, and `smokelit` went from a field of scattered R/G/B letters to five clean grey
+puffs with smooth falloff. The statistic came with it — mean channel spread over visible pixels
+**112.5 → 10.8**, largest **255 → 25**. A mean alone had said "78 68 68", near-grey, which is what a
+rainbow averages to; the SPREAD is the number that tells them apart
+(`docs/memory/print-a-value-somebody-can-recognise.md`).
+
+**Fixed** in `VtfTexture.Images`, which reads the table and falls back to the computed offset only
+for a file with no table to ask. `VtfResourceOffsetConformanceTests` builds a 7.3 file with a green
+block exactly where the arithmetic lands and a red one where the table points, so the wrong answer is
+a different colour rather than an exception — plus the no-padding control, which passes either way
+and is what makes the first test evidence about the offset rather than about the fixture being
+readable.
+
+*Evidence class: read-from-source for the container and the two resource ids; measured for the count,
+the offsets and the before/after spread.*
+
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 
 **The owner: *"i should see ragdolls and gibs"*.** Ragdolls draw. Gibs do not exist at all — no

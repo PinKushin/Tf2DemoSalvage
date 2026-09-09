@@ -28,6 +28,14 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// </remarks>
 public sealed class ParticleEffect
 {
+    /// <summary>How long a particle lives when its system declares no <c>Lifetime Random</c>.</summary>
+    /// <remarks>
+    /// **A fallback and not the answer.** `ParticleSystems.Spawn` runs the initializer where one
+    /// exists and overwrites this; a system with none has nothing else to say, and one second is the
+    /// same number the code that read the initializer here used to return.
+    /// </remarks>
+    private const float DefaultLifetime = 1f;
+
     /// <summary>The definition this is an instance of.</summary>
     public ParticleSystem System { get; }
 
@@ -149,7 +157,7 @@ public sealed class ParticleEffect
             {
                 _owed -= 1f;
 
-                if (ParticleSystems.Spawn(System, Particles, at, Lifetime()) < 0)
+                if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime) < 0)
                 {
                     // At `max_particles`. Dropping the owed fraction too, because a system at its
                     // cap has not banked a debt — it simply did not emit.
@@ -160,33 +168,4 @@ public sealed class ParticleEffect
         }
     }
 
-    /// <summary>How long a new particle lives, from the system's own initializer.</summary>
-    /// <remarks>
-    /// **`Lifetime Random` is an INITIALIZER rather than an operator**, so it runs once at birth and
-    /// is read here rather than every step. `rockettrail` declares `lifetime_min` and
-    /// `lifetime_max` both 0.2, which with `emission_rate 128` is the ~26 particles a steady trail
-    /// carries.
-    ///
-    /// *Interpolated:* that the two bound a uniform draw. They are equal on this effect, so the
-    /// distribution does not matter here and the midpoint is used rather than a random number —
-    /// which also keeps a replay of the same demo identical, as
-    /// `docs/DECISIONS.md` D136 asks of anything that would otherwise need a seed.
-    /// </remarks>
-    private float Lifetime()
-    {
-        foreach (ParticleFunction one in System.Initializers)
-        {
-            if (!string.Equals(one.Function, "Lifetime Random", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            float least = (float)one.Number("lifetime_min", 1d);
-            float most = (float)one.Number("lifetime_max", least);
-
-            return (least + most) / 2f;
-        }
-
-        return 1f;
-    }
 }

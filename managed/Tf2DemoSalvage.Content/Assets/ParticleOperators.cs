@@ -322,20 +322,28 @@ public sealed class AlphaFadeAndDecay : IParticleOperator
         {
             float through = particles.Through(index);
 
+            // **The particle's OWN spawn alpha is what these scale**, which is the same rule
+            // `RadiusAtBirth` records for radius and `GetReadInitialAttributes` (`particles.h:602`)
+            // states in general. The file settles it for this operator: `rockettrail` declares
+            // `Alpha Random` 96..128 of 255 AND `start_alpha 1`, so reading `start_alpha` as an
+            // absolute means the operator overwrites the initializer on the first frame and
+            // `Alpha Random` can never do anything — on this effect or any other that pairs them.
+            float born = particles.AlphaAtBirth[index];
+
             if (through < inTo)
             {
                 // Rising into the particle's own alpha.
-                particles.Alpha[index] = startAlpha * Ramp(through, inFrom, inTo);
+                particles.Alpha[index] = born * startAlpha * Ramp(through, inFrom, inTo);
             }
             else if (through <= outFrom)
             {
                 // Held between the two windows.
-                particles.Alpha[index] = startAlpha;
+                particles.Alpha[index] = born * startAlpha;
             }
             else
             {
-                particles.Alpha[index] =
-                    startAlpha + ((endAlpha - startAlpha) * Ramp(through, outFrom, outTo));
+                particles.Alpha[index] = born *
+                    (startAlpha + ((endAlpha - startAlpha) * Ramp(through, outFrom, outTo)));
             }
         }
 

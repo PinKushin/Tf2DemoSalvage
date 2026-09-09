@@ -8005,3 +8005,38 @@ apart across `CLAUDE.md`, `docs/findings/README.md` and `docs/verification/READM
 **So the standing rule, stated at the top of the file itself:** when you find a restatement in
 `CLAUDE.md`, move it to the document that owns it and leave a pointer. A snapshot labelled "this will
 go stale" is still a stale number that somebody reads.
+
+## D152 — determinism is not a reason to flatten a random draw; the engine's own draw is already deterministic (2026-09-09)
+
+**A correction to how D136 was applied here, not to D136.** D136 already says the adaptation forced
+on this project is that a draw *"must be seeded per corpse so scrubbing backwards shows the same one
+twice"* — a seed, not the removal of the draw. What happened in the particle code was the removal:
+`Lifetime Random` was read as the MIDPOINT of `lifetime_min` and `lifetime_max`, with a comment
+citing D136 for it.
+
+**Both positions, because this is a reversal.** The midpoint was defended on two grounds, and both
+were wrong:
+
+1. *"The two bounds are equal on this effect, so the distribution does not matter here."* They are
+   not. `rockettrail` declares `lifetime_min 0.8` and `lifetime_max 1.2`. The claim was written
+   without asking the file — a comment about shipped data that the shipped data contradicts, which is
+   `docs/memory/a-valve-comment-can-be-stale.md` turned on our own writing.
+2. *"A random number would break replay determinism."* It would not. `CParticleCollection::RandomInt`
+   is `s_pRandomFloats[ ( m_nRandomSeed + nRandomSampleId ) & RANDOM_FLOAT_MASK ]`
+   (`particles.h:1782`), and the sample id is the PARTICLE's own id (`:1801`). The engine's draw is a
+   pure function of the particle. Reproducibility was never the price of the draw — it is a property
+   of the draw.
+
+**What was visible while it was wrong:** every particle in a rocket trail lived exactly one second,
+so a plume thinned evenly and then vanished all at once instead of trailing off.
+
+**The rule this sets.** Before flattening a distribution for determinism, read how the engine gets
+its randomness. Source's particle system, its shared prediction and its client effects all draw from
+seeded streams for exactly the reason this project wants determinism — so the two goals usually
+coincide, and a conflict between them is evidence the engine has not been read yet (D89, D148).
+Where they genuinely do conflict, the seed is the adaptation; the draw is not negotiable.
+
+**What is NOT established, flagged rather than buried:** the CONTENTS of `s_pRandomFloats` ship only
+in `particles.lib`, so this project's table is its own — uniform and stable, which is every property
+the arithmetic needs, but not float-for-float Valve's. Full statement and how to falsify it:
+`docs/findings/52-a-particle-plays-a-sheet.md`.

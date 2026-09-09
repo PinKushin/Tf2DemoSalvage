@@ -21,6 +21,8 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// DEFPARTICLE_ATTRIBUTE( TINT_RGB, 6 );
 /// DEFPARTICLE_ATTRIBUTE( ALPHA, 7 );
 /// DEFPARTICLE_ATTRIBUTE( CREATION_TIME, 8 );  // relative to particle system creation
+/// DEFPARTICLE_ATTRIBUTE( SEQUENCE_NUMBER, 9 );// which animation sequence this particle uses
+/// DEFPARTICLE_ATTRIBUTE( PARTICLE_ID, 11 );   // unique particle identifier
 /// </code>
 ///
 /// **`PREV_XYZ` existing at all is what fixes the integrator**: the header says it is there "for
@@ -33,8 +35,10 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// across every particle, for the same reason.
 ///
 /// **The streams are internal rather than public**, so an operator in this assembly writes them
-/// directly and nothing outside can resize one out from under the others — eight parallel arrays
-/// have one invariant and it is that they are the same length.
+/// directly and nothing outside can resize one out from under the others — parallel arrays have one
+/// invariant and it is that they are the same length, so <see cref="Grow"/>, <see cref="Add"/> and
+/// <see cref="Reap"/> must each touch every one. A stream added to two of the three is the failure
+/// this shape invites, and it shows up as one particle wearing another's attribute.
 /// </remarks>
 public sealed class ParticleStore
 {
@@ -77,11 +81,50 @@ public sealed class ParticleStore
     /// <summary>Each particle's alpha, 0..1 — <c>ALPHA</c>.</summary>
     internal float[] Alpha = new float[Initial];
 
+    /// <summary>Each particle's alpha at spawn, for the same reason as <see cref="RadiusAtBirth"/>.</summary>
+    /// <remarks>
+    /// **`Alpha Fade and Decay` SCALES this rather than replacing it**, and the file is what settles
+    /// that: `rockettrail` declares `Alpha Random` with `alpha_min 96` and `alpha_max 128` (of 255)
+    /// and the operator declares `start_alpha 1`. Read as an absolute, the operator overwrites the
+    /// initializer on the first frame and `Alpha Random` could never do anything at all — a
+    /// parameter TF2 ships on this effect and every other. Read as a scale, both mean something and
+    /// a trail peaks near 0.44 rather than at 1.0.
+    ///
+    /// **What it looked like while this was missing:** the trail drew at full opacity, so
+    /// `smokelit`'s own saturated texture came through at full strength as coloured noise instead of
+    /// a faint wash. Alpha was the reason, not the sheet (B373).
+    /// </remarks>
+    internal float[] AlphaAtBirth = new float[Initial];
+
     /// <summary>Each particle's rotation, in radians — <c>ROTATION</c>.</summary>
     internal float[] Rotation = new float[Initial];
 
+    /// <summary>Which sheet sequence each particle plays — <c>SEQUENCE_NUMBER</c>.</summary>
+    /// <remarks>
+    /// **Per particle and not per system**, which is the whole reason the attribute exists
+    /// (`particles.h:90`). `rockettrail` carries a `Sequence Random` initializer with
+    /// `sequence_min = 0` and `sequence_max = 3`, and `smokelit`'s sheet declares four sequences
+    /// that are DIFFERENT PERMUTATIONS of the same five tiles — so neighbouring puffs of one trail
+    /// animate out of step. Holding this on the system instead would put every particle on the same
+    /// frame and make a trail pulse in unison.
+    /// </remarks>
+    internal int[] Sequence = new int[Initial];
+
+    /// <summary>Each particle's own id — <c>PARTICLE_ID</c>.</summary>
+    /// <remarks>
+    /// **Not the index, because the index is reused.** <see cref="Reap"/> swaps the last particle
+    /// into a dead one's slot, so an index identifies a SLOT and not a particle. Every draw an
+    /// initializer makes is keyed on this id (<see cref="ParticleRandom"/>), so keying them on the
+    /// index would hand a new particle the dead one's lifetime and sequence — and the trail would
+    /// visibly repeat itself as it churned.
+    /// </remarks>
+    internal int[] Id = new int[Initial];
+
     /// <summary>How many particles the streams start with.</summary>
     private const int Initial = 64;
+
+    /// <summary>What the next particle's id will be, which never goes backwards.</summary>
+    private int _next;
 
     /// <summary>How many particles are alive.</summary>
     public int Count { get; private set; }
@@ -139,6 +182,16 @@ public sealed class ParticleStore
     /// </remarks>
     public void Fade(int index, float alpha) => Alpha[index] = alpha;
 
+    /// <summary>Puts one particle on a sheet sequence.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <param name="sequence">Which sequence it plays.</param>
+    /// <remarks>
+    /// **A writer for the same reason <see cref="Fade"/> is one** — the streams are internal, so a
+    /// caller outside this assembly cannot set an attribute without one. `Sequence Random` writes it
+    /// through <c>ParticleSystems.Spawn</c>, which is in here and touches the array directly.
+    /// </remarks>
+    public void PlaySequence(int index, int sequence) => Sequence[index] = sequence;
+
     /// <summary>Adds one particle, with defaults an initializer then overwrites.</summary>
     /// <param name="at">Where it is born.</param>
     /// <param name="lives">How long it lives, in seconds.</param>
@@ -164,10 +217,34 @@ public sealed class ParticleStore
         Tint[Count] = new Vector3(255f, 255f, 255f);
         TintAtBirth[Count] = Tint[Count];
         Alpha[Count] = 1f;
+        AlphaAtBirth[Count] = 1f;
         Rotation[Count] = 0f;
+        Sequence[Count] = 0;
+        Id[Count] = _next++;
 
         return Count++;
     }
+
+    /// <summary>Which sheet sequence a particle plays.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <returns>Its sequence number.</returns>
+    public int SequenceOf(int index) => Sequence[index];
+
+    /// <summary>A particle's own id, which no later particle reuses.</summary>
+    /// <param name="index">Which slot it is in.</param>
+    /// <returns>Its id.</returns>
+    public int IdOf(int index) => Id[index];
+
+    /// <summary>How long a particle has been alive, in seconds.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <returns>Its age.</returns>
+    /// <remarks>
+    /// **Seconds, not a fraction, because the sheet animation is clocked in seconds.**
+    /// `render_animated_sprites` on `rockettrail` sets `use animation rate as FPS`, so the frame is
+    /// `age × rate` and <see cref="Through"/> cannot answer it — a fraction has no idea how long the
+    /// life it is a fraction OF was.
+    /// </remarks>
+    public float AgeOf(int index) => Age - Born[index];
 
     /// <summary>How far through its life a particle is, 0 at birth and 1 at death.</summary>
     /// <param name="index">Which particle.</param>
@@ -213,7 +290,10 @@ public sealed class ParticleStore
             Tint[index] = Tint[last];
             TintAtBirth[index] = TintAtBirth[last];
             Alpha[index] = Alpha[last];
+            AlphaAtBirth[index] = AlphaAtBirth[last];
             Rotation[index] = Rotation[last];
+            Sequence[index] = Sequence[last];
+            Id[index] = Id[last];
 
             removed++;
         }
@@ -235,6 +315,9 @@ public sealed class ParticleStore
         Array.Resize(ref Tint, size);
         Array.Resize(ref TintAtBirth, size);
         Array.Resize(ref Alpha, size);
+        Array.Resize(ref AlphaAtBirth, size);
         Array.Resize(ref Rotation, size);
+        Array.Resize(ref Sequence, size);
+        Array.Resize(ref Id, size);
     }
 }

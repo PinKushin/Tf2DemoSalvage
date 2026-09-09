@@ -174,8 +174,104 @@ public static class ParticleSystems
 
         into.Resize(index, (float)Number(system, "radius", 1d));
 
+        // **The initializers run HERE, at birth, and never again.** That is what makes them
+        // initializers rather than operators — `Sequence Random` drawn every frame would flicker one
+        // particle between four animations, and `Lifetime Random` drawn every frame would mean a
+        // particle whose death kept moving.
+        foreach (ParticleFunction one in system.Initializers)
+        {
+            switch (one.Function)
+            {
+                case "Sequence Random":
+                    into.Sequence[index] = ParticleRandom.Whole(
+                        into.Id[index],
+                        SequenceDraw,
+                        (int)one.Number("sequence_min", 0d),
+                        (int)one.Number("sequence_max", 0d));
+
+                    break;
+
+                // **A DRAW and not the midpoint the earlier code took.** `rockettrail` declares
+                // `lifetime_min 0.8` and `lifetime_max 1.2`, so a midpoint gave every puff in a
+                // trail exactly 1.0 seconds — one plume dying all at once instead of thinning out.
+                // The comment that justified the midpoint said the two bounds were equal; the file
+                // says otherwise, which is `docs/memory/a-valve-comment-can-be-stale.md` applied to
+                // our own.
+                case "Lifetime Random":
+                    float least = (float)one.Number("lifetime_min", lives);
+
+                    into.Lifetime[index] = ParticleRandom.Between(
+                        into.Id[index],
+                        LifetimeDraw,
+                        least,
+                        (float)one.Number("lifetime_max", least));
+
+                    break;
+
+                // **A rocket trail is ORANGE, and nothing was reading that.** `rockettrail` declares
+                // `color1 = (247 194 117)` and `color2 = (251 142 0)` — firelight on smoke — and the
+                // renderer was drawing every particle at full white, so the texture came through
+                // untinted. `TINT_RGB` is 0..255 per channel, which is the unit the file states them
+                // in.
+                //
+                // *Interpolated:* that ONE draw lerps the whole colour rather than three
+                // independent ones. The initializers ship only in the binary. A single factor keeps
+                // every result on the line between the two colours an artist chose, where per
+                // channel would put muddy mixes between them; the endpoints are identical either
+                // way, so this is falsifiable by disassembling `particles.lib`.
+                case "Color Random":
+                    Vector4 from = one.Vector("color1", new Vector4(255f, 255f, 255f, 255f));
+                    Vector4 to = one.Vector("color2", from);
+
+                    float along = ParticleRandom.Sample(into.Id[index], ColourDraw);
+
+                    into.Tint[index] = new Vector3(
+                        from.X + ((to.X - from.X) * along),
+                        from.Y + ((to.Y - from.Y) * along),
+                        from.Z + ((to.Z - from.Z) * along));
+
+                    into.TintAtBirth[index] = into.Tint[index];
+
+                    break;
+
+                // **`ALPHA` is 0..255 in the file and 0..1 in the store.** `rockettrail` asks for
+                // 96..128, which is 0.38..0.50 — and every particle was spawning at 1.0, more than
+                // twice as opaque as the effect declares.
+                case "Alpha Random":
+                    float dimmest = (float)one.Number("alpha_min", 255d);
+
+                    into.Alpha[index] = ParticleRandom.Between(
+                        into.Id[index],
+                        AlphaDraw,
+                        dimmest,
+                        (float)one.Number("alpha_max", dimmest)) / 255f;
+
+                    into.AlphaAtBirth[index] = into.Alpha[index];
+
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
         return index;
     }
+
+    /// <summary>
+    /// Which table entry <c>Sequence Random</c> reads — an arbitrary constant that only has to
+    /// differ from every other draw's, per <see cref="ParticleRandom.Sample"/>.
+    /// </summary>
+    private const int SequenceDraw = 0;
+
+    /// <summary>Which table entry <c>Lifetime Random</c> reads.</summary>
+    public const int LifetimeDraw = 1024;
+
+    /// <summary>Which table entry <c>Color Random</c> reads.</summary>
+    public const int ColourDraw = 2048;
+
+    /// <summary>Which table entry <c>Alpha Random</c> reads.</summary>
+    public const int AlphaDraw = 3072;
 
     /// <summary>A number the definition declares, or a default when it does not.</summary>
     private static double Number(ParticleSystem system, string named, double otherwise) =>

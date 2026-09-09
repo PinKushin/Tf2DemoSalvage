@@ -119,6 +119,16 @@ in any public writeup found:
   clamp; `IVP_Environment::simulate_dtime` is one line into the time manager. RTTI is nearly absent
   and a naive vtable scan finds Control Flow Guard's table instead
   ([51](51-vphysics-is-ivp-and-it-is-readable.md)).
+- **A particle plays a sheet, and its clock is `age × 3` rather than a life fraction** — `CSheet` is
+  forward-declared and defined nowhere, so the payload was measured off `smokelit.vtf` with tiling as
+  the control: four sequences that are four permutations of the same five 128×128 tiles, agreeing
+  with the `.pcf`'s own `sequence_max = 3`. `BLENDFRAMES` defaults to on, so the crossfade is not
+  optional. Then a probe's `Math.Min(frames, 4)` got written down as an open question about the
+  format, and a midpoint taken "because the two bounds are equal" turned out to be reading 0.8 and
+  1.2. Then the sheet's own PRESENCE turned out to be moving the pixels: a 7.3 VTF says where its
+  image data is and the reader computed it, so 288 shipped effects decoded to rainbow noise that kept
+  its silhouettes — mips are stored smallest first, so the largest one barely shifts
+  ([52](52-a-particle-plays-a-sheet.md)).
 
 ## Conventions used throughout
 

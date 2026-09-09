@@ -362,7 +362,15 @@ public static class DetailSprites
             Red: Light(prop.Lighting.Red),
             Green: Light(prop.Lighting.Green),
             Blue: Light(prop.Lighting.Blue),
-            Alpha: alpha);
+            Alpha: alpha,
+
+            // **The same coordinates and a blend of zero, which makes the shader's frame lerp an
+            // identity.** Detail sprites do not animate: `CDetailObjectSystem` picks one
+            // sub-rectangle of the sheet per prop and holds it. The fields exist because particles
+            // share this pass, and passing the frame twice is how a non-animating sprite says so.
+            NextU: u,
+            NextV: v,
+            Blend: 0f);
 
     /// <summary>One baked channel, in the vertex colour's own range.</summary>
     /// <remarks>

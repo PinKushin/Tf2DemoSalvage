@@ -3736,7 +3736,11 @@ internal class MainForm : Form, IFrameSteps
             (float ux, float uy, float uz) = AngleVectors.Up(
                 viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
 
-            _particles.Build(new Vector3(rx, ry, rz), new Vector3(ux, uy, uz), _particleQuads);
+            _particles.Build(
+                new Vector3(rx, ry, rz),
+                new Vector3(ux, uy, uz),
+                _particleQuads,
+                _loaded?.Assets?.ParticleSequences ?? []);
         }
 
         _device.SetParticles(_particleQuads, _loaded?.Assets?.ParticleSheet);

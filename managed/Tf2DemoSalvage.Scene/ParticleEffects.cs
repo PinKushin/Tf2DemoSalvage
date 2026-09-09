@@ -39,6 +39,11 @@ public sealed class ParticleEffects
     /// <summary>The system a rocket's trail uses.</summary>
     public const string RocketTrail = "rockettrail";
 
+    /// <summary>
+    /// The renderer whose parameters clock the sheet — the most-used one TF2 ships, by the census.
+    /// </summary>
+    private const string AnimatedSprites = "render_animated_sprites";
+
     /// <summary>The live effects, by the entity they follow.</summary>
     private readonly Dictionary<int, ParticleEffect> _running = [];
 
@@ -114,14 +119,46 @@ public sealed class ParticleEffects
     /// <param name="right">The camera's right vector.</param>
     /// <param name="up">The camera's up vector.</param>
     /// <param name="into">Where corners are appended; NOT cleared.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
-    public void Build(Vector3 right, Vector3 up, ICollection<DetailSpriteVertex> into)
+    /// <param name="sheet">
+    /// The sequences the trail's texture declares, empty when it carries none.
+    /// </param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **The frame clock is read from each effect's OWN renderer**, not from a constant here. Two
+    /// systems drawn in the same frame can animate at different rates, and `rockettrail`'s three is
+    /// its own number rather than a property of sprite sheets.
+    /// </remarks>
+    public void Build(
+        Vector3 right,
+        Vector3 up,
+        ICollection<DetailSpriteVertex> into,
+        IReadOnlyList<SheetSequence> sheet)
     {
         ArgumentNullException.ThrowIfNull(into);
+        ArgumentNullException.ThrowIfNull(sheet);
 
         foreach (ParticleEffect effect in _running.Values)
         {
-            ParticleSprites.Build(effect.Particles, right, up, into);
+            ParticleFunction? renderer = null;
+
+            foreach (ParticleFunction one in effect.System.Renderers)
+            {
+                if (string.Equals(one.Function, AnimatedSprites, StringComparison.Ordinal))
+                {
+                    renderer = one;
+                    break;
+                }
+            }
+
+            ParticleSprites.Build(
+                effect.Particles,
+                right,
+                up,
+                into,
+                sheet,
+                (float)(renderer?.Number("animation rate", 1d) ?? 1d),
+                (renderer?.Number("use animation rate as FPS", 0d) ?? 0d) != 0d,
+                (renderer?.Number("animation_fit_lifetime", 0d) ?? 0d) != 0d);
         }
     }
 

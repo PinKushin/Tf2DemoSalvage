@@ -25,10 +25,14 @@ namespace Tf2DemoSalvage.Scene;
 /// `centre ± right·radius ± up·radius` — which is what "billboard" means and is the same
 /// construction the detail sprites use.
 ///
-/// **What this does NOT do yet, stated so a green test does not imply it**: the sequence sheet is
-/// not read, so every particle takes the whole texture rather than its animation frame, and the
-/// material's blend mode is the detail pass's rather than the one the particle system declares.
-/// Both are named in B373.
+/// **The sheet IS read now** — `VtfSheet` gives each particle the frame its sequence and age put it
+/// on, and the frame it is mixing toward. What that replaced was every particle stretching the whole
+/// 512×256 texture across itself: four columns of smoke at once, on every puff, identically.
+///
+/// **What this does NOT do yet, stated so a green test does not imply it**: the material's blend
+/// mode is the detail pass's rather than the one the particle system declares, and `ROTATION` is
+/// carried by the store and ignored here — the engine passes it in texcoord 2 beside the frame blend
+/// (`spritecard.cpp:271`) and rotates the card. Both are named in B373.
 /// </remarks>
 public static class ParticleSprites
 {
@@ -40,6 +44,14 @@ public static class ParticleSprites
     /// <param name="right">The camera's right vector, normalised.</param>
     /// <param name="up">The camera's up vector, normalised.</param>
     /// <param name="into">Where corners are appended; NOT cleared.</param>
+    /// <param name="sheet">
+    /// The sequences the material's texture declares, or an empty list for a texture that carries no
+    /// sheet — in which case every particle takes the whole image, which is what a non-sheet texture
+    /// means.
+    /// </param>
+    /// <param name="rate">The renderer's <c>animation rate</c>.</param>
+    /// <param name="asFramesPerSecond">Its <c>use animation rate as FPS</c>.</param>
+    /// <param name="fitLifetime">Its <c>animation_fit_lifetime</c>.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **Two triangles rather than a quad**, because the existing pass draws a triangle list. The
@@ -54,10 +66,15 @@ public static class ParticleSprites
         ParticleStore particles,
         Vector3 right,
         Vector3 up,
-        ICollection<DetailSpriteVertex> into)
+        ICollection<DetailSpriteVertex> into,
+        IReadOnlyList<SheetSequence> sheet,
+        float rate,
+        bool asFramesPerSecond,
+        bool fitLifetime)
     {
         ArgumentNullException.ThrowIfNull(particles);
         ArgumentNullException.ThrowIfNull(into);
+        ArgumentNullException.ThrowIfNull(sheet);
 
         for (int index = 0; index < particles.Count; index++)
         {
@@ -75,8 +92,40 @@ public static class ParticleSprites
 
             float alpha = particles.AlphaOf(index);
 
-            DetailSpriteVertex Corner(Vector3 at, float u, float v) =>
-                new(at.X, at.Y, at.Z, u, v, 1f, 1f, 1f, alpha);
+            // **`TINT_RGB` is 0..255 and the vertex takes 0..1**, which is the split this class's
+            // remarks already named — and which was being sidestepped by writing white. A rocket
+            // trail is firelight on smoke: `Color Random` gives it (247 194 117) to (251 142 0), and
+            // ignoring that drew the raw texture at full brightness.
+            Vector3 tint = particles.TintOf(index) / 255f;
+
+            // **The sequence is the particle's own, wrapped rather than clamped.** `SEQUENCE_NUMBER`
+            // is drawn from `sequence_min`..`sequence_max`, which the file states independently of
+            // how many sequences the texture happens to carry — so a definition and a texture that
+            // disagree must still draw something rather than throwing at the renderer.
+            (SheetFrame frame, SheetFrame next, float blend) = sheet.Count == 0
+                ? (VtfSheet.Whole, VtfSheet.Whole, 0f)
+                : VtfSheet.At(
+                    sheet[((particles.SequenceOf(index) % sheet.Count) + sheet.Count) % sheet.Count],
+                    particles.AgeOf(index),
+                    rate,
+                    asFramesPerSecond,
+                    particles.LifetimeOf(index),
+                    fitLifetime);
+
+            DetailSpriteVertex Corner(Vector3 at, float across0, float down0) =>
+                new(
+                    at.X,
+                    at.Y,
+                    at.Z,
+                    Mix(frame.U0, frame.U1, across0),
+                    Mix(frame.V0, frame.V1, down0),
+                    tint.X,
+                    tint.Y,
+                    tint.Z,
+                    alpha,
+                    Mix(next.U0, next.U1, across0),
+                    Mix(next.V0, next.V1, down0),
+                    blend);
 
             DetailSpriteVertex topLeft = Corner(centre - across + above, 0f, 0f);
             DetailSpriteVertex topRight = Corner(centre + across + above, 1f, 0f);
@@ -92,4 +141,13 @@ public static class ParticleSprites
             into.Add(bottomRight);
         }
     }
+
+    /// <summary>Where a corner sits inside a frame's rectangle.</summary>
+    /// <remarks>
+    /// **A frame's UVs are its BOUNDS, not a single point** — `spritecard.cpp:271` calls texcoord 0
+    /// "sheet bounding uvs". So a quad's corners interpolate across that rectangle, and the code this
+    /// replaced emitted a fixed 0..1, which is the whole texture: four columns of smoke drawn on
+    /// every particle at once.
+    /// </remarks>
+    private static float Mix(float from, float to, float along) => from + ((to - from) * along);
 }

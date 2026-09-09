@@ -30,8 +30,13 @@ namespace Tf2DemoSalvage.Render;
 /// </remarks>
 public sealed unsafe class DetailSpriteRenderer : IDisposable
 {
-    /// <summary>Position, texture coordinate and colour with alpha.</summary>
-    private const int VertexStride = sizeof(float) * 9;
+    /// <summary>
+    /// Position, texture coordinate, colour with alpha, and the frame being animated toward.
+    /// </summary>
+    private const int Floats = 12;
+
+    /// <summary>How many bytes one corner takes, which the layout offsets must agree with.</summary>
+    private const int VertexStride = sizeof(float) * Floats;
 
     /// <summary>Sixteen floats of camera, in the slot the other renderers use.</summary>
     private const int CameraConstants = 16;
@@ -52,8 +57,21 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         Texture2D sheet : register(t0);
         SamplerState linearWrap : register(s0);
 
-        struct VsIn  { float3 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; };
-        struct VsOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; };
+        struct VsIn
+        {
+            float3 pos : POSITION;
+            float2 uv : TEXCOORD0;
+            float4 col : COLOR;
+            float3 next : TEXCOORD1;
+        };
+
+        struct VsOut
+        {
+            float4 pos : SV_POSITION;
+            float2 uv : TEXCOORD0;
+            float4 col : COLOR;
+            float3 next : TEXCOORD1;
+        };
 
         VsOut VsMain(VsIn input)
         {
@@ -61,12 +79,15 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             output.pos = mul(float4(input.pos, 1.0f), viewProjection);
             output.uv = input.uv;
             output.col = input.col;
+            output.next = input.next;
             return output;
         }
 
         float4 PsMain(VsOut input) : SV_TARGET
         {
-            float4 texel = sheet.Sample(linearWrap, input.uv);
+            float4 first = sheet.Sample(linearWrap, input.uv);
+            float4 second = sheet.Sample(linearWrap, input.next.xy);
+            float4 texel = lerp(first, second, input.next.z);
             return float4(texel.rgb * input.col.rgb, texel.a * input.col.a);
         }
         """;
@@ -148,6 +169,19 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
                 SemanticName = colour,
                 Format = Silk.NET.DXGI.Format.FormatR32G32B32A32Float,
                 AlignedByteOffset = sizeof(float) * 5,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+
+            // **`SemanticIndex = 1` is what makes this `TEXCOORD1` rather than a second
+            // `TEXCOORD0`.** It defaults to zero, and two elements claiming the same semantic and
+            // index is a layout the runtime refuses — which shows up as a failed `CreateInputLayout`
+            // and nothing drawn, not as a wrong picture.
+            new()
+            {
+                SemanticName = texture,
+                SemanticIndex = 1,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                AlignedByteOffset = sizeof(float) * 9,
                 InputSlotClass = InputClassification.PerVertexData,
             },
         ];
@@ -236,8 +270,11 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             into[6] = corner.Green;
             into[7] = corner.Blue;
             into[8] = corner.Alpha;
+            into[9] = corner.NextU;
+            into[10] = corner.NextV;
+            into[11] = corner.Blend;
 
-            into += 9;
+            into += Floats;
         }
 
         context.Unmap(_vertices, 0);

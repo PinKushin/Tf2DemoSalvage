@@ -418,6 +418,82 @@ public sealed class VtfTexture
     public static (double Seconds, long Count) DecodeCost =>
         (DecodeTicks / (double)System.Diagnostics.Stopwatch.Frequency, DecodeCount);
 
+    /// <summary>Where a file says its thumbnail and its pixels are.</summary>
+    /// <param name="span">The whole file.</param>
+    /// <param name="headerSize">The header's own declared size, used when there is no table.</param>
+    /// <returns>The thumbnail's offset, and the images' offset or -1 when the file does not say.</returns>
+    /// <remarks>
+    /// **Read from source** (`src/public/vtf/vtf.h`): a 7.3 header carries `numResources` at `0x44`
+    /// followed by `ResourceEntryInfo { uint32 eType; uint32 resData; }` from `0x50`, and the two
+    /// image entries are `VTF_LEGACY_RSRC_LOW_RES_IMAGE` (`0x01`) and `VTF_LEGACY_RSRC_IMAGE`
+    /// (`0x30`).
+    ///
+    /// **The high byte of `eType` is FLAGS, not part of the id.** `RSRCF_HAS_NO_DATA_CHUNK`
+    /// (`0x02 &lt;&lt; 24`) means `resData` IS four bytes of data rather than an offset — `smokelit`
+    /// stores its CRC and its LOD clamp that way — so matching an id without masking, or following
+    /// such an entry as an offset, reads from wherever those four bytes happen to point.
+    ///
+    /// **Returning -1 rather than a computed guess** when the table has no image entry: a 7.2 file
+    /// genuinely has no table and the caller's legacy arithmetic is right for it, while a 7.3 file
+    /// that omits the entry is something this reader has never seen and should not invent an answer
+    /// for.
+    /// </remarks>
+    private static (int Thumbnail, int Image) Images(ReadOnlySpan<byte> span, int headerSize)
+    {
+        const int CountAt = 0x44;
+        const int EntriesAt = 0x50;
+
+        if (span.Length < EntriesAt || BinaryPrimitives.ReadInt32LittleEndian(span[8..]) < 3)
+        {
+            return (headerSize, -1);
+        }
+
+        int resources = BinaryPrimitives.ReadInt32LittleEndian(span[CountAt..]);
+
+        if (resources is < 0 or > 32)
+        {
+            return (headerSize, -1);
+        }
+
+        int thumbnail = headerSize;
+        int image = -1;
+
+        for (int index = 0; index < resources; index++)
+        {
+            int at = EntriesAt + (index * 8);
+
+            if (at + 8 > span.Length)
+            {
+                break;
+            }
+
+            uint type = BinaryPrimitives.ReadUInt32LittleEndian(span[at..]);
+            uint payload = BinaryPrimitives.ReadUInt32LittleEndian(span[(at + 4)..]);
+
+            // An entry whose data is inline carries no offset to follow.
+            if (((type >> 24) & 0x02) != 0 || payload > (uint)span.Length)
+            {
+                continue;
+            }
+
+            switch (type & 0x00FFFFFF)
+            {
+                case 0x01:
+                    thumbnail = (int)payload;
+                    break;
+
+                case 0x30:
+                    image = (int)payload;
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        return (thumbnail, image);
+    }
+
     private static VtfTexture DecodeCore(
         ReadOnlyMemory<byte> file, int maximumSize, int face, bool expand, int frame = 0)
     {
@@ -472,7 +548,21 @@ public sealed class VtfTexture
         // Decoded eagerly and unconditionally: a thumbnail is at most 16x16, so 1 KiB expanded
         // against a texture measured in megabytes. Deferring it would mean holding the file alive
         // to decode from later, which costs far more than the pixels do.
-        int at = headerSize;
+        // **A 7.3 file says where its images ARE; only 7.2 and below can be computed.** From
+        // version 7.3 the header is followed by a resource table, and the images are two entries in
+        // it — `VTF_LEGACY_RSRC_LOW_RES_IMAGE` and `VTF_LEGACY_RSRC_IMAGE` (`vtf.h`). Anything else
+        // the file carries sits BETWEEN them, so "header, then thumbnail, then pixels" is only true
+        // when there is nothing else.
+        //
+        // **`smokelit.vtf` is the case that proves it and it was drawn wrong for weeks.** Its sheet
+        // resource is 1,432 bytes at offset 184 and its pixels start at 1,620; the computed offset
+        // lands on the sheet, so the decoder read a table of UV floats as DXT blocks. Mips are
+        // stored smallest first, so the LARGEST one is barely shifted — the smoke puffs kept their
+        // silhouettes and filled with rainbow noise, which reads as a texture-format bug rather than
+        // an offset one and sent this project looking at the DXT decoder (B373).
+        (int thumbnailAt, int imageAt) = Images(span, headerSize);
+
+        int at = thumbnailAt;
         byte[] thumbnail = [];
 
         if (lowResFormat is not VtfFormat.None && lowResWidth > 0 && lowResHeight > 0)
@@ -489,6 +579,13 @@ public sealed class VtfTexture
             }
 
             at += thumbnailBytes;
+        }
+
+        // The table's answer wins where it gave one; the computed offset stays the fallback for a
+        // 7.2 file, which has no table to ask.
+        if (imageAt >= 0)
+        {
+            at = imageAt;
         }
 
         // **Seven faces when the envmap flag is set, one otherwise**, and the count multiplies every

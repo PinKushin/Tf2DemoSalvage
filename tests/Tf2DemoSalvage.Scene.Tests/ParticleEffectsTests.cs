@@ -26,7 +26,7 @@ public sealed class ParticleEffectsTests
 
         List<DetailSpriteVertex> corners = [];
 
-        effects.Build(Vector3.UnitX, Vector3.UnitZ, corners);
+        effects.Build(Vector3.UnitX, Vector3.UnitZ, corners, sheet: []);
 
         // Particles were laid at both ends of the flight, so the trail spans them.
         float leftmost = float.MaxValue;
@@ -105,7 +105,7 @@ public sealed class ParticleEffectsTests
     {
         List<DetailSpriteVertex> corners = [];
 
-        effects.Build(Vector3.UnitX, Vector3.UnitZ, corners);
+        effects.Build(Vector3.UnitX, Vector3.UnitZ, corners, sheet: []);
 
         return corners.Count / ParticleSprites.CornersPerParticle;
     }

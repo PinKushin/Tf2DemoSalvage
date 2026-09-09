@@ -319,30 +319,101 @@ public sealed class ParticleProbe : IProbe
                         $"      id 0x{id:x6} flags 0x{flags:x2} data {data}" +
                         $"{((flags & 0x02) != 0 ? "  (IS the data, no chunk)" : "  (offset)")}"));
 
-                    if (id != 0x10 || (flags & 0x02) != 0 || data + 64 > vtf.Length)
-                    {
-                        continue;
-                    }
+                }
 
-                    output.WriteLine("    --- sheet payload, first 64 bytes ---");
+                // **The PRODUCTION reader, on the file the walk above just described.** The
+                // structure came out of these bytes, so a probe that read them a second time by
+                // hand would only agree with itself; `VtfSheet` is what the viewer calls, and this
+                // is the only thing that can catch it disagreeing
+                // (`docs/memory/output-level-assertion-or-it-is-not-done.md`).
+                int width = BitConverter.ToUInt16(vtf, 0x10);
+                int height = BitConverter.ToUInt16(vtf, 0x12);
 
-                    for (int row = 0; row < 4; row++)
-                    {
-                        int from = (int)data + (row * 16);
+                IReadOnlyList<SheetSequence> read = VtfSheet.Read(vtf);
 
-                        string hex = string.Join(' ', vtf.Skip(from).Take(16)
-                            .Select(one => one.ToString("x2", CultureInfo.InvariantCulture)));
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    VtfSheet.Read: {read.Count} sequences, texture {width}x{height}"));
 
-                        output.WriteLine($"      {from,8}  {hex}");
-                    }
-
-                    // The first words, which is where a version and a count would sit.
+                foreach (SheetSequence sequence in read)
+                {
                     output.WriteLine(string.Create(
                         CultureInfo.InvariantCulture,
-                        $"      as int32: {BitConverter.ToInt32(vtf, (int)data)}, " +
-                        $"{BitConverter.ToInt32(vtf, (int)data + 4)}, " +
-                        $"{BitConverter.ToInt32(vtf, (int)data + 8)}, " +
-                        $"{BitConverter.ToInt32(vtf, (int)data + 12)}"));
+                        $"      sequence {sequence.Id}: clamp {sequence.Clamp}, " +
+                        $"{sequence.Frames.Count} frames, total time {sequence.TotalTime:0.##}"));
+
+                    // **Every frame, not the first four.** The cap this loop used to carry is what
+                    // made a five-frame sequence print as four and put an open question into the
+                    // finding — the INSTRUMENT's limit read as the format's, which is the fault
+                    // `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` collects.
+                    for (int frame = 0; frame < sequence.Frames.Count; frame++)
+                    {
+                        SheetFrame one = sequence.Frames[frame];
+
+                        output.WriteLine(string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"        frame {frame}: duration {one.Duration:0.##}  " +
+                            $"uv ({one.U0:0.####} {one.V0:0.####})-({one.U1:0.####} {one.V1:0.####})" +
+                            $"  = px ({one.U0 * width:0}, {one.V0 * height:0})-" +
+                            $"({one.U1 * width:0}, {one.V1 * height:0})"));
+                    }
+                }
+
+                // **What the SYSTEM says about the sheet, which is the parity question.** The frames
+                // exist in the texture; which one a particle shows is decided by the renderer's own
+                // parameters, and `render_animated_sprites` is in the closed client. The `.pcf` is
+                // shipped data and states them, so this prints every parameter rather than the ones
+                // already guessed at — `docs/memory/shipped-data-settles-what-closed-code-cannot.md`.
+                // **A second walk over EVERY archive, because the `.pcf` is not in the texture
+                // one.** Reusing the archive that held `smokelit.vtf` printed nothing at all and
+                // read as "the renderer declares no parameters" — the same shape as
+                // `docs/memory/an-empty-search-needs-a-control.md`, one archive deep.
+                foreach (ParticleSystem trail in archives
+                    .Select(one => VpkArchive.Open(one).ReadFile("particles/rockettrail.pcf"))
+                    .Where(one => one is not null)
+                    .Select(one => ParticleSystems.Read(one!))
+                    .Where(one => one.ContainsKey("rockettrail"))
+                    .Select(one => one["rockettrail"]))
+                {
+                    // **Initializers as well as the renderer, because which SEQUENCE a particle
+                    // plays is set at birth and the renderer only reads it.** Printing the renderer
+                    // alone would have left the sequence number looking like a constant 0 — the
+                    // definition's default — when an initializer may pick one per particle.
+                    foreach ((string kind, IReadOnlyList<ParticleFunction> functions) in
+                        new (string, IReadOnlyList<ParticleFunction>)[]
+                        {
+                            ("renderer", trail.Renderers),
+                            ("initializer", trail.Initializers),
+                            ("operator", trail.Operators),
+                        })
+                    {
+                        foreach (ParticleFunction function in functions)
+                        {
+                            output.WriteLine($"    {kind} {function.Function}");
+
+                            foreach (KeyValuePair<string, DmxValue> parameter in function.Parameters)
+                            {
+                                // **A colour printed as `.Number` reads as zero and says nothing.**
+                                // `Color Random`'s two bounds came out "0" and "0" that way, which
+                                // looked like an unset parameter rather than an unprinted one — the
+                                // instrument answering about itself again.
+                                bool vector = parameter.Value.Type
+                                    is DmxAttributeType.Colour or DmxAttributeType.Vector3
+                                    or DmxAttributeType.Vector4 or DmxAttributeType.Angle;
+
+                                string shown = vector
+                                    ? string.Create(
+                                        CultureInfo.InvariantCulture,
+                                        $"({parameter.Value.Vector.X:0.##} {parameter.Value.Vector.Y:0.##} {parameter.Value.Vector.Z:0.##} {parameter.Value.Vector.W:0.##})")
+                                    : string.Create(
+                                        CultureInfo.InvariantCulture,
+                                        $"{parameter.Value.Number:0.####}");
+
+                                output.WriteLine(
+                                    $"      {parameter.Key} = {shown} ({parameter.Value.Type})");
+                            }
+                        }
+                    }
                 }
 
                 return;
@@ -419,12 +490,76 @@ public sealed class ParticleProbe : IProbe
 
                 List<DetailSpriteVertex> corners = [];
 
-                ParticleSprites.Build(store, Vector3.UnitX, Vector3.UnitZ, corners);
+                // **The real sheet and the renderer's real parameters**, so this reports what the
+                // viewer would draw rather than what a default would. A `0..1` span here means the
+                // sheet did not reach the builder, whatever the reader said in isolation — and that
+                // is exactly what it reported the first time it ran, because the search below was
+                // `open` alone. The `.pcf` is in `tf2_misc_dir.vpk` and the texture is in
+                // `tf2_textures_dir.vpk`, so a one-archive search finds the definition and none of
+                // its material (`docs/memory/an-empty-search-needs-a-control.md`).
+                IReadOnlyList<SheetSequence> sheet = [];
+
+                foreach (string other in archives)
+                {
+                    if (VpkArchive.Open(other).ReadFile("materials/effects/smoke/smokelit.vtf")
+                        is { Length: > 96 } texture)
+                    {
+                        sheet = VtfSheet.Read(texture);
+                        break;
+                    }
+                }
+
+                ParticleFunction? draws = trail.Renderers.FirstOrDefault(one =>
+                    string.Equals(one.Function, "render_animated_sprites", StringComparison.Ordinal));
+
+                ParticleSprites.Build(
+                    store,
+                    Vector3.UnitX,
+                    Vector3.UnitZ,
+                    corners,
+                    sheet,
+                    (float)(draws?.Number("animation rate", 1d) ?? 1d),
+                    (draws?.Number("use animation rate as FPS", 0d) ?? 0d) != 0d,
+                    (draws?.Number("animation_fit_lifetime", 0d) ?? 0d) != 0d);
+
+                // **The span of ONE QUAD, not of the whole batch, and that distinction is the
+                // control.** Across 45 particles sitting on different frames the batch covers the
+                // full width either way, so a batch-wide 0..1 proves nothing. A single quad must
+                // cover ONE TILE — a quarter of the width — and a builder that ignored the sheet
+                // would put 1.0 here while the batch figure looked identical.
+                float widest = 0f;
+                float mostBlend = 0f;
+                float apart = 0f;
+
+                for (int at = 0; at + ParticleSprites.CornersPerParticle <= corners.Count;
+                     at += ParticleSprites.CornersPerParticle)
+                {
+                    float least = float.MaxValue;
+                    float most = float.MinValue;
+
+                    for (int corner = 0; corner < ParticleSprites.CornersPerParticle; corner++)
+                    {
+                        DetailSpriteVertex one = corners[at + corner];
+
+                        least = Math.Min(least, one.U);
+                        most = Math.Max(most, one.U);
+                        mostBlend = Math.Max(mostBlend, one.Blend);
+
+                        // How far the frame being mixed TOWARD sits from the one showing. Zero on
+                        // every particle would mean both coordinate sets name the same frame, which
+                        // is a crossfade that fades to itself.
+                        apart = Math.Max(apart, Math.Abs(one.NextU - one.U));
+                    }
+
+                    widest = Math.Max(widest, most - least);
+                }
 
                 output.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
                     $"  ParticleSprites: {corners.Count} corners for {store.Count} particles " +
-                    $"({ParticleSprites.CornersPerParticle} each)"));
+                    $"({ParticleSprites.CornersPerParticle} each), {sheet.Count} sequences, " +
+                    $"widest single quad {widest:0.####} of u, frames up to {apart:0.###} apart, " +
+                    $"largest blend {mostBlend:0.###}"));
 
                 return;
             }

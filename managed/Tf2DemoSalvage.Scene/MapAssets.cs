@@ -810,6 +810,14 @@ public sealed class MapAssets
     /// </remarks>
     public MapTexture? ParticleSheet { get; private init; }
 
+    /// <summary>The animation sequences that texture declares, empty when it carries none.</summary>
+    /// <remarks>
+    /// **`smokelit` holds four, each a different permutation of the same five 128×128 tiles**, which
+    /// is what stops every puff of one trail animating in lockstep. Empty is an ordinary answer: a
+    /// particle material need not be a sheet, and one that is not takes the whole image.
+    /// </remarks>
+    public IReadOnlyList<SheetSequence> ParticleSequences { get; private init; } = [];
+
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
     /// <remarks>
     /// **Read and discarded until 2026-09-06.** `BspDetailProps.Read` has always returned it as the
@@ -1216,7 +1224,9 @@ public sealed class MapAssets
         //
         // **A missing install or a missing file costs the trail and nothing else** — this is every
         // CI run, where there is no TF2 to read, and a rocket must still draw its model.
-        (ParticleSystem? rocketTrail, MapTexture? particleSheet) =
+        (ParticleSystem? rocketTrail,
+         MapTexture? particleSheet,
+         IReadOnlyList<SheetSequence> particleSequences) =
             LoadRocketTrail(assets, pak, archives, maximumTextureSize);
 
         // **Entity models are loaded here, with the map's own props, and that is the point.**
@@ -1538,6 +1548,7 @@ public sealed class MapAssets
             DetailSpriteSheet = detailSheet,
             RocketTrail = rocketTrail,
             ParticleSheet = particleSheet,
+            ParticleSequences = particleSequences,
             DetailModelNames = detailModelNames,
             EntityModels = models,
             UnimplementedParameters = census,
@@ -1961,12 +1972,15 @@ public sealed class MapAssets
     /// file replacing the effect is honoured rather than overridden — the same reason the detail
     /// sheet is read from `worldspawn` instead of assumed.
     /// </remarks>
-    private static (ParticleSystem? System, MapTexture? Sheet) LoadRocketTrail(
+    private static (
+        ParticleSystem? System,
+        MapTexture? Sheet,
+        IReadOnlyList<SheetSequence> Sequences) LoadRocketTrail(
         ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize)
     {
         if (archives.Read("particles/rockettrail.pcf") is not { Length: > 0 } file)
         {
-            return (null, null);
+            return (null, null, []);
         }
 
         IReadOnlyDictionary<string, ParticleSystem> systems = ParticleSystems.Read(file);
@@ -1990,7 +2004,7 @@ public sealed class MapAssets
             assets.LogInformation(
                 "{Message}", "particles/rockettrail.pcf declares no rockettrail system");
 
-            return (null, null);
+            return (null, null, []);
         }
 
         string material = trail.Parameters.TryGetValue("material", out DmxValue named2) &&
@@ -2002,14 +2016,56 @@ public sealed class MapAssets
             ? Resolve(assets, material, pak, archives, maximumTextureSize).Texture
             : null;
 
+        IReadOnlyList<SheetSequence> sequences = Sequences(material, pak, archives);
+
         assets.LogInformation(
             "{Message}",
             string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"rocket trail '{trail.Name}': {trail.Operators.Count} operators, " +
-                $"material '{material}' {(sheet is null ? "did NOT resolve" : "resolved")}"));
+                $"material '{material}' {(sheet is null ? "did NOT resolve" : "resolved")}, " +
+                $"{sequences.Count} sheet sequences"));
 
-        return (trail, sheet);
+        return (trail, sheet, sequences);
+    }
+
+    /// <summary>The sprite-sheet sequences a particle material's texture carries.</summary>
+    /// <remarks>
+    /// **The `.vtf` is opened a second time here rather than the sheet coming out of
+    /// <see cref="Resolve"/>**, because the sheet is not a texture: it is a resource chunk beside the
+    /// pixels, which the upload path has no reason to know about and every other material would pay
+    /// to check for.
+    ///
+    /// **The path is the material's `$basetexture`, not a name derived from the `.vmt`'s.**
+    /// `effects/rocketrailsmoke.vmt` points at `effects/smoke/smokelit` — a different folder — so
+    /// looking for a `.vtf` beside the `.vmt` finds nothing and reports a texture that ships as
+    /// absent (`docs/memory/an-empty-search-needs-a-control.md`).
+    /// </remarks>
+    private static IReadOnlyList<SheetSequence> Sequences(
+        string material, PakFile pak, GameArchives archives)
+    {
+        if (material.Length == 0)
+        {
+            return [];
+        }
+
+        string vmtPath = $"materials/{material}.vmt";
+
+        if ((pak.ReadFile(vmtPath) ?? archives.Read(vmtPath)) is not { Length: > 0 } vmt)
+        {
+            return [];
+        }
+
+        if (VmtMaterial.Parse(vmt).PrimaryTexture is not { Length: > 0 } texture)
+        {
+            return [];
+        }
+
+        string vtfPath = $"materials/{texture.Replace('\\', '/')}.vtf";
+
+        return (pak.ReadFile(vtfPath) ?? archives.Read(vtfPath)) is { Length: > 0 } bytes
+            ? VtfSheet.Read(bytes)
+            : [];
     }
 
     private static ResolvedMaterial Resolve(

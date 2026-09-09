@@ -177,3 +177,5 @@
 - [A gate in flight owns the tree](a-gate-in-flight-owns-the-tree.md) — an edit mid-run splits the measurement, and it still exits 0.
 - [Settle a constant in the disassembly](settle-a-constant-in-the-disassembly.md) — shape from the decompiler, identity from the instructions.
 - [Workflow agents inherit the session model](workflow-agents-inherit-the-session-model.md) — haiku only, and review is what makes it acceptable.
+- [Determinism does not require flattening a draw](determinism-does-not-require-flattening-a-draw.md) — the engine seeds by particle id; a midpoint is not a seed.
+- [A computed offset is a guess the file can answer](a-computed-offset-is-a-guess-the-file-can-answer.md) — read the directory; 288 textures decoded to noise without ever throwing.
