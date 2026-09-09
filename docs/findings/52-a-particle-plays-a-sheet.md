@@ -303,7 +303,23 @@ project does not control.
   materials would draw their first sequence alone.
 - **`$dualsequence` is unimplemented**, and exactly one shipped material sets it — a named gap
   rather than an open question.
-- **No comparison against TF2 running the same demo has been made.** The trail was captured before
-  and after: a rainbow square became a grey plume, then a diffuse one, with the rocket's absence at
-  tick 106400 as the control that it was ours at all. But *"looks like smoke"* is not *"looks like
-  TF2"*, and that judgement needs a reference capture from the owner's own install.
+## The comparison was made, and it found something
+
+*Measured.* B161's tool now drives real TF2 to a chosen tick and dumps a frame, so ours and the
+engine's can be put side by side at `cp_process_f12`, first person, rocket in flight.
+
+**What agrees:** the smoke is grey, the fire at the head is orange, and the blending reads the same.
+Everything this finding is about — the sheet, the frame clock, the crossfade, the tint, the alpha,
+the additive children — survives the comparison.
+
+**What does not:** TF2's trail stretches back down the rocket's whole flight path; ours is one dense
+puff at the rocket. The cause is not in any of the above — **our particles advance once per rendered
+FRAME rather than per demo tick**, so a still at 294 fps steps the trail three hundred times a second
+with the emitter frozen at one point. And a seek leaves an effect with no history at all, where TF2
+gets one by restarting the demo and fast-forwarding through it. Filed as **B375**, with a first
+attempt written, reverted and stashed because it made the picture worse rather than better.
+
+**That is the whole argument for the golden comparison.** Six separate divergences in this finding
+were caught by reading files and the engine. This one could not have been: every parameter was right,
+every test green, and the picture still wrong — because the fault was in *when* the simulation runs,
+which no amount of reading the `.pcf` would have shown.

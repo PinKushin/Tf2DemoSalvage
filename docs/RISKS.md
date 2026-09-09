@@ -26337,6 +26337,40 @@ readable.
 *Evidence class: read-from-source for the container and the two resource ids; measured for the count,
 the offsets and the before/after spread.*
 
+### B375 OPEN 2026-09-09: a rocket trail is a puff where TF2 draws a plume, and the cause is that particles run on FRAMES
+
+**Found by the golden comparison, which is what it is for.** `docs/findings/52` and B161 now have a
+first-person capture of real TF2 at `cp_process_f12` beside ours at the same moment. Colour, fire
+and blending agree. **The trail does not:** TF2's smoke stretches back down the rocket's whole flight
+path, and ours is a single dense puff at the rocket.
+
+**The cause, and it is two faults stacked.**
+
+1. **The simulation advances once per RENDERED FRAME, not per demo tick.** `MainForm.DrawParticles`
+   calls `ParticleEffects.Update` every frame and it steps by one tick interval each time. At 294 fps
+   on a still, that advances the trail nearly three hundred times a second while the emitter sits
+   frozen at one tick — so every particle is born at the same point. The engine steps particles on
+   the game clock, and a paused clock steps them not at all.
+2. **A seek gives an effect no history.** An effect met mid-flight has emitted nothing, so even with
+   the clock fixed a still would show an empty trail. TF2 gets its history the long way round: it
+   answers `demo_gototick` by restarting the demo and fast-forwarding, replaying everything.
+
+**Attempted and REVERTED, kept in `git stash` as `b375-wip-trail-history`.** Driving the simulation
+from `_transport.CurrentTick` and replaying the projectile's path from its first keyframe was
+written, built clean and made it WORSE: with frame-stepping gone the puff disappeared and the replay
+never fired, so the trail vanished entirely. Rather than leave the viewer worse than it was, the
+change was stashed and this entry written instead. **The replay not firing is the thing to debug
+first** — most likely `_timeline.TrackFor(entity)` not yielding the track this code assumed, which is
+an assumption that was never checked with a control.
+
+**Straight-line replay is defensible when it is wired up:** `DT_TFBaseRocket` networks
+`m_vInitialVelocity` and nothing accelerates a rocket, so interpolating spawn to now IS the path.
+It would not be for anything that arcs.
+
+*Evidence class: measured — a first-person capture from real TF2 beside our render of the same demo,
+tick and camera. The two faults are read from our own code; that they are the whole explanation is
+NOT established, because the fix that follows from them did not work.*
+
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 
 **The owner: *"i should see ragdolls and gibs"*.** Ragdolls draw. Gibs do not exist at all — no
