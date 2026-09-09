@@ -25856,11 +25856,36 @@ operators and renderers in one bag — its own test.
 against a capture, and decompile only what the ranking says a demo actually reaches.** The tail is
 where the closed-binary work lives, and most of the tail is unusual hats.
 
-**What the third part needs that the first two did not: a REFERENCE.** A simulator can be written
-from the parameter names, and writing one without comparing it to TF2 drawing the same effect would
-produce plausible motion and call it parity — the failure this project's rules exist to prevent. So
-it wants a capture of the same rocket in TF2 beside ours, which is `docs/findings/24-reference-capture.md`'s
-job, and it is the reason this stops here rather than continuing into the operators.
+**STARTED: the simulator core, with each part's grounding stated separately.** `ParticleStore` holds
+the attributes Valve's header names, and `ParticleOperators` implements the head of the ranking —
+`Movement Basic`, `Lifespan Decay`, `Alpha Fade Out/In Random`, `Radius Scale` — as a strategy per
+operator resolved by the `functionName` a `.pcf` carries.
+
+**The integrator is READ FROM SOURCE and is the one thing here that is not inference.**
+`particles.h:68` declares `PREV_XYZ` as *"prev coordinates for verlet integration"*, so a particle
+carries where it WAS rather than how fast it is going, and the step is
+`next = position + (position − previous)·(1−drag) + gravity·dt²`. **An Euler integrator with a
+stored velocity would be a different simulation wearing the same parameters** — it responds to a
+change in step size differently, which is invisible in a still frame. Sabotaging Verlet to Euler
+reddens both integrator tests and leaves the other four green.
+
+**What each piece rests on, because it is NOT uniform and a green suite must not imply otherwise:**
+
+| grounding | which |
+|---|---|
+| read-from-source | the attribute set; that movement is Verlet |
+| read-from-data | every parameter name and value, out of the shipped `.pcf` through our own reader |
+| **interpolated** | how a named parameter combines — that `lifetime_min`/`max` bound a uniform draw, that a fade runs over the 0..1 life fraction, that `drag` scales the carried step linearly |
+
+**The interpolated half is NOT verified against TF2 and is not claimed as parity.** It is a
+simulation of Valve's declared parameters, which is worth having and is a different claim. Six tests
+pin the declared behaviour — the integrator, a fade at a known fraction, an absent scale leaving a
+radius alone — and none of them can see whether the result looks like the engine.
+
+**What would settle it is a capture of the same effect in TF2 beside ours**
+(`docs/findings/24-reference-capture.md`). Until that exists the renderer is also unstarted, so
+nothing is on screen: `render_animated_sprites` is the most-used renderer in the game and needs
+camera-facing quads, the sequence sheet, and the blend mode its material declares.
 
 *Evidence class: measured — the file counts, the 10,456 systems, the 110 distinct operators and
 their ranking, all read through this project's own `DmxFile` over every shipped `.pcf`;
