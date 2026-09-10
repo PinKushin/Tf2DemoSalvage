@@ -180,7 +180,12 @@ jobs:
           # floors, which is also raising the other five here. See
           # docs/memory/one-place-or-it-drifts.md — the fix is for this workflow to READ the floors
           # rather than restate them, and until it does, both files move together or neither does.
-          ./build/assert-test-count.sh '**/core.trx' 1831 Core
+          #
+          # 1831 -> 1835 on 2026-09-09: four for B384, `bFlushNewer`. Raised here in the SAME commit as
+          # build/gate.sh, which is the whole point of the note above — git merges these two lines
+          # independently, so a branch that moves one and forgets the other lands its tests against a
+          # floor that quietly stays low.
+          ./build/assert-test-count.sh '**/core.trx' 1835 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them

@@ -357,7 +357,14 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # the test. The fourth is the pose-parameter history's WIDTH, which is the model's own count -- the
 # callback used to report only which parameters wrap and returned an empty array when none did, losing
 # the count with it.
-run Tf2DemoSalvage.Core.Tests     core     1831
+#
+# 1831 -> 1835 on 2026-09-09: four for B384, `bFlushNewer`. Two are the divergence itself -- three
+# entries under one changetime, and an update whose changetime moves BACKWARDS -- and two are the
+# controls: that a scrub to before a flush still answers with what the client held then, and that the
+# drawn height cannot move a unit in a tenth of a tick when the door moves 4.5 in a whole one. Only two
+# of the four were RED before the fix, and the other two are kept as properties: asking exactly AT a
+# duplicated changetime cannot fail, because the walk lands on the last duplicate either way.
+run Tf2DemoSalvage.Core.Tests     core     1835
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

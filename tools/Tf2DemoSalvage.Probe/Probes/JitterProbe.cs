@@ -69,20 +69,31 @@ public sealed class JitterProbe : IProbe
             return;
         }
 
-        if (timeline.TrackFor(entity) is not { } track)
+        int from = arguments.Count > 2 &&
+            int.TryParse(arguments[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int at)
+                ? at
+                : -1;
+
+        // **An entity index does not name a track, so the tick picks which one** (B370). Edict slots are
+        // reused: entity 328 on the 2013 granary match owns EIGHT tracks, and `TrackFor` hands back one of
+        // them — asking it about tick 63630 reported "fewer than three samples" because the track it chose
+        // was long dead by then. `Alive` is the lifetime test the sampler itself uses, so selecting with it
+        // cannot disagree with what `At` will answer.
+        if (Select(timeline, entity, from) is not { } track)
         {
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"No track for entity {entity}. Tracks: " +
-                $"{string.Join(", ", timeline.PlayerTracks.Take(12).Select(one => one.EntityIndex))}"));
+                $"No track for entity {entity}{(from >= 0 ? $" alive at tick {from}" : string.Empty)}. " +
+                $"That index owns {timeline.Props.Count(one => one.EntityIndex == entity)} track(s): " +
+                $"{string.Join(", ", timeline.Props.Where(one => one.EntityIndex == entity).Select(one => $"[{one.FirstTick}..{one.Keyframes[^1].Tick}]"))}"));
 
             return;
         }
 
-        int from = arguments.Count > 2 &&
-            int.TryParse(arguments[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int at)
-                ? at
-                : track.Keyframes[0].Tick;
+        if (from < 0)
+        {
+            from = track.Keyframes[0].Tick;
+        }
 
         int span = arguments.Count > 3 &&
             int.TryParse(arguments[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out int many)
@@ -218,6 +229,22 @@ public sealed class JitterProbe : IProbe
             $"{backwards:N0} apply EARLIER than the keyframe before them"));
     }
 
+    /// <summary>The track for an entity index that is alive at a tick, since the index alone is not one.</summary>
+    /// <param name="timeline">The recording.</param>
+    /// <param name="entity">Slot in the entity table.</param>
+    /// <param name="tick">The moment being asked about, or −1 for "any track with this index".</param>
+    /// <returns>The track, or <c>null</c> when no track with that index covers the tick.</returns>
+    /// <remarks>
+    /// **`Alive` rather than a tick-range comparison of my own** — it is the test `At` and `Held` both go
+    /// through, so a track this picks is a track the sampler will answer for. Rebuilding the comparison
+    /// here is how two expressions that must agree stop agreeing, which `ScenePropTrack.Alive`'s own
+    /// comment records the cost of.
+    /// </remarks>
+    private static ScenePropTrack? Select(DemoTimeline timeline, int entity, int tick) =>
+        tick < 0
+            ? timeline.Props.FirstOrDefault(one => one.EntityIndex == entity)
+            : timeline.Props.FirstOrDefault(one => one.EntityIndex == entity && one.Alive(tick));
+
     /// <summary>Each motion run of one track, sampled around its own window.</summary>
     /// <param name="output">Where to report.</param>
     /// <param name="track">The track.</param>
@@ -232,6 +259,7 @@ public sealed class JitterProbe : IProbe
     /// state at T minus the delay: a window that stopped at the last stated tick would cut the drawn
     /// motion off before it finished.
     /// </remarks>
+
     private static void Runs(TextWriter output, ScenePropTrack track, float interval)
     {
         int reported = 0;
