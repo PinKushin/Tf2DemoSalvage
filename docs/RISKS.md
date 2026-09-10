@@ -27504,11 +27504,47 @@ ambiguity beats detecting it"* and a note that it had already fooled a parallel 
 filed, understood, and not acted on, so it bit again — `filing-a-divergence-is-not-fixing-it` applied to
 a memory rather than to code. A hazard is not mitigated by having been written up.
 
-**What is NOT established:** `assert-test-count.sh` has no test of its own. It guards every floor in the
-project and both of its defects were found by hand, today, while chasing something else. Verification is
-by manipulation each time somebody thinks to do it, which is exactly the standard this project rejects
-for C#. There is no shell-test harness in the repository, so adding one is a decision rather than a
-chore.
+**The guard now guards itself, and the owner's question is what shaped it.** *"a test for a test?"* —
+which is the right objection to the wrong description. `assert-test-count.sh` is not a test, it is what
+decides whether twelve floors mean anything, and when it is broken the gate reports success having
+checked nothing.
+
+**A thirteenth test project was the wrong answer** and the reason is this repository's own history: a
+suite needs a floor in `build/gate.sh` AND one in `.github/workflows/test.yml`, and those two drifting
+apart is a defect that has happened twice. So the check is fifteen lines at the top of the gate, costs
+a second, adds no floors, and runs for anyone who gates:
+
+```
+guard: assert-test-count.sh passes at its floor, fails above it, and refuses ambiguity
+```
+
+**Five properties, each chosen because its failure is silent:**
+
+| property | what it stops |
+|---|---|
+| passes at the count | a guard so strict nothing ever meets it |
+| fails one ABOVE it | a number that passes at both, which measures nothing |
+| refuses a run with FAILURES | a suite that runs everything and fails half of it still meets its floor |
+| reads `total=` and not `executed=` | they differ by `[Explicit]` and skips, so the wrong one sits under every floor and the "fix" looks like lowering them |
+| refuses two candidate files | resolving the ambiguity by guessing is what read another worktree |
+
+**It caught a real defect on its first run, in itself.** `here=$(dirname "$0")` is RELATIVE, so once the
+check ran from a temporary fixture `build/assert-test-count.sh` did not exist there and it reported the
+guard broken — the right complaint about the wrong thing. `here` is now absolute, which also makes every
+other path in the script immune to a future `cd`.
+
+**Four of the five are proved able to fail, by sabotage.** Disabling the floor comparison reddens with
+*"accepted a run one BELOW its floor"*; disabling the failure check reddens with *"accepted a run with
+FAILED tests in it"*; swapping `total` for `executed` reddens with *"read 'executed' rather than 'total'
+— every floor is now wrong"*; and a decoy `.trx` at the repository root makes the real script exit 1
+naming both paths. The fifth is the control.
+
+**One of those sabotages exposed a fixture that could not fail.** Swapping `total` for `executed` first
+reddened the AT-FLOOR case rather than the dedicated one, because that fixture carried no `executed`
+attribute at all — so a guard misreading it found nothing, fell to zero, and failed the wrong assertion.
+Right problem, wrong place, and the dedicated case was doing no work. Both fixtures now state `executed`
+explicitly, so each property can fail alone. That is the same fault as the worn-model tests earlier the
+same day: a fixture that does not vary the axis its test is named for.
 
 *Evidence class: measured — the three totals above are from the three files as they stood; the refusal
 and the restored pass were each run.*
