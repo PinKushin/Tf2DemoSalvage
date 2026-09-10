@@ -85,7 +85,7 @@
 - [Name the reading you picked](name-the-reading-you-picked.md) — a requirement cannot be revisited.
 - [Never revert without asking](never-revert-without-asking.md) — asked-for and working is not yours to discard.
 - [Name the trade before fixing Valve](name-the-trade-before-fixing-valve.md) — arbitrary AND precise means a trick.
-- [Read the trx total, not the console](read-the-trx-total-not-the-console.md) — exact floors, skips, zero exits.
+- [Read the trx total, not the console](read-the-trx-total-not-the-console.md) — exact floors, skips, zero exits; a CI floor needs a green run's artifact, and two files hold the same floors.
 - [Boundaries find what tests cannot](boundaries-find-what-tests-cannot.md) — it questions the assumed structure.
 - [A config is a program](a-config-is-a-program.md) — aliases redefine at runtime.
 - [Silence about a missing feature is not a preference](silence-about-a-missing-feature-is-not-a-preference.md) — falling back is not overriding.

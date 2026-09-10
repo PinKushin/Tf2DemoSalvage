@@ -138,6 +138,24 @@ jobs:
         # to Audio.Tests; this copy was not, so every push failed on a floor that no longer
         # described the suite. Nothing connects the two files, so a change to one has to be made in
         # both by hand — check here whenever a floor moves in gate.sh.
+        #
+        # **Re-measured on CI, 2026-09-09: five of these seven had drifted below the suites they
+        # guard** — core by 226 (raised in the commit above from this same finding), content by
+        # 293, scene by 386, animation by 211 and presentation by 19. No test was added or removed
+        # to earn the raises; every number below is a runner's own .trx total, and the note beside
+        # each says so rather than inventing a reason for tests somebody else wrote.
+        #
+        # **A CI floor has to be measured on CI.** These projects run on Linux here and on Windows
+        # in the local gate, and discovery is environment-dependent in places, so a local number is
+        # a guess until a runner reports it. They did agree exactly this time — every project
+        # measured on both machines the same day — because a .trx total counts SKIPPED tests, so a
+        # case that ignores on a runner still appears. That agreement is a measured result, not a
+        # licence to copy the local list next time.
+        #
+        # **Read the .trx, never the console: on CI they differ by more than a rounding.** Same
+        # run, Audio printed `Total: 180` on the console against 183 in its .trx, and Corpus 126
+        # against 156. assert-test-count.sh greps `total="…"` for exactly that reason, and a floor
+        # set from a console line would sit thirty short while looking perfectly reasonable.
         run: |
           # 1504 -> 1512 is a measurement, not arithmetic: SkipTests' eight cases read no files, so
           # a runner without the game executes every one of them exactly as this machine does.
@@ -227,7 +245,10 @@ jobs:
           # unit cases run anywhere; the seventh reads the shipped schema and skips on CI, which
           # has no game install — the count is unaffected either way, since a skipped test is
           # still discovered and still counted.
-          ./build/assert-test-count.sh '**/content.trx' 843 Content
+          #
+          # 843 -> 1136 on 2026-09-09: closed DRIFT, not 293 new tests, measured on the same CI run
+          # as core's raise above and for the same reason. Nothing was added or removed here.
+          ./build/assert-test-count.sh '**/content.trx' 1136 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           # 412 -> 414 on 2026-08-29, and that is TWO bumps: the stale-clock case on
           # `DemoSystems.Open` (B223 follow-up) was raised in build/gate.sh and missed here, and the
@@ -237,13 +258,20 @@ jobs:
           # vgui_fpspanel.cpp:316 and 3 on ToolsPanel's shared line counter. All device-free.
           # 424 -> 425 on 2026-08-30: the presenter asks its source for the round state (B235).
           # A wiring assertion, on a stub - no game install, no demo.
-          ./build/assert-test-count.sh '**/presentation.trx' 425 Presentation
+          #
+          # 425 -> 444 on 2026-09-09: closed DRIFT, not 19 new tests, measured on the same CI run
+          # as core's raise above and for the same reason.
+          ./build/assert-test-count.sh '**/presentation.trx' 444 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
           # and still appear in the total. That is the same reason Content's 645 holds while it
           # executes a fraction of its cases here.
-          ./build/assert-test-count.sh '**/animation.trx' 41 Animation
+          #
+          # 41 -> 252 on 2026-09-09: closed DRIFT, not 211 new tests, measured on the same CI run
+          # as core's raise above and for the same reason. This was the widest gap in the file:
+          # a floor of 41 accepted a run that lost five sixths of the suite.
+          ./build/assert-test-count.sh '**/animation.trx' 252 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView
@@ -266,7 +294,10 @@ jobs:
           # models loaded, so all seven run on CI.
           # 270 -> 277 on 2026-08-30: the spyMask bodygroup (B236). Hand-built players and a stub
           # resolver, so all seven run without a game install.
-          ./build/assert-test-count.sh '**/scene.trx' 283 Scene
+          #
+          # 283 -> 669 on 2026-09-09: closed DRIFT, not 386 new tests, measured on the same CI run
+          # as core's raise above and for the same reason. Nothing was added or removed here.
+          ./build/assert-test-count.sh '**/scene.trx' 669 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
@@ -330,8 +361,12 @@ jobs:
             Tf2DemoSalvage.Content 53 45 || failed=1
           exit $failed
 
+      # **`always()` rather than `failure()`, because a floor can only be set from a GREEN run's
+      # .trx.** The notes above say twice to "confirm against the next green run's .trx and tighten
+      # if it disagrees" — and until 2026-09-09 no green run uploaded one, so every floor here that
+      # was not read off a FAILED run stayed arithmetic and drifted. A .trx is a few hundred KB.
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: always()
         with:
           name: unit-trx
           path: |
@@ -479,6 +514,21 @@ jobs:
         # Audio is the one still slightly slack: 116 was measured before that day's soundscape and
         # gain work added more, and the exact post-merge figure needs a green run to read. Tighten it
         # once there is one.
+        #
+        # **There is one now — run 34414373886, 2026-09-09 — and audio came back at 183, which is
+        # what this floor already said.** The other five were read from the same run's .trx:
+        # fonts 7 and viewer 108 were exact too, rendering was 53 low, corpus 32 low and viewer-ui
+        # 17 low. Those three are raised below as closed DRIFT; no test was added or removed.
+        #
+        # **The green run is the whole point, and it did not exist before today.** Both
+        # upload-artifact steps in this file were `if: failure()`, so the .trx these numbers are
+        # meant to be checked against was produced only by runs that had already gone red — which
+        # is why the paragraph above sat here since 2026-08-24 asking for a green one. Changed to
+        # `always()` in the same commit that raises these.
+        #
+        # **Read the .trx, not the console.** Same run: audio printed `Total: 180` and its .trx said
+        # 183; corpus printed 126 against 156. assert-test-count.sh greps `total="…"` deliberately,
+        # and a floor taken off a console line would sit thirty short and look reasonable.
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 183 Audio
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
@@ -507,17 +557,34 @@ jobs:
           # gate has been at 713 for days; a floor a hundred below the suite it guards catches
           # neither of the two failures floors exist for, which is the warning this file already
           # carries about Core and Viewer. 716 is the measured total after B237's three cases.
-          ./build/assert-test-count.sh '**/rendering.trx' 716 Rendering
-          ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
+          #
+          # 716 -> 769 on 2026-09-09: closed DRIFT, not 53 new tests. Measured on run 34414373886
+          # from the .trx this job uploaded, and it closes the "gap to the local gate" the three
+          # notes above kept deferring — the two numbers are now the same because both were read
+          # off a run rather than one being raised by a delta.
+          ./build/assert-test-count.sh '**/rendering.trx' 769 Rendering
+          # 14 -> 31 on 2026-09-09: closed DRIFT, not 17 new tests, measured on the same run.
+          # **This suite is guarded HERE ONLY** — build/gate.sh has no floor for it, because the UI
+          # phase runs outside the gate under the machine-wide lock. A floor of 14 against 31 left
+          # more than half of the only automated check on the window unguarded.
+          ./build/assert-test-count.sh '**/viewer-ui.trx' 31 ViewerUi
           # 117 -> 118 on 2026-08-28: ViewmodelAnimationParityCorpusTests, which asserts the parity
           # counter reaches the scene from a real demo and changes there.
           # 118 -> 121 on 2026-08-28: LifeStateCorpusDiagnostic (3), which chose the UI suite's
           # opening tick. Skipped tests count toward the trx total, so the floor holds here too.
           # 123 -> 124: CorpusRenderModeDiagnostic, raised by the measured delta.
-          ./build/assert-test-count.sh '**/corpus.trx' 124 Corpus
+          #
+          # 124 -> 156 on 2026-09-09: closed DRIFT, not 32 new tests, measured on the same run.
+          # The paragraph above is still the rule — this is CI's count over the committed corpus,
+          # not a local one — but CI and a `TF2DEMOSALVAGE_GCOR_ONLY=1` local run now agree at 156,
+          # since gcor is exactly what a runner checks out. A full local run sees tools/corpus/local
+          # too and reports more; that number must never be copied here.
+          ./build/assert-test-count.sh '**/corpus.trx' 156 Corpus
 
+      # `always()` for the same reason as the unit job's copy above: the floors in this step are
+      # only checkable against a green run's .trx, and a green run used to upload none.
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: always()
         with:
           name: corpus-trx
           path: '**/*.trx'
