@@ -184,20 +184,27 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     {
         timeline.PropsAt(tick, into, viewEntity);
 
+        // **A rewind forgets every corpse's timer**, for the reason `DemoTimeline.PropsAt`
+        // rebuilds its whole sample on one: state carried across frames is wrong the moment the
+        // clock runs backwards, and a corpse expired on the way forward would otherwise be
+        // missing from a scrub back past its own death (D131).
+        bool rewound = tick < _lastTick;
+
+        // **Recorded whether or not there are corpses to fade** (B389). It was assigned inside the
+        // `ClassModels` branch, so a caller without a class list left it at zero for ever — and
+        // `OnNewModel` now uses it to say WHICH occupant of a reused slot the model resolved for.
+        // A tick that never advances would send every stamp to whichever track happens to be alive
+        // at zero, silently.
+        _lastTick = tick;
+
         // **After, because `PropsAt` clears the buffer first.** Corpses are not prop tracks and
         // never reach that walk — see `RagdollProps` for why the layering puts them here.
         if (ClassModels?.Invoke() is { } classes)
         {
-            // **A rewind forgets every corpse's timer**, for the reason `DemoTimeline.PropsAt`
-            // rebuilds its whole sample on one: state carried across frames is wrong the moment the
-            // clock runs backwards, and a corpse expired on the way forward would otherwise be
-            // missing from a scrub back past its own death (D131).
-            if (tick < _lastTick)
+            if (rewound)
             {
                 _fade.Rewound();
             }
-
-            _lastTick = tick;
 
             // **`interpolate` IS the previous frame's visible set** — the interface says so, and
             // both uses come from the same place in the engine: `g_InterpolationList` membership
@@ -228,7 +235,18 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// <inheritdoc />
     public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping, bool staticProp)
     {
-        if (timeline.TrackFor(entityIndex) is { } track)
+        // **The occupant of that slot at the frame being drawn, not whichever was written last**
+        // (B389). An edict index does not name a track: the engine recycles slots, so
+        // `TrackFor(entityIndex)` hands back the LAST object to hold the index and a model resolving
+        // mid-match stamped a track that will not exist for another twenty thousand ticks. The same
+        // lookup produced B375's invisible rocket trails and B389's probe reporting a player for a
+        // door — it fails by answering, never by throwing.
+        //
+        // **No fallback to the index-only lookup when nothing is alive.** A model resolves during a
+        // frame, so if no occupant of the slot covers that frame then nothing of that entity is being
+        // drawn and there is no track this belongs to — a guess would be the failure again with an
+        // extra step (`docs/memory/fallbacks-do-not-make-guesses-safe.md`).
+        if (timeline.TrackFor(entityIndex, _lastTick) is { } track)
         {
             // **`_lastTick` is the engine's `curtime` here**, and a resize seeds its replacement entries
             // with it: `SetMaxCount` wipes and `Reset()` stamps `gpGlobals->curtime`

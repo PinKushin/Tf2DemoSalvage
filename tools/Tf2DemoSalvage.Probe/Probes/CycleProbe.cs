@@ -36,6 +36,15 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// </remarks>
 public sealed class CycleProbe : IProbe
 {
+    /// <summary>Merged sequences whose bone weights are printed, when the model has that many.</summary>
+    /// <remarks>
+    /// **A control on the weight reader, and it is scout-shaped by history** (B284): 15 to 17 are the
+    /// arms-only reload layers, whose lists must NOT read as all ones. Bounded against the model's
+    /// own sequence count since B389, because the subject is now whatever entity was asked for and a
+    /// door has three sequences rather than three hundred.
+    /// </remarks>
+    private static readonly int[] WeightProbeSequences = [15, 16, 17, 243];
+
     /// <inheritdoc/>
     public string Name => "cycle";
 
@@ -79,29 +88,16 @@ public sealed class CycleProbe : IProbe
             + $"from tick {from.ToString("0.##", CultureInfo.InvariantCulture)} "
             + $"step {step.ToString("0.###", CultureInfo.InvariantCulture)}");
 
-        // **The track's own keyframes first, because the sampled shape is only readable against
-        // them.** A run of identical cycles that lines up with the gap between two keyframes is a
-        // different fault from one that does not.
-        if (timeline.TrackFor(entity) is { } track)
-        {
-            output.WriteLine(
-                $"  track: {track.Keyframes.Count.ToString(CultureInfo.InvariantCulture)} keyframes, "
-                + $"client-side animated {track.ClientSideAnimated}");
-
-            foreach ((int tick, ScenePose pose) in track.Keyframes
-                .Where(frame => frame.Tick >= from - 20 && frame.Tick <= from + 40)
-                .Take(12))
-            {
-                output.WriteLine(
-                    $"    keyframe tick {tick.ToString(CultureInfo.InvariantCulture),7} "
-                    + $"cycle {pose.Cycle:0.#####} sequence {pose.Sequence}");
-            }
-        }
-        else
-        {
-            output.WriteLine("  track: NONE — the demo records nothing for that entity");
-        }
-
+        // **The tick picks WHICH track, because the index alone does not name one** (B389). Edict
+        // slots are recycled, and `TrackFor(entity)` answers about the last occupant written: this
+        // asked it for entity 141 at tick 8200 on the 2013 granary match and reported a
+        // client-side-animated player, while 141 at that tick is `main_entrance_door.mdl`. Nothing
+        // was missing from the output — it was a complete, plausible table about a different entity,
+        // which is the shape `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` collects.
+        //
+        // Shared with `jitter` rather than copied from it: the two probes must not be able to
+        // disagree about which entity they opened.
+        //
         // **Sampled off the TRACK, not out of `PropsAt`.** A player is not a prop: `PropsAt`
         // reports entities the demo describes with models, and a player becomes one only when
         // `MomentScene` puts it there. The first version of this asked `PropsAt` and printed
@@ -109,9 +105,34 @@ public sealed class CycleProbe : IProbe
         // today to report a confident nothing because it looked in the wrong list.
         //
         // The track is also the more direct subject: `At` is the interpolation under inspection.
-        if (timeline.TrackFor(entity) is not { } sampled)
+        if (EntityTracks.Select(output, timeline, entity, from) is not { } sampled)
         {
             return;
+        }
+
+        // **The MODEL of the track that was picked, printed before anything else is said about it.**
+        // Without it the reader has no way to notice that the probe is describing something other
+        // than the entity they meant — which is exactly how the reported fault survived.
+        output.WriteLine(
+            $"  track: '{sampled.ModelPath}', "
+            + $"{sampled.Keyframes.Count.ToString(CultureInfo.InvariantCulture)} keyframes, "
+            + $"alive [{sampled.FirstTick.ToString(CultureInfo.InvariantCulture)}.."
+            + $"{(sampled.EndTick == int.MaxValue ? "end" : sampled.EndTick.ToString(CultureInfo.InvariantCulture))}], "
+            + $"client-side animated {sampled.ClientSideAnimated}"
+            + (timeline.TracksFor(entity).Count > 1
+                ? $"  (that index owns {timeline.TracksFor(entity).Count.ToString(CultureInfo.InvariantCulture)} tracks; the tick chose this one)"
+                : string.Empty));
+
+        // **The track's own keyframes, because the sampled shape is only readable against them.** A
+        // run of identical cycles that lines up with the gap between two keyframes is a different
+        // fault from one that does not.
+        foreach ((int tick, ScenePose pose) in sampled.Keyframes
+            .Where(frame => frame.Tick >= from - 20 && frame.Tick <= from + 40)
+            .Take(12))
+        {
+            output.WriteLine(
+                $"    keyframe tick {tick.ToString(CultureInfo.InvariantCulture),7} "
+                + $"cycle {pose.Cycle:0.#####} sequence {pose.Sequence}");
         }
 
         // **The frame the sampler was HANDED, which is the only number that tells gliding from
@@ -168,11 +189,16 @@ public sealed class CycleProbe : IProbe
         // produce a layer — and the difference is which animation the body gets. Comparing a
         // merged index against the `model` probe's ROOT list is what made this look like a weight
         // problem when it was a lookup problem (B284).
+        // **The model of the ENTITY being probed, not a literal** (B389). This read
+        // `"models/player/scout.mdl"` — left behind by the session that wrote it — so a run against
+        // a door printed a scout's activity table underneath a door's keyframes, and the two read as
+        // one report about one entity. An instrument that names its subject from somewhere other
+        // than its subject will eventually name the wrong one.
         if (geometry is { } dumpLoad &&
-            "models/player/scout.mdl" is { } shownPath &&
+            sampled.ModelPath is { Length: > 0 } shownPath &&
             dumpLoad(shownPath)?.Skinned is { } shownModel)
         {
-            output.WriteLine($"  merged table for {shownPath}, activities naming RELOAD_STAND:");
+            output.WriteLine($"  merged table for {shownPath}, attack/flinch/jump-land activities:");
 
             for (int index = 0; index < shownModel.Sequences.Count; index++)
             {
@@ -201,7 +227,8 @@ public sealed class CycleProbe : IProbe
             // wrong, and if it reads as a real pattern the reader is right and a full-body count
             // elsewhere is the truth about that sequence. Without this, "76 of 78" is a number with
             // nothing to compare it to.
-            foreach (int probeSequence in new[] { 15, 16, 17, 243 })
+            foreach (int probeSequence in WeightProbeSequences
+                .Where(one => one < shownModel.Sequences.Count))
             {
                 IReadOnlyList<float> list = shownModel.BoneWeights(probeSequence);
 
@@ -211,6 +238,17 @@ public sealed class CycleProbe : IProbe
                     + $"{list.Count(w => w > 0f)} of {list.Count} non-zero, "
                     + $"sum {list.Sum():0.##}");
             }
+        }
+        else
+        {
+            // **Say which model was not read, rather than printing nothing.** A block that goes
+            // quiet reads as "there was nothing to say about it", which is the same silence that let
+            // a scout's table stand in for a door's.
+            output.WriteLine(
+                $"  merged table: unavailable for '{sampled.ModelPath}'"
+                + (geometry is null
+                    ? " — no game install, so no model was opened"
+                    : " — the model opened to no skinned data"));
         }
 
         for (int sample = 0; sample < 40; sample++)

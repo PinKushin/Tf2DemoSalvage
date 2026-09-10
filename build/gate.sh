@@ -473,7 +473,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # TheirOwnWidth` — is the property that separated the two competing fixes for that bug: the one
 # written in this session cleared the entries and failed it, and the per-entry offset that landed
 # passes it.
-run Tf2DemoSalvage.Core.Tests     core     1851
+# 1851 -> 1858 on 2026-09-10: seven from `c/vigorous-boyd-58fa93` for B389, the `cycle` probe
+# resolving an entity index without a tick. Renumbered from B386 on merge: two parallel sessions took
+# the same free number within an hour, and nothing in the build noticed. `assert-risk-citations.sh`
+# now runs above, and it would NOT have caught this one — a citation left at B386 resolves, at the
+# other session's entry. It catches a citation that arrives nowhere; a collision has no textual tell.
+run Tf2DemoSalvage.Core.Tests     core     1858
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -942,7 +947,7 @@ run Tf2DemoSalvage.Animation.Tests animation 252
 # backwards without looking wrong: the roll promotion that happens before the switch, the `.vmt`
 # default of SPR_VP_PARALLEL_UPRIGHT rather than the plain billboard, the upright refusal near
 # vertical, and world-glow-keeps-its-size against every-other-glow-does-not.
-run Tf2DemoSalvage.Scene.Tests    scene     688
+run Tf2DemoSalvage.Scene.Tests    scene     690
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

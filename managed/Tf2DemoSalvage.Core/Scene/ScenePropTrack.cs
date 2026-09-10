@@ -1797,6 +1797,16 @@ public sealed class ScenePropTrack
     /// </remarks>
     public void End(int tick) => _endTick = tick;
 
+    /// <summary>The first tick the entity was gone; <see cref="int.MaxValue"/> while it never was.</summary>
+    /// <remarks>
+    /// **Exposed so a report of this track's window prints the bound <see cref="Alive"/> tests**, not
+    /// a second reading of it. The last keyframe is a different number — a track ended at tick 900
+    /// whose last update landed at 880 is alive through 899 — so a diagnostic printing
+    /// <c>[first..lastKeyframe]</c> beside a selection made with <see cref="Alive"/> can say a tick
+    /// is outside the window that the selection accepted (B243).
+    /// </remarks>
+    public int EndTick => _endTick;
+
     /// <summary>The pose to draw at a moment, interpolated between keyframes.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <returns>The pose, or <c>null</c> when the entity did not exist then.</returns>

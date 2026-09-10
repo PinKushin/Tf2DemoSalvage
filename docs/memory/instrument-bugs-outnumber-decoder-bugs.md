@@ -666,3 +666,26 @@ declares and a demo sends 462 times. That one failed in the direction that *puni
 it argues a right name is wrong, which is worse than not checking at all. Same file already carried
 a note about a regex that "reported every fog property as declared-nowhere — a fact about the
 pattern rather than about Valve's tables". Second time, same file, same cause.
+
+**A probe that resolved an ENTITY INDEX without a tick, and named its subject from a literal**
+(B389, 2026-09-10). `cycle 20130518_0313_cp_granary_blu_blu 141 8200` reported a complete animation
+table headed `models/player/scout.mdl, client-side animated True`. Entity 141 at that tick is
+`main_entrance_door.mdl`, a `prop_dynamic`; the index owns seven tracks, one per round restart, and
+`DemoTimeline.TrackFor(entity)` returns the last one written.
+
+**Two faults reading as one answer, which is why it was believed.** The keyframes came from the wrong
+occupant of the right slot — a door's numbers from the wrong hour — and the model name came from a
+scout path hardcoded in the probe by an earlier session's investigation, printed under whatever entity
+was asked for. Neither is visible on its own: the table was coherent, the model was plausible, and
+nothing was missing.
+
+**The rule this adds:** *an instrument must name its subject from its subject.* A probe that takes an
+identifier must print what that identifier resolved TO — here the model path and the track's window —
+because a reader who cannot see the subject cannot notice it is the wrong one. And a literal left in a
+diagnostic outlives the investigation that put it there; it does not stop being printed when the
+question changes.
+
+**`jitter` had already fixed the same lookup and `cycle` had not**, which is the other half: a rule
+solved in one instrument and absent from the next is not solved. The selection moved into
+`DemoTimeline.TrackFor(index, tick)` with `EntityTracks.Select` reporting it, so the two probes cannot
+disagree about which entity they opened.
