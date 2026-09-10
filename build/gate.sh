@@ -364,7 +364,13 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # drawn height cannot move a unit in a tenth of a tick when the door moves 4.5 in a whole one. Only two
 # of the four were RED before the fix, and the other two are kept as properties: asking exactly AT a
 # duplicated changetime cannot fail, because the walk lands on the last duplicate either way.
-run Tf2DemoSalvage.Core.Tests     core     1835
+#
+# 1835 -> 1836 on 2026-09-09: one for B370, and it is the strongest assertion in this area because it
+# assumes nothing about the CURVE. At a fraction of zero `Lerp_Hermite` returns its own sample whatever
+# the tangents are, so every live history entry must be drawn at its own changetime -- no model of speed,
+# nothing an ease-in can explain away. Its fixture needed a LARGE backwards clock correction: a
+# one-tick version reproduced nothing and sabotaging the guard reddened nothing at all.
+run Tf2DemoSalvage.Core.Tests     core     1836
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

@@ -171,6 +171,75 @@ public sealed class FlushNewerConformanceTests
             -9f, 0.01f, "the -45 entry was flushed by a correction that moved the clock back");
     }
 
+    /// <remarks>
+    /// **The strongest assertion available for a drawn curve, because it assumes nothing about the
+    /// curve** (B370). When the drawn target lands ON an entry's changetime, `GetInterpolationInfo` gives
+    /// `frac = (targettime - older) / (newer - older) = 0` with that entry as `older`
+    /// (<c>interpolatedvar.h:845</c>), and `Lerp_Hermite` at a fraction of zero returns <c>p1</c> whatever
+    /// its tangents are. So the drawn height at <c>changetime + delay</c> is that entry's own value —
+    /// exactly, for every entry, with no model of speed or easing involved.
+    ///
+    /// **What it caught.** `Bracket` binary-searches `_changeTimes`, which still holds FLUSHED entries,
+    /// and their changetimes are not monotonic with the live ones. The engine never has this problem: its
+    /// flush deletes, so its list is monotonic and its newest-first walk is exact. Ours can land BELOW the
+    /// true position, and the downward walk then stops at the first live entry it meets — an older one. So
+    /// the door was drawn where it had been at an earlier moment: a PHASE error, which is what "very very
+    /// close to the door by the time it opens" is, and which no duration measurement can separate from a
+    /// slow rate.
+    ///
+    /// Measured on `20130518_0313_cp_granary_blu_blu` across 7,068 history entries: **3 to 5 per cent of
+    /// entries were not drawn at their own changetime, the worst by 111 units — a whole door travel.**
+    /// After the climb, three entries in total.
+    /// </remarks>
+    [Test]
+    public void At_EveryLiveEntry_IsDrawnAtItsOwnChangetime()
+    {
+        // **A LARGE backwards correction, and the size is the point.** A small one does not reproduce the
+        // fault: the flushed entries have to carry changetimes well ABOVE the live ones that follow, so a
+        // binary search over the raw array lands below the right entry AND the "still at or before the
+        // target" clause cannot climb past them either. A first version of this fixture corrected by one
+        // tick, and sabotaging the flushed-entry clause reddened nothing at all.
+        ScenePropTrack track = new(entityIndex: 328, "*50");
+
+        track.Add(0, Height(0f), appliedAt: 0);
+        track.Add(1, Height(-4.5f), appliedAt: 2);
+
+        // Two entries far ahead on the server's clock, which the correction below discards.
+        track.Add(2, Height(-90f), appliedAt: 20);
+        track.Add(3, Height(-94.5f), appliedAt: 21);
+
+        // The correction: applied at 4, so both entries at or after 4 are flushed. The array now reads
+        // changetimes 0, 2, 20(flushed), 21(flushed), 4, 6 — not monotonic, which is what the engine's
+        // deleting flush never leaves behind.
+        track.Add(4, Height(-9f), appliedAt: 4);
+        track.Add(5, Height(-13.5f), appliedAt: 6);
+
+        InterpolatedHistory history = track.Simulation;
+        int off = 0;
+
+        for (int index = 0; index < history.Count; index++)
+        {
+            (int received, int flushedAt) = history.ArrivalAt(index);
+            double at = history.ChangeTimeAt(index) + Delay;
+
+            if (at < received || flushedAt <= at)
+            {
+                continue;
+            }
+
+            if (track.At(at) is { } pose &&
+                Math.Abs(pose.Z - history.ValuesAt(index)[2]) > 0.01f)
+            {
+                off++;
+            }
+        }
+
+        off.ShouldBe(
+            0,
+            "at a fraction of zero the curve returns its own sample, so every live entry must be drawn " +
+            "at its own changetime whatever the flushed entries around it do to a binary search");
+    }
+
     [Test]
     public void At_ScrubbedBeforeAFlush_StillSeesWhatTheClientHeldThen()
     {

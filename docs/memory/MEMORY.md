@@ -185,3 +185,4 @@
 - [The prune keeps two stale entries](the-prune-keeps-two-stale-entries.md) — Truncate(i+3); the engine's spline is bounded by ARRIVAL, never by age.
 - [An unused method may be the engine's](an-unused-method-may-be-the-engines.md) — S1144 can mean a lost call site; a refactor's damage is the calls it stops making.
 - [Port the engine's bottom layer first](port-the-engines-bottom-layer-first.md) — top-down retrofits every fact into the wrong object, and its tests cannot see the bottom at all.
+- [A fraction of zero is an oracle](a-fraction-of-zero-is-an-oracle.md) — a duration cannot test a spline; assert where the interpolation collapses to an identity.

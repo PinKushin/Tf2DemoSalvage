@@ -229,6 +229,78 @@ public sealed class JitterProbe : IProbe
             $"{backwards:N0} apply EARLIER than the keyframe before them"));
     }
 
+    /// <summary>Each history entry against the drawn height at its own changetime plus the delay.</summary>
+    /// <param name="output">Where to report.</param>
+    /// <param name="track">The track, for both its history and its sampler.</param>
+    /// <remarks>
+    /// **An oracle that assumes NOTHING about the curve, which is why it exists** (B370). Every earlier
+    /// attempt compared the drawn motion against a constant-speed ramp, and a hermite is not a ramp: it
+    /// eases out of a held position because the third sample equals the second, so its duration between
+    /// two heights is longer than a straight line's with no rate being wrong. A duration test cannot tell
+    /// that from a defect.
+    ///
+    /// **This one can, because it uses a point the engine's own arithmetic pins exactly.** When the drawn
+    /// target lands ON an entry's changetime, `GetInterpolationInfo` gives
+    /// <c>frac = (targettime - older) / (newer - older) = 0</c> for that entry as `older`
+    /// (<c>interpolatedvar.h:845</c>), and `Lerp_Hermite` at a fraction of zero returns <c>p1</c> whatever
+    /// its tangents are. So the drawn height at <c>changetime + delay</c> MUST be that entry's own value —
+    /// no curve model, no assumption about speed, and nothing the ease-in can explain away.
+    ///
+    /// A systematic offset here is a PHASE error: the door is drawn somewhere it was at a different
+    /// moment, which is what "very very close to the door by the time it opens" describes and what no
+    /// duration measurement could separate from a slow rate.
+    /// </remarks>
+    private static void Phase(TextWriter output, ScenePropTrack track)
+    {
+        InterpolatedHistory history = track.Simulation;
+        int delay = ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval);
+
+        int checked_ = 0;
+        int off = 0;
+        double worst = 0d;
+        int worstAt = 0;
+
+        for (int index = 0; index < history.Count; index++)
+        {
+            (int received, int flushedAt) = history.ArrivalAt(index);
+            int changeTime = history.ChangeTimeAt(index);
+
+            // The moment the drawn target lands on this entry's changetime. Only meaningful once the entry
+            // has arrived, and only while nothing has flushed it — the two bounds `Bracket` itself applies.
+            double at = changeTime + delay;
+
+            if (at < received || flushedAt <= at)
+            {
+                continue;
+            }
+
+            if (track.At(at) is not { } pose)
+            {
+                continue;
+            }
+
+            checked_++;
+
+            double gap = Math.Abs(pose.Z - history.ValuesAt(index)[2]);
+
+            if (gap > 0.01d)
+            {
+                off++;
+            }
+
+            if (gap > worst)
+            {
+                worst = gap;
+                worstAt = changeTime;
+            }
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"    phase: {off:N0} of {checked_:N0} entries are NOT drawn at their own changetime; " +
+            $"worst {worst:F2} units at changetime {worstAt}"));
+    }
+
     /// <summary>The track for an entity index that is alive at a tick, since the index alone is not one.</summary>
     /// <param name="timeline">The recording.</param>
     /// <param name="entity">Slot in the entity table.</param>
@@ -506,6 +578,7 @@ public sealed class JitterProbe : IProbe
             // somebody guessed, because a door's opening is twenty-five ticks in a fifty-thousand-tick
             // recording and picking that by hand is how the first attempt measured nothing.
             Runs(output, track, timeline.IntervalPerTick);
+            Phase(output, track);
         }
     }
 
