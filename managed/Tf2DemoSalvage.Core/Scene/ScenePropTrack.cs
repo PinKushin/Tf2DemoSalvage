@@ -1388,91 +1388,74 @@ public sealed class ScenePropTrack
             return (false, double.PositiveInfinity);
         }
 
-        double next = _endTick;
+        int now = (int)Math.Floor(tick);
 
-        void Candidate(double at)
+        // **The engine's rule, and it does not predict anything** (B370). `Interpolate()` runs every frame
+        // for everything on `g_InterpolationList`, and an entity leaves only when its own history says a
+        // rising clock cannot change the answer — `if ( bNoMoreChanges ) RemoveFromInterpolationList()`
+        // (`c_baseanimating.cpp:4478`), out of `GetInterpolationInfo`'s `pNoMoreChanges`
+        // (`interpolatedvar.h:832`, `:865`). A later update puts it back through `PostDataUpdate`.
+        //
+        // **What this replaces was a divergence and the owner named it.** This method used to enumerate the
+        // ticks at which `At` might change shape — the first pose's exit, each history arrival, the state
+        // boundary, the lerp window's two ends — and every one of those was an arithmetic RESTATEMENT of a
+        // decision the sampler makes for itself. Two expressions that had to agree, with nothing making
+        // them: measured on granary, `PropsAt` handed the renderer a pose disagreeing with the track on
+        // 2.9% of ticks, by up to 12.47 units. That is what "the spawn doors just stay open" was.
+        //
+        // **`blend` still gates it**, because a track sampled through `Held` is not interpolating at all
+        // and has nothing to settle.
+        bool settled = _simulation.Bracket(tick - InterpolationDelayTicks, now)
+            is not { NoMoreChanges: false };
+
+        // **The one wake that is a real event rather than a prediction: the next packet.** The engine needs
+        // none because the packet arriving IS the notification; a reader holding the whole recording has to
+        // ask when that will be. Taken across both histories, since either can re-latch the entity.
+        // **Computed whether or not the interpolation is settled, and the exception was a defect.** A track
+        // sampled through `Held` is never on the lerp list, so an unsettled one with no wake is never
+        // looked at again — `PropsAt_SteppedForward...MatchesAFreshTimelineEverywhere` read a barrel that
+        // had died at tick 90 still being drawn, because its target sat before its first entry (so: not
+        // settled) and it was outside the blending set (so: not lerping).
+        double next = double.PositiveInfinity;
+
+        // **Two moments per history, and missing the second cost four stale ticks.** An entry ARRIVING
+        // changes what the search can reach; the delayed target reaching its CHANGETIME is when the pair
+        // actually starts moving toward it, and those are `delay` ticks apart. Scheduling only arrivals
+        // left entity 328 drawn at -339.50 where its track said -351.97 — 12.47 units, about three ticks
+        // of a granary shutter — because the wake fired eight ticks before the answer moved.
+        foreach (int? moment in (int?[])
+            [
+                _simulation.ArrivesAfter(now),
+                _animation.ArrivesAfter(now),
+                _simulation.HeadChangeTime(now) + InterpolationDelayTicks,
+                _animation.HeadChangeTime(now) + InterpolationDelayTicks,
+            ])
         {
-            if (at > tick && at < next)
+            if (moment is { } at && at > tick && at < next)
             {
                 next = at;
             }
         }
 
-        // The exit from the "nothing had arrived yet" branch, which serves the first pose while
-        // the delayed target still sits at or before the first keyframe.
-        Candidate(born + InterpolationDelayTicks);
-        Candidate(born + InterpolationDelayTicks + 1);
-
-        // **The candidates come from the SIMULATION HISTORY, because that is what `At` reads** (B382).
-        // They used to come from `_heldUntil` and the next keyframe's arrival, which was the same
-        // arithmetic performed on a different structure — and a scheduler that describes a sampler it no
-        // longer shares a shape with is the failure `Alive` records: the two disagreed about when a track
-        // was finished, no further wake was scheduled, and the stepped sampler froze on a stale pose.
-        int now = (int)Math.Floor(tick);
-
-        // A packet landing changes what the history can bracket, so its arrival is a wake in its own
-        // right — the engine is told by `NoteChanged` at that moment.
-        if (_simulation.ArrivesAfter(now) is { } arrival)
-        {
-            Candidate(arrival);
-            Candidate(arrival + 1);
-        }
-
-        if (_animation.ArrivesAfter(now) is { } animationArrival)
-        {
-            Candidate(animationArrival);
-            Candidate(animationArrival + 1);
-        }
-
-        // **The STATE boundary, which is not a history changetime and has to be named separately.**
-        // `At` takes `Hidden`, `Sequence`, `RenderMode` and the rest from the keyframe at or before the
-        // tick asked for, so the answer changes shape at the NEXT keyframe's own tick — a moment no
-        // interpolation changetime falls on. Dropping it made `PropsAt` disagree with `At` about entity
-        // 648 on `tf2-2007-build3258-pov-cp_granary` at tick 5334: the pose said drawable and the drawn
-        // set, built from a stale wake, did not have it. That is the third time this entity has caught a
-        // scheduler that stopped describing the sampler.
-        //
-        // **No delay added, since B383 removed the delay from the state selection.** It was
-        // `keyframe.Tick + delay` while state came from the delayed target, and the two have to move
-        // together or the scheduler drifts again.
+        // The state fields come from the keyframe list rather than from a history, and a settled
+        // interpolation says nothing about them — so the next keyframe's own arrival is a wake too.
         int state = IndexAt(now);
 
-        if (state >= 0 && state + 1 < _keyframes.Count)
+        if (state >= 0 && state + 1 < _keyframes.Count && _keyframes[state + 1].Tick < next)
         {
-            Candidate(_keyframes[state + 1].Tick);
-            Candidate(_keyframes[state + 1].Tick + 1);
+            next = _keyframes[state + 1].Tick;
         }
 
-        bool changing = false;
-
-        if (_simulation.Bracket(tick - InterpolationDelayTicks, now) is { } pair)
+        // **The track's own death, which is an EVENT and not a prediction.** `Alive` stops answering at
+        // `_endTick`, so a track still has to be looked at once more to be dropped. Leaving it out kept a
+        // prop alive past its end: the same stepped-against-fresh test read five props at tick 90 where a
+        // cold timeline reads four.
+        if (_endTick > tick && _endTick < next)
         {
-            int fromTick = _simulation.ChangeTimeAt(pair.Older);
-            int toTick = _simulation.ChangeTimeAt(pair.Newer);
-
-            // The lerp starting (the restated tick plus the delay) and ending (the destination
-            // plus the delay), each padded one past for the floor.
-            Candidate(fromTick + InterpolationDelayTicks);
-            Candidate(fromTick + InterpolationDelayTicks + 1);
-            Candidate(toTick + InterpolationDelayTicks);
-            Candidate(toTick + InterpolationDelayTicks + 1);
-
-            // **Mid-lerp is now "the delayed target lies inside the pair's own interval", and there is no
-            // separate causality term because the reach bound is the causality gate.** `Bracket` cannot
-            // return an entry that had not arrived, so a pair existing at all means the client had both.
-            // The last term is the "nothing had arrived yet" branch still being in force: while the
-            // delayed target sits at or before the first keyframe, `At` serves that keyframe whatever the
-            // segment is doing. `>=` and not `>`, per the superset rule above — at exactly
-            // `born + delay` the lerp begins within the same tick, and judging the track parked there
-            // held it one tick stale.
-            changing = blend
-                && toTick > fromTick
-                && tick >= fromTick + InterpolationDelayTicks
-                && tick < toTick + InterpolationDelayTicks + 1
-                && tick >= born + InterpolationDelayTicks;
+            next = _endTick;
         }
 
-        return (changing, next);
+        return (blend && !settled, next);
     }
 
     /// <summary>The simulation history the sampler reads, for a diagnostic that must not rebuild it.</summary>
@@ -2148,19 +2131,15 @@ public sealed class ScenePropTrack
         // regression that shipped for one measurement: the prop count went 566 to 850, because
         // tracks that had already ended came back holding their last pose for ever. An entity that
         // is gone is not an entity that stopped interpolating.
-        if (AtKeyframe((int)Math.Floor(tick)) is null)
-        {
-            return null;
-        }
-
-        double target = tick - InterpolationDelayTicks;
-
-        if (_keyframes.Count > 0 && target <= _keyframes[0].Tick)
-        {
-            return _keyframes[0].Pose;
-        }
-
-        return AtKeyframe((int)Math.Floor(target));
+        // **Undelayed, because an entity the engine is not interpolating has no delay** (B370). Its
+        // `m_vecOrigin` is whatever the last update assigned, read live — `cl_interp` is a property of
+        // `CInterpolatedVar`, and an entity off `g_InterpolationList` never reaches one. This subtracted
+        // the interpolation delay, which is the same divergence B383 fixed for `At`'s state fields, and it
+        // put the two samplers' boundaries a window apart: the wake scheduler named the keyframe's own
+        // tick while `Held` changed answer `delay` ticks later. Measured on
+        // `PropsAt_SteppedForward...MatchesAFreshTimelineEverywhere`, the door read 0 where a cold
+        // timeline read 64 — at tick 158, which is its keyframe at 150 plus the eight-tick delay.
+        return AtKeyframe((int)Math.Floor(tick));
     }
 
     /// <summary>Advances the animation cycle, allowing for both wrapping and sequence changes.</summary>
@@ -2588,7 +2567,7 @@ public sealed class ScenePropTrack
     /// by B382, and named there as not established rather than assumed away.
     /// </remarks>
     private IReadOnlyList<float> PoseBetween(
-        IReadOnlyList<float> stated, (int Older, int Newer, int Oldest)? pair, float fraction)
+        IReadOnlyList<float> stated, Bracketing? pair, float fraction)
     {
         if (stated.Count == 0 || pair is not { } at)
         {

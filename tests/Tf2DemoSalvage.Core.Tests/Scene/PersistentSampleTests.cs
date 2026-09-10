@@ -343,6 +343,11 @@ public sealed class PersistentSampleTests
         mover.Add(0, new ScenePose { X = 0f });
         mover.Add(100, new ScenePose { X = 1000f });
 
+        // **A third keyframe, so there IS a next latch to join at** (B370). With only two, and `Held` no
+        // longer subtracting the interpolation delay, every sample after tick 100 reads 1000 whether the
+        // mover joins the lerp or not — the test would pass without discriminating anything.
+        mover.Add(200, new ScenePose { X = 2000f });
+
         DemoTimeline stepped = DemoTimeline.ForTracks([mover]);
 
         HashSet<int> nobody = [];
@@ -351,24 +356,32 @@ public sealed class PersistentSampleTests
         List<SceneProp> props = [];
 
         // Held, and parked: the wake at tick 100 consulted the set and found the mover excluded.
+        //
+        // **1000, not 0, and that is the last pose STATED** (B370). `Held` used to subtract the
+        // interpolation delay and call the keyframe at tick 0 "last stated"; `cl_interp` belongs to
+        // `CInterpolatedVar` and an entity off `g_InterpolationList` never reaches one, so its origin is
+        // whatever the last update assigned, read live.
         stepped.PropsAt(100.5d, props, nobody);
 
-        props.Single().Pose.X.ShouldBe(0f, "excluded from interpolation, the prop holds");
+        props.Single().Pose.X.ShouldBe(1000f, "excluded from interpolation, the prop holds where stated");
 
         // Visibility arrives BETWEEN keyframes. The engine would not re-latch here and neither do
         // we: the pose stays held until the next boundary.
         stepped.PropsAt(101d, props, theMover);
 
         props.Single().Pose.X.ShouldBe(
-            0f,
+            1000f,
             "visibility between updates does not join the lerp - the engine consults "
             + "ShouldInterpolate when an update latches, not per frame");
 
-        // The window for the 0->100 segment closes at tick 107 (keyframe plus the 7-tick sampling
-        // delay), which is this track's next boundary: from there the sampled pose is the final
-        // keyframe's.
-        stepped.PropsAt(108d, props, theMover);
+        // The next latch is the keyframe at tick 200, and from there the mover is blended: sampled one
+        // interpolation delay past it, the pose is strictly inside the 1000-to-2000 segment rather than
+        // held at either end.
+        stepped.PropsAt(208d, props, theMover);
 
-        props.Single().Pose.X.ShouldBe(1000f, "from the next boundary the new pose is served");
+        float joined = props.Single().Pose.X;
+
+        joined.ShouldBeGreaterThan(1000f, "from the next latch it interpolates rather than holding");
+        joined.ShouldBeLessThanOrEqualTo(2000f);
     }
 }

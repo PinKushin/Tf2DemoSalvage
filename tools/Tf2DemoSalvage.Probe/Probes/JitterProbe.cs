@@ -66,6 +66,7 @@ public sealed class JitterProbe : IProbe
             arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int entity))
         {
             Survey(output, timeline, arguments[1]);
+            Drawn(output, timeline, arguments[1]);
             return;
         }
 
@@ -299,6 +300,179 @@ public sealed class JitterProbe : IProbe
             CultureInfo.InvariantCulture,
             $"    phase: {off:N0} of {checked_:N0} entries are NOT drawn at their own changetime; " +
             $"worst {worst:F2} units at changetime {worstAt}"));
+    }
+
+    /// <summary>What <c>PropsAt</c> hands the renderer, against what <c>At</c> says (B370).</summary>
+    /// <param name="output">Where to report.</param>
+    /// <param name="timeline">The recording, asked through the path the viewer uses.</param>
+    /// <param name="model">A substring of the model path, as the survey took it.</param>
+    /// <remarks>
+    /// **The measurement that should have come first, and every number before it read the wrong thing.**
+    /// `At` is the sampler; the VIEWER goes through `PropsAt`, which serves a cached `SceneProp` and only
+    /// rebuilds it when `Motion` says the answer moved. So `At` can be exactly right while the screen shows
+    /// a door that opened once and stayed open — the cache was never told to look again.
+    ///
+    /// This is `docs/memory/output-level-assertion-or-it-is-not-done.md`. A unit measurement proves a
+    /// component works when called with the values the measurement chose; it says nothing about whether
+    /// production calls it, or with what. Phase, reach, speed and smoothness were all read off `At`.
+    ///
+    /// **Swept once a tick over the whole recording**, comparing every prop the drawn set contains against
+    /// the pose its own track answers for that tick. A disagreement is a stale cache; a prop the drawn set
+    /// omits entirely while its track is alive is the other half of the same fault.
+    /// </remarks>
+    private static void Drawn(TextWriter output, DemoTimeline timeline, string model)
+    {
+        List<ScenePropTrack> matched =
+        [
+            .. timeline.Props.Where(track =>
+                track.ModelPath.Contains(model, StringComparison.OrdinalIgnoreCase)),
+        ];
+
+        if (matched.Count == 0)
+        {
+            return;
+        }
+
+        int last = matched.Max(track => track.Keyframes[^1].Tick);
+        int first = matched.Min(track => track.FirstTick);
+
+        List<SceneProp> drawn = [];
+        int compared = 0;
+        int stale = 0;
+        int missing = 0;
+        double worst = 0d;
+        int worstAt = 0;
+
+        for (int tick = first; tick <= last; tick++)
+        {
+            timeline.PropsAt(tick, drawn);
+
+            foreach (ScenePropTrack track in matched)
+            {
+                if (track.At(tick) is not { } pose)
+                {
+                    continue;
+                }
+
+                // Matched on index AND liveness, because an index names several tracks over a recording.
+                SceneProp? handed = drawn.FirstOrDefault(
+                    one => one.EntityIndex == track.EntityIndex);
+
+                if (handed is null)
+                {
+                    if (!pose.Hidden)
+                    {
+                        missing++;
+                    }
+
+                    continue;
+                }
+
+                compared++;
+
+                double gap = Math.Abs(handed.Pose.Z - pose.Z);
+
+                if (gap > 0.01d)
+                {
+                    stale++;
+
+                    // **Named, not just counted.** A count says how often the drawn path disagrees; only
+                    // the tick and the entity say WHY, and the last four disagreements on granary needed
+                    // exactly that to find. Capped so a wholesale regression prints a summary rather than
+                    // fifteen thousand lines.
+                    if (stale <= 12)
+                    {
+                        output.WriteLine(string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"    stale at tick {tick}: entity {track.EntityIndex} drawn Z " +
+                            $"{handed.Pose.Z:F2} against the track's {pose.Z:F2} " +
+                            $"(track {track.FirstTick}-{track.Keyframes[^1].Tick})"));
+
+                        // **The pair the sampler chose, and whether it called itself settled.** A count and
+                        // a delta cannot say whether the cache was never woken or woken and given the wrong
+                        // answer; the bracket says which, and one guess about the wake schedule was already
+                        // wrong for want of it.
+                        int delay = ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval);
+
+                        if (track.Simulation.Bracket(tick - delay, tick) is { } pair)
+                        {
+                            output.WriteLine(string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"      target {tick - delay}: older ct " +
+                                $"{track.Simulation.ChangeTimeAt(pair.Older)} Z " +
+                                $"{track.Simulation.ValuesAt(pair.Older)[2]:F2}, newer ct " +
+                                $"{track.Simulation.ChangeTimeAt(pair.Newer)} Z " +
+                                $"{track.Simulation.ValuesAt(pair.Newer)[2]:F2}, " +
+                                $"settled {pair.NoMoreChanges}, " +
+                                $"head ct {track.Simulation.HeadChangeTime(tick)}, " +
+                                $"next arrival {track.Simulation.ArrivesAfter(tick)}"));
+                        }
+                    }
+                }
+
+                if (gap > worst)
+                {
+                    worst = gap;
+                    worstAt = tick;
+                }
+            }
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  DRAWN vs SAMPLED over ticks {first}-{last}: {stale:N0} of {compared:N0} handed a pose that " +
+            $"disagrees with the track; worst {worst:F2} units at tick {worstAt}; " +
+            $"{missing:N0} drawable but absent from the drawn set"));
+    }
+
+    /// <summary>Whether the drawn height ever reaches both ends of what the demo STATED.</summary>
+    /// <param name="output">Where to report.</param>
+    /// <param name="track">The track.</param>
+    /// <remarks>
+    /// **The owner's symptom stated as a number: "the spawn doors are just staying open after they open
+    /// once"** (B370). A door that opens and never closes is drawn reaching the stated maximum and never
+    /// returning to the stated minimum — which no smoothness, phase or duration measurement can see,
+    /// because each of those asks about a moment and this asks about the whole life of the track.
+    ///
+    /// **Sampled once a tick across the track's whole life**, because the fault is about coverage rather
+    /// than shape and a window would beg the question. Reported as the range actually drawn against the
+    /// range the demo stated, so a door that is short at either end shows which end.
+    /// </remarks>
+    private static void Reaches(TextWriter output, ScenePropTrack track)
+    {
+        float statedLow = float.MaxValue;
+        float statedHigh = float.MinValue;
+
+        foreach ((int _, ScenePose pose) in track.Keyframes)
+        {
+            statedLow = Math.Min(statedLow, pose.Z);
+            statedHigh = Math.Max(statedHigh, pose.Z);
+        }
+
+        if (statedHigh - statedLow <= 1f)
+        {
+            return;
+        }
+
+        float drawnLow = float.MaxValue;
+        float drawnHigh = float.MinValue;
+
+        for (int tick = track.FirstTick; tick <= track.Keyframes[^1].Tick + 64; tick++)
+        {
+            if (track.At(tick) is not { } pose)
+            {
+                continue;
+            }
+
+            drawnLow = Math.Min(drawnLow, pose.Z);
+            drawnHigh = Math.Max(drawnHigh, pose.Z);
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"    reach: stated [{statedLow:F1} .. {statedHigh:F1}], drawn [{drawnLow:F1} .. {drawnHigh:F1}]" +
+            $"{(drawnLow > statedLow + 1f ? "  SHORT AT THE BOTTOM — never returns to shut" : string.Empty)}" +
+            $"{(drawnHigh < statedHigh - 1f ? "  SHORT AT THE TOP — never fully opens" : string.Empty)}"));
     }
 
     /// <summary>The track for an entity index that is alive at a tick, since the index alone is not one.</summary>
@@ -579,6 +753,7 @@ public sealed class JitterProbe : IProbe
             // recording and picking that by hand is how the first attempt measured nothing.
             Runs(output, track, timeline.IntervalPerTick);
             Phase(output, track);
+            Reaches(output, track);
         }
     }
 
