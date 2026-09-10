@@ -28127,8 +28127,19 @@ the absence of prior coverage is a grep with a control.*
 **Numbered B389 rather than B386, which it was written as.** Two parallel sessions reached for the next
 free number within an hour of each other and both took 386 — so a search for it returned an
 interpolation-history bug and a probe bug, with nothing in the build to notice. `assert-decision-numbers.sh`
-guards D-numbers against exactly this and there is no equivalent for B-numbers; that gap is now visible
-rather than theoretical, and closing it would be the same script pointed at a different prefix.
+guards D-numbers against exactly this.
+
+**The equivalent for B-numbers now exists and it would NOT have caught this.** Both halves of the
+sentence that used to stand here were wrong. *"The same script pointed at a different prefix"* is not
+buildable: `DECISIONS.md` forbids duplicates and gaps because a decision is written once, while this
+file is append-only — 506 entry headings over 381 numbers, B13 carrying eleven, and eight numbers
+absent — so both of that script's rules fail here on the first run. And a check that resolves
+citations, which is what `build/assert-risk-citations.sh` does instead, was **sabotaged with one
+citation reverted to B386 and passed**: the other session's B386 exists, so a stale citation lands on
+somebody else's entry and nothing textual separates that from landing on the right one. What it does
+catch is a citation that arrives nowhere — a deleted entry, a typo, a renumber into a free number.
+A collision between two live numbers is not detectable after the fact; only not taking the number
+twice prevents it.
 
 
 **The third time this exact lookup has produced a confident wrong answer, and the first time it was an

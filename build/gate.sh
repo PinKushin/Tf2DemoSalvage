@@ -66,6 +66,13 @@ export TF2DEMOSALVAGE_GCOR_ONLY="${TF2DEMOSALVAGE_GCOR_ONLY:-1}"
 # every citation of it ambiguous, and nothing else in the build notices (B118).
 "$here/assert-decision-numbers.sh"
 
+# The same harm for risk numbers, reached the other way round: a `B###` in a comment promises the
+# reasoning is written down, and when the entry is absent the reader gets nothing. **It is a
+# DIFFERENT check, not the one above with a different letter** — RISKS.md is append-only, so
+# duplicates and gaps are normal there and forbidding them would fail on the first run. What it
+# catches, and what a sabotage proved it does NOT: the header of the script.
+"$here/assert-risk-citations.sh"
+
 # **The guard that guards the guards, and it exists because that one has been wrong twice** (B388).
 # `assert-test-count.sh` decides whether every floor below is met, so when IT is broken the whole
 # gate reports success having checked nothing — the same silent shape as the truncated run it was
