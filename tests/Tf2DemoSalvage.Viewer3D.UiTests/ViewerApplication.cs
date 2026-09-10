@@ -953,6 +953,14 @@ internal sealed partial class ViewerApplication : IDisposable
         _application.Dispose();
     }
 
+    /// <summary>The built viewer, for a test that runs it as a plain process rather than driving it.</summary>
+    /// <remarks>
+    /// **Exposed rather than copied** (B387). `CaptureUiTests` runs `--shot`, which exits by itself
+    /// and so cannot be an attached FlaUI application — but the executable it runs must be the same
+    /// one this fixture drives, or the two suites can disagree about which binary was tested.
+    /// </remarks>
+    public static string ExecutablePath => LocateExecutable();
+
     /// <summary>Finds the built viewer next to these tests.</summary>
     /// <remarks>
     /// Resolved from this assembly's own output directory rather than from a hard-coded

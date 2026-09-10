@@ -468,7 +468,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # demo sends — read from `CSprite`'s instance baseline — rather than numbers invented from the send
 # table. B386's tests are NOT here: two sessions fixed that within an hour of each other and the other
 # branch's fix is the one that keeps the scrub, so its tests land with it rather than being duplicated.
-run Tf2DemoSalvage.Core.Tests     core     1847
+# 1847 -> 1851 on 2026-09-10: four from `c/heuristic-sinoussi-774827` for B386, the interpolation
+# history's mixed stride. Its fourth — `Bracket_ScrubbedBackBeforeAWidthChange_ReadsTheOldEntriesAt
+# TheirOwnWidth` — is the property that separated the two competing fixes for that bug: the one
+# written in this session cleared the entries and failed it, and the per-entry offset that landed
+# passes it.
+run Tf2DemoSalvage.Core.Tests     core     1851
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

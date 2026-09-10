@@ -207,7 +207,8 @@ jobs:
           # 1836 -> 1839 on 2026-09-10: three for B385, ShouldInterpolate's missing clauses.
           # 1839 -> 1847 on 2026-09-10: eight for DT_Sprite's accessors (B378). B386's tests land
           # with the other branch's fix, which is the one that keeps the scrub.
-          ./build/assert-test-count.sh '**/core.trx' 1847 Core
+          # 1847 -> 1851 on 2026-09-10: four for B386's mixed stride, merged from a parallel session.
+          ./build/assert-test-count.sh '**/core.trx' 1851 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -574,7 +575,11 @@ jobs:
           # **This suite is guarded HERE ONLY** — build/gate.sh has no floor for it, because the UI
           # phase runs outside the gate under the machine-wide lock. A floor of 14 against 31 left
           # more than half of the only automated check on the window unguarded.
-          ./build/assert-test-count.sh '**/viewer-ui.trx' 31 ViewerUi
+          # 31 -> 32 on 2026-09-10: the `--shot` capture test (B387), merged from a parallel session.
+          # It asserts an exit code and PNG bytes rather than a picture, so it needs no roster and
+          # runs on an era specimen — 32 tests in 33s measured locally, against 2m06 if it had used
+          # z1800 as this session first suggested.
+          ./build/assert-test-count.sh '**/viewer-ui.trx' 32 ViewerUi
           # 117 -> 118 on 2026-08-28: ViewmodelAnimationParityCorpusTests, which asserts the parity
           # counter reaches the scene from a real demo and changes there.
           # 118 -> 121 on 2026-08-28: LifeStateCorpusDiagnostic (3), which chose the UI suite's
