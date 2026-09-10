@@ -27864,3 +27864,78 @@ known visible symptom, which is exactly what a silent misread looks like.
 *Evidence class: read-from-source for `SetMaxCount` and `Reset`, with `file:line`; the crash and its
 stack are measured on `20130518_0313_cp_granary_blu_blu` at tick 27692; the two wrong reads are
 arithmetic, asserted against values the tests seeded.*
+
+#### B386 was fixed twice, two different ways, and the difference is visible
+
+**A second session found the same root cause independently and fixed it by CLEARING** the five
+parallel lists in `SetMaxCount` before `Reset` — the engine's literal `Reset() -> ClearHistory()`
+(`interpolatedvar.h:740`). That work is uncommitted in the main checkout's working tree; the branch it
+was reported on, `feat/entity-sprites` (`d7522415`), does not contain it and its `SetMaxCount` is
+unchanged. **Both fixes stop the crash.** They differ in what a scrub answers.
+
+Their argument, quoted from the code: *"This is not the retention licence being broken, it is where
+the licence stops … a difference in what is RETAINED, never in what is ANSWERED. An entry whose
+layout no longer exists answers nothing."*
+
+**The premise is a consequence of the bug rather than a fact about the data.** An entry's layout does
+still exist — it is the width it was written at. Only the fixed stride made it unreadable, and the
+offset restores it. So the choice is not "keep unreadable entries or clear them"; it is whether a
+scrub back across a model change answers from the old entries or from nothing.
+
+**Measured, not argued.** Applying the clearing approach to the offsets tree turns 2 of the 4
+`HistoryWidthChangeTests` red — `Bracket(15d, 20)`, a scrub to before the width change, returns null
+where it returned the pair `(0, 1)`. In viewer terms: an entity's pose parameters are unblended for
+its entire pre-change life, every time it changes model. `PoseBetween` then falls back to the stated
+value, so it degrades quietly rather than throwing.
+
+**Which is right is the owner's call, because it changes something he can see** and the engine cannot
+arbitrate — it has no scrub. The project's stated requirement is the owner's own: *"we should be able
+to get valve parity there and still scrub and rewind the demo, we just have to make it work in both
+directions"*, and `Reset`'s own remarks already say *"a scrub to before the reset still finds the old
+entries"*. The offsets fix satisfies both sentences; clearing satisfies neither, in exchange for being
+the engine's literal code. **Only one of the two should land** — they touch the same method and the
+same file.
+
+### B387 OPEN 2026-09-10: `--shot` had no test at all, and it has now broken silently twice
+
+**`MainForm` has said so in a comment since B196**: *"Nothing failed. No test passes `--shot`, so the
+whole option was covered by nobody."* That was written after the line applying the option went
+missing for a day and the flag did nothing. B386 is the second silent break and the worse kind — the
+process died before writing its PNG, and since `Program.Main` installs no unhandled-exception handler
+the log just stops mid-frame. A capture that dies takes its evidence with it.
+
+Confirmed with a control before acting on it: `--tick` is passed by a test
+(`ViewerSession.cs:221`), `--shot` by nothing outside `bin/` and `obj/`.
+
+**`CaptureUiTests` closes it.** It runs the viewer as a plain process, drains standard error on its
+own handler (a full pipe would otherwise deadlock exactly the run worth observing), checks
+`WaitForExit`'s return value before reading `ExitCode`, and asserts the exit code is zero, that the
+PNG exists, and that it starts with the PNG signature — a truncated or empty write being the failure
+a bare existence check cannot see. **The captured stderr goes into the assertion message**, so the
+next crash names itself instead of vanishing.
+
+**The subject is an era specimen and that is what makes it affordable.** Measured warm, one capture
+costs **12 seconds** on `cp_granary` and 12 on `koth_viaduct`, against **100 seconds** on `z1800`. The
+first version of this test used `z1800` — the demo every other fixture here shares — and cost 2
+minutes 6 seconds against a 53-second suite, which is a worse trade than the one the owner refused for
+the load tests (*"20 fucking seconds, no"*). `CLAUDE.md` is right that an era specimen cannot answer a
+rendering or roster question; **this test asks neither.** The suite is now 32 tests in 35 seconds.
+
+**What it does NOT catch, and this is the part worth keeping.** It does not reproduce B386. With the
+fixed-stride addressing restored, the test PASSED on `z1800` at tick 20,000 — sabotage, not
+assumption. The suggestion that prompted it assumed the opposite: *"A test that runs a capture and
+asserts the process exited zero and the PNG exists would have caught this."* It would not have.
+Reaching B386 through `--shot` needs `tools/corpus/local/20130518_0313_cp_granary_blu_blu` at tick
+27,692, which is lcor — CI would skip it and a local run pays about two minutes — so that repro stays
+written down in B386 rather than bought here. What this test guards is the B196 class: the option
+silently doing nothing.
+
+**Why OPEN rather than FIXED.** The hole is closed for a capture that crashes or writes nothing; it is
+not closed for a capture that writes a WRONG picture, which is the larger half and needs a different
+instrument. And nothing yet catches a viewer that dies anywhere else — an unhandled-exception handler
+that logs before the process goes would make every future crash legible in the log the suite already
+reads, and does not exist.
+
+*Evidence class: the 12-against-100-second costs and the 32-test 35-second suite are measured on this
+machine; the "does not catch B386" result is measured by restoring the fixed stride and re-running;
+the absence of prior coverage is a grep with a control.*
