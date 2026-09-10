@@ -27432,6 +27432,108 @@ That is the next change to `DrawTally.NotDrawable`, and it is deliberately not g
 
 *Evidence class: measured. The cause is UNKNOWN.*
 
+### B379 FIXED 2026-09-10: most of it was the probe, and what survived was every hat in the game
+
+**Carrying the class to the rejection took a day to pay off and did it in one run.** `DrawTally.NotDrawable`
+now keys the no-model bucket on the entity's CLASS and keeps one example index per bucket, which the
+entry above asked for. The population split immediately:
+
+| count | class |
+|---|---|
+| 2,636 | `CTFWearable` |
+| 145 | `CTFScatterGun` |
+| 115 | `CTFPipebombLauncher` |
+| 103 | `CTFRocketLauncher` |
+| 65 | `CTFShotgun_Soldier` |
+| 8 | `CTFSniperRifle` |
+
+**And then the instrument turned out to be most of the defect.** `ViewerCensusProbe` hand-rolled a
+subset of `MomentScene.Build` — `PropsAt`, `PlayerProps.Add`, `Add`, `Instances` — leaving out
+`WeaponModels.Resolve`, the attached-model supplier and the paint supplier. Every weapon whose model
+comes from its ITEM rather than from `m_nModelIndex` therefore arrived with no path and was counted as
+undrawable, so the census was reporting this project's own omission as a defect in the demo. That is the
+fifth entry in `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` — *"a probe that skipped the
+resolution step the viewer runs"* — committed again in the same file it is written about. Driven through
+`Build` and `Pose`, the no-model population falls from **3,072 to 356**, all of them `CTFWearable`, and
+every weapon bucket disappears.
+
+**What the fixed instrument then exposed is the real defect, and it is large.** With weapons and worn
+items resolving, `NO GEOMETRY` rose from 36 distinct models to 66 — the new ones all cosmetics:
+`xms_beard_soldier.mdl` 234 times, `fwk_medic_stahlhelm.mdl` 173, `medic_mask.mdl` 173,
+`bdayhat_soldier.mdl` 170, `soldier_grenade_skulls.mdl` 170, `c_rocketboots_soldier.mdl` 166.
+
+**Confirmed in the viewer, not only in the probe** — its own log during playback of the same demo:
+
+```
+world pass: asked for 94, produced 14; skipped 12 not-studio [11xlight_glow03.vmt#Sprite, 1x<no model>#Studio],
+  13 no-batches [1xmantreads.mdl, 1xxms_allclass_giftbadge.mdl, 1xsoldier_viking.mdl, 1x*72, 1x*73,
+  1x*77, 1x*79, 1xdex_glasses_soldier.mdl, 1xbdayhat_soldier.mdl, 1xxms_beard_soldier.mdl,
+  1xsoldier_grenade_skulls.mdl, 1xwitchhat_scout.mdl, 1xugc6participant.mdl], 0 kRenderNone, 55 off-screen
+packed models/weapons/c_models/c_rocketboots_soldier.mdl:
+```
+
+Thirteen cosmetics a frame, packed with nothing behind them. **And the `[props]` channel is silent about
+every one** — no `sequences`, no `pairing`, no `baked` line — where a model that really loads produces
+five. They never reached the loader at all.
+
+**The cause, and a clean bill of health that was telling the truth.** The asset load reports
+
+```
+ASKED FOR 166 entity models (1 of them the map's own detail models); HAVE 166; MISSING 0
+```
+
+and every one of the 166 did resolve. The cosmetics are not in the 166. `MapAssets.Geometry` is a
+dictionary lookup rather than a loader (`docs/memory/a-lookup-is-not-a-loader.md`), so a path that was
+never in the load list has no key, answers null, and is remembered as empty — silently, because the
+miss it documents as "already reported once, at load" only exists for paths the load knew about.
+
+Measured against the list itself: **34 of the 66 no-geometry models were never in it, and NO PROP TRACK
+NAMES ANY OF THEM.** That last clause is the diagnosis. `WeaponPropModels.Resolve` replaces a prop's
+model with `GetPlayerDisplayModel( iClass, team )` at draw time for every prop carrying an item index —
+`CEconEntity::UpdateModelToClass` (`econ_entity.cpp:411`) lets the item win over the networked model —
+so the path that reaches the renderer is named by the ITEM and never appears on the track.
+`DemoModels.Needed` builds the load list by walking tracks. The two can therefore never meet.
+
+**`WeaponModels.AllWornIn` is the walk that was missing.** `AllIn` resolves what a player HOLDS from
+each frame's roster; `AllAttachmentsIn` resolves an item's `attached_models`; neither resolves an item's
+own `model_player` for an entity that is WORN. The new walk takes each distinct `ItemDefinitionIndex`
+on the timeline and asks `For` across every player class, since `model_player_per_class` differs per
+class and the wearer's class is a per-tick fact — the same superset argument `AllAttachmentsIn` already
+makes for teams, one axis wider. It is added to both `Needed` and `ToPack`, because B195 is that those
+two disagreeing is itself a defect: a path packed and not loaded draws nothing, one loaded and not
+packed hitches on first sight, and the worn models were in neither.
+
+**Measured at the output, on `20130518_0313_cp_granary_blu_blu`, 255 frames:**
+
+| | before | after |
+|---|---|---|
+| props drawn | 7,419 | **9,700** |
+| models packing no geometry | 66 distinct | **32** |
+| no-geometry models never in the load list | 34 | **0** |
+| load list | 165 paths | 320 |
+
+**+2,281 draws, about nine more props on every frame.** The 32 that remain are all `*NN` brush
+submodels — `func_door` blockers and respawn-room visualizers whose faces are tool textures, which
+`BrushModels` already documents as a real answer rather than a failure.
+
+**The first two tests could not fail, and three sabotages proved it.** Pinning the class loop to one
+class, dropping `track.ClassName`, and removing the item guard each left all assertions green. Both
+tests used the rocket launcher — an item the schema knows by index with one `model_player` — so `For`
+answered from the item route whatever class was asked, and a walk asking once passed as well as one
+asking nine times. The fixture now carries an item with `model_player_per_class` and an item index the
+schema has never heard of, with a test each. The item guard stays uncovered on purpose: `For(null, …)`
+returns null, so the guard saves a call and decides no behaviour, and a test for it could not fail.
+
+**What is NOT established.** The load list doubled, and nothing has measured what that costs at map
+load; D86 says up-front is the right place for it, which is an argument about correctness rather than
+about the number. The 356 `CTFWearable` props that still name no model at all are untouched and are
+not the same population — an item that names nothing leaves the networked model in place, which is the
+other half of `UpdateModelToClass`'s condition, so some of those may be correct. And the 2,805
+`light_glow03.vmt#Sprite` rejections are B378, unchanged.
+
+*Evidence class: measured on the corpus and in the viewer's own log; read-from-source for
+`UpdateModelToClass` and `GetPlayerDisplayModel`. The before/after counts are one demo at one stride.*
+
 ### B377 FIXED 2026-09-09: the interpolation pair was chosen by ARRIVAL, and that is the jitter
 
 **The owner's report:** *"i think we still have some interp to do too, the demos are kinda jittery and

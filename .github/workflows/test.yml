@@ -299,7 +299,9 @@ jobs:
           #
           # 283 -> 669 on 2026-09-09: closed DRIFT, not 386 new tests, measured on the same CI run
           # as core's raise above and for the same reason. Nothing was added or removed here.
-          ./build/assert-test-count.sh '**/scene.trx' 669 Scene
+          # 669 -> 673 on 2026-09-10: four for B379's worn-model walk, two of them added because a
+          # sabotage pass reddened nothing against the first pair.
+          ./build/assert-test-count.sh '**/scene.trx' 673 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

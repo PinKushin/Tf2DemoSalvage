@@ -277,6 +277,79 @@ public sealed class WeaponModels
         return ResolveAttachments(timeline);
     }
 
+    /// <summary>Every model an ITEM names for itself, for packing (B379).</summary>
+    /// <param name="timeline">The decoded demo.</param>
+    /// <returns>Distinct model paths.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="timeline"/> is null.</exception>
+    /// <remarks>
+    /// **The walk that was missing, and it is the one that draws the hats.**
+    /// <see cref="AllIn"/> resolves what a player HOLDS, from the active weapon on each frame's
+    /// roster; <see cref="AllAttachmentsIn"/> resolves an item's <c>attached_models</c>. Neither
+    /// resolves an item's own <c>model_player</c> for an entity that is WORN — and
+    /// <c>WeaponPropModels.Resolve</c> does exactly that at draw time, for every prop carrying an
+    /// item index, overwriting whatever the wire named because
+    /// <c>CEconEntity::UpdateModelToClass</c> lets the item win (`econ_entity.cpp:411`).
+    ///
+    /// So the drawn prop names a model no TRACK ever named, `DemoModels.Needed` walks tracks, and
+    /// the loader was never asked for it. `MapAssets.Geometry` is a dictionary lookup rather than a
+    /// loader (`docs/memory/a-lookup-is-not-a-loader.md`), so the miss is silent and the asset load
+    /// still reports `MISSING 0` — measured on `20130518_0313_cp_granary_blu_blu`, a clean load
+    /// report of 166 models beside THIRTEEN cosmetics a frame packing no batches at all.
+    ///
+    /// **Every class and both teams, because this is the packing set.** A worn item's model differs
+    /// per class (`model_player_per_class`) and the wearer's class is a per-tick fact, so a set
+    /// built from who wears what right now is missing whatever they switch to — the same argument
+    /// <see cref="AllAttachmentsIn"/> already makes for teams, one axis wider. Nine classes and two
+    /// teams over the demo's distinct items is a bounded product, resolved once before playback.
+    /// </remarks>
+    public IEnumerable<string> AllWornIn(DemoTimeline timeline)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+
+        return ResolveWorn(timeline);
+    }
+
+    /// <summary>The worn walk, once the argument is known good.</summary>
+    private IEnumerable<string> ResolveWorn(DemoTimeline timeline)
+    {
+        if (Schema() is null)
+        {
+            yield break;
+        }
+
+        HashSet<int> asked = [];
+        HashSet<string> named = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (ScenePropTrack track in timeline.Props)
+        {
+            if (track.ItemDefinitionIndex is not { } item || !asked.Add(item))
+            {
+                continue;
+            }
+
+            // **The track's own class name travels with the item**, because `For` takes both and
+            // falls back to the stock route when the item names nothing. Passing it keeps this walk
+            // asking the same question `WeaponPropModels.Resolve` asks at draw time rather than a
+            // narrower one that would quietly cover fewer models.
+            for (int playerClass = 0; playerClass <= Classes; playerClass++)
+            {
+                if (For(item, track.ClassName, playerClass) is { Length: > 0 } model &&
+                    named.Add(model))
+                {
+                    yield return model;
+                }
+            }
+        }
+    }
+
+    /// <summary>The highest player class index, so a per-class model is asked for on each.</summary>
+    /// <remarks>
+    /// Nine playing classes, numbered from one, with zero meaning "no class known" — which
+    /// <see cref="For(int?, string?, int?)"/> already accepts and which a prop whose owner is not on
+    /// this moment's roster resolves as.
+    /// </remarks>
+    private const int Classes = 9;
+
     /// <summary>The attachment walk, once the argument is known good.</summary>
     private IEnumerable<string> ResolveAttachments(DemoTimeline timeline)
     {

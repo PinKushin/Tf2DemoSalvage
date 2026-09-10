@@ -64,6 +64,12 @@ public sealed class DrawTally
 
     private readonly Dictionary<string, int> _everNotStudio = new(StringComparer.Ordinal);
 
+    /// <summary>One entity index per undrawable bucket, so a census can be followed (B379).</summary>
+    private readonly Dictionary<string, int> _firstNotDrawable = new(StringComparer.Ordinal);
+
+    /// <summary>An entity that landed in each undrawable bucket, by the same key.</summary>
+    public IReadOnlyDictionary<string, int> FirstNotDrawable => _firstNotDrawable;
+
     private long _everAskedFor;
     private long _everDrawn;
     private long _everCulled;
@@ -165,11 +171,35 @@ public sealed class DrawTally
         // rejected as `#Unknown` is a model reference this project does not classify; one rejected as
         // a kind it knows is a renderer that has no path for that kind. Losing the kind here would
         // turn two different gaps into one number.
-        string ever = prop.ModelPath.Length == 0 ? $"<no model>#{prop.Kind}"
+        // **The CLASS, for the population with no model at all** (B379). Twelve props a frame are
+        // rejected here naming no model, and `<no model>#Studio` is one bucket holding all of them —
+        // so the census could say how many and never which, and the entry says so: *"what is NOT
+        // established: which entities they are… it needs the entity index and class carried to the
+        // rejection."* A model path cannot name a prop that has no model path; the class can, and it
+        // is the only field that survives the thing being missing.
+        string ever = prop.ModelPath.Length == 0
+            ? $"<no model>#{prop.Kind}#{ClassOf(prop.ClassName)}"
             : $"{prop.ModelPath}#{prop.Kind}";
 
         _everNotStudio[ever] = _everNotStudio.GetValueOrDefault(ever) + 1;
+
+        // **One example index per bucket, kept rather than counted** (B243). A count says a
+        // population exists and cannot be followed; an index is what a probe takes. The FIRST is kept
+        // rather than the last, so re-running lands on the same entity and a second measurement is
+        // about the same subject as the first.
+        _firstNotDrawable.TryAdd(ever, prop.EntityIndex);
     }
+
+    /// <summary>An entity's class, or a placeholder when the demo has not named one.</summary>
+    /// <param name="className">What the track carries, which may be absent.</param>
+    /// <returns>A name safe to use as part of a key.</returns>
+    /// <remarks>
+    /// **A missing class is itself a finding, so it gets a name rather than being folded in.** An
+    /// entity with neither a model nor a class is a track built from something other than a server
+    /// class, and that is a different gap from a known class this renderer has no path for.
+    /// </remarks>
+    private static string ClassOf(string? className) =>
+        string.IsNullOrEmpty(className) ? "<no class>" : className;
 
     /// <summary>Records a prop whose model produced no geometry.</summary>
     /// <param name="modelPath">Which model.</param>

@@ -191,6 +191,19 @@ public static class DemoModels
             paths.Add(attachment);
         }
 
+        // **What an ITEM names for ITSELF, which no track carries** (B379). The walk over `demo.Props`
+        // above adds a track's own path, and a worn item does not have one: `WeaponPropModels.Resolve`
+        // replaces the prop's model from `GetPlayerDisplayModel` at draw time for every prop with an
+        // item index, so the model that reaches the renderer was never on the track this list is built
+        // from. Measured on `20130518_0313_cp_granary_blu_blu`: 34 of the 66 models that packed no
+        // geometry at all were absent from this set and named by no track — every one a
+        // `models/player/items/…` cosmetic, thirteen of them undrawn on each frame, while the asset
+        // load reported `ASKED FOR 166; HAVE 166; MISSING 0` and was telling the truth.
+        foreach (string worn in game.Weapons.AllWornIn(demo))
+        {
+            paths.Add(worn);
+        }
+
         return paths;
     }
 
@@ -252,6 +265,15 @@ public static class DemoModels
             foreach (string attachment in game.Weapons.AllAttachmentsIn(withItems))
             {
                 paths.Add(attachment);
+            }
+
+            // **And what the item names for ITSELF** (B379). B195's whole point is that this set and
+            // `Needed` disagreeing is a defect in either direction: a path packed and not loaded
+            // draws nothing, and one loaded and not packed hitches on first sight. The worn models
+            // were in neither.
+            foreach (string worn in game.Weapons.AllWornIn(withItems))
+            {
+                paths.Add(worn);
             }
         }
 

@@ -835,7 +835,14 @@ run Tf2DemoSalvage.Animation.Tests animation 252
 #
 # 584 -> 669 on 2026-09-09: closed DRIFT, not 85 new tests, measured in the same pass as animation's
 # 111 -> 252 above and for the same reason. Nothing was added or removed here.
-run Tf2DemoSalvage.Scene.Tests    scene     669
+# 669 -> 673 on 2026-09-10: four for B379's worn-model walk. Two of them exist only because a
+# sabotage pass reddened NOTHING against the first pair — both used an item the schema knows by index
+# with a single `model_player`, so `For` answered from the item route whatever class was asked and a
+# walk pinned to one class passed as well as one asking nine times. The fixture gained an item with
+# `model_player_per_class` and an item index the schema has never heard of, and each sabotage now
+# reddens exactly its own test. The `ItemDefinitionIndex` guard is deliberately uncovered: `For(null,
+# …)` returns null, so the guard saves a call and decides no behaviour, and a test for it could not fail.
+run Tf2DemoSalvage.Scene.Tests    scene     673
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
