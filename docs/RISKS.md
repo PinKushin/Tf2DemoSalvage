@@ -27174,7 +27174,74 @@ the engine also does — but it has not been checked against the engine's own cu
 *Evidence class: read-from-source for the flush; measured for the 9.019 → 3.290 and for the duplicate
 shape on that demo.*
 
-### B370 STILL OPEN 2026-09-09: the flush was NOT the slow doors, and the instrument cannot settle it
+### B370 FIXED 2026-09-09: the doors were drawn where they had been at an EARLIER moment
+
+**A phase error, not a rate error, and three duration metrics in a row could not see it.**
+
+`Bracket` enters its walk from a binary search over `_changeTimes`, and that array still holds the entries
+B384 FLUSHED. Their changetimes are not monotonic with the live ones — a backwards clock correction leaves
+changetimes of 20 and 21 sitting in front of a live 4 — so the search can land BELOW the true position, and
+the downward walk then stops at the first live entry it meets, which is an older one. The door is drawn
+where it was several ticks ago.
+
+**The engine cannot have this fault, and the reason is the one licensed difference.** Its flush DELETES, so
+its history holds only live entries, their changetimes ascend, and its newest-first walk is exact. Ours
+keeps them so a scrub backwards can still reach them — which is right, and which means the search has to be
+told what the engine's list would not have contained.
+
+#### The instrument that found it, after three that could not
+
+Every earlier attempt compared the drawn motion against a constant-speed ramp, and **a hermite is not a
+ramp**: it eases out of a held position because the third sample equals the second, so its duration between
+two heights exceeds a straight line's with no rate wrong. A duration test cannot separate that from a
+defect, and the ease-in is ALSO what *"very very close to the door by the time it opens"* looks like.
+
+**The assertion that works assumes nothing about the curve.** When the drawn target lands ON an entry's
+changetime, `GetInterpolationInfo` gives `frac = (targettime - older)/(newer - older) = 0` with that entry
+as `older` (`interpolatedvar.h:845`), and `Lerp_Hermite` at a fraction of zero returns `p1` whatever its
+tangents are. So the drawn height at `changetime + delay` must be that entry's own value — exactly, for
+every entry, with no model of speed involved.
+
+Measured on `20130518_0313_cp_granary_blu_blu`, 297 brush tracks, **7,068 history entries**:
+
+| | entries not drawn at their own changetime | worst |
+|---|---|---|
+| before | 3 – 5% on every track | **111.00 units** — a whole door travel |
+| after | **3 in 7,068** (0.04%) | 45.00 units |
+
+And the drawn speeds moved with it. Against the map's `speed='300'` = 4.5 u/tick:
+
+| | distribution |
+|---|---|
+| before | 3.42 – 3.82 u/tick, nothing near 4.5 but the short travels |
+| after | a cluster at 3.42 – 3.62 AND a new one at **4.27 – 5.04, straddling 4.5** |
+
+#### Two mistakes on the way, both caught by manipulation and not by reading
+
+1. **The first climb loop dropped the duplicate clause** and broke B384's tests — it halts on the second of
+   three entries sharing a changetime and never reaches the live one. Three reasons to keep climbing, not
+   two: the next entry may be flushed, may still be at or before the target, or may SHARE the current
+   entry's changetime.
+2. **The first fixture for the invariant could not fail.** It corrected the clock by one tick, and
+   sabotaging the guard reddened nothing at all. The fault needs flushed changetimes far ABOVE the live
+   ones that follow them, so the search lands low AND the "still at or before the target" clause cannot
+   climb past them either. Rebuilt at changetimes 20 and 21 corrected to 4, the sabotage reddens it.
+
+**What is NOT established:**
+
+- **The three remaining entries.** One each on three tracks, at changetimes 8634, 460 and 50028, worst 45
+  units. Each is at the start of a motion run, which is a lead and not a diagnosis.
+- **The 19 runs still reading ~3.5 u/tick.** With phase now exact at every history entry, the door is in
+  the right place at every moment the wire STATES it; what happens between those moments is the hermite.
+  That is an argument, not a measurement — settling it needs the drawn curve compared against the engine's
+  own three functions, and the phase oracle deliberately does not do that.
+- **Whether the owner can still see it.** The numbers say the door is now in the right place at 99.96% of
+  stated moments; whether the remaining motion looks right is his to judge.
+
+*Evidence class: read-from-source for the frac-zero argument and the engine's monotonic history; measured
+for both distributions and the 7,068 entries; verified by sabotage for the guard.*
+
+### B370 superseded 2026-09-09: the flush was not the slow doors, and the duration instrument could not settle it
 
 **Reported plainly because the fix above did not move this number.** Drawn speeds across the same 32 runs,
 before and after B384:

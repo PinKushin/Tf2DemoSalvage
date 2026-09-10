@@ -186,6 +186,16 @@ public sealed class InterpolatedHistory
     /// </returns>
     public int ChangeTimeAt(int index) => _changeTimes[index];
 
+    /// <summary>The tick an entry arrived, and the tick a later append flushed it.</summary>
+    /// <param name="index">Which entry, oldest first.</param>
+    /// <returns>Its arrival, and its flush tick or <see cref="int.MaxValue"/> when nothing flushed it.</returns>
+    /// <remarks>
+    /// **For a diagnostic to report the history the sampler USED, carried rather than recomputed** (B243).
+    /// A probe that rebuilt liveness from the keyframes would be checking its own arithmetic; these are the
+    /// numbers <see cref="Bracket"/> reads.
+    /// </remarks>
+    public (int Received, int FlushedAt) ArrivalAt(int index) => (_received[index], _flushedAt[index]);
+
     /// <summary>One entry's components, in the order they were appended.</summary>
     /// <param name="index">Which entry, oldest first.</param>
     /// <returns>Exactly the width the history was built with.</returns>
@@ -354,16 +364,28 @@ public sealed class InterpolatedHistory
         // engine's history is pruned to the window, so it never walks far, and ours would be O(match).
         int start = Math.Clamp(IndexAtOrBefore(target), floor, available);
 
-        // **Past a run of entries sharing one changetime, because only the LAST of them is live** (B384).
-        // `IndexAtOrBefore` lands on the newest entry at or before the target, so the walk starts one
-        // further on — and when that one is a flushed duplicate, the live entry carrying the same
-        // changetime is further along still. Entering at the flushed one made the walk step over the live
-        // entry entirely and return a degenerate pair, which held a closing door at its previous height.
-        // Duplicates are contiguous because they are appended consecutively, so this is a step of one or
-        // two and never a scan.
+        // **The binary search ran over an array that still holds FLUSHED entries, and their changetimes
+        // are not monotonic with the live ones** (B370). The engine never has this problem: its flush
+        // deletes, so its list contains only live entries and their changetimes ascend, which is what
+        // makes its newest-first walk exact. Ours keeps them so a scrub can still reach them, so
+        // `IndexAtOrBefore` can land BELOW the true position — and the downward walk then returns at the
+        // first live entry it meets, which is older than the right one. Measured on granary before this
+        // loop existed: 3 to 5 per cent of history entries were not drawn at their own changetime, the
+        // worst by 111 units, a whole door travel.
+        //
+        // So climb until the next entry is neither flushed nor still at or before the target. From a
+        // correct start that is zero steps; it is bounded by the run of flushed entries beside the target,
+        // which is a handful — duplicates from one changetime, or one clock correction.
         int entry = Math.Min(start + 1, available);
 
-        while (entry < available && _changeTimes[entry + 1] == _changeTimes[entry])
+        // **Three reasons to keep climbing, and dropping the third broke the flush tests.** The next entry
+        // may be flushed; it may still be at or before the target; or it may SHARE the current entry's
+        // changetime, which is the duplicate run whose only live member is its last. Without that third
+        // clause the climb halts on the second of three duplicates and the walk never sees the live one.
+        while (entry < available &&
+               (_flushedAt[entry + 1] <= arrivedBy ||
+                _changeTimes[entry + 1] <= target ||
+                _changeTimes[entry + 1] == _changeTimes[entry]))
         {
             entry++;
         }

@@ -1475,6 +1475,15 @@ public sealed class ScenePropTrack
         return (changing, next);
     }
 
+    /// <summary>The simulation history the sampler reads, for a diagnostic that must not rebuild it.</summary>
+    /// <remarks>
+    /// **Exposed so a probe can report the entries <see cref="At(double)"/> actually bracketed** (B243).
+    /// The keyframe list is NOT the same thing after B382 and B384 — it keeps entries the history flushed
+    /// and collapses repeats the history keeps — so a probe reading `Keyframes` and calling it "the
+    /// history" would be measuring a different structure and agreeing with itself about it.
+    /// </remarks>
+    public InterpolatedHistory Simulation => _simulation;
+
     /// <summary>The moments the demo stated, in order, with nothing added.</summary>
     /// <remarks>
     /// **What the recording said, as opposed to what gets drawn.** Anything reasoning about the

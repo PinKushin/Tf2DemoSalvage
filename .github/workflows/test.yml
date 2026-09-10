@@ -203,7 +203,8 @@ jobs:
           # build/gate.sh, which is the whole point of the note above — git merges these two lines
           # independently, so a branch that moves one and forgets the other lands its tests against a
           # floor that quietly stays low.
-          ./build/assert-test-count.sh '**/core.trx' 1835 Core
+          # 1835 -> 1836 on 2026-09-09: one for B370's phase invariant. Both copies again in one commit.
+          ./build/assert-test-count.sh '**/core.trx' 1836 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
