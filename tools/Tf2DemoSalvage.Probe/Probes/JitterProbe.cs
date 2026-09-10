@@ -75,19 +75,13 @@ public sealed class JitterProbe : IProbe
                 ? at
                 : -1;
 
-        // **An entity index does not name a track, so the tick picks which one** (B370). Edict slots are
-        // reused: entity 328 on the 2013 granary match owns EIGHT tracks, and `TrackFor` hands back one of
-        // them — asking it about tick 63630 reported "fewer than three samples" because the track it chose
-        // was long dead by then. `Alive` is the lifetime test the sampler itself uses, so selecting with it
-        // cannot disagree with what `At` will answer.
-        if (Select(timeline, entity, from) is not { } track)
+        // **An entity index does not name a track, so the tick picks which one** (B370, B386). Edict slots
+        // are reused: entity 328 on the 2013 granary match owns EIGHT tracks, and `TrackFor` hands back one
+        // of them — asking it about tick 63630 reported "fewer than three samples" because the track it
+        // chose was long dead by then. Shared with `cycle` through `EntityTracks` since B386, where the
+        // same argument had the same fault and reported a scout for a door.
+        if (EntityTracks.Select(output, timeline, entity, from) is not { } track)
         {
-            output.WriteLine(string.Create(
-                CultureInfo.InvariantCulture,
-                $"No track for entity {entity}{(from >= 0 ? $" alive at tick {from}" : string.Empty)}. " +
-                $"That index owns {timeline.Props.Count(one => one.EntityIndex == entity)} track(s): " +
-                $"{string.Join(", ", timeline.Props.Where(one => one.EntityIndex == entity).Select(one => $"[{one.FirstTick}..{one.Keyframes[^1].Tick}]"))}"));
-
             return;
         }
 
@@ -707,22 +701,6 @@ public sealed class JitterProbe : IProbe
             $"{(drawnLow > statedLow + 1f ? "  SHORT AT THE BOTTOM — never returns to shut" : string.Empty)}" +
             $"{(drawnHigh < statedHigh - 1f ? "  SHORT AT THE TOP — never fully opens" : string.Empty)}"));
     }
-
-    /// <summary>The track for an entity index that is alive at a tick, since the index alone is not one.</summary>
-    /// <param name="timeline">The recording.</param>
-    /// <param name="entity">Slot in the entity table.</param>
-    /// <param name="tick">The moment being asked about, or −1 for "any track with this index".</param>
-    /// <returns>The track, or <c>null</c> when no track with that index covers the tick.</returns>
-    /// <remarks>
-    /// **`Alive` rather than a tick-range comparison of my own** — it is the test `At` and `Held` both go
-    /// through, so a track this picks is a track the sampler will answer for. Rebuilding the comparison
-    /// here is how two expressions that must agree stop agreeing, which `ScenePropTrack.Alive`'s own
-    /// comment records the cost of.
-    /// </remarks>
-    private static ScenePropTrack? Select(DemoTimeline timeline, int entity, int tick) =>
-        tick < 0
-            ? timeline.Props.FirstOrDefault(one => one.EntityIndex == entity)
-            : timeline.Props.FirstOrDefault(one => one.EntityIndex == entity && one.Alive(tick));
 
     /// <summary>Each motion run of one track, sampled around its own window.</summary>
     /// <param name="output">Where to report.</param>

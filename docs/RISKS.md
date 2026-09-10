@@ -27794,3 +27794,89 @@ instrument, and parity comes first either way (D89).
 *Evidence class: read-from-source for every clause, with `file:line`; the four divergences are
 read-from-source in our own code. The 113.9-against-114.6 door path and the seven-tracks-per-index
 finding are measured on `20130518_0313_cp_granary_blu_blu`.*
+
+### B386 FIXED 2026-09-10: the `cycle` probe resolved an index without a tick and described a different entity
+
+**The third time this exact lookup has produced a confident wrong answer, and the first time it was an
+instrument rather than the renderer.** `DemoTimeline.TrackFor(entity)` keeps one track per entity index
+and the constructor's own comment says which: *"Last track wins where a slot was reused."* That is right
+only for a caller whose tick is after the final occupant started, and this project seeks, so no such
+caller exists.
+
+**Reproduced**, on `20130518_0313_cp_granary_blu_blu`:
+
+```
+$ cycle 20130518_0313_cp_granary_blu_blu 141 8200 40
+  track: 142 keyframes, client-side animated True
+  merged table for models/player/scout.mdl, activities naming RELOAD_STAND:
+    merged    9 group 2 local    6 weight   1  'AttackStand_PRIMARY' …
+```
+
+Entity 141 at tick 8200 is `models/props_well/main_entrance_door.mdl`, a `CDynamicProp` — `props
+20130518_0313_cp_granary_blu_blu 8400 door` lists it. The index owns **seven** tracks over the
+recording, `[45..7569] [7569..37532] [37532..49576] [49576..56407] [56407..63076] [63076..72225]
+[72225..end]`, all the same door recreated by round restarts, and `TrackFor` returned the last.
+
+**There were TWO faults and only the first one was the reported bug.** The 142-keyframe track is the
+`[72225..end]` occupant — a door as well, so the numbers were a door's from the wrong hour. The
+`models/player/scout.mdl` came from somewhere else entirely: a literal, left in the probe by B284's
+session, that dumped a scout's merged sequence table underneath whatever entity was asked about.
+Together they read as one coherent report about one entity, which is why nobody looked twice. An
+instrument that names its subject from anywhere other than its subject will eventually name the wrong
+one.
+
+**`jitter` had already solved this and `cycle` had not** — B370 added a private `Select` there after a
+door reported "fewer than three samples" from a track long dead at the tick asked for. A rule solved in
+one probe and absent from the next is the drift `docs/memory/one-place-or-it-drifts.md` is about, so the
+selection moved rather than being copied a second time.
+
+**What was done.**
+
+- **`DemoTimeline.TrackFor(int entityIndex, double tick)`**, beside the overload it corrects, so the
+  pair is visible together: the one-argument form states its precondition badly and this one states it
+  in its signature. It scans `_props` then `_playerTracks` — the same population `_trackByEntity` is
+  built from, so it can never see fewer subjects than the old lookup — and selects with
+  `ScenePropTrack.Alive`, the bound `At` and `Held` already apply. `TracksFor(int)` returns every
+  occupant, which is what a caller needs to SAY when the answer is null.
+- **`ScenePropTrack.EndTick`**, because the window a report prints must be the bound the selection
+  tested (B243). `jitter` printed `[first..lastKeyframe]`, a second reading: a track ended at 300 whose
+  last update landed at 280 is alive through 299, so the printed range could exclude a tick the
+  selection had accepted.
+- **`EntityTracks` in the probe tool**, shared by `cycle` and `jitter`. The selection lives in Core; what
+  lives here is the REPORT, which is a probe's business — "no track" and "seven tracks, none covering
+  your tick" send the reader to opposite places, and only the second names the ticks to ask instead.
+- **`cycle` prints the model path and window of the track it picked**, and says so when the index owns
+  more than one. Without that line the reader has no way to notice the probe is describing something
+  else, which is exactly how this survived.
+- **The scout literal is gone**; the merged table follows the selected track's model, the weight-probe
+  sequences are bounded by that model's own sequence count, and the block says which model it could not
+  read rather than falling silent.
+- **`TimelineMoments.OnNewModel` had the same fault in PRODUCTION** and is fixed with it. A model
+  resolving during the frame at tick 150 stamped the pose-parameter history of an occupant that does not
+  arrive until 400. `_lastTick` also had to move out of the `ClassModels` branch, where a caller with no
+  class list left it at zero for ever. No fallback to the index-only lookup when nothing is alive: if no
+  occupant covers the frame then nothing of that entity is being drawn.
+
+**Verified by sabotage, three times.** Making `TrackFor(index, tick)` ignore its tick reddens four of
+the seven synthetic tests; making `cycle` call `TrackFor(entity)` again reddens both corpus tests and
+*neither* synthetic one, which is the whole argument for the output-level assertion
+(`docs/memory/output-level-assertion-or-it-is-not-done.md`); making `OnNewModel` call it reddens one
+Scene test.
+
+**The control is a slot with two occupants and a gap between them.** Synthetically in
+`TrackSelectionByTickTests` — where the expected track is the one the test put there, which a corpus
+test can never say (D38) — with the wrong answer pinned explicitly, so the pair can only both hold if
+the tick is what chose. On real bytes in `ProbeTrackSelectionCorpusTests`, against the committed
+`tf2-2013-build1729296-stv-cp_foundry`, whose slot 200 holds `[7..9349]` and `[9349..end]`, **both
+`door_slide_door.mdl`** — so the assertion is on the window, which is the harder case and the commoner
+one, since a slot is usually recycled by the round restarting. The index is found rather than typed, and
+the test asserts that the index-only lookup names a *different* occupant before believing anything else.
+
+**The other probes are clean.** Only `cycle` and `jitter` take a bare entity index; `anim`'s third
+argument is a count, `brush-model`'s is a brush model index, and every other numeric argument is a tick
+or a coordinate. Everything else that reaches an entity does so through `PropsAt`/`PlayersAt`, which are
+tick-scoped already.
+
+*Evidence class: measured on `20130518_0313_cp_granary_blu_blu` and
+`tf2-2013-build1729296-stv-cp_foundry` for the track windows; read-from-source in our own code for the
+lookup and its three call sites; the three sabotage runs are differential.*

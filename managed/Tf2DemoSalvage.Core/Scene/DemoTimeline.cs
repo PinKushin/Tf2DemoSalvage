@@ -4483,6 +4483,89 @@ public sealed class DemoTimeline
     public ScenePropTrack? TrackFor(int entityIndex) =>
         _trackByEntity.TryGetValue(entityIndex, out ScenePropTrack? track) ? track : null;
 
+    /// <summary>The track for one entity at one MOMENT, since an index alone does not name one.</summary>
+    /// <param name="entityIndex">The entity's slot.</param>
+    /// <param name="tick">The moment being asked about.</param>
+    /// <returns>The track alive there, or <c>null</c> when no occupant of that slot covers the tick.</returns>
+    /// <remarks>
+    /// **An edict slot is recycled, so <see cref="TrackFor(int)"/> answers about whichever occupant
+    /// was written last** — which is right only for a caller whose tick is after the final one
+    /// started. This project seeks, so that caller does not exist:
+    /// `demostf-cp_process_f12` carries 1,669 `CTFProjectile_Rocket` tracks over a couple of thousand
+    /// slots, and on the 2013 granary match entity 328 owns eight tracks and entity 141 owns several.
+    /// Both public forms are kept so the pair is visible together — the one-argument overload states
+    /// its own precondition badly and this one states it in its signature.
+    ///
+    /// **The two ways it has already failed are both silent.** B375: a rocket trail asked
+    /// `TrackFor(407)` at tick 51122, got a rocket from later in the match whose `FirstTick` is past
+    /// that, and `age` clamped to zero so the replay drew nothing. B370: `jitter` reported "fewer
+    /// than three samples" for a door whose chosen track was long dead at the tick asked for. Neither
+    /// threw; both produced a fully-formed wrong answer.
+    ///
+    /// **<see cref="ScenePropTrack.Alive"/> rather than a tick comparison written here** — it is the
+    /// bound <see cref="ScenePropTrack.At"/> and <c>Held</c> both apply, so a track this returns is a
+    /// track the sampler will answer for. A second reading of the same two ends is how expressions
+    /// that must agree stop agreeing.
+    ///
+    /// Both populations, in the order <c>_trackByEntity</c> is filled from, so this can never see
+    /// fewer subjects than <see cref="TrackFor(int)"/> does: a player's track lives in
+    /// <see cref="PlayerTracks"/> and a scan of <see cref="Props"/> alone would find nothing for one.
+    /// </remarks>
+    public ScenePropTrack? TrackFor(int entityIndex, double tick)
+    {
+        foreach (ScenePropTrack track in _props)
+        {
+            if (track.EntityIndex == entityIndex && track.Alive(tick))
+            {
+                return track;
+            }
+        }
+
+        foreach (ScenePropTrack track in _playerTracks)
+        {
+            if (track.EntityIndex == entityIndex && track.Alive(tick))
+            {
+                return track;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Every track that has ever occupied one slot, in the order they were recorded.</summary>
+    /// <param name="entityIndex">The entity's slot.</param>
+    /// <returns>Each occupant, props before players; empty when the slot was never used.</returns>
+    /// <remarks>
+    /// **What a caller needs to SAY when <see cref="TrackFor(int, double)"/> answers null.** The
+    /// difference between "the demo records nothing for that entity" and "that index owns seven
+    /// tracks and none of them covers the tick you asked about" is the whole diagnosis, and only the
+    /// second one tells the reader which tick to ask instead — it is what made B370's doors
+    /// tractable. A caller that reports the first when the second is true sends the reader looking
+    /// for a decode bug.
+    /// </remarks>
+    public IReadOnlyList<ScenePropTrack> TracksFor(int entityIndex)
+    {
+        List<ScenePropTrack> found = [];
+
+        foreach (ScenePropTrack track in _props)
+        {
+            if (track.EntityIndex == entityIndex)
+            {
+                found.Add(track);
+            }
+        }
+
+        foreach (ScenePropTrack track in _playerTracks)
+        {
+            if (track.EntityIndex == entityIndex)
+            {
+                found.Add(track);
+            }
+        }
+
+        return found;
+    }
+
     /// <summary>How fast a track is moving horizontally at a moment.</summary>
     /// <remarks>
     /// **Differenced from the positions, because velocity is networked only to its owner.**
