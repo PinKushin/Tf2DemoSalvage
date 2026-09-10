@@ -198,6 +198,17 @@ public sealed class EntityState
     /// <summary>The areaportal window's own send table (B358).</summary>
     private const string AreaPortalWindowTable = "DT_FuncAreaPortalWindow";
 
+    /// <summary>An entity sprite's own send table — <c>CSprite</c> (B378).</summary>
+    /// <remarks>
+    /// **Nothing in this project read a single field of it until B378.** Eleven `CSprite` entities on
+    /// `cp_granary` and eight on a 2026 `cp_process` carry `materials/Sprites/light_glow03.vmt` at
+    /// <c>kRenderWorldGlow</c>, and the whole table — scale, brightness, frame, framerate, the glow
+    /// proxy, the HDR scale, world-space scale, and the attachment it may hang from — was decoded by
+    /// nothing. `CSpriteOriented` and `CSpriteTrail` derive from it and are declared in the same
+    /// demos.
+    /// </remarks>
+    private const string SpriteTable = "DT_Sprite";
+
     private const string SequenceProperty = "m_nSequence";
 
     /// <summary>Which alternative each body part shows, packed into one number.</summary>
@@ -2064,6 +2075,97 @@ public sealed class EntityState
     /// </remarks>
     public float? PortalTranslucencyLimit() =>
         Number($"{AreaPortalWindowTable}.m_flTranslucencyLimit");
+
+    /// <summary>How big an entity sprite is drawn — <c>m_flSpriteScale</c> (B378).</summary>
+    /// <returns>The scale, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// **The multiplier on the sprite's own extents**, which is what `DrawSpriteModel` scales the quad
+    /// by: <c>VectorMA( origin, psprite-&gt;GetDown() * scale, up, vec_a )</c> and its three siblings
+    /// (`c_sprite.cpp:45`). Whether that is world units or a multiple of the material's size is
+    /// <see cref="SpriteScaleIsWorldSpace"/>'s question.
+    ///
+    /// **Eight bits, rounded UP, between zero and `MAX_SPRITE_SCALE`** outside HL2 —
+    /// <c>SendPropFloat( SENDINFO(m_flSpriteScale), 8, SPROP_ROUNDUP, 0.0f, MAX_SPRITE_SCALE )</c>
+    /// (`Sprite.cpp:139`) — so a TF2 sprite's scale is quantised on the wire and an exact comparison
+    /// against a map's authored value will not hold.
+    ///
+    /// **Absent means the entity never said**, and the caller decides: `CSprite`'s constructor leaves
+    /// it at 1, so one is the value to fall back to rather than zero, which `DrawSpriteModel` treats
+    /// as "unset" and replaces with 1 anyway (<c>if ( fscale &gt; 0 ) scale = fscale; else scale =
+    /// 1.0f;</c>).
+    /// </remarks>
+    public float? SpriteScale() => Number($"{SpriteTable}.m_flSpriteScale");
+
+    /// <summary>How bright an entity sprite is drawn — <c>m_nBrightness</c> (B378).</summary>
+    /// <returns>Zero to 255, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// **This is the sprite's ALPHA, not the render colour's.** `CSprite::DrawModel` passes
+    /// `GetRenderBrightness()` into `DrawSprite`'s `alpha` argument while passing
+    /// `m_clrRender-&gt;r/g/b` separately (`Sprite.cpp:753`), so a sprite ignores the alpha byte of
+    /// `m_clrRender` that every other entity uses. Eight bits unsigned (`Sprite.cpp:152`).
+    ///
+    /// **`GetRenderBrightness` ramps it** when <c>m_flBrightnessTime</c> is non-zero, interpolating
+    /// from `m_nStartBrightness` to `m_nDestBrightness` — and neither endpoint is networked, so a
+    /// recording can only ever show the settled value. Filed rather than worked around: see B378.
+    /// </remarks>
+    public int? SpriteBrightness() => Integer($"{SpriteTable}.m_nBrightness");
+
+    /// <summary>Which frame of an animated sprite is showing — <c>m_flFrame</c> (B378).</summary>
+    /// <returns>The frame, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// **A float, and rounded DOWN on the wire** — <c>SendPropFloat( SENDINFO(m_flFrame), 20,
+    /// SPROP_ROUNDDOWN, 0.0f, 256.0f )</c> (`Sprite.cpp:150`) — because `CEngineSprite::GetMaterial`
+    /// takes it as a frame index into the sprite's own sheet. It is networked rather than derived,
+    /// so unlike a `prop_dynamic`'s cycle nothing has to advance it.
+    /// </remarks>
+    public float? SpriteFrame() => Number($"{SpriteTable}.m_flFrame");
+
+    /// <summary>How fast an animated sprite plays — <c>m_flSpriteFramerate</c> (B378).</summary>
+    /// <returns>Frames a second, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// Eight bits, rounded up, zero to 60 (`Sprite.cpp:149`). **Zero is the ordinary case**: a glow
+    /// does not animate, and the server advances `m_flFrame` itself through `AnimateThink` for the
+    /// ones that do — so this is carried for completeness rather than because the client integrates
+    /// it.
+    /// </remarks>
+    public float? SpriteFramerate() => Number($"{SpriteTable}.m_flSpriteFramerate");
+
+    /// <summary>How big the sprite's occlusion proxy is — <c>m_flGlowProxySize</c> (B378).</summary>
+    /// <returns>The proxy size, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// **The quad a glow's visibility is QUERIED with, not the quad it is drawn as.**
+    /// `CSprite::GlowBlend` passes it to <c>params.Init( entorigin, m_flGlowProxySize, aspect )</c>
+    /// and the result scales the whole sprite's colour (`c_sprite.cpp:210`) — where the base
+    /// `C_SpriteRenderer::GlowBlend` uses `PIXELVIS_DEFAULT_PROXY_SIZE` instead, which is the
+    /// override that makes this field mean anything.
+    ///
+    /// Six bits, rounded up, zero to `MAX_GLOW_PROXY_SIZE` (`Sprite.cpp:143`).
+    /// </remarks>
+    public float? SpriteGlowProxySize() => Number($"{SpriteTable}.m_flGlowProxySize");
+
+    /// <summary>Whether the sprite's scale is world units — <c>m_bWorldSpaceScale</c> (B378).</summary>
+    /// <returns>The flag, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// **It changes what <see cref="SpriteScale"/> MEANS, which is why it is not a detail.** When set,
+    /// `CSprite::DrawModel` divides the scale by the material's smaller dimension —
+    /// <c>renderscale /= MIN( psprite-&gt;GetWidth(), psprite-&gt;GetHeight() )</c> (`Sprite.cpp:753`) —
+    /// so the number is a size in world units; when clear it is a multiple of the sprite's own
+    /// extents. `GetRenderBounds` makes the same split from the other side, multiplying by
+    /// <c>MAX( width, height )</c> only when the flag is clear.
+    /// </remarks>
+    public bool? SpriteScaleIsWorldSpace() =>
+        Integer($"{SpriteTable}.m_bWorldSpaceScale") is { } set ? set != 0 : null;
+
+    /// <summary>The sprite's HDR colour multiplier — <c>m_flHDRColorScale</c> (B378).</summary>
+    /// <returns>The scale, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// Written into the material's <c>$HDRCOLORSCALE</c> before the quad is drawn
+    /// (`c_sprite.cpp:45`), so it is a per-entity override of a material variable rather than
+    /// anything about geometry — the same shape as a material proxy
+    /// (`docs/memory/a-proxy-is-per-entity-per-draw.md`). Unscaled on the wire, zero to 100
+    /// (`Sprite.cpp:145`).
+    /// </remarks>
+    public float? SpriteHdrColourScale() => Number($"{SpriteTable}.m_flHDRColorScale");
 
     /// <summary>Which blend mode the entity draws with, when it says.</summary>
     /// <returns><c>m_nRenderMode</c>, or <c>null</c> when it was never sent.</returns>
