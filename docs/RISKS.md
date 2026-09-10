@@ -27794,3 +27794,73 @@ instrument, and parity comes first either way (D89).
 *Evidence class: read-from-source for every clause, with `file:line`; the four divergences are
 read-from-source in our own code. The 113.9-against-114.6 door path and the seven-tracks-per-index
 finding are measured on `20130518_0313_cp_granary_blu_blu`.*
+
+### B386 FIXED 2026-09-10: an interpolation entry was addressed at a fixed stride, and a model change makes the list a mixed one
+
+**Found from a headless capture that died before writing its PNG**, which is worse than a wrong
+picture: an instrument that fails part of the time silently halves the evidence anybody gathers from
+it. Nothing in the viewer records it either — `Program.Main` installs no unhandled-exception handler,
+so the runtime prints to stderr and the buffered log simply ends mid-frame with no sign anything went
+wrong. **Do not read a viewer log's silence as a clean run.**
+
+```
+Unhandled exception. System.ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+   at InterpolatedHistory.ValuesAt(Int32 index)                InterpolatedHistory.cs:229
+   at InterpolatedHistory.Same(Int32 left, Int32 right)                              :563
+   at InterpolatedHistory.Settled(…)                                                 :508
+   at InterpolatedHistory.Bracket(Double target, Int32 arrivedBy)                     :459
+   at ScenePropTrack.At → DemoTimeline.PlayersAt → MomentPresenter.Show
+   → MainForm.ShowMoment → ApplyOpeningState → TakeAutomaticShot → FrameSequence.Run
+```
+
+**Two documented behaviours are each correct and are false together.**
+
+1. **`SetMaxCount` changes the width and then calls `Reset`** — the engine's own order
+   (`interpolatedvar.h:1272`), and the width is the MODEL's:
+   `m_iv_flPoseParameter.SetMaxCount( hdr->GetNumPoseParameters() )` (`c_baseanimating.cpp:1124`),
+   reached here through `ScenePropTrack.OnNewModel`. So the width moves whenever an entity changes
+   model mid-recording — a class change, or an edict slot reused for something else.
+2. **`Reset` deletes nothing.** This is the project's one licensed difference from the engine, and it
+   is deliberate: `ClearHistory()` empties the engine's list because a client never seeks backwards,
+   and ours keeps the entries so a scrub does, making the boundary a GENERATION instead.
+
+The engine can only ever hold one width because it threw the others away. We hold them all, in one
+flat `List<float>` that `ValuesAt` sliced at `index * _width` — a single stride over a list that is no
+longer one. **Every entry after the first width change was addressed wrongly**, in one of two ways:
+
+- **Width GREW** — the computed offset runs past the end and `Slice` throws. That is the crash.
+- **Width SHRANK** — the offset lands *inside* a neighbour's components, the read succeeds, and the
+  pose is built from another entry's floats. No throw, no log.
+
+**The silent half is why the fix is not a guard.** A bounds check on the index would convert the loud
+failure into the quiet one, which is strictly worse. The exception type was carrying the information
+(`docs/memory/an-exception-type-can-be-load-bearing.md`): it names a bad *argument*, and the bad
+argument is the offset, not the index.
+
+**The fix is to carry the address rather than recompute it.** `_offsets` records where each entry's
+components were written, and an entry's own width is the distance to the next offset — so it costs one
+list, not two. This is `docs/memory/address-a-struct-by-name-not-from-its-end.md` in a managed list.
+
+**Reproduced and confirmed by manipulation.** `tools/corpus/local/20130518_0313_cp_granary_blu_blu` at
+`--tick 27692` crashed on the FIRST attempt rather than one run in three. Four tests in
+`HistoryWidthChangeTests` reddened against the old addressing — one with the production stack, one on
+the widened read returning `[7, 8, 3, 4, 5, 6]` where `[3, 4, 5, 6, 7, 8]` was seeded, one on the
+narrowed read returning entry zero's second component where `[9]` was seeded — and all four pass after
+the offset. The same command now writes its PNG.
+
+**What was checked and did NOT need fixing.** The over-read the same design invites — a scrub back to
+before a width change, where a bracket lands on narrow entries while `_width` is wide — is not
+reachable. `_poseParameters` is the only history whose width moves, and its sole consumer
+`ScenePropTrack.PoseBetween` already takes `Math.Min(stated.Count, from.Length)` and lets the stated
+value stand past it. `TimeFixup`, which loops to `_width` over a span, is reached only from
+`_simulation` (three components) and `_animation` (two), both fixed at construction.
+`Bracket_ScrubbedBackBeforeAWidthChange_ReadsTheOldEntriesAtTheirOwnWidth` pins that.
+
+**What is NOT established.** How often a real match changes an entity's pose-parameter count is
+unmeasured — the crash proves it happens on granary within one capture, not how many entities or how
+many demos were quietly reading the wrong floats before it. The narrowing direction has produced no
+known visible symptom, which is exactly what a silent misread looks like.
+
+*Evidence class: read-from-source for `SetMaxCount` and `Reset`, with `file:line`; the crash and its
+stack are measured on `20130518_0313_cp_granary_blu_blu` at tick 27692; the two wrong reads are
+arithmetic, asserted against values the tests seeded.*

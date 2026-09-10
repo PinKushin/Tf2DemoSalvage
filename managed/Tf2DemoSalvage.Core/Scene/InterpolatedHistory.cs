@@ -67,6 +67,24 @@ public sealed class InterpolatedHistory
 
     private readonly List<float> _values = [];
 
+    /// <summary>Where each entry's components START in <see cref="_values"/>.</summary>
+    /// <remarks>
+    /// **Carried rather than computed as <c>index * _width</c>, because the list is a MIXED stride**
+    /// (B386). <see cref="SetMaxCount"/> moves the width and <see cref="Reset"/> deletes nothing, so a
+    /// history that outlives a model change holds entries of two widths at once — which the engine
+    /// never does, because its `ClearHistory()` throws the old ones away.
+    ///
+    /// A single stride was therefore right until the first width change and wrong for every entry
+    /// after it, in one of two ways: past the end when the width GREW, which threw
+    /// <c>ArgumentOutOfRangeException</c> out of <c>Slice</c> and killed a headless capture; and
+    /// inside a neighbour's components when it SHRANK, which returned the wrong floats and said
+    /// nothing. The second is why the fix is the offset and not a bounds check — a clamp turns the
+    /// loud half into the silent one.
+    ///
+    /// An entry's own width is the distance to the next offset, so it needs no second list.
+    /// </remarks>
+    private readonly List<int> _offsets = [];
+
     private readonly List<int> _generationStarts = [];
 
     /// <summary>For each entry, the tick a later append FLUSHED it, or <see cref="Never"/>.</summary>
@@ -224,9 +242,19 @@ public sealed class InterpolatedHistory
 
     /// <summary>One entry's components, in the order they were appended.</summary>
     /// <param name="index">Which entry, oldest first.</param>
-    /// <returns>Exactly the width the history was built with.</returns>
+    /// <returns>Exactly the width the history had when this entry was added.</returns>
+    /// <remarks>
+    /// **Addressed by where it was WRITTEN, not by the current width** (B386) — see
+    /// <see cref="_offsets"/> for what a fixed stride cost and why the width is per entry.
+    /// </remarks>
     public ReadOnlySpan<float> ValuesAt(int index) =>
-        CollectionsMarshal.AsSpan(_values).Slice(index * _width, _width);
+        CollectionsMarshal.AsSpan(_values).Slice(_offsets[index], WidthAt(index));
+
+    /// <summary>How many components one entry carries, which is its own width and not the history's.</summary>
+    /// <param name="index">Which entry, oldest first.</param>
+    /// <returns>The distance to the next entry's offset, or to the end of the values for the last.</returns>
+    private int WidthAt(int index) =>
+        (index + 1 < _offsets.Count ? _offsets[index + 1] : _values.Count) - _offsets[index];
 
     /// <summary>Marks one component as wrapping, so blends take the short way round.</summary>
     /// <param name="looping">Whether it wraps.</param>
@@ -333,6 +361,10 @@ public sealed class InterpolatedHistory
         _changeTimes.Add(changeTime);
         _received.Add(received);
         _flushedAt.Add(Never);
+
+        // **Before the components, so it records where they land** (B386). This is the entry's
+        // address; `index * _width` was a guess about it that a width change falsifies.
+        _offsets.Add(_values.Count);
 
         foreach (float value in values)
         {

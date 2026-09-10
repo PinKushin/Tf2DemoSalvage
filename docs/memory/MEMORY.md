@@ -188,3 +188,4 @@
 - [A fraction of zero is an oracle](a-fraction-of-zero-is-an-oracle.md) — a duration cannot test a spline; assert where the interpolation collapses to an identity.
 - [A visibility set is four questions](a-visibility-set-is-four-questions.md) — IsVisible is leaf-system membership, not the frustum and not last frame; ask which predicate, not which frame.
 - [A derived path is in no load list](a-derived-path-is-in-no-load-list.md) — the item names the model, no track does, and the lookup misses in silence.
+- [Retaining what the engine deletes breaks its invariants](retaining-what-the-engine-deletes-breaks-its-invariants.md) — a deletion held a stride true; the viewer's log cannot tell you a capture crashed.
