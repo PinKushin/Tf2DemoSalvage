@@ -155,6 +155,16 @@ in any public writeup found:
   is the LAST render's answer … it is what Valve does."* A latency claim about *when* a predicate runs
   had concealed the question of *what* it tests
   ([55](55-a-visible-entity-holds-a-render-handle.md)).
+- **The item names the model, and no track does** — `CEconEntity::UpdateModelToClass` lets an item's
+  `GetPlayerDisplayModel` win over the networked one, so the path that reaches the renderer appears on
+  no track, while the asset load list is built by walking tracks. The two can never meet: the loader
+  reported `ASKED FOR 166; HAVE 166; MISSING 0` and was telling the truth, while thirteen cosmetics a
+  frame packed no geometry, because `MapAssets.Geometry` is a dictionary lookup and a path never in the
+  list has no key to miss. The diagnosis was one extra clause in a census — *no track names it* —
+  which separates "the walk is wrong" from "the path is derived elsewhere". **And 86% of the original
+  count was the instrument**: the census hand-rolled a subset of `MomentScene.Build` without
+  `WeaponModels.Resolve`, so every item-resolved weapon read as having no model
+  ([56](56-the-item-names-the-model-and-no-track-does.md)).
 
 ## Conventions used throughout
 

@@ -129,6 +129,104 @@ public sealed class WeaponModelsTests
         Should.Throw<ArgumentNullException>(() => new WeaponModels(_ => null, render: null!));
     }
 
+    /// <remarks>
+    /// **The walk that decides whether a hat is ever LOADED** (B379). `WeaponPropModels.Resolve`
+    /// replaces a prop's model with `GetPlayerDisplayModel` at draw time for every prop carrying an
+    /// item index — `CEconEntity::UpdateModelToClass` lets the item win over the networked one
+    /// (`econ_entity.cpp:411`) — so the model that reaches the renderer is named by the ITEM and not
+    /// by the track. `DemoModels.Needed` builds the asset load list by walking tracks, so without
+    /// this walk the loader is never asked, `MapAssets.Geometry` answers null from a dictionary that
+    /// has no such key, and the prop packs no batches.
+    ///
+    /// **Measured before it was written**: on `20130518_0313_cp_granary_blu_blu`, 34 of the 66 models
+    /// that packed no geometry were absent from the load list and named by no track — every one a
+    /// `models/player/items/…` cosmetic. Thirteen went undrawn on each frame while the asset load
+    /// reported `ASKED FOR 166; HAVE 166; MISSING 0` and was telling the truth about its own list.
+    /// </remarks>
+    [Test]
+    public void AllWornIn_ForATrackCarryingAnItemAndNoModelPath_NamesTheItemsOwnModel()
+    {
+        ScenePropTrack wearable = new(entityIndex: 7, string.Empty)
+        {
+            ItemDefinitionIndex = RocketLauncherItem,
+            ClassName = RocketLauncherServerClass,
+        };
+
+        wearable.Add(0, new ScenePose());
+
+        Weapons()
+            .AllWornIn(DemoTimeline.ForEverything(props: [wearable]))
+            .ShouldContain(RocketLauncherModel);
+    }
+
+    /// <remarks>
+    /// **A track carrying no item contributes nothing**, which is what keeps the walk from being
+    /// "yield everything": an ordinary prop's model is named by the wire and already covered by the
+    /// track walk in `DemoModels.Needed`.
+    ///
+    /// **This does NOT test the `ItemDefinitionIndex` guard, and saying so is the point.** Removing
+    /// that guard reddens nothing, because `For(null, …)` returns null and the walk yields nothing
+    /// either way — the guard saves a call and decides no behaviour. A test claiming to pin it would
+    /// be one that cannot fail, which is worse than not having one.
+    /// </remarks>
+    [Test]
+    public void AllWornIn_ForATrackCarryingNoItem_NamesNothing()
+    {
+        ScenePropTrack crate = new(entityIndex: 7, "models/props/crate.mdl");
+
+        crate.Add(0, new ScenePose());
+
+        Weapons().AllWornIn(DemoTimeline.ForEverything(props: [crate])).ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **The per-class axis, which is why the walk asks nine times rather than once**
+    /// (`model_player_per_class`, `tf_item_schema.cpp:489`). A worn item's model differs per class and
+    /// the wearer's class is a per-tick fact, so a load list built for whoever wears it right now is
+    /// missing whatever they switch to — and geometry is loaded once before the first frame, which
+    /// D86 makes a hard requirement rather than a preference.
+    ///
+    /// **Both variants asserted, because either alone passes against a walk pinned to one class.**
+    /// A single-class assertion is the shape that let the first version of this test survive a
+    /// sabotage that limited the loop to class zero.
+    /// </remarks>
+    [Test]
+    public void AllWornIn_ForAnItemWhoseModelDiffersPerClass_NamesEveryClasssVariant()
+    {
+        ScenePropTrack hat = new(entityIndex: 7, string.Empty) { ItemDefinitionIndex = HatItem };
+
+        hat.Add(0, new ScenePose());
+
+        List<string> worn = [.. Weapons().AllWornIn(DemoTimeline.ForEverything(props: [hat]))];
+
+        worn.ShouldContain(ScoutHatModel);
+        worn.ShouldContain(SoldierHatModel);
+    }
+
+    /// <remarks>
+    /// **The class route, which the walk reaches only by passing the track's own class name.** An
+    /// item index the schema has never heard of is the ordinary case for a demo recorded on a later
+    /// build than the installed game — measured on z1800, 22 of 56 held weapons send no item at all —
+    /// and `For` then translates the SERVER class through `WeaponScriptName.Candidates` to find the
+    /// stock item. Dropping `track.ClassName` here loses every one of those models silently, and no
+    /// test saw it until this one.
+    /// </remarks>
+    [Test]
+    public void AllWornIn_ForAnItemTheSchemaDoesNotKnow_FallsBackToTheStockModelForItsClass()
+    {
+        ScenePropTrack weapon = new(entityIndex: 7, string.Empty)
+        {
+            ItemDefinitionIndex = UnknownItem,
+            ClassName = RocketLauncherServerClass,
+        };
+
+        weapon.Add(0, new ScenePose());
+
+        Weapons()
+            .AllWornIn(DemoTimeline.ForEverything(props: [weapon]))
+            .ShouldContain(StockRocketLauncherModel);
+    }
+
     /// <summary>A resolver over a hand-authored schema.</summary>
     private static WeaponModels Weapons() => new(_ => Schema(), new RecordingLogger());
 
@@ -185,7 +283,36 @@ public sealed class WeaponModelsTests
                         "baseitem"          "1"
                         "model_player"      "{{StockRocketLauncherModel}}"
                     }
+                    "{{HatItem}}"
+                    {
+                        "name"              "A Hat With Two Faces"
+                        "item_class"        "tf_wearable"
+                        "model_player_per_class"
+                        {
+                            "scout"         "{{ScoutHatModel}}"
+                            "soldier"       "{{SoldierHatModel}}"
+                        }
+                    }
                 }
             }
             """);
+
+    /// <summary>An item whose model differs per class, which is what a real hat does.</summary>
+    /// <remarks>
+    /// **Added because three sabotages reddened nothing.** The first version of the worn-model tests
+    /// used only the rocket launcher, which the schema knows by index with one `model_player` — so
+    /// `For` answered from the item route for every class, and a walk pinned to a single class passed
+    /// just as well as one covering all nine. `model_player_per_class` is what makes the class axis
+    /// observable at all, and `docs/memory/most-of-a-decoder-is-untested.md` is the rule: a sabotage
+    /// that reddens nothing names the missing input, and the missing input was here rather than in an
+    /// assertion.
+    /// </remarks>
+    private const int HatItem = 1000;
+
+    private const string ScoutHatModel = "models/player/items/scout/two_faces.mdl";
+
+    private const string SoldierHatModel = "models/player/items/soldier/two_faces.mdl";
+
+    /// <summary>An item index the schema has never heard of, for the class fallback.</summary>
+    private const int UnknownItem = 4242;
 }
