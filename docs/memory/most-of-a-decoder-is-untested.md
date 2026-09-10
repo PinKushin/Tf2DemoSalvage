@@ -123,7 +123,33 @@ as well gives 0.72 units at unit distance, a 42-degree twist. **An instrument wr
 to separate "it ran" from "it mattered" was itself measuring the one quantity that could not
 change** — so before believing a zero, ask which variable actually carries the effect.
 
-Related: [[instrument-bugs-outnumber-decoder-bugs]], [[boundaries-find-what-tests-cannot]].
+### A fifth diagnosis: the check is right and the CLAIM about it is wrong
+
+**Added 2026-09-10.** The four causes above all locate the fault in the suite or in the sabotage.
+There is a fifth, and it is the one to reach for when the thing sabotaged is a *guard* rather than a
+decoder: the guard works, the sabotage was a fair test of it, and what the green run refutes is the
+sentence written above the guard about what it catches.
+
+`build/assert-risk-citations.sh` was written after renaming B386 to B389 across nine files, with a
+header saying it *"is the check that would have caught that miss"*. Sabotage: revert one citation to
+B386. **It passed** — the other session's B386 entry exists, so a stale citation resolves, at
+somebody else's bug. Nothing textual separates that from resolving correctly. The second sabotage, a
+number nobody has taken, failed correctly and named the file and line.
+
+So the check catches a citation that arrives *nowhere*, which is a narrower and still useful thing,
+and the false half was the header. **The instinct to resist here is widening the check** — there is
+no version of it that detects a collision between two live numbers after the fact.
+
+**How to tell this apart from a missing input:** ask whether a test could exist that reddens. For a
+missing input the answer is yes and you write it. Here it is no, and the fix is to correct the
+sentence — in the script header, in the risk entry, and in the gate comment that repeated it.
+
+**And wiring it up reddened the gate on the check itself:** the file is inside its own search, and
+the header spelled the sabotage number out, making the header a dangling citation. A guard held to
+its own promise will catch its own documentation.
+
+Related: [[instrument-bugs-outnumber-decoder-bugs]], [[boundaries-find-what-tests-cannot]],
+[[state-the-assumptions-the-owner-can-falsify]].
 
 ---
 
