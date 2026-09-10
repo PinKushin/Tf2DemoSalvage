@@ -5,6 +5,28 @@ using System.Runtime.InteropServices;
 namespace Tf2DemoSalvage.Core.Scene;
 
 /// <summary>
+/// What <c>GetInterpolationInfo</c> answers: the pair, the spline's third sample, and whether the answer
+/// is settled (B370).
+/// </summary>
+/// <param name="Older">The entry at or before the target.</param>
+/// <param name="Newer">Its later neighbour, or the same entry when the value holds.</param>
+/// <param name="Oldest">The entry before <paramref name="Older"/>, for the spline.</param>
+/// <param name="NoMoreChanges">
+/// The engine's <c>pNoMoreChanges</c> — that a rising current time cannot change this answer, so the
+/// entity leaves the interpolation list until an update re-adds it (<c>interpolatedvar.h:832</c> and
+/// <c>:865</c>).
+///
+/// **This is the whole of the engine's scheduling, and it is why this project's was a divergence.** The
+/// engine never predicts WHEN an answer will change. It interpolates every frame for everything on
+/// <c>g_InterpolationList</c> and drops an entity when its own history says nothing more is coming —
+/// `if ( bNoMoreChanges ) RemoveFromInterpolationList()` (<c>c_baseanimating.cpp:4478</c>) — and a later
+/// update puts it back through `PostDataUpdate`. Predicting boundary ticks instead is a second mechanism
+/// that has to agree with the sampler, and measured on granary it disagreed on 2.9% of ticks, by up to
+/// 12.47 units.
+/// </param>
+public readonly record struct Bracketing(int Older, int Newer, int Oldest, bool NoMoreChanges);
+
+/// <summary>
 /// One registered variable's interpolation history, appended and searched as the engine's is (B382).
 /// </summary>
 /// <remarks>
@@ -157,10 +179,14 @@ public sealed class InterpolatedHistory
     {
         _generation++;
 
-        // Three entries at one changetime: the engine's own count, and its own reason.
+        // **Three entries at one changetime, and they do NOT flush each other.** `Reset` passes
+        // `bFlushNewer = false` where `NoteChanged` passes true (<c>interpolatedvar.h:745</c> against
+        // <c>:649</c>) — which is the whole point: three entries sharing one changetime is exactly what a
+        // flush would collapse, and it is what makes `dt2` zero and the first blend after a reset linear.
+        // Routing these through the flushing path left ONE entry and destroyed the mechanism.
         for (int entry = 0; entry < ResetEntries; entry++)
         {
-            Add(at, at, values);
+            Add(at, at, values, flushNewer: false);
         }
     }
 
@@ -218,6 +244,13 @@ public sealed class InterpolatedHistory
     /// <param name="changeTime">The tick the value applied.</param>
     /// <param name="received">The tick the packet carrying it arrived.</param>
     /// <param name="values">The components, which must be the history's width.</param>
+    /// <param name="flushNewer">
+    /// Whether this append discards the entries at or after its own changetime — `AddToHead`'s third
+    /// argument. **`NoteChanged` passes true and `Reset` passes false**
+    /// (<c>interpolatedvar.h:649</c> against <c>:745</c>), and the difference is load-bearing rather than
+    /// incidental: `Reset` seeds THREE entries sharing one changetime, which is precisely what a flush
+    /// collapses. Defaulting to true because a latch is the ordinary caller.
+    /// </param>
     /// <remarks>
     /// **No comparison against the head, deliberately.** `AddToHead` is unconditional
     /// (<c>interpolatedvar.h:649</c>), and the identical entries that produces are load-bearing: they are
@@ -262,7 +295,7 @@ public sealed class InterpolatedHistory
     /// flushes at the moment of receipt and never seeks backwards; a viewer does, so the entry stays and
     /// <see cref="Bracket"/> ignores it from the tick it was flushed at.
     /// </remarks>
-    public void Add(int changeTime, int received, ReadOnlySpan<float> values)
+    public void Add(int changeTime, int received, ReadOnlySpan<float> values, bool flushNewer = true)
     {
         if (values.Length != _width)
         {
@@ -273,7 +306,7 @@ public sealed class InterpolatedHistory
         // Walk the LIVE entries newest-first and stop at the first that predates this one, which is where
         // the engine's `break` is. An already-flushed entry is not in the engine's list at all, so it is
         // skipped rather than treated as the head.
-        for (int index = _changeTimes.Count - 1; index >= 0; index--)
+        for (int index = _changeTimes.Count - 1; flushNewer && index >= 0; index--)
         {
             if (_flushedAt[index] != Never)
             {
@@ -343,7 +376,7 @@ public sealed class InterpolatedHistory
     /// older one it has. Refusing it would be this project's own rule rather than Valve's — the pruning
     /// bounds how MANY entries are kept, never how old the bracketing pair may be.
     /// </remarks>
-    public (int Older, int Newer, int Oldest)? Bracket(double target, int arrivedBy)
+    public Bracketing? Bracket(double target, int arrivedBy)
     {
         // **The history the client would have held**, which is every entry received by now and no others.
         // Nothing is deleted to achieve it, so playing the same moment again after a scrub gives the same
@@ -378,14 +411,18 @@ public sealed class InterpolatedHistory
         // which is a handful — duplicates from one changetime, or one clock correction.
         int entry = Math.Min(start + 1, available);
 
-        // **Three reasons to keep climbing, and dropping the third broke the flush tests.** The next entry
-        // may be flushed; it may still be at or before the target; or it may SHARE the current entry's
-        // changetime, which is the duplicate run whose only live member is its last. Without that third
-        // clause the climb halts on the second of three duplicates and the walk never sees the live one.
+        // **Climb until the CURRENT entry could serve as `newer`, which is live and past the target.** Three
+        // earlier versions tested the NEXT entry and each stopped one short: an entry with a changetime past
+        // the target is exactly the `newer` candidate, so halting in front of it left the downward walk
+        // starting below it, never seeing it, and reporting `newer` as unset — which reads as "the target is
+        // past everything" and sets `NoMoreChanges`. On granary that parked entity 328 with a pair pinned at
+        // changetime 13920 while the history's head was 13921, and drew it 12.47 units behind.
+        //
+        // Testing the current entry subsumes all three clauses the earlier versions needed separately: a
+        // flushed entry cannot be `newer`, nor can one at or before the target, and a run sharing one
+        // changetime is walked through because every member but the last is flushed.
         while (entry < available &&
-               (_flushedAt[entry + 1] <= arrivedBy ||
-                _changeTimes[entry + 1] <= target ||
-                _changeTimes[entry + 1] == _changeTimes[entry]))
+               (_flushedAt[entry] <= arrivedBy || _changeTimes[entry] <= target))
         {
             entry++;
         }
@@ -408,14 +445,122 @@ public sealed class InterpolatedHistory
                 continue;
             }
 
-            // `if ( pInfo->newer == varHistory.InvalidIndex() ) { pInfo->newer = pInfo->older; … }` —
-            // the target is past every entry, so the pair is the same entry and the value holds.
-            return (index, newer < 0 ? index : newer, Older(index, floor, arrivedBy));
+            int oldest = Older(index, floor, arrivedBy);
+
+            if (newer < 0)
+            {
+                // `if ( pInfo->newer == varHistory.InvalidIndex() ) { pInfo->newer = pInfo->older;
+                //   if ( pNoMoreChanges ) *pNoMoreChanges = 1; return true; }` (`interpolatedvar.h:832`)
+                // — the target is past every entry, so the pair is the same entry, the value holds, and a
+                // rising current time cannot change that until an update arrives.
+                return new Bracketing(index, index, oldest, NoMoreChanges: true);
+            }
+
+            return new Bracketing(index, newer, oldest, Settled(index, newer, oldest, floor, arrivedBy));
         }
 
         // The target precedes every entry this run holds: the oldest is all a client would have had.
-        return (floor, floor, floor);
+        // **NOT settled**: time is rising toward entries this answer has not reached yet.
+        return new Bracketing(floor, floor, floor, NoMoreChanges: false);
     }
+
+    /// <summary>Whether a rising current time can still change this pair's answer.</summary>
+    /// <param name="older">The entry at or before the target.</param>
+    /// <param name="newer">Its later neighbour.</param>
+    /// <param name="oldest">The spline's third sample.</param>
+    /// <param name="arrivedBy">The tick being played, which decides what the head is.</param>
+    /// <returns><c>true</c> when the answer is settled until an update arrives.</returns>
+    /// <remarks>
+    /// **The second of the engine's two <c>pNoMoreChanges</c> sites, transcribed**
+    /// (<c>interpolatedvar.h:865</c>):
+    ///
+    /// <code>
+    /// // If pInfo->newer is the most recent entry we have, and all 2 or 3 other
+    /// // entries are identical, then we're always going to return the same value
+    /// // if currentTime increases.
+    /// if ( pNoMoreChanges &amp;&amp; pInfo-&gt;newer == m_VarHistory.Head() )
+    /// {
+    ///      if ( COMPARE_HISTORY( pInfo-&gt;newer, pInfo-&gt;older ) )
+    ///      {
+    ///         if ( !pInfo-&gt;m_bHermite || COMPARE_HISTORY( pInfo-&gt;newer, pInfo-&gt;oldest ) )
+    ///             *pNoMoreChanges = 1;
+    ///      }
+    /// }
+    /// </code>
+    ///
+    /// **`Head()` is the NEWEST entry**, which in this oldest-first list is the last one live at
+    /// <paramref name="arrivedBy"/>. **`COMPARE_HISTORY` compares VALUES**, not changetimes: the answer is
+    /// settled when the newest entry is the one being interpolated toward and every sample in play already
+    /// holds the same value, so advancing the clock lands on that value however long it runs.
+    ///
+    /// **The hermite clause is not optional.** With a spline, a third sample that differs still bends the
+    /// curve between two identical endpoints, so the answer keeps moving even though the pair does not.
+    /// </remarks>
+    /// <param name="floor">The generation boundary the walk stopped at, so the head is the same one.</param>
+    private bool Settled(int older, int newer, int oldest, int floor, int arrivedBy)
+    {
+        // **The SAME floor the walk used, and passing a different one was a defect.** `Head` searched the
+        // whole array while `Bracket`'s walk stops at the generation boundary, so on granary it reported an
+        // entry the search could not reach — head `ct 13921` against a pair pinned at `ct 13920` — and the
+        // answer was called settled against a comparison the sampler never makes. Two functions that had to
+        // agree, with nothing making them: the track then parked past the moment it started moving, drawing
+        // 12.47 units behind.
+        if (newer != Head(floor, arrivedBy) || !Same(newer, older))
+        {
+            return false;
+        }
+
+        // `!pInfo->m_bHermite` — with no third sample in play the pair alone decides.
+        int longer = _changeTimes[newer] - _changeTimes[older];
+        int shorter = _changeTimes[older] - _changeTimes[oldest];
+
+        return longer <= 0 || shorter <= 0 || Same(newer, oldest);
+    }
+
+    /// <summary>The changetime of the newest entry held, or null when nothing is live.</summary>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <returns>Its changetime — the last moment this history can interpolate toward.</returns>
+    /// <remarks>
+    /// **For a scheduler that skips frames, which the engine never does** (B370). An answer reported as
+    /// settled is settled for a RISING TARGET, and the target runs an interpolation delay behind the tick
+    /// — so the moment it reaches this changetime is the moment the newest entry starts being interpolated
+    /// toward. That is `changetime + delay` in tick terms, and it is not the entry's ARRIVAL: measured on
+    /// granary, scheduling only arrivals left four ticks drawing a door up to 12.47 units behind, because
+    /// the wake fired eight ticks before the pair actually moved.
+    /// </remarks>
+    public int? HeadChangeTime(int arrivedBy) =>
+        LastReceivedAtOrBefore(arrivedBy) is var last && last >= 0 &&
+        Head(_generationStarts[last], arrivedBy) is var head && head >= 0
+            ? _changeTimes[head]
+            : null;
+
+    /// <summary>The newest entry the client still holds — the engine's <c>m_VarHistory.Head()</c>.</summary>
+    /// <param name="floor">The generation boundary, so this is the same head the walk can reach.</param>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <returns>Its index, or −1 when the history holds nothing live.</returns>
+    /// <remarks>
+    /// **The newest LIVE entry, not merely the newest received.** A flushed entry is not in the engine's
+    /// list at all, so it cannot be its head — and using the newest received would report an answer as
+    /// settled while an entry beyond it was still waiting to be interpolated toward.
+    /// </remarks>
+    private int Head(int floor, int arrivedBy)
+    {
+        for (int index = LastReceivedAtOrBefore(arrivedBy); index >= floor; index--)
+        {
+            if (_flushedAt[index] > arrivedBy)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>Whether two entries hold the same components — the engine's <c>COMPARE_HISTORY</c>.</summary>
+    /// <param name="left">One entry.</param>
+    /// <param name="right">The other.</param>
+    /// <returns><c>true</c> when every component matches.</returns>
+    private bool Same(int left, int right) => ValuesAt(left).SequenceEqual(ValuesAt(right));
 
     /// <summary>The live entry before one, which is the engine's <c>oldestindex = i+1</c>.</summary>
     /// <param name="index">The older of the bracketing pair.</param>
@@ -481,7 +626,7 @@ public sealed class InterpolatedHistory
     /// (<c>interpolatedvar.h:851</c>), so an empty older interval never splines at all — the guard
     /// inside the fixup is the second of two, and here it is the only one.
     /// </remarks>
-    public bool TimeFixup((int Older, int Newer, int Oldest) pair, Span<float> into)
+    public bool TimeFixup(Bracketing pair, Span<float> into)
     {
         int longer = _changeTimes[pair.Newer] - _changeTimes[pair.Older];
         int older = _changeTimes[pair.Older] - _changeTimes[pair.Oldest];

@@ -67,9 +67,17 @@ public sealed class InterpolationListTests
         List<SceneProp> props = [];
         timeline.PropsAt(14d, props, interpolate: new HashSet<int>());
 
-        // The keyframe at tick 0 is the last one stated at or before the sampled moment, which is
-        // one interpolation delay behind 14. Held there rather than blended towards 200.
-        props.Single().Pose.X.ShouldBe(0f);
+        // **The last pose STATED at tick 14, which is 200, and this asserted 0** (B370). The old answer
+        // came from `Held` subtracting the interpolation delay — so it held the keyframe at tick 0 and
+        // called that "last stated". But `cl_interp` belongs to `CInterpolatedVar`, and an entity off
+        // `g_InterpolationList` never reaches one: its `m_vecOrigin` is whatever the last update assigned,
+        // read live. This class's own remarks say so — *"the engine leaves a non-member at whatever its
+        // variables last held. Position, not extrapolation."* — so the assertion contradicted the
+        // principle it was written to demonstrate.
+        //
+        // The delay also put the two samplers a window apart, which is what the scheduler tripped on:
+        // it woke a track at its keyframe's own tick while `Held` changed answer eight ticks later.
+        props.Single().Pose.X.ShouldBe(200f);
     }
 
     /// <remarks>
