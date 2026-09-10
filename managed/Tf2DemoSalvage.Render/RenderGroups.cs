@@ -1,5 +1,7 @@
 using System;
 
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Render;
 
 /// <summary>

@@ -214,12 +214,15 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>What this moment draws, after every visibility rule.</summary>
     public IReadOnlyList<SceneProp> Drawn => _drawn;
 
-    /// <summary>Which entities were posed last rebuild — the next one's interpolation list (B259).</summary>
+    /// <summary>Which entities the cull accepted last rebuild, for the corpse fade (B385).</summary>
     /// <remarks>
-    /// Passed straight through from the model set rather than recomputed, so the set that decides
-    /// what is interpolated is the same one the cull produced.
+    /// **This was `PosedEntities`, and it fed two questions that are not the same question.** It was
+    /// also the interpolation list the presenter handed back to the sampler, and `ShouldInterpolate`
+    /// asks nothing a renderer knows — see <see cref="EntityModelSet.InView"/> for the whole account.
+    /// Passed straight through rather than recomputed, so the answer the fade reads is the one the
+    /// cull produced.
     /// </remarks>
-    public IReadOnlySet<int> PosedEntities => _models.PosedEntities;
+    public IReadOnlySet<int> InView => _models.InView;
 
     /// <summary>One matrix per drawn entity.</summary>
     public IReadOnlyList<ModelInstance> Instances => _instances;

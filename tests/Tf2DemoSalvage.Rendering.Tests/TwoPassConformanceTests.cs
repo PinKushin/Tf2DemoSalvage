@@ -1,6 +1,7 @@
 using System;
 using System.Text.RegularExpressions;
 
+using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;

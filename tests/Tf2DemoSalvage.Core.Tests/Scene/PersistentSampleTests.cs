@@ -97,21 +97,21 @@ public sealed class PersistentSampleTests
     }
 
     /// <summary>What a freshly built timeline answers at one tick, knowing nothing else.</summary>
-    private static List<SceneProp> Fresh(double tick, IReadOnlySet<int>? interpolate)
+    private static List<SceneProp> Fresh(double tick, int? viewEntity)
     {
         DemoTimeline cold = DemoTimeline.ForTracks(Cast());
 
         List<SceneProp> props = [];
 
-        cold.PropsAt(tick, props, interpolate);
+        cold.PropsAt(tick, props, viewEntity);
 
         return props;
     }
 
     private static void ShouldMatchAFreshSample(
-        List<SceneProp> stepped, double tick, IReadOnlySet<int>? interpolate)
+        List<SceneProp> stepped, double tick, int? viewEntity)
     {
-        List<SceneProp> fresh = Fresh(tick, interpolate);
+        List<SceneProp> fresh = Fresh(tick, viewEntity);
 
         stepped.Count.ShouldBe(fresh.Count, $"prop count diverged at tick {tick}");
 
@@ -139,30 +139,64 @@ public sealed class PersistentSampleTests
         {
             stepped.PropsAt(tick, props);
 
-            ShouldMatchAFreshSample(props, tick, interpolate: null);
+            ShouldMatchAFreshSample(props, tick, viewEntity: null);
         }
     }
 
     /// <remarks>
-    /// Same differential under an interpolation set, because the set chooses <c>Held</c> over
-    /// <c>At</c> per track and the two have different wake schedules. The set is FIXED for the
-    /// whole run: what happens when it changes mid-flight is the engine-semantics test below,
-    /// not this one.
+    /// **The same differential with a mover that HOLDS**, because holding and blending have different
+    /// wake schedules and only a track off the list exercises the first. The refusal is a render mode
+    /// on the cast rather than a set handed to the sampler (B385): `ShouldDraw`'s own first test, so a
+    /// held track here is held for the reason the engine holds one.
     /// </remarks>
     [Test]
-    public void PropsAt_SteppedForwardWithAFixedInterpolationSet_MatchesAFreshTimelineEverywhere()
+    public void PropsAt_SteppedForwardWithATrackThatHolds_MatchesAFreshTimelineEverywhere()
     {
-        DemoTimeline stepped = DemoTimeline.ForTracks(Cast());
-
-        HashSet<int> blending = [1, 4, 5];
+        DemoTimeline stepped = DemoTimeline.ForTracks(Refusing());
 
         List<SceneProp> props = [];
 
         for (double tick = 0d; tick <= 320d; tick += 0.5)
         {
-            stepped.PropsAt(tick, props, blending);
+            stepped.PropsAt(tick, props);
 
-            ShouldMatchAFreshSample(props, tick, blending);
+            ShouldMatchAFreshSampleOf(Refusing, props, tick);
+        }
+    }
+
+    /// <summary>The cast with the door and the ender declaring <c>kRenderNone</c> throughout.</summary>
+    /// <remarks>
+    /// **The door especially**, because its two keyframes 150 ticks apart are the long held span the
+    /// wake arithmetic has the most room to get wrong — and because a `func_door` at `kRenderNone`
+    /// carrying a visible prop is the pairing B385 was about.
+    /// </remarks>
+    private static List<ScenePropTrack> Refusing()
+    {
+        List<ScenePropTrack> cast = Cast();
+
+        ScenePropTrack door = new(entityIndex: 2, "models/props/door.mdl");
+
+        door.Add(0, new ScenePose { X = 0f, RenderMode = RenderModes.None });
+        door.Add(150, new ScenePose { X = 64f, RenderMode = RenderModes.None });
+
+        cast[1] = door;
+
+        return cast;
+    }
+
+    /// <summary>The differential against a cold timeline built from a named cast.</summary>
+    private static void ShouldMatchAFreshSampleOf(
+        Func<List<ScenePropTrack>> cast, List<SceneProp> stepped, double tick)
+    {
+        List<SceneProp> fresh = [];
+
+        DemoTimeline.ForTracks(cast()).PropsAt(tick, fresh);
+
+        stepped.Count.ShouldBe(fresh.Count, $"prop count diverged at tick {tick}");
+
+        for (int i = 0; i < stepped.Count; i++)
+        {
+            stepped[i].ShouldBe(fresh[i], $"prop {fresh[i].EntityIndex} diverged at tick {tick}");
         }
     }
 
@@ -188,7 +222,7 @@ public sealed class PersistentSampleTests
         {
             stepped.PropsAt(tick, props);
 
-            ShouldMatchAFreshSample(props, tick, interpolate: null);
+            ShouldMatchAFreshSample(props, tick, viewEntity: null);
         }
     }
 
@@ -206,11 +240,11 @@ public sealed class PersistentSampleTests
         stepped.PropsAt(5d, props);
         stepped.PropsAt(290d, props);
 
-        ShouldMatchAFreshSample(props, 290d, interpolate: null);
+        ShouldMatchAFreshSample(props, 290d, viewEntity: null);
 
         stepped.PropsAt(291d, props);
 
-        ShouldMatchAFreshSample(props, 291d, interpolate: null);
+        ShouldMatchAFreshSample(props, 291d, viewEntity: null);
     }
 
     /// <remarks>
@@ -327,21 +361,25 @@ public sealed class PersistentSampleTests
     }
 
     /// <remarks>
-    /// **The engine's join rule, and the one place stage C is ALLOWED to differ from the old
-    /// per-frame recomputation.** `OnLatchInterpolatedVariables` consults `ShouldInterpolate()`
-    /// when an UPDATE arrives (`c_baseentity.cpp:2832`) — an entity that becomes visible between
-    /// updates keeps its held value until the next update re-latches it. Our updates are
-    /// keyframes: a prop granted visibility mid-segment therefore holds until the segment's next
-    /// boundary rather than starting to lerp on the very next frame. The old code lerped
-    /// immediately, which is the divergence this test pins down.
+    /// **The engine's join rule, restated through the cause rather than through a set** (B385).
+    /// `OnLatchInterpolatedVariables` consults `ShouldInterpolate()` when an UPDATE arrives
+    /// (`c_baseentity.cpp:2832`), and `UpdateVisibility` runs on a data update too — so visibility
+    /// cannot arrive between updates at all. Our updates are keyframes, and a render mode is carried
+    /// on one: a mover that stops declaring `kRenderNone` therefore joins the lerp at exactly the
+    /// keyframe that says so, and not before.
+    ///
+    /// **This test used to hand the sampler a set and change it mid-flight**, which was a manipulation
+    /// of a parameter rather than of the world. That parameter is gone: the renderer's set was wrong
+    /// for three whole populations (see `InterpolationListTests`), and a mid-segment visibility change
+    /// was a state the engine cannot reach.
     /// </remarks>
     [Test]
-    public void PropsAt_VisibilityGrantedMidSegment_JoinsTheLerpAtTheNextKeyframeNotInstantly()
+    public void PropsAt_WhenAMoversRenderModeStopsRefusing_JoinsTheLerpAtThatKeyframe()
     {
         ScenePropTrack mover = new(entityIndex: 1, "models/props/cart.mdl");
 
-        mover.Add(0, new ScenePose { X = 0f });
-        mover.Add(100, new ScenePose { X = 1000f });
+        mover.Add(0, new ScenePose { X = 0f, RenderMode = RenderModes.None });
+        mover.Add(100, new ScenePose { X = 1000f, RenderMode = RenderModes.None });
 
         // **A third keyframe, so there IS a next latch to join at** (B370). With only two, and `Held` no
         // longer subtracting the interpolation delay, every sample after tick 100 reads 1000 whether the
@@ -350,38 +388,33 @@ public sealed class PersistentSampleTests
 
         DemoTimeline stepped = DemoTimeline.ForTracks([mover]);
 
-        HashSet<int> nobody = [];
-        HashSet<int> theMover = [1];
-
         List<SceneProp> props = [];
 
-        // Held, and parked: the wake at tick 100 consulted the set and found the mover excluded.
+        // Held, and parked: at the wake at tick 100 the newest stated pose declares `kRenderNone`, so
+        // `ShouldDraw` refuses and there is nothing hanging off this mover to force it back on.
         //
         // **1000, not 0, and that is the last pose STATED** (B370). `Held` used to subtract the
         // interpolation delay and call the keyframe at tick 0 "last stated"; `cl_interp` belongs to
         // `CInterpolatedVar` and an entity off `g_InterpolationList` never reaches one, so its origin is
         // whatever the last update assigned, read live.
-        stepped.PropsAt(100.5d, props, nobody);
+        stepped.PropsAt(100.5d, props);
 
-        props.Single().Pose.X.ShouldBe(1000f, "excluded from interpolation, the prop holds where stated");
+        props.Single().Pose.X.ShouldBe(1000f, "refused by its render mode, the prop holds where stated");
 
-        // Visibility arrives BETWEEN keyframes. The engine would not re-latch here and neither do
-        // we: the pose stays held until the next boundary.
-        stepped.PropsAt(101d, props, theMover);
+        stepped.PropsAt(101d, props);
 
         props.Single().Pose.X.ShouldBe(
             1000f,
-            "visibility between updates does not join the lerp - the engine consults "
-            + "ShouldInterpolate when an update latches, not per frame");
+            "still refused, because the mode is a property of the newest stated pose and no "
+            + "keyframe between 100 and 200 changes it");
 
-        // The next latch is the keyframe at tick 200, and from there the mover is blended: sampled one
-        // interpolation delay past it, the pose is strictly inside the 1000-to-2000 segment rather than
-        // held at either end.
-        stepped.PropsAt(208d, props, theMover);
+        // The keyframe at tick 200 draws normally, and from there the mover is blended: sampled one
+        // interpolation delay past it, the pose is strictly inside the 1000-to-2000 segment.
+        stepped.PropsAt(208d, props);
 
         float joined = props.Single().Pose.X;
 
-        joined.ShouldBeGreaterThan(1000f, "from the next latch it interpolates rather than holding");
+        joined.ShouldBeGreaterThan(1000f, "from the latch that draws, it interpolates rather than holding");
         joined.ShouldBeLessThanOrEqualTo(2000f);
     }
 }

@@ -370,7 +370,15 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # the tangents are, so every live history entry must be drawn at its own changetime -- no model of speed,
 # nothing an ease-in can explain away. Its fixture needed a LARGE backwards clock correction: a
 # one-tick version reproduced nothing and sabotaging the guard reddened nothing at all.
-run Tf2DemoSalvage.Core.Tests     core     1836
+#
+# 1836 -> 1839 on 2026-09-10: three net for B385, `ShouldInterpolate`'s missing clauses. Two are the
+# fourth clause and its `return false` -- a `kRenderNone` mover carrying a prop that draws, and one
+# carrying a prop that does not -- and the third is clause TWO asked of the CHILD, which exists only
+# because a sabotage reddened nothing: swapping the walk's child for its parent left every other test
+# green, since both tracks in those fixtures carry a model and the render mode comes off the pose
+# either way. `InterpolationListTests` also stopped handing the sampler a set and started manipulating
+# the render mode, which is the cause the engine actually tests.
+run Tf2DemoSalvage.Core.Tests     core     1839
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
