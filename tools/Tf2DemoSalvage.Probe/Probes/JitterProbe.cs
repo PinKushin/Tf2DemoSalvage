@@ -196,10 +196,29 @@ public sealed class JitterProbe : IProbe
         double keyed = 0d;
         int firstMove = -1;
 
+        // **Counted INSIDE the sampled window as well as over the whole track, and the difference is
+        // the finding.** A track that draws nothing across a window has three possible reasons and
+        // they are not the same defect: it received updates that stated no movement (the demo says
+        // the door did not open), it received no updates at all (the entity went quiet, which is
+        // ours to explain), or it received moving ones the sampler refused to draw. Reported over
+        // the whole track alone, the numbers cannot tell those apart — measured on granary's garage
+        // doors, where entity 49 opens during the rollout and 52 states its first move 8,000 ticks
+        // later, and only the in-window count says whether 52 was even being talked about.
+        int inWindow = 0;
+        int movedInWindow = 0;
+
         for (int index = 1; index < track.Keyframes.Count; index++)
         {
             ScenePose was = track.Keyframes[index - 1].Pose;
             ScenePose now = track.Keyframes[index].Pose;
+
+            int arrived = track.Keyframes[index].Tick;
+            bool sampled = arrived >= from && arrived <= from + span;
+
+            if (sampled)
+            {
+                inWindow++;
+            }
 
             double step = Distance((0d, was.X, was.Y, was.Z), (0d, now.X, now.Y, now.Z));
 
@@ -211,6 +230,11 @@ public sealed class JitterProbe : IProbe
             stated++;
             keyed += step;
 
+            if (sampled)
+            {
+                movedInWindow++;
+            }
+
             if (firstMove < 0)
             {
                 firstMove = index;
@@ -221,6 +245,55 @@ public sealed class JitterProbe : IProbe
             CultureInfo.InvariantCulture,
             $"  the keyframes themselves state {stated:N0} moves totalling {keyed:F1} units" +
             $"{(stated > 0 && moved <= 0d ? " — WHICH THE SAMPLER DREW NONE OF" : string.Empty)}"));
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  inside the sampled window the demo sent {inWindow:N0} keyframes, " +
+            $"{movedInWindow:N0} of them moving" +
+            $"{(inWindow == 0 ? " — THE ENTITY WAS SILENT FOR THE WHOLE WINDOW" : string.Empty)}"));
+
+        // **A door need not MOVE to open, and granary's garage doors do not** (B370). The map drives
+        // them by animation rather than by parenting:
+        //
+        //   func_door *16 targetname='door_redbase_cap2_2'
+        //     OnOpen ='prop_door_redbase_cap2_2,SetAnimation,open,0,-1'
+        //     OnClose='prop_door_redbase_cap2_2,SetAnimation,close,0,-1'
+        //
+        // — so the visible `main_entrance_door.mdl` is a `prop_dynamic` playing a SEQUENCE while the
+        // `func_door` is a two-unit-thick blocker, and a probe that measures only the origin reports a
+        // perfectly still door and calls it correct. This says which sequences the demo stated, so an
+        // animated door that never changes sequence is visible as such.
+        List<int> sequences = [];
+
+        float lowest = float.MaxValue;
+        float highest = float.MinValue;
+
+        foreach ((int tick, ScenePose pose) in track.Keyframes)
+        {
+            if (tick < from || tick > from + span)
+            {
+                continue;
+            }
+
+            if (!sequences.Contains(pose.Sequence))
+            {
+                sequences.Add(pose.Sequence);
+            }
+
+            lowest = Math.Min(lowest, pose.Cycle);
+            highest = Math.Max(highest, pose.Cycle);
+        }
+
+        // **The cycle beside the sequence, because either alone is half the answer.** A sequence that
+        // changes with a cycle pinned at zero is a door stuck on frame one of its own opening
+        // animation; a cycle that sweeps with no sequence change is a looping idle. The pair says
+        // which, and neither number says it alone.
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  sequences stated in the window: " +
+            $"{(sequences.Count == 0 ? "none" : string.Join(", ", sequences))}" +
+            $"{(sequences.Count == 0 ? string.Empty : $", cycle {lowest:F3}..{highest:F3}")}" +
+            $"; client-side animated {track.ClientSideAnimated}"));
 
         // **Centred on the first stated move when nothing was drawn**, because `worstAt` is zero for a
         // track the sampler held flat and a window around tick zero prints nothing at all — the same
@@ -248,6 +321,8 @@ public sealed class JitterProbe : IProbe
                 $"held {track.HeldUntil(index),6}  " +
                 $"({pose.X:F1}, {pose.Y:F1}, {pose.Z:F1})"));
         }
+
+        Account(output, track, samples, from, span);
 
         // **How often the two clocks disagree at all, over the whole track.** This is the number that
         // says whether a search on the wrong one could matter: at zero it cannot, and the measured
@@ -363,6 +438,76 @@ public sealed class JitterProbe : IProbe
             CultureInfo.InvariantCulture,
             $"    phase: {off:N0} of {checked_:N0} entries are NOT drawn at their own changetime; " +
             $"worst {worst:F2} units at changetime {worstAt}"));
+    }
+
+    /// <summary>The demo's account of a movement beside the drawn one, tick by tick.</summary>
+    /// <param name="output">Where to report.</param>
+    /// <param name="track">The track being measured.</param>
+    /// <param name="samples">What <c>At</c> answered, ten to the tick.</param>
+    /// <param name="from">The first tick of the window.</param>
+    /// <param name="span">How many ticks were sampled.</param>
+    /// <remarks>
+    /// **Differencing two sweeps cannot settle a duration, and trying it produced a contradiction.**
+    /// Slicing granary's door 52 into five 60-tick runs said the door rose 153 units and stayed up;
+    /// one 200-tick run over the same ticks said it ended where it started. Both are `At`, and `At` is
+    /// not a pure function of the tick — a cold timeline starting mid-movement has no history to
+    /// bracket with, so its first samples are the last STATED pose rather than a blend. That is the
+    /// engine's own behaviour for a client that just joined, and it makes any measurement assembled
+    /// out of separate sweeps unsafe.
+    ///
+    /// **So this reports one sweep against the keyframes underneath it**: what the demo stated the
+    /// height was, what was drawn at that tick, and the difference. A door held open for two seconds
+    /// in the recording and drawn open for half of one is visible here and in no summary statistic.
+    /// </remarks>
+    private static void Account(
+        TextWriter output,
+        ScenePropTrack track,
+        List<(double Tick, float X, float Y, float Z)> samples,
+        int from,
+        int span)
+    {
+        float floorZ = float.MaxValue;
+        float ceilingZ = float.MinValue;
+
+        foreach ((int tick, ScenePose pose) in track.Keyframes)
+        {
+            if (tick < from || tick > from + span)
+            {
+                continue;
+            }
+
+            floorZ = Math.Min(floorZ, pose.Z);
+            ceilingZ = Math.Max(ceilingZ, pose.Z);
+        }
+
+        if (ceilingZ - floorZ <= 1f)
+        {
+            return;
+        }
+
+        // **Open means "off its lowest stated height", which needs no map knowledge.** A door's closed
+        // position is the lowest the demo ever puts it in this window and the travel is the rest, so a
+        // threshold at a tenth of that is clear of the wire's own half-unit quantisation without
+        // guessing at what the map says the door is.
+        float open = floorZ + ((ceilingZ - floorZ) * 0.1f);
+
+        int statedOpen = 0;
+
+        for (int tick = from; tick <= from + span; tick++)
+        {
+            if (track.AtKeyframe(tick) is { } pose && pose.Z > open)
+            {
+                statedOpen++;
+            }
+        }
+
+        int drawnOpen = samples.Count(sample => sample.Z > open);
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  travel {ceilingZ - floorZ:F1} units: the demo states it OFF ITS SEAT for " +
+            $"{statedOpen:N0} of {span:N0} ticks, and it is drawn so for " +
+            $"{drawnOpen / 10d:F1} — {(statedOpen > 0 ? drawnOpen / 10d / statedOpen : 0d):P0} of the time"));
     }
 
     // **`OffTheList` lived here for one measurement and is gone with what it measured** (B385). It
