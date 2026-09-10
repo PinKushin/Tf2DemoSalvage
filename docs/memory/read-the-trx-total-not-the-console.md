@@ -505,8 +505,8 @@ together or neither does.
 
 ### Verify a floor by manipulation, in a directory that holds one candidate
 
-`assert-test-count.sh` finds the `.trx` by BASENAME (`find . -name core.trx | head -1`) from
-wherever it is invoked, so in a tree with several worktrees it will hand back another tree's
+`assert-test-count.sh` found the `.trx` by BASENAME (`find . -name core.trx | head -1`) from
+wherever it was invoked, so in a tree with several worktrees it handed back another tree's
 results — that happened to a parallel session and was believed. Removing the ambiguity beats
 detecting it:
 
@@ -517,3 +517,32 @@ cd "$scratch" && bash <repo>/build/assert-test-count.sh '**/core.trx' 1826 plus-
 ```
 
 **The floor plus one MUST fail.** A number that passes at both is not a measurement of anything.
+
+### Fixed 2026-09-10, after it bit a second time — and it was written down here first
+
+**The hazard above was recorded, understood, and left in place, so the gate read a stranger's file
+again.** Two spun-off tasks were running in worktrees UNDER this repository, each with its own
+`tests/*/TestResults/core.trx`; `find .` reached all three and `head -1` took whichever the
+filesystem offered first:
+
+```
+.claude/worktrees/heuristic-sinoussi-774827/.../core.trx: total="1843"   <- the gate read this
+.claude/worktrees/vigorous-boyd-58fa93/.../core.trx:      total="1846"
+tests/Tf2DemoSalvage.Core.Tests/TestResults/core.trx:     total="1851"   <- this run's
+```
+
+The gate then failed against its own correct floor and the first two explanations reached for were
+both wrong — a stale build, then two gate runs colliding over `obj/`. **The dangerous direction is
+the other one**: a worktree holding MORE tests would have satisfied a floor this tree does not meet,
+silently, which is precisely the failure the script exists to prevent.
+
+**Two faults, and either alone is enough.** The search reached into `.claude/worktrees`, and
+`head -1` resolved an ambiguity it had no basis to resolve. Both are fixed: worktrees are pruned,
+and **several matches is now a refusal that names the files** rather than a guess. Verified by
+manipulation — a decoy `core.trx` at the repo root makes it exit 1 listing both paths, and removing
+the decoy restores the pass.
+
+**The lesson is not about globs.** This was filed as a known trap, with the words *"removing the
+ambiguity beats detecting it"* already in it, and nothing acted on the sentence — see
+[[filing-a-divergence-is-not-fixing-it]]. A hazard written down in a memory is not mitigated by
+having been written down.

@@ -378,7 +378,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # green, since both tracks in those fixtures carry a model and the render mode comes off the pose
 # either way. `InterpolationListTests` also stopped handing the sampler a set and started manipulating
 # the render mode, which is the cause the engine actually tests.
-run Tf2DemoSalvage.Core.Tests     core     1839
+# 1839 -> 1847 on 2026-09-10: eight for `DT_Sprite`'s accessors (B378), which assert the values a REAL
+# demo sends — read from `CSprite`'s instance baseline — rather than numbers invented from the send
+# table. B386's tests are NOT here: two sessions fixed that within an hour of each other and the other
+# branch's fix is the one that keeps the scrub, so its tests land with it rather than being duplicated.
+run Tf2DemoSalvage.Core.Tests     core     1847
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -842,7 +846,12 @@ run Tf2DemoSalvage.Animation.Tests animation 252
 # `model_player_per_class` and an item index the schema has never heard of, and each sabotage now
 # reddens exactly its own test. The `ItemDefinitionIndex` guard is deliberately uncovered: `For(null,
 # …)` returns null, so the guard saves a call and decides no behaviour, and a test for it could not fail.
-run Tf2DemoSalvage.Scene.Tests    scene     673
+# 673 -> 688 on 2026-09-10: fifteen for `C_SpriteRenderer` (B378), written from the engine BEFORE
+# anything drew a sprite. The ones that earn their place are the branches an implementation gets
+# backwards without looking wrong: the roll promotion that happens before the switch, the `.vmt`
+# default of SPR_VP_PARALLEL_UPRIGHT rather than the plain billboard, the upright refusal near
+# vertical, and world-glow-keeps-its-size against every-other-glow-does-not.
+run Tf2DemoSalvage.Scene.Tests    scene     688
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

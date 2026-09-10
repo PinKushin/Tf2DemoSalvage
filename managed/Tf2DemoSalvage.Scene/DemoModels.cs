@@ -280,6 +280,41 @@ public static class DemoModels
         return paths;
     }
 
+    /// <summary>Every entity sprite's material, which is in no other load list (B378).</summary>
+    /// <param name="timeline">The decoded demo, or null when none is open.</param>
+    /// <returns>Distinct model paths of kind <see cref="SceneModelKind.Sprite"/>.</returns>
+    /// <remarks>
+    /// **A sprite is not in <see cref="Needed"/> and should not be.** That walk adds a track's path
+    /// only when its kind is <c>Studio</c>, because everything it feeds reads a `.mdl`; a sprite's
+    /// "model" is a `.vmt` or a `.spr` and handing one to a model loader draws nothing and reports
+    /// nothing — which the loader's own remarks already say. So the paths need their own list rather
+    /// than a relaxed filter on that one.
+    ///
+    /// **Unlike the worn models of B379, these ARE named by a track**, so this is a filter and not a
+    /// resolve: `env_sprite` networks its model index like any other entity and the string table
+    /// turns it into `materials/Sprites/light_glow03.vmt`. The two lists are separate because they
+    /// load different things, not because the paths come from different places.
+    /// </remarks>
+    public static HashSet<string> Sprites(DemoTimeline? timeline)
+    {
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+
+        if (timeline is not { } demo)
+        {
+            return paths;
+        }
+
+        foreach (ScenePropTrack track in demo.Props)
+        {
+            if (track.Kind == SceneModelKind.Sprite && track.ModelPath.Length > 0)
+            {
+                paths.Add(track.ModelPath);
+            }
+        }
+
+        return paths;
+    }
+
     /// <summary>The models the demo ever hangs off another entity's skeleton.</summary>
     /// <param name="timeline">The decoded demo, or null when none is open.</param>
     /// <param name="game">What the install provides.</param>

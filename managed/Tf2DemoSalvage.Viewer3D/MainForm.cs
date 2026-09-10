@@ -3831,6 +3831,49 @@ internal class MainForm : Form, IFrameSteps
                 new Vector3(rx, ry, rz),
                 new Vector3(ux, uy, uz),
                 _loaded?.Assets?.ParticleMaterials ?? NoParticleMaterials);
+
+            // **Entity sprites join the particle batches rather than getting a pass of their own**
+            // (B378). A sprite IS a particle with one quad — a texture, a blend and six corners — so
+            // it goes through the same renderer, and a second pass would agree with this one only
+            // until one of them gained a feature.
+            (float ahead, float across, float above) = AngleVectors.Forward(
+                viewing.Angles.Pitch, viewing.Angles.Yaw);
+
+            IReadOnlyList<ParticleBatch> glows = _sprites.Build(
+                _moment.Drawn,
+                new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
+                new Vector3(rx, ry, rz),
+                new Vector3(ux, uy, uz),
+                new Vector3(ahead, across, above),
+                _loaded?.Assets?.SpriteMaterials ?? NoParticleMaterials,
+
+                // **The occlusion gate, and it is NOT the engine's.** `PixelVisibility_FractionVisible`
+                // is a GPU query that returns a FRACTION, degenerating to a line trace from the eye
+                // when there is no query handle (`c_pixel_visibility.cpp:825`). This project has
+                // neither, so a glow is lit whenever it is in the world at all — which means one
+                // behind a pillar stays lit where TF2 hides it. Named here and in B378 rather than
+                // left to be discovered from a screenshot.
+                _ => true);
+
+            // **The value the builder USED, carried here rather than recounted** (B243). A picture
+            // can only show a glow the camera happens to face, so the count is what says the pass
+            // ran at all — and DRAWN beside SKIPPED is what separates "no sprites in this moment"
+            // from "every sprite refused for a reason nobody printed".
+            if (_renderLog.IsEnabled(LogLevel.Debug) &&
+                (_sprites.Drawn > 0 || _sprites.Skipped > 0))
+            {
+                _renderLog.LogDebug(
+                    "{Message}",
+                    $"entity sprites: {_sprites.Drawn} drawn in {glows.Count} batches, " +
+                    $"{_sprites.Skipped} skipped");
+            }
+
+            if (glows.Count > 0)
+            {
+                List<ParticleBatch> both = [.. batches, .. glows];
+
+                batches = both;
+            }
         }
 
         _device.SetParticles(batches);
@@ -3838,6 +3881,9 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>The effects running for this demo.</summary>
     private readonly ParticleEffects _particles = new();
+
+    /// <summary>Every `env_sprite` in the moment, as quads (B378).</summary>
+    private readonly EntitySpriteBatches _sprites = new();
 
     /// <summary>The track for one entity that covers a given tick.</summary>
     /// <remarks>

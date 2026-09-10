@@ -146,6 +146,12 @@ public sealed class LoadedMap
                     DemoModels.Needed(timeline, game),
                     DemoModels.Worn(timeline, game),
 
+                    // **Named, because everything after it is positional and a sprite list is not a
+                    // model list.** Adding a parameter in the middle of a positional call is how the
+                    // brush-model factory and the logger factory silently became each other's
+                    // argument for one build.
+                    spriteMaterials: DemoModels.Sprites(timeline),
+
                     // **A factory rather than finished geometry, because the atlas is packed inside
                     // Load.** A door's faces carry baked lightmap samples in the same atlas as the
                     // wall's, so the geometry cannot be built before it exists (B131).
