@@ -51,7 +51,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-here=$(dirname "$0")
+# **Absolute, because a relative one breaks the moment anything changes directory.** `dirname "$0"`
+# gives `build` when the script is invoked as `bash build/gate.sh`, and the guard check below runs
+# from a temporary fixture — where `build/assert-test-count.sh` does not exist. It reported the guard
+# as broken, which is exactly the right complaint about the wrong thing.
+here=$(cd "$(dirname "$0")" && pwd)
 
 # gcor unless told otherwise: the corpus suite over lcor takes about thirty minutes and over gcor
 # about thirty seconds, and the difference is 774 MB of modern matches against 20 MB of era
@@ -61,6 +65,88 @@ export TF2DEMOSALVAGE_GCOR_ONLY="${TF2DEMOSALVAGE_GCOR_ONLY:-1}"
 # First, because it takes no time and its failure mode is silent: a decision number used twice makes
 # every citation of it ambiguous, and nothing else in the build notices (B118).
 "$here/assert-decision-numbers.sh"
+
+# **The guard that guards the guards, and it exists because that one has been wrong twice** (B388).
+# `assert-test-count.sh` decides whether every floor below is met, so when IT is broken the whole
+# gate reports success having checked nothing — the same silent shape as the truncated run it was
+# written to catch. Both of its defects were found by hand, months apart, while chasing something
+# else.
+#
+# **Not a test project.** A thirteenth suite for one shell script would add a floor to `gate.sh` and
+# another to `test.yml`, and floors in two files drifting apart is a defect this repository has had
+# twice. This costs a second, adds no floors, and runs for anyone who gates.
+#
+# **The three properties are the ones whose failure is silent**: a floor must PASS at the count and
+# FAIL one above it — a number that passes at both measures nothing, which is this project's own rule
+# from `read-the-trx-total-not-the-console.md` — and several matching files must be refused rather
+# than resolved by guessing, which is what read another worktree's results.
+verify_guard() {
+    local fixture
+    fixture=$(mktemp -d)
+
+    # **Run FROM the fixture, because the guard searches its working directory.** Creating the files
+    # somewhere else and invoking from here would have `find .` walk the repository instead, which is
+    # a check that measures nothing — and would have found this repository's own `.trx` files, which
+    # is precisely the confusion B388 is about.
+    cd "$fixture" || exit 1
+
+    # **`executed` matches `total` here on purpose, so this case cannot stand in for the one below.**
+    # Without the attribute at all, a guard misreading `executed` finds nothing, falls to zero and
+    # fails THIS assertion — which would report the right problem from the wrong place and leave the
+    # total-vs-executed case doing no work. Each property has to be able to fail alone.
+    mkdir -p "$fixture/one"
+    printf '<Counters total="5" executed="5" failed="0" />\n' > "$fixture/one/guard.trx"
+
+    if ! "$here/assert-test-count.sh" '**/guard.trx' 5 guard-at-floor > /dev/null 2>&1; then
+        echo "assert-test-count.sh rejected a run that MEETS its floor - the guard is broken." >&2
+        exit 1
+    fi
+
+    if "$here/assert-test-count.sh" '**/guard.trx' 6 guard-above > /dev/null 2>&1; then
+        echo "assert-test-count.sh accepted a run one BELOW its floor - the guard is broken." >&2
+        exit 1
+    fi
+
+    # **A run with failures is refused whatever its count**, which is a separate branch from the
+    # floor and would otherwise be asserted nowhere: a suite that runs every test and fails half of
+    # them satisfies any floor it meets.
+    printf '<Counters total="5" executed="5" failed="2" />\n' > "$fixture/one/guard.trx"
+
+    if "$here/assert-test-count.sh" '**/guard.trx' 5 guard-failures > /dev/null 2>&1; then
+        echo "assert-test-count.sh accepted a run with FAILED tests in it - the guard is broken." >&2
+        exit 1
+    fi
+
+    # **`total=` and not `executed=`, which is the distinction the floors are written in.** They
+    # differ by the `[Explicit]` tests, which are counted and not run, and by skips — so a guard
+    # reading `executed` would sit permanently below every floor and the fix would look like lowering
+    # them. This fixture separates the two: `executed` alone would answer 3 and fail.
+    printf '<Counters total="5" executed="3" failed="0" />\n' > "$fixture/one/guard.trx"
+
+    if ! "$here/assert-test-count.sh" '**/guard.trx' 5 guard-total > /dev/null 2>&1; then
+        echo "assert-test-count.sh read 'executed' rather than 'total' - every floor is now wrong." >&2
+        exit 1
+    fi
+
+    printf '<Counters total="5" failed="0" />\n' > "$fixture/one/guard.trx"
+    printf '<Counters total="99" failed="0" />\n' > "$fixture/one/decoy.trx"
+    mkdir -p "$fixture/two"
+    cp "$fixture/one/decoy.trx" "$fixture/two/guard.trx"
+
+    if "$here/assert-test-count.sh" '**/guard.trx' 5 guard-ambiguous > /dev/null 2>&1; then
+        echo "assert-test-count.sh picked one of two candidate .trx files instead of refusing." >&2
+        exit 1
+    fi
+
+    rm -rf "$fixture"
+
+    echo "guard: assert-test-count.sh passes at its floor, fails above it, refuses failures," \
+         "reads total rather than executed, and refuses ambiguity"
+}
+
+# In a subshell, so the `cd` into the fixture cannot leak into the run below — every `run` invocation
+# is relative to the repository root.
+( verify_guard )
 
 run() {
     local project=$1 name=$2 floor=$3
