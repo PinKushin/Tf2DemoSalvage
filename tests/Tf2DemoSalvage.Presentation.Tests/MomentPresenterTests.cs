@@ -310,6 +310,9 @@ public sealed class MomentPresenterTests
 
         public int PropCalls { get; private set; }
 
+        /// <summary>What the presenter passed as <c>render->GetViewEntity()</c> (B385).</summary>
+        public int? LastViewEntity { get; private set; }
+
         public double LastTick { get; private set; }
 
         /// <summary>Whether every sample arrived in the one buffer, rather than a fresh list.</summary>
@@ -351,9 +354,10 @@ public sealed class MomentPresenterTests
         public IReadOnlyList<SceneProp> Props { get; init; } = [];
 
         public void PropsAt(
-            double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null)
+            double tick, ICollection<SceneProp> into, int? viewEntity = null)
         {
             PropCalls++;
+            LastViewEntity = viewEntity;
             into.Clear();
 
             foreach (SceneProp prop in Props)

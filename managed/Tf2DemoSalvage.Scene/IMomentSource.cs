@@ -39,12 +39,13 @@ public interface IMomentSource
     /// <summary>Fills a buffer with the props at a moment, fraction included.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <param name="into">The buffer to fill; cleared first.</param>
-    /// <param name="interpolate">
-    /// The entities to interpolate - the engine's <c>g_InterpolationList</c> (B259). Anything not
-    /// named holds its last stated pose. Null interpolates everything.
+    /// <param name="viewEntity">
+    /// <c>render-&gt;GetViewEntity()</c> — the one clause of <c>ShouldInterpolate</c> a recording cannot
+    /// answer for itself (B385). The other three are the source's, because <c>IsVisible()</c> is
+    /// leaf-system membership rather than anything the renderer decides.
     /// </param>
     public void PropsAt(
-        double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null);
+        double tick, ICollection<SceneProp> into, int? viewEntity = null);
 
     /// <summary>The round the game rules were in, or null when the demo does not say.</summary>
     /// <param name="tick">The moment being shown.</param>
@@ -140,6 +141,26 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// </remarks>
     public Func<ItemSchema?>? Items { get; set; }
 
+    /// <summary>Which entities the cull accepted last frame, for the corpse fade only (B385).</summary>
+    /// <remarks>
+    /// **A different question from the interpolation list, and separating them is the point.** This was
+    /// the same set — `MomentScene.PosedEntities` — serving both, and only one of the two ever wanted
+    /// it. `ShouldInterpolate` asks `IsVisible()`, which is leaf-system membership and involves no
+    /// frustum at all; the corpse fade asks `C_TFRagdoll::IsRagdollVisible`, which is
+    /// <c>engine-&gt;IsBoxInViewCluster</c> and then <c>engine-&gt;CullBox</c> around a ±1 box at the
+    /// corpse's origin (`c_tf_player.cpp:1350`). A frustum is exactly what that one needs, so it keeps
+    /// getting one and the sampler stops getting one.
+    ///
+    /// **Still the PREVIOUS frame's cull, which the engine's is not** — `IsRagdollVisible` runs live in
+    /// `ClientThink`. Filed as the remaining divergence in B385 rather than papered over: a corpse in
+    /// its last second could expire one frame late.
+    ///
+    /// **A supplier read per call, for the same reason <see cref="ClassModels"/> is.** Null means no
+    /// renderer has reported yet, and every corpse then fades on the long unseen timer, which is the
+    /// answer a headless caller should get.
+    /// </remarks>
+    public Func<IReadOnlySet<int>?>? InView { get; set; }
+
     /// <summary>Where a model's <c>break</c> pieces come from — its gib list (B371).</summary>
     /// <remarks>
     /// **A supplier read per call, for the same reason <see cref="ClassModels"/> is**: the model
@@ -159,9 +180,9 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
     /// <inheritdoc />
     public void PropsAt(
-        double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null)
+        double tick, ICollection<SceneProp> into, int? viewEntity = null)
     {
-        timeline.PropsAt(tick, into, interpolate);
+        timeline.PropsAt(tick, into, viewEntity);
 
         // **After, because `PropsAt` clears the buffer first.** Corpses are not prop tracks and
         // never reach that walk — see `RagdollProps` for why the layering puts them here.
@@ -191,7 +212,7 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
                 classes,
                 into,
                 _fade,
-                interpolate,
+                InView?.Invoke(),
                 Items?.Invoke(),
                 Gibs,
                 timeline.IntervalPerTick);

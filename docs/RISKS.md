@@ -27578,3 +27578,117 @@ diagnostic to write, not a guess to make.
 
 *Evidence class: measured, over the whole 9,939-scene archive; the localisation to a single 2-byte
 field is arithmetic from the trailer's known 4-byte shape. The cause is NOT established.*
+
+### B385 FIXED 2026-09-10: the interpolation list came from the renderer, and every clause of it was wrong
+
+**`ShouldInterpolate` decides who is blended, and it asks four things** (`c_baseentity.cpp:3029`,
+read-from-source):
+
+```cpp
+bool C_BaseEntity::ShouldInterpolate()
+{
+	if ( render->GetViewEntity() == index )
+		return true;
+
+	if ( index == 0 || !GetModel() )
+		return false;
+
+	// always interpolate if visible
+	if ( IsVisible() )
+		return true;
+
+	// if any movement child needs interpolation, we have to interpolate too
+	C_BaseEntity *pChild = FirstMoveChild();
+	while( pChild )
+	{
+		if ( pChild->ShouldInterpolate() )
+			return true;
+
+		pChild = pChild->NextMovePeer();
+	}
+
+	// don't interpolate
+	return false;
+}
+```
+
+**Ours was a `HashSet<int>` the presenter handed the sampler** — `MomentScene.PosedEntities`, forwarded
+from `EntityModelSet`, filled by `_posedEntities.Add( prop.EntityIndex )` immediately after
+`animating.SetupBones(...)` in `Instances`.
+
+The whole thing rested on one sentence, written into `InterpolationListTests` and repeated in three
+other files: *"`IsVisible()` is the LAST render's answer, so the engine gates this frame's interpolation
+on the previous frame's visibility … it is not an approximation of what Valve does, it is what Valve
+does."* That is wrong. `IsVisible()` is
+
+```cpp
+inline bool IsVisible() const { return m_hRender != INVALID_CLIENT_RENDER_HANDLE; }
+```
+
+(`c_baseentity.h:691`) — leaf-system membership, set by `UpdateVisibility` from
+`ShouldDraw() && !IsDormant() && ( !ToolsEnabled() || IsEnabledInToolView() )`
+(`c_baseentity.cpp:1421`), where `ShouldDraw` is `kRenderNone`, then
+`(model != 0) && !IsEffectActive( EF_NODRAW ) && (index != 0)` (`:1435`). **No frustum, no frame, no
+skeleton.** `UpdateVisibility` runs on a data update, not on a render.
+
+So four divergences at once, in one set:
+
+1. **No brush entity was EVER interpolated, in any map.** The `Add` sat inside
+   `if ( _frames.TryGetValue(...) && entry.Skinned is { } skinned && _entities.TryGetValue(...) )` —
+   the skinned branch. Brushwork has no skeleton and never reaches it, so every `func_door`,
+   `func_movelinear` and `func_tracktrain` in every demo was sampled through `Held` for its whole life.
+   Every baked prop too.
+2. **The whole world dropped out on any frame with a viewmodel.** `AddViewmodel` calls `Instances`
+   again with its own two props, and `Instances` clears the set. What the next `PropsAt` received was
+   the arms and the gun.
+3. **Anything the frustum or the leaf cull rejected fell off a list the engine keeps it on** — so an
+   entity coming back into view rejoined the lerp late, at whatever pose it had held.
+4. **The fourth clause was never implemented at all.** It was quoted in `InterpolationListTests` as a
+   comment, cut off at *"// if any movement child needs interpolation"*, with no code under it. It is
+   the ONLY clause an invisible mover can pass: eighteen `func_door`s on `cp_fulgur` declare
+   `kRenderNone` and carry the grate props, so the third clause refuses them forever.
+
+**The fix moves the question to where the answers are.** `DemoTimeline.Interpolates` implements all four
+clauses; `PropsAt`'s third parameter is now `int? viewEntity` — `render->GetViewEntity()`, the one
+clause a recording cannot answer — and the presenter passes `view.Followed`. `PosedEntities` is gone
+from `EntityModelSet`, `MomentScene` and `MomentPresenter`, and `_rebuilt`'s first-frame special case
+went with it. `RenderModes` moved from `Tf2DemoSalvage.Scene` to `Tf2DemoSalvage.Core.Scene`, because
+`ShouldDraw`'s first test is `kRenderNone` and Core cannot see Scene.
+
+The child walk is iterative with its own visited set rather than recursive: `SetParent` refuses a cycle
+and our decode has no such authority, and a cycle down a recursive walk is a hang rather than a wrong
+answer. `MoveChildren` is built once from `AttachedTo`, on the first sampling — by which time every
+delta has been read.
+
+**The corpse fade kept its set, because it was the one consumer that genuinely wanted a frustum.**
+`C_TFRagdoll::IsRagdollVisible` is `engine->IsBoxInViewCluster` and then `engine->CullBox` around a ±1
+box at the corpse's origin (`c_tf_player.cpp:1350`) — nothing like `IsVisible()`. It now reads
+`EntityModelSet.InView`, filled where the cull's answer actually is, and **that clear is guarded on the
+world pass**, which fixes divergence 2 for the fade as well: every corpse in the match reported unseen
+on any frame with a viewmodel drawn and expired on the long timer.
+
+**What this did NOT fix, measured.** The owner's report is *"the first door still isnt opening … the
+second actually opens then closes immedietly"*, and this is not that. Granary's door 205 is `mode 0`, so
+it passes the third clause outright and was interpolated all along; with the entity off the list
+entirely, `jitter` measured a drawn path of **113.9 units against `At`'s 114.6** over ticks
+27,660–27,740. The timeline draws that door opening on either path. The door defect is downstream of the
+timeline and is still open under B370.
+
+**Two instrument corrections came out of the same session, and both matter more than the numbers they
+produced.** `jitter`'s drawn-vs-sampled check passed NO interpolation set, so it measured a path the
+viewer does not take and reported 0 of 1,380,850 disagreements — the same failure as B370's, one level
+further out. And the previous session's *"the child is composed once and never recomposed"* was a window
+artifact: entity index 205 owns **seven** tracks (`[736..3262]`, `[8252..37032]`, `[38231..48343]`,
+`[50287..55762]`, `[57089..59381]`, `[63750..71617]`, `[72912..84254]`), the jitter run had picked the
+first, and the viewer window at tick 8250 contained no door motion at all. The motion is at tick 27,684.
+`docs/memory/an-entity-index-does-not-name-a-track.md` is exactly about this and was walked into anyway.
+
+**What is NOT established.** The fade still reads the PREVIOUS frame's cull where `IsRagdollVisible`
+runs live in `ClientThink`, so a corpse in its last second can expire one frame late — left as a
+divergence rather than papered over. And B259's optimisation is gone: nearly every prop now blends,
+where the old set held a few dozen. Nothing has measured what that costs; `--measure` on granary is the
+instrument, and parity comes first either way (D89).
+
+*Evidence class: read-from-source for every clause, with `file:line`; the four divergences are
+read-from-source in our own code. The 113.9-against-114.6 door path and the seven-tracks-per-index
+finding are measured on `20130518_0313_cp_granary_blu_blu`.*

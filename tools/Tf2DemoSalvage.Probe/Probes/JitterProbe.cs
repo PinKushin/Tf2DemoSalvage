@@ -187,13 +187,57 @@ public sealed class JitterProbe : IProbe
         // entity's own `GetSimulationTime()`, and the engine's `GetInterpolationInfo` searches on the
         // latter (`interpolatedvar.h:820`) while a search on the former is a different answer
         // whenever the two disagree.
-        output.WriteLine("  keyframes near the worst moment (tick, appliedAt, heldUntil, position):");
+        // **What the KEYFRAMES hold, against what the samples drew, and it is the control.** A path
+        // of zero is either a track that does not move or a sampler that will not serve one, and
+        // those are opposite findings — measured on granary's door 205, 289 keyframes and a sampled
+        // path of 0.0 units. Reported always, because the case where it matters most is the one where
+        // the numbers above are all zero and there is nothing to read.
+        int stated = 0;
+        double keyed = 0d;
+        int firstMove = -1;
+
+        for (int index = 1; index < track.Keyframes.Count; index++)
+        {
+            ScenePose was = track.Keyframes[index - 1].Pose;
+            ScenePose now = track.Keyframes[index].Pose;
+
+            double step = Distance((0d, was.X, was.Y, was.Z), (0d, now.X, now.Y, now.Z));
+
+            if (step <= 0d)
+            {
+                continue;
+            }
+
+            stated++;
+            keyed += step;
+
+            if (firstMove < 0)
+            {
+                firstMove = index;
+            }
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  the keyframes themselves state {stated:N0} moves totalling {keyed:F1} units" +
+            $"{(stated > 0 && moved <= 0d ? " — WHICH THE SAMPLER DREW NONE OF" : string.Empty)}"));
+
+        // **Centred on the first stated move when nothing was drawn**, because `worstAt` is zero for a
+        // track the sampler held flat and a window around tick zero prints nothing at all — the same
+        // gating that hid a parenting line inside a `travelled > 0.5` block for a whole day.
+        double around = moved > 0d || firstMove < 0
+            ? worstAt
+            : track.Keyframes[firstMove].Tick;
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  keyframes near tick {around:F0} (tick, appliedAt, heldUntil, position):"));
 
         for (int index = 0; index < track.Keyframes.Count; index++)
         {
             (int tick, ScenePose pose) = track.Keyframes[index];
 
-            if (Math.Abs(tick - worstAt) > 12)
+            if (Math.Abs(tick - around) > 12)
             {
                 continue;
             }
@@ -210,6 +254,7 @@ public sealed class JitterProbe : IProbe
         // 50/50 split for a player says it can.
         int away = 0;
         int backwards = 0;
+        int steps = 0;
 
         for (int index = 1; index < track.Keyframes.Count; index++)
         {
@@ -221,6 +266,24 @@ public sealed class JitterProbe : IProbe
             if (track.AppliedAt(index) < track.AppliedAt(index - 1))
             {
                 backwards++;
+
+                // **The SIZE of the step back, which decides what caused it.** The engine's
+                // `AddToHead( bFlushNewer = true )` deletes every entry at or after a new changetime
+                // (`interpolatedvar.h:649`), so a backwards apply is not a curiosity — it discards the
+                // history in front of it. A step of one or two ticks is the wire's own jitter; a step
+                // of a hundred is `GetNetworkBase`, which quantises to 100 ticks
+                // (`globalvars_base.h:95`) and gives a keyframe exactly one base too early when the
+                // tick the base is computed from straddles the boundary.
+                if (steps < 8)
+                {
+                    steps++;
+
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"    tick {track.Keyframes[index].Tick,6} applies {track.AppliedAt(index),6}, " +
+                        $"back {track.AppliedAt(index - 1) - track.AppliedAt(index)} ticks from the " +
+                        $"keyframe before it"));
+                }
             }
         }
 
@@ -301,6 +364,13 @@ public sealed class JitterProbe : IProbe
             $"    phase: {off:N0} of {checked_:N0} entries are NOT drawn at their own changetime; " +
             $"worst {worst:F2} units at changetime {worstAt}"));
     }
+
+    // **`OffTheList` lived here for one measurement and is gone with what it measured** (B385). It
+    // sampled `PropsAt` with an empty interpolation set to reproduce what the viewer did to a brush
+    // entity, and reported 113.9 units against `At`'s 114.6 on granary's door 205 — which is how the
+    // set was ruled out as the cause of the door that will not open. There is no set to be off any
+    // more: the timeline answers `ShouldInterpolate` from the recording, so `Drawn` below measures the
+    // viewer's real path with nothing extra to pass it.
 
     /// <summary>What <c>PropsAt</c> hands the renderer, against what <c>At</c> says (B370).</summary>
     /// <param name="output">Where to report.</param>
@@ -449,8 +519,26 @@ public sealed class JitterProbe : IProbe
             statedHigh = Math.Max(statedHigh, pose.Z);
         }
 
+        // **A track that does not move in its OWN pose is the interesting case for a visible door**, not a
+        // case to skip (B370). Granary's shutters are `prop_dynamic` models PARENTED to a `func_door`
+        // brush, and a parented entity sends no origin of its own — so its track is flat and every
+        // comparison of "what was handed over" against "what the track says" agrees by construction while
+        // the screen shows it wherever the parent transform put it. Measured: 66 `door_slide` tracks, 0
+        // disagreements over 128,740 comparisons, and the owner watching a door that never opens.
+        //
+        // So report the parent instead. Whether the drawn world position follows it is a question for the
+        // scene layer, which this probe cannot see — but a flat track with a parent that MOVES says the
+        // motion has to come from the transform, and names the entity to go and read.
         if (statedHigh - statedLow <= 1f)
         {
+            if (track.Keyframes.Count > 0 && track.AttachedTo is { } parent)
+            {
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    reach: FLAT in its own pose, parented to entity {parent} — its motion can only " +
+                    $"come from the parent transform"));
+            }
+
             return;
         }
 
@@ -709,6 +797,17 @@ public sealed class JitterProbe : IProbe
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"  {matched.Count:N0} tracks whose model contains '{model}'"));
+
+        // **The control for an absence, before any claim rests on one.** Reporting that these tracks carry
+        // no move parent is a claim about the DECODE as much as about the map, and a decoder that never
+        // populates `AttachedTo` for anything would produce the same silence. So print how many tracks in
+        // the WHOLE recording have one: a healthy number means the field works and these genuinely lack it,
+        // and zero means the instrument is the subject. `docs/memory/an-empty-search-needs-a-control.md`.
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  control: {matched.Count(one => one.AttachedTo is not null):N0} of these are parented, " +
+            $"against {timeline.Props.Count(one => one.AttachedTo is not null):N0} of " +
+            $"{timeline.Props.Count:N0} tracks in the recording"));
 
         foreach (ScenePropTrack track in matched.OrderBy(one => one.EntityIndex))
         {

@@ -3825,14 +3825,26 @@ public sealed class DemoTimeline
     /// Tracks are asked individually because each holds its own keyframes; a track that has not
     /// started or has already ended simply answers nothing.
     /// </remarks>
-    /// <param name="interpolate">
-    /// The entities to interpolate — the engine's <c>g_InterpolationList</c> (B259). Anything not
-    /// named holds its last stated pose instead of being blended, which is what the engine leaves a
-    /// non-member at. Null interpolates everything, which is the safe direction and what every
-    /// caller that does not care relies on.
+    /// <param name="viewEntity">
+    /// <c>render-&gt;GetViewEntity()</c> — who the view is attached to, which is the ONE clause of
+    /// <c>ShouldInterpolate</c> a recording cannot answer for itself (`c_baseentity.cpp:3031`). Null
+    /// means no view entity, which is what a SourceTV recording drawn from a free camera has.
     /// </param>
+    /// <remarks>
+    /// **The interpolation list was a SET the caller passed, and that was the divergence** (B385).
+    /// The renderer supplied <c>MomentScene.PosedEntities</c> — the entities that reached
+    /// <c>SetupBones</c> last frame — and <c>IsVisible()</c> is none of those things: it is
+    /// <c>m_hRender != INVALID_CLIENT_RENDER_HANDLE</c> (`c_baseentity.h:691`), set by
+    /// <c>UpdateVisibility</c> from <c>ShouldDraw() &amp;&amp; !IsDormant()</c>
+    /// (`c_baseentity.cpp:1421`). It is not about bones, not about the frustum, and not about the
+    /// previous frame. Three populations were wrong in the same set: a brush entity has no skeleton
+    /// so no door was EVER interpolated, the viewmodel pass cleared the set and refilled it with its
+    /// own two props, and an entity the frustum rejected dropped off a list the engine keeps it on.
+    ///
+    /// Every clause but the view entity is answerable here, so it is answered here.
+    /// </remarks>
     public void PropsAt(
-        double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null)
+        double tick, ICollection<SceneProp> into, int? viewEntity = null)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -3843,7 +3855,6 @@ public sealed class DemoTimeline
         // one type test, and a caller that passes something else keeps working through the slow
         // path rather than being refused.
         List<SceneProp>? fast = into as List<SceneProp>;
-        HashSet<int>? named = interpolate as HashSet<int>;
 
         // **The recorder's team AT THIS TICK**, because a player can switch sides mid-recording and
         // "is this my own team's spawn wall" then changes answer. Null for a SourceTV recording,
@@ -3868,11 +3879,11 @@ public sealed class DemoTimeline
         // which is baked into every prop as `OfRecordersTeam` — rebuilds everything from nothing.
         if (!_sampleSynced || tick < _sampledTo || recorderTeam != _sampledTeam)
         {
-            ResyncSample(tick, interpolate, named, recorderTeam);
+            ResyncSample(tick, viewEntity, recorderTeam);
         }
         else
         {
-            AdvanceSample(tick, interpolate, named, recorderTeam);
+            AdvanceSample(tick, viewEntity, recorderTeam);
         }
 
         _sampleSynced = true;
@@ -3929,7 +3940,7 @@ public sealed class DemoTimeline
     /// old per-frame walk, demoted to the cases that genuinely need one.
     /// </remarks>
     private void ResyncSample(
-        double tick, IReadOnlySet<int>? interpolate, HashSet<int>? named, int? recorderTeam)
+        double tick, int? viewEntity, int? recorderTeam)
     {
         _wakes.Clear();
 
@@ -3942,7 +3953,7 @@ public sealed class DemoTimeline
 
         foreach (ScenePropTrack track in _props)
         {
-            DeriveSample(track, tick, interpolate, named, recorderTeam);
+            DeriveSample(track, tick, viewEntity, recorderTeam);
         }
     }
 
@@ -3953,7 +3964,7 @@ public sealed class DemoTimeline
     /// engine's `ProcessInterpolatedList` walk). A parked track is not touched.
     /// </remarks>
     private void AdvanceSample(
-        double tick, IReadOnlySet<int>? interpolate, HashSet<int>? named, int? recorderTeam)
+        double tick, int? viewEntity, int? recorderTeam)
     {
         // A re-derived track re-enqueues its NEXT wake, which a long forward jump may also have
         // passed — the loop keeps popping until the head is in the future, so every crossed
@@ -3963,7 +3974,7 @@ public sealed class DemoTimeline
         {
             _wakes.Dequeue();
 
-            DeriveSample(due, tick, interpolate, named, recorderTeam);
+            DeriveSample(due, tick, viewEntity, recorderTeam);
         }
 
         foreach (ScenePropTrack track in _lerping)
@@ -3989,18 +4000,20 @@ public sealed class DemoTimeline
     private void DeriveSample(
         ScenePropTrack track,
         double tick,
-        IReadOnlySet<int>? interpolate,
-        HashSet<int>? named,
+        int? viewEntity,
         int? recorderTeam)
     {
-        bool blend = interpolate is null
-            || (named is not null
-                ? named.Contains(track.EntityIndex)
-                : interpolate.Contains(track.EntityIndex));
+        // **The last STATED pose, which is both answers this needs.** `IsVisible()` reports the last
+        // `UpdateVisibility`, and that runs on a data update — so the render mode and the draw flag
+        // that decide the list are the ones the newest keyframe carried, never an interpolated blend
+        // of two. It is also `Held` itself, so a track off the list costs one call rather than two.
+        ScenePose? stated = track.Held(tick);
+
+        bool blend = Interpolates(track, stated, tick, viewEntity);
 
         (bool changing, double nextWake) = track.Motion(tick, blend);
 
-        ScenePose? sampled = blend ? track.At(tick) : track.Held(tick);
+        ScenePose? sampled = blend ? track.At(tick) : stated;
 
         // A hidden entity is not drawn but is still tracked: it is coming back.
         track.Live = sampled is { Hidden: false } pose
@@ -4026,6 +4039,171 @@ public sealed class DemoTimeline
             _wakes.Enqueue(track, nextWake);
         }
     }
+
+    /// <summary><c>C_BaseEntity::ShouldInterpolate</c>, all four clauses (B385).</summary>
+    /// <param name="asked">The track being asked about.</param>
+    /// <param name="stated">Its last stated pose, or null when it has none at this tick.</param>
+    /// <param name="tick">The moment, for asking a movement child the same question.</param>
+    /// <param name="viewEntity">Who the view is attached to, or null when nobody is.</param>
+    /// <returns>Whether its variables are blended rather than held.</returns>
+    /// <remarks>
+    /// **The engine's, in its order** (`c_baseentity.cpp:3029`):
+    ///
+    /// <code>
+    /// if ( render-&gt;GetViewEntity() == index ) return true;
+    /// if ( index == 0 || !GetModel() )        return false;
+    /// if ( IsVisible() )                      return true;   // always interpolate if visible
+    /// // if any movement child needs interpolation, we have to interpolate too
+    /// C_BaseEntity *pChild = FirstMoveChild();
+    /// while( pChild )
+    /// {
+    ///     if ( pChild-&gt;ShouldInterpolate() )
+    ///         return true;
+    ///     pChild = pChild-&gt;NextMovePeer();
+    /// }
+    /// return false;
+    /// </code>
+    ///
+    /// **<c>IsVisible()</c> is leaf-system membership and nothing else** —
+    /// <c>m_hRender != INVALID_CLIENT_RENDER_HANDLE</c> (`c_baseentity.h:691`), which
+    /// <c>UpdateVisibility</c> sets from <c>ShouldDraw() &amp;&amp; !IsDormant()</c>
+    /// (`c_baseentity.cpp:1421`), and <c>ShouldDraw</c> is <c>kRenderNone</c>, then
+    /// <c>model != 0 &amp;&amp; !IsEffectActive( EF_NODRAW ) &amp;&amp; index != 0</c> (`:1435`). A
+    /// frustum does not appear in it, which is what makes the whole question answerable from a
+    /// recording rather than from the renderer.
+    ///
+    /// **The fourth clause is the only one a door mover can pass.** `cp_fulgur`'s gates hang on
+    /// `func_door`s that declare <c>kRenderNone</c>, so the third clause refuses them forever and
+    /// without this walk they hold their last stated pose while the grate bolted to them is
+    /// interpolated onto a mover that is not moving.
+    ///
+    /// **Recursive because the engine's is** — the clause calls <c>ShouldInterpolate</c> on the child,
+    /// not <c>IsVisible</c> — so a grate on a door on a platform reaches the platform. Iterative here
+    /// with its own visited set rather than a call stack, because a demo can state any parent it likes
+    /// and decoding must be total: <c>SetParent</c> refuses a cycle, our decode has no such authority,
+    /// and a cycle down a recursive walk is a hang rather than a wrong answer.
+    /// </remarks>
+    private bool Interpolates(
+        ScenePropTrack asked, ScenePose? stated, double tick, int? viewEntity)
+    {
+        if (viewEntity == asked.EntityIndex)
+        {
+            return true;
+        }
+
+        if (Visible(asked, stated))
+        {
+            return true;
+        }
+
+        _moveChildren ??= MoveChildren();
+
+        if (!_moveChildren.TryGetValue(asked.EntityIndex, out List<int>? children))
+        {
+            return false;
+        }
+
+        // Allocated only for an entity that HAS children, which on `cp_granary` is 66 of 297 brush
+        // entities and none of the props.
+        Queue<int> pending = new(children);
+        HashSet<int> walked = [asked.EntityIndex];
+
+        while (pending.TryDequeue(out int child))
+        {
+            if (!walked.Add(child))
+            {
+                continue;
+            }
+
+            if (viewEntity == child)
+            {
+                return true;
+            }
+
+            // The child's own last stated pose, asked of the child's track — the clause calls
+            // `ShouldInterpolate` on the CHILD, so the child's render mode decides, not the parent's.
+            if (_trackByEntity.TryGetValue(child, out ScenePropTrack? hanging)
+                && Visible(hanging, hanging.Held(tick)))
+            {
+                return true;
+            }
+
+            if (_moveChildren.TryGetValue(child, out List<int>? theirs))
+            {
+                foreach (int grandchild in theirs)
+                {
+                    pending.Enqueue(grandchild);
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary><c>IsVisible()</c> — whether an entity holds a client render handle.</summary>
+    /// <param name="track">The entity, for its model and its index.</param>
+    /// <param name="stated">Its last stated pose, or null when the track states none here.</param>
+    /// <returns>Whether <c>UpdateVisibility</c> would have it in the leaf system.</returns>
+    /// <remarks>
+    /// **<c>ShouldDraw()</c> in the engine's own order** (`c_baseentity.cpp:1435`) — the render mode
+    /// first, because the comment there says *"Some rendermodes prevent rendering"* and that is the
+    /// clause every invisible mover in the game relies on, then the model, the draw flag and the
+    /// index. A track with no stated pose has not arrived: no handle, so not visible.
+    ///
+    /// **An empty model path is <c>model != 0</c>** — a wearable whose model index has not arrived is
+    /// exactly the engine's null model, and the same test <c>EntityModelSet.CanDraw</c> makes one
+    /// layer out. <c>Kind</c> is deliberately NOT tested: a kind this project cannot draw is our
+    /// limitation, not the engine's, and refusing to interpolate one would hold a pose the engine
+    /// blends.
+    /// </remarks>
+    private static bool Visible(ScenePropTrack track, ScenePose? stated) =>
+        stated is { Hidden: false, RenderMode: not RenderModes.None }
+        && track.ModelPath.Length > 0
+        && track.EntityIndex != 0;
+
+    /// <summary>Movement children by parent, which is <c>FirstMoveChild</c>/<c>NextMovePeer</c>.</summary>
+    /// <returns>Every entity that hangs off another, indexed by what it hangs off.</returns>
+    /// <remarks>
+    /// **Built once and not maintained, because sampling happens after decoding.** `AttachedTo` is
+    /// kept current per delta while the timeline is being built (`m_hMoveParent` follows the engine's
+    /// `HierarchySetParent`), and the first caller to reach this is a `PropsAt`, by which time every
+    /// delta has been read. A timeline that gained tracks afterwards would need this invalidated, and
+    /// none does.
+    ///
+    /// **Keyed by entity rather than by track, which is the reuse hazard**
+    /// (`docs/memory/an-entity-index-does-not-name-a-track.md`). A slot reused by a second prop
+    /// parented elsewhere contributes both parents, so the walk considers a child that is no longer
+    /// there — which errs toward interpolating a mover, and that direction is never a visible defect.
+    /// The alternative, keying on the track, would need the walk to know which occupant is alive at
+    /// the tick, and the engine's own list has no such notion: it holds ENTITIES.
+    /// </remarks>
+    private Dictionary<int, List<int>> MoveChildren()
+    {
+        Dictionary<int, List<int>> children = [];
+
+        foreach (ScenePropTrack track in _props)
+        {
+            if (track.AttachedTo is not { } parent || parent == track.EntityIndex)
+            {
+                continue;
+            }
+
+            if (!children.TryGetValue(parent, out List<int>? hanging))
+            {
+                children[parent] = hanging = [];
+            }
+
+            if (!hanging.Contains(track.EntityIndex))
+            {
+                hanging.Add(track.EntityIndex);
+            }
+        }
+
+        return children;
+    }
+
+    /// <summary>Movement children by parent, or null before the first sampling built it.</summary>
+    private Dictionary<int, List<int>>? _moveChildren;
 
     /// <summary>Builds the prop a track serves until something changes it.</summary>
     private static SceneProp BuildProp(ScenePropTrack track, in ScenePose pose, int? recorderTeam) =>

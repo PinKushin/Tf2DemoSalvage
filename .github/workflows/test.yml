@@ -204,7 +204,8 @@ jobs:
           # independently, so a branch that moves one and forgets the other lands its tests against a
           # floor that quietly stays low.
           # 1835 -> 1836 on 2026-09-09: one for B370's phase invariant. Both copies again in one commit.
-          ./build/assert-test-count.sh '**/core.trx' 1836 Core
+          # 1836 -> 1839 on 2026-09-10: three for B385, ShouldInterpolate's missing clauses.
+          ./build/assert-test-count.sh '**/core.trx' 1839 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them

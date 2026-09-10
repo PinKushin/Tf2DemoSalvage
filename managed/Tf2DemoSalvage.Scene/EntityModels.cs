@@ -4130,7 +4130,7 @@ public sealed class EntityModelSet : IModelBodygroups
         _parentPlacements.Clear();
         _propsByEntity.Clear();
         _skinning.Clear();
-        _posedEntities.Clear();
+        _inView.Clear();
         _eventStates.Clear();
         _fired.Clear();
 
@@ -4514,7 +4514,7 @@ public sealed class EntityModelSet : IModelBodygroups
         double seconds = 0d,
         ViewFrustum frustum = default,
         ReadOnlySpan<bool> visibleByLeaf = default,
-        string pass = "world")
+        string pass = WorldPass)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(into);
@@ -4524,7 +4524,17 @@ public sealed class EntityModelSet : IModelBodygroups
         CulledByVisibility = 0;
         Unjudgeable = 0;
         Posed = 0;
-        _posedEntities.Clear();
+
+        // **Only the world pass clears it, and that is a defect this rename exposed** (B385). The
+        // viewmodel pass calls straight back into here with its own two props, so an unconditional
+        // clear left the set holding the arms and the gun and NOTHING ELSE — every corpse in the match
+        // reported unseen on any frame with a viewmodel drawn, expiring each on the long timer. The
+        // set the interpolation list used to read had the same hole, which is most of why first person
+        // and SourceTV behaved differently.
+        if (string.Equals(pass, WorldPass, StringComparison.Ordinal))
+        {
+            _inView.Clear();
+        }
 
         // **There is no ordering here any more, and that is the change** (D88, B181). The engine has
         // none either: a merged entity asks its parent for bones where it stands
@@ -4603,6 +4613,13 @@ public sealed class EntityModelSet : IModelBodygroups
                 _tally.Culled();
                 continue;
             }
+
+            // **Recorded HERE, where the cull's answer is, and not at bone setup** (B385). The corpse
+            // fade asks `IsBoxInViewCluster` and then `CullBox` (`c_tf_player.cpp:1350`), which is what
+            // this line has just run. Filled at bone setup it excluded every entity without a
+            // skeleton — which for a corpse is nothing, since corpses are skinned, but the set was
+            // being read for the interpolation list too and that is where it did the damage.
+            _inView.Add(prop.EntityIndex);
 
             // **`C_BaseEntity::ShouldDraw`'s first test** (`c_baseentity.cpp:1447`): *"Some
             // rendermodes prevent rendering"*, and `kRenderNone` is the one. Eighteen `func_door`s
@@ -4735,7 +4752,6 @@ public sealed class EntityModelSet : IModelBodygroups
 
                 SetupTicks += System.Diagnostics.Stopwatch.GetTimestamp() - setupAt;
                 Posed++;
-                _posedEntities.Add(prop.EntityIndex);
 
                 if (!setUp)
                 {
@@ -4841,8 +4857,16 @@ public sealed class EntityModelSet : IModelBodygroups
                 // never measured was the output, which is the shape this project keeps meeting:
                 // three correct measurements locating the fourth
                 // (`docs/memory/measure-every-hop-before-blaming-one.md`).
+                // **Keyed on the composed POSITION, not on the model, so it says whether the child
+                // FOLLOWS.** Deduped per model it fired once and proved only that the composition ran —
+                // which is what it was written for (B231, a prop dropped for want of a parent placement).
+                // The owner's report is a door that never opens while its parent demonstrably moves, and
+                // that is a question about the second, third and hundredth frame. One line per distinct
+                // height answers it and still cannot flood: a door has about thirty of them.
                 if (_render.IsEnabled(LogLevel.Debug) &&
-                    _reportedFrames.Add($"{prop.ModelPath}#{prop.EntityIndex}#placed"))
+                    _reportedFrames.Add(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{prop.ModelPath}#{prop.EntityIndex}#placed#{transform.OriginZ:0}")))
                 {
                     _render.LogDebug(
                         "{Message}",
@@ -5184,16 +5208,33 @@ public sealed class EntityModelSet : IModelBodygroups
     /// ratio look flat whatever the camera did and nearly sent this audit after the frustum.
     /// </remarks>
 
-    /// <summary>Which entities reached bone setup, for the next frame's interpolation list.</summary>
+    /// <summary>Which entities the frustum and the leaf cull accepted, for the corpse fade.</summary>
     /// <remarks>
-    /// **The engine gates interpolation on `IsVisible()`, which is the LAST render's answer** (B259,
-    /// `c_baseentity.cpp:3038`), so a one-frame-old visible set is not an approximation of what
-    /// Valve does - it is what Valve does. Published here because the cull runs after the view and
-    /// sampling runs before it, which is the same order the engine has.
+    /// **This was `PosedEntities`, it was filled at bone setup, and it served two questions that are
+    /// not the same question** (B385). Its own remark claimed *"the engine gates interpolation on
+    /// `IsVisible()`, which is the LAST render's answer … it is what Valve does"* — and `IsVisible()`
+    /// is `m_hRender != INVALID_CLIENT_RENDER_HANDLE` (`c_baseentity.h:691`), which
+    /// `UpdateVisibility` sets from `ShouldDraw() &amp;&amp; !IsDormant()` (`c_baseentity.cpp:1421`).
+    /// No frustum, no frame, no skeleton. Filled where it was, it held no brush entity at all, so no
+    /// door in any map was ever interpolated. `DemoTimeline` answers `ShouldInterpolate` itself now.
+    ///
+    /// **What is left is the one consumer that genuinely wanted a cull.**
+    /// `C_TFRagdoll::IsRagdollVisible` is `engine->IsBoxInViewCluster` and then `engine->CullBox`
+    /// around the corpse's origin (`c_tf_player.cpp:1350`), so a corpse's fade timer really does turn
+    /// on the frustum — and now gets a set filled by the frustum rather than by bone setup, which also
+    /// admits the brushless and the baked.
     /// </remarks>
-    public IReadOnlySet<int> PosedEntities => _posedEntities;
+    public IReadOnlySet<int> InView => _inView;
 
-    private readonly HashSet<int> _posedEntities = [];
+    /// <summary>The world pass's name, which decides whether <see cref="InView"/> is cleared.</summary>
+    /// <remarks>
+    /// A constant because the string is written in three places — the default argument, the clear, and
+    /// the tally's own line — and two of them agreeing is not enough.
+    /// </remarks>
+    public const string WorldPass = "world";
+
+    private readonly HashSet<int> _inView = [];
+
     public int Posed { get; private set; }
 
     /// <summary>Whether the view frustum rejects this prop — <c>engine->CullBox</c>.</summary>

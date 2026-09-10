@@ -118,6 +118,12 @@ public sealed class DemoSystems
                 ClassModels = CorpseModels,
                 Items = CorpseItems,
                 Gibs = Gibs,
+
+                // **The cull's answer, for the corpse fade and nothing else** (B385). It used to reach
+                // the sampler as the interpolation list too, and the two questions are not the same
+                // one: `IsRagdollVisible` wants a frustum (`c_tf_player.cpp:1350`) and
+                // `ShouldInterpolate` wants leaf-system membership, which involves none.
+                InView = () => _moment.InView,
             }
             : null;
         _sound.Schedule = timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;

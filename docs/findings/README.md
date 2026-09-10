@@ -144,6 +144,17 @@ in any public writeup found:
   the opposite belief and was this project's rule, not Valve's. What the engine really refuses is a
   sample it has not RECEIVED, which is structural in a live client and therefore invisible as a rule
   ([54](54-a-variable-owns-its-own-history.md)).
+- **A visible entity holds a render handle, and "visible" is at least three different questions** —
+  `IsVisible()` is one inline line, `m_hRender != INVALID_CLIENT_RENDER_HANDLE`, granted by
+  `UpdateVisibility` from the render mode, the model, `EF_NODRAW` and the index. No frustum, no PVS, no
+  previous frame, no skeleton. One set stood for it here, was filled at BONE SETUP, and served both
+  `ShouldInterpolate` and the corpse fade — which wants `IsRagdollVisible`, a live `CullBox`. Result: no
+  brush entity was ever interpolated in any map, so no door anywhere ever moved smoothly, and on any
+  first-person frame the viewmodel pass cleared the set and dropped the whole world off both lists. The
+  belief that held it up was a sentence repeated in four files and quoted from nowhere: *"`IsVisible()`
+  is the LAST render's answer … it is what Valve does."* A latency claim about *when* a predicate runs
+  had concealed the question of *what* it tests
+  ([55](55-a-visible-entity-holds-a-render-handle.md)).
 
 ## Conventions used throughout
 
