@@ -283,6 +283,20 @@ public sealed class PoseCompletenessTests
         // value whose loss changes what appears on screen.
         WeaponState = 2,
 
+        // **Every value away from `SceneSprite.Default`'s, because each of those is legitimate**
+        // (B378). A scale of 1 and a brightness of 255 are what `CSprite`'s own constructor leaves,
+        // so a rebuild that dropped this record and re-made a default one would be indistinguishable
+        // from a sprite that said nothing — which is the exact failure this file exists to catch.
+        // The numbers are granary's own, from `CSprite`'s instance baseline.
+        Sprite = new SceneSprite(
+            Scale: 0.25f,
+            Brightness: 120,
+            Frame: 3f,
+            Framerate: 10.078f,
+            GlowProxySize: 4f,
+            HdrColourScale: 2f,
+            ScaleIsWorldSpace: true),
+
         // Non-null and non-zero, because null is the "nothing said" case and zero would mean
         // airborne — neither is distinctive enough for this test to measure the field being lost.
         Flags = PlayerActivityState.OnGround | PlayerActivityState.Ducking,

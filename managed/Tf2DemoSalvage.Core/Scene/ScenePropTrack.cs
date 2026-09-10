@@ -33,6 +33,65 @@ public enum SceneModelKind
     Studio,
 }
 
+/// <summary>What an entity sprite says about itself — <c>DT_Sprite</c> (B378).</summary>
+/// <param name="Scale">
+/// <c>m_flSpriteScale</c>. A multiple of the material's own extents unless
+/// <paramref name="ScaleIsWorldSpace"/> says otherwise.
+/// </param>
+/// <param name="Brightness">
+/// <c>m_nBrightness</c>, which is the sprite's ALPHA — <c>CSprite::DrawModel</c> passes
+/// <c>GetRenderBrightness()</c> as <c>DrawSprite</c>'s alpha and the render colour's r/g/b
+/// separately (`Sprite.cpp:753`), so a sprite ignores the alpha byte every other entity uses.
+/// </param>
+/// <param name="Frame">
+/// <c>m_flFrame</c>, an index into the material's own animation frames. Networked rather than
+/// derived: the SERVER advances it in <c>AnimateThink</c>, so nothing here has to.
+/// </param>
+/// <param name="Framerate">
+/// <c>m_flSpriteFramerate</c>, carried for completeness — the client integrates nothing, since the
+/// frame arrives already advanced.
+/// </param>
+/// <param name="GlowProxySize">
+/// <c>m_flGlowProxySize</c> — the quad a glow's VISIBILITY is queried with, not the one it is drawn
+/// as. `CSprite::GlowBlend` passes it to <c>params.Init( entorigin, m_flGlowProxySize, aspect )</c>
+/// (`c_sprite.cpp:210`), which is the override that makes the field mean anything at all: the base
+/// <c>C_SpriteRenderer::GlowBlend</c> uses <c>PIXELVIS_DEFAULT_PROXY_SIZE</c> instead.
+/// </param>
+/// <param name="HdrColourScale">
+/// <c>m_flHDRColorScale</c>, written into the material's <c>$HDRCOLORSCALE</c> before the quad is
+/// drawn (`c_sprite.cpp:45`) — a per-entity override of a material variable, the same shape as a
+/// material proxy.
+/// </param>
+/// <param name="ScaleIsWorldSpace">
+/// <c>m_bWorldSpaceScale</c>, which changes what <paramref name="Scale"/> MEANS. Set, `DrawModel`
+/// divides the scale by <c>MIN( width, height )</c> and it is a size in world units; clear, it is a
+/// multiple of the sprite's extents (`Sprite.cpp:753`).
+/// </param>
+/// <remarks>
+/// **One record rather than seven fields on the pose**, because a match carries a great many poses
+/// and eleven of them are sprites: `cp_granary` has eleven `CSprite` entities and a 2026
+/// `cp_process` has eight. Null for everything that is not one, which is every prop in the scene.
+/// </remarks>
+public sealed record SceneSprite(
+    float Scale,
+    int Brightness,
+    float Frame,
+    float Framerate,
+    float GlowProxySize,
+    float HdrColourScale,
+    bool ScaleIsWorldSpace)
+{
+    /// <summary>What <c>CSprite</c>'s constructor leaves behind, for a field the demo omits.</summary>
+    /// <remarks>
+    /// **Scale one and brightness 255 are the engine's own defaults**, not neutral-looking guesses:
+    /// `DrawSpriteModel` replaces a non-positive scale with 1 outright (<c>if ( fscale &gt; 0 ) scale
+    /// = fscale; else scale = 1.0f;</c>), and an entity that never sends a brightness is drawn
+    /// opaque. Reading a missing field as zero would make a sprite vanish rather than draw wrong,
+    /// which is the harder failure to notice.
+    /// </remarks>
+    public static SceneSprite Default { get; } = new(1f, 255, 0f, 0f, 0f, 1f, false);
+}
+
 /// <summary>
 /// Where a model-bearing entity was, and what it was doing, at one moment.
 /// </summary>
@@ -445,6 +504,13 @@ public readonly record struct ScenePose
     /// floor, which draws.
     /// </remarks>
     public int? WeaponState { get; init; }
+
+    /// <summary>What an entity sprite says about itself, or null for everything else (B378).</summary>
+    /// <remarks>
+    /// **Null is the answer for every prop in the scene but eleven**, which is why this is a nullable
+    /// reference rather than seven more floats on a struct copied per prop per tick.
+    /// </remarks>
+    public SceneSprite? Sprite { get; init; }
 
     /// <summary>Builds a pose at the world origin, unrotated and unanimated.</summary>
     public ScenePose()
@@ -1982,6 +2048,14 @@ public sealed class ScenePropTrack
             // blended toward the later one — a discontinuity happened at a moment, and half of one
             // is not a thing.
             DiscontinuitySeconds = from.DiscontinuitySeconds,
+
+            // **A sprite's own state takes the earlier keyframe's, because the engine interpolates
+            // none of it** (B378). `AddVar` registers origin, angles, cycle, pose parameters and the
+            // rest on `C_BaseEntity`/`C_BaseAnimating`; `CSprite` adds nothing to that list, so
+            // `m_flSpriteScale`, `m_nBrightness` and `m_flFrame` SNAP on an update exactly as
+            // `m_flModelScale` does two fields down. Blending them would produce values the engine
+            // never held — and a frame index especially, where half of frame three is not a frame.
+            Sprite = from.Sprite,
 
             // Discrete, so it takes the earlier keyframe's value rather than being blended — half
             // of "spinning" is not a state (B347).

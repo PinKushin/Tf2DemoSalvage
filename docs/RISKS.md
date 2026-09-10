@@ -27404,6 +27404,153 @@ entity sprites — `CSprite`, drawn by `C_Sprite::DrawModel`.
 matter beyond a glow, and whether `m_flScale`/`m_nRenderMode`'s sprite-specific meanings are decoded.
 Only the count and the classification are measured.
 
+### B378 DRAWN 2026-09-10: entity sprites decode and draw; the occlusion query does not
+
+**Eleven glows a frame now build quads and reach the renderer**, measured in the viewer's own log on
+`20130518_0313_cp_granary_blu_blu`:
+
+```
+[assets] entity sprites: 1 materials asked for, 1 resolved
+[render] entity sprites: 11 drawn in 1 batches, 0 skipped
+```
+
+**`DT_Sprite` was decoded by nothing at all**, so the first half of this was seven accessors — scale,
+brightness, frame, framerate, glow proxy, HDR scale, world-space flag — each carrying its send-table
+citation and what ABSENT means, since every one has a legitimate zero. The values are checked against
+what TF2 sends rather than invented: `CSprite`'s instance baseline on granary carries
+`m_flSpriteScale = 0.25`, `m_nBrightness = 120`, `m_flGlowProxySize = 4`, `m_bWorldSpaceScale = 0`.
+
+**Two of the seven are traps and both are commented where they are read.** A sprite's alpha is its
+`m_nBrightness`, not `m_clrRender`'s alpha byte — `CSprite::DrawModel` passes `GetRenderBrightness()`
+as `DrawSprite`'s `alpha` and r/g/b separately (`Sprite.cpp:753`), so reaching for `RenderAlpha` gets
+255 from the default and draws every lamp glow at twice TF2's brightness. And `m_bWorldSpaceScale`
+changes what the SCALE MEANS: set, `renderscale /= MIN( width, height )` and the number is world units;
+clear, it is a multiple of the material's extents. Granary sends it clear at 0.25 — about two orders of
+magnitude of difference on screen.
+
+**The draw is `C_SpriteRenderer` in three parts**, each with its citation: `GetSpriteAxes`
+(`c_sprite.cpp:226`) for the basis, `StandardGlowBlend` (`:147`) for how much survives, and
+`DrawSpriteModel` (`:45`) for the corners. Fifteen conformance tests, written from the quote before
+anything drew. The ones worth naming:
+
+- **The roll promotion happens BEFORE the switch** — `if ( angles[2] != 0 && type == SPR_VP_PARALLEL )
+  type = SPR_VP_PARALLEL_ORIENTED;` — so a parallel sprite with any roll stops being a plain billboard.
+- **`.vmt` sprites default to `SPR_VP_PARALLEL_UPRIGHT`**, not to the billboard: `CEngineSprite::Init`
+  falls back to it when the material declares no `$spriteorientation` (`spritemodel.cpp:309`), and
+  `light_glow03` declares none. So the DEFAULT branch is what draws every lamp halo in the game.
+- **The upright orientations REFUSE rather than draw wrong** near vertical, which is not exotic with a
+  free camera.
+- **A world glow keeps its world size and every other glow does not** —
+  `if (rendermode != kRenderWorldGlow) *pscale *= dist * (1.0f/200.0f);`. TF2's halos are mode 9, so
+  getting this backwards would swell every glow as the camera retreated.
+- **`(1200*1200)/(dist*dist)`, clamped**, with Valve's own comment calling the constant magic.
+
+**A sprite goes through the PARTICLE renderer**, because it is the same thing: a texture, a blend and
+six corners. Its material resolves by the same route a particle sheet does, from a list
+`DemoModels.Sprites` collects — separate from `Needed` because a `.vmt` handed to a model loader draws
+nothing and reports nothing, which that loader's own remarks already say.
+
+**What is NOT implemented, and it is the visible half.** The engine's `PixelVisibility_FractionVisible`
+is a GPU occlusion query against a proxy quad of `m_flGlowProxySize`, returning a FRACTION so a glow
+dissolves smoothly as it passes behind a pillar. With no query handle it degenerates to
+`GlowSightDistance( position, true ) > 0.0f ? 1.0f : 0.0f` — a line trace from the eye, all or nothing
+(`c_pixel_visibility.cpp:825`). **This project has neither an occlusion query nor a world line trace**,
+so a glow is currently lit whenever it is in the world: one behind a pillar stays lit where TF2 hides
+it, and one TF2 dissolves gradually pops here. The nearest existing machinery is the frustum and the
+PVS, which is what `C_TFRagdoll::IsRagdollVisible` uses for a corpse (`c_tf_player.cpp:1350`) — closer
+in spirit and still not the engine's test.
+
+**Also not implemented, and smaller:** `$spriteorientation` and `$spriteorigin` are not parsed, so every
+sprite takes the engine's own defaults for both. No TF2 sprite this project has met declares either, and
+inventing a parse for a key nothing sends is how a wrong default gets locked in. What would falsify
+that: any `.vmt` in the game's own materials declaring one — a grep over the install settles it in a
+minute and has not been run.
+
+**And `m_flSpriteScale`'s ramp is unrecoverable from a recording.** `GetRenderScale` interpolates from
+`m_flStartScale` to `m_flDestScale` while `m_flScaleTime` is live, and NEITHER endpoint is networked —
+the same for `GetRenderBrightness`'s `m_nStartBrightness`/`m_nDestBrightness`. A demo can only ever show
+the settled value, which is not a gap this project can close.
+
+*Evidence class: read-from-source for every branch, with `file:line`; measured in the viewer's own log
+for the eleven drawn and the material resolving. NOT verified by looking — no frame containing a lamp
+has been captured, because the camera follows the recorder.*
+
+### B388 FIXED 2026-09-10: the gate read another worktree's results, and it was filed as a trap a month ago
+
+**`assert-test-count.sh` found the `.trx` by BASENAME** — `find . -name core.trx -type f | head -1` —
+so it reached into `.claude/worktrees/`, where a spun-off task's session has its own
+`tests/*/TestResults/core.trx`. With two chips running:
+
+```
+.claude/worktrees/heuristic-sinoussi-774827/.../core.trx: total="1843"   <- the gate read this
+.claude/worktrees/vigorous-boyd-58fa93/.../core.trx:      total="1846"
+tests/Tf2DemoSalvage.Core.Tests/TestResults/core.trx:     total="1851"   <- this run's
+```
+
+The gate failed against its own correct floor, and the two explanations reached for first were both
+wrong — a stale build, then two gate runs colliding over `obj/`. **The dangerous direction is the other
+one**: a worktree holding MORE tests would have satisfied a floor this tree does not meet, silently,
+which is the precise failure the script exists to prevent.
+
+**Two faults, either alone sufficient.** The search reached outside the checkout, and `head -1`
+resolved an ambiguity it had no basis to resolve. Both fixed: `.claude/worktrees` is pruned, and
+several matches is now a REFUSAL that names every file rather than a guess. Verified by manipulation —
+a decoy `core.trx` at the repo root makes it exit 1 listing both paths, and removing the decoy restores
+the pass.
+
+**The part worth keeping is that this was already written down.**
+`docs/memory/read-the-trx-total-not-the-console.md` carried it, including the sentence *"removing the
+ambiguity beats detecting it"* and a note that it had already fooled a parallel session once. It was
+filed, understood, and not acted on, so it bit again — `filing-a-divergence-is-not-fixing-it` applied to
+a memory rather than to code. A hazard is not mitigated by having been written up.
+
+**What is NOT established:** `assert-test-count.sh` has no test of its own. It guards every floor in the
+project and both of its defects were found by hand, today, while chasing something else. Verification is
+by manipulation each time somebody thinks to do it, which is exactly the standard this project rejects
+for C#. There is no shell-test harness in the repository, so adding one is a decision rather than a
+chore.
+
+*Evidence class: measured — the three totals above are from the three files as they stood; the refusal
+and the restored pass were each run.*
+
+### B386 — see the entry on `c/heuristic-sinoussi-774827`, which carries the fix and both positions
+
+**Two sessions found this independently within an hour and wrote two different fixes; only one should
+land, and it is not the one that was written here.** This entry is deliberately a pointer rather than a
+second account — the full write-up, with both approaches and the measurement that separates them, is
+B386 on that branch.
+
+**What was written here and withdrawn.** `InterpolatedHistory` addresses components as
+`index * _width`, so when `SetMaxCount` changed the width the entries already held became unreadable —
+widening ran off the end of `_values` and threw, narrowing silently returned half of a neighbour. The
+fix attempted here was the engine's literal line: clear the entries, because `Reset()` opens with
+`ClearHistory()` (`interpolatedvar.h:740`), on the argument that *"an entry whose layout no longer
+exists answers nothing."*
+
+**That argument was wrong, and the test that shows it was written here and failed.** The layout does
+still exist — it is the width the entry was written at. Only the FIXED stride made it unreadable, so
+the premise was a consequence of the defect rather than a fact about the data. Clearing therefore
+costs the scrub:
+
+```
+Bracket_ScrubbedBackToBeforeAWidening_StillFindsTheEntriesAClientHeldThen
+  should not be null but was
+```
+
+A client playing forward at tick 15 HELD those entries and blended them, so a scrub back to tick 15
+must answer what that client answered. Dropping them turns the licensed difference from one about what
+is RETAINED into one about what is ANSWERED — which is exactly what D131 does not allow, and the
+owner's requirement in his own words: *"we should be able to get valve parity there and still scrub and
+rewind the demo, we just have to make it work in both directions."*
+
+**The engine cannot arbitrate this one.** It has no scrub, so its `ClearHistory()` is not a ruling
+about what a rewind should answer — it is the absence of the question. The other branch's fix carries a
+per-entry offset so an old entry stays readable at its own width, which keeps the retention meaning
+what `Reset`'s own remarks say it means.
+
+*Evidence class: measured — the scrub test above was run against the clearing fix in this tree and
+failed. The crash and its stack are recorded in the other branch's entry.*
+
 *Evidence class: measured on one real match; read-from-source for the single-reference claim, which is a
 grep over this project rather than over the engine.*
 

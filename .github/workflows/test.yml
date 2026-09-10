@@ -205,7 +205,9 @@ jobs:
           # floor that quietly stays low.
           # 1835 -> 1836 on 2026-09-09: one for B370's phase invariant. Both copies again in one commit.
           # 1836 -> 1839 on 2026-09-10: three for B385, ShouldInterpolate's missing clauses.
-          ./build/assert-test-count.sh '**/core.trx' 1839 Core
+          # 1839 -> 1847 on 2026-09-10: eight for DT_Sprite's accessors (B378). B386's tests land
+          # with the other branch's fix, which is the one that keeps the scrub.
+          ./build/assert-test-count.sh '**/core.trx' 1847 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -301,7 +303,8 @@ jobs:
           # as core's raise above and for the same reason. Nothing was added or removed here.
           # 669 -> 673 on 2026-09-10: four for B379's worn-model walk, two of them added because a
           # sabotage pass reddened nothing against the first pair.
-          ./build/assert-test-count.sh '**/scene.trx' 673 Scene
+          # 673 -> 688 on 2026-09-10: fifteen for C_SpriteRenderer (B378).
+          ./build/assert-test-count.sh '**/scene.trx' 688 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

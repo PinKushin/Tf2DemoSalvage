@@ -188,3 +188,4 @@
 - [A fraction of zero is an oracle](a-fraction-of-zero-is-an-oracle.md) — a duration cannot test a spline; assert where the interpolation collapses to an identity.
 - [A visibility set is four questions](a-visibility-set-is-four-questions.md) — IsVisible is leaf-system membership, not the frustum and not last frame; ask which predicate, not which frame.
 - [A derived path is in no load list](a-derived-path-is-in-no-load-list.md) — the item names the model, no track does, and the lookup misses in silence.
+- [A flat array is addressed by a width](a-flat-array-is-addressed-by-a-width.md) — a stride is per-entry; a limit the implementation imposes will pass itself off as a fact about the data.

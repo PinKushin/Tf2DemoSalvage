@@ -823,6 +823,21 @@ public sealed class MapAssets
     public IReadOnlyDictionary<string, ParticleMaterial> ParticleMaterials
     { get; private init; } = new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Each entity sprite's material, keyed by the path the demo names (B378).</summary>
+    /// <remarks>
+    /// **Keyed by the MODEL path rather than the material name, because that is the question the
+    /// draw asks** (`docs/memory/key-a-lookup-on-the-question.md`). A sprite prop arrives holding
+    /// `materials/Sprites/light_glow03.vmt` and the caller has nothing else to look it up by;
+    /// storing it under `Sprites/light_glow03`, which is what the resolver wanted, would make every
+    /// consumer repeat the same strip-and-trim and eventually one of them would get it wrong.
+    ///
+    /// **A `ParticleMaterial` because a sprite IS one** — a texture, a blend, and sheet sequences it
+    /// happens not to use. Reusing the record keeps one resolution path for both rather than a second
+    /// that agrees with it only until one of them gains a feature.
+    /// </remarks>
+    public IReadOnlyDictionary<string, ParticleMaterial> SpriteMaterials
+    { get; private init; } = new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
     /// <remarks>
     /// **Read and discarded until 2026-09-06.** `BspDetailProps.Read` has always returned it as the
@@ -1001,6 +1016,10 @@ public sealed class MapAssets
     /// <param name="archives">The game's archives.</param>
     /// <param name="entityModels">Model paths the demo uses, loaded with the map so the textures upload once.</param>
     /// <param name="wornModels">Of those, the ones bone-merged onto another entity, which must be skinned.</param>
+    /// <param name="spriteMaterials">
+    /// Every entity sprite's model path (B378) — a `.vmt` or a `.spr`, which is a MATERIAL rather
+    /// than a model and so resolves by a different route from <paramref name="entityModels"/>.
+    /// </param>
     /// <param name="maximumTextureSize">Largest texture edge to decode; zero for full size.</param>
     /// <param name="brushModels">
     /// The map's own brush entities, keyed <c>*N</c>, already built from its models lump. Passed
@@ -1022,6 +1041,12 @@ public sealed class MapAssets
         int maximumTextureSize,
         IReadOnlyCollection<string>? entityModels = null,
         IReadOnlyCollection<string>? wornModels = null,
+
+        // **Entity sprite materials, which no other list carries** (B378). A sprite's "model" is a
+        // `.vmt` or a `.spr` and the model loader draws nothing from one, so `DemoModels.Sprites`
+        // collects them separately and they are resolved as MATERIALS here — the same route a
+        // particle's sheet takes, because a sprite is the same thing: one quad and a texture.
+        IReadOnlyCollection<string>? spriteMaterials = null,
         Func<LightmapAtlas, IReadOnlyDictionary<string, PropModels.ModelFrames>>? brushModels = null,
         Func<float, float, float, PointLighting>? lightAt = null,
         ILoggerFactory? loggers = null)
@@ -1233,6 +1258,9 @@ public sealed class MapAssets
          IReadOnlyDictionary<string, ParticleSystem> particleSystems,
          IReadOnlyDictionary<string, ParticleMaterial> particleMaterials) =
             LoadRocketTrail(assets, pak, archives, maximumTextureSize);
+
+        IReadOnlyDictionary<string, ParticleMaterial> sprites =
+            LoadSpriteMaterials(assets, spriteMaterials ?? [], pak, archives, maximumTextureSize);
 
         // **Entity models are loaded here, with the map's own props, and that is the point.**
         // Their materials go into the same table, so the textures upload once with everything in
@@ -1554,6 +1582,7 @@ public sealed class MapAssets
             RocketTrail = rocketTrail,
             ParticleSystemsByName = particleSystems,
             ParticleMaterials = particleMaterials,
+            SpriteMaterials = sprites,
             DetailModelNames = detailModelNames,
             EntityModels = models,
             UnimplementedParameters = census,
@@ -2076,6 +2105,81 @@ public sealed class MapAssets
     /// looking for a `.vtf` beside the `.vmt` finds nothing and reports a texture that ships as
     /// absent (`docs/memory/an-empty-search-needs-a-control.md`).
     /// </remarks>
+    /// <summary>Resolves every entity sprite's material, keyed by its model path (B378).</summary>
+    /// <param name="assets">Where the count is reported.</param>
+    /// <param name="paths">The sprite model paths the demo names, from <c>DemoModels.Sprites</c>.</param>
+    /// <param name="pak">The map's own embedded files, which win over the game's.</param>
+    /// <param name="archives">The install.</param>
+    /// <param name="maximumTextureSize">The decode cap the rest of the load uses.</param>
+    /// <returns>A material per path; a path that would not resolve is absent rather than empty.</returns>
+    /// <remarks>
+    /// **The path arrives as the demo names it and the resolver wants it another way**, so the
+    /// conversion lives here, once: `materials/Sprites/light_glow03.vmt` is stripped of its
+    /// `materials/` prefix and its extension to become `Sprites/light_glow03`, which is the same
+    /// shape a `.pcf`'s `material` parameter has. A `.spr` reference — the Quake-descended format
+    /// Source inherited, which the corpus carries on a 2026 demo — is trimmed the same way and will
+    /// find nothing, since there is no `.vmt` beside it; that is a real absence and it is left as
+    /// one rather than guessed at.
+    ///
+    /// **Absent rather than a chequer for a material that will not resolve.** An unreadable sprite is
+    /// a missing glow, not a missing surface — the same judgement `ParticleEffects` already makes,
+    /// and the opposite of what a world brush wants.
+    /// </remarks>
+    private static Dictionary<string, ParticleMaterial> LoadSpriteMaterials(
+        ILogger assets,
+        IReadOnlyCollection<string> paths,
+        PakFile pak,
+        GameArchives archives,
+        int maximumTextureSize)
+    {
+        Dictionary<string, ParticleMaterial> materials =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        if (paths.Count == 0)
+        {
+            return materials;
+        }
+
+        foreach (string path in paths)
+        {
+            string named = path.Replace('\\', '/');
+
+            if (named.StartsWith("materials/", StringComparison.OrdinalIgnoreCase))
+            {
+                named = named["materials/".Length..];
+            }
+
+            int dot = named.LastIndexOf('.');
+
+            if (dot > 0)
+            {
+                named = named[..dot];
+            }
+
+            if (Resolve(assets, named, pak, archives, maximumTextureSize).Texture is not { } texture)
+            {
+                continue;
+            }
+
+            (IReadOnlyList<SheetSequence> frames, SpriteBlend how) = Sequences(named, pak, archives);
+
+            materials[path] = new ParticleMaterial(texture, frames, how);
+        }
+
+        assets.LogInformation(
+            "{Message}",
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"entity sprites: {paths.Count} materials asked for, {materials.Count} resolved"));
+
+        foreach (string absent in paths.Where(one => !materials.ContainsKey(one)))
+        {
+            assets.LogInformation("entity sprite material not loaded: {Material}", absent);
+        }
+
+        return materials;
+    }
+
     private static (IReadOnlyList<SheetSequence> Sequences, SpriteBlend Blend) Sequences(
         string material, PakFile pak, GameArchives archives)
     {

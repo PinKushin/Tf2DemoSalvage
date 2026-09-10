@@ -3644,6 +3644,26 @@ public sealed class DemoTimeline
                 FadeMinimumDistance = state.FadeMinimumDistance() ?? 0f,
                 FadeMaximumDistance = state.FadeMaximumDistance() ?? 0f,
 
+                // **`DT_Sprite`, whose fields were decoded by nothing until B378.** The SCALE is what
+                // identifies the class here, exactly as the areaportal's start distance does below: no
+                // other table sends `m_flSpriteScale`, so a present one means this entity is a
+                // `CSprite` and every prop that is not gets null rather than a record of zeroes.
+                //
+                // **Each fallback is `CSprite`'s own constructor default rather than a neutral
+                // number.** A missing scale read as zero would make the sprite vanish, where
+                // `DrawSpriteModel` replaces a non-positive scale with 1 outright; a missing
+                // brightness read as zero would draw it black where the engine draws it opaque.
+                Sprite = state.SpriteScale() is { } spriteScale
+                    ? new SceneSprite(
+                        spriteScale,
+                        state.SpriteBrightness() ?? SceneSprite.Default.Brightness,
+                        state.SpriteFrame() ?? 0f,
+                        state.SpriteFramerate() ?? 0f,
+                        state.SpriteGlowProxySize() ?? 0f,
+                        state.SpriteHdrColourScale() ?? SceneSprite.Default.HdrColourScale,
+                        state.SpriteScaleIsWorldSpace() ?? false)
+                    : null,
+
                 // **An areaportal window's three, which travel together or not at all** (B358).
                 // Only `DT_FuncAreaPortalWindow` sends them, so a present start distance is what
                 // identifies the class — and the tuple stays null for every other entity, which is
