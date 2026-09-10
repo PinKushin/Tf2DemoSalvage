@@ -35,6 +35,17 @@ it. The live call is at the END of `Interpolate()` (`:1057`); the one at `:667` 
   `InterpolatedHistory.Bracket` for that reason. The pruning bounds how MANY entries are kept, never how
   old the bracketing pair may be.
 
+**It also refuses two entries at ONE changetime, and that is the half of `AddToHead` most easily missed.**
+`NoteChanged` passes `bFlushNewer = true` (`interpolatedvar.h:649`), and that branch removes from the head
+while `(changetime + 0.0001f) > changeTime` — at-or-after, so `>=` on a tick axis. So `AddToHead` is
+unconditional about identical VALUES and flushes on TIME, and a claim that it "appends unconditionally"
+is half a reading. An update whose changetime moves BACKWARDS discards everything newer, which is Valve's
+stated case: *"The server might have corrected our clock and moved us back."*
+
+Measured cost: a granary shutter sends three 4.5-unit steps under one applied time, and keeping all three
+made the drawn height reach the FIRST of them and then switch to the last — 9.019 units in a tenth of a
+tick, against 0.45 for a door at its stated speed. Flushing them took the worst step to 3.290.
+
 **What the engine DOES refuse is a sample it has not RECEIVED**, and that is the only bound worth
 copying: its history contains arrived entries only. A reader that holds the whole recording has to make
 that explicit — a stored arrival tick per entry, and a search bounded by it. Skipping it is B94: a door

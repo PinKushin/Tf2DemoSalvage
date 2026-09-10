@@ -47,6 +47,15 @@ public sealed class InterpolatedHistory
 
     private readonly List<int> _generationStarts = [];
 
+    /// <summary>For each entry, the tick a later append FLUSHED it, or <see cref="Never"/>.</summary>
+    /// <remarks>
+    /// **`bFlushNewer`, held as a bound rather than performed as a deletion** — see <see cref="Add"/>.
+    /// </remarks>
+    private readonly List<int> _flushedAt = [];
+
+    /// <summary>The flush tick of an entry nothing has flushed.</summary>
+    private const int Never = int.MaxValue;
+
     private bool[] _looping;
 
     private int _generation;
@@ -212,6 +221,36 @@ public sealed class InterpolatedHistory
     /// **The generation is which run of the variable's life this entry belongs to**, bumped by
     /// <see cref="Reset"/> and never by anything else. It is <c>ClearHistory</c> expressed as a boundary
     /// rather than a deletion, so a scrub backwards still has the older entries to answer with.
+    ///
+    /// **And it FLUSHES every live entry at or after its own changetime** (B384). `NoteChanged` passes
+    /// <c>bFlushNewer = true</c> (<c>interpolatedvar.h:649</c>), and that branch of `AddToHead` deletes:
+    ///
+    /// <code>
+    /// // Get rid of anything that has a timestamp after this sample. The server might have
+    /// // corrected our clock and moved us back, so our current changeTime is less than a
+    /// // changeTime we added samples during previously.
+    /// while ( m_VarHistory.Count() )
+    /// {
+    ///     if ( (m_VarHistory[0].changetime+0.0001f) &gt; changeTime )
+    ///         m_VarHistory.RemoveAtHead();
+    ///     else
+    ///         break;
+    /// }
+    /// </code>
+    ///
+    /// The epsilon makes it at-or-after, so on a tick axis it is <c>changetime &gt;= changeTime</c>, and
+    /// **a history therefore cannot hold two entries at one changetime.** B382's claim that "`AddToHead`
+    /// is unconditional" was half this function: unconditional about identical VALUES, and flushing on
+    /// TIME. The restatement argument survives, because a restatement carries a LATER changetime.
+    ///
+    /// **Measured cost of getting it wrong:** on `20130518_0313_cp_granary_blu_blu` a closing shutter
+    /// sends three 4.5-unit steps stamped with one applied time, so the pair ended at the FIRST of them
+    /// and then switched to the last — a 9.15-unit jump in a tenth of a tick, and a door that reads slow
+    /// because its smooth stretch covers less ground while the jumps make the distance up.
+    ///
+    /// **Recorded rather than deleted, for the same reason as the prune and the reset.** The engine
+    /// flushes at the moment of receipt and never seeks backwards; a viewer does, so the entry stays and
+    /// <see cref="Bracket"/> ignores it from the tick it was flushed at.
     /// </remarks>
     public void Add(int changeTime, int received, ReadOnlySpan<float> values)
     {
@@ -219,6 +258,24 @@ public sealed class InterpolatedHistory
         {
             throw new ArgumentException(
                 $"a {_width}-component history was given {values.Length} values", nameof(values));
+        }
+
+        // Walk the LIVE entries newest-first and stop at the first that predates this one, which is where
+        // the engine's `break` is. An already-flushed entry is not in the engine's list at all, so it is
+        // skipped rather than treated as the head.
+        for (int index = _changeTimes.Count - 1; index >= 0; index--)
+        {
+            if (_flushedAt[index] != Never)
+            {
+                continue;
+            }
+
+            if (_changeTimes[index] < changeTime)
+            {
+                break;
+            }
+
+            _flushedAt[index] = received;
         }
 
         // Where this generation's run began, carried forward rather than searched for: the boundary has to
@@ -232,6 +289,7 @@ public sealed class InterpolatedHistory
 
         _changeTimes.Add(changeTime);
         _received.Add(received);
+        _flushedAt.Add(Never);
 
         foreach (float value in values)
         {
@@ -296,10 +354,32 @@ public sealed class InterpolatedHistory
         // engine's history is pruned to the window, so it never walks far, and ours would be O(match).
         int start = Math.Clamp(IndexAtOrBefore(target), floor, available);
 
+        // **Past a run of entries sharing one changetime, because only the LAST of them is live** (B384).
+        // `IndexAtOrBefore` lands on the newest entry at or before the target, so the walk starts one
+        // further on — and when that one is a flushed duplicate, the live entry carrying the same
+        // changetime is further along still. Entering at the flushed one made the walk step over the live
+        // entry entirely and return a degenerate pair, which held a closing door at its previous height.
+        // Duplicates are contiguous because they are appended consecutively, so this is a step of one or
+        // two and never a scan.
+        int entry = Math.Min(start + 1, available);
+
+        while (entry < available && _changeTimes[entry + 1] == _changeTimes[entry])
+        {
+            entry++;
+        }
+
         int newer = -1;
 
-        for (int index = Math.Min(start + 1, available); index >= floor; index--)
+        for (int index = entry; index >= floor; index--)
         {
+            // **An entry a later update FLUSHED is not in the client's history at all** (B384), so the walk
+            // steps over it exactly as the engine's walk never sees it. Bounded by `arrivedBy` and not by
+            // "was it ever flushed", because a scrub to before the flush must still find it.
+            if (_flushedAt[index] <= arrivedBy)
+            {
+                continue;
+            }
+
             if (_changeTimes[index] > target)
             {
                 newer = index;
@@ -308,11 +388,35 @@ public sealed class InterpolatedHistory
 
             // `if ( pInfo->newer == varHistory.InvalidIndex() ) { pInfo->newer = pInfo->older; … }` —
             // the target is past every entry, so the pair is the same entry and the value holds.
-            return (index, newer < 0 ? index : newer, Math.Max(index - 1, floor));
+            return (index, newer < 0 ? index : newer, Older(index, floor, arrivedBy));
         }
 
         // The target precedes every entry this run holds: the oldest is all a client would have had.
         return (floor, floor, floor);
+    }
+
+    /// <summary>The live entry before one, which is the engine's <c>oldestindex = i+1</c>.</summary>
+    /// <param name="index">The older of the bracketing pair.</param>
+    /// <param name="floor">The generation boundary the search may not cross.</param>
+    /// <param name="arrivedBy">The tick being played, which decides what counts as flushed.</param>
+    /// <returns>Its live predecessor, or <paramref name="index"/> itself when it has none.</returns>
+    /// <remarks>
+    /// **`i+1` in a newest-first list is the next entry the engine still HOLDS**, so a flushed one is not
+    /// it. Returning `index` when there is no predecessor gives the spline a degenerate third sample,
+    /// which is what `dt2 > 0.0001f` then rejects — the same outcome as the engine's
+    /// `varHistory.IsIdxValid(oldestindex)` coming back false (<c>interpolatedvar.h:851</c>).
+    /// </remarks>
+    private int Older(int index, int floor, int arrivedBy)
+    {
+        for (int candidate = index - 1; candidate >= floor; candidate--)
+        {
+            if (_flushedAt[candidate] > arrivedBy)
+            {
+                return candidate;
+            }
+        }
+
+        return index;
     }
 
     /// <summary>The third spline sample, respaced to match the interval the curve runs over.</summary>

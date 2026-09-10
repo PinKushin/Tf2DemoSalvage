@@ -27112,7 +27112,165 @@ that is what separates a regression from an era problem. Nothing has been read f
 
 *Evidence class: owner observation with a screenshot, unreproduced by any instrument.*
 
-### B370 2026-09-09: the granary shutters — the mechanism is now measured, and the 2008 demo cannot show it
+### B384 FIXED 2026-09-09: an entry FLUSHES every entry at or after its own changetime, and we kept them all
+
+**Found by chasing B370's seven ticks into the wire, and it corrects B382's own reasoning.** B382 said
+`AddToHead` is unconditional and built the whole no-collapse argument on it. That was half the function:
+`NoteChanged` passes `bFlushNewer = true` (<c>interpolatedvar.h:649</c>), and that branch DELETES —
+
+```cpp
+// Get rid of anything that has a timestamp after this sample. The server might have
+// corrected our clock and moved us back, so our current changeTime is less than a
+// changeTime we added samples during previously.
+while ( m_VarHistory.Count() )
+{
+    if ( (m_VarHistory[0].changetime+0.0001f) > changeTime )
+        m_VarHistory.RemoveAtHead();
+    else
+        break;
+}
+```
+
+The epsilon makes it at-or-after, so on a tick axis it reads `changetime >= changeTime`. **The engine
+cannot hold two entries at one changetime**, and an update whose changetime moves BACKWARDS discards
+everything newer. `AddToHead` is unconditional about identical VALUES, and flushes on TIME — so B382's
+restatement argument survives untouched, because a restatement carries a LATER changetime.
+
+**Measured on `20130518_0313_cp_granary_blu_blu`, entity 328 at tick 63630**, a shutter closing in clean
+4.5-unit steps:
+
+```
+tick   applied  Z
+63664  63664    -285.5      two entries, one changetime
+63664  63664    -290.0
+63665  63665    -294.5
+63667  63667    -299.0      three entries, one changetime
+63667  63667    -303.5
+63667  63667    -308.0
+63670  63670    -312.5
+```
+
+Keeping all of them made the pair for a target of 63666 end at −299.0, reach it at a fraction of one, and
+then switch to −308.0 — the two intervening entries never being interpolated TOWARD, only appearing.
+**Measured before and after, on that door: the worst step-to-step change fell from 9.019 units to 3.290**,
+a 9-unit discontinuity in a tenth of a tick on a door that moves 0.45 in that time.
+
+**Held as a REACH bound, not performed as a deletion**, for the same reason as the prune and the reset: the
+engine flushes at the moment of receipt and never seeks backwards, and a viewer scrubbed to before the
+flush must still see what the client held then. Each entry records the tick it was flushed at and
+`Bracket` ignores it from that tick on.
+
+**A second defect came out of the same change and is worth its own line.** `Bracket` enters its walk at
+`IndexAtOrBefore(target) + 1`, and once the duplicates were flushed that entry point WAS one of them — so
+the walk stepped over the live entry entirely and returned a degenerate pair, holding a closing door at
+its previous height. Duplicates are contiguous, so the entry point now advances past a run sharing one
+changetime. Caught because `Add_ThreeEntriesAtOneChangetime_KeepsOnlyTheLast` went from the wrong value to
+a different wrong value rather than to the right one.
+
+**What is NOT established:** whether the remaining 3.29-unit step is also a divergence. It sits between
+keyframes 2 ticks and 4.5 units apart, so 3.29 in a tenth of a tick is hermite overshoot mid-span — which
+the engine also does — but it has not been checked against the engine's own curve for that history.
+
+*Evidence class: read-from-source for the flush; measured for the 9.019 → 3.290 and for the duplicate
+shape on that demo.*
+
+### B370 STILL OPEN 2026-09-09: the flush was NOT the slow doors, and the instrument cannot settle it
+
+**Reported plainly because the fix above did not move this number.** Drawn speeds across the same 32 runs,
+before and after B384:
+
+| | drawn speed |
+|---|---|
+| before | 3.42 – 3.82 u/tick, 26 runs |
+| after | 3.35 – 3.82 u/tick |
+
+So the duplicate-changetime divergence was real, had a real symptom, and is **not** why a full-travel door
+reads slow.
+
+**And the metric cannot answer the question, which is the more useful finding.** `drawnTicks` is when the
+sampled height crosses 1% to 99% of the travel. A hermite that leaves a held position with ZERO incoming
+velocity — which is what B382 made correct, and what the engine does when the third sample equals the
+second — eases in and eases out. Its 1%-to-99% time is longer than a linear ramp's **by construction**,
+without any rate being wrong. A door easing in from rest is also exactly what *"very very close to the
+door by the time it opens"* describes, so the symptom and Valve's own curve are not distinguishable by
+this measurement.
+
+**What the next instrument has to do:** compare the drawn curve against the curve the ENGINE's own
+functions predict for that same history — `GetInterpolationInfo` to pick the pair,
+`TimeFixup2_Hermite` to respace, `Lerp_Hermite` to evaluate — rather than against a constant-speed ramp.
+Anything less measures the difference between a spline and a line, which is not a defect.
+
+*Evidence class: measured for both distributions; read-from-source for the ease-in argument. The +7 ticks
+in the entry below is arithmetic and now has a candidate explanation that is not a defect.*
+
+### B370 2026-09-09: measured after B382/B383 — a full-travel door is drawn at 80% of a constant-speed ramp
+
+**Run on the owner's request, after the interpolation histories landed, and it confirms his report with a
+number.** `jitter 20130518_0313_cp_granary_blu_blu '*'` — 297 brush-entity tracks, 32 runs of real
+vertical motion.
+
+**The control is the MAP, not our data**, which is what makes this a measurement rather than three correct
+readings of a wrong model. Granary's `func_door` carries `speed='300'`, and the demo's own
+`IntervalPerTick` is 0.015 (66.67 ticks a second), so the correct drawn speed is exactly **4.5 units a
+tick**. The distribution of drawn speeds is bimodal against it:
+
+| drawn speed | runs | travel | verdict |
+|---|---|---|---|
+| 3.42 – 3.82 u/tick (mean ≈ 3.6) | **26** | every run of 111 – 126 units | **76 – 85% of 4.5** |
+| 4.16 – 4.55 u/tick | 5 | every run of 12.5, 35 and 76.5 units | straddles 4.5 exactly |
+| 7.43 u/tick | 1 | 116 units | faster than the door can move — a run-detection artefact |
+
+**The error is a near-constant +7 ticks, not a proportional rate error**, which is the useful part:
+
+| travel | drawn | correct at 4.5 u/tick | error |
+|---|---|---|---|
+| 12.5 u | 2.9 t | 2.8 t | +0.1 |
+| 35.0 u | 7.8 t | 7.8 t | 0 |
+| 76.5 u | 16.8 t | 17.0 t | −0.2 |
+| 111.0 u | 31.7 t | 24.7 t | **+7.0** |
+| 113.9 u | 33.0 t | 25.3 t | **+7.7** |
+| 116.0 u | 32.7 t | 25.8 t | **+6.9** |
+| 126.0 u | 34.8 t | 28.0 t | **+6.8** |
+
+Seven ticks is one interpolation window — `InterpolationDelayTicks` is 8 — and a short travel carries none
+of it. **That is a lead and not a conclusion**: the arithmetic says the long runs contain about one extra
+window and the short ones do not, and nothing here says WHERE it is spent. A late start would look exactly
+like the owner's *"he is very very close to the door by the time it opens"*, and so would a stall part-way.
+
+**What is NOT established, and the next step for each:**
+
+- **Where the seven ticks go.** Needs one long run sampled at sub-tick resolution, which the per-entity
+  mode cannot currently reach: entity 328 has EIGHT separate tracks on this demo and `TrackFor` returns
+  one of them, so `jitter <demo> 328 63630` reports "fewer than three samples". That is
+  `docs/memory/an-entity-index-does-not-name-a-track.md` — the probe needs to select a track by index
+  PLUS tick before it can answer.
+- **Whether it is a start, an end, or a stall.** Unmeasured. The 32-run survey reports duration only.
+- **Whether B382/B383 changed it.** No before-and-after: the probe's own arithmetic was corrected in the
+  same pass (see below), so the old numbers are not comparable to these.
+
+#### The instrument was wrong first, and three ways
+
+Worth recording because the first run of this survey reported doors drawn FASTER than stated — 0.46x to
+0.94x — which is the opposite of the owner's report and would have been filed as "no defect found".
+
+1. **`statedTicks` used ARRIVAL ticks.** That measures the wire's cadence, not the door: the same
+   111-unit shutter read 25 ticks in a quiet moment and 50 in a busy one purely because the server sent
+   its updates further apart. Now measured on `AppliedAt`, the clock the interpolation runs on.
+2. **A run already under way at the sampled window's first sample was reported as fast, not clipped.**
+   Its start lay outside what was sampled, so the duration came out short — most of the 0.46x cluster.
+   Now refused.
+3. **The 5% / 95% band covered nine tenths of the travel and called it the whole**, biasing every ratio
+   down by about a tenth before anything real was measured. Now 1% / 99%.
+
+The reported figure is also `speed` against `speed` rather than duration against duration, because a
+`func_door` has ONE speed and the map states it, where a duration comparison cannot separate a wrong rate
+from a run detector picking a different span at each end.
+
+*Evidence class: measured for the drawn speeds and the run counts; read-from-source for `speed='300'` and
+the tick interval; ARITHMETIC for the +7 ticks and for "one interpolation window", which is why the
+mechanism is named as not established.*
+
+### B370 2026-09-09: the granary shutters — an earlier mechanism, and the 2008 demo cannot show it
 
 **The owner's note asked for this to be recorded rather than chased, and it now has a measured cause.**
 The `jitter` probe surveys every brush-entity track and reports how many keyframes carry a simulation
