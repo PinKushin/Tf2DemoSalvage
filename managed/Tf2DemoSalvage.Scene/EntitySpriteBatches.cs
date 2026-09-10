@@ -43,7 +43,7 @@ public sealed class EntitySpriteBatches
     /// <param name="viewRight">The view's right.</param>
     /// <param name="viewUp">The view's up.</param>
     /// <param name="viewForward">The view's forward.</param>
-    /// <param name="materials">Each sprite's material, keyed by model path.</param>
+    /// <param name="sprites">Each sprite as loaded, keyed by model path.</param>
     /// <param name="visible">
     /// Whether a sprite at a point can be seen — the occlusion fraction, all or nothing. See the
     /// remarks: this is NOT the engine's test and the difference is stated rather than hidden.
@@ -75,11 +75,11 @@ public sealed class EntitySpriteBatches
         Vector3 viewRight,
         Vector3 viewUp,
         Vector3 viewForward,
-        IReadOnlyDictionary<string, ParticleMaterial> materials,
+        IReadOnlyDictionary<string, EngineSprite> sprites,
         Func<Vector3, bool> visible)
     {
         ArgumentNullException.ThrowIfNull(props);
-        ArgumentNullException.ThrowIfNull(materials);
+        ArgumentNullException.ThrowIfNull(sprites);
         ArgumentNullException.ThrowIfNull(visible);
 
         foreach (List<DetailSpriteVertex> corners in _byMaterial.Values)
@@ -106,8 +106,8 @@ public sealed class EntitySpriteBatches
                 continue;
             }
 
-            if (!materials.TryGetValue(prop.ModelPath, out ParticleMaterial material) ||
-                material.Sheet is not { } sheet)
+            if (!sprites.TryGetValue(prop.ModelPath, out EngineSprite sprite) ||
+                sprite.Material.Sheet is null)
             {
                 Skipped++;
                 continue;
@@ -117,14 +117,17 @@ public sealed class EntitySpriteBatches
 
             Vector3 origin = new(prop.Pose.X, prop.Pose.Y, prop.Pose.Z);
 
-            // **The material's orientation, defaulting to upright-parallel** — `CEngineSprite::Init`
-            // reads `$spriteorientation` and falls back to `SPR_VP_PARALLEL_UPRIGHT`
-            // (`spritemodel.cpp:309`). The VMT parse for that key is not implemented, so every
-            // sprite takes the default here; TF2's `light_glow03` declares none, which is why the
-            // default is also the right answer for the population this was written for.
+            // **The material's orientation, as the shader translated it at load** (B390). This passed
+            // the literal `SPR_VP_PARALLEL_UPRIGHT` for every sprite until then — so `light_glow03`,
+            // which asks for `vp_parallel`, stood upright: foreshortened from above, and refused
+            // outright within a degree of straight down.
             if (EntitySprites.Axes(
-                    EntitySprites.ParallelUpright, origin, prop.Pose.Roll,
-                    viewRight, viewUp, viewForward)
+                    sprite.Orientation,
+                    origin,
+                    (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll),
+                    viewRight,
+                    viewUp,
+                    viewForward)
                 is not var (right, up))
             {
                 Skipped++;
@@ -132,7 +135,7 @@ public sealed class EntitySpriteBatches
             }
 
             float scale = EntitySprites.RenderScale(
-                state.Scale, state.ScaleIsWorldSpace, sheet.Width, sheet.Height);
+                state.Scale, state.ScaleIsWorldSpace, sprite.Width, sprite.Height);
 
             (float blend, float scaled) = EntitySprites.GlowBlend(
                 prop.Pose.RenderMode,
@@ -161,8 +164,7 @@ public sealed class EntitySpriteBatches
                 origin,
                 right,
                 up,
-                sheet.Width,
-                sheet.Height,
+                sprite.Extents,
                 scaled,
                 new Vector3(blend, blend, blend),
                 state.Brightness / 255f,
@@ -173,9 +175,9 @@ public sealed class EntitySpriteBatches
 
         foreach ((string path, List<DetailSpriteVertex> corners) in _byMaterial)
         {
-            if (corners.Count > 0 && materials.TryGetValue(path, out ParticleMaterial material))
+            if (corners.Count > 0 && sprites.TryGetValue(path, out EngineSprite sprite))
             {
-                _batches.Add(new ParticleBatch(corners, material));
+                _batches.Add(new ParticleBatch(corners, sprite.Material));
             }
         }
 

@@ -28225,3 +28225,228 @@ tick-scoped already.
 *Evidence class: measured on `20130518_0313_cp_granary_blu_blu` and
 `tf2-2013-build1729296-stv-cp_foundry` for the track windows; read-from-source in our own code for the
 lookup and its three call sites; the three sabotage runs are differential.*
+
+### B390 OPEN 2026-09-10: every sprite is forced upright and centred, and 221 shipped materials say otherwise
+
+**B378's own remark asserted this could not matter and the measurement refutes it.** It read:
+
+> **`$spriteorigin` is not read here**: no TF2 sprite this project has met declares one, and inventing
+> a parse for a key nothing sends is how a wrong default gets locked in.
+
+and beside the orientation, in `EntitySpriteBatches`:
+
+> The VMT parse for that key is not implemented, so every sprite takes the default here; TF2's
+> `light_glow03` declares none, which is why the default is also the right answer.
+
+`vmt-param` over the shipped materials, with `$basetexture` as the control (30,216 of 30,684 — the
+instrument reaches everything):
+
+| parameter | materials | by shader | by value |
+|---|---|---|---|
+| `$spriteorientation` | **221** | 202 `Sprite`, 19 `UnlitGeneric` | 176 `vp_parallel`, 19 `4`, 19 `parallel_upright`, 4 `vp_parallel_oriented`, 3 `oriented` |
+| `$spriteorigin` | **202** | 202 `Sprite` | 198 `[ 0.50 0.50 ]`, 3 `[ 0.50 0.00 ]`, 1 `[ .5 .5 ]` |
+
+**And `light_glow03` declares BOTH**, which is the part that makes the second claim wrong rather than
+merely unproven — `vmt sprites/light_glow03`, as shipped:
+
+```
+"Sprite"
+{
+	"$basetexture" "sprites/light_glow03"
+//	"$additive" "1"
+	"$spriteorientation" "vp_parallel"
+	"$spriteorigin" "[ 0.50 0.50 ]"
+}
+```
+
+So the eleven glows a frame that B378 drew are drawn `SPR_VP_PARALLEL_UPRIGHT` where the material asks
+for `SPR_VP_PARALLEL`. Those are different pictures: upright-parallel pins the quad's up to world up and
+only yaws to face the viewer, while vp_parallel is flat to the viewplane. A lamp halo seen from above or
+below is a foreshortened sliver in ours and a full disc in TF2 — and the upright branch also *refuses to
+draw at all* within one degree of straight up or down, where vp_parallel has no such case.
+
+**Three divergences, and the third is not a wrong picture but a missing one.**
+
+**1. `$spriteorientation` is never read.** `EntitySpriteBatches.Build` passes the literal
+`EntitySprites.ParallelUpright` (`managed/Tf2DemoSalvage.Scene/EntitySpriteBatches.cs:126`), so
+`EntitySprites.Axes`'s five branches are reachable only through its own unit tests. **The translation is
+by NAME and it is not in the engine's sprite code at all** — it is in the SHADER, run once at material
+init, before `CEngineSprite::Init` ever asks for an int
+(`materialsystem/stdshaders/sprite_dx9.cpp:73`, through the default at `:105` — `Sprite` is a fallback
+name for `Sprite_DX9`, `Sprite_DX8` and `Sprite_DX6`, and all three carry this block):
+
+```cpp
+SHADER_PARAM( SPRITEORIENTATION, SHADER_PARAM_TYPE_INTEGER, "0", "sprite orientation" )
+...
+// translate from a string orientation to an enumeration
+if (params[SPRITEORIENTATION]->IsDefined())
+{
+    const char *orientationString = params[SPRITEORIENTATION]->GetStringValue();
+    if( stricmp( orientationString, "parallel_upright" ) == 0 )
+        params[SPRITEORIENTATION]->SetIntValue( SPR_VP_PARALLEL_UPRIGHT );
+    else if( stricmp( orientationString, "facing_upright" ) == 0 )
+        params[SPRITEORIENTATION]->SetIntValue( SPR_FACING_UPRIGHT );
+    else if( stricmp( orientationString, "vp_parallel" ) == 0 )
+        params[SPRITEORIENTATION]->SetIntValue( SPR_VP_PARALLEL );
+    else if( stricmp( orientationString, "oriented" ) == 0 )
+        params[SPRITEORIENTATION]->SetIntValue( SPR_ORIENTED );
+    else if( stricmp( orientationString, "vp_parallel_oriented" ) == 0 )
+        params[SPRITEORIENTATION]->SetIntValue( SPR_VP_PARALLEL_ORIENTED );
+    else
+    {
+        Warning( "error with $spriteOrientation\n" );
+        params[SPRITEORIENTATION]->SetIntValue( SPR_VP_PARALLEL_UPRIGHT );
+    }
+}
+else
+    params[SPRITEORIENTATION]->SetIntValue( SPR_VP_PARALLEL_UPRIGHT );
+```
+
+**A NUMERIC value is rejected, and nineteen shipped materials write one.** `stricmp("4", …)` matches no
+name, so `"$spriteorientation" "4"` falls to the `else` and becomes `SPR_VP_PARALLEL_UPRIGHT` — **not**
+`SPR_VP_PARALLEL_ORIENTED`, which is what a reader who assumed the declared type would produce. The
+parameter is declared `SHADER_PARAM_TYPE_INTEGER` and is read as a string; taking the declaration at its
+word is the trap. It is invisible for those nineteen because they are the PASSTIME HUD's `UnlitGeneric`
+materials, which never run the `Sprite` shader — but a parse that accepts digits is wrong for any
+material that does.
+
+**2. `$spriteorigin` is never read, and the extents are hardcoded symmetric.**
+`EntitySprites.Corners` computes `width * 0.5f` and `height * 0.5f` directly
+(`managed/Tf2DemoSalvage.Scene/EntitySprites.cs:310`). The engine derives four separate extents, and
+only the DEFAULT is symmetric (`spritemodel.cpp:311-328`):
+
+```cpp
+IMaterialVar *originVar = m_material[0]->FindVarFast( "$spriteorigin", &spriteOriginCache );
+Vector origin, originVarValue;
+if( !originVar || ( originVar->GetType() != MATERIAL_VAR_TYPE_VECTOR ) )
+{
+    origin[0] = -m_width * 0.5f;
+    origin[1] = m_height * 0.5f;
+}
+else
+{
+    originVar->GetVecValue( &originVarValue[0], 3 );
+    origin[0] = -m_width * originVarValue[0];
+    origin[1] = m_height * originVarValue[1];
+}
+
+up    = origin[1];
+down  = origin[1] - m_height;
+left  = origin[0];
+right = m_width + origin[0];
+```
+
+**`[ 0.50 0.00 ]` — which three shipped materials declare — hangs the quad entirely BELOW its origin**:
+`up = 0`, `down = -height`. Our symmetric arithmetic puts half of it above. And the `GetType() !=
+MATERIAL_VAR_TYPE_VECTOR` test is load-bearing: a `$spriteorigin` written without brackets is a float
+var, not a vector one, and the engine IGNORES it rather than reading its single component — the same
+type switch `VmtMaterial.Colour` already documents from `ColorVarsToVector`.
+
+**3. `SPR_ORIENTED` draws nothing.** `Axes` returns null for it with the comment *"Left to the caller,
+which has the rotation already"* — and no caller ever supplies it, so the three `oriented` materials
+would produce no quad at all. The engine's branch is one line (`c_sprite.cpp:320-325`):
+
+```cpp
+case SPR_ORIENTED:
+    // generate the sprite's axes, according to the sprite's world orientation
+    AngleVectors( angles, &forward, &right, &up );
+    break;
+```
+
+`Axes` takes only `roll`, so it cannot do this; it needs pitch and yaw as well.
+
+**4. The extents are built from the DECODED size, and the engine's are the authored one.**
+`CEngineSprite::Init` takes `m_width = m_material[0]->GetMappingWidth()` (`spritemodel.cpp:294`) — the
+mapping size, which is the texture as authored and does not move with `mat_picmip`. Ours takes
+`sheet.Width`, which is `VtfTexture.Width`, documented as *"Width of the decoded image"* and constructed
+from `levelWidth = MipSize(width, level)` after `ChooseLevel` has dropped mips for the texture-quality
+cap (`managed/Tf2DemoSalvage.Content/Assets/VtfTexture.cs:634`). So at a reduced quality a sprite is
+drawn smaller by the dropped factor, and `RenderScale`'s world-space divide uses the smaller dimension
+of the wrong size as well. **Unobservable on every TF2 glow at every setting this viewer offers**:
+`TextureQuality`'s smallest cap is 256 and `light_glow03` is 128 square, so `ChooseLevel` never drops a
+level from it — measured from the enum and the file, not assumed. It is a divergence for any sprite
+material larger than the cap, and `levelWidth << Level` does not recover the header size for a
+non-power-of-two file, so the fix is to carry the header's own `width` and `height` rather than to
+derive them.
+
+**What is visible when it is wrong:** a lamp glow that is an ellipse instead of a disc when the camera is
+above or below it, and vanishes entirely when the camera looks nearly straight down at it. Both are
+first-person-in-a-stairwell symptoms, which is why a level-camera screenshot has never shown it.
+
+**What is NOT established.**
+
+- **Whether an UNDECLARED `$spriteorigin` reaches `CEngineSprite::Init` as absent or as the shader's
+  `SHADER_PARAM( SPRITEORIGIN, SHADER_PARAM_TYPE_VEC3, "[0 0 0]", … )` default.** The SDK ships
+  `stdshaders` but not `cmaterial.cpp`, so which one applies cannot be read. It matters: `[0 0 0]` is
+  type VECTOR, so it would take the *else* branch and give `up = 0, down = -height` — a quad hanging
+  below its origin — for every sprite that omits the key. **Taken as absent**, because Valve wrote the
+  `!originVar` branch and a 0.5/0.5 fallback, and a default that hung every sprite below its origin
+  would make that branch dead and the fallback meaningless. *This is an INTERPOLATION.* It would be
+  falsified by a sprite VMT with no `$spriteorigin` rendering non-centred in TF2, and it is unobservable
+  on TF2's own sprites, 199 of 202 of which declare the centred value explicitly.
+- **Whether any `oriented` or `vp_parallel_oriented` material is ever a sprite entity's model in a
+  demo.** The three and four materials are counted in the game's files, not in a recording.
+- **The occlusion query**, still B378's, unchanged by this.
+
+*Evidence class: measured for the material counts (`vmt-param`, 30,684 materials, `$basetexture` as
+the control) and for `light_glow03`'s own contents; read-from-source for all three engine quotes;
+interpolated for the undeclared-`$spriteorigin` default, flagged above.*
+
+### B390 FIXED 2026-09-10: a sprite's material now decides its orientation and where its quad sits; the mapping size and `Patch` materials are still open
+
+**Items 1–3 above are fixed. Item 4 is open, and so is a fifth thing found while fixing them.**
+
+**What was done, keeping the engine's layering.**
+
+- **`SpriteOrientation`** (`managed/Tf2DemoSalvage.Content/Assets/SpriteOrientation.cs`) — `SPRITETYPE`
+  with the engine's numbers, in the MATERIAL layer because the material decides it. The five `int`
+  constants that lived on `EntitySprites` are gone rather than kept as aliases.
+- **`VmtMaterial.SpriteOrientation`** — the `Sprite` shader's translation: by name, case-insensitive; a
+  number, an unknown name and an absent key all become the default. Under any other shader, the raw
+  integer — interpolated, and flagged where it is written.
+- **`VmtMaterial.SpriteOrigin`** — null when absent or not a vector. The bracket test is now shared with
+  `Colour` through `TryVectorBody`, and `Flag`'s integer read with `SpriteOrientation` through
+  `LeadingInteger`; both extractions are meant to change nothing, which the whole Content suite is the
+  check on.
+- **`EngineSprite` and `SpriteExtents`** (`managed/Tf2DemoSalvage.Scene/EngineSprite.cs`) — `CEngineSprite`'s
+  shape, built once at load in `MapAssets.LoadSpriteMaterials`. `SpriteExtents.Of` is `Init`'s last block.
+- **`EntitySprites.Axes`** takes the entity's angles, and `SPR_ORIENTED` is `AngleVectors` instead of
+  null. **`EntitySprites.Corners`** takes the four edges instead of halving the size.
+- **`EntitySpriteBatches`** passes `sprite.Orientation`. The literal is gone.
+
+**Proved by manipulation, not by reading.** The red step came first: with every new type in place and
+the literal still passed, exactly the two predicted output-level tests failed —
+`Build_AViewplaneParallelGlowSeenFromStraightAbove_IsDrawn` (drawn 0) and
+`Build_AGlowWhoseOriginIsItsTopEdge_HangsBelowIt` — while the control, the same glow upright, passed.
+Then seven sabotages in two rounds, each with a prediction disjoint from the others in its round:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| the `Sprite` shader accepts a number | `SpriteOrientation_WrittenAsANumber_IsRejectedToTheDefault` |
+| `SpriteExtents.Of` loses the X negation | the three `Extents_*` and `Corners_ForACentredSprite_*` |
+| `SPR_ORIENTED` takes its right from `AngleVectors.Up` | `Axes_ForAnOrientedSprite_TakesTheEntitysOwnAngles` |
+| the batches ignore the sprite's own edges | `Build_AGlowWhoseOriginIsItsTopEdge_HangsBelowIt` |
+| `$spriteorigin` accepted without brackets | `SpriteOrigin_WrittenWithoutBrackets_IsNotAVectorAndIsIgnored` |
+| names compared case-sensitively | `SpriteOrientation_NamedInMixedCase_IsStillTranslated` |
+| `UnlitGeneric` treated as the `Sprite` shader | `SpriteOrientation_UnderAShaderThatIsNotSprite_IsTheRawInteger` |
+
+Nothing outside each prediction reddened. Each was restored with its inverse edit, and a grep for every
+sabotage's residue came back clean.
+
+**Still open.**
+
+- **Item 4, the mapping size.** Every `MapTexture` construction site has the decoded `VtfTexture` in
+  scope, so the fix is to carry the header's own `width` and `height` through all eleven rather than
+  default any of them.
+- **A `Patch` sprite material is read unpatched.** `ReadVmt` — split out of the particle path's
+  `Sequences`, which had the same limitation — returns the patch itself, where `Resolve` applies its
+  `include`. A patched `Sprite` material would report the shader `Patch`, take the untranslated branch,
+  and draw `vp_parallel` as `SPR_VP_PARALLEL_UPRIGHT`. How many sprite or particle materials are
+  patches is not measured.
+- **The undeclared-`$spriteorigin` interpolation** above is unchanged: an absent key takes the
+  `!originVar` branch.
+- **Not yet seen on screen.** The tests are exact about counts and corners; whether a lamp halo now
+  reads as a disc from above is the owner's to look at, and this entry does not claim it.
+
+*Evidence class: differential for the red step and all seven sabotages; read-from-source for every
+behaviour implemented.*

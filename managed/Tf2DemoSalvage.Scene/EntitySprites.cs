@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
@@ -22,27 +23,6 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public static class EntitySprites
 {
-    /// <summary>The sprite orientations, <c>C_SpriteRenderer::SPRITETYPE</c> (`Sprite.h:36`).</summary>
-    /// <remarks>
-    /// **A `.vmt` sprite's orientation comes from the MATERIAL, not the entity** — `CEngineSprite::
-    /// Init` reads <c>$spriteorientation</c> and falls back to <see cref="ParallelUpright"/> when the
-    /// material declares none (`spritemodel.cpp:309`). So the default here is the engine's default
-    /// and not a choice.
-    /// </remarks>
-    public const int ParallelUpright = 0;
-
-    /// <summary><c>SPR_FACING_UPRIGHT</c> — up is world up, right faces the origin.</summary>
-    public const int FacingUpright = 1;
-
-    /// <summary><c>SPR_VP_PARALLEL</c> — flat to the viewplane, the ordinary billboard.</summary>
-    public const int Parallel = 2;
-
-    /// <summary><c>SPR_ORIENTED</c> — the entity's own angles.</summary>
-    public const int Oriented = 3;
-
-    /// <summary><c>SPR_VP_PARALLEL_ORIENTED</c> — flat to the viewplane, rolled.</summary>
-    public const int ParallelOriented = 4;
-
     /// <summary>Where a glow stops fading — 1,200 units, <c>c_sprite.cpp:147</c>.</summary>
     /// <remarks>
     /// Valve's own comment calls the pair magic: *"UNDONE: Tweak these magic numbers (1200 -
@@ -66,9 +46,11 @@ public static class EntitySprites
     public const float UprightLimit = 0.999848f;
 
     /// <summary>The quad's basis — <c>C_SpriteRenderer::GetSpriteAxes</c> (`c_sprite.cpp:226`).</summary>
-    /// <param name="orientation">The material's <c>$spriteorientation</c>.</param>
+    /// <param name="orientation">The material's <c>$spriteorientation</c>, as the shader translated it.</param>
     /// <param name="origin">Where the sprite is.</param>
-    /// <param name="roll">The entity's roll, which two orientations use.</param>
+    /// <param name="angles">
+    /// The entity's angles — all three for an oriented sprite, and the roll for the two that use it.
+    /// </param>
     /// <param name="viewRight">The view's right, for the viewplane-parallel kinds.</param>
     /// <param name="viewUp">The view's up.</param>
     /// <param name="viewForward">The view's forward.</param>
@@ -86,23 +68,27 @@ public static class EntitySprites
     /// engine does: it returns early leaving `forward`, `right` and `up` as the caller left them, and
     /// `DrawSpriteModel` then builds a degenerate quad from zero vectors. Answering null and drawing
     /// nothing is the same picture without relying on uninitialised memory to produce it.
+    ///
+    /// **Every branch is reachable from a real sprite now, and until B390 one was.** The only caller
+    /// passed the literal <c>SPR_VP_PARALLEL_UPRIGHT</c> for every sprite, so the other four answered
+    /// their own tests and nothing on screen — while `light_glow03` asks for `vp_parallel`.
     /// </remarks>
     public static (Vector3 Right, Vector3 Up)? Axes(
-        int orientation,
+        SpriteOrientation orientation,
         Vector3 origin,
-        float roll,
+        (float Pitch, float Yaw, float Roll) angles,
         Vector3 viewRight,
         Vector3 viewUp,
         Vector3 viewForward)
     {
-        if (roll != 0f && orientation == Parallel)
+        if (angles.Roll != 0f && orientation == SpriteOrientation.Parallel)
         {
-            orientation = ParallelOriented;
+            orientation = SpriteOrientation.ParallelOriented;
         }
 
         switch (orientation)
         {
-            case FacingUpright:
+            case SpriteOrientation.FacingUpright:
             {
                 // `tvec` is the NEGATED origin, which is the engine's own shorthand for the vector
                 // from the sprite to the world origin — not to the viewer. Kept because it is what
@@ -126,10 +112,10 @@ public static class EntitySprites
                 return (right, Vector3.UnitZ);
             }
 
-            case Parallel:
+            case SpriteOrientation.Parallel:
                 return (viewRight, viewUp);
 
-            case ParallelUpright:
+            case SpriteOrientation.ParallelUpright:
             {
                 if (viewForward.Z > UprightLimit || viewForward.Z < -UprightLimit)
                 {
@@ -141,15 +127,23 @@ public static class EntitySprites
                 return (right, Vector3.UnitZ);
             }
 
-            case Oriented:
-                // The entity's own angles. Left to the caller, which has the rotation already: this
-                // returns null so an oriented sprite is not silently drawn as a billboard, which
-                // would be a wrong picture rather than a missing one.
-                return null;
-
-            case ParallelOriented:
+            case SpriteOrientation.Oriented:
             {
-                (float sine, float cosine) = MathF.SinCos(roll * (MathF.PI * 2f / 360f));
+                // **The entity's own angles, through Valve's one decomposition** —
+                // `AngleVectors( angles, &forward, &right, &up )` (`c_sprite.cpp:323`). This branch
+                // answered null until B390, on the note that the caller "has the rotation already";
+                // no caller ever supplied it, so an oriented sprite drew nothing at all.
+                (float rightX, float rightY, float rightZ) =
+                    AngleVectors.Right(angles.Pitch, angles.Yaw, angles.Roll);
+                (float upX, float upY, float upZ) =
+                    AngleVectors.Up(angles.Pitch, angles.Yaw, angles.Roll);
+
+                return (new Vector3(rightX, rightY, rightZ), new Vector3(upX, upY, upZ));
+            }
+
+            case SpriteOrientation.ParallelOriented:
+            {
+                (float sine, float cosine) = MathF.SinCos(angles.Roll * (MathF.PI * 2f / 360f));
 
                 return (
                     (viewRight * cosine) + (viewUp * sine),
@@ -266,8 +260,7 @@ public static class EntitySprites
     /// <param name="origin">Where the sprite is.</param>
     /// <param name="right">The basis right, from <see cref="Axes"/>.</param>
     /// <param name="up">The basis up.</param>
-    /// <param name="width">The material's mapping width.</param>
-    /// <param name="height">Its mapping height.</param>
+    /// <param name="extents">Where the quad's edges sit about the origin, from <see cref="SpriteExtents.Of"/>.</param>
     /// <param name="scale">The render scale, from <see cref="RenderScale"/>.</param>
     /// <param name="colour">Red, green and blue after the glow blend, each 0..1.</param>
     /// <param name="alpha">The sprite's brightness, 0..1.</param>
@@ -283,13 +276,11 @@ public static class EntitySprites
     ///
     /// with the quad wound `a+b`, `c+b`, `c+d`, `a+d`.
     ///
-    /// **The extents come from the MATERIAL and are centred by default** — `CEngineSprite::Init`
-    /// takes <c>$spriteorigin</c>, falling back to <c>origin[0] = -width * 0.5f; origin[1] = height *
-    /// 0.5f;</c>, and then sets <c>up = origin[1]; down = origin[1] - height; left = origin[0]; right
-    /// = width + origin[0];</c> (`spritemodel.cpp:221`). So a default sprite spans ±width/2 by
-    /// ±height/2 in texels, scaled. **`$spriteorigin` is not read here**: no TF2 sprite this project
-    /// has met declares one, and inventing a parse for a key nothing sends is how a wrong default
-    /// gets locked in (B378 says what would falsify that).
+    /// **The four edges are the sprite's own, and only the default is symmetric** (B390). They are
+    /// `CEngineSprite::Init`'s arithmetic on the material's <c>$spriteorigin</c>. This took half the
+    /// width and half the height either side until then, and its remark defended that on the grounds
+    /// that no TF2 sprite declared the key — 202 shipped materials do, and three of them hang the quad
+    /// entirely below its origin.
     ///
     /// **Six corners rather than four**, because `DetailSpriteRenderer` draws triangles where the
     /// engine's `MATERIAL_QUADS` does not — the same expansion `ParticleSprites.Build` makes.
@@ -298,8 +289,7 @@ public static class EntitySprites
         Vector3 origin,
         Vector3 right,
         Vector3 up,
-        int width,
-        int height,
+        SpriteExtents extents,
         float scale,
         Vector3 colour,
         float alpha,
@@ -307,13 +297,10 @@ public static class EntitySprites
     {
         ArgumentNullException.ThrowIfNull(into);
 
-        float halfWidth = width * 0.5f;
-        float halfHeight = height * 0.5f;
-
-        Vector3 below = origin + (up * (-halfHeight * scale));
-        Vector3 above = origin + (up * (halfHeight * scale));
-        Vector3 leftward = right * (-halfWidth * scale);
-        Vector3 rightward = right * (halfWidth * scale);
+        Vector3 below = origin + (up * (extents.Down * scale));
+        Vector3 above = origin + (up * (extents.Up * scale));
+        Vector3 leftward = right * (extents.Left * scale);
+        Vector3 rightward = right * (extents.Right * scale);
 
         DetailSpriteVertex bottomLeft = Corner(below + leftward, 0f, 1f, colour, alpha);
         DetailSpriteVertex topLeft = Corner(above + leftward, 0f, 0f, colour, alpha);

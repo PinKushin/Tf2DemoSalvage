@@ -954,7 +954,10 @@ run Tf2DemoSalvage.Animation.Tests animation 252
 # backwards without looking wrong: the roll promotion that happens before the switch, the `.vmt`
 # default of SPR_VP_PARALLEL_UPRIGHT rather than the plain billboard, the upright refusal near
 # vertical, and world-glow-keeps-its-size against every-other-glow-does-not.
-run Tf2DemoSalvage.Scene.Tests    scene     690
+# 690 -> 697 on 2026-09-10: seven for B390 — the oriented basis and `CEngineSprite`'s three
+# extents in EntitySpriteConformanceTests, and three in EntitySpriteBatchesTests, the output-level
+# test B378 never had.
+run Tf2DemoSalvage.Scene.Tests    scene     697
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1363,7 +1366,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 444
 #
 # 1040 -> 1136 on 2026-09-09: closed DRIFT, not 96 new tests, measured in the same pass as
 # animation's 111 -> 252 above and for the same reason. Nothing was added or removed here.
-run Tf2DemoSalvage.Content.Tests  content   1136
+#
+# 1136 -> 1150 on 2026-09-10: fourteen for B390 in SpriteMaterialConformanceTests — the Sprite
+# shader's name translation (five names by TestCase, case, a rejected number, an unknown name, the
+# default, and the untranslated shader) and `$spriteorigin`'s vector test (four).
+run Tf2DemoSalvage.Content.Tests  content   1150
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
