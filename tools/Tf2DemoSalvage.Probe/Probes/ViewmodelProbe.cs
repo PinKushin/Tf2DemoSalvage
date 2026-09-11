@@ -113,9 +113,18 @@ public sealed class ViewmodelProbe : IProbe
 
             // Keyed on the item as well as the model, because the whole point of asking is often
             // an attachment: a festivized scattergun and a plain one name the same `.mdl`.
+            //
+            // **And on the sequence and its parity** (B380). Keyed on model and item alone, a reload or
+            // a charge on the weapon already in hand printed nothing, and a demo whose launcher
+            // reloaded twenty times read as one sequence held for the whole match — which was
+            // reported as a fact about the demo before this line was read.
             string now = weapon.ModelPath
                 + "|"
-                + (weapon.WeaponItem?.ToString(CultureInfo.InvariantCulture) ?? "-");
+                + (weapon.WeaponItem?.ToString(CultureInfo.InvariantCulture) ?? "-")
+                + "|"
+                + weapon.Sequence.ToString(CultureInfo.InvariantCulture)
+                + "|"
+                + weapon.AnimationStartTick.ToString(CultureInfo.InvariantCulture);
 
             if (string.Equals(now, was, StringComparison.OrdinalIgnoreCase))
             {

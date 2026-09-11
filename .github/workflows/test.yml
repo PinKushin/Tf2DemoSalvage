@@ -316,7 +316,8 @@ jobs:
           # 697 -> 711 on 2026-09-10: fourteen for B391, the sprite blend by render mode and the tint.
           # 711 -> 713 on 2026-09-10: two for B390, a sprite sized by its texture's mapping size.
           # 713 -> 716 on 2026-09-10: three for B391, kRenderTransAdd drawn with the material's color.
-          ./build/assert-test-count.sh '**/scene.trx' 716 Scene
+          # 716 -> 726 on 2026-09-11: ten for B380, an old demo's sequence numbers translated by era.
+          ./build/assert-test-count.sh '**/scene.trx' 726 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

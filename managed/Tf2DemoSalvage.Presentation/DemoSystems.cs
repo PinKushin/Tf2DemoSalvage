@@ -110,6 +110,10 @@ public sealed class DemoSystems
 
         _spectator.Eyes = timeline is { } eyes ? new TimelineEyes(eyes) : null;
         _moment.Viewmodels = timeline is { } weapons ? new TimelineViewmodels(weapons) : null;
+
+        // **Which era's sequence lists the demo's numbers index** (B380, D160), from its protocol.
+        // Null for a protocol the shipped table has no era for, which reads against today's models.
+        _moment.SequenceEra = timeline is { } era ? SequenceEras.Shipped.EraFor(era.NetworkProtocol) : null;
         // **The corpses need the install half too**, which `_appearances` already carries on its own
         // lifecycle — so the source reads it per call rather than being given a table now (B315).
         _moments.Source = timeline is { } moments

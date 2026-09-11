@@ -65,6 +65,15 @@
     <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.Tests" />
   </ItemGroup>
 
+  <!--
+    The older installs' sequence lists (B380, D160): which animation an old demo's m_nSequence named
+    before Valve reordered the model. Embedded rather than read from disk, because it is the program's
+    own data and has to travel with it to a machine that has no old install.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Data\sequence-eras.txt" LogicalName="Tf2DemoSalvage.Scene.sequence-eras.txt" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
     <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />

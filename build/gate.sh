@@ -967,7 +967,10 @@ run Tf2DemoSalvage.Animation.Tests animation 252
 # 713 -> 716 on 2026-09-10: three for B391's kRenderTransAdd in EntitySpriteBatchesTests — the
 # material's color in place of the entity's, both multiplied under `$ignorevertexcolors 0`, and the
 # control that a world glow ignores the material's constant.
-run Tf2DemoSalvage.Scene.Tests    scene     716
+# 716 -> 726 on 2026-09-11: ten for B380 in SequenceErasConformanceTests — the 2008 sticky launcher's
+# draw, label before activity (the knife's shared stabs), the activity fallback, no sequence where
+# nothing answers or past the old list, the table's parse, and the shipped file itself.
+run Tf2DemoSalvage.Scene.Tests    scene     726
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

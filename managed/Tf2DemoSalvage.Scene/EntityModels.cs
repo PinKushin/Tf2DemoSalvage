@@ -3589,6 +3589,77 @@ public sealed class EntityModelSet : IModelBodygroups
         return frames[Math.Clamp(frame, 0, frames.Count - 1)];
     }
 
+    /// <summary>
+    /// The content era of the demo being drawn, from its network protocol; null reads every sequence
+    /// number against today's models (B380, D160).
+    /// </summary>
+    /// <remarks>
+    /// Set when a demo opens, like the rest of the per-demo state, and left null for a protocol the
+    /// table has no era for — 24 today, until snapshots from 2013 onward are in.
+    /// </remarks>
+    public string? SequenceEra { get; set; }
+
+    /// <summary>The era table, the one this program ships unless a test supplies another.</summary>
+    public SequenceEras Eras { get; set; } = SequenceEras.Shipped;
+
+    /// <summary>Takes each prop's networked sequence numbers from its era's model to today's (B380, D160).</summary>
+    /// <param name="props">The props about to be posed; rewritten in place.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="props"/> is null.</exception>
+    /// <remarks>
+    /// **The main sequence AND every layer**, because a layer's <c>m_nSequence</c> indexes the same merged
+    /// list. **After the models are loaded and before <see cref="Instances"/>**, whose first act is
+    /// <c>Simulate</c>, which advances each cycle by its sequence's frame rate — translated afterwards,
+    /// the first frame would already have been advanced by the wrong animation.
+    ///
+    /// **A model the era does not list is untouched**, which is every model whose list is the same
+    /// today; so is every prop when <see cref="SequenceEra"/> is null. A model not yet loaded, or baked
+    /// rather than skinned, has no table to translate into and is left as it came.
+    /// </remarks>
+    public void TranslateEraSequences(IList<SceneProp> props)
+    {
+        ArgumentNullException.ThrowIfNull(props);
+
+        if (SequenceEra is not { } era)
+        {
+            return;
+        }
+
+        for (int index = 0; index < props.Count; index++)
+        {
+            SceneProp prop = props[index];
+
+            if (Eras.For(era, prop.ModelPath) is not { } old ||
+                !_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) ||
+                frames.Skinned is not { } skinned)
+            {
+                continue;
+            }
+
+            int sequence = EraSequenceTranslation.Translate(
+                old, prop.Pose.Sequence, skinned.SequenceByLabel, skinned.SequenceWithActivity);
+
+            IReadOnlyList<SceneAnimationLayer> layers = prop.Pose.Layers;
+
+            if (layers.Count > 0)
+            {
+                SceneAnimationLayer[] translated = new SceneAnimationLayer[layers.Count];
+
+                for (int layer = 0; layer < layers.Count; layer++)
+                {
+                    translated[layer] = layers[layer] with
+                    {
+                        Sequence = EraSequenceTranslation.Translate(
+                            old, layers[layer].Sequence, skinned.SequenceByLabel, skinned.SequenceWithActivity),
+                    };
+                }
+
+                layers = translated;
+            }
+
+            props[index] = prop with { Pose = prop.Pose with { Sequence = sequence, Layers = layers } };
+        }
+    }
+
     /// <summary>The first sequence of a model whose activity contains a fragment.</summary>
     /// <param name="modelPath">The model.</param>
     /// <param name="fragment">Part of an activity name, such as <c>VM_IDLE</c>.</param>

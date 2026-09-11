@@ -28820,8 +28820,9 @@ only for a lowered weapon, an inspect or `tf_use_min_viewmodels`) and the viewmo
 all sound. The fault is this one model.
 
 **The sequence the demo names.** The `viewmodels` probe gives the sequence each 2008 weapon is deployed
-with, and it never changes after that on this demo, so each weapon holds its deploy animation's last
-frame:
+with. *(Corrected 2026-09-11: this paragraph went on to say the sequence "never changes after that on
+this demo", and that was the probe, not the demo. It printed a line only when the model or item
+changed, so every reload and charge on the weapon in hand was invisible to it. See "B380 FIXED".)*
 
 | weapon | demo's sequence | today's model at that index | 2008 model at that index |
 |---|---|---|---|
@@ -28899,3 +28900,91 @@ today, and the 378 demos in the competitive archive are all protocol 24. Valve m
 some point between the 2013 install and today, with no install in between to say when. So for a 2019
 league demo, whether its indices mean the 2013 table or today's cannot be told from the protocol. It
 needs either content snapshots from the years between or a dating signal inside the demo.
+
+### B380 FIXED 2026-09-11: an old demo's sequence numbers are translated into today's models, for 2007 and 2008
+
+**The owner, looking at the result:** *"oooo seems good to be, the stick launcher isnt over the whole
+screen at least"*. That closes the symptom he reported, as he scoped it. Whether the 2008 launcher's
+resting pose showed a hand is still not established; see below.
+
+**What was done (D160).**
+
+- **`Data/sequence-eras.txt`**, embedded in Scene: for each era, each model whose merged list differs
+  from today's, as `label:activity` pairs in index order, and a `protocol` line per era. It was generated
+  by `sequence-eras <install> 0 emit` and holds only labels and activities, never Valve's meshes or
+  animation data. For 2007 and 2008 it lists 10 models each, the same 10.
+- **`SequenceEras`** reads it, and **`EraSequenceTranslation.Translate`** takes an old index to its
+  label and then to today's index for that label. Where the label is gone today, it uses the ACTIVITY:
+  six melee labels became `_a`/`_b` variants, and the activity is what the server asked for
+  (`SendWeaponAnim( ACT_VM_HITCENTER )`). An index that nothing today answers, or that is past the old
+  list, is −1, which `StudioSequenceTable.At` answers null for.
+- **`PropModels.SkinnedModel.SequenceWithActivity`**: an exact match, where `SequenceByActivity` matches
+  a fragment and would let `ACT_VM_HITCENTER` match `ACT_VM_HITCENTER2`.
+- **`EntityModels.TranslateEraSequences`** rewrites the main sequence and every layer. It runs after the
+  models are added, since it needs today's table, and before `Instances`, whose `Simulate` advances each
+  cycle by its sequence. It runs for world props after `UpdateClientSideAnimations` and for the
+  viewmodel after its `Add`.
+- **`DemoTimeline.NetworkProtocol`** is exposed, and `DemoSystems` sets `MomentScene.SequenceEra` from it
+  when a demo opens. Protocols 11 and 14 select 2007 and 2008. Any other protocol has no era and is read
+  against today's models, as before.
+
+**Proved by manipulation**, two rounds, each prediction disjoint within its round:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| activity asked before label | `Translate_ASequenceWhoseActivityIsShared_IsFoundByLabelNotActivity` |
+| model paths matched case-sensitively | `Parse_AModelLine_IsFoundIgnoringCaseAndSlashes` |
+| an index past the old list kept as it was | `Translate_AnIndexPastTheOldList_IsNoSequence` |
+| the activity fallback never taken | `Translate_ALabelGoneToday_TakesTheFirstSequenceWithItsActivity` |
+
+**The knife test was written because the first set could not fail on the first break.** Every
+label-lookup case also resolved correctly by activity, since their activities were unique, so
+activity-first would have passed them all. The 2008 knife's three stabs share `ACT_VM_HITCENTER`,
+and only a label lookup keeps `stab_b` as `stab_b`.
+
+**Checked first at the wrong moments, and the owner caught it.** The first captures were at 6800 and
+7100 on the POV demo, the first sticky deploy, and the "FIXED" above was written from them. The owner
+had reported the SOURCETV demo during a reload or a charge: *"like i said i think it was the reload
+animation doing it, but it might have been the sticky launcher charge, so the fact you can see anything
+means its at least somewhat fixed, the sticky launcher before was taking up literally the whole
+screen."* Then: *"did you actually look at the right ticks?"* They had not been.
+
+**The instrument had also hidden the answer.** `viewmodels` keyed its change detection on model and item
+only, so it reported the sticky launcher's sequence as fixed for the whole demo. Keyed on the sequence
+and its restart as well, the SourceTV demo's demoman shows the real pattern: `3 → 1 → 0` on every shot
+(autofire, fire, idle in the 2008 table) and `4 → 5 → 5 …` on every reload (reload_start, reload_loop).
+
+**So the owner's view was IDLE, most of the time.** The 2008 table's index 0 is `idle`, and today's is
+`ref`, the reference pose. Before the fix, every moment between shots drew the launcher in its
+reference pose. That was the whole screen, and it covered the reloads and charges he remembers seeing
+it in. The same one-step shift turned his charge (3, `autofire`) into today's `draw`, and his
+reload (5, `reload_loop`) into today's `reload_start`.
+
+**On screen at his moments, with the fix:** SourceTV demo, first person on player 2: idle at 800, charging
+at 3500, reloading at 3900. POV demo: idle at 7000, charging at 8500, reloading at 8750. In every one the
+launcher sits at the right with the hand showing; in both reloads it is tilted, gripped. None fills the
+screen. Whether they match the 2008 game is his to say, and the captures were sent to him.
+
+**Still open.**
+
+- **Confirmed by the owner at his moments**, on the SourceTV captures: *"yes, that reload did not draw
+  at all, so the reload animation was at least part of it, that looks great"*. Not a frame-by-frame
+  comparison with a 2008 client: a 2008 client playing the demo is the one instrument that could give
+  that, and it has not been run.
+- **Protocol 24**, pending snapshots from 2013 onward (D160, D161). Every 2013-era arms model is
+  shifted, so this is the larger half.
+- **Protocols 15 and 16** (2009, 2011): 2011's content is in `.gcf` archives, which nothing reads, and
+  there is no 2009 install. Their demos keep today's tables.
+- **Protocol is not a date.** Protocol 14 ran from March 2008 to June 2009, and the table is build
+  3420's. A demo from late in that window on content Valve had already changed would be translated
+  wrongly.
+- **`SelectWeightedSequence` picks among several sequences of one activity by weighted random**; the
+  fallback takes the first. It is a divergence, named.
+- **`TranslateEraSequences` and its two call sites have no unit test.** The 6800 capture changed
+  between before and after, which is differential evidence that the wiring runs, not a test.
+- **`EntityModels.SequenceByActivity(modelPath, …)` has no caller.** It is what remains of an earlier
+  fix that matched viewmodel sequences by activity after an arms model was seen playing `r_handposes`.
+  That was the protocol-24 shift, and this is where it goes.
+
+*Evidence class: measured tables from the period installs; differential for the four sabotages and
+the before/after capture; the owner's observation for the symptom.*
