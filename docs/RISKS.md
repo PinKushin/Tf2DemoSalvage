@@ -28858,3 +28858,44 @@ reads today's content for a demo recorded against older content, the model count
 
 *Evidence class: owner observation, reproduced by `--shot`; measured sequence tables from both files;
 the controls are captures from the same run.*
+
+#### The census: which models moved, per period install
+
+`sequence-eras` compares each model a period install holds with today's, by the merged list a demo
+actually indexes: the model's own sequences, then its includes', depth first, merged by label
+(`virtualmodel_t::AppendModels`, `studio_virtualmodel.cpp:81-137`; `AppendSequences`, `:142-217`).
+Player models are left out below, because `m_nSequence` is not in a player's send table.
+
+| install | compared | differ | of those, not players |
+|---|---|---|---|
+| 2007, build 3258, loose files | 1,073 | 37 | 10 |
+| 2008, build 3420, loose files | 1,090 | 37 | 10 — the same ten |
+| 2013, build 1729296, `tf2_misc_dir.vpk` | 4,034 | 48 | 21 |
+| 2011, build 4604 | — | — | in `.gcf` archives, which nothing here reads |
+
+- **2007 and 2008, the same ten.** Nine viewmodels: bat, bonesaw, bottle, fire axe, knife, scattergun,
+  shovel, stickybomb launcher, wrench. Plus `teleporter_light`. The melee weapons gained `_a` and `_b`
+  swing variants partway through the table, so every index from the first swing onward is shifted.
+  The owner suspected the 2008 install might be an outlier from how it was obtained. It agrees with
+  2007 exactly, and the 2008 demo itself agrees with its file: all five weapons deploy on `draw` under
+  it, and only the sticky launcher breaks under today's.
+- **2013: every class's arms.** Each `c_*_arms` and `c_*_animations` has `r_handposes` inserted near the
+  front of today's merged list, so every first-person sequence index from 1 on is shifted for a 2013
+  demo, the ones this viewer plays most. The 2013 rocket launcher capture that served as a control
+  above looked right, and that was luck of which sequence it held, not evidence.
+- **Also in 2013:** the engineer robot and the Headless Horseless Horseman.
+
+**The first census measured the wrong table.** Comparing each file's own list reported the arms
+models as `1 then, 39 now`, a table no demo indexes, because the arms take their sequences from an
+included model. The combined list is the one that matters.
+
+**A divergence the census exposed in this project's own loader.** `PropModels` (`:679-692`) follows a
+model's includes ONE level deep, where the engine recurses (`AppendModels( group, list[j].pHdr )` at
+`:135` runs the include's own includes before the next sibling). It matters only for a model whose
+include has includes of its own, and whether TF2 ships one is not measured.
+
+**What the census cannot answer: how to date a protocol-24 demo.** Protocol 24 runs from 2013 to
+today, and the 378 demos in the competitive archive are all protocol 24. Valve moved these tables at
+some point between the 2013 install and today, with no install in between to say when. So for a 2019
+league demo, whether its indices mean the 2013 table or today's cannot be told from the protocol. It
+needs either content snapshots from the years between or a dating signal inside the demo.

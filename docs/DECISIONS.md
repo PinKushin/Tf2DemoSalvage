@@ -8361,3 +8361,33 @@ attribution):
 
 Why the paths matter more than the links, and how to fold without breaking them:
 `docs/memory/a-fold-leaves-its-paths-behind.md`.
+
+## D160 — an old demo's sequence numbers are translated into today's models by NAME, from the era's own sequence lists (2026-09-10)
+
+**The problem (B380).** A networked `m_nSequence` is an index into the model the recording client had
+loaded. Valve re-ordered some models' sequence tables after 2008: the sticky launcher gained a `ref` at
+index 0, so the 2008 demo's `draw` (2) plays as today's `fire`. The engine resolves the index against
+whatever model is loaded, so the only faithful source for an old demo is the old model.
+
+**The owner's first answer**, when asked how the viewer should get the 2008 files: *"shit, most people
+wont have the old data, so we have to copy it over to our program and fall back to it when we need it
+i guess"*.
+
+**Then, asked whether "it" meant whole old models or only their sequence lists:** *"damn it, i want to
+repro the animations that are suppose to be there, but i guess the only thing we can realisticly do is
+number 1 or something like it which converts the old calls into the new models, but it sucks, i wanted
+it to actually look and function like the old game did when watching the old games, but its likely
+they had to update the animations when they added all the weapon attachment stuff"*.
+
+**So:** ship the era sequence LISTS, generated from the period installs, and translate an old demo's
+sequence index to the NAME it had in that era, then to today's index for that name. No Valve meshes,
+textures or animation data go into the repository.
+
+**What this does NOT give, and the owner said so first:** the old animations themselves. A sequence
+Valve re-authored under the same name plays today's version. His goal was the old game's look and
+behavior; this is the realistic part of it, not all of it. His own guess at why the animations changed,
+the weapon-attachment rework, is recorded as his guess and has not been checked.
+
+**Why not whole models**, from the question as it was put: they are large, they would redistribute
+Valve's assets in a repository meant to be public, and every CI job pays GitHub's free large-file
+download allowance for them.
