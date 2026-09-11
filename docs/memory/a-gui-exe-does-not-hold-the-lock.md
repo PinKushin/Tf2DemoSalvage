@@ -1,8 +1,11 @@
 ---
 name: a-gui-exe-does-not-hold-the-lock
-description: PowerShell's `&` returns at once for a GUI-subsystem exe, so run-exclusive releases the desktop lock while tf2demoview is still open; use Start-Process -Wait
-metadata:
+description: "PowerShell's `&` returns at once for a GUI-subsystem exe, so run-exclusive releases the desktop lock while tf2demoview is still open; use Start-Process -Wait"
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-11T01:31:49.622Z
 ---
 
 **`& tf2demoview.exe ...` inside `pwsh -Command` does not wait.** tf2demoview is a GUI-subsystem
