@@ -26640,8 +26640,22 @@ units past the player's origin, not 185.
   `docs/memory/the-f12-demo-is-the-parity-reference.md` names this exact limitation: TF2 cannot be
   told to load a demo and seek from outside it.
 
+**The owner ran it.** Copied into his `tf` folder as `rocket_check.dem`, `playdemo` +
+`demo_gototick 51093`. His own capture at that tick shows a visible mismatch against ours at the same
+tick, first-person — but he identified the cause himself, and it is not this project's: *"the real
+game has a real glitch too, so pure parity might have this, for this life... i think this is a glitch
+from how occlusion works sometimes in demos when people die, i think its actually fixed in new demos
+and tf2, but idk, either way its a known bug thats easily fixed actually."* His follow-up capture a
+moment later shows exactly that shape of bug in the REAL client — floating disconnected model pieces
+with sparkle particles, on an unrelated death nearby.
+
+**So this tick, on this life, is not a clean comparison — both sides may be showing an artefact,
+and neither capture here settles whether the 185-unit gap is a real divergence.** The right next step
+is the same question on a life the real client draws cleanly, not more analysis of this one.
+
 *Evidence class: measured (the two positions and the distance); read from source for the expected
-offset's rough size; nothing here is confirmed as a defect.*
+offset's rough size; owner's own real-client capture, but on a life he identified as contaminated by
+a known TF2 occlusion bug. Nothing here is confirmed as a defect in this project.*
 
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 
