@@ -8426,3 +8426,15 @@ to learn how Steam's content protocol works is fine; copying from it is not.
 **He said he does not know the difference between the licenses.** Recorded so the choice is read as
 his direction on scope — *"we dont need all the extra stuff"* — rather than as a settled view on
 licensing he may want to revisit.
+
+**His view on how much of DepotDownloader is protected at all**, given after the choice: *"depot cant
+copyright a lot of their code, its either forced code based on valve, which they cant copyright because
+that copyright actually belongs to valve, or its just the only way for something to work, so again it
+cant be copyrighted because you cannot copyright language or conventions."*
+
+**Where that lands, as the assistant answered it (not legal advice):** the protocol — which messages,
+in which order, what the manifest and chunk formats are — is fact, and code whose form is dictated by
+function is not protectable expression, so all of that is free to reimplement. DepotDownloader's
+authors do own their particular expression of it: its structure, names and comments. Valve's
+copyright covers Valve's code, not code written by others to talk to it. So D161 stands unchanged in
+practice: learn the steps from DepotDownloader, write them ourselves, and do not copy its source text.
