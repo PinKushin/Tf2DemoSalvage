@@ -155,3 +155,4 @@
 - [Check at the owner's moment](check-at-the-owners-moment.md) — his demo, his action, his camera; "did you actually look at the right ticks?"
 - [Valve's shape beyond parity](valve-shape-beyond-parity.md) — D163; nothing to match still means Valve's mechanisms, order and names.
 - [The map checksum is MapHash, not MapCrc](map-checksum-is-maphash-not-mapcrc.md) — finding 43; MapCrc is unidentified junk on every era.
+- [demo_gototick's second argument is relative](demo-gototick-relative-is-the-second-argument.md) — `demo_gototick <tick> 0 1` for an absolute seek and a pause.

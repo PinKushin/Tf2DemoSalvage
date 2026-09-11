@@ -26649,13 +26649,34 @@ and tf2, but idk, either way its a known bug thats easily fixed actually."* His 
 moment later shows exactly that shape of bug in the REAL client — floating disconnected model pieces
 with sparkle particles, on an unrelated death nearby.
 
-**So this tick, on this life, is not a clean comparison — both sides may be showing an artefact,
-and neither capture here settles whether the 185-unit gap is a real divergence.** The right next step
-is the same question on a life the real client draws cleanly, not more analysis of this one.
+**Corrected by the owner: the glitch is small and localized, and does not touch the players or
+geometry being compared here** — *"it still proves everything, this is a known small bug that
+doesnt affect the players we are looking at and through"*. So the side-by-side stands as evidence.
 
-*Evidence class: measured (the two positions and the distance); read from source for the expected
-offset's rough size; owner's own real-client capture, but on a life he identified as contaminated by
-a known TF2 occlusion bug. Nothing here is confirmed as a defect in this project.*
+**The first two real-client captures were at the WRONG tick, and that is now settled rather than
+suspected.** The owner used `demo_gototick 51093 1` — two arguments after the command, which the
+engine's own handler (`FUN_180075460`, decompiled) binds positionally to `<tick> [relative] [pause]`:
+`argv[2]` is `relative`, not `pause`. With only two arguments, `"1"` lands in the `relative` slot, so
+the command sought 51093 ticks FORWARD of wherever the demo already was, not to absolute tick 51093.
+The correct form, confirmed against the same decompile, is `demo_gototick 51093 0 1` — tick, relative
+OFF, then pause.
+
+**The map-geometry divergence reported against the wrong-tick captures does not hold up against the
+corrected one.** A capture at the true absolute tick 51093 shows the same crates, the same chain-link
+fence, and the same shutter door this project's render shows at that tick — closely enough that the
+earlier "gates and stuff" difference reads as the relative-tick mistake showing an unrelated moment of
+the map, not a real divergence. Not reopened here; if it recurs on a properly-seeked tick, it is a new
+finding rather than a continuation of this one.
+
+**The rocket/muzzle-flash divergence survives the correction and is CONFIRMED.** At the true absolute
+tick 51093, first-person, same demo: the real client shows the muzzle flash at the doorway near
+ground level, close to the player firing it. This project's render at the same tick shows the trail
+high on the wall, well above and to the side of the doorway. The 185-unit gap measured earlier is
+real, against a comparison now known to be at the right tick on both sides.
+
+*Evidence class: owner's own real-client capture beside ours, same demo and the confirmed-absolute
+tick, first-person — the comparison this project's own convention calls for. The engine's argument
+order for `demo_gototick` is read from the decompile, not guessed.*
 
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 
