@@ -192,3 +192,4 @@
 - [A flat array is addressed by a width](a-flat-array-is-addressed-by-a-width.md) — a stride is per-entry; a limit the implementation imposes will pass itself off as a fact about the data.
 - [Thinking aloud is not a decision](thinking-aloud-is-not-a-decision.md) — evaluate before endorsing; agreeing with a proposal and then with its withdrawal is not an opinion.
 - [American English for new text](american-english-for-new-text.md) — D158; old British spellings stay, converting them is not worth a refactor.
+- [A GUI exe does not hold the lock](a-gui-exe-does-not-hold-the-lock.md) — pwsh `&` returns at once; Start-Process -Wait keeps run-exclusive held while the window is open.

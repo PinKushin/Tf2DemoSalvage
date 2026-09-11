@@ -28584,8 +28584,11 @@ needed exactly the same one.
   `$alpha` and ignores the vertex color unless `$ignorevertexcolors` is 0, its default being 1. The two
   agree for an untinted sprite with a default material, and not for a tinted one.
 - **`render->GetBlend()`** is taken as one, as above.
-- **Not yet seen on screen after the fix.** The owner saw the black squares; whether they are gone is his
-  to look at, and this entry does not claim it.
+**Seen on screen.** The owner looked at the same lamp on the f12 demo (tick 53157, `b379afa5`): *"the black
+squares are gone, lights look right now i think"* — and then, scoping it, *"those lights at least"*. That
+closes the black-square symptom on those lamps, for the person who reported it, and nothing wider: other
+sprites, other modes and other maps have not been looked at. It is not a side-by-side against TF2 either — the glow's size and brightness are still unmeasured
+against the game, and the open items above would each show as a difference there, not as a black square.
 
 *Evidence class: differential for the red step and the four sabotages; read-from-source for every
-behavior implemented.*
+behavior implemented; the owner's observation for the symptom.*
