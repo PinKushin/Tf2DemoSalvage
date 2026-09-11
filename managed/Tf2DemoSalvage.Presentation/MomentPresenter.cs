@@ -19,6 +19,11 @@ namespace Tf2DemoSalvage.Presentation;
 /// Whether the weapon in hand is drawn — Valve's <c>r_drawviewmodel</c> (B166). A setting like the
 /// field of view beside it, defaulted true because Valve ships it at <c>"1"</c>.
 /// </param>
+/// <param name="Playing">
+/// Whether playback is running rather than paused — <c>engine-&gt;IsPaused()</c>, which clears
+/// <c>s_bInterpolate</c> for every entity at once (<c>c_baseentity.cpp:3226</c>) so a paused client
+/// draws last-received positions with no <c>cl_interp</c> delay (B399).
+/// </param>
 /// <remarks>
 /// **Five values, and every one of them is genuinely the window's.** The camera mode is a UI state,
 /// the transport tick is a control's position, the eye needs the viewport's aspect, and the field of
@@ -31,7 +36,14 @@ public readonly record struct MomentView(
     int? Followed,
     FreeCamera? Eye,
     float ViewmodelFieldOfView,
-    bool DrawViewmodel = true);
+    bool DrawViewmodel = true,
+
+    // **Whether playback is RUNNING, which decides whether anything is interpolated at all** —
+    // `engine->IsPaused()` clears `s_bInterpolate` for every entity at once
+    // (`c_baseentity.cpp:3226`), and a paused client then draws last-received positions (B399).
+    // Genuinely the window's, like the transport tick beside it: the recording cannot know whether
+    // someone has pressed pause.
+    bool Playing = true);
 
 /// <summary>Samples a moment from the demo and hands it to the scene.</summary>
 /// <remarks>
@@ -162,7 +174,7 @@ public sealed class MomentPresenter
         // moved out of the window with the sampling it measures.
         long sampledAt = Stopwatch.GetTimestamp();
 
-        source.PlayersAt(tick, _players);
+        source.PlayersAt(tick, _players, view.Playing);
 
         // **Split because the whole of B258 rests on which half this is**, and it was about to be
         // assumed. `sample` is 2.0 ms of a 5.2 ms rebuild, and the plan — interpolate only what was
@@ -182,7 +194,10 @@ public sealed class MomentPresenter
         //
         // The source answers the other three clauses from the recording. Only
         // `render->GetViewEntity()` needs the window, because only the window knows who is followed.
-        source.PropsAt(tick, _props, view.Followed);
+        // **Paused is a different sample, not the same one frozen** (B399): the engine clears
+        // `s_bInterpolate` while paused (`c_baseentity.cpp:3226`), so every entity draws its last
+        // received position with no `cl_interp` delay. A `--shot` capture is a paused frame.
+        source.PropsAt(tick, _props, view.Followed, view.Playing);
 
         long sampleTicks = Stopwatch.GetTimestamp() - sampledAt;
 

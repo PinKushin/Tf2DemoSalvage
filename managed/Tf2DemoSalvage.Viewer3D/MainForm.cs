@@ -2280,7 +2280,12 @@ internal class MainForm : Form, IFrameSteps
                 // **`r_drawviewmodel`, which the viewer never read until B166.** It travels beside
                 // the field of view because they are the same kind of thing: a setting the watcher
                 // owns, applied to the moment being drawn rather than stored in the scene.
-                _settings.DrawViewmodel));
+                _settings.DrawViewmodel,
+
+                // **Paused draws a different pose, not a frozen one** (B399). The engine clears
+                // `s_bInterpolate` while paused, so the transport's own state decides whether the
+                // sampler interpolates at all.
+                _transport.Playing));
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it

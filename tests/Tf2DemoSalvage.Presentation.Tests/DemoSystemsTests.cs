@@ -233,10 +233,14 @@ public sealed class DemoSystemsTests
     {
         public float IntervalPerTick => 0.015f;
 
-        public void PlayersAt(double tick, ICollection<ScenePlayer> into) => into.Clear();
+        public void PlayersAt(
+            double tick, ICollection<ScenePlayer> into, bool interpolating = true) => into.Clear();
 
         public void PropsAt(
-            double tick, ICollection<SceneProp> into, int? viewEntity = null) =>
+            double tick,
+            ICollection<SceneProp> into,
+            int? viewEntity = null,
+            bool interpolating = true) =>
             into.Clear();
 
         // Null rather than a state: this stub carries no recording, and "the demo did not say" is

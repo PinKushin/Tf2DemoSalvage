@@ -44,6 +44,41 @@ public sealed class MomentPresenterTests
         source.LastTick.ShouldBe(123.5);
     }
 
+    /// <remarks>
+    /// **`engine-&gt;IsPaused()` clears `s_bInterpolate` for every entity at once**
+    /// (`c_baseentity.cpp:3226`), and `BaseInterpolatePart1` then calls `MoveToLastReceivedPosition`
+    /// (`:2845`). Only the window knows whether someone pressed pause, so the sampler can only obey
+    /// it if the presenter carries it — and a `--shot` capture is a paused frame, which is how B397
+    /// came to compare an airborne soldier against a landed one.
+    /// </remarks>
+    [Test]
+    public void Show_WhenPaused_TellsTheSourceNotToInterpolate()
+    {
+        StubSource source = new();
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+        presenter.Source = source;
+
+        presenter.Show(tick: 123.5, View() with { Playing = false });
+
+        source.LastPropsInterpolating.ShouldBe(false);
+        source.LastPlayersInterpolating.ShouldBe(false);
+    }
+
+    [Test]
+    public void Show_WhilePlaying_LeavesInterpolationOn()
+    {
+        // The control: without it, a presenter that hardcoded `false` would pass the paused test
+        // and stop interpolating the whole demo.
+        StubSource source = new();
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+        presenter.Source = source;
+
+        presenter.Show(tick: 123.5, View() with { Playing = true });
+
+        source.LastPropsInterpolating.ShouldBe(true);
+        source.LastPlayersInterpolating.ShouldBe(true);
+    }
+
     [Test]
     public void Show_WithASource_AsksItForTheRoundAtTheTickBeingShown()
     {
@@ -324,10 +359,22 @@ public sealed class MomentPresenterTests
 
         public float IntervalPerTick => Interval;
 
-        public void PlayersAt(double tick, ICollection<ScenePlayer> into)
+        /// <summary>What the presenter passed as <c>IsInterpolationEnabled()</c> (B399).</summary>
+        /// <remarks>
+        /// **Nullable so "never asked" and "asked with false" are different observations.** A plain
+        /// bool starting false would let a presenter that dropped the argument entirely pass the
+        /// paused assertion.
+        /// </remarks>
+        public bool? LastPlayersInterpolating { get; private set; }
+
+        /// <summary>The same, for the prop sampling.</summary>
+        public bool? LastPropsInterpolating { get; private set; }
+
+        public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
         {
             PlayerCalls++;
             LastTick = tick;
+            LastPlayersInterpolating = interpolating;
 
             if (_firstBuffer is null)
             {
@@ -354,9 +401,13 @@ public sealed class MomentPresenterTests
         public IReadOnlyList<SceneProp> Props { get; init; } = [];
 
         public void PropsAt(
-            double tick, ICollection<SceneProp> into, int? viewEntity = null)
+            double tick,
+            ICollection<SceneProp> into,
+            int? viewEntity = null,
+            bool interpolating = true)
         {
             PropCalls++;
+            LastPropsInterpolating = interpolating;
             LastViewEntity = viewEntity;
             into.Clear();
 

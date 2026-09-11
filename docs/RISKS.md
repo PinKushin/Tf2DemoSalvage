@@ -26598,6 +26598,77 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B399 OPEN 2026-09-11: a paused viewer still draws `cl_interp` behind, where a paused client draws the last received position
+
+**The engine stops interpolating while paused, and this is the whole chain.**
+`C_BaseEntity::InterpolateServerEntities` (`client/c_baseentity.cpp:3219`):
+
+```cpp
+  s_bInterpolate = cl_interpolate.GetBool();
+
+  // Don't interpolate during timedemo playback
+  if ( engine->IsPlayingTimeDemo() || engine->IsPaused() )
+  {
+      s_bInterpolate = false;
+  }
+```
+
+`IsInterpolationEnabled()` returns that flag (`c_baseentity.h:2156`), and `BaseInterpolatePart1`
+(`c_baseentity.cpp:2845`) takes the early exit when it is false:
+
+```cpp
+  if ( IsFollowingEntity() || !IsInterpolationEnabled() )
+  {
+      // Assume current origin ( no interpolation )
+      MoveToLastReceivedPosition();
+      return INTERPOLATE_STOP;
+  }
+```
+
+**So a paused frame shows every entity's LAST RECEIVED origin and angles, with no delay and no
+blend** — which is exactly what `ScenePropTrack.Held` already answers (undelayed since B370).
+
+**Ours.** `DemoTimeline.DeriveSample` (`DemoTimeline.cs:4047`) chooses `blend ? track.At(tick) :
+stated` off `Interpolates()` — the `ShouldInterpolate` clauses — and nothing in the chain knows
+whether playback is paused. `PropsAt` and `PlayersAt` take no such argument, and `MomentView`
+carries no playing flag, so a paused viewer samples eight ticks behind the tick it displays. A
+`--shot` capture is a paused frame by definition.
+
+**What is visible when it is wrong, and it is what B397 reported.** On
+`demostf-cp_process_f12-2026-08-07.dem` at tick 51093, abelll (entity 7) is mid rocket-jump: his
+keyframes run z 683 at 51090 down to 576 by 51104, and the drawn sample is a further ~2 ticks back
+because his updates apply two ticks after arrival. The real client, paused by `demo_gototick 51093 0
+1`, shows him landed on the ground at the doorway; ours shows him still airborne beside the ledge,
+which the owner reported as *"that left soldier should be on the ground"*. The rocket 407 comparison
+sits on the same cause — its own keyframes apply AT their arrival tick (0 of 36 away, measured with
+`jitter`), so the paused delay displaces it by a different amount than the player, which is what made
+the gap look like a spawn-position defect.
+
+*Evidence class: read from source for the engine chain, measured with the `jitter` probe for both
+entities' keyframes, and the owner's paused real-client capture beside ours.*
+
+**FIXED, pending the owner's own look.** `DemoTimeline.PropsAt` and `PlayersAt` take the engine's
+flag (`interpolating`, defaulting to on); `DeriveSample` ANDs it ahead of every `ShouldInterpolate`
+clause, because the engine reads `IsInterpolationEnabled()` before any per-entity question matters;
+and the incremental sample cache treats a change of the flag as a reason to rebuild, alongside a seek
+and a team switch — otherwise a pause at the same tick keeps serving the props built while playing.
+`MomentView.Playing` carries the transport's state, `MomentPresenter` hands it to both samplers, and
+`MainForm` fills it from `_transport.Playing`, so a `--shot` capture samples as a paused client.
+
+`PausedSamplingConformanceTests`, four: the paused sample is the last stated position, paused and
+playing disagree by exactly the delay, a pause after playing at the same tick does not serve the
+cached blend, and the player path takes the same rule. Two more in `MomentPresenterTests` for the
+wiring, with the playing case as the control.
+
+**Looked at**: `--spectate Beleleu --tick 51093 --first-person` now draws abelll at the doorway near
+ground level rather than up on the left ledge, which is what the real client showed. B397 is not
+closed on that until the owner compares it himself.
+
+*What is still not established: whether every other interpolated variable freezes with position.
+The engine's flag is global — the animation cycle, pose parameters and eye angles all stop — and
+this change holds the whole pose through `Held`, which is the same shape, but no test asserts the
+cycle specifically.*
+
 ### B398 FIXED 2026-09-11: every roster name sat one entity short — a userinfo entry is a client SLOT
 
 **The owner: *"its the right tick but out spectate beleleu isnt working"*, then *"do it by ID or

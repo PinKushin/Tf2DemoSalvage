@@ -494,7 +494,9 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # slot + 1, on the create path, the text-less update path, and at slot 0.
 # 1869 -> 1874 on 2026-09-11: PlayerLookupTests' five Steam id cases - --spectate by [U:1:n],
 # STEAM_X:Y:Z and SteamID64, matched by account across spellings, SourceTV still excluded.
-run Tf2DemoSalvage.Core.Tests     core     1874
+# 1874 -> 1878 on 2026-09-11: PausedSamplingConformanceTests (B399) - a paused client draws the last
+# received position, so paused and playing disagree by the whole interpolation window.
+run Tf2DemoSalvage.Core.Tests     core     1879
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -1136,7 +1138,9 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # 444 -> 448 on 2026-09-11: four for D162's version check in MapProvider.Find and FetchAsync(MapWanted)
 # — trusts an unchecked install, confirms a match, flags a mismatch as still Found, and a fetch keeps
 # only the checksum-matching version.
-run Tf2DemoSalvage.Presentation.Tests presentation 448
+# 448 -> 450 on 2026-09-11: the paused wiring pair (B399) - MomentPresenter carries the window's
+# play state into the sampler, and the playing control stops a hardcoded answer passing.
+run Tf2DemoSalvage.Presentation.Tests presentation 450
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

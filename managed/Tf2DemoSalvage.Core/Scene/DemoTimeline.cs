@@ -1325,7 +1325,7 @@ public sealed class DemoTimeline
     /// <summary>A timeline whose tracks are PLAYERS, with one frame naming them.</summary>
     /// <param name="tracks">The tracks, which go in the player list rather than the prop list.</param>
     /// <param name="players">The players that frame carries, matched to the tracks by entity.</param>
-    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer})"/> answers.</returns>
+    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool)"/> answers.</returns>
     /// <remarks>
     /// **The distinction this exists to make is the one B258 turned on.** `ForTracks` puts its
     /// tracks in `_props`, and `PropsAt` is therefore the only way to reach them — which is how two
@@ -3874,8 +3874,15 @@ public sealed class DemoTimeline
     ///
     /// Every clause but the view entity is answerable here, so it is answered here.
     /// </remarks>
+    /// <param name="interpolating">
+    /// <c>C_BaseEntity::IsInterpolationEnabled()</c> — false while the client is PAUSED, which
+    /// <c>InterpolateServerEntities</c> sets directly (`c_baseentity.cpp:3226`) and
+    /// <c>BaseInterpolatePart1</c> honours by calling <c>MoveToLastReceivedPosition</c> and stopping
+    /// (`:2845`). A paused frame therefore shows the last stated pose with no delay, which is a
+    /// different pose from the one playback shows at the same tick, not the same one frozen (B399).
+    /// </param>
     public void PropsAt(
-        double tick, ICollection<SceneProp> into, int? viewEntity = null)
+        double tick, ICollection<SceneProp> into, int? viewEntity = null, bool interpolating = true)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -3908,18 +3915,23 @@ public sealed class DemoTimeline
         // **A seek is the case the engine does not have** (D131): state surviving across frames is
         // wrong the moment the clock jumps backwards, so a rewind — and the rarer team switch,
         // which is baked into every prop as `OfRecordersTeam` — rebuilds everything from nothing.
-        if (!_sampleSynced || tick < _sampledTo || recorderTeam != _sampledTeam)
+        // **A pause changes the sampling RULE without moving the clock**, so the incremental path
+        // would serve the interpolated props it built while playing — the flag joins the seek and
+        // the team switch as a reason to rebuild from nothing.
+        if (!_sampleSynced || tick < _sampledTo || recorderTeam != _sampledTeam ||
+            interpolating != _sampledInterpolating)
         {
-            ResyncSample(tick, viewEntity, recorderTeam);
+            ResyncSample(tick, viewEntity, recorderTeam, interpolating);
         }
         else
         {
-            AdvanceSample(tick, viewEntity, recorderTeam);
+            AdvanceSample(tick, viewEntity, recorderTeam, interpolating);
         }
 
         _sampleSynced = true;
         _sampledTo = tick;
         _sampledTeam = recorderTeam;
+        _sampledInterpolating = interpolating;
 
         // The list is refilled to nearly the same length every frame, so growing it from empty
         // re-allocates the backing array a dozen times a second for nothing.
@@ -3965,13 +3977,16 @@ public sealed class DemoTimeline
     private double _sampledTo;
     private int? _sampledTeam;
 
+    /// <summary>Whether the held samples were built with interpolation on (B399).</summary>
+    private bool _sampledInterpolating = true;
+
     /// <summary>Rebuilds every track's sample from nothing, at one tick.</summary>
     /// <remarks>
     /// The cold path: the first call, any seek backwards, and a recorder team switch. It is the
     /// old per-frame walk, demoted to the cases that genuinely need one.
     /// </remarks>
     private void ResyncSample(
-        double tick, int? viewEntity, int? recorderTeam)
+        double tick, int? viewEntity, int? recorderTeam, bool interpolating = true)
     {
         _wakes.Clear();
 
@@ -3984,7 +3999,7 @@ public sealed class DemoTimeline
 
         foreach (ScenePropTrack track in _props)
         {
-            DeriveSample(track, tick, viewEntity, recorderTeam);
+            DeriveSample(track, tick, viewEntity, recorderTeam, interpolating);
         }
     }
 
@@ -3995,7 +4010,7 @@ public sealed class DemoTimeline
     /// engine's `ProcessInterpolatedList` walk). A parked track is not touched.
     /// </remarks>
     private void AdvanceSample(
-        double tick, int? viewEntity, int? recorderTeam)
+        double tick, int? viewEntity, int? recorderTeam, bool interpolating = true)
     {
         // A re-derived track re-enqueues its NEXT wake, which a long forward jump may also have
         // passed — the loop keeps popping until the head is in the future, so every crossed
@@ -4005,7 +4020,7 @@ public sealed class DemoTimeline
         {
             _wakes.Dequeue();
 
-            DeriveSample(due, tick, viewEntity, recorderTeam);
+            DeriveSample(due, tick, viewEntity, recorderTeam, interpolating);
         }
 
         foreach (ScenePropTrack track in _lerping)
@@ -4032,7 +4047,8 @@ public sealed class DemoTimeline
         ScenePropTrack track,
         double tick,
         int? viewEntity,
-        int? recorderTeam)
+        int? recorderTeam,
+        bool interpolating = true)
     {
         // **The last STATED pose, which is both answers this needs.** `IsVisible()` reports the last
         // `UpdateVisibility`, and that runs on a data update — so the render mode and the draw flag
@@ -4040,7 +4056,10 @@ public sealed class DemoTimeline
         // of two. It is also `Held` itself, so a track off the list costs one call rather than two.
         ScenePose? stated = track.Held(tick);
 
-        bool blend = Interpolates(track, stated, tick, viewEntity);
+        // **The engine's flag is global and it wins over every per-entity clause** —
+        // `IsInterpolationEnabled()` is read before `ShouldInterpolate`'s answer matters at all, so
+        // a paused client holds even the entity the view is attached to (B399).
+        bool blend = interpolating && Interpolates(track, stated, tick, viewEntity);
 
         (bool changing, double nextWake) = track.Motion(tick, blend);
 
@@ -4418,7 +4437,12 @@ public sealed class DemoTimeline
     /// between 125 and 68 health was never on 96, and one changing team was never on a team
     /// between the two.
     /// </remarks>
-    public void PlayersAt(double tick, ICollection<ScenePlayer> into)
+    /// <param name="interpolating">
+    /// False while paused, exactly as for <see cref="PropsAt(double, ICollection{SceneProp}, int?,
+    /// bool)"/> — one global flag in the engine (`c_baseentity.cpp:3226`), and a player's position
+    /// is registered on <c>C_BaseEntity</c> like any other entity's (B399).
+    /// </param>
+    public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -4436,7 +4460,7 @@ public sealed class DemoTimeline
             }
 
             if (!_trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) ||
-                track.At(tick) is not { } pose)
+                (interpolating ? track.At(tick) : track.Held(tick)) is not { } pose)
             {
                 into.Add(player);
                 continue;
@@ -4506,7 +4530,7 @@ public sealed class DemoTimeline
     /// <param name="entityIndex">The entity's slot.</param>
     /// <returns>Its track, or <c>null</c> when nothing about it was recorded.</returns>
     /// <remarks>
-    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer})"/>
+    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool)"/>
     /// should report.** Asserting a player's yaw against a literal would test the demo rather than
     /// the code; asserting it against the track this reads from tests the plumbing between them,
     /// which is where the number was being dropped.
