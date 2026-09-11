@@ -1,0 +1,84 @@
+using Tf2DemoSalvage.Content.Assets;
+
+namespace Tf2DemoSalvage.Scene;
+
+/// <summary>
+/// A sprite as loaded — its material, its size, its orientation and where its quad sits about its
+/// origin. <c>CEngineSprite</c> (`game/client/spritemodel.h`).
+/// </summary>
+/// <param name="Material">What it is drawn with.</param>
+/// <param name="Width">The material's width, in texels.</param>
+/// <param name="Height">Its height.</param>
+/// <param name="Orientation">The material's <c>$spriteorientation</c>, as the shader translated it.</param>
+/// <param name="Extents">Where the quad's edges sit, from the material's <c>$spriteorigin</c>.</param>
+/// <remarks>
+/// **Built once, at load, as the engine builds it** (B390). `CEngineSprite::Init` reads the orientation
+/// and the origin a single time and keeps four edges; nothing per frame looks at the material's text
+/// again. Until B390 this project read neither key, so every sprite drew upright and centred whatever
+/// its material said — `light_glow03` among them, which asks for `vp_parallel`.
+///
+/// **A wrapper around a <see cref="ParticleMaterial"/> rather than more fields on one**, because a
+/// particle's material has no orientation and no origin: `SpriteCard` reads neither. The batch the
+/// renderer draws still takes the particle material, so the draw path stays one path.
+/// </remarks>
+public readonly record struct EngineSprite(
+    ParticleMaterial Material,
+    int Width,
+    int Height,
+    SpriteOrientation Orientation,
+    SpriteExtents Extents);
+
+/// <summary>
+/// Where a sprite's quad sits about its origin, in texels — <c>CEngineSprite</c>'s <c>up</c>,
+/// <c>down</c>, <c>left</c> and <c>right</c>.
+/// </summary>
+/// <param name="Left">The left edge; negative unless the origin is on or beyond it.</param>
+/// <param name="Right">The right edge.</param>
+/// <param name="Up">The top edge.</param>
+/// <param name="Down">The bottom edge; negative unless the origin is on or below it.</param>
+public readonly record struct SpriteExtents(float Left, float Right, float Up, float Down)
+{
+    /// <summary>The edges <c>CEngineSprite::Init</c> derives (`spritemodel.cpp:311-328`).</summary>
+    /// <param name="width">The material's width.</param>
+    /// <param name="height">Its height.</param>
+    /// <param name="origin">Its <c>$spriteorigin</c>, or null when it declares no vector.</param>
+    /// <returns>The four edges.</returns>
+    /// <remarks>
+    /// <code>
+    /// if( !originVar || ( originVar-&gt;GetType() != MATERIAL_VAR_TYPE_VECTOR ) )
+    /// {
+    ///     origin[0] = -m_width * 0.5f;
+    ///     origin[1] = m_height * 0.5f;
+    /// }
+    /// else
+    /// {
+    ///     originVar-&gt;GetVecValue( &amp;originVarValue[0], 3 );
+    ///     origin[0] = -m_width * originVarValue[0];
+    ///     origin[1] = m_height * originVarValue[1];
+    /// }
+    ///
+    /// up    = origin[1];
+    /// down  = origin[1] - m_height;
+    /// left  = origin[0];
+    /// right = m_width + origin[0];
+    /// </code>
+    ///
+    /// **Only the DEFAULT is symmetric.** `[ 0.50 0.00 ]`, which three shipped materials declare, gives
+    /// <c>up = 0</c> and <c>down = -height</c>: the whole quad below its origin. The arithmetic this
+    /// replaced took half the width and half the height either side, which is the default and nothing
+    /// else.
+    ///
+    /// **X is negated and Y is not, and that is the engine's, not a slip.** The origin is a position in
+    /// the texture measured from its top-left, with x running right and y running DOWN — so a larger X
+    /// puts more of the quad left of the origin, and a larger Y puts more of it above.
+    /// </remarks>
+    public static SpriteExtents Of(int width, int height, (float X, float Y)? origin)
+    {
+        (float x, float y) = origin ?? (0.5f, 0.5f);
+
+        float left = -width * x;
+        float top = height * y;
+
+        return new SpriteExtents(left, width + left, top, top - height);
+    }
+}

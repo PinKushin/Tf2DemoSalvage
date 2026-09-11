@@ -150,3 +150,4 @@
 - [Retaining what the engine deletes breaks its invariants](retaining-what-the-engine-deletes-breaks-its-invariants.md) — a deletion held a stride true; the viewer's log cannot tell you a capture crashed.
 - [Thinking aloud is not a decision](thinking-aloud-is-not-a-decision.md) — evaluate before endorsing; agreeing with a proposal and then with its withdrawal is not an opinion.
 - [A fold leaves its paths behind](a-fold-leaves-its-paths-behind.md) — rewrite every `docs/memory/<old>.md` path to `host.md#slug`; the repo copy takes the restamped frontmatter.
+- [American English for new text](american-english-for-new-text.md) — D158; old British spellings stay, converting them is not worth a refactor.

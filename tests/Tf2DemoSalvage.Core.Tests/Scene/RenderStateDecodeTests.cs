@@ -53,6 +53,33 @@ public sealed class RenderStateDecodeTests
         Entity().RenderAlpha().ShouldBe((byte)255);
     }
 
+    /// <remarks>
+    /// **The three bytes a SPRITE draws with** (B391). `CSprite::DrawModel` passes
+    /// <c>m_clrRender-&gt;r/g/b</c> as the color and its brightness as the alpha (`Sprite.cpp:795-806`),
+    /// so a sprite reads exactly the part of this field `RenderAlpha` leaves behind. The same fixture
+    /// as the alpha test above, and for the same reason: four different bytes, so reading the wrong
+    /// end — or the channels in the wrong order — cannot come back looking right.
+    /// </remarks>
+    [Test]
+    public void RenderRgb_FromAPackedColor_IsTheLowThreeBytesInOrder()
+    {
+        //   r = 0x11, g = 0x22, b = 0x33, a = 0x80  ->  0x80332211
+        EntityState state = Entity(
+            Property("m_clrRender", unchecked((int)0x80332211)));
+
+        state.RenderRgb().ShouldBe(((byte)0x11, (byte)0x22, (byte)0x33));
+    }
+
+    /// <remarks>
+    /// **Absent means white**, `255, 255, 255`, for the reason absent alpha means opaque: an entity
+    /// nobody has tinted is unmodulated, and that is the ordinary case rather than an unknown.
+    /// </remarks>
+    [Test]
+    public void RenderRgb_WhenNeverSent_IsWhite()
+    {
+        Entity().RenderRgb().ShouldBe(((byte)255, (byte)255, (byte)255));
+    }
+
     [Test]
     public void RenderFxAndMode_WhenSent_AreRead()
     {

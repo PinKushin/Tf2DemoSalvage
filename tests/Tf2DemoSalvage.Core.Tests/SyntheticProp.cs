@@ -36,6 +36,43 @@ internal static class SyntheticProp
     /// <summary>What that index names.</summary>
     public const string ModelPath = "models/props_gameplay/resupply_locker.mdl";
 
+    /// <summary>The prop's <c>m_clrRender</c>, sent on every frame (B391).</summary>
+    /// <remarks>
+    /// **`0xFF3366CC`: alpha 255, and three color bytes that differ from each other and from 255.**
+    /// Opaque so every other test on this fixture keeps an opaque prop; distinct so a field dropped
+    /// anywhere between the wire and the pose reads back as white rather than as a plausible color.
+    /// Red is the LOW byte of a <c>color32</c>, so this is red <c>0xCC</c>, green <c>0x66</c>, blue
+    /// <c>0x33</c>.
+    /// </remarks>
+    public const int RenderColor = unchecked((int)0xFF3366CC);
+
+    /// <summary>The prop's pose at a tick, read the way the renderer reads it.</summary>
+    /// <param name="timeline">A timeline built from one of this fixture's demos.</param>
+    /// <param name="at">The tick to sample.</param>
+    /// <returns>The prop's pose.</returns>
+    /// <exception cref="InvalidOperationException">The prop was not drawn at that tick.</exception>
+    /// <remarks>
+    /// **Shared rather than copied**: `MinigunStateWiringTests` carried this as a private helper until
+    /// a second wiring suite needed exactly the same lookup (B391).
+    /// </remarks>
+    public static ScenePose PoseAt(DemoTimeline timeline, double at)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+
+        List<SceneProp> drawn = [];
+        timeline.PropsAt(at, drawn);
+
+        foreach (SceneProp prop in drawn)
+        {
+            if (prop.EntityIndex == PropEntityIndex)
+            {
+                return prop.Pose;
+            }
+        }
+
+        throw new InvalidOperationException($"the fixture drew no prop {PropEntityIndex} at {at}");
+    }
+
     /// <summary>A demo of one prop over several snapshots.</summary>
     /// <param name="frames">Tick, sequence and parity for each snapshot; the first creates.</param>
     /// <returns>The demo's bytes.</returns>
@@ -170,6 +207,11 @@ internal static class SyntheticProp
                 Property(flat, "m_nModelIndex", PropertyValue.FromInt(Model)),
                 Property(flat, "m_ubInterpolationFrame", PropertyValue.FromInt(noInterp)),
 
+                // **A render color on every frame** (B391): alpha 255 so the prop stays opaque for
+                // every other test here, and three different color bytes, none 255, so a dropped field
+                // reads back as white — see `RenderColorWiringTests`.
+                Property(flat, "m_clrRender", PropertyValue.FromInt(RenderColor)),
+
                 // **A minigun state on every frame** (B347). Three is `AC_STATE_SPINNING`, chosen
                 // because it is not the default: a zero would be indistinguishable from the value
                 // never arriving, which is the case this fixture exists to tell apart.
@@ -284,6 +326,10 @@ internal static class SyntheticProp
                 // (`baseentity.cpp:273`).
                 new SendProperty(
                     SendPropType.Int, "m_ubInterpolationFrame", 1, string.Empty, 0f, 0f, 3, 0),
+                // **The render color, on DT_BaseEntity with the rest of the render state** (B391):
+                // `SendPropInt(SENDINFO(m_clrRender), 32, SPROP_UNSIGNED)` (`baseentity.cpp:279`).
+                new SendProperty(
+                    SendPropType.Int, "m_clrRender", 1, string.Empty, 0f, 0f, 32, 0),
                 new SendProperty(
                     SendPropType.DataTable, "animtime", 1, "DT_AnimTimeMustBeFirst", 0f, 0f, 0, 0),
             ]),

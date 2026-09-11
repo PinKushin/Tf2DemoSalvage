@@ -28225,3 +28225,367 @@ tick-scoped already.
 *Evidence class: measured on `20130518_0313_cp_granary_blu_blu` and
 `tf2-2013-build1729296-stv-cp_foundry` for the track windows; read-from-source in our own code for the
 lookup and its three call sites; the three sabotage runs are differential.*
+
+### B390 OPEN 2026-09-10: every sprite is forced upright and centred, and 221 shipped materials say otherwise
+
+**B378's own remark asserted this could not matter and the measurement refutes it.** It read:
+
+> **`$spriteorigin` is not read here**: no TF2 sprite this project has met declares one, and inventing
+> a parse for a key nothing sends is how a wrong default gets locked in.
+
+and beside the orientation, in `EntitySpriteBatches`:
+
+> The VMT parse for that key is not implemented, so every sprite takes the default here; TF2's
+> `light_glow03` declares none, which is why the default is also the right answer.
+
+`vmt-param` over the shipped materials, with `$basetexture` as the control (30,216 of 30,684 — the
+instrument reaches everything):
+
+| parameter | materials | by shader | by value |
+|---|---|---|---|
+| `$spriteorientation` | **221** | 202 `Sprite`, 19 `UnlitGeneric` | 176 `vp_parallel`, 19 `4`, 19 `parallel_upright`, 4 `vp_parallel_oriented`, 3 `oriented` |
+| `$spriteorigin` | **202** | 202 `Sprite` | 198 `[ 0.50 0.50 ]`, 3 `[ 0.50 0.00 ]`, 1 `[ .5 .5 ]` |
+
+**And `light_glow03` declares BOTH**, which is the part that makes the second claim wrong rather than
+merely unproven — `vmt sprites/light_glow03`, as shipped:
+
+```
+"Sprite"
+{
+	"$basetexture" "sprites/light_glow03"
+//	"$additive" "1"
+	"$spriteorientation" "vp_parallel"
+	"$spriteorigin" "[ 0.50 0.50 ]"
+}
+```
+
+So the eleven glows a frame that B378 drew are drawn `SPR_VP_PARALLEL_UPRIGHT` where the material asks
+for `SPR_VP_PARALLEL`. Those are different pictures: upright-parallel pins the quad's up to world up and
+only yaws to face the viewer, while vp_parallel is flat to the viewplane. A lamp halo seen from above or
+below is a foreshortened sliver in ours and a full disc in TF2 — and the upright branch also *refuses to
+draw at all* within one degree of straight up or down, where vp_parallel has no such case.
+
+**Three divergences, and the third is not a wrong picture but a missing one.**
+
+**1. `$spriteorientation` is never read.** `EntitySpriteBatches.Build` passes the literal
+`EntitySprites.ParallelUpright` (`managed/Tf2DemoSalvage.Scene/EntitySpriteBatches.cs:126`), so
+`EntitySprites.Axes`'s five branches are reachable only through its own unit tests. **The translation is
+by NAME and it is not in the engine's sprite code at all** — it is in the SHADER, run once at material
+init, before `CEngineSprite::Init` ever asks for an int
+(`materialsystem/stdshaders/sprite_dx9.cpp:73`, through the default at `:105` — `Sprite` is a fallback
+name for `Sprite_DX9`, `Sprite_DX8` and `Sprite_DX6`, and all three carry this block):
+
+```cpp
+SHADER_PARAM( SPRITEORIENTATION, SHADER_PARAM_TYPE_INTEGER, "0", "sprite orientation" )
+...
+// translate from a string orientation to an enumeration
+if (params[SPRITEORIENTATION]->IsDefined())
+{
+    const char *orientationString = params[SPRITEORIENTATION]->GetStringValue();
+    if( stricmp( orientationString, "parallel_upright" ) == 0 )
+        params[SPRITEORIENTATION]->SetIntValue( SPR_VP_PARALLEL_UPRIGHT );
+    else if( stricmp( orientationString, "facing_upright" ) == 0 )
+        params[SPRITEORIENTATION]->SetIntValue( SPR_FACING_UPRIGHT );
+    else if( stricmp( orientationString, "vp_parallel" ) == 0 )
+        params[SPRITEORIENTATION]->SetIntValue( SPR_VP_PARALLEL );
+    else if( stricmp( orientationString, "oriented" ) == 0 )
+        params[SPRITEORIENTATION]->SetIntValue( SPR_ORIENTED );
+    else if( stricmp( orientationString, "vp_parallel_oriented" ) == 0 )
+        params[SPRITEORIENTATION]->SetIntValue( SPR_VP_PARALLEL_ORIENTED );
+    else
+    {
+        Warning( "error with $spriteOrientation\n" );
+        params[SPRITEORIENTATION]->SetIntValue( SPR_VP_PARALLEL_UPRIGHT );
+    }
+}
+else
+    params[SPRITEORIENTATION]->SetIntValue( SPR_VP_PARALLEL_UPRIGHT );
+```
+
+**A NUMERIC value is rejected, and nineteen shipped materials write one.** `stricmp("4", …)` matches no
+name, so `"$spriteorientation" "4"` falls to the `else` and becomes `SPR_VP_PARALLEL_UPRIGHT` — **not**
+`SPR_VP_PARALLEL_ORIENTED`, which is what a reader who assumed the declared type would produce. The
+parameter is declared `SHADER_PARAM_TYPE_INTEGER` and is read as a string; taking the declaration at its
+word is the trap. It is invisible for those nineteen because they are the PASSTIME HUD's `UnlitGeneric`
+materials, which never run the `Sprite` shader — but a parse that accepts digits is wrong for any
+material that does.
+
+**2. `$spriteorigin` is never read, and the extents are hardcoded symmetric.**
+`EntitySprites.Corners` computes `width * 0.5f` and `height * 0.5f` directly
+(`managed/Tf2DemoSalvage.Scene/EntitySprites.cs:310`). The engine derives four separate extents, and
+only the DEFAULT is symmetric (`spritemodel.cpp:311-328`):
+
+```cpp
+IMaterialVar *originVar = m_material[0]->FindVarFast( "$spriteorigin", &spriteOriginCache );
+Vector origin, originVarValue;
+if( !originVar || ( originVar->GetType() != MATERIAL_VAR_TYPE_VECTOR ) )
+{
+    origin[0] = -m_width * 0.5f;
+    origin[1] = m_height * 0.5f;
+}
+else
+{
+    originVar->GetVecValue( &originVarValue[0], 3 );
+    origin[0] = -m_width * originVarValue[0];
+    origin[1] = m_height * originVarValue[1];
+}
+
+up    = origin[1];
+down  = origin[1] - m_height;
+left  = origin[0];
+right = m_width + origin[0];
+```
+
+**`[ 0.50 0.00 ]` — which three shipped materials declare — hangs the quad entirely BELOW its origin**:
+`up = 0`, `down = -height`. Our symmetric arithmetic puts half of it above. And the `GetType() !=
+MATERIAL_VAR_TYPE_VECTOR` test is load-bearing: a `$spriteorigin` written without brackets is a float
+var, not a vector one, and the engine IGNORES it rather than reading its single component — the same
+type switch `VmtMaterial.Colour` already documents from `ColorVarsToVector`.
+
+**3. `SPR_ORIENTED` draws nothing.** `Axes` returns null for it with the comment *"Left to the caller,
+which has the rotation already"* — and no caller ever supplies it, so the three `oriented` materials
+would produce no quad at all. The engine's branch is one line (`c_sprite.cpp:320-325`):
+
+```cpp
+case SPR_ORIENTED:
+    // generate the sprite's axes, according to the sprite's world orientation
+    AngleVectors( angles, &forward, &right, &up );
+    break;
+```
+
+`Axes` takes only `roll`, so it cannot do this; it needs pitch and yaw as well.
+
+**4. The extents are built from the DECODED size, and the engine's are the authored one.**
+`CEngineSprite::Init` takes `m_width = m_material[0]->GetMappingWidth()` (`spritemodel.cpp:294`) — the
+mapping size, which is the texture as authored and does not move with `mat_picmip`. Ours takes
+`sheet.Width`, which is `VtfTexture.Width`, documented as *"Width of the decoded image"* and constructed
+from `levelWidth = MipSize(width, level)` after `ChooseLevel` has dropped mips for the texture-quality
+cap (`managed/Tf2DemoSalvage.Content/Assets/VtfTexture.cs:634`). So at a reduced quality a sprite is
+drawn smaller by the dropped factor, and `RenderScale`'s world-space divide uses the smaller dimension
+of the wrong size as well. **Unobservable on every TF2 glow at every setting this viewer offers**:
+`TextureQuality`'s smallest cap is 256 and `light_glow03` is 128 square, so `ChooseLevel` never drops a
+level from it — measured from the enum and the file, not assumed. It is a divergence for any sprite
+material larger than the cap, and `levelWidth << Level` does not recover the header size for a
+non-power-of-two file, so the fix is to carry the header's own `width` and `height` rather than to
+derive them.
+
+**What is visible when it is wrong:** a lamp glow that is an ellipse instead of a disc when the camera is
+above or below it, and vanishes entirely when the camera looks nearly straight down at it. Both are
+first-person-in-a-stairwell symptoms, which is why a level-camera screenshot has never shown it.
+
+**What is NOT established.**
+
+- **Whether an UNDECLARED `$spriteorigin` reaches `CEngineSprite::Init` as absent or as the shader's
+  `SHADER_PARAM( SPRITEORIGIN, SHADER_PARAM_TYPE_VEC3, "[0 0 0]", … )` default.** The SDK ships
+  `stdshaders` but not `cmaterial.cpp`, so which one applies cannot be read. It matters: `[0 0 0]` is
+  type VECTOR, so it would take the *else* branch and give `up = 0, down = -height` — a quad hanging
+  below its origin — for every sprite that omits the key. **Taken as absent**, because Valve wrote the
+  `!originVar` branch and a 0.5/0.5 fallback, and a default that hung every sprite below its origin
+  would make that branch dead and the fallback meaningless. *This is an INTERPOLATION.* It would be
+  falsified by a sprite VMT with no `$spriteorigin` rendering non-centred in TF2, and it is unobservable
+  on TF2's own sprites, 199 of 202 of which declare the centred value explicitly.
+- **Whether any `oriented` or `vp_parallel_oriented` material is ever a sprite entity's model in a
+  demo.** The three and four materials are counted in the game's files, not in a recording.
+- **The occlusion query**, still B378's, unchanged by this.
+
+*Evidence class: measured for the material counts (`vmt-param`, 30,684 materials, `$basetexture` as
+the control) and for `light_glow03`'s own contents; read-from-source for all three engine quotes;
+interpolated for the undeclared-`$spriteorigin` default, flagged above.*
+
+### B390 FIXED 2026-09-10: a sprite's material now decides its orientation and where its quad sits; the mapping size and `Patch` materials are still open
+
+**Items 1–3 above are fixed. Item 4 is open, and so is a fifth thing found while fixing them.**
+
+**What was done, keeping the engine's layering.**
+
+- **`SpriteOrientation`** (`managed/Tf2DemoSalvage.Content/Assets/SpriteOrientation.cs`) — `SPRITETYPE`
+  with the engine's numbers, in the MATERIAL layer because the material decides it. The five `int`
+  constants that lived on `EntitySprites` are gone rather than kept as aliases.
+- **`VmtMaterial.SpriteOrientation`** — the `Sprite` shader's translation: by name, case-insensitive; a
+  number, an unknown name and an absent key all become the default. Under any other shader, the raw
+  integer — interpolated, and flagged where it is written.
+- **`VmtMaterial.SpriteOrigin`** — null when absent or not a vector. The bracket test is now shared with
+  `Colour` through `TryVectorBody`, and `Flag`'s integer read with `SpriteOrientation` through
+  `LeadingInteger`; both extractions are meant to change nothing, which the whole Content suite is the
+  check on.
+- **`EngineSprite` and `SpriteExtents`** (`managed/Tf2DemoSalvage.Scene/EngineSprite.cs`) — `CEngineSprite`'s
+  shape, built once at load in `MapAssets.LoadSpriteMaterials`. `SpriteExtents.Of` is `Init`'s last block.
+- **`EntitySprites.Axes`** takes the entity's angles, and `SPR_ORIENTED` is `AngleVectors` instead of
+  null. **`EntitySprites.Corners`** takes the four edges instead of halving the size.
+- **`EntitySpriteBatches`** passes `sprite.Orientation`. The literal is gone.
+
+**Proved by manipulation, not by reading.** The red step came first: with every new type in place and
+the literal still passed, exactly the two predicted output-level tests failed —
+`Build_AViewplaneParallelGlowSeenFromStraightAbove_IsDrawn` (drawn 0) and
+`Build_AGlowWhoseOriginIsItsTopEdge_HangsBelowIt` — while the control, the same glow upright, passed.
+Then seven sabotages in two rounds, each with a prediction disjoint from the others in its round:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| the `Sprite` shader accepts a number | `SpriteOrientation_WrittenAsANumber_IsRejectedToTheDefault` |
+| `SpriteExtents.Of` loses the X negation | the three `Extents_*` and `Corners_ForACentredSprite_*` |
+| `SPR_ORIENTED` takes its right from `AngleVectors.Up` | `Axes_ForAnOrientedSprite_TakesTheEntitysOwnAngles` |
+| the batches ignore the sprite's own edges | `Build_AGlowWhoseOriginIsItsTopEdge_HangsBelowIt` |
+| `$spriteorigin` accepted without brackets | `SpriteOrigin_WrittenWithoutBrackets_IsNotAVectorAndIsIgnored` |
+| names compared case-sensitively | `SpriteOrientation_NamedInMixedCase_IsStillTranslated` |
+| `UnlitGeneric` treated as the `Sprite` shader | `SpriteOrientation_UnderAShaderThatIsNotSprite_IsTheRawInteger` |
+
+Nothing outside each prediction reddened. Each was restored with its inverse edit, and a grep for every
+sabotage's residue came back clean.
+
+**Still open.**
+
+- **Item 4, the mapping size.** Every `MapTexture` construction site has the decoded `VtfTexture` in
+  scope, so the fix is to carry the header's own `width` and `height` through all eleven rather than
+  default any of them.
+- **A `Patch` sprite material is read unpatched.** `ReadVmt` — split out of the particle path's
+  `Sequences`, which had the same limitation — returns the patch itself, where `Resolve` applies its
+  `include`. A patched `Sprite` material would report the shader `Patch`, take the untranslated branch,
+  and draw `vp_parallel` as `SPR_VP_PARALLEL_UPRIGHT`. How many sprite or particle materials are
+  patches is not measured.
+- **The undeclared-`$spriteorigin` interpolation** above is unchanged: an absent key takes the
+  `!originVar` branch.
+- **Not yet seen on screen.** The tests are exact about counts and corners; whether a lamp halo now
+  reads as a disc from above is the owner's to look at, and this entry does not claim it.
+
+*Evidence class: differential for the red step and all seven sabotages; read-from-source for every
+behaviour implemented.*
+
+### B391 OPEN 2026-09-10: a sprite takes its blend from its material's text and draws white, where the engine takes both from the entity
+
+**Found by looking, the first time anyone looked.** B390's capture on `cp_process_f12` (tick 53157, from
+under a `light_glow03` lamp, looking up) showed the glow — round and facing the camera, so B390 is right
+— sitting in an opaque BLACK SQUARE the size of its quad. `light_glow03.vtf` is opaque everywhere (mean
+RGBA 21 17 14 **255**) and only reads as a glow when ADDED to what is behind it, while its `.vmt` has
+`$additive` commented out (`//	"$additive" "1"`). A reader of the material's text therefore concludes it
+is translucent, and a translucent quad of opaque black paints black. B378 drew sprites through exactly
+that reader — `VmtMaterial.SpriteBlending`, which is `SpriteCard`'s rule — and was verified by counts in a
+log. Nobody had looked at one.
+
+**The engine never asks the material's text how a sprite blends.** `CEngineSprite::Init` builds one
+material PER RENDER MODE (`game/client/spritemodel.cpp:279`, `$spriteRenderMode` set at `:289`):
+
+```cpp
+for ( int i = 0; i < kRenderModeCount; ++i )
+{
+    if ( i == kRenderNone || i == kRenderEnvironmental ) { m_material[i] = NULL; continue; }
+    Q_snprintf( pMaterialPath, sizeof(pMaterialPath), "%s_rendermode_%d", pMaterialName, i );
+    KeyValues *pMaterialKV = kv->MakeCopy();
+    pMaterialKV->SetInt( "$spriteRenderMode", i );
+    m_material[i] = g_pMaterialSystem->FindProceduralMaterial( pMaterialPath, ..., pMaterialKV );
+}
+```
+
+and `DrawSpriteModel` binds `psprite->GetMaterial( (RenderMode_t)rendermode, frame )`
+(`game/client/c_sprite.cpp:63`, returning `m_material[nRenderMode]` at `spritemodel.cpp:416`) — the
+ENTITY's `m_nRenderMode` picks the material. The `Sprite` shader then switches on it
+(`materialsystem/stdshaders/sprite_dx9.cpp:227`):
+
+| render mode | blend | depth | color |
+|---|---|---|---|
+| `kRenderNormal` 0 | none | test and write | texture only |
+| `kRenderTransColor` 1, `kRenderTransTexture` 2, `kRenderTransAlpha` 4 | `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` | test, no write | × vertex |
+| `kRenderGlow` 3, `kRenderWorldGlow` 9 | `SRC_ALPHA, ONE` | **no test**, no write | × vertex |
+| `kRenderTransAdd` 5, `kRenderTransAddFrameBlend` 7 | `SRC_ALPHA, ONE` | test, no write | × `$color`/`$alpha`; × vertex only if `$ignorevertexcolors 0`, default 1 |
+| `kRenderTransAlphaAdd` 8 | two passes: `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`, then `ONE_MINUS_SRC_ALPHA, ONE` | test, no write | × vertex |
+| `kRenderEnvironmental` 6 | no material, so nothing is drawn | | |
+
+`light_glow03`'s entities are mode 9, additive — which is why TF2 shows a glow and this showed a box.
+
+**And the color is the entity's.** `CSprite::DrawModel` passes `GetRenderBrightness()` as the alpha and
+`m_clrRender->r/g/b` as the color (`game/shared/Sprite.cpp:795-806`), and `DrawSprite`
+(`c_sprite.cpp:407-422`) is:
+
+```cpp
+if ( rendermode != kRenderNormal )
+{
+    float blend = render->GetBlend();
+    if (( rendermode == kRenderGlow ) || ( rendermode == kRenderWorldGlow ))
+    {
+        blend *= GlowBlend( psprite, effect_origin, rendermode, renderfx, alpha, &scale );
+        r *= blend; g *= blend; b *= blend;
+    }
+    render->SetBlend( blend );
+    if ( blend <= 0.0f ) return 0;
+}
+```
+
+after which `DrawSpriteModel` writes `color = { r, g, b, a }` into every vertex (`c_sprite.cpp:80`) and
+the pixel shader multiplies the texture by it (`sprite_ps2x.fxc:35`). This project passes
+`(blend, blend, blend)` — white — because `ScenePose` carries only `m_clrRender`'s alpha byte. Its red,
+green and blue are decoded (`EntityState.RenderColor`), and `EntityState.SpriteBrightness`'s own remark
+says a sprite uses exactly them; nothing on this path reads them.
+
+**Three divergences, all in `EntitySpriteBatches` and all from that one function:**
+
+1. **The blend comes from the material's text, not from the entity's render mode.** Visible: the black
+   squares.
+2. **The color is white, not `m_clrRender`.** Visible wherever a sprite is tinted; whether
+   `cp_process_f12`'s lamps are is not measured.
+3. **`GlowBlend` runs for EVERY sprite**, where the engine runs it only for the two glow modes. A
+   `kRenderTransAdd` sprite here fades with distance and — because `GlowBlend` grows a non-world glow's
+   scale by `dist / 200` — swells as the camera backs away.
+
+**One that cannot go first: the glow modes turn the depth test OFF** (`EnableDepthTest( false )`). In the
+engine that is safe because `PixelVisibility_FractionVisible`'s occlusion query hides a glow behind a
+wall; this project has no such query (B378's open half), so copying the depth half alone would draw
+every glow through every wall. Until the query exists a glow stays depth-tested here, which cuts a
+wall-mounted lamp's quad where it passes into the wall — visible, and named rather than hidden.
+
+**Not established.** What `render->GetBlend()` holds when a sprite draws, and whether `render->SetBlend`
+reaches a `Sprite` material at all, are the closed engine's — `DrawSpriteModel` calling
+`render->SetBlend( 1.0f )` for `kRenderNormal` (`c_sprite.cpp:60`) suggests it does. The mode-5 and -7
+constant color and mode 8's second pass are read here and not yet implemented.
+
+*Evidence class: seen, in the capture; read-from-source for every engine behavior quoted; measured for
+the texture's alpha (`vmt sprites/light_glow03`).*
+
+### B391 FIXED 2026-09-10: the render mode picks the blend and the entity's color reaches the quad; the glow depth test, modes 0 and 8 and the constant-color modes are still open
+
+**Divergences 1–3 above are fixed.**
+
+- **`EntitySprites.BlendFor(renderMode)`** — the `Sprite` shader's switch: modes 3, 5, 7 and 9 additive;
+  1, 2 and 4 translucent; 6 and 10 draw nothing. The batch pass gives each batch the MODE's blend instead
+  of the material text's, and batches by material and blend together, since one material can now be
+  drawn both ways in a moment.
+- **`EntityState.RenderRgb()` and `ScenePose.RenderColor`** — `m_clrRender`'s three color bytes, decoded
+  before and carried by nothing. `DemoTimeline` fills the pose, and the interpolated rebuild keeps it.
+- **`EntitySpriteBatches` follows `DrawSprite`'s structure**: the render scale, then `GlowBlend` for the
+  two glow modes only — and only they ask the occlusion gate — then the basis. The color is `m_clrRender`
+  times the blend for a glow and unmultiplied otherwise; `kRenderNormal` is the texture alone.
+
+**Proved by manipulation.** Red first, wherever it could be: with the data and `BlendFor` in place but the
+pass unchanged, exactly the four new batch tests failed, and `PoseCompletenessTests` named the one field the
+rebuild dropped — `RenderColor: expected (17, 34, 51), got (255, 255, 255)`. The tests whose code already
+existed when they were written — the two timeline wiring tests, the normal-mode test and the `BlendFor`
+cases — were proved by sabotage instead, in two rounds with disjoint predictions:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| `DemoTimeline` writes white instead of `RenderRgb()` | both `RenderColorWiringTests` |
+| `BlendFor` maps world glow to translucent | `BlendFor_EachModeTheShaderBlends_IsTheShadersBlend(9,Additive)` and `Build_AWorldGlowWhoseMaterialReadsTranslucent_IsDrawnAdditive` |
+| the normal-mode branch can never be taken | `Build_ANormalModeSprite_DrawsTheTextureAlone` |
+| `RenderRgb` swaps red and blue | `RenderRgb_FromAPackedColor_IsTheLowThreeBytesInOrder` and both wiring tests |
+
+Nothing outside each prediction reddened, and each break was restored with its inverse edit.
+
+**A fixture change came with it.** `SyntheticProp` now sends `m_clrRender` — `0xFF3366CC`, opaque so no
+other test on the fixture changes, three distinct color bytes so a dropped field reads back as white — and
+its pose lookup moved out of `MinigunStateWiringTests` into the fixture, because the color's wiring tests
+needed exactly the same one.
+
+**Still open.**
+
+- **The glow modes' depth test**, blocked on the occlusion query, as above.
+- **`kRenderNormal` and `kRenderTransAlphaAdd` are drawn translucent**, the renderer having no opaque
+  sprite state and no second pass. The census found neither mode: every sprite group in three demos was
+  `light_glow03` at mode 9.
+- **Modes 5 and 7 use the vertex color**, where the engine multiplies by the material's `$color` and
+  `$alpha` and ignores the vertex color unless `$ignorevertexcolors` is 0, its default being 1. The two
+  agree for an untinted sprite with a default material, and not for a tinted one.
+- **`render->GetBlend()`** is taken as one, as above.
+- **Not yet seen on screen after the fix.** The owner saw the black squares; whether they are gone is his
+  to look at, and this entry does not claim it.
+
+*Evidence class: differential for the red step and the four sabotages; read-from-source for every
+behavior implemented.*

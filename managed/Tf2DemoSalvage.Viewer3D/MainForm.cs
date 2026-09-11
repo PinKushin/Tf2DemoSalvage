@@ -3845,7 +3845,7 @@ internal class MainForm : Form, IFrameSteps
                 new Vector3(rx, ry, rz),
                 new Vector3(ux, uy, uz),
                 new Vector3(ahead, across, above),
-                _loaded?.Assets?.SpriteMaterials ?? NoParticleMaterials,
+                _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites,
 
                 // **The occlusion gate, and it is NOT the engine's.** `PixelVisibility_FractionVisible`
                 // is a GPU query that returns a FRACTION, degenerating to a line trace from the eye
@@ -3917,6 +3917,10 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>What a machine with no TF2 has: no particle materials at all.</summary>
     private static readonly IReadOnlyDictionary<string, ParticleMaterial> NoParticleMaterials =
         new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>What a machine with no TF2 has: no entity sprites either (B390).</summary>
+    private static readonly IReadOnlyDictionary<string, EngineSprite> NoEngineSprites =
+        new Dictionary<string, EngineSprite>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>This tick's projectiles, reused for the same reason.</summary>
     private readonly

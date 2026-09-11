@@ -314,6 +314,124 @@ public sealed class VmtMaterial
         }
     }
 
+    /// <summary>
+    /// How a <c>Sprite</c> material's quad is turned — <c>$spriteorientation</c>, as the shader
+    /// translates it (B390).
+    /// </summary>
+    /// <remarks>
+    /// **Translated by NAME, and by the `Sprite` shader alone.** `Sprite` is a fallback name for three
+    /// implementations — `DEFINE_FALLBACK_SHADER( Sprite, Sprite_DX9 )` and its DX8 and DX6 twins — and
+    /// all three run the same block at material init. `sprite_dx9.cpp:73`, the one modern hardware
+    /// takes:
+    ///
+    /// <code>
+    /// if (params[SPRITEORIENTATION]-&gt;IsDefined())
+    /// {
+    ///     const char *orientationString = params[SPRITEORIENTATION]-&gt;GetStringValue();
+    ///     if( stricmp( orientationString, "parallel_upright" ) == 0 )
+    ///         params[SPRITEORIENTATION]-&gt;SetIntValue( SPR_VP_PARALLEL_UPRIGHT );
+    ///     else if( stricmp( orientationString, "facing_upright" ) == 0 )
+    ///         params[SPRITEORIENTATION]-&gt;SetIntValue( SPR_FACING_UPRIGHT );
+    ///     ... and likewise vp_parallel, oriented and vp_parallel_oriented ...
+    ///     else
+    ///     {
+    ///         Warning( "error with $spriteOrientation\n" );
+    ///         params[SPRITEORIENTATION]-&gt;SetIntValue( SPR_VP_PARALLEL_UPRIGHT );
+    ///     }
+    /// }
+    /// else
+    ///     params[SPRITEORIENTATION]-&gt;SetIntValue( SPR_VP_PARALLEL_UPRIGHT );
+    /// </code>
+    ///
+    /// **A NUMBER is rejected, although the parameter is declared an integer.** `SHADER_PARAM(
+    /// SPRITEORIENTATION, SHADER_PARAM_TYPE_INTEGER, "0", ... )` reads as permission to write `"4"`, and
+    /// nineteen shipped materials do — but the value is compared as a STRING, `"4"` names nothing, and
+    /// the `else` makes it the default. The `else` also warns; nothing here does, because this layer
+    /// has no logger and the warning changes nothing that draws.
+    ///
+    /// **Under any other shader there is no translation**, and `CEngineSprite::Init` reads the raw
+    /// variable with <c>GetIntValue()</c> (`spritemodel.cpp:309`) — so `"4"` is four there, the opposite
+    /// of the answer under `Sprite`. What `GetIntValue` makes of a string belongs to the closed material
+    /// system; this reads it <c>atoi</c>-shaped, as <c>Flag</c> reads every integer parameter, and that
+    /// is an INTERPOLATION. The nineteen shipped materials declaring the key under another shader are
+    /// PASSTIME's HUD icons.
+    /// </remarks>
+    public SpriteOrientation SpriteOrientation
+    {
+        get
+        {
+            if (Value("$spriteorientation") is not { } declared)
+            {
+                return SpriteOrientation.ParallelUpright;
+            }
+
+            if (!IsSpriteShader)
+            {
+                return (SpriteOrientation)LeadingInteger(declared);
+            }
+
+            return SpriteOrientationNames.TryGetValue(declared, out SpriteOrientation named)
+                ? named
+                : SpriteOrientation.ParallelUpright;
+        }
+    }
+
+    /// <summary>
+    /// Where a sprite's origin sits in its texture — <c>$spriteorigin</c>, or null when the material
+    /// declares no VECTOR (B390).
+    /// </summary>
+    /// <remarks>
+    /// **Null for either of two reasons, both the engine's.** `CEngineSprite::Init` centres the quad on
+    /// <c>if( !originVar || ( originVar-&gt;GetType() != MATERIAL_VAR_TYPE_VECTOR ) )</c>
+    /// (`spritemodel.cpp:313`): the key absent, or present but not written as a vector. `"0.5"` is a
+    /// FLOAT variable and is ignored rather than read as one component — the same type switch
+    /// <c>Colour</c> honours for a colour, through the same bracket test.
+    ///
+    /// **X then Y, and nothing else**, because <c>GetVecValue( &amp;originVarValue[0], 3 )</c> is
+    /// followed only by reads of <c>[0]</c> and <c>[1]</c> (`spritemodel.cpp:320-322`). Shipped
+    /// materials write two components; a third is ignored.
+    ///
+    /// **A missing component reads as zero, and so does one that is not a number, rather than
+    /// throwing.** This is read after the material has parsed, outside anything that would catch an
+    /// exception, and a throw here would cost the map rather than one sprite's placement. Both are
+    /// INTERPOLATED from <c>atof</c>, since the vector parse itself is in the closed material system;
+    /// no shipped material exercises either.
+    /// </remarks>
+    public (float X, float Y)? SpriteOrigin
+    {
+        get
+        {
+            if (Value("$spriteorigin") is not { } text ||
+                !TryVectorBody(text.Trim(), out string body, out float scale))
+            {
+                return null;
+            }
+
+            string[] parts = body.Split(
+                [' ', '\t', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            return (Leniently(parts, 0) / scale, Leniently(parts, 1) / scale);
+        }
+    }
+
+    /// <summary>The names the <c>Sprite</c> shader translates, compared the way <c>stricmp</c> compares.</summary>
+    private static readonly Dictionary<string, SpriteOrientation> SpriteOrientationNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["parallel_upright"] = SpriteOrientation.ParallelUpright,
+            ["facing_upright"] = SpriteOrientation.FacingUpright,
+            ["vp_parallel"] = SpriteOrientation.Parallel,
+            ["oriented"] = SpriteOrientation.Oriented,
+            ["vp_parallel_oriented"] = SpriteOrientation.ParallelOriented,
+        };
+
+    /// <summary>Whether this material runs the <c>Sprite</c> shader, by its fallback name or one of the three it resolves to.</summary>
+    private bool IsSpriteShader =>
+        Shader.Equals("Sprite", StringComparison.OrdinalIgnoreCase) ||
+        Shader.Equals("Sprite_DX9", StringComparison.OrdinalIgnoreCase) ||
+        Shader.Equals("Sprite_DX8", StringComparison.OrdinalIgnoreCase) ||
+        Shader.Equals("Sprite_DX6", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Whether a key is present and not zero.</summary>
     /// <remarks>
     /// **Absent and "0" are the same answer** and both mean off, but they arrive differently: a flag
@@ -1558,13 +1676,18 @@ public sealed class VmtMaterial
     /// Parsed leniently for the same reason: the engine's integer read is <c>atoi</c>-shaped, so
     /// surrounding whitespace does not stop it and trailing text does not either.
     /// </remarks>
-    private bool Flag(string key)
-    {
-        if (Value(key) is not { } text)
-        {
-            return false;
-        }
+    private bool Flag(string key) => Value(key) is { } text && LeadingInteger(text) != 0;
 
+    /// <summary>The integer the engine's <c>atoi</c>-shaped read makes of a value, or zero.</summary>
+    /// <param name="text">The value as written.</param>
+    /// <returns>A leading optional sign and its digits, after any leading whitespace.</returns>
+    /// <remarks>
+    /// Shared by <c>Flag</c> and <c>SpriteOrientation</c>, which both read an integer the way the
+    /// material system does: surrounding whitespace does not stop it and trailing text does not
+    /// either. A value with no digits, or too many for an int, is zero.
+    /// </remarks>
+    private static int LeadingInteger(string text)
+    {
         ReadOnlySpan<char> digits = text.AsSpan().TrimStart();
         int end = 0;
 
@@ -1578,8 +1701,50 @@ public sealed class VmtMaterial
             end++;
         }
 
-        return int.TryParse(digits[..end], CultureInfo.InvariantCulture, out int value) && value != 0;
+        return int.TryParse(digits[..end], CultureInfo.InvariantCulture, out int value) ? value : 0;
     }
+
+    /// <summary>
+    /// The inside of a vector-typed value — <c>[x y z]</c> in floats or <c>{r g b}</c> in bytes — or
+    /// false when the text is not a vector at all.
+    /// </summary>
+    /// <param name="trimmed">The value, already trimmed.</param>
+    /// <param name="body">What lies between the brackets, or the whole text when there are none.</param>
+    /// <param name="scale">What each component is divided by: 255 for bytes, otherwise one.</param>
+    /// <returns>Whether the text is a vector — the material system's <c>MATERIAL_VAR_TYPE_VECTOR</c>.</returns>
+    /// <remarks>
+    /// Two spellings of the same thing, both of which appear in Valve's own SHADER_PARAM defaults:
+    /// brackets are floats, braces are bytes. Reading a brace form as floats gives a tint of 255 and
+    /// saturates the surface to white. Shared by <c>Colour</c> and <c>SpriteOrigin</c>, which both
+    /// switch on whether a value is a vector at all.
+    /// </remarks>
+    private static bool TryVectorBody(string trimmed, out string body, out float scale)
+    {
+        bool isBytes = trimmed.StartsWith('{');
+
+        if (!isBytes && !trimmed.StartsWith('['))
+        {
+            body = trimmed;
+            scale = 1f;
+
+            return false;
+        }
+
+        body = trimmed[1..^(trimmed.Length > 1 && (trimmed[^1] is '}' or ']') ? 1 : 0)];
+        scale = isBytes ? 255f : 1f;
+
+        return true;
+    }
+
+    /// <summary>One component of a vector, read as <c>atof</c> would: zero when missing or not a number.</summary>
+    /// <param name="parts">The vector's components.</param>
+    /// <param name="index">Which one.</param>
+    /// <returns>Its value, or zero.</returns>
+    private static float Leniently(string[] parts, int index) =>
+        index < parts.Length &&
+        float.TryParse(parts[index], NumberStyles.Float, CultureInfo.InvariantCulture, out float value)
+            ? value
+            : 0f;
 
     private (float Red, float Green, float Blue) Colour(string key)
     {
@@ -1590,20 +1755,10 @@ public sealed class VmtMaterial
             return (1f, 1f, 1f);
         }
 
-        string trimmed = text.Trim();
+        // Brackets are floats and braces are bytes — `TryVectorBody`, shared with `SpriteOrigin`.
+        bool isVector = TryVectorBody(text.Trim(), out string body, out float scale);
 
-        // Two spellings of the same thing, both of which appear in Valve's own SHADER_PARAM
-        // defaults: brackets are floats, braces are bytes. Reading a brace form as floats gives a
-        // tint of 255 and saturates the surface to white.
-        bool isBytes = trimmed.StartsWith('{');
-        bool isFloats = trimmed.StartsWith('[');
-
-        if (isBytes || isFloats)
-        {
-            trimmed = trimmed[1..^(trimmed.Length > 1 && (trimmed[^1] is '}' or ']') ? 1 : 0)];
-        }
-
-        string[] parts = trimmed.Split(
+        string[] parts = body.Split(
             [' ', '\t', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         // **A single number is legal and means all three channels**, which is not a tolerance but
@@ -1618,7 +1773,7 @@ public sealed class VmtMaterial
         //
         // Rejecting it threw InvalidDataException, which costs the caller the whole material rather
         // than the tint.
-        if (parts.Length == 1 && !isBytes && !isFloats)
+        if (parts.Length == 1 && !isVector)
         {
             float single = Component(key, text, parts[0], scale: 1f);
 
@@ -1630,8 +1785,6 @@ public sealed class VmtMaterial
             throw new InvalidDataException(
                 $"A material's {key} is \"{text}\", which is not three numbers.");
         }
-
-        float scale = isBytes ? 255f : 1f;
 
         return (
             Component(key, text, parts[0], scale),

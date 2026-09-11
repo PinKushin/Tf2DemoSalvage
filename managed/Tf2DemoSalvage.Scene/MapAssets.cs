@@ -831,12 +831,13 @@ public sealed class MapAssets
     /// storing it under `Sprites/light_glow03`, which is what the resolver wanted, would make every
     /// consumer repeat the same strip-and-trim and eventually one of them would get it wrong.
     ///
-    /// **A `ParticleMaterial` because a sprite IS one** — a texture, a blend, and sheet sequences it
-    /// happens not to use. Reusing the record keeps one resolution path for both rather than a second
-    /// that agrees with it only until one of them gains a feature.
+    /// **An <see cref="EngineSprite"/> around a `ParticleMaterial`**, because a sprite's texture and
+    /// blend resolve exactly as a particle's do and draw through the same batch — but a sprite also has
+    /// an orientation and an origin that a particle's material does not (B390). This held the particle
+    /// material alone until then, so both keys were read by nothing.
     /// </remarks>
-    public IReadOnlyDictionary<string, ParticleMaterial> SpriteMaterials
-    { get; private init; } = new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyDictionary<string, EngineSprite> SpriteMaterials
+    { get; private init; } = new Dictionary<string, EngineSprite>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
     /// <remarks>
@@ -1259,7 +1260,7 @@ public sealed class MapAssets
          IReadOnlyDictionary<string, ParticleMaterial> particleMaterials) =
             LoadRocketTrail(assets, pak, archives, maximumTextureSize);
 
-        IReadOnlyDictionary<string, ParticleMaterial> sprites =
+        IReadOnlyDictionary<string, EngineSprite> sprites =
             LoadSpriteMaterials(assets, spriteMaterials ?? [], pak, archives, maximumTextureSize);
 
         // **Entity models are loaded here, with the map's own props, and that is the point.**
@@ -2125,19 +2126,19 @@ public sealed class MapAssets
     /// a missing glow, not a missing surface — the same judgement `ParticleEffects` already makes,
     /// and the opposite of what a world brush wants.
     /// </remarks>
-    private static Dictionary<string, ParticleMaterial> LoadSpriteMaterials(
+    private static Dictionary<string, EngineSprite> LoadSpriteMaterials(
         ILogger assets,
         IReadOnlyCollection<string> paths,
         PakFile pak,
         GameArchives archives,
         int maximumTextureSize)
     {
-        Dictionary<string, ParticleMaterial> materials =
+        Dictionary<string, EngineSprite> sprites =
             new(StringComparer.OrdinalIgnoreCase);
 
         if (paths.Count == 0)
         {
-            return materials;
+            return sprites;
         }
 
         foreach (string path in paths)
@@ -2161,41 +2162,67 @@ public sealed class MapAssets
                 continue;
             }
 
-            (IReadOnlyList<SheetSequence> frames, SpriteBlend how) = Sequences(named, pak, archives);
+            // **The material's text is read once, here, and every fact about the sprite comes out of
+            // it** — the blend and the sheet for the particle material, and the orientation and origin
+            // `CEngineSprite::Init` reads at load and never again (B390). `Resolve` above has already
+            // parsed this same file, so this read cannot be the first to meet a malformed one.
+            VmtMaterial? vmt = ReadVmt(named, pak, archives);
 
-            materials[path] = new ParticleMaterial(texture, frames, how);
+            (IReadOnlyList<SheetSequence> frames, SpriteBlend how) = Sequences(vmt, pak, archives);
+
+            sprites[path] = new EngineSprite(
+                new ParticleMaterial(texture, frames, how),
+                texture.Width,
+                texture.Height,
+                vmt?.SpriteOrientation ?? SpriteOrientation.ParallelUpright,
+                SpriteExtents.Of(texture.Width, texture.Height, vmt?.SpriteOrigin));
         }
 
         assets.LogInformation(
             "{Message}",
             string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
-                $"entity sprites: {paths.Count} materials asked for, {materials.Count} resolved"));
+                $"entity sprites: {paths.Count} materials asked for, {sprites.Count} resolved"));
 
-        foreach (string absent in paths.Where(one => !materials.ContainsKey(one)))
+        foreach (string absent in paths.Where(one => !sprites.ContainsKey(one)))
         {
             assets.LogInformation("entity sprite material not loaded: {Material}", absent);
         }
 
-        return materials;
+        return sprites;
     }
 
-    private static (IReadOnlyList<SheetSequence> Sequences, SpriteBlend Blend) Sequences(
-        string material, PakFile pak, GameArchives archives)
+    /// <summary>A material's own file, parsed, or null when there is none.</summary>
+    /// <remarks>
+    /// **Unpatched**: a `Patch` material comes back as the patch, where `Resolve` applies its
+    /// `include`. That was already true of the particle path this was split out of, and B390 records it
+    /// rather than widening this change to fix it.
+    /// </remarks>
+    private static VmtMaterial? ReadVmt(string material, PakFile pak, GameArchives archives)
     {
         if (material.Length == 0)
         {
-            return ([], SpriteBlend.Translucent);
+            return null;
         }
 
         string vmtPath = $"materials/{material}.vmt";
 
-        if ((pak.ReadFile(vmtPath) ?? archives.Read(vmtPath)) is not { Length: > 0 } vmt)
+        return (pak.ReadFile(vmtPath) ?? archives.Read(vmtPath)) is { Length: > 0 } vmt
+            ? VmtMaterial.Parse(vmt)
+            : null;
+    }
+
+    private static (IReadOnlyList<SheetSequence> Sequences, SpriteBlend Blend) Sequences(
+        string material, PakFile pak, GameArchives archives) =>
+        Sequences(ReadVmt(material, pak, archives), pak, archives);
+
+    private static (IReadOnlyList<SheetSequence> Sequences, SpriteBlend Blend) Sequences(
+        VmtMaterial? parsed, PakFile pak, GameArchives archives)
+    {
+        if (parsed is null)
         {
             return ([], SpriteBlend.Translucent);
         }
-
-        VmtMaterial parsed = VmtMaterial.Parse(vmt);
 
         if (parsed.PrimaryTexture is not { Length: > 0 } texture)
         {

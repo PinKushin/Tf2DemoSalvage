@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
@@ -14,14 +15,15 @@ namespace Tf2DemoSalvage.Scene;
 /// renderer: a texture, a blend and six corners. Building a second path would give the two the same
 /// answer only until one of them gained a feature.
 ///
-/// **Batched per MATERIAL, which is not an optimisation.** An additive glow and a translucent sprite
-/// cannot share a draw call because the blend state differs — the same reason `ParticleEffects` keys
-/// its lists by material.
+/// **Batched per material AND blend, which is not an optimization.** An additive glow and a
+/// translucent sprite cannot share a draw call because the blend state differs — and since B391 the
+/// blend belongs to the ENTITY's render mode rather than to the material, one material can be drawn
+/// both ways in the same moment, exactly as `CEngineSprite` keeps a material per render mode.
 /// </remarks>
 public sealed class EntitySpriteBatches
 {
-    private readonly Dictionary<string, List<DetailSpriteVertex>> _byMaterial =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<(string Path, SpriteBlend Blend), List<DetailSpriteVertex>> _byMaterial =
+        [];
 
     private readonly List<ParticleBatch> _batches = [];
 
@@ -31,9 +33,9 @@ public sealed class EntitySpriteBatches
     /// <summary>How many were offered and produced no quad, with the reason folded in.</summary>
     /// <remarks>
     /// **Counted rather than silent**, because every reason a sprite draws nothing here is also a
-    /// reason it would legitimately draw nothing: an unresolved material, a basis the engine refuses
-    /// to build, a blend of zero. A count that never moves and a count that moves for a good reason
-    /// look identical without this.
+    /// reason it would legitimately draw nothing: an unresolved material, a render mode with no
+    /// material, a basis the engine refuses to build, a glow faded to nothing. A count that never moves
+    /// and a count that moves for a good reason look identical without this.
     /// </remarks>
     public int Skipped { get; private set; }
 
@@ -43,16 +45,17 @@ public sealed class EntitySpriteBatches
     /// <param name="viewRight">The view's right.</param>
     /// <param name="viewUp">The view's up.</param>
     /// <param name="viewForward">The view's forward.</param>
-    /// <param name="materials">Each sprite's material, keyed by model path.</param>
+    /// <param name="sprites">Each sprite as loaded, keyed by model path.</param>
     /// <param name="visible">
-    /// Whether a sprite at a point can be seen — the occlusion fraction, all or nothing. See the
+    /// Whether a glow at a point can be seen — the occlusion fraction, all or nothing. See the
     /// remarks: this is NOT the engine's test and the difference is stated rather than hidden.
     /// </param>
-    /// <returns>One batch per material, empty when nothing draws.</returns>
+    /// <returns>One batch per material and blend, empty when nothing draws.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
-    /// **The order is `CSprite::DrawModel`'s** (`Sprite.cpp:753`): the render scale, then the basis,
-    /// then the glow blend, then the corners. Each step is <see cref="EntitySprites"/>'s, which
+    /// **The order is `CSprite::DrawModel` then `DrawSprite`'s** (`Sprite.cpp:753`,
+    /// `c_sprite.cpp:407-422`): the render scale, then — for the two glow modes and no others — the
+    /// glow blend, then the basis, then the corners. Each step is <see cref="EntitySprites"/>'s, which
     /// carries the citations.
     ///
     /// **What the occlusion gate is, exactly.** The engine asks
@@ -63,11 +66,11 @@ public sealed class EntitySpriteBatches
     /// all or nothing (`c_pixel_visibility.cpp:825`). **This project has neither**: no occlusion query
     /// and no world line trace, so the caller supplies a test built from the frustum and the PVS,
     /// which is what `C_TFRagdoll::IsRagdollVisible` uses for a corpse (`c_tf_player.cpp:1350`) and is
-    /// the nearest thing that exists here.
+    /// the nearest thing that exists here. It is asked only of a glow, because only `GlowBlend` asks.
     ///
     /// The visible consequence, stated so nobody has to rediscover it: a glow behind a pillar in the
     /// same visleaf stays lit where TF2 would hide it, and one that TF2 dissolves gradually pops here.
-    /// B378 carries this as the open half.
+    /// B378 carries this as the open half, and B391 the depth test that waits on it.
     /// </remarks>
     public IReadOnlyList<ParticleBatch> Build(
         IReadOnlyList<SceneProp> props,
@@ -75,11 +78,11 @@ public sealed class EntitySpriteBatches
         Vector3 viewRight,
         Vector3 viewUp,
         Vector3 viewForward,
-        IReadOnlyDictionary<string, ParticleMaterial> materials,
+        IReadOnlyDictionary<string, EngineSprite> sprites,
         Func<Vector3, bool> visible)
     {
         ArgumentNullException.ThrowIfNull(props);
-        ArgumentNullException.ThrowIfNull(materials);
+        ArgumentNullException.ThrowIfNull(sprites);
         ArgumentNullException.ThrowIfNull(visible);
 
         foreach (List<DetailSpriteVertex> corners in _byMaterial.Values)
@@ -106,8 +109,18 @@ public sealed class EntitySpriteBatches
                 continue;
             }
 
-            if (!materials.TryGetValue(prop.ModelPath, out ParticleMaterial material) ||
-                material.Sheet is not { } sheet)
+            if (!sprites.TryGetValue(prop.ModelPath, out EngineSprite sprite) ||
+                sprite.Material.Sheet is null)
+            {
+                Skipped++;
+                continue;
+            }
+
+            // **The blend is the ENTITY's render mode's, never the material text's** (B391).
+            // `CEngineSprite::Init` builds a material per render mode and the shader switches on it;
+            // `light_glow03`'s text reads translucent, and drawing it by that text painted its opaque
+            // black around every lamp. A mode with no material at all draws nothing.
+            if (EntitySprites.BlendFor(prop.Pose.RenderMode) is not { } blending)
             {
                 Skipped++;
                 continue;
@@ -117,68 +130,96 @@ public sealed class EntitySpriteBatches
 
             Vector3 origin = new(prop.Pose.X, prop.Pose.Y, prop.Pose.Z);
 
-            // **The material's orientation, defaulting to upright-parallel** — `CEngineSprite::Init`
-            // reads `$spriteorientation` and falls back to `SPR_VP_PARALLEL_UPRIGHT`
-            // (`spritemodel.cpp:309`). The VMT parse for that key is not implemented, so every
-            // sprite takes the default here; TF2's `light_glow03` declares none, which is why the
-            // default is also the right answer for the population this was written for.
+            float scale = EntitySprites.RenderScale(
+                state.Scale, state.ScaleIsWorldSpace, sprite.Width, sprite.Height);
+
+            // **`DrawSprite`'s own structure** (`c_sprite.cpp:407-422`, B391):
+            //
+            //     if ( rendermode != kRenderNormal )
+            //     {
+            //         float blend = render->GetBlend();
+            //         if (( rendermode == kRenderGlow ) || ( rendermode == kRenderWorldGlow ))
+            //         {
+            //             blend *= GlowBlend( psprite, effect_origin, rendermode, renderfx, alpha, &scale );
+            //             r *= blend; g *= blend; b *= blend;
+            //         }
+            //         ...
+            //
+            // **The glow rule is for the two glow modes and nothing else.** This ran `GlowBlend` for
+            // every sprite, so an additive sprite far away was faded, and — since `GlowBlend` grows a
+            // non-world glow's scale by `dist / 200` — swelled as the camera backed away.
+            // `render->GetBlend()` is the closed engine's and is one here, which B391 names.
+            bool glows = prop.Pose.RenderMode is RenderModes.Glow or RenderModes.WorldGlow;
+            float blend = 1f;
+
+            if (glows)
+            {
+                (blend, scale) = EntitySprites.GlowBlend(
+                    prop.Pose.RenderMode,
+                    prop.Pose.RenderFx,
+                    state.Brightness,
+                    Vector3.Distance(origin, eye),
+                    visible(origin) ? 1f : 0f,
+                    scale);
+
+                if (blend <= 0f)
+                {
+                    Skipped++;
+                    continue;
+                }
+            }
+
+            // **The material's orientation, as the shader translated it at load** (B390). This passed
+            // the literal `SPR_VP_PARALLEL_UPRIGHT` for every sprite until then — so `light_glow03`,
+            // which asks for `vp_parallel`, stood upright: foreshortened from above, and refused
+            // outright within a degree of straight down.
             if (EntitySprites.Axes(
-                    EntitySprites.ParallelUpright, origin, prop.Pose.Roll,
-                    viewRight, viewUp, viewForward)
+                    sprite.Orientation,
+                    origin,
+                    (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll),
+                    viewRight,
+                    viewUp,
+                    viewForward)
                 is not var (right, up))
             {
                 Skipped++;
                 continue;
             }
 
-            float scale = EntitySprites.RenderScale(
-                state.Scale, state.ScaleIsWorldSpace, sheet.Width, sheet.Height);
-
-            (float blend, float scaled) = EntitySprites.GlowBlend(
-                prop.Pose.RenderMode,
-                prop.Pose.RenderFx,
-                state.Brightness,
-                Vector3.Distance(origin, eye),
-                visible(origin) ? 1f : 0f,
-                scale);
-
-            if (blend <= 0f)
-            {
-                Skipped++;
-                continue;
-            }
-
-            if (!_byMaterial.TryGetValue(prop.ModelPath, out List<DetailSpriteVertex>? corners))
+            if (!_byMaterial.TryGetValue((prop.ModelPath, blending), out List<DetailSpriteVertex>? corners))
             {
                 corners = [];
-                _byMaterial[prop.ModelPath] = corners;
+                _byMaterial[(prop.ModelPath, blending)] = corners;
             }
 
-            // **The blend multiplies the COLOUR and the brightness is the alpha**, which is the split
-            // `DrawSprite` makes: `r *= blend; g *= blend; b *= blend;` with `alpha` passed through
-            // untouched to the vertex colour (`c_sprite.cpp:354`).
-            EntitySprites.Corners(
-                origin,
-                right,
-                up,
-                sheet.Width,
-                sheet.Height,
-                scaled,
-                new Vector3(blend, blend, blend),
-                state.Brightness / 255f,
-                corners);
+            // **The entity's color, not white** (B391): `CSprite::DrawModel` passes
+            // `m_clrRender->r/g/b` as the color and its brightness as the alpha (`Sprite.cpp:795-806`),
+            // a glow multiplies the color by its blend, and `DrawSpriteModel` writes `{ r, g, b, a }`
+            // into every vertex for the pixel shader to multiply the texture by (`sprite_ps2x.fxc:35`).
+            //
+            // **`kRenderNormal` is the texture alone**: its shader branch declares no vertex color
+            // (`SetSpriteCommonShadowState( 0 )`), so neither the color nor the brightness reaches it.
+            (Vector3 color, float alpha) = prop.Pose.RenderMode == RenderModes.Normal
+                ? (Vector3.One, 1f)
+                : (Tint(prop.Pose.RenderColor) * blend, state.Brightness / 255f);
+
+            EntitySprites.Corners(origin, right, up, sprite.Extents, scale, color, alpha, corners);
 
             Drawn++;
         }
 
-        foreach ((string path, List<DetailSpriteVertex> corners) in _byMaterial)
+        foreach (((string path, SpriteBlend blending), List<DetailSpriteVertex> corners) in _byMaterial)
         {
-            if (corners.Count > 0 && materials.TryGetValue(path, out ParticleMaterial material))
+            if (corners.Count > 0 && sprites.TryGetValue(path, out EngineSprite sprite))
             {
-                _batches.Add(new ParticleBatch(corners, material));
+                _batches.Add(new ParticleBatch(corners, sprite.Material with { Blend = blending }));
             }
         }
 
         return _batches;
     }
+
+    /// <summary><c>m_clrRender</c>'s three bytes as the renderer's zero-to-one color.</summary>
+    private static Vector3 Tint((byte Red, byte Green, byte Blue) color) =>
+        new(color.Red / 255f, color.Green / 255f, color.Blue / 255f);
 }

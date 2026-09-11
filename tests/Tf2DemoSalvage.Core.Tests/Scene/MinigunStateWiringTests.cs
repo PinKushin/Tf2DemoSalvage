@@ -1,5 +1,3 @@
-using System;
-
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
@@ -23,9 +21,6 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class MinigunStateWiringTests
 {
-    /// <summary>Entity slot the prop occupies.</summary>
-    private const int Prop = 9;
-
     /// <remarks>
     /// **This is the REBUILD path, and naming it took a sabotage to get right.** `At` subtracts
     /// `InterpolationDelayTicks` (8) and then refuses any keyframe that has not arrived —
@@ -48,7 +43,7 @@ public sealed class MinigunStateWiringTests
             (Tick: 0, Sequence: 0, Parity: 0),
             (Tick: 660, Sequence: 0, Parity: 0)));
 
-        Pose(timeline, at: 660).MinigunState.ShouldBe(
+        SyntheticProp.PoseAt(timeline, 660).MinigunState.ShouldBe(
             3,
             "the fixture sends AC_STATE_SPINNING, and the pose is what the renderer reads");
     }
@@ -68,25 +63,8 @@ public sealed class MinigunStateWiringTests
             (Tick: 0, Sequence: 0, Parity: 0),
             (Tick: 660, Sequence: 1, Parity: 1)));
 
-        Pose(timeline, at: 330).MinigunState.ShouldBe(
+        SyntheticProp.PoseAt(timeline, 330).MinigunState.ShouldBe(
             3,
             "the earlier keyframe is what a client would be holding, and it says spinning");
-    }
-
-    /// <summary>The prop's pose at a tick, read the way the renderer reads it.</summary>
-    private static ScenePose Pose(DemoTimeline timeline, double at)
-    {
-        System.Collections.Generic.List<SceneProp> drawn = [];
-        timeline.PropsAt(at, drawn);
-
-        foreach (SceneProp prop in drawn)
-        {
-            if (prop.EntityIndex == Prop)
-            {
-                return prop.Pose;
-            }
-        }
-
-        throw new InvalidOperationException($"the fixture drew no prop {Prop} at {at}");
     }
 }
