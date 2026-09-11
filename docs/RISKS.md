@@ -28663,7 +28663,48 @@ kept privately. It is now shared, and Scene.Tests compiles the same file in by l
   `$bumpmap` takes its mapping size from the bump map in the engine; here `Resolve` finds no base
   texture, and a sprite with none is skipped and counted. A material with no texture at all is 64 by 64
   in the engine. Whether any sprite material lacks a `$basetexture` is not measured.
-- **`Patch` sprite materials** are still read unpatched, as B390 said.
+- **`Patch` sprite materials** — fixed next; see "B390 FIXED 2026-09-10: patched sprite materials".
 
 *Evidence class: read from the disassembly for every engine fact above, with the instruction quoted
 for the one that decides it; differential for the four sabotages.*
+
+### B390 FIXED 2026-09-10: patched sprite materials — the sprite and particle path follows `include`
+
+**The last open item of B390.** `ReadVmt`, which the sprite loader and the particle path both use,
+returned a `Patch` material as the patch file itself. `Resolve`, the world's path, followed its
+`include` and laid the patch's keys over the included material. So a patched sprite reported the
+shader `Patch`, took the untranslated branch of `SpriteOrientation` (B390 item 1), and drew
+`vp_parallel` as upright. Its sheet was also looked up from the patch's texture, which a patch that
+replaces nothing but an origin does not name at all.
+
+**What was done.** `VmtMaterial.Load(content, find)` is now the one place a patch's include is
+followed: parse, then if the shader is `Patch` and its include is found, `ApplyPatch` over the
+included material. `Resolve` calls it where it had the same three lines inline, and `ReadVmt` calls it
+where it had none. The rule for a missing include, which leaves the patch as it is, is `Resolve`'s
+unchanged, so nothing the world path resolved changes.
+
+**Proved by manipulation**, two rounds:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| the `IsPatch` gate removed, so any material with an `include` key follows it | `Load_AMaterialThatIsNotAPatch_NeverAsksForItsInclude` |
+| a found include returned as it is, without the patch's keys | `Load_APatchOfASpriteMaterial_DrawsAsTheSpriteWithThePatchsKeys`, on the origin |
+
+Nothing else reddened, and both were restored with their inverse edits. The first try at the second
+sabotage wrote `? material : material`, which an analyzer would have refused as identical branches,
+a compile error in place of a test result. It was replaced before any run.
+
+**Still open.**
+
+- **`ReadVmt` calling `Load` has no test.** It is private, and exercising it needs a map's archives;
+  the change is the one call.
+- **Whether the engine follows a patch of a patch** is not established. This follows one level, as
+  `Resolve` always did; the patch logic is the closed material system's.
+- **How many sprite or particle materials are patches** is not measured, so how often the old path was
+  wrong is unknown. A shipped particle or sprite VMT that is a `Patch` would be the specimen.
+- **A malformed include now throws in the particle path's `Sequences`**, which runs before `Resolve`
+  there. `Resolve` catches and logs it; `Sequences` never did for the material itself either, so this
+  widens an existing gap rather than opening one. Not observed on any map.
+
+*Evidence class: differential for the two sabotages; the patch semantics are this project's existing
+`ApplyPatch`, now applied on the path that skipped it.*

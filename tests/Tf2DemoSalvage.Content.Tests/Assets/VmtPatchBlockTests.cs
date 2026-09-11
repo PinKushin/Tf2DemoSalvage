@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -172,6 +173,77 @@ public sealed class VmtPatchBlockTests
             """)
             .BaseTexture.ShouldBe("models/real");
     }
+
+    /// <remarks>
+    /// **A patched sprite is a sprite** (B390). Unpatched, this reads as shader <c>Patch</c>, whose
+    /// <c>$spriteorientation</c> is not translated, so the included material's <c>vp_parallel</c> is lost
+    /// and the default upright orientation takes its place. Patched, the shader is the included
+    /// <c>Sprite</c>, its orientation survives, and the patch's own origin is laid over it.
+    /// </remarks>
+    [Test]
+    public void Load_APatchOfASpriteMaterial_DrawsAsTheSpriteWithThePatchsKeys()
+    {
+        const string Included = """
+            "Sprite"
+            {
+                "$basetexture" "sprites/light_glow03"
+                "$spriteorientation" "vp_parallel"
+                "$spriteorigin" "[ 0.50 0.50 ]"
+            }
+            """;
+
+        VmtMaterial material = VmtMaterial.Load(
+            Bytes("""
+                "patch"
+                {
+                    "include" "materials/sprites/light_glow03.vmt"
+                    "replace" { "$spriteorigin" "[ 0.50 0.00 ]" }
+                }
+                """),
+            path => path == "materials/sprites/light_glow03.vmt" ? Bytes(Included) : null);
+
+        material.Shader.ShouldBe("Sprite");
+        material.SpriteOrientation.ShouldBe(SpriteOrientation.Parallel);
+        material.SpriteOrigin.ShouldBe((0.5f, 0f));
+    }
+
+    [Test]
+    public void Load_APatchWhoseIncludeIsMissing_IsThePatchItself()
+    {
+        VmtMaterial material = VmtMaterial.Load(Bytes(RealPatch), _ => null);
+
+        material.IsPatch.ShouldBeTrue();
+        material.EnvMap.ShouldBe("maps/cp_process_final/c1568_1728_976");
+    }
+
+    /// <remarks>
+    /// **The control on the gate**: only a <c>Patch</c> follows <c>include</c>. A material of any other
+    /// shader carrying the key is read as it is, and nothing is asked for.
+    /// </remarks>
+    [Test]
+    public void Load_AMaterialThatIsNotAPatch_NeverAsksForItsInclude()
+    {
+        List<string> asked = [];
+
+        VmtMaterial material = VmtMaterial.Load(
+            Bytes("""
+                "LightmappedGeneric"
+                {
+                    "include" "materials/models/base.vmt"
+                    "$basetexture" "models/real"
+                }
+                """),
+            path =>
+            {
+                asked.Add(path);
+                return null;
+            });
+
+        asked.ShouldBeEmpty();
+        material.BaseTexture.ShouldBe("models/real");
+    }
+
+    private static byte[] Bytes(string text) => Encoding.UTF8.GetBytes(text);
 
     private static VmtMaterial Parse(string text) => VmtMaterial.Parse(Encoding.UTF8.GetBytes(text));
 }

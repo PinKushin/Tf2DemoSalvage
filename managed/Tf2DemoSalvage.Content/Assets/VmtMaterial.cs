@@ -1618,6 +1618,33 @@ public sealed class VmtMaterial
         return new VmtMaterial(included.Shader, merged);
     }
 
+    /// <summary>Parses a VMT and, if it is a <c>Patch</c>, merges it over the material it includes.</summary>
+    /// <param name="content">The file's bytes.</param>
+    /// <param name="find">Reads a file by its path from wherever materials live, or null when it is absent.</param>
+    /// <returns>The material as it draws: patched when it is a patch whose include was found.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="find"/> is null.</exception>
+    /// <exception cref="InvalidDataException">The file or its include is not a readable VMT.</exception>
+    /// <remarks>
+    /// **The one place a patch's <c>include</c> is followed** (B390). The world's material path did it
+    /// and the sprite and particle path did not, so a patched sprite reported the shader <c>Patch</c>,
+    /// took the untranslated branch of <see cref="SpriteOrientation"/>, and read its sheet from the
+    /// patch's texture instead of the one it draws with. The material system applies a patch on every
+    /// load; a reader that can skip it answers for a material no game ever draws.
+    ///
+    /// **An include that is not found leaves the patch as it is**, the same answer the world path gave
+    /// before this was shared, so nothing it resolved changes.
+    /// </remarks>
+    public static VmtMaterial Load(ReadOnlyMemory<byte> content, Func<string, byte[]?> find)
+    {
+        ArgumentNullException.ThrowIfNull(find);
+
+        VmtMaterial material = Parse(content);
+
+        return material.IsPatch && material.Include is { } include && find(include) is { } based
+            ? ApplyPatch(material, Parse(based))
+            : material;
+    }
+
     private float Number(string key, float fallback)
     {
         string? text = Value(key);

@@ -2224,11 +2224,11 @@ public sealed class MapAssets
         return sprites;
     }
 
-    /// <summary>A material's own file, parsed, or null when there is none.</summary>
+    /// <summary>A material as it draws, parsed and patched, or null when there is no file.</summary>
     /// <remarks>
-    /// **Unpatched**: a `Patch` material comes back as the patch, where `Resolve` applies its
-    /// `include`. That was already true of the particle path this was split out of, and B390 records it
-    /// rather than widening this change to fix it.
+    /// **Patched, through the same <see cref="VmtMaterial.Load"/> the world's path uses** (B390). This
+    /// returned the patch itself until then, so a patched sprite or particle material reported the
+    /// shader `Patch` and read its orientation and its sheet from the wrong file.
     /// </remarks>
     private static VmtMaterial? ReadVmt(string material, PakFile pak, GameArchives archives)
     {
@@ -2240,7 +2240,7 @@ public sealed class MapAssets
         string vmtPath = $"materials/{material}.vmt";
 
         return (pak.ReadFile(vmtPath) ?? archives.Read(vmtPath)) is { Length: > 0 } vmt
-            ? VmtMaterial.Parse(vmt)
+            ? VmtMaterial.Load(vmt, path => pak.ReadFile(path) ?? archives.Read(path))
             : null;
     }
 
@@ -2334,12 +2334,7 @@ public sealed class MapAssets
 
         try
         {
-            material = VmtMaterial.Parse(vmt);
-
-            if (material.IsPatch && material.Include is { } include && Find(include) is { } based)
-            {
-                material = VmtMaterial.ApplyPatch(material, VmtMaterial.Parse(based));
-            }
+            material = VmtMaterial.Load(vmt, Find);
         }
         catch (InvalidDataException failure)
         {

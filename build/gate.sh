@@ -1379,7 +1379,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 444
 # default, and the untranslated shader) and `$spriteorigin`'s vector test (four).
 # 1150 -> 1154 on 2026-09-10: four for B390's mapping size in VtfMappingSizeConformanceTests — the
 # full-size control, a dropped level on each return path, and a non-power-of-two header.
-run Tf2DemoSalvage.Content.Tests  content   1154
+# 1154 -> 1157 on 2026-09-10: three for B390's patched sprite materials in VmtPatchBlockTests — a
+# patched Sprite drawing as the sprite with the patch's keys, a missing include leaving the patch, and
+# the control that a material that is not a Patch never asks for its include.
+run Tf2DemoSalvage.Content.Tests  content   1157
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
