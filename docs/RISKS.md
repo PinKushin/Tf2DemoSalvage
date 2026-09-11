@@ -29152,3 +29152,76 @@ reddened exactly as predicted; restored.
 
 *Evidence class: differential (red on the old value, green on the fix), read from the decompile for
 the engine's registration.*
+
+### B372/B373, reconfirmed 2026-09-11: a rocket still draws, on a demo neither fix was checked against
+
+**The owner watched f12 live-play and reported no rockets drawn at all**, worried the last few days'
+work had cost something. It had not — D162/B393/B394 are the map downloader and its checksum, an
+unrelated part of the codebase.
+
+**The `projectiles` probe against `demostf-cp_process_f12-2026-08-07.dem`**: 1,669 `CTFProjectile_Rocket`
+tracks, every one with a model path (`models/weapons/w_models/w_rocket.mdl`); 1,209
+`CTFGrenadePipebombProjectile` (stickies, which the owner said do draw); 29 `CTFBall_Ornament`
+(the Wrap Assassin/Holiday Punch ball), all with model paths too — the same fix as the rocket, not
+independently confirmed by a screenshot yet.
+
+**Confirmed by looking, on THIS demo rather than reusing the earlier `z1800` confirmation**: entity 407,
+tick 51093, `(-2478 -2452 699)`. `TF2VIEW_CAMERA` placed above it looking down (Source's pitch
+convention is positive-down; the first attempt used `-89` and got sky) drew the rocket exactly where
+tracked.
+
+**What is genuinely missing is the explosion and the trail**, which is B373 exactly as filed: no
+particle system exists in this project, so a rocket in flight draws bare and an impact draws nothing.
+That is real, filed, unbuilt work — not a new finding.
+
+**Why it reads as "not drawn at all" from normal play**: a rocket is airborne for roughly the same
+number of ticks whichever demo it came from — under a second of screen time, with no trail to catch
+the eye and follow it. The model is there for exactly as long as the wire says, which the sabotage
+in B372 already proved would fail loudly if it were not.
+
+*Evidence class: measured (the probe's counts), confirmed by looking (the screenshot, this session).*
+
+### B395 OPEN 2026-09-11: a soldier corpse draws with no head
+
+**Reported by the owner, F5 screenshot from the same f12 session**: a red soldier ragdoll with its
+torso and legs drawn, arm reaching down, and nothing where the head should be. Two captures a few
+seconds apart, both first-person and both moving (autoplay), show the same gap.
+
+**Not yet identified against a specific entity or tick.** The screenshot's HUD line gives the
+free-camera's own position, not the corpse's, and nothing here cross-references it to one of the two
+soldier `CTFRagdoll` entities (2072, 2136) the `corpses` probe found in this demo. Decapitation
+(`RagdollProps.Decapitation` and its three siblings) only ever drops the HEAD/MISC-slot *worn items*
+— a hat, say — never the base class model's own head geometry, so that logic is very unlikely to be
+the cause even if this soldier's death happened to carry a decapitating `m_iDamageCustom`.
+
+**Two live hypotheses, neither checked:**
+
+- A bodygroup the base soldier model expects to be shown is left at a default that hides the head —
+  the head is part of the same base mesh as the rest of the body, so this would need a specific
+  bodygroup index wrong, not a missing sub-model.
+- The pose is genuinely contorted enough that the head bone rotated out of frame or behind the torso
+  from that specific camera angle, and nothing is actually missing — `docs/memory/one-look-can-be-two-mechanisms.md`
+  applies directly: a screenshot alone cannot tell "not drawn" from "posed elsewhere".
+
+**Next step:** find which of 2072/2136 (or another soldier corpse) matches the screenshot's tick and
+look at it from another angle before touching any drawing code.
+
+*Evidence class: owner observation with two screenshots; not yet reproduced from a known tick.*
+
+### B396 OPEN 2026-09-11: no healing beam is drawn
+
+**Reported by the owner in the same message as B395.** Bundled with the rocket/ball report but a
+different mechanism entirely: a healing beam is not a networked projectile, and this project has
+nothing for it at all — `grep -rl "Beam" managed/` (excluding `bin`/`obj`) returns **zero files** in
+the entire codebase. The control that the search itself works: the same grep for `Rocket` hits six.
+The `projectiles` probe's family list has no beam entry either, because a beam was never in question
+when it was written.
+
+**Nothing has been read from the engine for this yet.** A medigun's beam in TF2 is drawn client-side by
+the weapon itself, not spawned as a separate entity the demo names — `CWeaponMedigun`'s draw path is
+where to start reading, not the entity list. Whether that path needs new networked state this project
+already decodes and ignores, or state it has never decoded, is the first question, before any drawing
+code is written.
+
+*Evidence class: owner observation; the "nothing decodes it" half is a grep, not yet a read of the
+engine's own draw path.*
