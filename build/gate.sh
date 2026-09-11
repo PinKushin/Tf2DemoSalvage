@@ -1742,7 +1742,11 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 #
 # 754 -> 769 on 2026-09-09: closed DRIFT, not 15 new tests, measured in the same pass as animation's
 # 111 -> 252 above and for the same reason. Nothing was added or removed here.
-run Tf2DemoSalvage.Rendering.Tests rendering 769
+# 769 -> 777 on 2026-09-11: eight for D162 in MapDownloaderTests — the compressed file first and the
+# plain fallback, the demo's own sv_downloadurl before the mirror and only when it is HTTP, a wrong
+# version refused and the next source tried, nothing kept when no source has it, a version kept under
+# its checksum, and a bzip2 body expanding past the cap refused.
+run Tf2DemoSalvage.Rendering.Tests rendering 777
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

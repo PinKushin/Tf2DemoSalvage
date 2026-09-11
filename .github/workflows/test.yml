@@ -582,7 +582,8 @@ jobs:
           # from the .trx this job uploaded, and it closes the "gap to the local gate" the three
           # notes above kept deferring — the two numbers are now the same because both were read
           # off a run rather than one being raised by a delta.
-          ./build/assert-test-count.sh '**/rendering.trx' 769 Rendering
+          # 769 -> 777 on 2026-09-11: eight for D162, the map downloader in the engine's order.
+          ./build/assert-test-count.sh '**/rendering.trx' 777 Rendering
           # 14 -> 31 on 2026-09-09: closed DRIFT, not 17 new tests, measured on the same run.
           # **This suite is guarded HERE ONLY** — build/gate.sh has no floor for it, because the UI
           # phase runs outside the gate under the machine-wide lock. A floor of 14 against 31 left

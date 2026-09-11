@@ -28988,3 +28988,64 @@ screen. Whether they match the 2008 game is his to say, and the captures were se
 
 *Evidence class: measured tables from the period installs; differential for the four sabotages and
 the before/after capture; the owner's observation for the symptom.*
+
+### B392 OPEN 2026-09-11: the map downloader asked one mirror for the plain file of any version, where the engine asks the demo's server for the compressed file first
+
+**Found while planning D162**, by reading what the engine does with `sv_downloadurl` before extending
+`MapDownloader`.
+
+**The engine, from TF2's x64 `engine.dll`** (project `tf2engine` under `D:\ghidra-proj`; the addresses
+are that build's). The download queue at `18017e170`:
+
+- asks `1801cf450` whether the file may be downloaded at all: a filter on path and extension whose
+  allowed list includes `.bsp.bz2`, and which refuses paths such as `vscripts/` and `addons/`;
+- returns if the file is already on disk;
+- uses the server's URL only when the value begins `"http://"` or `"https://"`;
+- then queues `"%s.bz2"`, the compressed file, if it is not already on disk, and then the plain
+  file.
+
+**This project's `MapDownloader`** asked one fixed mirror for the plain `.bsp` only, never the
+demo's own server, and never compared what arrived with the checksum the demo recorded. So a server
+that serves only `.bsp.bz2`, which is common, gave nothing, and any version of a Valve map was kept
+as though it were the recorded one.
+
+*Evidence class: read from the decompile for the engine's order, and from the source for ours.*
+
+### B392 FIXED 2026-09-11: the demo's own server first, the compressed file first, and only the recorded version kept
+
+- **`MapWanted`** carries the name, the checksum the demo recorded, and the demo's `sv_downloadurl` as a
+  `Uri`. The analyzers refused it as a string, and the type is better: the engine's `http://` /
+  `https://` test becomes a test of the scheme.
+- **`TryDownloadAsync(MapWanted)`** tries the demo's URL, when it is HTTP, then the mirror; at each
+  `ROOT/maps/NAME.bsp.bz2` and then `.bsp`. A file is kept only if it is a map and, where a checksum
+  was recorded, `BspMapChecksum.Matches` does not say no. A header that will not parse is refused.
+- **bzip2 through SharpZipLib 1.4.2**, a new package, capped while expanding at the download cap.
+- **A known version is cached as `NAME.<CHECKSUM>.bsp`**, so versions of one Valve map sit side by side.
+- **`DefaultMirror` is a root now**, `https://fastdl.serveme.tf/`, as an `sv_downloadurl` is.
+
+**Proved by manipulation**, two rounds with disjoint predictions:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| plain file before compressed | the compressed-first, fallback-order and demo-first tests |
+| the version check never refuses | the two wrong-version tests |
+| decompression uncapped | the expands-past-the-cap test |
+| the demo's own URL never asked | the demo-first test |
+| the cache name ignores the checksum | the kept-under-its-checksum test |
+
+**A fixture was wrong first.** The seeded fake map put its lump at offset 1024, inside the 1,036-byte
+BSP header, and the checksum reader rightly refused it; the lump moved to 2048.
+
+**Still open.**
+
+- **Nothing calls it with a checksum or a demo URL yet.** `MapProvider.FetchAsync` still passes the name
+  alone, and a map found in the install is not checked against the demo's checksum. That wiring is the
+  next slice of D162.
+- **Two engine details not settled by the decompile:** whether its `http://` comparison ignores case,
+  and whether it inserts the `/` between the URL and the path. This admits either case and adds a
+  missing slash. Both are named in `Roots`.
+- **The engine's file filter (`1801cf450`) is not reproduced.** Only map names are ever requested here,
+  and `EnsureIsAName` already refuses a path, so no filtered file can be asked for. The filter matters
+  once anything but a map is fetched.
+
+*Evidence class: differential for the five sabotages; read from the decompile for the engine's order.*

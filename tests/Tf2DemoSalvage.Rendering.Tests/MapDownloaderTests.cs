@@ -1,11 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
+using ICSharpCode.SharpZipLib.BZip2;
+
+using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -164,18 +169,226 @@ public sealed class MapDownloaderTests
         MapDownloader.DefaultMirror.ShouldStartWith("https://");
     }
 
-    private const string MirrorUrl = "https://example.invalid/maps/";
+    /// <remarks>
+    /// **The compressed file first, as the engine queues it** (D162). `engine.dll`'s download queue
+    /// formats <c>"%s.bz2"</c> and queues it before the plain file whenever the server's URL is HTTP,
+    /// so a fast-download server that carries only <c>.bsp.bz2</c> — most of them — still works.
+    /// </remarks>
+    [Test]
+    public async Task Download_ACompressedMapOnTheServer_IsAskedForFirstAndDecompressed()
+    {
+        byte[] map = FakeBsp(4096, seed: 7);
+        UrlHandler handler = new((MirrorUrl + "maps/cp_granary.bsp.bz2", Bzip2(map)));
+        using MapDownloader downloader = new(new HttpClient(handler), _folder, MirrorUrl);
+
+        string? path = await downloader
+            .TryDownloadAsync(new MapWanted("cp_granary"), CancellationToken.None)
+            .ConfigureAwait(false);
+
+        path.ShouldNotBeNull();
+        (await File.ReadAllBytesAsync(path).ConfigureAwait(false)).ShouldBe(map);
+        handler.Asked[0].ShouldBe(MirrorUrl + "maps/cp_granary.bsp.bz2");
+    }
+
+    /// <remarks>
+    /// **Then the plain file**, which the engine queues second.
+    /// </remarks>
+    [Test]
+    public async Task Download_NoCompressedFile_FallsBackToThePlainOne()
+    {
+        byte[] map = FakeBsp(4096, seed: 3);
+        UrlHandler handler = new((MirrorUrl + "maps/cp_granary.bsp", map));
+        using MapDownloader downloader = new(new HttpClient(handler), _folder, MirrorUrl);
+
+        string? path = await downloader
+            .TryDownloadAsync(new MapWanted("cp_granary"), CancellationToken.None)
+            .ConfigureAwait(false);
+
+        path.ShouldNotBeNull();
+        handler.Asked.ShouldBe([MirrorUrl + "maps/cp_granary.bsp.bz2", MirrorUrl + "maps/cp_granary.bsp"]);
+    }
+
+    /// <remarks>
+    /// **The demo's own server first** (D162). A match demo records its server's <c>sv_downloadurl</c>,
+    /// which is where that server's own clients fetched the map from; the fixed mirror is the fallback.
+    /// </remarks>
+    [Test]
+    public async Task Download_TheDemosOwnDownloadUrl_IsAskedBeforeTheMirror()
+    {
+        const string Demo = "https://server.invalid/tf/";
+        byte[] map = FakeBsp(4096, seed: 5);
+        UrlHandler handler = new((Demo + "maps/koth_x.bsp", map));
+        using MapDownloader downloader = new(new HttpClient(handler), _folder, MirrorUrl);
+
+        string? path = await downloader
+            .TryDownloadAsync(new MapWanted("koth_x", DemoDownloadUrl: new Uri(Demo)), CancellationToken.None)
+            .ConfigureAwait(false);
+
+        path.ShouldNotBeNull();
+        handler.Asked[0].ShouldBe(Demo + "maps/koth_x.bsp.bz2");
+        handler.Asked.ShouldNotContain(url => url.StartsWith(MirrorUrl, StringComparison.Ordinal));
+    }
+
+    /// <remarks>
+    /// **Only an HTTP address is a download URL**: the engine tests the value for <c>"http://"</c> and
+    /// <c>"https://"</c> before using it. Anything else — a typo, a bare host — is not asked.
+    /// </remarks>
+    [Test]
+    public async Task Download_ADemoDownloadUrlThatIsNotHttp_IsNotAsked()
+    {
+        UrlHandler handler = new((MirrorUrl + "maps/koth_x.bsp", FakeBsp(4096, seed: 5)));
+        using MapDownloader downloader = new(new HttpClient(handler), _folder, MirrorUrl);
+
+        await downloader
+            .TryDownloadAsync(new MapWanted("koth_x", DemoDownloadUrl: new Uri("ftp://server.invalid/tf/")), CancellationToken.None)
+            .ConfigureAwait(false);
+
+        handler.Asked.ShouldAllBe(url => url.StartsWith(MirrorUrl, StringComparison.Ordinal));
+    }
+
+    /// <remarks>
+    /// **The wrong version is refused and the next source tried** (D162). The demo's own server holds a
+    /// map whose checksum is not the recorded one; the mirror holds the right one, which is kept.
+    /// </remarks>
+    [Test]
+    public async Task Download_AMapWhoseChecksumDiffers_IsRefusedAndTheNextSourceTried()
+    {
+        const string Demo = "https://server.invalid/tf/";
+        byte[] wrong = FakeBsp(4096, seed: 1);
+        byte[] right = FakeBsp(4096, seed: 2);
+        UrlHandler handler = new(
+            (Demo + "maps/cp_badlands.bsp", wrong),
+            (MirrorUrl + "maps/cp_badlands.bsp", right));
+        using MapDownloader downloader = new(new HttpClient(handler), _folder, MirrorUrl);
+
+        string? path = await downloader
+            .TryDownloadAsync(new MapWanted("cp_badlands", Md5(right), new Uri(Demo)), CancellationToken.None)
+            .ConfigureAwait(false);
+
+        path.ShouldNotBeNull();
+        (await File.ReadAllBytesAsync(path).ConfigureAwait(false)).ShouldBe(right);
+    }
+
+    /// <remarks>
+    /// **Nothing that matches, nothing kept.** Every source holds only a different version, so the answer
+    /// is no map, and no file is left behind for a later open to find.
+    /// </remarks>
+    [Test]
+    public async Task Download_OnlyTheWrongVersionAnywhere_IsNullAndKeepsNothing()
+    {
+        UrlHandler handler = new((MirrorUrl + "maps/cp_badlands.bsp", FakeBsp(4096, seed: 1)));
+        using MapDownloader downloader = new(new HttpClient(handler), _folder, MirrorUrl);
+
+        string? path = await downloader
+            .TryDownloadAsync(new MapWanted("cp_badlands", Md5(FakeBsp(4096, seed: 2))), CancellationToken.None)
+            .ConfigureAwait(false);
+
+        path.ShouldBeNull();
+        Directory.GetFiles(_folder, "*", SearchOption.AllDirectories).ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **A version is kept under its checksum**, so two versions of one Valve map — which keeps its name
+    /// across updates — sit side by side, and the right one is found again without a download.
+    /// </remarks>
+    [Test]
+    public async Task Download_AMapWithAKnownChecksum_IsKeptUnderItAndNotFetchedAgain()
+    {
+        byte[] map = FakeBsp(4096, seed: 9);
+        UrlHandler handler = new((MirrorUrl + "maps/cp_badlands.bsp", map));
+        using MapDownloader downloader = new(new HttpClient(handler), _folder, MirrorUrl);
+        MapWanted wanted = new("cp_badlands", Md5(map));
+
+        string? first = await downloader.TryDownloadAsync(wanted, CancellationToken.None).ConfigureAwait(false);
+        int asked = handler.Asked.Count;
+        string? second = await downloader.TryDownloadAsync(wanted, CancellationToken.None).ConfigureAwait(false);
+
+        first.ShouldNotBeNull();
+        Path.GetFileName(first).ShouldBe("cp_badlands." + Convert.ToHexString(Md5(map)) + ".bsp");
+        second.ShouldBe(first);
+        handler.Asked.Count.ShouldBe(asked, "the right version was downloaded twice");
+    }
+
+    /// <remarks>
+    /// **A compressed file that expands past the cap is refused**, because a few kilobytes of bzip2 can
+    /// decompress to gigabytes and the server chooses what it sends.
+    /// </remarks>
+    [Test]
+    public async Task Download_ACompressedFileThatExpandsPastTheCap_IsRefusedAndNotKept()
+    {
+        UrlHandler handler = new((MirrorUrl + "maps/cp_granary.bsp.bz2", Bzip2(FakeBsp(65536, seed: 4))));
+        using MapDownloader downloader = new(new HttpClient(handler), _folder, MirrorUrl, maximumBytes: 8192);
+
+        (await downloader.TryDownloadAsync(new MapWanted("cp_granary"), CancellationToken.None).ConfigureAwait(false))
+            .ShouldBeNull();
+
+        Directory.GetFiles(_folder, "*", SearchOption.AllDirectories).ShouldBeEmpty();
+    }
+
+    private const string MirrorUrl = "https://example.invalid/";
 
     private MapDownloader Downloader(byte[] response) =>
         new(new HttpClient(new RecordingHandler(response)), _folder, MirrorUrl);
 
     /// <summary>Bytes that pass the BSP check: the magic, a version, and a lump directory.</summary>
-    private static byte[] FakeBsp(int length)
+    /// <param name="length">The file's length; at least 3072 when a seed is given.</param>
+    /// <param name="seed">Fills lump 1, so two seeds give two maps with different checksums.</param>
+    private static byte[] FakeBsp(int length, byte seed = 0)
     {
         byte[] bytes = new byte[length];
         Encoding.ASCII.GetBytes("VBSP").CopyTo(bytes, 0);
         BitConverter.GetBytes(20).CopyTo(bytes, 4);
+
+        if (seed != 0)
+        {
+            // Lump 1's directory entry — fileofs, filelen — pointing at 1024 bytes of the seed. Lump 0,
+            // the entities, is the one the engine's checksum leaves out, so the content goes in 1.
+            // **Past the 1,036-byte header**: magic, version, 64 lumps of 16 bytes, the map revision. A
+            // first version put the lump at 1024, inside the header, and the checksum refused it.
+            const int Offset = 2048;
+            const int Length = 1024;
+            BitConverter.GetBytes(Offset).CopyTo(bytes, 8 + 16);
+            BitConverter.GetBytes(Length).CopyTo(bytes, 8 + 16 + 4);
+            bytes.AsSpan(Offset, Length).Fill(seed);
+        }
+
         return bytes;
+    }
+
+    /// <summary>The bytes, bzip2-compressed, as a fast-download server stores a map.</summary>
+    private static byte[] Bzip2(byte[] bytes)
+    {
+        using MemoryStream compressed = new();
+
+        using (BZip2OutputStream writer = new(compressed) { IsStreamOwner = false })
+        {
+            writer.Write(bytes);
+        }
+
+        return compressed.ToArray();
+    }
+
+    /// <summary>A map's sixteen-byte checksum, the form a 2013-onward demo records.</summary>
+    private static byte[] Md5(byte[] map) => BspMapChecksum.OfMap(map).Md5;
+
+    /// <summary>Answers the URLs it was given and 404 for the rest, recording every request in order.</summary>
+    private sealed class UrlHandler(params (string Url, byte[] Body)[] files) : HttpMessageHandler
+    {
+        private readonly Dictionary<string, byte[]> _files = files.ToDictionary(
+            file => file.Url, file => file.Body, StringComparer.Ordinal);
+
+        public List<string> Asked { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri?.ToString() ?? string.Empty;
+            Asked.Add(url);
+
+            return Task.FromResult(_files.TryGetValue(url, out byte[]? body)
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(body) }
+                : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new ByteArrayContent([]) });
+        }
     }
 
     private sealed class RecordingHandler(byte[] response, HttpStatusCode status = HttpStatusCode.OK)

@@ -1,25 +1,51 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
+using ICSharpCode.SharpZipLib;
+using ICSharpCode.SharpZipLib.BZip2;
+
 using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Scene;
+
+/// <summary>A map an old demo needs: its name, the version it recorded, and where its server served maps.</summary>
+/// <param name="Name">The map, without extension, as the demo header names it.</param>
+/// <param name="Checksum">
+/// What <c>svc_ServerInfo</c> recorded — the four-byte CRC through 2011, the sixteen-byte hash from 2013 —
+/// or null when the demo says nothing comparable; see <see cref="BspMapChecksum.Matches"/>.
+/// </param>
+/// <param name="DemoDownloadUrl">
+/// The recording server's <c>sv_downloadurl</c>, or null when it sent none or sent something that is not
+/// an absolute address. Only an http or https one is ever asked.
+/// </param>
+public readonly record struct MapWanted(
+    string Name,
+    IReadOnlyList<byte>? Checksum = null,
+    Uri? DemoDownloadUrl = null);
 
 /// <summary>
 /// Fetches a map the user does not have, from a public fast-download mirror.
 /// </summary>
 /// <remarks>
 /// **This is the mechanism a game server already uses.** Joining a server whose map you lack pulls
-/// the file from its <c>sv_downloadurl</c> and drops it into your own maps folder. There is no
-/// server here, so the source is a public mirror serving the same layout — <c>/maps/NAME.bsp</c>.
+/// the file from its <c>sv_downloadurl</c> and drops it into your own maps folder. A demo recorded on
+/// such a server carries that URL, so it is asked first; a public mirror serving the same layout —
+/// <c>ROOT/maps/NAME.bsp</c> — is the fallback (D162).
 ///
-/// The mirror serves both <c>.bsp</c> and <c>.bsp.bz2</c>. The uncompressed form is taken
-/// deliberately: bzip2 would be a decompressor to add, to maintain, and to harden against hostile
-/// input, in exchange for bandwidth that is not this project's to optimise.
+/// **In the engine's order, read from `engine.dll`'s download queue.** It uses the server's URL only
+/// when the value begins <c>"http://"</c> or <c>"https://"</c>, and queues <c>"%s.bz2"</c> — the
+/// compressed file — before the plain one, unless the compressed one is already on disk. This took the
+/// uncompressed form alone until D162, on the reasoning that a decompressor was not worth adding. A
+/// server that carries only <c>.bsp.bz2</c>, which is common, then had nothing to give.
+///
+/// **And the version the demo recorded.** A Valve map keeps its name across updates, so the name
+/// cannot choose the version; the demo's checksum can, through <see cref="BspMapChecksum"/>. A file
+/// whose checksum differs is refused and the next source tried.
 ///
 /// **Everything here is D32 territory.** The map name comes out of a demo header written by a
 /// stranger, the response comes from a host nobody here controls, and the result is fed straight
@@ -42,7 +68,11 @@ public sealed class MapDownloader : IDisposable
     /// HTTPS, and that is not decoration: over plain HTTP anyone on the path could substitute a
     /// file of their choosing, and the result is a forty-megabyte input to a binary parser.
     /// </remarks>
-    public const string DefaultMirror = "https://fastdl.serveme.tf/maps/";
+    /// <remarks>
+    /// A ROOT, as a server's <c>sv_downloadurl</c> is: files are asked for as <c>ROOT/maps/NAME.bsp</c>.
+    /// It named the <c>maps/</c> folder itself until the demo's own URL could be asked too (D162).
+    /// </remarks>
+    public const string DefaultMirror = "https://fastdl.serveme.tf/";
 
     /// <summary>Largest map this will accept, in bytes.</summary>
     /// <remarks>
@@ -104,12 +134,30 @@ public sealed class MapDownloader : IDisposable
     /// players without a world behind them. Anything that would turn "no map" into "no viewer" is
     /// the wrong behaviour for a program whose entire purpose is salvage.
     /// </remarks>
-    public async Task<string?> TryDownloadAsync(string mapName, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(mapName);
-        EnsureIsAName(mapName);
+    public async Task<string?> TryDownloadAsync(string mapName, CancellationToken cancellationToken) =>
+        await TryDownloadAsync(new MapWanted(mapName), cancellationToken).ConfigureAwait(false);
 
-        string destination = Path.Combine(_folder, mapName + ".bsp");
+    /// <summary>Downloads the version of a map a demo was recorded against, unless it is already here.</summary>
+    /// <param name="wanted">The map, the checksum the demo recorded, and the demo's own download URL.</param>
+    /// <param name="cancellationToken">Cancels the download.</param>
+    /// <returns>The path to the map, or null if no source had that version.</returns>
+    /// <exception cref="ArgumentException">The map name is a path.</exception>
+    /// <remarks>
+    /// **Each source, then each form, in the engine's order** (D162): the demo's own
+    /// <c>sv_downloadurl</c> when it is an HTTP address, then the mirror; at each, <c>.bsp.bz2</c> and
+    /// then <c>.bsp</c>. The first file that is a map and, where the demo recorded a checksum, IS that
+    /// map, is kept.
+    ///
+    /// **Kept under its checksum when one is known**, so two versions of a Valve map — one name, many
+    /// files over the years — sit side by side and each is found again without a download. With no
+    /// checksum the file keeps the plain name it always had.
+    /// </remarks>
+    public async Task<string?> TryDownloadAsync(MapWanted wanted, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(wanted.Name);
+        EnsureIsAName(wanted.Name);
+
+        string destination = Path.Combine(_folder, CacheName(wanted));
 
         if (File.Exists(destination))
         {
@@ -118,10 +166,87 @@ public sealed class MapDownloader : IDisposable
             return destination;
         }
 
+        foreach (string root in Roots(wanted))
+        {
+            foreach ((string suffix, bool compressed) in Forms)
+            {
+                byte[]? bytes = await TryFetchAsync(
+                        new Uri(root + "maps/" + wanted.Name + suffix), compressed, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (bytes is null || !LooksLikeBsp(bytes) || IsAnotherVersion(bytes, wanted.Checksum))
+                {
+                    continue;
+                }
+
+                return await KeepAsync(destination, bytes, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The two forms a map is asked for in, compressed first, as the engine queues them.</summary>
+    private static readonly (string Suffix, bool Compressed)[] Forms = [(".bsp.bz2", true), (".bsp", false)];
+
+    /// <summary>Where a map is kept: under its checksum when the demo recorded one.</summary>
+    private static string CacheName(MapWanted wanted) =>
+        wanted.Checksum is { Count: > 0 } checksum
+            ? wanted.Name + "." + Convert.ToHexString([.. checksum]) + ".bsp"
+            : wanted.Name + ".bsp";
+
+    /// <summary>The download roots to try, the demo's own first.</summary>
+    /// <remarks>
+    /// **Only an HTTP address**: the engine compares the value with <c>"http://"</c> and
+    /// <c>"https://"</c> before using it, which here is the address's scheme. A scheme is
+    /// case-insensitive, so an upper-case <c>HTTP://</c> is admitted; whether the engine's own comparison
+    /// ignores case is not settled by the decompile. **A trailing slash is added** where the value lacks
+    /// one, so the path joins; whether the engine does the same is likewise not read, and a server whose
+    /// value lacks the slash would otherwise produce a URL nobody serves.
+    /// </remarks>
+    private IEnumerable<string> Roots(MapWanted wanted)
+    {
+        if (wanted.DemoDownloadUrl is { IsAbsoluteUri: true } own &&
+            (own.Scheme == Uri.UriSchemeHttp || own.Scheme == Uri.UriSchemeHttps))
+        {
+            string address = own.AbsoluteUri;
+            string root = address.EndsWith('/') ? address : address + "/";
+
+            if (!string.Equals(root, _mirror, StringComparison.OrdinalIgnoreCase))
+            {
+                yield return root;
+            }
+        }
+
+        yield return _mirror;
+    }
+
+    /// <summary>Whether a map is a different version from the one the demo recorded.</summary>
+    /// <remarks>
+    /// **Only a definite no refuses it.** No recorded checksum means nothing to compare, and the file
+    /// is taken. A file whose header will not parse cannot be the recorded map, so it is refused too.
+    /// </remarks>
+    private static bool IsAnotherVersion(byte[] bytes, IReadOnlyList<byte>? checksum)
+    {
+        try
+        {
+            return BspMapChecksum.Matches(bytes, checksum) == false;
+        }
+        catch (InvalidDataException)
+        {
+            // A map whose lump directory will not parse is not the recorded map; the next source may
+            // have one that does, so this is a refusal rather than a failure.
+            return true;
+        }
+    }
+
+    /// <summary>One request, decompressed when it is the <c>.bz2</c> form, or null when it gave no file.</summary>
+    private async Task<byte[]?> TryFetchAsync(Uri url, bool compressed, CancellationToken cancellationToken)
+    {
         try
         {
             using HttpResponseMessage response = await _client
-                .GetAsync(new Uri(_mirror + mapName + ".bsp"), cancellationToken)
+                .GetAsync(url, cancellationToken)
                 .ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
@@ -138,11 +263,61 @@ public sealed class MapDownloader : IDisposable
 
             byte[] bytes = await ReadCappedAsync(response, cancellationToken).ConfigureAwait(false);
 
-            if (bytes.Length == 0 || !LooksLikeBsp(bytes))
+            if (bytes.Length == 0)
             {
                 return null;
             }
 
+            return compressed ? Decompress(bytes) : bytes;
+        }
+        catch (Exception failure) when (
+            failure is HttpRequestException or IOException or TaskCanceledException)
+        {
+            // No network, a source that is down, a timeout. The next form or source is tried, and
+            // the caller reports it in the status line if none gives a map.
+            return null;
+        }
+    }
+
+    /// <summary>A bzip2 body, expanded, or null when it is not bzip2 or expands past the cap.</summary>
+    /// <remarks>
+    /// **Capped while expanding**, because the server chooses what it sends and a few kilobytes of
+    /// bzip2 can expand to gigabytes. The cap is the same one the download is held to.
+    /// </remarks>
+    private byte[]? Decompress(byte[] compressed)
+    {
+        try
+        {
+            using MemoryStream input = new(compressed);
+            using BZip2InputStream expanding = new(input);
+            using MemoryStream output = new();
+            byte[] chunk = new byte[81920];
+
+            while (expanding.Read(chunk, 0, chunk.Length) is > 0 and int read)
+            {
+                if (output.Length + read > _maximumBytes)
+                {
+                    return null;
+                }
+
+                output.Write(chunk, 0, read);
+            }
+
+            return output.ToArray();
+        }
+        catch (Exception failure) when (failure is SharpZipBaseException or IOException)
+        {
+            // Not bzip2 — a server that answers the `.bz2` name with the plain file, or with an error
+            // page. The plain form is asked next, so this is a miss rather than a failure.
+            return null;
+        }
+    }
+
+    /// <summary>Writes a map into this program's folder and answers where.</summary>
+    private async Task<string?> KeepAsync(string destination, byte[] bytes, CancellationToken cancellationToken)
+    {
+        try
+        {
             Directory.CreateDirectory(_folder);
 
             // Written to a temporary name and moved into place, so an interrupted download cannot
@@ -154,11 +329,10 @@ public sealed class MapDownloader : IDisposable
             return destination;
         }
         catch (Exception failure) when (
-            failure is HttpRequestException or IOException or TaskCanceledException
-                or UnauthorizedAccessException)
+            failure is IOException or UnauthorizedAccessException or TaskCanceledException)
         {
-            // No network, a mirror that is down, a full disk. None of it is a reason for the
-            // viewer to stop working, and the caller reports it in the status line.
+            // A full disk or a locked folder. Not a reason for the viewer to stop working; the
+            // caller reports the missing map in the status line.
             return null;
         }
     }
