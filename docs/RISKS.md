@@ -29223,11 +29223,22 @@ the entire codebase. The control that the search itself works: the same grep for
 The `projectiles` probe's family list has no beam entry either, because a beam was never in question
 when it was written.
 
-**Nothing has been read from the engine for this yet.** A medigun's beam in TF2 is drawn client-side by
-the weapon itself, not spawned as a separate entity the demo names — `CWeaponMedigun`'s draw path is
-where to start reading, not the entity list. Whether that path needs new networked state this project
-already decodes and ignores, or state it has never decoded, is the first question, before any drawing
-code is written.
+**Read from `tf_weapon_medigun.cpp`, same session.** There is no beam primitive at all — the "beam" is
+a two-control-point PARTICLE effect: `ParticleProp()->Create(pszEffectName, PATTACH_POINT_FOLLOW,
+"muzzle")` attaches control point 0 to the medigun's muzzle, then
+`AddControlPoint(pEffect, 1, m_hHealingTarget, attachType, pszAttachName, ...)` attaches control point
+1 to whoever `m_hHealingTarget` names. Building this needs two things this project does not have:
 
-*Evidence class: owner observation; the "nothing decodes it" half is a grep, not yet a read of the
-engine's own draw path.*
+- **A decoded `m_hHealingTarget`.** Grepped for directly — zero matches anywhere in `managed/`. Only
+  the target identifies the beam's far end; `m_bHealing` alone says a beam exists, not where it goes.
+- **A two-control-point particle renderer.** B373's rocket trail is one control point riding a single
+  moving entity; a heal beam needs a particle stretched and re-anchored between two independently
+  moving entities every frame. Both need the same missing particle subsystem B373 already names, so
+  this is downstream of that work rather than a second, separate blocker.
+
+**Not yet read: which SendTable declares `m_hHealingTarget`**, whether it is sent unconditionally or
+only while `m_bHealing` is true, and whether an observer (not the Medic) gets a lower-precision or
+delayed copy the way `m_flChargeLevel` does (`UnimplementedGameplayEntityConformanceTests`).
+
+*Evidence class: read from `tf_weapon_medigun.cpp`; the "nothing decodes it" half is a grep, with a
+control (the same grep for `Rocket` in `managed/` finds six files, so the search itself works).*
