@@ -27020,7 +27020,8 @@ Reddens `At_ADoorClosingAfterBeingHeldOpen_NeverMovesAgainstItsTravel`,
   Checked and equivalent: `Bracket` returns `newer` as the first entry whose changetime exceeds the
   target, so the target never passes it and `frac` cannot exceed 1 on either side. The engine's clamp is
   unreachable for the same reason.
-- **B383** — the engine RESETS the cycle history on a new sequence and we hold the older cycles.
+- **B383** — the engine RESETS the cycle history on a new sequence and we hold the older cycles. Fixed
+  in the same commit as this entry, `0c0727cc`; see "B383 FIXED" below.
 
 *Evidence class: read-from-source for the structure; arithmetic for the 579.085 prediction; measured for
 the suite (core 1827 total, 0 failed) and for entity 648.*
@@ -28765,3 +28766,40 @@ were replaced before any result was read.
 - The glow depth test, modes 0 and 8, and `render->GetBlend()` are unchanged from B391.
 
 *Evidence class: read from source for every engine fact above; differential for the five sabotages.*
+
+### B383 FIXED 2026-09-10: the cycle history resets on the parity counter — fixed on 2026-09-09 and never closed here
+
+**This is paperwork, not a fix.** The work landed with B382 in `0c0727cc`, whose message states it, and
+the OPEN entry above was never closed. It was found still open while picking the next item. All four
+divergences the entry names are handled in code, each with a test.
+
+1. **The trigger is `m_nNewSequenceParity`.** `DemoTimeline` compares it against the track's last value,
+   ignoring a first sighting, and calls `ScenePropTrack.SequenceRestarted` (`DemoTimeline.cs:3756`)
+   after the keyframe is added. That is the engine's order: `BaseClass::PostDataUpdate` latches first,
+   then the parity block resets (`c_baseanimating.cpp:4738`).
+2. **`Reset()` discards; we keep, behind a boundary.** `SequenceRestarted` calls
+   `InterpolatedHistory.Reset`, which seeds three entries at one changetime as the engine's `Reset` does
+   (`interpolatedvar.h:740`). `Bracket` will not cross that generation boundary. This is the one
+   licensed difference, in what is retained rather than in what is answered, because a viewer that
+   scrubs backwards cannot throw history away.
+3. **`STUDIOHDR_FLAGS_STATIC_PROP` is exempt.** `StaticPropModel` is read, and `SequenceRestarted`
+   returns early for it.
+4. **State is not delayed.** `At` takes state from the latest update at or before the tick ASKED FOR,
+   not the delayed target (`ScenePropTrack.At`, the remarks citing `c_baseentity.cpp:6405`). So a new
+   sequence is drawn with a cycle eight ticks old, as a client draws it. The entry called this the prior
+   question; it was answered first.
+
+**Tests:** `CycleResetConformanceTests` (the new cycle held after a reset, the older run still answering
+before it, and a static-prop model not reset) and `SequenceParityConformanceTests` for the trigger.
+
+**Still open, and adjacent rather than part of B383.** Both are listed in B382's own entry and are
+divergences, not unknowns:
+
+- **Cycle looping is set once, where the engine re-evaluates it every frame** —
+  `m_iv_flCycle.SetLooping( IsSequenceLooping( GetSequence() ) )` (`c_baseanimating.cpp:4472`). Ours
+  is constant-true, so a non-looping sequence whose cycle crosses from near 1 to near 0 between two
+  entries would be blended the short way round instead of back through the middle.
+- **Every pose parameter is marked looping**, where the engine sets it per parameter from the model
+  (`c_baseanimating.cpp:1130`).
+
+*Evidence class: read from the code and commit `0c0727cc`; the tests named are that commit's.*
