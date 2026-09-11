@@ -29168,11 +29168,17 @@ independently confirmed by a screenshot yet.
 **Confirmed by looking, on THIS demo rather than reusing the earlier `z1800` confirmation**: entity 407,
 tick 51093, `(-2478 -2452 699)`. `TF2VIEW_CAMERA` placed above it looking down (Source's pitch
 convention is positive-down; the first attempt used `-89` and got sky) drew the rocket exactly where
-tracked.
+tracked — but bare, no trail, which very nearly got written up here as B375 having regressed.
 
-**What is genuinely missing is the explosion and the trail**, which is B373 exactly as filed: no
-particle system exists in this project, so a rocket in flight draws bare and an impact draws nothing.
-That is real, filed, unbuilt work — not a new finding.
+**It had not. The first capture was at the rocket's OWN FIRST TICK**, before the trail had emitted
+anything to show — exactly `docs/memory/point-the-camera-from-the-data.md`'s own warning, repeated
+against my own capture this time rather than the probe's. A second capture at tick 51122, the same
+entity mid-flight (position and angles read from the `props` probe rather than guessed), shows the
+plume and the fire embers B375 fixed, fully intact.
+
+**What is genuinely missing is the explosion**, which is B373 exactly as filed: no particle system
+exists for an IMPACT, only the trail this project hand-built. That is real, filed, unbuilt work — not
+a new finding.
 
 **Why it reads as "not drawn at all" from normal play**: a rocket is airborne for roughly the same
 number of ticks whichever demo it came from — under a second of screen time, with no trail to catch
