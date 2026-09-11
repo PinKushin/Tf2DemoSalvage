@@ -28803,3 +28803,58 @@ divergences, not unknowns:
   (`c_baseanimating.cpp:1130`).
 
 *Evidence class: read from the code and commit `0c0727cc`; the tests named are that commit's.*
+
+### B380 2026-09-10: found — the 2008 demo's sequence 2 is `draw` in the 2008 model and `fire` in today's
+
+**Reproduced on screen, then traced to the model file, not to this viewer's code.** The owner's
+guess that this might be *"a compatability issue"* was right.
+
+**Reproduced.** `--first-person` on `tf2-2008-build3420-pov-cp_granary` at ticks 6800 and 7100: the
+sticky launcher is drawn oversized, pushed toward the middle of the screen, with no hand.
+
+**Controls, same viewer, same session.** The 2008 rocket launcher (tick 2000) draws identically to the
+2013 one (`tf2-2013-build1729296-pov-cp_badlands`, tick 2000), and the 2008 grenade launcher (tick
+6700) draws with its hands. So the `v_` one-model path, the placement at the eye
+(`CTFViewModel::CalcViewModelView`, `tf_viewmodel.cpp:130`, which starts at the eye and adds offsets
+only for a lowered weapon, an inspect or `tf_use_min_viewmodels`) and the viewmodel field of view are
+all sound. The fault is this one model.
+
+**The sequence the demo names.** The `viewmodels` probe gives the sequence each 2008 weapon is deployed
+with, and it never changes after that on this demo, so each weapon holds its deploy animation's last
+frame:
+
+| weapon | demo's sequence | today's model at that index | 2008 model at that index |
+|---|---|---|---|
+| `v_rocketlauncher_soldier` | 3 | `draw` | — |
+| `v_shotgun_soldier` | 1 | `draw` | — |
+| `v_shovel_soldier` | 1 | `draw` | — |
+| `v_grenadelauncher_demo` | 0 | `draw` | `draw` |
+| **`v_stickybomb_launcher_demo`** | **2** | **`fire`** | **`draw`** |
+
+**The 2008 file, read from `F:\tf2-builds\tf2-2008\tf\models\weapons\v_models\`:** `idle, fire, draw,
+autofire, reload_start, reload_loop, reload_end`. Today's is `ref, idle, fire, draw, autofire, …`: a
+`ref` sequence was inserted at index 0 and every index moved up by one. So the server said `draw` and
+this viewer, reading today's file, plays `fire` and holds its last frame, launcher thrust forward and
+hand out of view. The 2008 file also has 1 skin family where today's has 10.
+
+**An instrument lied first, and the control caught it.** The first "2008" table came back identical to
+today's, which read as a refutation. `ModelProbe` resolves only through the live install and ignores
+`TF2_FOLDER`: pointed at a folder that does not exist, it still printed today's model. It now reads a
+path on disk directly, and that is where the table above comes from.
+
+**What the engine does is not in question.** A client resolves `m_nSequence` against the model IT
+loaded. The 2008 client loaded the 2008 file and drew `draw`; today's client would draw `fire`, as this
+viewer does. **The parity target for a 2008 demo is the 2008 client**, so the defect is that the viewer
+reads today's content for a demo recorded against older content, the model counterpart of
+`docs/memory/a-demo-names-a-map-version.md`.
+
+**What is NOT established.**
+
+- **How many other models moved between eras.** Four of the five 2008 weapons measured kept their
+  indices. Any model whose sequence table changed is wrong the same way on every older demo, and a
+  census across the period clients is the way to count them.
+- **The fix.** Reading era content changes what the owner sees and needs content most machines do not
+  have, so it is his decision; see the question raised with this entry.
+
+*Evidence class: owner observation, reproduced by `--shot`; measured sequence tables from both files;
+the controls are captures from the same run.*
