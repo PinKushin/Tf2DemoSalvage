@@ -17,6 +17,15 @@ a frag-movie config can eventually be imported nearly as-is.
 | `texture_quality` | `mat_picmip` | inverted sense: ours is a maximum edge in pixels, 0 for full |
 | `fullscreen_mode` | `mat_fullscreen` / borderless | 0 borderless, 1 exclusive |
 
+**What `mat_picmip` does not change: the size a texture was authored at** (2026-09-10, B390). The
+engine keeps two sizes per texture. `GetActualWidth` is the level that survived the mip skip, and
+`GetMappingWidth` is the file's header, read header-only with no mips skipped. Anything sized by a
+texture uses the second: a sprite's quad (`CEngineSprite::Init`) and the detail sheet's aspect
+correction. So a glow stays the same size in the world at every texture detail. This project had one
+size, the decoded one, which made `texture_quality` shrink sprites. It was established in
+`materialsystem.dll`'s disassembly, not from the method's name. The addresses and instructions are in
+`docs/RISKS.md` under "B390 FIXED 2026-09-10: the mapping size".
+
 ## What TF2 exposes that we do not, grouped as its own menu does
 
 **Detail**

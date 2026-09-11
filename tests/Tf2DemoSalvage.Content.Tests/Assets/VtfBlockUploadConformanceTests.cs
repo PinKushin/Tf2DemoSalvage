@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-
 using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Content.Tests.Assets;
@@ -38,7 +35,7 @@ public sealed class VtfBlockUploadConformanceTests
     {
         // A 4x4 DXT1 texture is one block: 8 bytes. Decoded it would be 4*4*4 = 64 bytes of RGBA,
         // which is the eight-fold expansion this change exists to avoid.
-        byte[] file = Vtf(VtfFormat.Dxt1, width: 4, height: 4, mips: 1, images: Block(8));
+        byte[] file = VtfFixture.Build(VtfFormat.Dxt1, width: 4, height: 4, mips: 1, images: Block(8));
 
         VtfTexture texture = VtfTexture.Read(file);
 
@@ -53,7 +50,7 @@ public sealed class VtfBlockUploadConformanceTests
         // **The control, and the reason this is a branch rather than a replacement.** Not every VTF
         // is DXT — `BGR888` and `RGBA8888` are real and appear in the game's own content — and those
         // have no GPU-native form to hand over, so they keep the existing path.
-        byte[] file = Vtf(VtfFormat.Bgr888, width: 2, height: 2, mips: 1, images: new byte[2 * 2 * 3]);
+        byte[] file = VtfFixture.Build(VtfFormat.Bgr888, width: 2, height: 2, mips: 1, images: new byte[2 * 2 * 3]);
 
         VtfTexture texture = VtfTexture.Read(file);
 
@@ -66,7 +63,7 @@ public sealed class VtfBlockUploadConformanceTests
     {
         // BC3 carries an interpolated alpha block alongside the colour block, hence sixteen bytes
         // against BC1's eight. Getting this wrong reads half a texture and skews the rest.
-        byte[] file = Vtf(VtfFormat.Dxt5, width: 4, height: 4, mips: 1, images: Block(16));
+        byte[] file = VtfFixture.Build(VtfFormat.Dxt5, width: 4, height: 4, mips: 1, images: Block(16));
 
         VtfTexture texture = VtfTexture.Read(file);
 
@@ -79,7 +76,7 @@ public sealed class VtfBlockUploadConformanceTests
         // **A 5x5 texture is 2x2 blocks, not 1.25x1.25.** Sizes that are not multiples of four are
         // ordinary — `$basetexture` on signs and overlays especially — and truncating instead of
         // rounding up under-reads the last row and column of blocks.
-        byte[] file = Vtf(VtfFormat.Dxt1, width: 5, height: 5, mips: 1, images: Block(8 * 4));
+        byte[] file = VtfFixture.Build(VtfFormat.Dxt1, width: 5, height: 5, mips: 1, images: Block(8 * 4));
 
         VtfTexture texture = VtfTexture.Read(file);
 
@@ -104,7 +101,7 @@ public sealed class VtfBlockUploadConformanceTests
             .. Block(32),       // 8x8
         ];
 
-        byte[] file = Vtf(VtfFormat.Dxt1, width: 8, height: 8, mips: 4, images: images);
+        byte[] file = VtfFixture.Build(VtfFormat.Dxt1, width: 8, height: 8, mips: 4, images: images);
 
         VtfTexture texture = VtfTexture.Read(file);
 
@@ -126,7 +123,7 @@ public sealed class VtfBlockUploadConformanceTests
         // else happened to be running. An empty pixel buffer says the same thing and says it about
         // this call alone.
         VtfTexture texture =
-            VtfTexture.Read(Vtf(VtfFormat.Dxt1, width: 4, height: 4, mips: 1, images: Block(8)));
+            VtfTexture.Read(VtfFixture.Build(VtfFormat.Dxt1, width: 4, height: 4, mips: 1, images: Block(8)));
 
         texture.Pixels.ShouldBeEmpty("a block format is handed over, not expanded");
         texture.Levels[0].Length.ShouldBe(8, "and the blocks are what came out of the file");
@@ -134,35 +131,4 @@ public sealed class VtfBlockUploadConformanceTests
 
     /// <summary>Bytes standing in for compressed blocks; the contents are never interpreted.</summary>
     private static byte[] Block(int bytes) => new byte[bytes];
-
-    /// <summary>A minimal VTF header followed by image data, matching what the reader parses.</summary>
-    private static byte[] Vtf(VtfFormat format, int width, int height, int mips, byte[] images)
-    {
-        const int HeaderSize = 64;
-
-        byte[] file = new byte[HeaderSize + images.Length];
-
-        file[0] = (byte)'V';
-        file[1] = (byte)'T';
-        file[2] = (byte)'F';
-        file[3] = 0;
-
-        WriteInt(file, 12, HeaderSize);
-        WriteShort(file, 16, width);
-        WriteShort(file, 18, height);
-        WriteInt(file, 20, 0);
-        WriteShort(file, 24, 1);
-        WriteInt(file, 52, (int)format);
-        file[56] = (byte)mips;
-        WriteInt(file, 57, -1);
-
-        images.CopyTo(file, HeaderSize);
-        return file;
-    }
-
-    private static void WriteInt(byte[] into, int at, int value) =>
-        BitConverter.GetBytes(value).CopyTo(into, at);
-
-    private static void WriteShort(byte[] into, int at, int value) =>
-        BitConverter.GetBytes((ushort)value).CopyTo(into, at);
 }

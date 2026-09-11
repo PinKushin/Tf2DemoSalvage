@@ -256,7 +256,8 @@ jobs:
           # 843 -> 1136 on 2026-09-09: closed DRIFT, not 293 new tests, measured on the same CI run
           # as core's raise above and for the same reason. Nothing was added or removed here.
           # 1136 -> 1150 on 2026-09-10: fourteen for B390, the sprite material's two keys.
-          ./build/assert-test-count.sh '**/content.trx' 1150 Content
+          # 1150 -> 1154 on 2026-09-10: four for B390, the texture's mapping size.
+          ./build/assert-test-count.sh '**/content.trx' 1154 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           # 412 -> 414 on 2026-08-29, and that is TWO bumps: the stale-clock case on
           # `DemoSystems.Open` (B223 follow-up) was raised in build/gate.sh and missed here, and the
@@ -311,7 +312,8 @@ jobs:
           # 688 -> 690 on 2026-09-10: two for B389, in TimelineMomentsTests.
           # 690 -> 697 on 2026-09-10: seven for B390, four conformance and three output-level.
           # 697 -> 711 on 2026-09-10: fourteen for B391, the sprite blend by render mode and the tint.
-          ./build/assert-test-count.sh '**/scene.trx' 711 Scene
+          # 711 -> 713 on 2026-09-10: two for B390, a sprite sized by its texture's mapping size.
+          ./build/assert-test-count.sh '**/scene.trx' 713 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

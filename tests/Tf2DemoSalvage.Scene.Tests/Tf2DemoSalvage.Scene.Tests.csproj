@@ -40,4 +40,12 @@
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
   </ItemGroup>
 
+  <!--
+    The VTF builder Content.Tests owns, compiled in here as well rather than copied: a MapTexture is
+    built from a decoded VTF, and a second copy of the header layout would drift from the first.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Tf2DemoSalvage.Content.Tests\Assets\VtfFixture.cs" Link="VtfFixture.cs" />
+  </ItemGroup>
+
 </Project>

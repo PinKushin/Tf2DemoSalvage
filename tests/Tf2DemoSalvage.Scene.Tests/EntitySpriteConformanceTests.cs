@@ -305,6 +305,26 @@ public sealed class EntitySpriteConformanceTests
     }
 
     /// <remarks>
+    /// **Sized by what the texture was authored at, not what was decoded**:
+    /// <c>m_width = m_material[0]-&gt;GetMappingWidth();</c> (`spritemodel.cpp:294-295`). A 128x64 glow
+    /// that the quality cap decoded at 64x32 is still 128 by 64, with its edges at ±64 and ±32. Not
+    /// square, so a width and height swapped shows too.
+    /// </remarks>
+    [Test]
+    public void Init_ATextureDecodedBelowItsAuthoredSize_IsSizedByTheAuthoredSize()
+    {
+        EngineSprite sprite = EngineSprite.Init(
+            new MapTexture(64, 32, 128, 64, TextureImage.None, IsTransparent: true),
+            [],
+            SpriteBlend.Additive,
+            SpriteOrientation.Parallel,
+            origin: null);
+
+        (sprite.Width, sprite.Height).ShouldBe((128, 64));
+        sprite.Extents.ShouldBe(new SpriteExtents(-64f, 64f, 32f, -32f));
+    }
+
+    /// <remarks>
     /// **The quad spans the material's size, centred**, because `CEngineSprite::Init` falls back to
     /// <c>origin = ( -width * 0.5f, height * 0.5f )</c> when `$spriteorigin` is absent and then sets
     /// up/down/left/right from it. A 64×32 material at scale 2 is therefore 128 by 64 world units

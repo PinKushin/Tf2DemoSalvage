@@ -127,6 +127,7 @@ public sealed class VtfTexture
     private VtfTexture(
         int width,
         int height,
+        (int Width, int Height) mapping,
         VtfFormat format,
         int mipCount,
         byte[] pixels,
@@ -142,6 +143,7 @@ public sealed class VtfTexture
     {
         Width = width;
         Height = height;
+        (MappingWidth, MappingHeight) = mapping;
         Format = format;
         MipCount = mipCount;
         Pixels = pixels;
@@ -190,6 +192,23 @@ public sealed class VtfTexture
 
     /// <summary>Height of the decoded image.</summary>
     public int Height { get; }
+
+    /// <summary>The header's own width, whichever level was decoded — <c>GetMappingWidth</c> (B390).</summary>
+    /// <remarks>
+    /// **Two sizes, because the engine keeps two.** In TF2's x64 `materialsystem.dll`,
+    /// `SLoadTextureBitsFromFile` reads the header alone, with no mips skipped, and copies its width,
+    /// height, mip count and depth into `CTexture`'s mapping dimensions; `GetMappingWidth` returns that
+    /// field and `GetActualWidth` a different one, the size that survived the skip. `CEngineSprite::Init`
+    /// sizes a sprite by the MAPPING width (`spritemodel.cpp:294`), so a sprite stays the same size in
+    /// the world at every texture quality.
+    ///
+    /// **Carried, never derived.** <c>Width &lt;&lt; Level</c> recovers it only for a power of two: a
+    /// 6x3 file's level 1 is 3x1, and shifting back gives 6x2.
+    /// </remarks>
+    public int MappingWidth { get; }
+
+    /// <summary>The header's own height; see <see cref="MappingWidth"/>.</summary>
+    public int MappingHeight { get; }
 
     /// <summary>Format the image was stored in.</summary>
     public VtfFormat Format { get; }
@@ -664,7 +683,7 @@ public sealed class VtfTexture
             }
 
             return new VtfTexture(
-                levelWidth, levelHeight, format, mipCount, [], level, flags, chain,
+                levelWidth, levelHeight, (width, height), format, mipCount, [], level, flags, chain,
                 frames, frame,
                 lowResFormat, lowResWidth, lowResHeight, thumbnail);
         }
@@ -672,7 +691,7 @@ public sealed class VtfTexture
         byte[] pixels = Expand(span.Slice(at, bytes), format, levelWidth, levelHeight);
 
         return new VtfTexture(
-            levelWidth, levelHeight, format, mipCount, pixels, level, flags, [],
+            levelWidth, levelHeight, (width, height), format, mipCount, pixels, level, flags, [],
             frames, frame,
             lowResFormat, lowResWidth, lowResHeight, thumbnail);
     }

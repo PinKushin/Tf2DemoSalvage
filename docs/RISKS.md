@@ -28435,9 +28435,8 @@ sabotage's residue came back clean.
 
 **Still open.**
 
-- **Item 4, the mapping size.** Every `MapTexture` construction site has the decoded `VtfTexture` in
-  scope, so the fix is to carry the header's own `width` and `height` through all eleven rather than
-  default any of them.
+- **Item 4, the mapping size** — fixed later the same day; see "B390 FIXED 2026-09-10: the mapping
+  size" below.
 - **A `Patch` sprite material is read unpatched.** `ReadVmt` — split out of the particle path's
   `Sequences`, which had the same limitation — returns the patch itself, where `Resolve` applies its
   `include`. A patched `Sprite` material would report the shader `Patch`, take the untranslated branch,
@@ -28592,3 +28591,79 @@ against the game, and the open items above would each show as a difference there
 
 *Evidence class: differential for the red step and the four sabotages; read-from-source for every
 behavior implemented; the owner's observation for the symptom.*
+
+### B390 FIXED 2026-09-10: the mapping size — a sprite is sized by its texture as authored, not as decoded
+
+**Item 4 of B390 is fixed, and what "mapping size" means is now read from the engine instead of
+inferred from the name.** The earlier entry called it *"the texture as authored"* without a citation.
+It was right, and this is the evidence.
+
+**The engine, from TF2's x64 `materialsystem.dll`** (the build installed on 2026-09-10; the addresses
+are that build's, in the Ghidra project `tf2materialsystem` under `D:\ghidra-proj`):
+
+- **`CMaterial::GetMappingWidth`** (material vtable slot 4, `180006f00`) runs the material's precache
+  and returns a cached short at `this+0x14`. `GetMappingHeight` (slot 5) returns the one at `+0x16`.
+- **Those two are written by `180009590`**: the representative texture's `GetMappingWidth()` and
+  `GetMappingHeight()`, or 64 by 64 (the constant `0x400040`) when the material has no representative
+  texture.
+- **The representative texture is chosen by `180006a00`**: `$baseTexture` if it is a texture, otherwise
+  `$envmapmask`, `$bumpmap`, `$dudvmap`, `$normalmap`, and failing all of them the error texture.
+- **`CTexture::GetMappingWidth`** (texture vtable slot 1, `180039f00`) is one instruction,
+  `MOVZX EAX, word ptr [RCX + 0x28]`. `GetActualWidth` (slot 3, `180039a60`) reads `+0x30`, a different
+  field.
+- **`+0x28` is filled by `SLoadTextureBitsFromFile`** (`18003da00`, named by its own telemetry string
+  in `ctexture.cpp`). It unserializes the file HEADER ONLY — `Unserialize( buf, true, 0 )`, no mips
+  skipped — then stores `Width()`, `Height()`, `MipCount()` and `Depth()` as four shorts at `+0x28`.
+
+So the mapping size is the file's header. The mip skip never touches it, and nothing derives one size
+from the other.
+
+**What was done.**
+
+- **`VtfTexture.MappingWidth` and `MappingHeight`** — the header's size, carried out of both of
+  `DecodeCore`'s return paths, the expanded pixels and the untouched blocks.
+- **`MapTexture` gains the two, required and not defaulted**, so the compiler found every
+  construction. **`MapTexture.Of(VtfTexture)`** is the one place ten plain slots copy both sizes; the
+  eleventh, the base texture with all its flags, passes them explicitly.
+- **`EngineSprite.Init`** is `CEngineSprite::Init`'s sizing, `spritemodel.cpp:294-295`: the width, the
+  height and the edges all come from the mapping size. `MapAssets.LoadSpriteMaterials` calls it, and
+  `RenderScale`'s world-space divide reads the same width through the sprite.
+- **A sibling fixed with it.** The detail sprite sheet's aspect correction
+  (`detailobjectsystem.cpp:1481`) also asks `GetMappingWidth / GetMappingHeight`, and it took the
+  decoded size. The two ratios agree unless the dropped level clamps a side at one texel, so nothing
+  visible changes on any TF2 sheet. It is parity, not a visible fix.
+
+**Proved by manipulation.** The red step was a compile failure: the tests named properties that did
+not exist yet. Then two rounds, each prediction disjoint from the others in its round:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| the block path carries the decoded size | `MappingSize_ForABlockTextureAtAReducedLevel_IsStillTheHeadersSize` |
+| `EngineSprite.Init` swaps width and height | `Init_ATextureDecodedBelowItsAuthoredSize_IsSizedByTheAuthoredSize` |
+| `MapTexture.Of` takes the decoded width | `Of_AVtfDecodedBelowItsHeader_CarriesBothSizes` |
+| the pixel path carries the decoded size | `MappingSize_WhenTheCapDropsALevel_IsStillTheHeadersSize` and `MappingSize_ForANonPowerOfTwoHeader_IsNotRecoverableFromTheLevel` in Content; `Of_AVtfDecodedBelowItsHeader_CarriesBothSizes` in Scene, which decodes through the same path |
+
+The full-size control, `MappingSize_AtFullSize_IsTheDecodedSize`, stayed green through all four.
+Nothing outside each prediction reddened, and each break was restored with its inverse edit; a grep
+for the residue of each came back empty.
+
+**A fixture moved with it.** `VtfFixture` is the 7.2 header builder that `VtfBlockUploadConformanceTests`
+kept privately. It is now shared, and Scene.Tests compiles the same file in by link, not by copy.
+`VtfTextureTests` keeps its own builder, which writes a different header (80 bytes, flags, version).
+
+**Still open.**
+
+- **Unobservable on TF2's glows at this viewer's settings**, as item 4 said: `light_glow03` is 128
+  square, and the smallest texture cap is 256. It changes a sprite larger than the cap, such as a
+  community map's own.
+- **`LoadSpriteMaterials` calling `EngineSprite.Init` has no test.** The loader is private and needs a
+  map's archives. The call is one line; it was read, not sabotaged.
+- **The detail sheet's ratio has no test either.** It is computed inline in a private loader.
+- **The representative-texture fallback is not implemented.** A material with no `$basetexture` but a
+  `$bumpmap` takes its mapping size from the bump map in the engine; here `Resolve` finds no base
+  texture, and a sprite with none is skipped and counted. A material with no texture at all is 64 by 64
+  in the engine. Whether any sprite material lacks a `$basetexture` is not measured.
+- **`Patch` sprite materials** are still read unpatched, as B390 said.
+
+*Evidence class: read from the disassembly for every engine fact above, with the instruction quoted
+for the one that decides it; differential for the four sabotages.*

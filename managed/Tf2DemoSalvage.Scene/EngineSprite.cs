@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Scene;
@@ -26,7 +28,41 @@ public readonly record struct EngineSprite(
     int Width,
     int Height,
     SpriteOrientation Orientation,
-    SpriteExtents Extents);
+    SpriteExtents Extents)
+{
+    /// <summary>A sprite as <c>CEngineSprite::Init</c> builds it from its material.</summary>
+    /// <param name="texture">The material's texture.</param>
+    /// <param name="sequences">The animation sequences that texture declares.</param>
+    /// <param name="blend">How the material's own text says it blends.</param>
+    /// <param name="orientation">Its <c>$spriteorientation</c>, as the shader translated it.</param>
+    /// <param name="origin">Its <c>$spriteorigin</c>, or null when it declares no vector.</param>
+    /// <returns>The sprite.</returns>
+    /// <remarks>
+    /// **Sized by the MAPPING size, the texture as authored** (B390):
+    ///
+    /// <code>
+    /// m_width = m_material[0]-&gt;GetMappingWidth();
+    /// m_height = m_material[0]-&gt;GetMappingHeight();
+    /// </code>
+    ///
+    /// (`spritemodel.cpp:294-295`). The material's mapping size is its representative texture's — the
+    /// <c>$basetexture</c> for every sprite, per the disassembly `docs/RISKS.md` B390 quotes — and a
+    /// texture's is its header's, never the level the quality cap decoded. Sized by the decoded level,
+    /// a glow shrank by exactly the factor the cap dropped, and its edges moved in with it.
+    /// </remarks>
+    public static EngineSprite Init(
+        MapTexture texture,
+        IReadOnlyList<SheetSequence> sequences,
+        SpriteBlend blend,
+        SpriteOrientation orientation,
+        (float X, float Y)? origin) =>
+        new(
+            new ParticleMaterial(texture, sequences, blend),
+            texture.MappingWidth,
+            texture.MappingHeight,
+            orientation,
+            SpriteExtents.Of(texture.MappingWidth, texture.MappingHeight, origin));
+}
 
 /// <summary>
 /// Where a sprite's quad sits about its origin, in texels — <c>CEngineSprite</c>'s <c>up</c>,

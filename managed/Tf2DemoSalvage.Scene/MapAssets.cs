@@ -17,6 +17,11 @@ namespace Tf2DemoSalvage.Scene;
 /// <summary>A decoded texture ready to upload.</summary>
 /// <param name="Width">Width in pixels.</param>
 /// <param name="Height">Height in pixels.</param>
+/// <param name="MappingWidth">
+/// The width the texture was AUTHORED at — its VTF header's, whichever level was decoded. What the
+/// engine's <c>GetMappingWidth</c> returns, and what it sizes a sprite by (B390).
+/// </param>
+/// <param name="MappingHeight">The header's height, likewise.</param>
 /// <param name="Image">The image and its format, ready for the GPU.</param>
 /// <param name="IsTransparent">Whether the material is cut out by a threshold.</param>
 /// <param name="IsAdditive">Whether the engine ADDS this material rather than painting it.</param>
@@ -91,6 +96,8 @@ namespace Tf2DemoSalvage.Scene;
 public readonly record struct MapTexture(
     int Width,
     int Height,
+    int MappingWidth,
+    int MappingHeight,
     TextureImage Image,
     bool IsTransparent,
     bool IsAdditive = false,
@@ -135,7 +142,30 @@ public readonly record struct MapTexture(
     // the two apart. A scrolling proxy overwrites these rows per frame; a material that only states
     // a static transform has no proxy and would otherwise draw untransformed.
     TextureTransform? BaseTransform = null,
-    TextureTransform? SecondTransform = null);
+    TextureTransform? SecondTransform = null)
+{
+    /// <summary>A decoded VTF as a plain slot: cut out by nothing, blended with nothing.</summary>
+    /// <param name="decoded">The texture as read.</param>
+    /// <returns>The texture, carrying both the size decoded and the size authored.</returns>
+    /// <remarks>
+    /// **The one place a <see cref="VtfTexture"/>'s two sizes are copied** (B390), so no slot can take
+    /// the decoded size and drop the mapping one. Ten call sites built this by hand from the decoded
+    /// size alone.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="decoded"/> is null.</exception>
+    public static MapTexture Of(VtfTexture decoded)
+    {
+        ArgumentNullException.ThrowIfNull(decoded);
+
+        return new MapTexture(
+            decoded.Width,
+            decoded.Height,
+            decoded.MappingWidth,
+            decoded.MappingHeight,
+            decoded.Image,
+            IsTransparent: false);
+    }
+}
 
 /// <summary>The tiny copy of itself that a VTF stores ahead of its mip chain.</summary>
 /// <param name="Width">From <c>lowResImageWidth</c>; 16 or less in every shipped texture measured.</param>
@@ -597,7 +627,10 @@ public sealed class MapAssets
         // and `_viaduct_event`. It is transcribed because the material is the MAP's choice: a
         // community map naming a 512x256 sheet would otherwise draw every sprite from the top half
         // of its own texture.
-        sprites = DetailSprites.ScaleForSheet(sprites, (float)sheet.Width / sheet.Height);
+        //
+        // **The MAPPING size, as the engine asks for it**, not the level decoded: the two ratios differ
+        // once a dimension of the dropped level clamps at one texel (B390).
+        sprites = DetailSprites.ScaleForSheet(sprites, (float)sheet.MappingWidth / sheet.MappingHeight);
 
         // ASKED FOR / HAVE / PRODUCED / MISSING, as every other stage of the load reports. What is
         // PRODUCED here is the input to a per-view build rather than geometry, so the count of
@@ -1777,7 +1810,7 @@ public sealed class MapAssets
                     "{Message}",
                     $"debug texture {name} ({decoded.Width}x{decoded.Height} {decoded.Format})");
 
-                return new MapTexture(decoded.Width, decoded.Height, decoded.Image, false);
+                return MapTexture.Of(decoded);
             }
             catch (InvalidDataException failure)
             {
@@ -1824,7 +1857,7 @@ public sealed class MapAssets
         {
             VtfTexture decoded = VtfTexture.Read(file, maximumTextureSize);
 
-            return new MapTexture(decoded.Width, decoded.Height, decoded.Image, false);
+            return MapTexture.Of(decoded);
         }
         catch (InvalidDataException failure)
         {
@@ -1869,8 +1902,7 @@ public sealed class MapAssets
         {
             VtfTexture decoded = VtfTexture.Read(file, maximumTextureSize, face);
 
-            faces.Add(new MapTexture(
-                decoded.Width, decoded.Height, decoded.Image, IsTransparent: false));
+            faces.Add(MapTexture.Of(decoded));
         }
 
         return faces;
@@ -2170,12 +2202,12 @@ public sealed class MapAssets
 
             (IReadOnlyList<SheetSequence> frames, SpriteBlend how) = Sequences(vmt, pak, archives);
 
-            sprites[path] = new EngineSprite(
-                new ParticleMaterial(texture, frames, how),
-                texture.Width,
-                texture.Height,
+            sprites[path] = EngineSprite.Init(
+                texture,
+                frames,
+                how,
                 vmt?.SpriteOrientation ?? SpriteOrientation.ParallelUpright,
-                SpriteExtents.Of(texture.Width, texture.Height, vmt?.SpriteOrigin));
+                vmt?.SpriteOrigin);
         }
 
         assets.LogInformation(
@@ -2411,8 +2443,7 @@ public sealed class MapAssets
                     break;
                 }
 
-                frames.Add(new MapTexture(
-                    decoded.Width, decoded.Height, decoded.Image, IsTransparent: false));
+                frames.Add(MapTexture.Of(decoded));
             }
 
             if (frames.Count <= 1)
@@ -2474,8 +2505,7 @@ public sealed class MapAssets
                     break;
                 }
 
-                frames.Add(new MapTexture(
-                    decoded.Width, decoded.Height, decoded.Image, IsTransparent: false));
+                frames.Add(MapTexture.Of(decoded));
             }
 
             return frames.Count > 1 ? frames : null;
@@ -2505,8 +2535,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            return new MapTexture(
-                decoded.Width, decoded.Height, decoded.Image, IsTransparent: false);
+            return MapTexture.Of(decoded);
         }
 
         MapTexture? ResolveSelfIllumMask()
@@ -2533,8 +2562,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            return new MapTexture(
-                decoded.Width, decoded.Height, decoded.Image, IsTransparent: false);
+            return MapTexture.Of(decoded);
         }
 
         MapPhong? ResolvePhong()
@@ -2690,8 +2718,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            return new MapTexture(
-                decoded.Width, decoded.Height, decoded.Image, IsTransparent: false);
+            return MapTexture.Of(decoded);
         }
 
         MapBump? ResolveBump()
@@ -2714,8 +2741,7 @@ public sealed class MapAssets
             // for a detail texture's blend mode. On cp_process_final the two agree on all 13
             // materials that use one, but the flag is data and $ssbump is a statement about it.
             return new MapBump(
-                new MapTexture(
-                    decoded.Width, decoded.Height, decoded.Image, IsTransparent: false),
+                MapTexture.Of(decoded),
                 decoded.IsSelfShadowBump || material.IsSelfShadowingBump);
         }
 
@@ -2779,7 +2805,7 @@ public sealed class MapAssets
                     : material.DetailBlendMode;
 
                 return new MapDetail(
-                    new MapTexture(decoded.Width, decoded.Height, decoded.Image, IsTransparent: false),
+                    MapTexture.Of(decoded),
                     material.DetailScale,
                     material.DetailBlendFactor,
                     mode,
@@ -2856,6 +2882,8 @@ public sealed class MapAssets
                 return new MapTexture(
                     decoded.Width,
                     decoded.Height,
+                    decoded.MappingWidth,
+                    decoded.MappingHeight,
                     decoded.Image,
                     transparent,
                     additive,

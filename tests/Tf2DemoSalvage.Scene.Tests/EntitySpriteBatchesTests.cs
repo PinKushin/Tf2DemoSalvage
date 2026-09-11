@@ -194,7 +194,7 @@ public sealed class EntitySpriteBatchesTests
     {
         EngineSprite sprite = new(
             new ParticleMaterial(
-                new MapTexture(128, 128, TextureImage.None, IsTransparent: true), [], materialBlend),
+                new MapTexture(128, 128, 128, 128, TextureImage.None, IsTransparent: true), [], materialBlend),
             128,
             128,
             SpriteOrientation.Parallel,
@@ -230,7 +230,7 @@ public sealed class EntitySpriteBatchesTests
     {
         EngineSprite glow = new(
             new ParticleMaterial(
-                new MapTexture(128, 128, TextureImage.None, IsTransparent: true),
+                new MapTexture(128, 128, 128, 128, TextureImage.None, IsTransparent: true),
                 [],
                 SpriteBlend.Additive),
             128,
