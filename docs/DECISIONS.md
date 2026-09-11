@@ -8391,3 +8391,38 @@ the weapon-attachment rework, is recorded as his guess and has not been checked.
 **Why not whole models**, from the question as it was put: they are large, they would redistribute
 Valve's assets in a repository meant to be public, and every CI job pays GitHub's free large-file
 download allowance for them.
+
+**Protocol 24 needs more snapshots, and the owner chose to get them (2026-09-10/11).** The census found
+every class's arms reordered between the 2013 install and today, and protocol 24 spans both, so the
+protocol cannot pick the table. Asked how to handle it, the owner chose to fetch more snapshots over
+leaving 2013-onward demos on today's tables. Asked where from, between old-build archives and
+DepotDownloader: *"depot downloader seems nice, wtf is it? either archives or depot downlaoder is
+fine"*. The tool is his to install and his login his to type; the assistant does not download or run
+it.
+
+**Reversed the same day.** The owner: *"you literally can pull it and downlaod it yourself, and this seems
+like an open source tool we can just rip out the code we need from to use in our program itself"*. So
+the assistant cloned it (`F:\src\DepotDownloader`, outside every repository) — and its license changed
+the plan. See D161.
+
+## D161 — old content is fetched by our own code on SteamKit2, not by copying DepotDownloader (2026-09-11)
+
+**What the owner asked for:** take the code this project needs out of DepotDownloader and put it in the
+program (quoted in D160's last paragraph).
+
+**What the clone showed.** DepotDownloader is GPL-2.0, and this repository is MIT. Copying its code in
+would make the whole program subject to the GPL. Its Steam protocol layer is a separate library,
+SteamKit2, under LGPL-2.1, which an MIT program can take as an ordinary NuGet dependency without
+relicensing.
+
+**The owner's answer**, given three choices (our own fetcher on SteamKit2, running DepotDownloader as
+an outside tool, or copying its code and relicensing to GPL): *"i really dont know the difference
+between the two, but i guess 1 is the best choice, we dont need all the extra stuff."*
+
+**So:** a small depot fetcher of our own, on the SteamKit2 package, with no DepotDownloader code in it,
+and in a tools project first because only generating the era tables needs it. Reading DepotDownloader
+to learn how Steam's content protocol works is fine; copying from it is not.
+
+**He said he does not know the difference between the licenses.** Recorded so the choice is read as
+his direction on scope — *"we dont need all the extra stuff"* — rather than as a settled view on
+licensing he may want to revisit.
