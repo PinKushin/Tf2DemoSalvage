@@ -153,3 +153,4 @@
 - [American English for new text](american-english-for-new-text.md) — D158; old British spellings stay, converting them is not worth a refactor.
 - [A GUI exe does not hold the lock](a-gui-exe-does-not-hold-the-lock.md) — pwsh `&` returns at once; Start-Process -Wait keeps run-exclusive held while the window is open.
 - [Check at the owner's moment](check-at-the-owners-moment.md) — his demo, his action, his camera; "did you actually look at the right ticks?"
+- [Valve's shape beyond parity](valve-shape-beyond-parity.md) — D163; nothing to match still means Valve's mechanisms, order and names.

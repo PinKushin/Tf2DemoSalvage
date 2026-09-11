@@ -8497,3 +8497,36 @@ what is drawn.
 **Uploading is the owner's to do or to approve, file by file**, because it publishes. The archive's item
 names go in the repository; the owner's profile does not, because its handle carries his name and this
 repository is meant to be public.
+
+## D163 — a feature beyond parity is still built in Valve's shape (2026-09-11)
+
+**The owner**, on D162's fetching of old maps and models, after it was split into what is parity and
+what goes beyond TF2: *"tf2 might simply not play those demos which use the old maps btw, but it might
+not be because of the map changes, its because they broke the protocol and other shit. so yea it is a
+better than valve area, but even those areas need to take vavles conventions into account and probably
+follow them so any ai working on it stays looking like valve code. idk"*
+
+**So:** where there is no engine behavior to match, the work still takes Valve's conventions: its
+mechanisms, its order of operations and its names, as close as the SDK and the disassembly show.
+**His reason:** *"so any ai working on it stays looking like valve code"*.
+
+**What that means for D162, concretely:**
+
+- **Old content is a search path, not a separate loader.** Fetched or shipped files for a demo's era mount
+  ahead of the live install, which is the engine's own mechanism for one file overriding another:
+  `IFileSystem::AddSearchPath` and the order `gameinfo.txt` lists, the same way a map's pakfile and the
+  `custom` folder already override stock content here.
+- **Downloads follow the engine's download queue**, as B392 does: its order, its steps and its names,
+  and its file filter (`1801cf450` in the x64 `engine.dll`) ported once anything but a map is fetched.
+- **The version check is named and shaped after the client's own map-CRC check.**
+
+**His protocol point is recorded as his, not verified here:** a current TF2 client refuses old demos
+at the protocol level, independently of map versions. Which break a given demo meets is not measured.
+
+**A wrong map version waits for the download, as TF2 does.** Asked what to do when a demo's map is
+installed but is another version, the owner answered: *"it should probably wait for the download to get
+done to play, swapping will work, but thats going to be jarring as hell ... showing the user the map is
+downloading like tf2 does, and waiting for the download, is probably the correct choice, unless we cant
+find the map or changed data"*. So playback holds while the recorded version downloads and says it is
+downloading, the way the client's own map download does; the installed version is drawn only when no
+source has the recorded one. Swapping maps under a playing demo is refused as jarring.
