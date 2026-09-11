@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 9b3a8b35-1dc8-47b0-a320-73b01288f10c
-  modified: 2026-08-11T11:22:45.536Z
+  modified: 2026-09-09T03:54:15.157Z
 ---
 
 **The byte-identical round trip was a GATE, and it was passed before anything else began.** Owner,
@@ -54,7 +54,7 @@ before assuming a corpus of tiny specimens would be cheap.
 
 **Why this is worth keeping:** it is the strongest available evidence that the container and the
 message framing are understood, and it costs one edit plus one `playdemo`. Cheaper than any
-differential. See [[differential-beats-fixtures]] for the other direction, which tests the
+differential. See [[fixtures-are-the-weak-point]] for the other direction, which tests the
 decoder's reading rather than the writer's output.
 
 **Not a product feature.** The owner was explicit: this project is not a TAS tool, and cutting an

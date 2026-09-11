@@ -805,7 +805,7 @@ public sealed class MapCollisionProbe : IProbe
             // rejects points it should accept, and only asking the sweep for something that MUST be
             // there separates them: a ray dropped through the middle of a triangle the set already
             // holds. A miss on that means the instrument is broken and every terrain reading above
-            // is worthless (`docs/memory/an-empty-search-needs-a-control.md`).
+            // is worthless (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
             float middleX = (closest.A.X + closest.B.X + closest.C.X) / 3f;
             float middleY = (closest.A.Y + closest.B.Y + closest.C.Y) / 3f;
 

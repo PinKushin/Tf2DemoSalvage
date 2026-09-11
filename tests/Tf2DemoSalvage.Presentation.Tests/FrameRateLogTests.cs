@@ -14,13 +14,13 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// a run reports a breakdown only for frames slower than 33 per second and says nothing whatever
 /// about the difference between 40 and 600. A twenty-second autoplay run of
 /// `tf2-2026-pub-pov-clean` logged zero lines, which reads as "no slow frames" and means only
-/// "nothing exceeded 30 ms" — `docs/memory/a-threshold-instrument-cannot-see-a-sum.md` applied to
+/// "nothing exceeded 30 ms" — `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#a-threshold-instrument-cannot-see-a-sum` applied to
 /// the frame loop itself.
 ///
 /// **Every phase reported is a MEAN over the interval, never the frame that happened to cross it.**
 /// The owner, on the first design, which logged one frame's phases once a second: *"a probe that
 /// only polls per second is way too slow so that better be a fucking average"*. He is right, and it
-/// is `docs/memory/log-the-event-not-a-sample-of-it.md`: at 90 fps a per-second sample publishes one
+/// is `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#log-the-event-not-a-sample-of-it`: at 90 fps a per-second sample publishes one
 /// frame in ninety and calls it the cost. The frame RATE was already an average — `FpsMeter` smooths
 /// it and carries watermarks — which is exactly what made the phases beside it look safe.
 /// </remarks>

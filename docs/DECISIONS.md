@@ -102,7 +102,7 @@ Trade-off accepted knowingly: Windows/MSVC-only, no cheap Linux CI for ASan/UBSa
 >
 > **The factual premise is false.** "Only mod-side game code" understates it badly: the SDK carries
 > **1,318 files of TF2's own game code**, including the HUD, player conditions and the econ schema —
-> see `docs/memory/tf2-game-code-is-in-the-sdk.md`, written after "TF2 is closed" had been asserted
+> see `docs/memory/nothing-is-closed.md#tf2-game-code-is-in-the-sdk`, written after "TF2 is closed" had been asserted
 > in three places and checked in none. `docs/memory/nothing-is-closed.md` is the general form: check
 > the SDK, then the shipped data, then a decompiler, before ever writing "unavailable".
 >
@@ -2366,7 +2366,7 @@ instead of the measurement.
 Floors are 90/85 and 95/92: a ratchet below the current numbers, deliberately a "don't regress off a
 cliff" line rather than a target. The owner's framing is that implementations are being taken fast,
 so this must not become a tax on writing code. The mutation score stays a fluctuating signal rather
-than a gate (`docs/memory/mutation-score-is-a-ratchet.md`).
+than a gate (`docs/memory/mutation-score-is-not-the-goal.md`).
 
 **Not extended to the Windows job, and that is a scoping decision rather than an omission.**
 `Viewer3D.Tests` creates real Direct3D devices and skips what it cannot run, so its coverage in CI —
@@ -2380,7 +2380,7 @@ Two things the audit did not raise, noted here rather than acted on:
 - **`Content.Tests` is not run by CI at all** — 612 tests, including every BSP, VTF and MDL reader
   test, gated only by the local `build/gate.sh`.
 - **The CI count floors are far below the real counts** — Core 1000 against 1491, Viewer 340 against
-  570. `docs/memory/a-floor-must-track-the-number-it-guards.md` is explicit that a floor is only a
+  570. `docs/memory/read-the-trx-total-not-the-console.md#a-floor-must-track-the-number-it-guards` is explicit that a floor is only a
   guard while it is close to the number it guards, and the workflow's own comment says so. Not
   changed here because CI's counts are not the local ones and I cannot run CI to measure them.
 
@@ -2633,7 +2633,7 @@ Two supporting reasons, both recovered with it:
 - **It composes with the TDD requirement.** A Presenter test needs a fake `IView` that records what
   was called and nothing else — no WinForms runtime, no STA thread, no window. On this project that
   is worth more than usual: the UI suite takes the desktop and needs `run-exclusive.ps1`, which is
-  why `docs/memory/ui-suite-optional-until-ui-grows.md` exists.
+  why the `ui-suite-optional-until-ui-grows` memory existed; `docs/memory/ui-tests-run-every-time.md` retired it.
 - **MVP is old and boring, and that is a point in its favour**, because "a well-known, decades-old
   pattern name gives an AI a strong, consistent prior to pattern-match against; a bespoke in-house
   architecture has to be re-explained perfectly every time or it drifts inconsistently across
@@ -2725,7 +2725,7 @@ form doing a presenter's job, and it is the largest file in the viewer apart fro
 ### What this buys beyond correctness of pattern
 
 The viewer's 8 UI tests take the desktop and need `run-exclusive.ps1`, which is why
-`docs/memory/ui-suite-optional-until-ui-grows.md` exists at all. **A presenter is testable in the
+`ui-suite-optional-until-ui-grows` existed at all (`docs/memory/ui-tests-run-every-time.md` has since retired it). **A presenter is testable in the
 ordinary suite** — no window, no desktop lock, no focus stealing — so the same logic that today can
 only be checked by driving a real form becomes six ordinary unit tests. That is a direct answer to a
 measured, recurring cost in this project rather than an abstract benefit.
@@ -2891,7 +2891,7 @@ first.
 
 **Stated as conditional on purpose, because the dates are not established.** ESEA season numbers
 have not been mapped to calendar dates anywhere in this repository, and guessing them would be the
-same error as dating a demo from its protocol number (`docs/memory/z1800-is-modern-not-2015.md`).
+same error as dating a demo from its protocol number (`docs/memory/era-axis-is-measured.md#z1800-is-modern-not-2015`).
 The mapping is discoverable rather than unknowable: `http://demos.igmdb.org/` carries **per-season
 directories**, already cited in `docs/findings/01-container.md`, so a season maps to a date range by
 reading what is in it.
@@ -2993,7 +2993,7 @@ The failure this prevents runs in both directions. Naming a C# property `m_flCyc
 does imports Valve's convention into code that has no need of it; renaming the *string* to
 `Cycle` because .NET prefers PascalCase breaks the lookup silently, and a silent lookup failure here
 reads as missing data rather than as an error — see
-`docs/memory/lookups-must-match-exactly.md`.
+`docs/memory/key-a-lookup-on-the-question.md#lookups-must-match-exactly`.
 
 ## D59 — the MVP work is a rewrite beside the old code, not a retrofit
 
@@ -3156,7 +3156,7 @@ passed**: Microsoft's decoder accepts it.
 
 So the independent decoder is *more lenient than the specification*, which makes it the wrong
 instrument for that particular claim — the same shape as
-`docs/memory/a-faithful-fixture-can-be-blind.md`, and with the same remedy: measure the thing
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#a-faithful-fixture-can-be-blind`, and with the same remedy: measure the thing
 directly instead of strengthening an assertion that was never sensitive. A byte-level check of the
 IDAT payload against RFC 1950 §2.2 — low nibble 8, and the first two bytes a multiple of 31 — now
 fails on that sabotage while the round-trips continue to cover the pixels.
@@ -3790,7 +3790,7 @@ search can either, because the search would have been fine. It was simply never 
 ### What the SDK settled, and what it did not
 
 `source-sdk-2013` ships TF2's own game code, so this needed no decompiler
-(`docs/memory/tf2-game-code-is-in-the-sdk.md`). From `CTFPlayer::FindNextObserverTarget` and
+(`docs/memory/nothing-is-closed.md#tf2-game-code-is-in-the-sdk`). From `CTFPlayer::FindNextObserverTarget` and
 `GetNextObserverSearchStartPoint`:
 
 - the search starts one step past the current target (`startIndex += iDir`), so a cycle never
@@ -3843,7 +3843,7 @@ happens when levels 1 and 2 are present and level 3 is not — which is the whol
 **A POV demo would have been the wrong specimen at level 2** and would have passed while measuring
 nothing: the committed era POVs are the owner's solo recordings, so a cycle finds one target and
 stops — indistinguishable from a broken search
-(`docs/memory/pov-demos-are-pvs-limited.md`). The UI session opens one of those, which is why the
+(`docs/memory/author-the-specimen-the-corpus-lacks.md#pov-demos-are-pvs-limited`). The UI session opens one of those, which is why the
 UI test asserts that the spectator code *ran* and leaves the claim about *which* player to z1800.
 
 ## D73 — demos decode off the UI thread, and a load returns a result rather than nothing
@@ -3912,7 +3912,7 @@ without a message loop, and it is why the fallback is simply to run the work in 
 demo switch is asset loading — `reading surfaces and textures` alone is 13–18 s — and all of it is
 still on the UI thread. B146 carries the table. The first diagnosis picked the one phase that
 happened to be wrapped in a timer already, which is
-`docs/memory/measure-every-hop-before-blaming-one.md` almost word for word.
+`docs/memory/nothing-is-closed.md#measure-every-hop-before-blaming-one` almost word for word.
 
 Two further defects fell out of chasing it, both filed rather than fixed: **B147**, the scrub bar
 cannot be set through automation and therefore not by anyone without a mouse; and **B148**, switching
@@ -4184,7 +4184,7 @@ binaries for each string:
 
 **All of them ship in retail Team Fortress 2.** So they are not a Hammer facility this project is
 imitating — they are cvars a player can type today, and the viewer offering the same name is parity
-rather than homage. `docs/memory/binaries-answer-what-the-sdk-cannot.md` is the technique: the SDK
+rather than homage. `docs/memory/nothing-is-closed.md#binaries-answer-what-the-sdk-cannot` is the technique: the SDK
 publishes some of these and the shipped binary settles which are actually present.
 
 **Why it matters beyond consistency:** a name is an interface. Somebody who knows TF2 already knows
@@ -4208,7 +4208,7 @@ default, unlike `d3d11.dll`: the binding is P/Invoke over a library that has to 
 
 This project already implements Valve's spatialisation — `SoundGain` and `SoundAttenuation`, written
 against the SDK and against measured engine constants (`snd_refdist` 36, `snd_refdb` 60, per
-`docs/memory/a-convar-default-sits-beside-its-name.md`). OpenAL has a distance model of its own and
+`docs/memory/a-default-is-not-a-constant.md`). OpenAL has a distance model of its own and
 applies it per source by default. Enabling both would either double-attenuate or, worse, quietly
 substitute OpenAL's curve for Valve's.
 
@@ -4242,7 +4242,7 @@ becomes "which demos does a run need".
 **Two things this must not become, both of which fail quietly.**
 
 - **A test that skips when a fetch fails.** A skip is not a pass
-  (`docs/memory/a-skip-is-not-a-pass-or-a-failure.md`) and it is invisible in a summary line, so a
+  (`docs/memory/read-the-trx-total-not-the-console.md#a-skip-is-not-a-pass-or-a-failure`) and it is invisible in a summary line, so a
   corpus that cannot be reached would report a green suite that measured nothing. Whatever the
   fetch layer is, an unavailable demo has to be a failure or a loudly-reported absence — never a
   silent one.
@@ -4366,7 +4366,7 @@ apart — the one instrument that settled every audio question this session.
 
 The order is therefore: reach parity, confirm it, and only then diverge from a known-matching
 baseline, so the delta is exactly the change and nothing else. The same reasoning as
-`docs/memory/two-recordings-of-one-value.md` — a comparison is only worth what the control is worth.
+`docs/memory/fixtures-are-the-weak-point.md#two-recordings-of-one-value` — a comparison is only worth what the control is worth.
 
 Applied to B176: it is filed and reasoned but does not get built while other audio parity work is
 outstanding.
@@ -5720,7 +5720,7 @@ disassembly that reads `push 0x102eb2f8 ; default -> the string "50"`. Left in p
 entry simultaneously measuring the default and declaring it unmeasurable.
 
 **Kept rather than deleted, because it is the third instance of one shape found in a single day** —
-see `docs/memory/an-impossibility-claim-expires.md`. `ViewerSettings` said `fps_max`'s default could
+see `docs/memory/filing-a-divergence-is-not-fixing-it.md#an-impossibility-claim-expires`. `ViewerSettings` said `fps_max`'s default could
 not be recovered while finding 37 had recovered it; B209 stood "OPEN, needs the owner" while this
 entry had already answered it; and this paragraph outlived its own evidence. In every case the
 positive claim advanced and the negative one was never re-read, because nothing depends on a
@@ -6225,7 +6225,7 @@ dependency for anyone: every project referencing it is a test project.
 ### The sweep, and what it turned up
 
 **All ninety-four are done**, in a second commit and by hand — a find-and-replace across ninety-four
-files is exactly the edit `docs/memory/replace-all-is-a-claim-about-every-site.md` was written about,
+files is exactly the edit `docs/memory/edit-files-with-the-file-tools.md#replace-all-is-a-claim-about-every-site` was written about,
 and the shapes were not uniform: sixteen were locator properties, twenty-one were `const` folder
 paths, and the rest were local variables, map paths and candidate lists.
 
@@ -6571,7 +6571,7 @@ structural and permanent: the owner is looking at a running program and the assi
 log. It is the same principle as the standing rule that a UI claim which cannot be verified by
 looking is a question rather than a statement — moved one step earlier, to the framing of the hunt
 instead of its conclusion. See `docs/memory/state-the-assumptions-the-owner-can-falsify.md`, and
-its sibling rule in `docs/memory/run-the-control-before-arguing.md`, which came out of the same
+its sibling rule in `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#run-the-control-before-arguing`, which came out of the same
 evening: when a symptom appears right after a change, build the pre-change tree and run it rather
 than arguing about whether the change could have caused it.
 
@@ -6658,7 +6658,7 @@ folder is the owner's to provide. Those are facts about the world. "This is more
 like doing" is not, and that is the only case this decision is about.
 
 **Related, and this is the third time the same instinct has been corrected.** D89 says performance
-never buys a departure from Valve; `docs/memory/an-optimisation-is-not-a-skippable-departure.md` says
+never buys a departure from Valve; `docs/memory/valve-parity-is-the-first-principle.md#an-optimisation-is-not-a-skippable-departure` says
 Valve's optimisations earn their place; D116 says implementing half a mechanism is not parity. This
 is the same error arriving as scope rather than as performance or as structure.
 
@@ -6772,7 +6772,7 @@ asked what `--look` should mean for a camera placed in the world; `OverheadPlace
 view's own successor, so the answer was already sitting in the codebase and the options simply
 reshape what it frames. **A design question that has been open a while is worth re-asking against
 the code as it is now** — the thing that made it hard may have been built since
-(`docs/memory/an-impossibility-claim-expires.md` is the same shape).
+(`docs/memory/filing-a-divergence-is-not-fixing-it.md#an-impossibility-claim-expires` is the same shape).
 
 **Related:** D117 says implement the feature rather than documenting the omission; this is D117 for
 the case where the omission was documented by someone else, earlier, and the note reads as a
@@ -6813,7 +6813,7 @@ extending something built earlier: the second caller of a mechanism is where a w
 becomes visible.
 
 **Related, and this is the fifth time the same instinct has been corrected.** D89 (performance never
-buys a departure), `docs/memory/an-optimisation-is-not-a-skippable-departure.md`, D116 (half a
+buys a departure), `docs/memory/valve-parity-is-the-first-principle.md#an-optimisation-is-not-a-skippable-departure`, D116 (half a
 mechanism is not parity), D117 (implement the feature, do not document the omission), D120 (a found
 divergence is fixed, not filed). Each arrived from a different direction — performance, structure,
 scope, process — and this one closes the last of them: the conversation itself.
@@ -6840,7 +6840,7 @@ forgotten argument into silence, which is the one failure mode a logging change 
 one `NullLogger.Instance`. An unwired optional one costs an investigation: four hypotheses on B229
 were reasoned correctly from an instrument that could not speak, and hypothesis 2 — *"both of
 `Register`'s warnings fired zero times"* — actively pointed away from the cause. That is the second
-time (see `docs/memory/a-null-object-default-hides-a-missed-wiring.md`, D83's own follow-up, where a
+time (see `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`, D83's own follow-up, where a
 green gate of 3,231 tests sat over a viewer that had lost 202 log lines).
 
 **And the diagnostic that would have caught it is cheap.** `PropLoadLoggingTests` asserts that a real
@@ -7099,7 +7099,7 @@ the free camera, because an STV recording carries the whole server's view and th
 fly around in.
 
 **The reason is not fidelity-as-taste, it is that the data does not exist.** A POV demo is
-PVS-limited (`docs/memory/pov-demos-are-pvs-limited.md`): entities outside the recorder's visibility
+PVS-limited (`docs/memory/author-the-specimen-the-corpus-lacks.md#pov-demos-are-pvs-limited`): entities outside the recorder's visibility
 were never transmitted. A free camera pointed at them does not show a room the viewer is rendering
 badly — it shows a room that was never recorded. Offering the camera is offering to fabricate.
 
@@ -7345,7 +7345,7 @@ twice, because this project can seek and the client could not.
 
 **The general rule this sets: an unrecoverable INPUT does not make the LOGIC a choice.** Where the
 engine's own answer comes from a source a demo cannot carry, reproduce the mechanism that consumes
-it and pick the input the way the engine picks it. `docs/memory/a-divergence-is-asked-not-documented.md`
+it and pick the input the way the engine picks it. `docs/memory/parity-is-the-search-not-the-defence.md#a-divergence-is-asked-not-documented`
 covers a real divergence — where we deliberately do something else — and this is not one. Asking here
 converted a decided thing into an open one.
 
@@ -7442,12 +7442,12 @@ taken with the wrong instrument.
   is a fact about the subject.** Two agreeing measurements are not a control when both come from
   the same instrument — running the same wrong command in a clean worktree reproduces the reading
   and proves nothing about it. The control here was one line: ask the trx, which is what the
-  disputed number came from. `docs/memory/an-empty-search-needs-a-control.md` says this about
+  disputed number came from. `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control` says this about
   absence; it is just as true of a disagreement.
 
 ## D139 — the gate script is off limits while a gate is running, floors included
 
-Second occurrence, 2026-09-04, of the fault `docs/memory/never-edit-a-running-script.md` was written
+Second occurrence, 2026-09-04, of the fault `docs/memory/read-the-trx-total-not-the-console.md#never-edit-a-running-script` was written
 for on 2026-09-02 — with that memory in place and read at session start.
 
 `bash` reads a script by byte offset as it executes, so an edit that changes its length shifts
@@ -7678,7 +7678,7 @@ reproduces what the engine draws — which is most of the map, since a static pr
 genuinely does not depend on the view. The rule is only about precedence when the two conflict:
 **the engine's behaviour is the specification and the baking is an implementation detail of ours.**
 
-**Related:** [[an-optimisation-is-not-a-skippable-departure]] states the same precedence from the
+**Related:** `docs/memory/valve-parity-is-the-first-principle.md#an-optimisation-is-not-a-skippable-departure` states the same precedence from the
 other side — Valve's own optimisations earn their place and are not skippable. Ours have to earn
 theirs against the engine's output, every time they meet it.
 
@@ -7942,7 +7942,7 @@ deliberately has no collision for. The corpse's world and the camera's world SHO
 file.** "The physics world floors 6,331 columns where the camera world floors 6,331" is a claim that
 can be wrong; "the map has holes" is a claim that cannot be right.
 
-**This is the same shape as `docs/memory/an-empty-search-needs-a-control.md` one level up.** That
+**This is the same shape as `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control` one level up.** That
 rule says an absence is usually about the grep; this one says an absence is usually about which of
 several parallel readings you asked.
 
@@ -8020,7 +8020,7 @@ were wrong:
 1. *"The two bounds are equal on this effect, so the distribution does not matter here."* They are
    not. `rockettrail` declares `lifetime_min 0.8` and `lifetime_max 1.2`. The claim was written
    without asking the file — a comment about shipped data that the shipped data contradicts, which is
-   `docs/memory/a-valve-comment-can-be-stale.md` turned on our own writing.
+   `docs/memory/nothing-is-closed.md#a-valve-comment-can-be-stale` turned on our own writing.
 2. *"A random number would break replay determinism."* It would not. `CParticleCollection::RandomInt`
    is `s_pRandomFloats[ ( m_nRandomSeed + nRandomSampleId ) & RANDOM_FLOAT_MASK ]`
    (`particles.h:1782`), and the sample id is the PARTICLE's own id (`:1801`). The engine's draw is a
@@ -8296,3 +8296,48 @@ assertion is necessary and it is not sufficient.
 - **`ScenePose` is the remaining top-down object**: one record carrying interpolated values and plain state
   together, which is why "state at the delayed target" was even expressible. Named here rather than fixed,
   because splitting it is its own change.
+
+## D158 — `docs/memory/` follows the assistant's consolidated layout, and a folded entry is cited as `host.md#slug` (2026-09-10)
+
+**The owner's direction, 2026-09-10.** The two memory copies had diverged — 196 files here against 152
+in the assistant's own directory, 44 of them only here — and the assistant's copy was the newer,
+consolidated structure: small entries folded into larger ones as sections. The instruction was to
+reconcile this directory onto that layout, as *"a content merge and not a copy"*: diff each fold against
+the standalone it absorbed and carry anything dropped into the fold, in both copies; keep personal
+material out of `docs/memory/`; rewrite every wiki link that names a retired file, because *"a dangling
+wiki link is the same harm `build/assert-risk-citations.sh` now guards for `B###` citations"*; rebuild
+both indexes; and edit with the file tools, never a script.
+
+**What the merge measured**, word-diffing every retired file against its fold section:
+
+- **38 of 43 folds were faithful.** Five had dropped material, now carried back: three branching rules
+  (into `branch-granularity-is-fine-here`), the `GlobalUsings.cs` half of the build-gate note
+  (`tests-before-codecs`), *"a task big enough to want fan-out is a signal to narrow it"*
+  (`one-subagent-and-prefer-cheap-models`), and that `orangebox` lacks the engine's netmessage table
+  (`hl2sdk-branches-are-per-era-headers`). `fuzzing-belongs-here` had no fold and still said "proposed,
+  nothing wired up"; `docs/FUZZING.md` and D8 own it.
+- **The assistant's copy was not newer everywhere.** It lacked edits made here after its fold — the B384
+  flush section of `the-prune-keeps-two-stale-entries`, the B386-to-B389 renumber in two memories, the
+  `tf2-` hook prefix, and B388's past tense — and those went the other way.
+
+**The assistant's own calls, none of them asked** (named as such under the standing rule on
+attribution):
+
+- **Personal material.** Of the five candidates the owner named, only `branch-scope-and-toolchain-prefs`
+  had carried anything personal into its fold: the owner's habit of tangents, and the signal they watch
+  for memory falling behind. Both moved to the assistant's global memory; the branching rule stayed.
+  `no-workflows-or-subagents`, `the-viewer-suite-wants-the-gpu` and `tf2demosalvage-build-gates` were
+  judged project-scoped and kept. A home-directory path and a handle in two memories became pointers.
+- **The fold's own removals were kept where they were corrections:** *"true for a year"* of a
+  five-week-old repository, and twelve CI counts that `build/gate.sh` owns and that had already moved.
+- **The citation form.** A folded entry keeps its slug in backticks in its section heading, so from
+  outside this directory it is `docs/memory/<host>.md#<slug>` — the file resolves and the slug still
+  greps to exactly one heading.
+- **Every dangling path in the repository was rewritten, not only this fold's.** Deleting 43 files broke
+  about 90 citations; about 150 more had dangled since earlier folds, one of them in `CLAUDE.md`, and
+  every one of those folds had rewritten its links and left its paths. All but four slugs mapped to
+  exactly one heading; the four were a renamed file, two merged without a heading, and
+  `ui-suite-optional-until-ui-grows`, retired in 2026-08, whose three citations now say so.
+
+Why the paths matter more than the links, and how to fold without breaking them:
+`docs/memory/a-fold-leaves-its-paths-behind.md`.

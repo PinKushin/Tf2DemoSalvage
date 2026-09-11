@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// <remarks>
 /// **The layout came from another parser, so a fixture cannot validate it** — a fixture built from
 /// the same reading proves only that the reading is self-consistent, which is the trap recorded in
-/// <c>docs/memory/differential-beats-fixtures.md</c>. Real bodies are the test.
+/// <c>docs/memory/fixtures-are-the-weak-point.md#differential-beats-fixtures</c>. Real bodies are the test.
 ///
 /// Two things make that test sharp. The message states its own body length, so a correct layout
 /// lands on it and a wrong one overruns. And every effect's class id must address a real server

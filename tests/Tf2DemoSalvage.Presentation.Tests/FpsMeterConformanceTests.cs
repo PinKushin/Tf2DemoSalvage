@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// </code>
 ///
 /// It ships in retail `client.dll` — checked by scanning the binary, per
-/// `docs/memory/binaries-answer-what-the-sdk-cannot.md` — so this is a name a player can type
+/// `docs/memory/nothing-is-closed.md#binaries-answer-what-the-sdk-cannot` — so this is a name a player can type
 /// today, and matching it is parity rather than homage (D79).
 ///
 /// **Why a conformance suite rather than just unit tests.** The owner asked for this because he

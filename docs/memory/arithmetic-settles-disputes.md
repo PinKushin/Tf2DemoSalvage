@@ -1,8 +1,11 @@
 ---
 name: arithmetic-settles-disputes
-description: A field's bit width constrains which numbering can be in use; check that before treating a format dispute as needing new evidence.
-metadata:
+description: "A field's bit width constrains which numbering can be in use; check that before treating a format dispute as needing new evidence."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:54:10.382Z
 ---
 
 When this parser and the reference implementation disagreed on the meaning of game event field
@@ -29,4 +32,4 @@ maximum is — and check every candidate against it. Especially suspect any answ
 bit era had no room for, so CS:GO orderings are not evidence about TF2's wire layout.
 
 See [[numeric-decoding-traps]] for the other half of this: values that are wrong but plausible.
-Related: [[differential-beats-fixtures]], [[layer2-is-a-dependency-chain]].
+Related: [[fixtures-are-the-weak-point]], [[layer2-is-a-dependency-chain]].

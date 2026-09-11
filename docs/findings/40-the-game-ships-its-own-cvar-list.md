@@ -76,7 +76,7 @@ written here, weeks apart, and nothing compared them.
 
 That is the failure worth recording, and it is not "we missed a source". It is: **a conclusion of the
 form "X cannot be known" was left standing in code after a finding had established X.** The
-generalisation is in `docs/memory/an-impossibility-claim-expires.md` — an impossibility claim ages
+generalisation is in `docs/memory/filing-a-divergence-is-not-fixing-it.md#an-impossibility-claim-expires` — an impossibility claim ages
 badly in a way a positive claim does not, because nothing about later work forces a re-read of it.
 
 ## What it settles at a glance

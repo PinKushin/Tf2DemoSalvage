@@ -102,7 +102,7 @@ the 0.8–1.2 second life the definition gives it. The reading that had been wri
 project's own comments first, before the file was asked, was `animation_fit_lifetime` — one sequence
 stretched across a life. That would have played the five frames once, slowly, and looked like a
 morph rather than billowing smoke. **The `.pcf` is shipped data and it simply says which**
-(`docs/memory/shipped-data-settles-what-closed-code-cannot.md`).
+(`docs/memory/nothing-is-closed.md#shipped-data-settles-what-closed-code-cannot`).
 
 ## The crossfade is not optional
 
@@ -150,7 +150,7 @@ and replaying identically were never in conflict; the divergence was bought for 
 only as a binary. This project's table is its own — uniform on [0,1) and stable across runs, which is
 every property the arithmetic depends on, but not float-for-float Valve's. It can change which puff
 got which lifetime; it cannot change the distribution or the reproducibility. Falsifiable: `particles.lib`
-ships in the SDK at `src/lib/public/x64/` (`docs/memory/absent-from-the-sdk-is-not-unreadable.md`).
+ships in the SDK at `src/lib/public/x64/` (`docs/memory/nothing-is-closed.md#absent-from-the-sdk-is-not-unreadable`).
 
 ## The sheet's own presence was moving the pixels
 

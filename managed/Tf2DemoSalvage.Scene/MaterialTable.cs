@@ -172,7 +172,7 @@ public sealed class MaterialTable
         // NullReferenceException on four rendering tests, and only on maps with a missing material.
         //
         // Second time this exact trap has bitten in one day: `ChaseSettings` needed the same guard,
-        // for the same reason. See `docs/memory/a-nullable-pattern-on-a-struct-is-dead-code.md`'s
+        // for the same reason. See `docs/memory/nullable-pattern-on-a-struct-is-dead-code.md`'s
         // neighbourhood — a record struct's defaults are constructor behaviour, not field state.
         _shaders.Add(resolved.Shader ?? string.Empty);
 

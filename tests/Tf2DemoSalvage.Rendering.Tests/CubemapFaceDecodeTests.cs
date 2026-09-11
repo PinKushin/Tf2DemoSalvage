@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// <remarks>
 /// **<c>VtfCubeFaceTests</c> cannot falsify the layout**, because its fixtures are written from the
 /// same belief as the reader — the trap that has now cost this project three bugs in one session
-/// (<c>docs/memory/put-the-real-file-in-the-fixture.md</c>). It pins face SELECTION, which is what a
+/// (<c>docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture</c>). It pins face SELECTION, which is what a
 /// synthetic fixture is good for. This pins the layout, against 43 files vbsp wrote.
 ///
 /// **The decisive assertion is that the last face ends exactly at the end of the file.** Any error

@@ -1,8 +1,11 @@
 ---
 name: a-flat-array-is-addressed-by-a-width
-description: A stride is per-entry, not per-container — and a limit the implementation imposes will pass itself off as a fact about the data.
-metadata:
+description: "A stride is per-entry, not per-container — and a limit the implementation imposes will pass itself off as a fact about the data."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-10T17:13:43.414Z
 ---
 
 **Components stored flat are addressed as `index * width`, so the width belongs to the ENTRY that was

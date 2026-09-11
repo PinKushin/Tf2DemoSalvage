@@ -1,8 +1,11 @@
 ---
 name: settle-a-constant-in-the-disassembly
-description: A claim about WHICH memory a value came from is settled in the disassembly, never in decompiled C — Ghidra invents local names and reuses them for unrelated values. DisasmWithData.java prints every memory operand's four lanes on the instruction that reads it.
-metadata:
+description: "A claim about WHICH memory a value came from is settled in the disassembly, never in decompiled C — Ghidra invents local names and reuses them for unrelated values. DisasmWithData.java prints every memory operand's four lanes on the instruction that reads it."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-10T22:52:34.662Z
 ---
 
 **Two wrong conclusions in one session, 2026-09-06/07, and both were made in the DECOMPILED C rather
@@ -75,6 +78,7 @@ ragdoll limit clamp — took two calls and no guessing:
 Three scalars inserted lane by lane, plus the bisector's fourth component. The decompiler had
 suggested that shape; the disassembly established it.
 
-Related: [[an-empty-search-needs-a-control]] and [[print-a-value-somebody-can-recognise]] are the
-same discipline pointed at instruments rather than at reading — report the value that was USED,
-carried from where it was produced, never one recalled or recomputed by a second route.
+Related: the `an-empty-search-needs-a-control` and `print-a-value-somebody-can-recognise` sections
+of [[instrument-bugs-outnumber-decoder-bugs]] are the same discipline pointed at instruments rather
+than at reading — report the value that was USED, carried from where it was produced, never one
+recalled or recomputed by a second route.

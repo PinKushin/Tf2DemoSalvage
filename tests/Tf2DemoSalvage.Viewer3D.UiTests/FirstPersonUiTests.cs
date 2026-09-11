@@ -186,7 +186,7 @@ public sealed class FirstPersonUiTests
         // **Restored in a `finally`, and the first version was not.** The fixture is shared: a
         // failure that left the playlist focused took four other tests down with it, every one
         // reporting a subject that was perfectly fine
-        // (`docs/memory/cancelling-sabotages-mean-coupled-tests.md`).
+        // (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#cancelling-sabotages-mean-coupled-tests`).
         try
         {
             Viewer.Find(MainForm.PlaylistId).Focus();

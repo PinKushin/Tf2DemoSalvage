@@ -499,7 +499,7 @@ namespace cannot be comparing anything of ours.
 > `Unimplemented*` gap markers doing a legitimate job (D45) and a dozen are controls asserting that
 > an extraction found anything. The rest are the work.
 >
-> **Same shape as the six instances in `docs/memory/an-empty-search-needs-a-control.md`, and this
+> **Same shape as the six instances in `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`, and this
 > one was the audit itself** — the document written to catch tests that cannot fail was measured by
 > a grep that could not see the answer. A count is a measurement and needs its own control.
 

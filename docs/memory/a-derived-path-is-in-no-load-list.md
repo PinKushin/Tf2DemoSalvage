@@ -1,8 +1,11 @@
 ---
 name: a-derived-path-is-in-no-load-list
-description: A model resolved at draw time is named by no track, so a load list built from tracks can never contain it — and the miss is silent.
-metadata:
+description: "A model resolved at draw time is named by no track, so a load list built from tracks can never contain it — and the miss is silent."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-10T14:59:44.920Z
 ---
 
 **Two lists decide whether anything is drawn, and they are built from different things.** The asset

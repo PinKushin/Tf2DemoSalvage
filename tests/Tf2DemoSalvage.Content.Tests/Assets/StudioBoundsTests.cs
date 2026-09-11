@@ -125,7 +125,7 @@ public sealed class StudioBoundsTests
     /// `PlayerHeight = 83f`, described there as the game's own player hull and used to check that a
     /// posed model stands up. That constant is the hull height rounded to a whole unit, and saying
     /// so with `MathF.Round` states the relationship exactly rather than smuggling in slack — see
-    /// `docs/memory/two-recordings-of-one-value.md`, which is what makes two independent routes to
+    /// `docs/memory/fixtures-are-the-weak-point.md#two-recordings-of-one-value`, which is what makes two independent routes to
     /// one number evidence instead of a restatement.
     /// </remarks>
     [Test]
@@ -136,7 +136,7 @@ public sealed class StudioBoundsTests
 
     /// <summary>That the hull's height is the 83 units this project already pins elsewhere.</summary>
     /// <remarks>
-    /// **The same number by two unrelated routes** (`docs/memory/two-recordings-of-one-value.md`).
+    /// **The same number by two unrelated routes** (`docs/memory/fixtures-are-the-weak-point.md#two-recordings-of-one-value`).
     /// `StudioAnimationTests` carries `PlayerHeight = 83f`, described there as coming from the
     /// game's own player hull and used to check a posed model stands up. This reads that hull out
     /// of the file directly and gets 83.027 — so the constant and the decoder agree without either

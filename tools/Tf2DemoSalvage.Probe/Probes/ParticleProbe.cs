@@ -53,7 +53,7 @@ public sealed class ParticleProbe : IProbe
 
         // **Every archive, because a `.pcf` can live in any of them** — and a probe that opens one
         // by hand and reports "not found" is answering about itself
-        // (`docs/memory/an-empty-search-needs-a-control.md`).
+        // (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
         List<string> archives =
         [
             .. Directory.EnumerateFiles(game, "*_dir.vpk").OrderBy(one => one, StringComparer.Ordinal),
@@ -363,11 +363,11 @@ public sealed class ParticleProbe : IProbe
                 // exist in the texture; which one a particle shows is decided by the renderer's own
                 // parameters, and `render_animated_sprites` is in the closed client. The `.pcf` is
                 // shipped data and states them, so this prints every parameter rather than the ones
-                // already guessed at — `docs/memory/shipped-data-settles-what-closed-code-cannot.md`.
+                // already guessed at — `docs/memory/nothing-is-closed.md#shipped-data-settles-what-closed-code-cannot`.
                 // **A second walk over EVERY archive, because the `.pcf` is not in the texture
                 // one.** Reusing the archive that held `smokelit.vtf` printed nothing at all and
                 // read as "the renderer declares no parameters" — the same shape as
-                // `docs/memory/an-empty-search-needs-a-control.md`, one archive deep.
+                // `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`, one archive deep.
                 foreach (IReadOnlyDictionary<string, ParticleSystem> systems in archives
                     .Select(one => VpkArchive.Open(one).ReadFile("particles/rockettrail.pcf"))
                     .Where(one => one is not null)
@@ -441,7 +441,7 @@ public sealed class ParticleProbe : IProbe
         // declared in three VMTs, read by nothing, and its correct implementation is nothing
         // (`docs/findings/12-shader-parity.md`). A census of REQUESTS is the only thing that can
         // tell those apart from a real gap
-        // (`docs/memory/a-census-of-requests-beats-a-list-of-features.md`).
+        // (`docs/memory/the-denominator-decides-what-can-be-lost.md#a-census-of-requests-beats-a-list-of-features`).
         if (filter.Equals("materials", StringComparison.OrdinalIgnoreCase))
         {
             string[] keys =
@@ -628,7 +628,7 @@ public sealed class ParticleProbe : IProbe
                 // is exactly what it reported the first time it ran, because the search below was
                 // `open` alone. The `.pcf` is in `tf2_misc_dir.vpk` and the texture is in
                 // `tf2_textures_dir.vpk`, so a one-archive search finds the definition and none of
-                // its material (`docs/memory/an-empty-search-needs-a-control.md`).
+                // its material (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
                 IReadOnlyList<SheetSequence> sheet = [];
 
                 foreach (string other in archives)

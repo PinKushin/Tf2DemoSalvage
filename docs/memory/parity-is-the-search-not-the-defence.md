@@ -1,8 +1,11 @@
 ---
 name: parity-is-the-search-not-the-defence
-description: The owner's "check for parity" means SEARCH Valve's code for the mechanism, not justify what we built; a rule written in our own comments is not an enforced rule; and reading the SDK for how a feature is declared rather than how it works, citing the wrong branch or the wrong sibling mechanism, decoding a field without honouring every consumer, and stopping a divergence search too early are the ways that search keeps failing.
-metadata:
+description: "The owner's \"check for parity\" means SEARCH Valve's code for the mechanism, not justify what we built; a rule written in our own comments is not an enforced rule; and reading the SDK for how a feature is declared rather than how it works, citing the wrong branch or the wrong sibling mechanism, decoding a field without honouring every consumer, and stopping a divergence search too early are the ways that search keeps failing."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-10T22:52:26.664Z
 ---
 
 **The owner, repeatedly, through an entire evening of me measuring the wrong things:** *"remember to
@@ -277,7 +280,7 @@ and the next reader would have had no reason to look.
 check what its enabling convar defaults to — a mechanism that ships off is rarely the one users
 experience. When there are two, which one we copy is a decision to record (D102), not a detail to
 pick. Related: [[name-the-reading-you-picked]], [[a-default-is-not-a-constant]],
-[[ask-valve-before-designing-not-after]].
+[[conformance-test-before-implementation]].
 
 ---
 
@@ -340,7 +343,7 @@ have drawn was standing in for the grate we were not drawing.
 
 So: read until the mechanism is **whole**, not until a line of C++ agrees with you. A citation that
 explains why something should be hidden is half an answer; the other half is what the engine shows
-instead. Related: [[valve-parity-is-the-first-principle]], [[ask-valve-before-designing-not-after]].
+instead. Related: [[valve-parity-is-the-first-principle]], [[conformance-test-before-implementation]].
 
 ---
 
@@ -419,7 +422,7 @@ Present the cost of both sides; the owner has said they can be influenced, so a 
 wanted, but the choice is not mine.
 
 Related: [[valve-parity-is-the-first-principle]], [[name-the-reading-you-picked]],
-[[never-revert-without-asking]], [[an-optimisation-is-not-a-skippable-departure]],
+[[never-revert-without-asking]], [[valve-parity-is-the-first-principle]],
 [[name-the-trade-before-fixing-valve]], [[nothing-is-closed]].
 
 ---
@@ -461,4 +464,4 @@ everything they exercised, and each stated its expectation relative to a reading
 the same code. `Failed: 0` presents that as success.
 
 Same shape as [[the-player-send-table-excludes-the-animation]]. Related:
-[[an-empty-search-needs-a-control]], [[instrument-bugs-outnumber-decoder-bugs]].
+[[instrument-bugs-outnumber-decoder-bugs]] and its `an-empty-search-needs-a-control` section.

@@ -1,8 +1,11 @@
 ---
 name: port-the-engines-bottom-layer-first
-description: Port the engine's smallest named object before anything that consumes it — a top-down port retrofits every later fact into the wrong object, and its tests cannot see the bottom layer at all.
-metadata:
+description: "Port the engine's smallest named object before anything that consumes it — a top-down port retrofits every later fact into the wrong object, and its tests cannot see the bottom layer at all."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-09T22:24:25.717Z
 ---
 
 **The owner, on why B382 became a large refactor instead of a small fix:**

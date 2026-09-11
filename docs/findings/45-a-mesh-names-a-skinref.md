@@ -133,7 +133,7 @@ The log looked healthy: the same `props` area carried 125 `pairing` lines, which
 count of *entity* models — a different code path, handed a real logger twenty lines away in the same
 method. "Did that subsystem say anything" answered yes for the whole period one half of it was mute.
 
-The general lesson is filed in `docs/memory/an-instrument-unread-is-not-an-instrument.md` and
+The general lesson is filed in `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-instrument-unread-is-not-an-instrument` and
 `a-null-object-default-hides-a-missed-wiring.md`. The specific one is narrower and worth stating
 plainly: **an optional logger parameter with exactly one caller is not a convenience, it is an
 unwired sink**, and the null-object default is what makes it silent instead of obvious.

@@ -294,7 +294,7 @@ public sealed class ViewmodelScene
                 // That default is what broke the viewmodel: the held weapon fell into the
                 // transform branch and was composed onto the arms' origin instead of merged onto
                 // their skeleton. `DemoTimeline` was updated when the field was added and this site
-                // was not, which is the shape `docs/memory/a-moves-regressions-are-wiring.md`
+                // was not, which is the shape `docs/memory/output-level-assertion-or-it-is-not-done.md#a-moves-regressions-are-wiring`
                 // records — the field arrived, one caller set it, and the rest silently took a
                 // default that is also a legitimate value.
                 BoneMerged: true,

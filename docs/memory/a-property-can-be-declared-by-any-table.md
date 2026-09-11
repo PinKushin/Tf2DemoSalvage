@@ -1,8 +1,11 @@
 ---
 name: a-property-can-be-declared-by-any-table
-description: A class may declare m_vecOrigin in its own table instead of inheriting DT_BaseEntity's; a reader keyed on a fixed list of tables silently drops every class that does.
-metadata:
+description: "A class may declare m_vecOrigin in its own table instead of inheriting DT_BaseEntity's; a reader keyed on a fixed list of tables silently drops every class that does."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-09T04:24:18.135Z
 ---
 
 **Never key an entity-state accessor on a fixed list of TABLES.** The engine binds a recv proxy by

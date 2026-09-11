@@ -34,7 +34,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// **The denominator is printed whether or not anything is found**, because an empty answer is
 /// otherwise indistinguishable from a scan that opened nothing
-/// (<c>docs/memory/an-empty-search-needs-a-control.md</c>).
+/// (<c>docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control</c>).
 /// </remarks>
 public sealed class AutoplayProbe : IProbe
 {
@@ -136,7 +136,7 @@ public sealed class AutoplayProbe : IProbe
             // are two bits of the same `mstudioseqdesc_t::flags` word read through the same merged
             // table, so a looping count that is also zero means the flags are not being read at
             // all — a fact about this probe, not about TF2
-            // (`docs/memory/an-empty-search-needs-a-control.md`).
+            // (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
             for (int sequence = 0; sequence < skinned.Sequences.Count; sequence++)
             {
                 sequences++;

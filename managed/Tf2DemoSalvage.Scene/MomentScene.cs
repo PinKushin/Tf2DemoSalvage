@@ -443,7 +443,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // **The view's own position, for the distance fade** (B268). It comes from the device that
         // built the frustum beside it rather than from a second reading of the camera, so the fade
         // measures from exactly where the cull did — one camera, or the two disagree about how far
-        // away a prop is (`docs/memory/one-camera-or-the-cull-lies.md`).
+        // away a prop is (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#one-camera-or-the-cull-lies`).
         //
         // **In EVERY camera mode, which is B365.** This read `info.EyeCamera?.Origin`, and that is
         // null unless the viewer is in first person — so a free or chase camera measured no
@@ -1189,7 +1189,7 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <c>Pose.Slot</c>, so their weapon animations quietly fall back to the generic primary forms.
     /// Nothing throws, and no test that does not read <c>Slot</c> can tell.
     ///
-    /// That is exactly the failure `docs/memory/a-null-object-default-hides-a-missed-wiring.md`
+    /// That is exactly the failure `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`
     /// records — 193 call sites converted, the suite green, and the log 202 lines shorter. It was
     /// nearly repeated here: moving `ShowMoment` out dropped the `EnsureWeaponRoles` call, and only
     /// an analyzer noticing the method had become unreachable caught it.

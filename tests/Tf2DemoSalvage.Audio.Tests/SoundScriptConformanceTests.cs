@@ -297,7 +297,7 @@ public sealed class SoundScriptConformanceTests
     /// <remarks>
     /// Authored from the SHIPPED scripts' own syntax rather than from this reader — the ricochet
     /// entry below is copied from `game_sounds_weapons.txt`. That is the distinction in
-    /// `docs/memory/put-the-real-file-in-the-fixture.md`: synthetic is fine, sourcing it from our
+    /// `docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture`: synthetic is fine, sourcing it from our
     /// own code is not.
     /// </remarks>
     private static SoundScriptEntry Single(string text)

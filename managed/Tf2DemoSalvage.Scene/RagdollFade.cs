@@ -68,7 +68,7 @@ public sealed class RagdollFade(float intervalPerTick)
     /// <summary>Seconds per tick, as the recording server ran.</summary>
     /// <remarks>
     /// Published so a caller working in ticks can reach the playback clock without holding a second
-    /// copy of the rate — <c>docs/memory/one-camera-or-the-cull-lies.md</c> is the same rule about a
+    /// copy of the rate — <c>docs/memory/instrument-bugs-outnumber-decoder-bugs.md#one-camera-or-the-cull-lies</c> is the same rule about a
     /// value derived twice.
     /// </remarks>
     public float IntervalPerTick => intervalPerTick;

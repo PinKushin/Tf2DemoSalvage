@@ -1,8 +1,11 @@
 ---
 name: portable-half-and-adapter-half
 description: The owner wants view logic copy-pasteable across front ends; split it so the rules sit in net10.0 and only a tiny adapter names the toolkit.
-metadata:
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:55:17.070Z
 ---
 
 Asked for a shortcut guard, the owner added:
@@ -37,4 +40,4 @@ only `KeyNames` translates.
 **Check it by TFM, not by reading.** `grep -rl "System.Windows.Forms" managed --include=*.cs` over
 `Presentation` should match only prose in doc comments; if it compiles under `net10.0`, it is
 portable by construction. Related: [[ask-if-the-view-must-hold-it]],
-[[decide-home-and-parity-before-writing]], [[no-hardcoded-controls-ever]].
+[[conformance-test-before-implementation]], [[no-hardcoded-controls-ever]].

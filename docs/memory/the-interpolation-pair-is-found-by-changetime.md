@@ -1,8 +1,11 @@
 ---
 name: the-interpolation-pair-is-found-by-changetime
-description: GetInterpolationInfo selects its pair by comparing CHANGETIMES to the target, so the pair always brackets it. An arrival-adjacent pair does not, and that was the jitter.
-metadata:
+description: "GetInterpolationInfo selects its pair by comparing CHANGETIMES to the target, so the pair always brackets it. An arrival-adjacent pair does not, and that was the jitter."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-09T19:00:15.438Z
 ---
 
 `GetInterpolationInfo` (`interpolatedvar.h:815`) walks the history newest-first and compares each

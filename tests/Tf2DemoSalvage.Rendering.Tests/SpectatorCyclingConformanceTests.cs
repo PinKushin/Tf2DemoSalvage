@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </summary>
 /// <remarks>
 /// **Every claim here is read from `source-sdk-2013`**, which ships TF2's own game code — see
-/// `docs/memory/tf2-game-code-is-in-the-sdk.md`. The relevant routines are
+/// `docs/memory/nothing-is-closed.md#tf2-game-code-is-in-the-sdk`. The relevant routines are
 /// `CTFPlayer::FindNextObserverTarget` and `GetNextObserverSearchStartPoint` in
 /// `src/game/server/tf/tf_player.cpp`, and `ClientModeShared::HandleSpectatorKeyInput` in
 /// `src/game/client/clientmode_shared.cpp`.

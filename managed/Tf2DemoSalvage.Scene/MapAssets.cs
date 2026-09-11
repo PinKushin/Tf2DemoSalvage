@@ -2103,7 +2103,7 @@ public sealed class MapAssets
     /// **The path is the material's `$basetexture`, not a name derived from the `.vmt`'s.**
     /// `effects/rocketrailsmoke.vmt` points at `effects/smoke/smokelit` — a different folder — so
     /// looking for a `.vtf` beside the `.vmt` finds nothing and reports a texture that ships as
-    /// absent (`docs/memory/an-empty-search-needs-a-control.md`).
+    /// absent (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
     /// </remarks>
     /// <summary>Resolves every entity sprite's material, keyed by its model path (B378).</summary>
     /// <param name="assets">Where the count is reported.</param>

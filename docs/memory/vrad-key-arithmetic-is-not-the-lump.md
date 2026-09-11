@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
-  modified: 2026-08-27T04:41:21.361Z
+  modified: 2026-09-09T03:54:53.438Z
 ---
 
 **Deriving a lump's numeric scale from the compiler's source is not reading the source, it is
@@ -20,7 +20,7 @@ between a nought-to-255 world light and a nought-to-one `TexLightToLinear` ambie
 exist**, and a fix aimed at it would have scaled a correct value into a wrong one.
 
 **Why it was convincing, which is the part worth remembering.** The theory explained every symptom
-of [[a-hole-is-not-always-a-drawing-fault]]-style washed-out viewmodels: point lights would survive
+of [[a-map-cannot-have-a-hole]]-style washed-out viewmodels: point lights would survive
 the mismatch because `LocalLights.Falloff` divides by distance squared and absorbs a factor of 200
 at any room distance, while `emit_skylight` is directional, receives no falloff, and reaches a
 shader that multiplies it only by a Lambert term. Excess light, only where the sun reaches, worst at

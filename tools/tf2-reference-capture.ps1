@@ -439,7 +439,7 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
     # the video mode in `config.cfg` and restores it, so `-windowed` can be overridden by whatever
     # the owner last played at. Exclusive fullscreen is not redirected by the compositor, which is
     # why `PrintWindow` returned success and a black bitmap — this project already knows that
-    # hazard from its own UI suite (`docs/memory/the-viewer-suite-wants-the-gpu.md`).
+    # hazard from its own UI suite (`docs/memory/read-the-trx-total-not-the-console.md#the-viewer-suite-wants-the-gpu`).
     Send-Command "mat_setvideomode $Width $Height 1"
 
     Start-Sleep -Seconds 5
@@ -504,7 +504,7 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
     # **A control on the instrument before believing its absence.** `echo` is the cheapest command
     # that must appear in the log; if the marker is missing then the hijack is not landing and the
     # screenshot commands were never the problem
-    # (`docs/memory/an-empty-search-needs-a-control.md`).
+    # (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
     Send-Command 'echo TF2REF_HIJACK_REACHED_THE_GAME'
 
     if (-not (Wait-ForLog -Pattern 'TF2REF_HIJACK_REACHED_THE_GAME' `

@@ -3185,7 +3185,7 @@ public sealed class EntityModelSet : IModelBodygroups
     /// and the alternative is walking twenty thousand corners a frame to answer a yes/no.
     ///
     /// **Transition-logged**, like every other instrument this hunt produced: the event lasts 60 ms
-    /// and a sampled line cannot see it. See `docs/memory/log-the-event-not-a-sample-of-it.md`.
+    /// and a sampled line cannot see it. See `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#log-the-event-not-a-sample-of-it`.
     /// </remarks>
     private void ReportPosedSize(string modelPath, IReadOnlyList<float[]> bones, int body)
     {
@@ -4856,7 +4856,7 @@ public sealed class EntityModelSet : IModelBodygroups
                 // world position, and it moves — while the prop stayed invisible. The one thing
                 // never measured was the output, which is the shape this project keeps meeting:
                 // three correct measurements locating the fourth
-                // (`docs/memory/measure-every-hop-before-blaming-one.md`).
+                // (`docs/memory/nothing-is-closed.md#measure-every-hop-before-blaming-one`).
                 // **Keyed on the composed POSITION, not on the model, so it says whether the child
                 // FOLLOWS.** Deduped per model it fired once and proved only that the composition ran —
                 // which is what it was written for (B231, a prop dropped for want of a parent placement).

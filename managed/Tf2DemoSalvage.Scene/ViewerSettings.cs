@@ -403,7 +403,7 @@ public sealed record ViewerSettings
     /// **So this was not a missing source, it was an unrevisited impossibility claim.** Nothing about
     /// finding 37 forced a re-read of a sentence saying the thing it established could not be known,
     /// which is how the two sat here disagreeing. See
-    /// `docs/memory/an-impossibility-claim-expires.md`, and
+    /// `docs/memory/filing-a-divergence-is-not-fixing-it.md#an-impossibility-claim-expires`, and
     /// `docs/findings/40-the-game-ships-its-own-cvar-list.md` for the cheaper instrument that
     /// surfaced the contradiction.
     ///

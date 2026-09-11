@@ -205,7 +205,7 @@ public static class ParticleSystems
                 // `lifetime_min 0.8` and `lifetime_max 1.2`, so a midpoint gave every puff in a
                 // trail exactly 1.0 seconds — one plume dying all at once instead of thinning out.
                 // The comment that justified the midpoint said the two bounds were equal; the file
-                // says otherwise, which is `docs/memory/a-valve-comment-can-be-stale.md` applied to
+                // says otherwise, which is `docs/memory/nothing-is-closed.md#a-valve-comment-can-be-stale` applied to
                 // our own.
                 case "Lifetime Random":
                     float least = (float)one.Number("lifetime_min", lives);

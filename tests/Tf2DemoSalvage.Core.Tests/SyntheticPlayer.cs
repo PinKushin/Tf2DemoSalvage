@@ -845,7 +845,7 @@ internal static class SyntheticPlayer
     /// **After the main hand, deliberately.** The defect this fixture exists to catch is a lookup
     /// that keeps whichever viewmodel it saw last, so an off hand recorded FIRST would let the
     /// broken reader answer correctly by accident. See
-    /// <c>docs/memory/real-data-hides-bugs-small-inputs-expose.md</c> — the condition has to be one
+    /// <c>docs/memory/fixtures-are-the-weak-point.md#real-data-hides-bugs-small-inputs-expose</c> — the condition has to be one
     /// where correct and broken disagree.
     /// </remarks>
     private const int OffHandEntityIndex = 9;

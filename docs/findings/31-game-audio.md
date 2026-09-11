@@ -105,7 +105,7 @@ for whoever continues:
 - **Ghidra's reference table is empty for these strings** even though the program is analysed
   (11,170 functions, 11,960 symbols). `getReferenceCountTo` returns 0 for every one. The byte scan
   for the little-endian address constant found all nine, which is exactly what
-  `docs/memory/binaries-answer-what-the-sdk-cannot.md` already says to do.
+  `docs/memory/nothing-is-closed.md#binaries-answer-what-the-sdk-cannot` already says to do.
 - The next step is defining functions at those sites — the analysis covers 11,170 functions and not
   these — then decompiling.
 
@@ -179,7 +179,7 @@ Two instrument notes for whoever finishes it:
 - **Ghidra's reference table is empty for these strings** even though the program is analysed —
   11,170 functions, 11,960 symbols, and `getReferenceCountTo` returns 0 for every one. The byte
   scan for the little-endian address constant found all six, which is what
-  `docs/memory/binaries-answer-what-the-sdk-cannot.md` already prescribes.
+  `docs/memory/nothing-is-closed.md#binaries-answer-what-the-sdk-cannot` already prescribes.
 - The next step is not another scan. It is finding the function that reads the ConVar OBJECTS —
   reached from the object, not from the name string — which means defining functions in that region
   first.
@@ -367,7 +367,7 @@ Two consequences, and the second is a parity requirement rather than a benchmark
 
 **And the source is worth noting as much as the answer.** The mixer is closed, but its cvar's
 MEANING is documented in published game code that merely consumes it — the same shape as
-`docs/memory/shipped-data-is-a-source.md` and `nothing-is-closed.md`. A grep of the SDK for the
+`docs/memory/nothing-is-closed.md#shipped-data-is-a-source` and `nothing-is-closed.md`. A grep of the SDK for the
 cvar name found it immediately; the decompiler was never needed for this part.
 
 ## The audible radius IS published — found by grepping for callers
@@ -647,7 +647,7 @@ svc_Sounds → SoundNumber → soundprecache path → GameArchives → PCM
 it still holds the `rndwave` sets and the parameters for sounds triggered by game code rather than
 by `svc_Sounds`, and its manifest work stands — but it was built one layer ahead of the evidence.
 
-**This is the failure `docs/memory/read-the-spec-before-measuring-our-data.md` describes, arriving
+**This is the failure `docs/memory/nothing-is-closed.md#read-the-spec-before-measuring-our-data` describes, arriving
 from the other direction.** That memory warns against measuring our own data when the question is
 what the format does. Here the reverse: an assumption about what the format contains went unmeasured
 for two commits while nineteen tests were written on top of it, every one of them green, because
@@ -877,7 +877,7 @@ binary" and means nothing of the kind:
    and one accessor — and none of the readers. Scanning `base + 0..0x60` found twenty-five, of which
    five read all five gain cvars.
 
-The general lesson is `docs/memory/binaries-answer-what-the-sdk-cannot.md` stated from the other
+The general lesson is `docs/memory/nothing-is-closed.md#binaries-answer-what-the-sdk-cannot` stated from the other
 side: **an empty result from a decompiler's database is a fact about the analysis, not about the
 binary.** Scan the bytes.
 

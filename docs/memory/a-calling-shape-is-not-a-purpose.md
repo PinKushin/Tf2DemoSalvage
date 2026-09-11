@@ -1,8 +1,11 @@
 ---
 name: a-calling-shape-is-not-a-purpose
-description: In a binary with one generic dispatch convention, every function looks like the one you are hunting; a vtable call with a time argument identified nothing.
-metadata:
+description: "In a binary with one generic dispatch convention, every function looks like the one you are hunting; a vtable call with a time argument identified nothing."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:52:48.166Z
 ---
 
 **Two functions in `vphysics.dll` were labelled "the island solve" on the strength of their SHAPE**
@@ -43,5 +46,5 @@ of the convention rather than of the function. **The way out both times was a pu
 written field**: `simresult_e` named this one in four lines, where months of shape-matching had
 not. And when a shape-based label is later falsified, keep it struck through with what
 killed it: it is the second time a wrong conclusion here came from a pattern that was genuinely
-present and genuinely uninformative. Related: [[an-empty-search-needs-a-control]],
-[[a-flag-with-no-field-is-set-by-the-loop]], [[absent-from-the-sdk-is-not-unreadable]].
+present and genuinely uninformative. Related: [[instrument-bugs-outnumber-decoder-bugs]],
+[[a-flag-with-no-field-is-set-by-the-loop]], [[nothing-is-closed]].

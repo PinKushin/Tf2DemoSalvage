@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Scene;
 /// **And why it must say WHICH silence it is** (D83). An overlay switched on that draws nothing is
 /// indistinguishable by eye from standing in a leaf whose box is off screen, and "no leaf box" is
 /// true of all three causes and useful for none. Naming the measurement is the difference between a
-/// diagnostic and a shrug — <c>docs/memory/a-log-must-name-what-it-measured.md</c>.
+/// diagnostic and a shrug — <c>docs/memory/logs-are-the-debugger.md#a-log-must-name-what-it-measured</c>.
 /// </remarks>
 public sealed class LeafBoxes(ILogger render)
 {

@@ -33,7 +33,7 @@ namespace Tf2DemoSalvage.SdkReference;
 /// **Every caller must use the control.** <see cref="AnyProductionAssemblyMentions"/> returning
 /// false is only evidence if the same search finds something known to be present — otherwise a
 /// wrong path, a stale binary or an encoding mistake all read as "not implemented"
-/// (<c>docs/memory/an-empty-search-needs-a-control.md</c>).
+/// (<c>docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control</c>).
 /// </remarks>
 public static class SchemaGap
 {

@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
-  modified: 2026-09-06T15:52:14.440Z
+  modified: 2026-09-09T03:55:08.111Z
 ---
 
 `MapAssets.Geometry(path)` looks like an on-demand model loader and is a `TryGetValue` over a
@@ -23,5 +23,5 @@ frame, wrong for a deliberate `Precache`, which now retries empty entries), and 
 to upload only when its OWN `Add` returned true, so a set grown anywhere else never reached the
 device — `EntityModelSet.Grown` now says so however it grew.
 
-See [[correct-counts-are-not-a-chain-of-custody]] and
+See [[instrument-bugs-outnumber-decoder-bugs]] and
 [[output-level-assertion-or-it-is-not-done]].

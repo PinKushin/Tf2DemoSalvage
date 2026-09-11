@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <remarks>
 /// **One record rather than six arguments threaded through the pose path**, so the correction and
 /// the camera that drew the frame cannot come apart — the rule in
-/// <c>docs/memory/one-camera-or-the-cull-lies.md</c> applied to a third consumer of the view.
+/// <c>docs/memory/instrument-bugs-outnumber-decoder-bugs.md#one-camera-or-the-cull-lies</c> applied to a third consumer of the view.
 /// </remarks>
 public readonly record struct ViewmodelProjection(
     (float X, float Y, float Z) Eye,

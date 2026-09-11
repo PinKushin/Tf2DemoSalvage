@@ -103,7 +103,7 @@ public sealed class MomentSceneTests
         // **A null object is the right default and it hides a missed wiring, so it has to say so.**
         // It answers null to everything, including the model — so nobody is drawn at all, which is
         // silent in a viewer that may legitimately have no TF2 installed. That is the shape
-        // `docs/memory/a-null-object-default-hides-a-missed-wiring.md` records, where 193 converted
+        // `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring` records, where 193 converted
         // call sites lost 202 log lines and the suite stayed green.
         RecordingLogger log = new();
         MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), log);

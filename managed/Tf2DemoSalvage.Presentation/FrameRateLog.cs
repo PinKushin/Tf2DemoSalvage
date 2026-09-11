@@ -14,12 +14,12 @@ namespace Tf2DemoSalvage.Presentation;
 /// above that. A twenty-second autoplay run of `tf2-2026-pub-pov-clean` logged nothing at all, which
 /// reads as "no slow frames" and means only "nothing exceeded 30 ms"; the run could have been at 40
 /// fps or 600 and the log would look identical. That is
-/// `docs/memory/a-threshold-instrument-cannot-see-a-sum.md` applied to the frame loop.
+/// `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#a-threshold-instrument-cannot-see-a-sum` applied to the frame loop.
 ///
 /// **Every phase is a mean over the interval, and the first design got this wrong.** It logged the
 /// phases of whichever frame happened to cross the second boundary. The owner: *"a probe that only
 /// polls per second is way too slow so that better be a fucking average"* — correct, and it is
-/// `docs/memory/log-the-event-not-a-sample-of-it.md`: at 90 fps a per-second sample publishes one
+/// `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#log-the-event-not-a-sample-of-it`: at 90 fps a per-second sample publishes one
 /// frame in ninety and calls it the cost of all of them. What made the mistake easy to miss is that
 /// the RATE beside it was already an average — <see cref="FpsMeter"/> smooths it and carries
 /// watermarks — so the line looked uniform while half of it was a sample.

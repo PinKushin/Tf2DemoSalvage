@@ -111,7 +111,7 @@ The CRC lookup was right from the first attempt and stayed right, which is what 
 - **The search's control**: five CRCs read straight out of the directory, handed back to the binary
   search. `5 of 5` found says the search is not the problem, so an empty answer means the name is not
   what the archive calls that scene — a different fix entirely
-  (`docs/memory/an-empty-search-needs-a-control.md`).
+  (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
 - **`BodyFor`, a second method beside `SequenceFor`**, because one method returning null for three
   different causes cannot tell them apart. It printed `156 bytes, tag 'bvcd'` — so the name resolved,
   the entry decompressed, and the LZMA path was innocent. That left the event walk, and nothing else.

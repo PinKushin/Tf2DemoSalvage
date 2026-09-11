@@ -59,10 +59,10 @@ the better harness anyway, for reasons the repo already records:
 - A corpus test can only exercise the paths its ten demos happen to take
   (`docs/memory/tests-before-codecs.md`), so it is a poor mutation harness at any runtime.
 - Real data hides bugs; small inputs expose them
-  (`docs/memory/real-data-hides-bugs-small-inputs-expose.md`).
+  (`docs/memory/fixtures-are-the-weak-point.md#real-data-hides-bugs-small-inputs-expose`).
 - Hand-written fixtures cause more bugs than the decoders do, so **prefer round-trip properties
   where an encoder exists** (`docs/memory/fixtures-are-the-weak-point.md`,
-  `differential-beats-fixtures.md`). Write bits with `BitWriter`, read them back, compare — no
+  including its `differential-beats-fixtures` section). Write bits with `BitWriter`, read them back, compare — no
   fragile hand-built object graphs.
 
 **Nothing is mutation-tested locally.** Owner, 2026-08-18: local runs take hours and the machine is

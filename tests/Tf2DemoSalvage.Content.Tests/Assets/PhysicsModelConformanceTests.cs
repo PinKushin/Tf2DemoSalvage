@@ -182,7 +182,7 @@ public sealed class PhysicsModelConformanceTests
     /// and a text ending on its last joint would lose it silently.
     ///
     /// A sabotage that reddens nothing names a missing INPUT
-    /// (`docs/memory/a-sabotage-that-reddens-nothing-names-the-missing-input.md`), so the input is
+    /// (`docs/memory/most-of-a-decoder-is-untested.md#a-sabotage-that-reddens-nothing-names-the-missing-input`), so the input is
     /// written here — a minimal `.phy`, header and all, ending exactly on its final block.
     /// </remarks>
     [Test]

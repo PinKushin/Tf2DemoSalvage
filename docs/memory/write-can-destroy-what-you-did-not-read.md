@@ -1,8 +1,11 @@
 ---
 name: write-can-destroy-what-you-did-not-read
-description: Writing a "new" file over an existing one deleted a complete implementation and ten tests; the tell is "updated" rather than "created", and the count floor is what caught it.
-metadata:
+description: "Writing a \"new\" file over an existing one deleted a complete implementation and ten tests; the tell is \"updated\" rather than \"created\", and the count floor is what caught it."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 71bbc8e9-0f7a-489c-a987-3e0867aae1fa
+  modified: 2026-09-10T22:52:49.278Z
 ---
 
 **Check whether a file exists before writing it, especially when you are sure it does not.** On
@@ -32,7 +35,7 @@ while you are adding is never explained by your additions.
 - Treat "updated" in a write result as a stop signal unless you meant to overwrite.
 - **Search for the feature before building it.** `BspCubemaps` was already complete, so the whole
   premise — that B55 was blocked on reading the lump — was false; the missing half is the renderer.
-  The same session had already filed [[a duplicate risk]] for a fixed defect and re-derived a
+  The same session had already filed a duplicate risk for a fixed defect and re-derived a
   measurement that existed. Grep first: the cost is seconds and the alternative is deleting work.
 - A count that moves the wrong way is a finding, never an accounting nuisance. See
   [[read-the-trx-total-not-the-console]].

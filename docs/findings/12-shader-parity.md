@@ -340,7 +340,7 @@ The opening sweep reported *all twenty* parameters as untested. That was a fact 
 parameter names begin with `$`, which the shell read as a regex anchor, so every pattern matched
 nothing. A positive control — "does a parameter I know is covered show up?" — caught it in one step.
 Without it the conclusion would have been twenty redundant tests and eight real gaps missed. Filed as
-the reason `docs/memory/an-empty-search-needs-a-control.md` exists.
+the reason `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control` exists.
 
 ### Boolean parameters are integers, and nine were compared against a string
 

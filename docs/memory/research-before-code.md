@@ -1,8 +1,11 @@
 ---
 name: research-before-code
-description: Check Valve's source before writing or changing anything, and let it outrank every other authority including the owner's recollection and mine.
-metadata:
+description: "Check Valve's source before writing or changing anything, and let it outrank every other authority including the owner's recollection and mine."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:32:56.907Z
 ---
 
 **Check the source first, every time, before doing anything.** The loop is: hypothesis, research
@@ -50,5 +53,31 @@ read what was actually inside it).
 **How to apply:** before writing an expected value, ask what program WROTE the file and whether that
 program is published — prefer the encoder to the decoder. State the hypothesis, find the passage
 that settles it, then code. Related: [[decode-must-be-total]],
-[[read-the-encoder-not-the-decoder]], [[valve-publishes-bitbuf]],
+[[read-the-encoder-not-the-decoder]],
 [[nothing-is-closed]], [[era-axis-is-measured]].
+
+---
+
+## `valve-publishes-bitbuf` — bit-level wire questions are a read, not a decompile
+
+`ValveSoftware/source-sdk-2013` contains `src/tier1/bitbuf.cpp` — the real `bf_write` and
+`bf_read`, including `WriteBitCoord`, `WriteBitCoordMP`, `WriteBitAngle`, `WriteUBitVar` and
+the varint helpers. Fetch it with:
+
+```bash
+gh api repos/ValveSoftware/source-sdk-2013/contents/src/tier1/bitbuf.cpp?ref=master --jq .content | base64 -d
+```
+
+(The `mp/src/...` path 404s; it is `src/tier1/...`.)
+
+**This outranks a decompile for anything in tier1**, and it is the encoder rather than a
+decoder, which is the side that states intent — see [[read-the-encoder-not-the-decoder]].
+`WriteBitCoordMP` settled the field order and the in-bounds predicate on 2026-08-11 in one
+read, after six hypotheses had been tested against the corpus.
+
+What it does **not** cover: anything TF2-specific or engine-internal that never shipped in
+the SDK — the demo container, `svc_` message framing, `SendTable` flattening. Those still
+need the corpus, a second parser, or a disassembler.
+
+**How to apply:** before reaching for Ghidra on a bit-level question, check whether the code
+is in tier1 or in the public game code. Only drop to a decompile for engine binaries.

@@ -33,7 +33,7 @@ public sealed class ItemSchemaDropTypeAndLoadoutSlotDiagnostic
         List<int> definitions = [.. schema.DefinitionIndices];
 
         // The control: an empty denominator would make every percentage below meaningless without
-        // saying so (docs/memory/an-empty-search-needs-a-control.md).
+        // saying so (docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control).
         definitions.ShouldNotBeEmpty("the shipped schema should declare at least one item");
 
         int none = 0, drop = 0, brk = 0, unrecognizedOrOutOfTable = 0;

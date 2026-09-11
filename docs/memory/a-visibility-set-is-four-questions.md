@@ -1,8 +1,11 @@
 ---
 name: a-visibility-set-is-four-questions
-description: One "is it visible" set fed two engine rules that ask different things; ask which predicate, not which frame.
-metadata:
+description: "One \"is it visible\" set fed two engine rules that ask different things; ask which predicate, not which frame."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-10T11:36:19.576Z
 ---
 
 **"Visible" is not one predicate, and a set named for it will be wrong for at least one of its

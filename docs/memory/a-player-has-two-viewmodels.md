@@ -1,8 +1,11 @@
 ---
 name: a-player-has-two-viewmodels
-description: A weapon is never one model — two viewmodel slots, two model indices, and two first-person schemes; reading the wrong one has caused three separate defects.
-metadata:
+description: "A weapon is never one model — two viewmodel slots, two model indices, and two first-person schemes; reading the wrong one has caused three separate defects."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:53:57.677Z
 ---
 
 **Two memories were merged into this one on 2026-08-27** — `a-viewmodel-is-one-model-or-two` and
@@ -47,7 +50,7 @@ because `CBaseViewModel`'s constructor sets it to zero — see
 [[sentinels-conflate-unknown-with-answer]] for why that direction matters. `cl_flipviewmodels`
 belongs to the person watching, not to the recording, so handedness never affects the lookup — only
 the cull mode at draw time. The defect was caught by cross-checking the model path against the
-player's networked `m_iClass` ([[two-recordings-of-one-value]]); the same test also showed the
+player's networked `m_iClass` ([[fixtures-are-the-weak-point]]); the same test also showed the
 owner's recollection of never playing sniper on a 2013 demo was wrong and the decode was right.
 
 ---

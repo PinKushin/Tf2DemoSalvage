@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// <remarks>
 /// **The fixtures are lifted verbatim from `tf/cfg/config_default.cfg`.** Authoring them from this
 /// parser's own idea of the syntax would prove the two agree and nothing else —
-/// `docs/memory/put-the-real-file-in-the-fixture.md`. The tab-separated, quoted form below is
+/// `docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture`. The tab-separated, quoted form below is
 /// exactly how the shipped file is written.
 /// </remarks>
 public sealed class SourceConfigTests

@@ -1,8 +1,11 @@
 ---
 name: struct-padding-is-on-disk
-description: A BSP lump record's stride is sizeof(), not the sum of its fields, and a fixture built from the wrong stride confirms it
-metadata:
+description: "A BSP lump record's stride is sizeof(), not the sum of its fields, and a fixture built from the wrong stride confirms it"
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-10T22:52:37.129Z
 ---
 
 **A lump written with `SwapLumpToDisk<T>` stores `sizeof(T)`, so C++ trailing padding is on disk.**
@@ -33,7 +36,7 @@ anyone looking further.
    entities the compiler had already bounds-checked, so a stride error lands outside ±16384 and a
    correct one cannot.
 
-Related: [[fixtures-are-the-weak-point]], [[real-data-hides-bugs-small-inputs-expose]],
+Related: [[fixtures-are-the-weak-point]] and its `real-data-hides-bugs-small-inputs-expose` section,
 [[instrument-bugs-outnumber-decoder-bugs]] — the first version of the falsifying test searched the
 game's archives instead of the map's pakfile and found 0 of 43, which looked like the bug and was
 the instrument. Story: `docs/findings/27-cubemap-placement.md`.

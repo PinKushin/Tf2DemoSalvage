@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// models — those go through `LoadFrames`, which is handed `factory.CreateLogger("props")` four
 /// lines away.
 ///
-/// `docs/memory/a-null-object-default-hides-a-missed-wiring.md` records the previous instance,
+/// `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring` records the previous instance,
 /// where a suite stayed green while the log lost 202 lines. The parameter is required now, so the
 /// compiler makes the omission impossible; this test is the assertion that the caller passes
 /// something real rather than <c>NullLogger.Instance</c> to satisfy it.

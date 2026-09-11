@@ -278,7 +278,7 @@ public sealed class RiffConformanceTests
     /// <summary>Builds a minimal RIFF/WAVE file, optionally with a chunk before the format.</summary>
     /// <remarks>
     /// Authored from <c>riff.h</c> and the RIFF specification rather than from this project's
-    /// reader, which is the distinction <c>docs/memory/put-the-real-file-in-the-fixture.md</c>
+    /// reader, which is the distinction <c>docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture</c>
     /// draws: a synthetic fixture is fine, sourcing it from our own code is not. It also reaches
     /// cases no shipped file contains — an odd-sized chunk, a length past the end.
     /// </remarks>

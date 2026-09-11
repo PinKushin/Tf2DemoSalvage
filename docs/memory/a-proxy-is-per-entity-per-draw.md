@@ -1,8 +1,11 @@
 ---
 name: a-proxy-is-per-entity-per-draw
-description: A material proxy runs at BIND for one entity, so a value it produces cannot live on the material — and TF2's paint chain needs two proxies plus a variable table, because one's output is the other's input.
-metadata:
+description: "A material proxy runs at BIND for one entity, so a value it produces cannot live on the material — and TF2's paint chain needs two proxies plus a variable table, because one's output is the other's input."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:55:34.428Z
 ---
 
 **`IMaterialProxy` has `Init`, `OnBind` and `Release` and no tick.** A proxy therefore runs when a
@@ -42,5 +45,5 @@ than a missing feature. `$blendtintcoloroverbase` lerps between multiplying the 
 the albedo, and **self-illumination wins over both** — a pixel-shader limit, not an art decision
 (`skin_dx9_helper.cpp:269`).
 
-Related: [[print-a-value-somebody-can-recognise]] — how the paint decode was verified.
-[[half-a-mechanism-is-not-parity]] — implementing one proxy of the two is the same fault.
+Related: [[instrument-bugs-outnumber-decoder-bugs]] — how the paint decode was verified.
+[[parity-is-the-search-not-the-defence]] — implementing one proxy of the two is the same fault.

@@ -1,8 +1,11 @@
 ---
 name: output-level-assertion-or-it-is-not-done
-description: A green unit suite says a component works when called; it never says production calls it. Three no-ops shipped this way in one session — covers the three test levels and why only driving the real UI catches missing wiring, why a code move breaks the assignment that used to be implicit, why a superseded type's tests keep passing while its replacement has none, and why extracting a helper without deleting the copies is not DRY.
-metadata:
+description: "A green unit suite says a component works when called; it never says production calls it. Three no-ops shipped this way in one session — covers the three test levels and why only driving the real UI catches missing wiring, why a code move breaks the assignment that used to be implicit, why a superseded type's tests keep passing while its replacement has none, and why extracting a helper without deleting the copies is not DRY."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:54:41.843Z
 ---
 
 **Anything that produces output is not finished until an assertion has read that output on a real
@@ -64,7 +67,7 @@ Distinct from [[measure-the-output-not-the-capability]], which is about a *repor
 predicate rather than from the artefact. This one is about the *test suite* — the failure is not a
 wrong number, it is a feature that never ran.
 
-Related: [[real-data-hides-bugs-small-inputs-expose]], [[logs-are-the-debugger]].
+Related: [[fixtures-are-the-weak-point]], [[logs-are-the-debugger]].
 
 **Four more memories were folded into this one on 2026-09-04**, all instances of the same wiring gap
 at a different scale: the three test levels and why only the third can fail when wiring is removed, a
@@ -207,7 +210,7 @@ level up — the instrument reports a capability that exists and is not connecte
   says "if removed, lower the floor" — the comment recording *which* tests went and *why nothing was
   lost* is the artefact that makes the deletion reviewable later.
 
-Related: [[unreachable-can-be-proved-not-just-observed]] (prove it dead, do not assume),
+Related: [[most-of-a-decoder-is-untested]] (prove it dead, do not assume),
 [[one-place-or-it-drifts]] (the duplicate constant that came with it), and B196, where two shipped
 features were only ever assigned `null` and the compiler could not see it either.
 

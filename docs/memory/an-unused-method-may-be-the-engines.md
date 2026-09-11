@@ -1,8 +1,11 @@
 ---
 name: an-unused-method-may-be-the-engines
-description: An analyzer's "remove the unused private method" can mean a call site was lost, not that the code is dead — ask what engine function it transcribes before deleting it.
-metadata:
+description: "An analyzer's \"remove the unused private method\" can mean a call site was lost, not that the code is dead — ask what engine function it transcribes before deleting it."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-09T21:54:29.262Z
 ---
 
 **`error S1144: Remove the unused private method 'X'` is a question, not an instruction.** It says

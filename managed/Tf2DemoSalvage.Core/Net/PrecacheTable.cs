@@ -27,7 +27,7 @@ namespace Tf2DemoSalvage.Core.Net;
 /// model index is packed with the protocol's own bit layout and needs unpacking before it means
 /// anything (`LastPackedIndexProtocol`), and it carries a second table for dynamic models. Forcing
 /// it through here would hide both. The shape being similar is not the same as the behaviour being
-/// shared — see `docs/memory/extraction-without-adoption-is-not-dry.md`, which is about the
+/// shared — see `docs/memory/output-level-assertion-or-it-is-not-done.md#extraction-without-adoption-is-not-dry`, which is about the
 /// opposite failure and applies to this one in the mirror.
 /// </remarks>
 public sealed class PrecacheTable

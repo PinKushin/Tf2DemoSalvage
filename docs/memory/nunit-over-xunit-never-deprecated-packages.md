@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 9b3a8b35-1dc8-47b0-a320-73b01288f10c
-  modified: 2026-08-09T18:03:30.935Z
+  modified: 2026-09-09T03:54:26.524Z
 ---
 
 **NUnit, not xUnit, for new .NET projects.** Owner-stated 2026-08-09. The deciding reason is
@@ -30,4 +30,4 @@ sibling project. Before pinning any package version, check it is not deprecated.
 existing framework differs from the standard, say so explicitly instead of quietly matching it —
 the cost of staying silent is a full migration later, and the owner priced that at a day.
 
-Related: [[tf2demosalvage-build-gates]] for how strict this repo's analyzers already are.
+Related: [[tests-before-codecs]] for how strict this repo's analyzers already are.

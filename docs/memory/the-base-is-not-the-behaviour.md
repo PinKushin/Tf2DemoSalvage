@@ -1,8 +1,11 @@
 ---
 name: the-base-is-not-the-behaviour
 description: Reading an engine function to its closing brace tells you nothing about the overrides that run after it — and some overrides are dead while others are the whole feature.
-metadata:
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:55:05.684Z
 ---
 
 **Read the override list before concluding what a virtual does.** `StandardBlendingRules` has seven
@@ -33,5 +36,5 @@ contradict it.
 saying "dead, implementing it would be implementing nothing" is a real answer and stops the question
 being asked again.
 
-Related: [[unreachable-can-be-proved-not-just-observed]], [[a-guard-you-remove-may-be-the-mechanism]],
+Related: [[most-of-a-decoder-is-untested]], [[a-guard-you-remove-may-be-the-mechanism]],
 [[parity-is-the-search-not-the-defence]], [[nothing-is-closed]].

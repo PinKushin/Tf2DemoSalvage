@@ -1,8 +1,11 @@
 ---
 name: a-picture-is-assertable
-description: "Whether it looks right is not answerable by an assertion" is too strong; a specific visual property needs no reference, and open-ended correctness needs a person exactly once to bless a golden image.
-metadata:
+description: "\"Whether it looks right is not answerable by an assertion\" is too strong; a specific visual property needs no reference, and open-ended correctness needs a person exactly once to bless a golden image."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 71bbc8e9-0f7a-489c-a987-3e0867aae1fa
+  modified: 2026-09-10T22:54:57.543Z
 ---
 
 **This project wrote "whether it looks RIGHT is not answerable by an assertion" into its tests and
@@ -61,5 +64,5 @@ loaded `MapAssets`, and `MapAssets` is a sealed class with `private init` member
 build one carrying a chosen material state, only load a real map and use what is on it. If the
 map has no material exercising the branch, there is no pixel test to write. That is exactly the
 position `$phongexponenttexture` was in (B334): cp_process_final resolves zero exponent maps while a
-real demo resolves 21. See [[run-the-control-before-arguing]] and
-[[instrument-bugs-outnumber-decoder-bugs]].
+real demo resolves 21. See [[instrument-bugs-outnumber-decoder-bugs]], and its
+`run-the-control-before-arguing` section.

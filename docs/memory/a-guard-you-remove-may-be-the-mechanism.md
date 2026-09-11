@@ -1,8 +1,11 @@
 ---
 name: a-guard-you-remove-may-be-the-mechanism
-description: Widening a gate to reach more cases can turn a skipped proxy into a wrong answer; the engine's own refusal was what the gate reproduced.
-metadata:
+description: "Widening a gate to reach more cases can turn a skipped proxy into a wrong answer; the engine's own refusal was what the gate reproduced."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:55:36.557Z
 ---
 
 `WorldRenderer.ApplyProxies` built its material-variable table only when the material carried
@@ -33,7 +36,7 @@ run**, which is now the explicit test in each handler.
 
 **How to apply.** Before widening a condition to reach a new case, ask what the narrow version was
 REFUSING, not just what it was allowing — and look for the engine's own refusal, which is usually a
-failed `Init` or an early return rather than a value. Related: [[half-a-mechanism-is-not-parity]],
+failed `Init` or an early return rather than a value. Related: [[parity-is-the-search-not-the-defence]],
 where an invariant one system keeps turns out to be another's unstated precondition.
 
 **And keep the pixel tests that have nothing to do with the feature.** Nothing in the proxy or

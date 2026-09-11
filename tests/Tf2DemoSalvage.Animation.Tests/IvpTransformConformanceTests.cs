@@ -131,7 +131,7 @@ public sealed class IvpTransformConformanceTests
     /// rotation here — the identity, the quarter turn about Z, the cyclic permutation first used
     /// for this test — has `m20 = 0`, so flipping the sign on `−source[8]` in the implementation
     /// changed nothing anywhere and all eight tests stayed green. The fix is the input, not the
-    /// assertion (`docs/memory/a-duplicated-guard-cannot-be-tested.md` is the same shape).
+    /// assertion (`docs/memory/most-of-a-decoder-is-untested.md#a-duplicated-guard-cannot-be-tested` is the same shape).
     ///
     /// **45° about `(1, 1, 1)/√3` has all nine entries non-zero and no two equal in magnitude
     /// pattern by accident**, so flipping any single sign in the transcription changes exactly one

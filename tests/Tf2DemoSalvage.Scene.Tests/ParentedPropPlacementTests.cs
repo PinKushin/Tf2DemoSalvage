@@ -19,7 +19,7 @@ namespace Tf2DemoSalvage.Scene.Tests;
 ///
 /// **The default is also a legitimate value**, which is what makes it silent: `false` is correct
 /// for the gate props and wrong for everything worn or held, and nothing about a missing argument
-/// says which was meant. `docs/memory/a-moves-regressions-are-wiring.md` is the same shape — the
+/// says which was meant. `docs/memory/output-level-assertion-or-it-is-not-done.md#a-moves-regressions-are-wiring` is the same shape — the
 /// field arrives, one caller sets it, and the others take a default nobody chose.
 ///
 /// **It cost three rebuilds and an evening**, because the measurement used to check the change

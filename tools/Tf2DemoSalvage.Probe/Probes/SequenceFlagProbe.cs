@@ -29,7 +29,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// look; without it the census is the whole archive.
 ///
 /// **Denominators on every row**, because a zero without one is a fact about the probe rather than
-/// about the game (`docs/memory/an-empty-search-needs-a-control.md`). The rows that MUST come back
+/// about the game (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`). The rows that MUST come back
 /// nonzero — `STUDIO_LOOPING`, `STUDIO_DELTA` — are the control: if those are zero the reader is
 /// broken, not the content.
 /// </remarks>

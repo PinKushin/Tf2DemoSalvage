@@ -21,7 +21,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// the same sun — established by reading, and recorded under B170. So whatever separates them is in
 /// their MATERIALS, and this reads both rather than reasoning about them.
 ///
-/// **Shipped data is a source** (`docs/memory/shipped-data-is-a-source.md`). These VMTs are not
+/// **Shipped data is a source** (`docs/memory/nothing-is-closed.md#shipped-data-is-a-source`). These VMTs are not
 /// code, which is why nobody looks, and they answer the question outright.
 /// </remarks>
 public sealed class WeaponEnvmapProbe
@@ -78,7 +78,7 @@ public sealed class WeaponEnvmapProbe
     /// **Several folders, because TF2 does not put them all in one.** A weapon lives under
     /// `c_items` or under its own folder, and guessing a single path would report "no material"
     /// for a file that is present — an absence claim that is really a fact about the guess
-    /// (`docs/memory/an-empty-search-needs-a-control.md`).
+    /// (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
     /// </remarks>
     private static (string Path, string Text)? Find(GameArchives archives, string name)
     {
@@ -127,7 +127,7 @@ public sealed class WeaponEnvmapProbe
     /// nothing at all for `c_scout_arms` and `c_soldier_arms`, which is proof its candidate list is
     /// incomplete — and a list incomplete for the arms may equally have read the WRONG file for a
     /// weapon. An absence it reports is a fact about the guess
-    /// (`docs/memory/an-empty-search-needs-a-control.md`).
+    /// (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
     ///
     /// This asks `MapAssets` instead, which is the same load the viewer performs, so a material
     /// named here is a material the renderer actually uses and `LocalReflections[i]` is exactly the

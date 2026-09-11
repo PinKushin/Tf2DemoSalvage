@@ -1,8 +1,11 @@
 ---
 name: measure-the-route-before-building-on-it
-description: A planned data route is a guess until measured. "leaf → leaffaces → dispinfo" reaches none of cp_badlands' 1191 displacement faces, and one query said so before any code was written.
-metadata:
+description: "A planned data route is a guess until measured. \"leaf → leaffaces → dispinfo\" reaches none of cp_badlands' 1191 displacement faces, and one query said so before any code was written."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:53:22.111Z
 ---
 
 **Before building on a route through the data, measure that the route arrives.** One query, first,
@@ -19,7 +22,7 @@ which looks exactly like a wrong primitive — the expensive place to go looking
 **The measurement needs a control or it proves nothing about the format.** Zero displacement faces
 reached is also what a wrong `dleaf_t` offset produces. The same walk reached **12,654 flat faces**,
 and 13845 − 1191 = 12654 exactly, so every flat face is reachable and no displacement face is. That
-is the format, not the reader. See [[an-empty-search-needs-a-control]].
+is the format, not the reader. See [[instrument-bugs-outnumber-decoder-bugs]].
 
 **How to apply:**
 

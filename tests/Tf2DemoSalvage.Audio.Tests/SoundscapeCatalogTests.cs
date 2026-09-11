@@ -18,7 +18,7 @@ namespace Tf2DemoSalvage.Audio.Tests;
 /// So twenty-one mutants survived here while the type looked well covered. Real soundscape scripts
 /// never carry an empty `file` value, a `playlooping` with no `wave`, or a map name that is the empty
 /// string, so no assertion ever depended on what happens then. That is
-/// `docs/memory/real-data-hides-bugs-small-inputs-expose.md` measured rather than recalled.
+/// `docs/memory/fixtures-are-the-weak-point.md#real-data-hides-bugs-small-inputs-expose` measured rather than recalled.
 ///
 /// **The fixtures are hand-built KeyValues**, which is what makes those branches reachable at all:
 /// `Load` takes a `Func&lt;string, byte[]?&gt;`, so a test can be the whole file system.

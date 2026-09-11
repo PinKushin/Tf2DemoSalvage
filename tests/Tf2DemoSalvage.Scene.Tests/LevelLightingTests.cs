@@ -141,7 +141,7 @@ public sealed class LevelLightingTests
     {
         // **The two terms are reported apart because one number cannot say which is missing** — no
         // light near enough to be chosen, or lights chosen that contribute nothing once attenuated
-        // (docs/memory/a-log-must-name-what-it-measured.md). It is capped because this runs for
+        // (docs/memory/logs-are-the-debugger.md#a-log-must-name-what-it-measured). It is capped because this runs for
         // every model every time one moves, and a per-frame line printed 1,280 times a second once
         // already (B163).
         RecordingLogger log = new();

@@ -1,8 +1,11 @@
 ---
 name: most-of-a-decoder-is-untested
-description: Real files take one path through a format decoder, so sabotage each branch to find which — and a sabotage itself can lie, by not compiling, by not testing the claim it names, by landing outside the algorithm's domain, or by predicting a value that sits on a float boundary.
-metadata:
+description: "Real files take one path through a format decoder, so sabotage each branch to find which — and a sabotage itself can lie, by not compiling, by not testing the claim it names, by landing outside the algorithm's domain, or by predicting a value that sits on a float boundary."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-10T22:52:52.428Z
 ---
 
 A decoder written from a specification handles every case the specification allows. **The real
@@ -26,12 +29,12 @@ sixths are unproven code that will meet its first real input in production.
 **How to apply:** after writing a format decoder, sabotage each branch and record which ones the
 corpus can actually kill. Two of the three green results above were *unreachable-condition*
 failures, not weak assertions — strengthening the assertion would have done nothing, and the
-instinct to do that is the wrong move ([[differential-beats-fixtures]], and the four routes to an
+instinct to do that is the wrong move ([[fixtures-are-the-weak-point]], and the four routes to an
 insensitive test). Then **write the coverage limit into the class comment**, because the next
 reader's default assumption is that a passing suite covers the file.
 
 Related: [[mutation-score-is-not-the-goal]] — the point is knowing which mutants are reachable,
-not killing them; [[real-data-hides-bugs-small-inputs-expose]] is the same asymmetry from the
+not killing them; [[fixtures-are-the-weak-point]] is the same asymmetry from the
 input side; [[logs-are-the-debugger]] is how the one live path got identified (logging the posed
 bone count and its values, rather than guessing which branch ran).
 
@@ -151,6 +154,9 @@ its own promise will catch its own documentation.
 Related: [[instrument-bugs-outnumber-decoder-bugs]], [[boundaries-find-what-tests-cannot]],
 [[state-the-assumptions-the-owner-can-falsify]].
 
+A second section under this name, further down, sorts a null result into its three possible causes
+and carries the `ShouldCollide` worked example.
+
 ---
 
 ## `a-sabotage-can-change-behaviour-without-testing-the-claim`
@@ -180,7 +186,7 @@ put a bystander at 2047 on the other team, so masking answers RED where resolvin
 
 **The general rule: for an absence claim, the wrong answer must be REACHABLE.** A test asserting
 "resolves to nothing" is vacuous unless something is standing where the broken code would look —
-the same shape as [[an-empty-search-needs-a-control]], applied to a dereference.
+the same shape as [[instrument-bugs-outnumber-decoder-bugs]]'s empty-search rule, applied to a dereference.
 
 **A subagent that flags its own sabotage as inconclusive is doing the job.** It would have been
 easy — and wrong — to substitute an edit that produced the expected red.
@@ -287,3 +293,228 @@ the arithmetic about it.
 
 Assert the fraction as well as the index when the subject is a position in an animation: it turns a
 one-off boundary coincidence into a two-number prediction that cannot be satisfied by accident.
+
+---
+
+## `a-sabotage-that-reddens-nothing-names-the-missing-input` — a null result is a measurement
+
+**Break the code on purpose, watch nothing fail, and the instinct is to call the sabotage a dud.**
+It is a measurement. It says: for every input the suite supplies, correct and broken predict the
+same observation. That is a statement about the INPUTS, so write the input rather than strengthen
+an assertion.
+
+**Three outcomes, and they need different answers:**
+
+1. **The behaviour is genuinely unreachable from any input.** `.phy` files all end with a trailing
+   `editparams` block, so removing the reader's final block-close changes no count on any shipped
+   file — and the line is still load-bearing, because the format does not require that block. The
+   answer was an authored specimen ending on its last joint. See
+   [[author-the-specimen-the-corpus-lacks]].
+2. **The two positions are genuinely equivalent today.** IVP's event loop tests its stop flag after
+   the fire; moving that test to the top of the body reddens nothing, because the only thing between
+   the two placements is a pure read. Keep the engine's placement, say out loud that no test can
+   tell, and note what would make it observable again.
+3. **The code is wrong and the missing input is what would have shown it.** This is the one that
+   gets missed, because a null result feels like nothing happened.
+
+**The worked example of the third, 2026-09-06.** `ShouldCollide` tested a ragdoll's
+`selfcollisions` flag before consulting its pair list — which reads as obviously right. Removing
+that test reddened nothing. The reason was that the only case exercised had an EMPTY pair list,
+where both readings agree; and chasing the missing input showed the check was **wrong**. Nothing in
+the engine ever calls `DisableCollisions`, so a pair enabled BEFORE the flag went off stays enabled
+for the ragdoll's life. The flag belongs in the parser, where it decides what enters the list, and
+testing it a second time would have dropped pairs the engine keeps.
+
+**Why:** a sabotage measures the suite's sensitivity, and insensitivity has a cause. Two of the
+three causes are about the tests; the third is about the code, and it is indistinguishable from the
+others until the distinguishing input is written. Treating a null result as "nothing to do" throws
+away the only signal that pointed at it.
+
+**How to apply:** never move on from a sabotage that reddens nothing. Ask what input would separate
+correct from broken, and then write it — the act of constructing it is what exposes case 3. If no
+such input can exist, say which of case 1 or case 2 it is, in the source, next to the line. The
+`a-duplicated-guard-cannot-be-tested` and `unreachable-can-be-proved-not-just-observed` sections
+below are the two disciplined forms of cases 1 and 2. Related:
+[[two-accumulators-cannot-see-order]].
+
+---
+
+## `a-duplicated-guard-cannot-be-tested` — fix the input, never the assertion
+
+**A test for a guard that is redundant with a downstream guard cannot fail, and no assertion fixes
+it.** Measured on 2026-09-05 while building B353.
+
+The code reproduced Valve's `if ( iBodyOverride > -1 && iBodyStateOverride > -1 )` before calling
+`SetBodygroup`. The test wore an item declaring the part but no state and asserted a body of 0.
+**Deleting the state clause reddened nothing** — and not because the fixture chose a poor value:
+`SetBodygroup` already returns the body unchanged for a negative value, in this code and in Valve's
+(`shared/animation.cpp:863` returns early for an out-of-range value). There is no integer for which
+the guarded and unguarded versions disagree. The clause is behaviourally dead **in the engine too**.
+
+**Why:** the test asserted "nothing happened", and nothing happening is what BOTH versions do. This
+is the `CLAUDE.md` **wrong condition** trap, and the instinct it defeats is the usual one — the
+assertion was already exact.
+
+**The fix is to the INPUT.** Setting a part to 0 is only observable from a body that is not already
+0, so the item was given a named entry as well: it hides `hat`, a correct read leaves 1, and a
+reader treating the missing state as 0 puts the part back and reads 0. That version reddens alone
+under exactly the mutation it was written for, which was then verified by making it.
+
+**Ask this before writing the assertion**, and it is a different question from "is my assertion
+tight enough":
+
+> Is there an input for which the correct and broken versions predict different observations?
+
+**Keep the guard.** It is where Valve writes it and the citation is the point — but document it as
+redundant with the downstream check rather than leaving the next reader believing it load-bearing.
+That is [[a-guard-you-remove-may-be-the-mechanism]] read from the other end: there the narrow version
+refused something, here it refuses nothing.
+
+**The sabotage that found this was a subagent's**, run against tests that all passed.
+
+**Analyzers at error level make a lazy sabotage impossible**, which cost three attempts in the same
+session: `&& false` is S1125, dropping a call left a private method unreferenced (S1144), and
+`x = 0` on an int field is CA1805. A sabotage must compile, so pick one that keeps every symbol
+used — OR-ing `int.MaxValue` into a flag set, or `+ 500` on an index. See
+[[tests-before-codecs]].
+
+---
+
+## `a-stability-test-needs-seventeen-items` — .NET hands short runs to a stable sort
+
+A test asserting that a sort is **stable** proves nothing unless the input is **larger than
+sixteen items**. `Array.Sort` / `List.Sort` are introsort, and `ArraySortHelper`'s
+`IntrosortSizeThreshold = 16` hands any partition of sixteen or fewer to **insertion sort**, which
+is stable — so a short run comes out in order whether or not the comparison carries a tiebreak.
+
+Measured 2026-08-27 on `OpaqueBuckets.InDrawOrder`. A six-element test survived deleting the
+`Order.CompareTo(...)` tiebreak entirely. At twenty-four it failed immediately, because
+`PickPivotAndPartition` swaps the middle element to `hi - 1` before comparing anything, so an
+all-equal run is reordered on the very first partition.
+
+**Why:** this is [[boundaries-find-what-tests-cannot]]' "wrong condition" case — an input for
+which the correct and broken implementations predict the *same* observation. The instinct on
+finding a test that will not go red is to strengthen the assertion; here the assertion was already
+exact (`ShouldBe` on the full sequence) and only the input was too small. See
+[[fixtures-are-the-weak-point]] for the mirror image, where the input was too *large*.
+
+**How to apply:** any test whose subject is ordering-among-equals needs at least 17 items, and 24
+is a safer round number. Before trusting it, delete the tiebreak and watch it fail — a stability
+test that has never been red is measuring insertion sort, not your comparison. The same threshold
+question applies to any claim about a library's algorithm: ask what size the implementation
+switches strategies at, because that size is where the test becomes sensitive.
+
+---
+
+## `sample-between-the-knots` — every curve agrees at its own control points
+
+**Never assert a curve's shape at one of its own control points.** At a knot the interpolation
+parameter is exactly 0 or 1, so the basis functions collapse and *every* scheme — Hermite, Catmull-
+Rom, cosine, a plain lerp — is mathematically forced to return the stored value. The assertion reads
+the table back and never touches the curve.
+
+B348, 2026-09-05: `Degrees_AtTheMiddleControlPoint_OvershootsPastSixty` sampled `0.7519`, which IS
+the middle control point's X. Replacing Valve's `Hermite_Spline` with a one-line lerp left it green —
+and left the whole eight-test conformance suite green, because six of the eight never called the
+function at all. **The overshoot was the entire reason the entry existed and nothing pinned it.**
+
+**Two failure modes from `CLAUDE.md`, in one suite:**
+
+- **Wrong condition** — the knot. Fix the INPUT: sample strictly between control points. At 0.4 the
+  spline gives 34.818° where a lerp gives 33.806°, a full degree apart.
+- **Effect size below resolution** — the neighbouring boundary test at `0.9999` *is* strictly
+  inside a segment, but there the curves differ by 0.0014° against a 1e-2 tolerance. Being inside a
+  segment is not enough; the sample has to be where the difference is large.
+
+**How to apply, to any interpolation:**
+
+1. Sample at a fraction with no special relationship to the control points — mid-segment, not an
+   endpoint and not a knot.
+2. Compute the expected value BY HAND from the engine's formula and assert it exactly. Do not read
+   it off a run; that fits the test to the code.
+3. State what the wrong implementation would give, in the message. `"a plain lerp gives 33.806, a
+   full degree lower"` makes the margin visible instead of implied by a tolerance nobody re-derives.
+4. Check the tolerance against the DIFFERENCE, not against floating-point noise.
+
+**And count how many tests actually call the function.** Six of eight conformance tests exercised
+`Spline`, `Angle` or `Fraction` directly and never `Degrees`, so a change scoped inside `Degrees`
+was invisible by construction. A suite named for a mechanism is not a suite that covers it.
+
+Related: [[fixtures-are-the-weak-point]], [[instrument-bugs-outnumber-decoder-bugs]],
+[[output-level-assertion-or-it-is-not-done]].
+
+---
+
+## `unreachable-can-be-proved-not-just-observed` — prove it by arithmetic, or write the input
+
+Closing the last of this repository's reachable coverage (2026-08-19) split every gap into exactly
+two kinds, and treating them the same is what leaves both unresolved.
+
+**Kind one: nothing has written the input yet.** Most gaps. They look unreachable because a demo
+cannot produce them — a stated count a body cannot support, an assembly cut mid-block, a property
+definition no schema emits. The right answer is to build the input, and the fact that a recording
+cannot is the reason the branch matters: it is what decides whether a wrong file gets diagnosed or
+silently mis-decoded.
+
+**Kind two: the branch is genuinely dead, and it can be shown.** `LoopingCurve`'s re-check has an
+`else` arm that cannot run. It is reached only after `p1` has been raised into `[1, 2)`, and every
+path there leaves `p0` below `p1`: either `p0` was untouched and is under 1, or the first pass
+raised it, which happens only when `p0 < p1` and raising both preserves the order. A third case
+would need the first pass to have raised `p1`, but then `p1 >= 1` and the `p1 < p2` test guarding
+the block cannot hold against a `p2` in `[0, 1)`. That is a proof, not an observation, and it does
+not go stale the way "no demo does this" does.
+
+**Why:** the two kinds are indistinguishable in a coverage report and demand opposite work. Chasing
+kind two writes contorted tests that never pass; dismissing kind one as "unreachable" is how a
+guard ships untested. See [[the-denominator-decides-what-can-be-lost]] — the default assumption
+should still be kind one.
+
+**How to apply:** for a gap that resists, do the arithmetic on what can reach it. If it is dead,
+**keep the code** when it is a transcription (Valve's own `LoopingLerp_Hermite` has the same arm,
+and deleting it makes the two harder to compare) and put the reasoning in the remarks beside it, so
+the gap reads as a recorded conclusion rather than an oversight. If it is not dead, the input is
+writable — see [[author-the-specimen-the-corpus-lacks]].
+
+Two other things this pass established, both worth reusing:
+
+- **State the property over every case at once when the cases share a code path.** "No registered
+  user-message name decodes a 4096-bit body" is one test covering forty layouts, and it covers the
+  forty-first the day it is added. It found a real defect that forty per-message tests would each
+  have passed.
+- **Every refusal test needs a sensitivity control in the same file.** Assertions that something
+  did NOT happen are all satisfied by a method that fails unconditionally, and a decoder that
+  refused everything would look identical.
+
+---
+
+## `an-environment-only-setting-is-untested` — a process-wide variable has no per-test observer
+
+**Before adding a setting that only an environment variable can reach, ask which test will set it.
+If the answer is "a test would have to change the whole run", it is an option, not a variable.**
+
+**Why:** a process-wide variable is process-wide. A test that sets one sets it for every other test
+in the same process — including the ones whose whole point is that the behaviour is OFF. So the
+setting ends up with no coverage, and the absence is invisible because everything around it is
+green.
+
+Measured on 2026-08-29: `TF2VIEW_AUTOPLAY` had **exactly one reference in the entire repository —
+its own declaration.** No script set it, no test set it, no CI job set it, no document mentioned it.
+Its ordering requirement then broke **three separate times**, twice recorded in `DemoSystems.Open`'s
+own remarks and the third found only by launching the viewer and reading the log (B223, D118).
+
+The trap is that the reasoning *for* the variable is sound at every step. The comment beside it read
+*"a system that read one could not be tested without setting it for the whole run"* — correct — and
+concluded that the WINDOW should be the one place that reads the environment. Also correct, and it
+answers a different question. Nothing in that chain asks whether the SETTING is tested, only where
+the read belongs.
+
+**How to apply:** make it an option or a config command; keep the variable working alongside if one
+already exists, because a shell somewhere may export it and dropping it is a silent regression. Then
+the test is `new MainForm("--autoplay", path)` — one line, isolated, per-launch.
+
+The general shape: **a design that is defensible locally can still leave a feature with zero
+observers.** Count the references before trusting the design.
+
+Related: [[output-level-assertion-or-it-is-not-done]],
+[[measure-the-output-not-the-capability]],
+[[logs-are-the-debugger]], [[one-place-or-it-drifts]].

@@ -131,7 +131,7 @@ jobs:
         # SKIPPED tests, so a case that cannot run on a runner still appears — Content executed 366
         # of 612 here against 587 locally, and the total is identical either way.
         #
-        # Exact rather than slack, per docs/memory/a-floor-must-track-the-number-it-guards.md:
+        # Exact rather than slack, per docs/memory/read-the-trx-total-not-the-console.md#a-floor-must-track-the-number-it-guards:
         # adding tests keeps passing, removing them fails until the number is lowered on purpose.
         # **These duplicate build/gate.sh's floors and have drifted from them before.** Core was
         # lowered 1504 -> 1497 there on 2026-08-22, when SoundAttenuationConformanceTests (7) moved
@@ -513,7 +513,7 @@ jobs:
         # other, for at least five consecutive pushes. Fixed 2026-08-22 and measured on run
         # 32553435747: audio 28, viewer 570, viewer-ui 12, corpus 95.
         #
-        # Exact rather than slack, per docs/memory/a-floor-must-track-the-number-it-guards.md. The
+        # Exact rather than slack, per docs/memory/read-the-trx-total-not-the-console.md#a-floor-must-track-the-number-it-guards. The
         # old values had 200 tests of slack on Viewer and 12 on Audio, which is not a guard.
         # **Raised 2026-08-24 to the counts CI actually produces, read from the .trx of a failed
         # run rather than guessed.** They had drifted far below the suites they guard — Audio sat at

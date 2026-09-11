@@ -1,8 +1,11 @@
 ---
 name: padding-is-not-zero
-description: Bit-padding to a byte boundary carries stale bits of the previous write, so it must be read rather than recomputed.
-metadata:
+description: "Bit-padding to a byte boundary carries stale bits of the previous write, so it must be read rather than recomputed."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:53:59.858Z
 ---
 
 Any message whose fields do not end on a byte boundary has padding bits, and in Source those bits
@@ -33,4 +36,4 @@ round-trip property on it immediately — that is what caught this on the first 
 separates them before writing any of it down. See [[fallbacks-do-not-make-guesses-safe]].
 
 Related: [[fixtures-are-the-weak-point]], [[read-the-encoder-not-the-decoder]],
-[[two-recordings-of-one-value]].
+[[fixtures-are-the-weak-point]].

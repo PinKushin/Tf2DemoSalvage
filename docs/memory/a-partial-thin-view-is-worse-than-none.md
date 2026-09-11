@@ -1,8 +1,11 @@
 ---
 name: a-partial-thin-view-is-worse-than-none
-description: A mostly-thin view reads as "logic here is acceptable" and the next session extends the precedent; enforcement is the TFM, not the file.
-metadata:
+description: "A mostly-thin view reads as \"logic here is acceptable\" and the next session extends the precedent; enforcement is the TFM, not the file."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:55:14.885Z
 ---
 
 The owner, 2026-08-25:
@@ -52,5 +55,5 @@ means out of the PROJECT.** Only a rule the compiler enforces survives the next 
 - **Scope is not a reason to stop short.** *"i know the scope is large but this project needs to be
   a true view, no knowledge about the domain is allowed."*
 
-Related: [[decide-home-and-parity-before-writing]], [[output-level-assertion-or-it-is-not-done]],
+Related: [[conformance-test-before-implementation]], [[output-level-assertion-or-it-is-not-done]],
 [[one-place-or-it-drifts]], [[valve-parity-is-the-first-principle]].

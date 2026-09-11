@@ -159,7 +159,7 @@ public sealed class LevelLighting
         // and the single figure is consistent with two unrelated faults: no light near enough to be
         // chosen, or lights chosen that contribute nothing once attenuated. A log that names only
         // the total makes those indistinguishable — see
-        // docs/memory/a-log-must-name-what-it-measured.md.
+        // docs/memory/logs-are-the-debugger.md#a-log-must-name-what-it-measured.
         ReportLightTerms(bounced, lit, x, y, z);
 
         return lit;

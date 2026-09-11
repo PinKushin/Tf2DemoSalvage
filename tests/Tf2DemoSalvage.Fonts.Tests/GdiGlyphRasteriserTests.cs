@@ -42,7 +42,7 @@ public sealed class GdiGlyphRasteriserTests
     /// **A missing family falls back to the platform default rather than throwing**, which is what
     /// GDI does and what the rasteriser deliberately copies. That makes it invisible to an
     /// assertion — the test would pass, having measured a different font. So it is checked
-    /// explicitly and skipped, per `docs/memory/a-skip-is-not-a-pass-or-a-failure.md`.
+    /// explicitly and skipped, per `docs/memory/read-the-trx-total-not-the-console.md#a-skip-is-not-a-pass-or-a-failure`.
     /// </remarks>
     [SetUp]
     public void RequireTheFamily()

@@ -1,8 +1,11 @@
 ---
 name: the-prune-keeps-two-stale-entries
-description: RemoveEntriesPreviousTo keeps Truncate(i+3), so a client's interpolation history holds two arbitrarily old entries — the engine's spline is NOT bounded to recent samples.
-metadata:
+description: "RemoveEntriesPreviousTo keeps Truncate(i+3), so a client's interpolation history holds two arbitrarily old entries — the engine's spline is NOT bounded to recent samples."
+metadata: 
+  node_type: memory
   type: reference
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-10T22:48:56.076Z
 ---
 
 **`CInterpolatedVar` does not keep its history "trimmed to the interpolation window".** It keeps the

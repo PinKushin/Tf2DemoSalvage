@@ -35,7 +35,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// **Denominators, always.** Every row prints the count of bones examined beside the count carrying
 /// the bit, because a zero with no denominator is a fact about the probe
-/// (<c>docs/memory/an-empty-search-needs-a-control.md</c>).
+/// (<c>docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control</c>).
 /// </remarks>
 public sealed class BoneFlagProbe : IProbe
 {

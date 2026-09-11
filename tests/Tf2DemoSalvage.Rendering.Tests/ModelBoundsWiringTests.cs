@@ -40,7 +40,7 @@ public sealed class ModelBoundsWiringTests
     /// reads `scout.mdl` off disk and calls `StudioBounds` directly; this one asks the viewer's own
     /// asset loader for the model it would draw. Agreement between two independent routes to one
     /// value is evidence rather than a restatement — see
-    /// `docs/memory/two-recordings-of-one-value.md`.
+    /// `docs/memory/fixtures-are-the-weak-point.md#two-recordings-of-one-value`.
     ///
     /// **No tolerance, for the reason recorded there.** A four-byte misread lands on a neighbouring
     /// float of similar magnitude, which is precisely what slack forgives.

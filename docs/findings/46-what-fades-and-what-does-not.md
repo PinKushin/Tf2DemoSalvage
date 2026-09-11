@@ -96,5 +96,5 @@ networked by the world entity, and one `baseline` run against `CWorld` says so.
 
 The outcome did not change: both are off, so implementing neither is correct. What changed is
 whether the claim can ever be revisited. "Unknowable" is terminal and nobody re-reads it — see
-`docs/memory/an-impossibility-claim-expires.md`. "Measured as −1 on nine maps" invites the obvious
+`docs/memory/filing-a-divergence-is-not-fixing-it.md#an-impossibility-claim-expires`. "Measured as −1 on nine maps" invites the obvious
 follow-up, which is what happens when a map turns up that sets it.

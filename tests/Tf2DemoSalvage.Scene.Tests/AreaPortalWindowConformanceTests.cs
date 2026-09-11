@@ -68,7 +68,7 @@ public sealed class AreaPortalWindowConformanceTests
 
     /// <remarks>
     /// **Sampled between the knots**, because every interpolation agrees at its own endpoints
-    /// (`docs/memory/sample-between-the-knots.md`). Half way from 1200 to 1500 is 1350, and
+    /// (`docs/memory/most-of-a-decoder-is-untested.md#sample-between-the-knots`). Half way from 1200 to 1500 is 1350, and
     /// <c>RemapValClamped</c> is linear in the clamped fraction: <c>0 + (1 - 0) * 0.5</c>.
     /// </remarks>
     [Test]

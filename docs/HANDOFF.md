@@ -189,7 +189,7 @@ adjacency is where dumping feels most redundant and is most likely wrong. See
 `docs/memory/settle-a-constant-in-the-disassembly.md`.
 
 **A sabotage that reddened nothing found a real defect**, which is the second time that memory has
-paid (`docs/memory/a-sabotage-that-reddens-nothing-names-the-missing-input.md`). Reversing the cone
+paid (`docs/memory/most-of-a-decoder-is-untested.md#a-sabotage-that-reddens-nothing-names-the-missing-input`). Reversing the cone
 axis left every test green; closing the hole exposed that `IvpAngularLimit` had collapsed the
 engine's **two** axis routines into one, on a note claiming their opposite sign conventions cancel.
 They do not — with the rate gain at zero the two `θ` are identical and only the impulse sign

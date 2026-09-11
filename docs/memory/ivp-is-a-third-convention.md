@@ -1,8 +1,11 @@
 ---
 name: ivp-is-a-third-convention
-description: Crossing into Source's physics changes handedness, units AND matrix order at once — Source (x,y,z) becomes IVP (x,-z,y), in metres, transposed.
-metadata:
+description: "Crossing into Source's physics changes handedness, units AND matrix order at once — Source (x,y,z) becomes IVP (x,-z,y), in metres, transposed."
+metadata: 
+  node_type: memory
   type: reference
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:53:52.874Z
 ---
 
 Source's physics engine is **IVP** (Ipion Virtual Physics), and every transform crossing into it goes
@@ -28,5 +31,5 @@ plausible angle in the wrong place.
 **How to apply:** anything handed to or taken from physics crosses all three at once. Write the
 conversion in ONE place, test it against a transform with no symmetry (asymmetric translation and a
 rotation about a non-principal axis), and cite `FUN_180002cc0`. Related:
-[[absent-from-the-sdk-is-not-unreadable]], [[a-phy-is-text-except-for-the-hulls]],
+[[nothing-is-closed]], [[a-phy-is-text-except-for-the-hulls]],
 [[address-a-struct-by-name-not-from-its-end]].

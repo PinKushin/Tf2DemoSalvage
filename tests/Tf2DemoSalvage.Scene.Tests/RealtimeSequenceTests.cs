@@ -128,7 +128,7 @@ public sealed class RealtimeSequenceTests
     ///
     /// **That is the pattern this project keeps finding in other people's code**, arrived at in its
     /// own: a value decoded, a branch written, and no caller reaching it
-    /// (`docs/memory/decoding-a-field-is-not-honouring-it.md`).
+    /// (`docs/memory/parity-is-the-search-not-the-defence.md#decoding-a-field-is-not-honouring-it`).
     /// </remarks>
     [Test]
     public void Pose_ForARealtimeWireLayer_TakesTheLayersCycleFromTheClock()

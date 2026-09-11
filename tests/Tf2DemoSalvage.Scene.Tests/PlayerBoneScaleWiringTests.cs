@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// <remarks>
 /// **`PlayerProps.Add` builds a player's pose FIELD BY FIELD**, so a value with no assignment there
 /// is one the renderer never sees however well the timeline decoded it. That is not hypothetical:
-/// `docs/memory/a-moves-regressions-are-wiring.md` records three fields shipping lost through this
+/// `docs/memory/output-level-assertion-or-it-is-not-done.md#a-moves-regressions-are-wiring` records three fields shipping lost through this
 /// exact method with the suite at 620 of 620 green, and B259 was a fourth — `ClientSideAnimated`
 /// had no parameter at all, so every player was animated on the wrong clock.
 ///

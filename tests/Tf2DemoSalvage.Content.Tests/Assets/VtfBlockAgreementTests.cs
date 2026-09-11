@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 ///
 /// **Run over the game's own textures, not fixtures.** A hand-built VTF is written from the same
 /// belief the reader holds, so it cannot falsify the arithmetic — see
-/// `docs/memory/put-the-real-file-in-the-fixture.md`. TF2's materials carry every combination that
+/// `docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture`. TF2's materials carry every combination that
 /// matters: cubemaps with seven faces, animated textures with several frames, sizes that are not
 /// powers of two, and all three DXT formats.
 /// </remarks>

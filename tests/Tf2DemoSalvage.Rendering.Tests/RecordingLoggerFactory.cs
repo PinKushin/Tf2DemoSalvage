@@ -13,7 +13,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </summary>
 /// <remarks>
 /// **This exists because a log nobody asserts on is not an instrument** — and the omission it was
-/// written to catch is the exact shape `docs/memory/a-null-object-default-hides-a-missed-wiring.md`
+/// written to catch is the exact shape `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`
 /// records. `PropModels.Load` takes <c>ILogger? props = null</c>; `MapAssets` never passed one; so
 /// every warning the static-prop path produced went to a `NullLogger` and was discarded. Two of
 /// those warnings name the model whose mesh will draw in the missing-material chequer, and the hunt

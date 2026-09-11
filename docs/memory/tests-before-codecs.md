@@ -1,8 +1,11 @@
 ---
 name: tests-before-codecs
-description: Write unit tests before each decoder, not after — mutation testing has now caught the same lapse three times, and corpus tests cannot substitute
-metadata:
+description: "Write unit tests before each decoder, not after — mutation testing has now caught the same lapse three times, and corpus tests cannot substitute"
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-10T22:51:01.463Z
 ---
 
 **Write the unit tests before the decoder, every time.** Established the hard way on
@@ -57,3 +60,26 @@ helper that writes *into* an existing writer rather than returning bytes. See
 Related: trailing zero padding decodes as a run of `net_NOP`, because NOP is message id 0.
 Fixtures must expect those extra messages or filter them out — see
 [[era-axis-is-measured]] for the pattern of assumptions that only real bytes disprove.
+
+---
+
+## The red step for a NEW type is a compile failure, not a failing assertion
+
+This project's analyzers are strict enough that TDD placeholder types do not compile. With
+`TreatWarningsAsErrors` plus `AnalysisMode=All` plus SonarAnalyzer, a stub whose members all throw
+`NotImplementedException` fails on **CA1065** (exception from a property getter) and **S2325**
+(member does not use instance state). Established 2026-08-07 when the solution was scaffolded.
+
+**So write the tests first and then implement directly** — do not waste a cycle trying to stage a
+stub, and do not relax `TreatWarningsAsErrors` or `AnalysisMode` to make one compile. The strictness
+is a gate the project deliberately wants; the reasons are recorded in comments at both sites — the
+analyzer settings, and every `GlobalUsings.cs`, where `System` is deliberately NOT global because the
+SDK-generated `AssemblyInfo.cs` emits its own `using System;` and the pair fails as CS8933. Do not add
+it there either.
+
+**The same strictness makes a lazy sabotage impossible**, which is worth knowing before trying one:
+`&& false` is S1125, dropping a call leaves a private method unreferenced (S1144), and `x = 0` on an
+int field is CA1805. A sabotage must compile, so pick one that keeps every symbol used — OR-ing
+`int.MaxValue` into a flag set, or `+ 500` on an index. See [[most-of-a-decoder-is-untested]].
+
+Related: [[mutation-score-is-not-the-goal]].

@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Core.Tests.Text;
 /// The input here is genuine rather than authored: a written demo is compiled to assembly and then
 /// cut, so every line before the cut is exactly what this project emits. Hand-writing the same
 /// text would test the parser against a fixture built from the same belief as the writer, which is
-/// the failure <c>docs/memory/put-the-real-file-in-the-fixture.md</c> records.
+/// the failure <c>docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture</c> records.
 ///
 /// Each cut is made at a different nesting depth, because the blocks are closed by three separate
 /// loops with three separate messages, and a reader who is told "a block was not closed" without

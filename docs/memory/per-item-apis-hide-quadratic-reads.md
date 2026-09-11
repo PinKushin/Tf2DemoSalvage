@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 9b3a8b35-1dc8-47b0-a320-73b01288f10c
-  modified: 2026-08-12T23:47:10.135Z
+  modified: 2026-09-09T03:54:44.135Z
 ---
 
 `BspDisplacements.ReadTriangles(file, surface)` took the map's bytes and one face, so it parsed the
@@ -25,4 +25,4 @@ call before putting it in a loop. In this repo the same shape applies to any lum
 texture upload — geometry and textures were rebuilt together on resize when only geometry depends
 on the camera. Note also what could NOT catch it: the full-screen UI test opens no demo, so it has
 no map, so fast and slow predict the same observation. Wrong condition, not a missing assertion.
-Related: [[real-data-hides-bugs-small-inputs-expose]], [[bsp-lumps-are-compressed]].
+Related: [[fixtures-are-the-weak-point]], [[bsp-lumps-are-compressed]].

@@ -196,7 +196,7 @@ public sealed class BoneControllerConformanceTests
     /// them has no descendant used by anything either — bending it moves nothing that is drawn,
     /// hit-tested or hung from. The guard is Valve's economy, not Valve's correctness. It is here
     /// because an optimisation of the engine's is not a departure this project gets to skip
-    /// (`docs/memory/an-optimisation-is-not-a-skippable-departure.md`), and because a mask narrower
+    /// (`docs/memory/valve-parity-is-the-first-principle.md#an-optimisation-is-not-a-skippable-departure`), and because a mask narrower
     /// than <c>UsedByAnything</c> would make it correctness immediately.
     /// </remarks>
     [Test]

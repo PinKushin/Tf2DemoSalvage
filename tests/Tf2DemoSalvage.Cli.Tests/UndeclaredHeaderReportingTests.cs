@@ -35,7 +35,7 @@ namespace Tf2DemoSalvage.Cli.Tests;
 /// **Authored from the WRITER, not from the reader.** <c>DemoWriter</c> is validated against real
 /// demos by round trip, and the 2007 client plays files it produces, so a header it emits carries
 /// the engine's layout rather than this project's belief about it. That is the distinction in
-/// <c>docs/memory/put-the-real-file-in-the-fixture.md</c>: synthetic is fine, sourcing it from our
+/// <c>docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture</c>: synthetic is fine, sourcing it from our
 /// own reader is not.
 /// </remarks>
 public sealed class UndeclaredHeaderReportingTests

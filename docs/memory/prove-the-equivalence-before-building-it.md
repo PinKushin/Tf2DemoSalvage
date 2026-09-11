@@ -1,8 +1,11 @@
 ---
 name: prove-the-equivalence-before-building-it
 description: Two engine code paths that look different can be arithmetically identical for the models that exist — measure the inputs before implementing the second one.
-metadata:
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:55:03.234Z
 ---
 
 **Before implementing a second engine path that differs from one you already have, ask what the
@@ -41,5 +44,5 @@ recording it is the smaller artefact.
    per-animation tracked bones, so the question can be re-asked of any weapon in one call rather
    than re-derived by the next person.
 
-Related: [[the-base-is-not-the-behaviour]], [[unreachable-can-be-proved-not-just-observed]],
-[[filing-a-divergence-is-not-fixing-it]], [[an-optimisation-is-not-a-skippable-departure]].
+Related: [[the-base-is-not-the-behaviour]], [[most-of-a-decoder-is-untested]],
+[[filing-a-divergence-is-not-fixing-it]], [[valve-parity-is-the-first-principle]].

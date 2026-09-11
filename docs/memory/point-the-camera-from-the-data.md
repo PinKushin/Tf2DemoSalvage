@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
-  modified: 2026-09-06T00:24:12.401Z
+  modified: 2026-09-09T03:55:10.479Z
 ---
 
 Verifying a rendering change by screenshot fails when the camera is guessed. Eight captures on
@@ -23,4 +23,4 @@ print WHERE the data is — a bounding box, the densest cell, a few sample origi
 and lighting. Then set `TF2VIEW_CAMERA` from that. Also: the viewer takes 20-30 seconds to boot and
 load a map, so `ls` immediately after launching reports the file missing; wait on the file, never on
 a listing. Related: [[take-your-own-screenshot]],
-[[correct-counts-are-not-a-chain-of-custody]], [[a-picture-is-assertable]].
+[[instrument-bugs-outnumber-decoder-bugs]], [[a-picture-is-assertable]].

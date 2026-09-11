@@ -1,8 +1,11 @@
 ---
 name: death-is-ef-nodraw-not-an-animation
-description: TF2 never animates a dying player; death is EF_NODRAW on the player plus a separate CTFRagdoll entity — covers why a timer's construction argument says nothing about how long it actually runs once a per-frame think can restart it, why a newly drawn thing that is not exactly the demo's networked entity needs its own index rather than borrowing one, and why a rule the engine states twice in two different functions can differ at the edges so reusing one helper for both silently applies the wrong subject's rule.
-metadata:
+description: "TF2 never animates a dying player; death is EF_NODRAW on the player plus a separate CTFRagdoll entity — covers why a timer's construction argument says nothing about how long it actually runs once a per-frame think can restart it, why a newly drawn thing that is not exactly the demo's networked entity needs its own index rather than borrowing one, and why a rule the engine states twice in two different functions can differ at the edges so reusing one helper for both silently applies the wrong subject's rule."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:53:10.265Z
 ---
 
 TF2 has **no death animation for the player model**, and this is a fact about Valve's code rather
@@ -12,7 +15,7 @@ than something this project has yet to implement.
 by `PLAYERANIMEVENT_DIE`, and that event is raised **nowhere** in the `game/` tree — its handler is
 `Assert( 0 ); // Should be here - not supporting this yet!`. Checked with `PLAYERANIMEVENT_JUMP` as a
 control, which does return real raise sites, so the zero is a fact about the code and not about the
-search ([[an-empty-search-needs-a-control]]).
+search ([[instrument-bugs-outnumber-decoder-bugs]]).
 
 What actually happens is at the end of `CreateRagdollEntity`, `tf_player.cpp:15637`:
 

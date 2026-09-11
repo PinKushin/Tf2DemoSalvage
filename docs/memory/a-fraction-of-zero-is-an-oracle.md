@@ -1,8 +1,11 @@
 ---
 name: a-fraction-of-zero-is-an-oracle
-description: To test a drawn curve without a model of the curve, assert at the points where the interpolation fraction is zero — the sample returns itself whatever the tangents are.
-metadata:
+description: "To test a drawn curve without a model of the curve, assert at the points where the interpolation fraction is zero — the sample returns itself whatever the tangents are."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-10T00:53:15.811Z
 ---
 
 **A duration cannot test a spline.** Three metrics in a row failed to settle B370 because they compared a

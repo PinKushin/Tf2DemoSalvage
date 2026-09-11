@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// </summary>
 /// <remarks>
 /// **The third test level, and only it can fail when the wiring is absent**
-/// (<c>docs/memory/three-test-levels-and-the-third-is-missing.md</c>). `PositionReadoutConformance
+/// (<c>docs/memory/output-level-assertion-or-it-is-not-done.md#three-test-levels-and-the-third-is-missing</c>). `PositionReadoutConformance
 /// Tests` proves the three lines say what the engine says, and `ToolsPanelTests` proves they stack
 /// below the frame rate. Neither can tell whether the menu item reaches the settings, whether the
 /// settings reach `ReadPosition`, whether that reaches the panel, or whether the panel's quads
@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// proves the menu reached the form; only the capture proves anything was drawn. A readout that was
 /// composed perfectly and never submitted would satisfy the first assertion completely.
 ///
-/// **It restores what it changed** (<c>docs/memory/a-shared-viewer-test-restores-what-it-changed.md</c>).
+/// **It restores what it changed** (<c>docs/memory/ui-tests-run-every-time.md#a-shared-viewer-test-restores-what-it-changed</c>).
 /// One viewer serves this whole assembly, so a test that left the readout on would put three lines
 /// of white text into every later capture — including the ones another test counts colours in.
 /// </remarks>

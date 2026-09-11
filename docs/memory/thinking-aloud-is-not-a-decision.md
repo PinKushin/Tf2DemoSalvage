@@ -1,8 +1,11 @@
 ---
 name: thinking-aloud-is-not-a-decision
-description: The owner brainstorms in the same channel he decides in, and wants argument rather than agreement — endorsing then un-endorsing is the failure.
-metadata:
+description: "The owner brainstorms in the same channel he decides in, and wants argument rather than agreement — endorsing then un-endorsing is the failure."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-10T21:53:29.316Z
 ---
 
 **The owner, 2026-09-10, after I said "good rule" to an idea and then agreed with him abandoning it

@@ -925,7 +925,7 @@ public sealed class JitterProbe : IProbe
         // no move parent is a claim about the DECODE as much as about the map, and a decoder that never
         // populates `AttachedTo` for anything would produce the same silence. So print how many tracks in
         // the WHOLE recording have one: a healthy number means the field works and these genuinely lack it,
-        // and zero means the instrument is the subject. `docs/memory/an-empty-search-needs-a-control.md`.
+        // and zero means the instrument is the subject. `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`.
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"  control: {matched.Count(one => one.AttachedTo is not null):N0} of these are parented, " +

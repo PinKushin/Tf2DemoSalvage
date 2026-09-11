@@ -784,7 +784,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// **A CHANGE reports at once; only an unchanged state waits for the throttle** (B266). This
     /// was a bare one-second timer, so the first frame after the pass started or stopped drawing
     /// could sit unreported for most of a second — and that is the moment the line exists to
-    /// record. `docs/memory/log-the-event-not-a-sample-of-it.md` is the rule: transition logs, not
+    /// record. `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#log-the-event-not-a-sample-of-it` is the rule: transition logs, not
     /// samples.
     ///
     /// **It also priced four tests.** Every negative viewmodel test synchronises by waiting for
@@ -1501,7 +1501,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <remarks>
     /// **The same field the frustum, the world cull and the 2D sky already read**, exposed rather
     /// than recomputed, because everything that measures a distance from the viewer has to agree
-    /// with the cull about where the viewer is (`docs/memory/one-camera-or-the-cull-lies.md`).
+    /// with the cull about where the viewer is (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#one-camera-or-the-cull-lies`).
     ///
     /// **Null until a camera has been uploaded**, which is a real state — a device exists before
     /// the first frame is placed — and not the map origin. A consumer that read `(0, 0, 0)` there
@@ -1774,7 +1774,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // **The fade is part of the key, not just the eye.** A config setting `cl_detaildist` while
         // the camera stands still would otherwise change nothing until it next moved, which reads
         // as the setting being ignored — the shape
-        // `docs/memory/a-null-object-default-hides-a-missed-wiring.md` records.
+        // `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring` records.
         (float Distance, float Fade) live = LiveDetailFade;
 
         (float X, float Y, float Z, float Distance, float Fade) key =
@@ -2443,7 +2443,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// **Exposed so the entity cull uses the SAME frustum as the world cull and the draw** (B254).
     /// Built once in <c>SetCamera</c> from the camera itself; a caller that rebuilt one from the
     /// camera's numbers would be a second derivation, free to disagree
-    /// (`docs/memory/one-camera-or-the-cull-lies.md`).
+    /// (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#one-camera-or-the-cull-lies`).
     ///
     /// Unbuilt before the first camera is set, and an unbuilt frustum culls nothing.
     /// </remarks>

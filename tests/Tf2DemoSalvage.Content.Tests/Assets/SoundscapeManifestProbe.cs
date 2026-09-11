@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// sections of each file it lists, so both need looking at before a line of parsing exists.
 ///
 /// A probe rather than a test: it reports what is there. The assertions come once the shape is
-/// known, which is the order `docs/memory/read-the-spec-before-measuring-our-data.md` argues for.
+/// known, which is the order `docs/memory/nothing-is-closed.md#read-the-spec-before-measuring-our-data` argues for.
 /// </remarks>
 [Explicit("Reports TF2's shipped soundscape data; run deliberately.")]
 public sealed class SoundscapeManifestProbe

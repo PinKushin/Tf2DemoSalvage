@@ -94,7 +94,7 @@ public sealed class TextureProbe : IProbe
         // `smokelit` is grey smoke while the viewer drew it as a rainbow. The per-pixel spread
         // between the largest and smallest channel is the number that distinguishes them: zero for
         // anything grey, whatever its brightness, and large for anything saturated
-        // (`docs/memory/print-a-value-somebody-can-recognise.md`).
+        // (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#print-a-value-somebody-can-recognise`).
         (double spread, int mostSpread, int visible) = Colourfulness(first);
 
         output.WriteLine(string.Create(

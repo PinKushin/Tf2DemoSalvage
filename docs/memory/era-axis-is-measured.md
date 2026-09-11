@@ -1,8 +1,11 @@
 ---
 name: era-axis-is-measured
-description: Five TF2 protocols dated exactly by running period clients — and the rule that a protocol number dates nothing, with the corpus itself as the counterexample.
-metadata:
+description: "Five TF2 protocols dated exactly by running period clients — and the rule that a protocol number dates nothing, with the corpus itself as the counterexample."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:53:50.420Z
 ---
 
 **Two memories were merged into this one on 2026-08-27** — `z1800-is-modern-not-2015` and
@@ -141,7 +144,7 @@ hash catches the real hazard — a community map with the right name but the wro
 
 ---
 
-Related: [[proto-version-h-enumerates-the-boundaries]] for the boundaries Valve did write down —
+Related: [[hl2sdk-branches-are-per-era-headers]] for the boundaries Valve did write down —
 which notably excludes B23 and the missing `dem_stringtables` — plus
 [[where-the-game-and-clients-live]] for where the period clients are, and
 [[record-both-points-of-view]] for how each specimen is recorded.
