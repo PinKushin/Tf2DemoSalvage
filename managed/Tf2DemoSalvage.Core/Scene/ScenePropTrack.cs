@@ -147,6 +147,13 @@ public readonly record struct ScenePose
     /// </remarks>
     public byte RenderAlpha { get; init; } = 255;
 
+    /// <summary>The red, green and blue of <c>m_clrRender</c>; white when the entity never said.</summary>
+    /// <remarks>
+    /// **What a sprite draws with, beside the brightness it uses for alpha** (B391) — see
+    /// `EntityState.RenderRgb`. Carried on the pose because only the moment's pose reaches the draw.
+    /// </remarks>
+    public (byte Red, byte Green, byte Blue) RenderColor { get; init; } = (255, 255, 255);
+
     /// <summary><c>m_nRenderFX</c>, the effect animating the alpha; <c>kRenderFxNone</c> by default.</summary>
     public int RenderFx { get; init; }
 
@@ -2158,6 +2165,7 @@ public sealed class ScenePropTrack
             // keyframes, and neither does the effect driving its alpha. The alpha itself is a byte
             // the demo states, not a curve this project may invent between statements.
             RenderAlpha = from.RenderAlpha,
+            RenderColor = from.RenderColor,
             RenderFx = from.RenderFx,
             RenderMode = from.RenderMode,
 

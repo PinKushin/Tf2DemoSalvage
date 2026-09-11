@@ -8296,3 +8296,23 @@ assertion is necessary and it is not sufficient.
 - **`ScenePose` is the remaining top-down object**: one record carrying interpolated values and plain state
   together, which is why "state at the delayed target" was even expressible. Named here rather than fixed,
   because splitting it is its own change.
+
+## D158 — American English for everything new; what is already written stays (2026-09-10)
+
+The owner, on seeing `RenderColour` added to `ScenePose` for B391: *"can we only use american spellings
+lol, colour shouldnt never be in my codebase lol"* — and, of this repository, *"this repo should use
+american english"*.
+
+I pointed out that every British spelling already here was mine, written over earlier sessions — a grep
+for a list of British forms finds 4,228 lines across 930 tracked files, some in public names
+(`HdrColourScale`, `ColourFactor`, `VmtMaterial.Colour`) — and recommended converting them as a separate
+pass once the work in flight had landed. He declined: *"preexisting can stay, its not worth a refactor,
+expecially in comments and prose"*.
+
+**So the rule is new text only.** Identifiers, comments, documents and commit messages written from here on
+use American spelling — color, behavior, center, normalize, gray, initialize, optimization. What is already
+written stays as it is. Following from his reason, which is that the conversion is not worth a refactor, a
+file being edited for another reason is not an occasion to convert its old lines.
+
+The first application was B391's own additions: `ScenePose.RenderColor`, `EntityState.RenderRgb` — RGB
+because `EntityState.RenderColor()` already returns the packed field — and the prose around them.

@@ -191,3 +191,4 @@
 - [Retaining what the engine deletes breaks its invariants](retaining-what-the-engine-deletes-breaks-its-invariants.md) — a deletion held a stride true; the viewer's log cannot tell you a capture crashed.
 - [A flat array is addressed by a width](a-flat-array-is-addressed-by-a-width.md) — a stride is per-entry; a limit the implementation imposes will pass itself off as a fact about the data.
 - [Thinking aloud is not a decision](thinking-aloud-is-not-a-decision.md) — evaluate before endorsing; agreeing with a proposal and then with its withdrawal is not an opinion.
+- [American English for new text](american-english-for-new-text.md) — D158; old British spellings stay, converting them is not worth a refactor.

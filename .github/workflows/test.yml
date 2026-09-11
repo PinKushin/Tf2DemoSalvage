@@ -209,7 +209,8 @@ jobs:
           # with the other branch's fix, which is the one that keeps the scrub.
           # 1847 -> 1851 on 2026-09-10: four for B386's mixed stride, merged from a parallel session.
           # 1851 -> 1858 on 2026-09-10: seven for B389's tick-scoped track selection.
-          ./build/assert-test-count.sh '**/core.trx' 1858 Core
+          # 1858 -> 1862 on 2026-09-10: four for B391, the render color's decode and wiring.
+          ./build/assert-test-count.sh '**/core.trx' 1862 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -309,7 +310,8 @@ jobs:
           # 673 -> 688 on 2026-09-10: fifteen for C_SpriteRenderer (B378).
           # 688 -> 690 on 2026-09-10: two for B389, in TimelineMomentsTests.
           # 690 -> 697 on 2026-09-10: seven for B390, four conformance and three output-level.
-          ./build/assert-test-count.sh '**/scene.trx' 697 Scene
+          # 697 -> 711 on 2026-09-10: fourteen for B391, the sprite blend by render mode and the tint.
+          ./build/assert-test-count.sh '**/scene.trx' 711 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

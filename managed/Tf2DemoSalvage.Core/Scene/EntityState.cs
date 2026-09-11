@@ -2027,6 +2027,24 @@ public sealed class EntityState
     public byte RenderAlpha() =>
         RenderColor() is { } packed ? (byte)((packed >> 24) & 0xFF) : (byte)255;
 
+    /// <summary>The red, green and blue of <see cref="RenderColor"/>, defaulting to white.</summary>
+    /// <returns>The low three bytes of the packed <c>color32</c>, red first.</returns>
+    /// <remarks>
+    /// **What a SPRITE draws with** (B391). `CSprite::DrawModel` passes <c>m_clrRender-&gt;r/g/b</c> as
+    /// the color and its brightness as the alpha (`Sprite.cpp:795-806`), so a sprite reads exactly the
+    /// part of this field <see cref="RenderAlpha"/> leaves behind. Red is the LOW byte, as there.
+    ///
+    /// **Named RGB because <see cref="RenderColor"/> is taken** — it returns the packed field, alpha
+    /// included — and the pose's `RenderColor` is these three bytes alone.
+    ///
+    /// **Absent is white**, for the reason absent alpha is opaque: an untinted entity is the ordinary
+    /// case rather than an unknown.
+    /// </remarks>
+    public (byte Red, byte Green, byte Blue) RenderRgb() =>
+        RenderColor() is { } packed
+            ? ((byte)(packed & 0xFF), (byte)((packed >> 8) & 0xFF), (byte)((packed >> 16) & 0xFF))
+            : ((byte)255, (byte)255, (byte)255);
+
     /// <summary>Which effect animates the entity's alpha, when it says.</summary>
     /// <returns><c>m_nRenderFX</c>, or <c>null</c> when it was never sent.</returns>
     /// <remarks>

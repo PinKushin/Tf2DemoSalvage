@@ -155,6 +155,33 @@ public static class EntitySprites
         }
     }
 
+    /// <summary>How a sprite blends — the <c>Sprite</c> shader's switch on its render mode (B391).</summary>
+    /// <param name="renderMode">The entity's <c>m_nRenderMode</c>.</param>
+    /// <returns>The blend, or null for the modes that have no material and draw nothing.</returns>
+    /// <remarks>
+    /// **The ENTITY decides, never the material's text.** `CEngineSprite::Init` builds one material per
+    /// render mode, stamping each with <c>$spriteRenderMode</c> (`spritemodel.cpp:279-289`), and the
+    /// shader switches on it (`sprite_dx9.cpp:227`): the glow and additive modes blend
+    /// <c>SRC_ALPHA, ONE</c>, the translucent ones <c>SRC_ALPHA, ONE_MINUS_SRC_ALPHA</c>, and
+    /// `kRenderNone` and `kRenderEnvironmental` get no material at all (`spritemodel.cpp:281`).
+    /// `light_glow03`'s text reads translucent — its `$additive` is commented out — and drawing it by
+    /// that text is what painted its opaque black around every lamp.
+    ///
+    /// **Two modes are drawn translucent here and are NOT the engine's**, named rather than hidden:
+    /// `kRenderNormal` has no blending at all and writes depth, and `kRenderTransAlphaAdd` draws twice,
+    /// the second pass <c>ONE_MINUS_SRC_ALPHA, ONE</c>. The renderer has neither an opaque sprite state
+    /// nor a second pass yet (B391). Every sprite group the census found, in three demos, was
+    /// `light_glow03` at `kRenderWorldGlow`.
+    /// </remarks>
+    public static SpriteBlend? BlendFor(int renderMode) => renderMode switch
+    {
+        RenderModes.Glow or RenderModes.WorldGlow or RenderModes.TransAdd
+            or RenderModes.TransAddFrameBlend => SpriteBlend.Additive,
+        RenderModes.TransColor or RenderModes.TransTexture or RenderModes.TransAlpha
+            or RenderModes.Normal or RenderModes.TransAlphaAdd => SpriteBlend.Translucent,
+        _ => null,
+    };
+
     /// <summary>How much of a glow survives — <c>StandardGlowBlend</c> (`c_sprite.cpp:147`).</summary>
     /// <param name="renderMode">The entity's <c>m_nRenderMode</c>.</param>
     /// <param name="renderFx">Its <c>m_nRenderFX</c>.</param>

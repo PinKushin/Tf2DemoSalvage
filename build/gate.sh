@@ -485,7 +485,9 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # the same free number within an hour, and nothing in the build noticed. `assert-risk-citations.sh`
 # now runs above, and it would NOT have caught this one — a citation left at B386 resolves, at the
 # other session's entry. It catches a citation that arrives nowhere; a collision has no textual tell.
-run Tf2DemoSalvage.Core.Tests     core     1858
+# 1858 -> 1862 on 2026-09-10: four for B391 — `EntityState.RenderRgb`'s two decode tests and the two
+# RenderColorWiringTests carrying `m_clrRender` from the wire into a pose.
+run Tf2DemoSalvage.Core.Tests     core     1862
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -957,7 +959,10 @@ run Tf2DemoSalvage.Animation.Tests animation 252
 # 690 -> 697 on 2026-09-10: seven for B390 — the oriented basis and `CEngineSprite`'s three
 # extents in EntitySpriteConformanceTests, and three in EntitySpriteBatchesTests, the output-level
 # test B378 never had.
-run Tf2DemoSalvage.Scene.Tests    scene     697
+# 697 -> 711 on 2026-09-10: fourteen for B391 — nine `BlendFor` cases in EntitySpriteConformanceTests
+# and five in EntitySpriteBatchesTests: additive for a world glow, the translucent control, the tint,
+# the glow rule kept off an additive sprite, and the normal mode's texture-only draw.
+run Tf2DemoSalvage.Scene.Tests    scene     711
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

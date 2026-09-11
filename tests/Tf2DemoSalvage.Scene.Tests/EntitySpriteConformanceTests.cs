@@ -211,6 +211,36 @@ public sealed class EntitySpriteConformanceTests
     }
 
     /// <remarks>
+    /// **The `Sprite` shader's own switch, mode by mode** (`sprite_dx9.cpp:227`): the entity's render
+    /// mode picks the blend, through the material `CEngineSprite::Init` built for that mode
+    /// (`spritemodel.cpp:279`) — never the material's own text (B391). Additive is <c>SRC_ALPHA,
+    /// ONE</c>; translucent is <c>SRC_ALPHA, ONE_MINUS_SRC_ALPHA</c>.
+    /// </remarks>
+    [TestCase(RenderModes.TransColor, SpriteBlend.Translucent)]
+    [TestCase(RenderModes.TransTexture, SpriteBlend.Translucent)]
+    [TestCase(RenderModes.Glow, SpriteBlend.Additive)]
+    [TestCase(RenderModes.TransAlpha, SpriteBlend.Translucent)]
+    [TestCase(RenderModes.TransAdd, SpriteBlend.Additive)]
+    [TestCase(RenderModes.TransAddFrameBlend, SpriteBlend.Additive)]
+    [TestCase(RenderModes.WorldGlow, SpriteBlend.Additive)]
+    public void BlendFor_EachModeTheShaderBlends_IsTheShadersBlend(int renderMode, SpriteBlend expected)
+    {
+        EntitySprites.BlendFor(renderMode).ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **`kRenderEnvironmental` and `kRenderNone` have no material at all** — `CEngineSprite::Init`
+    /// skips both (`spritemodel.cpp:281`) — so there is nothing to draw, which is a different answer
+    /// from any blend.
+    /// </remarks>
+    [TestCase(RenderModes.Environmental)]
+    [TestCase(RenderModes.None)]
+    public void BlendFor_AModeWithNoMaterial_DrawsNothing(int renderMode)
+    {
+        EntitySprites.BlendFor(renderMode).ShouldBeNull();
+    }
+
+    /// <remarks>
     /// **A world-space scale is divided by the material's SMALLER dimension** —
     /// <c>renderscale /= MIN( GetWidth(), GetHeight() )</c>. Using the larger, or using
     /// `GetRenderBounds`' <c>MAX</c> from the other branch, is wrong for any sprite that is not

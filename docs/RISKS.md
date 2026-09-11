@@ -28450,3 +28450,142 @@ sabotage's residue came back clean.
 
 *Evidence class: differential for the red step and all seven sabotages; read-from-source for every
 behaviour implemented.*
+
+### B391 OPEN 2026-09-10: a sprite takes its blend from its material's text and draws white, where the engine takes both from the entity
+
+**Found by looking, the first time anyone looked.** B390's capture on `cp_process_f12` (tick 53157, from
+under a `light_glow03` lamp, looking up) showed the glow — round and facing the camera, so B390 is right
+— sitting in an opaque BLACK SQUARE the size of its quad. `light_glow03.vtf` is opaque everywhere (mean
+RGBA 21 17 14 **255**) and only reads as a glow when ADDED to what is behind it, while its `.vmt` has
+`$additive` commented out (`//	"$additive" "1"`). A reader of the material's text therefore concludes it
+is translucent, and a translucent quad of opaque black paints black. B378 drew sprites through exactly
+that reader — `VmtMaterial.SpriteBlending`, which is `SpriteCard`'s rule — and was verified by counts in a
+log. Nobody had looked at one.
+
+**The engine never asks the material's text how a sprite blends.** `CEngineSprite::Init` builds one
+material PER RENDER MODE (`game/client/spritemodel.cpp:279`, `$spriteRenderMode` set at `:289`):
+
+```cpp
+for ( int i = 0; i < kRenderModeCount; ++i )
+{
+    if ( i == kRenderNone || i == kRenderEnvironmental ) { m_material[i] = NULL; continue; }
+    Q_snprintf( pMaterialPath, sizeof(pMaterialPath), "%s_rendermode_%d", pMaterialName, i );
+    KeyValues *pMaterialKV = kv->MakeCopy();
+    pMaterialKV->SetInt( "$spriteRenderMode", i );
+    m_material[i] = g_pMaterialSystem->FindProceduralMaterial( pMaterialPath, ..., pMaterialKV );
+}
+```
+
+and `DrawSpriteModel` binds `psprite->GetMaterial( (RenderMode_t)rendermode, frame )`
+(`game/client/c_sprite.cpp:63`, returning `m_material[nRenderMode]` at `spritemodel.cpp:416`) — the
+ENTITY's `m_nRenderMode` picks the material. The `Sprite` shader then switches on it
+(`materialsystem/stdshaders/sprite_dx9.cpp:227`):
+
+| render mode | blend | depth | color |
+|---|---|---|---|
+| `kRenderNormal` 0 | none | test and write | texture only |
+| `kRenderTransColor` 1, `kRenderTransTexture` 2, `kRenderTransAlpha` 4 | `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` | test, no write | × vertex |
+| `kRenderGlow` 3, `kRenderWorldGlow` 9 | `SRC_ALPHA, ONE` | **no test**, no write | × vertex |
+| `kRenderTransAdd` 5, `kRenderTransAddFrameBlend` 7 | `SRC_ALPHA, ONE` | test, no write | × `$color`/`$alpha`; × vertex only if `$ignorevertexcolors 0`, default 1 |
+| `kRenderTransAlphaAdd` 8 | two passes: `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`, then `ONE_MINUS_SRC_ALPHA, ONE` | test, no write | × vertex |
+| `kRenderEnvironmental` 6 | no material, so nothing is drawn | | |
+
+`light_glow03`'s entities are mode 9, additive — which is why TF2 shows a glow and this showed a box.
+
+**And the color is the entity's.** `CSprite::DrawModel` passes `GetRenderBrightness()` as the alpha and
+`m_clrRender->r/g/b` as the color (`game/shared/Sprite.cpp:795-806`), and `DrawSprite`
+(`c_sprite.cpp:407-422`) is:
+
+```cpp
+if ( rendermode != kRenderNormal )
+{
+    float blend = render->GetBlend();
+    if (( rendermode == kRenderGlow ) || ( rendermode == kRenderWorldGlow ))
+    {
+        blend *= GlowBlend( psprite, effect_origin, rendermode, renderfx, alpha, &scale );
+        r *= blend; g *= blend; b *= blend;
+    }
+    render->SetBlend( blend );
+    if ( blend <= 0.0f ) return 0;
+}
+```
+
+after which `DrawSpriteModel` writes `color = { r, g, b, a }` into every vertex (`c_sprite.cpp:80`) and
+the pixel shader multiplies the texture by it (`sprite_ps2x.fxc:35`). This project passes
+`(blend, blend, blend)` — white — because `ScenePose` carries only `m_clrRender`'s alpha byte. Its red,
+green and blue are decoded (`EntityState.RenderColor`), and `EntityState.SpriteBrightness`'s own remark
+says a sprite uses exactly them; nothing on this path reads them.
+
+**Three divergences, all in `EntitySpriteBatches` and all from that one function:**
+
+1. **The blend comes from the material's text, not from the entity's render mode.** Visible: the black
+   squares.
+2. **The color is white, not `m_clrRender`.** Visible wherever a sprite is tinted; whether
+   `cp_process_f12`'s lamps are is not measured.
+3. **`GlowBlend` runs for EVERY sprite**, where the engine runs it only for the two glow modes. A
+   `kRenderTransAdd` sprite here fades with distance and — because `GlowBlend` grows a non-world glow's
+   scale by `dist / 200` — swells as the camera backs away.
+
+**One that cannot go first: the glow modes turn the depth test OFF** (`EnableDepthTest( false )`). In the
+engine that is safe because `PixelVisibility_FractionVisible`'s occlusion query hides a glow behind a
+wall; this project has no such query (B378's open half), so copying the depth half alone would draw
+every glow through every wall. Until the query exists a glow stays depth-tested here, which cuts a
+wall-mounted lamp's quad where it passes into the wall — visible, and named rather than hidden.
+
+**Not established.** What `render->GetBlend()` holds when a sprite draws, and whether `render->SetBlend`
+reaches a `Sprite` material at all, are the closed engine's — `DrawSpriteModel` calling
+`render->SetBlend( 1.0f )` for `kRenderNormal` (`c_sprite.cpp:60`) suggests it does. The mode-5 and -7
+constant color and mode 8's second pass are read here and not yet implemented.
+
+*Evidence class: seen, in the capture; read-from-source for every engine behavior quoted; measured for
+the texture's alpha (`vmt sprites/light_glow03`).*
+
+### B391 FIXED 2026-09-10: the render mode picks the blend and the entity's color reaches the quad; the glow depth test, modes 0 and 8 and the constant-color modes are still open
+
+**Divergences 1–3 above are fixed.**
+
+- **`EntitySprites.BlendFor(renderMode)`** — the `Sprite` shader's switch: modes 3, 5, 7 and 9 additive;
+  1, 2 and 4 translucent; 6 and 10 draw nothing. The batch pass gives each batch the MODE's blend instead
+  of the material text's, and batches by material and blend together, since one material can now be
+  drawn both ways in a moment.
+- **`EntityState.RenderRgb()` and `ScenePose.RenderColor`** — `m_clrRender`'s three color bytes, decoded
+  before and carried by nothing. `DemoTimeline` fills the pose, and the interpolated rebuild keeps it.
+- **`EntitySpriteBatches` follows `DrawSprite`'s structure**: the render scale, then `GlowBlend` for the
+  two glow modes only — and only they ask the occlusion gate — then the basis. The color is `m_clrRender`
+  times the blend for a glow and unmultiplied otherwise; `kRenderNormal` is the texture alone.
+
+**Proved by manipulation.** Red first, wherever it could be: with the data and `BlendFor` in place but the
+pass unchanged, exactly the four new batch tests failed, and `PoseCompletenessTests` named the one field the
+rebuild dropped — `RenderColor: expected (17, 34, 51), got (255, 255, 255)`. The tests whose code already
+existed when they were written — the two timeline wiring tests, the normal-mode test and the `BlendFor`
+cases — were proved by sabotage instead, in two rounds with disjoint predictions:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| `DemoTimeline` writes white instead of `RenderRgb()` | both `RenderColorWiringTests` |
+| `BlendFor` maps world glow to translucent | `BlendFor_EachModeTheShaderBlends_IsTheShadersBlend(9,Additive)` and `Build_AWorldGlowWhoseMaterialReadsTranslucent_IsDrawnAdditive` |
+| the normal-mode branch can never be taken | `Build_ANormalModeSprite_DrawsTheTextureAlone` |
+| `RenderRgb` swaps red and blue | `RenderRgb_FromAPackedColor_IsTheLowThreeBytesInOrder` and both wiring tests |
+
+Nothing outside each prediction reddened, and each break was restored with its inverse edit.
+
+**A fixture change came with it.** `SyntheticProp` now sends `m_clrRender` — `0xFF3366CC`, opaque so no
+other test on the fixture changes, three distinct color bytes so a dropped field reads back as white — and
+its pose lookup moved out of `MinigunStateWiringTests` into the fixture, because the color's wiring tests
+needed exactly the same one.
+
+**Still open.**
+
+- **The glow modes' depth test**, blocked on the occlusion query, as above.
+- **`kRenderNormal` and `kRenderTransAlphaAdd` are drawn translucent**, the renderer having no opaque
+  sprite state and no second pass. The census found neither mode: every sprite group in three demos was
+  `light_glow03` at mode 9.
+- **Modes 5 and 7 use the vertex color**, where the engine multiplies by the material's `$color` and
+  `$alpha` and ignores the vertex color unless `$ignorevertexcolors` is 0, its default being 1. The two
+  agree for an untinted sprite with a default material, and not for a tinted one.
+- **`render->GetBlend()`** is taken as one, as above.
+- **Not yet seen on screen after the fix.** The owner saw the black squares; whether they are gone is his
+  to look at, and this entry does not claim it.
+
+*Evidence class: differential for the red step and the four sabotages; read-from-source for every
+behavior implemented.*

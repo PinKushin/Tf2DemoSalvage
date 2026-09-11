@@ -3635,6 +3635,7 @@ public sealed class DemoTimeline
                 // absent mode is `kRenderNormal`, and each of those is the ordinary case rather
                 // than an unknown.
                 RenderAlpha = state.RenderAlpha(),
+                RenderColor = state.RenderRgb(),
                 RenderFx = state.RenderFx() ?? 0,
                 RenderMode = state.RenderMode() ?? 0,
 
