@@ -29090,3 +29090,34 @@ with the timeline it was asked for, and then drawn under whatever is open. That 
 of how D162's wait-for-the-download holds playback, and it belongs to that slice.
 
 *Evidence class: differential (red on the unfixed code, green on the fix).*
+
+### B394 OPEN 2026-09-11: `sv_downloadurl`'s declared default was `"0"`, a copy of its neighbours' rather than read
+
+**Found while checking `EngineConVars` before wiring the demo's own `sv_downloadurl` into D162.**
+`sv_downloadurl` sat right after `sv_cheats` (`"0"`) and `host_timescale` (`"1"`) in the declaration
+list, and carried `"0"` as well — the string a URL ConVar would never sensibly default to, and read
+by nothing yet (D106), so nothing had ever exercised it.
+
+**The engine's own registration, decompiled** (project `tf2engine`, `D:\ghidra-proj`): the only
+function in TF2's x64 `engine.dll` referencing the string `"sv_downloadurl"` is its `ConVar`
+constructor call —
+
+```
+FUN_18000a350: FUN_180283e80(&DAT_180730090, "sv_downloadurl", &DAT_18035d128, 0x2000,
+    "Location from which clients can download missing files");
+```
+
+— and `DAT_18035d128`, the default argument, holds one zero byte: the empty string.
+
+*Evidence class: read from the decompile.*
+
+### B394 FIXED 2026-09-11: the default is the empty string, as the engine declares it
+
+`EngineConVars`'s entry for `sv_downloadurl` now carries `""`. `DownloadUrlConVarConformanceTests`
+asserts it, citing the decompile.
+
+**Sabotaged rather than left to rely on a fresh test:** reverted the default to `"0"` and the test
+reddened exactly as predicted; restored.
+
+*Evidence class: differential (red on the old value, green on the fix), read from the decompile for
+the engine's registration.*

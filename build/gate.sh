@@ -487,7 +487,8 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # other session's entry. It catches a citation that arrives nowhere; a collision has no textual tell.
 # 1858 -> 1862 on 2026-09-10: four for B391 — `EntityState.RenderRgb`'s two decode tests and the two
 # RenderColorWiringTests carrying `m_clrRender` from the wire into a pose.
-run Tf2DemoSalvage.Core.Tests     core     1862
+# 1862 -> 1863 on 2026-09-11: DownloadUrlConVarConformanceTests (B394), sv_downloadurl's default.
+run Tf2DemoSalvage.Core.Tests     core     1863
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

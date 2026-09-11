@@ -210,7 +210,8 @@ jobs:
           # 1847 -> 1851 on 2026-09-10: four for B386's mixed stride, merged from a parallel session.
           # 1851 -> 1858 on 2026-09-10: seven for B389's tick-scoped track selection.
           # 1858 -> 1862 on 2026-09-10: four for B391, the render color's decode and wiring.
-          ./build/assert-test-count.sh '**/core.trx' 1862 Core
+          # 1862 -> 1863 on 2026-09-11: DownloadUrlConVarConformanceTests (B394).
+          ./build/assert-test-count.sh '**/core.trx' 1863 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
