@@ -176,8 +176,9 @@ public sealed class SyntheticRosterTests
     private static List<(string Text, IReadOnlyList<byte> UserData)> AtTheirSlots(
         IReadOnlyList<(string Name, IReadOnlyList<byte> Data)> entries)
     {
+        // Entity = slot + 1 (B398), so entity N sits at slot N - 1.
         int slots = entries.Max(
-            entry => int.Parse(entry.Name, CultureInfo.InvariantCulture)) + 1;
+            entry => int.Parse(entry.Name, CultureInfo.InvariantCulture));
 
         List<(string Text, IReadOnlyList<byte> UserData)> table =
         [
@@ -189,8 +190,8 @@ public sealed class SyntheticRosterTests
 
         foreach ((string name, IReadOnlyList<byte> data) in entries)
         {
-            int slot = int.Parse(name, CultureInfo.InvariantCulture);
-            table[slot] = (name, data);
+            int slot = int.Parse(name, CultureInfo.InvariantCulture) - 1;
+            table[slot] = (slot.ToString(CultureInfo.InvariantCulture), data);
         }
 
         return table;

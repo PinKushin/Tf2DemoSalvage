@@ -49,9 +49,9 @@ public class RosterBuilderTests
             new StringTableEntry(3, null, Record("joined_late", 42)),
             Bystander());
 
-        players[3].Name.ShouldBe("joined_late");
-        players[3].UserId.ShouldBe(42);
-        players[3].EntityIndex.ShouldBe(3);
+        players[4].Name.ShouldBe("joined_late");
+        players[4].UserId.ShouldBe(42);
+        players[4].EntityIndex.ShouldBe(4);
         players.Count.ShouldBe(2);
     }
 
@@ -64,8 +64,8 @@ public class RosterBuilderTests
             new StringTableEntry(3, "9", Record("mismatched", 42)),
             Bystander());
 
-        players.ShouldNotContainKey(3);
-        players.ShouldContainKey(BystanderIndex);
+        players.ShouldNotContainKey(4);
+        players.ShouldContainKey(BystanderIndex + 1);
     }
 
     [Test]
@@ -79,8 +79,8 @@ public class RosterBuilderTests
             new StringTableEntry(0, "not_a_number", Record("garbled", 42)),
             Bystander());
 
-        players.ShouldNotContainKey(0);
-        players.ShouldContainKey(BystanderIndex);
+        players.ShouldNotContainKey(1);
+        players.ShouldContainKey(BystanderIndex + 1);
     }
 
     [Test]
@@ -92,8 +92,8 @@ public class RosterBuilderTests
             new StringTableEntry(3, "3", new byte[PlayerInfo.RecordBytes - 1]),
             Bystander());
 
-        players.ShouldNotContainKey(3);
-        players.ShouldContainKey(BystanderIndex);
+        players.ShouldNotContainKey(4);
+        players.ShouldContainKey(BystanderIndex + 1);
     }
 
     [Test]
@@ -105,8 +105,8 @@ public class RosterBuilderTests
         Dictionary<int, PlayerInfo> players = Apply(
             new StringTableEntry(3, "3", Record("padded", 42, extraBytes: 16)));
 
-        players[3].Name.ShouldBe("padded");
-        players[3].UserId.ShouldBe(42);
+        players[4].Name.ShouldBe("padded");
+        players[4].UserId.ShouldBe(42);
     }
 
     [Test]
@@ -118,7 +118,7 @@ public class RosterBuilderTests
         RosterBuilder.Apply([new StringTableEntry(3, "3", Record("was_here", 42))], players);
         RosterBuilder.Apply([new StringTableEntry(3, "3", [])], players);
 
-        players[3].Name.ShouldBe("was_here");
+        players[4].Name.ShouldBe("was_here");
     }
 
     [Test]
@@ -130,8 +130,8 @@ public class RosterBuilderTests
         RosterBuilder.Apply([new StringTableEntry(3, "3", Record("first", 1))], players);
         RosterBuilder.Apply([new StringTableEntry(3, null, Record("second", 2))], players);
 
-        players[3].Name.ShouldBe("second");
-        players[3].UserId.ShouldBe(2);
+        players[4].Name.ShouldBe("second");
+        players[4].UserId.ShouldBe(2);
     }
 
     [Test]
@@ -156,7 +156,7 @@ public class RosterBuilderTests
 
         // Current occupancy, unchanged.
         players.Count.ShouldBe(1);
-        players[3].Name.ShouldBe("second");
+        players[4].Name.ShouldBe("second");
 
         // And both players remain nameable by the id an event would carry.
         everyone[1].Name.ShouldBe("first");
@@ -173,7 +173,7 @@ public class RosterBuilderTests
 
         RosterBuilder.Apply([new StringTableEntry(3, "3", Record("only", 1))], players);
 
-        players[3].Name.ShouldBe("only");
+        players[4].Name.ShouldBe("only");
     }
 
     [Test]

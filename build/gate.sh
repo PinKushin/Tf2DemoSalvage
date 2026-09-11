@@ -488,7 +488,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1858 -> 1862 on 2026-09-10: four for B391 — `EntityState.RenderRgb`'s two decode tests and the two
 # RenderColorWiringTests carrying `m_clrRender` from the wire into a pose.
 # 1862 -> 1863 on 2026-09-11: DownloadUrlConVarConformanceTests (B394), sv_downloadurl's default.
-run Tf2DemoSalvage.Core.Tests     core     1863
+# 1863 -> 1866 on 2026-09-11: SyntheticRocketPositionTests (B397) - a rocket-shaped entity's
+# position, first-tick clamp and owner resolution, through the full decode pipeline.
+# 1866 -> 1869 on 2026-09-11: RosterEntityIndexConformanceTests (B398) - a userinfo slot is entity
+# slot + 1, on the create path, the text-less update path, and at slot 0.
+run Tf2DemoSalvage.Core.Tests     core     1869
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

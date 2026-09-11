@@ -16,10 +16,13 @@ namespace Tf2DemoSalvage.Core.Net;
 /// or naming the previous occupant of a reused slot, passes every check that asks whether names
 /// are non-empty and counts are sane.
 ///
-/// **The entity index is the entry index.** In a create message each entry also carries its
-/// index as decimal text, and the two always agree — verified across the whole corpus. An update
-/// carries no text at all, so the index is the only source available, and using it for both
-/// paths is what lets them share this code rather than diverge.
+/// **The entry index is the CLIENT SLOT, and the entity is the slot plus one** (B398). Entity 0 is
+/// the world, so players are entities 1..maxClients — `UTIL_PlayerByIndex` requires
+/// `playerIndex &gt; 0 &amp;&amp; playerIndex &lt;= gpGlobals-&gt;maxClients` (`game/server/util.cpp:565`),
+/// the same rule `DemoTimeline.RecorderEntityIndex` applies to `PlayerSlot`. This used to say the
+/// entity index WAS the entry index, which put every name one entity short. In a create message
+/// each entry also carries its slot as decimal text; an update carries none, so the index is the
+/// only source and both paths share the one offset.
 /// </remarks>
 public static class RosterBuilder
 {
@@ -81,9 +84,10 @@ public static class RosterBuilder
                 continue;
             }
 
-            PlayerInfo player = PlayerInfo.Parse([.. entry.UserData], entry.Index);
+            int entityIndex = entry.Index + 1;
+            PlayerInfo player = PlayerInfo.Parse([.. entry.UserData], entityIndex);
 
-            players[entry.Index] = player;
+            players[entityIndex] = player;
 
             // **Indexer, not TryAdd**, so a player whose own record is corrected later — a name
             // change, a slot move — keeps the newest version of themselves. What must not be lost

@@ -26598,7 +26598,35 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B397 OPEN 2026-09-11: a rocket's spawn point sits well past a muzzle offset from its shooter
+### B398 FIXED 2026-09-11: every roster name sat one entity short — a userinfo entry is a client SLOT
+
+**The owner: *"its the right tick but out spectate beleleu isnt working"*, then *"do it by ID or
+something, because it should work both ways, but this should be a test for the fucking parser
+too"*.** `--spectate Beleleu` logged "--spectate 1 is not playing" and fell back to the default
+target.
+
+**The engine.** Entity 0 is the world; players are entities 1..maxClients. `UTIL_PlayerByIndex`
+(`game/server/util.cpp:565`) accepts only `playerIndex > 0 && playerIndex <= gpGlobals->maxClients`.
+The `userinfo` table's entries are client slots starting at 0, so entity = entry index + 1 — the rule
+`DemoTimeline.RecorderEntityIndex` already applied to `svc_ServerInfo.PlayerSlot`.
+
+**Ours.** `RosterBuilder.Apply` used the entry index AS the entity index, and its remarks said so.
+On `demostf-cp_process_f12-2026-08-07.dem` that put the SourceTV bot (slot 0) on entity 0 and
+Beleleu (slot 1) on entity 1 — the SourceTV observer — so name and user-id lookups both resolved
+one entity to the left.
+
+**Fixed:** `entityIndex = entry.Index + 1` for both the key and `PlayerInfo.EntityIndex`; the text
+cross-check still compares against the slot. `RosterEntityIndexConformanceTests` (three: slot 3 is
+entity 4, slot 0 is entity 1 and never the world, a text-less update takes the same offset) were red
+3-vs-4 before the change. `RosterBuilderTests` and `SyntheticRosterTests.AtTheirSlots` carried the
+old assumption and were corrected to it. After: `roster` prints Beleleu at entity 2 / user id 3, and
+`--spectate Beleleu` and `--spectate 3` render the same Beleleu first-person view (The Original,
+item 513, centered).
+
+*Evidence class: read from source (the SDK guard), measured (roster probe, `PlayersAt` entity 1 =
+team 1 class 0, entity 2 = red soldier with item 513), and looked at.*
+
+### B397 OPEN 2026-09-11: from Beleleu's camera, the soldier firing rocket 407 is drawn on a ledge where the real client shows him on the ground
 
 **The owner, looking at the same rocket the reconfirmation above used**: neither the overhead nor the
 first-person capture look like the rocket comes from the right place — the visible soldier's rocket
@@ -26668,15 +26696,61 @@ earlier "gates and stuff" difference reads as the relative-tick mistake showing 
 the map, not a real divergence. Not reopened here; if it recurs on a properly-seeked tick, it is a new
 finding rather than a continuation of this one.
 
-**The rocket/muzzle-flash divergence survives the correction and is CONFIRMED.** At the true absolute
-tick 51093, first-person, same demo: the real client shows the muzzle flash at the doorway near
-ground level, close to the player firing it. This project's render at the same tick shows the trail
-high on the wall, well above and to the side of the doorway. The 185-unit gap measured earlier is
-real, against a comparison now known to be at the right tick on both sides.
+**The rocket/muzzle-flash divergence survives the tick correction.** At the true absolute tick 51093,
+first-person, same demo: the real client shows the muzzle flash at the doorway near ground level,
+close to the player firing it. This project's render at the same tick shows the trail high on the
+wall, well above and to the side of the doorway. The 185-unit gap measured earlier is real, against a
+comparison now known to be at the right tick on both sides.
+
+**Withdrawn — this demo is SourceTV, and neither capture's camera was verified.** The owner: *"yea its
+an stv it has no player owner its owned by the stv"*. `demostf-cp_process_f12-2026-08-07.dem`'s
+`HasRecordedView` is false — confirmed separately, the `viewmodels` probe's own hint text names entity
+1 as "the broadcast, which holds nothing" — so every first-person capture taken without `--spectate`,
+on either side of the comparison, resolved through `SpectatorTarget.Choose`'s DEFAULT pick, not a
+fixed subject. Nothing here establishes that this project's camera and the real client's camera were
+following the same player, or the same player across the different ticks compared. The 185-unit
+measurement between the rocket and its real decoded `m_hOwnerEntity` stands — that is a wire value,
+independent of any camera — but "the visible flash was in the wrong place on screen" is not settled
+until both sides are re-captured with `--spectate` pinned to the rocket's actual owner.
+
+**A fourth mechanism was checked in the meantime and is correct, not the cause.** A synthetic
+`CTFProjectile_Rocket`-shaped entity (`SyntheticRocket`, `DT_TFBaseRocket.m_vecOrigin`, matching
+`EntityStateTableTests`' B372 schema exactly), run through the full `DemoTimeline.Build` pipeline
+rather than `EntityStateTable` in isolation, gives the exact Valve-formula position, the correct
+first-tick clamp, and the correct owner — `SyntheticRocketPositionTests`, three tests, sabotaged and
+confirmed able to fail. Combined with the three mechanisms already ruled out (reused-index track
+lookup, the interpolation formula against Valve's own compiled code, and the attachment transform),
+every part of this project's OWN pipeline that could place a rocket has now been checked against
+ground truth and found correct. Whatever B397 is, it is not in decode, interpolation, ownership
+resolution, or attachment — which narrows what is left to the camera question above, or to something
+not yet named.
 
 *Evidence class: owner's own real-client capture beside ours, same demo and the confirmed-absolute
-tick, first-person — the comparison this project's own convention calls for. The engine's argument
-order for `demo_gototick` is read from the decompile, not guessed.*
+tick — but with the camera identity unconfirmed on both sides, per the owner's correction. The
+engine's argument order for `demo_gototick` is read from the decompile. The fourth mechanism is
+measured: three synthetic tests, sabotaged.*
+
+**A "resolved" verdict was drafted here and was wrong; it is withdrawn.** It named entity 7 "nezay"
+off a roster that was itself one entity short (B398), and declared the 185 units a camera mix-up. The
+owner: *"that is not nezay that is abelll, my god, you are reading everyhting wrong"* — and he was
+capturing Beleleu: *"I was SSing fuing belueleu"*. With B398 fixed, the roster reads entity 1 = the
+SourceTV bot, **entity 2 = Beleleu** (user id 3), **entity 7 = abelll** (user id 8, rocket 407's
+`m_hOwnerEntity`), entity 8 = nezay.
+
+**The comparison that stands, both cameras now confirmed.** Real client: `demo_gototick 51093 0 1`,
+spectating Beleleu. Ours: `--spectate Beleleu --tick 51093 --first-person` (and `--spectate 3`, his
+user id, which renders identically). Ours draws abelll up on the left ledge with the trail high on
+the wall; the real client shows him on the ground at the doorway, firing. The owner: *"that left
+soldier should be on the ground"*.
+
+**Still two candidates, nothing yet separating them:** player 7's drawn position is wrong at that
+tick, or the rocket is drawn at its first keyframe (clamped, no delay) while players are drawn eight
+ticks delayed — 185 units is roughly eleven ticks of his measured motion. The four mechanisms already
+checked (track lookup, Valve's interpolation arithmetic, attachment transform, synthetic rocket
+fixture) stay checked; none of them compares a projectile's delay against a player's.
+
+*Evidence class: owner's real-client capture beside ours, same demo, same absolute tick, same
+spectated player — confirmed by name through the corrected roster. Cause not established.*
 
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 

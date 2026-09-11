@@ -156,3 +156,4 @@
 - [Valve's shape beyond parity](valve-shape-beyond-parity.md) — D163; nothing to match still means Valve's mechanisms, order and names.
 - [The map checksum is MapHash, not MapCrc](map-checksum-is-maphash-not-mapcrc.md) — finding 43; MapCrc is unidentified junk on every era.
 - [demo_gototick's second argument is relative](demo-gototick-relative-is-the-second-argument.md) — `demo_gototick <tick> 0 1` for an absolute seek and a pause.
+- [An entity index is not a real name](an-entity-index-is-not-a-real-name.md) — B398: userinfo entry is a slot, entity = slot + 1; control-check the roster, never guess from a nameplate.

@@ -211,7 +211,9 @@ jobs:
           # 1851 -> 1858 on 2026-09-10: seven for B389's tick-scoped track selection.
           # 1858 -> 1862 on 2026-09-10: four for B391, the render color's decode and wiring.
           # 1862 -> 1863 on 2026-09-11: DownloadUrlConVarConformanceTests (B394).
-          ./build/assert-test-count.sh '**/core.trx' 1863 Core
+          # 1863 -> 1866 on 2026-09-11: SyntheticRocketPositionTests (B397).
+          # 1866 -> 1869 on 2026-09-11: RosterEntityIndexConformanceTests (B398).
+          ./build/assert-test-count.sh '**/core.trx' 1869 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
