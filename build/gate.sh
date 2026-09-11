@@ -492,7 +492,9 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # position, first-tick clamp and owner resolution, through the full decode pipeline.
 # 1866 -> 1869 on 2026-09-11: RosterEntityIndexConformanceTests (B398) - a userinfo slot is entity
 # slot + 1, on the create path, the text-less update path, and at slot 0.
-run Tf2DemoSalvage.Core.Tests     core     1869
+# 1869 -> 1874 on 2026-09-11: PlayerLookupTests' five Steam id cases - --spectate by [U:1:n],
+# STEAM_X:Y:Z and SteamID64, matched by account across spellings, SourceTV still excluded.
+run Tf2DemoSalvage.Core.Tests     core     1874
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

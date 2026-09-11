@@ -213,7 +213,8 @@ jobs:
           # 1862 -> 1863 on 2026-09-11: DownloadUrlConVarConformanceTests (B394).
           # 1863 -> 1866 on 2026-09-11: SyntheticRocketPositionTests (B397).
           # 1866 -> 1869 on 2026-09-11: RosterEntityIndexConformanceTests (B398).
-          ./build/assert-test-count.sh '**/core.trx' 1869 Core
+          # 1869 -> 1874 on 2026-09-11: PlayerLookupTests' Steam id cases.
+          ./build/assert-test-count.sh '**/core.trx' 1874 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them

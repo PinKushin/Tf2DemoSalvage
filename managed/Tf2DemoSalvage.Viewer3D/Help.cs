@@ -57,7 +57,8 @@ internal static class Help
           --third-person             Open over a player's shoulder, the chase camera.
           --tick <n>                 Seek here before drawing.
           --shot <path>              Save one frame to path, then exit.
-          --spectate <who>           First-person a specific player: a NAME, a user id or an
+          --spectate <who>           First-person a specific player: a NAME, a Steam id
+                                    ([U:1:n], STEAM_0:y:z or 7656...), a user id or an
                                     entity index. A name matches case-insensitively, exactly
                                     first and then by part. A point-of-view demo ignores this
                                     and uses its own recorded camera.

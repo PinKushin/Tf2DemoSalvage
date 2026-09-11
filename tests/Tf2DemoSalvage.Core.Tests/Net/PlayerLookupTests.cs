@@ -18,10 +18,46 @@ public sealed class PlayerLookupTests
     private static PlayerInfo[] Roster =>
     [
         new PlayerInfo("b4nnyPog", UserId: 11, SteamId: "a", EntityIndex: 2, IsBot: false, IsSourceTv: false),
-        new PlayerInfo("b4nny", UserId: 12, SteamId: "b", EntityIndex: 3, IsBot: false, IsSourceTv: false),
-        new PlayerInfo("[TAG] koel", UserId: 13, SteamId: "c", EntityIndex: 4, IsBot: false, IsSourceTv: false),
-        new PlayerInfo("SourceTV", UserId: 1, SteamId: "d", EntityIndex: 1, IsBot: true, IsSourceTv: true),
+        new PlayerInfo("b4nny", UserId: 12, SteamId: "[U:1:1234567]", EntityIndex: 3, IsBot: false, IsSourceTv: false),
+        new PlayerInfo("[TAG] koel", UserId: 13, SteamId: "STEAM_0:1:500", EntityIndex: 4, IsBot: false, IsSourceTv: false),
+        new PlayerInfo("SourceTV", UserId: 1, SteamId: "[U:1:42]", EntityIndex: 1, IsBot: true, IsSourceTv: true),
     ];
+
+    [Test]
+    public void Resolve_ASteamId3_FindsThePlayer()
+    {
+        PlayerLookup.Resolve(Roster, "[U:1:1234567]").ShouldBe(3);
+    }
+
+    [Test]
+    public void Resolve_ASteamId64_FindsThePlayer()
+    {
+        // 76561197960265728 + account 1234567 — the CSteamID individual-account base
+        // (`steamclientpublic.h`, k_EUniversePublic, k_EAccountTypeIndividual, instance 1).
+        PlayerLookup.Resolve(Roster, "76561197961500295").ShouldBe(3);
+    }
+
+    [Test]
+    public void Resolve_ASteamId2_MatchesARecordStoredAsSteamId3()
+    {
+        // STEAM_X:Y:Z is account Z * 2 + Y, whatever the universe digit X says.
+        PlayerLookup.Resolve(Roster, "STEAM_0:1:617283").ShouldBe(3);
+        PlayerLookup.Resolve(Roster, "STEAM_1:1:617283").ShouldBe(3);
+    }
+
+    [Test]
+    public void Resolve_ASteamId3_MatchesARecordStoredAsSteamId2()
+    {
+        // Older demos carry the STEAM_0 spelling in the guid; the account is 500 * 2 + 1.
+        PlayerLookup.Resolve(Roster, "[U:1:1001]").ShouldBe(4);
+        PlayerLookup.Resolve(Roster, "76561197960266729").ShouldBe(4);
+    }
+
+    [Test]
+    public void Resolve_TheSourceTvSteamId_IsNeverAMatch()
+    {
+        PlayerLookup.Resolve(Roster, "[U:1:42]").ShouldBeNull();
+    }
 
     [Test]
     public void Resolve_AnExactName_BeatsALongerOneContainingIt()

@@ -78,7 +78,7 @@ public sealed class RosterProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"  entity {player.EntityIndex,4}  user id {player.UserId,6}  "
                 + $"{(player.IsBot ? "BOT  " : "     ")}{(player.IsSourceTv ? "STV  " : "     ")}"
-                + $"'{player.Name}'"));
+                + $"{player.SteamId,-16}  '{player.Name}'"));
         }
     }
 }
