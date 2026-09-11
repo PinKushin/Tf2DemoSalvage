@@ -1420,6 +1420,11 @@ internal class MainForm : Form, IFrameSteps
     /// needs: an old demo on a current map is correct everywhere the players actually went, and the
     /// only artefact is unused space. Fetching whatever the mirror has today is therefore right, and
     /// a period-map archive would be effort spent on the direction nobody plays.
+    ///
+    /// **REVERSED by D162 (2026-09-11).** The owner now wants the recorded version drawn, chosen by the
+    /// demo's map CRC, from the first source that has it. The paragraph above still says what a
+    /// mismatched map LOOKS like; it no longer decides what is drawn. Kept rather than deleted, because
+    /// a reversal read without the position it reversed is the kind that gets reversed back.
     /// </remarks>
     private async Task DownloadMapAsync(string mapName)
     {
