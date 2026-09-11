@@ -1763,7 +1763,9 @@ run Tf2DemoSalvage.Rendering.Tests rendering 777
 # and pressing a dead key. The first case is a tripwire over EVERY item, so the next hand-typed
 # label fails here; the second is its control, because "F9" would satisfy the tripwire (F9 is bound,
 # to the surface colours) while still naming the wrong key for the screenshot.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    108
+# 108 -> 109: PlaylistMapLoadTests (B393). The playlist's load read the map with the previous demo's
+# timeline; it needs the corpus demo and an install, and skips without the install, which still counts.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    109
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

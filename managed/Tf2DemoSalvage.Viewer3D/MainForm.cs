@@ -214,6 +214,9 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private LoadedMap? _loaded;
 
+    /// <summary>The map as it was read, for a test to ask what came with it (B393).</summary>
+    internal LoadedMap? Loaded => _loaded;
+
     /// <summary>Where maps come from: the disk first, then the network.</summary>
     /// <remarks>
     /// **Replaced a `MapDownloader?` created on first need** (B188, D90). The lazy construction is
@@ -1268,7 +1271,7 @@ internal class MainForm : Form, IFrameSteps
     public bool LoadMap(string mapName)
     {
         ClearMap();
-        return ReadMapNamed(mapName).Drawn;
+        return ReadMapNamed(mapName, _timeline).Drawn;
     }
 
     // `_modelsUploaded` was here until 2026-08-25. It is `MomentScene.Uploaded` now, beside the
@@ -1334,6 +1337,7 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Reads a map by name, and hands back the install it opened.</summary>
     /// <param name="mapName">The map the demo names.</param>
+    /// <param name="timeline">The demo being opened, which decides what content loads with the map.</param>
     /// <returns>Whether a world was drawn, and the game content now open.</returns>
     /// <remarks>
     /// **Safe off the UI thread once <see cref="ClearMap"/> has run, verified by reading rather than
@@ -1352,8 +1356,13 @@ internal class MainForm : Form, IFrameSteps
     /// now carries the order, which is the difference between a comment and a shape.
     ///
     /// This is B203's lesson at a smaller scale: an order that matters, in a window, failing quietly.
+    ///
+    /// **The timeline is an argument for the same reason, and it was the same bug** (B393). This read
+    /// `_timeline`, which `Apply` assigns — and `LoadDemoAsync` reads the map BEFORE `Apply`, so a demo
+    /// opened from the playlist had its map read with the previous demo's timeline, or with none on
+    /// the first open, and `MapAssets.Load` was told of no sprites and no worn items.
     /// </remarks>
-    private (bool Drawn, GameContent? Game) ReadMapNamed(string mapName)
+    private (bool Drawn, GameContent? Game) ReadMapNamed(string mapName, DemoTimeline? timeline)
     {
         MapSearch found = _maps.Find(mapName);
 
@@ -1384,13 +1393,13 @@ internal class MainForm : Form, IFrameSteps
             // because a 40 MB download must not freeze the window, and the demo is watchable
             // without a map anyway.
             _mapLog.LogInformation("{Message}", $"{mapName} is not installed; fetching it");
-            _ = DownloadMapAsync(mapName);
+            _ = DownloadMapAsync(mapName, timeline);
             return (false, _game);
         }
 
         _mapLog.LogInformation("{Message}", $"found {path}");
 
-        return (ReadMap(mapName, path), _game);
+        return (ReadMap(mapName, path, timeline), _game);
     }
 
     /// <summary>Fetches a map that is not installed, then loads it.</summary>
@@ -1426,7 +1435,7 @@ internal class MainForm : Form, IFrameSteps
     /// mismatched map LOOKS like; it no longer decides what is drawn. Kept rather than deleted, because
     /// a reversal read without the position it reversed is the kind that gets reversed back.
     /// </remarks>
-    private async Task DownloadMapAsync(string mapName)
+    private async Task DownloadMapAsync(string mapName, DemoTimeline? timeline)
     {
         _status.Text = MapProvider.Fetching(mapName);
 
@@ -1448,14 +1457,14 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        if (ReadMap(mapName, fetch.Path))
+        if (ReadMap(mapName, fetch.Path, timeline))
         {
             _status.Text = (_demo?.Describe() ?? mapName) + "  (map downloaded)";
         }
     }
 
     /// <summary>Reads a map file into the viewport's geometry.</summary>
-    private bool ReadMap(string mapName, string path)
+    private bool ReadMap(string mapName, string path, DemoTimeline? timeline)
     {
         try
         {
@@ -1484,7 +1493,7 @@ internal class MainForm : Form, IFrameSteps
             LoadedMap map = _levels.Load(
                 bytes,
                 _game,
-                _timeline,
+                timeline,
                 (int)_settings.TextureQuality);
 
             // **The LEVEL survives a content failure, and it did not before.** The old catch set
@@ -2496,7 +2505,8 @@ internal class MainForm : Form, IFrameSteps
                     // precaches return silently without one (B208). That order used to be three
                     // statements anyone could reorder into a silent no-op; it is now carried by
                     // `game`, which does not exist until the read has produced it.
-                    (bool drawn, GameContent? game) = ReadMapNamed(decoded.Demo.MapName);
+                    (bool drawn, GameContent? game) =
+                        ReadMapNamed(decoded.Demo.MapName, decoded.Timeline);
 
                     // **Packed here rather than when a prop first appears, which is what Valve
                     // does** (D86). `CBaseEntity::PrecacheModel` sits behind `IsPrecacheAllowed()`

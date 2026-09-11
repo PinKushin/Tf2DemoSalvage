@@ -29049,3 +29049,44 @@ BSP header, and the checksum reader rightly refused it; the lump moved to 2048.
   once anything but a map is fetched.
 
 *Evidence class: differential for the five sabotages; read from the decompile for the engine's order.*
+
+### B393 OPEN 2026-09-11: a demo opened from the playlist had its map read with the previous demo's timeline, or none
+
+**Found by reading, while planning D162's map-version check**, not by a report.
+
+`LoadedMap.Read` hands the timeline to `MapAssets.Load` as three lists: `DemoModels.Needed` (the
+install's class models plus every model the demo's props name), `DemoModels.Worn` (worn items and
+attachments, which must stay skinned) and `DemoModels.Sprites` (entity sprite materials). A null
+timeline gives the last two empty and the first only the install's own.
+
+`MainForm.ReadMap` passed the field `_timeline`, which `Apply` assigns. `LoadDemoAsync`, the playlist's
+route, reads the map on a worker BEFORE `Apply` runs, so the map was read with the previous demo's
+timeline, or with none on the first demo opened. The synchronous route (`LoadDemo`, the command line
+and `--shot`) assigns the timeline first and was correct, which is why no screenshot showed it.
+
+**What would be visible:** on the playlist route, entity sprites without their materials, and worn
+items loaded without the skinning they need, or the previous demo's sets instead. Not looked at on
+screen; the test below reads the loaded assets.
+
+**Red first:** `PlaylistMapLoadTests.LoadDemoAsync_TheFirstDemoOpened_ReadsItsMapWithItsOwnTimeline`
+opens the 2013 cp_badlands POV specimen from a folder (so nothing is opened first) and asks the loaded
+map for `materials/Sprites/light_glow03.vmt`, the demo's one sprite on six `CSprite` entities. On the
+unfixed code the map and its archives loaded and the sprite material was absent.
+
+*Evidence class: read from the source; the red run is the measurement.*
+
+### B393 FIXED 2026-09-11: the timeline being opened is an argument to the map read
+
+`ReadMapNamed`, `ReadMap` and `DownloadMapAsync` take the timeline. `LoadDemoAsync` passes
+`decoded.Timeline`, and `LoadMap` passes the field, which on its only caller, `Apply`, has just been
+assigned. This is B208's shape again: an order that mattered was carried by a field and is now carried
+by an argument, so a map read has nothing stale to pick up.
+
+The test went green with no edit to it. The red run above was the unfixed code, so it serves as the
+sabotage.
+
+**Still open:** a map that finishes downloading after the user has opened another demo is still read
+with the timeline it was asked for, and then drawn under whatever is open. That is the wider question
+of how D162's wait-for-the-download holds playback, and it belongs to that slice.
+
+*Evidence class: differential (red on the unfixed code, green on the fix).*
