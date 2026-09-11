@@ -26598,6 +26598,51 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B397 OPEN 2026-09-11: a rocket's spawn point sits well past a muzzle offset from its shooter
+
+**The owner, looking at the same rocket the reconfirmation above used**: neither the overhead nor the
+first-person capture look like the rocket comes from the right place — the visible soldier's rocket
+launcher does not line up with where the trail starts.
+
+**Measured, not yet explained.** `demostf-cp_process_f12-2026-08-07.dem`, tick 51093 — entity 407's
+`CTFProjectile_Rocket` ENTERs at `(-2478 -2452 699)`. The `carried` probe's own attribution puts it
+under player 7, a soldier holding `CTFRocketLauncher` 397, standing at `(-2296 -2442 731)` **at that
+same tick**. Straight-line distance: **185 units**. `CTFWeaponBaseGun::FireRocket` spawns a
+`CTFProjectile_Rocket` at `trace.endpos`, a line traced from the player's EYE to a `vecSrc` built by
+`GetProjectileFireSetup` from a small forward/right/up `vecOffset` — room for perhaps twenty to forty
+units past the player's origin, not 185.
+
+**Two explanations, and nothing here distinguishes them:**
+
+- **A real spawn-position defect** — the wrong origin, a stale player position at fire time, or
+  something else in how `EntityState.Owner()` or the ENTER snapshot resolves position for a
+  freshly-created entity.
+- **Ordinary motion since the actual fire tick.** A rocket travels ~16.5 units/tick at 1100 u/s;
+  `51093` is where this project's decode FIRST sees the entity, which need not be the exact server
+  tick it was created, and a rocket-jumping soldier moves fast and often away from the impact. A few
+  ticks of both together account for 185 units without anything being wrong.
+
+**Not yet checked, and each would settle a piece of it:**
+
+- The player's position at the tick the ROCKET LAUNCHER's weapon state last changed to firing (closer
+  to the true fire moment than the rocket's own first tick), rather than the same tick as the rocket's
+  ENTER.
+- **Checked, and it holds up.** `CarriedProbe` groups a prop under a player by
+  `prop.OwnedBy == player.EntityIndex`, which is `EntityState.Owner()` — the real decoded
+  `m_hOwnerEntity`, not a proximity guess. Player 7 genuinely IS this rocket's networked owner; the
+  185 units is between the real shooter and the real spawn point, not a probe artefact.
+- **The player's own motion was sampled across ticks 51075-51110 (`carried`, run once per tick) and
+  is smooth throughout** — a textbook parabolic fall, XY near-constant at ~1,100-1,250 u/s and Z
+  accelerating downward as the window progresses (gravity). Nothing glitchy or discontinuous in the
+  DECODED player position; whatever is wrong, if anything is, is specifically about the rocket's
+  spawn point relative to where this player was at the sampled tick, not the player's own track.
+- **A real TF2 comparison at this exact tick**, which needs the owner at the console —
+  `docs/memory/the-f12-demo-is-the-parity-reference.md` names this exact limitation: TF2 cannot be
+  told to load a demo and seek from outside it.
+
+*Evidence class: measured (the two positions and the distance); read from source for the expected
+offset's rough size; nothing here is confirmed as a defect.*
+
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 
 **The owner: *"i should see ragdolls and gibs"*.** Ragdolls draw. Gibs do not exist at all — no
