@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// yields a pair only at `open.Count == 2` AND only for a key/value pair; a `Proxies` block
 /// contains sub-blocks and no bare keys, so it contributes nothing and is absent from the tally for
 /// a correct scan exactly as it would be for a broken one. **A control that cannot fire is not a
-/// control** — the same shape as `docs/memory/an-empty-search-needs-a-control.md`, one level up:
+/// control** — the same shape as `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`, one level up:
 /// there the absence was believed, here the check for believing it was itself vacuous.
 ///
 /// The working control is `>=DX90`, which 5,688 materials open and which this reports. Proxy names
@@ -76,7 +76,7 @@ public sealed class MaterialBlockProbe : IProbe
 
         // **Names, not just counts.** A census says how much; a name is what lets somebody open the
         // file and read it. Every wrong conclusion in this area so far came from reasoning about
-        // the shape of the data instead of looking at one (`docs/memory/print-what-was-added-not-how-many.md`).
+        // the shape of the data instead of looking at one (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#print-what-was-added-not-how-many`).
         List<string> carrying = [];
 
         int materials = 0;

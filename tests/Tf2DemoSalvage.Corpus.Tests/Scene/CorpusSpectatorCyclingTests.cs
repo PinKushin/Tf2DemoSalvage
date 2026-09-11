@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 ///
 /// **A POV demo is the wrong specimen and would pass while measuring nothing.** The committed era
 /// POVs are the owner's solo recordings and carry no other players at all, so a cycle would find one
-/// target and stop — indistinguishable from a broken search. `docs/memory/pov-demos-are-pvs-limited.md`.
+/// target and stop — indistinguishable from a broken search. `docs/memory/author-the-specimen-the-corpus-lacks.md#pov-demos-are-pvs-limited`.
 /// So this asks for z1800, a nine-versus-nine match.
 /// </remarks>
 public sealed class CorpusSpectatorCyclingTests

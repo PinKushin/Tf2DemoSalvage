@@ -1,8 +1,11 @@
 ---
 name: fallbacks-do-not-make-guesses-safe
-description: Handling unknown values protects against unknown values, not against a wrong assumption about what a field means — an allowlist beats inference plus a fallback
-metadata:
+description: "Handling unknown values protects against unknown values, not against a wrong assumption about what a field means — an allowlist beats inference plus a fallback"
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:54:17.950Z
 ---
 
 Recorded 2026-08-09, after building event-to-player name resolution in the text dump.
@@ -41,7 +44,7 @@ degradation path was never reached.
 
 The fixture had one field with one value. A collision between a damage number and a user id
 needs a real match, where dozens of numeric fields and a dozen user ids share a small integer
-range. This is [[differential-beats-fixtures]] again in a different costume: a fixture tests the
+range. This is [[fixtures-are-the-weak-point]] again in a different costume: a fixture tests the
 mechanism, real data tests the premise.
 
 See also [[ask-whether-the-data-arrived]] — same family of error, where a measurement of the

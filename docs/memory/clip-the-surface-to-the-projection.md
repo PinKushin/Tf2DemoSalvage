@@ -1,8 +1,11 @@
 ---
 name: clip-the-surface-to-the-projection
-description: A decal or overlay is a volume; the fragment is the part of the surface inside it, never the projection cut down by the surface.
-metadata:
+description: "A decal or overlay is a volume; the fragment is the part of the surface inside it, never the projection cut down by the surface."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:55:27.903Z
 ---
 
 **Clip the FACE to the overlay, not the overlay to the face.** B134, 2026-08-21.
@@ -27,7 +30,7 @@ of the four planes are its own long edges.
 - **vbsp's face list is authoritative — never filter it.** `Overlay_AddFaceToLists` adds a face
   because the mapper assigned the overlay to that side; there is no normal test in it. Two filters
   here refused 108 of 634 faces on cp_process, all on the wall stripes, most at 45° — the chamfered
-  corners the mapper chose. See [[an-uncoverable-gap-is-usually-your-reader]].
+  corners the mapper chose. See [[the-denominator-decides-what-can-be-lost]].
 - **Check the parse before rewriting the geometry.** Ours was faithful (BasisU in the unused `z` of
   the first three UV points, V flip in the fourth, face count masked from
   `m_nFaceCountAndRenderOrder`) and the quads measured 640×64 against faces spanning 640×288 — U

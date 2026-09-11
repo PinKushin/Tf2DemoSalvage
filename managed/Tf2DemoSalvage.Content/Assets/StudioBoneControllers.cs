@@ -115,7 +115,7 @@ public readonly record struct StudioBoneController(
 /// (<c>studio.h:2165</c>). A count of zero here is the header's own answer, and the reader throws
 /// rather than returning empty when the table is inconsistent — so this is a fact about TF2's
 /// content rather than about the parser
-/// (<c>docs/memory/an-empty-search-needs-a-control.md</c>).
+/// (<c>docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control</c>).
 ///
 /// So <c>m_flEncodedController</c> being unread and <c>CalcBoneAdj</c> unimplemented is a MEASURED
 /// exclusion, not an outstanding gap. The day a model turns up that uses one, this table is already

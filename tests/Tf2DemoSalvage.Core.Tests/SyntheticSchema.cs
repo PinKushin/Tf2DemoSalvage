@@ -30,7 +30,7 @@ namespace Tf2DemoSalvage.Core.Tests;
 /// gains a conformance test of its own. Until then it exists to make specimens.
 ///
 /// See <c>docs/memory/author-the-specimen-the-corpus-lacks.md</c> and
-/// <c>docs/memory/put-the-real-file-in-the-fixture.md</c>.
+/// <c>docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture</c>.
 /// </remarks>
 internal static class SyntheticSchema
 {

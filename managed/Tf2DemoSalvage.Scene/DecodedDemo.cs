@@ -82,7 +82,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
             // is still null — so the only way this line does anything is `Report` throwing AFTER a
             // successful build. That input cannot be written from outside, so the line stays and
             // says why rather than being deleted on the strength of a green suite
-            // (`docs/memory/unreachable-can-be-proved-not-just-observed.md`).
+            // (`docs/memory/most-of-a-decoder-is-untested.md#unreachable-can-be-proved-not-just-observed`).
             timeline = null;
             demo.LogWarning(failure, "{Message}", "building the position timeline");
         }

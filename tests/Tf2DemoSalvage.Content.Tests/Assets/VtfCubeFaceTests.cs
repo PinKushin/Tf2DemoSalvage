@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// pixels and not face 2's — which is what a synthetic fixture is good for. The layout itself is
 /// tested against real baked cubemaps in <c>CubemapFaceDecodeTests</c>, where the last face has to
 /// end exactly at the end of the file. See
-/// <c>docs/memory/put-the-real-file-in-the-fixture.md</c>.
+/// <c>docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture</c>.
 /// </remarks>
 public sealed class VtfCubeFaceTests
 {

@@ -134,7 +134,7 @@ public sealed class BodygroupProbe : IProbe
         PlayerProps.Add(players, props, appearance, NoBodygroups.Instance);
         _ = models.Add(props);
 
-        // **The control, and it is not optional** (`docs/memory/an-empty-search-needs-a-control.md`).
+        // **The control, and it is not optional** (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
         // Every player model shipped with TF2 carries a `hat` part, so a run that reports no
         // changes AND fails this line is measuring a model set that loaded nothing.
         output.WriteLine(

@@ -1,8 +1,11 @@
 ---
 name: ask-whether-it-still-follows-the-pattern
-description: "Is this still MVP" found two defects that tests, logs and an end-to-end measurement had all missed — including the real cause of the bug just fixed.
-metadata:
+description: "\"Is this still MVP\" found two defects that tests, logs and an end-to-end measurement had all missed — including the real cause of the bug just fixed."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 71bbc8e9-0f7a-489c-a987-3e0867aae1fa
+  modified: 2026-09-10T22:55:15.660Z
 ---
 
 **After a fix lands, ask what it did to the ARCHITECTURE, not only whether it works.** That is a
@@ -43,5 +46,5 @@ perfectly right up until a second caller appears.
   in a file whose own comments warn about exactly that shape somewhere else.
 
 Related: [[instrument-bugs-outnumber-decoder-bugs]], [[one-place-or-it-drifts]],
-[[parity-is-the-search-not-the-defence]], [[an-environment-only-setting-is-untested]],
+[[parity-is-the-search-not-the-defence]], [[most-of-a-decoder-is-untested]],
 [[output-level-assertion-or-it-is-not-done]], [[boundaries-find-what-tests-cannot]].

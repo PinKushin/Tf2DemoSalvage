@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// **Read from the shipped scheme rather than from code, because the code is closed.**
 /// `vguimatsurface` is not in `source-sdk-2013` — only `fontabc.h` and `BitmapFontFile.h` are — so
 /// the rasteriser that consumes these fields cannot be read. The DECLARATION can: it is plain
-/// KeyValues in a file the game ships, and `docs/memory/shipped-data-is-a-source.md` is the standing
+/// KeyValues in a file the game ships, and `docs/memory/nothing-is-closed.md#shipped-data-is-a-source` is the standing
 /// reminder that this counts as a source.
 ///
 /// **The specimen is `platform/Resource/SourceScheme.res`**, and finding it took one wrong turn

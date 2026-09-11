@@ -172,7 +172,7 @@ public static class PropModels
     ///
     /// A null-object default is right where several callers genuinely differ. With one caller it
     /// is a hole with a comment over it, and this is the second time that shape has cost a day
-    /// (`docs/memory/a-null-object-default-hides-a-missed-wiring.md`). Required means the compiler
+    /// (`docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`). Required means the compiler
     /// asks the question instead of a reviewer having to.
     /// </remarks>
     public static IReadOnlyList<PropVertex> Load(

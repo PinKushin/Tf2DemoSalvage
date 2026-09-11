@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// The viewer suite reported **620/620 green** through all three, and this assembly wrote a
 /// screenshot for a human to look at without asserting that anything was in it.
 ///
-/// **This is the third test level** (<c>docs/memory/three-test-levels-and-the-third-is-missing.md</c>):
+/// **This is the third test level** (<c>docs/memory/output-level-assertion-or-it-is-not-done.md#three-test-levels-and-the-third-is-missing</c>):
 /// only the real application, launched and driven, fails when the wiring is absent. A unit test
 /// proves a component works when called with the values the test chose, and says nothing about
 /// whether production calls it or with what.

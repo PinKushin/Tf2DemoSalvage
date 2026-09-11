@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// **The values are chosen to be adversarial rather than typical**, which is the whole advantage
 /// of a synthetic test over a corpus one: zero, the maximum a field can hold, and the sign
 /// boundaries. Real demos carry ordinary values, and ordinary values agree with a broken width
-/// (`docs/memory/real-data-hides-bugs-small-inputs-expose.md`).
+/// (`docs/memory/fixtures-are-the-weak-point.md#real-data-hides-bugs-small-inputs-expose`).
 /// </remarks>
 public sealed class NetMessageWriterTests
 {

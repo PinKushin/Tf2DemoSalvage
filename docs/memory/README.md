@@ -38,15 +38,18 @@ If it is only meaningful next to this codebase, it belongs here.
 
 ## Checking the two copies agree
 
-Compare with **line endings normalised**, not byte for byte:
+**Byte for byte.** Measured 2026-09-10: both copies are LF. This section used to say the
+assistant's copy keeps Windows CRLF and to compare with line endings stripped; neither was true
+any more, and its example command had a raw carriage return pasted between its quotes where a
+`\r` belonged.
 
 ```bash
-tr -d '' < docs/memory/FILE.md | sha256sum
+diff -r --exclude=README.md docs/memory "<the assistant's memory directory>"
 ```
 
-A plain `diff` reports every shared file as different, because `.gitattributes` normalises
-this copy to LF while the assistant's local copy keeps Windows CRLF. That is expected and is
-not drift — chasing it wastes a cycle.
+**One difference arrives by design and moves:** the assistant's memory tool restamps a file's
+frontmatter whenever it saves it, so the copy here takes the same frontmatter in the same commit —
+`a-fold-leaves-its-paths-behind.md` has the details, and what else a fold breaks.
 
 `README.md` exists only here, by design: it explains the folder to someone reading the
 repository, which is not something the assistant's own memory directory needs.

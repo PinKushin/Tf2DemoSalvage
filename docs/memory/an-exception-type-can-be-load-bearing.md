@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
-  modified: 2026-09-05T08:20:50.971Z
+  modified: 2026-09-09T03:54:36.723Z
 ---
 
 **Ask what catches it before deciding it does not matter which type you throw.**
@@ -64,4 +64,4 @@ parse is replaced:
   drops it, so the range has to be restored explicitly — `modevents.res` documents the widths.
 
 Related: [[output-level-assertion-or-it-is-not-done]], [[most-of-a-decoder-is-untested]],
-[[logs-are-the-debugger]], [[one-place-or-it-drifts]], [[real-data-hides-bugs-small-inputs-expose]].
+[[logs-are-the-debugger]], [[one-place-or-it-drifts]], [[fixtures-are-the-weak-point]].

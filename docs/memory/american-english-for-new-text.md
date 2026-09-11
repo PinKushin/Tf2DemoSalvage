@@ -1,8 +1,11 @@
 ---
 name: american-english-for-new-text
-description: New identifiers, comments and docs in this repo use American spelling; pre-existing British spellings stay, because converting them is not worth a refactor.
-metadata:
+description: "New identifiers, comments and docs in this repo use American spelling; pre-existing British spellings stay, because converting them is not worth a refactor."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-11T00:00:29.172Z
 ---
 
 New text in this repository uses American English: color, behavior, center, normalize, gray,

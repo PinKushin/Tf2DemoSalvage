@@ -47,7 +47,7 @@ public sealed class DemoSystemsTests
         // naming rather than papering over.** It is a `DemoTimeline?`, whose constructor is private,
         // so a test cannot put a non-null value there — and asserting it is null after `Open` when
         // it was already null before is the precondition-equals-assertion shape that made the rest
-        // of this test worthless until it was fixed (`docs/memory/set-the-opposite-state-first.md`).
+        // of this test worthless until it was fixed (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#set-the-opposite-state-first`).
         //
         // The third level covers it: an unset timeline gives `DemoAppearance.None` for ever, which
         // `MomentScene` reports as "no player appearance" and `WiringUiTests` asserts against a
@@ -90,7 +90,7 @@ public sealed class DemoSystemsTests
         // it: it asserts `HasDemo` is false on a presenter that was never loaded, so the
         // precondition already equals the assertion — the exact shape that class's own comments
         // warn about for `appearances.Timeline`. Loading one FIRST is what makes the claim
-        // falsifiable (`docs/memory/set-the-opposite-state-first.md`).
+        // falsifiable (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#set-the-opposite-state-first`).
         //
         // What it cost: opening a demo whose schema fails to decode, after one that decoded, left
         // the presenter holding the PREVIOUS demo's clock while every other source was nulled —

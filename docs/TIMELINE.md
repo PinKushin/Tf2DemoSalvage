@@ -104,7 +104,7 @@ down this document has been aiming at.
 
 Dating an individual demo is a third question again, answerable from its own evidence — a filename,
 a map version, seasonal content — and never from its protocol number
-(`docs/memory/z1800-is-modern-not-2015.md`).
+(`docs/memory/era-axis-is-measured.md#z1800-is-modern-not-2015`).
 
 **That does not hold up `CorpusContainerTests`, and an earlier version of this note wrongly said it
 did.** The container test asks whether a header parses to a plausible protocol; this document asks

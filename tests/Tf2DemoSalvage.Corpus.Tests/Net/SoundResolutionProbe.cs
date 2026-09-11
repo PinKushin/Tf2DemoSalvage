@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// cover edge cases no demo happens to contain. This needs a TF2 install and the corpus, so as a
 /// test it would `Assert.Ignore` on exactly the machines where the checking matters.
 ///
-/// What it is *for* is supplying the fixture. `docs/memory/put-the-real-file-in-the-fixture.md`:
+/// What it is *for* is supplying the fixture. `docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture`:
 /// synthetic is right, and sourcing it from OUR OWN code is what makes a fixture worthless. So the
 /// names come from here — measured off real demos — and the fast suite asserts against them.
 ///

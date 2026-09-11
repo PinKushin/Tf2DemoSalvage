@@ -1,8 +1,11 @@
 ---
 name: an-entity-index-does-not-name-a-track
-description: The engine reuses edict slots, so a lookup keyed on entity index alone returns whichever track was written last — it needs the tick as well, and it fails silently by returning a plausible wrong answer.
-metadata:
+description: "The engine reuses edict slots, so a lookup keyed on entity index alone returns whichever track was written last — it needs the tick as well, and it fails silently by returning a plausible wrong answer."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-10T23:02:35.345Z
 ---
 
 **`DemoTimeline.TrackFor(entity)` keeps ONE track per entity index, and a match has far more
@@ -39,9 +42,9 @@ last keyframe is a different number, so `[first..lastKeyframe]` can exclude a ti
 accepted (B243). And a diagnostic that never names its subject's model gives the reader no way to
 notice it is describing something else.
 
-**The general shape** is [[lookups-must-match-exactly]] and [[key-a-lookup-on-the-question]]: the key
-has to identify the thing being asked about. An index that the engine recycles identifies a SLOT, the
-same way a store index identifies a slot and not a particle
+**The general shape** is [[key-a-lookup-on-the-question]] and its `lookups-must-match-exactly`
+section: the key has to identify the thing being asked about. An index that the engine recycles
+identifies a SLOT, the same way a store index identifies a slot and not a particle
 ([[a-computed-offset-is-a-guess-the-file-can-answer]] is the file-format cousin). And it fails the
 way these always do — a plausible answer rather than an error, so nothing points at the lookup
 ([[instrument-bugs-outnumber-decoder-bugs]]).

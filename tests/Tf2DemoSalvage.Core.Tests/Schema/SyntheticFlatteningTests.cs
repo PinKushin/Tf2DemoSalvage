@@ -19,7 +19,7 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// so a flattener that produces the right set in the wrong sequence decodes every property into
 /// its neighbour's slot — and every plausibility check above still passes, because the values are
 /// all still plausible. That failure was found once by diffing against another parser, not by any
-/// assertion here; see <c>docs/memory/differential-beats-fixtures.md</c>.
+/// assertion here; see <c>docs/memory/fixtures-are-the-weak-point.md#differential-beats-fixtures</c>.
 ///
 /// A written schema states the expected order outright, which is the one thing found data cannot
 /// do: nobody knows what order a real demo's flattened list should be in without reimplementing

@@ -129,7 +129,7 @@ public sealed class PlayerBoneScaleConformanceTests
     /// a compression is worse than none, so Valve must bail before touching anything". That is an
     /// argument from taste about what the engine ought to do, and the engine does the other thing.
     /// The rule this project keeps relearning: read the branch, do not reason about what would be
-    /// sensible (`docs/memory/ask-valve-before-designing-not-after.md`).
+    /// sensible (`docs/memory/conformance-test-before-implementation.md#ask-valve-before-designing-not-after`).
     /// </remarks>
     [Test]
     public void Torso_WithASpineBoneMissing_KeepsWhatItAlreadyMoved()

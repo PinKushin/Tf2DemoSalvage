@@ -1273,7 +1273,7 @@ public sealed class SkeletonPose : IBonePose
     /// <remarks>
     /// **The count says the rule RAN; this says it MATTERED.** A rule whose triggers happened to
     /// reproduce the animated pose would score a full count and change nothing on screen, which is
-    /// the distinction `docs/memory/it-ran-and-it-mattered-are-two-claims.md` exists for — and the
+    /// the distinction `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#it-ran-and-it-mattered-are-two-claims` exists for — and the
     /// same pair `IkLocks` reports as applied-versus-moved.
     /// </remarks>
     public float QuatInterpFurthestMove { get; private set; }

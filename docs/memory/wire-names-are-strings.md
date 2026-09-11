@@ -1,8 +1,11 @@
 ---
 name: wire-names-are-strings
-description: SENDINFO_NAME sends under its second argument, so a property's wire name can differ from its C++ member — search for the string, not the identifier.
-metadata:
+description: "SENDINFO_NAME sends under its second argument, so a property's wire name can differ from its C++ member — search for the string, not the identifier."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:55:30.008Z
 ---
 
 **A send prop's wire name is not always its C++ member name.** `SENDINFO` names it after the member;
@@ -39,7 +42,7 @@ effects, killstreaks, every balance change. Fails as a plausible number, per
 correct code of reading a name "no send table declares". And earlier, someone hitting that same gap
 concluded `moveparent` was special and wrote it into a test: *"it will never appear in a SENDINFO"*.
 A regex limitation recorded as a fact about the format, then defended by an assertion — see
-[[an-uncoverable-gap-is-usually-your-reader]].
+[[the-denominator-decides-what-can-be-lost]].
 
 Related: [[nothing-is-closed]].
 

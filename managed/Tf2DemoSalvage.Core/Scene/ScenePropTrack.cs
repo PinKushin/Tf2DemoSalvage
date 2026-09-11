@@ -2319,7 +2319,7 @@ public sealed class ScenePropTrack
     /// Kept anyway, because this is a transcription: the arm is in Valve's own
     /// <c>LoopingLerp_Hermite</c> and deleting it would make the two harder to compare for no gain
     /// beyond a coverage line. Noted here so the gap is a recorded conclusion rather than an
-    /// oversight — <c>docs/memory/an-uncoverable-gap-is-usually-your-reader.md</c> is the warning
+    /// oversight — <c>docs/memory/the-denominator-decides-what-can-be-lost.md#an-uncoverable-gap-is-usually-your-reader</c> is the warning
     /// this is answering, and the answer survived it.
     /// </remarks>
     private static float LoopingCurve(float p0, float p1, float p2, float t)
@@ -2400,7 +2400,7 @@ public sealed class ScenePropTrack
     ///
     /// `Alive` was written for stage A's constant-track cache and orphaned by stage C, which
     /// routed everything through `At`/`Held` and therefore through this guard — it had a test and
-    /// no production caller, which is `docs/memory/a-superseded-type-keeps-its-tests.md`. Making
+    /// no production caller, which is `docs/memory/output-level-assertion-or-it-is-not-done.md#a-superseded-type-keeps-its-tests`. Making
     /// it the one definition gives it a caller and removes the pair that could disagree.
     /// </remarks>
     private int IndexAt(int tick)

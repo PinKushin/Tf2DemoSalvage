@@ -1,8 +1,11 @@
 ---
 name: ask-about-the-entity-you-are-drawing
-description: A rule about "the player being watched" must resolve that player through the one accessor that knows which it is. Asking SpectatorTarget.Choose on a POV demo answers about someone else entirely.
-metadata:
+description: "A rule about \"the player being watched\" must resolve that player through the one accessor that knows which it is. Asking SpectatorTarget.Choose on a POV demo answers about someone else entirely."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:55:25.791Z
 ---
 
 **When a rule is about "the thing being shown", resolve that thing through the single accessor that
@@ -37,11 +40,11 @@ and liveness already handled those. A column printing that count is the only rea
 
 So: **a correct measurement can be about the wrong quantity.** Before reporting a fix, measure the
 population the fix actually changes — not the population the theory is about. If that number is
-zero, the theory is wrong however green the suite is. See [[run-the-control-before-arguing]].
+zero, the theory is wrong however green the suite is. See [[instrument-bugs-outnumber-decoder-bugs]].
 
 **And read the log for the transition that did NOT happen.** A thirty-second run through a death
 logged one mode line and no fall to third person. That absence was sitting in the file the whole
 time; nobody had looked, because the demo had never run forward unattended until autoplay was fixed.
 
-Related: [[lookups-must-match-exactly]], [[nothing-is-closed]],
+Related: [[key-a-lookup-on-the-question]], [[nothing-is-closed]],
 [[instrument-bugs-outnumber-decoder-bugs]], [[output-level-assertion-or-it-is-not-done]].

@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// **A fixture cannot falsify a reader whose author wrote both.** The unit tests build an attachment
 /// table from the same understanding the reader decodes it with, so they agree by construction —
 /// which is exactly how this project once passed ten tests on a wrong struct stride
-/// (<c>docs/memory/put-the-real-file-in-the-fixture.md</c>).
+/// (<c>docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture</c>).
 ///
 /// These read real models instead. A player carries attachments with names anyone who has modded TF2
 /// would recognise, and a spellbook is the model that named RISKS B82 in the first place.

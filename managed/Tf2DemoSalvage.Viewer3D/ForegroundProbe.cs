@@ -18,7 +18,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 ///
 /// A log line naming the window that took the foreground turns "focus was lost" into "focus went
 /// THERE", and those are different investigations. See
-/// <c>docs/memory/measure-every-hop-before-blaming-one.md</c>.
+/// <c>docs/memory/nothing-is-closed.md#measure-every-hop-before-blaming-one</c>.
 ///
 /// Diagnostic only: nothing branches on what this returns.
 /// </remarks>

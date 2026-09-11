@@ -78,7 +78,7 @@ origin check belongs to the base class, which **TF2 does not use**.
 
 **So "the origin check is what Valve does" is false for TF2 and true for HL2 and CS.** That
 distinction is the whole finding, and it is the shape
-`docs/memory/read-the-sdk-for-the-whole-mechanism.md` warns about: finding the function is the easy
+`docs/memory/parity-is-the-search-not-the-defence.md#read-the-sdk-for-the-whole-mechanism` warns about: finding the function is the easy
 half, and a base class is not the class the game runs.
 
 ## `mp_forcecamera`, and why TF2 stopped consulting it
@@ -317,7 +317,7 @@ the whole pipeline depends on — which is worth more than the guard ever was.
 **The origin check was left out of the first implementation**, on the reasoning that a demo's
 entities are read rather than networked and that `Drawn` already covered it. That reasoning was
 never checked against anything and was recorded in a comment rather than raised as a question. The
-owner asked for it back, and `docs/memory/a-divergence-is-asked-not-documented.md` exists because of
+owner asked for it back, and `docs/memory/parity-is-the-search-not-the-defence.md#a-divergence-is-asked-not-documented` exists because of
 this and two sibling cases.
 
 **Note what our `SpectatorTarget.CanObserve` does and does not cover**, because it is the surviving

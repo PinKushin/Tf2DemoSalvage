@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// Every animation state one kind of prop passes through, as a list of CHANGES.
 /// </summary>
 /// <remarks>
-/// **Log the transition, never a sample** (`docs/memory/log-the-event-not-a-sample-of-it.md`). A
+/// **Log the transition, never a sample** (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#log-the-event-not-a-sample-of-it`). A
 /// probe that printed the sequence every N ticks answers "what was it at these moments" when the
 /// question is "when did it change, and to what" — and a cabinet that opens and never shuts looks
 /// identical to one sampled only while open.

@@ -302,7 +302,7 @@ public sealed class ParticleEffects
     /// <remarks>
     /// **A `.pcf` writes `effects\rocketrailsmoke.vmt` with a BACKSLASH and an extension**, and the
     /// archives are keyed with forward slashes and none. Normalising in one place is the whole of
-    /// `docs/memory/lookups-must-match-exactly.md`: two spellings of one path is a lookup that
+    /// `docs/memory/key-a-lookup-on-the-question.md#lookups-must-match-exactly`: two spellings of one path is a lookup that
     /// misses silently and draws nothing.
     /// </remarks>
     public static string MaterialOf(ParticleSystem system)

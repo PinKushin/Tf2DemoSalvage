@@ -151,7 +151,7 @@ public sealed class RecordedViewConformanceTests
     /// <remarks>
     /// Written out field by field rather than by round-tripping this project's own writer: a
     /// fixture built by the code under test agrees with it by construction, which is the failure
-    /// <c>docs/memory/put-the-real-file-in-the-fixture.md</c> records.
+    /// <c>docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture</c> records.
     /// </remarks>
     private static byte[] Prologue(
         int flags,

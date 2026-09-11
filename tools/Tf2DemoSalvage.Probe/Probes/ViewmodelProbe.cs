@@ -85,7 +85,7 @@ public sealed class ViewmodelProbe : IProbe
         // recording carries one viewmodel and never names an owner, while an STV recording carries
         // one per player and names every one, which is the case `DemoTimeline.Viewmodel`'s owner
         // rule exists for. An instrument that reports absence for a whole class of input is the
-        // shape `docs/memory/an-empty-search-needs-a-control.md` is about.
+        // shape `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control` is about.
         if ((asked ?? timeline.RecorderEntityIndex) is not { } follower)
         {
             output.WriteLine(

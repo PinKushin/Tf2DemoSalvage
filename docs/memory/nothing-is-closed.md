@@ -1,8 +1,11 @@
 ---
 name: nothing-is-closed
-description: Never write that something is closed or unknowable — the SDK, its public headers, the game's shipped data and the shipped binaries have answered every such claim made here; covers reading Valve's shader or header for a rendering defect BEFORE measuring our own data, the generated coverage report that already holds the denominator, measuring every hop in a chain rather than re-reasoning about the ones already checked, and suspecting the input and its identity before suspecting a correct algorithm.
-metadata:
+description: "Never write that something is closed or unknowable — the SDK, its public headers, the game's shipped data and the shipped binaries have answered every such claim made here; covers reading Valve's shader or header for a rendering defect BEFORE measuring our own data, the generated coverage report that already holds the denominator, measuring every hop in a chain rather than re-reasoning about the ones already checked, and suspecting the input and its identity before suspecting a correct algorithm."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:56:11.229Z
 ---
 
 **Owner's rule, stated 2026-08-17: nothing should ever be described as closed and unavailable. It
@@ -87,7 +90,7 @@ behaviour.
 constants, and the callers.** Constants especially:
 `NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS`, `m_DepthBias_Decal` and the bump basis were all public
 even though the code consuming them is not. See [[read-the-encoder-not-the-decoder]] and
-[[valve-publishes-bitbuf]].
+[[research-before-code]].
 
 ---
 
@@ -222,10 +225,10 @@ paths are in [[where-the-game-and-clients-live]] and the rule is a global memory
 
 **An absence measured any of these ways needs a positive control in the same sweep.** A grep
 returning zero has been a fact about the grep three times in this project — "it is closed" is an
-absence claim about a search nobody ran. See [[an-empty-search-needs-a-control]] and
-[[an-uncoverable-gap-is-usually-your-reader]].
+absence claim about a search nobody ran. See [[instrument-bugs-outnumber-decoder-bugs]] and
+[[the-denominator-decides-what-can-be-lost]].
 
-Related: [[differential-beats-fixtures]], [[a-default-is-not-a-constant]].
+Related: [[fixtures-are-the-weak-point]], [[a-default-is-not-a-constant]].
 
 ---
 
@@ -333,3 +336,114 @@ transformed on its way to me (endianness, complement, offset, sign). Then, if it
 whether TWO things could be wrong — because the one-at-a-time discipline that is right for a single
 fault is exactly what conceals a pair. See [[instrument-bugs-outnumber-decoder-bugs]] and
 [[the-denominator-decides-what-can-be-lost]].
+
+---
+
+## `absent-from-the-sdk-is-not-unreadable` — ask which binary implements it
+
+Asked to implement ragdoll physics, I checked `F:/src/source-sdk-2013/src/vphysics`, found only the
+public headers, and wrote a decision saying the integrator "is this project's own". The owner:
+
+> "remember you have the decomp so no nothing is ours"
+
+`vphysics.dll` ships with the game at `bin/x64/`. It is 1.4 MB and it is what Ghidra is for.
+
+**Why:** *not in the published source* is not *not readable*. `CLAUDE.md` says the four sources are
+**a menu, not a ladder**, and that a decompiler is *"a normal tool — reach for it readily"* whose
+only hard rule is that its output stays outside every git tree. Filing a closed component as
+own-design silently converts a parity project into an approximation, and it does it in a document
+that then reads as authoritative.
+
+The same reasoning had also let me concede that `.phy` collision hulls "must be approximated" because
+Havok's format is compressed. Compressed is not unknowable — the code that reads it is in the same
+binary.
+
+**How to apply:** before writing that anything is ours to design, ask which binary implements it. If
+the game ships it, decompile it. Reserve "ours" for something no shipped artefact contains at all.
+Prefer published source where it holds the answer — `ragdoll_shared.cpp` is published and gives
+construction and read-back — but the boundary of the SDK is not the boundary of what can be read.
+Related: [[where-the-game-and-clients-live]], [[a-filed-design-choice-may-not-be-one]].
+
+---
+
+## `shipped-data-settles-what-closed-code-cannot` — ask what the content would have to mean
+
+**A question the closed engine would answer can often be settled by what Valve AUTHORED instead.**
+Measured 2026-09-04 on B328.
+
+403 shipped materials carry a block named `LightmappedGeneric_DX9`, and **no shader is registered
+under that name anywhere in `source-sdk-2013`** — only helper types and functions carry the
+spelling. The material system that would resolve it is closed. So "does this block apply?" looked
+like a decompiler question.
+
+It was not. One file answers it:
+
+```
+"LightmappedGeneric"
+{
+	"$basetexture" "Tile/tilefloor018a"
+	 "LightmappedGeneric_DX9"
+	{
+		"$bumpmap" "tile/tilefloor018a_normal"
+		"$envmap"  "env_cubemap"
+	}
+}
+```
+
+Under "the block does not apply", Valve authored a bump map that draws on **no hardware at all**.
+That is not a tenable reading of shipped content, so the block applies. The argument is about the
+ASSET's authorship, not about the code, and it is as decisive here as reading the function would
+have been.
+
+**The general form: ask what the content would have to mean for your reading to be true.** Shipped
+assets are made by people who tested them; a reading that makes an artist's work invisible is
+usually the wrong reading.
+
+### And the mistake this corrected: a name is not evidence about its contents
+
+These blocks were first written off — in a risk entry, in a finding, and in a source comment — as
+"all low-end fallbacks", safe to ignore. That came from reading the block NAMES and knowing that a
+fallback is what runs on weaker hardware. Nothing inside one had been looked at.
+
+Inside `LightmappedGeneric_DX9`: `$bumpmap` in 89 materials, `$envmap` in 49, `$parallaxmap` in 8 —
+**and every one of those declares the key ONLY there**, so ignoring the block loses it outright.
+
+Two columns, not one, when censusing a container: **what it contains**, and **what is declared
+solely inside it**. The first says how much is in there; only the second says what skipping it
+costs. See [[instrument-bugs-outnumber-decoder-bugs]] — same family, different disguise.
+
+### The honest scope, which was nearly overstated
+
+The fix changes **nothing on TF2's own content**: `cp_process_final` reports the same 55 of 412
+materials carrying a cubemap before and after. Every affected material is Half-Life 2 content TF2
+mounts — `TILE/TILEFLOOR018A_C17`, `MODELS/PROPS_VEHICLES/CAR002A_01`. It was done anyway, because a
+divergence is a defect whatever it costs, and it will matter to a community map built on HL2 assets
+— a population this corpus contains none of.
+
+"403 materials fixed" would have been true and misleading. Report the population the change reaches,
+not the population that declares the key.
+
+---
+
+## `a-valve-comment-can-be-stale` — a comment is a claim about the code, not about the game
+
+`gamebspfile.h` says *"All detail prop sprites must lie in the material detail/detailsprites"*. That
+sentence was quoted in this project's own source and used to hardcode the material. **All 234
+installed TF2 maps override it** through `worldspawn`'s `detailmaterial`, and only 49 name that one:
+`_trainyard` on 42 maps, `_2fort` on 38, `_sawmill` on 32. Both reference maps were wrong —
+`koth_harvest_final` wants `_harvest`, `cp_granary` wants `_granary` — so every grass capture ever
+taken here used the wrong texture (B364).
+
+**Why:** the comment is true per map — one sheet at a time, dictionary entries are sub-rectangles of
+it, nothing in the lump names a material. Every structural claim holds; only the literal NAME is
+wrong, and the name is the half that gets transcribed into a constant. The override lives in a
+different file (`detailobjectsystem.cpp:1516`) from the comment (`public/gamebspfile.h`), so reading
+the struct never meets it.
+
+**How to apply:** when an SDK comment names a specific constant — a material, a path, a limit —
+treat that as a lead, not a fact, and ask the shipped data how many maps or models actually use it.
+The symptom is invisible by construction: the wrong sheet still draws grass, the wrong path still
+resolves, and the code is doing exactly what the comment promised.
+
+See [[a-default-is-not-a-constant]] and [[the-base-is-not-the-behaviour]] — same shape, different
+source.

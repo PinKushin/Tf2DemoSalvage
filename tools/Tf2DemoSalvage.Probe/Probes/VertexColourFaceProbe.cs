@@ -197,7 +197,7 @@ public sealed class VertexColourFaceProbe : IProbe
 
         // **The control: how many faces carry a material WITHOUT the flag.** A zero above reads as
         // "the flag never reaches a face" and as "this probe cannot see faces", and only this
-        // separates them (`docs/memory/an-empty-search-needs-a-control.md`).
+        // separates them (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
         int without = faces.Count(face =>
             face.MaterialIndex >= 0 && face.MaterialIndex < materials.Count &&
             known.TryGetValue(materials[face.MaterialIndex], out (bool Declares, bool Read) about) &&

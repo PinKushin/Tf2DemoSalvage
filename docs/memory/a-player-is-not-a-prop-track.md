@@ -1,8 +1,11 @@
 ---
 name: a-player-is-not-a-prop-track
-description: A field carried on ScenePropTrack never reaches a player; players come through ScenePlayer and PlayerProps.Add, and the tests stay green either way.
-metadata:
+description: "A field carried on ScenePropTrack never reaches a player; players come through ScenePlayer and PlayerProps.Add, and the tests stay green either way."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:52:53.752Z
 ---
 
 **When you add a networked field to the scene, ask which POPULATION carries it before choosing where
@@ -37,7 +40,7 @@ player path simply had no assignment, and a missing assignment is a default rath
   [[output-level-assertion-or-it-is-not-done]]. Nothing below it can.
 
 Related: [[a-dropped-field-falls-to-a-computed-default]], [[measure-the-output-not-the-capability]],
-[[an-empty-search-needs-a-control]].
+[[instrument-bugs-outnumber-decoder-bugs]].
 
 **Guarded as a class now, because a per-field test cannot catch the next field.**
 `PlayerPoseWiringCompletenessTests` (Scene.Tests) walks every property `ScenePlayer` and `ScenePose`

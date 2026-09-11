@@ -1,8 +1,11 @@
 ---
 name: a-computed-offset-is-a-guess-the-file-can-answer
-description: When a format has a table saying where its parts are, read the table — a computed offset is right only while nothing optional is present, and it fails by producing a picture rather than an error.
-metadata:
+description: "When a format has a table saying where its parts are, read the table — a computed offset is right only while nothing optional is present, and it fails by producing a picture rather than an error."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-10T22:49:04.336Z
 ---
 
 **`VtfTexture` found image data at `headerSize + thumbnail` for years.** That is the 7.2 layout. From
@@ -34,6 +37,7 @@ here, on every texture that carries the sheet the particle system needs.
 - **A mean cannot tell grey from rainbow — it averages to grey.** `(78 68 68)` was read as evidence
   of smoke. The per-pixel channel SPREAD separates them (112.5 wrong, 10.8 right), and printing the
   texture as a coarse character grid ended the argument in one run
-  ([[print-a-value-somebody-can-recognise]], [[a-picture-is-assertable]]).
+  (the `print-a-value-somebody-can-recognise` section of [[instrument-bugs-outnumber-decoder-bugs]],
+  and [[a-picture-is-assertable]]).
 
 `vtf census` in the probe counts the affected files; `vtf <path>` prints the spread and the grid.

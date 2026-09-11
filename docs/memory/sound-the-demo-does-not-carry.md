@@ -1,8 +1,11 @@
 ---
 name: sound-the-demo-does-not-carry
 description: Footsteps and landing sounds are client-predicted and appear in no demo; svc_Sounds carries only what the server sent.
-metadata:
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:53:36.243Z
 ---
 
 `SoundPopulationProbe` reports **`footstep-like names: 0`** on both a solo POV recording and a full
@@ -38,5 +41,5 @@ and is right. The second half was an inference about how the client makes them, 
 confident register, and it parked the feature for the wrong reason. See
 [[filing-a-divergence-is-not-fixing-it]] and [[a-filed-design-choice-may-not-be-one]].
 
-Related: [[ask-whether-the-data-arrived]], [[an-empty-search-needs-a-control]],
+Related: [[ask-whether-the-data-arrived]], [[instrument-bugs-outnumber-decoder-bugs]],
 [[measure-the-output-not-the-capability]].

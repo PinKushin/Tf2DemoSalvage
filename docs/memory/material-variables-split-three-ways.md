@@ -1,8 +1,11 @@
 ---
 name: material-variables-split-three-ways
-description: Source declares material variables in three unrelated places, and SdkCoverageTests has accused correct code twice for knowing only two
-metadata:
+description: "Source declares material variables in three unrelated places, and SdkCoverageTests has accused correct code twice for knowing only two"
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:53:19.697Z
 ---
 
 Source splits material variables three ways, and each lives somewhere unrelated:
@@ -34,6 +37,6 @@ code, with a citation attached.
 **How to apply:** when that test accuses a parameter, check which of the three kinds it is before
 touching the census. If it is a fourth kind nobody has modelled yet, the fix is a new
 `SdkInventory` method with a positive control asserting it found what it must — an empty scrape
-makes this test pass more easily, not less. See [[an-empty-search-needs-a-control]] and
-[[an-uncoverable-gap-is-usually-your-reader]]; the modulation story is
+makes this test pass more easily, not less. See [[instrument-bugs-outnumber-decoder-bugs]] and
+[[the-denominator-decides-what-can-be-lost]]; the modulation story is
 `docs/findings/26-material-modulation.md`.

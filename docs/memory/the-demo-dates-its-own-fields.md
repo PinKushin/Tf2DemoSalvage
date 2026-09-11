@@ -1,8 +1,11 @@
 ---
 name: the-demo-dates-its-own-fields
-description: Whether an old build sent a property is answerable from that demo's own schema, not from the SDK or a decompiler.
-metadata:
+description: "Whether an old build sent a property is answerable from that demo's own schema, not from the SDK or a decompiler."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:54:50.586Z
 ---
 
 **"Did the 2009 engine send this field?" is answered by the 2009 demo, not by the 2013 SDK and not
@@ -21,6 +24,6 @@ did, which is the actual question whenever a defect is era-shaped. Reaching past
 **How to apply:** when a property's existence, width or flags is in doubt for an era, write a
 conformance test that reads `Corpus.Schema(path)` for every demo and asserts on the `SendProperty`.
 It is schema-only, cached and cheap — no entity decode — so it does not offend the rule that corpus
-tests are slow ([[real-data-hides-bugs-small-inputs-expose]] still governs behaviour tests, which
+tests are slow ([[fixtures-are-the-weak-point]] still governs behaviour tests, which
 stay synthetic). Related: [[hl2sdk-branches-are-per-era-headers]] for headers the demo cannot carry,
 [[era-axis-is-measured]] for which builds exist.

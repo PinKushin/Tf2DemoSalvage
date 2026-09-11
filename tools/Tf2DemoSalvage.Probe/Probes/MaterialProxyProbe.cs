@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// reported with the rest rather than filtered out"*, and `Proxies` has no depth-two keys at all:
 /// it contains sub-blocks and nothing else. So the control reports absent for a correct scan and
 /// for a broken one alike — a control that cannot fire, which is the shape
-/// <c>docs/memory/an-empty-search-needs-a-control.md</c> is about, one level up.
+/// <c>docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control</c> is about, one level up.
 ///
 /// **This walks to any depth and tallies the blocks inside `Proxies`**, which is the question the
 /// entity-state proxy work needs a denominator for: a proxy this project leaves unevaluated rests

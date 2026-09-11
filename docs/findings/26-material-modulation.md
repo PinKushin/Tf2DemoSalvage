@@ -146,7 +146,7 @@ engine splits material variables three ways; the inventory knew two.
 
 The comment on the fix now says so in as many words, because the failure mode is that the test
 reports a defect in the code with a message that reads like a fact about the engine. Compare
-[an uncoverable gap is usually your reader](../memory/an-uncoverable-gap-is-usually-your-reader.md):
+[an uncoverable gap is usually your reader](../memory/the-denominator-decides-what-can-be-lost.md#an-uncoverable-gap-is-usually-your-reader):
 an exclusion that sounds like a fact about the format is usually a fact about your parser.
 
 ### The names are interpolated, and that is flagged
@@ -167,7 +167,7 @@ enough to fix the convention and is not a reading of the table:
 
 A generated denominator that finds nothing makes the cross-check pass *more* easily — an empty set
 can only shrink the list of accusations — so a broken regex there looks exactly like a clean result.
-That is [an empty search needs a control](../memory/an-empty-search-needs-a-control.md), which this
+That is [an empty search needs a control](../memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control), which this
 project has now been bitten by five times.
 
 The control asserts both halves. It names `COLOR`, `COLOR2` and `ALPHA` individually, because a bare

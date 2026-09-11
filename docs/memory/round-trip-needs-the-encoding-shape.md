@@ -1,8 +1,11 @@
 ---
 name: round-trip-needs-the-encoding-shape
 description: Which optional fields a message sent is not recoverable from the decoded values; the decoder has to record it or the demo cannot be rebuilt.
-metadata:
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:54:31.905Z
 ---
 
 A delta-coded message decodes to values, and the values do not say which fields were on
@@ -26,5 +29,5 @@ round trip from hundreds of mismatches to zero across 11,989 sounds and five pro
 presence — carry it. And pick the sabotage carefully: narrowing a width that decoder and
 encoder share still round-trips through *values*, and fails only against the original
 demo's bits. Comparing against the original is what makes a round trip evidence rather
-than a tautology. Related: [[differential-beats-fixtures]],
+than a tautology. Related: [[fixtures-are-the-weak-point]],
 [[read-the-encoder-not-the-decoder]], [[numeric-decoding-traps]].

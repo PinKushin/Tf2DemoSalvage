@@ -66,7 +66,7 @@ public sealed class SelfIllumMaskLoadingTests
     /// no material in the fixture declares a mask without also declaring `$selfillum` — the
     /// assertion cannot currently distinguish a resolver that keeps the gate from one that does
     /// not. A sabotage that reddens nothing names a missing INPUT, not a weak assertion
-    /// (`docs/memory/a-sabotage-that-reddens-nothing-names-the-missing-input.md`), and the input in
+    /// (`docs/memory/most-of-a-decoder-is-untested.md#a-sabotage-that-reddens-nothing-names-the-missing-input`), and the input in
     /// question is a material with `$selfillummask` and no `$selfillum`.
     ///
     /// Kept anyway, for two reasons: it is a real invariant that a future map or model could break,

@@ -148,7 +148,7 @@ public sealed class CorpusPlayerOriginTests
         // **The control, and the only assertion here on purpose.** A count of zero is the
         // interesting outcome — it says the origin rule guards a state that does not occur — but
         // zero is also what a measurement that never ran reports. Asserting the denominator is what
-        // tells those apart (`docs/memory/an-empty-search-needs-a-control.md`).
+        // tells those apart (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
         sampled.ShouldBeGreaterThan(0, "no ticks were sampled, so the zero above means nothing");
     }
 

@@ -1,8 +1,11 @@
 ---
 name: state-the-assumptions-the-owner-can-falsify
-description: When debugging a visual bug, say out loud what you are ASSUMING about the symptom — the owner is looking at the thing and can correct it in one sentence.
-metadata:
+description: "When debugging a visual bug, say out loud what you are ASSUMING about the symptom — the owner is looking at the thing and can correct it in one sentence."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:55:21.596Z
 ---
 
 **While bug-fixing, list the assumptions you are making about the symptom, explicitly, so the owner
@@ -41,5 +44,5 @@ Then, at each measurement, say what a clean result would MEAN — because "instr
 
 This is the same rule as *"anything about a UI that cannot be verified by looking is a QUESTION for
 the user"*, moved one step earlier: it applies to the framing of the hunt, not only to its
-conclusion. Related: [[run-the-control-before-arguing]],
+conclusion. Related: [[instrument-bugs-outnumber-decoder-bugs]],
 [[ask-which-input-differs-before-bisecting]], [[nothing-is-closed]].

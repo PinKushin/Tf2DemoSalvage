@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// If they do not, the engine is doing something in the overlay path and the decompiler is the next
 /// step rather than the first.
 ///
-/// See `docs/memory/shipped-data-is-a-source.md`: VMTs have twice answered questions filed as needing
+/// See `docs/memory/nothing-is-closed.md#shipped-data-is-a-source`: VMTs have twice answered questions filed as needing
 /// a decompiler, most notably `$modblend`, which turned out to be dead.
 /// </remarks>
 public sealed class OverlayMaterialProbe

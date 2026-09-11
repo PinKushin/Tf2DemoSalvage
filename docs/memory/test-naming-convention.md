@@ -1,8 +1,11 @@
 ---
 name: test-naming-convention
-description: Tests here use {Subject}_{Scenario}_{Expected}; the old prose names are being converted, and the convention is written down in CLAUDE.md so it cannot drift again.
-metadata:
+description: "Tests here use {Subject}_{Scenario}_{Expected}; the old prose names are being converted, and the convention is written down in CLAUDE.md so it cannot drift again."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-09T02:37:35.954Z
 ---
 
 Test methods use **`{Subject}_{Scenario}_{Expected}`**. Classes use `{TypeUnderTest}Tests`, and any

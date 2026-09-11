@@ -191,7 +191,7 @@ public sealed class DecodedDemoTests
     /// contains — every demo TF2 wrote carries a schema that parses. Authoring it is the whole
     /// argument for a synthetic specimen over a corpus one: a corpus test cannot reach this branch
     /// at all, so it can never kill a mutant in it
-    /// (<c>docs/memory/a-faithful-fixture-can-be-blind.md</c>).
+    /// (<c>docs/memory/instrument-bugs-outnumber-decoder-bugs.md#a-faithful-fixture-can-be-blind</c>).
     /// </remarks>
     private static byte[] CorruptSchemaDemo(string map) =>
         Demo(

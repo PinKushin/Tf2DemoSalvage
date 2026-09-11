@@ -158,7 +158,7 @@ The correction that motivated all of the above. An early demo (`z1800.dem`) was 
 2013 through 2026, thirteen years and counting, because Valve stopped bumping the number.
 
 So: **date the client, never the protocol.** A protocol number is an upper bound on age and
-nothing more. This is recorded in `docs/memory/z1800-is-modern-not-2015.md` because it is the kind
+nothing more. This is recorded in `docs/memory/era-axis-is-measured.md#z1800-is-modern-not-2015` because it is the kind
 of wrong conclusion that gets repeated confidently.
 
 ## What changes at each boundary

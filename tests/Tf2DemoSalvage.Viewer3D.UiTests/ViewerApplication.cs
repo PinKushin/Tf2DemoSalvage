@@ -184,7 +184,7 @@ internal sealed partial class ViewerApplication : IDisposable
     /// Measured: the suite spent about three and a half minutes inside this method, against
     /// seventy-four seconds actually loading the three demos it opens. The demo switches were
     /// blamed first and were not the problem
-    /// (`docs/memory/measure-every-hop-before-blaming-one.md`).
+    /// (`docs/memory/nothing-is-closed.md#measure-every-hop-before-blaming-one`).
     ///
     /// **Only whole lines are taken.** The viewer is appending while this reads, so the tail of the
     /// file is routinely half a line; consuming it would cache a fragment for ever and the next

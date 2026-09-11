@@ -1,8 +1,11 @@
 ---
 name: a-vector-keys-its-halves-differently
 description: A SendPropUtlVector of plain props keys elements FLAT; its length keys by PATH. Copying the m_AnimOverlay reader finds the length and none of the elements.
-metadata:
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-09-10T22:49:02.226Z
 ---
 
 `EntityStateTable` keys a decoded property by its PATH only when the flattener marked it
@@ -24,5 +27,5 @@ the index from the tail after the last `.`. Before believing an empty vector, de
 (`Cli -t -e`) and grep for the property name: the trace prints the flat spelling, which is the one the
 reader must accept. 1,824 scene playbacks reporting 0 actors was this, not a fact about TF2.
 
-Related: [[instrument-bugs-outnumber-decoder-bugs]], [[key-a-lookup-on-the-question]],
-[[an-empty-search-needs-a-control]], [[wire-names-are-strings]].
+Related: [[instrument-bugs-outnumber-decoder-bugs]] and its `an-empty-search-needs-a-control` section,
+[[key-a-lookup-on-the-question]], [[wire-names-are-strings]].

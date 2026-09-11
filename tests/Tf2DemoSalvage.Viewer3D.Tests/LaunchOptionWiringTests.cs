@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// and returns before the clock is built.
 ///
 /// So the only instrument that can fail is a real <see cref="MainForm"/> loading a real demo, which
-/// is <c>docs/memory/three-test-levels-and-the-third-is-missing.md</c> stated for launch options.
+/// is <c>docs/memory/output-level-assertion-or-it-is-not-done.md#three-test-levels-and-the-third-is-missing</c> stated for launch options.
 ///
 /// **The bug it was written for.** `Apply` called <c>DemoSystems.Open</c>, which starts playback,
 /// and then <c>_transport.SetDemoLength</c>, whose last act is <c>Playing = false</c>. That setter

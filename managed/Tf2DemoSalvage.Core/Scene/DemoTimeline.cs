@@ -3067,7 +3067,7 @@ public sealed class DemoTimeline
         // **A corpse that re-enters extends its window across the gap**, which is a known and
         // deliberate imprecision: it was not visible to the recorder in between, so the demo says
         // nothing about it, and this viewer's free camera can look where SourceTV's could not
-        // (`docs/memory/pov-demos-are-pvs-limited.md`). Two intervals per corpse would say it
+        // (`docs/memory/author-the-specimen-the-corpus-lacks.md#pov-demos-are-pvs-limited`). Two intervals per corpse would say it
         // exactly; one interval says it generously and never invents a corpse that was not there.
         if (entity.UpdateType == EntityUpdateType.Leave)
         {

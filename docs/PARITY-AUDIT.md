@@ -99,7 +99,7 @@ the only route to it was the UI suite pressing V."*
 **The mistake was the search, not the reasoning.** The grep ran over
 `managed/Tf2DemoSalvage.Viewer3D/*.cs`, found `--autoplay` and nothing else, and the absence was
 believed. Launch options live in `Presentation`, one project along. That is
-`docs/memory/an-empty-search-needs-a-control.md` exactly — an absence claim with no control, where
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control` exactly — an absence claim with no control, where
 asking the same grep for something that MUST be there (`--first-person` itself, from the shell
 history that had already used it) would have shown the scope was wrong.
 
@@ -170,7 +170,7 @@ absent rather than a branch missed. Two measurements, both from this repository:
   justify `SequenceBoundsMinOffset = 32`. The events array they point at is not read anywhere.
 - **`m_nResetEventsParity` is decoded and has ZERO consumers.** `EntityState.ViewmodelResetEventsParity`
   has exactly one reference in the whole repository: its own declaration. That is
-  `docs/memory/decoding-a-field-is-not-honouring-it.md` exactly, and the same shape as
+  `docs/memory/parity-is-the-search-not-the-defence.md#decoding-a-field-is-not-honouring-it` exactly, and the same shape as
   `m_flPlaybackRate`, which was decoded, retained, unit-tested, and read by nothing while every
   animation played at rate 1.
 
@@ -293,7 +293,7 @@ dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- corpses serveme-62
 
 **That number was recorded here as 299 and could not be reproduced.** The command above did not
 exist when it was written, and nothing survives to say how it was counted — which is exactly what
-`docs/memory/a-measurement-recorded-as-a-conclusion-expires.md` is about. 159 is the count of
+`docs/memory/filing-a-divergence-is-not-fixing-it.md#a-measurement-recorded-as-a-conclusion-expires` is about. 159 is the count of
 distinct corpses, keyed by entity index AND serial; the first attempt at the probe keyed on index
 alone and said **87**, because slots are reused briskly and every reuse collapsed into its
 predecessor (B92's lesson, met again). Whether 299 counted per-tick observations or something else

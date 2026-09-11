@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Scene;
 ///
 /// **`FxBlend.Compute` already took this as a parameter and nobody ever supplied it** (B268). The
 /// multiply was implemented, correct, and reached only with the default 255 — so every entity drew
-/// at full alpha however far away it was. `docs/memory/decoding-a-field-is-not-honouring-it.md` is
+/// at full alpha however far away it was. `docs/memory/parity-is-the-search-not-the-defence.md#decoding-a-field-is-not-honouring-it` is
 /// the same shape one step along: here the CONSUMER existed and nothing fed it.
 ///
 /// **This is used by real content, which is why it is worth having.** Measured on the 2013

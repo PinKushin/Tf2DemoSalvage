@@ -1,8 +1,10 @@
 # Native voice codec binaries
 
 `celt.dll` and `speex.dll` are not committed. They are built from upstream Xiph source by
-`build.ps1` in this directory, run once per machine (or in CI), and placed where
-`Tf2DemoSalvage.Audio`'s native resolver looks for them.
+`build.ps1` in this directory, run once per working tree (and in CI), and placed where
+`Tf2DemoSalvage.Audio`'s native resolver looks for them. **Per working tree, not per machine:**
+they live in this directory, so a new `git worktree` starts without them and the audio suite fails
+its CELT tests with `DllNotFoundException` until `build.ps1` runs there (measured 2026-09-10).
 
 ## Why these versions specifically
 

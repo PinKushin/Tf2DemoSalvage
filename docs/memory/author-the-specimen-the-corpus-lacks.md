@@ -1,8 +1,11 @@
 ---
 name: author-the-specimen-the-corpus-lacks
-description: The writer is a test instrument, not just a product feature — a case no demo contains can be authored rather than hunted for; covers what makes a field truly untestable on ordinary play (a default that is the operation's identity), why a feature scoring 159 of 159 on one demo needs a second era before it counts as done, the standing rule to check backwards compatibility the moment an old demo is in play, and why a POV recording's missing props are the PVS rather than a decode gap.
-metadata:
+description: "The writer is a test instrument, not just a product feature — a case no demo contains can be authored rather than hunted for; covers what makes a field truly untestable on ordinary play (a default that is the operation's identity), why a feature scoring 159 of 159 on one demo needs a second era before it counts as done, the standing rule to check backwards compatibility the moment an old demo is in play, and why a POV recording's missing props are the PVS rather than a decode gap."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:53:07.420Z
 ---
 
 **When the corpus does not contain a case, write a demo that does.** This project can emit `.dem`
@@ -109,7 +112,7 @@ command, and this project keeps era specimens precisely so that command exists.
 era for this reason; picking a second 2026 match would have scored 159 of 159 again and taught
 nothing.
 
-Related: [[era-axis-is-measured]], [[an-empty-search-needs-a-control]], [[record-both-points-of-view]].
+Related: [[era-axis-is-measured]], [[instrument-bugs-outnumber-decoder-bugs]], [[record-both-points-of-view]].
 
 ---
 
@@ -171,5 +174,5 @@ been of a SourceTV recording.
 **So: verify rendering on an STV demo.** Use a POV demo only when the point is the recorder's own
 view. [[record-both-points-of-view]] is the same distinction from the writer's side.
 
-Related: [[an-empty-search-needs-a-control]] — "no props here" was a fact about the input, not about
+Related: [[instrument-bugs-outnumber-decoder-bugs]] — "no props here" was a fact about the input, not about
 the code, and a second demo was the control that showed it.

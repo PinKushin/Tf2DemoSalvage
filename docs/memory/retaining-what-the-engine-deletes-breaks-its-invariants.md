@@ -1,8 +1,11 @@
 ---
 name: retaining-what-the-engine-deletes-breaks-its-invariants
-description: The engine's deletions are load-bearing; keeping those entries for scrubbing quietly turned a per-history constant into a per-entry one, and a flat list read at a fixed stride crashed a headless capture.
-metadata:
+description: "The engine's deletions are load-bearing; keeping those entries for scrubbing quietly turned a per-history constant into a per-entry one, and a flat list read at a fixed stride crashed a headless capture."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: cb1f88ef-c0d4-4e35-83a3-1cc24599fa97
+  modified: 2026-09-10T16:20:11.959Z
 ---
 
 **Every place this project keeps what the engine throws away, ask what the engine's deletion was

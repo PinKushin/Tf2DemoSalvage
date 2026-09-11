@@ -76,7 +76,7 @@ involved. Full reasoning: `docs/memory/a-fraction-of-zero-is-an-oracle.md`.
 ## Traps this project has actually hit here
 
 - **Three correct measurements in a row means the question is wrong, not the data**
-  (`docs/memory/read-the-spec-before-measuring-our-data.md`). The tell fired four times that day and was
+  (`docs/memory/nothing-is-closed.md#read-the-spec-before-measuring-our-data`). The tell fired four times that day and was
   not read.
 - **An instrument that disagrees with his eyes is the suspect, not his eyes.** The first door survey
   reported the doors drawn FASTER than stated — the opposite of his report — because it measured packet

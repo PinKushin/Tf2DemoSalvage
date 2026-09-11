@@ -1,8 +1,11 @@
 ---
 name: mutation-score-is-not-the-goal
-description: Everything about running Stryker here — the baseline is a ratchet not a gate, the config fails silently in two ways, and a quarter of the code is invisible to it.
-metadata:
+description: "Everything about running Stryker here — the baseline is a ratchet not a gate, the config fails silently in two ways, and a quarter of the code is invisible to it."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:54:23.707Z
 ---
 
 **Three memories were merged into this one on 2026-08-27** — `mutation-score-is-a-ratchet`,
@@ -76,7 +79,7 @@ most.
 
 So a high score is evidence about the tested subset and silent about the rest. What actually
 covers the decode paths is the corpus differential in `tools/differential/`, which compares
-against another parser and runs in seconds. See [[differential-beats-fixtures]].
+against another parser and runs in seconds. See [[fixtures-are-the-weak-point]].
 
 ## Cadence: once a day at most, never per change, never on a disturbed tree
 
@@ -122,7 +125,7 @@ centralize; only the TFM breaks it.
 **If a new project is added and `dotnet stryker` starts failing to analyze, check whether the TFM
 drifted into the props file before investigating anything else.** Both `Directory.Build.props` and
 each `.csproj` carry a comment saying the TFM must stay put — do not "tidy" it back into the props
-file. See [[tf2demosalvage-build-gates]].
+file. See [[tests-before-codecs]].
 
 ## `stryker-globs-are-project-relative`
 

@@ -144,7 +144,7 @@ public static class SkyboxView
     /// **Everything except the position and the planes is COPIED, not recomputed.** The angles,
     /// the field of view and the aspect are the main view's, so the sky cannot disagree with the
     /// world about where the player is looking or how wide the lens is — the same rule as
-    /// `docs/memory/one-camera-or-the-cull-lies.md`, applied to a second view rather than to a
+    /// `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#one-camera-or-the-cull-lies`, applied to a second view rather than to a
     /// second derivation of one.
     /// </remarks>
     public static FreeCamera CameraFor(

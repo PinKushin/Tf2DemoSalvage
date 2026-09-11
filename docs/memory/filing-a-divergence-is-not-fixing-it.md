@@ -1,8 +1,11 @@
 ---
 name: filing-a-divergence-is-not-fixing-it
-description: Measuring a divergence as rare decides its PRIORITY, never whether parity is owed — the owner's standing rule is fix it, and a well-written OPEN entry is the most convincing way to not do the work; the same shape covers a "still to read" note that already diagnoses the live bug, a stale "not implemented" comment, a measurement written down as a ranking that expires when the numbers move, and an impossibility claim nobody re-reads once it is disproved.
-metadata:
+description: "Measuring a divergence as rare decides its PRIORITY, never whether parity is owed — the owner's standing rule is fix it, and a well-written OPEN entry is the most convincing way to not do the work; the same shape covers a \"still to read\" note that already diagnoses the live bug, a stale \"not implemented\" comment, a measurement written down as a ranking that expires when the numbers move, and an impossibility claim nobody re-reads once it is disproved."
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:53:15.113Z
 ---
 
 **A measurement that a divergence is rare decides what to do FIRST. It never decides whether to do
@@ -32,7 +35,7 @@ the three taunt-kill exclusions in `CreateTFRagdoll` are unreachable, and that 0
 resolve to `LOADOUT_POSITION_HEAD`. Both are real findings about the engine that only came out of
 implementing the thing.
 
-Related: [[an-unrecoverable-input-is-not-an-open-choice]] (the same shape: a hard input is not a
+Related: [[a-filed-design-choice-may-not-be-one]] (the same shape: a hard input is not a
 licence to skip the logic), [[valve-parity-is-the-first-principle]],
 [[parity-is-the-search-not-the-defence]].
 
@@ -191,7 +194,7 @@ switches on and count. Here it also produced the prioritisation: what actually l
 the physics, which every corpse takes.
 
 **And the zero needs a control**, because a field decoding to its default looks identical to a real
-absence ([[an-empty-search-needs-a-control]]). The spread settles it: the comp match's values were
+absence ([[instrument-bugs-outnumber-decoder-bugs]]). The spread settles it: the comp match's values were
 `NONE`, `STANDARD_STICKY`, `ROCKET_DIRECTHIT`, `AIR_STICKY_BURST` — a soldier-and-demo match exactly,
 with no sniper or spy to produce an eligible death. The pub demos, which field both, are where the
 eligible ordinals appear at all.

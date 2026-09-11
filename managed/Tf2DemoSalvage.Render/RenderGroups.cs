@@ -183,7 +183,7 @@ public static class RenderGroups
     {
         // Refused rather than coped with. The engine cannot produce this, so a caller that does has
         // skipped Store — and a silent fallback would draw the model correctly while leaving the
-        // wiring bug in place. See docs/memory/unreachable-can-be-proved-not-just-observed.md.
+        // wiring bug in place. See docs/memory/most-of-a-decoder-is-untested.md#unreachable-can-be-proved-not-just-observed.
         if (stored == RenderGroup.TwoPass)
         {
             throw new ArgumentOutOfRangeException(

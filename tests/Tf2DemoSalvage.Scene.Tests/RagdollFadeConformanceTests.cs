@@ -173,7 +173,7 @@ public sealed class RagdollFadeConformanceTests
     /// or 33, and either would put every boundary in this suite on a fractional second where a
     /// prediction has to be carried to several decimals — which is how two frame-boundary
     /// predictions went wrong earlier in this work
-    /// (`docs/memory/predictions-must-not-sit-on-a-boundary.md`). The rate is an input to the
+    /// (`docs/memory/most-of-a-decoder-is-untested.md#predictions-must-not-sit-on-a-boundary`). The rate is an input to the
     /// arithmetic, not part of the claim; `RagdollPropsTests` exercises it with a real one.
     /// </remarks>
     private static RagdollFade OneSecondPerTick() => new(1f);

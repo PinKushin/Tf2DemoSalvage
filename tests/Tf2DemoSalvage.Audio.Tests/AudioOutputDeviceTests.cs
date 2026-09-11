@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Audio.Tests;
 ///
 /// So these are not "device tests that will skip on CI" — they are device tests that run anywhere,
 /// which is the only kind worth writing given
-/// `docs/memory/a-skip-is-not-a-pass-or-a-failure.md`.
+/// `docs/memory/read-the-trx-total-not-the-console.md#a-skip-is-not-a-pass-or-a-failure`.
 ///
 /// **They still degrade honestly.** If a machine somehow cannot open even the null device, every
 /// test here ignores with a reason rather than passing vacuously.

@@ -228,7 +228,7 @@ public sealed class IvpWorldCollision
     /// **A control, and the reason it exists is that its absence cost a wrong conclusion.** "The
     /// corpse still falls" was read as a collision-response fault while the terrain half might
     /// simply have been empty — and an empty answer needs something that MUST be present before it
-    /// can be believed (`docs/memory/an-empty-search-needs-a-control.md`).
+    /// can be believed (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
     /// </remarks>
     public int TriangleCount => _triangles.Count;
 

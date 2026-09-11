@@ -47,7 +47,7 @@ public sealed class DefaultBindingConformanceTests
         // **`GameInstall.Root` is already the `tf` folder**, so this is relative to that. Written
         // `tf/cfg/config_default.cfg` first, which resolved to `tf/tf/cfg/...` and made both tests
         // SKIP — reported as a pass by the summary line and by the count floor, which is the shape
-        // `docs/memory/a-skip-is-not-a-pass-or-a-failure.md` exists for.
+        // `docs/memory/read-the-trx-total-not-the-console.md#a-skip-is-not-a-pass-or-a-failure` exists for.
         string? path = GameInstall.Find(Path.Combine("cfg", "config_default.cfg"));
 
         if (path is null)

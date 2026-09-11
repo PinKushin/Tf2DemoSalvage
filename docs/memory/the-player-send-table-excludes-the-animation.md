@@ -1,8 +1,11 @@
 ---
 name: the-player-send-table-excludes-the-animation
-description: TF2 strips sequence, cycle, layers, pose params and playback rate from a player's send table and the client rebuilds all of it — covers why every player is client-side animated, why gestures arrive only as temp entities and a POV lacks the recorder's own, why a delta animation is not a pose and every densifying step needs to know it, why one keyframe cannot serve both an interpolated quantity and a state that changes on its own schedule, and why a tick-encoded value must be converted at receipt against the server's own tick.
-metadata:
+description: "TF2 strips sequence, cycle, layers, pose params and playback rate from a player's send table and the client rebuilds all of it — covers why every player is client-side animated, why gestures arrive only as temp entities and a POV lacks the recorder's own, why a delta animation is not a pose and every densifying step needs to know it, why one keyframe cannot serve both an interpolated quantity and a state that changes on its own schedule, and why a tick-encoded value must be converted at receipt against the server's own tick."
+metadata: 
+  node_type: memory
   type: reference
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-10T22:52:39.827Z
 ---
 
 **A TF2 player's animation is almost entirely absent from the wire, on purpose.** `tf_player.cpp`,
@@ -282,5 +285,5 @@ With the base right, the same demo shows clusters: 81% at −4, 6% at 0, 13% at 
 control bucket for "the value never arrived" — while that is zero, the distribution describes the
 demo rather than describing which entities happened to answer.
 
-Related: [[instrument-bugs-outnumber-decoder-bugs]], [[an-empty-search-needs-a-control]],
+Related: [[instrument-bugs-outnumber-decoder-bugs]] and its `an-empty-search-needs-a-control` section,
 [[a-dropped-field-falls-to-a-computed-default]].

@@ -97,7 +97,7 @@ public sealed class WorldCulling
     /// **The same answer the world draw used, passed along rather than recomputed** (B254). An
     /// entity cull that walked the tree a second time would be free to disagree with the world about
     /// what is visible, and the visible failure of that is an entity hidden inside a room the viewer
-    /// is drawing — `docs/memory/one-camera-or-the-cull-lies.md`, applied to visibility instead of
+    /// is drawing — `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#one-camera-or-the-cull-lies`, applied to visibility instead of
     /// to the camera.
     /// </remarks>
     public ReadOnlySpan<bool> VisibleByLeaf => _visibility.VisibleByLeaf;

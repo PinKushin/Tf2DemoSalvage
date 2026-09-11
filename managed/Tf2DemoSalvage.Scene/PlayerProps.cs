@@ -365,7 +365,7 @@ public static class PlayerProps
 
                     // **Carried through, because this pose is built field by field** (B312). A
                     // value with no assignment here is one the renderer never sees whatever the
-                    // timeline decoded — the failure `docs/memory/a-moves-regressions-are-wiring.md`
+                    // timeline decoded — the failure `docs/memory/output-level-assertion-or-it-is-not-done.md#a-moves-regressions-are-wiring`
                     // records, where three fields shipped lost with the suite green.
                     HeadScale = player.HeadScale,
                     TorsoScale = player.TorsoScale,

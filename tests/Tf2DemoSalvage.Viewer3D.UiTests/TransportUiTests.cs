@@ -222,7 +222,7 @@ public sealed class TransportUiTests
         //
         // **Driven away from 1x FIRST**, because a precondition equal to the assertion cannot fail:
         // starting at normal speed and asserting normal speed passes against a key that does
-        // nothing at all (`docs/memory/set-the-opposite-state-first.md`). 4x is a shuttle stop, so
+        // nothing at all (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#set-the-opposite-state-first`). 4x is a shuttle stop, so
         // `StepTo` can reach it without touching the slider.
         StepTo(4d);
 

@@ -4449,7 +4449,7 @@ own copy — one source, as with everything else here — but that is a change t
 scene layer and wants doing deliberately, not at the end of a session.
 
 Note the feedback loop: this test takes 7.5 minutes on the corpus, so guessing costs far more than
-reading. `docs/memory/two-recordings-of-one-value.md` is the entry that predicted this class.
+reading. `docs/memory/fixtures-are-the-weak-point.md#two-recordings-of-one-value` is the entry that predicted this class.
 
 ### B78 — the shell's status test asserts an empty viewer's status line
 
@@ -8000,7 +8000,7 @@ as the only surviving difference. Verified by manipulation — with `1 - alpha` 
 high-alpha texel renders (43, 37, 35) against the low one's (54, 44, 40), and with Valve's `alpha`
 it is (51, 43, 41) against (45, 37, 34). The order reverses, which is the whole prediction.
 
-Same shape as `docs/memory/cancelling-sabotages-mean-coupled-tests.md`: ask whether there is an input
+Same shape as `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#cancelling-sabotages-mean-coupled-tests`: ask whether there is an input
 where correct and broken differ, before asking whether the assertion detects it.
 
 ## B127 — the material constant buffer was two float4s short of what the shader declared — CLOSED 2026-08-21
@@ -8093,7 +8093,7 @@ Verified both ways: with the mask, (43, 47, 52) behind against (117, 121, 126) i
 both saturate to (255, 255, 255).
 
 Third time this session that a test's CONDITION rather than its assertion was the defect. See
-`docs/memory/cancelling-sabotages-mean-coupled-tests.md`.
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#cancelling-sabotages-mean-coupled-tests`.
 
 ## B129 — `$rimlight` is not implemented, so silhouettes do not separate — CLOSED 2026-08-21
 
@@ -8377,7 +8377,7 @@ up, in the timeline, which is where it belongs. `SceneProp` has no `Hidden` memb
 hidden prop never becomes one** — an absence caused by the design being right, read as evidence the
 design was missing.
 
-The general form is in `docs/memory/an-empty-search-needs-a-control.md`, and this is another
+The general form is in `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`, and this is another
 instance: no positive control was run, so there was nothing to distinguish "this codebase does not do
 X" from "X does not live where I looked". A control here was available and cheap — grep the same
 term across `managed/` rather than one project, which is what found the answer in one command
@@ -8608,7 +8608,7 @@ one of those stripes is being clipped or was never built.
 > **The transferable part.** A ratio computed over a directory is not a measurement of a convention
 > unless the directory is the population. Counting was the right instinct and picking `ls *.cpp` as
 > the population was the error — the same shape as
-> [[an-empty-search-needs-a-control]], where a grep's scope silently became the claim.
+> `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`, where a grep's scope silently became the claim.
 >
 > Pinned now rather than argued: `DepthWriteConformanceTests` asserts each clause against
 > `WorldRenderer.Blends` and `VmtMaterial.IsTranslucent`, and the alpha-test exclusion is verified
@@ -9168,8 +9168,8 @@ filed against the wrong quantity.** One demo switch, timed by the viewer's own `
 **So roughly 20 seconds of a ~21-second switch is still blocking, and under a second was moved.**
 The owner's report — *"stalling for a few seconds on every load, windows even thinks the program is
 hung"* — was describing the assets, not the demo, and the first diagnosis picked the one phase that
-happened to be wrapped in a timer already. `docs/memory/a-log-must-name-what-it-measured.md`, and
-`docs/memory/measure-every-hop-before-blaming-one.md`: three correct measurements only prove the
+happened to be wrapped in a timer already. `docs/memory/logs-are-the-debugger.md#a-log-must-name-what-it-measured`, and
+`docs/memory/nothing-is-closed.md#measure-every-hop-before-blaming-one`: three correct measurements only prove the
 fault is in the fourth hop.
 
 **What remains, and why it is not a repeat of the same change.** `LoadMap` ends in `uploading
@@ -10591,7 +10591,7 @@ That needs a tangent basis, and now the data it is built from is already decoded
 published SDK, but Source binaries carry their function names as literals, so
 `grep -aoE "Mod_Load[A-Za-z]+" engine.dll` yields all 31 loaders — the field set in effect, and a
 cheaper and steadier instrument than a decompiled struct
-(`docs/memory/binaries-answer-what-the-sdk-cannot.md`).
+(`docs/memory/nothing-is-closed.md#binaries-answer-what-the-sdk-cannot`).
 
 **Measured from the shipped binary rather than guessed**, because `worldbrushdata_t` — the engine's
 own aggregate of a map's lumps — is defined in `gl_model_private.h`, which `source-sdk-2013` does
@@ -10606,7 +10606,7 @@ grep -aoE "Mod_Load[A-Za-z]{2,24}" ".../Team Fortress 2/bin/engine.dll" | sort -
 
 Thirty-one loaders, one per lump the engine keeps in its world data. That list IS the structure's
 field set in effect, and it is a cheaper and more reliable instrument than reading a decompiled
-struct — see `docs/memory/binaries-answer-what-the-sdk-cannot.md`.
+struct — see `docs/memory/nothing-is-closed.md#binaries-answer-what-the-sdk-cannot`.
 
 **What we do not read, and whether it matters:**
 
@@ -11751,10 +11751,10 @@ Options, in rough order of preference, none chosen yet:
 
 1. **Detect the absent game in `OneTimeSetUp` and ignore the fixture.** Turns 2 minutes × 14 into an
    honest, instant skip. A skip is not a pass
-   (`docs/memory/a-skip-is-not-a-pass-or-a-failure.md`), so the count floor must stay exact — 14
+   (`docs/memory/read-the-trx-total-not-the-console.md#a-skip-is-not-a-pass-or-a-failure`), so the count floor must stay exact — 14
    entries still appear in the trx either way.
 2. **Drop the UI job from CI.** Defensible while the suite does not gate anything (see
-   `docs/memory/ui-suite-optional-until-ui-grows.md`), and it stops paying for a job that cannot
+   `ui-suite-optional-until-ui-grows`, since retired by `docs/memory/ui-tests-run-every-time.md`), and it stops paying for a job that cannot
    pass. Loses the "does it launch at all" signal.
 3. **Make the session tolerate a world built with no game assets**, drawing Valve's error material
    throughout. Most work, and the only option that keeps real CI coverage of the viewer launching.
@@ -12355,7 +12355,7 @@ falling short — the fault is excess light, not missing light.
 
 #### Four hops were checked against the SDK and are correct — do not re-walk them
 
-Per `docs/memory/measure-every-hop-before-blaming-one.md`, each was measured rather than assumed:
+Per `docs/memory/nothing-is-closed.md#measure-every-hop-before-blaming-one`, each was measured rather than assumed:
 
 1. **The sample position is world-space and correct.** `MomentScene` builds the viewmodel's
    `ViewmodelPlacement` from `camera.Origin`, which reaches `ScenePose.X/Y/Z` and is what
@@ -12737,7 +12737,7 @@ than the observation. Playing `20130518_0313_cp_process_granary_blu_blu.dem`-era
 
 - **Expected.** A POV demo is PVS-limited — only entities in the recorder's potentially-visible set
   are networked, so a player behind a wall is absent from the DATA, not from the render. That is
-  `docs/memory/pov-demos-are-pvs-limited.md`, and it is the reading the log supports: the cycle
+  `docs/memory/author-the-specimen-the-corpus-lacks.md#pov-demos-are-pvs-limited`, and it is the reading the log supports: the cycle
   followed team-2 entities, so enemies existed and passed `Drawn` at the ticks it sampled.
 - **A defect.** Enemies passing `CanObserve` but never reaching the screen would be a real fault, and
   the two are indistinguishable without the comparison.
@@ -13320,7 +13320,7 @@ normalising before scaling — different mechanisms, same observable, which is w
 wrong**: it takes `cl_demoviewoverride` as the reference and gives 320 u/s, where the answer is
 `FullNoClipMove` and 960. Kept because it is the more instructive half — the divergence was found
 correctly and then nearly closed against the wrong mechanism **with a citation**, which is the
-failure mode `docs/memory/ask-which-engine-mechanism-you-are-copying.md` exists for.
+failure mode `docs/memory/parity-is-the-search-not-the-defence.md#ask-which-engine-mechanism-you-are-copying` exists for.
 
 **Found by the parity audit of 2026-08-26, and the evidence was already in this repository.**
 `FreeFlightPath.SpeedPerSecond = 600f` and `FastMultiplier = 4f` cite nothing. The file around them
@@ -13638,7 +13638,7 @@ a neighbour's would pass every per-item case.
 completely — the owner asked for it, directed the decompile that measured the default, and named
 `FramePacer` as its home — while this entry went on reading "OPEN, needs the owner". The assistant
 put it to the owner again during the parity audit as though it were undecided. Same shape as the
-other two found the same day; see `docs/memory/an-impossibility-claim-expires.md`.
+other two found the same day; see `docs/memory/filing-a-divergence-is-not-fixing-it.md#an-impossibility-claim-expires`.
 
 **`engine_no_focus_sleep` — built to D100, at Valve's measured 50, configurable.** It is a
 **duration in milliseconds**, not a flag, so the shipped
@@ -14532,7 +14532,7 @@ cp_badlands: 13845 faces, 1191 of them displacements; 5516 leaves, 0 naming terr
 **The control is what makes that believable** — 12,654 flat faces ARE reached by the same walk, and
 13845 − 1191 = 12654 exactly, so every flat face is reachable and no displacement face is. Perfect
 separation, not noise. An empty result is usually a fact about the reader
-(`docs/memory/an-empty-search-needs-a-control.md`); this one is a fact about the format.
+(`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`); this one is a fact about the format.
 
 It makes sense in hindsight. A displacement's base quad is not the terrain — the real surface is a
 heightfield bulging out of that quad, often well outside it — so the compiler has no single leaf to
@@ -14847,7 +14847,7 @@ will draw chequered.
 which is handed `factory.CreateLogger("props")` twenty lines away in the same method. A grep for
 "did the props area say anything" answers yes throughout.
 
-This is the second time this shape has cost a day; `docs/memory/a-null-object-default-hides-a-missed-wiring.md`
+This is the second time this shape has cost a day; `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`
 records the first, where a green suite lost 202 log lines. The parameter is **required** now, and
 first in the signature, so the compiler asks the question instead of a reviewer having to.
 
@@ -15356,7 +15356,7 @@ pairing, because "F9" would satisfy the tripwire — F9 is bound, to the surface
 sending the owner to the wrong key.
 
 **And a memory said F12 too**, which is how it reached the owner a second time in this session:
-`docs/memory/viewer-screenshots-are-f5.md` replaces it, with the rule that a key is never named from
+`docs/memory/take-your-own-screenshot.md#viewer-screenshots-are-f5` replaces it, with the rule that a key is never named from
 memory.
 
 ## B240 — kRenderNone was lost in a revert, so eighteen invisible doors drew over the gates — FIXED 2026-08-30
@@ -15830,7 +15830,7 @@ declared in the MAIN `DT_BaseCombatCharacter` table (`basecombatcharacter.cpp:20
 owner's point and it is right: *"there has to be a way the server tells the client what weapon
 another person is holding"*. There are two ways, they agree in a real client, and **ours disagree
 with each other** — which makes this a decode defect with a built-in control rather than a
-rendering question (`docs/memory/two-recordings-of-one-value.md`).
+rendering question (`docs/memory/fixtures-are-the-weak-point.md#two-recordings-of-one-value`).
 
 ### Lead 2 measured: the class baseline, and it explains B231 as well — 2026-08-31
 
@@ -16245,7 +16245,7 @@ justified by insurance against a fault that no longer exists.
 
 Every wrong turn in B245, B247 and B249 came from reading part of a mechanism and reasoning across
 the gap — the enter-PVS read path was read, the store path was assumed. The store path took one
-script and five minutes to find, and it contradicted the assumption immediately. **`docs/memory/read-the-sdk-for-the-whole-mechanism.md` says exactly this, and it was not followed.**
+script and five minutes to find, and it contradicted the assumption immediately. **`docs/memory/parity-is-the-search-not-the-defence.md#read-the-sdk-for-the-whole-mechanism` says exactly this, and it was not followed.**
 
 ## B252 — first-person attachments: the viewmodel props carry no item, so no pilot light in your own hands — FIXED
 
@@ -16540,7 +16540,7 @@ which is not a feature on a POV demo — it is a view of a world that was never 
 
 1. **It shows things the recorder never saw**, which is the parity break the owner names.
 2. **What it shows is WRONG rather than merely extra**, because a POV demo is PVS-limited
-   (`docs/memory/pov-demos-are-pvs-limited.md`): entities outside the recorder's visibility were
+   (`docs/memory/author-the-specimen-the-corpus-lacks.md#pov-demos-are-pvs-limited`): entities outside the recorder's visibility were
    never sent, so a free camera looking at them draws an empty room rather than the room that was
    there. A viewer that offers the camera cannot honour it.
 3. **It is a performance question too, which is how it came up.** B254 measured 600 props posed per
@@ -16554,7 +16554,7 @@ mode the user can turn off. The engine's answer is the former — `C_BaseViewMod
 branch already shows the two recording kinds being treated differently — but a demo TOOL has reasons
 to differ from the game, and D69's "a real config must work wholesale" cuts the other way here. Ask
 before choosing; this is a divergence to be asked about rather than documented
-(`docs/memory/a-divergence-is-asked-not-documented.md`).
+(`docs/memory/parity-is-the-search-not-the-defence.md#a-divergence-is-asked-not-documented`).
 
 ## B257 — the players handed from `Build` to `Pose` are untested, and the suite says nothing — FIXED
 
@@ -17290,7 +17290,7 @@ if ( nFadeAlpha != 255 )
 ```
 
 and **no caller ever supplied it**, so every entity took the default 255 and drew at full alpha
-however far away it was. This is `docs/memory/decoding-a-field-is-not-honouring-it.md` one step
+however far away it was. This is `docs/memory/parity-is-the-search-not-the-defence.md#decoding-a-field-is-not-honouring-it` one step
 further along: there a decoded field had no consumer, here the consumer existed and nothing fed it.
 
 **The fields were not decoded either.** `m_fadeMinDist` and `m_fadeMaxDist` are sent by
@@ -17453,7 +17453,7 @@ door — are the same.
 models that DO declare controllers and reads their ranges back; the header offsets 164 and 168 match
 `studiohdr_t`'s field order by arithmetic (`studio.h:2165`); and the reader throws on an
 inconsistent table rather than returning empty. So a count of zero is the header's answer, not a
-silent bail — the rule from `docs/memory/an-empty-search-needs-a-control.md`, applied because
+silent bail — the rule from `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`, applied because
 sixteen zeroes in a row is exactly what a broken offset looks like.
 
 **Why this is closed rather than left open.** An unread field on a coverage list reads as a gap
@@ -17539,7 +17539,7 @@ one.
 
 **178 maps could not be measured and that is stated rather than rounded away.** Their entity lump is
 compressed, so the text search finds nothing in them — and a search that cannot find `worldspawn`
-either is a fact about the search (`docs/memory/an-empty-search-needs-a-control.md`,
+either is a fact about the search (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`,
 `docs/memory/bsp-lumps-are-compressed.md`). The control was run per map and the failures counted, so
 this is "three of 56 readable" and never "three of 234".
 
@@ -17793,7 +17793,7 @@ and the error stopped being smooth.
 terminal twice today while reading which variables are animation-latched. The question asked was
 "which vars", the answer taken was "cycle, pose parameters, encoded controller", and the `flags`
 assignment two lines up was read past both times — while
-`docs/memory/read-the-SDK-for-the-whole-mechanism.md`, *"finding the flag is the easy half"*, was
+`docs/memory/parity-is-the-search-not-the-defence.md#read-the-sdk-for-the-whole-mechanism`, *"finding the flag is the easy half"*, was
 being cited elsewhere in the same session.
 
 **The signal was in what was READ, not in what was written**, which is why no review of the diff
@@ -18621,7 +18621,7 @@ returned before reaching the spectator code in the chase view.
 the conformance suite checked all three. **The wrong part was a branch in the window that decides
 whether to call them**, and nothing below the window can see that. Same shape as B145, which is why
 the fix is pinned by a UI test rather than a unit one — see
-`docs/memory/three-test-levels-and-the-third-is-missing.md`.
+`docs/memory/output-level-assertion-or-it-is-not-done.md#three-test-levels-and-the-third-is-missing`.
 
 ### The binding on the mouse was never the problem
 
@@ -20146,7 +20146,7 @@ moment cost, mean over 100 rebuilds: 5.9 ms
 returns without counting — deliberately, because six dot products reject most of a map more cheaply
 than a tree walk. So the small number means the frustum got there first, not that the cull is idle.
 A counter that reports one of two exits reads as a failure of the whole (see
-`docs/memory/a-ledger-must-cover-every-exit.md`, which is about exactly this).
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#a-ledger-must-cover-every-exit`, which is about exactly this).
 
 **What the pose phase actually spends its time on** is roughly a dozen SKINNED entities — players
 and their weapons. `Simulate`'s loop walks every prop but its body early-outs for anything without
@@ -20626,7 +20626,7 @@ Each said something was not implemented that is:
 
 **A comment that says a thing is missing is read as a to-do list**, so a stale one costs twice: the
 work looks undone, and the next reader who checks discovers the document rather than the code is
-wrong. `docs/memory/an-impossibility-claim-expires.md` is the same failure in the other direction.
+wrong. `docs/memory/filing-a-divergence-is-not-fixing-it.md#an-impossibility-claim-expires` is the same failure in the other direction.
 
 #### Noted, not fixed: `EntityTracker` has no production caller
 
@@ -20939,7 +20939,7 @@ The wiring is where this would have died with every unit test green, and **two o
 found by guards that already existed** rather than by me:
 
 - `PlayerProps.Add` builds a player's pose field by field; a value with no assignment there never
-  reaches the renderer. That is `docs/memory/a-moves-regressions-are-wiring.md` exactly.
+  reaches the renderer. That is `docs/memory/output-level-assertion-or-it-is-not-done.md#a-moves-regressions-are-wiring` exactly.
 - `ScenePropTrack.At` rebuilds it again for interpolation.
   `EveryFieldOfAPose_SurvivesInterpolation` caught that one, and its own message says why it would
   otherwise be silent: **the default they fall back to is also a legitimate value.**
@@ -21287,7 +21287,7 @@ same condition arrived at independently. There is no skeleton to shift.
 
 **Two of the three were found only by re-reading a function already opened.** The scales came from
 the tail and the duck jump from the head, on separate passes, because the first pass stopped at the
-line it came for. `docs/memory/read-the-sdk-for-the-whole-mechanism.md` says finding the flag is the
+line it came for. `docs/memory/parity-is-the-search-not-the-defence.md#read-the-sdk-for-the-whole-mechanism` says finding the flag is the
 easy half; this is the same rule applied to a function rather than a flag.
 
 #### And the BASE `C_BaseAnimating::BuildTransformations` beneath it
@@ -21405,7 +21405,7 @@ if ( nModelIndex != -1 )
 
 **The 299 previously recorded in the audit could not be reproduced and has been replaced**, with the
 command beside the new number. Nothing survived to say how 299 was counted
-(`docs/memory/a-measurement-recorded-as-a-conclusion-expires.md`).
+(`docs/memory/filing-a-divergence-is-not-fixing-it.md#a-measurement-recorded-as-a-conclusion-expires`).
 
 **What was built:** `RagdollAppearance.Of` (the derivation), `RagdollFade` (`ClientThink`'s expiry
 rule, keyed per corpse by slot AND serial), `RagdollProps.Fill` (corpses into the prop buffer,
@@ -21561,7 +21561,7 @@ with the wrist. Four per model on the two classes present at that tick — every
 the pair.
 
 **It was decoded and named and never honoured**, the shape
-`docs/memory/decoding-a-field-is-not-honouring-it.md` describes: `StudioProcedureType` declares all
+`docs/memory/parity-is-the-search-not-the-defence.md#decoding-a-field-is-not-honouring-it` describes: `StudioProcedureType` declares all
 five constants with citations, `StudioBone.ProcedureType` reads the field, and a repository-wide grep
 for a consumer of `QuaternionInterpolate` outside its own declaration returns nothing. The type's own
 remarks said "this project implements none of them yet", which had gone stale in the other direction
@@ -22238,7 +22238,7 @@ divergence, filed as **B328**, not the harmless omission this entry first claime
 The claim was made by reading the block NAMES and inferring "fallback means low-end", without
 looking inside any of them. One probe run settled it, and the correction is left here rather than
 edited away: an inference that reads like a measurement is exactly what
-`docs/memory/an-empty-search-needs-a-control.md` is about.
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control` is about.
 
 #### A sabotage found a fixture that could not discriminate
 
@@ -22303,7 +22303,7 @@ unimplemented. On the map the tests load, **15 of 412 materials** carry a mask.
 
 Removing the `IsSelfIlluminated` gate from the resolver changes no test result on this map, so no
 material in the fixture declares a mask without also declaring `$selfillum`. That is a missing INPUT
-rather than a weak assertion (`docs/memory/a-sabotage-that-reddens-nothing-names-the-missing-input.md`),
+rather than a weak assertion (`docs/memory/most-of-a-decoder-is-untested.md#a-sabotage-that-reddens-nothing-names-the-missing-input`),
 and it is recorded as a stated coverage limit on the test rather than papered over. The parse side of
 the same pair IS covered, with a fixture written to have the odd shape — which is the general answer
 when a shipped file cannot supply the case.
@@ -23237,7 +23237,7 @@ control — *"a run that reported no `Proxies` at all would be a broken scan"* �
 `open.Count == 2` for a key/value pair. A `Proxies` block holds sub-blocks and no bare keys, so it
 contributes nothing and reads as absent for a correct scan exactly as for a broken one. The working
 control is `>=DX90` at 5,688 materials. That is
-`docs/memory/an-empty-search-needs-a-control.md` one level up: the absence was checked, and the
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control` one level up: the absence was checked, and the
 check was vacuous.
 
 ### B337 FIXED 2026-09-05: Valve's arithmetic proxies, and a gate whose removal was the regression
@@ -23445,7 +23445,7 @@ keep meaning "no numeric variable here", which is what the refusal rule depends 
 **What this says about the B337 fix.** Refusing a proxy whose source is absent was right — it is
 `Init` returning false — but it is only safe once the table sees what `FindVar` sees. Half of a
 refusal rule is stricter than the engine, and the half that was missing is the half that makes it
-correct. Same shape as `docs/memory/half-a-mechanism-is-not-parity.md`.
+correct. Same shape as `docs/memory/parity-is-the-search-not-the-defence.md#half-a-mechanism-is-not-parity`.
 
 ### B341 FIXED 2026-09-05: an animated base texture was bound as its first frame, on 152 shipped materials
 
@@ -25358,7 +25358,7 @@ is driving it — a player's eyes, a SourceTV camera, a spectator's free look.
 cull and the 2D skybox already read, set in `SetCamera` from whichever camera
 `ViewCamera.Active(mode, firstPerson, chase, freeLook)` returned — and `MomentScene.Pose` now takes
 it beside the frustum it was built from. One camera, so the cull and the fade cannot disagree
-(`docs/memory/one-camera-or-the-cull-lies.md`). `info.EyeCamera` stays as the fallback for callers
+(`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#one-camera-or-the-cull-lies`). `info.EyeCamera` stays as the fallback for callers
 with no device.
 
 **Why fourteen green tests could not see it.** Every test in `AreaPortalWindowWiringTests` sets
@@ -26520,7 +26520,7 @@ as a character grid, and `smokelit` went from a field of scattered R/G/B letters
 puffs with smooth falloff. The statistic came with it — mean channel spread over visible pixels
 **112.5 → 10.8**, largest **255 → 25**. A mean alone had said "78 68 68", near-grey, which is what a
 rainbow averages to; the SPREAD is the number that tells them apart
-(`docs/memory/print-a-value-somebody-can-recognise.md`).
+(`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#print-a-value-somebody-can-recognise`).
 
 **Fixed** in `VtfTexture.Images`, which reads the table and falls back to the computed offset only
 for a file with no table to ask. `VtfResourceOffsetConformanceTests` builds a 7.3 file with a green
@@ -26561,7 +26561,7 @@ slots.** This demo has **1,669 rocket tracks** across a couple of thousand indic
 `_trackByEntity` keeps only the last track written for each — so asking it for entity 407 at tick
 51122 returned a rocket from later in the match, whose `FirstTick` is past that tick. The age clamped
 to zero, `ticks > 0` was false, and the replay silently did nothing. **An entity index does not name
-a track; the index PLUS the tick does** (`docs/memory/lookups-must-match-exactly.md`). The viewer now
+a track; the index PLUS the tick does** (`docs/memory/key-a-lookup-on-the-question.md#lookups-must-match-exactly`). The viewer now
 scans for the track covering the current tick, once per projectile rather than per frame.
 
 **Straight-line replay is exact here rather than approximate:** `DT_TFBaseRocket` networks

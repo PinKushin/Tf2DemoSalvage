@@ -1,8 +1,11 @@
 ---
 name: read-the-encoder-not-the-decoder
-description: A reference parser's encoder states intent its decoder only implies; corpus silence about a case is not evidence the case is absent.
-metadata:
+description: "A reference parser's encoder states intent its decoder only implies; corpus silence about a case is not evidence the case is absent."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-10T22:52:44.740Z
 ---
 
 When cross-checking a format against a reference implementation, read its **encoder**,
@@ -25,5 +28,5 @@ questions, one answerable only off the reference.
 **How to apply:** before trusting a decode path, ask what input would distinguish it
 from the wrong version, then check whether the corpus contains that input — a count of
 zero, a negative coordinate, a non-ASCII name. If it does not, the corpus is not
-evidence and the reference's encoder is. Related: [[differential-beats-fixtures]],
-[[fixtures-are-the-weak-point]], [[research-before-code]].
+evidence and the reference's encoder is. Related: [[fixtures-are-the-weak-point]] and
+its `differential-beats-fixtures` section, [[research-before-code]].

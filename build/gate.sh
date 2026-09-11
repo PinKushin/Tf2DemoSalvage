@@ -515,7 +515,7 @@ run Tf2DemoSalvage.Logging.Tests  logging    17
 #
 # **The floor cannot see that**, and it is worth knowing rather than assuming otherwise: this script
 # reads `total` from the .trx, which counts skipped tests. Seven skips satisfy a floor of seven. That
-# is the standing hazard in docs/memory/a-skip-is-not-a-pass-or-a-failure.md, not a new one — the
+# is the standing hazard in docs/memory/read-the-trx-total-not-the-console.md#a-skip-is-not-a-pass-or-a-failure, not a new one — the
 # skip protects the MEANING of a pass, and the floor protects the count. Neither covers the other.
 run Tf2DemoSalvage.Fonts.Tests    fonts       7
 
@@ -1530,7 +1530,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # 641, measured: 627 -> 634 by the Valve cvar vocabulary (cl_showfps parsing and the fps_max floor
 # departure), then -> 641 by HudRendererTests, which check the screen-to-clip arithmetic without a
 # device. The floor had also drifted below CI's 634 for the same suite, which is the failure
-# docs/memory/a-floor-must-track-the-number-it-guards.md describes: two copies of one number.
+# docs/memory/read-the-trx-total-not-the-console.md#a-floor-must-track-the-number-it-guards describes: two copies of one number.
 # 645: four that exist because a viewer launch found what 641 could not.
 #
 #   Instances_ASkinnedModel_…                  nothing had EVER driven Instances() with a skinned

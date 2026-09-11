@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 /// means before anything is written.
 ///
 /// **Four shader facts, each cited, and none of them measured from our own data** — per
-/// `docs/memory/read-the-spec-before-measuring-our-data.md`, measuring this project first could only
+/// `docs/memory/nothing-is-closed.md#read-the-spec-before-measuring-our-data`, measuring this project first could only
 /// have found that our numbers are self-consistent, which they are.
 /// </remarks>
 public sealed class LocalLightConformanceTests

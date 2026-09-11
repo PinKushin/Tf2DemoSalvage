@@ -361,7 +361,7 @@ public sealed class SceneImage
     /// **Exists so an absence can be told apart from a broken search.** Every name asked of
     /// <see cref="SequenceFor"/> can come back empty for two quite different reasons — the name is
     /// not what the archive calls that scene, or the lookup is wrong — and a hash read straight out
-    /// of the directory separates them (`docs/memory/an-empty-search-needs-a-control.md`).
+    /// of the directory separates them (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
     /// </remarks>
     public bool Contains(uint crc) => Find(crc) is not null;
 

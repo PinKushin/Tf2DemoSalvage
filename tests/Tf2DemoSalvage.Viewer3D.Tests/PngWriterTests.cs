@@ -11,7 +11,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// **Verified against an INDEPENDENT decoder rather than against a fixture.** Every byte this
 /// encoder writes could be checked against a hand-built expected array, and that would prove only
 /// that the array and the encoder agree — both written by the same person, from the same reading of
-/// the spec, at the same time. `docs/memory/differential-beats-fixtures.md` is explicit that a
+/// the spec, at the same time. `docs/memory/fixtures-are-the-weak-point.md#differential-beats-fixtures` is explicit that a
 /// fixture cannot falsify your own reading of a specification.
 ///
 /// So the real test decodes what we wrote with `System.Drawing`, which is Microsoft's implementation
@@ -159,7 +159,7 @@ public sealed class PngWriterTests
         // tests still passed. System.Drawing's decoder accepts it.
         //
         // So the independent decoder is more lenient than the specification, which makes it the
-        // wrong instrument for this particular claim: `docs/memory/a-faithful-fixture-can-be-blind.md`
+        // wrong instrument for this particular claim: `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#a-faithful-fixture-can-be-blind`
         // is the same shape, and the remedy is the same — measure the thing directly rather than
         // strengthening an assertion that was never sensitive.
         //

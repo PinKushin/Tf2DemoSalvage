@@ -247,7 +247,7 @@ built, which is the one thing a parity test must never be.
 **Read the source before measuring our data.** Measuring this project can only find data that is
 wrong; it cannot find a feature that was never implemented, and every measurement comes back correct
 while it looks like progress. The tell is three correct measurements in a row: the question is wrong,
-not the data. See `docs/memory/read-the-spec-before-measuring-our-data.md`, which was written after a
+not the data. See `docs/memory/nothing-is-closed.md#read-the-spec-before-measuring-our-data`, which was written after a
 session spent measuring a model that was never at fault.
 
 **Anything that produces output is not done until an assertion has read that output on a real
@@ -264,7 +264,7 @@ Eight lied in two sessions, each with a confident answer — the casebook is
 
 - **Report the value the code USED, carried to it — never recomputed by a second route** (B243).
 - **Before believing an absence, ask the instrument for something that MUST be present**
-  (`docs/memory/an-empty-search-needs-a-control.md`).
+  (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
 
 **Four sources. This is a menu, not a ladder — pick the one that holds the answer and skip the rest.**
 

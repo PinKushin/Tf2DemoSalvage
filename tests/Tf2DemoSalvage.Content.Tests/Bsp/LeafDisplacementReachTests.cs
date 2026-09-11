@@ -109,7 +109,7 @@ public sealed class LeafDisplacementReachTests
 
         // **The control, and without it this test proves nothing.** An empty result is usually a
         // fact about the reader rather than about the data
-        // (`docs/memory/an-empty-search-needs-a-control.md`) — a wrong `dleaf_t` offset or stride
+        // (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`) — a wrong `dleaf_t` offset or stride
         // would give zero for every face, displacement or not. Flat faces ARE reached in quantity,
         // so the walk works and the absence below is real.
         reachedFlat.Count.ShouldBeGreaterThan(

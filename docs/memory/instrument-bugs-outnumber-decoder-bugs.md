@@ -1,8 +1,11 @@
 ---
 name: instrument-bugs-outnumber-decoder-bugs
-description: On this project the tests and diagnostics have been wrong far more often than the code they check — the casebook of every way an instrument goes blind, cause-surviving defects, unread instruments, sampled and mis-keyed logs, thresholds blind to sums, counts hiding identity, execution mistaken for effect, ledgers with uncovered exits, re-derived cameras, and a clean-checkout rerun mistaken for a second instrument.
-metadata:
+description: "On this project the tests and diagnostics have been wrong far more often than the code they check — the casebook of every way an instrument goes blind, cause-surviving defects, unread instruments, sampled and mis-keyed logs, thresholds blind to sums, counts hiding identity, execution mistaken for effect, ledgers with uncovered exits, re-derived cameras, and a clean-checkout rerun mistaken for a second instrument."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-10T22:52:31.207Z
 ---
 
 **Across this project the code under test was right almost every time and the measurement was wrong
@@ -64,7 +67,7 @@ claim the design actually encodes: the same buffer instance reaches the source e
 
 Null is the default of every reference field and empty the default of every collection, so "assert it
 is null/empty afterwards" is the single easiest unfalsifiable test to write by accident. It reads as
-rigour. It is the mirror of [[an-empty-search-needs-a-control]] — an absence observed without
+rigour. It is the mirror of the `an-empty-search-needs-a-control` section below — an absence observed without
 establishing that presence was possible.
 
 **Before writing `ShouldBeNull`, `ShouldBeEmpty` or `ShouldBe(0)`, ask what the value is immediately
@@ -300,7 +303,7 @@ same file, and it was not read first.
   on a model whose bind rise is 71.
 - **A denominator of ALL is a warning, not a finding.**
 
-See [[an-empty-search-needs-a-control]], [[measure-the-output-not-the-capability]].
+See the `an-empty-search-needs-a-control` section below, and [[measure-the-output-not-the-capability]].
 
 ---
 
@@ -336,7 +339,7 @@ logged anything. When a feature "does nothing", grep for everything that WRITES 
 on, and check the order against the caller — do not start by reading the feature.
 
 Related: [[logs-are-the-debugger]], [[output-level-assertion-or-it-is-not-done]],
-[[ask-valve-before-designing-not-after]].
+[[conformance-test-before-implementation]].
 
 ---
 
@@ -554,7 +557,7 @@ the way in: a total taken before the filters cannot observe a filter. And when a
 a whole category is empty, check whether it can see that category at all before believing it — an
 absence produced by not looking is identical to an absence produced by nothing being there.
 
-Related: [[an-empty-search-needs-a-control]], [[measure-the-output-not-the-capability]],
+Related: the `an-empty-search-needs-a-control` section below, [[measure-the-output-not-the-capability]],
 [[logs-are-the-debugger]].
 
 ---
@@ -607,7 +610,7 @@ The eight `[Explicit]` tests are in one and not the other, and `build/assert-tes
 - Measure the way the thing you are disputing measures. The floor comes from the trx, so ask the
   trx: `grep -oE 'total="[0-9]+"' tests/<Project>/TestResults/<name>.trx`.
 - Reproducing a reading is not controlling it. A control uses a DIFFERENT route to the same value —
-  see [[two-recordings-of-one-value]] and [[an-empty-search-needs-a-control]].
+  see [[fixtures-are-the-weak-point]] and the `an-empty-search-needs-a-control` section below.
 - Rendering is the only project here where the two totals disagree, which is why it is the one that
   catches the mistake. Other projects agree, so the wrong habit passes everywhere else.
 
@@ -624,9 +627,8 @@ input is one. Prefer checks that cannot be satisfied by accident — lengths tha
 vectors that must be unit length, bases that must be orthonormal. Those have caught real defects
 here; "the number looks plausible" has not.
 
-Related: [[fixtures-are-the-weak-point]], [[differential-beats-fixtures]],
+Related: [[fixtures-are-the-weak-point]],
 [[measure-the-output-not-the-capability]], [[a-test-can-outlive-its-design]],
-[[an-empty-search-needs-a-control]], [[real-data-hides-bugs-small-inputs-expose]],
 [[author-the-specimen-the-corpus-lacks]], [[boundaries-find-what-tests-cannot]].
 
 **A test can name a claim its assertion does not check, and only sabotage finds it.** Measured
@@ -666,6 +668,266 @@ declares and a demo sends 462 times. That one failed in the direction that *puni
 it argues a right name is wrong, which is worse than not checking at all. Same file already carried
 a note about a regex that "reported every fog property as declared-nowhere — a fact about the
 pattern rather than about Valve's tables". Second time, same file, same cause.
+
+---
+
+## `an-empty-search-needs-a-control` — absence is a fact about the search until a control says otherwise
+
+**A grep that returns nothing is not a fact about the format. It is a fact about the grep**, until a
+positive control in the same sweep shows the search was capable of finding something.
+
+Six instances in this project, all of them an empty result recorded as knowledge:
+
+| Recorded as | Actually |
+|---|---|
+| "TF2's game code is not public" | 1,318 files under `game/{shared,client,server}/tf` |
+| `$modblend` "needs a decompiler" | declared in three shipped VMTs, read by a commented-out proxy |
+| `moveparent` "will never appear in a SENDINFO" | it is a `SENDINFO_NAME`, which sends its *second* argument |
+| haptics "nothing in the SDK hints at it" | `public/haptics/haptic_msgs.cpp` registers all six, with sizes |
+| the container "established by measurement" | `public/demofile/demoformat.h` declares the whole header |
+| `ScenePose.Hidden` "read by no renderer", so `EF_NODRAW` is ignored (B133) | read by `DemoTimeline.PropsAt`, one layer up, with a passing test |
+
+Each failed differently, which is why no single fix covers them: wrong directory, wrong file type,
+an aliased name, a search scoped to `game/` when the file was in `public/`, and a strong true claim
+(no `.dem` reader) whose next sentence quietly widened to cover things that were published.
+
+**The sixth is the one worth studying, because the search was scoped to OUR OWN code and was still
+wrong in the same way.** The question asked was "does the renderer read this", so only
+`managed/Tf2DemoSalvage.Viewer3D/` was searched. Zero hits — true, and the opposite of what it was
+taken to mean: hidden poses are filtered in the timeline, so the renderer never receives one.
+`SceneProp` has no `Hidden` member **because the design is right**, and that absence was read as
+evidence the design was missing. Filed as a bug, retracted within the hour when the owner said from
+memory that pickups already vanish in the viewer.
+
+Two things follow. **An absence caused by correct upstream handling looks exactly like a gap**, so
+before filing one, find where the value IS consumed rather than confirming where it is not. And **an
+owner's recollection of using the program outranks a grep** — it is an observation of the running
+system, which is the thing the grep is a proxy for.
+
+**A third thing, found by asking afterwards what WOULD have caught the alleged bug: nothing.**
+Sabotaging the filter left the whole suite green, because the test that read as covering it measured
+`props[0].Pose.Hidden` — a field on the object handed over — instead of whether it was handed over at
+all. So the claim was unfalsifiable from the suite, which is itself the finding. **When a search
+suggests a defect, sabotage the code before filing it**: if nothing reddens, the coverage gap is
+real even when the defect is not.
+
+**Two of them were then written into tests**, which is the expensive form — an assertion defending
+the wrong conclusion during review.
+
+### The rule
+
+**Put a positive control in the same sweep.** When measuring that `$modblend` appears in zero
+published shaders, measure `$envmap` and `$detail` in the same call and assert they are large. If
+the controls come back zero the instrument is broken, and the interesting result is an artefact.
+
+That is what `DeadShaderParameterConformanceTests` does, and it caught its own threshold being set
+from a `.cpp`-only sweep when the real answer spans `.h` and `.fxc` too.
+
+### Before trusting an absence
+
+- **Search for the string, not the identifier** — see [[wire-names-are-strings]].
+- **Widen the root once.** `public/` sits beside `game/`, and shared code lives there.
+- **Try a file type you did not think of.** `.res`, `.vmt`, `.fxc` and VPK contents are sources; see
+  [[nothing-is-closed]].
+- **State the scope in the claim.** "Not in `game/`" is checkable and survives; "not in the SDK" is a
+  claim about 40,000 files that nobody verified. This applies to our own code too: "no renderer reads
+  it" was a claim about one project directory, and the answer was in the next one up.
+- **For "nothing consumes X", go and find what DOES.** Searching only the layer you expected the
+  consumer to be in cannot tell a missing feature from a correctly-placed one.
+
+An absence CAN be the answer — `demo_interpolateview` really is an engine ConVar with nothing in the
+tree. The difference is that the claim is worth making only once the search has been shown to work.
+
+### A detector shipped as a TEST needs the control permanently, not just once — B196, 2026-08-25
+
+The rule above is usually applied to a one-off grep. It matters more when the search becomes a
+standing test, because then the empty result is re-asserted on every run and nobody looks again.
+
+`FieldSeedingTests` scans the viewer's source for a field that is READ but only ever assigned
+`null` — the shape a dropped assignment leaves behind after an extraction. It found two shipped
+regressions. It also failed **twice, silently, in the direction of reporting nothing**, and each
+time the only thing that noticed was a control test feeding it a known-broken input:
+
+1. **`=(?!=)\s*(?!null\s*;)` does not mean "an `=` not followed by null".** When the lookahead
+   fails, the engine backtracks the `\s*` to zero width; the lookahead then sees a SPACE rather
+   than `null` and succeeds. Every `= null;` counted as a real assignment and the whole scan passed
+   vacuously. Needs an atomic group — `(?>\s*)`.
+2. **A COMMENT counted as an assignment.** This repo records every deleted field in a note naming
+   it, and one reads ``the old catch set `_level = null` alongside…``. The backtick after `null`
+   defeats the guard, so the note marked the field seeded — and the scan reported the second bug
+   while staying blind to the first, which is the one it was written for. Strip comments before
+   asking anything about code.
+
+**A partially-blind detector is worse than no detector**, because it produces findings and
+therefore reads as working. The output was "1 item" rather than "0 items", which is the most
+convincing possible wrong answer.
+
+**So: validate a detector against the real historical defect, not only a synthetic one.** The
+decisive check here was `git stash push -- <the file>`, running the scan against the pre-fix source,
+and confirming it named BOTH fields — sensitivity to a case someone invented is weaker evidence
+than sensitivity to the case that actually shipped.
+
+### A truncated search is an empty search with a plausible tail
+
+B279's first diagnosis. `grep -rn UpdateClientSideAnimations … | head -6` returned six lines, all
+comments and the definition, and "no call site" was concluded — a fix was written for it and a
+duplicate call added to production. **The call was the seventh line**, in `MomentScene.Build`.
+The `head` was there to keep the tool result short, and it cut off exactly the line that answered
+the question.
+
+Second instance the same day: `head -8` on a `simlag` histogram hid the `>=+8` bucket that held a
+third of the mass, and the distribution was misread as "mostly −4 and 0" for one round.
+
+**The rule: never cap a search whose ABSENCE you are about to act on.** Cap the ones you are only
+skimming. If a result must be short, count it first — `grep -c` — and only then print a slice, so a
+truncated list cannot be mistaken for a complete one. A `head` on evidence is a truncated trx total
+with the truncation hidden, which is [[read-the-trx-total-not-the-console]] exactly.
+
+**The tool itself can be the absence, 2026-09-05.** Searching a VPK index for `vcd` and
+`scenes.image` returned zero for both — and zero for the control, `mdl`, in a VPK this project reads
+14,109 models from. The cause was that **there is no `strings` binary on this machine**, so every
+search had been reporting on a missing program rather than on the file. `grep -a` works and shows a
+top-level `scenes` entry.
+
+**So the control has a control: does the TOOL run at all.** `command -v strings` would have said so
+in one line, and the shape to watch for is *every* query returning zero, including ones that must
+match. A pattern that is merely wrong gives a mixed result; a broken instrument gives a uniform one.
+
+Same session, same shape, twice: a `grep -E` with escaped alternation inside a `for` loop returned
+empty for three subjects at once, and autolayers turned out to be implemented in eleven files.
+**Uniform zeros are the tell.**
+
+Related: [[the-denominator-decides-what-can-be-lost]], [[nothing-is-closed]],
+[[output-level-assertion-or-it-is-not-done]].
+
+---
+
+## `run-the-control-before-arguing` — build the pre-change tree instead of reasoning about authorship
+
+**When a defect surfaces right after a change, run the PRE-CHANGE build on the same input before
+reasoning about whether the change caused it.** `git worktree add <tmp> <commit>` and build — the
+tree does not have to be clean, and nothing in the working copy is disturbed.
+
+Measured 2026-08-28. A viewmodel dropped out during a session that had just landed two-pass drawing.
+An evening went into arguing authorship from evidence:
+
+- the commit touched no bone, animation, merge or pose file
+- both candidate failure modes make a model invisible under any pass or material
+- the model's only material was opaque, so the change was provably a no-op for it
+
+**All true, all correct, and none of it was evidence about the symptom.** The owner eventually said
+*"lets run the control"*. One launch: the dropout still happened on the pre-change build. Question
+closed.
+
+**Why:** an argument that a change *cannot* have caused something is reasoning about a mechanism you
+have already assumed. The control tests the claim itself, needs no mechanism, and cannot be wrong
+about authorship. It is also cheap — the build was already sitting in a worktree from earlier in the
+same session and went unused for hours while better arguments were made.
+
+**How to apply:** the moment "is this mine?" is asked out loud, build the control. Do it before
+instrumenting, before reading the SDK, and certainly before explaining why it cannot be yours. If the
+symptom is visual, the control needs the owner's eyes for one playthrough — cheaper than any of the
+alternatives.
+
+**The corollary, and it cost more than the control did:** the owner then observed *"the arms are not
+being drawn either during the dropout, its not just the weapon"* — which meant every measurement of
+the weapon had been aimed at the wrong subject, and the clean results were clean because that model
+was fine. **Ask what ELSE is missing before instrumenting the thing that was reported.** A symptom is
+reported as the part that was noticed, not as its full extent.
+
+Related: [[ask-which-input-differs-before-bisecting]], [[the-f12-demo-is-the-parity-reference]],
+[[nothing-is-closed]].
+
+---
+
+## `correct-counts-are-not-a-chain-of-custody` — six green counts, nothing drawn
+
+A feature can be absent from the frame with **every instrument reporting success**, because each one
+measures a stage that genuinely worked. Detail sprites (B360): the game-lump directory found `dprp`,
+the reader returned 28,699 objects, the builder made 20,117 quads, the material resolved at index
+206, `MapWorld` logged `398595 of 398595 prop triangles drawn`, and the renderer's blend census
+listed material 206 as translucent. The hillside was bare.
+
+The gap was between the last two: `DrawOpaqueBatches` skips translucent materials and the sorted
+translucent list was built from the world's batches only, so every translucent PROP batch — five of
+eleven on harvest — was issued by nothing (B362).
+
+**Why:** each count answered "did this stage produce output", and none answered "was a draw call
+issued". A chain of correct counts is not a chain of custody; the last link is the one nobody
+instruments, and it is the only one that decides whether anything appears.
+
+**How to apply:** when output is missing and every counter is green, stop adding counters — the next
+one will be green too. Ask which pass actually ISSUES the work and whether the new thing is in that
+pass's input list. Then confirm with a picture, pointed at coordinates taken from the data itself
+rather than guessed: see [[point-the-camera-from-the-data]]. Related:
+[[output-level-assertion-or-it-is-not-done]].
+
+---
+
+## `two-margins-are-not-the-table` — print the cross, and read every column of your own output
+
+A census reported `cp_granary`'s detail props as two margins — *19,189 screen-aligned, 324 fixed* —
+and that was read as "324 fixed sprites". Granary has **no** fixed-orientation sprite: its 324
+fixed-orientation objects are `DETAIL_PROP_TYPE_MODEL`, a studio model nothing here draws. The two
+variables correlate perfectly on that map and not at all on `koth_harvest_final`, so one map's
+margins cannot be read as the other's.
+
+The claim shipped into three documents before a screenshot of the wrong hillside sent me back to the
+probe output — where the tell had been sitting all along: those 324 rows printed a `m_flScale` of
+**−181,657,600**. A model does not use that field. **A nonsense number beside a plausible one is the
+instrument saying which rows it should not have selected.**
+
+**Why:** margins lose the interaction, and the interaction is usually the finding. "How many are
+screen-aligned" and "how many are sprites" answer different questions, and the one that decides what
+gets drawn is the cross.
+
+**How to apply:** when two categorical fields both gate the same behaviour, print the CROSS, not the
+two totals — one line per (type, orientation) pair. And read every column of a probe's own output
+before quoting one of them: an impossible value in a neighbouring field is evidence about the row.
+Related: [[the-denominator-decides-what-can-be-lost]].
+
+---
+
+## `print-a-value-somebody-can-recognise` — a name a human knows is the control a count cannot be
+
+**When a decode produces a value the world has a NAME for, print the value.** A count says the code
+ran; a recognisable value says it ran correctly, and nothing else available does.
+
+Measured 2026-09-04 implementing TF2's paint (`ItemTintColor`, B330). The `paint` probe prints hex
+rather than a total, and what came back was:
+
+| colour | paint |
+|---|---|
+| `#FF69B4` | Pink as Hell |
+| `#E6E6E6` | An Extraordinary Abundance of Tinge |
+| `#7D4071` | Noble Hatter's Violet |
+| `#141414` | A Distinctive Lack of Hue |
+| `#694D3A` | Radigan Conagher Brown |
+
+Every one is a paint somebody has equipped. **"12 painted of 51 econ items" would have been equally
+true of a wrong implementation** — the attribute's 32 bits are a float whose VALUE is the packed
+colour, and reinterpreting the bits instead of truncating gives `0x4B67B53B` for `0xE7B53B`. That is
+still "a colour", still non-zero, still counts as 12.
+
+**The technique generalises to anything with a vocabulary outside this project**: a material name, a
+map name, a model path, a class name, a hex colour, a known constant. Print it and read it. Where a
+value has no such vocabulary — a bit offset, a float from an interpolation — this does not help and
+a control has to come from somewhere else.
+
+### The corollary: a rare branch shows up in real data or not at all
+
+Two of the twelve came back `#B8383B / BLU #5885A2`, which is `RGB_INT_RED` 12073019 and
+`RGB_INT_BLUE` 5801378 — **Valve's old team-colour sentinel, live in a 2026 match.** The attribute's
+value 1 is not a colour; it selects two constants
+(`GetModifiedRGBValue`, `econ_item_view.cpp:1612-1615`).
+
+A synthetic test covers that branch only if somebody thought of it. Running the probe over real
+demos is what proved the branch is REACHED — and reading its 1 as a colour would have painted two
+hats near-black in every demo containing them, which is exactly the kind of defect that gets
+reported as "that hat looks wrong" years later.
+
+It was checked on two demos — 12 of 51 and 10 of 102. The `print-what-was-added-not-how-many` section
+above is the same rule, one step less specific.
 
 **A probe that resolved an ENTITY INDEX without a tick, and named its subject from a literal**
 (B389, 2026-09-10). `cycle 20130518_0313_cp_granary_blu_blu 141 8200` reported a complete animation

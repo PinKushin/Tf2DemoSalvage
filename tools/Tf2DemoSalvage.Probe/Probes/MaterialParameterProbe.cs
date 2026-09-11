@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// **Ask for something that must be there before believing an absence.** `$basetexture` is the
 /// control: a run reporting few of those has a broken scan rather than a finding
-/// (<c>docs/memory/an-empty-search-needs-a-control.md</c>).
+/// (<c>docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control</c>).
 ///
 /// **A second argument prefixed with <c>!</c> EXCLUDES**, which is the form that answers "how many
 /// materials fall back to the engine's default" — a question no single count can reach, because

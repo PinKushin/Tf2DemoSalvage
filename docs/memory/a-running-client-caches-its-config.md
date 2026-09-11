@@ -1,8 +1,11 @@
 ---
 name: a-running-client-caches-its-config
-description: TF2 serves a stale .cfg after an overwrite, so a fix can look like it failed; type the single cvar instead.
-metadata:
+description: "TF2 serves a stale .cfg after an overwrite, so a fix can look like it failed; type the single cvar instead."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:54:34.313Z
 ---
 
 **Overwriting a `.cfg` while TF2 is running changes nothing until it is `exec`'d, and the first read
@@ -18,7 +21,7 @@ confidence in it**, which is why this is worth remembering rather than rediscove
 immediately, and it is one variable rather than a file of them — a measurement rather than a change
 of state. Restart the client only when a whole profile genuinely needs exercising.
 
-Same family as [[real-data-hides-bugs-small-inputs-expose]] and the `-1` versus `-10` wrong turn in
+Same family as [[fixtures-are-the-weak-point]] and the `-1` versus `-10` wrong turn in
 `docs/findings/24-reference-capture.md`: a procedure chosen for convenience, insensitive to the thing
 it was meant to detect.
 

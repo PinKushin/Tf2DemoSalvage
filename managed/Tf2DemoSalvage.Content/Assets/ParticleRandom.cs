@@ -40,7 +40,7 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// arithmetic above depends on, but not float-for-float Valve's. What that can change is which
 /// particular puff got which lifetime, never the distribution or the reproducibility. Falsifiable by
 /// disassembling `particles.lib`, which ships in the SDK
-/// (`docs/memory/absent-from-the-sdk-is-not-unreadable.md`).
+/// (`docs/memory/nothing-is-closed.md#absent-from-the-sdk-is-not-unreadable`).
 /// </remarks>
 public static class ParticleRandom
 {

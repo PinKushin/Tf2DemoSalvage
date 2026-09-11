@@ -7,7 +7,7 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// **Shared rather than copied, the second time it was needed.** It began private to
 /// <c>PlayerCycleAdvanceWiringTests</c>; a second wiring test needing the same six members is the
 /// point at which a copy becomes the drift this project has been bitten by
-/// (`docs/memory/extraction-without-adoption-is-not-dry.md`), because two stubs answer differently
+/// (`docs/memory/output-level-assertion-or-it-is-not-done.md#extraction-without-adoption-is-not-dry`), because two stubs answer differently
 /// the moment one is adjusted for a test the other never runs.
 ///
 /// **Every member answers something usable, deliberately.** `PlayerProps.Add` drops a player whose

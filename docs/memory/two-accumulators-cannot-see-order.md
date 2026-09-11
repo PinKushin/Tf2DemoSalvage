@@ -1,8 +1,11 @@
 ---
 name: two-accumulators-cannot-see-order
 description: Two lists filled by two different callbacks cannot measure which callback ran first; the observer has to read the observed.
-metadata:
+metadata: 
+  node_type: memory
   type: feedback
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-10T22:52:47.282Z
 ---
 
 **A test that records two things into two lists and asserts on both looks thorough and is blind to
@@ -43,5 +46,5 @@ different variable and one that both orders satisfy.
 **How to apply:** when the claim contains the word *before*, *after*, *already* or *not yet*, ask
 which side has to READ the other. If the answer is "neither, they both just append", the test cannot
 fail and needs restructuring, not a bigger assertion. Related:
-[[instrument-bugs-outnumber-decoder-bugs]], [[a-duplicated-guard-cannot-be-tested]],
-[[most-of-a-decoder-is-untested]].
+[[instrument-bugs-outnumber-decoder-bugs]], [[most-of-a-decoder-is-untested]] and its
+`a-duplicated-guard-cannot-be-tested` section.

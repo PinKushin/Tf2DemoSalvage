@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 9b3a8b35-1dc8-47b0-a320-73b01288f10c
-  modified: 2026-08-26T01:02:11.296Z
+  modified: 2026-09-09T03:42:50.564Z
 ---
 
 **Order of work on anything that reproduces engine behaviour: conformance test, then the ordinary
@@ -96,4 +96,84 @@ take. Re-deriving it by hand is slower, produces a subset, and cannot be checked
 **Check the generated report first whenever the question is "what is missing".** Measurement can only
 find data that is wrong; it cannot find a feature that was never implemented.
 
-Related: [[nothing-is-closed]], [[an-uncoverable-gap-is-usually-your-reader]].
+Related: [[nothing-is-closed]], [[the-denominator-decides-what-can-be-lost]].
+
+---
+
+## `ask-valve-before-designing-not-after` — a design defended by taste gets undone by taste
+
+**The owner, 2026-08-26, mid-refactor:** *"and how does valve handle these timings?"*
+
+Asked while I was designing a two-clock type for frame timing — tests already written, reasoning
+already done, none of it checked against the engine. The design survived unchanged. **The
+justification did not**, and that was the valuable part.
+
+Before: *"I'd rather not merge these two clocks; they're stamped at different moments and B209 has
+open pacing questions."* An argument from the code we already have, which cannot tell you whether the
+code we already have is right.
+
+After: **Valve keeps six distinct time quantities and names each by what it obeys** — `realtime`
+follows `host_timescale`, `Plat_FloatTime` deliberately does not, `frametime` versus
+`absoluteframetime` is paused versus not, and `curtime` has three documented meanings by context
+(`public/globalvars_base.h`). Its own demo free camera, `CalcDemoViewOverride`, flies by
+`absoluteframetime` (`view.cpp:153`), and `cl_showfps` reads the same one (`vgui_fpspanel.cpp:166`).
+**Merging them would be the divergence.**
+
+**Why this matters beyond the one case:** a design defended by taste gets undone by the next person
+with different taste. A design defended by a citation is a fact somebody has to argue with. The
+comment that says *"two clocks, because Valve keeps several and here is where it says so"* survives a
+refactor; *"two clocks, because I thought about it"* does not.
+
+**It also validated something already there.** B174 had independently arrived at "the meter reads the
+camera's clock rather than starting its own" — reasoned out with no citation, and correct. Checking
+turns a lucky guess into a documented match.
+
+**How to apply:** the order above is conformance test, then unit tests, then implementation, because
+a conformance test written afterwards *"becomes a description of what was built, which is the one
+thing a parity test must never be."* I had written the unit tests first. The tell is noticing you are
+about to justify a design decision in a comment using the words "because I" — at that point the
+question is whether the engine already answered it.
+
+**And when the engine's own answer is unreachable, say so in the same breath.** `fps_max` and the
+host frame loop are engine code; `source-sdk-2013` ships no `engine/host.cpp`. What the published
+headers still establish is what it *cannot* be — flag that as inference, not reading.
+
+Full write-up with the quoted source: `docs/findings/39-the-engines-frame-clocks.md`.
+
+---
+
+## `decide-home-and-parity-before-writing` — both answers, before the code, in the commit
+
+The owner, 2026-08-25:
+
+> "every time we implement a couple of new things, we have to go back and fix all the archetectural
+> and parity issues, the going back over and over is the annoying part."
+
+**The ratio is the evidence.** The initial MVP switch took a day. Undoing the drift that grew back
+took another. Bringing the same code to Valve's conventions took a third. Three days of rework
+against a couple of features.
+
+**Why:** the project already requires a conformance test with its citation BEFORE implementation,
+and that works. Nothing said the same about **structure**, so two questions got answered by
+proximity instead — new code went where its neighbours were and copied what was already there.
+`AddViewmodel` was written into `MainForm` for exactly that reason, and it cost three viewmodel bugs
+their testability.
+
+**How to apply — answer both before writing, and put the answers in the commit:**
+
+1. **What is the engine's arrangement for this job?** One grep of `source-sdk-2013`. If Valve models
+   it as a game system, a presenter or a per-frame pass, take that shape and preferably that name —
+   `SoundscapeSystem` (`C_SoundscapeSystem`) and `UpdateClientSideAnimations`
+   (`C_BaseAnimating::UpdateClientSideAnimations`) are named for their originals so the parity is
+   checkable by the next reader rather than rediscoverable.
+2. **Which project does it belong in, and can it be tested there?** "The viewer, because that is
+   where the caller lives" is the drift starting. A misplaced type takes its tests with it, and those
+   tests are what stop the next regression.
+
+**Both are cheap before and expensive after.** A divergence written into a NEW type reads as
+deliberate, which is harder to spot than one left in an old method. The going-back is not caused by
+the refactors — it is caused by the two minutes not spent when the code was written.
+
+Recorded as a decision in `docs/DECISIONS.md` under D89.
+
+Related: [[valve-parity-is-the-first-principle]], [[output-level-assertion-or-it-is-not-done]].

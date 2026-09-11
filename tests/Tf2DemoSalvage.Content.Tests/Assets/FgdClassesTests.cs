@@ -11,7 +11,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// <remarks>
 /// **Against the shipped files as well as against fixtures.** A hand-written FGD snippet is written
 /// from the same belief the parser holds, so it cannot falsify the reading — the standing lesson in
-/// `docs/memory/put-the-real-file-in-the-fixture.md`. The fixtures here pin the SHAPES that matter
+/// `docs/memory/fixtures-are-the-weak-point.md#put-the-real-file-in-the-fixture`. The fixtures here pin the SHAPES that matter
 /// (a stated colour, an inherited one, a cycle) and the shipped-file test proves the parser survives
 /// three hundred kilobytes of real text.
 /// </remarks>

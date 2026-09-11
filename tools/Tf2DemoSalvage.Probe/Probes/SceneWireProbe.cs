@@ -36,7 +36,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// **Every table is listed, not just the one wanted.** An absent `"Scenes"` reads identically to a
 /// table this probe failed to route, and the list of names it DID see is the control
-/// (`docs/memory/an-empty-search-needs-a-control.md`).
+/// (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`).
 /// </remarks>
 public sealed class SceneWireProbe : IProbe
 {

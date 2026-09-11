@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
-  modified: 2026-09-06T14:30:42.223Z
+  modified: 2026-09-09T03:55:38.680Z
 ---
 
 `MomentInfo.EyeCamera` was filled in only when the viewer was in first person
@@ -27,5 +27,5 @@ it in free look before believing it. And note the test shape that missed this fo
 unit test set `ViewOrigin` by hand, so all of them tested the arithmetic below the defect and none
 tested how a frame supplies it.
 
-See [[one-camera-or-the-cull-lies]], [[output-level-assertion-or-it-is-not-done]] and
+See [[instrument-bugs-outnumber-decoder-bugs]], [[output-level-assertion-or-it-is-not-done]] and
 [[a-dropped-field-falls-to-a-computed-default]].

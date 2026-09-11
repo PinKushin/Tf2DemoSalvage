@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// **A mean, never the last rebuild.** The owner, on the first version of the frame log: *"a probe
 /// that only polls per second is way too slow so that better be a fucking average"* — the same rule
 /// and the same trap, since one rebuild in a hundred is a sample dressed as a measurement
-/// (`docs/memory/log-the-event-not-a-sample-of-it.md`).
+/// (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#log-the-event-not-a-sample-of-it`).
 /// </remarks>
 public sealed class MomentCostLog
 {

@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Audio.Tests;
 ///
 /// It is also device-free on purpose. The measurement boxes and CI have no sound card, so a test
 /// that needed one would skip everywhere it matters — and a skip is not a pass
-/// (`docs/memory/a-skip-is-not-a-pass-or-a-failure.md`).
+/// (`docs/memory/read-the-trx-total-not-the-console.md#a-skip-is-not-a-pass-or-a-failure`).
 /// </remarks>
 public sealed class AudioOutputMixTests
 {

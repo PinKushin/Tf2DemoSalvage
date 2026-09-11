@@ -19,7 +19,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 ///
 /// **The denominator is generated, not written down.** `tf/cvarlist.log` is the game's own dump —
 /// 3,668 entries, 2,660 convars and 1,008 concommands — so this cannot go stale the way a hand-kept
-/// list does (`docs/memory/a-walking-test-cannot-see-a-deletion.md`). What a hand-kept list CAN do
+/// list does (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#a-walking-test-cannot-see-a-deletion`). What a hand-kept list CAN do
 /// is say why a name is ours, which is what the exception table below is for.
 ///
 /// **Why a wrong name is a real defect rather than a cosmetic one.** D69 is that a real TF2 config
@@ -146,7 +146,7 @@ public sealed class CvarNameConformanceTests
     ///
     /// The settings half is read by reflection rather than from a list, so a constant added
     /// tomorrow is covered without anyone remembering to add it here
-    /// (`docs/memory/a-walking-test-cannot-see-a-deletion.md`).
+    /// (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#a-walking-test-cannot-see-a-deletion`).
     /// </remarks>
     private static List<string> Named()
     {

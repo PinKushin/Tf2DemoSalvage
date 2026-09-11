@@ -3240,12 +3240,12 @@ internal class MainForm : Form, IFrameSteps
             // `SetRenderToggle` no-ops while there is no device, so a config read before this point
             // reaches nothing — and `Device3D._phong` defaults to ON, so `mat_phong 0` would be
             // silently dropped rather than visibly failing. That is the null-object shape recorded
-            // in `docs/memory/a-null-object-default-hides-a-missed-wiring.md`.
+            // in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`.
             _device.Phong = _settings.Phong;
 
             // **`r_3dsky`, applied here for exactly the reason `mat_phong` is.** The device
             // defaults it to Valve's 1, so a config saying `r_3dsky 0` would be silently dropped —
-            // the null-object shape in `docs/memory/a-null-object-default-hides-a-missed-wiring.md`,
+            // the null-object shape in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`,
             // where the default and the ignored setting agree and nothing looks wrong.
             _device.Draw3dSky = _settings.ThreeDimensionalSky;
 
@@ -3793,7 +3793,7 @@ internal class MainForm : Form, IFrameSteps
                     // it for entity 407 returns a rocket from later in the match, whose `FirstTick`
                     // is past the current tick, so the age clamped to zero and the replay never ran.
                     // That is a lookup keyed on something that does not identify the thing
-                    // (`docs/memory/lookups-must-match-exactly.md`).
+                    // (`docs/memory/key-a-lookup-on-the-question.md#lookups-must-match-exactly`).
                     //
                     // The track wanted is the one for this entity that CONTAINS this tick. Scanned
                     // rather than indexed because it happens once per projectile, when its effect
@@ -4338,7 +4338,7 @@ internal class MainForm : Form, IFrameSteps
     ///
     /// which is not a frame rate at all: it is how fast an empty loop spins. Every number in that
     /// line was consistent with itself and none of it measured rendering, which is the failure
-    /// `docs/memory/a-log-must-name-what-it-measured.md` is about. It survived because a high frame
+    /// `docs/memory/logs-are-the-debugger.md#a-log-must-name-what-it-measured` is about. It survived because a high frame
     /// rate is the answer nobody investigates.
     /// </remarks>
     private bool RenderFrame()
@@ -4494,7 +4494,7 @@ internal class MainForm : Form, IFrameSteps
         //
         // **The frustum is the device's own**, the same one the world cull and the draw use, rather
         // than a second one built from the camera here
-        // (`docs/memory/one-camera-or-the-cull-lies.md`).
+        // (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#one-camera-or-the-cull-lies`).
         //
         // **Before the early return, because the two are unrelated.** `NeedsProjecting` asks whether
         // the WORLD's screen-space projection is stale, which a camera move invalidates and a demo
@@ -4989,11 +4989,11 @@ internal class MainForm : Form, IFrameSteps
             // **Says what it did, not which mode it is in.** The old line reported "free camera on"
             // or "free camera off, back to the map view", and both are now false: there is one
             // camera and this key does not switch anything. A log that names the wrong quantity
-            // misdirects with authority (`docs/memory/a-log-must-name-what-it-measured.md`).
+            // misdirects with authority (`docs/memory/logs-are-the-debugger.md#a-log-must-name-what-it-measured`).
             // **Information rather than Debug since 2026-08-26.** It is a thing the user did and the
             // picture jumps because of it, which is the same class as "wrote shot-…" beside it — and
             // at Debug the app discarded it, so nothing outside a debugger could ever tell whether
-            // the key arrived (`docs/memory/a-log-level-regression-is-invisible-to-unit-tests.md`).
+            // the key arrived (`docs/memory/logs-are-the-debugger.md#a-log-level-regression-is-invisible-to-unit-tests`).
             // Found because a UI test asserted on this line and watched a line that is never written.
             _renderLog.LogInformation("{Message}", "camera reset to the overhead placement");
 

@@ -311,7 +311,7 @@ public sealed class CorpseProbe : IProbe
 
         // **The control on that zero.** A field that decodes to its default for every entity looks
         // identical to a field nobody eligible triggered, and only the spread tells them apart
-        // (`docs/memory/an-empty-search-needs-a-control.md`). A comp 6v6 has no sniper and no spy,
+        // (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`). A comp 6v6 has no sniper and no spy,
         // so zero headshots and zero backstabs is the expected answer — but it has to be shown
         // rather than assumed, and a single value repeated 159 times would mean the decode.
         Dictionary<int, int> kinds = [];

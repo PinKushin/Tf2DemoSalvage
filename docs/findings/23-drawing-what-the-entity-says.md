@@ -54,7 +54,7 @@ nine-way movement blend is one fixed direction, so the legs run that way whateve
 **And the bug that actually broke standing was none of the above.** The sequence lookup used
 `Contains`, so asking for `Stand_PRIMARY` returned `AttackStand_PRIMARY` and laid everyone down.
 Three commits blamed the skeleton, the up axis and the matrix convention first — all three wrong,
-all three amended. See [[lookups-must-match-exactly]].
+all three amended. See `docs/memory/key-a-lookup-on-the-question.md#lookups-must-match-exactly`.
 
 ## A fixed camera hides every shortcut taken for it
 

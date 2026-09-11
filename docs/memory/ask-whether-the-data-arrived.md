@@ -1,8 +1,11 @@
 ---
 name: ask-whether-the-data-arrived
-description: Before analysing a decoder bit by bit, check that every message actually reached it — three rounds of bit-level analysis went into a decoder that was already correct
-metadata:
+description: "Before analysing a decoder bit by bit, check that every message actually reached it — three rounds of bit-level analysis went into a decoder that was already correct"
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 1530d8fa-540e-408a-bb73-09b13bdff510
+  modified: 2026-09-09T03:54:12.789Z
 ---
 
 **Symptom:** entity decoding desynchronised partway through a demo, at a different point in
@@ -24,7 +27,7 @@ Ten message types later, every corpus demo decodes end to end. Not one was a dec
 ## Why the differential misled here
 
 The per-snapshot differential that settled the flattening order (see
-[[differential-beats-fixtures]]) pointed straight at the decoder here, because **a dropped
+[[fixtures-are-the-weak-point]]) pointed straight at the decoder here, because **a dropped
 message renumbers every snapshot after it** and that is indistinguishable from values read at
 the wrong width.
 
