@@ -315,6 +315,42 @@ public sealed class VmtMaterial
     }
 
     /// <summary>
+    /// The <c>Sprite</c> shader's constant color, <c>$color</c> and <c>$alpha</c>, which
+    /// <c>kRenderTransAdd</c> multiplies the texture by (B391).
+    /// </summary>
+    /// <remarks>
+    /// **The shader's own packing**, `CBaseVSShader::SetPixelShaderConstant( 0, COLOR, ALPHA )`
+    /// (`BaseVSShader.cpp:57-80`): the color as a vector, or one float broadcast to all three, and
+    /// <c>val[3] = pPixelVar2-&gt;GetFloatValue()</c>, so the alpha is **not clamped**, unlike the
+    /// <see cref="Modulation"/> every lit shader folds in. Neither default is a guess: <c>$color</c> is
+    /// a standard variable that starts white, and `SHADER_INIT_PARAMS` sets an undefined <c>$alpha</c>
+    /// to one (`sprite_dx9.cpp:53-56`). <c>$color2</c> takes no part; the Sprite shader never reads it.
+    /// </remarks>
+    public (float Red, float Green, float Blue, float Alpha) SpriteConstantColor
+    {
+        get
+        {
+            (float red, float green, float blue) = Colour("$color");
+
+            return (red, green, blue, Number("$alpha", 1f));
+        }
+    }
+
+    /// <summary>
+    /// Whether <c>kRenderTransAdd</c> drops the vertex color — <c>$ignorevertexcolors</c>, true unless
+    /// the material says otherwise (B391).
+    /// </summary>
+    /// <remarks>
+    /// <c>SHADER_PARAM( IGNOREVERTEXCOLORS, SHADER_PARAM_TYPE_BOOL, "1", … )</c> (`sprite_dx9.cpp:39`), so
+    /// absent is TRUE, and the additive modes add the vertex color only
+    /// <c>if( !params[ IGNOREVERTEXCOLORS ]-&gt;GetIntValue() )</c> (`:335`, `:361`). The vertex color is
+    /// the entity's <c>m_clrRender</c> and brightness, so by default an additive sprite's tint and
+    /// brightness never reach its pixels.
+    /// </remarks>
+    public bool IgnoresVertexColors =>
+        Value("$ignorevertexcolors") is null || Flag("$ignorevertexcolors");
+
+    /// <summary>
     /// How a <c>Sprite</c> material's quad is turned — <c>$spriteorientation</c>, as the shader
     /// translates it (B390).
     /// </summary>

@@ -964,7 +964,10 @@ run Tf2DemoSalvage.Animation.Tests animation 252
 # the glow rule kept off an additive sprite, and the normal mode's texture-only draw.
 # 711 -> 713 on 2026-09-10: two for B390's mapping size — `EngineSprite.Init` sizing a sprite by the
 # texture as authored, and `MapTexture.Of` carrying both sizes out of one decode.
-run Tf2DemoSalvage.Scene.Tests    scene     713
+# 713 -> 716 on 2026-09-10: three for B391's kRenderTransAdd in EntitySpriteBatchesTests — the
+# material's color in place of the entity's, both multiplied under `$ignorevertexcolors 0`, and the
+# control that a world glow ignores the material's constant.
+run Tf2DemoSalvage.Scene.Tests    scene     716
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1382,7 +1385,9 @@ run Tf2DemoSalvage.Presentation.Tests presentation 444
 # 1154 -> 1157 on 2026-09-10: three for B390's patched sprite materials in VmtPatchBlockTests — a
 # patched Sprite drawing as the sprite with the patch's keys, a missing include leaving the patch, and
 # the control that a material that is not a Patch never asks for its include.
-run Tf2DemoSalvage.Content.Tests  content   1157
+# 1157 -> 1161 on 2026-09-10: four for B391 in SpriteMaterialConformanceTests — `$ignorevertexcolors`
+# absent and zero, and the Sprite shader's constant color broadcast, unclamped and defaulted.
+run Tf2DemoSalvage.Content.Tests  content   1161
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

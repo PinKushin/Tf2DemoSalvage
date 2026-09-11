@@ -318,7 +318,9 @@ public sealed class EntitySpriteConformanceTests
             [],
             SpriteBlend.Additive,
             SpriteOrientation.Parallel,
-            origin: null);
+            origin: null,
+            constantColor: (1f, 1f, 1f, 1f),
+            ignoresVertexColors: true);
 
         (sprite.Width, sprite.Height).ShouldBe((128, 64));
         sprite.Extents.ShouldBe(new SpriteExtents(-64f, 64f, 32f, -32f));

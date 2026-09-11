@@ -13,6 +13,14 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Height">Its height.</param>
 /// <param name="Orientation">The material's <c>$spriteorientation</c>, as the shader translated it.</param>
 /// <param name="Extents">Where the quad's edges sit, from the material's <c>$spriteorigin</c>.</param>
+/// <param name="ConstantColor">
+/// The material's <c>$color</c> and <c>$alpha</c>, which <c>kRenderTransAdd</c> multiplies the texture
+/// by; see <see cref="VmtMaterial.SpriteConstantColor"/>.
+/// </param>
+/// <param name="IgnoresVertexColors">
+/// Whether <c>kRenderTransAdd</c> leaves the entity's color and brightness out; see
+/// <see cref="VmtMaterial.IgnoresVertexColors"/>.
+/// </param>
 /// <remarks>
 /// **Built once, at load, as the engine builds it** (B390). `CEngineSprite::Init` reads the orientation
 /// and the origin a single time and keeps four edges; nothing per frame looks at the material's text
@@ -28,7 +36,9 @@ public readonly record struct EngineSprite(
     int Width,
     int Height,
     SpriteOrientation Orientation,
-    SpriteExtents Extents)
+    SpriteExtents Extents,
+    (float Red, float Green, float Blue, float Alpha) ConstantColor,
+    bool IgnoresVertexColors)
 {
     /// <summary>A sprite as <c>CEngineSprite::Init</c> builds it from its material.</summary>
     /// <param name="texture">The material's texture.</param>
@@ -36,6 +46,8 @@ public readonly record struct EngineSprite(
     /// <param name="blend">How the material's own text says it blends.</param>
     /// <param name="orientation">Its <c>$spriteorientation</c>, as the shader translated it.</param>
     /// <param name="origin">Its <c>$spriteorigin</c>, or null when it declares no vector.</param>
+    /// <param name="constantColor">Its <c>$color</c> and <c>$alpha</c>, as the Sprite shader packs them.</param>
+    /// <param name="ignoresVertexColors">Its <c>$ignorevertexcolors</c>, true when absent.</param>
     /// <returns>The sprite.</returns>
     /// <remarks>
     /// **Sized by the MAPPING size, the texture as authored** (B390):
@@ -55,13 +67,17 @@ public readonly record struct EngineSprite(
         IReadOnlyList<SheetSequence> sequences,
         SpriteBlend blend,
         SpriteOrientation orientation,
-        (float X, float Y)? origin) =>
+        (float X, float Y)? origin,
+        (float Red, float Green, float Blue, float Alpha) constantColor,
+        bool ignoresVertexColors) =>
         new(
             new ParticleMaterial(texture, sequences, blend),
             texture.MappingWidth,
             texture.MappingHeight,
             orientation,
-            SpriteExtents.Of(texture.MappingWidth, texture.MappingHeight, origin));
+            SpriteExtents.Of(texture.MappingWidth, texture.MappingHeight, origin),
+            constantColor,
+            ignoresVertexColors);
 }
 
 /// <summary>

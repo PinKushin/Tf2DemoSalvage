@@ -199,9 +199,17 @@ public sealed class EntitySpriteBatches
             //
             // **`kRenderNormal` is the texture alone**: its shader branch declares no vertex color
             // (`SetSpriteCommonShadowState( 0 )`), so neither the color nor the brightness reaches it.
-            (Vector3 color, float alpha) = prop.Pose.RenderMode == RenderModes.Normal
-                ? (Vector3.One, 1f)
-                : (Tint(prop.Pose.RenderColor) * blend, state.Brightness / 255f);
+            // **`kRenderTransAdd` is the material's color**, and the vertex color only on request; see
+            // `TransAdd`.
+            Vector3 vertexColor = Tint(prop.Pose.RenderColor) * blend;
+            float vertexAlpha = state.Brightness / 255f;
+
+            (Vector3 color, float alpha) = prop.Pose.RenderMode switch
+            {
+                RenderModes.Normal => (Vector3.One, 1f),
+                RenderModes.TransAdd => TransAdd(sprite, vertexColor, vertexAlpha),
+                _ => (vertexColor, vertexAlpha),
+            };
 
             EntitySprites.Corners(origin, right, up, sprite.Extents, scale, color, alpha, corners);
 
@@ -217,6 +225,37 @@ public sealed class EntitySpriteBatches
         }
 
         return _batches;
+    }
+
+    /// <summary>What <c>kRenderTransAdd</c> multiplies the texture by (B391).</summary>
+    /// <param name="sprite">The sprite, carrying its material's constant color.</param>
+    /// <param name="vertexColor">The entity's color, which the vertices carry.</param>
+    /// <param name="vertexAlpha">The entity's brightness, which the vertices carry as alpha.</param>
+    /// <returns>The color and alpha the corners are given.</returns>
+    /// <remarks>
+    /// **The shader's branch** (`sprite_dx9.cpp:332-338`):
+    ///
+    /// <code>
+    /// unsigned int flags = SHADER_USE_CONSTANT_COLOR;
+    /// if( !params[ IGNOREVERTEXCOLORS ]-&gt;GetIntValue() )
+    ///     flags |= SHADER_USE_VERTEX_COLOR;
+    /// </code>
+    ///
+    /// and the pixel shader multiplies the texture by each one present — <c>sample *= i.color;</c>, then
+    /// <c>sample *= g_Color;</c> (`sprite_ps2x.fxc:35-41`). The constant is the MATERIAL's
+    /// <c>$color</c> and <c>$alpha</c>. `$ignorevertexcolors` defaults to one, so by default the
+    /// entity's tint and brightness never reach the pixels; this drew them as it draws the other
+    /// modes.
+    /// </remarks>
+    private static (Vector3 Color, float Alpha) TransAdd(
+        EngineSprite sprite, Vector3 vertexColor, float vertexAlpha)
+    {
+        (float red, float green, float blue, float constantAlpha) = sprite.ConstantColor;
+        Vector3 constant = new(red, green, blue);
+
+        return sprite.IgnoresVertexColors
+            ? (constant, constantAlpha)
+            : (constant * vertexColor, constantAlpha * vertexAlpha);
     }
 
     /// <summary><c>m_clrRender</c>'s three bytes as the renderer's zero-to-one color.</summary>

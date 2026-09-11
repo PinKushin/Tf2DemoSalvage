@@ -2207,7 +2207,9 @@ public sealed class MapAssets
                 frames,
                 how,
                 vmt?.SpriteOrientation ?? SpriteOrientation.ParallelUpright,
-                vmt?.SpriteOrigin);
+                vmt?.SpriteOrigin,
+                vmt?.SpriteConstantColor ?? (1f, 1f, 1f, 1f),
+                vmt?.IgnoresVertexColors ?? true);
         }
 
         assets.LogInformation(

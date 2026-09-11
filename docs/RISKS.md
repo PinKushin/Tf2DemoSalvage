@@ -28708,3 +28708,60 @@ a compile error in place of a test result. It was replaced before any run.
 
 *Evidence class: differential for the two sabotages; the patch semantics are this project's existing
 `ApplyPatch`, now applied on the path that skipped it.*
+
+### B391 FIXED 2026-09-10: `kRenderTransAdd` draws with the material's color; mode 7 was misdescribed and stays open
+
+**One of B391's open items is fixed, and a second was stated wrongly.** B391's FIXED entry said modes
+5 and 7 both multiply by the material's `$color` and `$alpha`. The shader says that of mode 5 only.
+
+**The engine, `sprite_dx9.cpp`:**
+
+- **`kRenderTransAdd` (5)** (`:332-355`): `flags = SHADER_USE_CONSTANT_COLOR`, plus
+  `SHADER_USE_VERTEX_COLOR` only `if( !params[ IGNOREVERTEXCOLORS ]->GetIntValue() )`. The parameter
+  is declared `SHADER_PARAM_TYPE_BOOL, "1"` (`:39`), so absent means ignore. The constant is
+  `SetPixelShaderConstant( 0, COLOR, ALPHA )` (`:206`), which packs `$color` as a vector or broadcast
+  scalar and copies `$alpha` with no clamp (`BaseVSShader.cpp:69-78`). The pixel shader multiplies the
+  texture by each flag's value, `sample *= i.color;` then `sample *= g_Color;` (`sprite_ps2x.fxc:35-41`).
+- **`kRenderTransAddFrameBlend` (7)** (`:356-484`) is **two draws**, not one. The first binds frame
+  `(int)$frame` with the constant `flFade * ( 1 - frac( $frame ) )`, the second frame
+  `( (int)$frame + 1 ) % numAnimationFrames` with `flFade * frac( $frame )`. Here `flFade` is `$alpha`,
+  all three channels take the one grey value, alpha is 1, and **`$color` is not read at all**. The
+  vertex color follows the same `$ignorevertexcolors` rule.
+
+**What was done, for mode 5.**
+
+- **`VmtMaterial.SpriteConstantColor`** is `$color` and `$alpha` as `SetPixelShaderConstant` packs
+  them: broadcast, unclamped, and opaque white by default (`sprite_dx9.cpp:53-56` sets an undefined
+  `$alpha` to one). **`VmtMaterial.IgnoresVertexColors`** is true when absent.
+- **`EngineSprite`** carries both, read once at load, as `CEngineSprite` keeps a material per mode.
+- **`EntitySpriteBatches.TransAdd`**: the material's constant alone by default, or the constant times
+  the entity's color and brightness when `$ignorevertexcolors` is 0. The other modes are untouched.
+  They pass `SHADER_USE_VERTEX_COLOR` only and never read the constant.
+
+**Proved by manipulation**, two rounds, each prediction disjoint within its round:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| mode 5 falls through to the vertex color | `Build_ATransAddSprite_TakesTheMaterialsColorAndNotTheEntitys`, `Build_ATransAddSpriteThatKeepsVertexColors_MultipliesTheTwo` |
+| an absent `$ignorevertexcolors` reads false | `IgnoresVertexColors_WhenTheMaterialDeclaresNone_IsTrue` |
+| `$alpha` clamped to one | `SpriteConstantColor_ForAScalarColorAndAnAlphaAboveOne_BroadcastsAndDoesNotClamp` |
+| `$ignorevertexcolors 0` keeps the vertex color but not its alpha | `Build_ATransAddSpriteThatKeepsVertexColors_MultipliesTheTwo` |
+| every mode takes mode 5's color | `Build_AWorldGlow_IgnoresTheMaterialsConstantColor`, `Build_ATintedGlow_CarriesItsRenderColorIntoEveryCorner` |
+
+Two first attempts at the fourth break did not compile. Dropping the alpha left a parameter unused
+(S1172), and the rewrite nested a ternary (S3358). Both were analyzer errors, so no test ran. They
+were replaced before any result was read.
+
+**Still open.**
+
+- **Mode 7 as described above.** It needs the sprite's frame, which this project does not carry for
+  an `env_sprite`'s own animated VTF, and a second draw. It still takes the vertex color, which is
+  wrong even at a whole frame: there the engine draws `texture × $alpha` grey with alpha 1, ignoring
+  the entity's color.
+- **Unobserved.** B391's census found only `light_glow03` at mode 9 in three demos, so no sprite drawn
+  so far is mode 5. This is parity for a sprite not yet seen.
+- **`HDRCOLORSCALE`** multiplies the result when HDR is on (`sprite_ps2x.fxc:43-45`, default 1), and
+  `FogToBlack` applies to both additive modes. Neither is carried.
+- The glow depth test, modes 0 and 8, and `render->GetBlend()` are unchanged from B391.
+
+*Evidence class: read from source for every engine fact above; differential for the five sabotages.*

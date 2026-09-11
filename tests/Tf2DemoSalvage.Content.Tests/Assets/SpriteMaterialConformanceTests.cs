@@ -140,6 +140,45 @@ public sealed class SpriteMaterialConformanceTests
         Sprite("\"$spriteorigin\" \"0.5\"").SpriteOrigin.ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **Absent is TRUE**: <c>SHADER_PARAM( IGNOREVERTEXCOLORS, SHADER_PARAM_TYPE_BOOL, "1", … )</c>
+    /// (`sprite_dx9.cpp:39`). `light_glow03` does not name it, and nor do most sprites.
+    /// </remarks>
+    [Test]
+    public void IgnoresVertexColors_WhenTheMaterialDeclaresNone_IsTrue()
+    {
+        Sprite(string.Empty).IgnoresVertexColors.ShouldBeTrue();
+    }
+
+    [Test]
+    public void IgnoresVertexColors_SetToZero_IsFalse()
+    {
+        Sprite("\"$ignorevertexcolors\" \"0\"").IgnoresVertexColors.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **Both halves of `SetPixelShaderConstant( 0, COLOR, ALPHA )` at once** (`BaseVSShader.cpp:69-78`):
+    /// a scalar color is broadcast — <c>val[0] = val[1] = val[2] = pPixelVar-&gt;GetFloatValue()</c> — and
+    /// the alpha is copied with no clamp, so two stays two. The lit shaders' modulation clamps it to
+    /// one; reading this through that would give one.
+    /// </remarks>
+    [Test]
+    public void SpriteConstantColor_ForAScalarColorAndAnAlphaAboveOne_BroadcastsAndDoesNotClamp()
+    {
+        Sprite("\"$color\" \"0.5\"\n\"$alpha\" \"2\"").SpriteConstantColor.ShouldBe((0.5f, 0.5f, 0.5f, 2f));
+    }
+
+    /// <remarks>
+    /// **Opaque white by default**: <c>$color</c> starts white, and `SHADER_INIT_PARAMS` sets an
+    /// undefined <c>$alpha</c> to one (`sprite_dx9.cpp:53-56`) — so a material naming neither adds its
+    /// texture unchanged.
+    /// </remarks>
+    [Test]
+    public void SpriteConstantColor_WhenTheMaterialDeclaresNone_IsOpaqueWhite()
+    {
+        Sprite(string.Empty).SpriteConstantColor.ShouldBe((1f, 1f, 1f, 1f));
+    }
+
     /// <summary>A `Sprite` material carrying the given lines, as `light_glow03` is written.</summary>
     private static VmtMaterial Sprite(string parameters) =>
         VmtMaterial.Parse(Encoding.UTF8.GetBytes($$"""

@@ -177,6 +177,86 @@ public sealed class EntitySpriteBatchesTests
         }
     }
 
+    /// <remarks>
+    /// **`kRenderTransAdd` draws with the MATERIAL's color** (B391): <c>flags = SHADER_USE_CONSTANT_COLOR</c>,
+    /// and the vertex color only <c>if( !params[ IGNOREVERTEXCOLORS ]-&gt;GetIntValue() )</c>
+    /// (`sprite_dx9.cpp:334-338`), which defaults to one. So a tinted, half-bright entity on a material of
+    /// <c>$color [0.5 0.25 1]</c>, <c>$alpha 0.5</c> draws the material's numbers exactly, and none of its own.
+    /// </remarks>
+    [Test]
+    public void Build_ATransAddSprite_TakesTheMaterialsColorAndNotTheEntitys()
+    {
+        EntitySpriteBatches sprites = new();
+
+        IReadOnlyList<ParticleBatch> batches = Seen(
+            sprites,
+            RenderModes.TransAdd,
+            color: (255, 128, 0),
+            brightness: 128,
+            constant: (0.5f, 0.25f, 1f, 0.5f));
+
+        foreach (DetailSpriteVertex corner in batches[0].Corners)
+        {
+            corner.Red.ShouldBe(0.5f, 0.0001f);
+            corner.Green.ShouldBe(0.25f, 0.0001f);
+            corner.Blue.ShouldBe(1f, 0.0001f);
+            corner.Alpha.ShouldBe(0.5f, 0.0001f);
+        }
+    }
+
+    /// <remarks>
+    /// **With <c>$ignorevertexcolors 0</c> both reach the pixel**, one multiplied into the other —
+    /// <c>sample *= i.color;</c> then <c>sample *= g_Color;</c> (`sprite_ps2x.fxc:35-41`). Every channel
+    /// differs from both inputs, so neither alone can produce it.
+    /// </remarks>
+    [Test]
+    public void Build_ATransAddSpriteThatKeepsVertexColors_MultipliesTheTwo()
+    {
+        EntitySpriteBatches sprites = new();
+
+        IReadOnlyList<ParticleBatch> batches = Seen(
+            sprites,
+            RenderModes.TransAdd,
+            color: (255, 128, 0),
+            brightness: 128,
+            constant: (0.5f, 0.25f, 1f, 0.5f),
+            ignoresVertexColors: false);
+
+        foreach (DetailSpriteVertex corner in batches[0].Corners)
+        {
+            corner.Red.ShouldBe(0.5f, 0.0001f);
+            corner.Green.ShouldBe(0.25f * 128f / 255f, 0.0001f);
+            corner.Blue.ShouldBe(0f, 0.0001f);
+            corner.Alpha.ShouldBe(0.5f * 128f / 255f, 0.0001f);
+        }
+    }
+
+    /// <remarks>
+    /// **The control: the constant color is `kRenderTransAdd`'s alone.** The glow modes pass
+    /// <c>SHADER_USE_VERTEX_COLOR</c> and nothing else (`sprite_dx9.cpp:271`, `:275`), so a world glow on
+    /// the same material draws the entity's color and ignores the material's. A pass that applied the
+    /// constant to every sprite would pass both tests above and fail this one.
+    /// </remarks>
+    [Test]
+    public void Build_AWorldGlow_IgnoresTheMaterialsConstantColor()
+    {
+        EntitySpriteBatches sprites = new();
+
+        IReadOnlyList<ParticleBatch> batches = Seen(
+            sprites,
+            RenderModes.WorldGlow,
+            color: (255, 128, 0),
+            constant: (0.5f, 0.25f, 1f, 0.5f));
+
+        foreach (DetailSpriteVertex corner in batches[0].Corners)
+        {
+            corner.Red.ShouldBe(1f, 0.0001f);
+            corner.Green.ShouldBe(128f / 255f, 0.0001f);
+            corner.Blue.ShouldBe(0f, 0.0001f);
+            corner.Alpha.ShouldBe(1f, 0.0001f);
+        }
+    }
+
     /// <summary>One viewplane-parallel sprite at the origin, seen from straight above.</summary>
     /// <param name="sprites">The pass under test.</param>
     /// <param name="renderMode">The entity's <c>m_nRenderMode</c>.</param>
@@ -184,13 +264,17 @@ public sealed class EntitySpriteBatchesTests
     /// <param name="color">The entity's <c>m_clrRender</c> red, green and blue; white when omitted.</param>
     /// <param name="height">How far above the sprite the camera is.</param>
     /// <param name="brightness">The sprite's <c>m_nBrightness</c>, which is its alpha.</param>
+    /// <param name="constant">The material's <c>$color</c> and <c>$alpha</c>; opaque white when omitted.</param>
+    /// <param name="ignoresVertexColors">The material's <c>$ignorevertexcolors</c>, true by default as in the shader.</param>
     private static IReadOnlyList<ParticleBatch> Seen(
         EntitySpriteBatches sprites,
         int renderMode,
         SpriteBlend materialBlend = SpriteBlend.Translucent,
         (byte Red, byte Green, byte Blue)? color = null,
         float height = 500f,
-        int brightness = 255)
+        int brightness = 255,
+        (float Red, float Green, float Blue, float Alpha)? constant = null,
+        bool ignoresVertexColors = true)
     {
         EngineSprite sprite = new(
             new ParticleMaterial(
@@ -198,7 +282,9 @@ public sealed class EntitySpriteBatchesTests
             128,
             128,
             SpriteOrientation.Parallel,
-            SpriteExtents.Of(128, 128, origin: null));
+            SpriteExtents.Of(128, 128, origin: null),
+            constant ?? (1f, 1f, 1f, 1f),
+            ignoresVertexColors);
 
         SceneProp prop = new(
             EntityIndex: 42,
@@ -236,7 +322,9 @@ public sealed class EntitySpriteBatchesTests
             128,
             128,
             orientation,
-            extents ?? SpriteExtents.Of(128, 128, origin: null));
+            extents ?? SpriteExtents.Of(128, 128, origin: null),
+            (1f, 1f, 1f, 1f),
+            IgnoresVertexColors: true);
 
         SceneProp prop = new(
             EntityIndex: 42,
