@@ -26598,6 +26598,86 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B397 OPEN 2026-09-11: a rocket's spawn point sits well past a muzzle offset from its shooter
+
+**The owner, looking at the same rocket the reconfirmation above used**: neither the overhead nor the
+first-person capture look like the rocket comes from the right place — the visible soldier's rocket
+launcher does not line up with where the trail starts.
+
+**Measured, not yet explained.** `demostf-cp_process_f12-2026-08-07.dem`, tick 51093 — entity 407's
+`CTFProjectile_Rocket` ENTERs at `(-2478 -2452 699)`. The `carried` probe's own attribution puts it
+under player 7, a soldier holding `CTFRocketLauncher` 397, standing at `(-2296 -2442 731)` **at that
+same tick**. Straight-line distance: **185 units**. `CTFWeaponBaseGun::FireRocket` spawns a
+`CTFProjectile_Rocket` at `trace.endpos`, a line traced from the player's EYE to a `vecSrc` built by
+`GetProjectileFireSetup` from a small forward/right/up `vecOffset` — room for perhaps twenty to forty
+units past the player's origin, not 185.
+
+**Two explanations, and nothing here distinguishes them:**
+
+- **A real spawn-position defect** — the wrong origin, a stale player position at fire time, or
+  something else in how `EntityState.Owner()` or the ENTER snapshot resolves position for a
+  freshly-created entity.
+- **Ordinary motion since the actual fire tick.** A rocket travels ~16.5 units/tick at 1100 u/s;
+  `51093` is where this project's decode FIRST sees the entity, which need not be the exact server
+  tick it was created, and a rocket-jumping soldier moves fast and often away from the impact. A few
+  ticks of both together account for 185 units without anything being wrong.
+
+**Not yet checked, and each would settle a piece of it:**
+
+- The player's position at the tick the ROCKET LAUNCHER's weapon state last changed to firing (closer
+  to the true fire moment than the rocket's own first tick), rather than the same tick as the rocket's
+  ENTER.
+- **Checked, and it holds up.** `CarriedProbe` groups a prop under a player by
+  `prop.OwnedBy == player.EntityIndex`, which is `EntityState.Owner()` — the real decoded
+  `m_hOwnerEntity`, not a proximity guess. Player 7 genuinely IS this rocket's networked owner; the
+  185 units is between the real shooter and the real spawn point, not a probe artefact.
+- **The player's own motion was sampled across ticks 51075-51110 (`carried`, run once per tick) and
+  is smooth throughout** — a textbook parabolic fall, XY near-constant at ~1,100-1,250 u/s and Z
+  accelerating downward as the window progresses (gravity). Nothing glitchy or discontinuous in the
+  DECODED player position; whatever is wrong, if anything is, is specifically about the rocket's
+  spawn point relative to where this player was at the sampled tick, not the player's own track.
+- **A real TF2 comparison at this exact tick**, which needs the owner at the console —
+  `docs/memory/the-f12-demo-is-the-parity-reference.md` names this exact limitation: TF2 cannot be
+  told to load a demo and seek from outside it.
+
+**The owner ran it.** Copied into his `tf` folder as `rocket_check.dem`, `playdemo` +
+`demo_gototick 51093`. His own capture at that tick shows a visible mismatch against ours at the same
+tick, first-person — but he identified the cause himself, and it is not this project's: *"the real
+game has a real glitch too, so pure parity might have this, for this life... i think this is a glitch
+from how occlusion works sometimes in demos when people die, i think its actually fixed in new demos
+and tf2, but idk, either way its a known bug thats easily fixed actually."* His follow-up capture a
+moment later shows exactly that shape of bug in the REAL client — floating disconnected model pieces
+with sparkle particles, on an unrelated death nearby.
+
+**Corrected by the owner: the glitch is small and localized, and does not touch the players or
+geometry being compared here** — *"it still proves everything, this is a known small bug that
+doesnt affect the players we are looking at and through"*. So the side-by-side stands as evidence.
+
+**The first two real-client captures were at the WRONG tick, and that is now settled rather than
+suspected.** The owner used `demo_gototick 51093 1` — two arguments after the command, which the
+engine's own handler (`FUN_180075460`, decompiled) binds positionally to `<tick> [relative] [pause]`:
+`argv[2]` is `relative`, not `pause`. With only two arguments, `"1"` lands in the `relative` slot, so
+the command sought 51093 ticks FORWARD of wherever the demo already was, not to absolute tick 51093.
+The correct form, confirmed against the same decompile, is `demo_gototick 51093 0 1` — tick, relative
+OFF, then pause.
+
+**The map-geometry divergence reported against the wrong-tick captures does not hold up against the
+corrected one.** A capture at the true absolute tick 51093 shows the same crates, the same chain-link
+fence, and the same shutter door this project's render shows at that tick — closely enough that the
+earlier "gates and stuff" difference reads as the relative-tick mistake showing an unrelated moment of
+the map, not a real divergence. Not reopened here; if it recurs on a properly-seeked tick, it is a new
+finding rather than a continuation of this one.
+
+**The rocket/muzzle-flash divergence survives the correction and is CONFIRMED.** At the true absolute
+tick 51093, first-person, same demo: the real client shows the muzzle flash at the doorway near
+ground level, close to the player firing it. This project's render at the same tick shows the trail
+high on the wall, well above and to the side of the doorway. The 185-unit gap measured earlier is
+real, against a comparison now known to be at the right tick on both sides.
+
+*Evidence class: owner's own real-client capture beside ours, same demo and the confirmed-absolute
+tick, first-person — the comparison this project's own convention calls for. The engine's argument
+order for `demo_gototick` is read from the decompile, not guessed.*
+
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 
 **The owner: *"i should see ragdolls and gibs"*.** Ragdolls draw. Gibs do not exist at all — no
@@ -28988,3 +29068,257 @@ screen. Whether they match the 2008 game is his to say, and the captures were se
 
 *Evidence class: measured tables from the period installs; differential for the four sabotages and
 the before/after capture; the owner's observation for the symptom.*
+
+### B392 OPEN 2026-09-11: the map downloader asked one mirror for the plain file of any version, where the engine asks the demo's server for the compressed file first
+
+**Found while planning D162**, by reading what the engine does with `sv_downloadurl` before extending
+`MapDownloader`.
+
+**The engine, from TF2's x64 `engine.dll`** (project `tf2engine` under `D:\ghidra-proj`; the addresses
+are that build's). The download queue at `18017e170`:
+
+- asks `1801cf450` whether the file may be downloaded at all: a filter on path and extension whose
+  allowed list includes `.bsp.bz2`, and which refuses paths such as `vscripts/` and `addons/`;
+- returns if the file is already on disk;
+- uses the server's URL only when the value begins `"http://"` or `"https://"`;
+- then queues `"%s.bz2"`, the compressed file, if it is not already on disk, and then the plain
+  file.
+
+**This project's `MapDownloader`** asked one fixed mirror for the plain `.bsp` only, never the
+demo's own server, and never compared what arrived with the checksum the demo recorded. So a server
+that serves only `.bsp.bz2`, which is common, gave nothing, and any version of a Valve map was kept
+as though it were the recorded one.
+
+*Evidence class: read from the decompile for the engine's order, and from the source for ours.*
+
+### B392 FIXED 2026-09-11: the demo's own server first, the compressed file first, and only the recorded version kept
+
+- **`MapWanted`** carries the name, the checksum the demo recorded, and the demo's `sv_downloadurl` as a
+  `Uri`. The analyzers refused it as a string, and the type is better: the engine's `http://` /
+  `https://` test becomes a test of the scheme.
+- **`TryDownloadAsync(MapWanted)`** tries the demo's URL, when it is HTTP, then the mirror; at each
+  `ROOT/maps/NAME.bsp.bz2` and then `.bsp`. A file is kept only if it is a map and, where a checksum
+  was recorded, `BspMapChecksum.Matches` does not say no. A header that will not parse is refused.
+- **bzip2 through SharpZipLib 1.4.2**, a new package, capped while expanding at the download cap.
+- **A known version is cached as `NAME.<CHECKSUM>.bsp`**, so versions of one Valve map sit side by side.
+- **`DefaultMirror` is a root now**, `https://fastdl.serveme.tf/`, as an `sv_downloadurl` is.
+
+**Proved by manipulation**, two rounds with disjoint predictions:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| plain file before compressed | the compressed-first, fallback-order and demo-first tests |
+| the version check never refuses | the two wrong-version tests |
+| decompression uncapped | the expands-past-the-cap test |
+| the demo's own URL never asked | the demo-first test |
+| the cache name ignores the checksum | the kept-under-its-checksum test |
+
+**A fixture was wrong first.** The seeded fake map put its lump at offset 1024, inside the 1,036-byte
+BSP header, and the checksum reader rightly refused it; the lump moved to 2048.
+
+**Still open, at that point.**
+
+- **Nothing calls it with a checksum or a demo URL yet.** `MapProvider.FetchAsync` still passes the name
+  alone, and a map found in the install is not checked against the demo's checksum. That wiring is the
+  next slice of D162.
+- **Two engine details not settled by the decompile:** whether its `http://` comparison ignores case,
+  and whether it inserts the `/` between the URL and the path. This admits either case and adds a
+  missing slash. Both are named in `Roots`.
+- **The engine's file filter (`1801cf450`) is not reproduced.** Only map names are ever requested here,
+  and `EnsureIsAName` already refuses a path, so no filtered file can be asked for. The filter matters
+  once anything but a map is fetched.
+
+*Evidence class: differential for the five sabotages; read from the decompile for the engine's order.*
+
+### The version check is wired in, still 2026-09-11: `MapProvider.Find` and `FetchAsync` now take the demo's two facts
+
+**The first "still open" item above, closed.** `MapWanted.From(mapName, mapHash, serverConVars)` builds
+the demo's own request from the two facts it carries — `DemoTimeline.MapHash` and its
+`sv_downloadurl` — and is the one place that decides both, so nothing downstream has to know which
+field is right. `MapProvider.Find(mapName, checksum)` reads the found file back and calls
+`BspMapChecksum.Matches`; a mismatch keeps `MapOutcome.Found` and its path — it is not a fourth
+outcome — with `VersionMismatch` set, since D162's fallback rule ("unless we cant find the map or
+changed data") needs the mismatched copy kept as the last resort, not discarded. `FetchAsync(MapWanted,
+ct)` threads the checksum and URL to `MapDownloader.TryDownloadAsync`, which already refused a wrong
+version (B392); `FetchAsync(string, ct)` now delegates to it with neither.
+
+**A near-miss caught before any code was written, worth its own memory entry**
+(`docs/memory/map-checksum-is-maphash-not-mapcrc.md`): `DemoTimeline.MapCrc` looks like the obvious
+field for a version check and is not it — finding 43 identified it as unidentified and settled
+`MapHash` as the real checksum on every era. `MapWanted.From` takes `mapHash` explicitly, never
+`MapCrc`, and its doc comment says why so the next reader is not tempted back.
+
+Sabotaged: `Find`'s mismatch detection hardcoded to `false` reddened exactly
+`Find_WithAnotherVersionsChecksum_IsAMismatchButStillFound` and nothing else.
+
+**Still open:**
+
+- **`MainForm` does not build or pass a `MapWanted` yet.** `ReadMapNamed`/`ReadMap`/`DownloadMapAsync`
+  still call the name-only overloads. That is D162's wait-for-the-download slice — holding playback and
+  showing the download, per the owner's answer — and is bigger than this commit; it belongs on its own.
+- The two engine details and the file filter, above, remain unsettled.
+
+*Evidence class: differential (the sabotage); read from `docs/findings/43-what-identifies-a-map.md` for
+which field is the checksum.*
+
+### B393 OPEN 2026-09-11: a demo opened from the playlist had its map read with the previous demo's timeline, or none
+
+**Found by reading, while planning D162's map-version check**, not by a report.
+
+`LoadedMap.Read` hands the timeline to `MapAssets.Load` as three lists: `DemoModels.Needed` (the
+install's class models plus every model the demo's props name), `DemoModels.Worn` (worn items and
+attachments, which must stay skinned) and `DemoModels.Sprites` (entity sprite materials). A null
+timeline gives the last two empty and the first only the install's own.
+
+`MainForm.ReadMap` passed the field `_timeline`, which `Apply` assigns. `LoadDemoAsync`, the playlist's
+route, reads the map on a worker BEFORE `Apply` runs, so the map was read with the previous demo's
+timeline, or with none on the first demo opened. The synchronous route (`LoadDemo`, the command line
+and `--shot`) assigns the timeline first and was correct, which is why no screenshot showed it.
+
+**What would be visible:** on the playlist route, entity sprites without their materials, and worn
+items loaded without the skinning they need, or the previous demo's sets instead. Not looked at on
+screen; the test below reads the loaded assets.
+
+**Red first:** `PlaylistMapLoadTests.LoadDemoAsync_TheFirstDemoOpened_ReadsItsMapWithItsOwnTimeline`
+opens the 2013 cp_badlands POV specimen from a folder (so nothing is opened first) and asks the loaded
+map for `materials/Sprites/light_glow03.vmt`, the demo's one sprite on six `CSprite` entities. On the
+unfixed code the map and its archives loaded and the sprite material was absent.
+
+*Evidence class: read from the source; the red run is the measurement.*
+
+### B393 FIXED 2026-09-11: the timeline being opened is an argument to the map read
+
+`ReadMapNamed`, `ReadMap` and `DownloadMapAsync` take the timeline. `LoadDemoAsync` passes
+`decoded.Timeline`, and `LoadMap` passes the field, which on its only caller, `Apply`, has just been
+assigned. This is B208's shape again: an order that mattered was carried by a field and is now carried
+by an argument, so a map read has nothing stale to pick up.
+
+The test went green with no edit to it. The red run above was the unfixed code, so it serves as the
+sabotage.
+
+**Still open:** a map that finishes downloading after the user has opened another demo is still read
+with the timeline it was asked for, and then drawn under whatever is open. That is the wider question
+of how D162's wait-for-the-download holds playback, and it belongs to that slice.
+
+*Evidence class: differential (red on the unfixed code, green on the fix).*
+
+### B394 OPEN 2026-09-11: `sv_downloadurl`'s declared default was `"0"`, a copy of its neighbours' rather than read
+
+**Found while checking `EngineConVars` before wiring the demo's own `sv_downloadurl` into D162.**
+`sv_downloadurl` sat right after `sv_cheats` (`"0"`) and `host_timescale` (`"1"`) in the declaration
+list, and carried `"0"` as well — the string a URL ConVar would never sensibly default to, and read
+by nothing yet (D106), so nothing had ever exercised it.
+
+**The engine's own registration, decompiled** (project `tf2engine`, `D:\ghidra-proj`): the only
+function in TF2's x64 `engine.dll` referencing the string `"sv_downloadurl"` is its `ConVar`
+constructor call —
+
+```
+FUN_18000a350: FUN_180283e80(&DAT_180730090, "sv_downloadurl", &DAT_18035d128, 0x2000,
+    "Location from which clients can download missing files");
+```
+
+— and `DAT_18035d128`, the default argument, holds one zero byte: the empty string.
+
+*Evidence class: read from the decompile.*
+
+### B394 FIXED 2026-09-11: the default is the empty string, as the engine declares it
+
+`EngineConVars`'s entry for `sv_downloadurl` now carries `""`. `DownloadUrlConVarConformanceTests`
+asserts it, citing the decompile.
+
+**Sabotaged rather than left to rely on a fresh test:** reverted the default to `"0"` and the test
+reddened exactly as predicted; restored.
+
+*Evidence class: differential (red on the old value, green on the fix), read from the decompile for
+the engine's registration.*
+
+### B372/B373, reconfirmed 2026-09-11: a rocket still draws, on a demo neither fix was checked against
+
+**The owner watched f12 live-play and reported no rockets drawn at all**, worried the last few days'
+work had cost something. It had not — D162/B393/B394 are the map downloader and its checksum, an
+unrelated part of the codebase.
+
+**The `projectiles` probe against `demostf-cp_process_f12-2026-08-07.dem`**: 1,669 `CTFProjectile_Rocket`
+tracks, every one with a model path (`models/weapons/w_models/w_rocket.mdl`); 1,209
+`CTFGrenadePipebombProjectile` (stickies, which the owner said do draw); 29 `CTFBall_Ornament`
+(the Wrap Assassin/Holiday Punch ball), all with model paths too — the same fix as the rocket, not
+independently confirmed by a screenshot yet.
+
+**Confirmed by looking, on THIS demo rather than reusing the earlier `z1800` confirmation**: entity 407,
+tick 51093, `(-2478 -2452 699)`. `TF2VIEW_CAMERA` placed above it looking down (Source's pitch
+convention is positive-down; the first attempt used `-89` and got sky) drew the rocket exactly where
+tracked — but bare, no trail, which very nearly got written up here as B375 having regressed.
+
+**It had not. The first capture was at the rocket's OWN FIRST TICK**, before the trail had emitted
+anything to show — exactly `docs/memory/point-the-camera-from-the-data.md`'s own warning, repeated
+against my own capture this time rather than the probe's. A second capture at tick 51122, the same
+entity mid-flight (position and angles read from the `props` probe rather than guessed), shows the
+plume and the fire embers B375 fixed, fully intact.
+
+**What is genuinely missing is the explosion**, which is B373 exactly as filed: no particle system
+exists for an IMPACT, only the trail this project hand-built. That is real, filed, unbuilt work — not
+a new finding.
+
+**Why it reads as "not drawn at all" from normal play**: a rocket is airborne for roughly the same
+number of ticks whichever demo it came from — under a second of screen time, with no trail to catch
+the eye and follow it. The model is there for exactly as long as the wire says, which the sabotage
+in B372 already proved would fail loudly if it were not.
+
+*Evidence class: measured (the probe's counts), confirmed by looking (the screenshot, this session).*
+
+### B395 OPEN 2026-09-11: a soldier corpse draws with no head
+
+**Reported by the owner, F5 screenshot from the same f12 session**: a red soldier ragdoll with its
+torso and legs drawn, arm reaching down, and nothing where the head should be. Two captures a few
+seconds apart, both first-person and both moving (autoplay), show the same gap.
+
+**Not yet identified against a specific entity or tick.** The screenshot's HUD line gives the
+free-camera's own position, not the corpse's, and nothing here cross-references it to one of the two
+soldier `CTFRagdoll` entities (2072, 2136) the `corpses` probe found in this demo. Decapitation
+(`RagdollProps.Decapitation` and its three siblings) only ever drops the HEAD/MISC-slot *worn items*
+— a hat, say — never the base class model's own head geometry, so that logic is very unlikely to be
+the cause even if this soldier's death happened to carry a decapitating `m_iDamageCustom`.
+
+**Two live hypotheses, neither checked:**
+
+- A bodygroup the base soldier model expects to be shown is left at a default that hides the head —
+  the head is part of the same base mesh as the rest of the body, so this would need a specific
+  bodygroup index wrong, not a missing sub-model.
+- The pose is genuinely contorted enough that the head bone rotated out of frame or behind the torso
+  from that specific camera angle, and nothing is actually missing — `docs/memory/one-look-can-be-two-mechanisms.md`
+  applies directly: a screenshot alone cannot tell "not drawn" from "posed elsewhere".
+
+**Next step:** find which of 2072/2136 (or another soldier corpse) matches the screenshot's tick and
+look at it from another angle before touching any drawing code.
+
+*Evidence class: owner observation with two screenshots; not yet reproduced from a known tick.*
+
+### B396 OPEN 2026-09-11: no healing beam is drawn
+
+**Reported by the owner in the same message as B395.** Bundled with the rocket/ball report but a
+different mechanism entirely: a healing beam is not a networked projectile, and this project has
+nothing for it at all — `grep -rl "Beam" managed/` (excluding `bin`/`obj`) returns **zero files** in
+the entire codebase. The control that the search itself works: the same grep for `Rocket` hits six.
+The `projectiles` probe's family list has no beam entry either, because a beam was never in question
+when it was written.
+
+**Read from `tf_weapon_medigun.cpp`, same session.** There is no beam primitive at all — the "beam" is
+a two-control-point PARTICLE effect: `ParticleProp()->Create(pszEffectName, PATTACH_POINT_FOLLOW,
+"muzzle")` attaches control point 0 to the medigun's muzzle, then
+`AddControlPoint(pEffect, 1, m_hHealingTarget, attachType, pszAttachName, ...)` attaches control point
+1 to whoever `m_hHealingTarget` names. Building this needs two things this project does not have:
+
+- **A decoded `m_hHealingTarget`.** Grepped for directly — zero matches anywhere in `managed/`. Only
+  the target identifies the beam's far end; `m_bHealing` alone says a beam exists, not where it goes.
+- **A two-control-point particle renderer.** B373's rocket trail is one control point riding a single
+  moving entity; a heal beam needs a particle stretched and re-anchored between two independently
+  moving entities every frame. Both need the same missing particle subsystem B373 already names, so
+  this is downstream of that work rather than a second, separate blocker.
+
+**Not yet read: which SendTable declares `m_hHealingTarget`**, whether it is sent unconditionally or
+only while `m_bHealing` is true, and whether an observer (not the Medic) gets a lower-precision or
+delayed copy the way `m_flChargeLevel` does (`UnimplementedGameplayEntityConformanceTests`).
+
+*Evidence class: read from `tf_weapon_medigun.cpp`; the "nothing decodes it" half is a grep, with a
+control (the same grep for `Rocket` in `managed/` finds six files, so the search itself works).*

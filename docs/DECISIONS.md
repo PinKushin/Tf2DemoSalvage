@@ -8438,3 +8438,95 @@ function is not protectable expression, so all of that is free to reimplement. D
 authors do own their particular expression of it: its structure, names and comments. Valve's
 copyright covers Valve's code, not code written by others to talk to it. So D161 stands unchanged in
 practice: learn the steps from DepotDownloader, write them ourselves, and do not copy its source text.
+
+## D162 — an old demo gets the map and models it was recorded against, from the first source that has them (2026-09-11)
+
+**The owner's direction**, over four messages:
+
+- *"since we have access to valves stuff with that depot program now, we need to actually bring it into
+  the program to pull the right maps and models when an old demo needs the old stuff. i would like to
+  draw the right map version for older demos but idk if its actually goign to be possible"*
+- *"for community maps its perfectly possible and easy, community maps rename on change, valve maps
+  dont, and we will include stuff we cant get from the internet or through valve, we ship the actual
+  fucm,king maps and data we need, IDK about valve copyright on it, because they dont care themselves,
+  and I can perfectly articulate in court why it was required, and why it doesnt hurt valve at all.
+  meaning they have no losses to even sue for.  hbaving a user have to log into steam isnt a big deal,
+  we doint have to actually handle any of their creds."*
+- *"we dont ship modern stuff we can get from a real tf2 install, old gcf's or things like that, if we
+  cant get them through steam, which i actually think valve is going to still have those backed up, are
+  fine.  I trust tf2maps and fastdl, real tf2 servers use both of them to download maps im pretty sure."*
+- *"yes use archive to host anything we cant host on github, thats why i started the archive"*
+
+**So, in order, where the program gets a file an old demo needs:**
+
+1. **The user's own TF2 install**, for anything current. Nothing obtainable there is shipped.
+2. **Steam, by version** (D161's fetcher on SteamKit2), for Valve content. Whether Valve still serves
+   content from before its 2013 move to SteamPipe is to be tested, not assumed. The owner expects it
+   does, and the answer sets how much ever has to be shipped.
+3. **FastDL, then TF2Maps**, for community maps, which get a new file name when they change. A demo
+   that recorded its server's `sv_downloadurl` names its own FastDL, and that URL goes first.
+4. **Files this project ships**, for what none of the above can supply, such as GCF-era content if
+   Steam no longer has it. Hosted on the owner's archive.org archive, never in git: D81's rules apply,
+   with a checksum per file verified after fetch and an unreachable file a loud failure.
+
+**How a Valve map's version is chosen:** by the demo's `MapCrc`, checked with `BspMapChecksum`, which
+already computes the CRC as the engine does. Valve maps keep their names across changes, so the name
+cannot choose the version and the CRC can.
+
+**Steam login is the user's, through QR.** SteamKit2's QR session: the program shows a code, the user
+approves it in the Steam mobile app, and no password passes through this program. That goes a step
+beyond what the owner asked, which was only that the program need not handle credentials.
+
+**Reversal of D160's reason for shipping nothing.** D160 shipped only sequence lists and gave three
+reasons against whole models: size, redistributing Valve's assets, and the large-file bill. The owner
+has now decided the redistribution question himself, for exactly what nothing else supplies, and the
+other two are answered by hosting on archive.org rather than in git. **The legal view is the owner's,
+recorded as his**; the assistant noted it is not legal advice and did not argue it.
+
+**A reversal of an earlier position that was never numbered.** The remarks on `MainForm.DownloadMapAsync`
+recorded the owner saying a map's version need not match the demo: *"valve has never really blocked
+off a map as an update, so new demos will go through walls on old maps, but old demos will play fine
+on new maps, just look like the people are completely oblivious to a huge choke point and no one is
+using a part of the map."* The remarks concluded that a period-map archive *"would be effort spent on
+the direction nobody plays"*. The owner now wants the recorded version drawn: *"i would like to draw
+the right map version for older demos"*. **What changed:** the only reason given is the new route to
+Valve's content, *"since we have access to valves stuff with that depot program now"*. The earlier
+reasoning about unused space still describes what a mismatched map looks like; it no longer decides
+what is drawn.
+
+**Uploading is the owner's to do or to approve, file by file**, because it publishes. The archive's item
+names go in the repository; the owner's profile does not, because its handle carries his name and this
+repository is meant to be public.
+
+## D163 — a feature beyond parity is still built in Valve's shape (2026-09-11)
+
+**The owner**, on D162's fetching of old maps and models, after it was split into what is parity and
+what goes beyond TF2: *"tf2 might simply not play those demos which use the old maps btw, but it might
+not be because of the map changes, its because they broke the protocol and other shit. so yea it is a
+better than valve area, but even those areas need to take vavles conventions into account and probably
+follow them so any ai working on it stays looking like valve code. idk"*
+
+**So:** where there is no engine behavior to match, the work still takes Valve's conventions: its
+mechanisms, its order of operations and its names, as close as the SDK and the disassembly show.
+**His reason:** *"so any ai working on it stays looking like valve code"*.
+
+**What that means for D162, concretely:**
+
+- **Old content is a search path, not a separate loader.** Fetched or shipped files for a demo's era mount
+  ahead of the live install, which is the engine's own mechanism for one file overriding another:
+  `IFileSystem::AddSearchPath` and the order `gameinfo.txt` lists, the same way a map's pakfile and the
+  `custom` folder already override stock content here.
+- **Downloads follow the engine's download queue**, as B392 does: its order, its steps and its names,
+  and its file filter (`1801cf450` in the x64 `engine.dll`) ported once anything but a map is fetched.
+- **The version check is named and shaped after the client's own map-CRC check.**
+
+**His protocol point is recorded as his, not verified here:** a current TF2 client refuses old demos
+at the protocol level, independently of map versions. Which break a given demo meets is not measured.
+
+**A wrong map version waits for the download, as TF2 does.** Asked what to do when a demo's map is
+installed but is another version, the owner answered: *"it should probably wait for the download to get
+done to play, swapping will work, but thats going to be jarring as hell ... showing the user the map is
+downloading like tf2 does, and waiting for the download, is probably the correct choice, unless we cant
+find the map or changed data"*. So playback holds while the recorded version downloads and says it is
+downloading, the way the client's own map download does; the installed version is drawn only when no
+source has the recorded one. Swapping maps under a playing demo is refused as jarring.

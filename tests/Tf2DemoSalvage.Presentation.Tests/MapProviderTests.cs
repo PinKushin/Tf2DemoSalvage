@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
@@ -202,6 +205,123 @@ public sealed class MapProviderTests
     {
         Should.Throw<ArgumentNullException>(() => new MapProvider("a", "b", downloader: null!));
     }
+
+    /// <remarks>
+    /// **The control against every checksum test below**, and why <c>Find</c> without one must
+    /// still trust whatever copy is on disk: a demo the timeline never carried a checksum for (or
+    /// one where the checksum was never asked) has to keep playing against the install it finds.
+    /// </remarks>
+    [Test]
+    public void Find_WithNoChecksumAsked_TrustsWhateverIsThere()
+    {
+        string folder = TempFolder();
+
+        File.WriteAllBytes(Path.Combine(InstallTf2(folder), "cp_badlands.bsp"), BspHeader);
+
+        using MapProvider maps = Provider(folder);
+
+        MapSearch found = maps.Find("cp_badlands");
+
+        found.Outcome.ShouldBe(MapOutcome.Found);
+        found.VersionMismatch.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Find_WithTheRecordedChecksum_IsNotAMismatch()
+    {
+        string folder = TempFolder();
+        byte[] map = FakeMap(seed: 7);
+
+        File.WriteAllBytes(Path.Combine(InstallTf2(folder), "cp_badlands.bsp"), map);
+
+        using MapProvider maps = Provider(folder);
+
+        MapSearch found = maps.Find("cp_badlands", Md5(map));
+
+        found.Outcome.ShouldBe(MapOutcome.Found);
+        found.VersionMismatch.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Find_WithAnotherVersionsChecksum_IsAMismatchButStillFound()
+    {
+        // **Still `Found`, with its path, because a mismatched copy is the fallback if nothing else
+        // has the recorded version (D162)** — "unless we cant find the map or changed data".
+        string folder = TempFolder();
+        byte[] installed = FakeMap(seed: 7);
+
+        File.WriteAllBytes(Path.Combine(InstallTf2(folder), "cp_badlands.bsp"), installed);
+
+        using MapProvider maps = Provider(folder);
+
+        MapSearch found = maps.Find("cp_badlands", Md5(FakeMap(seed: 9)));
+
+        found.Outcome.ShouldBe(MapOutcome.Found);
+        found.Path.ShouldNotBeNull();
+        found.VersionMismatch.ShouldBeTrue();
+    }
+
+    [Test]
+    public async Task FetchAsync_WithAMapWantedCarryingAChecksum_RefusesAMirrorThatServesAnotherVersion()
+    {
+        byte[] wrong = FakeMap(seed: 1);
+        string folder = TempFolder();
+
+        using MapProvider maps = new(
+            Path.Combine(folder, "libraryfolders.vdf"),
+            folder,
+            () => new MapDownloader(
+                new HttpClient(new UrlHandler((MirrorUrl + "maps/cp_badlands.bsp", wrong))),
+                folder,
+                MirrorUrl));
+
+        // A checksum that is not `wrong`'s — no map on this mirror can satisfy it.
+        MapWanted wanted = new("cp_badlands", Md5(FakeMap(seed: 2)));
+
+        MapFetch first = await maps.FetchAsync(wanted, CancellationToken.None).ConfigureAwait(false);
+
+        first.Path.ShouldBeNull("the only file the mirror served was another version");
+        Directory.GetFiles(folder, "*.bsp*", SearchOption.AllDirectories).ShouldBeEmpty();
+    }
+
+    /// <summary>A mirror URL nothing real answers; the handler stands in for it.</summary>
+    private const string MirrorUrl = "https://example.invalid/";
+
+    /// <summary>Answers a fixed URL and 404 for anything else — the <c>.bsp.bz2</c> attempt included.</summary>
+    private sealed class UrlHandler(params (string Url, byte[] Body)[] files) : HttpMessageHandler
+    {
+        private readonly Dictionary<string, byte[]> _files = files.ToDictionary(
+            file => file.Url, file => file.Body, StringComparer.Ordinal);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri?.ToString() ?? string.Empty;
+
+            return Task.FromResult(_files.TryGetValue(url, out byte[]? body)
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(body) }
+                : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new ByteArrayContent([]) });
+        }
+    }
+
+    /// <summary>A map with real lump content, so two seeds give two different checksums.</summary>
+    private static byte[] FakeMap(byte seed)
+    {
+        byte[] bytes = new byte[4096];
+        BspHeader.CopyTo(bytes, 0);
+
+        const int Offset = 2048;
+        const int Length = 1024;
+        BitConverter.GetBytes(Offset).CopyTo(bytes, 8 + 16);
+        BitConverter.GetBytes(Length).CopyTo(bytes, 8 + 16 + 4);
+        bytes.AsSpan(Offset, Length).Fill(seed);
+
+        return bytes;
+    }
+
+    /// <summary>A map's checksum, the form a 2013-onward demo records — and the only one <c>MapHash</c>
+    /// carries that this project's own research has confirmed (finding 43).</summary>
+    private static byte[] Md5(byte[] map) => BspMapChecksum.OfMap(map).Md5;
 
     /// <summary>A folder nothing else is using.</summary>
     private static string TempFolder()

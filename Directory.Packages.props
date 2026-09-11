@@ -45,6 +45,9 @@
 
     <!-- The 7-Zip SDK, for the compressed-lump reader. LZMA is how every BSP lump is packed. -->
     <PackageVersion Include="LZMA-SDK" Version="22.1.1" />
+    <!-- bzip2, for a fast-download server's `.bsp.bz2` (D162). The engine queues the compressed file
+         before the plain one (`%s.bz2` in engine.dll), and a server may carry only that. -->
+    <PackageVersion Include="SharpZipLib" Version="1.4.2" />
 
     <!-- Glyph rasterisation for the HUD, referenced by Tf2DemoSalvage.Fonts ALONE (D84). It is
          Windows-only by design since .NET 7, which is why that project exists at all: keeping this

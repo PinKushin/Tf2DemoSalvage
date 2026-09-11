@@ -75,6 +75,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- bzip2 for the fast-download `.bsp.bz2` the engine asks for first (D162). -->
+    <PackageReference Include="SharpZipLib" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
     <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
 

@@ -487,7 +487,8 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # other session's entry. It catches a citation that arrives nowhere; a collision has no textual tell.
 # 1858 -> 1862 on 2026-09-10: four for B391 — `EntityState.RenderRgb`'s two decode tests and the two
 # RenderColorWiringTests carrying `m_clrRender` from the wire into a pose.
-run Tf2DemoSalvage.Core.Tests     core     1862
+# 1862 -> 1863 on 2026-09-11: DownloadUrlConVarConformanceTests (B394), sv_downloadurl's default.
+run Tf2DemoSalvage.Core.Tests     core     1863
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -1126,7 +1127,10 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # 442 -> 444 on 2026-09-05: two for B357 — an unrecognised option is reported rather than filed as
 # a demo path. The second is the control that a BARE word is still a path, which is why the rule
 # tests for a leading dash instead of duplicating the list of known flags thirty lines above it.
-run Tf2DemoSalvage.Presentation.Tests presentation 444
+# 444 -> 448 on 2026-09-11: four for D162's version check in MapProvider.Find and FetchAsync(MapWanted)
+# — trusts an unchecked install, confirms a match, flags a mismatch as still Found, and a fetch keeps
+# only the checksum-matching version.
+run Tf2DemoSalvage.Presentation.Tests presentation 448
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -1742,7 +1746,13 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 #
 # 754 -> 769 on 2026-09-09: closed DRIFT, not 15 new tests, measured in the same pass as animation's
 # 111 -> 252 above and for the same reason. Nothing was added or removed here.
-run Tf2DemoSalvage.Rendering.Tests rendering 769
+# 769 -> 777 on 2026-09-11: eight for D162 in MapDownloaderTests — the compressed file first and the
+# plain fallback, the demo's own sv_downloadurl before the mirror and only when it is HTTP, a wrong
+# version refused and the next source tried, nothing kept when no source has it, a version kept under
+# its checksum, and a bzip2 body expanding past the cap refused.
+# 777 -> 780 on 2026-09-11: three for MapWanted.From — the map hash and download URL both carried, no
+# URL when the server sent none, no URL when it sent something that will not parse absolute.
+run Tf2DemoSalvage.Rendering.Tests rendering 780
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
@@ -1759,7 +1769,9 @@ run Tf2DemoSalvage.Rendering.Tests rendering 769
 # and pressing a dead key. The first case is a tripwire over EVERY item, so the next hand-typed
 # label fails here; the second is its control, because "F9" would satisfy the tripwire (F9 is bound,
 # to the surface colours) while still naming the wrong key for the screenshot.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    108
+# 108 -> 109: PlaylistMapLoadTests (B393). The playlist's load read the map with the previous demo's
+# timeline; it needs the corpus demo and an install, and skips without the install, which still counts.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    109
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

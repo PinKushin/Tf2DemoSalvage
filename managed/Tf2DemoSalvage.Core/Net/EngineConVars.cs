@@ -123,7 +123,13 @@ public static class EngineConVars
         // own map came from, which `MapDownloader` currently substitutes a public mirror for.
         new("sv_cheats", "0", Replicated: true, Cheat: false),
         new("host_timescale", "1", Replicated: true, Cheat: false),
-        new("sv_downloadurl", "0", Replicated: true, Cheat: false),
+
+        // **The default was "0" until 2026-09-11, copied from its neighbours above rather than
+        // read.** `engine.dll`'s own registration — `FUN_18000a350` in the decompile, the only
+        // function referencing the string "sv_downloadurl" — passes `&DAT_18035d128` as the
+        // default, and that address holds one zero byte: the empty string, as a URL ConVar with
+        // nothing configured would be. (D:\ghidra-proj, project tf2engine.)
+        new("sv_downloadurl", "", Replicated: true, Cheat: false),
 
         // Client-only: the watcher's, so the source is their config and the fallback is this.
         // src/game/client/vgui_fpspanel.cpp:28, clientleafsystem.cpp:32, c_baseplayer.cpp:118.
