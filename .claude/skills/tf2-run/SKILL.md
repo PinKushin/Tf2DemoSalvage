@@ -48,6 +48,25 @@ the session stays usable. Never pass `--shot`: that is the headless single-frame
 keypress. A SourceTV demo has no recorded view and opens on the free camera instead — mention that if
 one is used.
 
+## When the owner mentions a screenshot without linking one
+
+**He means an F5 capture, and it is always in the same folder unless he has set a custom one.** F5
+inside the viewer calls `CaptureViewportToFile`, which writes to `_settings.ScreenshotFolder` if he
+configured one, else `FileLogWriter.DefaultFolder` — `%LOCALAPPDATA%\Tf2DemoSalvage`. Find the most
+recent file there rather than asking him to attach it:
+
+```bash
+find "/c/Users/pinku/AppData/Local/Tf2DemoSalvage" -iname "*.png" -newermt "-15 minutes"
+```
+
+He may press F5 more than once in quick succession — read all of the recent ones, not just the last,
+since a fast burst can capture different moments.
+
+**A golden reference from the real game is a different, manual thing.** TF2 cannot be told to load a
+demo and seek to a tick from the outside — he has to open the console himself, `playdemo <name>`, and
+`demo_gototick <n>` (or step it forward by hand) to reach the moment being compared. Don't offer to
+automate that; it needs him at the keyboard.
+
 ## What to say afterward
 
 The window takes 20-30 seconds to load before it starts drawing. Tell the owner it is loading and
