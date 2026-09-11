@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
@@ -30,7 +32,12 @@ public enum MapOutcome
 /// <summary>The result of looking for a map.</summary>
 /// <param name="Outcome">Which of the three cases this is.</param>
 /// <param name="Path">The map's full path when <see cref="MapOutcome.Found"/>, otherwise null.</param>
-public readonly record struct MapSearch(MapOutcome Outcome, string? Path);
+/// <param name="VersionMismatch">
+/// True when a file was found but a checksum was asked for and it is not that version (D162). The
+/// file is still the one to fall back to if nothing else has the recorded version — this is not a
+/// fourth outcome, because the caller's next step depends on what asked, not on what was found.
+/// </param>
+public readonly record struct MapSearch(MapOutcome Outcome, string? Path, bool VersionMismatch = false);
 
 /// <summary>What came of trying to fetch a map.</summary>
 /// <param name="Path">Where it landed, or null if it did not arrive.</param>
@@ -145,6 +152,11 @@ public sealed class MapProvider : IDisposable
 
     /// <summary>Finds a map, and says which of two failures happened when it cannot.</summary>
     /// <param name="mapName">The map the demo names.</param>
+    /// <param name="checksum">
+    /// The demo's <c>DemoTimeline.MapHash</c> (never <c>MapCrc</c>, an unidentified field — finding
+    /// 43), or null to accept whatever copy is on disk. A Valve map keeps its name across an update,
+    /// so a name match alone says nothing about the version.
+    /// </param>
     /// <returns>Where the map is, or why it is not here.</returns>
     /// <remarks>
     /// **<see cref="Locate"/> answers null for two different facts**, and the viewer could not tell
@@ -160,19 +172,37 @@ public sealed class MapProvider : IDisposable
     /// This is <c>docs/memory/sentinels-conflate-unknown-with-answer.md</c> in a place it had not
     /// been looked for: one null standing in for "no" and for "I do not know".
     /// </remarks>
-    public MapSearch Find(string mapName)
+    public MapSearch Find(string mapName, IReadOnlyList<byte>? checksum = null)
     {
-        if (Locate(mapName) is { } path)
+        if (Locate(mapName) is not { } path)
+        {
+            // **Asked second, deliberately.** A found map proves an install without a second search,
+            // and this walk reads library folders off disk — so the ordinary case pays nothing for
+            // the diagnosis of the unusual one.
+            return GameFolder() is null
+                ? new MapSearch(MapOutcome.NoGame, null)
+                : new MapSearch(MapOutcome.NotInstalled, null);
+        }
+
+        if (checksum is not { Count: > 0 })
         {
             return new MapSearch(MapOutcome.Found, path);
         }
 
-        // **Asked second, deliberately.** A found map proves an install without a second search, and
-        // this walk reads library folders off disk — so the ordinary case pays nothing for the
-        // diagnosis of the unusual one.
-        return GameFolder() is null
-            ? new MapSearch(MapOutcome.NoGame, null)
-            : new MapSearch(MapOutcome.NotInstalled, null);
+        bool mismatch;
+
+        try
+        {
+            mismatch = BspMapChecksum.Matches(File.ReadAllBytes(path), checksum) == false;
+        }
+        catch (Exception failure) when (failure is IOException or InvalidDataException)
+        {
+            // Can't be confirmed as the recorded map, so it is treated the same as a definite
+            // mismatch: worth trying to fetch the right version, worth falling back to if that fails.
+            mismatch = true;
+        }
+
+        return new MapSearch(MapOutcome.Found, path, VersionMismatch: mismatch);
     }
 
     /// <summary>Where TF2 itself is installed, if it is.</summary>
@@ -203,11 +233,22 @@ public sealed class MapProvider : IDisposable
         }
     }
 
-    /// <summary>Fetch a map that is not installed.</summary>
+    /// <summary>Fetch a map that is not installed, or not the recorded version.</summary>
     /// <param name="mapName">The map, without extension.</param>
     /// <param name="cancellationToken">Cancels the download.</param>
     /// <returns>Where it landed and what to tell the user.</returns>
-    public async Task<MapFetch> FetchAsync(string mapName, CancellationToken cancellationToken)
+    /// <remarks>
+    /// Delegates to <see cref="FetchAsync(MapWanted, CancellationToken)"/> with no checksum and no
+    /// download URL, for a caller that has neither — the command line and the tests before D162.
+    /// </remarks>
+    public Task<MapFetch> FetchAsync(string mapName, CancellationToken cancellationToken) =>
+        FetchAsync(new MapWanted(mapName), cancellationToken);
+
+    /// <summary>Fetch the version of a map a demo was recorded on, from the first source that has it.</summary>
+    /// <param name="wanted">The map, its recorded checksum, and the demo's own download URL (D162).</param>
+    /// <param name="cancellationToken">Cancels the download.</param>
+    /// <returns>Where it landed and what to tell the user.</returns>
+    public async Task<MapFetch> FetchAsync(MapWanted wanted, CancellationToken cancellationToken)
     {
         try
         {
@@ -218,17 +259,17 @@ public sealed class MapProvider : IDisposable
             MapDownloader downloader = _open ??= _downloader();
 
             string? landed = await downloader
-                .TryDownloadAsync(mapName, cancellationToken)
+                .TryDownloadAsync(wanted, cancellationToken)
                 .ConfigureAwait(false);
 
             return landed is null
-                ? new MapFetch(Path: null, downloader.DescribeFailure(mapName))
+                ? new MapFetch(Path: null, downloader.DescribeFailure(wanted.Name))
                 : new MapFetch(landed, Status: string.Empty);
         }
         catch (ArgumentException failure)
         {
             return new MapFetch(
-                Path: null, "Map " + mapName + " could not be fetched: " + failure.Message);
+                Path: null, "Map " + wanted.Name + " could not be fetched: " + failure.Message);
         }
     }
 

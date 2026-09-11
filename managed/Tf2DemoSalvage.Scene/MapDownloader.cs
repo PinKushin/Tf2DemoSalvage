@@ -10,6 +10,7 @@ using ICSharpCode.SharpZipLib;
 using ICSharpCode.SharpZipLib.BZip2;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Core.Net;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -26,7 +27,33 @@ namespace Tf2DemoSalvage.Scene;
 public readonly record struct MapWanted(
     string Name,
     IReadOnlyList<byte>? Checksum = null,
-    Uri? DemoDownloadUrl = null);
+    Uri? DemoDownloadUrl = null)
+{
+    /// <summary>Builds what a demo wants for its map, from the two facts a demo carries about it.</summary>
+    /// <param name="mapName">The map, as the demo header names it.</param>
+    /// <param name="mapHash">
+    /// <c>DemoTimeline.MapHash</c> — the field this project's own research settled as the map's
+    /// checksum on every era, four bytes through 2011 and sixteen (MD5) from 2013
+    /// (<c>docs/findings/43-what-identifies-a-map.md</c>). <c>DemoTimeline.MapCrc</c> is a
+    /// different, unidentified 32-bit field found in the same message and never matches a real
+    /// map; passing it here would compare against the wrong number on every pre-2013 demo.
+    /// </param>
+    /// <param name="serverConVars">The demo's own server ConVars, or null when none were ever sent.</param>
+    /// <returns>The map to fetch, with an absolute download URL parsed if the server sent a usable one.</returns>
+    /// <exception cref="ArgumentException"><paramref name="mapName"/> is empty or whitespace.</exception>
+    public static MapWanted From(
+        string mapName, IReadOnlyList<byte>? mapHash, ServerConVars? serverConVars)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mapName);
+
+        Uri? url = serverConVars?.Value("sv_downloadurl") is { Length: > 0 } raw &&
+            Uri.TryCreate(raw, UriKind.Absolute, out Uri? parsed)
+                ? parsed
+                : null;
+
+        return new MapWanted(mapName, mapHash, url);
+    }
+}
 
 /// <summary>
 /// Fetches a map the user does not have, from a public fast-download mirror.

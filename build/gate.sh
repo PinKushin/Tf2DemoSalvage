@@ -1127,7 +1127,10 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # 442 -> 444 on 2026-09-05: two for B357 — an unrecognised option is reported rather than filed as
 # a demo path. The second is the control that a BARE word is still a path, which is why the rule
 # tests for a leading dash instead of duplicating the list of known flags thirty lines above it.
-run Tf2DemoSalvage.Presentation.Tests presentation 444
+# 444 -> 448 on 2026-09-11: four for D162's version check in MapProvider.Find and FetchAsync(MapWanted)
+# — trusts an unchecked install, confirms a match, flags a mismatch as still Found, and a fetch keeps
+# only the checksum-matching version.
+run Tf2DemoSalvage.Presentation.Tests presentation 448
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -1747,7 +1750,9 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # plain fallback, the demo's own sv_downloadurl before the mirror and only when it is HTTP, a wrong
 # version refused and the next source tried, nothing kept when no source has it, a version kept under
 # its checksum, and a bzip2 body expanding past the cap refused.
-run Tf2DemoSalvage.Rendering.Tests rendering 777
+# 777 -> 780 on 2026-09-11: three for MapWanted.From — the map hash and download URL both carried, no
+# URL when the server sent none, no URL when it sent something that will not parse absolute.
+run Tf2DemoSalvage.Rendering.Tests rendering 780
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

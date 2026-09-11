@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using ICSharpCode.SharpZipLib.BZip2;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Core.Net;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -323,6 +324,45 @@ public sealed class MapDownloaderTests
             .ShouldBeNull();
 
         Directory.GetFiles(_folder, "*", SearchOption.AllDirectories).ShouldBeEmpty();
+    }
+
+    /// <summary>What a demo says about its map: <c>MapWanted.From</c>, against the two facts it carries.</summary>
+    /// <remarks>
+    /// **The map hash, never the map CRC.** Finding 43 settled that <c>DemoTimeline.MapHash</c> is the
+    /// field a real map checksums against, on every era, and that <c>MapCrc</c> is a different,
+    /// unidentified field. Nothing here builds a <c>DemoTimeline</c> — the two facts `From` needs are
+    /// the hash bytes and the server's ConVars, both cheaply constructed on their own.
+    /// </remarks>
+    [Test]
+    public void From_AMapHashAndAUrl_CarriesBoth()
+    {
+        byte[] hash = [1, 2, 3, 4];
+        ServerConVars server = new();
+        server.Apply(new SetConVarMessage(
+            [new("sv_downloadurl", "http://fastdl.example/")]));
+
+        MapWanted wanted = MapWanted.From("cp_badlands", hash, server);
+
+        wanted.Name.ShouldBe("cp_badlands");
+        wanted.Checksum.ShouldBe(hash);
+        wanted.DemoDownloadUrl.ShouldBe(new Uri("http://fastdl.example/"));
+    }
+
+    [Test]
+    public void From_NoServerConVarsSent_HasNoDownloadUrl()
+    {
+        MapWanted.From("cp_badlands", mapHash: null, serverConVars: null)
+            .DemoDownloadUrl.ShouldBeNull();
+    }
+
+    [Test]
+    public void From_ADownloadUrlThatIsNotAnAbsoluteAddress_HasNoDownloadUrl()
+    {
+        // The default is empty (B394) and a server can send anything; only a usable address is kept.
+        ServerConVars server = new();
+        server.Apply(new SetConVarMessage([new("sv_downloadurl", "not a url")]));
+
+        MapWanted.From("cp_badlands", mapHash: null, server).DemoDownloadUrl.ShouldBeNull();
     }
 
     private const string MirrorUrl = "https://example.invalid/";

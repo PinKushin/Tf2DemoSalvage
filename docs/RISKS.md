@@ -29036,7 +29036,7 @@ as though it were the recorded one.
 **A fixture was wrong first.** The seeded fake map put its lump at offset 1024, inside the 1,036-byte
 BSP header, and the checksum reader rightly refused it; the lump moved to 2048.
 
-**Still open.**
+**Still open, at that point.**
 
 - **Nothing calls it with a checksum or a demo URL yet.** `MapProvider.FetchAsync` still passes the name
   alone, and a map found in the install is not checked against the demo's checksum. That wiring is the
@@ -29049,6 +29049,37 @@ BSP header, and the checksum reader rightly refused it; the lump moved to 2048.
   once anything but a map is fetched.
 
 *Evidence class: differential for the five sabotages; read from the decompile for the engine's order.*
+
+### The version check is wired in, still 2026-09-11: `MapProvider.Find` and `FetchAsync` now take the demo's two facts
+
+**The first "still open" item above, closed.** `MapWanted.From(mapName, mapHash, serverConVars)` builds
+the demo's own request from the two facts it carries — `DemoTimeline.MapHash` and its
+`sv_downloadurl` — and is the one place that decides both, so nothing downstream has to know which
+field is right. `MapProvider.Find(mapName, checksum)` reads the found file back and calls
+`BspMapChecksum.Matches`; a mismatch keeps `MapOutcome.Found` and its path — it is not a fourth
+outcome — with `VersionMismatch` set, since D162's fallback rule ("unless we cant find the map or
+changed data") needs the mismatched copy kept as the last resort, not discarded. `FetchAsync(MapWanted,
+ct)` threads the checksum and URL to `MapDownloader.TryDownloadAsync`, which already refused a wrong
+version (B392); `FetchAsync(string, ct)` now delegates to it with neither.
+
+**A near-miss caught before any code was written, worth its own memory entry**
+(`docs/memory/map-checksum-is-maphash-not-mapcrc.md`): `DemoTimeline.MapCrc` looks like the obvious
+field for a version check and is not it — finding 43 identified it as unidentified and settled
+`MapHash` as the real checksum on every era. `MapWanted.From` takes `mapHash` explicitly, never
+`MapCrc`, and its doc comment says why so the next reader is not tempted back.
+
+Sabotaged: `Find`'s mismatch detection hardcoded to `false` reddened exactly
+`Find_WithAnotherVersionsChecksum_IsAMismatchButStillFound` and nothing else.
+
+**Still open:**
+
+- **`MainForm` does not build or pass a `MapWanted` yet.** `ReadMapNamed`/`ReadMap`/`DownloadMapAsync`
+  still call the name-only overloads. That is D162's wait-for-the-download slice — holding playback and
+  showing the download, per the owner's answer — and is bigger than this commit; it belongs on its own.
+- The two engine details and the file filter, above, remain unsettled.
+
+*Evidence class: differential (the sabotage); read from `docs/findings/43-what-identifies-a-map.md` for
+which field is the checksum.*
 
 ### B393 OPEN 2026-09-11: a demo opened from the playlist had its map read with the previous demo's timeline, or none
 

@@ -273,7 +273,8 @@ jobs:
           #
           # 425 -> 444 on 2026-09-09: closed DRIFT, not 19 new tests, measured on the same CI run
           # as core's raise above and for the same reason.
-          ./build/assert-test-count.sh '**/presentation.trx' 444 Presentation
+          # 444 -> 448 on 2026-09-11: four for D162's MapProvider version check.
+          ./build/assert-test-count.sh '**/presentation.trx' 448 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
@@ -586,7 +587,8 @@ jobs:
           # notes above kept deferring — the two numbers are now the same because both were read
           # off a run rather than one being raised by a delta.
           # 769 -> 777 on 2026-09-11: eight for D162, the map downloader in the engine's order.
-          ./build/assert-test-count.sh '**/rendering.trx' 777 Rendering
+          # 777 -> 780 on 2026-09-11: three for MapWanted.From.
+          ./build/assert-test-count.sh '**/rendering.trx' 780 Rendering
           # 14 -> 31 on 2026-09-09: closed DRIFT, not 17 new tests, measured on the same run.
           # **This suite is guarded HERE ONLY** — build/gate.sh has no floor for it, because the UI
           # phase runs outside the gate under the machine-wide lock. A floor of 14 against 31 left
