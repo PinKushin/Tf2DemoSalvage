@@ -193,6 +193,19 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>Where first-person weapons come from, set when a demo is loaded.</summary>
     public IViewmodelSource? Viewmodels { get; set; }
 
+    /// <summary>
+    /// The demo's content era, set when a demo is loaded; null reads every sequence against today's
+    /// models (B380, D160).
+    /// </summary>
+    public string? SequenceEra
+    {
+        get => _models.SequenceEra;
+        set => _models.SequenceEra = value;
+    }
+
+    /// <summary>The viewmodel's props, copied so their sequences can be translated in place.</summary>
+    private readonly List<SceneProp> _viewmodelProps = [];
+
     /// <summary>What model is in a player's hands, from the game's item schema.</summary>
     /// <remarks>
     /// **Asked here rather than handed in, which is what deleted the last shim.** `MainForm` was
@@ -598,6 +611,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         // (`cdll_client_int.cpp:2188-2210`). It has to follow `Add` because nothing on the wire
         // carries a player's sequence and choosing one needs the model's merged sequence table.
         _models.UpdateClientSideAnimations(_drawn);
+
+        // **An old demo's sequence numbers, into today's models** (B380, D160) — after `Add`, which
+        // loads the tables they translate into, and before `Instances`, whose `Simulate` advances each
+        // cycle by its sequence.
+        _models.TranslateEraSequences(_drawn);
 
         // **`grew` alone is wrong the moment a second demo is opened (B148).** The packed set lives
         // across demos, so after a switch it already holds what the new demo needs and does not grow
@@ -1107,6 +1125,12 @@ public sealed class MomentScene : IGameSystemPerFrame
                 $"{_models.Vertices.Count} vertices");
         }
 
+        // **The viewmodel is where the owner saw it** (B380): a 2008 sticky launcher's `draw` is 2 in
+        // its own era and `fire` in today's model. Translated after `Add` loads today's table.
+        _viewmodelProps.Clear();
+        _viewmodelProps.AddRange(scene.Props);
+        _models.TranslateEraSequences(_viewmodelProps);
+
         if (scene.Changed)
         {
             // **Names each prop, because the count says two and cannot say two of WHAT.** The merged
@@ -1138,7 +1162,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // **One call for all of them, because Instances CLEARS the list it is given.** Posing the
         // arms and then the weapon into the same list threw the arms away and drew the gun alone.
         _models.Instances(
-            scene.Props,
+            _viewmodelProps,
             _viewmodelInstances,
             Lighting.LightingAt,
             Lighting.SunAt,

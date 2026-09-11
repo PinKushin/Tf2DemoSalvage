@@ -1277,6 +1277,15 @@ public sealed class DemoTimeline
     /// </remarks>
     public uint? MapCrc { get; private init; }
 
+    /// <summary>The network protocol the demo's header declares, or 0 for a timeline built from nothing.</summary>
+    /// <remarks>
+    /// **What selects an old demo's content era** (B380, D160). A networked sequence number indexes the
+    /// model the recording client loaded, and the protocol is the one thing every demo states that
+    /// narrows which client that was. It does not DATE a demo — an old client still records — but it
+    /// bounds it: protocol 14 was written by no build later than protocol 15's first.
+    /// </remarks>
+    public int NetworkProtocol { get; private init; }
+
     /// <summary>The map hash <c>svc_ServerInfo</c> carries beside the checksum, when it has one.</summary>
     /// <remarks>
     /// **The instrument for modern demos, because the CRC is dead in them.** Measured across gcor:
@@ -2420,6 +2429,7 @@ public sealed class DemoTimeline
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
             MapHash = mapHash,
+            NetworkProtocol = header.NetworkProtocol,
             _simulationLag = simulationLag,
             SimulationLagUnknown = simulationLag[LagUnknownBucket],
             _animationLag = animationLag,

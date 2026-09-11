@@ -64,6 +64,15 @@ public sealed class SequenceEraProbe : IProbe
             ? int.Parse(arguments[1], CultureInfo.InvariantCulture)
             : DefaultExamples;
 
+        // **`emit` prints the era table itself** (D160): one line per model whose merged list differs,
+        // the path and then its labels in index order, tab-separated, and a `missing` line naming any
+        // label today's model no longer has. Printed rather than written, so the table is committed by
+        // hand after it has been read.
+        bool emit = arguments.Count > 2 &&
+            string.Equals(arguments[2], "emit", StringComparison.OrdinalIgnoreCase);
+
+        List<string> table = [];
+
         string? folder = new MapLocator(
             MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
 
@@ -122,6 +131,26 @@ public sealed class SequenceEraProbe : IProbe
             }
 
             differing.Add(Describe(path, old, current));
+
+            if (emit)
+            {
+                // The path's own case, forward slashes: whoever reads the table matches it ignoring
+                // case, as the archives do.
+                string key = path.Replace('\\', '/');
+
+                // **Each label with its ACTIVITY**, because six old labels have no sequence of that name
+                // today — the melee `swing` became `swing_a` to `swing_c` — and the activity is the key
+                // the engine asks a weapon's animation by: `SendWeaponAnim( ACT_VM_HITCENTER )`.
+                table.Add($"{key}\t{string.Join('\t', Activities(then, read))}");
+
+                HashSet<string> present = new(current, StringComparer.OrdinalIgnoreCase);
+                List<string> gone = [.. old.Where(label => !present.Contains(label))];
+
+                if (gone.Count > 0)
+                {
+                    table.Add($"# missing today in {key}: {string.Join(", ", gone)}");
+                }
+            }
         }
 
         output.WriteLine(
@@ -136,6 +165,16 @@ public sealed class SequenceEraProbe : IProbe
         if (differing.Count > examples)
         {
             output.WriteLine($"  … {differing.Count - examples} more not shown");
+        }
+
+        if (emit)
+        {
+            output.WriteLine("==== table");
+
+            foreach (string line in table)
+            {
+                output.WriteLine(line);
+            }
         }
     }
 
@@ -187,6 +226,27 @@ public sealed class SequenceEraProbe : IProbe
         }
 
         return labels;
+    }
+
+    /// <summary>Each merged sequence as <c>label:activity</c>, in index order; an empty activity stays empty.</summary>
+    private static List<string> Activities(byte[] bytes, Func<string, byte[]?> read)
+    {
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups = [];
+
+        Gather(bytes, read, groups, depth: 0);
+
+        StudioSequenceTable table = StudioSequenceTable.Merge(groups);
+        List<string> pairs = new(table.Count);
+
+        for (int index = 0; index < table.Count; index++)
+        {
+            (int group, int local) = table.At(index)!.Value;
+            StudioSequence sequence = groups[group].Sequences[local];
+
+            pairs.Add($"{sequence.Label}:{sequence.Activity}");
+        }
+
+        return pairs;
     }
 
     /// <summary>A model's own sequences as the next group, then its includes', depth first.</summary>

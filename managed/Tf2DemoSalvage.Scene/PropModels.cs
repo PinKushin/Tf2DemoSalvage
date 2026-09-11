@@ -2228,6 +2228,40 @@ public static class PropModels
             return -1;
         }
 
+        /// <summary>The first merged sequence whose activity is exactly this one.</summary>
+        /// <param name="activity">An activity name, such as <c>ACT_VM_HITCENTER</c>.</param>
+        /// <returns>The merged sequence number, or −1 when no sequence has it.</returns>
+        /// <remarks>
+        /// **Exact, where <see cref="SequenceByActivity"/> matches a fragment.** This is the key an old
+        /// demo's sequence falls back to when its label is gone today (B380, D160), and a fragment would
+        /// let <c>ACT_VM_HITCENTER</c> match <c>ACT_VM_HITCENTER2</c>. Case-insensitive, as activity names
+        /// are looked up by name through the engine's activity list.
+        /// </remarks>
+        public int SequenceWithActivity(string activity)
+        {
+            ArgumentNullException.ThrowIfNull(activity);
+
+            for (int index = 0; index < Sequences.Count; index++)
+            {
+                if (Sequences.At(index) is not { } at ||
+                    at.Group >= Groups.Count ||
+                    at.Local >= Groups[at.Group].Sequences.Count)
+                {
+                    continue;
+                }
+
+                if (string.Equals(
+                    Groups[at.Group].Sequences[at.Local].Activity,
+                    activity,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
         /// <summary>What the animation behind a sequence uses that this reader does not implement.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>A short note for the log, or empty when it uses neither mechanism.</returns>
