@@ -300,7 +300,10 @@ jobs:
           # arithmetic only — no game content, no SDK — so they run here as well as locally, and the
           # check reads the TOTAL, which counts the one case that skips without TF2 installed.
           # To be re-read off this workflow's own animation.trx on the next green run.
-          ./build/assert-test-count.sh '**/animation.trx' 255 Animation
+          #
+          # 255 -> 260 on 2026-09-12: IvpCollisionToleranceConformanceTests (B369). Arithmetic on
+          # constants read from vphysics.dll, no game content and no SDK, so all five run here too.
+          ./build/assert-test-count.sh '**/animation.trx' 260 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView

@@ -83,9 +83,8 @@ public static class IvpQuaternion
     /// scaled. An implementation that always divides changes bits the engine leaves alone — which
     /// accumulates over a corpse's life rather than showing up at once.
     ///
-    /// **The tolerance's value was NOT dumped**, so the constant below is this transcription's own:
-    /// it is chosen small enough that anything the engine would iterate on is iterated on here.
-    /// Marked because it is the one number on this page that is not read.
+    /// **The tolerance is read: `DAT_1800f4f28` dumps as `1e-12`** (B369, `docs/findings/51`). It was
+    /// `1e-9` here for a while, marked as this transcription's own because it had not been dumped.
     /// </remarks>
     public static (float X, float Y, float Z, float W) Normalise(
         (float X, float Y, float Z, float W) rotation)
@@ -188,9 +187,14 @@ public static class IvpQuaternion
 
     /// <summary>How far off unit length a rotation must be before it is rescaled.</summary>
     /// <remarks>
-    /// **This one is ours, not the engine's.** `DAT_1800f4f28` was not dumped, so the value is
-    /// chosen to be smaller than anything the engine would tolerate rather than transcribed. Named
-    /// and documented so the gap is visible instead of looking like a read constant.
+    /// **`DAT_1800f4f28`, dumped as `1e-12`.** It replaced an invented `1e-9`.
+    ///
+    /// **No test separates the two, and that is arithmetic, not an omission.** A float quaternion
+    /// inside the gap exists — `(0.3631, 0, 0, 0.9317502)` is `7.8e-10` off unit — but rescaling by
+    /// `1/√(1 − 7.8e-10)` moves a component near `0.93` by about `4e-10`, and a float's spacing there is
+    /// `6e-8`, so the result rounds back to the same bits. That holds for every input under `1e-9`:
+    /// through this float API the value cannot change an output. It is carried because it is the
+    /// engine's number, not because anything here could observe it.
     /// </remarks>
-    private const double UnitTolerance = 1e-9d;
+    private const double UnitTolerance = 1e-12d;
 }

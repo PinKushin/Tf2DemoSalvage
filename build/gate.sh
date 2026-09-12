@@ -621,7 +621,12 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # IvpWorldCollision.ToSource against IvpTransform.Position. That seam was the forward map applied
 # twice rather than inverted, rotating every collision hull 180 degrees about X (B400), and two of
 # these three were red before the fix.
-run Tf2DemoSalvage.Animation.Tests animation 255
+#
+# 255 -> 260 on 2026-09-12: IvpCollisionToleranceConformanceTests, five cases pinning IVP's collision
+# tolerance and the thresholds derived from it, each read from vphysics.dll with its multiplier dumped
+# (B369). Red first as a compile failure; one sabotage of the fall-height coefficient reddened the
+# value case and left the square-root-shape case green, which is the split the pair exists for.
+run Tf2DemoSalvage.Animation.Tests animation 260
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

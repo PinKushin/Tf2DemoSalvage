@@ -2196,7 +2196,101 @@ These are the four routines this document named earlier as the narrow phase. **T
 (1,2) and no (2,2)** — which is exactly the minimal closest-feature pair set of the V-Clip method
 *if* kinds 0, 1 and 2 are vertex, edge and face. The absent pairs are what V-Clip reduces to the
 others. That reading gains real support from the table's shape; nothing in the binary names the
-kinds, so it remains INFERRED. **The margin and threshold block at `18012d540` is set twice**: at startup by
+kinds, so it remains INFERRED.
+
+**The (0,2) routine, `FUN_1800a1b50`, is a root-find over the step, not a sweep** — and (0,2) is the
+case a corpse's hull vertex arriving at a terrain triangle takes:
+
+1. Each object's motion over the PSI is built (`FUN_1800a0800` on both cores); the vertex comes from
+   the ledge's point array, the face's plane from `FUN_18007b940`, normalised.
+2. **The generic root finder `FUN_1800b6210`** is handed a point-to-plane evaluator (vtable
+   `1800fe720`) and asked for the moment the distance reaches **the material margin plus the pair's
+   extra radius** (`mindist+0x98`), to a tolerance of `DAT_1800ea984 × extra + ε`, between the
+   interval's start (`mindist+0x30`) and end (`mindist+0x38`). A root is **event `0x20`**, a collision,
+   written at `mindist+0x48`.
+3. **Then the vertex's ring of edges is walked** through the half-edge offset tables. Any edge closing
+   on the plane faster than the remaining interval allows gets the refining finder `FUN_1800b6590` with
+   an edge evaluator (vtable `1800fe750`) and a target built from the margin, `0.1 × extra` and
+   `DAT_18012d664 ×` a core term. A root there is **event `0x21`**: the closest feature leaving the
+   vertex for an edge inside the step, which is the tracking half of a closest-feature pair.
+
+`DAT_1800ea9b8` dumps as `1.0` exactly, so `DAT_18012d670`, set from it at startup, is `1.0`; and
+`DAT_1800ea984` is `0.5`, so the (0,2) tolerance is `0.5 × extra + ε`.
+
+**The root finder `FUN_1800b6210` is conservative advancement on a discrete time lattice.** Its
+evaluator is an object whose slot 0 returns the pair's distance for two given transforms (point-plane
+`1800fe720` = {`a3470`, `a3a30`, `a31e0`}; edge `1800fe750` = {`a3660`, `a32b0`, `a33e0`}) and whose
+`[1]` holds the pair's maximum approach speed:
+
+1. The distance at the interval's start, or the one passed in.
+2. A step of `(distance − tolerance) / maxApproachSpeed` — the longest the pair can go without
+   touching — clamped at the interval's end (plus `1e-8`) and at zero.
+3. **Quantised to whole lattice ticks**, `int(step × DAT_1800feb78)`, at least one, each tick
+   `DAT_1800fd748` long; the clock advances by that many ticks.
+4. Both objects' transforms at the new lattice time, computed once and cached (`FUN_1800734e0`), and
+   the distance evaluated there.
+5. Once the target distance is crossed, the bracket is handed to the refining finder `FUN_1800b6590`.
+
+**Each object's motion cache is built by `FUN_1800a0800`**: 21 transform slots. When the core's
+movement state at `core+0x78` is above 7 every slot points at the current transform — the body is not
+moving, *inferred* from that shortcut — and otherwise only the current one is filled and the rest are
+computed on demand at lattice times.
+
+**The lattice is 200 ticks a second.** `DAT_1800feb78` is `200.0` and `DAT_1800fd748` is `0.005`
+(float), and the refinement gives up at **20 ticks** — a tenth of a second, which is why the motion
+cache has 21 slots, the start and twenty.
+
+**A transform at time `t`**, `FUN_1800734e0`, is linear in position and interpolated in rotation:
+
+```
+position(t) = core+0x150 + core+0x170..0x178 × (t − core+0x1d0)
+rotation(t) = interpolate(core+0x180, core+0x1a0, (t − core+0x1d0) × core+0x1d8)
+```
+
+then composed with the object's offset inside its core (`object+0x60`, unless flag `0x800`) and an
+optional further transform (`object+0x58`).
+
+**The refining finder `FUN_1800b6590`:**
+
+1. Distance already at or under the target: the event is at the interval's start.
+2. Otherwise march with a step of `(distance − target) × evaluator[2]`, **doubling every iteration**,
+   quantised to whole ticks, at least one; past 20 ticks there is no event.
+3. Once the target is crossed, **regula falsi** between the last point above and the first below,
+   with every fourth iteration blended by `DAT_1800feb70`, until `|distance − target| < 1e-8` or 64
+   iterations.
+
+**The evaluators are signed distances.** Point-plane `FUN_1800a3470` transforms the vertex by object
+A's transform and the plane's point and normal by object B's, and returns
+`dot(vertex − planePoint, normal)`. Edge `FUN_1800a3660` returns a direction transformed into B's frame
+dotted with a stored normal.
+
+**`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
+
+**`interpolate` is `FUN_180071060`, a shortest-path slerp that falls back to a normalised lerp.** It
+takes the dot product of the two rotations; at or below zero it negates the dot and flips the second
+rotation's sign, so the path is always the short one. When the dot reaches `DAT_1800fcea0` — the two
+nearly parallel — it lerps component by component and renormalises with two Newton steps of a
+reciprocal square root; otherwise it is a true slerp through `acos` and two `sin`s. Dumped: the
+cut-over `DAT_1800fcea0` is **`0.999`** (a float widened), the signs `DAT_1800ea988` and
+`DAT_1800ea9f8` are `+1` and `−1`, and the Newton constants `DAT_1800ee388` and `DAT_1800ea9c0` are
+`0.5` and `1.5` — the usual `x · (1.5 − 0.5 · s · x²)` step, taken exactly twice. **This project's `IvpQuaternion` does not port this routine** —
+only the product, the normalise and the angular step.
+
+**And a defect found on the way.** `IvpQuaternion.UnitTolerance` is `1e-9`, documented as *"ours, not
+the engine's — `DAT_1800f4f28` was not dumped"*. It was dumped above: **`1e-12`**. The comparison's
+shape matches `FUN_180070c60`; only the number was invented. **Fixed to `1e-12`.**
+
+**And no test can tell the two apart, which is arithmetic rather than a gap.** A float quaternion in
+the band exists — `(0.3631, 0, 0, 0.9317502)` is `7.8e-10` off unit, found by search — but rescaling it
+moves a component near `0.93` by about `4e-10`, under half a float's `6e-8` spacing, so the output
+rounds back to identical bits. The same bound holds for any input under `1e-9`. Through the float
+`Normalise` the constant is unobservable; it is carried because it is the engine's.
+
+*Evidence class: read from the decompiled binary; `1e-12` read from the image; the unobservability is
+arithmetic on float spacing, with the in-band input found by search.*
+
+*Evidence class: read from the decompiled binary. The labels "collision" for `0x20` and "feature
+change" for `0x21` are INFERRED from which search raises each.* **The margin and threshold block at `18012d540` is set twice**: at startup by
 `FUN_180098fd0(block, DAT_1800eb150, DAT_1800ec290)`, and again at runtime through
 `FUN_1800824c0(a, b)`, so its values depend on a caller. `DAT_18012d670` = `DAT_1800ea9b8` and
 `DAT_18012d66c` = 1000 are set beside it.

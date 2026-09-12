@@ -25984,7 +25984,38 @@ Ours is a fixed step with speculative contacts, which is the structure to replac
 displacement's triangles through its hull, as vphysics does. (3) is a parity gap in its own right and
 is not expected to change what `corpse-drop` measures.
 
-**What is NOT established:** that (1) removes the buried limbs. It closes this entry only when
+**First code, 2026-09-12: the constants only.** `IvpCollisionTolerance` carries the tolerance the
+pair scheduler reads — `d = (0.25 − 1e-4) × 0.0254` m, the 0.2499-inch margin, the 0.025-inch recheck
+`ε`, and the `√(2.6·d·g)` closing-speed threshold — pinned by
+`IvpCollisionToleranceConformanceTests` (5, compile-red first, one sabotage reddening the value case
+and not the shape case). **Nothing reads them yet**, on purpose: they are fixed from the binary before
+the scheduler exists, so the scheduler cannot be tuned into agreeing with its own constants.
+
+**The port, in the engine's own layers, bottom first** — every piece read from `vphysics.dll` and
+recorded in `docs/findings/51` before this list was written, so the list is a target and not a design:
+
+1. **Motion over an interval** — position linear in `t` from the core's velocity; rotation by
+   `FUN_180071060`, shortest-path slerp with a normalised lerp above a dot of `0.999` and two Newton
+   steps. Tested against hand-built cores at fractions 0, ½ and 1, and at the cut-over from either side.
+2. **The lattice** — 200 ticks a second, 0.005 s each, at most 20 per search, a 21-slot per-object
+   transform cache that a resting body fills with its current transform.
+3. **Signed-distance evaluators** — point-plane (`FUN_1800a3470`) and edge (`FUN_1800a3660`), each
+   given two transforms. Tested at known geometry, including the sign on each side of a face.
+4. **The root finders** — `FUN_1800b6210`: step `(distance − tolerance) / maxApproachSpeed` in whole
+   ticks to the interval's end; `FUN_1800b6590`: doubling steps up to 20 ticks, then regula falsi with a
+   `0.375` blend every fourth iteration to `|distance − target| < 1e-8` or 64 iterations. Tested with
+   evaluators whose root is known in closed form.
+5. **The vertex-face time of impact** (`FUN_1800a1b50`) — target `margin + extra`, tolerance
+   `0.5·extra + ε`; event `0x20` on a root, then the vertex's edge ring for event `0x21`.
+6. **The pair scheduler's near branch** (`FUN_180099380`) and the time-ordered event loop that
+   consumes events inside the PSI — the piece that replaces the fixed step's speculative contacts.
+7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
+   measure with `corpse-drop` by limb depth.
+
+Kinds (0,0), (0,1) and (1,1), and the kind-3 routines, follow the same layers once (5) is proven;
+lump 28's hull as the query root is its own later parity step.
+
+**What is NOT established:** that (1)–(7) remove the buried limbs. It closes this entry only when
 `corpse-drop` reports every body above the surface it rests on, on all five seeds.
 
 *Evidence class: measured, for every table here, through instruments carrying the value the code used;
