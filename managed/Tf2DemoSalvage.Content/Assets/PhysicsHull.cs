@@ -21,6 +21,20 @@ public readonly record struct PhysicsLedge(
     Vector3 Center,
     float Radius);
 
+/// <summary>The mass center and rotational inertia a hull's compact surface carries in its header (B403).</summary>
+/// <param name="MassCenter">Where the hull's mass center is, in IVP metres in the solid's own frame.</param>
+/// <param name="RotationInertia">
+/// The hull's rotational inertia along IVP's three object axes, per unit mass — the core multiplies it by the
+/// factor and the mass (<c>FUN_180073df0</c>).
+/// </param>
+/// <remarks>
+/// **Read by the engine through the surface manager, not by a deserialiser**: its virtual `+8` copies
+/// `IVP_Compact_Surface+0x00..0x08` and its `+0x18` copies `+0x0C..0x14` (`docs/findings/51`, *Which hull bytes
+/// the surface manager returns*). *That the inertia is taken about the mass center is inferred* from the core
+/// being placed there; the bytes say only which three numbers they are.
+/// </remarks>
+public readonly record struct PhysicsMassProperties(Vector3 MassCenter, Vector3 RotationInertia);
+
 /// <summary>
 /// The collision hull inside a <c>.phy</c> solid or a map's <c>LUMP_PHYSCOLLIDE</c> entry (B58).
 /// </summary>
@@ -79,6 +93,12 @@ public static class PhysicsHull
 
     /// <summary>Bytes of <c>IVP_Compact_Surface</c>, and the minimum a solid can declare.</summary>
     private const int SurfaceSize = 0x30;
+
+    /// <summary>Offset within the surface of the mass center, which the surface manager's virtual <c>+8</c> copies.</summary>
+    private const int MassCenterOffset = 0x00;
+
+    /// <summary>Offset within the surface of the rotation inertia, which the surface manager's virtual <c>+0x18</c> copies.</summary>
+    private const int RotationInertiaOffset = 0x0C;
 
     /// <summary>Offset within the surface of the ledge tree's root offset.</summary>
     private const int LedgeTreeOffset = 0x20;
@@ -196,6 +216,40 @@ public static class PhysicsHull
 
         return ledges;
     }
+
+    /// <summary>Reads the mass center and rotation inertia from one solid's surface header.</summary>
+    /// <param name="solid">The solid's bytes, starting at its <c>VPHY</c> tag.</param>
+    /// <returns>The mass properties, or null when there is no readable surface.</returns>
+    /// <remarks>
+    /// **Refused wherever <see cref="Read(ReadOnlySpan{byte})"/> refuses**: a blob too short for a surface,
+    /// or a magic the engine does not load. Returned as IVP writes them — metres, IVP axes — for the one seam
+    /// that converts.
+    /// </remarks>
+    public static PhysicsMassProperties? MassProperties(ReadOnlySpan<byte> solid)
+    {
+        if (solid.Length < SurfaceOffset + SurfaceSize)
+        {
+            return null;
+        }
+
+        int surface = SurfaceOffset;
+
+        if (BitConverter.ToInt32(solid[(surface + MagicOffset)..]) is not (Ivps or Spvi or 0))
+        {
+            return null;
+        }
+
+        return new PhysicsMassProperties(
+            Triple(solid, surface + MassCenterOffset),
+            Triple(solid, surface + RotationInertiaOffset));
+    }
+
+    /// <summary>Three little-endian floats.</summary>
+    private static Vector3 Triple(ReadOnlySpan<byte> solid, int at) =>
+        new(
+            BitConverter.ToSingle(solid[at..]),
+            BitConverter.ToSingle(solid[(at + 4)..]),
+            BitConverter.ToSingle(solid[(at + 8)..]));
 
     /// <summary>Walks the tree exactly as <see cref="Walk"/> does, counting the leaves it meets.</summary>
     private static void Count(

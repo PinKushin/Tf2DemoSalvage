@@ -121,6 +121,53 @@ public sealed class PhysicsHullConformanceTests
         PhysicsHull.Read(solid).ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **The mass center is the surface's first three floats and the rotation inertia the next three** —
+    /// `IVP_Compact_Surface+0x00..0x08` and `+0x0C..0x14`, which is what the surface manager's virtuals `+8`
+    /// and `+0x18` copy out (`docs/findings/51`, *Which hull bytes the surface manager returns*). Six distinct
+    /// values, so a read four bytes off lands on a different number rather than a plausible one.
+    /// </remarks>
+    [Test]
+    public void MassProperties_FromTheSurfaceHeader_ReadsTheMassCenterThenTheRotationInertia()
+    {
+        byte[] solid = Solid(
+            [new Vector3(1f, 2f, 3f), new Vector3(4f, 5f, 6f), new Vector3(7f, 8f, 9f)],
+            [(0, 1, 2)],
+            massCenter: new Vector3(0.1f, -0.2f, 0.3f),
+            rotationInertia: new Vector3(0.004f, 0.005f, 0.006f));
+
+        PhysicsMassProperties? properties = PhysicsHull.MassProperties(solid);
+
+        properties.ShouldNotBeNull();
+        properties.Value.MassCenter.ShouldBe(new Vector3(0.1f, -0.2f, 0.3f));
+        properties.Value.RotationInertia.ShouldBe(new Vector3(0.004f, 0.005f, 0.006f));
+    }
+
+    /// <remarks>
+    /// **What the ledge reader refuses, this refuses** — a `MOPP` surface is a different structure, so its
+    /// first six floats are not a mass center and an inertia.
+    /// </remarks>
+    [Test]
+    public void MassProperties_WithAMoppSurface_ReadsNothing()
+    {
+        byte[] solid = Solid(
+            [new Vector3(1f, 2f, 3f), new Vector3(4f, 5f, 6f), new Vector3(7f, 8f, 9f)],
+            [(0, 1, 2)],
+            magic: "MOPP"u8,
+            massCenter: new Vector3(0.1f, -0.2f, 0.3f));
+
+        PhysicsHull.MassProperties(solid).ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **A blob too short to hold a surface has none to read (D32)**, rather than an exception from slicing.
+    /// </remarks>
+    [Test]
+    public void MassProperties_TooShortForASurface_ReadsNothing()
+    {
+        PhysicsHull.MassProperties(new byte[0x20]).ShouldBeNull();
+    }
+
     /// <summary>Where the ledge is written, from the solid's <c>VPHY</c> tag.</summary>
     private const int LedgeAt = 0x1C + 0x30;
 
@@ -135,7 +182,9 @@ public sealed class PhysicsHullConformanceTests
     private static byte[] Solid(
         Vector3[] points,
         (int A, int B, int C)[] triangles,
-        ReadOnlySpan<byte> magic = default)
+        ReadOnlySpan<byte> magic = default,
+        Vector3 massCenter = default,
+        Vector3 rotationInertia = default)
     {
         int trianglesAt = LedgeAt + 0x10;
         int pointsAt = trianglesAt + (triangles.Length * 0x10);
@@ -145,8 +194,14 @@ public sealed class PhysicsHullConformanceTests
 
         "VPHY"u8.CopyTo(solid);
 
-        // IVP_Compact_Surface: only the tree offset and the magic are read, and both are relative
-        // to the surface's own base rather than to the file.
+        // IVP_Compact_Surface: the mass center and rotation inertia lead it, then the tree offset and the
+        // magic, all relative to the surface's own base rather than to the file.
+        BitConverter.GetBytes(massCenter.X).CopyTo(solid, 0x1C + 0x00);
+        BitConverter.GetBytes(massCenter.Y).CopyTo(solid, 0x1C + 0x04);
+        BitConverter.GetBytes(massCenter.Z).CopyTo(solid, 0x1C + 0x08);
+        BitConverter.GetBytes(rotationInertia.X).CopyTo(solid, 0x1C + 0x0C);
+        BitConverter.GetBytes(rotationInertia.Y).CopyTo(solid, 0x1C + 0x10);
+        BitConverter.GetBytes(rotationInertia.Z).CopyTo(solid, 0x1C + 0x14);
         BitConverter.GetBytes(treeAt - 0x1C).CopyTo(solid, 0x1C + 0x20);
         (magic.IsEmpty ? "IVPS"u8 : magic).CopyTo(solid.AsSpan(0x1C + 0x2C));
 

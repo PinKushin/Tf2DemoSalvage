@@ -1472,7 +1472,9 @@ run Tf2DemoSalvage.Presentation.Tests presentation 454
 # the control that a material that is not a Patch never asks for its include.
 # 1157 -> 1161 on 2026-09-10: four for B391 in SpriteMaterialConformanceTests — `$ignorevertexcolors`
 # absent and zero, and the Sprite shader's constant color broadcast, unclamped and defaulted.
-run Tf2DemoSalvage.Content.Tests  content   1161
+# 1161 -> 1164 on 2026-09-12: three PhysicsHullConformanceTests for the compact surface's mass center and
+# rotation inertia (B403). Synthetic blobs; two sabotages, each reddening only its own case.
+run Tf2DemoSalvage.Content.Tests  content   1164
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
