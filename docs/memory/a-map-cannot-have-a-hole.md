@@ -74,8 +74,14 @@ is actually there. Related: [[fixtures-are-the-weak-point]],
 hull all along** (B369, 2026-09-12). vbsp writes one outer hull per displacement into
 `LUMP_PHYSDISP` (lump 28); the shipped engine loads it at level init, and its virtual-mesh callback
 hands it to vphysics as `pHull`. The engine only BUILDS a hull when the lump is absent. This project
-rebuilt terrain from the render lumps, never opened lump 28, and invented a thickness — and corpses
-that sleep turned out to have limbs eighty units under the ground.
+rebuilt terrain from the render lumps and never opened lump 28.
+
+**And the second half of this lesson is the one that bites: finding the unread piece is not finding
+the cause.** The first write-up said the hull was the missing thickness under buried limbs. Reading
+vphysics' surface manager refuted it the same day — the hull is the ROOT of a two-level query
+(hull first, then triangles), not a solid, and the engine has no terrain thickness at all. The limbs
+were buried by our narrow phase, not by the unread lump. Read the CONSUMER of the piece you found
+before saying what it would have fixed.
 
 **Why it survived so long:** the SDK's own runtime callback, `CDispCollTree::GetVirtualMeshList`, sets
 `pHull = NULL`, which reads as "no hull at runtime". The engine's handler calls that and THEN
