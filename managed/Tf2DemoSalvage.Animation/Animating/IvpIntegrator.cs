@@ -238,6 +238,81 @@ public sealed class IvpRigidBody
     /// <summary>When this body was last stepped — <c>core+0x1d0</c>, absolute.</summary>
     public double LastStepped { get; set; }
 
+    /// <summary>The inverse of the step this body is in — <c>core+0x1d8</c>.</summary>
+    /// <remarks>
+    /// **What turns an elapsed time into a fraction of the step**, so a body can be placed at any moment
+    /// inside it (<see cref="TransformAt"/>). Two engine paths write it, and they differ in one respect
+    /// (B369, `docs/findings/51`):
+    ///
+    /// <code>
+    /// integrator, FUN_180099a00 (both callers):  dt ≤ 1e-10 ? 1e10 : (float)(1.0 / dt)
+    /// sleep reset, FUN_180078bd0 from env+0x110: (float)(1.0 / step), unguarded
+    /// </code>
+    /// </remarks>
+    public float InverseStep { get; set; }
+
+    /// <summary>Where this body is at a moment inside its current step — <c>FUN_1800734e0</c>.</summary>
+    /// <param name="time">An absolute environment time, normally between this body's stamp and the next.</param>
+    /// <returns>The position, and the orientation interpolated through the step.</returns>
+    /// <remarks>
+    /// **This is what IVP's time-of-impact search evaluates** — both bodies of a pair at lattice times
+    /// inside the step, so "where is the limb at t" has exactly this meaning to the engine (B369):
+    ///
+    /// <code>
+    /// position(t) = core+0x150 + core+0x170 × (float)(t − core+0x1d0)
+    /// rotation(t) = FUN_180071060(core+0x180, core+0x1a0, (float)(t − core+0x1d0) × core+0x1d8)
+    /// </code>
+    ///
+    /// **The elapsed time is narrowed to `float` before either use**, as the engine narrows it, and the
+    /// position moves by the COMMITTED velocity — the same one-step lag the integrator has. The object's
+    /// own offset inside its core (`object+0x60`) is not composed here, because in this project a body
+    /// and its core are one thing.
+    /// </remarks>
+    public ((double X, double Y, double Z) Position, (float X, float Y, float Z, float W) Orientation)
+        TransformAt(double time)
+    {
+        float elapsed = (float)(time - LastStepped);
+
+        (double X, double Y, double Z) position = (
+            Position.X + ((double)PreviousVelocity.X * elapsed),
+            Position.Y + ((double)PreviousVelocity.Y * elapsed),
+            Position.Z + ((double)PreviousVelocity.Z * elapsed));
+
+        (float X, float Y, float Z, float W) orientation =
+            IvpQuaternion.Interpolate(Orientation, WorkingOrientation, elapsed * InverseStep);
+
+        return (position, orientation);
+    }
+
+    /// <summary>Brings this body to rest as a sleeping core — <c>FUN_180078bd0</c>.</summary>
+    /// <param name="step">The environment's simulation step, <c>env+0x108</c>.</param>
+    /// <remarks>
+    /// **The core resets itself**, which is the engine's shape: `FUN_180078c90` puts a core to sleep by
+    /// calling this for it. It does three things this project's sleep used to do only the first of:
+    ///
+    /// - **Zeroes every velocity, the STAGED ones included** — `core+0x110` and `+0x120` beside `+0x130`,
+    ///   `+0x140` and `+0x170`. A push staged just before sleep would otherwise land after waking.
+    /// - **Copies the committed orientation over the predicted one** (`0x1a0 := 0x180`), so both ends of
+    ///   <see cref="TransformAt"/>'s interpolation are the same and a sleeping body stays put mid-step.
+    /// - **Sets <see cref="InverseStep"/> from `env+0x110`**, which `SetSimulationTimestep` writes as
+    ///   `1.0 / step` with no guard.
+    ///
+    /// Not carried, because nothing here names them: `+0x80`, `+0x1dc`, `+0x254`, `+0x1c0..0x1c8`, and the
+    /// state byte at `+1`.
+    /// </remarks>
+    public void Sleep(float step)
+    {
+        Velocity = (0f, 0f, 0f);
+        AngularVelocity = (0f, 0f, 0f);
+        PreviousVelocity = (0f, 0f, 0f);
+        PendingVelocity = (0f, 0f, 0f);
+        PendingAngularVelocity = (0f, 0f, 0f);
+
+        InverseStep = (float)(1.0 / step);
+
+        WorkingOrientation = Orientation;
+    }
+
     /// <summary>Whether gravity passes this body by — bit <c>0x10</c> of <c>core+0x0</c>.</summary>
     /// <remarks>
     /// **The whole gravity step is inside `if ((*pbVar4 &amp; 0x10) == 0)`**, so a body carrying this
@@ -328,6 +403,15 @@ public static class IvpIntegrator
         // `(double)(float)(env[0x188] - core[0x1d0])` — the difference is taken in double and then
         // narrowed, so a long catch-up carries single-precision error exactly as the engine's does.
         double delta = (float)positionDelta;
+
+        // **`core+0x1d8`, set before the stamp and the advance, as `FUN_180099a00` does** (B369). The
+        // island driver builds it from the step being run, guarded by `DAT_1800fcfa0` — the float `1e-10`
+        // widened — so a vanishing step gives `1e10` rather than an infinity. `TransformAt` reads it.
+        const double VanishingStep = 1e-10f;
+
+        body.InverseStep = orientationDelta <= VanishingStep
+            ? 1e10f
+            : (float)(1.0 / orientationDelta);
 
         body.Position = (
             body.Position.X + (body.PreviousVelocity.X * delta),

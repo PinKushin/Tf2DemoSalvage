@@ -2281,6 +2281,23 @@ float widened). **The second caller, `FUN_18009a590`** (phase 3, three call site
 rule to `dt = (float)env+0x108`, the environment's PSI step: `inverse = dt ≤ 1e-10 ? 1e10 :
 (float)(1.0 / dt)`. Both callers agree, so that is the rule.
 
+**And the sleep reset's copy is unguarded.** `FUN_180078bd0` takes `core+0x1d8` from `env+0x110`, and
+`CPhysicsEnvironment::SetSimulationTimestep` — slot 37 of the table at `1800ebbd8`, `1800152f0` —
+forwards to `FUN_180082470`:
+
+```c
+env[0x108] = step;                        // double, from the float argument
+env[0x110] = 1.0 / step;                  // no guard
+env[0x1b0] = FUN_1800d3cf0(step * DAT_1800fd4e0);   // not needed here; unread
+```
+
+So a core that goes to sleep gets `(float)(1.0 / step)`, while a core the integrator steps gets the
+guarded `dt ≤ 1e-10 ? 1e10 : (float)(1.0 / dt)` — the same number for any real step, and different
+only for a vanishing one. **Two controls pin the slot arithmetic:** slot 34 of that table is
+`FUN_180015310`, this document's `Simulate`, and slot 36 is exactly `return (float)env[0x108]`, the
+getter. An earlier dump of "slot 34" landed on slot 22 through an address slip, which is why the
+control was run twice.
+
 **The reset that copies the predicted orientation back has three callers, and one is sleep.**
 `FUN_180078bd0` — velocities zeroed, `core+0x1d8 := env+0x110`, `0x1a0 := 0x180` — is called from:
 

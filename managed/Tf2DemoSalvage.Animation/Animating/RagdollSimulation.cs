@@ -397,13 +397,13 @@ public sealed class RagdollSimulation
 
         Asleep = true;
 
+        // **Each core resets itself, as the engine's does** (B369): `FUN_180078c90` sleeps a core through
+        // `FUN_180078bd0`, which zeroes the staged velocities as well as the real ones and copies the
+        // committed orientation over the predicted one. This loop used to zero three velocities and
+        // nothing else.
         for (int index = 0; index < Environment.Bodies.Count; index++)
         {
-            IvpRigidBody body = Environment.Bodies[index];
-
-            body.Velocity = (0f, 0f, 0f);
-            body.PreviousVelocity = (0f, 0f, 0f);
-            body.AngularVelocity = (0f, 0f, 0f);
+            Environment.Bodies[index].Sleep(Environment.Step);
         }
     }
 
