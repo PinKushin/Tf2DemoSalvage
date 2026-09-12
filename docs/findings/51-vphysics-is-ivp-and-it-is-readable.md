@@ -3847,6 +3847,28 @@ the triangles; the hull sits beside them in the same structure, and whether it a
 envelope for the radius query, or a filter is read from the surface manager (vtable `1800ee220`),
 not assumed.
 
+**Read: the hull is the ROOT of a two-level structure, not a solid.** `FUN_180025f10` lays out the
+cache entry as triangles (0x30 each), then vertices converted to IVP metres and axes, then the hull
+unpacked behind them, with the hull count at `+0x12`. The surface manager's radius query,
+`FUN_1800261a0`, branches on its fourth argument: **null returns the hull ledge**; anything else runs
+`FUN_180025bc0` and returns the **triangles** within the radius. Slot 0, `FUN_180026390`, returns the
+hull as the single convex. So a body is collided against the displacement's hull first and against
+its triangles once IVP descends. *That the fourth argument is IVP's root-ledge context is INTERPOLATED
+from the two branches; nothing names it.*
+
+**Which withdraws the premise this section opened with.** The hull does not make ground below terrain
+solid, and the engine has no terrain thickness at all — contacts end on zero-thickness triangles
+exactly as ours do. A TF2 limb does not end up under the ground because IVP never lets a pair
+penetrate: the mindist is watched before surfaces meet. So two divergences are separated here:
+
+- **We do not read lump 28**, so a displacement has no hull root and every triangle is queried
+  directly. Real, and a parity gap, but it changes which triangles are asked about rather than what
+  a contact does.
+- **Our narrow phase lets a point pass a triangle and then invents a thickness to push it back** —
+  `TerrainDepth` and `TerrainReach`, both 512. That is what buries limbs, and it is this document's
+  standing prescription: a closest-feature pair that is tracked, so a pair is never allowed to
+  penetrate, and then the compensators deleted.
+
 *Evidence class: read from the decompiled `engine.dll` for `FUN_18016f6d0`, its caller's arguments,
 the handler's three slots and the unload; read from published SDK source for vbsp, the game and the
 interface declarations; arithmetic for slot 46 and for `pHull`'s offset, each agreeing with an

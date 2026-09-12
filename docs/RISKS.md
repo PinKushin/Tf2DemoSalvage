@@ -25967,9 +25967,21 @@ vphysics unpacks the hull and the triangles into one structure and hands IVP the
 ledges, so it is not established that the hull makes ground below terrain solid. It may be an
 envelope for the radius query or a filter. The surface manager decides, and it is being read.
 
-**What is NOT established:** what the hull does in collision; and whether doing what vphysics does
-with it removes the buried limbs. The last is the only one that closes this entry, and it is measured
-by `corpse-drop` reporting limb depths, not root heights.
+**Read, and it moves the fix: the hull is a recursion root, not a solid.** vphysics' surface manager
+returns the hull ledge for a query with no root context and the triangles within the radius for one
+with it (`docs/findings/51`). The engine has no terrain thickness; contacts end on zero-thickness
+triangles as ours do. **So reading lump 28 alone would not raise one buried limb.** What buries them is
+our narrow phase letting a point pass a triangle and then pushing it back through a 512-unit slab —
+IVP never allows the penetration in the first place.
+
+**The order of work, from that:** (1) a tracked closest-feature pair per (body, triangle), so a
+contact exists before the surfaces meet and a pair never penetrates — `docs/findings/51`'s standing
+prescription; (2) delete `TerrainDepth` and `TerrainReach`; (3) read lump 28 and query a
+displacement's triangles through its hull, as vphysics does. (3) is a parity gap in its own right and
+is not expected to change what `corpse-drop` measures.
+
+**What is NOT established:** that (1) removes the buried limbs. It closes this entry only when
+`corpse-drop` reports every body above the surface it rests on, on all five seeds.
 
 *Evidence class: measured, for every table here, through instruments carrying the value the code used;
 read-from-source for the vbsp, game and dispcoll citations; INTERPOLATED, and flagged, for the reading
