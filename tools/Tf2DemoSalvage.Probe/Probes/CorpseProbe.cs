@@ -280,6 +280,89 @@ public sealed class CorpseProbe : IProbe
             $"  {withWearables} of {withPlayer} had wearables on the tick they appeared, " +
             $"{wearablesFound} in total");
 
+        // **What the corpse's own `m_nBody` is built from, measured rather than assumed** (B395).
+        // Three claims were made when `CarriedAtDeath` was written and none of them had been
+        // checked against a real demo: that a player's WEAPONS reach the timeline as bone-merged
+        // tracks carrying an item index, that the held one can be identified, and that a corpse
+        // ends up with more equipment than it has cosmetics. Each is a number here.
+        int withCarried = 0;
+        int carriedTotal = 0;
+        int weaponsTotal = 0;
+        int withDeployed = 0;
+
+        foreach (SceneRagdoll corpse in timeline.Corpses)
+        {
+            if (corpse.Carried is not { Count: > 0 } carried)
+            {
+                continue;
+            }
+
+            withCarried++;
+            carriedTotal += carried.Count;
+
+            foreach (SceneCarriedItem item in carried)
+            {
+                if (item.Weapon)
+                {
+                    weaponsTotal++;
+                }
+            }
+
+            if (carried.Any(item => item.Deployed))
+            {
+                withDeployed++;
+            }
+        }
+
+        output.WriteLine(
+            $"  m_nBody inputs: {withCarried} of {timeline.Corpses.Count} corpses carry equipment, " +
+            $"{carriedTotal} items of which {weaponsTotal} are weapons; " +
+            $"{withDeployed} name the weapon that was held");
+
+        // **Why so few name the held weapon — availability or identity?** Those are opposite
+        // faults with one symptom. If the player's `m_hActiveWeapon` is usually READABLE at the
+        // death tick but rarely matches one of his own bone-merged children, the handle and the
+        // entity index are not the same number and the comparison is wrong. If it is usually
+        // absent, the value simply is not on the wire at that tick and the fix is to remember the
+        // last one seen. Measured apart, because a single count cannot tell them apart.
+        int readable = 0;
+        int matched = 0;
+
+        List<ScenePlayer> living = [];
+
+        foreach (SceneRagdoll corpse in timeline.Corpses)
+        {
+            if (corpse.PlayerIndex is not { } player)
+            {
+                continue;
+            }
+
+            living.Clear();
+            timeline.PlayersAt(corpse.FirstTick, living);
+
+            int at = living.FindIndex(one => one.EntityIndex == player);
+
+            if (at < 0 || living[at].ActiveWeapon is not { } weapon)
+            {
+                continue;
+            }
+
+            readable++;
+
+            atDeath.Clear();
+            timeline.PropsAt(corpse.FirstTick, atDeath);
+
+            if (atDeath.Any(prop =>
+                prop.AttachedTo == player && prop.EntityIndex == weapon))
+            {
+                matched++;
+            }
+        }
+
+        output.WriteLine(
+            $"  of those, {readable} players had a readable m_hActiveWeapon at the death tick and " +
+            $"{matched} of those matched one of their own bone-merged children");
+
         // **How many corpses could play a death ANIMATION at all.** `GetSequenceForDeath` is a
         // switch on `m_iDamageCustom` with two cases and no default — headshots and their
         // decapitation variants, and backstabs — returning -1 for every other death

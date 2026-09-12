@@ -486,6 +486,12 @@ public readonly record struct TimelineFrame(
 /// ragdoll.listCount )` (`ragdoll_shared.cpp:660`). Negative is a real value meaning "no bone", and
 /// the centre-of-mass push is simply skipped.
 /// </param>
+/// <param name="Carried">
+/// Everything the player had equipped at death — cosmetics AND weapons — with the held one marked,
+/// for the corpse's <c>m_nBody</c> (B395). Distinct from <paramref name="Worn"/>, which is the
+/// wearables that hang off the body; see <see cref="SceneCarriedItem"/> for why the engine needs
+/// both sets.
+/// </param>
 /// <remarks>
 /// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
 /// `DT_TFRagdoll` is `NOBASE`, so it inherits no model index, no skin, no body and no angles; a prop
@@ -516,7 +522,8 @@ public readonly record struct SceneRagdoll(
     bool Ice = false,
     (float X, float Y, float Z)? Force = null,
     (float X, float Y, float Z)? Velocity = null,
-    int? ForceBone = null);
+    int? ForceBone = null,
+    IReadOnlyList<SceneCarriedItem>? Carried = null);
 
 /// <summary>One thing a corpse was wearing when it died.</summary>
 /// <param name="Model">The model to draw, bone-merged onto the corpse.</param>
@@ -528,6 +535,31 @@ public readonly record struct SceneRagdoll(
 /// index travels and the Scene layer, which can open the install, does the filtering.
 /// </param>
 public readonly record struct SceneWornItem(string Model, int? ItemDefinitionIndex);
+
+/// <summary>One item a player had equipped when he died, for the corpse's body (B395).</summary>
+/// <param name="ItemDefinitionIndex">Which item, so the schema can say what it hides.</param>
+/// <param name="Weapon">
+/// Whether it is a weapon rather than a wearable. **Not cosmetic bookkeeping: it decides WHEN the
+/// item applies.** `RecalculatePlayerBodygroups` runs three passes in a fixed order
+/// (`tf_player_shared.cpp:13693-13709`) — weapons without the deployed-only flag, then wearables,
+/// then deployed-only weapons — so two items touching the same body part resolve by that order.
+/// </param>
+/// <param name="Deployed">
+/// Whether this was the weapon in his hands. Eight shipped items declare
+/// <c>bHideBodygroupsDeployedOnly</c> and all eight are weapons, so the flag decides whether their
+/// hidden parts apply — `if ( bHideBodygroupsDeployedOnly &amp;&amp; pPlayer-&gt;GetActiveWeapon() != pWpn )
+/// continue;` (`tf_weaponbase.cpp:6226`).
+/// </param>
+/// <remarks>
+/// **A second list beside <see cref="SceneWornItem"/>, because the engine asks two questions of two
+/// different sets.** What hangs off a corpse is the econ WEARABLE list —
+/// `CreateBoneAttachmentsFromWearables` walks `GetWearable( wbl )` (`c_tf_player.cpp:10178`), and a
+/// weapon is a `CTFWeaponBase`, not in it. What the corpse's `m_nBody` is came from the PLAYER's
+/// whole equipment, weapons included, because it is `pPlayer->GetBody()` copied whole (`:790-793`).
+/// Filtering one list to serve both would be wrong in one direction or the other.
+/// </remarks>
+public readonly record struct SceneCarriedItem(
+    int ItemDefinitionIndex, bool Weapon, bool Deployed);
 
 
 /// <summary>
@@ -1318,9 +1350,16 @@ public sealed class DemoTimeline
     /// the recorder's team, which stage C bakes into a persistent prop and must rebuild on a
     /// switch. Empty when omitted, which answers a null team at every tick.
     /// </param>
+    /// <param name="corpses">
+    /// Ragdolls the timeline should report, for tests whose subject is what a corpse draws (B395).
+    /// Corpses are not prop tracks and never reach the track walk — see `RagdollProps` — so a
+    /// timeline assembled without them answers no corpses whatever its tracks hold.
+    /// </param>
     internal static DemoTimeline ForTracks(
-        List<ScenePropTrack> tracks, List<TimelineFrame>? frames = null) =>
-        new(frames ?? [], tracks);
+        List<ScenePropTrack> tracks,
+        List<TimelineFrame>? frames = null,
+        IReadOnlyList<SceneRagdoll>? corpses = null) =>
+        new(frames ?? [], tracks) { Corpses = corpses ?? [] };
 
     /// <summary>A timeline whose tracks are PLAYERS, with one frame naming them.</summary>
     /// <param name="tracks">The tracks, which go in the player list rather than the prop list.</param>
@@ -1518,6 +1557,15 @@ public sealed class DemoTimeline
         // its float. The engine reads m_flJumpStartTime, set when the jump event arrives; a demo
         // carries no such event, so this watches FL_ONGROUND clear instead.
         Dictionary<int, int> leftGroundAt = [];
+
+        // **The last weapon each player was seen holding, for a corpse's bodygroups** (B395).
+        // Measured on `demostf-cp_process_f12-2026-08-07`: `m_hActiveWeapon` is readable at the
+        // death tick for only **15 of 204** corpses — and when it IS readable it matches one of
+        // that player's own bone-merged children **15 times out of 15**. So the comparison was
+        // never the problem and the value simply is not on the wire at the moment of death; a
+        // dying player is not holding anything. The engine has the same information from the tick
+        // before, because its client copies `m_nBody` off a player it has been tracking all along.
+        Dictionary<int, int> lastHeld = [];
 
         // **When each player caught fire** (B336), and the reasoning is the same as the line above.
         // `CProxyBurnLevel` ramps `$detailblendfactor` from `m_flBurnEffectStartTime`, which is set
@@ -1872,7 +1920,8 @@ public sealed class DemoTimeline
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
                         mergesItself, combatWeapons, protocol, command.Tick, interval,
-                        simulationLag, animationLag, clockGap, lagByClass, corpses, replaced);
+                        simulationLag, animationLag, clockGap, lagByClass, corpses, replaced,
+                        lastHeld);
                 }
 
                 entityTicks += Stopwatch.GetTimestamp() - entityFrom;
@@ -2026,6 +2075,14 @@ public sealed class DemoTimeline
 
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
+                // **Remembered before the visibility guard, because a dying player fails it.**
+                // The value is wanted at the moment of death and is absent exactly then, so the
+                // useful reading is the last one from while he was alive (B395).
+                if (player.ActiveWeapon() is { } holding)
+                {
+                    lastHeld[player.EntityIndex] = holding;
+                }
+
                 if (!player.IsVisible || player.Origin() is not { } origin)
                 {
                     continue;
@@ -2849,6 +2906,62 @@ public sealed class DemoTimeline
         return slots;
     }
 
+    /// <summary>Everything the player had equipped at death, for the corpse's body (B395).</summary>
+    /// <param name="tracks">Every track, to find the player's bone-merged children.</param>
+    /// <param name="player">The dead player's entity index.</param>
+    /// <param name="disguised">Whether the corpse wears its disguise's gear.</param>
+    /// <param name="activeWeapon">The entity he was holding, or null if it cannot be read.</param>
+    /// <returns>Each equipped item with its kind and whether it was deployed, or null.</returns>
+    /// <remarks>
+    /// **The same walk as <see cref="WornAtDeath"/> and deliberately NOT the same filter.** That
+    /// one answers "what hangs off the corpse", which the engine takes from the econ wearable list
+    /// (`c_tf_player.cpp:10178`), so it drops weapons. This answers "what was the player's body",
+    /// which `RecalculatePlayerBodygroups` builds from weapons AND wearables
+    /// (`tf_player_shared.cpp:13693-13709`). Two questions, two sets; filtering one list to serve
+    /// both is wrong in one direction or the other.
+    ///
+    /// **The kind is taken from the class name**, the same distinction `WornAtDeath` draws —
+    /// `CEconWearable` against `CTFWeaponBase` — because a weapon's own carry state is per-tick and
+    /// the class is not.
+    ///
+    /// **`activeWeapon` is the entity the player held at the death tick**, which the deployed-only
+    /// pass needs. Null when the recorder never saw it; those items then contribute nothing, which
+    /// is what the engine does for a weapon that is not the active one.
+    /// </remarks>
+    private static List<SceneCarriedItem>? CarriedAtDeath(
+        Dictionary<int, ScenePropTrack> tracks, int? player, bool disguised, int? activeWeapon)
+    {
+        if (player is not { } owner)
+        {
+            return null;
+        }
+
+        List<SceneCarriedItem>? carried = null;
+
+        foreach (ScenePropTrack track in tracks.Values)
+        {
+            if (track.AttachedTo != owner ||
+                !track.BoneMerged ||
+                track.OfDisguise != disguised ||
+                track.ItemDefinitionIndex is not { } definition)
+            {
+                continue;
+            }
+
+            bool wearable =
+                track.ClassName.Contains("Wearable", StringComparison.Ordinal) ||
+                track.ClassName.Contains("PowerupBottle", StringComparison.Ordinal);
+
+            carried ??= [];
+            carried.Add(new SceneCarriedItem(
+                definition,
+                Weapon: !wearable,
+                Deployed: activeWeapon is { } held && held == track.EntityIndex));
+        }
+
+        return carried;
+    }
+
     /// <summary>What a player was wearing, for the corpse being made of them.</summary>
     /// <param name="tracks">Every prop track so far.</param>
     /// <param name="player">The dying player's entity index, or null when it is unknown.</param>
@@ -2948,7 +3061,8 @@ public sealed class DemoTimeline
         int[] clockGap,
         Dictionary<string, int[]> lagByClass,
         Dictionary<int, SceneRagdoll> corpses,
-        List<SceneRagdoll> replaced)
+        List<SceneRagdoll> replaced,
+        Dictionary<int, int> lastHeld)
     {
         // **A corpse is captured here and never becomes a prop track**, because it has no model
         // index to make one from — `DT_TFRagdoll` is `NOBASE` (`PARITY-AUDIT.md` #4). Recorded on
@@ -3029,6 +3143,36 @@ public sealed class DemoTimeline
                     ? already
                     : WornAtDeath(tracks, deadIndex, disguised);
 
+            // **The body's own set, captured at the same moment and for the same reason** (B395).
+            // `m_nBody` is `pPlayer->GetBody()` copied whole (`c_tf_player.cpp:790-793`), and the
+            // player's body is built from weapons as well as wearables — so this is a wider walk
+            // than `worn`, with the held weapon marked for the deployed-only pass.
+            //
+            // **The held weapon is read separately from the eye angles above**, whose `dead` is
+            // scoped to that pattern — and a corpse whose facing could not be read still has a
+            // body worth building.
+            // **The tick's own value first, then the last one seen while he was alive.** Measured
+            // on `demostf-cp_process_f12-2026-08-07`: the death tick answers for 15 of 204, so
+            // without the fallback the deployed-only pass would almost never run.
+            int? held = null;
+
+            if (deadIndex is { } holder)
+            {
+                held = entities.TryGet(holder, out EntityState? carrying)
+                    ? carrying.ActiveWeapon()
+                    : null;
+
+                if (held is null && lastHeld.TryGetValue(holder, out int seen))
+                {
+                    held = seen;
+                }
+            }
+
+            IReadOnlyList<SceneCarriedItem>? carried =
+                facedBefore.Serial == corpse.SerialNumber && facedBefore.Carried is { } before
+                    ? before
+                    : CarriedAtDeath(tracks, deadIndex, disguised, held);
+
             corpses[entity.EntityIndex] = new SceneRagdoll(
                 entity.EntityIndex, corpse.SerialNumber, playerClass, team, x, y, z,
                 gib, burning, feign, disguised, born, tick, facing, corpse.DamageCustom(),
@@ -3040,7 +3184,8 @@ public sealed class DemoTimeline
                 // body took the hit. `CreateTFRagdoll` keeps them apart too — the force goes to
                 // `RagdollCreate` and the velocity to `SetAbsVelocity` — and folding them together
                 // would lose the one that scales by mass.
-                corpse.RagdollForce(), corpse.RagdollVelocity(), corpse.RagdollForceBone());
+                corpse.RagdollForce(), corpse.RagdollVelocity(), corpse.RagdollForceBone(),
+                carried);
         }
 
         if (entity.UpdateType == EntityUpdateType.Delete)

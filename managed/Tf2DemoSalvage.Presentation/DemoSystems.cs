@@ -123,6 +123,13 @@ public sealed class DemoSystems
                 Items = CorpseItems,
                 Gibs = Gibs,
 
+                // **The corpse's own bodygroups** (B395). `_moment.Appearance` is replaced when the
+                // archives open — `PlayerAppearances` fills it on the first moment that can answer
+                // — so this reads the property per call rather than capturing today's value, which
+                // would be `DemoAppearance.None` for the life of the demo.
+                Appearance = () => _moment.Appearance,
+                Bodygroups = () => Bodygroups,
+
                 // **The cull's answer, for the corpse fade and nothing else** (B385). It used to reach
                 // the sampler as the interpolation list too, and the two questions are not the same
                 // one: `IsRagdollVisible` wants a frustum (`c_tf_player.cpp:1350`) and
@@ -242,6 +249,15 @@ public sealed class DemoSystems
     /// rather than a graceful degradation.
     /// </remarks>
     public Func<string, IReadOnlyList<PhysicsBreakPiece>>? Gibs { get; set; }
+
+    /// <summary>The model set, for a corpse's bodygroup arithmetic (B395).</summary>
+    /// <remarks>
+    /// **Set by whoever owns `EntityModelSet`, exactly as <see cref="Gibs"/> is, and for the same
+    /// two-clock reason.** Turning a cosmetic's declared part NAME into an index needs the loaded
+    /// `.mdl`, which is not available when this type is built. Null leaves a corpse at body 0 —
+    /// every part's first alternative, which is what it drew before B395.
+    /// </remarks>
+    public IModelBodygroups? Bodygroups { get; set; }
 
     /// <summary>The class table a corpse's model comes from, null while the install is unread.</summary>
     /// <returns>An index in, a model path out — <c>PlayerClassModels.Model</c>.</returns>

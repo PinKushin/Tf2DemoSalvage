@@ -95,7 +95,7 @@
 - [An empty box must never cull](an-empty-box-must-never-cull.md) — a zero bound tests the map origin.
 - [A demo names a map version](a-demo-names-a-map-version.md) — a mismatched .bsp imitates bugs; the version field is MapHash, never MapCrc.
 - [A gap can be filed backwards](a-gap-can-be-filed-backwards.md) — "we do not" and "we always" set one task.
-- [State the assumptions the owner can falsify](state-the-assumptions-the-owner-can-falsify.md) — he is looking at it.
+- [State the assumptions the owner can falsify](state-the-assumptions-the-owner-can-falsify.md) — he is looking at it; his guesses are hypotheses too, and a ratio that mixes two failures is not a measurement.
 - [Ask whether it still follows the pattern](ask-whether-it-still-follows-the-pattern.md) — a green suite missed it.
 - [Ask about the entity you are drawing](ask-about-the-entity-you-are-drawing.md) — the rule asked its neighbour.
 - [Measure the route before building on it](measure-the-route-before-building-on-it.md) — zero of 1191 faces; a schema key nobody reads is a lead.

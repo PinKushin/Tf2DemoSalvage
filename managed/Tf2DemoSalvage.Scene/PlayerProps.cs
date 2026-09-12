@@ -647,43 +647,78 @@ public static class PlayerProps
                 continue;
             }
 
-            ItemBodygroups groups = appearance.BodygroupsOf(item);
+            body = Bodygroup(
+                item, player.ActiveWeapon == prop.EntityIndex, appearance, bodygroups, model, body);
+        }
+
+        return body;
+    }
+
+    /// <summary>One item's contribution to a body, the engine's three passes (B395).</summary>
+    /// <param name="item">The item definition index.</param>
+    /// <param name="deployed">Whether this is the weapon its owner is holding.</param>
+    /// <param name="appearance">Where an item's declared bodygroups come from.</param>
+    /// <param name="bodygroups">The model, for turning a part's NAME into its index.</param>
+    /// <param name="model">The wearer's model path.</param>
+    /// <param name="body">The body so far.</param>
+    /// <returns>The body with this item applied.</returns>
+    /// <remarks>
+    /// **Extracted so a corpse and a living player cannot disagree** (B395). `CreateTFRagdoll`
+    /// copies `m_nBody` whole off the player (`c_tf_player.cpp:790-793`), so the two must compute
+    /// it the same way or a corpse is a second, quietly different answer to one question —
+    /// `docs/memory/one-place-or-it-drifts.md`.
+    ///
+    /// **The caller supplies `deployed` rather than this asking**, because the two callers know it
+    /// differently: a live player compares the prop's entity against `m_hActiveWeapon`, and a
+    /// corpse has no active weapon at all — it is dead, and its wearables are not weapons.
+    /// </remarks>
+    internal static int Bodygroup(
+        int item,
+        bool deployed,
+        IPlayerAppearance appearance,
+        IModelBodygroups bodygroups,
+        string model,
+        int body)
+    {
+        ArgumentNullException.ThrowIfNull(appearance);
+        ArgumentNullException.ThrowIfNull(bodygroups);
+
+        ItemBodygroups groups = appearance.BodygroupsOf(item);
 
             // `if ( bHideBodygroupsDeployedOnly && pPlayer->GetActiveWeapon() != pWpn ) continue;`
-            // (`tf_weaponbase.cpp:6226`). All eight shipped items that set the flag are weapons, so
-            // asking whether this prop is the one being held is the whole of the third pass.
-            if (groups.DeployedOnly && player.ActiveWeapon != prop.EntityIndex)
-            {
-                continue;
-            }
+        // (`tf_weaponbase.cpp:6226`). All eight shipped items that set the flag are weapons, so
+        // asking whether this prop is the one being held is the whole of the third pass.
+        if (groups.DeployedOnly && !deployed)
+        {
+            return body;
+        }
 
-            if (groups.Named is { Count: > 0 } named)
+        if (groups.Named is { Count: > 0 } named)
+        {
+            foreach ((string name, int state) in named)
             {
-                foreach ((string name, int state) in named)
+                // `if ( iBody != iState ) continue;` with iState fixed at 1 — see the remarks.
+                // The name is then resolved and set separately because that is the engine's own
+                // pair: `FindBodygroupByName` answering -1 is a `continue`, not a body of -1.
+                if (state == AppliedState)
                 {
-                    // `if ( iBody != iState ) continue;` with iState fixed at 1 — see the remarks.
-                    // The name is then resolved and set separately because that is the engine's own
-                    // pair: `FindBodygroupByName` answering -1 is a `continue`, not a body of -1.
-                    if (state == AppliedState)
-                    {
-                        body = bodygroups.SetBodygroup(
-                            model, bodygroups.FindBodygroup(model, name), AppliedState, body);
-                    }
+                    body = bodygroups.SetBodygroup(
+                        model, bodygroups.FindBodygroup(model, name), AppliedState, body);
                 }
             }
+        }
 
-            // **The last arm, and the only one that takes a part NUMBER** (B353,
-            // `econ_entity.cpp:2083`). It runs after the named entries because the engine runs it
-            // there, and both guards are Valve's: the fields default to -1
-            // (`econ_item_schema.h:1065`) and half a declaration does nothing.
-            //
-            // **An item can declare ONLY this**, which is why the empty-names check above is no
-            // longer a `continue` — the Purity Fist has no `player_bodygroups` at all.
-            if (groups.OverrideGroup > -1 && groups.OverrideState > -1)
-            {
-                body = bodygroups.SetBodygroup(
-                    model, groups.OverrideGroup, groups.OverrideState, body);
-            }
+        // **The last arm, and the only one that takes a part NUMBER** (B353,
+        // `econ_entity.cpp:2083`). It runs after the named entries because the engine runs it
+        // there, and both guards are Valve's: the fields default to -1
+        // (`econ_item_schema.h:1065`) and half a declaration does nothing.
+        //
+        // **An item can declare ONLY this**, which is why the empty-names check above is no
+        // longer a `continue` — the Purity Fist has no `player_bodygroups` at all.
+        if (groups.OverrideGroup > -1 && groups.OverrideState > -1)
+        {
+            body = bodygroups.SetBodygroup(
+                model, groups.OverrideGroup, groups.OverrideState, body);
         }
 
         return body;

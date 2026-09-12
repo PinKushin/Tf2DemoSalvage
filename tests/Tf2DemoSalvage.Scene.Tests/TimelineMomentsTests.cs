@@ -112,4 +112,96 @@ public sealed class TimelineMomentsTests
         late.PoseParameterLoops.Count.ShouldBe(1);
         early.PoseParameterLoops.ShouldBeEmpty();
     }
+
+    /// <remarks>
+    /// **The wiring, which is the only level that could catch this one** (B395).
+    /// `RagdollBodygroupConformanceTests` proves `RagdollProps.Fill` computes a corpse's
+    /// `m_nBody` when it is handed an appearance and a part table; it says nothing about whether
+    /// anything ever hands them over. A supplier nobody sets is exactly the shape this project has
+    /// shipped three no-ops through, every one with a green suite
+    /// (`docs/memory/output-level-assertion-or-it-is-not-done.md`).
+    ///
+    /// **Both suppliers are read through the source's own `PropsAt`**, so the assertion fails if
+    /// either is dropped on the way to `Fill` — which is the hop that has no other test.
+    /// </remarks>
+    [Test]
+    public void PropsAt_ForACorpse_HandsTheAppearanceAndPartTableToTheBodygroupPass()
+    {
+        SceneRagdoll corpse = new(
+            EntityIndex: 40,
+            Serial: 1,
+            PlayerClass: 5,
+            Team: SceneTeams.Blu,
+            X: 0f,
+            Y: 0f,
+            Z: 0f,
+            Gib: false,
+            Burning: false,
+            FeignDeath: false,
+            WasDisguised: false,
+            FirstTick: 100,
+            LastTick: 200,
+            Carried: [new SceneCarriedItem(Hat, Weapon: false, Deployed: false)]);
+
+        TimelineMoments moments = new(DemoTimeline.ForTracks([], corpses: [corpse]))
+        {
+            ClassModels = () => _ => "models/player/medic.mdl",
+            Appearance = () => new HidesTheHead(),
+            Bodygroups = () => new OnePart(),
+        };
+
+        List<SceneProp> scene = [];
+
+        moments.PropsAt(150, scene);
+
+        // **The corpse itself, which `RagdollProps.Fill` appends before its wearables.**
+        scene.ShouldNotBeEmpty("the corpse should have been drawn at all");
+
+        scene[0].Pose.Body.ShouldBe(
+            HeadGroup,
+            "neither supplier reached RagdollProps.Fill, so every corpse draws at body 0");
+    }
+
+    /// <summary>The item the wiring fixture wears.</summary>
+    private const int Hat = 30700;
+
+    /// <summary>The part it hides, and so the body a corpse wearing it must have.</summary>
+    private const int HeadGroup = 2;
+
+    private sealed class HidesTheHead : IPlayerAppearance
+    {
+        /// <inheritdoc/>
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) =>
+            itemDefinitionIndex == Hat
+                ? new ItemBodygroups(new Dictionary<string, int>(), false, HeadGroup, 1)
+                : ItemBodygroups.None;
+
+        /// <inheritdoc/>
+        public string? ModelOf(int playerClass) => null;
+
+        /// <inheritdoc/>
+        public string? WeaponSuffix(string? weaponClass, int? playerClass) => null;
+
+        /// <inheritdoc/>
+        public bool Airwalks(int playerClass) => true;
+
+        /// <inheritdoc/>
+        public bool Lands(int playerClass) => true;
+
+        /// <inheritdoc/>
+        public string? Hands(int playerClass) => null;
+
+        /// <inheritdoc/>
+        public SceneTaunt? TauntForScene(string scene) => null;
+    }
+
+    private sealed class OnePart : IModelBodygroups
+    {
+        /// <inheritdoc/>
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        /// <inheritdoc/>
+        public int SetBodygroup(string modelPath, int group, int value, int body) =>
+            group < 0 ? body : body + group;
+    }
 }

@@ -332,7 +332,10 @@ jobs:
           # 711 -> 713 on 2026-09-10: two for B390, a sprite sized by its texture's mapping size.
           # 713 -> 716 on 2026-09-10: three for B391, kRenderTransAdd drawn with the material's color.
           # 716 -> 726 on 2026-09-11: ten for B380, an old demo's sequence numbers translated by era.
-          ./build/assert-test-count.sh '**/scene.trx' 726 Scene
+          #
+          # 726 -> 736 on 2026-09-12: the corpse bodygroup suite (B395). All synthetic — stub
+          # appearance and part table, no install — so they run here exactly as they do locally.
+          ./build/assert-test-count.sh '**/scene.trx' 736 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

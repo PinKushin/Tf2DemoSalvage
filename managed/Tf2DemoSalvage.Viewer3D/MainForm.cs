@@ -1055,6 +1055,12 @@ internal class MainForm : Form, IFrameSteps
             ? DemoModels.BreakPiecesOf(model, install)
             : [];
 
+        // **The same owner, for the same reason** (B395). A corpse's `m_nBody` is the player's,
+        // copied at death (`c_tf_player.cpp:790-793`), and turning a cosmetic's declared part name
+        // into an index needs the loaded `.mdl` — which is this set. Without it every corpse draws
+        // at body 0 and wears its hats on top of the stock geometry they replace.
+        _demoSystems.Bodygroups = _models;
+
         _playback.MomentChanged += (_, moment) =>
         {
             // **The tick drives the picture.** Scrubbing and playing both arrive here, so the
