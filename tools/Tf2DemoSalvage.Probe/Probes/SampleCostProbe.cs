@@ -18,7 +18,8 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// microseconds a track is far too much for that. The suspicion is the boundary rather than the
 /// algorithm: `PropsAt` takes `ICollection&lt;SceneProp&gt;` and `IReadOnlySet&lt;int&gt;`, so every
 /// prop costs an interface dispatch copying a sixteen-field struct, plus a second dispatch and a
-/// hash lookup. `docs/memory/linq-is-a-test-tool.md` is the same rule from the other side.
+/// hash lookup. `docs/memory/per-item-apis-hide-quadratic-reads.md#linq-is-a-test-tool` is the same
+/// rule from the other side.
 ///
 /// **A probe rather than production instrumentation** (D126), because this is one question about one
 /// demo at one tick, and the last attempt to time it inside `PropsAt` was refused by the analyzers

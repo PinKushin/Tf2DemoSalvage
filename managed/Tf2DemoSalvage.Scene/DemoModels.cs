@@ -387,9 +387,10 @@ public static class DemoModels
     /// answers it out of the frame cache — which only ever holds a model something has already
     /// DRAWN. A gibbed corpse draws no body, so its class model can be absent from that cache and
     /// the supplier then answers "no pieces" for a model that declares nine
-    /// (<c>docs/memory/a-lookup-is-not-a-loader.md</c>). Reading the <c>.phy</c> is what the engine
-    /// does — <c>PrecachePropsForModel</c> parses the collide data's key values directly — and it
-    /// is cheap enough to do per model, since a <c>.phy</c>'s text is a few hundred bytes beside
+    /// (<c>docs/memory/precache-what-the-engine-precaches.md#a-lookup-is-not-a-loader</c>). Reading
+    /// the <c>.phy</c> is what the engine does — <c>PrecachePropsForModel</c> parses the collide
+    /// data's key values directly — and it is cheap enough to do per model, since a <c>.phy</c>'s
+    /// text is a few hundred bytes beside
     /// the megabytes of geometry the same load already paid for.
     /// </remarks>
     public static IReadOnlyList<PhysicsBreakPiece> BreakPiecesOf(string model, GameContent game)

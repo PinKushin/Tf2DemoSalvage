@@ -1024,9 +1024,10 @@ internal class MainForm : Form, IFrameSteps
 
         // **The gib list comes from the INSTALL, not from the model set** (B371). It was wired to
         // `_models.BreakPiecesOf` on the reasoning that a break list is a fact about a loaded model
-        // — and that is the trap `docs/memory/a-lookup-is-not-a-loader.md` names: the model set
-        // answers out of a cache filled from the props DRAWN at a tick, and a gibbed corpse draws
-        // no body, so it asked for a model that could not be there and got "no pieces" for one that
+        // — and that is the trap `docs/memory/precache-what-the-engine-precaches.md#a-lookup-is-not-a-loader`
+        // names: the model set answers out of a cache filled from the props DRAWN at a tick, and a
+        // gibbed corpse draws no body, so it asked for a model that could not be there and got
+        // "no pieces" for one that
         // declares nine. Nothing was drawn at all, which is what the picture showed.
         //
         // The engine reads it at precache time, from the collide data, before anything spawns:

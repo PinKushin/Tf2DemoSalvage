@@ -123,8 +123,8 @@ public sealed class FirstPersonUiTests
         // exactly one of three lines, so their sum always rises and the wait ends in milliseconds.
         // Waiting for the free-camera line specifically means two presses in three wait for
         // something that will not happen and burn the whole timeout — a negative retry is a sleep
-        // (`docs/memory/a-negative-retry-is-a-sleep.md`), and with one of these per test it cost
-        // this suite most of its runtime.
+        // (`docs/memory/ui-tests-run-every-time.md#a-negative-retry-is-a-sleep`), and with one of
+        // these per test it cost this suite most of its runtime.
         // **Against a baseline, not against zero.** These counts accumulate for the life of the
         // shared viewer, so `== 0` is true only until the first teardown ever runs and false
         // afterwards — the loop would stop pressing and every later test would inherit whatever

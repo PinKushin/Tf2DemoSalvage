@@ -129,8 +129,8 @@ public enum ViewerAction
     /// **No default key, and that is Valve's answer rather than an omission.**
     /// `config_default.cfg` binds neither convar, so a user reaches both through the console or a
     /// config — and this viewer's menu. Inventing a default here would take a key TF2 leaves
-    /// available (`docs/memory/tf2-binds-every-letter-but-o.md`), which is the opposite of what
-    /// D101 is for. It is bindable, so a config that wants it can say so.
+    /// available (`docs/memory/no-hardcoded-controls-ever.md#tf2-binds-every-letter-but-o`), which
+    /// is the opposite of what D101 is for. It is bindable, so a config that wants it can say so.
     /// </remarks>
     PositionReadout,
 

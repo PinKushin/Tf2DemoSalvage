@@ -308,7 +308,7 @@ gap that large is a defect in code we wrote, not a budget.
 
 Does not retract the ragdoll findings — see [[a-gap-can-be-filed-backwards]]. They are correct and
 recorded; they are simply not the priority they were written up as. Related:
-[[valve-parity-is-the-first-principle]], [[not-every-setting-needs-a-bind]].
+[[valve-parity-is-the-first-principle]], [[no-hardcoded-controls-ever#not-every-setting-needs-a-bind]].
 
 ---
 

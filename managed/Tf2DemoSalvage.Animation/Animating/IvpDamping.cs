@@ -62,9 +62,10 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// also why the `.phy` spells `rotdamping` separately from `damping`.
 ///
 /// **Every constant is settled in the disassembly, not in the decompiled C**
-/// (`docs/memory/settle-a-constant-in-the-disassembly.md`): `DAT_1800ea984` is `0.5`,
-/// `DAT_1800ea988` is `1.0`, `DAT_1800efdf8` is `0.25` as a double, `DAT_1800ea9b8` is `1.0` as a
-/// double, and the XOR masks are the float and double sign bits, which is what makes those calls
+/// (`docs/memory/nothing-is-closed.md#settle-a-constant-in-the-disassembly`): `DAT_1800ea984` is
+/// `0.5`, `DAT_1800ea988` is `1.0`, `DAT_1800efdf8` is `0.25` as a double, `DAT_1800ea9b8` is
+/// `1.0` as a double, and the XOR masks are the float and double sign bits, which is what makes
+/// those calls
 /// `exp(−x)` rather than `exp(x)`.
 ///
 /// **The `core+1 >= 2` branch adding `0.1` is NOT implemented, and the byte is unidentified.** The

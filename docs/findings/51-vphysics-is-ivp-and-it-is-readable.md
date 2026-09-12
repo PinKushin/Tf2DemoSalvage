@@ -478,8 +478,8 @@ Three facts, and each is a thing a transcription would otherwise guess:
   Source's own `matrix3x4_t` is float; IVP's `IVP_U_Matrix` is not, and the narrowing happens here,
   at the boundary into the solver.
 - **It transposes on the way out** — destination row 0 is source column 0 — which is the transpose
-  `docs/memory/ivp-is-a-third-convention.md` already records, now seen at the exact line that does
-  it rather than inferred from the convention.
+  `docs/memory/two-matrix-conventions-on-purpose.md#ivp-is-a-third-convention` already records, now
+  seen at the exact line that does it rather than inferred from the convention.
 - **A guarded shift by a local anchor.** `if ((*(uint *)(param_1 + 0x78) & 0x800) == 0)` the
   translation is offset by the vector at body+0x60 rotated into world. Bit 0x800 means "no shift" —
   a flag whose absence changes the matrix, so a reader who skipped the `if` would place every joint
@@ -2057,9 +2057,9 @@ writing the first into `core+0x130/0x134/0x138` and the second into `core+0x140/
 into `+0x140`, and an acceleration is added to a linear velocity.
 
 **Every constant settled in the disassembly**, per
-`docs/memory/settle-a-constant-in-the-disassembly.md`: `DAT_1800ea984` = `0.5`, `DAT_1800ea988` =
-`1.0`, `DAT_1800efdf8` = `0.25` (double), `DAT_1800ea9b8` = `1.0` (double), and both XOR masks are
-sign bits — which is what makes those calls `exp(−x)` rather than `exp(x)`.
+`docs/memory/nothing-is-closed.md#settle-a-constant-in-the-disassembly`: `DAT_1800ea984` = `0.5`,
+`DAT_1800ea988` = `1.0`, `DAT_1800efdf8` = `0.25` (double), `DAT_1800ea9b8` = `1.0` (double), and
+both XOR masks are sign bits — which is what makes those calls `exp(−x)` rather than `exp(x)`.
 
 **Still open:** the byte at `core+1`. When it is 2 or more, every damping term gains `0.1` — the
 same `0.1` as `g_PhysDefaultObjectParams`, which is suggestive and is not evidence. Nothing traced
@@ -2271,7 +2271,7 @@ second velocity added on top, folded in and cleared by this function's tail unde
 gate.
 
 **The loop is the finding.** Every constant in it was dumped in the disassembly rather than read out
-of the decompiled expression, per `docs/memory/settle-a-constant-in-the-disassembly.md`:
+of the decompiled expression, per `docs/memory/nothing-is-closed.md#settle-a-constant-in-the-disassembly`:
 
 ```c
 fVar17 = dot(relativeVelocity, normal);
@@ -2423,9 +2423,9 @@ assumption stated rather than buried.
 
 *Evidence class: read from the decompiled binary for the solve; the three constants re-read as raw
 instruction operands in the disassembly per
-`docs/memory/settle-a-constant-in-the-disassembly.md`. The identification of `FUN_180038070` as the
-ball-socket K matrix is ARITHMETIC — matched to the standard form from the fields it reads — rather
-than read from a name.*
+`docs/memory/nothing-is-closed.md#settle-a-constant-in-the-disassembly`. The identification of
+`FUN_180038070` as the ball-socket K matrix is ARITHMETIC — matched to the standard form from the
+fields it reads — rather than read from a name.*
 
 ## Correction: there is no anchor axis — all THREE constraint axes are angular
 

@@ -128,7 +128,8 @@ keep, and a red census in that run is the feature working rather than a regressi
 denominator; "a real map asks for X and nothing accounts for it" is a defect report. Only the second
 has a subject.
 
-Related: [[measure-the-output-not-the-capability]], [[a-parameter-can-be-gated-by-a-sub-block]].
+Related: [[measure-the-output-not-the-capability]],
+[[material-variables-split-three-ways#a-parameter-can-be-gated-by-a-sub-block]].
 
 ---
 

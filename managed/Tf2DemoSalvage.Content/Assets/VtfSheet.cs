@@ -156,7 +156,8 @@ public static class VtfSheet
     ///
     /// **`fitLifetime` is still honoured** because other systems set it, and a renderer parameter
     /// that exists in the file and nowhere in the code is the shape
-    /// `docs/memory/a-schema-key-nobody-reads-is-a-lead.md` names.
+    /// `docs/memory/measure-the-route-before-building-on-it.md#a-schema-key-nobody-reads-is-a-lead`
+    /// names.
     ///
     /// **Wrapping unless the sequence says clamp** — `clamp` is the sequence's own field in the
     /// sheet, and `smokelit`'s four sequences all say false.

@@ -44,3 +44,72 @@ first person. That was shipped, and nobody noticed, because nobody types in a se
 thinking about camera modes.
 
 Related: [[a-config-is-a-program]], [[silence-about-a-missing-feature-is-not-a-preference]].
+
+---
+
+## `tf2-binds-every-letter-but-o` — a pasted config TAKES keys away
+
+`<TF2>/tf/cfg/config_default.cfg` is the game's shipped default binding set — 64 `bind` lines,
+**every letter of the alphabet except `o`**, plus `F1`, `F2`, `F5`, `F6`, `F7`, `F10`, `F12`, the
+digits, the mouse buttons and the punctuation. Read it before choosing any default key.
+
+**The consequence is not "avoid collisions", it is stronger than that.** D69 loads a user's real
+config wholesale, and every real config opens with `unbindall`. So loading one does not merely add
+bindings — it **takes keys away**. `bind "f" "+inspect"` moves `f` to a command this viewer does not
+implement, and whatever we had there is gone.
+
+A default is therefore safe in exactly two cases:
+
+1. **TF2 binds that key to the same command we do** — then a pasted config moves our action with
+   theirs, which is what we want. `SPACE` is `+jump` in both.
+2. **TF2 does not bind that key at all** — only `o`, `F3`, `F4`, `F8`, `F9`, `F11`.
+
+Anything else loses the action. Six free keys is not enough, which is why the viewer's own actions
+live on **`CTRL` combinations**: Source's `bind` has no modifier syntax, so no config can name one
+and the whole space is unclaimable. That was added as a deliberate superset of Source's vocabulary
+(D101, B214).
+
+**Use Valve's command name wherever Valve has one** — it is what turns case 1 on. More exist than
+you would guess: `screenshot`, `demo_togglepause` ("Toggles demo playback"), `cl_showfps`, and every
+`mat_*` debug view. `tf/cvarlist.log` lists all 3,668 with their help text.
+
+**How to apply:** `DefaultBindingConformanceTests` enforces all of this by reading Valve's file, so
+adding a colliding default goes red rather than shipping. Related:
+[[nothing-is-closed]], [[parity-is-the-search-not-the-defence]].
+
+---
+
+## `not-every-setting-needs-a-bind` — a convar can be config-only
+
+The viewer has a test — `ConfigConsoleConformanceTests.Unbound_TheShippedDefaults_LeaveNothing
+Unreachable` — asserting that the shipped defaults leave **every** `ViewerAction` reachable by some
+key. That test is right about actions and says nothing about whether a setting should have BEEN an
+action.
+
+**Measured, 2026-08-29 (D123).** Adding `cl_showpos` as a `ViewerAction` with no default key
+reddened three tests, and the fix applied was to invent `CTRL+p`. The owner's response:
+
+> *"not every cvar or setting needs a key bind, but that ctrl p works i guess"*
+
+and then the rule itself:
+
+> *"really if its not something valve normally binds a button too we dont NEED the bind, but having
+> binds for the debug views is nice and SS's is needed"*
+
+**Why:** a key is scarce and TF2 takes nearly all of them (the section above), so a binding invented
+to satisfy a test spends a real resource on a decision nobody made. And the reasoning runs
+backwards: the setting was made an action because that is how settings were done here, then a key
+was invented because actions must have one.
+
+**How to apply — three tiers, and only the last is a default:**
+
+- **Valve binds it** → bind it, on Valve's key. D101.
+- **A debug view** (`mat_wireframe`, `cl_showfps`, `cl_showpos`) → a bind is *nice*. Take a `CTRL`
+  combination, which no Source config can name.
+- **A screenshot** → *needed*; it is the one action that must be reachable mid-frame.
+- **Anything else** → a convar and a menu item are enough. Do not make it a `ViewerAction`.
+
+So ask "is this reachable enough as a convar plus a menu item?" **before** adding the enum member.
+Once it is an action the test is correct to demand a key, and by then the wrong question has already
+been answered. Related: [[a-config-is-a-program]],
+[[silence-about-a-missing-feature-is-not-a-preference]].

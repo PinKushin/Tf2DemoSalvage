@@ -127,8 +127,8 @@ public sealed class ThirdPersonUiTests
     /// in milliseconds. Waiting for a SPECIFIC line instead means two presses in three are waiting
     /// for something that will not happen, and each burns the whole timeout: a negative retry is a
     /// sleep wearing a synchronisation's clothes
-    /// (`docs/memory/a-negative-retry-is-a-sleep.md`). That mistake cost this suite about forty
-    /// seconds a run and the owner noticed it before the tests did.
+    /// (`docs/memory/ui-tests-run-every-time.md#a-negative-retry-is-a-sleep`). That mistake cost
+    /// this suite about forty seconds a run and the owner noticed it before the tests did.
     /// </remarks>
     private static void Switch()
     {

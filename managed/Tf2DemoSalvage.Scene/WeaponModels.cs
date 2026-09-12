@@ -292,9 +292,10 @@ public sealed class WeaponModels
     ///
     /// So the drawn prop names a model no TRACK ever named, `DemoModels.Needed` walks tracks, and
     /// the loader was never asked for it. `MapAssets.Geometry` is a dictionary lookup rather than a
-    /// loader (`docs/memory/a-lookup-is-not-a-loader.md`), so the miss is silent and the asset load
-    /// still reports `MISSING 0` — measured on `20130518_0313_cp_granary_blu_blu`, a clean load
-    /// report of 166 models beside THIRTEEN cosmetics a frame packing no batches at all.
+    /// loader (`docs/memory/precache-what-the-engine-precaches.md#a-lookup-is-not-a-loader`), so the
+    /// miss is silent and the asset load still reports `MISSING 0` — measured on
+    /// `20130518_0313_cp_granary_blu_blu`, a clean load report of 166 models beside THIRTEEN cosmetics
+    /// a frame packing no batches at all.
     ///
     /// **Every class and both teams, because this is the packing set.** A worn item's model differs
     /// per class (`model_player_per_class`) and the wearer's class is a per-tick fact, so a set
