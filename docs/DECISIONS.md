@@ -8530,3 +8530,27 @@ downloading like tf2 does, and waiting for the download, is probably the correct
 find the map or changed data"*. So playback holds while the recorded version downloads and says it is
 downloading, the way the client's own map download does; the installed version is drawn only when no
 source has the recorded one. Swapping maps under a playing demo is refused as jarring.
+
+## D164 — a player is namable by every spelling a person actually has (2026-09-11)
+
+**The owner, twice in one session.** First on the lookup being broken: *"its the right tick but out
+spectate beleleu isnt working"*, then *"do it by ID or something, because it should work both ways,
+but this should be a test for the fucking parser too"* — so a name and an id are not alternatives to
+choose between, and the parser owes a test rather than the viewer owing a workaround. Then: *"the
+user should be able to use the steam ID too"*.
+
+**So `--spectate` takes a name, a user id, an entity index and a Steam id**, and a Steam id in any of
+its three spellings, because the demo's own `userinfo` guid is `[U:1:n]` on modern recordings and
+`STEAM_0:y:z` on older ones while what a person pastes comes from a profile page. Matching the text
+would work only when the two happened to agree, so the comparison is by Steam ACCOUNT, converted
+Valve's way (`steamid.cpp:598`, `steamclientpublic.h:856` and `:804`).
+
+**The rule this sets, beyond the flag:** where a person types an identifier, accept every form that
+identifier really has, and settle the equivalence in the engine's own conversion rather than in a
+string comparison. What must NOT become ambiguous is a number a smaller namespace already owns — a
+32-bit number stays a user id then an entity index, and only a value too large to be either is read
+as a Steam id.
+
+**And the defect underneath was a parser defect** (B398): the roster read a `userinfo` client slot as
+an entity index, so every name resolved one entity short. Filed and tested as
+`RosterEntityIndexConformanceTests`, per his "this should be a test for the fucking parser too".

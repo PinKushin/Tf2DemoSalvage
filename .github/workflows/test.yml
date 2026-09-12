@@ -211,7 +211,11 @@ jobs:
           # 1851 -> 1858 on 2026-09-10: seven for B389's tick-scoped track selection.
           # 1858 -> 1862 on 2026-09-10: four for B391, the render color's decode and wiring.
           # 1862 -> 1863 on 2026-09-11: DownloadUrlConVarConformanceTests (B394).
-          ./build/assert-test-count.sh '**/core.trx' 1863 Core
+          # 1863 -> 1866 on 2026-09-11: SyntheticRocketPositionTests (B397).
+          # 1866 -> 1869 on 2026-09-11: RosterEntityIndexConformanceTests (B398).
+          # 1869 -> 1874 on 2026-09-11: PlayerLookupTests' Steam id cases.
+          # 1874 -> 1878 on 2026-09-11: PausedSamplingConformanceTests (B399).
+          ./build/assert-test-count.sh '**/core.trx' 1879 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -274,7 +278,8 @@ jobs:
           # 425 -> 444 on 2026-09-09: closed DRIFT, not 19 new tests, measured on the same CI run
           # as core's raise above and for the same reason.
           # 444 -> 448 on 2026-09-11: four for D162's MapProvider version check.
-          ./build/assert-test-count.sh '**/presentation.trx' 448 Presentation
+          # 448 -> 450 on 2026-09-11: the paused wiring pair (B399).
+          ./build/assert-test-count.sh '**/presentation.trx' 450 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent

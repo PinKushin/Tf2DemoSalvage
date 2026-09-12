@@ -26598,7 +26598,166 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B397 OPEN 2026-09-11: a rocket's spawn point sits well past a muzzle offset from its shooter
+### B400 OPEN 2026-09-11: one column in seven has a floor for the camera and none for a corpse, so corpses fall out of the world
+
+**Found chasing B395's headless corpse, and it is a bigger fault than the one being looked for.** The
+viewer's own log, capturing `demostf-cp_process_f12-2026-08-07` at tick 26578:
+
+```
+WARN [render] corpse 2072 left the world at tick 26440 with 0 contacts, last touching at -2567.8 -2283 756.7
+     corpse 2072 settled at -1364.4 -2581.1 -1759.3 contacts 0 deepest 0 born 26399
+                 seeded -2857.6 -2194.7 780 blow 11335.2 -8410.2 2827.4
+```
+
+It spawns where the player died, never rests, and ends 2,500 units under the map — so there is
+nothing to draw, which is why three cameras aimed at its recorded position saw an empty room.
+
+**The corpse is not tunnelling and the blow is not wrong. There is no floor there to hit.**
+`corpse-drop` now asks the same column twice, by two independent routes:
+
+| asked | answer at (−2858, −2195, 790) |
+|---|---|
+| `IvpWorldCollision.Sweep` — what a corpse falls onto | **nothing for 2,000 units** |
+| `MapLevel.Sweep` — the BSP tree and displacements, what the chase camera uses | **floor at z 704** |
+
+**Measured across the map, not at one point.** `map-collision <map> x y z` censuses a grid of drops:
+**904 of 1,089 columns** around that spot are camera-only, **0 physics-only**; over the whole map
+**764 of 5,293 columns the camera floors have no floor at all in the physics world**.
+
+**Not a map-version defect, which was the first suspicion given D162 now fetches a demo's own map.**
+The demo's `cp_process_f12` reads 4,040 world ledges from 2 solids; the installed `cp_process_final`
+reads 32,861 from 8. **The census is the same for both** — 904 camera-only locally, 762 against 764
+map-wide — so an eightfold difference in ledge count changes nothing about which columns are missing.
+Whatever geometry is absent is absent from both.
+
+**Four candidate causes ruled out by measurement, so they are not re-tried:**
+
+- **The ledge-tree depth guard.** `PhysicsHull.MaximumDepth` is 64 where the engine's walk has none.
+  Raised to 65,536: ledge count unchanged at 4,916.
+- **The contents mask.** Forcing every solid to `CONTENTS_SOLID` rather than the `staticsolid` text's
+  declared mask: unchanged.
+- **A bounding sphere that does not contain its own hull**, which would make the broadphase reject
+  real geometry: **0 of 4,916 ledges** have a hull point outside their sphere.
+- **Unconverted units.** Ledge centres span x −14,908..5,072, y −15,436..14,197, z −14,652..14,688 —
+  map coordinates, not metres at the origin. 35 ledges sit within 512 units of the failing column;
+  they are radius 8–11 pieces at z 748–778, not the floor at 704.
+
+**What is NOT established, and it is the whole remaining question:** which geometry provides that
+floor in the BSP and why it reaches no `PhysicsLedge`. The next measurement is to name the brush or
+model the camera's sweep stops against at (−2858, −2195, 704) and look for it in the physics lump.
+
+**Two smaller divergences found on the way, both unfixed:**
+
+- `IvpEnvironment.MaximumCollisionsPerBody` is 10; the engine's
+  `maxCollisionsPerObjectPerTimestep` default is **6** (`public/vphysics/performance.h:31`).
+- The render log calls `OversizedCount` "oversized of 4916", but it counts coarse-grid CELLS, not
+  ledges, and an oversized ledge is still tested rather than skipped. The line reads as lost
+  geometry and is not.
+
+*Evidence class: measured — the viewer's own corpse log, and a two-route census in `corpse-drop` and
+`map-collision` where the second route is the control. The engine's collision limit is
+read-from-source.*
+
+### B399 OPEN 2026-09-11: a paused viewer still draws `cl_interp` behind, where a paused client draws the last received position
+
+**The engine stops interpolating while paused, and this is the whole chain.**
+`C_BaseEntity::InterpolateServerEntities` (`client/c_baseentity.cpp:3219`):
+
+```cpp
+  s_bInterpolate = cl_interpolate.GetBool();
+
+  // Don't interpolate during timedemo playback
+  if ( engine->IsPlayingTimeDemo() || engine->IsPaused() )
+  {
+      s_bInterpolate = false;
+  }
+```
+
+`IsInterpolationEnabled()` returns that flag (`c_baseentity.h:2156`), and `BaseInterpolatePart1`
+(`c_baseentity.cpp:2845`) takes the early exit when it is false:
+
+```cpp
+  if ( IsFollowingEntity() || !IsInterpolationEnabled() )
+  {
+      // Assume current origin ( no interpolation )
+      MoveToLastReceivedPosition();
+      return INTERPOLATE_STOP;
+  }
+```
+
+**So a paused frame shows every entity's LAST RECEIVED origin and angles, with no delay and no
+blend** — which is exactly what `ScenePropTrack.Held` already answers (undelayed since B370).
+
+**Ours.** `DemoTimeline.DeriveSample` (`DemoTimeline.cs:4047`) chooses `blend ? track.At(tick) :
+stated` off `Interpolates()` — the `ShouldInterpolate` clauses — and nothing in the chain knows
+whether playback is paused. `PropsAt` and `PlayersAt` take no such argument, and `MomentView`
+carries no playing flag, so a paused viewer samples eight ticks behind the tick it displays. A
+`--shot` capture is a paused frame by definition.
+
+**What is visible when it is wrong, and it is what B397 reported.** On
+`demostf-cp_process_f12-2026-08-07.dem` at tick 51093, abelll (entity 7) is mid rocket-jump: his
+keyframes run z 683 at 51090 down to 576 by 51104, and the drawn sample is a further ~2 ticks back
+because his updates apply two ticks after arrival. The real client, paused by `demo_gototick 51093 0
+1`, shows him landed on the ground at the doorway; ours shows him still airborne beside the ledge,
+which the owner reported as *"that left soldier should be on the ground"*. The rocket 407 comparison
+sits on the same cause — its own keyframes apply AT their arrival tick (0 of 36 away, measured with
+`jitter`), so the paused delay displaces it by a different amount than the player, which is what made
+the gap look like a spawn-position defect.
+
+*Evidence class: read from source for the engine chain, measured with the `jitter` probe for both
+entities' keyframes, and the owner's paused real-client capture beside ours.*
+
+**FIXED, pending the owner's own look.** `DemoTimeline.PropsAt` and `PlayersAt` take the engine's
+flag (`interpolating`, defaulting to on); `DeriveSample` ANDs it ahead of every `ShouldInterpolate`
+clause, because the engine reads `IsInterpolationEnabled()` before any per-entity question matters;
+and the incremental sample cache treats a change of the flag as a reason to rebuild, alongside a seek
+and a team switch — otherwise a pause at the same tick keeps serving the props built while playing.
+`MomentView.Playing` carries the transport's state, `MomentPresenter` hands it to both samplers, and
+`MainForm` fills it from `_transport.Playing`, so a `--shot` capture samples as a paused client.
+
+`PausedSamplingConformanceTests`, four: the paused sample is the last stated position, paused and
+playing disagree by exactly the delay, a pause after playing at the same tick does not serve the
+cached blend, and the player path takes the same rule. Two more in `MomentPresenterTests` for the
+wiring, with the playing case as the control.
+
+**Looked at**: `--spectate Beleleu --tick 51093 --first-person` now draws abelll at the doorway near
+ground level rather than up on the left ledge, which is what the real client showed. B397 is not
+closed on that until the owner compares it himself.
+
+*What is still not established: whether every other interpolated variable freezes with position.
+The engine's flag is global — the animation cycle, pose parameters and eye angles all stop — and
+this change holds the whole pose through `Held`, which is the same shape, but no test asserts the
+cycle specifically.*
+
+### B398 FIXED 2026-09-11: every roster name sat one entity short — a userinfo entry is a client SLOT
+
+**The owner: *"its the right tick but out spectate beleleu isnt working"*, then *"do it by ID or
+something, because it should work both ways, but this should be a test for the fucking parser
+too"*.** `--spectate Beleleu` logged "--spectate 1 is not playing" and fell back to the default
+target.
+
+**The engine.** Entity 0 is the world; players are entities 1..maxClients. `UTIL_PlayerByIndex`
+(`game/server/util.cpp:565`) accepts only `playerIndex > 0 && playerIndex <= gpGlobals->maxClients`.
+The `userinfo` table's entries are client slots starting at 0, so entity = entry index + 1 — the rule
+`DemoTimeline.RecorderEntityIndex` already applied to `svc_ServerInfo.PlayerSlot`.
+
+**Ours.** `RosterBuilder.Apply` used the entry index AS the entity index, and its remarks said so.
+On `demostf-cp_process_f12-2026-08-07.dem` that put the SourceTV bot (slot 0) on entity 0 and
+Beleleu (slot 1) on entity 1 — the SourceTV observer — so name and user-id lookups both resolved
+one entity to the left.
+
+**Fixed:** `entityIndex = entry.Index + 1` for both the key and `PlayerInfo.EntityIndex`; the text
+cross-check still compares against the slot. `RosterEntityIndexConformanceTests` (three: slot 3 is
+entity 4, slot 0 is entity 1 and never the world, a text-less update takes the same offset) were red
+3-vs-4 before the change. `RosterBuilderTests` and `SyntheticRosterTests.AtTheirSlots` carried the
+old assumption and were corrected to it. After: `roster` prints Beleleu at entity 2 / user id 3, and
+`--spectate Beleleu` and `--spectate 3` render the same Beleleu first-person view (The Original,
+item 513, centered).
+
+*Evidence class: read from source (the SDK guard), measured (roster probe, `PlayersAt` entity 1 =
+team 1 class 0, entity 2 = red soldier with item 513), and looked at.*
+
+### B397 OPEN 2026-09-11: from Beleleu's camera, the soldier firing rocket 407 is drawn on a ledge where the real client shows him on the ground
 
 **The owner, looking at the same rocket the reconfirmation above used**: neither the overhead nor the
 first-person capture look like the rocket comes from the right place — the visible soldier's rocket
@@ -26668,15 +26827,61 @@ earlier "gates and stuff" difference reads as the relative-tick mistake showing 
 the map, not a real divergence. Not reopened here; if it recurs on a properly-seeked tick, it is a new
 finding rather than a continuation of this one.
 
-**The rocket/muzzle-flash divergence survives the correction and is CONFIRMED.** At the true absolute
-tick 51093, first-person, same demo: the real client shows the muzzle flash at the doorway near
-ground level, close to the player firing it. This project's render at the same tick shows the trail
-high on the wall, well above and to the side of the doorway. The 185-unit gap measured earlier is
-real, against a comparison now known to be at the right tick on both sides.
+**The rocket/muzzle-flash divergence survives the tick correction.** At the true absolute tick 51093,
+first-person, same demo: the real client shows the muzzle flash at the doorway near ground level,
+close to the player firing it. This project's render at the same tick shows the trail high on the
+wall, well above and to the side of the doorway. The 185-unit gap measured earlier is real, against a
+comparison now known to be at the right tick on both sides.
+
+**Withdrawn — this demo is SourceTV, and neither capture's camera was verified.** The owner: *"yea its
+an stv it has no player owner its owned by the stv"*. `demostf-cp_process_f12-2026-08-07.dem`'s
+`HasRecordedView` is false — confirmed separately, the `viewmodels` probe's own hint text names entity
+1 as "the broadcast, which holds nothing" — so every first-person capture taken without `--spectate`,
+on either side of the comparison, resolved through `SpectatorTarget.Choose`'s DEFAULT pick, not a
+fixed subject. Nothing here establishes that this project's camera and the real client's camera were
+following the same player, or the same player across the different ticks compared. The 185-unit
+measurement between the rocket and its real decoded `m_hOwnerEntity` stands — that is a wire value,
+independent of any camera — but "the visible flash was in the wrong place on screen" is not settled
+until both sides are re-captured with `--spectate` pinned to the rocket's actual owner.
+
+**A fourth mechanism was checked in the meantime and is correct, not the cause.** A synthetic
+`CTFProjectile_Rocket`-shaped entity (`SyntheticRocket`, `DT_TFBaseRocket.m_vecOrigin`, matching
+`EntityStateTableTests`' B372 schema exactly), run through the full `DemoTimeline.Build` pipeline
+rather than `EntityStateTable` in isolation, gives the exact Valve-formula position, the correct
+first-tick clamp, and the correct owner — `SyntheticRocketPositionTests`, three tests, sabotaged and
+confirmed able to fail. Combined with the three mechanisms already ruled out (reused-index track
+lookup, the interpolation formula against Valve's own compiled code, and the attachment transform),
+every part of this project's OWN pipeline that could place a rocket has now been checked against
+ground truth and found correct. Whatever B397 is, it is not in decode, interpolation, ownership
+resolution, or attachment — which narrows what is left to the camera question above, or to something
+not yet named.
 
 *Evidence class: owner's own real-client capture beside ours, same demo and the confirmed-absolute
-tick, first-person — the comparison this project's own convention calls for. The engine's argument
-order for `demo_gototick` is read from the decompile, not guessed.*
+tick — but with the camera identity unconfirmed on both sides, per the owner's correction. The
+engine's argument order for `demo_gototick` is read from the decompile. The fourth mechanism is
+measured: three synthetic tests, sabotaged.*
+
+**A "resolved" verdict was drafted here and was wrong; it is withdrawn.** It named entity 7 "nezay"
+off a roster that was itself one entity short (B398), and declared the 185 units a camera mix-up. The
+owner: *"that is not nezay that is abelll, my god, you are reading everyhting wrong"* — and he was
+capturing Beleleu: *"I was SSing fuing belueleu"*. With B398 fixed, the roster reads entity 1 = the
+SourceTV bot, **entity 2 = Beleleu** (user id 3), **entity 7 = abelll** (user id 8, rocket 407's
+`m_hOwnerEntity`), entity 8 = nezay.
+
+**The comparison that stands, both cameras now confirmed.** Real client: `demo_gototick 51093 0 1`,
+spectating Beleleu. Ours: `--spectate Beleleu --tick 51093 --first-person` (and `--spectate 3`, his
+user id, which renders identically). Ours draws abelll up on the left ledge with the trail high on
+the wall; the real client shows him on the ground at the doorway, firing. The owner: *"that left
+soldier should be on the ground"*.
+
+**Still two candidates, nothing yet separating them:** player 7's drawn position is wrong at that
+tick, or the rocket is drawn at its first keyframe (clamped, no delay) while players are drawn eight
+ticks delayed — 185 units is roughly eleven ticks of his measured motion. The four mechanisms already
+checked (track lookup, Valve's interpolation arithmetic, attachment transform, synthetic rocket
+fixture) stay checked; none of them compares a projectile's delay against a player's.
+
+*Evidence class: owner's real-client capture beside ours, same demo, same absolute tick, same
+spectated player — confirmed by name through the corrected roster. Cause not established.*
 
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 

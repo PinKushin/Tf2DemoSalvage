@@ -34,7 +34,12 @@ public interface IMomentSource
     /// <summary>Fills a buffer with the players at a moment, fraction included.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <param name="into">The buffer to fill; cleared first.</param>
-    public void PlayersAt(double tick, ICollection<ScenePlayer> into);
+    /// <param name="interpolating">
+    /// <c>C_BaseEntity::IsInterpolationEnabled()</c>, which a paused client clears
+    /// (`c_baseentity.cpp:3226`) so every entity draws its last received position (B399).
+    /// </param>
+    public void PlayersAt(
+        double tick, ICollection<ScenePlayer> into, bool interpolating = true);
 
     /// <summary>Fills a buffer with the props at a moment, fraction included.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
@@ -44,8 +49,15 @@ public interface IMomentSource
     /// answer for itself (B385). The other three are the source's, because <c>IsVisible()</c> is
     /// leaf-system membership rather than anything the renderer decides.
     /// </param>
+    /// <param name="interpolating">
+    /// False while paused, per <see cref="PlayersAt"/> — the engine's flag is one global, so props
+    /// and players hold together (B399).
+    /// </param>
     public void PropsAt(
-        double tick, ICollection<SceneProp> into, int? viewEntity = null);
+        double tick,
+        ICollection<SceneProp> into,
+        int? viewEntity = null,
+        bool interpolating = true);
 
     /// <summary>The round the game rules were in, or null when the demo does not say.</summary>
     /// <param name="tick">The moment being shown.</param>
@@ -175,14 +187,18 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     public float IntervalPerTick => timeline.IntervalPerTick;
 
     /// <inheritdoc />
-    public void PlayersAt(double tick, ICollection<ScenePlayer> into) =>
-        timeline.PlayersAt(tick, into);
+    public void PlayersAt(
+        double tick, ICollection<ScenePlayer> into, bool interpolating = true) =>
+        timeline.PlayersAt(tick, into, interpolating);
 
     /// <inheritdoc />
     public void PropsAt(
-        double tick, ICollection<SceneProp> into, int? viewEntity = null)
+        double tick,
+        ICollection<SceneProp> into,
+        int? viewEntity = null,
+        bool interpolating = true)
     {
-        timeline.PropsAt(tick, into, viewEntity);
+        timeline.PropsAt(tick, into, viewEntity, interpolating);
 
         // **A rewind forgets every corpse's timer**, for the reason `DemoTimeline.PropsAt`
         // rebuilds its whole sample on one: state carried across frames is wrong the moment the
