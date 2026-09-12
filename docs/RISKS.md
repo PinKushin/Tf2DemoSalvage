@@ -29753,8 +29753,9 @@ bodygroup left at a default that hides the head" — has the mechanism inverted:
 copied CORRECTLY that removes the head, not a default.
 
 **Which means this project cannot currently reproduce the symptom at all, and that is the finding.**
-`m_nBody` is not implemented for corpses — `RagdollProps` builds every corpse's pose as
-`new ScenePose { Skin = … }`, so `Body` is 0, and body 0 shows every part's first alternative. Our
+`m_nBody` is not implemented for corpses — `RagdollProps` builds every corpse's pose with `X`, `Y`,
+`Z`, `Yaw` and `Skin` and nothing else, so `Body` keeps `ScenePose`'s default of 0, and body 0
+selects every part's first alternative (`ScenePropTrack.cs:474`). Our
 corpses draw with MORE head geometry than TF2's, not less: a stock helmet under a cosmetic rather
 than a cosmetic replacing it. The divergence is filed twice, in `RagdollProps` and
 `RagdollAppearance`, both citing `c_tf_player.cpp:790-793`, and both filed rather than fixed

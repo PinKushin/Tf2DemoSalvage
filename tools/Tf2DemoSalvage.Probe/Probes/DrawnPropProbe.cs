@@ -158,6 +158,13 @@ public sealed class DrawnPropProbe : IProbe
                         prop.EntityIndex.ToString(CultureInfo.InvariantCulture)))}] "
                 + $"first at ({first.Pose.X:0} {first.Pose.Y:0} {first.Pose.Z:0}) "
                 + $"angles ({first.Pose.Pitch:0.#} {first.Pose.Yaw:0.#} {first.Pose.Roll:0.#}) "
+                // **Which alternative of each body part is drawn, and no probe reported it.** The
+                // engine copies a ragdoll's whole body off the living player —
+                // `m_nBody = pPlayer->GetBody()` after `RecalcBodygroupsIfDirty()`
+                // (`c_tf_player.cpp:790-793`) — and this project does not, so a corpse draws at
+                // body 0 while its player drew at whatever its hats imposed. Printing it is how
+                // that stops being a claim about the code and becomes a number (B395).
+                + $"body {first.Pose.Body} "
                 + $"attached {first.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
                 + $"merged {first.BoneMerged} "
                 + $"mode {first.Pose.RenderMode.ToString(CultureInfo.InvariantCulture)} "
