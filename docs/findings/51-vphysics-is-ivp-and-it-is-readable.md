@@ -2256,7 +2256,9 @@ matrix (`FUN_180070b20`, the same grouping as `FUN_180070bc0`); then, if `object
 rotation is rebuilt from the interpolated quaternion times the one it points at (`FUN_180070d60`, a
 Hamilton product `a ⊗ b` in doubles). **This project treated a body and its core as one thing**, which
 drops both — and the next section shows that premise is false for any hull whose mass center is not its
-origin (B403).
+origin (B403). **The `+0x58` half never runs for an object `FUN_180073df0` makes**: its object-from-core
+rotation is built from an all-zero quaternion, which is the identity, so `FUN_180074380` always frees and
+nulls that pointer (step 3 below). The translation half is ported in `IvpMotionCache.Fresh`.
 
 **An IVP object's core sits at the hull's mass center, and its inertia is the hull's, per axis.** Read
 from the disassembly of the object initializer `FUN_180073df0` (in `ivp_object.cxx`) and what it calls:

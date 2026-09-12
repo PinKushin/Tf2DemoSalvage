@@ -72,14 +72,30 @@ public sealed class IvpMotionCache
         return computed;
     }
 
-    /// <summary>The body's transform at a time, computed and not kept — a direct call to <c>FUN_1800734e0</c>.</summary>
+    /// <summary>The object's transform at a time, computed and not kept — a direct call to <c>FUN_1800734e0</c>.</summary>
     /// <param name="time">An absolute environment time.</param>
-    /// <returns>The transform.</returns>
-    /// <remarks>The refinement's regula falsi evaluates at arbitrary times this way, bypassing the slots.</remarks>
+    /// <returns>The transform of the OBJECT, whose frame the hull's points are stored in.</returns>
+    /// <remarks>
+    /// The refinement's regula falsi evaluates at arbitrary times this way, bypassing the slots.
+    ///
+    /// **The core's transform first, then the object composed into it** (B403): `FUN_1800734e0` fills the matrix
+    /// from the core's interpolated rotation and position and then, unless bit `0x800` marks the offset as zero,
+    /// replaces its translation with the float offset at `object+0x60` put through that matrix (`FUN_180070b20`,
+    /// grouped as <see cref="IvpMatrix.ToWorld"/>). The object's own rotation inside its core is the identity for
+    /// every object `FUN_180073df0` creates, so the `object+0x58` product never runs.
+    /// </remarks>
     public IvpMatrix Fresh(double time)
     {
         ((double X, double Y, double Z) position, (float X, float Y, float Z, float W) rotation) = _body.TransformAt(time);
 
-        return IvpMatrix.FromRotation(rotation, position);
+        IvpMatrix core = IvpMatrix.FromRotation(rotation, position);
+        (float X, float Y, float Z) offset = _body.ObjectOffset;
+
+        if (offset == (0f, 0f, 0f))
+        {
+            return core;
+        }
+
+        return core with { Translation = core.ToWorld((offset.X, offset.Y, offset.Z)) };
     }
 }

@@ -26959,6 +26959,42 @@ core and weighted by inverse mass, plus each core's inverse inertia about the ax
 from −1. Two conformance tests, each red against the old rule and found by search so every wrong rule picks
 a different axis; one sabotage per term reddened only its own. The interim state above is closed.
 
+**Measured again after the twist port, 2026-09-12** — the same five seeds on `851d9582`:
+
+| seed | core placed, old twist (`d795a22e`) | engine's twist (`851d9582`) |
+|---|---|---|
+| (361.7, −1614.3) | asleep tick 381, lowest 24.8 | asleep tick 435, lowest 20.8 |
+| (−11.5, −1558.8) | asleep tick 395, lowest 4.5 | asleep tick 623, lowest 5.5 |
+| (−972.6, −1400.3) | AWAKE, lowest 37.2, 59.9 u/s | **asleep tick 490**, lowest 37 |
+| (256.9, −1416.1) | asleep tick 433, lowest 5.7 | asleep tick 380, lowest 4.4 |
+| (−953.8, −1556.3) | AWAKE, lowest 38.1, 61.3 u/s | **asleep tick 511**, lowest 35.2 |
+
+**Every corpse now sleeps, and none ends below its floor** — against two buried and two awake before B403
+began. *Evidence class: measured, on the probe; nobody has looked at these corpses in the viewer, and
+whether TF2 settles them at these ticks is not measured.*
+
+**The time-of-impact transform composes the object, 2026-09-12.** `IvpMotionCache.Fresh` built the core's
+matrix and stopped, where `FUN_1800734e0` goes on to put the object offset through it as the translation
+(skipped under bit `0x800`; the `object+0x58` rotation is always null for these objects, since
+`FUN_180074380` frees it whenever the object-from-core rotation's diagonal is exactly 1). The evaluators
+read hull points in the object's frame, so every lattice matrix was the mass center's, not the bone's. One
+conformance test, red first; the composition removed reddened only it. Not yet on the running path — the
+B369 scheduler that calls it is unported. `IvpRigidBody.TransformAt`'s remark claiming the two were "one
+thing" is corrected.
+
+**The remaining consumers of a body's position were checked** for the core/object split: the contact
+search and sweep put `CoreHullPoint` through the core's position and orientation, `ApplyForceOffset`
+measures its arm from the core (IVP's `r` is from the mass center), the ball socket joins core positions by
+core-space anchors, and the sleep watch in `RagdollSimulation.Step` follows the core. None reads the core as
+the bone.
+
+**Still open: one stand-in branch.** `RagdollSimulation.MassAndInertia` keeps the old single inertia,
+`mass × scale`, for an element with no `HullInertia`. The engine has no such element: an unreadable
+compact surface fails the collide's load before `RagdollAddSolid` runs, and `ragdoll_shared.cpp:201`
+dereferences `CreatePolyObject`'s result unchecked. So the branch is reachable in production only on a
+malformed `.phy`, where it answers instead of refusing, and it is what every synthetic element without mass
+data runs. It comes out next, with the refusal moved to where the engine refuses.
+
 **The fix, in order:** read both unknowns from the binary; conformance tests for the placement, the
 offset, the inertia and the floor; then carry the core at the mass center with body-local geometry
 shifted by `−massCenter`, and report the bone as the core composed with the offset.

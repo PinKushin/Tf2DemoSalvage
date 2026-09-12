@@ -84,6 +84,33 @@ public sealed class IvpMotionCacheConformanceTests
     }
 
     /// <remarks>
+    /// **A slot holds the OBJECT's transform, not the core's** (B403): `FUN_1800734e0` builds the core's
+    /// matrix at the time and then, unless bit `0x800` says the offset is zero, replaces its translation with
+    /// the object offset put through that matrix (`FUN_180070b20`). A core at `(10, 20, 30)` turned a quarter
+    /// about Z, with the object a unit back along the core's X, has its object at `(10, 19, 30)` — which is
+    /// where the time-of-impact evaluators measure the hull's object-frame points from.
+    /// </remarks>
+    [Test]
+    public void Fresh_ABodyWithAnObjectOffset_IsTheObjectsTransform()
+    {
+        IvpRigidBody body = new()
+        {
+            Position = (10d, 20d, 30d),
+            Orientation = (0f, 0f, 0.70710677f, 0.70710677f),
+            WorkingOrientation = (0f, 0f, 0.70710677f, 0.70710677f),
+            ObjectOffset = (-1f, 0f, 0f),
+            LastStepped = 0d,
+            InverseStep = 66f,
+        };
+
+        IvpMatrix matrix = new IvpMotionCache(body, Marker, resting: false).Fresh(0d);
+
+        matrix.Translation.X.ShouldBe(10d, 1e-5d);
+        matrix.Translation.Y.ShouldBe(19d, 1e-5d);
+        matrix.Translation.Z.ShouldBe(30d, 1e-5d);
+    }
+
+    /// <remarks>
     /// **The engine does not bound the index**; its interval is a single simulation step, a handful of
     /// ticks, so slot 21 is never asked for. Past the last slot the engine's storage would be overrun, and
     /// the port refuses instead of reading beside the cache.

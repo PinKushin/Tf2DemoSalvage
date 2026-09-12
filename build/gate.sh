@@ -680,7 +680,10 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 339 -> 341 on 2026-09-12: RagdollSimulationConformanceTests +2 for the engine's twist-axis score
 # (FUN_1800393d0, FUN_18003d320) (B403) — the inertia term, and both anchors squared from each core. Red
 # against the old rule first; one sabotage per term, each reddening only its own case.
-run Tf2DemoSalvage.Animation.Tests animation 341
+#
+# 341 -> 342 on 2026-09-12: IvpMotionCacheConformanceTests +1, the object offset composed into the
+# time-of-impact transform as FUN_1800734e0 does (B403). Red first; the composition removed reddened only it.
+run Tf2DemoSalvage.Animation.Tests animation 342
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

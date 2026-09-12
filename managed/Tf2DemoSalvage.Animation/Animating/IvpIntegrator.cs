@@ -298,9 +298,12 @@ public sealed class IvpRigidBody
     /// </code>
     ///
     /// **The elapsed time is narrowed to `float` before either use**, as the engine narrows it, and the
-    /// position moves by the COMMITTED velocity — the same one-step lag the integrator has. The object's
-    /// own offset inside its core (`object+0x60`) is not composed here, because in this project a body
-    /// and its core are one thing.
+    /// position moves by the COMMITTED velocity — the same one-step lag the integrator has.
+    ///
+    /// **This is the CORE at `t`.** The engine's routine goes on to compose the object's offset inside the core
+    /// (`object+0x60`) into the translation; that half is <see cref="IvpMotionCache.Fresh"/>, which builds the
+    /// matrix. This remark used to say the offset was skipped "because in this project a body and its core
+    /// are one thing" — which was never true of the engine and stopped being true here with B403.
     /// </remarks>
     public ((double X, double Y, double Z) Position, (float X, float Y, float Z, float W) Orientation)
         TransformAt(double time)
