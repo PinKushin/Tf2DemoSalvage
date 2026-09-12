@@ -435,22 +435,16 @@ public sealed class RagdollSimulation
     /// <summary>A body's inverse mass and per-axis inertia, as the engine derives them for its core (B403).</summary>
     /// <remarks>
     /// **`objectparams_t` becomes an IVP template and the template and the hull become the core** —
-    /// `FUN_18001c9d0` then `FUN_180073df0`, ported as <see cref="IvpObjectTemplate"/>. **An element whose surface
-    /// carried no inertia keeps the stand-in this project used before**, one inertia of `mass × scale`: the engine
-    /// never builds an object without a surface, so there is nothing of its to copy for that case.
+    /// `FUN_18001c9d0` then `FUN_180073df0`, ported as <see cref="IvpObjectTemplate"/>. Every element carries its
+    /// hull's inertia, since the engine has no object without one; the single `mass × scale` this project gave
+    /// every body before B403 is gone.
     /// </remarks>
     private static (float InverseMass, (float X, float Y, float Z) Inertia) MassAndInertia(RagdollElement element)
     {
-        if (element.HullInertia is not { } hull)
-        {
-            float scalar = Math.Max(element.Mass * element.Inertia, MinimumInertia);
-
-            return (element.Mass > MinimumInertia ? 1f / element.Mass : 0f, (scalar, scalar, scalar));
-        }
-
         IvpObjectTemplate template = IvpObjectTemplate.FromParameters(
             element.Mass, element.Inertia, element.Damping, element.RotationDamping, element.RotationInertiaLimit);
 
+        Vector3 hull = element.HullInertia;
         (float mass, (float X, float Y, float Z) inertia) = template.CoreInertia((hull.X, hull.Y, hull.Z));
 
         return (1f / mass, inertia);
@@ -667,12 +661,4 @@ public sealed class RagdollSimulation
 
         return widest;
     }
-
-    /// <summary>The floor a body's inertia is held above, so nothing divides by zero.</summary>
-    /// <remarks>
-    /// **A `.phy` may declare a zero mass or a zero inertia scale**, and it is a stranger's file
-    /// (D32). The engine's own guard is the one in `FUN_180037bd0`, which zeroes the multiplier
-    /// rather than dividing — this floor keeps the reciprocal finite before it ever gets there.
-    /// </remarks>
-    private const float MinimumInertia = 1e-3f;
 }

@@ -110,18 +110,20 @@ public readonly record struct RagdollElement(
     /// <remarks>
     /// **IVP places the body's core HERE, not at the bone** — `FUN_180073df0` takes it from the solid's compact
     /// surface and keeps the object at `−massCenter` inside its core (`docs/findings/51`, *An IVP object's core
-    /// sits at the hull's mass center*). Zero when the surface carried none.
+    /// sits at the hull's mass center*).
     /// </remarks>
-    public Vector3 MassCenter { get; init; }
+    public required Vector3 MassCenter { get; init; }
 
     /// <summary>The hull's rotational inertia per kilogram about this element's own axes, in Source units squared (B403).</summary>
     /// <remarks>
     /// **The core's inertia is this times the inertia scale times the mass**, per axis, floored at
     /// <see cref="RotationInertiaLimit"/> times its length (<see cref="IvpObjectTemplate.CoreInertia"/>).
-    /// **Null when the surface carried none**, which is not the same as zero: the engine never builds an object
-    /// without a surface, so there is no inertia of its to hand on.
+    ///
+    /// **Required, with <see cref="MassCenter"/>, because the engine has no element without them**: both are fields
+    /// of the compact surface the object is made from, and a solid without a readable one gets no collide and no
+    /// object. <see cref="RagdollBody.Build"/> refuses such a solid rather than inventing a number.
     /// </remarks>
-    public Vector3? HullInertia { get; init; }
+    public required Vector3 HullInertia { get; init; }
 
     /// <summary>The inertia floor, as a fraction of the inertia's length — <c>objectparams_t::rotInertiaLimit</c>.</summary>
     /// <remarks>
@@ -267,19 +269,28 @@ public sealed class RagdollBody
     /// <param name="physics">The model's <c>.phy</c>.</param>
     /// <param name="bones">The model's bones, for the name lookup and the bind pose.</param>
     /// <param name="fixedConstraints">Whether this is a statue — the gold or ice corpse.</param>
-    /// <returns>The body, or null when the file and the skeleton do not agree.</returns>
+    /// <returns>
+    /// The body, or null when the file and the skeleton do not agree, or when a solid's surface carried no mass
+    /// properties.
+    /// </returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **Solids map to bones BY NAME** — `Studio_BoneIndexByName( params.pStudioHdr, solid.name )`
     /// — and the elements keep the file's order, because that is what the constraints index into.
     ///
-    /// **A solid naming no bone is refused rather than skipped, and this is the one deliberate
-    /// departure in this type.** `RagdollAddSolid` increments its count only on a successful
+    /// **A solid naming no bone is refused rather than skipped, and this is one of two deliberate
+    /// departures in this type.** `RagdollAddSolid` increments its count only on a successful
     /// lookup while constraints go on referencing the solid's own index, which is exactly what
     /// `Assert( ragdoll.listCount == solid.index )` exists to catch — and that assert is compiled
     /// out of a release build. So the engine's behaviour past that point is a mis-wired skeleton
     /// rather than a decision, and a corpse with its shin joined to its skull is worse than a
     /// corpse posed by its animation. Said out loud rather than left as a silent improvement.
+    ///
+    /// **A solid whose surface carried no mass properties is the second** (B403). vphysics' per-solid load
+    /// loop, `FUN_18000a100`, leaves that solid's collide null — a `"Null physics model"`, or an old-format
+    /// solid whose magic is `MOPP` or unknown — and `RagdollAddSolid` passes it to `CreatePolyObject` and
+    /// dereferences the result on the next line (`ragdoll_shared.cpp:200-201`). No engine behaviour follows to
+    /// copy; before B403 this answered with a made-up single inertia instead.
     /// </remarks>
     public static RagdollBody? Build(
         PhysicsModel physics,
@@ -312,7 +323,11 @@ public sealed class RagdollBody
             (List<Vector3> Points, List<(int A, int B, int C)> Faces) shape =
                 HullInBoneSpace(physics, index);
 
-            (Vector3 massCenter, Vector3? hullInertia) = MassInBoneSpace(physics, index);
+            if (MassInBoneSpace(physics, index) is not var (massCenter, hullInertia))
+            {
+                // See the remarks: the engine made no collide for this solid.
+                return null;
+            }
 
             elements[index] = new RagdollElement(
                 bone,
@@ -550,7 +565,7 @@ public sealed class RagdollBody
     /// </remarks>
     /// <summary>One rigid body from a physics prop's <c>.phy</c> — a GIB, chiefly (B371).</summary>
     /// <param name="physics">The prop's physics model.</param>
-    /// <returns>A one-element body, or null when the file carries no solid or no hull.</returns>
+    /// <returns>A one-element body, or null when the file carries no solid, no hull, or no mass properties.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="physics"/> is null.</exception>
     /// <remarks>
     /// **A prop is not a ragdoll, and <see cref="Build"/> is right to refuse one.** That builder
@@ -582,12 +597,17 @@ public sealed class RagdollBody
         PhysicsSolid solid = physics.Solids[0];
 
         (List<Vector3> points, List<(int A, int B, int C)> faces) = HullInBoneSpace(physics, 0);
-        (Vector3 massCenter, Vector3? hullInertia) = MassInBoneSpace(physics, 0);
 
         if (points.Count == 0)
         {
             // No hull is no body: it could not be collided with, and a gib that falls through the
             // world is worse than one that is not drawn.
+            return null;
+        }
+
+        if (MassInBoneSpace(physics, 0) is not var (massCenter, hullInertia))
+        {
+            // No mass properties is no collide (B403): `FUN_18000a100` made none, so there is no object to copy.
             return null;
         }
 
@@ -659,12 +679,14 @@ public sealed class RagdollBody
     /// `(x, z, −y)` × 39.37. **The inertia moves by its AXES** — about Source x is about IVP x, about Source y is
     /// about IVP z, about Source z is about IVP y, with no sign, since an axis and its negation have the same
     /// moment — and by the SQUARE of the unit conversion.
+    ///
+    /// **Null when the surface carried none**, which the builders refuse.
     /// </remarks>
-    private static (Vector3 MassCenter, Vector3? HullInertia) MassInBoneSpace(PhysicsModel physics, int solid)
+    private static (Vector3 MassCenter, Vector3 HullInertia)? MassInBoneSpace(PhysicsModel physics, int solid)
     {
         if (solid >= physics.MassProperties.Count || physics.MassProperties[solid] is not { } mass)
         {
-            return (Vector3.Zero, null);
+            return null;
         }
 
         float squared = IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre;

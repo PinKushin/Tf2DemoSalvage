@@ -145,7 +145,13 @@ public sealed class CorpsePhysicsWiringTests
             [new PhysicsSolid(0, "bip_pelvis", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f)],
             [],
             1,
-            checksum: 0);
+            checksum: 0,
+            collisionRules: null,
+            hulls: null,
+
+            // Every solid the engine builds carries a mass center and hull inertia, and a ragdoll refuses one
+            // that does not (B403): the bone, and a square inch per kilogram, in IVP metres.
+            massProperties: [new PhysicsMassProperties(Vector3.Zero, Vector3.One / (39.37f * 39.37f))]);
 
         RagdollBody ragdoll = RagdollBody.Build(physics, model.Bones)!;
 

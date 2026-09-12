@@ -683,7 +683,11 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 #
 # 341 -> 342 on 2026-09-12: IvpMotionCacheConformanceTests +1, the object offset composed into the
 # time-of-impact transform as FUN_1800734e0 does (B403). Red first; the composition removed reddened only it.
-run Tf2DemoSalvage.Animation.Tests animation 342
+#
+# 342 -> 343 on 2026-09-12: RagdollBodyConformanceTests, a solid with no mass properties refused by Build and
+# BuildProp (+2), replacing the test that it carried a null hull inertia (-1) (B403). Both red first; one
+# sabotage substituting a made-up pair in each builder reddened exactly those two.
+run Tf2DemoSalvage.Animation.Tests animation 343
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

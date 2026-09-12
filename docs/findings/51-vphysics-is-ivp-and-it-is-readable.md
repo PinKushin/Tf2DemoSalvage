@@ -1912,6 +1912,31 @@ chain `FUN_18000a100` → `FUN_18000c600` → `FUN_18000bcf0` → `FUN_18000c1c0
 **The `>> 8` is verified three times over:** `barrel01` gives `0x00049cd3 >> 8` = 1180, exactly the
 `VPHY` dataSize; `ladder001` gives 4628; `barrel_flatbed01` gives 2668. Each matches its own file.
 
+### What the loader does with a solid it cannot use
+
+**Read from the decompile of `FUN_18000a100`** (2026-09-12, B403), the loop that walks a `.phy`'s solids
+into a `vcollide_t` — `solidCount` into `+0`, a pointer array of collides at `+8`, and the text tail copied
+after the last solid. `FUN_18000c600` is the same body for one buffer. Per solid, with its size prefix:
+
+| the solid | what the loader does |
+|---|---|
+| `VPHY` tag, type `0` | builds the collide from `+0x1C` (`FUN_18000bcf0`), **with no size check and no magic check** |
+| `VPHY` tag, type `1` | `DevMsg(2, "Null physics model")`; the collide is NULL |
+| `VPHY` tag, any other type | NULL, silently |
+| no tag, size under `0x30` | `Error("Corrupt physics model")` — the load stops |
+| no tag, magic `MOPP` | NULL |
+| no tag, magic `IVPS` or `SPVI` | builds from the solid's first byte |
+| no tag, magic `0` | `DevMsg(1, "Old format .PHY file loaded!!!")`, then builds |
+| no tag, any other magic | NULL |
+
+**A NULL collide keeps its slot**, so later solids keep their indices, and nothing in the loop refuses the
+file. `RagdollAddSolid` then passes the NULL to `CreatePolyObject` and dereferences what comes back
+(`ragdoll_shared.cpp:200-201`); *what `CreatePolyObject` does with it is not read*. *Evidence class: decompiler
+control flow and immediates, not settled in the disassembly.*
+
+**`PhysicsHull` does not follow this table**: it reads every solid as `VPHY`-tagged, ignores the type word,
+and checks the magic on the tagged path where the engine does not.
+
 ### The ledge tree, and the ledge
 
 ```

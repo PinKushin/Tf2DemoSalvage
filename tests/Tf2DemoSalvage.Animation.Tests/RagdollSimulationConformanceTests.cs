@@ -599,7 +599,8 @@ public sealed class RagdollSimulationConformanceTests
             2,
             checksum: 0,
             collisionRules: null,
-            hulls: [hull, hull]);
+            hulls: [hull, hull],
+            massProperties: RagdollMasses.Uniform(2));
     }
 
     private const float Metre = 0.0254f;
@@ -658,7 +659,10 @@ public sealed class RagdollSimulationConformanceTests
             ],
             [constraint],
             2,
-            checksum: 0);
+            checksum: 0,
+            collisionRules: null,
+            hulls: null,
+            massProperties: RagdollMasses.Uniform(2));
 
     /// <summary>Two bones at chosen bind positions — <see cref="RagdollSkeletons.Straight"/>.</summary>
     private static IReadOnlyList<StudioBone> Skeleton() => RagdollSkeletons.Straight();

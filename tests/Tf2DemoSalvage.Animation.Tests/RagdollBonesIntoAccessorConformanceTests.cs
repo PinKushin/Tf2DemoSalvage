@@ -204,7 +204,10 @@ public sealed class RagdollBonesIntoAccessorConformanceTests
             ],
             [new RagdollConstraint(0, 1, Axis, Axis, Axis)],
             2,
-            checksum: 0);
+            checksum: 0,
+            collisionRules: null,
+            hulls: null,
+            massProperties: RagdollMasses.Uniform(2));
 
     /// <summary>Four bones, of which the ragdoll drives the first two.</summary>
     private static IReadOnlyList<StudioBone> Skeleton() =>

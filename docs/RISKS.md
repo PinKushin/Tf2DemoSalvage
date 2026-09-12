@@ -26823,7 +26823,7 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B403 OPEN 2026-09-12: a corpse's bodies turn about the bone origin with one inertia, where IVP turns them about the hull's mass center with three
+### B403 FIXED 2026-09-12: a corpse's bodies turn about the bone origin with one inertia, where IVP turns them about the hull's mass center with three
 
 **Found while porting the time-of-impact transform (B369), because a premise written into the code
 turned out to be false.** `IvpRigidBody.TransformAt` said the object's offset inside its core was not
@@ -26988,12 +26988,28 @@ measures its arm from the core (IVP's `r` is from the mass center), the ball soc
 core-space anchors, and the sleep watch in `RagdollSimulation.Step` follows the core. None reads the core as
 the bone.
 
-**Still open: one stand-in branch.** `RagdollSimulation.MassAndInertia` keeps the old single inertia,
-`mass × scale`, for an element with no `HullInertia`. The engine has no such element: an unreadable
-compact surface fails the collide's load before `RagdollAddSolid` runs, and `ragdoll_shared.cpp:201`
-dereferences `CreatePolyObject`'s result unchecked. So the branch is reachable in production only on a
-malformed `.phy`, where it answers instead of refusing, and it is what every synthetic element without mass
-data runs. It comes out next, with the refusal moved to where the engine refuses.
+**The last stand-in is gone, 2026-09-12.** `RagdollSimulation.MassAndInertia` kept the old single inertia,
+`mass × scale`, for an element with no hull inertia — reachable in production only on a solid whose surface
+our reader refuses, and run by every synthetic element without mass data. **The engine has no such
+element**, read from the decompile of vphysics' per-solid load loop `FUN_18000a100` (`docs/findings/51`,
+*What the loader does with a solid it cannot use*): such a solid's collide is left NULL, and `RagdollAddSolid`
+hands it to `CreatePolyObject` and dereferences the result on the next line (`ragdoll_shared.cpp:200-201`).
+*What `CreatePolyObject` does with a null collide is not read*; nothing after it is behaviour to copy.
+**Corrected:** the first version of this paragraph said an unreadable surface "fails the collide's load"
+— written before the loop was read. The load fails outright only for an old-format solid under `0x30`
+bytes (`Error`); every other refused solid is nulled and the load carries on.
+
+So `RagdollElement.MassCenter` and `HullInertia` are now `required` and non-null, `RagdollBody.Build` and
+`BuildProp` refuse a solid without them — the second of `Build`'s two stated departures, beside a solid that
+names no bone — and the branch and its `MinimumInertia` floor are deleted. Synthetic fixtures supply
+`RagdollMasses.Unit`, a mass center at the bone and one square inch per kilogram on each axis, which gives
+every core the same `mass × scale` the stand-in did: **every other Animation and Scene test kept its exact
+result**, the control that the conversion changed only what it meant to. Two conformance tests, red first;
+a made-up pair substituted in each builder reddened exactly those two.
+
+**Closed with these not established:** nobody has looked at a corpse in the viewer since the core moved;
+whether TF2 settles the five probe seeds at those ticks is not measured; and the `CreatePolyObject` branch
+above is unread.
 
 **The fix, in order:** read both unknowns from the binary; conformance tests for the placement, the
 offset, the inertia and the floor; then carry the core at the mass center with body-local geometry

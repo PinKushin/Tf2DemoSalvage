@@ -78,7 +78,8 @@ public sealed class RagdollBodyConformanceTests
             2,
             checksum: 0,
             collisionRules: null,
-            hulls: [[ledge], [ledge]]);
+            hulls: [[ledge], [ledge]],
+            massProperties: RagdollMasses.Uniform(2));
 
         RagdollBody body = RagdollBody.Build(physics, Skeleton())!;
 
@@ -122,23 +123,38 @@ public sealed class RagdollBodyConformanceTests
     [Test]
     public void Build_ASolidWithMassProperties_CarriesItsHullInertiaIntoSourceAxesAndUnits()
     {
-        Vector3? inertia = RagdollBody.Build(WithMassProperties(), Skeleton())!.Elements[1].HullInertia;
+        Vector3 inertia = RagdollBody.Build(WithMassProperties(), Skeleton())!.Elements[1].HullInertia;
 
-        inertia.ShouldNotBeNull();
-        inertia.Value.X.ShouldBe(0.001f * 39.37f * 39.37f, 1e-3f);
-        inertia.Value.Y.ShouldBe(0.003f * 39.37f * 39.37f, 1e-3f);
-        inertia.Value.Z.ShouldBe(0.002f * 39.37f * 39.37f, 1e-3f);
+        inertia.X.ShouldBe(0.001f * 39.37f * 39.37f, 1e-3f);
+        inertia.Y.ShouldBe(0.003f * 39.37f * 39.37f, 1e-3f);
+        inertia.Z.ShouldBe(0.002f * 39.37f * 39.37f, 1e-3f);
     }
 
     /// <remarks>
-    /// **A solid whose surface carried nothing has no hull inertia to hand on**, which is different from a
-    /// hull inertia of zero — the engine never builds such an object, so the element says so rather than
-    /// inventing a number.
+    /// **A solid whose surface carried no mass properties is a solid the engine made no collide for, and the
+    /// ragdoll is refused** (B403). vphysics' per-solid load loop, `FUN_18000a100`, leaves that solid's collide
+    /// null — a `"Null physics model"`, or an old-format solid whose magic is `MOPP` or unknown — and
+    /// `RagdollAddSolid` hands it to `CreatePolyObject` and dereferences the result on the next line
+    /// (`ragdoll_shared.cpp:200-201`). There is no engine behaviour past that to copy, which is the same position
+    /// a solid naming no bone is in, and it is refused the same way. **The control** is every other test here:
+    /// the same two solids with a pair each build.
     /// </remarks>
     [Test]
-    public void Build_ASolidWithNoMassProperties_HasNoHullInertia()
+    public void Build_ASolidWhoseSurfaceCarriedNoMassProperties_IsRefused()
     {
-        RagdollBody.Build(Physics(), Skeleton())!.Elements[1].HullInertia.ShouldBeNull();
+        PhysicsModel physics = PhysicsModel.From(
+            [
+                new PhysicsSolid(0, "bip_root", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f),
+                new PhysicsSolid(1, "bip_child", "bip_root", "flesh", 2f, 1f, 0f, 0f, 20f, 0f),
+            ],
+            [new RagdollConstraint(0, 1, Axis, Axis, Axis)],
+            2,
+            checksum: 0,
+            collisionRules: null,
+            hulls: null,
+            massProperties: [RagdollMasses.Unit, null]);
+
+        RagdollBody.Build(physics, Skeleton()).ShouldBeNull();
     }
 
     /// <remarks>
@@ -464,8 +480,35 @@ public sealed class RagdollBodyConformanceTests
                 1,
                 checksum: 0,
                 collisionRules: null,
-                hulls: null))
+                hulls: null,
+                massProperties: RagdollMasses.Uniform(1)))
             .ShouldBeNull();
+
+    /// <remarks>
+    /// **A gib is refused on the same grounds as a ragdoll** (B403) when its solid's surface carried no mass
+    /// properties: `FUN_18000a100` left it no collide, so there is nothing for the engine to make a body from. The
+    /// hull is present, so the refusal cannot be the one above.
+    /// </remarks>
+    [Test]
+    public void BuildProp_ASolidWhoseSurfaceCarriedNoMassProperties_Refuses()
+    {
+        PhysicsLedge ledge = new(
+            [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
+            [(0, 1, 2)],
+            Vector3.Zero,
+            0.1f);
+
+        RagdollBody.BuildProp(
+            PhysicsModel.From(
+                [new PhysicsSolid(0, "gib_reference", "", "flesh", 5f, 1f, 0f, 0f, 10f, 0f)],
+                [],
+                1,
+                checksum: 0,
+                collisionRules: null,
+                hulls: [[ledge]],
+                massProperties: [null]))
+            .ShouldBeNull();
+    }
 
     /// <remarks>
     /// **The `.phy`'s own mass and surface reach the body**, because a gib that weighs nothing or
@@ -495,7 +538,8 @@ public sealed class RagdollBodyConformanceTests
             1,
             checksum: 0,
             collisionRules: null,
-            hulls: [[ledge]]);
+            hulls: [[ledge]],
+            massProperties: RagdollMasses.Uniform(1));
     }
 
     /// <summary>A gib's skeleton: one bone, named nothing the <c>.phy</c> mentions.</summary>
@@ -527,11 +571,11 @@ public sealed class RagdollBodyConformanceTests
             new RagdollConstraint(0, 1, Axis, Axis, Axis));
 
     private static PhysicsModel PhysicsWith(params PhysicsSolid[] solids) =>
-        PhysicsModel.From(solids, [], solids.Length, checksum: 0);
+        PhysicsModel.From(solids, [], solids.Length, 0, null, null, RagdollMasses.Uniform(solids.Length));
 
     private static PhysicsModel PhysicsWith(
         IReadOnlyList<PhysicsSolid> solids, params RagdollConstraint[] constraints) =>
-        PhysicsModel.From(solids, constraints, solids.Count, checksum: 0);
+        PhysicsModel.From(solids, constraints, solids.Count, 0, null, null, RagdollMasses.Uniform(solids.Count));
 
     /// <summary>Two bones at chosen bind positions — <see cref="RagdollSkeletons.Straight"/>.</summary>
     private static IReadOnlyList<StudioBone> Skeleton() => RagdollSkeletons.Straight();
