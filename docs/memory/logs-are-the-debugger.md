@@ -265,3 +265,38 @@ Related: [[measure-the-output-not-the-capability]] is the same failure seen from
 [[instrument-bugs-outnumber-decoder-bugs]] is why the log itself needs checking before it is
 believed, and [[output-level-assertion-or-it-is-not-done]] is where a log line gets proved to still
 exist.
+
+---
+
+## `a-crash-in-dispose-reaches-no-handler` — log BEFORE the step, not after it (B402, 2026-09-12)
+
+**`Dispose` runs inside the window procedure handling the close, so an exception leaving it is
+converted by user32 into `STATUS_FATAL_USER_CALLBACK_EXCEPTION` — `0xC000041D`, empty stderr, and
+NO managed handler is reached.** A run with `Application.ThreadException`,
+`AppDomain.UnhandledException` and `TaskScheduler.UnobservedTaskException` all registered logged
+none of them and still died. That silence is itself the diagnosis: it rules out every managed
+route at once.
+
+**Two traps in building the instrument, both of which kept it quiet for a whole CI run each:**
+
+- **`ThreadException` never fires unless the mode is set.** `Application.SetUnhandledExceptionMode(
+  UnhandledExceptionMode.CatchException)` must precede it; registering the handler alone is
+  decoration.
+- **A marker written AFTER a step cannot name the step that killed you.** A `catch` that logs, and
+  a field set before each call and read in the `catch`, both need the process to survive long
+  enough to unwind. Log a line BEFORE each step instead: the last line in the file is then the
+  culprit, and it costs one line per step on a path that runs once.
+
+That last move took five runs of "the viewer did not exit cleanly" to one that said
+`shutdown: releasing viewport`.
+
+**And the fault it found generalises past teardown: disposing a control raises `Resize`.** WinForms
+destroys the window on the way down, and any handler still attached runs against whatever has
+already been released — here `OnViewportResize`, whose first two statements sit BEFORE its
+`_device is null` guard. **Unhook a control's own events before releasing anything**, the same way
+an `Application.Idle` handler is already unhooked; guarding one line inside the handler leaves the
+next line to find.
+
+Related: [[instrument-bugs-outnumber-decoder-bugs]],
+[[ci-is-the-machine-without-tf2#read-ci-before-pushing-onto-it]],
+[[port-the-engines-bottom-layer-first#retaining-what-the-engine-deletes-breaks-its-invariants]].

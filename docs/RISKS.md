@@ -26642,7 +26642,57 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B402 OPEN 2026-09-12: a map download outlived the window and killed the process on exit, and CI had been red on it for five runs
+### B402 FIXED 2026-09-12: disposing the viewport raised Resize into a handler that used the released device
+
+**The instrument named it on the sixth run.** Both CI viewer logs end on
+`shutdown: releasing viewport`, so `_viewport.Dispose()` is what kills the process — the line
+written *before* each disposal is the only thing that could say so, because nothing downstream of
+the fault ever runs.
+
+**The mechanism.** Disposing a control destroys its window, and WinForms raises `Resize` on the way
+down. `OnViewportResize` runs two statements before its `_device is null` guard:
+
+```csharp
+_overlay?.PositionOver(_viewport);
+_world.Invalidate();
+```
+
+An exception from either is thrown inside the window procedure, and user32 converts it to
+`STATUS_FATAL_USER_CALLBACK_EXCEPTION` — `0xC000041D`, empty stderr, no managed handler reached.
+That is why `Application.ThreadException`, `AppDomain.UnhandledException` and
+`TaskScheduler.UnobservedTaskException` all stayed silent on the run that had all three.
+
+**Which of the two throws is not established, and the overlay is ruled out for this path.**
+`_overlay` is created only inside the full-screen branch and `--shot` never enters it, so on the
+capture path it is null and the reachable statement is the world invalidate against released device
+resources. The first write-up of this entry blamed the overlay; checking when it is constructed
+refuted that before it shipped.
+
+**Fixed by unhooking the viewport's own handlers before anything is released**, which is the
+precedent already in the same method for `Application.Idle` — *"an Idle handler that outlives the
+swap chain presents into freed memory, and that is a crash on exit rather than a leak"*. The
+control's three events were never given the same treatment. Unhooking removes the question instead
+of guarding one line of it. The overlay is also now disposed before the panel it tracks, ordered
+deliberately and explicitly not claimed as the fix.
+
+**Everything the map fetch was blamed for was wrong, and the wrong turns are the point:**
+
+- *"a map download outlived the window"* — a real fire-and-forget hazard, fixed on its own merits
+  (the `ObjectDisposedException` escape), and **not this crash**.
+- *"the local machine takes no fetch path"* — false; any uninstalled map fetches, and
+  `koth_pro_viaduct_rc4` reproduces the fetch here and **exits 0**.
+- *"machines without TF2 are the audience"* — false, and the owner corrected it: the program
+  requires the game, since shipping Valve's content would be infringement. CI's no-install runner
+  is an instrument, not a user.
+
+**What is NOT established:** whether the fix holds. This machine has never reproduced the crash, so
+it is verified when that capture test passes on CI and not before — the same standard the previous
+two attempts failed.
+
+*Evidence class: measured — six CI runs, the uploaded viewer logs, and a per-member marker that
+narrowed ten disposals to one.*
+
+#### The earlier attempts, kept because each was wrong in a useful way
 
 **The shutdown token below did NOT fix it.** The run after it failed identically — exit
 `-1073740771`, empty standard error, the CI viewer log ending on the same clean

@@ -29,7 +29,7 @@
 - [Decoding must be total](decode-must-be-total.md) — below 100% with no errors is our defect.
 - [A test can outlive its design](a-test-can-outlive-its-design.md) — it blamed the app for a deleted demand.
 - [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — the casebook; an absence needs a control, run the control before arguing, green counts are not custody, print a recognisable value.
-- [Logs are the debugger](logs-are-the-debugger.md) — what a log must say, and what a level costs.
+- [Logs are the debugger](logs-are-the-debugger.md) — what a log must say, and what a level costs; a crash in Dispose reaches no handler, so log BEFORE the step.
 - [One place or it drifts](one-place-or-it-drifts.md) — fix where the data is produced; police the prose; a fold leaves its PATHS behind.
 - [Most of a decoder is untested](most-of-a-decoder-is-untested.md) — sabotage each branch; a sabotage that reddens nothing names the missing input.
 - [Sentinels conflate unknown with answer](sentinels-conflate-unknown-with-answer.md) — absent means the DEFAULT.

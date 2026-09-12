@@ -5361,6 +5361,28 @@ internal class MainForm : Form, IFrameSteps
             // is slow is not guessable - the log says.
             Stopwatch closing = Stopwatch.StartNew();
 
+            // **The viewport's own handlers go the same way, and missing them was B402.**
+            // Disposing a control destroys its window and WinForms raises `Resize` on the way
+            // down, straight into `OnViewportResize` — which runs two statements BEFORE its
+            // `_device is null` guard: `_overlay?.PositionOver(_viewport)` and
+            // `_world.Invalidate()`. An exception from either is thrown inside the window
+            // procedure, and user32 turns that into `STATUS_FATAL_USER_CALLBACK_EXCEPTION`: the
+            // process dies immediately after a clean shutdown line, reaching no managed handler.
+            // Five CI runs reported exactly that, and the marker above named this call.
+            //
+            // **Which of the two throws is NOT established, and the overlay is ruled out for the
+            // capture path**: it exists only in full screen (`_overlay = new OverlayWindow` sits
+            // inside the full-screen branch) and `--shot` never goes there, so on that path the
+            // reachable statement is the world invalidate against released device resources.
+            // Unhooking removes the whole question rather than guarding one line of it.
+            //
+            // It is the same reasoning the Idle handler below already carries — "a handler that
+            // outlives the swap chain presents into freed memory" — applied to the control's own
+            // events rather than to the application's.
+            _viewport.Resize -= OnViewportResize;
+            _viewport.MouseWheel -= OnViewportWheel;
+            _viewport.MouseDown -= OnViewportMouseDown;
+
             if (_rendering)
             {
                 // Before the device goes: an Idle handler that outlives the swap chain presents
@@ -5426,10 +5448,17 @@ internal class MainForm : Form, IFrameSteps
             //
             // **Ten lines on a shutdown that happens once per run**, and they come out the moment
             // this is understood. Cheap against a defect that has now cost five CI runs.
-            Releasing("viewport");
+            // **The overlay before the viewport it TRACKS.** Not the B402 fix — it is null on the
+            // capture path, so it cannot be that crash — but it positions itself over that control
+            // and outliving it by even one message is the same hazard one object along. Ordered
+            // deliberately rather than left to the sequence it happened to have.
+            Releasing("overlay");
 
             try
             {
+                _overlay?.Dispose();
+
+                Releasing("viewport");
                 _viewport.Dispose();
                 Releasing("status");
                 _status.Dispose();
@@ -5445,8 +5474,6 @@ internal class MainForm : Form, IFrameSteps
                 _maps.Dispose();
                 Releasing("shutdown");
                 _shutdown.Dispose();
-                Releasing("overlay");
-                _overlay?.Dispose();
 
                 // Thirteen menu items were named here one at a time until 2026-08-26. `ViewerMenu`
                 // owns them and disposes them beside the code that built them (B188, D90).
