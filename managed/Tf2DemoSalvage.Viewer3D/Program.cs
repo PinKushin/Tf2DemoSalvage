@@ -76,6 +76,32 @@ internal static class Program
             return;
         }
 
+        // **A crash in the message loop has no name until something writes one down** (B402). The
+        // capture test reported exit `-1073740771` — `STATUS_FATAL_USER_CALLBACK_EXCEPTION`, an
+        // exception thrown inside a callback from native code — with an EMPTY standard error,
+        // because a window procedure takes the process without unwinding to anywhere that prints.
+        // Four CI runs said only "the viewer did not exit cleanly", and the viewer's own log ended
+        // on a clean shutdown line, so the two instruments together said "it died afterwards" and
+        // nothing more. These two handlers are what turn that into a type and a stack.
+        //
+        // **They log and do not swallow.** A viewer that carried on after an unhandled exception
+        // would be claiming a state it cannot vouch for; the point is the record, not the rescue.
+        ILogger crashes = loggers.CreateLogger("viewer");
+
+        Application.ThreadException += (_, thread) =>
+            crashes.LogError(thread.Exception, "{Message}", "unhandled exception on the UI thread");
+
+        AppDomain.CurrentDomain.UnhandledException += (_, domain) =>
+            crashes.LogError(
+                domain.ExceptionObject as Exception,
+                "{Message}",
+                $"unhandled exception, terminating {domain.IsTerminating}");
+
+        // **And the one that would otherwise stay invisible.** A fire-and-forget `Task` that
+        // faults reaches neither handler above; it surfaces only when the finaliser collects it.
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, task) =>
+            crashes.LogError(task.Exception, "{Message}", "a background task faulted unobserved");
+
         ApplicationConfiguration.Initialize();
         // Passed straight through: double-clicking a .dem, selecting several and pressing enter,
         // or dropping a folder on the executable all arrive here as paths, and all go through the

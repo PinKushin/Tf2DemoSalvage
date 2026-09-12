@@ -26642,7 +26642,40 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B402 FIXED 2026-09-12: a map download outlived the window and killed the process on exit, and CI had been red on it for four runs
+### B402 OPEN 2026-09-12: a map download outlived the window and killed the process on exit, and CI had been red on it for five runs
+
+**The shutdown token below did NOT fix it.** The run after it failed identically — exit
+`-1073740771`, empty standard error, the CI viewer log ending on the same clean
+`shutdown: idle stopped after 0 ms, device released after 21 ms`. So the cause is not (only) a
+cancellation the token can carry.
+
+**And it does not reproduce here.** The condition is not "no TF2" but "a fetch in flight when the
+window closes", which this machine can produce: `koth_pro_viaduct_rc4` is not installed, so
+`--shot` on that demo logs `koth_pro_viaduct_rc4 is not installed; fetching it`, closes a second
+later — and **exits 0**. Whatever CI's runner does differently, guessing at it from here has now
+cost one wrong fix.
+
+**So the next change is an instrument, not a fix.** The viewer had no unhandled-exception handler
+at all, which is why four runs of a correct test could only ever say "it did not exit cleanly":
+`STATUS_FATAL_USER_CALLBACK_EXCEPTION` is an exception thrown inside a callback from native code,
+and a window procedure takes the process without unwinding anywhere that prints. `Program.Main` now
+logs on `Application.ThreadException`, `AppDomain.UnhandledException` and
+`TaskScheduler.UnobservedTaskException` — the third because a fire-and-forget `Task` that faults
+reaches neither of the first two. The log writer is `AutoFlush = true`, so a line written in a
+handler is on disk before the process dies, and the workflow already uploads the log as an
+artifact. **The next CI run should name a type and a stack.**
+
+**One real defect was fixed on the way, on its own merits.** `DownloadMapAsync` caught only
+`OperationCanceledException`, and `Dispose` cancels the token and then disposes `_maps` — so a
+fetch already inside `HttpClient` faults with `ObjectDisposedException`, a different type, escaping
+a method started with `_ = …` that has no caller to catch it. That is a plausible route to exactly
+this crash and it is now caught and logged, along with `IOException` and `HttpRequestException`.
+**It is a candidate, not a diagnosis**, and saying otherwise is what the last entry did.
+
+*Evidence class: measured — the CI exit codes and uploaded logs across five runs, plus a local
+negative result that refutes the obvious reproduction.*
+
+#### The first attempt, kept because it was wrong in a useful way
 
 **CI caught this perfectly and nobody read it.** `Capture_AtATickOnACorpusDemo_ExitsCleanlyAndWritesThePng`
 has failed on every `Test` run since `ca948361` (2026-09-11 20:03), the merge that brought D162's
@@ -26679,12 +26712,15 @@ as well, because the await returns to the UI thread even while that thread is sh
 analyzer then required the same token on `LoadDemoAsync`'s two worker hops, and it was right: a
 decode and a map read have the identical lifetime hazard.
 
-**What is NOT established:** whether the fix holds is a CI question, not a local one — the local
-machine has TF2 and takes no fetch path. It is verified when that capture test goes green on a run
-with no game installed, and not before.
+**This attempt did not work**, and the reasoning above contains the mistake worth keeping: *"the
+local machine has TF2 and takes no fetch path"* is false. A fetch happens whenever the map is not
+installed, TF2 or no TF2, and on this machine that reproduces cleanly and exits 0. Believing the
+reproduction was impossible is what allowed a fix to be written from a plausible story instead of
+from evidence, and then described as a fix.
 
-*Evidence class: measured — the CI job's exit code and the viewer log it uploaded; the cause is
-read-from-source in this repository.*
+*Evidence class: the identification of the fire-and-forget continuation is read-from-source; the
+claim that cancelling it FIXED the crash was an inference presented as a measurement, and the next
+CI run refuted it.*
 
 ### B401 FIXED 2026-09-12: `--shot` photographed an empty viewport, because its countdown was a frame budget and loading a map is not
 
