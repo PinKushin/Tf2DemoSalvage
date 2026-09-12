@@ -25,9 +25,9 @@ public readonly record struct IvpPointPlaneEvaluator(
     /// <param name="third">The start of the edge after that.</param>
     /// <returns>The evaluator.</returns>
     /// <remarks>
-    /// **The normal is normalised and the answer thrown away** — `FUN_18006e080`'s return value is never
-    /// read — so a degenerate face keeps a zero normal and measures every vertex at zero. Both points are
-    /// widened from float as they are stored.
+    /// **The normal is scaled to unit length and the answer thrown away** — `FUN_18006e080`'s return value
+    /// is never read — so a degenerate face keeps a zero normal and measures every vertex at zero. Both
+    /// points are widened from float as they are stored.
     /// </remarks>
     public static IvpPointPlaneEvaluator ForFace(
         (float X, float Y, float Z) vertex,
@@ -36,7 +36,7 @@ public readonly record struct IvpPointPlaneEvaluator(
         (float X, float Y, float Z) third)
     {
         (double X, double Y, double Z) normal = IvpVector.FaceNormal(first, second, third);
-        _ = IvpVector.Normalise(ref normal);
+        _ = IvpVector.TryScaleToUnitLength(ref normal);
 
         return new IvpPointPlaneEvaluator(
             Vertex: (vertex.X, vertex.Y, vertex.Z),

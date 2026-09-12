@@ -13,7 +13,7 @@ namespace Tf2DemoSalvage.Animation.Tests;
 ///
 /// <code>
 ///   FUN_18007b940  a = P₁ − P₀, b = P₂ − P₀, each point widened to double BEFORE subtracting;
-///                  n = (a.y·b.z − a.z·b.y,  a.z·b.x − a.x·b.z,  a.x·b.y − a.y·b.x), NOT normalised
+///                  n = (a.y·b.z − a.z·b.y,  a.z·b.x − a.x·b.z,  a.x·b.y − a.y·b.x), NOT unit length
 ///   FUN_18006e080  s = (x·x + y·y) + z·z;  COMISD s, 1e-19;  JNC — so s ≥ 1e-19 and not NaN
 ///                  scales x, y, z by FUN_18006ecf0(s) and returns 1; otherwise touches nothing, returns 0
 ///   FUN_18006ecf0  high word h of x;  guess = double with high word ((0x7ff00000 − h) SAR 1) + 0x1ff00000,
@@ -25,11 +25,11 @@ public sealed class IvpVectorConformanceTests
     private const double Tolerance = 1e-12d;
 
     /// <remarks>
-    /// `(2,0,0) × (0,3,0)` = `(0,0,6)`, **and left at length six**: the routine does not normalise, so an
+    /// `(2,0,0) × (0,3,0)` = `(0,0,6)`, **and left at length six**: the routine does not scale, so an
     /// implementation that did would land on `(0,0,1)`.
     /// </remarks>
     [Test]
-    public void FaceNormal_ACounterClockwiseTriangleInXy_IsTheUnnormalisedCrossUpZ()
+    public void FaceNormal_ACounterClockwiseTriangleInXy_IsTheUnscaledCrossUpZ()
     {
         IvpVector.FaceNormal((0f, 0f, 0f), (2f, 0f, 0f), (0f, 3f, 0f)).ShouldBe((0d, 0d, 6d));
     }
@@ -61,41 +61,41 @@ public sealed class IvpVectorConformanceTests
     /// one line cross to exactly zero.
     /// </remarks>
     [Test]
-    public void Normalise_ADegenerateTriangle_LeavesItAndReportsFalse()
+    public void TryScaleToUnitLength_ADegenerateTriangle_LeavesItAndReportsFalse()
     {
         (double X, double Y, double Z) normal = IvpVector.FaceNormal((0f, 0f, 0f), (1f, 0f, 0f), (2f, 0f, 0f));
 
-        IvpVector.Normalise(ref normal).ShouldBeFalse();
+        IvpVector.TryScaleToUnitLength(ref normal).ShouldBeFalse();
 
         normal.ShouldBe((0d, 0d, 0d));
     }
 
     /// <remarks>
     /// **The threshold is `1e-19` on the squared length, inclusive.** `3.2e-10` squares to `1.024e-19` and
-    /// is normalised; `3.1e-10` squares to `9.61e-20` and is not. A threshold of `1e-12`, or one on the
-    /// length rather than its square, fails the first; no threshold at all fails the second.
+    /// is scaled; `3.1e-10` squares to `9.61e-20` and is not. A threshold of `1e-12`, or one on the length
+    /// rather than its square, fails the first; no threshold at all fails the second.
     /// </remarks>
     [TestCase(3.2e-10d, true)]
     [TestCase(3.1e-10d, false)]
-    public void Normalise_AroundTheThreshold_ScalesOnlyAtOrAbove1e19Squared(double length, bool normalised)
+    public void TryScaleToUnitLength_AroundTheThreshold_ScalesOnlyAtOrAbove1e19Squared(double length, bool scaled)
     {
         (double X, double Y, double Z) vector = (length, 0d, 0d);
 
-        IvpVector.Normalise(ref vector).ShouldBe(normalised);
+        IvpVector.TryScaleToUnitLength(ref vector).ShouldBe(scaled);
 
-        vector.X.ShouldBe(normalised ? 1d : length, normalised ? Tolerance : 0d);
+        vector.X.ShouldBe(scaled ? 1d : length, scaled ? Tolerance : 0d);
     }
 
     /// <remarks>
     /// **`JNC` after `COMISD` does not take the unordered case**, so a NaN reports false and is left
-    /// alone. `!(s &lt; 1e-19)` would normalise it.
+    /// alone. `!(s &lt; 1e-19)` would scale it.
     /// </remarks>
     [Test]
-    public void Normalise_ANaNComponent_LeavesItAndReportsFalse()
+    public void TryScaleToUnitLength_ANaNComponent_LeavesItAndReportsFalse()
     {
         (double X, double Y, double Z) vector = (double.NaN, 1d, 1d);
 
-        IvpVector.Normalise(ref vector).ShouldBeFalse();
+        IvpVector.TryScaleToUnitLength(ref vector).ShouldBeFalse();
 
         vector.Y.ShouldBe(1d);
     }
@@ -104,11 +104,11 @@ public sealed class IvpVectorConformanceTests
     /// `(3, 0, 4)` has length five, so it scales to `(0.6, 0, 0.8)`.
     /// </remarks>
     [Test]
-    public void Normalise_ALongVector_ScalesToUnitLength()
+    public void TryScaleToUnitLength_ALongVector_ScalesToUnitLength()
     {
         (double X, double Y, double Z) vector = (3d, 0d, 4d);
 
-        IvpVector.Normalise(ref vector).ShouldBeTrue();
+        IvpVector.TryScaleToUnitLength(ref vector).ShouldBeTrue();
 
         vector.X.ShouldBe(0.6d, Tolerance);
         vector.Y.ShouldBe(0d);

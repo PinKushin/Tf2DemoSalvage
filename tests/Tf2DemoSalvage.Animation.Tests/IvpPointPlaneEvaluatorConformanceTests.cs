@@ -72,7 +72,7 @@ public sealed class IvpPointPlaneEvaluatorConformanceTests
     }
 
     /// <remarks>
-    /// **The engine discards whether the normal could be normalised**, so a degenerate face keeps its zero
+    /// **The engine discards whether the normal could be scaled to unit length**, so a degenerate face keeps its zero
     /// normal and every vertex measures zero from it. A port that refused the face, or returned NaN, would
     /// fail here.
     /// </remarks>
@@ -88,7 +88,7 @@ public sealed class IvpPointPlaneEvaluatorConformanceTests
     /// <remarks>
     /// **The dot adds x and y before z.** With a difference of `(1, 1, 1)` and a normal of `(0.1, 0.2, 2.2)`,
     /// `(0.1 + 0.2) + 2.2` is exactly `2.5`, while both other groupings land one ulp above it at
-    /// `2.5000000000000004`. The normal is set directly, unnormalised, because only the grouping is under test.
+    /// `2.5000000000000004`. The normal is set directly, not at unit length, because only the grouping is under test.
     /// </remarks>
     [Test]
     public void Distance_TermsThatRoundDifferentlyByGrouping_SumsXAndYBeforeZ()

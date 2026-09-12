@@ -657,7 +657,11 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # (12) for the face normal, normalise and the engine's four-step 1/sqrt; IvpPointPlaneEvaluatorConformanceTests
 # (5); IvpMatrixConformanceTests +2, one of which was red against the committed ToWorld, whose sum
 # grouping had been taken from the decompiler. Compile-red first; three sabotages in one run.
-run Tf2DemoSalvage.Animation.Tests animation 293
+#
+# 293 -> 301 on 2026-09-12: the edge evaluator (FUN_1800a3660, B369). IvpEdgeEvaluatorConformanceTests (6)
+# and IvpMatrixConformanceTests +2 for RotateInverse (FUN_1800706c0). Compile-red first; three sabotages
+# in one run.
+run Tf2DemoSalvage.Animation.Tests animation 301
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

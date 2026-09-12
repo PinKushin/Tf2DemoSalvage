@@ -26,7 +26,7 @@ public static class IvpVector
     private const int GuessBias = 0x1ff00000;
     private const int NewtonSteps = 4;
 
-    /// <summary>A triangle's normal, unnormalised — <c>FUN_18007b940</c>.</summary>
+    /// <summary>A triangle's normal, not scaled to unit length — <c>FUN_18007b940</c>.</summary>
     /// <param name="first">The face's own point.</param>
     /// <param name="second">The start of the next edge of the same triangle.</param>
     /// <param name="third">The start of the edge after that.</param>
@@ -65,7 +65,7 @@ public static class IvpVector
     /// `COMISD` then `JNC`, so the scaling branch is taken at or above the threshold and **not for NaN**,
     /// which `>=` reproduces. Below it the vector is left exactly as it was.
     /// </remarks>
-    public static bool Normalise(ref (double X, double Y, double Z) vector)
+    public static bool TryScaleToUnitLength(ref (double X, double Y, double Z) vector)
     {
         double squared = (vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z);
 
@@ -102,4 +102,13 @@ public static class IvpVector
 
         return root;
     }
+
+    /// <summary><c>1/√x</c> for a float — <c>FUN_18006edb0</c>.</summary>
+    /// <param name="square">The value to take the reciprocal root of.</param>
+    /// <returns>The double routine's answer, narrowed.</returns>
+    /// <remarks>
+    /// **Six instructions: `CVTSS2SD`, a call to `FUN_18006ecf0`, `CVTSD2SS`.** The edge evaluator's fill scales
+    /// its direction by this.
+    /// </remarks>
+    public static float ReciprocalSquareRoot(float square) => (float)ReciprocalSquareRoot((double)square);
 }

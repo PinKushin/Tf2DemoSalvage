@@ -2348,8 +2348,11 @@ Not mapped, because nothing here names them: `+0x80`, `+0x1dc` (written by the i
 
 **The evaluators are signed distances.** Point-plane `FUN_1800a3470` transforms the vertex by object
 A's transform and the plane's point and normal by object B's, and returns
-`dot(vertex − planePoint, normal)`. Edge `FUN_1800a3660` returns a direction transformed into B's frame
-dotted with a stored normal.
+`dot(vertex − planePoint, normal)`. Edge `FUN_1800a3660` takes the face normal stored in B's frame,
+rotates it into the world with B's matrix (`FUN_1800709f0`) and back out into **A's** frame with the
+transpose of A's (`FUN_1800706c0`), and dots that with a unit edge direction stored in A's frame.
+**Corrected from the disassembly:** this line first said the direction was transformed "into B's frame"
+and dotted with a stored normal, which has the stored and the transformed vectors the wrong way round.
 
 **The four routines under the point-plane evaluator**, all in doubles:
 
@@ -2369,9 +2372,9 @@ dotted with a stored normal.
   `docs/DECOMPILING.md` biting a third time, and the conformance test that pins it was red against the
   committed port before the fix.
 - **`FUN_18007b940` builds a face's normal** as `cross(B − A, C − A)` in doubles from the ledge's float
-  vertices, unnormalised: `A` is the face's own point, `B` and `C` are reached through the half-edge
+  vertices, not scaled to unit length: `A` is the face's own point, `B` and `C` are reached through the half-edge
   offset tables `DAT_180124fb8` and `DAT_180124fc8`.
-- **`FUN_18006e080` normalises only a vector long enough to have a direction**: if `|n|² ≥ DAT_1800f4f20`
+- **`FUN_18006e080` normalizes only a vector long enough to have a direction**: if `|n|² ≥ DAT_1800f4f20`
   (≈`1e-19`) it scales by `FUN_18006ecf0(|n|²)` and returns true; otherwise it leaves the vector alone
   and returns false.
 - **`FUN_18006ecf0` is a reciprocal square root in doubles, four Newton steps from a bit-built guess.**
@@ -2410,6 +2413,40 @@ branches on `COMISD`/`JNC`, so NaN takes the no-direction path. **`FUN_18006ecf0
 
 *Evidence class: read from the disassembly for all five routines and the fill; the bit values are
 arithmetic, replicating the instruction sequence.*
+
+**The edge evaluator, from the disassembly.** For each edge of the vertex's ring, `FUN_1800a1b50` fills a
+second evaluator: vtable `1800fe750`; at `+0x08` the two motion caches' objects' `+0x80` floats added in
+float, widened, plus `1e-19`, and `1.0` over that at `+0x10`; the face normal copied to `+0x48`; and — only
+for an edge that passes the slope check below — a unit direction at `+0x28`. `FUN_1800a3660` (`RDX` A's
+matrix, `R8` B's) returns
+
+```
+w     = FUN_1800709f0(B, +0x48)     -- B·n; each row (x·m0 + y·m1) + z·m2
+u     = FUN_1800706c0(A, w)         -- Aᵀ·w; each column (x·m0 + y·m4) + z·m8
+value = (u.x·dir.x + u.y·dir.y) + u.z·dir.z
+```
+
+`FUN_1800709f0` is the same rotation the point-plane evaluator inlines, so `IvpMatrix.Rotate` is both;
+`FUN_1800706c0` is its transpose, `IvpMatrix.RotateInverse`. **The direction is built unlike the face
+normal:** `d = Q − P` is subtracted in FLOAT (`SUBSS`) and only then widened; `s = (d.x² + d.y²) + d.z²` in
+double is narrowed with `CVTPD2PS` and handed to `FUN_18006edb0`, which is nothing but
+`(float)FUN_18006ecf0((double)s)`; that float is widened and multiplied in. On every integer from 2 to
+5000 the float route rounds to the same bits as a correctly rounded `1/√s`, so what a test can pin is the
+narrowing itself — the edge `(3, 4, 0)` gets `0.6000000089406967`, not `0.6`. Ported as `IvpEdgeEvaluator`.
+
+**What the same routine does around it, left for the vertex-face step.** `P` is the vertex; `Q` is the start
+of the next edge after hopping the 15-bit twin field and then `DAT_180124fb8`; the walk steps back with
+`DAT_180124fc8` and stops on returning to the starting edge. Before filling, the slope against a normal
+taken into A's frame with the objects' CURRENT matrices at `object+0x40` is compared, `COMISD`/`JNC`,
+against `(double)(float)(eventTime − intervalStart) × (speed sum + 1e-19)`; only a smaller slope is refined,
+to a target of `((min(mindist+0xa8, DAT_18012d548[material]) + 0.1f·mindist+0x98) · −(DAT_18012d664 · f)) /
+DAT_18012d548[material]`, where `f` is the float at `+0x54` behind the face side's `[+0x18]+0xe8`.
+`DAT_1800ea968` dumps as `0.1f` and `DAT_1800ea5e0` is the float sign mask; the table and `DAT_18012d664`
+read zero on disk and are runtime-initialized, so their values are not established here.
+
+*Evidence class: read from the disassembly for `FUN_1800a3660`, `FUN_1800709f0`, `FUN_1800706c0`,
+`FUN_18006edb0` and the whole of `FUN_1800a1b50`; the float-route comparison is arithmetic, by exhaustive
+replication over 2–5000.*
 
 **`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
 

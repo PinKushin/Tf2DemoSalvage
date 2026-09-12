@@ -26014,12 +26014,18 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    decompiler's `z·m2 + x·m0 + y·m1`, and the disassembly adds `x·m0 + y·m1` first — a last-bit
    difference on ordinary inputs, pinned by a case that was red against the committed code.
    **(b) Point-plane — done**, from the disassembly of the evaluator, its fill in `FUN_1800a1b50`, and
-   the three routines under it: `IvpVector` (face normal widened before subtracting; normalise at
+   the three routines under it: `IvpVector` (face normal widened before subtracting; scaled to unit length at
    `|n|² ≥ 1e-19`, NaN refused, result ignored by the fill; the engine's four-step `1/√x`, whose bits
    for 3 and 36 no library root gives), `IvpMatrix.Rotate`, `IvpPointPlaneEvaluator`.
    `IvpVectorConformanceTests` (12), `IvpPointPlaneEvaluatorConformanceTests` (5), `IvpMatrix` +2;
    compile-red first; three sabotages in one run — five Newton steps, a threshold a millionth the size,
-   an unrotated normal — reddened exactly the four cases predicted. **(c) Edge — not started.**
+   an unrotated normal — reddened exactly the four cases predicted. **(c) Edge — done**, from the
+   disassembly of `FUN_1800a3660` and the two rotations it calls: `IvpMatrix.RotateInverse`
+   (`FUN_1800706c0`, the transpose), `IvpVector.ReciprocalSquareRoot(float)` (`FUN_18006edb0`), and
+   `IvpEdgeEvaluator`, whose direction is subtracted in float and scaled by a widened float root.
+   `IvpEdgeEvaluatorConformanceTests` (6), `IvpMatrix` +2; compile-red first; three sabotages — a double
+   scale, `Rotate` for `RotateInverse`, a right-associated column sum — reddened exactly the three cases
+   predicted. The ring walk, slope pre-check and refine target around it are read and recorded for (5).
 4. **The root finders** — `FUN_1800b6210`: step `(distance − tolerance) / maxApproachSpeed` in whole
    ticks to the interval's end; `FUN_1800b6590`: doubling steps up to 20 ticks, then regula falsi with a
    `0.375` blend every fourth iteration to `|distance − target| < 1e-8` or 64 iterations. Tested with

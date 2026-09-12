@@ -122,4 +122,35 @@ public sealed class IvpMatrixConformanceTests
         turned.Y.ShouldBe(1d, Tolerance);
         turned.Z.ShouldBe(3d, Tolerance);
     }
+
+    /// <remarks>
+    /// **The inverse turn undoes the turn** — `FUN_1800706c0`, the transpose, how the edge evaluator takes a
+    /// world normal into the edge's body. `(−2, 1, 3)` goes back to `(1, 2, 3)`, translation ignored.
+    /// </remarks>
+    [Test]
+    public void RotateInverse_AQuarterTurnAboutZ_UndoesRotate()
+    {
+        IvpMatrix matrix = IvpMatrix.FromRotation(QuarterTurnAboutZ, (10d, 20d, 30d));
+
+        (double X, double Y, double Z) back = matrix.RotateInverse((-2d, 1d, 3d));
+
+        back.X.ShouldBe(1d, Tolerance);
+        back.Y.ShouldBe(2d, Tolerance);
+        back.Z.ShouldBe(3d, Tolerance);
+    }
+
+    /// <remarks>
+    /// **Down the column, `x` and `y` before `z`.** `FUN_1800706c0` computes `out.x = (v.x·m0 + v.y·m4) +
+    /// v.z·m8`. With the first COLUMN all ones and the rest zero, `(0.1, 0.2, 2.2)` gives exactly `2.5`.
+    /// Reading along the row instead gives `0.1`; adding `z` first gives `2.5000000000000004`.
+    /// </remarks>
+    [Test]
+    public void RotateInverse_TermsThatRoundDifferentlyByGrouping_SumsDownTheColumnXAndYBeforeZ()
+    {
+        IvpMatrix matrix = new(
+            M0: 1d, M1: 0d, M2: 0d, M4: 1d, M5: 0d, M6: 0d, M8: 1d, M9: 0d, M10: 0d, Translation: (0d, 0d, 0d));
+
+        BitConverter.DoubleToInt64Bits(matrix.RotateInverse((0.1d, 0.2d, 2.2d)).X)
+            .ShouldBe(BitConverter.DoubleToInt64Bits(2.5d));
+    }
 }
