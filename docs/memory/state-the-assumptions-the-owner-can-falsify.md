@@ -46,3 +46,30 @@ This is the same rule as *"anything about a UI that cannot be verified by lookin
 the user"*, moved one step earlier: it applies to the framing of the hunt, not only to its
 conclusion. Related: [[instrument-bugs-outnumber-decoder-bugs]],
 [[ask-which-input-differs-before-bisecting]], [[nothing-is-closed]].
+
+## `the-owners-guess-is-a-hypothesis-too` — test his, and split the measurement (D166, 2026-09-12)
+
+**The owner is not a second authority beside Valve, and he says so himself:** *"make sure im right
+do not take my word as law, valve is law and god, I am making random educated guesses lol"*, then
+*"you always test your and my hypothesis, more than once if you need to"*. A steer from him is
+worth taking seriously — years of playing the game — and it is still settled by the engine's source
+or by a number, never by who said it.
+
+**It earned itself the moment it was given.** He suggested using a player's last known weapon for a
+corpse's bodygroups; measured, that took the deployed-weapon count from 11 of 204 to 199 of 204. He
+was right. And reading the engine FIRST showed the fix was more specific than his wording:
+`RecalculatePlayerBodygroups` runs three passes in a fixed order (`tf_player_shared.cpp:13693`), so
+an implementation built from the steer alone would have applied items in list order and been wrong
+wherever two claim the same body part.
+
+**The half worth keeping is that one count answered nothing.** "11 of 204 name the held weapon" is
+equally consistent with *the value is absent at that tick* and with *my comparison is wrong*, and
+those have opposite fixes — a fallback versus a decode bug. Measured apart, "readable at all" gave
+15 of 204 and "matches one of his own children WHEN readable" gave 15 of 15, which settles it in
+one run.
+
+**How to apply: before reporting a ratio as evidence, ask which two explanations it cannot separate,
+and measure those apart.** A denominator that mixes an availability failure with an identity failure
+is not a measurement, it is two measurements added together. Related:
+[[instrument-bugs-outnumber-decoder-bugs]], [[the-denominator-decides-what-can-be-lost]],
+[[valve-parity-is-the-first-principle]].

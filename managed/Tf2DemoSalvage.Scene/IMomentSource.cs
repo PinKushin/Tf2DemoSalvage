@@ -182,6 +182,23 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// </remarks>
     public Func<string, IReadOnlyList<PhysicsBreakPiece>>? Gibs { get; set; }
 
+    /// <summary>What each worn item hides, for a corpse's own <c>m_nBody</c> (B395).</summary>
+    /// <remarks>
+    /// **Read per call, for the reason every other supplier here is**: the item schema arrives with
+    /// the archives, long after a demo can be opened, so a source given a table at construction
+    /// would answer "no cosmetics hide anything" for the life of the demo. Null is the no-install
+    /// answer and draws every part's first alternative.
+    /// </remarks>
+    public Func<IPlayerAppearance?>? Appearance { get; set; }
+
+    /// <summary>The class model's part table, which turns a bodygroup name into an index.</summary>
+    /// <remarks>
+    /// **Its own supplier rather than a second use of <see cref="Appearance"/>**, because the two
+    /// come from different owners on different clocks: the schema belongs to the install and the
+    /// part table to the loaded model, exactly the split <see cref="Gibs"/> exists for.
+    /// </remarks>
+    public Func<IModelBodygroups?>? Bodygroups { get; set; }
+
 
     /// <inheritdoc />
     public float IntervalPerTick => timeline.IntervalPerTick;
@@ -238,7 +255,14 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
                 InView?.Invoke(),
                 Items?.Invoke(),
                 Gibs,
-                timeline.IntervalPerTick);
+                timeline.IntervalPerTick,
+
+                // **Both or neither** (B395). A corpse's `m_nBody` needs the item schema's view of
+                // what each cosmetic hides AND the model's own part table to turn a name into an
+                // index; one without the other answers nothing, so they are asked for together
+                // and `BodyAtDeath` treats either being null as "no install".
+                Appearance?.Invoke(),
+                Bodygroups?.Invoke());
         }
     }
 

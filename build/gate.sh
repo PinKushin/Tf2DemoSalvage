@@ -984,7 +984,12 @@ run Tf2DemoSalvage.Animation.Tests animation 255
 # 716 -> 726 on 2026-09-11: ten for B380 in SequenceErasConformanceTests — the 2008 sticky launcher's
 # draw, label before activity (the knife's shared stabs), the activity fallback, no sequence where
 # nothing answers or past the old list, the table's parse, and the shipped file itself.
-run Tf2DemoSalvage.Scene.Tests    scene     726
+#
+# 726 -> 736 on 2026-09-12: a corpse carries the player's bodygroups (B395). Nine cases on
+# RagdollProps — the copy, the feign-death guard both ways, the no-install answer, and three that
+# only the engine's three-pass ORDER satisfies — plus the wiring case on TimelineMoments, which is
+# the only one that fails if the suppliers stop reaching Fill.
+run Tf2DemoSalvage.Scene.Tests    scene     736
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

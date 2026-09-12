@@ -29725,6 +29725,51 @@ look at it from another angle before touching any drawing code.
 
 *Evidence class: owner observation with two screenshots; not yet reproduced from a known tick.*
 
+#### FIXED 2026-09-12: a corpse now carries the player's bodygroups, computed the engine's way
+
+**`m_nBody` is implemented.** A corpse's body is built from everything its player had equipped at
+death — cosmetics AND weapons — and reaches `ScenePose.Body`, where it was previously always 0.
+
+**Three passes, in Valve's order** (`tf_player_shared.cpp:13693-13709`):
+
+```cpp
+m_pOuter->m_nBody = 0;
+CTFWeaponBase::UpdateWeaponBodyGroups( m_pOuter, false );  // weapons without the flag
+CEconWearable::UpdateWearableBodyGroups( m_pOuter );       // wearables
+CTFWeaponBase::UpdateWeaponBodyGroups( m_pOuter, true );   // deployed-only, the held weapon
+```
+
+`SetBodygroup` is last-writer-wins on a part, so the order is the answer whenever two items claim
+the same one. Three of the nine new tests can only pass under the correct order.
+
+**The owner's steer is what closed the weapon half, and it needed measuring in three parts** —
+"my educated and frankly also ignorant guesses need to be tested, always". On
+`demostf-cp_process_f12-2026-08-07`, 204 corpses:
+
+| asked | answer |
+|---|---|
+| do weapons reach the timeline as bone-merged tracks with an item index | **yes** — 558 weapons among 1,318 carried items on 201 corpses |
+| is `m_hActiveWeapon` readable at the death tick | **no** — 15 of 204 |
+| when it IS readable, does it identify one of that player's own children | **yes, 15 of 15** |
+| does the last-known-weapon fallback fix it | **yes** — 11 → **199 of 204** |
+
+**The third row is the one that mattered.** A single count cannot separate "the value is absent"
+from "my comparison is wrong", and those have opposite fixes; splitting them showed the comparison
+was never at fault. A dying player simply is not holding anything on the wire, so the useful reading
+is the last one from while he was alive — which is also what the engine's client has, having tracked
+him all along.
+
+**Two lists, deliberately.** `SceneRagdoll.Worn` stays the econ WEARABLE list, which is what hangs
+off the corpse (`c_tf_player.cpp:10178`); `SceneRagdoll.Carried` is the wider equipment set the BODY
+came from. Filtering one to serve both is wrong in one direction or the other.
+
+**What is NOT established:** whether this changes the owner's headless-soldier screenshot. It is
+still his tick that names that, and the mechanism below says a decapitated corpse being headless is
+correct TF2 behaviour rather than a defect. What has changed is that we can now draw it at all.
+
+*Evidence class: read-from-source for the three passes and the guard; measured for every number
+above, with the readable-versus-matching split as its own control.*
+
 #### Read 2026-09-12: the engine's ORDER makes a headless corpse a real TF2 look, and we cannot produce it
 
 Two steps of `CreateTFRagdoll`, and the order between them is the whole mechanism:

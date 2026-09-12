@@ -8593,3 +8593,38 @@ of inverting it, rotating every collision hull in the project 180° about X.
 find data that is wrong, so every measurement comes back correct while looking like progress
 (`docs/memory/nothing-is-closed.md#read-the-spec-before-measuring-our-data`). Suspecting the shipped
 data adds a second wrong subject to the same search.
+
+## D166 — the owner's guesses are hypotheses and get tested like anyone's (2026-09-12)
+
+**His words, immediately after giving a steer that turned out to be right:**
+
+> *"make sure im right do not take my word as law, valve is law and god, I am making random
+> educated guesses lol"*
+
+and then the rule behind it:
+
+> *"my educated and frankly also ignorant guesses, need to be tested, always, thats why i said and
+> made the point, programming is a hard science, and not one which should have issues with
+> replication, so you always test your and my hypothesis, more than once if you need to"*
+
+**This is not modesty, it is a ranking.** D89 already says Valve is the authority; this says the
+owner is NOT a second authority beside it. A steer from him is a hypothesis worth taking seriously
+because he has played the game for years — and it is still a hypothesis, settled by the engine's
+source or by a measurement, never by who said it.
+
+**It earned itself on the spot.** He suggested using the last known weapon for a corpse's
+bodygroups. Measured on `demostf-cp_process_f12-2026-08-07`, that took the deployed-weapon count
+from 11 of 204 to 199 of 204 — so he was right. But reading the engine first showed the fix was
+more specific than either of us had said: `RecalculatePlayerBodygroups` runs **three passes in a
+fixed order**, and a version built only on his wording would have applied the items in list order
+and been wrong wherever two of them claim the same body part.
+
+**And the measurement had to be SPLIT to mean anything.** "11 of 204 name the held weapon" is
+equally consistent with the value being absent and with the comparison being wrong, which have
+opposite fixes. Measuring the two apart — readable at all, and matching when readable — gave 15 of
+204 and 15 of 15, which settles it.
+
+**How to apply:** when he proposes a mechanism, treat it exactly as a finding from any other
+source — read the engine for it, then measure it on a real demo, then say which of those two
+established it. Report the number back rather than "you were right", because the number is what a
+later reader can check. Related: D89, D165, `docs/memory/state-the-assumptions-the-owner-can-falsify.md`.

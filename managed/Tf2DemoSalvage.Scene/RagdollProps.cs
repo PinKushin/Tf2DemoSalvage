@@ -59,6 +59,14 @@ public static class RagdollProps
     /// Seconds per tick, so a gib's own <c>fadetime</c> can be measured from its corpse's death.
     /// Zero disables the fade, which is what a caller with no clock should get.
     /// </param>
+    /// <param name="appearance">
+    /// What each worn item hides, for the corpse's own <c>m_nBody</c> (B395). Null draws every
+    /// part's first alternative, which is what a viewer with no install can say.
+    /// </param>
+    /// <param name="bodygroups">
+    /// The class model's part table, which turns a bodygroup NAME into its index. Null for the
+    /// same reason, and the two travel together — one without the other answers nothing.
+    /// </param>
     /// <returns>How many were appended.</returns>
     /// <remarks>
     /// **Appended rather than cleared, because this runs after the props.** The scene's buffer is
@@ -80,7 +88,9 @@ public static class RagdollProps
         IReadOnlySet<int>? visible = null,
         ItemSchema? items = null,
         Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf = null,
-        float intervalPerTick = 0f)
+        float intervalPerTick = 0f,
+        IPlayerAppearance? appearance = null,
+        IModelBodygroups? bodygroups = null)
     {
         ArgumentNullException.ThrowIfNull(corpses);
         ArgumentNullException.ThrowIfNull(modelForClass);
@@ -180,6 +190,19 @@ public static class RagdollProps
                     // anyone who died looking up.
                     Yaw = corpse.Yaw,
                     Skin = skin,
+
+                    // **The player's bodygroups, copied at death** (B395,
+                    // `c_tf_player.cpp:790-793`). Zero until now, which showed every corpse with
+                    // the stock geometry its cosmetics are modelled to replace — a helmet under a
+                    // hat.
+                    //
+                    // **Computed from the corpse's OWN worn list, before the wearable skips**, so
+                    // the order matches the engine's: it copies the player's body at `:790` and
+                    // only refuses HEAD and MISC items at `:10206`. Taking the body from the
+                    // emitted props instead would apply the skip first and lose exactly the case
+                    // that matters — a decapitated corpse keeps the hidden-head bodygroup its hat
+                    // imposed, which is what makes a headless corpse a real TF2 look.
+                    Body = BodyAtDeath(corpse, model, appearance, bodygroups),
 
                     // **What the player was DOING when they died, so the corpse can be posed the
                     // way the engine poses it** (B316). `CreateTFRagdoll` copies the player's own
@@ -340,6 +363,108 @@ public static class RagdollProps
         }
 
         return added;
+    }
+
+    /// <summary>The bodygroups the player had when this corpse was made — <c>m_nBody</c> (B395).</summary>
+    /// <param name="corpse">The corpse, for its worn list and the feign-death guard.</param>
+    /// <param name="model">The class model the corpse draws with.</param>
+    /// <param name="appearance">The item schema's view of what each item hides, or null.</param>
+    /// <param name="bodygroups">The model's own part table, or null.</param>
+    /// <returns>The body, or 0 when the install cannot say.</returns>
+    /// <remarks>
+    /// **The engine copies the whole value off the living player** (`c_tf_player.cpp:790-793`):
+    ///
+    /// <code>
+    /// if ( !m_bFeignDeath || m_bWasDisguised )
+    /// {
+    ///     pPlayer-&gt;RecalcBodygroupsIfDirty();
+    ///     m_nBody = pPlayer-&gt;GetBody();
+    /// }
+    /// </code>
+    ///
+    /// **Recomputed from the corpse's worn list rather than carried on the record, because the
+    /// computation needs `items_game.txt` and the decode layer has none** — the same split
+    /// <see cref="SceneWornItem"/> exists for. The inputs are fixed at death, so the answer is the
+    /// player's.
+    ///
+    /// **Before <see cref="Skipped"/>, deliberately.** The engine takes the body at `:790` and only
+    /// refuses HEAD and MISC wearables at `:10206-10214`, so a decapitated corpse keeps the
+    /// hidden-head bodygroup its hat imposed and loses the hat. Computing this from the props that
+    /// survive the skip would invert that order and lose the one case the whole mechanism is about.
+    ///
+    /// **The feign-death guard is Valve's and is reproduced rather than simplified.** A feign death
+    /// leaves the player alive, so there is no new body to copy — unless the spy was disguised,
+    /// where the engine takes it anyway.
+    ///
+    /// **What this does NOT include, stated rather than left to be found:** bodygroups driven by
+    /// the player's WEAPONS. `GetBody()` on the living player includes them, and a corpse's worn
+    /// list is cosmetics only — `WornAtDeath` filters weapons out because
+    /// `CreateBoneAttachmentsFromWearables` walks the econ wearable list (`c_tf_player.cpp:10178`).
+    /// Eight shipped items set `DeployedOnly` and all eight are weapons, so the gap is exactly those
+    /// and it needs the held weapon at the death tick, which no corpse record carries yet.
+    /// </remarks>
+    private static int BodyAtDeath(
+        SceneRagdoll corpse,
+        string model,
+        IPlayerAppearance? appearance,
+        IModelBodygroups? bodygroups)
+    {
+        // **Null is the no-install answer and it is 0, which is also the engine's starting value** —
+        // `m_pOuter->m_nBody = 0` opens `RecalculatePlayerBodygroups`. A viewer with no
+        // `items_game.txt` draws every part's first alternative, which is what it drew before this
+        // existed.
+        if (appearance is null || bodygroups is null ||
+            corpse.Carried is not { Count: > 0 } carried ||
+            (corpse.FeignDeath && !corpse.WasDisguised))
+        {
+            return 0;
+        }
+
+        int body = 0;
+
+        // **Three passes in Valve's order, not one loop** (`tf_player_shared.cpp:13693-13709`):
+        //
+        //     m_pOuter->m_nBody = 0;
+        //     CTFWeaponBase::UpdateWeaponBodyGroups( m_pOuter, false );
+        //     CEconWearable::UpdateWearableBodyGroups( m_pOuter );
+        //     CTFWeaponBase::UpdateWeaponBodyGroups( m_pOuter, true );
+        //
+        // The order is only visible when two items touch the SAME part, and then it decides which
+        // wins — so a single pass over one list agrees with the engine right up until it does not,
+        // silently. `SetBodygroup` is last-writer-wins, which is what makes that possible.
+        foreach (SceneCarriedItem item in carried)
+        {
+            if (item.Weapon)
+            {
+                body = PlayerProps.Bodygroup(
+                    item.ItemDefinitionIndex, item.Deployed, appearance, bodygroups, model, body);
+            }
+        }
+
+        foreach (SceneCarriedItem item in carried)
+        {
+            if (!item.Weapon)
+            {
+                // A wearable is never the active weapon, so it can never satisfy the deployed-only
+                // guard — and none of the eight items that set the flag is a wearable.
+                body = PlayerProps.Bodygroup(
+                    item.ItemDefinitionIndex, deployed: false, appearance, bodygroups, model, body);
+            }
+        }
+
+        // **The third pass is the deployed-only weapons**, and `PlayerProps.Bodygroup` already
+        // refuses an item whose flag is set unless it is the one being held — so the first pass
+        // above dropped exactly those, and this one applies them.
+        foreach (SceneCarriedItem item in carried)
+        {
+            if (item is { Weapon: true, Deployed: true })
+            {
+                body = PlayerProps.Bodygroup(
+                    item.ItemDefinitionIndex, deployed: true, appearance, bodygroups, model, body);
+            }
+        }
+
+        return body;
     }
 
     /// <summary>Whether the engine would leave this item off the corpse.</summary>
