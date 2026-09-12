@@ -601,7 +601,10 @@ jobs:
           # off a run rather than one being raised by a delta.
           # 769 -> 777 on 2026-09-11: eight for D162, the map downloader in the engine's order.
           # 777 -> 780 on 2026-09-11: three for MapWanted.From.
-          ./build/assert-test-count.sh '**/rendering.trx' 780 Rendering
+          #
+          # 780 -> 781 on 2026-09-12: MapPhysicsPlacementConformanceTests (B400). It needs the game
+          # installed, so it SKIPS here — and the check reads the total, which counts a skip.
+          ./build/assert-test-count.sh '**/rendering.trx' 781 Rendering
           # 14 -> 31 on 2026-09-09: closed DRIFT, not 17 new tests, measured on the same run.
           # **This suite is guarded HERE ONLY** — build/gate.sh has no floor for it, because the UI
           # phase runs outside the gate under the machine-wide lock. A floor of 14 against 31 left

@@ -1772,7 +1772,11 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # its checksum, and a bzip2 body expanding past the cap refused.
 # 777 -> 780 on 2026-09-11: three for MapWanted.From — the map hash and download URL both carried, no
 # URL when the server sent none, no URL when it sent something that will not parse absolute.
-run Tf2DemoSalvage.Rendering.Tests rendering 780
+#
+# 780 -> 781 on 2026-09-12: MapPhysicsPlacementConformanceTests, the output-level assertion for
+# B400. Sabotaged with the exact defect (ToSource applying the forward map twice), it is the ONLY
+# test of 428 in this assembly that reddens — which is the case for it existing.
+run Tf2DemoSalvage.Rendering.Tests rendering 781
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
