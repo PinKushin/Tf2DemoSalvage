@@ -303,7 +303,10 @@ jobs:
           #
           # 255 -> 260 on 2026-09-12: IvpCollisionToleranceConformanceTests (B369). Arithmetic on
           # constants read from vphysics.dll, no game content and no SDK, so all five run here too.
-          ./build/assert-test-count.sh '**/animation.trx' 260 Animation
+          #
+          # 260 -> 264 on 2026-09-12: IvpQuaternionInterpolateConformanceTests (B369). Pure
+          # arithmetic on hand-built rotations, so all four run here too.
+          ./build/assert-test-count.sh '**/animation.trx' 264 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView

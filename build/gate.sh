@@ -626,7 +626,12 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # tolerance and the thresholds derived from it, each read from vphysics.dll with its multiplier dumped
 # (B369). Red first as a compile failure; one sabotage of the fall-height coefficient reddened the
 # value case and left the square-root-shape case green, which is the split the pair exists for.
-run Tf2DemoSalvage.Animation.Tests animation 260
+#
+# 260 -> 264 on 2026-09-12: IvpQuaternionInterpolateConformanceTests, four cases for FUN_180071060,
+# the rotation a body is evaluated at inside a step (B369). Red first as a compile failure; two
+# sabotages, each reddening only its own case -- the sign dropped from the slerp reddened the
+# negated-target case, and forcing every dot through the lerp reddened the quarter-turn case.
+run Tf2DemoSalvage.Animation.Tests animation 264
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

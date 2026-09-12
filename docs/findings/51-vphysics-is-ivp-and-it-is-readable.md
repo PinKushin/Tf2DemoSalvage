@@ -2250,6 +2250,76 @@ rotation(t) = interpolate(core+0x180, core+0x1a0, (t − core+0x1d0) × core+0x1
 then composed with the object's offset inside its core (`object+0x60`, unless flag `0x800`) and an
 optional further transform (`object+0x58`).
 
+**`core+0x1d8` is the inverse PSI step, from its three writers.** A whole-program search of the
+decompiled `vphysics.dll` found it: the integrator `FUN_180099a00` sets `core+0x1d8 = param_2[1]` beside
+`dt = param_2[0]`, immediately before stamping `core+0x1d0` with the environment clock, advancing
+position by the committed velocity and committing `0x180 := 0x1a0`; and the two reset routines,
+`FUN_180078bd0` (which zeroes every velocity) and `FUN_180077670`, set it from `env+0x110` and from a
+parameter respectively, each with `0x1a0 := 0x180`. **So `rotation(t)` turns from the committed
+orientation to the predicted one by the fraction of the current step elapsed** — `0` at the stamp, `1`
+a whole step later. The integrator also sets `core+0x1dc = |linear velocity|`, the linear speed bound
+the pair scheduler sums.
+
+**The search itself needed a control, and got one.** Its first run printed nothing and its second
+printed only a usage line: a `)` inside the needle does not survive `analyzeHeadless.bat`, which
+dropped the arguments entirely. Only because the second run also searched for `0x1d0` — which three
+functions are already known to touch — was the silence recognisable as a broken instrument rather
+than an absent writer. The working run found 24 functions for the control and 17 for `0x1d8`.
+
+**The integrator's `param_2` is computed per step, not copied.** The island driver `FUN_1800909d0`
+builds it for every awake core:
+
+```c
+fVar9 = (float)(env[0x190] - env[0x188]);                 // dt, the island's nominal step
+local_864 = (dt <= DAT_1800fcfa0) ? 1e10 : (float)(1.0 / dt);
+FUN_180099a00(core, {fVar9, local_864}, ...);             // core+0x1d8 := local_864
+```
+
+So the inverse is taken from the step actually being run, with a guard against a vanishing one — which
+matters here, because this project sub-steps and its slice varies. **`DAT_1800fcfa0` is `1e-10`** (a
+float widened). **The second caller, `FUN_18009a590`** (phase 3, three call sites), applies the same
+rule to `dt = (float)env+0x108`, the environment's PSI step: `inverse = dt ≤ 1e-10 ? 1e10 :
+(float)(1.0 / dt)`. Both callers agree, so that is the rule.
+
+**The reset that copies the predicted orientation back has three callers, and one is sleep.**
+`FUN_180078bd0` — velocities zeroed, `core+0x1d8 := env+0x110`, `0x1a0 := 0x180` — is called from:
+
+| caller | when |
+|---|---|
+| `FUN_180078c90` | every object of the core gets `+0x78 = 8` and its synapses are re-timed |
+| `FUN_180079300` | the core's static bit, `& 2`, is set |
+| `FUN_1800791a0` | the core's last object is removed, while its state is below 8 |
+
+*That `FUN_180078c90` is putting a core to SLEEP is INFERRED*, from two readings that agree: it sets
+state 8, and the time-of-impact motion cache treats an object state above 7 as not moving.
+
+**Which exposes a divergence, not yet observable.** Sleeping a core leaves `rotation(t)` pinned to the
+committed orientation, because both ends of the interpolation are now equal. This project's sleep
+(`RagdollSimulation`'s `Asleep`) zeroes the velocities and leaves `WorkingOrientation` one step ahead of
+`Orientation`. Nothing evaluates a body inside a step yet, so nothing shows it; the moment the
+time-of-impact search does, a sleeping corpse would turn toward a predicted orientation it will never
+reach.
+
+**The reset's fields, mapped onto `IvpRigidBody` by offsets this project already cites:**
+
+| engine | field | this project's sleep |
+|---|---|---|
+| `+0x110..0x118` | `PendingAngularVelocity` | **left alone** |
+| `+0x120..0x128` | `PendingVelocity` | **left alone** |
+| `+0x130..0x138` | `AngularVelocity` | zeroed |
+| `+0x140..0x148` | `Velocity` | zeroed |
+| `+0x170..0x178` | `PreviousVelocity` | zeroed |
+| `+0x1d8` | the inverse step, from `env+0x110` | not carried |
+| `0x1a0 := 0x180` | `WorkingOrientation := Orientation` | **not done** |
+
+**So the same reset holds a second divergence:** the engine discards velocity STAGED for the next step,
+and ours keeps it, so a push staged just before a corpse sleeps lands on the first step after it wakes.
+Not mapped, because nothing here names them: `+0x80`, `+0x1dc` (written by the integrator as
+`|linear velocity|`), `+0x254`, `+0x1c0..0x1c8` (reset to `1.0, 0, 0`) and the state byte at `+1`.
+
+*Evidence class: read from the decompiled binary for all three writers and the island driver; that
+`env+0x110` is the inverse step is checked against this document's own reading of the environment.*
+
 **The refining finder `FUN_1800b6590`:**
 
 1. Distance already at or under the target: the event is at the interval's start.
@@ -2273,7 +2343,39 @@ nearly parallel — it lerps component by component and renormalises with two Ne
 reciprocal square root; otherwise it is a true slerp through `acos` and two `sin`s. Dumped: the
 cut-over `DAT_1800fcea0` is **`0.999`** (a float widened), the signs `DAT_1800ea988` and
 `DAT_1800ea9f8` are `+1` and `−1`, and the Newton constants `DAT_1800ee388` and `DAT_1800ea9c0` are
-`0.5` and `1.5` — the usual `x · (1.5 − 0.5 · s · x²)` step, taken exactly twice. **This project's `IvpQuaternion` does not port this routine** —
+`0.5` and `1.5`.
+
+**Read from the disassembly, because the decompiler dropped the `sin` arguments** (`RCX` out, `RDX`
+from, `R8` to, `XMM3` the fraction):
+
+```
+dot  = from · to                        -- all four lanes
+sign = dot > 0 ? +1 : (dot = −dot, −1)
+if dot ≥ 0.999:                         -- JNC, so the threshold itself takes this branch
+    out = from + (sign·to − from) · t
+    s   = 0.5 · |out|²
+    x   = 1.5 − s
+    x   = x + (0.5 − x²·s)              -- twice
+    x   = x + (0.5 − x²·s)
+    out = out · x
+else:
+    θ      = f(dot)                     -- 1800cce64
+    invSin = 1 / √(1 − dot²)
+    out    = g((1 − t)·θ)·invSin · from + sign · g(t·θ)·invSin · to     -- 1800c8020, twice
+```
+
+**The renormalisation is NOT the textbook Newton step** `x · (1.5 − s·x²)`; it is the linearised
+`x + 0.5 − s·x²`, from a start of `1.5 − s`. Near unit length the two agree closely, and this is the one
+read. **The slerp branch does not renormalise at all.** *That `f` is `acos` and `g` is `sin` is
+INFERRED from the arithmetic:* `√(1 − dot²)` is `sin θ` only when `θ = acos(dot)`.
+
+**Neither the cut-over nor the renormalisation variant can be seen in a float.** Running the read
+sequence in doubles at dots of 0.9991, 0.99991 and 0.99999 with a fraction of one half: lerp and slerp
+differ by at most `8e-12`, and the linearised renormalisation differs from the textbook one by `9e-17`.
+So the branch matters to the engine's doubles and to nothing this project stores as a float. What a
+wrong port DOES change is the slerp below the cut — at a fraction of one quarter, where a normalised
+lerp lands on `0.1875` against the slerp's `0.19509` for a quarter of a quarter turn — and the sign flip
+on a negative dot. Those are what `IvpQuaternionInterpolateConformanceTests` pins. **This project's `IvpQuaternion` does not port this routine** —
 only the product, the normalise and the angular step.
 
 **And a defect found on the way.** `IvpQuaternion.UnitTolerance` is `1e-9`, documented as *"ours, not

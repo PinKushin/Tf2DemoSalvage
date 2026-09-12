@@ -25996,7 +25996,14 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
 
 1. **Motion over an interval** — position linear in `t` from the core's velocity; rotation by
    `FUN_180071060`, shortest-path slerp with a normalised lerp above a dot of `0.999` and two Newton
-   steps. Tested against hand-built cores at fractions 0, ½ and 1, and at the cut-over from either side.
+   steps. **(a) `IvpQuaternion.Interpolate` — done.** The cut-over turned out to be unobservable in a
+   float, so it is documented rather than tested. **(b) `InverseStep`** — `core+0x1d8`, set inside the
+   integrator as `dt ≤ 1e-10 ? 1e10 : (float)(1.0/dt)` — and `TransformAt(t)`. **(c) Sleep copies the
+   predicted orientation back** (`FUN_180078bd0` from `FUN_180078c90`), so a sleeping body stays at its
+   committed orientation mid-step; ours leaves it a step ahead. **The same reset also discards the two
+   staged velocities** (`core+0x110`, `+0x120`); ours keeps them, so a push staged just before sleep
+   lands after waking. Ported as the core's own reset on `IvpRigidBody`, the engine's shape, with the
+   inverse step taken from what `SetSimulationTimestep` writes to `env+0x110` — being read.
 2. **The lattice** — 200 ticks a second, 0.005 s each, at most 20 per search, a 21-slot per-object
    transform cache that a resting body fills with its current transform.
 3. **Signed-distance evaluators** — point-plane (`FUN_1800a3470`) and edge (`FUN_1800a3660`), each
