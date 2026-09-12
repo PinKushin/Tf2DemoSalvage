@@ -2169,9 +2169,25 @@ the value before initialisation, not the value the solver uses. **This document 
 `DAT_18012d664` as "dumps as 0.0" above, and that is the same trap:** it is not established. The
 writers are to be read before any of these is used as a number.
 
-*Evidence class: read from the decompiled binary for both functions; constants read from the image
-where the image holds them, and explicitly NOT for the seven startup-initialised globals. That kind 5
-is a ledge-tree or hull node is INFERRED from the descent and the virtual mesh's two-level query.*
+**Both dispatch tables, from their initialisers**, each indexed `kindA × 4 + kindB` over the two
+synapses' feature kinds 0–3:
+
+| table | filled by | default | set entries |
+|---|---|---|---|
+| minimize, `DAT_18012d4b0` | `FUN_180094700` | `FUN_180094e10` | row 3 → `FUN_180094ad0`, `(3,3)` → `FUN_180094860`; the rest among `94c70`, `94c50`, `94c30`, `94c10`, `94f70` |
+| time of impact, `DAT_18012d910` | `FUN_1800a3aa0` | `FUN_1800a4200` | `(0,0) (0,1) (0,2) (1,1)` → `FUN_1800a3fe0`; `(3,0) (3,1) (3,2)` → `FUN_1800a3d30`; `(3,3)` → `FUN_1800a3b60` |
+
+**Only eight of sixteen kind pairs ever raise an impact event**; every other combination takes the
+default. **The margin and threshold block at `18012d540` is set twice**: at startup by
+`FUN_180098fd0(block, DAT_1800eb150, DAT_1800ec290)`, and again at runtime through
+`FUN_1800824c0(a, b)`, so its values depend on a caller. `DAT_18012d670` = `DAT_1800ea9b8` and
+`DAT_18012d66c` = 1000 are set beside it.
+
+*Evidence class: read from the decompiled binary for both functions and all three initialisers;
+constants read from the image where the image holds them, and explicitly NOT for the startup- and
+runtime-initialised block. **The feature kinds are unnamed.** An earlier draft of this section called
+kind 5 a ledge-tree or hull node; the code only shows kind 5 being replaced by kind 2 through
+`FUN_180094e30`, and that is all that is claimed.*
 
 ## There are TWO contact solvers, and a resting corpse uses the other one
 
