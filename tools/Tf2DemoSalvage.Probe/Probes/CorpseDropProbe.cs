@@ -1159,7 +1159,47 @@ public sealed class CorpseDropProbe : IProbe
             $"{(simulation.Asleep ? "asleep" : "AWAKE")} " +
             $"{(settled < 0 ? "NEVER SETTLED" : $"settled at tick {settled}")} " +
             $"{(root.Position.Z < Lost ? "LEFT THE WORLD" : string.Empty)}");
+
+        // **What it came to rest ON, which decides whose defect a corpse that never sleeps is.**
+        // After B400 the corpses that land on brush geometry settle and sleep while two on
+        // `koth_harvest_final` do not, and both readings of that split — terrain, or brushes — were
+        // equally consistent with the trace. The distance from the resting body to the nearest
+        // ledge and to the nearest terrain triangle separates them without a model of either.
+        Vector3 rest = new(
+            (float)root.Position.X, (float)root.Position.Y, (float)root.Position.Z);
+
+        float toLedge = float.MaxValue;
+
+        foreach (IvpWorldLedge ledge in level.Physics.Ledges)
+        {
+            foreach (Vector3 vertex in ledge.Vertices)
+            {
+                toLedge = MathF.Min(toLedge, (vertex - rest).Length());
+            }
+        }
+
+        float toTerrain = float.MaxValue;
+
+        foreach (DisplacementTriangle triangle in level.Displacements.Triangles())
+        {
+            toTerrain = MathF.Min(toTerrain, Away(triangle.A, rest));
+            toTerrain = MathF.Min(toTerrain, Away(triangle.B, rest));
+            toTerrain = MathF.Min(toTerrain, Away(triangle.C, rest));
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"    resting near: {toLedge:0.#} units to the nearest ledge vertex, " +
+            $"{toTerrain:0.#} to the nearest terrain vertex"));
     }
+
+    /// <summary>How far a terrain vertex is from a point, in Source units.</summary>
+    /// <remarks>
+    /// **A displacement vertex is a float triple rather than a <c>Vector3</c>**, so the subtraction
+    /// is written out once here instead of at three call sites.
+    /// </remarks>
+    private static float Away((float X, float Y, float Z) vertex, Vector3 to) =>
+        new Vector3(vertex.X - to.X, vertex.Y - to.Y, vertex.Z - to.Z).Length();
 
     private static float Fastest(RagdollSimulation simulation) =>
         simulation.Environment.Bodies.Max(

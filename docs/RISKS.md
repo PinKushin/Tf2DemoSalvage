@@ -25884,6 +25884,50 @@ world, and whatever fails there fails with the joints present and worse without 
 *Evidence class: measured for the terrain half and for the single-body/jointed split;
 read-from-source for the engine's single constraint group.*
 
+### Narrowed 2026-09-12 by B400: a corpse on BRUSH geometry now sleeps, and only the terrain half still does not
+
+**Everything above was measured while every collision hull in the project was rotated 180° about X**
+(B400), so "a corpse penetrates and never settles" was being asked of a world whose surfaces were in
+the wrong place. With the convention corrected, the two halves separate:
+
+| where the corpse lands | result |
+|---|---|
+| a brush floor — `cp_process_final`, seeded at (−2858, −2195, 760) | **settles at z 708.9 on the floor at 704 and SLEEPS at tick 356** |
+| `koth_harvest_final`, the three seeds over brushes and props | settle and sleep, ticks 372–623 |
+| `koth_harvest_final`, the two seeds that come to rest at z −0.3 | **awake for ever**, residual speed 100–150 u/s |
+
+The failing pair's trace shows what it is rather than that it is: 26–75 contacts a step, `deepest`
+climbing to **30.48 units**, `lifted` in the tens of thousands, and the body being shoved out and
+falling back for all 660 ticks. That is the same shape as the 60.73 units recorded above, at half
+the depth, and it is now confined to bodies resting a fraction of a unit below z 0.
+
+**So the remaining defect is the narrow phase, not the world** — which is what
+`docs/findings/51` already prescribes in order: carry `PhysicsLedge`'s faces onto `IvpRigidBody`
+instead of flattening each body to a point cloud, add hull-vs-triangle contact using them and the
+existing `Gjk`/`Support`, keep the closest-feature pair per (body, triangle) across steps as the
+mindist does, then delete the compensators. Nothing here changes that plan; it removes a confound
+from the evidence for it.
+
+**"Terrain versus brush" was the obvious reading of the split and it is WRONG.** `corpse-drop` now
+reports the distance from the resting body to the nearest ledge vertex and to the nearest terrain
+vertex, and on all five seeds the terrain is nearer — 42.6, 48.4, 51, 21.3, 49.5 units against 54.2,
+82.5, 73.7, 42.9, 80.3 to a ledge. The three that sleep are as close to terrain as the two that do
+not, so the surface is not what separates them. (The instrument is coarse: it measures from the root
+body's origin, which sits well above whatever it rests on. It is good enough to refuse the
+hypothesis, not to confirm one.)
+
+**What the two failures do share is the one number in the table:** both come to rest with a body at
+**z −0.3**, a fraction of a unit BELOW the surface, where every seed that sleeps rests at 2.3 to
+29.5 above it. So the condition is a body left slightly inside the world, not a kind of geometry —
+which is the same shape as the penetration race recorded above and points at the same narrow phase.
+
+**What is NOT established:** why those two end below the surface and the others do not, and whether
+a body that starts a step penetrating can ever be pushed out by the vertex-sampling contact rather
+than oscillating. Both are questions for the `docs/findings/51` rework rather than for this entry.
+
+*Evidence class: measured, with the corpse-drop trace on two maps after the B400 correction; the
+terrain-versus-brush hypothesis was measured and refuted rather than assumed away.*
+
 ### B370 OPEN 2026-09-08: granary's shutter doors do not animate
 
 **Reported by the owner while watching a demo play, and filed rather than chased**: *"the shutter
