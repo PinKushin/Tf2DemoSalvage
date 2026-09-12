@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
@@ -180,22 +181,58 @@ internal class MainForm : Form, IFrameSteps
         + "The demo will still play. Install TF2 through Steam, or put maps in the viewer's own "
         + "maps folder.";
 
-    /// <summary>The scene's surface, disposed by <c>base.Dispose</c> and not by us (B402).</summary>
+    /// <summary>The scene's surface. Disposed by <c>base.Dispose</c>, not by us (B402).</summary>
     /// <remarks>
-    /// **Suppressed because the field IS disposed, by a base the analyzer cannot follow.** It sits
-    /// in `Controls`, which `Form.Dispose` walks. Disposing it EARLY, from our own override, killed
-    /// the process on six CI runs — `shutdown: releasing viewport` was the last line each time —
-    /// and this is the one control whose window the Direct3D swap chain was bound to.
+    /// **Every child control here carries this suppression, and the reason is measured.** Each sits
+    /// in `Controls`, which `Form.Dispose` walks, so CA2213 is satisfied by a base the analyzer
+    /// cannot follow. Disposing them EARLY from our own override killed the process on every CI
+    /// run — first at `shutdown: releasing viewport`, then, once the viewport was skipped, at
+    /// `releasing transport` and `releasing actions` on two different runners. Two different
+    /// members is what proves it is the early disposal rather than any one control.
     /// </remarks>
-    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+    [SuppressMessage(
         "Usage",
         "CA2213:Disposable fields should be disposed",
         Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
     private readonly Panel _viewport;
+
+    /// <inheritdoc cref="_viewport" />
+    [SuppressMessage(
+        "Usage",
+        "CA2213:Disposable fields should be disposed",
+        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
     private readonly ToolStripStatusLabel _status;
+
+    /// <inheritdoc cref="_viewport" />
+    [SuppressMessage(
+        "Usage",
+        "CA2213:Disposable fields should be disposed",
+        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
+    [SuppressMessage(
+        "Major Code Smell",
+        "S1450:Private fields only used as local variables in methods should become local variables",
+        Justification = "Held for the lifetime of the form; only its disposal moved to the base (B402).")]
     private readonly FlowLayoutPanel _actions;
+
+    /// <inheritdoc cref="_viewport" />
+    [SuppressMessage(
+        "Usage",
+        "CA2213:Disposable fields should be disposed",
+        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
     private readonly TransportBar _transport;
+
+    /// <inheritdoc cref="_viewport" />
+    [SuppressMessage(
+        "Usage",
+        "CA2213:Disposable fields should be disposed",
+        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
     private readonly ListView _playlist;
+
+    /// <inheritdoc cref="_viewport" />
+    [SuppressMessage(
+        "Usage",
+        "CA2213:Disposable fields should be disposed",
+        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
     private readonly TextBox _search;
 
     /// <summary>The library sorted for display: folder first, then name.</summary>
@@ -5469,30 +5506,22 @@ internal class MainForm : Form, IFrameSteps
             {
                 _overlay?.Dispose();
 
-                // **`_viewport` is deliberately NOT disposed here, and it is the only one** —
-                // B402, and the narrowness is the experiment. Every control in this list is in
-                // `Controls`, which `base.Dispose` walks at the end of this method, so all of
-                // these calls are redundant; they exist to satisfy CA2213. Six CI runs died on
-                // the FIRST of them, `shutdown: releasing viewport`, and the viewport is the one
-                // control whose window the Direct3D swap chain was bound to.
+                // **No child control is disposed here, and that is the B402 fix.** Every one of
+                // them is in `Controls`, which `base.Dispose` walks at the end of this method, so
+                // these calls were redundant from the start — they existed to satisfy CA2213, and
+                // the comment that used to sit here said as much while making them anyway.
                 //
-                // Dropping only that one keeps the change to a single variable: if the next run
-                // dies on `releasing status` instead, the fault is early control disposal as a
-                // class and the rest follow; if it passes, it was the swap chain's window.
-                // Dropping all six at once would have answered neither question.
+                // **It was measured rather than reasoned, in two steps.** Six CI runs died on the
+                // first disposal, `shutdown: releasing viewport`. Skipping only the viewport —
+                // one variable, so the answer could not be ambiguous — moved the crash FORWARD,
+                // to `releasing transport` on one runner and `releasing actions` on another. Two
+                // different members means no single control is at fault: disposing them early,
+                // from our own override while the form is still alive, is what breaks. Had all
+                // six been dropped at once the result would have looked identical to the viewport
+                // being guilty.
                 //
-                // **The analyzer is answered rather than obeyed.** CA2213 asks whether the field
-                // is disposed, and it is — by the base, which the analyzer cannot follow.
-                Releasing("status");
-                _status.Dispose();
-                Releasing("actions");
-                _actions.Dispose();
-                Releasing("transport");
-                _transport.Dispose();
-                Releasing("playlist");
-                _playlist.Dispose();
-                Releasing("search");
-                _search.Dispose();
+                // The analyzer is answered per field rather than obeyed: CA2213 asks whether each
+                // is disposed, and each is, by a base it cannot follow.
                 Releasing("maps");
                 _maps.Dispose();
                 Releasing("shutdown");
