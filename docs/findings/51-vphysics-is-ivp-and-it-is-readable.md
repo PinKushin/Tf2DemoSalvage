@@ -2177,8 +2177,26 @@ synapses' feature kinds 0–3:
 | minimize, `DAT_18012d4b0` | `FUN_180094700` | `FUN_180094e10` | row 3 → `FUN_180094ad0`, `(3,3)` → `FUN_180094860`; the rest among `94c70`, `94c50`, `94c30`, `94c10`, `94f70` |
 | time of impact, `DAT_18012d910` | `FUN_1800a3aa0` | `FUN_1800a4200` | `(0,0) (0,1) (0,2) (1,1)` → `FUN_1800a3fe0`; `(3,0) (3,1) (3,2)` → `FUN_1800a3d30`; `(3,3)` → `FUN_1800a3b60` |
 
-**Only eight of sixteen kind pairs ever raise an impact event**; every other combination takes the
-default. **The margin and threshold block at `18012d540` is set twice**: at startup by
+**Only eight of sixteen kind pairs are LEGAL at event time, and the default is not "no event" — it
+is a fault.** `FUN_1800a4200` is `Error("IVP Failed at %s %d", "...ivp_mindist_event.cxx", 0x4ea)`
+followed by a breakpoint trap. An earlier draft of this paragraph said the other combinations "raise
+no impact event"; they cannot occur, and reaching one stops the process.
+
+`FUN_1800a3fe0`, the entry for the polyhedral kinds, resolves each synapse's ledge and routes again:
+
+| kinds | routine |
+|---|---|
+| (0,0) | `FUN_1800a2b30` |
+| (0,1) | `FUN_1800a1ff0` |
+| (0,2) | `FUN_1800a1b50` |
+| (1,1) | `FUN_1800a1420` |
+| anything else | the same assertion, at lines `0x4cf`, `0x4da`, `0x4df` |
+
+These are the four routines this document named earlier as the narrow phase. **The legal set has no
+(1,2) and no (2,2)** — which is exactly the minimal closest-feature pair set of the V-Clip method
+*if* kinds 0, 1 and 2 are vertex, edge and face. The absent pairs are what V-Clip reduces to the
+others. That reading gains real support from the table's shape; nothing in the binary names the
+kinds, so it remains INFERRED. **The margin and threshold block at `18012d540` is set twice**: at startup by
 `FUN_180098fd0(block, DAT_1800eb150, DAT_1800ec290)`, and again at runtime through
 `FUN_1800824c0(a, b)`, so its values depend on a caller. `DAT_18012d670` = `DAT_1800ea9b8` and
 `DAT_18012d66c` = 1000 are set beside it.
