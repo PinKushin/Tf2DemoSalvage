@@ -3729,6 +3729,73 @@ does rather than re-deriving one each step — only then are the compensators re
 *Evidence class: read from published SDK source for the callback and the params; measured for the
 6.1484184f → 11.153114f attempt.*
 
+### Terrain's outer hull is lump 28, handed to vphysics as `pHull` (B369)
+
+**The slab this project uses for terrain thickness was filed as standing in for `buildOuterHull`.
+That was half right: the engine does close the mesh, but it does not build the hull at runtime at
+all when the map carries one — it reads it out of the BSP.** Read from the shipped
+`bin/x64/engine.dll`, Ghidra project `tf2enginex64` under `D:\ghidra-proj`, and from published SDK
+source where it exists.
+
+**vbsp writes it** (`utils/vbsp/disp_ivp.cpp:314-350`): each displacement becomes a virtual mesh with
+`params.buildOuterHull = true`, serialised by `CollideWrite` into `LUMP_PHYSDISP`, lump 28 —
+`bspfile.h:459`, *"the binary blob for each displacement surface's virtual hull"* — as a `ushort`
+count, one `short` size per displacement (`-1` for none), then the blobs back to back.
+
+**The game asks for it** (`game/shared/physics_shared.cpp`): a `virtualterrain` block in the world's
+physics keys sets `bCreateVirtualTerrain` (`:682-685`), and `PhysCreateVirtualTerrain` makes one static
+object per displacement, named `vdisp_%04d`, out of `modelinfo->GetCollideForVirtualTerrain(i)`
+(`:563-586`), declared *"Gets a virtual terrain collision model (creates if necessary)"*
+(`public/engine/ivmodelinfo.h:164-166`).
+
+**The engine loads it, in `FUN_18016f6d0`**, called from `CMod_LoadDispInfo` (`FUN_18016d520`) as
+`FUN_18016f6d0(lumpData, lumpLength)` for lump `0x1c`:
+
+```c
+if (*lump != displacementCount)
+    Error("LevelInit: Bad map data - displacement data does not match displacement collision data");
+// size table -> offset table: 0xffff becomes -1, otherwise a running sum
+blobs = alloc(total); memcpy(blobs, lump + 1 + count, total);
+for each displacement i (stride 0x158, one CDispCollTree):
+    if (!(tree[i].flags@+0x34 & 2))
+        mesh[i] = physcollision->vtable[+0x170]({ &handler, i, lumpLength < 1 });
+```
+
+**`+0x170` is `CreateVirtualMesh`, and two readings agree.** Slot arithmetic over
+`vphysics_interface.h` puts it at slot 46, which is `0x170`; and the argument is a three-field struct
+laid out exactly as `virtualmeshparams_t { pMeshEventHandler, userData, buildOuterHull }`. So
+**`buildOuterHull` is true only when the lump is empty** — a map that carries lump 28 never has its
+hull built at runtime.
+
+**The handler supplies the blob as the hull.** Its vtable is at `1803a2a50`, three slots in
+`IVirtualMeshEvent`'s declaration order:
+
+| slot | function | what it does |
+|---|---|---|
+| `GetVirtualMesh` | `FUN_18016f190` | fills the list from `CDispCollTree::GetVirtualMeshList` — which sets `pHull = NULL` (`dispcoll_common.cpp:1480`) — then **`pHull = blob + offset[i]`** when the map had the lump and this displacement's offset is not −1 |
+| `GetWorldspaceBounds` | `18016f200` | copies a 24-byte mins/maxs record for displacement `i` |
+| `GetTrianglesInSphere` | `FUN_18016f250` | the tree's sphere query with a cap of `0xc00`, which is `MAX_VIRTUAL_TRIANGLES * 3` = 3,072 (`virtualmesh.h:14`) |
+
+`pHull` at `+0x18` is `virtualmeshlist_t`'s field order by arithmetic: a pointer, four ints, then the
+hull pointer. **The unload, `FUN_18016f940`, frees the blobs and calls `physcollision` slot 16,
+`DestroyCollide`, on every mesh.**
+
+**So the chain is closed from compiler to collision:** vbsp builds and writes a hull per displacement;
+the engine loads it, rebuilds the triangle mesh from the displacement tree, and hands vphysics the
+stored hull beside the triangles. **This project reads the triangles and not the hull**, and a
+512-unit slab stands where the hull goes — which is where `corpse-drop` finds limbs resting eighty
+units under the ground.
+
+**The blobs are measured, not yet decoded** (`phys-disp` probe): 533 of 533 on `koth_harvest_final`
+and 135 of 135 on `cp_granary`, counts equal to the dispinfo count and declared sizes summing exactly
+to the bytes after the table, each 37–611 bytes. That is far too small to be a triangle mesh; the
+format is vphysics' own and is read from `CreateVirtualMesh`, the consumer of `pHull`.
+
+*Evidence class: read from the decompiled `engine.dll` for `FUN_18016f6d0`, its caller's arguments,
+the handler's three slots and the unload; read from published SDK source for vbsp, the game and the
+interface declarations; arithmetic for slot 46 and for `pHull`'s offset, each agreeing with an
+independent reading; measured for the lump counts and sizes. **The blob format is NOT established.***
+
 ### And the faces are already parsed — they are discarded one line before the physics (B306)
 
 **`PhysicsLedge` carries `Points` AND `Triangles`** — the real faces out of the `IVPS` compact-ledge

@@ -1136,10 +1136,46 @@ public sealed class CorpseDropProbe : IProbe
 
                 IvpRigidBody at0 = simulation.Environment.Bodies[0];
 
+                // **Which path raised the deepest contact, read off the contact itself** (B369).
+                // `Point` is −1 for anything the hull-vs-triangle pass or the ledge manifold made,
+                // and a hull vertex index for the per-point fallback; `Feature` names the kind.
+                string source = "none";
+
+                if (simulation.Environment.DeepestContactItself is { } deep)
+                {
+                    string kind = deep.Feature switch
+                    {
+                        >= 0 => $"ledge {IvpWorldCollision.LedgeOf(deep.Feature)}",
+                        -1 => "speculative",
+                        _ => "terrain",
+                    };
+
+                    string path = deep.Point >= 0 ? $" per-point v{deep.Point}" : " pass";
+
+                    source =
+                        $"{kind}{path} n({deep.Normal.X:0.##},{deep.Normal.Y:0.##},{deep.Normal.Z:0.##})";
+
+                    // **The triangle itself, and where the contact point is relative to it** (B369).
+                    // A terrain contact tens of units deep under a body at rest is either a real
+                    // penetration or a triangle that is not beneath the body at all; the vertices'
+                    // heights against the contact point's height tell those apart.
+                    if (deep.Feature <= -2 && simulation.Environment.World is { } world)
+                    {
+                        IvpWorldTriangle triangle = world.Triangle(-2 - deep.Feature);
+
+                        double pointZ = deep.Body.Position.Z + deep.Arm.Z;
+
+                        source +=
+                            $" point z {pointZ:0.#} body z {deep.Body.Position.Z:0.#}" +
+                            $" tri z {triangle.A.Z:0.#}/{triangle.B.Z:0.#}/{triangle.C.Z:0.#}" +
+                            $" xy ({triangle.A.X:0},{triangle.A.Y:0})";
+                    }
+                }
+
                 output.WriteLine(
                     $"    tick {tick,3} z {at0.Position.Z,9:0.#} speed {speed,7:0.#} " +
                     $"contacts {simulation.Environment.Contacts,3} " +
-                    $"deepest {simulation.Environment.DeepestContact,7:0.##} " +
+                    $"deepest {simulation.Environment.DeepestContact,7:0.##} [{source}] " +
                     $"oppose {oppose,11:0.#} separate {separate,11:0.#} rub {rub,11:0.#} " +
                     $"friction wanted {simulation.Environment.Rubbing.Wanted,9:0.#} " +
                     $"allowed {simulation.Environment.Rubbing.Allowed,9:0.#} " +

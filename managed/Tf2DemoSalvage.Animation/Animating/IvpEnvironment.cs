@@ -228,6 +228,32 @@ public sealed class IvpEnvironment
         }
     }
 
+    /// <summary>The contact that <see cref="DeepestContact"/> measured, or null when there is none.</summary>
+    /// <remarks>
+    /// **The CONTACT, not a second computation of which one it was** (B243, B369). A depth alone
+    /// cannot say which path raised it — the hull-vs-triangle pass, the per-ledge manifold, or the
+    /// per-point fallback a ledge falls to when GJK reports overlap — and those are the three
+    /// candidates for a thirty-unit contact. The first contact of greatest depth, so it is the same
+    /// object whichever way the list is walked.
+    /// </remarks>
+    public IvpContact? DeepestContactItself
+    {
+        get
+        {
+            IvpContact? deepest = null;
+
+            foreach (IvpContact contact in _contacts)
+            {
+                if (deepest is null || contact.Depth > deepest.Depth)
+                {
+                    deepest = contact;
+                }
+            }
+
+            return deepest;
+        }
+    }
+
     /// <summary>Adds a body, starting its clock at the current time.</summary>
     /// <param name="body">The body.</param>
     /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>

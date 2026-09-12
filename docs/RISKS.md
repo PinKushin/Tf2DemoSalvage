@@ -25884,6 +25884,89 @@ world, and whatever fails there fails with the joints present and worse without 
 *Evidence class: measured for the terrain half and for the single-body/jointed split;
 read-from-source for the engine's single constraint group.*
 
+### Narrowed again 2026-09-12: the deep contacts are TERRAIN, limbs are buried under corpses that sleep, and the lump the engine reads is unread
+
+**The instrument was asked which path raised the deepest contact, and it said terrain every time.**
+`IvpEnvironment.DeepestContactItself` carries the contact out of the step — not a second computation
+of which one it was — and `corpse-drop` now prints its feature kind, whether a pass or the per-point
+fallback made it, and the triangle's vertex heights. On all five seeds, on nearly every sampled tick,
+the deepest contact is `AgainstTerrain`'s hull-vs-triangle pass.
+
+**Two hypotheses were measured and are dead, and both were reasonable:**
+
+- *A limb inside a big convex ledge makes GJK give up, and the per-point fallback pushes it out the
+  wrong face.* Refuted: the deep contacts are not ledge contacts at all.
+- *`TrianglesInSphere` returns triangles by grid cell, so a surface OVERHEAD is clipped as an infinite
+  prism and reports a deep upward push.* Refuted: the triangles are at z ≈ 0, directly under the body.
+
+**What the triangle heights show instead is worse than either:**
+
+| seed | root, as "settled" reported | deepest limb | its contact point | the triangle |
+|---|---|---|---|---|
+| (361.7, −1614.3) | z 18.3, **asleep** | body z −73.3 | z −82.6 | z 0.1 / 1.3 / 0 |
+| (256.9, −1416.1) | z 12, **asleep** | body z −19.7 | z −27.1 | z 0 / 0 / 0 |
+| (−953.8, −1556.3) | z 6.4, AWAKE | body z −13.3 | z −30.5 | z 0 / 0 / 0 |
+
+**"3 of 5 settle" was measuring the root bone only.** Corpses that sleep carry limbs eighty units under
+the ground they rest on, held there by the joints and pushed at by a contact the solve cannot win.
+Settling is not correctness, and the figure should not be quoted as progress again.
+
+**The engine's terrain is not ours, and the difference is structural.** Read from published source:
+
+- vbsp builds each displacement's collision as a virtual mesh with `params.buildOuterHull = true` and
+  writes it with `CollideWrite` into `LUMP_PHYSDISP` (`utils/vbsp/disp_ivp.cpp:314-350`);
+  `bspfile.h:459` names it *"the binary blob for each displacement surface's virtual hull"*.
+- At level load the game walks the world's key blocks, and a `virtualterrain` block sets
+  `bCreateVirtualTerrain` (`game/shared/physics_shared.cpp:682-685`); `PhysCreateVirtualTerrain` then
+  asks the engine for one `CPhysCollide` per displacement — `modelinfo->GetCollideForVirtualTerrain(i)`,
+  *"creates if necessary"* (`public/engine/ivmodelinfo.h:164-166`) — and makes each a static object
+  named `vdisp_%04d` (`physics_shared.cpp:563-586`).
+- The runtime triangle callback, `CDispCollTree::GetVirtualMeshList`, passes `pHull = NULL`
+  (`public/dispcoll_common.cpp:1480`) — so whatever closes the mesh at runtime does not come through
+  that callback.
+- Both engine-side `GetTrianglesInSphere` implementations are supersets: the runtime tree tests node
+  boxes and returns whole leaves (`dispcoll_common.cpp:723-765`), and vbsp's ignores the sphere and
+  returns every triangle (`disp_ivp.cpp:258-266`). **So a coarse query is Valve's shape, not the fault;**
+  IVP is built to be handed far triangles and reject them itself.
+
+**Ours rebuilds terrain from the RENDER displacement lumps and stands in for the outer hull with a
+slab** — `TerrainDepth` and `TerrainReach`, both 512 units, the second introduced in `83231c88` with no
+stated reason. The terrain half of `Sweep` is also one-sided: a point that starts even slightly behind a
+triangle's plane is never swept against it again.
+
+**`LUMP_PHYSDISP` has now been read, with two controls, on two maps** (`phys-disp` probe):
+
+| | `koth_harvest_final` | `cp_granary` |
+|---|---|---|
+| `numDisplacements` against the dispinfo count | 533 = 533 | 135 = 135 |
+| declared blob sizes against the bytes after the table | 108,915, exact | 35,025, exact |
+| displacements carrying a blob | 533 of 533 | 135 of 135 |
+| blob sizes | 37–499 bytes | 37–611 bytes |
+
+**The sizes rule out the obvious reading.** A power-3 displacement is 128 triangles; no vertex-and-index
+mesh with a hull fits in a hundred bytes. Every blob opens `01 00 00 00` followed by small byte values —
+blob 2 on harvest is `06 06 09 09` and then indices no larger than 8. *That each blob is a compact hull
+topology indexing the displacement's own vertices is INTERPOLATED from the byte shape and nothing else.*
+The format is to be read from vphysics' `UnserializeCollide` (slot 19 of `IPhysicsCollision` by
+declaration order, before any overload — arithmetic, to be confirmed in the binary) and from the
+engine's `GetCollideForVirtualTerrain`, not decoded by pattern.
+
+**The runtime route is now read from the shipped x64 `engine.dll`, end to end** — full account in
+`docs/findings/51`, *Terrain's outer hull is lump 28, handed to vphysics as `pHull`*. In one line:
+the engine loads lump 28 at level init, checks its count against the displacements, keeps the blobs,
+calls `CreateVirtualMesh` per displacement with `buildOuterHull = (lump length < 1)`, and its
+`GetVirtualMesh` callback sets **`pHull = blob + offset[i]`**. The engine builds a hull itself only for
+a map that has no lump 28. **So the outer hull TF2 collides against is the blob, and ours is a slab.**
+
+**What is NOT established:** the blob format, which is vphysics' — read from `CreateVirtualMesh`,
+the consumer of `pHull`, not from the byte shape; what the outer hull is geometrically; and whether
+colliding against it removes the buried limbs. The last is the only one that closes this entry, and
+it is measured by `corpse-drop` reporting limb depths, not root heights.
+
+*Evidence class: measured, for every table here, through instruments carrying the value the code used;
+read-from-source for the vbsp, game and dispcoll citations; INTERPOLATED, and flagged, for the reading
+of the blob bytes.*
+
 ### Narrowed 2026-09-12 by B400: a corpse on BRUSH geometry now sleeps, and only the terrain half still does not
 
 **Everything above was measured while every collision hull in the project was rotated 180° about X**
@@ -26692,9 +26775,14 @@ release by mistake.
 opt-in: *"the fps was shit, do not run the tests as warp locally please"*. CI runs on WARP by having
 no adapter, so the case is covered where it actually occurs.
 
+**Confirmed on CI, the only instrument that ever saw it.** Test run `34714557935` on `34496ce5`:
+Viewer UI **21 passed, 0 failed**, 11 skipped, 32 total, where every failing run had read 20 passed and
+1 failed — so the capture test is the one that flipped. Zero annotations on both jobs.
+
 *Evidence class: measured — four controlled runs on this machine, one variable between each, plus
-the six CI runs and their uploaded logs. The mechanism (FreeLibrary against live driver threads) is
-read-from-source on Silk.NET's disposal plus arithmetic on the exit code.*
+the six CI runs and their uploaded logs, plus the confirming CI run. The mechanism (FreeLibrary
+against live driver threads) is read-from-source on Silk.NET's disposal plus arithmetic on the exit
+code.*
 
 #### Attempt four, wrong: our `Dispose` override disposed the form's own child controls
 

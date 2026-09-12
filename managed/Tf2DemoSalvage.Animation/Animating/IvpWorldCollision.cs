@@ -246,6 +246,15 @@ public sealed class IvpWorldCollision
     /// </remarks>
     public int TriangleCount => _triangles.Count;
 
+    /// <summary>One terrain triangle, by the index a terrain feature id names.</summary>
+    /// <param name="index">The triangle's index — <c>-2 - feature</c> for a terrain contact.</param>
+    /// <returns>The triangle, exactly as the contact pass read it.</returns>
+    /// <remarks>
+    /// **So an instrument can print the triangle a contact was raised against rather than guess
+    /// at it** (B369). The same stored record the pass used, not a lookup by position.
+    /// </remarks>
+    public IvpWorldTriangle Triangle(int index) => _triangles[index];
+
     /// <summary><c>CONTENTS_SOLID</c>, what ordinary brushwork and every prop is made of.</summary>
     /// <remarks><c>public/bspflags.h:22</c>. The default for anything that does not say.</remarks>
     public const int ContentsSolid = 0x1;
