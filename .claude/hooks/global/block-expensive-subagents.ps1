@@ -36,7 +36,7 @@ try {
 
 if ([string]::IsNullOrWhiteSpace($tool)) { exit 0 }
 
-# The models a subagent may use. Anything else - sonnet, opus, an inherited default, a typo - is
+# The models a subagent may use. Anything else - haiku, opus, an inherited default, a typo - is
 # refused.
 #
 # HAIKU ONLY, 2026-09-07, and the reason is consumption rather than versioning.
@@ -70,7 +70,16 @@ if ([string]::IsNullOrWhiteSpace($tool)) { exit 0 }
 # better model when the rework is unpaid for. Review is what pays for it - so D145's requirement is
 # not a leftover here, it is the thing holding this rule up, and a session that stops reviewing
 # subagent output has removed the reason haiku was acceptable.
-$allowed = @('haiku')
+#
+# SONNET ONLY, 2026-09-12 - REVERSED again, and this time on an observed outcome rather than a chart.
+# A haiku agent sent to find where IVP writes an object's offset inside its core came back with its
+# central evidence taken from the wrong struct (vphysics' wrapper object, a qword where IVP stores a
+# float vector) and established nothing on the question; review caught it and the main loop read the
+# answer itself. The owner, on hearing it: "change the rule/hook from haiku to sonnet, haiku really
+# does just suck doesnt it lol". That is the 2026-09-06 measure - tokens per GOOD outcome - winning on
+# evidence: an answer that has to be redone costs its tokens twice. Review is still required (D145);
+# the model change does not remove it. Recorded as Tf2DemoSalvage D168.
+$allowed = @('sonnet')
 
 function Deny([string]$reason) {
     @{ hookSpecificOutput = @{
@@ -87,12 +96,12 @@ if ($tool -eq 'Agent') {
     # this is here to catch, so it is denied rather than allowed.
     if ([string]::IsNullOrWhiteSpace($model)) {
         Deny(("Blocked: the Agent call names no model, so it would inherit this session's - " +
-              "which is the expensive one. Subagents run on haiku here. Pass model: 'haiku'."))
+              "which is the expensive one. Subagents run on sonnet here. Pass model: 'sonnet'."))
     }
 
     if ($allowed -notcontains $model.ToLowerInvariant()) {
-        Deny(("Blocked: subagent model '$model' is not allowed - subagents run on haiku. 'sonnet' " +
-              "is refused too, on consumption rather than capability: haiku uses less than any " +
+        Deny(("Blocked: subagent model '$model' is not allowed - subagents run on sonnet. 'haiku' " +
+              "is refused too, since 2026-09-12: its answers had to be redone, which costs more than " +
               "sonnet. If a task genuinely needs a bigger model, say so and the owner will run it."))
     }
 
@@ -113,7 +122,7 @@ $calls = [regex]::Matches($script, 'agent\s*\(')
 
 if ($calls.Count -eq 0) { exit 0 }
 
-# Count agent( calls carrying a literal model: 'haiku' within the following window. The window is
+# Count agent( calls carrying a literal model: 'sonnet' within the following window. The window is
 # generous because a call is often several lines of prompt before its opts.
 $named = 0
 foreach ($call in $calls) {
@@ -121,13 +130,13 @@ foreach ($call in $calls) {
     $length = [Math]::Min(4000, $script.Length - $start)
     $window = $script.Substring($start, $length)
 
-    if ($window -match "model\s*:\s*['`"]haiku['`"]") { $named++ }
+    if ($window -match "model\s*:\s*['`"]sonnet['`"]") { $named++ }
 }
 
 if ($named -lt $calls.Count) {
     $missing = $calls.Count - $named
     Deny(("Blocked: $missing of $($calls.Count) agent() calls in this workflow do not say " +
-          "{ model: 'haiku' }. A workflow agent INHERITS the main-loop model unless opts.model is " +
+          "{ model: 'sonnet' }. A workflow agent INHERITS the main-loop model unless opts.model is " +
           "set, so this would fan out on the expensive one - which is how five Opus agents got " +
           "spawned on 2026-09-07. The check wants a literal, so a computed model will not pass; if " +
           "you need one, say so and the owner will run it."))

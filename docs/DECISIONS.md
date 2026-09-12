@@ -8647,3 +8647,29 @@ case is covered exactly where it occurs, and the local suite keeps the hardware 
 be testing.
 
 Related: B402 in `docs/RISKS.md`, D89.
+
+## D168 — subagents run on sonnet, and haiku is refused (2026-09-12)
+
+**Reverses the haiku-only rule of 2026-09-07**, recorded in `docs/memory/one-subagent-and-prefer-cheap-models.md`
+and in the global hook's header. That rule rested on haiku costing less per call than any sonnet, with
+review paying for the bugs it would bring.
+
+**What changed his mind was an outcome, not a chart.** A haiku subagent sent to find where IVP writes an
+object's offset inside its core (B403) came back with its central evidence taken from the wrong struct —
+vphysics' wrapper object, a qword where IVP stores a float vector — and nothing established on the
+question. Review caught it, and the main loop read the answer from the disassembly itself. The owner had
+first assumed the opposite:
+
+> *"so the subagent found your assumption wrong? yes thats why they always get checked"*
+
+It had not: the check caught the subagent, and the false premise was caught by reading the binary. Told
+that, he decided:
+
+> *"change the rule/hook from haiku to sonnet, haiku really does just suck doesnt it lol"*
+
+**So `~/.claude/hooks/block-expensive-subagents.ps1` allows `sonnet` alone**, for an `Agent` call and for
+every `agent()` in a Workflow script, and its backup in `.claude/hooks/global/` is kept byte-identical.
+**Review stays mandatory (D145).** The model is a cost decision; it does not make a subagent's report
+evidence.
+
+Related: D145, B403.
