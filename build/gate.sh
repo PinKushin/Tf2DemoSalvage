@@ -1145,7 +1145,12 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # only the checksum-matching version.
 # 448 -> 450 on 2026-09-11: the paused wiring pair (B399) - MomentPresenter carries the window's
 # play state into the sampler, and the playing control stops a hardcoded answer passing.
-run Tf2DemoSalvage.Presentation.Tests presentation 450
+#
+# 450 -> 454 on 2026-09-12: four cases on `OpeningSequence` for B401 — the capture must wait for the
+# opening state rather than share its clock, must give up rather than wait for ever when no demo
+# arrives, and must not give up when nobody asked for a capture. One of the four replaced an
+# assertion that had the defect written down as an expectation.
+run Tf2DemoSalvage.Presentation.Tests presentation 454
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

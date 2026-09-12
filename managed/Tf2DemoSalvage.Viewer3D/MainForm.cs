@@ -226,6 +226,21 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private readonly MapProvider _maps = MapProvider.Installed();
 
+    /// <summary>Cancelled when the window shuts down, so background work stops (B402).</summary>
+    /// <remarks>
+    /// **A fetch outlived the window and killed the process on exit.** `DownloadMapAsync` is
+    /// fire-and-forget by design — a 40 MB download must not freeze the window — and it resumed on
+    /// the UI thread to set `_status.Text` and build Direct3D geometry. A `--shot` run closes about
+    /// a second in, long before a download finishes, so the continuation ran against a disposed
+    /// form and a released device: exit code `0xC000041D`, a fatal callback exception, with an
+    /// empty standard error because the crash is inside the message loop.
+    ///
+    /// **CI had been red on it for four runs** and the capture test reported it exactly right —
+    /// "the viewer did not exit cleanly" with a written PNG and a clean shutdown line in the log
+    /// above it. Nobody read the annotations.
+    /// </remarks>
+    private readonly CancellationTokenSource _shutdown = new();
+
     /// <summary>What the installed game provides, opened once and reused for every map.</summary>
     /// <remarks>
     /// **`_archives`, `_classModels` and `_entityClasses` were three fields opened inside the first
@@ -860,7 +875,8 @@ internal class MainForm : Form, IFrameSteps
         // up. `TakeAutomaticShot` then read a permanently-null field and returned every frame.
         //
         // Nothing failed. No test passes `--shot`, so the whole option was covered by nobody.
-        _opening = new OpeningSequence(_launch.ShotPath, OpeningFrames, SettleFrames);
+        _opening = new OpeningSequence(
+            _launch.ShotPath, OpeningFrames, SettleFrames, PatienceFrames);
 
         initialPaths = [.. _launch.Paths];
 
@@ -1151,9 +1167,24 @@ internal class MainForm : Form, IFrameSteps
             //
             // A folder is deliberately excluded. Opening a folder means "here is a playlist", and
             // picking one of its demos to start playing would be guessing which.
+            // **Say which branch was taken** (B401). A `--shot` run that quietly did not open its
+            // demo looked identical to one whose renderer drew nothing, and the log distinguished
+            // them nowhere: no `[demo]` line at all is the same absence for "we chose not to open
+            // it" and "opening it failed".
             if (initialPaths.Length == 1 && File.Exists(initialPaths[0]))
             {
                 LoadDemo(initialPaths[0]);
+            }
+            else if (initialPaths.Length == 1)
+            {
+                _demoLog.LogWarning(
+                    "{Message}", $"{initialPaths[0]} is not a file that exists; nothing was opened");
+            }
+            else
+            {
+                _demoLog.LogInformation(
+                    "{Message}",
+                    $"{initialPaths.Length} paths listed in the playlist; none opened on its own");
             }
         }
     }
@@ -1448,9 +1479,27 @@ internal class MainForm : Form, IFrameSteps
         // The `ArgumentException` that used to be caught here — a demo header naming something that
         // is not a map name — is handled inside the provider now and arrives as a status line, since
         // whether a name is fetchable is the downloader's question rather than the window's.
-        MapFetch fetch = await _maps
-            .FetchAsync(mapName, CancellationToken.None)
-            .ConfigureAwait(true);
+        MapFetch fetch;
+
+        try
+        {
+            fetch = await _maps
+                .FetchAsync(mapName, _shutdown.Token)
+                .ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            // The window is going. Nothing to report and nowhere to report it.
+            return;
+        }
+
+        // **Everything below touches a form and a Direct3D device, so it must not run after
+        // either is gone** (B402). The await returns to the UI thread even when that thread is
+        // shutting down, and `IsDisposed` is the only thing that says so.
+        if (_shutdown.IsCancellationRequested || IsDisposed || Disposing)
+        {
+            return;
+        }
 
         if (fetch.Path is null)
         {
@@ -1722,6 +1771,21 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private const int SettleFrames = 5;
 
+    /// <summary>Frames a capture run waits for a demo before giving up and writing nothing.</summary>
+    /// <remarks>
+    /// **A backstop, not a timing parameter** (B401). Ordering the capture after the opening state
+    /// means waiting on a condition, and a condition that never becomes true has to end somewhere —
+    /// a `--shot` whose demo argument never reached the window drew an empty viewport at 299 fps
+    /// until an outer timeout killed it.
+    ///
+    /// **Frames are the wrong unit for it and it is still worth having.** What is being waited on is
+    /// a disk read, not rendering work, so this is roughly 100 seconds at the ~300 fps an empty
+    /// viewport draws at and several minutes at 60 — deliberately far past any real load. A wall
+    /// clock would be the honest unit and would mean giving this class a clock; the number is large
+    /// enough that the difference cannot decide a real run.
+    /// </remarks>
+    private const int PatienceFrames = 30_000;
+
     // `_shotDelay` was here until 2026-08-26. It is `OpeningSequence`'s countdown (B188, D90).
 
     // `ReadCaptureOptions` is `LaunchOptionsReader.Read` in Presentation (B188, D90), and it returns
@@ -1731,9 +1795,14 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Takes the automatic capture once the world has settled, then closes.</summary>
     /// <remarks>
-    /// **Counted in frames, not seconds.** The map, its textures and the entity models all load
-    /// before the first frame is drawn, so a frame count after that is a count of settled frames -
-    /// where a wall-clock wait would be a guess that fails on a slower machine or a bigger map.
+    /// **The claim that used to be here was false, and it cost B401**: *"the map, its textures and
+    /// the entity models all load before the first frame is drawn, so a frame count after that is a
+    /// count of settled frames"*. They do not. Frames are drawn from the moment the window opens,
+    /// at ~300 fps with nothing in them, while the demo and its map take about twenty seconds — so
+    /// the whole 45-frame budget was spent before there was anything to photograph.
+    ///
+    /// **The count now runs from the seek, not from the window**, and the capture waits on the
+    /// opening state having been applied rather than sharing its clock. See `OpeningSequence`.
     /// </remarks>
     private void TakeAutomaticShot()
     {
@@ -1757,6 +1826,17 @@ internal class MainForm : Form, IFrameSteps
 
             case OpeningStep.Capture when _opening.TakeShotPath() is { } path:
                 CaptureViewport(path);
+                BeginInvoke(Close);
+                break;
+
+            // **Nothing is written, on purpose** (B401). An empty PNG is what the three silent
+            // breaks of `--shot` all produced, and it reads as "the viewer drew nothing" rather
+            // than "the viewer was never given anything". A line and a non-capture say which.
+            case OpeningStep.GiveUp:
+                _log.LogWarning(
+                    "{Message}",
+                    $"no demo loaded after {PatienceFrames} frames, so --shot wrote nothing");
+                _opening.TakeShotPath();
                 BeginInvoke(Close);
                 break;
 
@@ -2478,8 +2558,13 @@ internal class MainForm : Form, IFrameSteps
         try
         {
             ILogger demoLog = _demoLog;
-            DecodedDemo decoded =
-                await Task.Run(() => DecodedDemo.Read(path, demoLog)).ConfigureAwait(false);
+            // **The shutdown token, on both worker hops** (B402). Neither read can be interrupted
+            // part-way — a decode and a map read are one operation each — but the token means a
+            // window that closes mid-load does not come back to a disposed form afterwards, which
+            // is the same crash the map fetch had.
+            DecodedDemo decoded = await Task
+                .Run(() => DecodedDemo.Read(path, demoLog), _shutdown.Token)
+                .ConfigureAwait(false);
 
             if (!_loads.IsCurrent(ticket))
             {
@@ -2530,7 +2615,7 @@ internal class MainForm : Form, IFrameSteps
                     DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog);
 
                     return drawn;
-                }).ConfigureAwait(false);
+                }, _shutdown.Token).ConfigureAwait(false);
             }
             finally
             {
@@ -5224,6 +5309,11 @@ internal class MainForm : Form, IFrameSteps
         if (disposing && ShutdownRuns == 0)
         {
             ShutdownRuns++;
+
+            // **First, before anything it might touch is released** (B402). A map fetch in flight
+            // resumes on this thread to set the status and build geometry; cancelling here is what
+            // makes its continuation return instead of writing into a disposed form.
+            _shutdown.Cancel();
             // **Timed, because a slow exit is a defect nobody can diagnose from the outside.**
             // Two hundred textures, a lightmap atlas and a swap chain go here, and which of them
             // is slow is not guessable - the log says.
@@ -5274,6 +5364,7 @@ internal class MainForm : Form, IFrameSteps
             _playlist.Dispose();
             _search.Dispose();
             _maps.Dispose();
+            _shutdown.Dispose();
             _overlay?.Dispose();
 
             // Thirteen menu items were named here one at a time until 2026-08-26. `ViewerMenu` owns

@@ -26598,6 +26598,89 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B402 FIXED 2026-09-12: a map download outlived the window and killed the process on exit, and CI had been red on it for four runs
+
+**CI caught this perfectly and nobody read it.** `Capture_AtATickOnACorpusDemo_ExitsCleanlyAndWritesThePng`
+has failed on every `Test` run since `ca948361` (2026-09-11 20:03), the merge that brought D162's
+content fetch. Its message was exactly right — *"the viewer did not exit cleanly"*, exit
+`-1073740771` — and its standard error was empty, because `0xC000041D` is
+`STATUS_FATAL_USER_CALLBACK_EXCEPTION`: a throw inside the message loop takes the process without
+touching stderr. The four red runs are B400's push and the three before it.
+
+**The CI run's own viewer log is what named it**, downloaded from the `viewer-logs` artifact:
+
+```
+11:16:40.015 WARN [map] No Team Fortress 2 installation found, so maps and models cannot be loaded.
+11:16:40.015      [map] cp_granary is not installed; fetching it
+...
+11:16:41.654      [render] captured the viewport to ...\capture.png
+11:16:41.655      [render] wrote capture.png, 458x343, 4 KB
+11:16:41.672      [render] shutdown: idle stopped after 0 ms, device released after 15 ms
+```
+
+The capture succeeded, the shutdown succeeded, and then the process died. **`DownloadMapAsync` is
+fire-and-forget** — deliberately, because a 40 MB download must not freeze the window — but it
+resumes on the UI thread to set `_status.Text` and to build Direct3D geometry through `ReadMap`. A
+`--shot` run closes about a second in, long before a download finishes, so the continuation ran
+against a disposed form and a released device.
+
+**On a machine with TF2 installed there is no fetch, so this never happens locally** — it is the
+`ci-is-the-machine-without-tf2` shape, and the only instrument that could see it was the one whose
+failure was being ignored.
+
+**Fixed with a shutdown token.** `MainForm` owns a `CancellationTokenSource`, cancelled first thing
+in `Dispose` before anything it might touch is released; `FetchAsync` takes it, the continuation
+returns on `OperationCanceledException`, and the code after the await checks `IsDisposed`/`Disposing`
+as well, because the await returns to the UI thread even while that thread is shutting down. The
+analyzer then required the same token on `LoadDemoAsync`'s two worker hops, and it was right: a
+decode and a map read have the identical lifetime hazard.
+
+**What is NOT established:** whether the fix holds is a CI question, not a local one — the local
+machine has TF2 and takes no fetch path. It is verified when that capture test goes green on a run
+with no game installed, and not before.
+
+*Evidence class: measured — the CI job's exit code and the viewer log it uploaded; the cause is
+read-from-source in this repository.*
+
+### B401 FIXED 2026-09-12: `--shot` photographed an empty viewport, because its countdown was a frame budget and loading a map is not
+
+**Found while trying to show the owner that B400 was fixed.** Every `--shot` run produced the same
+12 KB picture: a flat blue field with the HUD reading `296 fps ( 7, 300) 3.3 ms on **no map**`. It is
+the third time `--shot` has broken silently (B196 and B387 are the first two), and the third time
+nothing failed.
+
+**The countdown ran on FRAMES, from the window opening.** `OpeningSequence` waits `OpeningFrames`
+45 — and an empty viewport draws at ~300 fps, so 45 frames is a seventh of a second. Opening a demo
+and its map takes about twenty seconds. The shutter fired at 0.77 s, before there was anything to
+photograph, and the window closed.
+
+**`Restart()` on a loaded demo could not save it**, though it was written for exactly this shape of
+problem: by the time the demo arrived the capture had already been taken and the process was gone.
+The remark on it — *"a demo opened from the playlist arrives long after the frame the countdown fired
+on"* — describes the surviving half of the same fault.
+
+**And the test suite had it written down as an expectation.**
+`Advance_WithAShotAsked_CapturesWhenTheCountdownRunsOut` ran the countdown out with the opening state
+never applied and asserted `Capture`. So the defect was specified, not merely unnoticed — the same
+shape as B400's fixtures encoding the wrong transform.
+
+**Fixed by ordering the two halves on a CONDITION instead of sharing one clock.** Until the window
+confirms the opening state took — which it refuses to do while `_timeline is null` — the sequence
+asks for it, every frame past the settle point rather than on one frame, because a demo can finish
+loading on any frame and a single-frame offer is a race. Only then does the capture countdown run,
+and `MarkApplied` restarts it so the wait that exists for textures and models is measured from the
+seek that needs them.
+
+New tests: `Advance_WithAShotAskedAndNoDemoEverLoaded_NeverCaptures` (ten times the whole budget) and
+`Advance_AfterADemoArrivesLate_StillCaptures` (the other half — waiting for the demo must not become
+waiting for ever).
+
+**What is NOT established:** the post-seek wait is still a frame count, so it is still a clock, only
+one measured from the right moment. A capture taken before a texture finishes uploading would look
+like a material defect. Nothing yet synchronises on "the frame is complete".
+
+*Evidence class: measured — the viewer's own log and the 12 KB captures, before and after.*
+
 ### B400 FIXED 2026-09-12: one column in seven has a floor for the camera and none for a corpse, so corpses fall out of the world
 
 **The cause: `IvpWorldCollision.ToSource` was `IvpTransform.Position` applied a second time instead of
