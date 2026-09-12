@@ -5325,6 +5325,20 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     internal int ShutdownRuns { get; private set; }
 
+    /// <summary>Names the member about to be released, in the field and in the log (B402).</summary>
+    /// <param name="member">What is about to be disposed.</param>
+    /// <remarks>
+    /// **Before, not after.** A process that dies inside a disposal never reaches a line written
+    /// afterwards, and never reaches the `catch` either when the failure is not a managed
+    /// exception — which is what the run with only a marker and a handler demonstrated.
+    /// </remarks>
+    private void Releasing(string member)
+    {
+        _releasing = member;
+
+        _renderLog.LogInformation("{Message}", $"shutdown: releasing {member}");
+    }
+
     /// <inheritdoc />
     protected override void Dispose(bool disposing)
     {
@@ -5397,31 +5411,40 @@ internal class MainForm : Form, IFrameSteps
             // assignment but the last is a dead store to Sonar's flow analysis — S1854 on each —
             // because it does not credit the `catch` with reading it. The field is written on the
             // same path and read in the handler, and says nothing false in between.
-            _releasing = "viewport";
+            // **Each member is announced BEFORE it is released, and the marker alone was not
+            // enough** (B402). The run with only the marker and the `catch` logged neither a throw
+            // nor the completion line, which rules out a managed exception: the process is dying
+            // inside one of these calls without unwinding, so nothing downstream of it ever runs.
+            // A line before each disposal makes the LAST line in the log name the member that
+            // killed it, which no after-the-fact handler can do.
+            //
+            // **Ten lines on a shutdown that happens once per run**, and they come out the moment
+            // this is understood. Cheap against a defect that has now cost five CI runs.
+            Releasing("viewport");
 
             try
             {
                 _viewport.Dispose();
-                _releasing = "status";
+                Releasing("status");
                 _status.Dispose();
-                _releasing = "actions";
+                Releasing("actions");
                 _actions.Dispose();
-                _releasing = "transport";
+                Releasing("transport");
                 _transport.Dispose();
-                _releasing = "playlist";
+                Releasing("playlist");
                 _playlist.Dispose();
-                _releasing = "search";
+                Releasing("search");
                 _search.Dispose();
-                _releasing = "maps";
+                Releasing("maps");
                 _maps.Dispose();
-                _releasing = "shutdown";
+                Releasing("shutdown");
                 _shutdown.Dispose();
-                _releasing = "overlay";
+                Releasing("overlay");
                 _overlay?.Dispose();
 
                 // Thirteen menu items were named here one at a time until 2026-08-26. `ViewerMenu`
                 // owns them and disposes them beside the code that built them (B188, D90).
-                _releasing = "menu";
+                Releasing("menu");
                 _menu.Dispose();
 
                 _renderLog.LogInformation("{Message}", "shutdown: every member released");
