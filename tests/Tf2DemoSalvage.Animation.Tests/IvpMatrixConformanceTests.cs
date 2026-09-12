@@ -1,3 +1,4 @@
+using System;
 using Tf2DemoSalvage.Animation.Animating;
 
 namespace Tf2DemoSalvage.Animation.Tests;
@@ -15,8 +16,11 @@ namespace Tf2DemoSalvage.Animation.Tests;
 ///   m4 = w·2z + x·2y         m5 = 1 − (z·2z + x·2x)  m6 = y·2z − w·2x
 ///   m8 = x·2z − w·2y         m9 = w·2x + y·2z        m10 = 1 − (y·2y + x·2x)
 ///
-///   world[i] = p.z·m[i,2] + p.x·m[i,0] + p.y·m[i,1] + t[i]
+///   world[i] = ((p.x·m[i,0] + p.y·m[i,1]) + p.z·m[i,2]) + t[i]
 /// </code>
+///
+/// **That grouping is from the disassembly**, and it corrects an earlier reading taken from the decompiler,
+/// which printed the sum as `p.z·m[i,2] + p.x·m[i,0] + p.y·m[i,1]` and was ported as written.
 ///
 /// **Every point here has three different, non-zero components**, so an exchanged axis or a dropped
 /// sign cannot land on the same answer.
@@ -85,5 +89,37 @@ public sealed class IvpMatrixConformanceTests
         world.X.ShouldBe(11d);
         world.Y.ShouldBe(22d);
         world.Z.ShouldBe(33d);
+    }
+
+    /// <remarks>
+    /// **`x` and `y` are added before `z`**, which is `FUN_180070bc0`'s instruction order: `ADDSD` of the
+    /// `x·m0` and `y·m1` products, then of `z·m2`, then of the translation. With every first-row term one and
+    /// the point `(0.1, 0.2, 2.2)`, that is exactly `2.5`; adding `z` first, to either of the others, lands one
+    /// ulp above at `2.5000000000000004`.
+    /// </remarks>
+    [Test]
+    public void ToWorld_TermsThatRoundDifferentlyByGrouping_SumsXAndYBeforeZ()
+    {
+        IvpMatrix matrix = new(
+            M0: 1d, M1: 1d, M2: 1d, M4: 0d, M5: 0d, M6: 0d, M8: 0d, M9: 0d, M10: 0d, Translation: (0d, 0d, 0d));
+
+        BitConverter.DoubleToInt64Bits(matrix.ToWorld((0.1d, 0.2d, 2.2d)).X)
+            .ShouldBe(BitConverter.DoubleToInt64Bits(2.5d));
+    }
+
+    /// <remarks>
+    /// **A direction turns and does not move** — how `FUN_1800a3470` carries a face normal into the world.
+    /// `(1, 2, 3)` turned a quarter about Z is `(−2, 1, 3)` whatever the translation.
+    /// </remarks>
+    [Test]
+    public void Rotate_ADirectionOnATranslatedBody_TurnsWithoutMoving()
+    {
+        IvpMatrix matrix = IvpMatrix.FromRotation(QuarterTurnAboutZ, (10d, 20d, 30d));
+
+        (double X, double Y, double Z) turned = matrix.Rotate((1d, 2d, 3d));
+
+        turned.X.ShouldBe(-2d, Tolerance);
+        turned.Y.ShouldBe(1d, Tolerance);
+        turned.Z.ShouldBe(3d, Tolerance);
     }
 }

@@ -26010,6 +26010,16 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    transform cache that a resting body fills with its current transform.
 3. **Signed-distance evaluators** — point-plane (`FUN_1800a3470`) and edge (`FUN_1800a3660`), each
    given two transforms. Tested at known geometry, including the sign on each side of a face.
+   **(a) `IvpMatrix` — done**, and **corrected**: its point transform had been ported from the
+   decompiler's `z·m2 + x·m0 + y·m1`, and the disassembly adds `x·m0 + y·m1` first — a last-bit
+   difference on ordinary inputs, pinned by a case that was red against the committed code.
+   **(b) Point-plane — done**, from the disassembly of the evaluator, its fill in `FUN_1800a1b50`, and
+   the three routines under it: `IvpVector` (face normal widened before subtracting; normalise at
+   `|n|² ≥ 1e-19`, NaN refused, result ignored by the fill; the engine's four-step `1/√x`, whose bits
+   for 3 and 36 no library root gives), `IvpMatrix.Rotate`, `IvpPointPlaneEvaluator`.
+   `IvpVectorConformanceTests` (12), `IvpPointPlaneEvaluatorConformanceTests` (5), `IvpMatrix` +2;
+   compile-red first; three sabotages in one run — five Newton steps, a threshold a millionth the size,
+   an unrotated normal — reddened exactly the four cases predicted. **(c) Edge — not started.**
 4. **The root finders** — `FUN_1800b6210`: step `(distance − tolerance) / maxApproachSpeed` in whole
    ticks to the interval's end; `FUN_1800b6590`: doubling steps up to 20 ticks, then regula falsi with a
    `0.375` blend every fourth iteration to `|distance − target| < 1e-8` or 64 iterations. Tested with

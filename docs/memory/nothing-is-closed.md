@@ -495,6 +495,14 @@ carry that claim, because the name is Ghidra's invention.
 Decompiled C is still the right thing to read for CONTROL FLOW and for the shape of an expression.
 The split is: shape from the decompiler, identity from the disassembly.
 
+**Except a floating-point sum's grouping, which is identity, not shape** (2026-09-12). Ghidra printed
+`FUN_180070bc0` as `p.z·m[i,2] + p.x·m[i,0] + p.y·m[i,1] + t[i]`, it was ported exactly so, and the
+instructions `ADDSD` the `x` and `y` products first and add `z` to that. Doubles are not associative:
+`(0.1 + 0.2) + 2.2` is `2.5`, `(2.2 + 0.1) + 0.2` is `2.5000000000000004`. The decompiler reorders
+commutative operands freely and prints a flat chain, so **anything ported bit for bit — a sum, a dot,
+a Newton step — comes from the instruction order**, and gets one test whose inputs round differently
+under each grouping, found by search rather than guessed.
+
 ### The trigger, so it is not a resolution to forget
 
 **The tell is a sentence naming a `DAT_` or `_UNK_` symbol, or saying "the mask from X".** That is

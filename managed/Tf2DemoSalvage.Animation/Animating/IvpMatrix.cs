@@ -75,11 +75,27 @@ public readonly record struct IvpMatrix(
     /// <param name="local">The point, in the body's frame.</param>
     /// <returns>The point in the world.</returns>
     /// <remarks>
-    /// **Summed in the engine's order, `z` term first**: `world[i] = p.z·m[i,2] + p.x·m[i,0] + p.y·m[i,1]
-    /// + t[i]`. Doubles are not associative, so the order is carried rather than tidied.
+    /// **Grouped as the disassembly adds**: `world[i] = ((p.x·m[i,0] + p.y·m[i,1]) + p.z·m[i,2]) + t[i]` —
+    /// the `x` and `y` products first, then `z`, then the translation. Doubles are not associative, so the
+    /// grouping is carried rather than tidied. **The decompiler printed this `z` first and it was ported that
+    /// way**, which put the `z` term into the first addition and moved the last bit of some sums.
     /// </remarks>
-    public (double X, double Y, double Z) ToWorld((double X, double Y, double Z) local) =>
-        ((local.Z * M2) + (local.X * M0) + (local.Y * M1) + Translation.X,
-         (local.Z * M6) + (local.X * M4) + (local.Y * M5) + Translation.Y,
-         (local.Z * M10) + (local.X * M8) + (local.Y * M9) + Translation.Z);
+    public (double X, double Y, double Z) ToWorld((double X, double Y, double Z) local)
+    {
+        (double X, double Y, double Z) turned = Rotate(local);
+
+        return (turned.X + Translation.X, turned.Y + Translation.Y, turned.Z + Translation.Z);
+    }
+
+    /// <summary>Turns a direction given in the body's frame into the world, without moving it.</summary>
+    /// <param name="direction">The direction, in the body's frame.</param>
+    /// <returns>The direction in the world.</returns>
+    /// <remarks>
+    /// **Inlined in `FUN_1800a3470` for a face normal**, not a call: `(n.y·m[i,1] + n.x·m[i,0]) + n.z·m[i,2]`,
+    /// which is the same grouping as the point transform's rotation, since swapping two addends is exact.
+    /// </remarks>
+    public (double X, double Y, double Z) Rotate((double X, double Y, double Z) direction) =>
+        ((direction.X * M0) + (direction.Y * M1) + (direction.Z * M2),
+         (direction.X * M4) + (direction.Y * M5) + (direction.Z * M6),
+         (direction.X * M8) + (direction.Y * M9) + (direction.Z * M10));
 }

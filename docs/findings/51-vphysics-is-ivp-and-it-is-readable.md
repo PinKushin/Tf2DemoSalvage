@@ -2360,8 +2360,14 @@ dotted with a stored normal.
   — that method reaches the same rotation by a vector formula, so the difference is rounding, and the
   gap can now be closed. Closing it touches every constraint and contact that rotates through it, so it
   is a change of its own, measured separately.
-- **`FUN_180070bc0` puts a local point in the world**, `out[i] = p.z·m[i,2] + p.x·m[i,0] + p.y·m[i,1] + t[i]`,
-  summed in that order.
+- **`FUN_180070bc0` puts a local point in the world**, `out[i] = ((p.x·m[i,0] + p.y·m[i,1]) + p.z·m[i,2]) + t[i]`.
+  **Corrected from the disassembly.** This line first read `p.z·m[i,2] + p.x·m[i,0] + p.y·m[i,1] + t[i]`,
+  "summed in that order", taken from the decompiled C — and `IvpMatrix.ToWorld` was ported exactly so.
+  The instructions `ADDSD` the `x` and `y` products together first and add the `z` product to that. The
+  two groupings differ in the last bit for ordinary inputs: `(0.1 + 0.2) + 2.2` is exactly `2.5`, and
+  `(2.2 + 0.1) + 0.2` is `2.5000000000000004`. This is the decompiler rule in
+  `docs/DECOMPILING.md` biting a third time, and the conformance test that pins it was red against the
+  committed port before the fix.
 - **`FUN_18007b940` builds a face's normal** as `cross(B − A, C − A)` in doubles from the ledge's float
   vertices, unnormalised: `A` is the face's own point, `B` and `C` are reached through the half-edge
   offset tables `DAT_180124fb8` and `DAT_180124fc8`.
@@ -2380,6 +2386,30 @@ triangle (4→8→12→4); `C` is the start of the edge `DAT_180124fc8` reaches 
 normal is `cross(P₁ − P₀, P₂ − P₀)` over the triangle's three start points in their own order: the
 triangle's stored winding. **That does not contradict the vertex-fan measurement above**, which follows
 `fc8` and then the 15-bit field — a second hop; `FUN_18007b940` takes only the first.
+
+**The point-plane evaluator, from the disassembly.** `FUN_1800a1b50` fills it on its stack: the vtable
+`1800fe720` at `+0x00`; the pair's approach speed from `mindist+0x10` at `+0x08` and `1.0` over it at
+`+0x10`; the vertex at `+0x28`, widened from body A's ledge points; the face normal at `+0x48`, written by
+`FUN_18007b940` and passed to `FUN_18006e080` **whose return value is never read**; and the face's own
+first point at `+0x68`, widened from body B's. `FUN_1800a3470` (`RDX` A's matrix, `R8` B's) then returns
+
+```
+v = FUN_180070bc0(A, +0x28)                         -- a call
+p[i] = ((m[i,0]·p.x + m[i,1]·p.y) + m[i,2]·p.z) + t[i]    -- inlined, B
+n[i] = (n.y·m[i,1] + n.x·m[i,0]) + n.z·m[i,2]            -- inlined, B, no translation
+distance = ((v.y − p.y)·n.y + (v.x − p.x)·n.x) + (v.z − p.z)·n.z
+```
+
+Every sum there groups the `x` and `y` terms before `z`, so one rotation routine and one dot serve all
+three bit for bit. **`FUN_18007b940` widens each float point before subtracting** (`CVTPS2PD`, then
+`SUBSD`) and crosses in the textbook component order; **`FUN_18006e080` sums `(x² + y²) + z²`** and
+branches on `COMISD`/`JNC`, so NaN takes the no-direction path. **`FUN_18006ecf0`'s steps are
+`r · ((0.5 − (r·r)·(x·0.5)) + 1.0)`**, and replicating them from the instructions leaves `1/√3` at
+`0.5773502691896244` against the converged `…258` — a value no library square root reproduces, and the one
+`IvpVectorConformanceTests` pins. Ported as `IvpVector`, `IvpMatrix.Rotate` and `IvpPointPlaneEvaluator`.
+
+*Evidence class: read from the disassembly for all five routines and the fill; the bit values are
+arithmetic, replicating the instruction sequence.*
 
 **`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
 

@@ -652,7 +652,12 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 271 -> 274 on 2026-09-12: IvpMatrixConformanceTests, three cases for the double-precision transform
 # IVP measures a body through (FUN_180071330, FUN_180070bc0) (B369). Red first; dropping the
 # translation reddened exactly the two translation cases.
-run Tf2DemoSalvage.Animation.Tests animation 274
+#
+# 274 -> 293 on 2026-09-12: the point-plane evaluator (FUN_1800a3470, B369). IvpVectorConformanceTests
+# (12) for the face normal, normalise and the engine's four-step 1/sqrt; IvpPointPlaneEvaluatorConformanceTests
+# (5); IvpMatrixConformanceTests +2, one of which was red against the committed ToWorld, whose sum
+# grouping had been taken from the decompiler. Compile-red first; three sabotages in one run.
+run Tf2DemoSalvage.Animation.Tests animation 293
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
