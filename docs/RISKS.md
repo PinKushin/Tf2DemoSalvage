@@ -25976,7 +25976,11 @@ IVP never allows the penetration in the first place.
 
 **The order of work, from that:** (1) a tracked closest-feature pair per (body, triangle), so a
 contact exists before the surfaces meet and a pair never penetrates — `docs/findings/51`'s standing
-prescription; (2) delete `TerrainDepth` and `TerrainReach`; (3) read lump 28 and query a
+prescription, now with its mechanism read: **conservative advancement per pair** (*The NEAR branch
+of `FUN_180099380`*). Each pair's next check is scheduled no later than the earliest moment it could
+touch, `(distance − ε) / speedBound`; a pair that can close within the step gets an exact time of
+impact from a per-feature-kind solver and is resolved in time order before anything moves past it.
+Ours is a fixed step with speculative contacts, which is the structure to replace, not tune; (2) delete `TerrainDepth` and `TerrainReach`; (3) read lump 28 and query a
 displacement's triangles through its hull, as vphysics does. (3) is a parity gap in its own right and
 is not expected to change what `corpse-drop` measures.
 

@@ -2119,6 +2119,60 @@ point where a contact becomes an impulse is not on this path at all. It is in th
 *Evidence class: read from the decompiled binary; the phase numbering is read from the profiler
 argument rather than inferred. The correction to `FUN_180098dd0` is read from the function itself.*
 
+### The NEAR branch of `FUN_180099380`, and why a pair never penetrates (B369)
+
+**The section above read the far branch. The other branch is the answer to "how does TF2 keep a limb
+above zero-thickness terrain", and it is conservative advancement per pair.** Read 2026-09-12 while
+chasing corpses with limbs eighty units under the ground:
+
+1. **The actual closing speed**, not the bound: the stored contact normal at `mindist+0xb0..0xb8`
+   dotted with both cores' linear velocities (`core+0x140..0x148`), plus each core's angular term
+   (`core+0x1c0..0x1c8` against the normal, scaled by `core+0x254`). If it is below two small
+   thresholds the pair is left alone.
+2. **Can it close the gap before this PSI ends?** `(env+0x190 − env+0x188) × closingSpeed + margin <=
+   distance` returns: it cannot touch this step.
+3. **Otherwise an exact time of impact**, through a dispatch table indexed by the two synapses'
+   feature kinds (`DAT_18012d910`, the kinds at `+0x5a` in each 0x38-byte synapse record). When it
+   finds an impact inside the PSI, the pair is inserted into the time manager at that moment
+   (`FUN_1800aaed0`); the time-ordered event loop then resolves it before anything moves past it.
+4. **No impact found:** the next check is scheduled at `(distance − ε) / speedBound` from now, with a
+   small floor, so the pair is looked at again no later than the earliest moment it could meet.
+
+**The minimize step descends the hull.** `FUN_180095cb0` walks a second feature-pair table
+(`DAT_18012d4b0`), up to two retries. A result of `3` where a synapse's kind is `5` replaces that node
+with its child (`FUN_180094e30`) and sets the kind to `2`, then retries — the same hull-then-triangles
+descent the virtual mesh's surface manager exposes from the other side.
+
+**Ours is a fixed step with speculative contacts and a push after penetration.** That is the
+structural divergence under B369: IVP never needs `TerrainDepth`, because no pair is ever allowed
+past the moment it could touch.
+
+**The constants, dumped.** Most are `float`s widened to `double`, which is why their low 32 bits are
+zero:
+
+| address | value | role in `FUN_180099380` |
+|---|---|---|
+| `1800f5108` | 2.1 | the far gate's factor on `step × speedBound` |
+| `1800f4f20` | ≈1e-19 | closing-speed floor |
+| `1800eb140` | 1e-6 (float) | an impact this close to now is taken as now |
+| `1800f4f28` | 1e-12 | distance floor before dividing by the bound |
+| `1800fd578` | 0.1 | recheck scale on `distance / speedBound` |
+| `1800f5100`, `1800fdf68`, `1800fdf60`, `1800f50f8` | 0.001, 1e-5, 1e-7, 1e-4 | time-floor factors on the two recheck paths |
+| `1800ea938` | 1e-10 (float) | added to each speed bound |
+| `1800ea968` | 0.1, 0.2 (floats) | the travel-allowance split between the two objects |
+| `1800fdf78` | 1.001 | `sqrt(1.001 − x²)` in the angular term |
+
+**And five that CANNOT be read from the file.** `18012d540`, the margin table `18012d548`,
+`18012d654`, `18012d664` and `18012d670` — with both dispatch tables, `DAT_18012d910` and
+`DAT_18012d4b0` — all read **0 on disk**, and all sit in `.data`, filled at startup. A zero there is
+the value before initialisation, not the value the solver uses. **This document already recorded
+`DAT_18012d664` as "dumps as 0.0" above, and that is the same trap:** it is not established. The
+writers are to be read before any of these is used as a number.
+
+*Evidence class: read from the decompiled binary for both functions; constants read from the image
+where the image holds them, and explicitly NOT for the seven startup-initialised globals. That kind 5
+is a ledge-tree or hull node is INFERRED from the descent and the virtual mesh's two-level query.*
+
 ## There are TWO contact solvers, and a resting corpse uses the other one
 
 **This is the correction that makes the section below only half the story, and it was found by
