@@ -385,7 +385,7 @@ public sealed class CorpseProbe : IProbe
         // **A gibbed corpse draws PIECES, so the probe needs the same break lists the viewer uses.**
         // Reading them from the INSTALL rather than from anything already drawn is the whole point:
         // a model set only holds what has been DRAWN, and a gibbed corpse never draws its body
-        // (`docs/memory/a-lookup-is-not-a-loader.md`).
+        // (`docs/memory/precache-what-the-engine-precaches.md#a-lookup-is-not-a-loader`).
         Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibList =
             install is null ? null : model => DemoModels.BreakPiecesOf(model, install);
 
@@ -540,7 +540,7 @@ public sealed class CorpseProbe : IProbe
         (int Tick, int Count) best = (0, 0);
 
         // LINQ for the projection because the outer loop only ever wanted the tick (S3267), and a
-        // probe is off every hot path — `docs/memory/linq-is-a-test-tool.md`.
+        // probe is off every hot path — `docs/memory/per-item-apis-hide-quadratic-reads.md#linq-is-a-test-tool`.
         foreach (int tick in corpses.Select(corpse => corpse.FirstTick))
         {
             int here = 0;

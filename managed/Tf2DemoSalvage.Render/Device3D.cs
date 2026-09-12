@@ -1753,7 +1753,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// a player it should be behind.
     ///
     /// **Refilled rather than reallocated**, and concatenated by hand rather than with LINQ, which
-    /// this project keeps off a hot path (`docs/memory/linq-is-a-test-tool.md`).
+    /// this project keeps off a hot path (`docs/memory/per-item-apis-hide-quadratic-reads.md#linq-is-a-test-tool`).
     /// </remarks>
     private readonly List<ModelInstance> _allModels = [];
 

@@ -62,7 +62,7 @@ to the door by the time it opens" looks like. Three duration metrics failed on t
 **Assert where the interpolation collapses to an identity instead.** At a fraction of zero
 `Lerp_Hermite` returns its own sample whatever the tangents are (`interpolatedvar.h:845`), so the drawn
 value at `changetime + delay` must equal that entry's value exactly, for every entry, with no curve model
-involved. Full reasoning: `docs/memory/a-fraction-of-zero-is-an-oracle.md`.
+involved. Full reasoning: `docs/memory/the-interpolation-pair-is-found-by-changetime.md#a-fraction-of-zero-is-an-oracle`.
 
 ## Before reporting anything back to him
 

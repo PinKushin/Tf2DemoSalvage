@@ -1,6 +1,6 @@
 ---
 name: a-demo-names-a-map-version
-description: A demo's map name does not identify the map — svc_ServerInfo carries a CRC32 over every lump but entities, and a mismatched .bsp produces defects that look exactly like rendering bugs.
+description: A demo's map name does not identify the map — a mismatched .bsp produces defects that look exactly like rendering bugs, and the field that identifies a version is MapHash on every era, never MapCrc.
 metadata:
   type: project
 ---
@@ -29,3 +29,27 @@ map matches, not what the renderer did. Until the CRC check exists (D113), treat
 unverified subject: reproduce on f12 before calling anything a regression. The plan is to pre-pack
 period maps from a client per year rather than patch modern ones — the owner's call, on the grounds
 that it is the easier of the two.
+
+**One correction to the paragraph above, and it is load-bearing:** the field to compare is NOT
+`MapCrc`. See the section below.
+
+---
+
+## `map-checksum-is-maphash-not-mapcrc` — the version check is MapHash on every era
+
+**`DemoTimeline.MapCrc` is not the field that decides a map's version.** Finding 43
+(`docs/findings/43-what-identifies-a-map.md`) found `svc_ServerInfo` carries two fields on old
+protocols; this project named the 32-bit one `MapCrc` and the four-byte one `MapHash`, then chased
+`MapCrc` for a day. **The map checksum is `MapHash`.** `MapCrc` (`0x534EEB7C` on the 2007 granary
+specimen) remains unidentified and does not match anything.
+
+**So one field answers every era.** `MapHash` is four bytes pre-2013 and sixteen (MD5) from 2013 on,
+and `BspMapChecksum.Matches(file, recorded)` already disambiguates by length — feed it `MapHash`
+regardless of era, never a value built from `MapCrc`. `PeriodMapChecksumTests` and
+`BspMapChecksumConformanceTests` are the confirmed uses.
+
+**Why this matters:** it looks like the natural reading is the reverse — `MapCrc` sounds like THE
+checksum and `MapHash` sounds like a newer, better one. Building D162's version check from `MapCrc`
+would have shipped a check that always disagrees with the real map, on every pre-2013 demo, with no
+test catching it unless that test also used the wrong field. Caught before writing any code, by
+reading `docs/findings/` first — [[valve-parity-is-the-first-principle]].

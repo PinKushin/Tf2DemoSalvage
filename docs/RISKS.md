@@ -13160,7 +13160,7 @@ A retry whose condition must **never** become true always runs the full window. 
 bans — and it is *weaker* than synchronising, because "the app froze" satisfies it as well as "the
 input was correctly ignored". Each now waits for `viewmodel pass skipped` to advance, proving the
 viewer is alive and past the input, then asserts the negative. See
-`docs/memory/a-negative-retry-is-a-sleep.md`.
+`docs/memory/ui-tests-run-every-time.md#a-negative-retry-is-a-sleep`.
 
 #### One test doing three things is how all of it hid
 
@@ -14940,10 +14940,10 @@ app — never noise"*, and *"never retry a failing test to make it pass"*. Two g
 three samples, not a diagnosis.
 
 **What to do next, and what NOT to do.** Do not widen the five-second window as a first move: that
-converts a deterministic refusal into a slower probabilistic one and `docs/memory/a-negative-retry-is-a-sleep.md`
-is about exactly this shape. Find the holder first — `GetForegroundWindow` and its owning process
-logged at the moment the guard gives up would name it in one failure, and that diagnostic costs
-nothing on the passing path.
+converts a deterministic refusal into a slower probabilistic one and
+`docs/memory/ui-tests-run-every-time.md#a-negative-retry-is-a-sleep` is about exactly this shape.
+Find the holder first — `GetForegroundWindow` and its owning process logged at the moment the guard
+gives up would name it in one failure, and that diagnostic costs nothing on the passing path.
 
 **A process note that cost the first diagnosis:** the run was piped through `tail`, so when the
 message was wanted it was gone and had to be recovered by reading which `throw` line 466 is. The
@@ -16302,8 +16302,8 @@ expect.
 collapses repeated samples with record equality, and a `record` compares a list-typed member by
 REFERENCE. Fresh lists per tick would have made every tick a distinct sample and recorded the whole
 demo. `EconAttributeWire` now defines `Equals`/`GetHashCode` element-wise — hand-rolled rather than
-`SequenceEqual`, because this runs in the parse path where `docs/memory/linq-is-a-test-tool.md`
-applies.
+`SequenceEqual`, because this runs in the parse path where
+`docs/memory/per-item-apis-hide-quadratic-reads.md#linq-is-a-test-tool` applies.
 
 Gate green at every floor, `scene` raised 283 → 285 for the two mask tests.
 
@@ -19972,9 +19972,9 @@ Verified on `koth_harvest_final` through a real `settings.cfg`, not just in test
 | 2 | None, indoors | 10 |
 
 **Config-only, with no key bind, because TF2 gives it none** — the first of the three tiers in
-`docs/memory/not-every-setting-needs-a-bind.md`. Not cheat-gated either, and that is Valve's
-declaration rather than a choice here: the flags argument is `0`, where `r_skybox` on the next line
-carries `FCVAR_CHEAT`.
+`docs/memory/no-hardcoded-controls-ever.md#not-every-setting-needs-a-bind`. Not cheat-gated either,
+and that is Valve's declaration rather than a choice here: the flags argument is `0`, where `r_skybox`
+on the next line carries `FCVAR_CHEAT`.
 
 ### `r_skybox` is NOT exposed, and the reason is that the 2D skybox is not drawn at all
 
@@ -26987,8 +26987,8 @@ both.
 **A second instance of the same shape, in the wiring:** the gib supplier was `EntityModels.
 BreakPiecesOf`, which answers out of a cache filled from the props DRAWN at a tick. A gibbed corpse
 draws no body, so it asked for a model that could not be there and was told "no pieces" for one
-declaring nine — `docs/memory/a-lookup-is-not-a-loader.md`. It reads the `.phy` from the install
-now, which is what `PrecachePropsForModel` does.
+declaring nine — `docs/memory/precache-what-the-engine-precaches.md#a-lookup-is-not-a-loader`. It
+reads the `.phy` from the install now, which is what `PrecachePropsForModel` does.
 
 **The probe was blind to all of it and would have stayed blind.** `CorpseProbe` called
 `RagdollProps.Fill` without the gib supplier; both new parameters are optional, so it compiled and
@@ -27362,8 +27362,8 @@ server put it. Small, and easiest to see on a looping sequence restarted mid-loo
 
 **What is NOT established:** whether `m_nNewSequenceParity` is decoded at all. `m_nResetEventsParity`
 beside it was decoded and had exactly one reference in the repository — its own declaration
-(`docs/memory/a-schema-key-nobody-reads-is-a-lead.md`), so the same is likely here and must be checked
-rather than assumed.
+(`docs/memory/measure-the-route-before-building-on-it.md#a-schema-key-nobody-reads-is-a-lead`), so
+the same is likely here and must be checked rather than assumed.
 
 *Evidence class: read-from-source. No measurement; the sequence-change case has never been measured on a
 real demo.*
@@ -27952,9 +27952,9 @@ ASKED FOR 166 entity models (1 of them the map's own detail models); HAVE 166; M
 ```
 
 and every one of the 166 did resolve. The cosmetics are not in the 166. `MapAssets.Geometry` is a
-dictionary lookup rather than a loader (`docs/memory/a-lookup-is-not-a-loader.md`), so a path that was
-never in the load list has no key, answers null, and is remembered as empty — silently, because the
-miss it documents as "already reported once, at load" only exists for paths the load knew about.
+dictionary lookup rather than a loader (`docs/memory/precache-what-the-engine-precaches.md#a-lookup-is-not-a-loader`), so a path that was never in the load list has no key, answers null, and is remembered as
+empty — silently, because the miss it documents as "already reported once, at load" only exists for
+paths the load knew about.
 
 Measured against the list itself: **34 of the 66 no-geometry models were never in it, and NO PROP TRACK
 NAMES ANY OF THEM.** That last clause is the diagnosis. `WeaponPropModels.Resolve` replaces a prop's
@@ -29348,9 +29348,10 @@ ct)` threads the checksum and URL to `MapDownloader.TryDownloadAsync`, which alr
 version (B392); `FetchAsync(string, ct)` now delegates to it with neither.
 
 **A near-miss caught before any code was written, worth its own memory entry**
-(`docs/memory/map-checksum-is-maphash-not-mapcrc.md`): `DemoTimeline.MapCrc` looks like the obvious
-field for a version check and is not it — finding 43 identified it as unidentified and settled
-`MapHash` as the real checksum on every era. `MapWanted.From` takes `mapHash` explicitly, never
+(`docs/memory/a-demo-names-a-map-version.md#map-checksum-is-maphash-not-mapcrc`): `DemoTimeline.MapCrc`
+looks like the obvious field for a version check and is not it — finding 43 identified it as
+unidentified and settled `MapHash` as the real checksum on every era. `MapWanted.From` takes
+`mapHash` explicitly, never
 `MapCrc`, and its doc comment says why so the next reader is not tempted back.
 
 Sabotaged: `Find`'s mismatch detection hardcoded to `false` reddened exactly

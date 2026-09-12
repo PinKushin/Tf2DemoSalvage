@@ -206,8 +206,8 @@ public sealed record ViewerSettings
     /// and competitive players — the owner among them — run without it.
     ///
     /// **Config-only, with no key bind, because TF2 gives it none.** Three tiers exist here and
-    /// only the last is a default bind (`docs/memory/not-every-setting-needs-a-bind.md`); this one
-    /// stops at the first, which is what parity asks for.
+    /// only the last is a default bind (`docs/memory/no-hardcoded-controls-ever.md#not-every-setting-needs-a-bind`);
+    /// this one stops at the first, which is what parity asks for.
     /// </remarks>
     public const string ThreeDimensionalSkyCommand = "r_3dsky";
 
@@ -224,7 +224,7 @@ public sealed record ViewerSettings
     /// of D69.
     ///
     /// **Config-only, with no bind**, because TF2 gives it none — the first of the three tiers in
-    /// `docs/memory/not-every-setting-needs-a-bind.md`.
+    /// `docs/memory/no-hardcoded-controls-ever.md#not-every-setting-needs-a-bind`.
     /// </remarks>
     public const string DetailDistanceCommand = "cl_detaildist";
 

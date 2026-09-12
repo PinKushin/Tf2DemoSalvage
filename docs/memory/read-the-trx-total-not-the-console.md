@@ -488,7 +488,7 @@ that would have caught it ran before the change.
 edit. If one happens anyway, say so and re-run rather than quietly using the result; the run is not
 evidence about the tree that exists. This is the same rule D145 states for subagents from the other
 side — *"the parent does not build or measure while one holds a source file"* — and the same family
-as [[insert-below-the-member-not-above-it]]'s note that a build break now costs whatever else is
+as [[edit-files-with-the-file-tools#insert-below-the-member-not-above-it]]'s note that a build break now costs whatever else is
 running.
 
 ### Editing the SOURCE is a different rule from editing the SCRIPT, and weaker on purpose

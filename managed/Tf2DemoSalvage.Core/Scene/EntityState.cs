@@ -2180,8 +2180,8 @@ public sealed class EntityState
     /// Written into the material's <c>$HDRCOLORSCALE</c> before the quad is drawn
     /// (`c_sprite.cpp:45`), so it is a per-entity override of a material variable rather than
     /// anything about geometry — the same shape as a material proxy
-    /// (`docs/memory/a-proxy-is-per-entity-per-draw.md`). Unscaled on the wire, zero to 100
-    /// (`Sprite.cpp:145`).
+    /// (`docs/memory/material-variables-split-three-ways.md#a-proxy-is-per-entity-per-draw`).
+    /// Unscaled on the wire, zero to 100 (`Sprite.cpp:145`).
     /// </remarks>
     public float? SpriteHdrColourScale() => Number($"{SpriteTable}.m_flHDRColorScale");
 

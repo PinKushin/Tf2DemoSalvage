@@ -7868,7 +7868,7 @@ per-pass relaxation weight. That closed the last unread multiplier in the clamp 
 
 **What this decision is NOT:** a claim that decompiled C is untrustworthy. It is the right tool for
 the question it answers, and the failure both times was asking it a question about identity. See
-`docs/memory/settle-a-constant-in-the-disassembly.md`.
+`docs/memory/nothing-is-closed.md#settle-a-constant-in-the-disassembly`.
 
 ## D148 — when anything is wrong, parity is the FIRST hypothesis (2026-09-07)
 
@@ -8360,7 +8360,7 @@ attribution):
   `ui-suite-optional-until-ui-grows`, retired in 2026-08, whose three citations now say so.
 
 Why the paths matter more than the links, and how to fold without breaking them:
-`docs/memory/a-fold-leaves-its-paths-behind.md`.
+`docs/memory/one-place-or-it-drifts.md#a-fold-leaves-its-paths-behind`.
 
 ## D160 — an old demo's sequence numbers are translated into today's models by NAME, from the era's own sequence lists (2026-09-10)
 

@@ -186,7 +186,7 @@ session were both made in decompiled C rather than in the disassembly:
 **The rule: shape from the decompiler, identity from the instructions.** The trigger is a sentence
 naming a `DAT_`/`_UNK_` symbol, or reaching for a value because it is *adjacent* to a known one —
 adjacency is where dumping feels most redundant and is most likely wrong. See
-`docs/memory/settle-a-constant-in-the-disassembly.md`.
+`docs/memory/nothing-is-closed.md#settle-a-constant-in-the-disassembly`.
 
 **A sabotage that reddened nothing found a real defect**, which is the second time that memory has
 paid (`docs/memory/most-of-a-decoder-is-untested.md#a-sabotage-that-reddens-nothing-names-the-missing-input`). Reversing the cone

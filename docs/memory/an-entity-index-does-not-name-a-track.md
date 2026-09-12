@@ -1,6 +1,6 @@
 ---
 name: an-entity-index-does-not-name-a-track
-description: "The engine reuses edict slots, so a lookup keyed on entity index alone returns whichever track was written last — it needs the tick as well, and it fails silently by returning a plausible wrong answer."
+description: "The engine reuses edict slots, so a lookup keyed on entity index alone returns whichever track was written last — it needs the tick as well; and an index is not a NAME either, since a userinfo entry is a client slot and entity = slot + 1."
 metadata: 
   node_type: memory
   type: project
@@ -48,3 +48,22 @@ identifies a SLOT, the same way a store index identifies a slot and not a partic
 ([[a-computed-offset-is-a-guess-the-file-can-answer]] is the file-format cousin). And it fails the
 way these always do — a plausible answer rather than an error, so nothing points at the lookup
 ([[instrument-bugs-outnumber-decoder-bugs]]).
+
+---
+
+## `an-entity-index-is-not-a-real-name` — and the roster that names one was itself a slot short
+
+**A nameplate in a capture names whoever is in frame, not whoever holds the camera.** B397 compared
+the wrong players' views several times because the camera was guessed from what was visible.
+
+**And the roster that should have settled it was wrong too.** `RosterBuilder` took the `userinfo`
+entry index as the entity index; the entry index is the CLIENT SLOT, and entity = slot + 1, because
+entity 0 is the world (`UTIL_PlayerByIndex`, `game/server/util.cpp:565`). Every name sat one entity
+short, so `--spectate <name>` landed on the neighbour — on an STV demo, on the SourceTV bot — and a
+"resolved" verdict naming entity 7 "nezay" was drafted off it. Entity 7 was abelll. Fixed in B398.
+
+**How to apply:** confirm an index with the `roster` probe, then `--spectate <name>` or the user id.
+Before trusting ANY index-to-name mapping, check one against something that must hold: on a POV demo
+the header's client name must be the roster name at `RecorderEntityIndex`; on the f12 demo, entity 2
+must be Beleleu. Never declare a divergence resolved off a capture the owner has not confirmed.
+Related: [[instrument-bugs-outnumber-decoder-bugs]].

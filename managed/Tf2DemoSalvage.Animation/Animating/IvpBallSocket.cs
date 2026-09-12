@@ -36,9 +36,9 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// constraints has no way to notice that two bodies have drifted apart.
 ///
 /// **Both gains are 1.0 and the flag is set, settled in the disassembly** rather than read out of
-/// decompiled C, per `docs/memory/settle-a-constant-in-the-disassembly.md`. The constraint
-/// template's own constructor writes all three literally and nothing overwrites them before the
-/// constraint is built:
+/// decompiled C, per `docs/memory/nothing-is-closed.md#settle-a-constant-in-the-disassembly`. The
+/// constraint template's own constructor writes all three literally and nothing overwrites them
+/// before the constraint is built:
 ///
 /// <code>
 /// 18000c7cb  MOV dword ptr [RBX + 0xc8],0x3f800000     ; the velocity gain

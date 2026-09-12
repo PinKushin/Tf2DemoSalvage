@@ -197,8 +197,9 @@ public sealed class ViewerCensusProbe : IProbe
         // reports `ASKED FOR n; HAVE n; MISSING 0` and means it — every path in its list resolved.
         // The models failing here are not in that list, so there is no miss to report and
         // `MapAssets.Geometry`, which is a dictionary lookup rather than a loader
-        // (`docs/memory/a-lookup-is-not-a-loader.md`), answers null in silence. A clean load report
-        // and thirteen undrawn cosmetics a frame are the same fact seen from two ends.
+        // (`docs/memory/precache-what-the-engine-precaches.md#a-lookup-is-not-a-loader`), answers
+        // null in silence. A clean load report and thirteen undrawn cosmetics a frame are the same
+        // fact seen from two ends.
         HashSet<string> asked = DemoModels.Needed(timeline, game);
 
         List<string> unasked =

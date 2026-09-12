@@ -76,7 +76,7 @@ inline, so a constant's value sits on the line that reads it:
 **Two wrong conclusions in one session came from settling a constant in decompiled C instead** —
 `DAT_1800eea1c` taken for π because its neighbour is genuinely 2π (it is `1e-16`), and `uVar6` read
 as a dumped mask in one expression and a comparison result three lines later, because Ghidra reuses a
-local name for unrelated values. Full account: `docs/memory/settle-a-constant-in-the-disassembly.md`.
+local name for unrelated values. Full account: `docs/memory/nothing-is-closed.md#settle-a-constant-in-the-disassembly`.
 
 **The tell to run this script** is a sentence naming a `DAT_`/`_UNK_` symbol, or reaching for a value
 because it is ADJACENT to a known one.

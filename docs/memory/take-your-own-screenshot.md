@@ -1,6 +1,6 @@
 ---
 name: take-your-own-screenshot
-description: TF2VIEW_CAMERA plus --shot captures any viewpoint without asking the owner; use it the moment a question is visual.
+description: TF2VIEW_CAMERA plus --shot captures any viewpoint without asking the owner; the viewer's own key is F5, demo_gototick takes <tick> 0 1, and every still capture is a PAUSED frame that draws a different pose from playback.
 metadata: 
   node_type: memory
   type: reference
@@ -53,3 +53,46 @@ that costs: the menu printed "F12" long after the key was F5, because a LABEL is
 and nothing breaks when it lies.
 
 See [[a-default-is-not-a-constant]] and [[no-hardcoded-controls-ever]].
+
+---
+
+## `demo-gototick-relative-is-the-second-argument` — the seek that lands somewhere else
+
+**`demo_gototick <tick> <relative>` is a relative seek, not tick-plus-pause.** The engine's own
+handler (decompiled, `engine.dll` x64, `FUN_180075460`) binds `argv[2]` to `relative` and `argv[3]` to
+`pause`, exactly the order its own syntax message states: `demo_gototick <tick> [relative] [pause]`.
+
+**Confirmed by an owner golden capture that looked wrong until this was read.** `demo_gototick 51093
+1` sought 51093 ticks forward of wherever the demo already was — `relative` true, `pause` at its
+default — not to absolute tick 51093. The resulting capture showed a different, unrelated part of the
+map and was first read as a real map-geometry divergence before the argument order was checked.
+
+**The correct form for a golden comparison against a specific tick** is `demo_gototick <tick> 0 1` —
+tick, relative OFF, pause ON. Always use all three arguments explicitly; never rely on a default for
+the middle one.
+
+---
+
+## `paused-is-a-different-sample` — a still capture is a PAUSED frame, and paused draws a different pose
+
+**`engine->IsPaused()` clears `s_bInterpolate` for every entity at once**
+(`C_BaseEntity::InterpolateServerEntities`, `client/c_baseentity.cpp:3226`);
+`IsInterpolationEnabled()` returns that flag (`c_baseentity.h:2156`), and `BaseInterpolatePart1`
+answers it with `MoveToLastReceivedPosition()` and `INTERPOLATE_STOP` (`c_baseentity.cpp:2845`). So
+pausing does not freeze the picture — it CHANGES it, by the whole interpolation window, to whatever
+the last update stated (B399).
+
+**Why it matters for every comparison against the real game:** the owner's golden screenshots come
+from `demo_gototick <tick> 0 1`, which pauses. A viewer that applies the `cl_interp` delay to a
+static capture is comparing a pose eight ticks older than the client's. On the f12 demo that drew a
+rocket-jumping soldier still airborne beside a ledge where the real client had already landed him,
+and it was chased for a long session as a rocket spawn-position bug (B397).
+
+**How to apply:** any still capture — ours or TF2's — is a PAUSED frame, so sample with
+interpolation off and compare like with like. When a divergence looks like a constant positional
+offset along an entity's direction of travel, measure it in TICKS of that entity's own motion before
+looking for a geometry or attachment cause; the `jitter` probe prints the keyframes to divide by.
+And note the two populations differ: on that demo the players' updates applied two ticks after
+arrival while the rocket's applied at arrival, so one delay produced two different-looking errors.
+Related: [[an-entity-index-does-not-name-a-track#an-entity-index-is-not-a-real-name]],
+[[check-at-the-owners-moment]].
