@@ -25956,12 +25956,20 @@ engine's `GetCollideForVirtualTerrain`, not decoded by pattern.
 the engine loads lump 28 at level init, checks its count against the displacements, keeps the blobs,
 calls `CreateVirtualMesh` per displacement with `buildOuterHull = (lump length < 1)`, and its
 `GetVirtualMesh` callback sets **`pHull = blob + offset[i]`**. The engine builds a hull itself only for
-a map that has no lump 28. **So the outer hull TF2 collides against is the blob, and ours is a slab.**
+a map that has no lump 28.
 
-**What is NOT established:** the blob format, which is vphysics' — read from `CreateVirtualMesh`,
-the consumer of `pHull`, not from the byte shape; what the outer hull is geometrically; and whether
-colliding against it removes the buried limbs. The last is the only one that closes this entry, and
-it is measured by `corpse-drop` reporting limb depths, not root heights.
+**The blob format is now read and checked on every blob** — one convex hull per displacement, its
+vertices given as indices into the displacement's own vertices; the size vphysics computes for it is
+exact on 533 of 533 blobs on harvest and 135 of 135 on granary (`docs/findings/51`).
+
+**Corrected: "the outer hull TF2 collides against is the blob, and ours is a slab" overstated it.**
+vphysics unpacks the hull and the triangles into one structure and hands IVP the TRIANGLES as its
+ledges, so it is not established that the hull makes ground below terrain solid. It may be an
+envelope for the radius query or a filter. The surface manager decides, and it is being read.
+
+**What is NOT established:** what the hull does in collision; and whether doing what vphysics does
+with it removes the buried limbs. The last is the only one that closes this entry, and it is measured
+by `corpse-drop` reporting limb depths, not root heights.
 
 *Evidence class: measured, for every table here, through instruments carrying the value the code used;
 read-from-source for the vbsp, game and dispcoll citations; INTERPOLATED, and flagged, for the reading

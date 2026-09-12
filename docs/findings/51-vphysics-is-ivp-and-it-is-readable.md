@@ -3791,6 +3791,62 @@ and 135 of 135 on `cp_granary`, counts equal to the dispinfo count and declared 
 to the bytes after the table, each 37–611 bytes. That is far too small to be a triangle mesh; the
 format is vphysics' own and is read from `CreateVirtualMesh`, the consumer of `pHull`.
 
+**vphysics' side of the call, located in `vphysics.dll`** (project `tf2vphysics`). The
+`VPhysicsCollision007` interface registers factory `18000c740`, which is `LEA RAX,[0x18011f0d8]; RET`
+— a singleton whose image-initialised vptr is **`1800eaa40`**. Slot 46 of that table is checked
+against its neighbours rather than trusted by position:
+
+| slot | expected by declaration | what the bytes are |
+|---|---|---|
+| 19 | `UnserializeCollide(buffer, size, index)` | a thunk forwarding three arguments |
+| 45 | `ThreadContextDestroy` | the shared bare `RET` an empty function folds to |
+| **46** | **`CreateVirtualMesh(params)`** | **`MOV RCX,RDX; JMP 0x180025880`** |
+| 47 | `SupportsVirtualMesh` | `MOV AL,1; RET` |
+
+`FUN_180025880` allocates a 0x38-byte object and hands it and `params` to the constructor
+`FUN_1800250e0`. **The constructor builds a hull only when `buildOuterHull` is set:** it calls the
+handler's `GetVirtualMesh`, builds one convex over all the triangles, and if that fails a test it
+builds two, one per half of the triangle range; `FUN_180003c50` packs the result into the object at
+`+0x20`. With lump 28 present the flag is false and nothing is built there — so the stored hull is
+consumed by a method of the object's own vtable (`1800ee278`, fifteen slots; slot 11 is the orphan
+`Virtual mesh!` site at `180026090`), not by the constructor.
+
+**The packer defines the blob, because its output is what vbsp serialised.** Read from
+`FUN_180003c50`:
+
+```
+u32   hullCount            -- every blob on harvest and granary opens 01 00 00 00
+per hull, 5 bytes           -- byte vertexCount, ..., byte (vertexCount * 3) / 2
+per hull, a body            -- FUN_180004110(header, stream, hull, meshList)
+```
+
+**Confirmed from the writer and the size function, then over every blob.** The body writer
+`FUN_180004110` and the object's own `CollideSize`, `FUN_180025e40`, agree on:
+
+```
+u32  hullCount
+per hull, 5 bytes:  [0] triangles T   [1] a triangle subclass count
+                    [2] edges E       [3] edges emitted   [4] base vertex
+per hull, body:     T × 4 bytes  -- three edge indices and one byte per triangle
+                    E × 2 bytes  -- two vertex bytes per edge, each (vertex index − base)
+size = 4 + 5·hulls + Σ(4·T + 2·E)
+```
+
+The vertex bytes index **the displacement's own vertex list** — the engine already holds the
+coordinates, so a hull costs a hundred bytes. The `phys-disp` probe checks the formula against
+every blob: **exact on 533 of 533 on `koth_harvest_final` and 135 of 135 on `cp_granary`**, every
+displacement storing exactly one hull, at most 86 triangles and 129 edges.
+
+**What the hull is FOR is a separate question, and the first write-up of this section answered it
+without evidence.** It said the hull "closes the mesh", so ground below terrain is inside something.
+The unpacker, `FUN_180025330`, does not show that: on first use it calls `GetVirtualMesh`, takes
+`pHull` (falling back to the object's `+0x20`), and builds ONE cache entry sized
+`hullSize + 16·vertices + 48·triangles` holding both, through `FUN_180025f10`. The object's slot 2
+then hands IVP ledges by walking that entry in 48-byte **triangle** records. So contacts come from
+the triangles; the hull sits beside them in the same structure, and whether it acts as a solid, an
+envelope for the radius query, or a filter is read from the surface manager (vtable `1800ee220`),
+not assumed.
+
 *Evidence class: read from the decompiled `engine.dll` for `FUN_18016f6d0`, its caller's arguments,
 the handler's three slots and the unload; read from published SDK source for vbsp, the game and the
 interface declarations; arithmetic for slot 46 and for `pHull`'s offset, each agreeing with an

@@ -132,6 +132,68 @@ public sealed class PhysDispProbe : IProbe
             $"..{largest}, declared total {declared} against {remaining} after the table — " +
             (declared == remaining ? "EXACT" : "NOT EXACT, the layout reading is wrong"));
 
+        // **Every blob against the size vphysics itself computes** — `FUN_180025e40`, the virtual
+        // mesh's `CollideSize`: `4 + 5·hulls + Σ(4·triangles + 2·edges)`, with the per-hull header
+        // `[0]` triangles and `[2]` edges (writer `FUN_180004110`). Four samples matched by hand;
+        // this is the whole lump, so one mismatch anywhere says the reading is wrong.
+        int exact = 0;
+        int oneHull = 0;
+        int twoHulls = 0;
+        int otherHulls = 0;
+        int mostTriangles = 0;
+        int mostEdges = 0;
+        int offset = table;
+
+        for (int index = 0; index < count; index++)
+        {
+            int size = sizes[index];
+
+            if (size < 0)
+            {
+                continue;
+            }
+
+            if (offset + size > lump.Length || size < 4)
+            {
+                output.WriteLine($"  blob {index} does not fit: {offset}+{size} of {lump.Length}.");
+                return;
+            }
+
+            ReadOnlySpan<byte> blob = lump.Slice(offset, size);
+            uint hulls = BinaryPrimitives.ReadUInt32LittleEndian(blob);
+
+            switch (hulls)
+            {
+                case 1: oneHull++; break;
+                case 2: twoHulls++; break;
+                default: otherHulls++; break;
+            }
+
+            long expected = 4 + (5L * hulls);
+
+            for (int hull = 0; hull < hulls && 4 + (5 * (hull + 1)) <= blob.Length; hull++)
+            {
+                int triangles = blob[4 + (5 * hull)];
+                int edges = blob[4 + (5 * hull) + 2];
+
+                mostTriangles = Math.Max(mostTriangles, triangles);
+                mostEdges = Math.Max(mostEdges, edges);
+                expected += (4L * triangles) + (2L * edges);
+            }
+
+            if (expected == size)
+            {
+                exact++;
+            }
+
+            offset += size;
+        }
+
+        output.WriteLine(
+            $"  size formula exact on {exact} of {present} blobs; hulls: {oneHull} with one, " +
+            $"{twoHulls} with two, {otherHulls} other; at most {mostTriangles} triangles and " +
+            $"{mostEdges} edges in one hull");
+
         int at = table;
         int shown = 0;
 
