@@ -133,3 +133,4 @@
 - [A GUI exe does not hold the lock](a-gui-exe-does-not-hold-the-lock.md) — pwsh `&` returns at once; Start-Process -Wait keeps run-exclusive held while the window is open.
 - [Check at the owner's moment](check-at-the-owners-moment.md) — his demo, his action, his camera; "did you actually look at the right ticks?"
 - [Valve's shape beyond parity](valve-shape-beyond-parity.md) — D163; nothing to match still means Valve's mechanisms, order and names.
+- [The first step of a sequence is not the culprit](the-first-step-of-a-sequence-is-not-the-culprit.md) — skip exactly one; six agreeing logs agreed about the order.

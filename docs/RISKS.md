@@ -26642,7 +26642,38 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B402 FIXED 2026-09-12: disposing the viewport raised Resize into a handler that used the released device
+### B402 OPEN 2026-09-12: our `Dispose` override disposed the form's own child controls, and `base.Dispose` walks them too
+
+**Attempt four, and the first one whose evidence is a controlled experiment rather than a story.**
+
+Six CI runs died on the *first* disposal in our override, logging `shutdown: releasing viewport`.
+The obvious reading — "the viewport is the guilty control" — was tested by changing exactly one
+variable: skip only the viewport, dispose the other five as before. **The crash did not go away; it
+moved forward**, to `shutdown: releasing transport` on one runner and `shutdown: releasing actions`
+on another. Two different members on two runs means no single control is at fault, and it also means
+the six-run agreement on "viewport" proved nothing but ordering: had all six been skipped at once,
+the result would have looked identical to the viewport being guilty.
+
+**What every one of them has in common is that `Form.Dispose` already disposes them.** The base
+walks `Controls` and disposes each child; ours disposed the same six first, so each was being torn
+down twice, and the second pass runs against a control whose window handle is already destroyed.
+
+**So none of the six is disposed by us now.** `_viewport`, `_status`, `_actions`, `_transport`,
+`_playlist` and `_search` are left to `base.Dispose`; our override keeps only the fields that
+genuinely are ours (`_maps` and friends). Each of the six carries a **per-field** `[SuppressMessage]`
+for CA2213 with that justification rather than a class-level blanket, so CA2213 still protects the
+non-control fields. The `_shutdown` cancellation and the `_viewport` handler unhooks from attempt
+three stay — they stop in-flight work before teardown and are correct independently.
+
+**What is NOT established: whether this is the fix.** This machine has never reproduced the crash
+once, so the verdict is the CI run on `cba4b810` and nothing before it. Three previous attempts were
+announced as fixes on weaker evidence than this and all three were refuted by the next run.
+
+*Evidence class: measured — six CI runs on one ordering plus two runs on a second ordering, through
+a per-member marker written before each disposal. The conclusion that double disposal is the
+mechanism is read-from-source (`Form.Dispose` walking `Controls`), not measured.*
+
+#### Attempt three, wrong: unhooking the viewport's handlers
 
 **The instrument named it on the sixth run.** Both CI viewer logs end on
 `shutdown: releasing viewport`, so `_viewport.Dispose()` is what kills the process — the line
@@ -26667,6 +26698,11 @@ That is why `Application.ThreadException`, `AppDomain.UnhandledException` and
 capture path it is null and the reachable statement is the world invalidate against released device
 resources. The first write-up of this entry blamed the overlay; checking when it is constructed
 refuted that before it shipped.
+
+**This attempt did not work either.** The run after it failed identically, and the single-variable
+experiment above shows why the reasoning was unsound: the agreement of six logs on "viewport" was
+an artefact of it being disposed first, so the mechanism named here was fitted to a member that had
+no special role. Kept below as written.
 
 **Fixed by unhooking the viewport's own handlers before anything is released**, which is the
 precedent already in the same method for `Application.Idle` — *"an Idle handler that outlives the
