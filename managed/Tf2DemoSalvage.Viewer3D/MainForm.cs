@@ -188,26 +188,31 @@ internal class MainForm : Form, IFrameSteps
     /// cannot follow. Disposing them EARLY from our own override killed the process on every CI
     /// run — first at `shutdown: releasing viewport`, then, once the viewport was skipped, at
     /// `releasing transport` and `releasing actions` on two different runners. Two different
-    /// members is what proves it is the early disposal rather than any one control.
+    /// members rules out any one control being at fault.
+    ///
+    /// **It did not fix the crash, and the removal stays anyway.** With none of them disposed here
+    /// the log reached `shutdown: every member released` and the process still died, so the fatal
+    /// call is further down. These disposals were redundant regardless — `Form.Dispose` walks
+    /// `Controls` — and re-adding them would only put the marker back in front of the real cause.
     /// </remarks>
     [SuppressMessage(
         "Usage",
         "CA2213:Disposable fields should be disposed",
-        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
+        Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
     private readonly Panel _viewport;
 
     /// <inheritdoc cref="_viewport" />
     [SuppressMessage(
         "Usage",
         "CA2213:Disposable fields should be disposed",
-        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
+        Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
     private readonly ToolStripStatusLabel _status;
 
     /// <inheritdoc cref="_viewport" />
     [SuppressMessage(
         "Usage",
         "CA2213:Disposable fields should be disposed",
-        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
+        Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
     [SuppressMessage(
         "Major Code Smell",
         "S1450:Private fields only used as local variables in methods should become local variables",
@@ -218,21 +223,21 @@ internal class MainForm : Form, IFrameSteps
     [SuppressMessage(
         "Usage",
         "CA2213:Disposable fields should be disposed",
-        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
+        Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
     private readonly TransportBar _transport;
 
     /// <inheritdoc cref="_viewport" />
     [SuppressMessage(
         "Usage",
         "CA2213:Disposable fields should be disposed",
-        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
+        Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
     private readonly ListView _playlist;
 
     /// <inheritdoc cref="_viewport" />
     [SuppressMessage(
         "Usage",
         "CA2213:Disposable fields should be disposed",
-        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
+        Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
     private readonly TextBox _search;
 
     /// <summary>The library sorted for display: folder first, then name.</summary>
@@ -5396,6 +5401,10 @@ internal class MainForm : Form, IFrameSteps
     /// <inheritdoc />
     protected override void Dispose(bool disposing)
     {
+        // Read BEFORE the counter moves, because the lines around `base.Dispose` below belong to
+        // the same first shutdown as the block that increments it (B402).
+        bool first = disposing && ShutdownRuns == 0;
+
         if (disposing && ShutdownRuns == 0)
         {
             ShutdownRuns++;
@@ -5506,8 +5515,10 @@ internal class MainForm : Form, IFrameSteps
             {
                 _overlay?.Dispose();
 
-                // **No child control is disposed here, and that is the B402 fix.** Every one of
-                // them is in `Controls`, which `base.Dispose` walks at the end of this method, so
+                // **No child control is disposed here.** This was announced as the B402 fix and the
+                // next CI run refuted it — the log reached `every member released` and the process
+                // still died. The removal stays because it was right for its own reason: every one
+                // of them is in `Controls`, which `base.Dispose` walks at the end of this method, so
                 // these calls were redundant from the start — they existed to satisfy CA2213, and
                 // the comment that used to sit here said as much while making them anyway.
                 //
@@ -5547,6 +5558,22 @@ internal class MainForm : Form, IFrameSteps
             }
         }
 
+        // **The fourth attempt's fix was refuted by the run after it, and this line is why the
+        // fifth is an instrument rather than another story** (B402). With no child control
+        // disposed by us, the log reached `shutdown: every member released` and the process still
+        // died — so the fatal call is inside `base.Dispose`, which destroys each child's window,
+        // or later still. Nothing had ever distinguished those two, because our own override was
+        // the last thing that wrote anything down.
+        if (first)
+        {
+            Releasing("the base, which destroys every child window");
+        }
+
         base.Dispose(disposing);
+
+        if (first)
+        {
+            _renderLog.LogInformation("{Message}", "shutdown: the base returned");
+        }
     }
 }

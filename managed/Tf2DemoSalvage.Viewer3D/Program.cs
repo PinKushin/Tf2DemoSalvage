@@ -122,6 +122,15 @@ internal static class Program
         shell.SetLogVerbosity = level => logs.Minimum = level;
         shell.ApplyLogVerbosity();
 
+        // **Three lines that split the last unmeasured stretch of the shutdown** (B402). The form's
+        // own log reaches `shutdown: the base returned` and the process still dies, so what is left
+        // is `Application.Run`'s own teardown and the `using`'s second disposal — and until now
+        // nothing wrote anything after the form stopped talking. `Run` disposes the form when the
+        // loop ends, so the `using` below is the SECOND disposal and takes the guarded path.
+        crashes.LogInformation("{Message}", "the message loop is starting");
+
         Application.Run(shell);
+
+        crashes.LogInformation("{Message}", "the message loop returned; Main is done");
     }
 }

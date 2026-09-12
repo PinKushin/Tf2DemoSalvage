@@ -26665,9 +26665,47 @@ for CA2213 with that justification rather than a class-level blanket, so CA2213 
 non-control fields. The `_shutdown` cancellation and the `_viewport` handler unhooks from attempt
 three stay — they stop in-flight work before teardown and are correct independently.
 
-**What is NOT established: whether this is the fix.** This machine has never reproduced the crash
-once, so the verdict is the CI run on `cba4b810` and nothing before it. Three previous attempts were
-announced as fixes on weaker evidence than this and all three were refuted by the next run.
+**REFUTED by the run on `cba4b810`, and it narrowed the search rather than wasting it.** The
+capture test failed identically, and the uploaded viewer log now ends:
+
+```
+18:25:44.110      [render] shutdown: idle stopped after 0 ms, device released after 11 ms
+18:25:44.110      [render] shutdown: releasing overlay
+18:25:44.110      [render] shutdown: releasing maps
+18:25:44.112      [render] shutdown: releasing shutdown
+18:25:44.112      [render] shutdown: releasing menu
+18:25:44.120      [render] shutdown: every member released
+```
+
+**Our whole override ran to completion and the process still died**, so nothing we dispose is the
+cause and no early-disposal story survives. What is left below that last line is `base.Dispose`,
+which destroys every child window, `Application.Run`'s own teardown, and the `using` in `Main`.
+Until now none of the three had ever written anything, because our override was the last thing in
+the process that spoke.
+
+**The removal of the six disposals stays**, on its own merits rather than as a fix: `Form.Dispose`
+walks `Controls`, so they were always redundant, and putting them back only parks the marker in
+front of whatever the real cause is.
+
+#### Attempt five, an instrument again: three lines past the end of what has ever been measured
+
+`Dispose` now logs `releasing the base, which destroys every child window` before `base.Dispose` and
+`the base returned` after it, and `Main` logs `the message loop is starting` and
+`the message loop returned; Main is done` around `Application.Run`. Four outcomes, and each names a
+different suspect:
+
+| last line in the log | what died |
+|---|---|
+| `every member released` | nothing new — the marker is lying |
+| `releasing the base…` | destroying a child window, i.e. a window procedure on the way down |
+| `the base returned` | `Application.Run`'s own teardown after the form is gone |
+| `Main is done` | the `using`'s second disposal, or process exit itself |
+
+Verified locally only as far as an instrument can be: the capture run on this machine prints all
+four lines in order and exits 0, so the lines are reachable and the writer flushes them.
+
+*Evidence class: the four-way split is arithmetic on the call order; which arm fires is measured by
+the next CI run.*
 
 *Evidence class: measured — six CI runs on one ordering plus two runs on a second ordering, through
 a per-member marker written before each disposal. The conclusion that double disposal is the
