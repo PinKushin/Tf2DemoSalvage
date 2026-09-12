@@ -669,7 +669,10 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 316 -> 329 on 2026-09-12: IvpObjectTemplateConformanceTests (13), vphysics' template fill
 # (FUN_18001c9d0) and the core's mass and per-axis inertia (FUN_180073df0) (B403). Compile-red first;
 # four sabotages, each reddening only its own case.
-run Tf2DemoSalvage.Animation.Tests animation 329
+#
+# 329 -> 333 on 2026-09-12: RagdollBodyConformanceTests +4, each element's mass center, hull inertia and
+# inertia limit brought into bone space (B403). Compile-red first; three sabotages, each reddening its own.
+run Tf2DemoSalvage.Animation.Tests animation 333
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

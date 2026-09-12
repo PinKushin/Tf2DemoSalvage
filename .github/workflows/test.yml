@@ -324,7 +324,9 @@ jobs:
           # (B369). Hand-built bodies, no game content.
           #
           # 316 -> 329 on 2026-09-12: IvpObjectTemplateConformanceTests (13) (B403). Arithmetic only.
-          ./build/assert-test-count.sh '**/animation.trx' 329 Animation
+          #
+          # 329 -> 333 on 2026-09-12: RagdollBodyConformanceTests +4, element mass data (B403). Synthetic.
+          ./build/assert-test-count.sh '**/animation.trx' 333 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView

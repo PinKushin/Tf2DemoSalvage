@@ -247,6 +247,7 @@ public sealed class PhysicsModel
     /// <param name="checksum">The <c>.mdl</c> checksum this belongs to, or zero.</param>
     /// <param name="collisionRules">The rules, or null for a model that declares none.</param>
     /// <param name="hulls">One hull per solid, or null for a model with no collision geometry.</param>
+    /// <param name="massProperties">One mass center and inertia per solid, or null for a model whose surfaces carry none.</param>
     /// <returns>The model.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -260,13 +261,14 @@ public sealed class PhysicsModel
         int declaredSolidCount,
         int checksum,
         PhysicsCollisionRules? collisionRules,
-        IReadOnlyList<IReadOnlyList<PhysicsLedge>>? hulls)
+        IReadOnlyList<IReadOnlyList<PhysicsLedge>>? hulls,
+        IReadOnlyList<PhysicsMassProperties?>? massProperties = null)
     {
         ArgumentNullException.ThrowIfNull(solids);
         ArgumentNullException.ThrowIfNull(constraints);
 
         return new PhysicsModel(
-            solids, constraints, declaredSolidCount, checksum, collisionRules, hulls);
+            solids, constraints, declaredSolidCount, checksum, collisionRules, hulls, null, massProperties);
     }
 
     private PhysicsModel(

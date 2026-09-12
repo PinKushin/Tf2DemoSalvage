@@ -26886,6 +26886,29 @@ it. Ours has one inertia, `mass × scale`, with no length in it at all — again
 inertia`, which for a limb is 3 to 25 in² per kilogram once converted — so every limb currently turns
 several times too easily, and about the wrong point.
 
+**Carried into the element, 2026-09-12.** `PhysicsModel.MassProperties` holds each solid's pair, and
+`RagdollBody` brings them into bone space on `RagdollElement.MassCenter` (like a hull point) and
+`HullInertia` (by axes, units squared; null when the surface carried none), with `RotationInertiaLimit`
+at `0.1` for a ragdoll element and `g_PhysDefaultObjectParams`' `0.05` otherwise. Four
+`RagdollBodyConformanceTests`, three sabotages each reddening its own. **Still not read by the simulation.**
+
+**The same core placement changes the joint's twist axis, and that rule diverges on its own too.** From
+the decompile of `FUN_1800393d0` (`D:\ghidra-proj\out\gate_1800393d0.log`, decompiler only — to be settled
+in the disassembly before it is ported), each candidate axis scores
+
+```
+r_A = objectMatrix_A · anchor_A − core_A position        -- FUN_180032740 composes the object offset
+r_B = objectMatrix_B · anchor_B − core_B position
+score = |r_A × a_A|² · invMass_A  +  (a term FUN_18003d320 builds from the axis in each core's frame)
+      + |r_B × a_B|² · invMass_B
+```
+
+and the largest wins. *That the middle term is the inverse rotational inertia along the axis is inferred.*
+Ours (`RagdollSimulation.Turning`) scores one anchor, unsquared, measured from the bone origin, with the
+element's raw mass. With the core at the bone and one anchor at zero the argmax agreed; once both anchors
+are measured from mass centers, squared and unsquared sums pick different axes, so this is part of the
+same fix and not a separate one.
+
 **The fix, in order:** read both unknowns from the binary; conformance tests for the placement, the
 offset, the inertia and the floor; then carry the core at the mass center with body-local geometry
 shifted by `−massCenter`, and report the bone as the core composed with the offset.

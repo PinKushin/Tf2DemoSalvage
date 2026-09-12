@@ -98,6 +98,89 @@ public sealed class RagdollBodyConformanceTests
     }
 
     /// <remarks>
+    /// **The mass center crosses the same seam as the hull's points** (B403): the compact surface holds it in
+    /// IVP metres and axes, in the solid's own frame, which is bone space here. IVP `(0.1, 0.2, 0.3)` is Source
+    /// `(x, z, −y)` × 39.37 = `(3.937, 11.811, −7.874)`.
+    /// </remarks>
+    [Test]
+    public void Build_ASolidWithMassProperties_CarriesItsMassCenterIntoSourceUnits()
+    {
+        Vector3 center = RagdollBody.Build(WithMassProperties(), Skeleton())!.Elements[1].MassCenter;
+
+        center.X.ShouldBe(3.937f, 1e-3f);
+        center.Y.ShouldBe(11.811f, 1e-3f);
+        center.Z.ShouldBe(-7.874f, 1e-3f);
+    }
+
+    /// <remarks>
+    /// **The hull inertia follows the AXES, not the signs, and its units are squared** (B403). IVP's per-axis
+    /// inertia `(0.001, 0.002, 0.003)` about its x, y and z: Source x is IVP x, Source y is IVP z, Source z is IVP
+    /// −y, so about Source's axes it is `(0.001, 0.003, 0.002)` — and metres² to inches² is `39.37²`, giving
+    /// `(1.55, 4.65, 3.1)`. A conversion that moved the axes like a point would negate one; one that scaled
+    /// once would be 39 times too small.
+    /// </remarks>
+    [Test]
+    public void Build_ASolidWithMassProperties_CarriesItsHullInertiaIntoSourceAxesAndUnits()
+    {
+        Vector3? inertia = RagdollBody.Build(WithMassProperties(), Skeleton())!.Elements[1].HullInertia;
+
+        inertia.ShouldNotBeNull();
+        inertia.Value.X.ShouldBe(0.001f * 39.37f * 39.37f, 1e-3f);
+        inertia.Value.Y.ShouldBe(0.003f * 39.37f * 39.37f, 1e-3f);
+        inertia.Value.Z.ShouldBe(0.002f * 39.37f * 39.37f, 1e-3f);
+    }
+
+    /// <remarks>
+    /// **A solid whose surface carried nothing has no hull inertia to hand on**, which is different from a
+    /// hull inertia of zero — the engine never builds such an object, so the element says so rather than
+    /// inventing a number.
+    /// </remarks>
+    [Test]
+    public void Build_ASolidWithNoMassProperties_HasNoHullInertia()
+    {
+        RagdollBody.Build(Physics(), Skeleton())!.Elements[1].HullInertia.ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **Every ragdoll element's inertia floor is a tenth**, because `RagdollAddSolid` overwrites the parsed
+    /// value — `solid.params.rotInertiaLimit = 0.1;` (`ragdoll_shared.cpp:192`) — before `CreatePolyObject`.
+    /// </remarks>
+    [Test]
+    public void Build_ARagdollSolid_TakesTheRagdollsInertiaLimitOfATenth()
+    {
+        RagdollBody body = RagdollBody.Build(Physics(), Skeleton())!;
+
+        body.Elements[0].RotationInertiaLimit.ShouldBe(0.1f);
+        body.Elements[1].RotationInertiaLimit.ShouldBe(0.1f);
+    }
+
+    /// <summary>Two solids with hulls, the child's surface carrying a mass center and inertia.</summary>
+    private static PhysicsModel WithMassProperties()
+    {
+        PhysicsLedge ledge = new(
+            [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
+            [(0, 1, 2)],
+            Vector3.Zero,
+            0.1f);
+
+        return PhysicsModel.From(
+            [
+                new PhysicsSolid(0, "bip_root", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f),
+                new PhysicsSolid(1, "bip_child", "bip_root", "flesh", 2f, 1f, 0f, 0f, 20f, 0f),
+            ],
+            [],
+            2,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [[ledge], [ledge]],
+            massProperties:
+            [
+                new PhysicsMassProperties(Vector3.Zero, new Vector3(0.01f, 0.01f, 0.01f)),
+                new PhysicsMassProperties(new Vector3(0.1f, 0.2f, 0.3f), new Vector3(0.001f, 0.002f, 0.003f)),
+            ]);
+    }
+
+    /// <remarks>
     /// **Solids map to bones by NAME, and the element order is the file's order.** A `.phy`'s
     /// constraints reference solids by index, so an element list in any other order silently
     /// rewires the skeleton.

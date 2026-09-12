@@ -104,7 +104,33 @@ public readonly record struct RagdollElement(
     float Volume,
     IReadOnlyList<Vector3> Hull,
     IReadOnlyList<(int A, int B, int C)> Faces,
-    string SurfaceProp);
+    string SurfaceProp)
+{
+    /// <summary>Where the hull's mass center is, in this element's own space and in Source units (B403).</summary>
+    /// <remarks>
+    /// **IVP places the body's core HERE, not at the bone** — `FUN_180073df0` takes it from the solid's compact
+    /// surface and keeps the object at `−massCenter` inside its core (`docs/findings/51`, *An IVP object's core
+    /// sits at the hull's mass center*). Zero when the surface carried none.
+    /// </remarks>
+    public Vector3 MassCenter { get; init; }
+
+    /// <summary>The hull's rotational inertia per kilogram about this element's own axes, in Source units squared (B403).</summary>
+    /// <remarks>
+    /// **The core's inertia is this times the inertia scale times the mass**, per axis, floored at
+    /// <see cref="RotationInertiaLimit"/> times its length (<see cref="IvpObjectTemplate.CoreInertia"/>).
+    /// **Null when the surface carried none**, which is not the same as zero: the engine never builds an object
+    /// without a surface, so there is no inertia of its to hand on.
+    /// </remarks>
+    public Vector3? HullInertia { get; init; }
+
+    /// <summary>The inertia floor, as a fraction of the inertia's length — <c>objectparams_t::rotInertiaLimit</c>.</summary>
+    /// <remarks>
+    /// **`0.05` is `g_PhysDefaultObjectParams`'** (`physics_shared.cpp:50`), and a ragdoll element overrides it
+    /// to `0.1` (`ragdoll_shared.cpp:192`). *Whether vphysics' own `.phy` parser can set it from a key is not
+    /// read*; this project's parser reads no such key.
+    /// </remarks>
+    public float RotationInertiaLimit { get; init; } = 0.05f;
+}
 
 /// <summary>
 /// A model's ragdoll: the rigid bodies its <c>.phy</c> declares and the joints between them (B58).
@@ -286,6 +312,8 @@ public sealed class RagdollBody
             (List<Vector3> Points, List<(int A, int B, int C)> Faces) shape =
                 HullInBoneSpace(physics, index);
 
+            (Vector3 massCenter, Vector3? hullInertia) = MassInBoneSpace(physics, index);
+
             elements[index] = new RagdollElement(
                 bone,
 
@@ -300,7 +328,14 @@ public sealed class RagdollBody
                 solid.Volume,
                 shape.Points,
                 shape.Faces,
-                solid.SurfaceProperty);
+                solid.SurfaceProperty)
+            {
+                MassCenter = massCenter,
+                HullInertia = hullInertia,
+
+                // `solid.params.rotInertiaLimit = 0.1;` — `ragdoll_shared.cpp:192`, for every element.
+                RotationInertiaLimit = RagdollRotationInertiaLimit,
+            };
         }
 
         foreach (RagdollConstraint constraint in physics.Constraints)
@@ -547,6 +582,7 @@ public sealed class RagdollBody
         PhysicsSolid solid = physics.Solids[0];
 
         (List<Vector3> points, List<(int A, int B, int C)> faces) = HullInBoneSpace(physics, 0);
+        (Vector3 massCenter, Vector3? hullInertia) = MassInBoneSpace(physics, 0);
 
         if (points.Count == 0)
         {
@@ -569,7 +605,11 @@ public sealed class RagdollBody
                     solid.Volume,
                     points,
                     faces,
-                    solid.SurfaceProperty),
+                    solid.SurfaceProperty)
+                {
+                    MassCenter = massCenter,
+                    HullInertia = hullInertia,
+                },
             ],
             [],
 
@@ -608,6 +648,30 @@ public sealed class RagdollBody
         }
 
         return (hull, faces);
+    }
+
+    /// <summary><c>solid.params.rotInertiaLimit = 0.1;</c> — <c>RagdollAddSolid</c>, <c>ragdoll_shared.cpp:192</c>.</summary>
+    private const float RagdollRotationInertiaLimit = 0.1f;
+
+    /// <summary>A solid's mass center and hull inertia, brought across the IVP seam into this element's space.</summary>
+    /// <remarks>
+    /// **The mass center moves like a hull point** — through <see cref="IvpWorldCollision.ToSource"/>, which is
+    /// `(x, z, −y)` × 39.37. **The inertia moves by its AXES** — about Source x is about IVP x, about Source y is
+    /// about IVP z, about Source z is about IVP y, with no sign, since an axis and its negation have the same
+    /// moment — and by the SQUARE of the unit conversion.
+    /// </remarks>
+    private static (Vector3 MassCenter, Vector3? HullInertia) MassInBoneSpace(PhysicsModel physics, int solid)
+    {
+        if (solid >= physics.MassProperties.Count || physics.MassProperties[solid] is not { } mass)
+        {
+            return (Vector3.Zero, null);
+        }
+
+        float squared = IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre;
+
+        return (
+            IvpWorldCollision.ToSource(mass.MassCenter),
+            new Vector3(mass.RotationInertia.X, mass.RotationInertia.Z, mass.RotationInertia.Y) * squared);
     }
 
     private static int BoneIndexByName(IReadOnlyList<StudioBone> bones, string name)
