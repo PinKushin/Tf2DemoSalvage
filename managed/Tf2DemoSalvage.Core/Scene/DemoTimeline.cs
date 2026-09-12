@@ -2928,7 +2928,13 @@ public sealed class DemoTimeline
     /// pass needs. Null when the recorder never saw it; those items then contribute nothing, which
     /// is what the engine does for a weapon that is not the active one.
     /// </remarks>
-    private static List<SceneCarriedItem>? CarriedAtDeath(
+    /// <remarks>
+    /// **Internal rather than private so its branches can be tested directly.** It is a pure
+    /// function of the tracks, the player and the held weapon — the surrounding `Build` needs a
+    /// whole demo, and the interesting cases here (a weapon against a wearable, a disguise
+    /// mismatch, a track with no item index) are cheaper and more exact stated as inputs.
+    /// </remarks>
+    internal static List<SceneCarriedItem>? CarriedAtDeath(
         Dictionary<int, ScenePropTrack> tracks, int? player, bool disguised, int? activeWeapon)
     {
         if (player is not { } owner)

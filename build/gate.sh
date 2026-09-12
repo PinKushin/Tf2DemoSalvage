@@ -496,7 +496,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # STEAM_X:Y:Z and SteamID64, matched by account across spellings, SourceTV still excluded.
 # 1874 -> 1878 on 2026-09-11: PausedSamplingConformanceTests (B399) - a paused client draws the last
 # received position, so paused and playing disagree by the whole interpolation window.
-run Tf2DemoSalvage.Core.Tests     core     1879
+#
+# 1879 -> 1888 on 2026-09-12: CarriedAtDeathTests, nine branch cases for what a corpse's bodygroups
+# are built from (B395). Written because CI's coverage floor caught the gap the gate cannot see —
+# Core branch coverage fell 85.2% -> 84.7% against a floor of 85 when those branches shipped
+# untested. The floor was right and the tests are the answer, not a lower floor.
+run Tf2DemoSalvage.Core.Tests     core     1888
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

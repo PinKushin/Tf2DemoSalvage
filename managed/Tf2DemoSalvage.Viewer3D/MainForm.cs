@@ -180,6 +180,17 @@ internal class MainForm : Form, IFrameSteps
         + "The demo will still play. Install TF2 through Steam, or put maps in the viewer's own "
         + "maps folder.";
 
+    /// <summary>The scene's surface, disposed by <c>base.Dispose</c> and not by us (B402).</summary>
+    /// <remarks>
+    /// **Suppressed because the field IS disposed, by a base the analyzer cannot follow.** It sits
+    /// in `Controls`, which `Form.Dispose` walks. Disposing it EARLY, from our own override, killed
+    /// the process on six CI runs — `shutdown: releasing viewport` was the last line each time —
+    /// and this is the one control whose window the Direct3D swap chain was bound to.
+    /// </remarks>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Usage",
+        "CA2213:Disposable fields should be disposed",
+        Justification = "Disposed by base.Dispose via Controls; disposing it here crashes on exit (B402).")]
     private readonly Panel _viewport;
     private readonly ToolStripStatusLabel _status;
     private readonly FlowLayoutPanel _actions;
@@ -5458,8 +5469,20 @@ internal class MainForm : Form, IFrameSteps
             {
                 _overlay?.Dispose();
 
-                Releasing("viewport");
-                _viewport.Dispose();
+                // **`_viewport` is deliberately NOT disposed here, and it is the only one** —
+                // B402, and the narrowness is the experiment. Every control in this list is in
+                // `Controls`, which `base.Dispose` walks at the end of this method, so all of
+                // these calls are redundant; they exist to satisfy CA2213. Six CI runs died on
+                // the FIRST of them, `shutdown: releasing viewport`, and the viewport is the one
+                // control whose window the Direct3D swap chain was bound to.
+                //
+                // Dropping only that one keeps the change to a single variable: if the next run
+                // dies on `releasing status` instead, the fault is early control disposal as a
+                // class and the rest follow; if it passes, it was the swap chain's window.
+                // Dropping all six at once would have answered neither question.
+                //
+                // **The analyzer is answered rather than obeyed.** CA2213 asks whether the field
+                // is disposed, and it is — by the base, which the analyzer cannot follow.
                 Releasing("status");
                 _status.Dispose();
                 Releasing("actions");

@@ -215,7 +215,10 @@ jobs:
           # 1866 -> 1869 on 2026-09-11: RosterEntityIndexConformanceTests (B398).
           # 1869 -> 1874 on 2026-09-11: PlayerLookupTests' Steam id cases.
           # 1874 -> 1878 on 2026-09-11: PausedSamplingConformanceTests (B399).
-          ./build/assert-test-count.sh '**/core.trx' 1879 Core
+          #
+          # 1879 -> 1888 on 2026-09-12: CarriedAtDeathTests (B395), written to restore the branch
+          # coverage those lines cost. Pure arithmetic over hand-built tracks, so they run here.
+          ./build/assert-test-count.sh '**/core.trx' 1888 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
