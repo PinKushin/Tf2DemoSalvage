@@ -453,12 +453,22 @@ public sealed class IvpWorldContactConformanceTests
 
     /// <summary>A point in Source units, as an <c>IVPS</c> section would store it.</summary>
     /// <remarks>
-    /// **The inverse of <see cref="IvpWorldCollision.ToSource"/>, written out rather than called**,
-    /// so this fixture cannot agree with a wrong reader by sharing its arithmetic. Metres, Y up,
-    /// and the handedness flip on the remaining axis.
+    /// **It calls <see cref="IvpTransform.Position"/>, and writing it out by hand instead is what
+    /// let B400 live.** The intent was that a hand-written inverse could not agree with a wrong
+    /// reader by sharing its arithmetic — but it was the same wrong reasoning writing both, so the
+    /// fixture reproduced the reader's 180° error exactly and every test here round-tripped through
+    /// it. Independence of CODE is not independence of BELIEF.
+    ///
+    /// `IvpTransform.Position` is read out of `vphysics.dll` (`FUN_180002cc0`), so calling it puts
+    /// the fixture on Valve's authority rather than on a second derivation, and
+    /// <c>IvpHullConventionConformanceTests</c> pins the two directions against each other.
     /// </remarks>
-    private static Vector3 Ivp(float x, float y, float z) =>
-        new(x * Metre, z * Metre, -y * Metre);
+    private static Vector3 Ivp(float x, float y, float z)
+    {
+        (float ivpX, float ivpY, float ivpZ) = IvpTransform.Position(x, y, z);
+
+        return new Vector3(ivpX, ivpY, ivpZ);
+    }
 
     /// <summary>Metres per Source unit — <c>METERS_PER_INCH</c>.</summary>
     private const float Metre = 0.0254f;

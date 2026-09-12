@@ -611,7 +611,12 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # `TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh` and set to the total the .trx reported. No
 # per-test note here on purpose: these tests were written by whoever raised the suite, and their
 # reasons are not mine to invent.
-run Tf2DemoSalvage.Animation.Tests animation 252
+#
+# 252 -> 255 on 2026-09-12: IvpHullConventionConformanceTests, three cases pinning
+# IvpWorldCollision.ToSource against IvpTransform.Position. That seam was the forward map applied
+# twice rather than inverted, rotating every collision hull 180 degrees about X (B400), and two of
+# these three were red before the fix.
+run Tf2DemoSalvage.Animation.Tests animation 255
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

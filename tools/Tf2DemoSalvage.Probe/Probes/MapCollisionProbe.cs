@@ -115,6 +115,7 @@ public sealed class MapCollisionProbe : IProbe
     /// <summary><c>CONTENTS_PLAYERCLIP</c> — <c>bspflags.h</c>.</summary>
     private const int PlayerClip = 0x10000;
 
+
     /// <summary><c>LUMP_DISPINFO</c> — <c>BspLumpIndex.DispInfo</c>, which is internal.</summary>
     private const int DispInfoLump = 26;
 
@@ -1044,6 +1045,65 @@ public sealed class MapCollisionProbe : IProbe
                 $"  node spheres: {inside.ToString("N0", CultureInfo.InvariantCulture)} points inside, " +
                 $"{outside.ToString("N0", CultureInfo.InvariantCulture)} outside, " +
                 $"worst overshoot {worst.ToString("0.######", CultureInfo.InvariantCulture)}"));
+
+            // **Model 0 solid by solid, in SOURCE units.** The world is not one hull: `PhysCreateWorld`
+            // builds `solids[0]` and then every other `staticsolid` beside it
+            // (`physics_shared.cpp:588-700`), and a solid's own extent says which part of the map it
+            // covers. A solid whose bounds cover a corner of the map rather than all of it is the
+            // shape a missing floor would have (B400).
+            foreach (MapPhysicsModel world in BspPhysicsCollision.Read(lump.ToArray()))
+            {
+                if (world.ModelIndex != 0)
+                {
+                    continue;
+                }
+
+                for (int solid = 0; solid < world.Hulls.Count; solid++)
+                {
+                    System.Numerics.Vector3 least = new(float.MaxValue);
+                    System.Numerics.Vector3 most = new(float.MinValue);
+
+                    foreach (PhysicsLedge ledge in world.Hulls[solid])
+                    {
+                        foreach (System.Numerics.Vector3 point in ledge.Points)
+                        {
+                            System.Numerics.Vector3 corner = IvpWorldCollision.ToSource(point);
+
+                            least = System.Numerics.Vector3.Min(least, corner);
+                            most = System.Numerics.Vector3.Max(most, corner);
+                        }
+                    }
+
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"  world solid {solid}: {world.Hulls[solid].Count} ledges, " +
+                        $"x[{least.X:0},{most.X:0}] y[{least.Y:0},{most.Y:0}] z[{least.Z:0},{most.Z:0}]"));
+
+                    // **The first few ledges' own extents, printed rather than summarised.** A box
+                    // census that matches NOTHING says the per-ledge geometry is wrong while the
+                    // whole-solid extent is right, and only the individual numbers say how (B400).
+                    foreach (PhysicsLedge ledge in world.Hulls[solid].Take(solid == 0 ? 5 : 0))
+                    {
+                        System.Numerics.Vector3 small = new(float.MaxValue);
+                        System.Numerics.Vector3 large = new(float.MinValue);
+
+                        foreach (System.Numerics.Vector3 point in ledge.Points)
+                        {
+                            System.Numerics.Vector3 edge = IvpWorldCollision.ToSource(point);
+
+                            small = System.Numerics.Vector3.Min(small, edge);
+                            large = System.Numerics.Vector3.Max(large, edge);
+                        }
+
+                        output.WriteLine(string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"    ledge: {ledge.Points.Count} points, " +
+                            $"{ledge.Triangles.Count} triangles, " +
+                            $"x[{small.X:0.#},{large.X:0.#}] y[{small.Y:0.#},{large.Y:0.#}] " +
+                            $"z[{small.Z:0.#},{large.Z:0.#}]"));
+                    }
+                }
+            }
 
             // **What is UNDER a given point, which is the question a corpse asks.** A body that
             // free-falls from its death position while its neighbours land is either standing where
