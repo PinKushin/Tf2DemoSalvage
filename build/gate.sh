@@ -648,7 +648,11 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 264 -> 271 on 2026-09-12: IvpRigidBodyTransformAtConformanceTests, seven cases for a body's
 # transform inside a step (FUN_1800734e0), the inverse step core+0x1d8, and sleep as the core's own
 # reset (FUN_180078bd0) (B369). Red first; two sabotages, each reddening only its own case.
-run Tf2DemoSalvage.Animation.Tests animation 271
+#
+# 271 -> 274 on 2026-09-12: IvpMatrixConformanceTests, three cases for the double-precision transform
+# IVP measures a body through (FUN_180071330, FUN_180070bc0) (B369). Red first; dropping the
+# translation reddened exactly the two translation cases.
+run Tf2DemoSalvage.Animation.Tests animation 274
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

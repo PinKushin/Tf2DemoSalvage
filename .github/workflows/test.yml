@@ -309,7 +309,9 @@ jobs:
           #
           # 264 -> 271 on 2026-09-12: IvpRigidBodyTransformAtConformanceTests (B369). Hand-built
           # bodies, no game content, so all seven run here too.
-          ./build/assert-test-count.sh '**/animation.trx' 271 Animation
+          #
+          # 271 -> 274 on 2026-09-12: IvpMatrixConformanceTests (B369). Arithmetic only.
+          ./build/assert-test-count.sh '**/animation.trx' 274 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView
