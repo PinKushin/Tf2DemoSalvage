@@ -2183,6 +2183,50 @@ default. **The margin and threshold block at `18012d540` is set twice**: at star
 `FUN_1800824c0(a, b)`, so its values depend on a caller. `DAT_18012d670` = `DAT_1800ea9b8` and
 `DAT_18012d66c` = 1000 are set beside it.
 
+**The block is linear in one collision tolerance `d`, plus gravity `g`.** Read from `FUN_180098fd0`,
+with its multipliers dumped (`0.1`, `0.9`, `1/64` exactly, `0.3`, `0.01`, `2.5`, `20`):
+
+| field | address | value | used by |
+|---|---|---|---|
+| `[0]` | `18012d540` | `0.1·d` | the recheck's `ε`, `(distance − ε) / speedBound` |
+| `[1]`, `[0x42]` | `544`, `648` | `1.0·d` | the two ends of the margin ramp |
+| `[2..0x41]` | `548..644` | 64 margins, `[1] + ([0x42] − [1])·i/64` | the per-material margin — flat at `1.0·d` until its ends differ |
+| `[0x43]`, `[0x44]` | `64c`, `650` | `2·d`, `2.3·d` | |
+| `[0x45]` | `654` | `√(2·(2.3·d − 1.0·d)·g)` = `√(2.6·d·g)` | the closing-speed threshold in `FUN_180099380` — the speed of a fall through that height |
+| `[0x46]` | `658` | `0.01·d` | |
+| `[0x47]`, `[0x48]` | `65c`, `660` | `4.5·d`, `22·d` | |
+| `[0x49]` | `664` | `0.1·d` | read in the event routines |
+| `[0x4a]` | `668` | `2·d` | |
+
+**`d` and `g` at runtime.** The startup call passes `0.01` and `9.81`. The environment constructor,
+`FUN_1800114f0`, then calls `FUN_1800824c0((DAT_18011f008 − DAT_1800eb144) × DAT_18011f000, 9.81)`, and
+`CPhysicsEnvironment::SetGravity` (`FUN_1800150f0`) re-calls it with the current `d` and the new
+gravity's magnitude, printing `"Set Gravity %.1f (%.3f tolerance)"` with `d × 39.37`. `DAT_18011f000`
+is the metres-per-inch constant `IvpTransform` already carries, so **`d` is a tolerance in inches
+converted to metres.**
+
+**Dumped, with two controls.** `DAT_18011f000` reads `0.0254` and `DAT_18011f004` reads `39.37`, the
+pair `IvpTransform` already holds, so the addresses are the right ones. Then `DAT_18011f008` is
+**`0.25`** and `DAT_1800eb144` is **`1e-4`**, both floats:
+
+```
+d = (0.25 − 0.0001) × 0.0254 = 0.00634746 m  =  0.2499 inch      -- printed "0.250 tolerance"
+```
+
+So in inches, the units this project's simulation runs in: **the collision margin is 0.2499, the
+recheck's `ε` is 0.025, and the closing-speed threshold is `√(2.6·d·g)`** — with `g` in metres per
+second squared, because `SetGravity` multiplies each component by `0.0254` before the block sees it
+(`IvpTransform`'s own citation of `1800150f0`). At `sv_gravity 800`, the default this project already
+cites from source in `PhysicsEnvironment.DefaultGravity` alongside
+`physenv->SetGravity( Vector(0, 0, -GetCurrentGravity()) )`, that is `g = 20.32` and a threshold of
+`√(2.6 × 0.00634746 × 20.32)` = **0.579 m/s, 22.8 inches a second** — *arithmetic on those two
+readings.*
+
+**This project's `IvpContact.Slop` is 0.25** — the same number, used the other way round. IVP holds a
+pair a margin APART and never lets it close further; ours lets a pair PENETRATE by that much before
+the solve pushes it back. Whether `Slop` was copied from the tolerance or arrived at independently, it
+answers the opposite question.
+
 *Evidence class: read from the decompiled binary for both functions and all three initialisers;
 constants read from the image where the image holds them, and explicitly NOT for the startup- and
 runtime-initialised block. **The feature kinds are unnamed.** An earlier draft of this section called
