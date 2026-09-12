@@ -58,6 +58,14 @@ it does not have, so `koth_pro_viaduct_rc4` reproduces the fetch locally in one 
 written "the local machine takes no fetch path" into a risk entry as a fact, and on that basis wrote
 a fix from a story rather than from evidence, and called it fixed. The next run failed identically.
 
+**"Gate green" is not a reason to push, because the gate does not measure coverage.** Same day,
+second instance of the same mistake: B395's new branches in `Core` shipped with no `Core` test, and
+Core branch coverage fell 85.2% → 84.7% against a floor of 85. The gate passed every count floor
+and cannot see coverage at all; only CI does. **Before pushing code that adds branches to a project
+with a coverage floor, ask which instrument would notice — and if the answer is "only CI", that is
+a reason to look, not a reason to assume.** The floor was right and the answer was tests, never a
+lower floor.
+
 **How to apply: before concluding a failure is CI-only, name the CONDITION and ask whether this
 machine can produce it.** Usually it can, with a different input. And when a crash has no name —
 `0xC000041D` with empty stderr is an exception inside a native callback — the move is to add the
