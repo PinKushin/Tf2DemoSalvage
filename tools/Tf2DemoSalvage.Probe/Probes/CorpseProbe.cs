@@ -363,6 +363,7 @@ public sealed class CorpseProbe : IProbe
             $"  of those, {readable} players had a readable m_hActiveWeapon at the death tick and " +
             $"{matched} of those matched one of their own bone-merged children");
 
+
         // **How many corpses could play a death ANIMATION at all.** `GetSequenceForDeath` is a
         // switch on `m_iDamageCustom` with two cases and no default — headshots and their
         // decapitation variants, and backstabs — returning -1 for every other death
@@ -475,6 +476,40 @@ public sealed class CorpseProbe : IProbe
         output.WriteLine(
             "  gib lists " +
             (gibList is null ? "NOT read — no install, so a gibbed corpse draws nothing" : "read"));
+
+        // **Is the bodygroup feature INERT on real data?** The wiring is tested and the arithmetic
+        // is tested, and neither answers whether TF2's own items declare anything for a corpse to
+        // apply — a feature that runs correctly over items which hide nothing draws exactly what
+        // body 0 drew (B395). Schema only: this asks what the items DECLARE, so it needs no model
+        // set, which is the expensive half.
+        IPlayerAppearance wardrobe =
+            DemoAppearance.Ensure(DemoAppearance.None, timeline, install, NullLogger.Instance);
+
+        int declaring = 0;
+        int corpsesAffected = 0;
+
+        foreach (SceneRagdoll corpse in timeline.Corpses)
+        {
+            if (corpse.Carried is not { Count: > 0 } carried)
+            {
+                continue;
+            }
+
+            int here = carried.Count(item =>
+                wardrobe.BodygroupsOf(item.ItemDefinitionIndex) is
+                    { Named.Count: > 0 } or { OverrideGroup: > -1, OverrideState: > -1 });
+
+            declaring += here;
+
+            if (here > 0)
+            {
+                corpsesAffected++;
+            }
+        }
+
+        output.WriteLine(
+            $"  carried items declaring bodygroups: {declaring}, on {corpsesAffected} corpses — " +
+            "zero would mean the feature is inert on this demo");
 
         // **Do TF2's player models actually HAVE the two death animations?** The whole death branch
         // resolves a LABEL through `SequenceByLabel`, and a label that does not exist resolves to -1

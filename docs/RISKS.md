@@ -29802,6 +29802,12 @@ the same one. Three of the nine new tests can only pass under the correct order.
 | is `m_hActiveWeapon` readable at the death tick | **no** — 15 of 204 |
 | when it IS readable, does it identify one of that player's own children | **yes, 15 of 15** |
 | does the last-known-weapon fallback fix it | **yes** — 11 → **199 of 204** |
+| is the feature INERT on real data — do TF2's own items declare anything? | **no** — 244 carried items declare bodygroups, on **200 of 204** corpses |
+
+**The last row is the one that stops this being a feature that runs and changes nothing.** Correct
+arithmetic over items that hide nothing draws exactly what body 0 drew, and neither the unit tests
+nor the wiring test can tell those apart — only asking the shipped schema can. It needs no model
+set, because it asks what the items DECLARE rather than what a given `.mdl` does with it.
 
 **The third row is the one that mattered.** A single count cannot separate "the value is absent"
 from "my comparison is wrong", and those have opposite fixes; splitting them showed the comparison
