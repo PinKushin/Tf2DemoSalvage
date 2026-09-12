@@ -57,7 +57,7 @@
 - [The demo dates its own fields](the-demo-dates-its-own-fields.md) — its embedded schema answers.
 - [A neutral default must be neutral](a-neutral-default-must-be-neutral.md) — `_white` is the magenta chequer.
 - [The client builds what the demo omits](the-client-builds-what-the-demo-omits.md) — index plus items_game.txt.
-- [Two matrix conventions, on purpose](two-matrix-conventions-on-purpose.md) — cross over once; IVP is a THIRD, axes and units and transpose at once.
+- [Two matrix conventions, on purpose](two-matrix-conventions-on-purpose.md) — cross over once; IVP is a THIRD, axes and units and transpose at once; an inverse is not the map applied twice.
 - [A default is not a constant](a-default-is-not-a-constant.md) — grep `ConVar`; cvarlist prints what is in force.
 - [Where the game and clients live](where-the-game-and-clients-live.md) — game on `F:`, decompilation on `D:`.
 - [Write can destroy what you did not read](write-can-destroy-what-you-did-not-read.md) — grep before building.

@@ -26598,7 +26598,69 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B400 OPEN 2026-09-11: one column in seven has a floor for the camera and none for a corpse, so corpses fall out of the world
+### B400 FIXED 2026-09-12: one column in seven has a floor for the camera and none for a corpse, so corpses fall out of the world
+
+**The cause: `IvpWorldCollision.ToSource` was `IvpTransform.Position` applied a second time instead of
+inverted.** The forward map, read out of `vphysics.dll` (`FUN_180002cc0`, confirmed independently in
+`CPhysicsEnvironment::SetGravity` at `1800150f0`), sends `Source (x, y, z)` to `IVP (x, −z, y)`; the
+inverse therefore sends `IVP (x, y, z)` to `Source (x, z, −y)`. The reader used `(x, −z, y)` both ways.
+**Two 90° rotations about X is a 180° one**, so every hull this project loaded — world brushes,
+brush entities, static props and `.phy` ragdoll bodies alike — arrived upside down and back to front.
+
+**Why nothing caught it for weeks, and this is the part worth keeping.** Both candidates are PROPER
+ROTATIONS, so neither mirrors anything: the world came out full-sized, in map coordinates, with the
+right ledge count, the right plane-count distribution, the right contents histogram, and bounding
+spheres that contained their own hulls. And a 5CP map is symmetric about a diagonal, so half the
+wrongly-placed geometry landed where other geometry legitimately is. Nine measurements in a row came
+back correct while the fault was in none of the things being measured
+(`docs/memory/nothing-is-closed.md#read-the-spec-before-measuring-our-data` — three correct measurements
+in a row means the question is wrong).
+
+**The instrument that found it, and why it could not be fooled.** The world's convexes are built with
+`NO_SHRINK` (`BuildWorldPhysModel( collisionList[i], NO_SHRINK, VPHYSICS_MERGE )`,
+`utils/vbsp/ivp.cpp:1531`) — the `VPHYSICS_SHRINK 0.5` applies only to brush ENTITY models — so a
+six-plane axis-aligned world brush and its convex have **the same eight corners**, and an exact box
+identity needs no tolerance, no plane matching, no normal direction and no shrink allowance:
+
+| `cp_process_final`, 2,083 axis-aligned solid box brushes | ledges with their exact bounds |
+|---|---|
+| as read | **0** |
+| `mirror y and z` — the correct inverse | **1,964** |
+| `mirror x and z` | 1,771 — *the map's own diagonal symmetry, not a rival reading* |
+| every other single or double axis flip | 0 to 95 |
+
+That third row is why the census prints all eleven candidates rather than the winner: on a symmetric
+map a wrong transform scores well, and only the identity control and the full table say which one is
+the convention.
+
+**Verified at the output.** The corpse that started this — seeded at (−2858, −2195, 760) on
+`cp_process_final` — fell 17,500 units and left the world; it now **settles at z 708.9 on the floor at
+704 and sleeps at tick 356**. On `koth_harvest_final` all five recorded seeds stay in the world where
+two used to leave it, and the plane census fell from 3,799 of 4,045 solid brushes unmatched to 62 of
+2,722.
+
+**Fixed by deleting the restatement, not by correcting it.** `IvpTransform.SourcePosition` already
+held the right inverse with its citation; `ToSource` now calls it, so the convention has one home.
+
+**And the same wrong belief had written the tests.** `IvpWorldContactConformanceTests.Ivp` spelled the
+Source→IVP map out by hand with the remark *"written out rather than called, so this fixture cannot
+agree with a wrong reader by sharing its arithmetic"* — and wrote the same 180° error, so ten tests
+round-tripped through it and passed. **Independence of CODE is not independence of BELIEF**; the three
+fixtures now call `IvpTransform.Position`, which is read from the binary, and
+`IvpHullConventionConformanceTests` pins the two directions against each other.
+
+**Still open, and neither is this defect:** two corpses on `koth_harvest_final` rest on displacement
+terrain at z −0.3 without ever sleeping, and the two divergences noted below are unfixed.
+
+*Evidence class: the transform is read-from-source (disassembly, two independent functions); the
+identification is measured — 0 versus 1,964 exact box identities on real map data, with the identity
+transform as the control.*
+
+#### What the investigation had established before the cause was found
+
+The measurements below are kept because every one of them was correct, and that is the finding: they
+exonerated the reader, the format, the depth guard, the contents mask, the broadphase and the map
+data in turn, while the fault sat in three lines none of them looked at.
 
 **Found chasing B395's headless corpse, and it is a bigger fault than the one being looked for.** The
 viewer's own log, capturing `demostf-cp_process_f12-2026-08-07` at tick 26578:

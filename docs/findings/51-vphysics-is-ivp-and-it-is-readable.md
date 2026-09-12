@@ -3749,3 +3749,59 @@ pair per (body, triangle) across steps as the mindist does; remove the vertex sa
 the compensators, which have nothing left to compensate for.
 
 *Evidence class: read from this project's own source.*
+
+## An inverse is not the map applied again, and a rotation hides that it is
+
+**Everything above was read correctly and then used backwards for weeks.** `IvpTransform.Position`
+sends `Source (x, y, z)` to `IVP (x, −z, y)`; its inverse sends `IVP (x, y, z)` to `Source (x, z, −y)`.
+`IvpWorldCollision.ToSource` — the single seam where every collision hull in the project crosses into
+Source space — spelled `(x, −z, y)` a second time. Two 90° rotations about X is a 180° one, so every
+world brush, brush entity, static prop and `.phy` ragdoll body loaded upside down and back to front.
+That is B400, and what it looked like from outside was corpses falling through the floor in about one
+column in seven.
+
+**A wrong ROTATION is the hardest kind of wrong transform to see, and a symmetric map makes it worse.**
+Nothing was mirrored, nothing was scaled, nothing left the map's coordinate range. The extents were
+map-sized. The ledge count tracked the brush count. The plane-count histogram was brush-shaped —
+4,063 hulls with six planes or fewer. Every hull contained its own vertex average, so the normals were
+outward. Every bounding sphere contained its hull. The contents masks were right. Individually printed
+ledges were clean axis-aligned eight-point boxes. And because a 5CP map is symmetric about a diagonal,
+much of the misplaced geometry landed where other geometry legitimately is, so even a nearest-neighbour
+search returned a plausible slab.
+
+**The measurement that could not be fooled was an identity, not a similarity.** The world's convexes
+are built with `NO_SHRINK` — `BuildWorldPhysModel( collisionList[i], NO_SHRINK, VPHYSICS_MERGE )`
+(`utils/vbsp/ivp.cpp:1531`), the `VPHYSICS_SHRINK 0.5` applying only to brush entity models — so a
+six-plane axis-aligned world brush and its convex have the same eight corners exactly. Counting brushes
+whose bounds equal some ledge's bounds needs no tolerance, no plane matching and no assumption about
+normal direction:
+
+| `cp_process_final`, 2,083 axis-aligned solid box brushes | matched |
+|---|---|
+| as read | 0 |
+| the correct inverse | 1,964 |
+| `mirror x and z` | 1,771 |
+| every other flip | 0–95 |
+
+**Print the whole table, never the winner.** `mirror x and z` scoring 1,771 is the map's own symmetry
+answering, and a probe that reported only its best candidate would have named the wrong transform with
+an impressive number beside it.
+
+### The wrong turns, kept
+
+- **The shrink was blamed for the mismatch.** An exact plane census reported 3,799 of 4,045 solid
+  brushes unmatched, and that was written off as an artefact of `VPHYSICS_SHRINK`, with the tolerance
+  loosened to 1.5 to compensate. The world is compiled with NO shrink, so the census had been right
+  the first time and the loosening destroyed the only signal in it.
+- **The map data was suspected.** The owner stopped that: *"you can never treat tf2's stock stuff as
+  having a mistake, because it basically never does outside of a few bugs, but even those must be
+  parity first, then fix."* Turning back to our own reader is what found it.
+- **The tests had already made the same mistake.** `IvpWorldContactConformanceTests.Ivp` wrote the
+  Source→IVP map out by hand, with a remark saying this was deliberate *"so this fixture cannot agree
+  with a wrong reader by sharing its arithmetic"* — and reproduced the identical 180° error, because
+  the same belief wrote both. Ten tests round-tripped through it and passed. **Independence of code is
+  not independence of belief**; a fixture is only independent if its authority is a different SOURCE,
+  and the fixtures now call the function that was read from the binary.
+
+*Evidence class: the transform is read-from-source, from two functions in `vphysics.dll` that share no
+code; the identification of the defect is measured, with the identity transform as its control.*

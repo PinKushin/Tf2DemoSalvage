@@ -134,15 +134,29 @@ public sealed class IvpWorldCollision
     /// height arrives in the Y slot: `koth_harvest_final`'s world hull read as `y -1184..160` and
     /// `z -10016..3040`, which is a map lying on its side.
     ///
-    /// **`hl.y = −ivp.z` and not `+`**, because the swap also changes handedness. Reading it
-    /// without the sign mirrors the map — every wall in the right place along one axis and the
-    /// wrong side along another, which looks like a subtly wrong map rather than a broken one.
+    /// **This is the INVERSE of <see cref="IvpTransform.Position"/>, and for a long time it was that
+    /// forward map applied a second time** — `(x, −z, y)` rather than `(x, z, −y)`. Two applications
+    /// of a 90° rotation about X is a 180° one, so every hull this project read, world and prop and
+    /// ragdoll alike, arrived upside down and back to front while the map's EXTENT stayed entirely
+    /// plausible. That was B400: corpses falling through floors.
+    ///
+    /// **Measured, not reasoned, because the reasoning is what got it wrong.** Of
+    /// `cp_process_final`'s 2,083 axis-aligned solid box brushes, 0 had a ledge with their exact
+    /// bounds before this correction and 1,964 do after — and the world's convexes are built with
+    /// `NO_SHRINK` (`utils/vbsp/ivp.cpp:1531`), so exact box identity is the right instrument.
+    /// **A 5CP map is symmetric about a diagonal, which is why nothing else caught it**: both
+    /// candidates are proper rotations, so neither mirrors anything, and the wrong one yields a
+    /// full-sized world with correct extents, plane counts and contents.
+    ///
+    /// **It delegates rather than restating**, because the restatement is the defect: the convention
+    /// has one home, read out of `vphysics.dll`, and a second copy of it can disagree.
     /// </remarks>
-    public static Vector3 ToSource(Vector3 point) =>
-        new(
-            point.X * SourceUnitsPerMetre,
-            -point.Z * SourceUnitsPerMetre,
-            point.Y * SourceUnitsPerMetre);
+    public static Vector3 ToSource(Vector3 point)
+    {
+        (float x, float y, float z) = IvpTransform.SourcePosition(point.X, point.Y, point.Z);
+
+        return new Vector3(x, y, z);
+    }
 
     private readonly List<IvpWorldLedge> _ledges = [];
 

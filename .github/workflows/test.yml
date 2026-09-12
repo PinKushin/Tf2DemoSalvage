@@ -289,7 +289,12 @@ jobs:
           # 41 -> 252 on 2026-09-09: closed DRIFT, not 211 new tests, measured on the same CI run
           # as core's raise above and for the same reason. This was the widest gap in the file:
           # a floor of 41 accepted a run that lost five sixths of the suite.
-          ./build/assert-test-count.sh '**/animation.trx' 252 Animation
+          #
+          # 252 -> 255 on 2026-09-12: IvpHullConventionConformanceTests (B400). These three assert
+          # arithmetic only — no game content, no SDK — so they run here as well as locally, and the
+          # check reads the TOTAL, which counts the one case that skips without TF2 installed.
+          # To be re-read off this workflow's own animation.trx on the next green run.
+          ./build/assert-test-count.sh '**/animation.trx' 255 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView

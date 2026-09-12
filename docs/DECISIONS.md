@@ -8554,3 +8554,33 @@ as a Steam id.
 **And the defect underneath was a parser defect** (B398): the roster read a `userinfo` client slot as
 an entity index, so every name resolved one entity short. Filed and tested as
 `RosterEntityIndexConformanceTests`, per his "this should be a test for the fucking parser too".
+
+## D165 — stock TF2 data is presumed correct, and a divergence is looked for in our own reader first (2026-09-12)
+
+**The owner's words, given while B400 was being investigated as though the map might be at fault:**
+
+> *"you know its a parity issue right, i guarantee it"*
+
+and then, when the map's own brush data was the remaining suspect:
+
+> *"yea you can never treat tf2's stock stuff as having a mistake, because it basically never does
+> outside of a few bugs, but even those must be parity first, then fix"*
+
+**This is a rule about where to look, not about whether Valve can be wrong.** Stock maps, models and
+compiled data are treated as correct by default; when our reading of them disagrees with the game,
+the hypothesis is our reader. Where TF2 genuinely does have a bug, that bug is still reproduced
+first — matched, then fixed — so the divergence is deliberate and recorded rather than incidental.
+It is D89's parity-first principle applied to DATA rather than to code.
+
+**It changed the investigation and it found the defect.** B400 had spent a session ruling causes out
+by measuring our data: the ledge-tree depth guard, the contents mask, the bounding spheres, the units,
+the plane histogram — nine correct measurements, all of them about the wrong subject. The suspicion
+then moved to `cp_process`'s brushes, on the grounds that a floor the camera sees and physics does not
+must be a compile artefact. His instruction stopped that, and reading our own hull seam instead found
+it in three lines: `IvpWorldCollision.ToSource` applied `IvpTransform.Position` a second time instead
+of inverting it, rotating every collision hull in the project 180° about X.
+
+**What it costs when ignored, and it is the expensive direction:** measuring our own data can only
+find data that is wrong, so every measurement comes back correct while looking like progress
+(`docs/memory/nothing-is-closed.md#read-the-spec-before-measuring-our-data`). Suspecting the shipped
+data adds a second wrong subject to the same search.

@@ -121,8 +121,17 @@ public sealed class GjkTests
         return world;
     }
 
-    private static Vector3 Ivp(float x, float y, float z) =>
-        new(x * Metre, z * Metre, -y * Metre);
+    /// <summary>A Source point in IVP's own convention — Valve's own map (B400).</summary>
+    /// <remarks>
+    /// Read out of `vphysics.dll`; see <c>IvpWorldContactConformanceTests.Ivp</c> for why this calls
+    /// it rather than writing the three lines out again.
+    /// </remarks>
+    private static Vector3 Ivp(float x, float y, float z)
+    {
+        (float ivpX, float ivpY, float ivpZ) = IvpTransform.Position(x, y, z);
+
+        return new Vector3(ivpX, ivpY, ivpZ);
+    }
 
     private const float Metre = 0.0254f;
 }
