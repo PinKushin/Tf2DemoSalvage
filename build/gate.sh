@@ -676,7 +676,11 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 333 -> 339 on 2026-09-12: the core at the hull's mass center (B403). RagdollSimulationConformanceTests +4
 # (core placement, the bone reported, per-axis inertia, anchors in core space) and
 # IvpRigidBodyObjectOffsetConformanceTests (2). Compile-red first; sabotaged in two runs.
-run Tf2DemoSalvage.Animation.Tests animation 339
+#
+# 339 -> 341 on 2026-09-12: RagdollSimulationConformanceTests +2 for the engine's twist-axis score
+# (FUN_1800393d0, FUN_18003d320) (B403) — the inertia term, and both anchors squared from each core. Red
+# against the old rule first; one sabotage per term, each reddening only its own case.
+run Tf2DemoSalvage.Animation.Tests animation 341
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

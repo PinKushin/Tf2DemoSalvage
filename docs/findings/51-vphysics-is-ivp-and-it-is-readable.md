@@ -2306,6 +2306,33 @@ of them are in IVP's own object frame and units** — metres, IVP axes — as th
 `FUN_18006e120` and the surface manager's slots; from the decompiler for the shapes of `FUN_1800790a0`,
 `FUN_180070290`, `FUN_18001b340` and `FUN_18000b750`.*
 
+**The joint's twist axis.** `FUN_1800393d0` chooses which of a ragdoll joint's three axes is the twist by a
+score, read from its disassembly (`1800395f6..180039ae5`):
+
+1. Both objects' matrices, offset composed (`FUN_180032740`); each anchor put through its own
+   (`FUN_180033720`), less its CORE's position narrowed to float (`core+0xf0..+0x100`, `CVTPD2PS` then
+   `SUBSS`) — so each arm is measured from the mass center.
+2. For each axis `i`, the reference frame's column `i` and the attached frame's, each put into the world
+   through its object's matrix (`FUN_18003ec30`).
+3. A purely angular constraint row per body, the world axis taken back into that core's frame, handed to
+   `FUN_18003d320`, the general `J · M⁻¹ · Jᵀ` accumulator: its angular lanes are weighted by the core's
+   inverse inertia at `+0x40/+0x44/+0x48` and its linear lanes by the inverse mass at `+0x4c`. Both calls add
+   into the same element.
+4. `score = |r_A × a_A|² · invMass_A`, then `+` that element, then `+ |r_B × a_B|² · invMass_B`, all in
+   float.
+5. The best starts at `DAT_1800ea9f8` = `−1.0`; `COMISS` then `CMOVBE` keeps the previous index unless the
+   score is strictly higher, and `MAXSS` carries the best.
+
+**This project scored `|anchor × a|` for the attached side alone, unsquared, from the bone, by raw mass**
+(B306's rule). That picks the same axis as the engine only while the reference anchor sits at its core and
+the inertia is the same on every axis — both of which B403 undid. Ported as `RagdollSimulation.Turning`, in
+each body's frame: a rotation changes neither a cross product's length nor a vector's components in its own
+frame, so only the last bits of the engine's round trip through the world can differ.
+
+*Evidence class: read from the disassembly for the score, the start value and the comparison; that the
+accumulated element is `Σ a_k² · invInertia_k` for a purely angular row is read from `FUN_18003d320`'s lanes
+and the row's zeroed linear part.*
+
 **The lattice is 200 ticks a second.** `DAT_1800feb78` is `200.0` and `DAT_1800fd748` is `0.005`
 (float), and the refinement gives up at **20 ticks** — a tenth of a second, which is why the motion
 cache has 21 slots, the start and twenty.

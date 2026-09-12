@@ -328,7 +328,9 @@ jobs:
           # 329 -> 333 on 2026-09-12: RagdollBodyConformanceTests +4, element mass data (B403). Synthetic.
           #
           # 333 -> 339 on 2026-09-12: core placement at the mass center (B403), +6. Synthetic.
-          ./build/assert-test-count.sh '**/animation.trx' 339 Animation
+          #
+          # 339 -> 341 on 2026-09-12: the engine's twist-axis score (B403), +2. Synthetic.
+          ./build/assert-test-count.sh '**/animation.trx' 341 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView

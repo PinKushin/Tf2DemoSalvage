@@ -413,6 +413,116 @@ public sealed class RagdollSimulationConformanceTests
         joint.AnchorB.Y.ShouldBe(2f, 1e-4f);
     }
 
+    /// <remarks>
+    /// **The twist axis also weighs how easily each CORE turns about the axis** — `FUN_18003d320`, the
+    /// accumulator `FUN_1800393d0` hands a purely angular row, adds `a_k² · invInertia_k` for each body
+    /// (`docs/findings/51`, *The joint's twist axis*). The anchor term alone picks Z here: the parent's
+    /// anchor is `(3, 4, 0)` at an inverse mass of a tenth, scoring `(1.6, 0.9, 2.5)`. But the child's hull is
+    /// thin about Y — `(1, 0.001, 1)` per kilogram at mass 2, floored to `0.283` about Y by a tenth of its
+    /// length — so its inverse inertia about Y is `3.54` against `0.5` about the others, and the parent adds
+    /// `0.1` on every axis. The totals are about `(2.2, 4.54, 3.1)`: **Y takes the twist**, and with it Y's
+    /// declared 45°. A rule without the inertia term picks Z and its 20°.
+    /// </remarks>
+    [Test]
+    public void Create_AJointWhoseChildTurnsEasilyAboutOneAxis_GivesThatAxisTheTwist()
+    {
+        const float Squared = 39.37f * 39.37f;
+
+        RagdollConstraint constraint = new(
+            0,
+            1,
+            new ConstraintAxis(-5f, 5f, 0f),
+            new ConstraintAxis(-45f, 45f, 0f),
+            new ConstraintAxis(-20f, 20f, 0f));
+
+        PhysicsModel physics = PhysicsModel.From(
+            [
+                new PhysicsSolid(0, "bip_root", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f),
+                new PhysicsSolid(1, "bip_child", "bip_root", "flesh", 2f, 1f, 0f, 0f, 20f, 0f),
+            ],
+            [constraint],
+            2,
+            checksum: 0,
+            collisionRules: null,
+            hulls: null,
+            massProperties:
+            [
+                new PhysicsMassProperties(Vector3.Zero, new Vector3(1f, 1f, 1f) / Squared),
+
+                // Source (1, 0.001, 1) per kilogram: about IVP's x, y and z that is (1, 1, 0.001).
+                new PhysicsMassProperties(Vector3.Zero, new Vector3(1f, 1f, 0.001f) / Squared),
+            ]);
+
+        RagdollSimulation simulation = RagdollSimulation.Create(RagdollBody.Build(physics, Skeleton())!, Step, Start());
+
+        IvpRagdollConstraint joint = simulation.Environment.Constraints.Joints[0].Constraint;
+
+        const float Radian = 0.017453292f;
+
+        joint.Twist.Lower.ShouldBe(-45f * Radian, Tolerance, "the Y axis, which the child turns about most easily");
+        joint.Twist.Upper.ShouldBe(45f * Radian, Tolerance);
+    }
+
+    /// <remarks>
+    /// **Both anchors count, measured from each CORE, and their lever arms are SQUARED** — `FUN_1800393d0`
+    /// scores `invMass_A · |r_A × a|² + … + invMass_B · |r_B × a|²`. The child's mass center is `(−3, −1, −2)` and
+    /// the parent's `(3, 1, 0)`, so in core space the anchors are `(3, 1, 2)` and `(0, 3, 0)`. With inverse
+    /// masses of a half and a tenth and the same inertia on every axis:
+    ///
+    /// | axis | child | parent | total |
+    /// |---|---|---|---|
+    /// | x | 0.5 × 5 | 0.1 × 9 | 3.4 |
+    /// | y | 0.5 × 13 | 0 | **6.5** |
+    /// | z | 0.5 × 10 | 0.1 × 9 | 5.9 |
+    ///
+    /// **Y takes the twist and its 45°.** Found by search so that every wrong rule lands elsewhere: unsquared arms
+    /// pick Z, the parent's anchor alone picks X, and the old single anchor `(3, 4, 0)` picks Z.
+    /// </remarks>
+    [Test]
+    public void Create_AJointWithBothAnchorsOffTheBone_ScoresTheirSquaredArmsFromEachCore()
+    {
+        const float Squared = 39.37f * 39.37f;
+
+        RagdollConstraint constraint = new(
+            0,
+            1,
+            new ConstraintAxis(-5f, 5f, 0f),
+            new ConstraintAxis(-45f, 45f, 0f),
+            new ConstraintAxis(-20f, 20f, 0f));
+
+        PhysicsModel physics = PhysicsModel.From(
+            [
+                new PhysicsSolid(0, "bip_root", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f),
+                new PhysicsSolid(1, "bip_child", "bip_root", "flesh", 2f, 1f, 0f, 0f, 20f, 0f),
+            ],
+            [constraint],
+            2,
+            checksum: 0,
+            collisionRules: null,
+            hulls: null,
+            massProperties:
+            [
+                // Source (3, 1, 0) is IVP (3, 0, −1)... inverted: IVP (x, y, z) = Source (x, −z, y) / 39.37.
+                new PhysicsMassProperties(new Vector3(3f, 0f, 1f) * Metre, new Vector3(1f, 1f, 1f) / Squared),
+
+                // Source (−3, −1, −2) is IVP (−3, 2, −1) / 39.37.
+                new PhysicsMassProperties(new Vector3(-3f, 2f, -1f) * Metre, new Vector3(1f, 1f, 1f) / Squared),
+            ]);
+
+        RagdollSimulation simulation = RagdollSimulation.Create(RagdollBody.Build(physics, Skeleton())!, Step, Start());
+
+        IvpRagdollJoint joint = simulation.Environment.Constraints.Joints[0];
+
+        // The anchors this score is taken over, so a wrong answer below cannot be blamed on the fixture.
+        joint.AnchorA.X.ShouldBe(3f, 1e-3f);
+        joint.AnchorA.Z.ShouldBe(2f, 1e-3f);
+        joint.AnchorB.Y.ShouldBe(3f, 1e-3f);
+
+        const float Radian = 0.017453292f;
+
+        joint.Constraint.Twist.Lower.ShouldBe(-45f * Radian, Tolerance, "the Y axis, by the squared arms");
+    }
+
     /// <summary>The two-solid ragdoll whose surfaces carry a mass center and inertia, in IVP metres.</summary>
     /// <remarks>
     /// Chosen to land on round Source numbers: the child's mass center is Source `(1, 0, 0)`, which is IVP

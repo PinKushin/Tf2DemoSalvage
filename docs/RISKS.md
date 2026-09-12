@@ -26932,8 +26932,32 @@ the cases each was predicted to.
 **Honest interim state, named so it is not mistaken for finished:** `RagdollSimulation.Turning` still scores
 one unsquared anchor, `OriginParentSpace`, measured from the bone — the old rule on the old geometry —
 while the anchors it would have to score have moved. The engine's rule is the next change; its disassembly
-is taken. **And nothing has been measured on a real corpse yet**: whether `corpse-drop` changes, and how, is
-the next measurement.
+is taken.
+
+**Measured on real corpses, 2026-09-12** — `corpse-drop` with its five default seeds, run on the commit
+before the core placement (`9f2f9a87`, in a scratch worktree) and on the one after (`d795a22e`), same probe,
+same machine:
+
+| seed | before | after |
+|---|---|---|
+| (361.7, −1614.3) | asleep tick 372, lowest 14.9 | asleep tick 381, lowest 24.8 |
+| (−11.5, −1558.8) | **AWAKE, lowest −0.3**, 150.6 u/s | asleep tick 395, lowest 4.5 |
+| (−972.6, −1400.3) | asleep tick 623, lowest 29.5 | **AWAKE**, lowest 37.2, 59.9 u/s |
+| (256.9, −1416.1) | asleep tick 607, lowest 2.3 | asleep tick 433, lowest 5.7 |
+| (−953.8, −1556.3) | **AWAKE, lowest −0.3**, 100.6 u/s | AWAKE, lowest 38.1, 61.3 u/s |
+
+**No corpse ends below its floor any more** — both that finished at −0.3 now finish above the surface they
+rest on, which is the half of B369's closing condition that concerns buried limbs — and the two that sleep
+in both runs settle sooner. **One that slept no longer does**, so three sleep and two stay awake, as
+before. *What keeps the awake two moving is not measured*; both rest near ledges at z ≈ 40 with residual
+speed near 60, and the twist-axis rule still being the old one is the known unported difference on this
+path.
+
+**The twist-axis rule is ported, 2026-09-12** — `RagdollSimulation.Turning` now scores each axis as
+`FUN_1800393d0` does (`docs/findings/51`, *The joint's twist axis*): both anchors' arms squared from each
+core and weighted by inverse mass, plus each core's inverse inertia about the axis, first strictly highest
+from −1. Two conformance tests, each red against the old rule and found by search so every wrong rule picks
+a different axis; one sabotage per term reddened only its own. The interim state above is closed.
 
 **The fix, in order:** read both unknowns from the binary; conformance tests for the placement, the
 offset, the inertia and the floor; then carry the core at the mass center with body-local geometry
