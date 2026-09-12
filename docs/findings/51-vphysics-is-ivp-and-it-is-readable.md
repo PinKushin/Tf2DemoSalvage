@@ -3348,6 +3348,16 @@ question is WHICH reading.
 `VisitLeaves_r( planes, dmodels[0].headnode ); planes.AddBrushes();` (`ivp.cpp:1278-1279`). Model 0's
 two solids read 2,671 and 312 against those 2,722 and 314. Nothing is being dropped.
 
+**Corrected 2026-09-12: that measurement is still right and the sentence it supports was not.** It
+was taken while every ledge in the project was rotated 180° about X (B400, below), and a rotation
+preserves counts exactly — so "our physics world is complete" was true while "our physics world is
+correct" was false, and the two were read as one claim. Complete is a statement about the
+denominator; correct needs an identity the format guarantees, which is what the box census
+eventually supplied. The conclusion below about displacement base brushes survives independently —
+it is read from `virtualterrain {}` and vbsp, not from these counts — but it was also doing work it
+should not have been asked to do, because a genuine physics-side fault was being explained away as
+a legitimate disagreement between two readings.
+
 **So the 26 columns are the CAMERA's reading, not the corpse's.** Our `BspLeafTree.Sweep` stops on
 brushes that vphysics has no collision for — a displacement's base brush is solid in `LUMP_BRUSHES`
 and absent from `LUMP_PHYSCOLLIDE` by design, because `virtualterrain {}` hands that ground to the

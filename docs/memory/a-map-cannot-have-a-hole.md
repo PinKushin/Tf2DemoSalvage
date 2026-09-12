@@ -28,6 +28,19 @@ Same shape as [[instrument-bugs-outnumber-decoder-bugs]]'s empty-search rule one
 says an absence is usually about the grep, this one says an absence is usually about which reading
 you asked. The probe's own seed defaults were wrong here too. D149.
 
+**A COUNT can be complete while the geometry is in the wrong place, and that is how this rule gets
+misused** (B400, 2026-09-12). The measurement above — 2,722 solid brushes against 2,671 ledges, one
+convex per referenced brush — is still correct, and it was taken while every ledge in the project
+was rotated 180° about X. A rotation preserves counts, extents, plane totals and contents
+histograms, so "the physics reading is complete" was true and "the physics reading is right" was
+false, and the same sentence had been read as both. That reading is exactly what kept a real
+physics-side defect looking like a camera-side disagreement for days.
+
+**So: completeness and correctness are two questions, and a count only ever answers the first.**
+Pair every completeness count with one IDENTITY the format guarantees — for the collide, a
+six-plane axis-aligned world brush and its convex share eight corners exactly, because the world is
+built with `NO_SHRINK`. Nothing about that test can be satisfied by a wrong transform.
+
 ---
 
 ## `a-hole-is-not-always-a-drawing-fault` — ask what CLASS of geometry could occupy it

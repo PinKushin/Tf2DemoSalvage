@@ -7942,6 +7942,15 @@ deliberately has no collision for. The corpse's world and the camera's world SHO
 file.** "The physics world floors 6,331 columns where the camera world floors 6,331" is a claim that
 can be wrong; "the map has holes" is a claim that cannot be right.
 
+**Amended 2026-09-12, and the amendment is the half that was missing.** Those counts were taken
+while every ledge this project read was rotated 180° about X (B400), and a rotation changes no
+count, no extent and no histogram — so "our physics world is complete" was true at the same moment
+"our physics world is correct" was false. The rule stands; what it does NOT license is treating a
+complete denominator as a clean bill of health for the reading, which is how a real physics-side
+defect spent days looking like a legitimate disagreement between two readings. **Pair the
+completeness count with one identity the format guarantees** — here, that a six-plane axis-aligned
+world brush and its convex share eight corners exactly, the world being compiled `NO_SHRINK`.
+
 **This is the same shape as `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control` one level up.** That
 rule says an absence is usually about the grep; this one says an absence is usually about which of
 several parallel readings you asked.
