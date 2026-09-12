@@ -644,7 +644,11 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # the rotation a body is evaluated at inside a step (B369). Red first as a compile failure; two
 # sabotages, each reddening only its own case -- the sign dropped from the slerp reddened the
 # negated-target case, and forcing every dot through the lerp reddened the quarter-turn case.
-run Tf2DemoSalvage.Animation.Tests animation 264
+#
+# 264 -> 271 on 2026-09-12: IvpRigidBodyTransformAtConformanceTests, seven cases for a body's
+# transform inside a step (FUN_1800734e0), the inverse step core+0x1d8, and sleep as the core's own
+# reset (FUN_180078bd0) (B369). Red first; two sabotages, each reddening only its own case.
+run Tf2DemoSalvage.Animation.Tests animation 271
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
