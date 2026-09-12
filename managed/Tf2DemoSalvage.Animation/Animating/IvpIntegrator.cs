@@ -178,6 +178,40 @@ public sealed class IvpRigidBody
         set => _hull = value ?? [];
     }
 
+    /// <summary>Where the object sits inside this core — <c>object+0x60</c> (B403).</summary>
+    /// <remarks>
+    /// **The core is at the hull's mass center and the object is kept at `−massCenter` inside it**, stored by
+    /// `FUN_180074380` and composed back into every transform the engine hands out for the object
+    /// (`FUN_1800734e0`, `FUN_180032740`, `FUN_180037620`). Zero — the engine's bit `0x800` — when the mass
+    /// center is negligibly close to the object's origin. **The core-object rotation is the identity** for
+    /// every object `FUN_180073df0` creates, so no rotation goes with it.
+    /// </remarks>
+    public (float X, float Y, float Z) ObjectOffset { get; set; }
+
+    /// <summary>A hull point in this core's frame: the object-frame point plus the offset.</summary>
+    /// <param name="index">The point's index in <see cref="Hull"/>.</param>
+    /// <returns>The point, relative to the core and in its axes.</returns>
+    /// <remarks>
+    /// **The engine stores ledge points in the object's frame and composes the offset each time it places
+    /// them**, so this is asked per use rather than baked into <see cref="Hull"/> — which is also what the
+    /// time-of-impact search will need when it measures a point through the object's transform.
+    /// </remarks>
+    public (float X, float Y, float Z) CoreHullPoint(int index)
+    {
+        (float x, float y, float z) = _hull[index];
+
+        return (x + ObjectOffset.X, y + ObjectOffset.Y, z + ObjectOffset.Z);
+    }
+
+    /// <summary>Where the object's own origin is — what vphysics reports as the object's position.</summary>
+    /// <returns>The core's position plus the offset turned by the core's orientation.</returns>
+    public (double X, double Y, double Z) ObjectOrigin()
+    {
+        (float X, float Y, float Z) turned = IvpQuaternion.Rotate(Orientation, ObjectOffset);
+
+        return (Position.X + turned.X, Position.Y + turned.Y, Position.Z + turned.Z);
+    }
+
     /// <summary>The hull's FACES, indexing <see cref="Hull"/> — the ledge triangles from the `.phy`.</summary>
     /// <remarks>
     /// **Read all along and thrown away one line before the physics saw them** (B306).

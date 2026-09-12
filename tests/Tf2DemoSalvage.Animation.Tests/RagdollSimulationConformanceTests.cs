@@ -334,6 +334,119 @@ public sealed class RagdollSimulationConformanceTests
             0d, "and it is resting ON the floor, which is what makes the slice count mean anything");
     }
 
+    /// <remarks>
+    /// **The core sits at the hull's mass center, not at the bone** (B403) — `FUN_180073df0` places it there
+    /// and keeps the object at `−massCenter` inside it. The child starts at `(3, 4, 0)` turned a quarter about
+    /// Z, and its mass center is one unit along its own X, which the turn sends along world Y: the core is at
+    /// `(3, 5, 0)`. A core left at the bone would be at `(3, 4, 0)`; one offset without the turn, at `(4, 4, 0)`.
+    /// </remarks>
+    [Test]
+    public void Create_AnElementWithAMassCenter_PlacesItsCoreThere()
+    {
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            RagdollBody.Build(WithMassProperties(), Skeleton())!, Step, TurnedChild());
+
+        IvpRigidBody child = simulation.Environment.Bodies[1];
+
+        child.Position.X.ShouldBe(3d, 1e-4d);
+        child.Position.Y.ShouldBe(5d, 1e-4d);
+        child.Position.Z.ShouldBe(0d, 1e-4d);
+        child.ObjectOffset.X.ShouldBe(-1f, 1e-4f);
+    }
+
+    /// <remarks>
+    /// **What the rest of the program reads is the BONE**, as vphysics' `GetPosition` composes the offset back
+    /// in (`FUN_180032740`): before any step the child's state is where it started, `(3, 4, 0)`, even though
+    /// its core is a unit away.
+    /// </remarks>
+    [Test]
+    public void State_BeforeAnyStep_ReportsEachBoneWhereItStartedNotItsCore()
+    {
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            RagdollBody.Build(WithMassProperties(), Skeleton())!, Step, TurnedChild());
+
+        Vector3 child = simulation.State()[1].Position;
+
+        child.X.ShouldBe(3f, Tolerance);
+        child.Y.ShouldBe(4f, Tolerance);
+        child.Z.ShouldBe(0f, Tolerance);
+    }
+
+    /// <remarks>
+    /// **Per-axis inertia from the hull, times the scale, times the mass** (`IvpObjectTemplate.CoreInertia`).
+    /// The child's hull inertia is `(1, 2, 3)` per kilogram about its own axes, its scale 1 and its mass 2:
+    /// `(2, 4, 6)`, above the floor of a tenth of their length (0.75). Its reciprocals follow, and so does the
+    /// inverse of the clamped mass.
+    /// </remarks>
+    [Test]
+    public void Create_AnElementWithHullInertia_TakesThePerAxisInertiaOfItsTemplate()
+    {
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            RagdollBody.Build(WithMassProperties(), Skeleton())!, Step, TurnedChild());
+
+        IvpRigidBody child = simulation.Environment.Bodies[1];
+
+        child.Inertia.X.ShouldBe(2f, 1e-3f);
+        child.Inertia.Y.ShouldBe(4f, 1e-3f);
+        child.Inertia.Z.ShouldBe(6f, 1e-3f);
+        child.InverseInertia.Z.ShouldBe(1f / 6f, 1e-4f);
+        child.InverseMass.ShouldBe(0.5f, 1e-6f);
+    }
+
+    /// <remarks>
+    /// **A joint's anchors are measured from each body's CORE.** The engine's constraint is created in object
+    /// space and taken into core space by the offset: the child's anchor is its own bone origin, which in its
+    /// core is `−(1, 0, 0)`; the parent's is where the child's bone stands in the parent's space, `(3, 4, 0)`,
+    /// less the parent's mass center `(0, 2, 0)`.
+    /// </remarks>
+    [Test]
+    public void Create_AJoint_AnchorsBothEndsInCoreSpace()
+    {
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            RagdollBody.Build(WithMassProperties(), Skeleton())!, Step, TurnedChild());
+
+        IvpRagdollJoint joint = simulation.Environment.Constraints.Joints[0];
+
+        joint.AnchorA.X.ShouldBe(-1f, 1e-4f);
+        joint.AnchorA.Y.ShouldBe(0f, 1e-4f);
+        joint.AnchorB.X.ShouldBe(3f, 1e-4f);
+        joint.AnchorB.Y.ShouldBe(2f, 1e-4f);
+    }
+
+    /// <summary>The two-solid ragdoll whose surfaces carry a mass center and inertia, in IVP metres.</summary>
+    /// <remarks>
+    /// Chosen to land on round Source numbers: the child's mass center is Source `(1, 0, 0)`, which is IVP
+    /// `(0.0254, 0, 0)`; the parent's is Source `(0, 2, 0)`, IVP `(0, 0, 0.0508)`, since Source Y is IVP Z. The
+    /// child's hull inertia is Source `(1, 2, 3)` per kilogram, which about IVP's axes is `(1, 3, 2) / 39.37²`.
+    /// </remarks>
+    private static PhysicsModel WithMassProperties()
+    {
+        const float Squared = 39.37f * 39.37f;
+
+        return PhysicsModel.From(
+            [
+                new PhysicsSolid(0, "bip_root", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f),
+                new PhysicsSolid(1, "bip_child", "bip_root", "flesh", 2f, 1f, 0f, 0f, 20f, 0f),
+            ],
+            [new RagdollConstraint(0, 1, Axis, Axis, Axis)],
+            2,
+            checksum: 0,
+            collisionRules: null,
+            hulls: null,
+            massProperties:
+            [
+                new PhysicsMassProperties(new Vector3(0f, 0f, 2f * Metre), new Vector3(1f, 1f, 1f) / Squared),
+                new PhysicsMassProperties(new Vector3(Metre, 0f, 0f), new Vector3(1f, 3f, 2f) / Squared),
+            ]);
+    }
+
+    /// <summary>The bind positions of <see cref="Start"/>, with the child turned a quarter about Z.</summary>
+    private static (Vector3, Quaternion)[] TurnedChild() =>
+        [
+            (Vector3.Zero, Quaternion.Identity),
+            (new Vector3(3f, 4f, 0f), new Quaternion(0f, 0f, MathF.Sqrt(0.5f), MathF.Sqrt(0.5f))),
+        ];
+
     private static float Speed(IvpRigidBody body) =>
         MathF.Sqrt(
             (body.Velocity.X * body.Velocity.X) +

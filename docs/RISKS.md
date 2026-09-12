@@ -26909,6 +26909,32 @@ element's raw mass. With the core at the bone and one anchor at zero the argmax 
 are measured from mass centers, squared and unsquared sums pick different axes, so this is part of the
 same fix and not a separate one.
 
+**The core is placed at the mass center, 2026-09-12.** `RagdollSimulation.Create` now builds each body the
+engine's way when its element carries hull inertia:
+
+- **Position** is the CORE — the bone's start position plus the mass center turned by the start orientation —
+  and `IvpRigidBody.ObjectOffset` holds `−massCenter`, zeroed below `1e-16` m² as `FUN_180074380` does.
+- **Mass and inertia** come from `IvpObjectTemplate`: the clamped mass, and per-axis inertia of hull ×
+  scale × mass floored at the element's limit.
+- **Hull points are composed per use**, `IvpRigidBody.CoreHullPoint` adding the offset at each of the five
+  places the contact code reads them — the engine keeps ledge points in the object's frame and composes the
+  offset every time, and baking it into the stored hull would have to come out again for the time-of-impact
+  evaluators.
+- **Joint anchors are in core space**: the child's is its offset, the parent's is `OriginParentSpace` plus the
+  parent's offset.
+- **What leaves the simulation is the bone**: `State()` and the killing blow's `forcePosition` use
+  `IvpRigidBody.ObjectOrigin`, core plus turned offset, as vphysics' `GetPosition` does.
+
+An element whose surface carried no inertia keeps the old single inertia, since the engine never builds
+such an object. Six conformance tests, compile-red first; two sabotage runs, four and two, reddened exactly
+the cases each was predicted to.
+
+**Honest interim state, named so it is not mistaken for finished:** `RagdollSimulation.Turning` still scores
+one unsquared anchor, `OriginParentSpace`, measured from the bone — the old rule on the old geometry —
+while the anchors it would have to score have moved. The engine's rule is the next change; its disassembly
+is taken. **And nothing has been measured on a real corpse yet**: whether `corpse-drop` changes, and how, is
+the next measurement.
+
 **The fix, in order:** read both unknowns from the binary; conformance tests for the placement, the
 offset, the inertia and the floor; then carry the core at the mass center with body-local geometry
 shifted by `−massCenter`, and report the bone as the core composed with the offset.
