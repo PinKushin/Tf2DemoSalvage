@@ -38,3 +38,30 @@ away.
 
 Related: [[the-game-folder-is-the-users-to-provide]], [[output-level-assertion-or-it-is-not-done]],
 [[read-the-trx-total-not-the-console]].
+
+## `read-ci-before-pushing-onto-it`, and "no TF2" is rarely the real condition (B402, 2026-09-12)
+
+**A test had been failing on every CI run for four runs and nobody looked**, including me, who then
+pushed a fix onto the red and reported it green off the local gate. The gate is an instrument that
+runs on a machine WITH the game; it cannot fail for this class at all. **Read the annotations before
+pushing, not after** — `gh run view <id> --log-failed`, and
+`gh api repos/{owner}/{repo}/check-runs/{job}/annotations --jq 'length'` for the count.
+
+**The CI viewer log is downloadable and it is the actual debugger here:**
+`gh run download <run-id> --name viewer-logs`. That artifact named the cause when the test could
+only say "the viewer did not exit cleanly".
+
+**Then the trap that cost a wrong fix: "CI has no TF2" is a description of the RUNNER, not of the
+condition under test.** The crash needed *a map fetch in flight when the window closes*, and a fetch
+happens whenever the map is not installed — TF2 or no TF2. This machine has TF2 and dozens of maps
+it does not have, so `koth_pro_viaduct_rc4` reproduces the fetch locally in one command. I had
+written "the local machine takes no fetch path" into a risk entry as a fact, and on that basis wrote
+a fix from a story rather than from evidence, and called it fixed. The next run failed identically.
+
+**How to apply: before concluding a failure is CI-only, name the CONDITION and ask whether this
+machine can produce it.** Usually it can, with a different input. And when a crash has no name —
+`0xC000041D` with empty stderr is an exception inside a native callback — the move is to add the
+handler that writes one down (`Application.ThreadException`, `AppDomain.UnhandledException`, and
+`TaskScheduler.UnobservedTaskException` for a fire-and-forget `Task`, which reaches neither of the
+others), not to guess at the cause. See [[instrument-bugs-outnumber-decoder-bugs]] and
+[[logs-are-the-debugger]].

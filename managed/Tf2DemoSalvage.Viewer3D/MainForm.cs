@@ -1492,6 +1492,25 @@ internal class MainForm : Form, IFrameSteps
             // The window is going. Nothing to report and nowhere to report it.
             return;
         }
+        catch (ObjectDisposedException disposed)
+        {
+            // **The half a cancellation token cannot cover, and the half that kept CI red after
+            // the token was added.** `Dispose` cancels and then disposes `_maps`, so a fetch
+            // already inside `HttpClient` faults with `ObjectDisposedException` rather than
+            // `OperationCanceledException` — a different type, escaping a fire-and-forget task,
+            // on the UI thread, through a native window-procedure callback. That is precisely
+            // `0xC000041D`, and it is why the process died AFTER the shutdown line in the log.
+            _mapLog.LogWarning(disposed, "{Message}", $"the fetch of {mapName} was cut off by shutdown");
+            return;
+        }
+        catch (Exception failure) when (failure is IOException or System.Net.Http.HttpRequestException)
+        {
+            // A mirror that is down or a write that fails is not a reason to take the window with
+            // it. **Nothing may escape this method**: it is started with `_ = …`, so an exception
+            // here has no caller to catch it and reaches the message loop instead.
+            _mapLog.LogWarning(failure, "{Message}", $"could not fetch {mapName}");
+            return;
+        }
 
         // **Everything below touches a form and a Direct3D device, so it must not run after
         // either is gone** (B402). The await returns to the UI thread even when that thread is
