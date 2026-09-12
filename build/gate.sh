@@ -665,7 +665,11 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 301 -> 316 on 2026-09-12: the time-of-impact searches (B369). IvpMotionCacheConformanceTests (5) for
 # FUN_1800a0800's index-keyed slots, IvpRootFinderConformanceTests (10) for FUN_1800b6210 and FUN_1800b6590.
 # Compile-red first; sabotaged before commit.
-run Tf2DemoSalvage.Animation.Tests animation 316
+#
+# 316 -> 329 on 2026-09-12: IvpObjectTemplateConformanceTests (13), vphysics' template fill
+# (FUN_18001c9d0) and the core's mass and per-axis inertia (FUN_180073df0) (B403). Compile-red first;
+# four sabotages, each reddening only its own case.
+run Tf2DemoSalvage.Animation.Tests animation 329
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

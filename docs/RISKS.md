@@ -26853,11 +26853,16 @@ about the joint rather than about its own middle when a contact or a constraint 
 thin limb turns as easily about its length as across it. How a corpse tumbles and settles is different
 from TF2's, every time. *That the difference is large enough to see on a real corpse is not measured.*
 
-**What is NOT established yet, and is needed before the fix:** which bytes of a `.phy` hull the surface
-manager's virtuals `+8` and `+0x18` return — `IVP_Compact_Surface` reserves 0x1C bytes before the ledge
-tree offset this project already reads at `+0x20`, room for a mass center and an inertia, but that is a
-layout inferred from the space, not read — and what vphysics writes to the template's per-axis factors
-(`+0x30..+0x38`) and flag (`+0x28`) from `objectparams_t::inertia`.
+**Both inputs are now read, 2026-09-12.** The surface manager's `+8` copies the hull's mass center from
+`IVP_Compact_Surface+0x00..0x08` and its `+0x18` copies the rotation inertia from `+0x0C..0x14`, both in
+IVP's object frame. vphysics' template fill (`FUN_18001c9d0`) clamps the mass to `[0.1, 50000]`, keeps an
+inertia scale only above zero (else 1) and caps it at `1e18`, puts that scale on all three axes as a
+factor, and copies `rotInertiaLimit`. The floor multiplies the inertia's LENGTH, not its largest axis.
+**First code: `IvpObjectTemplate`** — the template fill and the core's mass and per-axis inertia, with
+`IvpObjectTemplateConformanceTests` (13), compile-red first; four sabotages (a floor from the largest axis,
+`>= 0` for the scale, `MAXSS` operands swapped, the mass floor a thousandth the size) reddened exactly the
+four cases predicted. **Not yet wired**: nothing reads the hull's mass center or inertia, and every body is
+still built as before.
 
 **The fix, in order:** read both unknowns from the binary; conformance tests for the placement, the
 offset, the inertia and the floor; then carry the core at the mass center with body-local geometry

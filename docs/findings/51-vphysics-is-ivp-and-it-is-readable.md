@@ -2280,10 +2280,31 @@ from the disassembly of the object initializer `FUN_180073df0` (in `ivp_object.c
 5. `FUN_1800790a0` places the core: `core+0x90 := core+0x90 · objectFromCore`, the position copied out of
    that matrix and the orientation converted from it into both `+0x180` and `+0x1a0`.
 
-*Evidence class: read from the disassembly for `FUN_180073df0` and `FUN_180074380`; from the decompiler for
-the shapes of `FUN_1800790a0` and `FUN_180070290`. NOT established here: which bytes of a `.phy` hull the
-surface manager's virtuals `+8` and `+0x18` return, and what vphysics writes into the template for a
-ragdoll element.*
+**What vphysics puts in the template, `FUN_18001c9d0`**, from `objectparams_t` (whose field offsets match
+`vphysics_interface.h:1062` exactly): mass `MINSS(MAXSS(mass, 0.1f), 50000f)` widened to `+0x20`; `1` at
+`+0x28`, so the three inertia values are factors on the hull's; `inertia` kept only when `COMISS` finds it
+above zero (otherwise `1.0f`), then `MINSS` against `1e18f`, written to all of `+0x30/+0x34/+0x38`;
+`rotInertiaLimit` copied raw to `+0x40`; `damping` widened to `+0x48`; `rotdamping` widened to `+0x50`,
+`+0x58` and `+0x60`. `FUN_18006e120`, whose result the floor multiplies, is a LENGTH — `sqrt` of the float
+sum of squares, widened — not a largest component.
+
+**Which hull bytes the surface manager returns.** `CreatePolyObject` (`FUN_18001b340`) asks the collide
+object's virtual `+8` (`FUN_18000b750`) for the manager, which allocates sixteen bytes: vtable `1800eae60`,
+then the `IVP_Compact_Surface` pointer. Its slots, from raw disassembly:
+
+| slot | reads | so |
+|---|---|---|
+| `+8` | `surface+0x00, +0x04, +0x08` copied out | the mass center |
+| `+0x10` | `surface+0x00..0x08` against a given center, then `+0x18` and the byte at `+0x1C` | a radius and deviation |
+| `+0x18` | `surface+0x0C, +0x10, +0x14` copied out | the rotation inertia |
+
+With the byte size read as `surface+0x1C >> 8` by `FUN_18000c1c0`, the 0x20 bytes before the ledge-tree
+offset are accounted for: mass center, rotation inertia, radius, and a deviation byte beside the size. **All
+of them are in IVP's own object frame and units** — metres, IVP axes — as the ledge points are.
+
+*Evidence class: read from the disassembly for `FUN_180073df0`, `FUN_180074380`, `FUN_18001c9d0`,
+`FUN_18006e120` and the surface manager's slots; from the decompiler for the shapes of `FUN_1800790a0`,
+`FUN_180070290`, `FUN_18001b340` and `FUN_18000b750`.*
 
 **The lattice is 200 ticks a second.** `DAT_1800feb78` is `200.0` and `DAT_1800fd748` is `0.005`
 (float), and the refinement gives up at **20 ticks** — a tenth of a second, which is why the motion
