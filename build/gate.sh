@@ -1474,7 +1474,9 @@ run Tf2DemoSalvage.Presentation.Tests presentation 454
 # absent and zero, and the Sprite shader's constant color broadcast, unclamped and defaulted.
 # 1161 -> 1164 on 2026-09-12: three PhysicsHullConformanceTests for the compact surface's mass center and
 # rotation inertia (B403). Synthetic blobs; two sabotages, each reddening only its own case.
-run Tf2DemoSalvage.Content.Tests  content   1164
+# 1164 -> 1165 on 2026-09-12: PhysicsModelConformanceTests carries each solid's mass properties out of the
+# same blob walk as its hull (B403). Authored .phy with one VPHY blob.
+run Tf2DemoSalvage.Content.Tests  content   1165
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

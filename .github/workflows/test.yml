@@ -268,7 +268,8 @@ jobs:
           # 1154 -> 1157 on 2026-09-10: three for B390, a patched sprite material read patched.
           # 1157 -> 1161 on 2026-09-10: four for B391, the Sprite shader's constant color.
           # 1161 -> 1164 on 2026-09-12: three PhysicsHullConformanceTests, the hull's mass properties (B403).
-          ./build/assert-test-count.sh '**/content.trx' 1164 Content
+          # 1164 -> 1165 on 2026-09-12: PhysicsModel carries each solid's mass properties (B403).
+          ./build/assert-test-count.sh '**/content.trx' 1165 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           # 412 -> 414 on 2026-08-29, and that is TWO bumps: the stale-clock case on
           # `DemoSystems.Open` (B223 follow-up) was raised in build/gate.sh and missed here, and the

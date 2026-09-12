@@ -26864,6 +26864,28 @@ factor, and copies `rotInertiaLimit`. The floor multiplies the inertia's LENGTH,
 four cases predicted. **Not yet wired**: nothing reads the hull's mass center or inertia, and every body is
 still built as before.
 
+**Measured on a shipped corpse, 2026-09-12** — the `ragdoll` probe on `models/player/soldier.mdl`, printing
+what `PhysicsModel.MassProperties` carried out of each solid's compact surface:
+
+| hull | what | mass center, Source units, bone space | hull inertia per kg, IVP axes, m² |
+|---|---|---|---|
+| 0 | pelvis | (−0, −1.39, −0.27) | (0.00771, 0.01665, 0.0166) |
+| 1–4 | upper arms and thighs | (9.21–9.26, ~0, ~0) | (0.00187, 0.0111–0.0163, same) |
+| 8–9 | forearms | (6.93, ~0, ~0) | (0.0013, 0.0101, 0.0101) |
+| 10, 12 | hands | (5.45, ~0, ~0) | (0.0013, 0.0057, 0.0057) |
+| 13 | head | (0.12, 0.41, 1.11) | (0.00055, 0.00109, 0.00121) |
+
+**The control, because a filled-in-looking column can still be the wrong bytes:** every mass center agrees
+with the ledge's bounding-sphere centre the probe already printed from different bytes of the same hull —
+hull 1's `(9.2, −0, 0)` against `(9.23, 0.02, 0.03)`; hull 0's centre, printed in IVP axes as `(0, 0.3, −1.4)`,
+is `(0, −1.4, −0.3)` in Source axes against `(−0, −1.39, −0.27)`.
+
+**So the divergence is large on every corpse TF2 draws.** A long limb's core sits five to nine inches down
+the bone from where ours pivots, and it is six to nine times harder to turn across its length than along
+it. Ours has one inertia, `mass × scale`, with no length in it at all — against the engine's `mass × hull
+inertia`, which for a limb is 3 to 25 in² per kilogram once converted — so every limb currently turns
+several times too easily, and about the wrong point.
+
 **The fix, in order:** read both unknowns from the binary; conformance tests for the placement, the
 offset, the inertia and the floor; then carry the core at the mass center with body-local geometry
 shifted by `−massCenter`, and report the bone as the core composed with the offset.

@@ -181,6 +181,14 @@ public sealed class PhysicsModel
     /// </remarks>
     public IReadOnlyList<IReadOnlyList<PhysicsLedge>> Hulls { get; }
 
+    /// <summary>Each solid's mass center and rotation inertia, in file order — empty for a model built by hand.</summary>
+    /// <remarks>
+    /// **Indexed like <see cref="Hulls"/>, and read from the same blob** (B403): the compact surface that holds
+    /// a solid's ledges leads with these six floats, which the engine's surface manager hands to the object
+    /// initializer. Null for a solid whose surface will not read, where <see cref="Hulls"/> is empty.
+    /// </remarks>
+    public IReadOnlyList<PhysicsMassProperties?> MassProperties { get; }
+
     /// <summary>The <c>collisionrules</c> block, or null when the file declares none.</summary>
     /// <remarks>
     /// **Null and empty mean opposite things here** — see <see cref="PhysicsCollisionRules"/>. A
@@ -268,7 +276,8 @@ public sealed class PhysicsModel
         int checksum,
         PhysicsCollisionRules? collisionRules,
         IReadOnlyList<IReadOnlyList<PhysicsLedge>>? hulls = null,
-        IReadOnlyList<PhysicsBreakPiece>? pieces = null)
+        IReadOnlyList<PhysicsBreakPiece>? pieces = null,
+        IReadOnlyList<PhysicsMassProperties?>? massProperties = null)
     {
         Solids = solids;
         Constraints = constraints;
@@ -277,6 +286,7 @@ public sealed class PhysicsModel
         CollisionRules = collisionRules;
         Hulls = hulls ?? [];
         BreakPieces = pieces ?? [];
+        MassProperties = massProperties ?? [];
     }
 
     /// <summary>The pieces this model comes apart into — its <c>break</c> blocks (B371).</summary>
@@ -325,10 +335,11 @@ public sealed class PhysicsModel
     /// **A blob whose size runs past the file ends the walk rather than throwing.** A `.phy` is a
     /// stranger's file (D32), and a truncated one should collide against the solids it does carry.
     /// </remarks>
-    private static List<IReadOnlyList<PhysicsLedge>> Hull(
+    private static (List<IReadOnlyList<PhysicsLedge>> Hulls, List<PhysicsMassProperties?> Masses) Hull(
         ReadOnlySpan<byte> bytes, int solidCount)
     {
         List<IReadOnlyList<PhysicsLedge>> hulls = [];
+        List<PhysicsMassProperties?> masses = [];
 
         int at = HeaderSize;
 
@@ -347,11 +358,12 @@ public sealed class PhysicsModel
             }
 
             hulls.Add(PhysicsHull.Read(bytes.Slice(at + 4, size)));
+            masses.Add(PhysicsHull.MassProperties(bytes.Slice(at + 4, size)));
 
             at += 4 + size;
         }
 
-        return hulls;
+        return (hulls, masses);
     }
 
     /// <summary>Reads a <c>.phy</c>.</summary>
@@ -390,14 +402,14 @@ public sealed class PhysicsModel
 
         int text = FindText(bytes);
 
-        IReadOnlyList<IReadOnlyList<PhysicsLedge>> hulls = Hull(bytes, solidCount);
+        (List<IReadOnlyList<PhysicsLedge>> hulls, List<PhysicsMassProperties?> masses) = Hull(bytes, solidCount);
 
         if (text < 0)
         {
-            return new PhysicsModel([], [], solidCount, checksum, null, hulls);
+            return new PhysicsModel([], [], solidCount, checksum, null, hulls, null, masses);
         }
 
-        return Parse(file[text..], solidCount, checksum, hulls);
+        return Parse(file[text..], solidCount, checksum, hulls, masses);
     }
 
     /// <summary>Where the KeyValues section starts, or -1.</summary>
@@ -452,7 +464,8 @@ public sealed class PhysicsModel
         ReadOnlyMemory<byte> text,
         int solidCount,
         int checksum,
-        IReadOnlyList<IReadOnlyList<PhysicsLedge>> hulls)
+        IReadOnlyList<IReadOnlyList<PhysicsLedge>> hulls,
+        IReadOnlyList<PhysicsMassProperties?> masses)
     {
         List<PhysicsSolid> solids = [];
         List<RagdollConstraint> constraints = [];
@@ -522,7 +535,7 @@ public sealed class PhysicsModel
         // (`docs/memory/author-the-specimen-the-corpus-lacks.md`).
         Close();
 
-        return new PhysicsModel(solids, constraints, solidCount, checksum, rules, hulls, pieces);
+        return new PhysicsModel(solids, constraints, solidCount, checksum, rules, hulls, pieces, masses);
     }
 
     /// <summary>Replays a <c>collisionrules</c> block the way the engine's handler consumes it.</summary>

@@ -230,6 +230,56 @@ public sealed class PhysicsModelConformanceTests
         physics.Solids[1].Name.ShouldBe("bip_spine_0");
     }
 
+    /// <remarks>
+    /// **Each solid's mass center and rotation inertia come out beside its hull, indexed like it** (B403).
+    /// The engine takes both from the solid's compact surface through the surface manager — see
+    /// `PhysicsHullConformanceTests` for the offsets — and a ragdoll element needs them per solid, so they
+    /// ride the same blob walk that yields the hulls rather than a second pass over the file.
+    /// </remarks>
+    [Test]
+    public void Read_ASolidWithACompactSurface_CarriesItsMassProperties()
+    {
+        byte[] blob = new byte[0x1C + 0x30];
+        "VPHY"u8.CopyTo(blob);
+        BitConverter.GetBytes(0.1f).CopyTo(blob, 0x1C + 0x00);
+        BitConverter.GetBytes(-0.2f).CopyTo(blob, 0x1C + 0x04);
+        BitConverter.GetBytes(0.3f).CopyTo(blob, 0x1C + 0x08);
+        BitConverter.GetBytes(0.004f).CopyTo(blob, 0x1C + 0x0C);
+        BitConverter.GetBytes(0.005f).CopyTo(blob, 0x1C + 0x10);
+        BitConverter.GetBytes(0.006f).CopyTo(blob, 0x1C + 0x14);
+        "IVPS"u8.CopyTo(blob.AsSpan(0x1C + 0x2C));
+
+        byte[] file =
+        [
+            .. BitConverter.GetBytes(16),          // size, which Valve writes as sizeof(phyheader_t)
+            .. BitConverter.GetBytes(0x59485056),  // id
+            .. BitConverter.GetBytes(1),           // solidCount
+            .. BitConverter.GetBytes(0),           // checkSum
+            .. BitConverter.GetBytes(blob.Length),
+            .. blob,
+            .. System.Text.Encoding.ASCII.GetBytes("""
+                solid {
+                  "index" "0"
+                  "name" "bip_pelvis"
+                  "mass" "7.470685"
+                }
+                """),
+        ];
+
+        PhysicsModel physics = PhysicsModel.Read(file);
+
+        physics.MassProperties.Count.ShouldBe(1);
+
+        PhysicsMassProperties? read = physics.MassProperties[0];
+
+        read.ShouldNotBeNull();
+        read.Value.MassCenter.ShouldBe(new System.Numerics.Vector3(0.1f, -0.2f, 0.3f));
+        read.Value.RotationInertia.ShouldBe(new System.Numerics.Vector3(0.004f, 0.005f, 0.006f));
+
+        // The control: the text half of the same solid is still read, so the blob walk did not swallow it.
+        physics.Solids[0].Name.ShouldBe("bip_pelvis");
+    }
+
     /// <summary>Solid counts per class, measured with the `ragdoll-constraints` probe.</summary>
     private static readonly (string Model, int Solids)[] Classes =
     [
