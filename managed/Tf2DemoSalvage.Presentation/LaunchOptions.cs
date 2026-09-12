@@ -293,6 +293,17 @@ public static class LaunchOptionsReader
             paths.Add(argument);
         }
 
+        // **Say what came in, because "no demo" and "a demo that would not open" look identical
+        // afterwards** (B401). A `--shot` run whose demo path never reached the window drew an
+        // empty viewport and wrote a 12 KB picture of nothing, and the log said nothing about a
+        // demo at all — so there was no way to tell a lost argument from a failed open without
+        // attaching a debugger. One line separates them.
+        log.LogInformation(
+            "{Message}",
+            paths.Count == 0
+                ? "no demo was named on the command line"
+                : $"{paths.Count} path(s) from the command line, first: {paths[0]}");
+
         return read;
     }
 

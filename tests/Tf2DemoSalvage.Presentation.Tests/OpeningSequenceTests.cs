@@ -15,6 +15,14 @@ public sealed class OpeningSequenceTests
     private const int Opening = 45;
     private const int Settle = 5;
 
+    /// <summary>Frames a capture run waits for a demo before giving up (B401).</summary>
+    /// <remarks>
+    /// **Far above `Opening`, as the viewer's own is**, so a test about the ordering of the two
+    /// halves never trips the backstop by accident and a test about the backstop has to reach past
+    /// every other boundary in the class to get there.
+    /// </remarks>
+    private const int Patience = 2_000;
+
     [Test]
     public void Advance_OnTheSettleFrame_AsksForTheOpeningState()
     {
@@ -22,7 +30,7 @@ public sealed class OpeningSequenceTests
         // opening state at once seeks into a scene that is not ready — the world has not settled,
         // the textures upload on a later frame — and then latches itself done. The countdown exists
         // to let all of that happen first.
-        OpeningSequence sequence = new(shotPath: null, Opening, Settle);
+        OpeningSequence sequence = new(shotPath: null, Opening, Settle, Patience);
 
         for (int frame = 0; frame < Settle - 1; frame++)
         {
@@ -37,7 +45,7 @@ public sealed class OpeningSequenceTests
     {
         // A viewer nobody asked for a capture from must stop counting, or every frame for the rest
         // of the session runs a countdown that can never do anything.
-        OpeningSequence sequence = new(shotPath: null, Opening, Settle);
+        OpeningSequence sequence = new(shotPath: null, Opening, Settle, Patience);
 
         Run(sequence, Settle);
         sequence.MarkApplied();
@@ -49,7 +57,79 @@ public sealed class OpeningSequenceTests
     [Test]
     public void Advance_WithAShotAsked_CapturesWhenTheCountdownRunsOut()
     {
-        OpeningSequence sequence = new(@"D:\shot.png", Opening, Settle);
+        // **`MarkApplied` first, and this test USED to omit it** — it ran the countdown out with
+        // the opening state never applied and asserted a capture, which is B401 written down as an
+        // expectation. A shot before the seek is a photograph of an empty viewport.
+        OpeningSequence sequence = new(@"D:\shot.png", Opening, Settle, Patience);
+
+        Run(sequence, Settle);
+        sequence.MarkApplied();
+        Run(sequence, Opening);
+
+        sequence.Advance().ShouldBe(OpeningStep.Capture);
+    }
+
+    [Test]
+    public void Advance_WithAShotAskedAndNoDemoEverLoaded_NeverCaptures()
+    {
+        // **The defect B401 names, at the level that decides it.** The window refuses to apply the
+        // opening state while there is no demo, and says so by not calling `MarkApplied` — so this
+        // sequence must go on asking rather than reaching the shutter. Ten times the whole opening
+        // budget, because the real failure took 45 frames at ~300 fps, a seventh of a second, while
+        // a map takes twenty seconds to load.
+        OpeningSequence sequence = new(@"D:\shot.png", Opening, Settle, Patience);
+
+        for (int frame = 0; frame < Opening * 10; frame++)
+        {
+            sequence.Advance().ShouldNotBe(OpeningStep.Capture, $"nothing is loaded at frame {frame}");
+        }
+
+        sequence.TakeShotPath().ShouldBe(@"D:\shot.png", "the capture is still owed");
+    }
+
+    [Test]
+    public void Advance_WhenNoDemoArrivesWithinThePatience_GivesUpWithoutCapturing()
+    {
+        // **A wait on a condition has to be able to end.** Ordering the capture after the opening
+        // state is what B401 needed, and the first version of it turned a lost demo argument into a
+        // viewer drawing an empty viewport at 299 fps until an outer timeout killed it. Giving up
+        // writes nothing, which is the whole point: an empty PNG reads as "the viewer drew nothing"
+        // rather than "the viewer had nothing".
+        OpeningSequence sequence = new(@"D:\shot.png", Opening, Settle, Patience);
+
+        for (int frame = 0; frame < Patience; frame++)
+        {
+            sequence.Advance().ShouldNotBe(OpeningStep.GiveUp, $"frame {frame} is still patient");
+        }
+
+        sequence.Advance().ShouldBe(OpeningStep.GiveUp);
+    }
+
+    [Test]
+    public void Advance_WithNoShotAskedAndNoDemo_WaitsForEverRatherThanGivingUp()
+    {
+        // **The backstop is for automation, and a person is not automation.** Someone who opened
+        // the viewer to look at it has asked for no capture and is waiting for nothing; a viewer
+        // that closed itself out from under them because no demo had been picked yet would be a
+        // worse defect than the one the backstop exists for.
+        OpeningSequence sequence = new(shotPath: null, Opening, Settle, Patience);
+
+        for (int frame = 0; frame < Patience * 3; frame++)
+        {
+            sequence.Advance().ShouldNotBe(OpeningStep.GiveUp, $"nobody is waiting at frame {frame}");
+        }
+    }
+
+    [Test]
+    public void Advance_AfterADemoArrivesLate_StillCaptures()
+    {
+        // **The other half of the same rule: waiting for the demo must not mean waiting for ever.**
+        // A demo that loads on frame 500 gets its settle wait measured from THERE, and the shutter
+        // fires afterwards — which is what a `--shot` run on a map that has to be fetched needs.
+        OpeningSequence sequence = new(@"D:\shot.png", Opening, Settle, Patience);
+
+        Run(sequence, 500);
+        sequence.MarkApplied();
 
         Run(sequence, Opening);
 
@@ -61,8 +141,10 @@ public sealed class OpeningSequenceTests
     {
         // **The capture closes the window, so a second one is a race rather than a duplicate file.**
         // The path is taken rather than read, which is what makes it once.
-        OpeningSequence sequence = new(@"D:\shot.png", Opening, Settle);
+        OpeningSequence sequence = new(@"D:\shot.png", Opening, Settle, Patience);
 
+        Run(sequence, Settle);
+        sequence.MarkApplied();
         Run(sequence, Opening);
 
         sequence.Advance().ShouldBe(OpeningStep.Capture);
@@ -78,7 +160,7 @@ public sealed class OpeningSequenceTests
         // **A demo opened from the playlist arrives long after the frame the countdown fired on**,
         // so the opening state was being lost. Restarting measures the wait from the DEMO rather
         // than from the window, which is what the original reasoning wanted all along.
-        OpeningSequence sequence = new(shotPath: null, Opening, Settle);
+        OpeningSequence sequence = new(shotPath: null, Opening, Settle, Patience);
 
         Run(sequence, Settle);
 
@@ -98,7 +180,7 @@ public sealed class OpeningSequenceTests
         // **`MarkApplied` is the WINDOW's to call**, because applying can fail: with no demo open
         // there is nothing to seek. A sequence that marked itself applied would count a refusal as
         // a success and never offer again.
-        OpeningSequence sequence = new(shotPath: null, Opening, Settle);
+        OpeningSequence sequence = new(shotPath: null, Opening, Settle, Patience);
 
         Run(sequence, Settle);
 

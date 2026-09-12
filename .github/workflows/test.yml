@@ -279,7 +279,10 @@ jobs:
           # as core's raise above and for the same reason.
           # 444 -> 448 on 2026-09-11: four for D162's MapProvider version check.
           # 448 -> 450 on 2026-09-11: the paused wiring pair (B399).
-          ./build/assert-test-count.sh '**/presentation.trx' 450 Presentation
+          #
+          # 450 -> 454 on 2026-09-12: four `OpeningSequence` cases for B401. Pure arithmetic, so
+          # they run here exactly as they do locally.
+          ./build/assert-test-count.sh '**/presentation.trx' 454 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
