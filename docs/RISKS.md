@@ -26823,6 +26823,46 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B403 OPEN 2026-09-12: a corpse's bodies turn about the bone origin with one inertia, where IVP turns them about the hull's mass center with three
+
+**Found while porting the time-of-impact transform (B369), because a premise written into the code
+turned out to be false.** `IvpRigidBody.TransformAt` said the object's offset inside its core was not
+composed "because in this project a body and its core are one thing". The owner asked for it to be
+verified. It is not true of the engine.
+
+**The engine, read from the disassembly of `vphysics.dll`** (full account: `docs/findings/51`, *An IVP
+object's core sits at the hull's mass center*):
+
+- The object initializer `FUN_180073df0` takes the hull's mass center from the surface manager (virtual
+  `+8`) — ragdolls never set `objectparams_t::massCenterOverride` — and places the CORE there
+  (`FUN_1800790a0`). The object is stored inside the core at `object+0x60` = `−massCenter`, with bit
+  `0x800` set only when that is shorter than `1e-8` (`FUN_180074380`).
+- The core's rotational inertia is per axis: the hull's own (virtual `+0x18`) × the per-axis factor ×
+  the mass, floored at `rotInertiaLimit` × the largest — and `RagdollAddSolid` sets `rotInertiaLimit =
+  0.1` for every ragdoll element (`ragdoll_shared.cpp:192`).
+- Every transform the engine hands out for the object composes the offset back in (`FUN_1800734e0`,
+  `FUN_180032740`, `FUN_180037620`).
+
+**Ours:** a body's position is the bone origin (`RagdollSimulation.cs:125`), its hull points and joint
+anchors are relative to that origin, and its inertia is one number, `mass × inertia scale`, on all three
+axes (`RagdollSimulation.cs:115-129`), with no floor.
+
+**What is visible when it is wrong:** every limb whose hull's mass center is not at its bone origin —
+which is nearly all of them, since a bone origin sits at a joint and the hull hangs off it — swings
+about the joint rather than about its own middle when a contact or a constraint pushes it, and a long
+thin limb turns as easily about its length as across it. How a corpse tumbles and settles is different
+from TF2's, every time. *That the difference is large enough to see on a real corpse is not measured.*
+
+**What is NOT established yet, and is needed before the fix:** which bytes of a `.phy` hull the surface
+manager's virtuals `+8` and `+0x18` return — `IVP_Compact_Surface` reserves 0x1C bytes before the ledge
+tree offset this project already reads at `+0x20`, room for a mass center and an inertia, but that is a
+layout inferred from the space, not read — and what vphysics writes to the template's per-axis factors
+(`+0x30..+0x38`) and flag (`+0x28`) from `objectparams_t::inertia`.
+
+**The fix, in order:** read both unknowns from the binary; conformance tests for the placement, the
+offset, the inertia and the floor; then carry the core at the mass center with body-local geometry
+shifted by `−massCenter`, and report the bone as the core composed with the offset.
+
 ### B402 FIXED 2026-09-12: releasing the Silk.NET API object unloads `d3d11.dll`, and WARP's threads are still in it
 
 **One line, and a truth table that took one command each.** `Device3D.Dispose` ended with

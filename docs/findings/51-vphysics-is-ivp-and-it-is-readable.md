@@ -2254,8 +2254,36 @@ disassembly:** this paragraph first put the state byte on the core; the cache re
 flag `0x800` at `object+0x78`, the translation becomes the float offset at `object+0x60` put through that
 matrix (`FUN_180070b20`, the same grouping as `FUN_180070bc0`); then, if `object+0x58` is set, the
 rotation is rebuilt from the interpolated quaternion times the one it points at (`FUN_180070d60`, a
-Hamilton product `a ⊗ b` in doubles). **This project treats a body and its core as one thing**, which
-drops both; that premise is recorded in `IvpRigidBody.TransformAt` and is not established here.
+Hamilton product `a ⊗ b` in doubles). **This project treated a body and its core as one thing**, which
+drops both — and the next section shows that premise is false for any hull whose mass center is not its
+origin (B403).
+
+**An IVP object's core sits at the hull's mass center, and its inertia is the hull's, per axis.** Read
+from the disassembly of the object initializer `FUN_180073df0` (in `ivp_object.cxx`) and what it calls:
+
+1. The mass center comes from the surface manager at `object+0xc8`, virtual `+8`, unless the template's
+   `+0x78` points at an override, whose doubles at `+0x60..+0x70` are narrowed instead.
+2. An object-from-core matrix is built with an all-zero quaternion — which `FUN_180071330` turns into the
+   identity rotation — and that mass center, widened, as its translation.
+3. That matrix goes to the object's virtual `+0x10`, `FUN_180074380`: it inverts it (`FUN_180070290`, the
+   rigid inverse, so the translation is `−massCenter`); if the squared length of that translation, `(x² +
+   y²) + z²`, is below `DAT_1800fcf98` = `1e-16` it SETS bit `0x800` (`BTS ECX, 0xb`) and zeroes the offset,
+   otherwise it CLEARS the bit (`BTR`) and stores the translation narrowed to float at `object+0x60`; and if
+   the rotation's diagonal is exactly `1.0` three times (`UCOMISD`) it frees and nulls `object+0x58`, else
+   allocates the quaternion there.
+4. The core's inertia at `core+0x20/+0x24/+0x28`: when the template's `+0x28` is set, a polygon object
+   asks the surface manager's virtual `+0x18` for the hull's rotational inertia (a ball uses `0.4 · r²` on
+   all three), multiplies each by the template's factor at `+0x30/+0x34/+0x38` in float, widens, multiplies
+   by the mass in double and narrows; otherwise the template's three values are taken as they are. The
+   mass is the template's `+0x20`, replaced by `1.0` below `1e-8`. A nonzero template `+0x40` floors every
+   axis at `FUN_18006e120` of the three times that factor.
+5. `FUN_1800790a0` places the core: `core+0x90 := core+0x90 · objectFromCore`, the position copied out of
+   that matrix and the orientation converted from it into both `+0x180` and `+0x1a0`.
+
+*Evidence class: read from the disassembly for `FUN_180073df0` and `FUN_180074380`; from the decompiler for
+the shapes of `FUN_1800790a0` and `FUN_180070290`. NOT established here: which bytes of a `.phy` hull the
+surface manager's virtuals `+8` and `+0x18` return, and what vphysics writes into the template for a
+ragdoll element.*
 
 **The lattice is 200 ticks a second.** `DAT_1800feb78` is `200.0` and `DAT_1800fd748` is `0.005`
 (float), and the refinement gives up at **20 ticks** — a tenth of a second, which is why the motion
