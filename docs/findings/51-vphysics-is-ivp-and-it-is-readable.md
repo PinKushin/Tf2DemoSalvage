@@ -2351,6 +2351,36 @@ A's transform and the plane's point and normal by object B's, and returns
 `dot(vertex − planePoint, normal)`. Edge `FUN_1800a3660` returns a direction transformed into B's frame
 dotted with a stored normal.
 
+**The four routines under the point-plane evaluator**, all in doubles:
+
+- **`FUN_180071330` fills a 4×4's rotation from a quaternion** `(x, y, z, w)`:
+  `m0 = 1 − (z·2z + y·2y)`, `m1 = x·2y − w·2z`, `m2 = w·2y + x·2z`; `m4 = w·2z + x·2y`,
+  `m5 = 1 − (z·2z + x·2x)`, `m6 = y·2z − w·2x`; `m8 = x·2z − w·2y`, `m9 = w·2x + y·2z`,
+  `m10 = 1 − (y·2y + x·2x)`. **This is the fill `IvpQuaternion.Rotate`'s own remarks record as unread**
+  — that method reaches the same rotation by a vector formula, so the difference is rounding, and the
+  gap can now be closed. Closing it touches every constraint and contact that rotates through it, so it
+  is a change of its own, measured separately.
+- **`FUN_180070bc0` puts a local point in the world**, `out[i] = p.z·m[i,2] + p.x·m[i,0] + p.y·m[i,1] + t[i]`,
+  summed in that order.
+- **`FUN_18007b940` builds a face's normal** as `cross(B − A, C − A)` in doubles from the ledge's float
+  vertices, unnormalised: `A` is the face's own point, `B` and `C` are reached through the half-edge
+  offset tables `DAT_180124fb8` and `DAT_180124fc8`.
+- **`FUN_18006e080` normalises only a vector long enough to have a direction**: if `|n|² ≥ DAT_1800f4f20`
+  (≈`1e-19`) it scales by `FUN_18006ecf0(|n|²)` and returns true; otherwise it leaves the vector alone
+  and returns false.
+- **`FUN_18006ecf0` is a reciprocal square root in doubles, four Newton steps from a bit-built guess.**
+  The guess takes the argument's high word and sets `((0x7ff00000 − hi) >> 1) + 0x1ff00000`, with the low
+  word from `1.0`; then four times `r = r · ((0.5 − r² · ½x) + 1.0)`, which is the textbook
+  `r · (1.5 − ½x · r²)` in the order the instructions compute it.
+
+**Which three vertices `FUN_18007b940` takes.** `A` is the start point of the edge it is given; `B` is
+the start of the edge `DAT_180124fb8` reaches, which the table above shows is the NEXT edge of the same
+triangle (4→8→12→4); `C` is the start of the edge `DAT_180124fc8` reaches — and its offsets (`4: +8`,
+`8: −4`, `12: −4`) from a triangle's own edge words land on the PREVIOUS edge of that triangle. So the
+normal is `cross(P₁ − P₀, P₂ − P₀)` over the triangle's three start points in their own order: the
+triangle's stored winding. **That does not contradict the vertex-fan measurement above**, which follows
+`fc8` and then the 15-bit field — a second hop; `FUN_18007b940` takes only the first.
+
 **`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
 
 **`interpolate` is `FUN_180071060`, a shortest-path slerp that falls back to a normalised lerp.** It
