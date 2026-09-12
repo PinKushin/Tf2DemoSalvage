@@ -66,3 +66,25 @@ owner named it from memory of playing the map, which beat the measurement; on a 
 is actually there. Related: [[fixtures-are-the-weak-point]],
 [[measure-the-output-not-the-capability]], [[fallbacks-do-not-make-guesses-safe]].
 
+---
+
+## `the-engine-may-load-what-you-rebuild` — read the engine's loader before approximating a piece
+
+**Terrain thickness was a 512-unit slab "standing in for `buildOuterHull`", and the map carried the
+hull all along** (B369, 2026-09-12). vbsp writes one outer hull per displacement into
+`LUMP_PHYSDISP` (lump 28); the shipped engine loads it at level init, and its virtual-mesh callback
+hands it to vphysics as `pHull`. The engine only BUILDS a hull when the lump is absent. This project
+rebuilt terrain from the render lumps, never opened lump 28, and invented a thickness — and corpses
+that sleep turned out to have limbs eighty units under the ground.
+
+**Why it survived so long:** the SDK's own runtime callback, `CDispCollTree::GetVirtualMeshList`, sets
+`pHull = NULL`, which reads as "no hull at runtime". The engine's handler calls that and THEN
+overwrites the field. Published source showed the base; the binary showed the override —
+[[the-base-is-not-the-behaviour]] in a file format.
+
+**How to apply:** before approximating anything the engine clearly has — a thickness, a bound, a
+hull, a table — list the lumps its LOADER reads (the `CollisionBSPData_Load*` log strings name them in
+order) and ask which one is unread here. An unread lump next to an invented constant is the finding.
+Measure it with two controls first: its count against a lump that must agree, and its declared sizes
+against its own length.
+

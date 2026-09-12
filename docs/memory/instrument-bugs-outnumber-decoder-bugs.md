@@ -951,3 +951,24 @@ question changes.
 solved in one instrument and absent from the next is not solved. The selection moved into
 `DemoTimeline.TrackFor(index, tick)` with `EntityTracks.Select` reporting it, so the two probes cannot
 disagree about which entity they opened.
+
+---
+
+## `a-root-that-sleeps-is-not-a-body-at-rest` — report the worst member, not the first
+
+**`corpse-drop` reported "3 of 5 seeds settle" for weeks, and it measured one bone** (B369,
+2026-09-12). The probe printed `Bodies[0]` — the ragdoll's root — its height, its speed, whether the
+simulation slept. Three roots came to rest on the ground. Asked instead which body held the deepest
+contact and where that body was, the same runs showed a limb at z −73.3 under terrain at z 0 on a
+corpse whose root sat at z 18.3 and was asleep.
+
+**Why it read as progress:** every number printed was true. The root was resting, the island was
+asleep, and a seventeen-body ragdoll held together by joints lets one member hang eighty units into
+the ground while the one being watched looks perfect. The instrument's subject was a proxy for the
+thing under test, and the proxy was the best-behaved member.
+
+**How to apply:** when the thing under test is a SET — bodies in a ragdoll, props on a map, vertices
+in a mesh — report its WORST member and name it, never its first or its average. "Settled" for a
+ragdoll means every body above the surface it rests on. And carry the worst member out of the step
+that produced it ([[print-a-value-somebody-can-recognise]]'s sibling): here that was the contact
+itself, with its feature and its triangle, which is what killed two hypotheses in one run.
