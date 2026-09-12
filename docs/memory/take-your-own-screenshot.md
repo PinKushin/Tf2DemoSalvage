@@ -30,6 +30,12 @@ reason from a render log — see [[parity-is-the-search-not-the-defence]] for th
 about a model's position for five rounds. A capture is also how a fix is verified: the same
 viewpoint before and after, against the game's own screenshot.
 
+**Point the camera FROM THE DATA, and give up on guessing after the first wall.** Four captures in a
+row on `cp_process_f12` hit walls or an empty room while hunting one corpse, because each camera was
+reasoned out from the target's coordinates without knowing what stood between. A position known to be
+in open space — the recorder's own eye, via `--first-person`, or a spectated player — is free and
+always works. See [[point-the-camera-from-the-data]].
+
 ---
 
 ## `viewer-screenshots-are-f5` — the key a person presses, and never name one from memory

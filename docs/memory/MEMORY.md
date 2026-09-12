@@ -86,7 +86,7 @@
 - [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — announce demo changes by name.
 - [Ask if the view must hold it](ask-if-the-view-must-hold-it.md) — a passed-along field belongs elsewhere.
 - [The game folder is the user's to provide](the-game-folder-is-the-users-to-provide.md) — a missing install must error.
-- [CI is the machine without TF2](ci-is-the-machine-without-tf2.md) — never gate that failure away.
+- [CI is the machine without TF2](ci-is-the-machine-without-tf2.md) — never gate that failure away; read CI before pushing onto it, and "no TF2" is rarely the real condition.
 - [No hardcoded controls ever](no-hardcoded-controls-ever.md) — D101; every key through the config; TF2 binds every letter but o; not every setting needs a bind.
 - [Portable half and adapter half](portable-half-and-adapter-half.md) — only a tiny adapter names the toolkit.
 - [vrad key arithmetic is not the lump](vrad-key-arithmetic-is-not-the-lump.md) — measure the compiled map.
@@ -120,7 +120,7 @@
 - [Precache what the engine precaches](precache-what-the-engine-precaches.md) — an event-spawned model is in no track; a lookup is not a loader; a DERIVED path is in no load list.
 - [A TF2 corpse is simulated, not sent](a-tf2-corpse-is-simulated-not-sent.md) — the wire carries a force, not a pose.
 - [Two accumulators cannot see order](two-accumulators-cannot-see-order.md) — the observer must read the observed.
-- [A map cannot have a hole](a-map-cannot-have-a-hole.md) — name the reading, not the geometry; a hole may be geometry you never parse.
+- [A map cannot have a hole](a-map-cannot-have-a-hole.md) — name the reading, not the geometry; a hole may be geometry you never parse; a complete COUNT is not a correct reading.
 - [Determinism does not require flattening a draw](determinism-does-not-require-flattening-a-draw.md) — the engine seeds by particle id; a midpoint is not a seed.
 - [A computed offset is a guess the file can answer](a-computed-offset-is-a-guess-the-file-can-answer.md) — read the directory; 288 textures decoded to noise without ever throwing.
 - [An entity index does not name a track](an-entity-index-does-not-name-a-track.md) — edict slots are reused, key on index PLUS tick; and an index is not a NAME, a userinfo entry is a slot.

@@ -27,6 +27,12 @@ and would have needed a second edit every time the angle logic changed.
 The corollary for design: when a feature will be reached from two paths (a POV camera and a free
 camera, say), build one thing that both call with a flag, not two implementations that agree today.
 
+**The same rule in the other direction: a restatement of a CONVENTION is the defect.** B400 was
+`IvpWorldCollision.ToSource` spelling the IVP axis map out again instead of calling
+`IvpTransform.SourcePosition`, which already held it with its citation — and the second copy was the
+forward map rather than its inverse, so every collision hull loaded rotated 180° about X. The fix
+was to delete the restatement, not to correct it.
+
 Related: [[logs-are-the-debugger]] is how the drift gets *found*, and
 [[fixtures-are-the-weak-point]] is why a second implementation cannot check the first.
 
@@ -120,5 +126,13 @@ each time it saves one — it quotes `description` and adds `node_type`, `origin
 frontmatter or the two differ by a line. It also leaves a file alone, undecorated, when its
 `description` opens with a quoted phrase, because that is not valid YAML; quote the whole value
 (`"\"…\" …"`) instead.
+
+**Deleting the standalone copies in the OTHER directory is its own step, and it is the one that can
+lose content.** On 2026-09-12 the assistant's directory still held all 25 pre-fold files while the
+repo held the folded hosts; deleting them there without first copying the hosts across would have
+removed the only copy that side. The order is: verify each slug resolves to a `## \`slug\`` heading
+in a host, verify a distinctive line of the standalone appears in that host, delete, then copy every
+differing host over. Compare BODIES when checking, since the frontmatter is restamped on every save
+and will always differ.
 
 Related: [[instrument-bugs-outnumber-decoder-bugs]].

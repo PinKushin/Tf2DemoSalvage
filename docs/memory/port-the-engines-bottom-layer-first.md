@@ -75,12 +75,27 @@ The width is the model's: `m_iv_flPoseParameter.SetMaxCount( hdr->GetNumPosePara
 carry each entry's address in an `_offsets` list, its own width being the distance to the next one.
 See [[address-a-struct-by-name-not-from-its-end]] — the same shape in a mapped buffer.
 
-### The viewer's log cannot tell you a capture crashed
+### The viewer's log could not tell you a capture crashed — fixed 2026-09-12
 
-`Program.Main` installs no `AppDomain.UnhandledException` or `Application.ThreadException` handler, so
-the runtime prints to stderr and the buffered log ends mid-frame looking like any other run. Forty-nine
-logs contained no trace of two reported crashes. **Read the process's stderr, not the log**, and treat
-a log that just stops as evidence of nothing. Related: [[logs-are-the-debugger]].
+`Program.Main` used to install no `AppDomain.UnhandledException` or `Application.ThreadException`
+handler, so the runtime printed to stderr and the buffered log ended mid-frame looking like any other
+run. Forty-nine logs contained no trace of two reported crashes.
+
+**All three are registered now** (B402) — `Application.ThreadException`, `AppDomain.UnhandledException`
+and `TaskScheduler.UnobservedTaskException`, the last because a fire-and-forget `Task` that faults
+reaches neither of the others. Two caveats learned installing them:
+
+- **`ThreadException` fires only if the mode is set.** `Application.SetUnhandledExceptionMode(
+  UnhandledExceptionMode.CatchException)` must precede it or the handler is decoration; registering
+  it without the mode logged nothing on a run that crashed.
+- **A crash inside `Dispose` reaches NONE of them.** `Dispose` runs inside the window procedure
+  handling the close, so an exception leaving it is converted by user32 into
+  `STATUS_FATAL_USER_CALLBACK_EXCEPTION` (`0xC000041D`) with an empty stderr. Naming that one needed a
+  marker naming each member as it is released.
+
+**Read the process's stderr AND the exit code, not only the log.** A log that just stops is evidence
+of nothing; `0xC000041D` specifically means a throw crossed a native callback boundary. Related:
+[[logs-are-the-debugger]], [[ci-is-the-machine-without-tf2]].
 
 ### Where else the same question is open
 
