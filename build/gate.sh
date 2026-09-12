@@ -187,7 +187,20 @@ rm -f /tmp/gate-*.log
 #
 # `dotnet build-server shutdown` rather than pkill: CLAUDE.md's gotcha 10 is that `pkill -f` matches
 # the shell running it, and this script's own command line contains every pattern worth matching.
-trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
+#
+# **That trap covered one leak of three** (2026-09-12, measured by a process census). A gate that is
+# KILLED never runs it — the shell is terminated outright, leaving its `dotnet test` tree orphaned — and
+# `build-server shutdown` never stops a test host even when it does run. `build/reap-dotnet.ps1` finds
+# orphans by parentage rather than by name, so it runs here at START too: a killed run cannot clean up
+# after itself, but the next one can.
+#
+# **At start it leaves the build servers alone.** Other agents build in this directory, and shutting
+# the compiler server down under a build that is running right now would break it; an orphan, by
+# contrast, has no living parent to break. The full shutdown stays at exit, where it always was, with
+# the old command as the fallback if pwsh is missing.
+trap 'pwsh -NoProfile -File "$here/reap-dotnet.ps1" >/dev/null 2>&1 || dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
+
+pwsh -NoProfile -File "$here/reap-dotnet.ps1" -SkipBuildServers || echo "reap-dotnet: could not run at start; continuing" >&2
 
 # **The floors are the CURRENT counts, not a comfortable distance below them.**
 #
