@@ -29725,6 +29725,55 @@ look at it from another angle before touching any drawing code.
 
 *Evidence class: owner observation with two screenshots; not yet reproduced from a known tick.*
 
+#### Read 2026-09-12: the engine's ORDER makes a headless corpse a real TF2 look, and we cannot produce it
+
+Two steps of `CreateTFRagdoll`, and the order between them is the whole mechanism:
+
+```cpp
+// c_tf_player.cpp:790-793 — the body is copied from the LIVING player, bodygroups recalculated
+if ( !m_bFeignDeath || m_bWasDisguised )
+{
+    pPlayer->RecalcBodygroupsIfDirty();
+    m_nBody = pPlayer->GetBody();
+}
+
+// c_tf_player.cpp:10206-10214 — and only AFTERWARDS are the wearables refused
+if ( IsDecapitationCustomDamageType( pRagdoll->GetDamageCustom() ) )
+{
+    int iLoadoutSlot = …;
+    if ( iLoadoutSlot == LOADOUT_POSITION_HEAD || iLoadoutSlot == LOADOUT_POSITION_MISC )
+        continue;
+}
+```
+
+**So a decapitated TF2 corpse keeps the hidden-head bodygroup its hat imposed and loses the hat** —
+the base head geometry stays hidden and nothing replaces it. A soldier corpse with no head is a
+thing the engine genuinely draws, by construction, and the risk entry's first hypothesis — "a
+bodygroup left at a default that hides the head" — has the mechanism inverted: it is the body being
+copied CORRECTLY that removes the head, not a default.
+
+**Which means this project cannot currently reproduce the symptom at all, and that is the finding.**
+`m_nBody` is not implemented for corpses — `RagdollProps` builds every corpse's pose as
+`new ScenePose { Skin = … }`, so `Body` is 0, and body 0 shows every part's first alternative. Our
+corpses draw with MORE head geometry than TF2's, not less: a stock helmet under a cosmetic rather
+than a cosmetic replacing it. The divergence is filed twice, in `RagdollProps` and
+`RagdollAppearance`, both citing `c_tf_player.cpp:790-793`, and both filed rather than fixed
+(`docs/memory/filing-a-divergence-is-not-fixing-it.md`).
+
+**What this does NOT establish, and it is the reason B395 stays open rather than becoming an
+explanation:** whether the corpse the owner photographed was decapitated. If it was, TF2 drew it
+headless too and the screenshot is parity rather than a defect — but our copy should then have had a
+head, which is the opposite complaint. Either way the tick is still needed, and it is still his
+screenshot that names it.
+
+**The fix for `m_nBody` is its own task and is not blocked on B395.** The awkward part is that the
+engine copies the body from the PLAYER before the wearable skips, so deriving it from the corpse's
+own surviving worn items is not equivalent in exactly the decapitation case — which is the case that
+matters here.
+
+*Evidence class: read-from-source, `c_tf_player.cpp` at both sites; the claim about our own body
+value is read from `RagdollProps.cs` and `ScenePropTrack.ScenePose`.*
+
 ### B396 OPEN 2026-09-11: no healing beam is drawn
 
 **Reported by the owner in the same message as B395.** Bundled with the rocket/ball report but a

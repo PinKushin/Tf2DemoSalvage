@@ -241,6 +241,9 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private readonly CancellationTokenSource _shutdown = new();
 
+    /// <summary>Which member <see cref="Dispose(bool)"/> is releasing, for the crash line (B402).</summary>
+    private string _releasing = string.Empty;
+
     /// <summary>What the installed game provides, opened once and reused for every map.</summary>
     /// <remarks>
     /// **`_archives`, `_classModels` and `_entityClasses` were three fields opened inside the first
@@ -5374,21 +5377,66 @@ internal class MainForm : Form, IFrameSteps
                     $"shutdown: idle stopped after {idleStopped.TotalMilliseconds:F0} ms, " +
                     $"device released after {closing.Elapsed.TotalMilliseconds:F0} ms"));
 
-            // Both are in Controls, which base.Dispose already walks - but the analyzer cannot
-            // see that ownership, and stating it costs nothing and is true.
-            _viewport.Dispose();
-            _status.Dispose();
-            _actions.Dispose();
-            _transport.Dispose();
-            _playlist.Dispose();
-            _search.Dispose();
-            _maps.Dispose();
-            _shutdown.Dispose();
-            _overlay?.Dispose();
+            // **Named one at a time, because the process has been dying somewhere in here and no
+            // instrument could say where** (B402). `Dispose` runs inside the window procedure that
+            // handles the close, so an exception escaping it propagates into user32 and comes back
+            // as `STATUS_FATAL_USER_CALLBACK_EXCEPTION` — `Application.ThreadException` and
+            // `AppDomain.UnhandledException` both stay silent, which is exactly what the CI run
+            // with those handlers showed. The log ends on the line above and the exit code is
+            // `0xC000041D`, so the fault is one of these calls and nothing said which.
+            //
+            // **The catch logs and continues to the next member.** A window being torn down cannot
+            // be made healthy by abandoning the teardown half-way, and leaking the rest to spite
+            // one failure would trade a named crash for an unnamed leak.
+            // **Direct calls with a marker, rather than a helper taking a delegate.** The first
+            // version passed `_viewport.Dispose` and friends to a `Release(string, Action)`, and
+            // CA2213 and S2930 then reported six fields as never disposed — an analyzer follows a
+            // call, not a delegate. The marker costs one assignment per member and keeps the
+            // disposal visible to both the reader and the tools.
+            // **A field rather than a local, and the analyzer is the reason.** As a local, every
+            // assignment but the last is a dead store to Sonar's flow analysis — S1854 on each —
+            // because it does not credit the `catch` with reading it. The field is written on the
+            // same path and read in the handler, and says nothing false in between.
+            _releasing = "viewport";
 
-            // Thirteen menu items were named here one at a time until 2026-08-26. `ViewerMenu` owns
-            // them and disposes them beside the code that built them (B188, D90).
-            _menu.Dispose();
+            try
+            {
+                _viewport.Dispose();
+                _releasing = "status";
+                _status.Dispose();
+                _releasing = "actions";
+                _actions.Dispose();
+                _releasing = "transport";
+                _transport.Dispose();
+                _releasing = "playlist";
+                _playlist.Dispose();
+                _releasing = "search";
+                _search.Dispose();
+                _releasing = "maps";
+                _maps.Dispose();
+                _releasing = "shutdown";
+                _shutdown.Dispose();
+                _releasing = "overlay";
+                _overlay?.Dispose();
+
+                // Thirteen menu items were named here one at a time until 2026-08-26. `ViewerMenu`
+                // owns them and disposes them beside the code that built them (B188, D90).
+                _releasing = "menu";
+                _menu.Dispose();
+
+                _renderLog.LogInformation("{Message}", "shutdown: every member released");
+            }
+            // **Rethrown with the member in the message, not swallowed** (B402, S2139). Swallowing
+            // would turn the red CI green while the fault stayed, which is deleting the only
+            // instrument that has ever reported this; the log line names the member and the
+            // rethrow keeps the failure a failure.
+            catch (Exception failure) when (failure is not OutOfMemoryException)
+            {
+                _renderLog.LogError(failure, "{Message}", $"shutdown: releasing {_releasing} threw");
+
+                throw new InvalidOperationException(
+                    $"releasing {_releasing} during shutdown threw", failure);
+            }
         }
 
         base.Dispose(disposing);

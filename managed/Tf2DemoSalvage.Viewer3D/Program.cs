@@ -88,6 +88,12 @@ internal static class Program
         // would be claiming a state it cannot vouch for; the point is the record, not the rescue.
         ILogger crashes = loggers.CreateLogger("viewer");
 
+        // **Without this the handler below is decoration.** `ThreadException` fires only when the
+        // mode is `CatchException`; the default routes an unhandled exception in the message loop
+        // straight to the runtime instead. Registering the handler and not setting this is how the
+        // first attempt at naming B402 logged nothing at all.
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+
         Application.ThreadException += (_, thread) =>
             crashes.LogError(thread.Exception, "{Message}", "unhandled exception on the UI thread");
 
