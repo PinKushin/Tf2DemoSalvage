@@ -26598,6 +26598,66 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B400 OPEN 2026-09-11: one column in seven has a floor for the camera and none for a corpse, so corpses fall out of the world
+
+**Found chasing B395's headless corpse, and it is a bigger fault than the one being looked for.** The
+viewer's own log, capturing `demostf-cp_process_f12-2026-08-07` at tick 26578:
+
+```
+WARN [render] corpse 2072 left the world at tick 26440 with 0 contacts, last touching at -2567.8 -2283 756.7
+     corpse 2072 settled at -1364.4 -2581.1 -1759.3 contacts 0 deepest 0 born 26399
+                 seeded -2857.6 -2194.7 780 blow 11335.2 -8410.2 2827.4
+```
+
+It spawns where the player died, never rests, and ends 2,500 units under the map — so there is
+nothing to draw, which is why three cameras aimed at its recorded position saw an empty room.
+
+**The corpse is not tunnelling and the blow is not wrong. There is no floor there to hit.**
+`corpse-drop` now asks the same column twice, by two independent routes:
+
+| asked | answer at (−2858, −2195, 790) |
+|---|---|
+| `IvpWorldCollision.Sweep` — what a corpse falls onto | **nothing for 2,000 units** |
+| `MapLevel.Sweep` — the BSP tree and displacements, what the chase camera uses | **floor at z 704** |
+
+**Measured across the map, not at one point.** `map-collision <map> x y z` censuses a grid of drops:
+**904 of 1,089 columns** around that spot are camera-only, **0 physics-only**; over the whole map
+**764 of 5,293 columns the camera floors have no floor at all in the physics world**.
+
+**Not a map-version defect, which was the first suspicion given D162 now fetches a demo's own map.**
+The demo's `cp_process_f12` reads 4,040 world ledges from 2 solids; the installed `cp_process_final`
+reads 32,861 from 8. **The census is the same for both** — 904 camera-only locally, 762 against 764
+map-wide — so an eightfold difference in ledge count changes nothing about which columns are missing.
+Whatever geometry is absent is absent from both.
+
+**Four candidate causes ruled out by measurement, so they are not re-tried:**
+
+- **The ledge-tree depth guard.** `PhysicsHull.MaximumDepth` is 64 where the engine's walk has none.
+  Raised to 65,536: ledge count unchanged at 4,916.
+- **The contents mask.** Forcing every solid to `CONTENTS_SOLID` rather than the `staticsolid` text's
+  declared mask: unchanged.
+- **A bounding sphere that does not contain its own hull**, which would make the broadphase reject
+  real geometry: **0 of 4,916 ledges** have a hull point outside their sphere.
+- **Unconverted units.** Ledge centres span x −14,908..5,072, y −15,436..14,197, z −14,652..14,688 —
+  map coordinates, not metres at the origin. 35 ledges sit within 512 units of the failing column;
+  they are radius 8–11 pieces at z 748–778, not the floor at 704.
+
+**What is NOT established, and it is the whole remaining question:** which geometry provides that
+floor in the BSP and why it reaches no `PhysicsLedge`. The next measurement is to name the brush or
+model the camera's sweep stops against at (−2858, −2195, 704) and look for it in the physics lump.
+
+**Two smaller divergences found on the way, both unfixed:**
+
+- `IvpEnvironment.MaximumCollisionsPerBody` is 10; the engine's
+  `maxCollisionsPerObjectPerTimestep` default is **6** (`public/vphysics/performance.h:31`).
+- The render log calls `OversizedCount` "oversized of 4916", but it counts coarse-grid CELLS, not
+  ledges, and an oversized ledge is still tested rather than skipped. The line reads as lost
+  geometry and is not.
+
+*Evidence class: measured — the viewer's own corpse log, and a two-route census in `corpse-drop` and
+`map-collision` where the second route is the control. The engine's collision limit is
+read-from-source.*
+
 ### B399 OPEN 2026-09-11: a paused viewer still draws `cl_interp` behind, where a paused client draws the last received position
 
 **The engine stops interpolating while paused, and this is the whole chain.**

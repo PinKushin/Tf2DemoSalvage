@@ -103,6 +103,23 @@ public sealed class CorpseDropProbe : IProbe
         // a corpse seeded at (−972.6, −1400.3, 77.5) fell to −4359 here and rests at z 4.8 in the
         // viewer, because the mining crates it lands on were absent. An instrument that disagrees
         // with the thing it is standing in for is worth less than no instrument.
+        // **Before the props, because two maps reported the SAME extreme ledges to the unit** and
+        // only one population is shared between maps: the prop models. Whether the world's own
+        // ledges already reach those coordinates decides which half is misplaced (B400).
+        int brushLedges = level.Physics.Ledges.Count;
+        Vector3 brushLow = new(float.MaxValue), brushHigh = new(float.MinValue);
+
+        foreach (Vector3 centre in level.Physics.Ledges.Select(ledge => ledge.Center))
+        {
+            brushLow = Vector3.Min(brushLow, centre);
+            brushHigh = Vector3.Max(brushHigh, centre);
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  before props: {brushLedges} ledges, centres x {brushLow.X:0}..{brushHigh.X:0} " +
+            $"y {brushLow.Y:0}..{brushHigh.Y:0} z {brushLow.Z:0}..{brushHigh.Z:0}"));
+
         PakFile pak = PakFile.ReadFrom(map);
 
         (int placed, int solid) = MapPropCollision.Add(
@@ -217,6 +234,142 @@ public sealed class CorpseDropProbe : IProbe
                   $"normal ({floor.Normal.X:0.##}, {floor.Normal.Y:0.##}, {floor.Normal.Z:0.##})"
                 : $"  {inside}; NOTHING beneath ({at.X:0.#}, {at.Y:0.#}, {at.Z:0.#}) " +
                   $"for {Probing:0} units");
+
+        // **The second reading of the same question, and it is the control the first one needed**
+        // (B400). `IvpWorldCollision` is built from `LUMP_PHYSCOLLIDE` plus the displacements;
+        // `MapLevel.Sweep` asks the BSP tree and the displacements instead — the route the chase
+        // camera uses, which demonstrably does not pass through floors. "Nothing beneath" from one
+        // and a floor from the other is a hole in the PHYSICS world, not in the map; nothing from
+        // both is a spot that really is open space, and the corpse falling is correct.
+        float tree = level.Sweep(
+            (at.X, at.Y, at.Z), (at.X, at.Y, at.Z - Probing), halfExtent: 0f);
+
+        output.WriteLine(
+            tree < 1f
+                ? $"  the BSP tree says floor at z {at.Z - (tree * Probing):0.#}"
+                : $"  the BSP tree ALSO finds nothing for {Probing:0} units");
+
+        // **Where the ledges ARE, because "no floor here" and "no ledges anywhere near here" are
+        // different faults** and the sweep cannot tell them apart. Bounds catch a conversion that
+        // left the whole set in metres at the origin; the local count catches a set that is in the
+        // right place and simply thin where this point is.
+        Vector3 low = new(float.MaxValue), high = new(float.MinValue);
+        int near = 0;
+
+        foreach (Vector3 centre in level.Physics.Ledges.Select(ledge => ledge.Center))
+        {
+            low = Vector3.Min(low, centre);
+            high = Vector3.Max(high, centre);
+
+            if (MathF.Abs(centre.X - at.X) < 512f && MathF.Abs(centre.Y - at.Y) < 512f)
+            {
+                near++;
+            }
+        }
+
+        output.WriteLine(
+            level.Physics.Ledges.Count == 0
+                ? "  the physics world holds NO ledges at all"
+                : $"  ledge centres span x {low.X:0} to {high.X:0}, y {low.Y:0} to {high.Y:0}, " +
+                  $"z {low.Z:0} to {high.Z:0}; {near} within 512 units of this column");
+
+        // **Does each ledge's own bounding sphere CONTAIN its hull?** The sweep rejects a ledge on
+        // that sphere before looking at a single plane, so a sphere that under-reports deletes
+        // real geometry from every query — and the map's own node spheres are not built from the
+        // hull this reader assembles.
+        int escaping = 0;
+        float worst = 0f;
+
+        foreach (IvpWorldLedge ledge in level.Physics.Ledges)
+        {
+            foreach (Vector3 vertex in ledge.Vertices)
+            {
+                float over = (vertex - ledge.Center).Length() - ledge.Radius;
+
+                if (over > 0.01f)
+                {
+                    escaping++;
+                    worst = MathF.Max(worst, over);
+                    break;
+                }
+            }
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {escaping} of {level.Physics.Ledges.Count} ledges have hull points OUTSIDE their " +
+            $"own bounding sphere, worst by {worst:0.#} units"));
+
+        // **Is the floor's own FACE in the set at all?** The sweep can only miss a ledge it holds;
+        // a ledge with an upward face at the camera's floor height, near this column, would say
+        // the geometry is present and the query is at fault. None would say it never arrived.
+        int floors = 0;
+
+        foreach (IvpWorldLedge ledge in level.Physics.Ledges)
+        {
+            if (MathF.Abs(ledge.Center.X - at.X) > 512f || MathF.Abs(ledge.Center.Y - at.Y) > 512f)
+            {
+                continue;
+            }
+
+            foreach ((Vector3 normal, float distance) in ledge.Planes)
+            {
+                if (normal.Z > 0.9f && MathF.Abs(distance - (at.Z - (tree * Probing))) < 16f)
+                {
+                    floors++;
+                    break;
+                }
+            }
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {floors} ledges within 512 units carry an upward face at the camera's floor height"));
+
+        // **The same query, shortened.** A long sweep and a short one over the same surface must
+        // agree; if only the short one finds the floor, the fault is in how far the query reaches
+        // rather than in the geometry it reaches for.
+        float camera = at.Z - (tree * Probing);
+
+        foreach (float height in new[] { 8f, 32f, 128f, 512f })
+        {
+            Vector3 upper = new(at.X, at.Y, camera + height);
+            Vector3 lower = new(at.X, at.Y, camera - 8f);
+
+            string found = level.Physics.Sweep(upper, lower) is { } shorter
+                ? string.Create(
+                    CultureInfo.InvariantCulture, $"hit, normal z {shorter.Normal.Z:0.##}")
+                : "nothing";
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    from {height:0} above the camera's floor: {found}"));
+        }
+
+        // **The furthest ledges from the map's middle, because their extremes were IDENTICAL on
+        // two different maps** — y −15436 and z 14688 to the unit on both cp_granary and
+        // cp_process_f12. Map geometry does not agree across maps; a constant does.
+        foreach (IvpWorldLedge ledge in level.Physics.Ledges
+            .OrderByDescending(ledge => ledge.Center.LengthSquared())
+            .Take(4))
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    FAR ledge at ({ledge.Center.X:0}, {ledge.Center.Y:0}, {ledge.Center.Z:0}) " +
+                $"radius {ledge.Radius:0.#} contents 0x{ledge.Contents:X} " +
+                $"planes {ledge.Planes.Count} vertices {ledge.Vertices.Count}"));
+        }
+
+        foreach (IvpWorldLedge ledge in level.Physics.Ledges
+            .OrderBy(ledge => (ledge.Center - above).LengthSquared())
+            .Take(5))
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    ledge at ({ledge.Center.X:0}, {ledge.Center.Y:0}, {ledge.Center.Z:0}) " +
+                $"radius {ledge.Radius:0.#} contents 0x{ledge.Contents:X} " +
+                $"planes {ledge.Planes.Count}"));
+        }
 
         RagdollSimulation simulation = RagdollSimulation.Create(ragdoll, Step, start, surfaces);
 
