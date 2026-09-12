@@ -33,7 +33,6 @@ namespace Tf2DemoSalvage.Render;
 /// </remarks>
 internal sealed unsafe class OffscreenTarget : IDisposable
 {
-    private readonly D3D11 _d3d;
     private readonly int _width;
     private readonly int _height;
 
@@ -52,7 +51,6 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
     private OffscreenTarget(
         ILoggerFactory loggers,
-        D3D11 d3d,
         int width,
         int height,
         ComPtr<ID3D11Device> device,
@@ -64,7 +62,6 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         ComPtr<ID3D11DepthStencilView> depthView)
     {
         _loggers = loggers;
-        _d3d = d3d;
         _width = width;
         _height = height;
         _device = device;
@@ -94,7 +91,10 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     public static OffscreenTarget? TryCreate(
         int width, int height, ILoggerFactory? loggers = null)
     {
-        D3D11 d3d = D3D11.GetApi(null);
+        // The process's one copy, shared with `Device3D` and never unloaded (B402). This type is
+        // built 34 times across the render suite, and `D3D11.GetApi` loads the library afresh on
+        // every call, so a per-target handle was both a leak and, when released, the crash.
+        D3D11 d3d = Direct3DApi.Api;
 
         ComPtr<ID3D11Device> device = default;
         ComPtr<ID3D11DeviceContext> context = default;
@@ -118,11 +118,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             if (result >= 0)
             {
                 return Build(
-                    loggers ?? NullLoggerFactory.Instance, d3d, width, height, device, context);
+                    loggers ?? NullLoggerFactory.Instance, width, height, device, context);
             }
         }
 
-        d3d.Dispose();
+        // No `d3d.Dispose()` here either: the instance is shared and outlives this failure.
         return null;
     }
 
@@ -446,6 +446,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        // Unbind and flush before releasing anything, as Direct3D 11's teardown asks. The API
+        // object itself is process-wide and nobody disposes it; see `Direct3DApi` (B402).
+        _context.ClearState();
+        _context.Flush();
+
         _points?.Dispose();
         _world?.Dispose();
         _view.Dispose();
@@ -455,12 +460,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _texture.Dispose();
         _context.Dispose();
         _device.Dispose();
-        _d3d.Dispose();
+
     }
 
     private static OffscreenTarget Build(
         ILoggerFactory loggers,
-        D3D11 d3d,
         int width,
         int height,
         ComPtr<ID3D11Device> device,
@@ -523,6 +527,6 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         return new OffscreenTarget(
             loggers,
-            d3d, width, height, device, context, texture, staging, view, depthTexture, depthView);
+            width, height, device, context, texture, staging, view, depthTexture, depthView);
     }
 }

@@ -45,7 +45,28 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Back buffers. Two is the minimum a flip-model swap chain accepts.</summary>
     private const uint BufferCount = 2;
 
-    private readonly D3D11 _d3d;
+    /// <summary>Set this to draw through WARP, the software rasteriser, as a GPU-less machine does.</summary>
+    public const string SoftwareRasteriserVariable = "TF2VIEW_WARP";
+
+    /// <summary>Whether to ask for WARP instead of the hardware adapter.</summary>
+    /// <remarks>
+    /// **This exists so B402's crash is reproducible off CI, and it is the whole reason that bug
+    /// cost six runs.** A machine with a display adapter gets a hardware driver and never enters
+    /// the path that killed the process; a GitHub runner has no adapter, falls back to WARP, and
+    /// died on every capture. Four fixes were written from stories about the log because nobody
+    /// could produce the condition here. With this set, one command reproduces it exactly.
+    ///
+    /// **Opt-in only, and no test sets it** (D167). The owner, having watched a WARP capture run:
+    /// *"the fps was shit, do not run the tests as warp locally please"*. Software rasterisation
+    /// is minutes where hardware is seconds, and a suite that took it would be paying that on
+    /// every run to guard a crash that only a GPU-less machine can have. CI already runs on WARP
+    /// by having no adapter at all, so the case is covered where it actually occurs.
+    ///
+    /// Read once per device creation rather than cached: it is set around a single launch.
+    /// </remarks>
+    private static bool SoftwareRasteriserWanted =>
+        Environment.GetEnvironmentVariable(SoftwareRasteriserVariable) is { Length: > 0 };
+
     private ComPtr<ID3D11Device> _device;
     private ComPtr<ID3D11DeviceContext> _context;
     private ComPtr<IDXGISwapChain> _swapChain;
@@ -107,7 +128,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     private Device3D(
         ILoggerFactory loggers,
-        D3D11 d3d,
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         ComPtr<IDXGISwapChain> swapChain)
@@ -116,7 +136,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _loggers = loggers;
         _render = loggers.CreateLogger("render");
-        _d3d = d3d;
         _device = device;
         _context = context;
         _swapChain = swapChain;
@@ -156,7 +175,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             throw new ArgumentOutOfRangeException(nameof(height), height, "Height must be positive.");
         }
 
-        D3D11 d3d = D3D11.GetApi(null);
+        // The process's one copy, never unloaded — `Direct3DApi` carries the whole reason (B402).
+        D3D11 d3d = Direct3DApi.Api;
 
         SwapChainDesc description = new()
         {
@@ -190,7 +210,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         SilkMarshal.ThrowHResult(d3d.CreateDeviceAndSwapChain(
             pAdapter: default(ComPtr<IDXGIAdapter>),
-            DriverType: D3DDriverType.Hardware,
+            DriverType: SoftwareRasteriserWanted
+                ? D3DDriverType.Warp
+                : D3DDriverType.Hardware,
             Software: 0,
             Flags: 0u,
             pFeatureLevels: null,
@@ -202,7 +224,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             pFeatureLevel: null,
             ppImmediateContext: ref context));
 
-        Device3D created = new(loggers, d3d, device, context, swapChain)
+        Device3D created = new(loggers, device, context, swapChain)
         {
             _width = width,
             _height = height,
@@ -3084,6 +3106,23 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             IsExclusiveFullScreen = false;
         }
 
+        // **Unbind everything and finish the queue BEFORE a single object is released** (B402).
+        // Direct3D 11 destroys resources lazily: a view still bound to the pipeline, or work still
+        // sitting in the immediate context, outlives the `Release` that looks like it freed it. The
+        // back buffer is bound as the render target at this moment, so releasing the swap chain
+        // below was releasing something the pipeline still referenced.
+        //
+        // `ClearState` unbinds it; `Flush` makes the deferred destruction happen HERE, inside a
+        // call that can still report a failure, instead of at some later moment on a driver thread
+        // with no managed frame anywhere on its stack.
+        // **Not the B402 fix, and measured to be irrelevant to it** — with `d3d11.dll` still being
+        // unloaded below, adding these changed nothing at all on WARP. They stay because they are
+        // Direct3D 11's documented teardown: the back buffer is bound as the render target at this
+        // moment, and `Flush` makes the deferred destruction happen inside a call that can still
+        // report a failure. Kept with its evidence class stated rather than implied.
+        _context.ClearState();
+        _context.Flush();
+
         _world?.Dispose();
         _hud?.Dispose();
         _points?.Dispose();
@@ -3097,7 +3136,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _swapChain.Dispose();
         _context.Dispose();
         _device.Dispose();
-        _d3d.Dispose();
+
+        // **`_d3d` is not disposed here, and it is not ours to dispose** (B402). It is the
+        // process-wide instance from `Direct3DApi`, which holds the only `d3d11.dll` handle for
+        // the program's whole life; disposing it would unload the library while a driver thread
+        // may still be inside it, which is the crash this bug was. The full account, including
+        // why loading it per device instead would leak, is on `Direct3DApi`.
         _disposed = true;
     }
 

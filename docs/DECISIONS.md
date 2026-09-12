@@ -8628,3 +8628,22 @@ opposite fixes. Measuring the two apart — readable at all, and matching when r
 source — read the engine for it, then measure it on a real demo, then say which of those two
 established it. Report the number back rather than "you were right", because the number is what a
 later reader can check. Related: D89, D165, `docs/memory/state-the-assumptions-the-owner-can-falsify.md`.
+
+## D167 — WARP is a diagnostic you reach for, never something the local suite runs (2026-09-12)
+
+`TF2VIEW_WARP=1` makes `Device3D` ask for the software rasteriser instead of the hardware adapter,
+which is what a machine with no display adapter gets. It exists because B402 crashed on every CI
+capture for six runs and could not be reproduced here at all — four fixes were written from stories
+about a log line, and the variable turns that into one command.
+
+**It is opt-in and nothing sets it automatically.** The owner, watching a WARP capture:
+
+> *"the fps was shit, do not run the tests as warp locally please"*
+
+He is right on the arithmetic as well as the annoyance: software rasterisation turns a seconds-long
+capture into a minutes-long one, so a suite that took it would pay that on every run to guard a
+fault only a GPU-less machine can have. **CI already runs on WARP by having no adapter**, so the
+case is covered exactly where it occurs, and the local suite keeps the hardware path it is meant to
+be testing.
+
+Related: B402 in `docs/RISKS.md`, D89.

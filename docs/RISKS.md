@@ -26642,7 +26642,61 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B402 OPEN 2026-09-12: our `Dispose` override disposed the form's own child controls, and `base.Dispose` walks them too
+### B402 FIXED 2026-09-12: releasing the Silk.NET API object unloads `d3d11.dll`, and WARP's threads are still in it
+
+**One line, and a truth table that took one command each.** `Device3D.Dispose` ended with
+`_d3d.Dispose()`. Disposing a Silk.NET API object calls `FreeLibrary` on the native library behind
+it — `d3d11.dll` — and the driver does not necessarily have every thread stopped by the time the
+device's last reference goes. Unloading the code those threads are executing is an access violation
+on a thread with no managed frame, which Windows reports as `STATUS_FATAL_USER_CALLBACK_EXCEPTION`:
+`0xC000041D`, empty standard error, no stack, and **after the last line the process wrote** — which
+is exactly the log six CI runs produced.
+
+**Invisible on a machine with a GPU, which is the whole story of this bug.** A display adapter means
+a hardware driver; no adapter means WARP, the software rasteriser, which is a thread POOL. The
+runner has no adapter. This machine has one and therefore never entered the path, so four attempts
+were written from stories about a log line rather than from evidence.
+
+**Reproduced here in one command once the condition was named rather than guessed at.** Asking for
+`D3DDriverType.Warp` on this machine reproduces CI's exit code exactly, and the four cells separate
+the cause from the ceremony around it:
+
+| teardown, all on WARP | exit |
+|---|---|
+| `_d3d.Dispose()`, no flush — as shipped | `-1073740771` (`0xC000041D`) |
+| `_d3d.Dispose()` plus `ClearState`/`Flush` | `-1073740771` |
+| no `_d3d.Dispose()`, plus `ClearState`/`Flush` | `0` |
+| no `_d3d.Dispose()`, no flush | `0` |
+
+**The flush is not the fix and is not claimed as one.** Rows two and one are identical, so
+`ClearState`/`Flush` changed nothing; they stay because they are Direct3D 11's documented teardown —
+the back buffer is bound as the render target at that moment — and the comment beside them says
+which of those two things is measured.
+
+**`OffscreenTarget` carried the same fault**, loading its own `D3D11.GetApi` and releasing it the
+same way.
+
+**The first fix was "stop disposing it", and the owner caught that it leaks:** *"did you actually
+fix it? we need to call _d3d.Dispose dont we?"* He was right, and the reason is read-from-source —
+`D3D11.GetApi` is not a cache. Every call runs `new D3D11(CreateDefaultContext(names))`, which loads
+the library again, so never disposing means one leaked handle per device. `Rendering.Tests` builds
+34 offscreen targets in a single process.
+
+**The shape that satisfies both is one instance for the process**, now `Direct3DApi.Api`: the
+library is loaded once however many devices are built, nobody disposes it, and the loader frees it
+at process exit — the only moment at which no driver thread can still be inside it. Both `Device3D`
+and `OffscreenTarget` take it and neither stores it, so there is no field to leak and none to
+release by mistake.
+
+**`TF2VIEW_WARP=1` makes the condition reachable from now on**, and D167 records that it stays
+opt-in: *"the fps was shit, do not run the tests as warp locally please"*. CI runs on WARP by having
+no adapter, so the case is covered where it actually occurs.
+
+*Evidence class: measured — four controlled runs on this machine, one variable between each, plus
+the six CI runs and their uploaded logs. The mechanism (FreeLibrary against live driver threads) is
+read-from-source on Silk.NET's disposal plus arithmetic on the exit code.*
+
+#### Attempt four, wrong: our `Dispose` override disposed the form's own child controls
 
 **Attempt four, and the first one whose evidence is a controlled experiment rather than a story.**
 
