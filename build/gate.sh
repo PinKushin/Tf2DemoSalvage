@@ -661,7 +661,11 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 293 -> 301 on 2026-09-12: the edge evaluator (FUN_1800a3660, B369). IvpEdgeEvaluatorConformanceTests (6)
 # and IvpMatrixConformanceTests +2 for RotateInverse (FUN_1800706c0). Compile-red first; three sabotages
 # in one run.
-run Tf2DemoSalvage.Animation.Tests animation 301
+#
+# 301 -> 316 on 2026-09-12: the time-of-impact searches (B369). IvpMotionCacheConformanceTests (5) for
+# FUN_1800a0800's index-keyed slots, IvpRootFinderConformanceTests (10) for FUN_1800b6210 and FUN_1800b6590.
+# Compile-red first; sabotaged before commit.
+run Tf2DemoSalvage.Animation.Tests animation 316
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

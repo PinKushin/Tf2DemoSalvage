@@ -2222,19 +2222,40 @@ evaluator is an object whose slot 0 returns the pair's distance for two given tr
 `1800fe720` = {`a3470`, `a3a30`, `a31e0`}; edge `1800fe750` = {`a3660`, `a32b0`, `a33e0`}) and whose
 `[1]` holds the pair's maximum approach speed:
 
-1. The distance at the interval's start, or the one passed in.
-2. A step of `(distance − tolerance) / maxApproachSpeed` — the longest the pair can go without
-   touching — clamped at the interval's end (plus `1e-8`) and at zero.
-3. **Quantised to whole lattice ticks**, `int(step × DAT_1800feb78)`, at least one, each tick
-   `DAT_1800fd748` long; the clock advances by that many ticks.
-4. Both objects' transforms at the new lattice time, computed once and cached (`FUN_1800734e0`), and
-   the distance evaluated there.
-5. Once the target distance is crossed, the bracket is handed to the refining finder `FUN_1800b6590`.
+1. The distance at the interval's start, or the one passed in. **If it is already above the target, the
+   whole search is handed to `FUN_1800b6590` at once.**
+2. Otherwise — the pair starts inside the target — a step of `(distance − tolerance) × (1.0 /
+   evaluator+0x08)`; if `(float)(t − end)` plus the step is past zero it becomes `(float)(end − t) + 1e-8`,
+   and otherwise it is held at zero or above (`MAXSD` against zero, which also turns NaN into zero).
+3. **Quantised to whole lattice ticks**, `(int)(step × 200.0)` truncated, at least one; the clock
+   advances by `(double)((float)ticks × 0.005f)`, and a running tick total indexes the motion caches.
+4. Both objects' transforms at that index, taken from the cache or computed there with
+   `FUN_1800734e0` and kept, and the distance evaluated.
+5. **A distance above the target** hands `(t, distance, tick total)` to `FUN_1800b6590` for the rest of the
+   interval, unless `t` is already past the end. **A distance at or below the one at the START** is an
+   event at the PREVIOUS lattice time, returned as 1. Anything between — inside the target but farther
+   than at the start — carries on until `(float)(t − end)` reaches zero, which is no event.
 
-**Each object's motion cache is built by `FUN_1800a0800`**: 21 transform slots. When the core's
-movement state at `core+0x78` is above 7 every slot points at the current transform — the body is not
-moving, *inferred* from that shortcut — and otherwise only the current one is filled and the rest are
-computed on demand at lattice times.
+**Corrected from the disassembly:** this list first read as a search for the distance falling to the
+target. The routine marches only while the pair starts inside the target, compares each distance with
+the one at the start rather than the previous one, and delegates any approach from outside to the
+refining finder.
+
+**Each object's motion cache is built by `FUN_1800a0800`**: 21 transform slots. When the OBJECT's
+movement-state byte at `object+0x78` is 8 or more, every slot points at the matrix at `+0x40` of the
+structure the cache is built from — the body is not moving, *inferred* from that shortcut — and
+otherwise slot 0 alone points there and the rest are null, filled on first use. **A slot is keyed by its
+tick index only**: whatever time first fills index `n` is what every later lookup of `n` in the same
+search gets, and a refinement handed the tick total carries on in the same caches. **Corrected from the
+disassembly:** this paragraph first put the state byte on the core; the cache reaches it through
+`+0xc8`, which is the object (its `+0xe8` is the core `FUN_1800734e0` reads).
+
+**`FUN_1800734e0` composes the object into its core** after the core's own transform at `t`: unless
+flag `0x800` at `object+0x78`, the translation becomes the float offset at `object+0x60` put through that
+matrix (`FUN_180070b20`, the same grouping as `FUN_180070bc0`); then, if `object+0x58` is set, the
+rotation is rebuilt from the interpolated quaternion times the one it points at (`FUN_180070d60`, a
+Hamilton product `a ⊗ b` in doubles). **This project treats a body and its core as one thing**, which
+drops both; that premise is recorded in `IvpRigidBody.TransformAt` and is not established here.
 
 **The lattice is 200 ticks a second.** `DAT_1800feb78` is `200.0` and `DAT_1800fd748` is `0.005`
 (float), and the refinement gives up at **20 ticks** — a tenth of a second, which is why the motion
@@ -2337,14 +2358,32 @@ Not mapped, because nothing here names them: `+0x80`, `+0x1dc` (written by the i
 *Evidence class: read from the decompiled binary for all three writers and the island driver; that
 `env+0x110` is the inverse step is checked against this document's own reading of the environment.*
 
-**The refining finder `FUN_1800b6590`:**
+**The refining finder `FUN_1800b6590`**, as the disassembly has it (`RCX` the evaluator, `XMM1` the
+target, `R8` the start, `R9` the end, then on the stack the tick total so far, both motion caches, an
+optional known distance and the out time):
 
-1. Distance already at or under the target: the event is at the interval's start.
-2. Otherwise march with a step of `(distance − target) × evaluator[2]`, **doubling every iteration**,
-   quantised to whole ticks, at least one; past 20 ticks there is no event.
-3. Once the target is crossed, **regula falsi** between the last point above and the first below,
-   with every fourth iteration blended by `DAT_1800feb70`, until `|distance − target| < 1e-8` or 64
-   iterations.
+1. A distance at or under the target: the event is at the start, and it returns 1.
+2. If `(float)(start − end)` plus `(distance − target) × evaluator+0x10` is already past zero, there is
+   no event.
+3. Otherwise march. **Each step is TWICE `(distance − target) × evaluator+0x10`, recomputed from the
+   current distance** — not a step that keeps doubling — replaced by `(float)(end − t) + 1e-8` when it
+   would overshoot, times `200.0`, truncated to whole ticks, at least one. The time advances by
+   `(double)((float)ticks × 0.005f)` and the tick total indexes the motion caches. A distance still
+   above the target at a tick total of exactly 20 gives up, and so does a next step past the end.
+4. Once a lattice point is at or under the target, **regula falsi** between the last time above
+   (`t_a`, `d_a`) and the first at or under (`t_b`, `d_b`):
+   `t = ((double)(float)(t_b − t_a) · (target − d_a)) / (d_b − d_a) + t_a`. On every pass where
+   `iteration & 3 == 3` that point is replaced by `((double)(float)(t_a − t) + (double)(float)(t_b − t)) ·
+   0.375 + t`, and on those passes alone the cap is checked: past 64 it stops with `t_a`, the last time
+   still above the target — so the cap bites at iteration 67. Both transforms at `t` are computed fresh,
+   not from the caches. It stops when `|distance − target| < 1e-8`; otherwise a distance under the target
+   replaces `(t_b, d_b)` and any other replaces `(t_a, d_a)`.
+5. A final time past the end is no event; otherwise it is written out and the routine returns 1.
+
+**Corrected from the disassembly:** this list first said the step doubled every iteration and gave up
+after 64 iterations. The step is re-derived from each distance and doubled once; the cap is checked only
+every fourth pass, and what it returns is the last time above the target, not the latest estimate.
+**`1e-8` is an absolute distance in IVP's metres**, so a port running in inches carries it scaled.
 
 **The evaluators are signed distances.** Point-plane `FUN_1800a3470` transforms the vertex by object
 A's transform and the plane's point and normal by object B's, and returns

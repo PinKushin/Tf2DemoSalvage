@@ -26007,7 +26007,12 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    `1.0 / step` unguarded. `IvpRigidBodyTransformAtConformanceTests` (7), red first, two sabotages each
    reddening only its own case.
 2. **The lattice** — 200 ticks a second, 0.005 s each, at most 20 per search, a 21-slot per-object
-   transform cache that a resting body fills with its current transform.
+   transform cache that a resting body fills with its current transform. **Done as `IvpMotionCache`**,
+   from the disassembly of `FUN_1800a0800`: slot 0 is the current matrix, a resting object points every
+   slot there, and a slot is keyed by its tick index only — the time that first fills it is what every
+   later lookup gets. The state byte is the object's (`object+0x78`), not the core's as first written.
+   Where the engine's current matrix comes from is not established (no call to `FUN_1800734e0` writes it),
+   so the caller supplies it. `IvpMotionCacheConformanceTests` (5).
 3. **Signed-distance evaluators** — point-plane (`FUN_1800a3470`) and edge (`FUN_1800a3660`), each
    given two transforms. Tested at known geometry, including the sign on each side of a face.
    **(a) `IvpMatrix` — done**, and **corrected**: its point transform had been ported from the
@@ -26029,7 +26034,20 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
 4. **The root finders** — `FUN_1800b6210`: step `(distance − tolerance) / maxApproachSpeed` in whole
    ticks to the interval's end; `FUN_1800b6590`: doubling steps up to 20 ticks, then regula falsi with a
    `0.375` blend every fourth iteration to `|distance − target| < 1e-8` or 64 iterations. Tested with
-   evaluators whose root is known in closed form.
+   evaluators whose root is known in closed form. **Done as `IvpRootFinder.Advance` and `Refine`, and the
+   disassembly corrected three things in this item:** the refinement's step is twice
+   `(distance − target) × inverse speed` RE-DERIVED from each distance, not a step that keeps doubling; the
+   regula falsi cap is checked only on passes with both low bits set and bites at pass 67, answering with
+   the last time still above the target; and the advancing search marches only when the pair starts
+   INSIDE the target, compares every distance with the one at the start, reports an event at the previous
+   lattice time, and hands any approach from outside to the refinement. Comparisons take the engine's
+   branch on NaN; the distance tolerance `1e-8` is metres converted to inches. `IvpRootFinderConformanceTests`
+   (10), compile-red first; six sabotages in one run — no doubling, comparing with the previous distance,
+   the event at the current lattice time, the cap answering the new estimate, a slot never kept, resting
+   ignored — reddened exactly the seven cases predicted. **The first cap test could not fail**: on a jump
+   in distance the bracket collapses to adjacent doubles and which side it answers is a coin flip, so it
+   was replaced before sabotage by an evaluator whose estimates all stay above the target at a
+   fifty-first of the bracket.
 5. **The vertex-face time of impact** (`FUN_1800a1b50`) — target `margin + extra`, tolerance
    `0.5·extra + ε`; event `0x20` on a root, then the vertex's edge ring for event `0x21`.
 6. **The pair scheduler's near branch** (`FUN_180099380`) and the time-ordered event loop that
