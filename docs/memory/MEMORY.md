@@ -44,7 +44,7 @@
 - [Output-level assertion or it is not done](output-level-assertion-or-it-is-not-done.md) — only it catches wiring.
 - [Wire names are strings](wire-names-are-strings.md) — SENDINFO_NAME sends under its second argument.
 - [A property can be declared by any table](a-property-can-be-declared-by-any-table.md) — a fixed table list dropped every projectile.
-- [Nothing is closed](nothing-is-closed.md) — SDK, headers, shipped data, binaries, decompiler; a Valve comment can be stale; settle a constant in the DISASSEMBLY.
+- [Nothing is closed](nothing-is-closed.md) — SDK, headers, shipped data, binaries, decompiler; a Valve comment can be stale; settle a constant in the DISASSEMBLY, and a float sum's grouping too.
 - [Death is EF_NODRAW, not an animation](death-is-ef-nodraw-not-an-animation.md) — a separate CTFRagdoll.
 - [Pose parameters live in the included model](pose-parameters-live-in-the-included-model.md) — paramindex is group-local.
 - [A property name needs its declaring table](a-property-name-needs-its-declaring-table.md) — check the pair.
