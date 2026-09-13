@@ -26087,9 +26087,10 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    (`FUN_180099a00`), the pass and its budget of 250 checks (`FUN_18009a690`), the rebase, the settle and the three
    filings — also not on the running path. **The far branch's filing is ported too**, replacing the refusal: the
    unfiling `FUN_180098dd0` and the exact linking of `FUN_1800977f0` as `IvpMindistManager`, and the split by speed and
-   the filing as `IvpMindistHull`. Read and not yet ported: the hull-passed handler `FUN_180097f00`, which a record still
-   refuses by name, the rest of the exact handoff `FUN_1800977f0`, and the exact rechecks that file a pair at the next
-   PSI (`FUN_180097d60`, `FUN_180098710`, `FUN_1800983e0`). **The event loop
+   the filing as `IvpMindistHull`. **The hull-passed handler `FUN_180097f00` and the rest of the exact handoff
+   `FUN_1800977f0` are ported too**, with the invalidation `FUN_180097440`, the minimize and the scheduler handed in; a
+   recursive mindist and a phantom's pair are refused by name. Read and not yet ported: the exact rechecks that file a
+   pair at the next PSI (`FUN_180097d60`, `FUN_180098710`, `FUN_1800983e0`) and the phantom path `FUN_180097940`. **The event loop
    `FUN_18008a110` and the fire routine `FUN_1800992e0` are ported too**, as `IvpTimeManager` and `IvpMindistFire`, the
    collision handed in: **the collision's own path — `FUN_18008ecb0` and `FUN_18008ef60` — is read to its first callees
    and is a subsystem** (friction-system creation and merging, the listeners, a solve loop bounded at 5000, core

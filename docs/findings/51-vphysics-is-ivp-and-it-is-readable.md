@@ -2994,6 +2994,11 @@ with a budget of zero (`FUN_180095ad0`), the phantom's float `+0x10` widening th
 `FUN_18008ae50`/`FUN_18008b0a0`. **The states under `0x3c0000`**: `0x140000` filed with the hull managers, `0xc0000`
 exact, `0x80000` invalid, `0x100000` recursive.
 
+**Carried in inches, the speed floors are metres a second and are converted**: `1e-10f` in the far split and
+`FUN_180097d60`, `1e-19` in `FUN_180097f00`. *The first port of the split left `1e-10f` in metres* — a difference only a
+pair creeping at about a nanometre a second can show, where the split is `0.546 : 0.454` in inches and `0.841 : 0.159`
+unconverted — and a case that tells the two apart now pins it.
+
 *Evidence class: read from the disassembly, and from the SDK for the performance defaults and the client's solver. Not
 established: what an object's `+0x78 & 7` and a core's `+0x58` and byte `+0x1` mean; the recursive mindist
 `FUN_1800b28a0`; the phantom path past its first layer; and the broad phase `FUN_180098880`, which files its own

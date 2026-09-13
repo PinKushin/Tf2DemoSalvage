@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Tf2DemoSalvage.Animation.Animating;
 
 namespace Tf2DemoSalvage.Animation.Tests;
@@ -115,12 +116,60 @@ public sealed class IvpMindistManagerConformanceTests
     }
 
     /// <remarks>
-    /// **The hull-passed handler `FUN_180097f00` is not ported yet**: a record told its hull passed is refused by name
-    /// rather than left untold.
+    /// **A record filed far hands its slot 1 to the filing's handler** (`FUN_180097570` finding the mindist from the
+    /// record), with the shortfall it was told.
     /// </remarks>
     [Test]
-    public void HullPassed_AMindistsRecord_IsRefusedAsUnported() =>
-        Should.Throw<NotSupportedException>(() => NewMindist().HullRecord(0).HullPassed(new IvpHullManager(), -1f));
+    public void HullPassed_AFarFiledRecord_CallsItsFilingsHandler()
+    {
+        IvpMindistManager manager = new();
+        IvpCollisionObject first = new() { MovementState = 1 };
+        IvpCollisionObject second = new() { MovementState = 1 };
+        IvpMindist mindist = NewMindist();
+        List<(IvpMindist Mindist, float Overshoot)> told = [];
+        IvpCoreBounds bounds = new(Radius: 1f, InverseDiameter: 1f, AngularSpeedBound: 0f, LinearSpeed: 1f, SurfaceSpeedBound: 0f);
+        IvpMindistHull.FileFar(
+            mindist,
+            new IvpFarFiling(manager, first, second, (pair, overshoot) => told.Add((pair, overshoot))),
+            bounds,
+            bounds,
+            now: 0d,
+            gap: 1f);
+
+        mindist.HullRecord(1).HullPassed(second.Hull, -2f);
+
+        told.ShouldBe([(mindist, -2f)]);
+    }
+
+    /// <remarks>A record never filed far has no handler to hand its slot 1 to: refused.</remarks>
+    [Test]
+    public void HullPassed_ARecordNeverFiledFar_IsRefused() =>
+        Should.Throw<InvalidOperationException>(() => NewMindist().HullRecord(0).HullPassed(new IvpHullManager(), -1f));
+
+    /// <remarks>
+    /// **Invalidating an exact pair unfiles it and puts it and its records at the heads of the invalid lists** — the
+    /// manager's `+0x28` and each object's `+0x48` — with the flags `&amp; ~0x340000 | 0x80000`.
+    /// </remarks>
+    [Test]
+    public void Invalidate_AnExactMindist_HeadsTheInvalidListsAndLeavesTheExactOnes()
+    {
+        IvpMindistManager manager = new();
+        IvpCollisionObject first = new();
+        IvpCollisionObject second = new();
+        IvpMindist invalid = NewMindist();
+        IvpMindist exact = NewMindist();
+        manager.LinkExact(invalid, first, second);
+        manager.LinkExact(exact, first, second);
+
+        manager.Invalidate(invalid, first, second, new IvpMinList<IvpMindist>());
+
+        manager.Exact.ShouldBe([exact]);
+        manager.Invalid.ShouldBe([invalid]);
+        first.Synapses.ShouldBe([exact.HullRecord(0)]);
+        first.InvalidSynapses.ShouldBe([invalid.HullRecord(0)]);
+        second.InvalidSynapses.ShouldBe([invalid.HullRecord(1)]);
+        invalid.Flags.ShouldBe(0x80000);
+    }
 
     private static IvpMindist NewMindist(int flags = 0) =>
         new(

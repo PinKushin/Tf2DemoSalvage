@@ -721,7 +721,10 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # allowance was corrected. Synthetic.
 # 534 -> 545 on 2026-09-13: IvpMindistManagerConformanceTests (6) and IvpPairSchedulerConformanceTests' far filing (six
 # for the one refusal they replace), FUN_180098dd0, the exact linking and FUN_180099380's far branch (B369). Synthetic.
-run Tf2DemoSalvage.Animation.Tests animation 545
+# 545 -> 567 on 2026-09-13: IvpMindistHullConformanceTests (20) and two more IvpMindistManagerConformanceTests for the
+# refusal they replace, the hull-passed handler FUN_180097f00, the exact handoff FUN_1800977f0 and the invalidation
+# FUN_180097440 (B369). Synthetic.
+run Tf2DemoSalvage.Animation.Tests animation 567
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

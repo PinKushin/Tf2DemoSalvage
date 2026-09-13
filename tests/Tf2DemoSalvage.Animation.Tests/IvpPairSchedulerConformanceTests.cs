@@ -409,7 +409,7 @@ public sealed class IvpPairSchedulerConformanceTests
                 _first,
                 _second,
                 Environment,
-                removeFar ? new IvpFarFiling(Manager, FirstObject, SecondObject) : null,
+                removeFar ? new IvpFarFiling(Manager, FirstObject, SecondObject, (_, _) => { }) : null,
                 recheck,
                 (context, mindist) =>
                 {
