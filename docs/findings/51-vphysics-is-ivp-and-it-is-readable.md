@@ -2659,6 +2659,67 @@ is an inch away is searched from an inch, wherever the vertex actually is.
 *Evidence class: read from the disassembly for `FUN_1800a1b50`, `FUN_180099d60`, `FUN_180076f80`,
 `FUN_180078b90`, the call in `FUN_180073df0` and `18007aeb0`; constants dumped.*
 
+### The scheduler's near branch and the dispatch into the search, instruction by instruction (2026-09-12)
+
+**Read from the disassembly of `FUN_180099380(mindist, removeFar, recheckMode)` and `FUN_1800a3fe0`**
+(`D:\ghidra-proj\out\scheduler_near_99380.log`), which replace the decompiler-level summary above in
+*The NEAR branch of `FUN_180099380`*.
+
+**The two synapses.** The mindist's flags at `+0x20` pick them: synapse `A` is record `(flags >> 8) & 3` and `B` is
+`((flags ^ 0x100) >> 8) & 3` — bit 8 flipped — each a `0x38`-byte record from `mindist+0x48` whose `+0x48` is its real
+object (the core is the object's `+0xe8`), whose `+0x50` is its feature pointer into a compact ledge, and whose word at
+`+0x5a` is its feature kind.
+
+**The search context is built on the scheduler's stack**, and it is the struct `FUN_1800a1b50` receives:
+
+| offset | holds |
+|---|---|
+| `+0x00` | `(double)(coreB+0x254 + coreA+0x254)`, the surface bounds summed in float |
+| `+0x08` | the linear closing speed, `(double)(n·vB) − (double)(n·vA)`, `n` the mindist's normal at `+0xb0`, `v` each core's `+0x140` |
+| `+0x10` | the closing speed: `(√(1.001 − (n·axisB)²)·coreB+0x254 + √(1.001 − (n·axisA)²)·coreA+0x254) + linear`, the axes at `+0x1c0` |
+| `+0x18` | the total bound, `((double)coreA+0x1dc + surface sum) + (double)coreB+0x1dc` |
+| `+0x20` | the mindist |
+| `+0x28` | the environment |
+| `+0x30`, `+0x38` | `env+0x188` (now) and `env+0x190` (the next PSI) |
+| `+0x40`, `+0x48` | the event kind and time the search writes |
+
+Each dot sums its `y` and `x` terms before `z`, in float.
+
+**The branch, in order:**
+
+1. A mindist still queued (`+0x8 ≠ 0xffff`) is taken out of the time manager (`FUN_180089f90`) and marked `0xffff`.
+2. **Far** when `length > (double)(float)env+0x108 × totalBound × 2.1 + margin`; the travel-allowance path read earlier.
+3. **Near:** left alone when the closing speed is under `1e-19` or NaN — the test against `block[0x45]` (the
+   closing-speed threshold) only decides whether the `1e-19` test is made, and a speed between the two goes on.
+4. Left alone when `length ≥ (double)(float)(end − now) × closing + margin`: it cannot touch this PSI.
+5. Left alone when `(flags & 0x3000) == 0x1000`.
+6. **The margin class decays.** If the class byte at bits 22–29 is not zero, `env+0x13c` is incremented, and when its
+   old value was over 2 the class is decremented and the counter zeroed — a pair drops one margin class every fourth
+   examination.
+7. **The time of impact** through `DAT_18012d910[kind(B) + kind(A)·4]`, handed the context.
+8. No kind written: done. Otherwise, **an event within `1e-6` of now** (`(float)(time − now)`, `COMISS`/`JNC`) is
+   handled by `recheckMode`: `0` puts the event at now; any other mode replaces the time with a recheck — `(length −
+   ε)` against a floor of `1e-12`, and then `now + (length − ε)·0.1 / totalBound + 1e-7·step` for mode 1 on an event
+   kind whose low four bits are zero, `now + (length − ε) / totalBound + 1e-4·step` for mode 2 or any other kind, and
+   `now + 1e-5·step` or `now + 0.001·step` respectively under the floor — each `step` being `(double)(float)env+0x108`
+   times `DAT_18012d670` (`1.0`). A recheck at or past the next PSI is dropped.
+9. **The event goes into the time manager** at `(float)(time − tm+0x28)` (`FUN_1800aaed0`), its slot stored at
+   `mindist+0x8` and the kind in the flags' low byte.
+
+**`FUN_1800a3fe0` builds the two sides and routes by kind.** For each synapse: the cache object (`FUN_180094680`,
+reference-counted and released at the end), the real object, and the compact ledge found FROM THE FEATURE POINTER — the
+feature's triangle is `pointer − (pointer & 0xF)`, and **the triangle's header word's low twelve bits are its index in
+the ledge**, so `triangle − (index + 1)·16` is the ledge and `ledge + [ledge]` its points. Then `(0,0)` → `FUN_1800a2b30`,
+`(0,1)` → `FUN_1800a1ff0`, `(0,2)` → `FUN_1800a1b50`, `(1,1)` → `FUN_1800a1420`, with synapse `A`'s feature as the first
+argument — **so in `(0,2)` the vertex is synapse `A`'s** — and anything else the assertion at `0x4cf`, `0x4da` or `0x4df`.
+
+**Corrected by this:** `PhysicsHull` says a triangle's header word *"is skipped and never read… nothing in the traced
+mindist path reads it either"*. The dispatch reads it on every search. *What else the header's upper twenty bits hold is
+not read.*
+
+*Evidence class: read from the disassembly; constants read beside their instructions (`2.1`, `1.001`, `1e-6`, `1e-12`,
+`0.1`, `1e-7`, `1e-5`, `1e-4`, `0.001`, all floats widened except `1e-12`).*
+
 **`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
 
 **`interpolate` is `FUN_180071060`, a shortest-path slerp that falls back to a normalised lerp.** It

@@ -26062,6 +26062,11 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    ledge edge offsets carried from `PhysicsLedge` through `RagdollBody` to the body.
 6. **The pair scheduler's near branch** (`FUN_180099380`) and the time-ordered event loop that
    consumes events inside the PSI — the piece that replaces the fixed step's speculative contacts.
+   **Read instruction by instruction, 2026-09-12** (`docs/findings/51`, *The scheduler's near branch and the
+   dispatch into the search*). **Its scope is larger than this line said**, and saying so is the point: an event
+   the scheduler queues is resolved by the mindist event's own fire routine — the impact itself, unread — and a
+   pair the far branch parks comes back through the travel allowances `FUN_180097bd0` installs, also unread. The
+   branch's decision logic can be ported on its own; replacing the fixed step needs both of those as well.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 
