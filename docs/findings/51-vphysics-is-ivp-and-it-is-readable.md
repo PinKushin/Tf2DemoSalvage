@@ -2910,6 +2910,95 @@ before any of this was read, and the friction system around it — creation, mer
 no counterpart. *`FUN_18008fca0`'s float being an impact strength is INFERRED from its inputs; `FUN_1800d392c` is taken
 to be an inverse trigonometric helper from its use, not from a name.*
 
+### The hull manager, and how a far pair is told to look again (2026-09-13)
+
+**Read from the disassembly** (`hull_update.log`, `hull_helpers.log`, `hull_psi.log`, `hull_core.log`, `hull_gradient.log`,
+`hull_far.log`, `hull_thunks.log`, `hull_ctor*.log`, `anomaly*.log`, `perf_settings.log`), for the port of the far branch.
+**A far pair is not rechecked on a clock: each of its two synapse records is filed in its object's hull manager, keyed
+at a hull value, and told when the object's hull passes it.**
+
+**The manager, at `object+0x80`**, zeroed by `FUN_1800943d0`: a double time at `+0x0`; floats for the gradient `+0x8`,
+the center gradient `+0xc`, the value `+0x10`, the center value `+0x14` and the next PSI's value `+0x18`; an int reset
+time at `+0x1c`; and a min-list at `+0x20` built with capacity `8`. **`FUN_1800aae10`, the min-list constructor**, takes
+`min(capacity, 0xfffc)`, chains the entries free in index order, heads both lists at `0xffff` and sets the minimum to
+`1e10f` — so the time manager's slot numbering, carried as a list that grows from empty, was right.
+
+- **Each PSI, per core** (`FUN_18009a590` → `FUN_180099a00`, cores and then objects walked last first): after the
+  integrator, `FUN_180099d60` rebuilds the angular bound from the step's rotation `r` — over `|r|² > 1e-19`, a five-step
+  inverse square root gives `a = |r|` and the bound `(2a + a³·(1/3) + 2·0.40414·a⁵)·(1/dt)`, whose `a⁵` coefficient makes
+  `a = 1` give `3.14161`, at least π; the surface bound `+0x254` is that times `core+0x8`, and the axis `+0x1c0` is the
+  core's rotation rows dotted with `r/|r|`; under the floor the axis is `(1, 0, 0)` and both bounds zero. **The gradient is
+  `(surface bound + linear speed)·1.00001f`**, and each object's manager then takes `dt = (float)(now − time)`, moves the
+  center value along the old center gradient and the value along the old gradient, takes the linear speed as the center
+  gradient, the time as now and the new gradient, and projects `next = gradient·step + value` — all in float. **A manager
+  whose list minimum less `next` is under zero (`COMISS`/`JNC`, so a NaN too) is pushed.**
+- **`FUN_18009a690` walks the pushed managers from the last to the first.** Each tells its head synapse's listener slot 1,
+  handing it the minimum less `next`, while that is under zero; then, when `(double)` its reset time is under its time
+  (`COMISD`/`JNC`), it rebases and sets the reset to `(int)(time + 10.0)`, truncated.
+- **The telling is budgeted** by the environment's anomaly limits `env+0x48`, int `+0x18`: counted down per telling, and
+  once under zero the environment's anomaly manager `env+0x40`, slot `+0x20`, is asked with the checks done so far and its
+  answer added back; still under zero, the pass stops, and otherwise the checks done become `done + 1 + remaining`.
+  **For TF2's client the budget is 250 and the extension zero**: vphysics's environment constructor `FUN_1800114f0` calls
+  its `SetPerformanceSettings`, `FUN_180015200`, with `physics_performanceparams_t::Defaults()` (`6, 250, 2000, 3600, 1,
+  0.5, 10, 2500`, `vphysics/performance.h:30`), which writes `maxCollisionChecksPerTimestep` to `+0x18` — beside
+  `maxCollisionsPerObjectPerTimestep` at `+0x10`, `0.0254·maxVelocity` at `+0xc`, `maxAngularVelocity·0.017453292f·psi` at
+  `+0x14` and both friction masses clamped to `[1, 50000]` at `+0x1c`/`+0x20`, over IVP's own `FUN_180089550` defaults
+  (`2000`, `70000`, π/2, `1000`, `10`, `2500`). vphysics's anomaly manager's slot `+0x20`, `FUN_180016e60`, asks the
+  collision solver's `AdditionalCollisionChecksThisTick` (`vphysics_interface.h:511`), which the client's `CCollisionEvent`
+  answers `0` (`game/client/physics.cpp:77`), and the client never calls `SetPerformanceSettings` itself. **So a client
+  manager tells at most 251 synapses in one pass.**
+- **The rebase, `FUN_180094490`**, walks the list head first adding `−value` to each key and telling each listener's slot 3
+  `(−value, −center)`; then adds `−value` to `next` and to the list's minimum — **an empty list's `1e10f` drifts with it** —
+  and zeroes the value and center.
+- **A core coming to rest** (`FUN_1800791a0`, `FUN_180078c90`) sets each object's byte `+0x78` to `8`, runs the broad phase
+  `FUN_180098880` for it, folds both gradients into the values over `(float)(now − time)`, zeroes the gradients, leaves
+  the time, and rebases unconditionally.
+- **A teleport** (`FUN_18009a870`, from `FUN_1800733c0`) adds the core's movement bound to every object's `+0x98`, takes
+  that as the value with zero gradients, adds the moved distance to the center, tells and rebases as the pass does, and
+  zeroes the core's speed bounds.
+
+**Filing.** `FUN_180097c40(record, allowance)` keys at `(float)((double)((float)(now − time)·gradient + value) +
+allowance)` — the allowance added in double — and returns `(double)((gradient − center gradient)·t + (value − center
+value))`, the hull past its center, in float. `FUN_180099970(manager, record, time, allowance)` takes the record out and
+files it again at the same key over a given time. `FUN_180097e20(mindist, a₀, a₁)` sets the flags `& ~0x280000 |
+0x140000` and files both records at `next + aᵢ` in float, writing nothing to `+0xa0`; `FUN_180097d60(mindist, gap)` calls
+it with `1e-10f` for a side whose object's `+0x78 & 7` is zero and the gap for the other, or with the far branch's split.
+
+**The listener table the records carry, `1800fdea0`**: slot 0 returns zero; slot 1, `FUN_180097570`, finds the mindist
+from the record's `+0x30` word and tails into `FUN_180097f00` with the shortfall; slot 2, `FUN_180097580`, deletes the
+mindist — `FUN_180094420`, the manager's teardown, calls it for every entry; slot 3, `FUN_1800975a0`, adds `(double)(value
+shift − center shift)` to the mindist's `+0xa0`; slot 4 destroys a `0x38`-byte record. **The mindist's own table follows
+at slot 5**: its deleting destructor, the fire routine `FUN_1800992e0` at `+0x8`, `+0x28` `FUN_1800947e0` (the anomaly
+manager's slot `+0x38` for a float and then its `+0x10`), `+0x38` `FUN_180097440`, and `+0x40` `FUN_18008ecb0`.
+
+**`FUN_180097f00`, told that a hull passed**: state `0x100000` tails into `FUN_1800b28a0`, *not read*. Flags `& 0x30000`
+hand the pair off at once. Otherwise each core's position at now is `+0x150 + (double)(float)(now − +0x1d0)·+0x170`;
+`d = ((y₀ − y₁)·n_y + (x₀ − x₁)·n_x) + (z₀ − z₁)·n_z` in double; each side's hull past its center is the float
+`(gradient − center gradient)·(float)(now − time) + (value − center value)`, summed `h` in double; **the new length is
+`length − (h − +0xa0) − (+0x9c − d)`**; each side's speed is `(double)(+0x254 + +0x1dc) + 1e-19`. When the shortfall
+plus the new length is over `(double)(float)step·(s₀ + s₁)·6.0`, the mindist keeps `h` at `+0xa0`, `(float)d` at `+0x9c`
+and `(float)` the new length at `+0xa8`, and each record is filed again over now with `((shortfall + new length)/(s₀ +
+s₁))·sᵢ`. **Otherwise both records leave their managers and the pair is handed off**: to `FUN_180097940` when `flags &
+0x3000` is `0x1000`, and to `FUN_1800977f0` otherwise.
+
+**`FUN_1800977f0`, becoming exact**: flags `& ~0x300000 | 0xc0000`; the mindist at the head of the mindist manager's
+exact list (`+0xc8`/`+0xd0` links, head `+0x10`) and each record at the head of its object's `+0x40` list; the minimize
+`FUN_180095cb0`; appended to the manager's array (`+0x18` capacity, `+0x1a` count, `+0x20`) that `FUN_180098610` walks
+each PSI when either core's `+0x58` is set; then, with flags `& 0xc000`, the mindist's `+0x38` — `FUN_180097440`, which
+unfiles it, sets the flags `& ~0x340000 | 0x80000` and lists it and its records on the manager's `+0x28` and the objects'
+`+0x48` — and otherwise `FUN_180099380(mindist, (core₀ byte +0x1 | core₁ byte +0x1) < 0x21, 0)`.
+
+**`0x1000` is the phantom state**: the constructor `FUN_1800975d0` sums both objects' `+0xe0` into `+0x98` and becomes
+exact unless either object has a `+0x38` pointer, when it sets `0x1000` and goes through `FUN_180097940` — the minimize
+with a budget of zero (`FUN_180095ad0`), the phantom's float `+0x10` widening the gap, and the phantom listeners
+`FUN_18008ae50`/`FUN_18008b0a0`. **The states under `0x3c0000`**: `0x140000` filed with the hull managers, `0xc0000`
+exact, `0x80000` invalid, `0x100000` recursive.
+
+*Evidence class: read from the disassembly, and from the SDK for the performance defaults and the client's solver. Not
+established: what an object's `+0x78 & 7` and a core's `+0x58` and byte `+0x1` mean; the recursive mindist
+`FUN_1800b28a0`; the phantom path past its first layer; and the broad phase `FUN_180098880`, which files its own
+listener in the same managers through `FUN_18009de80`.*
+
 ### The minimize, routine by routine (2026-09-12)
 
 **Read from the disassembly of every routine below** (`D:\ghidra-proj\out\minimize_*.log`,

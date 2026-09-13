@@ -13,9 +13,9 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// **Read from the disassembly** (`docs/findings/51`, *The event queue, and where the far branch hands a pair off*). An add
 /// at or under the minimum becomes the head; any other goes in before the first entry its value is not over, so a new
 /// event precedes every queued event of equal time. The engine also threads a long list through the entries to shorten
-/// the walk, rebalanced as walks lengthen; it cannot change where an entry lands, so it is not carried. **The first
-/// capacity is not read** — the constructor was not — so slots are numbered as a list that grows from empty would number
-/// them: last-freed-first, else the next index.
+/// the walk, rebalanced as walks lengthen; it cannot change where an entry lands, so it is not carried. **The constructor,
+/// `FUN_1800aae10`, chains every entry free in index order**, so slots are numbered as a list that grows from empty numbers
+/// them — last-freed-first, else the next index — whatever capacity it is built with.
 /// </remarks>
 public sealed class IvpMinList<T>
     where T : class
@@ -138,6 +138,36 @@ public sealed class IvpMinList<T>
         _entries[slot] = new Entry(null, 0f, _free, None);
         _free = slot;
         Count--;
+    }
+
+    /// <summary>Adds a shift to every queued value and to the minimum — the hull manager's rebase, <c>FUN_180094490</c>.</summary>
+    /// <param name="shift">What is added, in float.</param>
+    /// <param name="visit">Handed each element, head first, once its value has moved.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="visit"/> is null.</exception>
+    /// <remarks>
+    /// Each entry's next is read before its element is visited, as the engine reads it. **The minimum moves even when
+    /// nothing is queued**, so an empty list's `1e10f` drifts with the shift until something is added or removed.
+    /// </remarks>
+    public void Offset(float shift, Action<T> visit)
+    {
+        ArgumentNullException.ThrowIfNull(visit);
+
+        int index = _head;
+
+        while (index != None)
+        {
+            Entry entry = _entries[index];
+            _entries[index] = entry with { Value = shift + entry.Value };
+
+            if (entry.Element is T element)
+            {
+                visit(element);
+            }
+
+            index = entry.Next;
+        }
+
+        Minimum = shift + Minimum;
     }
 
     /// <summary>The head of the queue — what the event loop fires next.</summary>
