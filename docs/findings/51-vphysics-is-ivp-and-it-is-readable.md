@@ -2209,7 +2209,7 @@ synapses' feature kinds 0–3:
 
 | table | filled by | default | set entries |
 |---|---|---|---|
-| minimize, `DAT_18012d4b0` | `FUN_180094700` | `FUN_180094e10` | row 3 → `FUN_180094ad0`, `(3,3)` → `FUN_180094860`; the rest among `94c70`, `94c50`, `94c30`, `94c10`, `94f70` |
+| minimize, `DAT_18012d4b0` | `FUN_180094700` | `FUN_180094e10` | `(0,0) (0,1) (0,2) (1,1) (2,2)` → `FUN_180094c70`; `(1,0) (2,0)` → `FUN_180094f70`; `(0,3)` → `94c50`, `(1,3)` → `94c30`, `(2,3)` → `94c10` (six-instruction assertions); row 3 → `FUN_180094ad0`, `(3,3)` → `FUN_180094860` — read slot by slot from the initializer's disassembly, 2026-09-12. **`FUN_180094c70` builds both sides as the time-of-impact dispatch does and routes again**: `(0,0)` → `FUN_1800b1b80`, `(0,1)` → `FUN_1800b1aa0`, `(0,2)` → `FUN_1800b1910`, `(1,1)` → `FUN_1800afa40`, anything else — `(2,2)` — → `FUN_180094f80` (696 instructions); all unread |
 | time of impact, `DAT_18012d910` | `FUN_1800a3aa0` | `FUN_1800a4200` | `(0,0) (0,1) (0,2) (1,1)` → `FUN_1800a3fe0`; `(3,0) (3,1) (3,2)` → `FUN_1800a3d30`; `(3,3)` → `FUN_1800a3b60` |
 
 **Only eight of sixteen kind pairs are LEGAL at event time, and the default is not "no event" — it
