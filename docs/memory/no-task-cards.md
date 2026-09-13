@@ -30,3 +30,10 @@ review in place.
   race it.
 
 Recorded as D169.
+
+**It recurred the same day**, in the B404 session: a card was offered for `PhysicsModel.Read` throwing
+`InvalidOperationException` past Scene callers that catch `InvalidDataException`. The owner: *"told you not
+to do those, so you get to do it here or call a subagent"*. That session had started before this entry was
+written, and a running session's memory index is the snapshot from its own start — a rule another session
+records mid-flight never reaches it. **Before offering side work anywhere, grep the memory directory for the
+rule itself, not only the index that loaded at the start.** The work was then done in that session (B405).
