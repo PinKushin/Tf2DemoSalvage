@@ -186,7 +186,8 @@ public sealed class IvpVertexFaceSearchConformanceTests
     private static IvpLedgeTopology TetrahedronTopology() =>
         new(
             [(0, 1, 2), (0, 3, 1), (0, 2, 3), (1, 3, 2)],
-            [(6, 13, 6), (6, 7, -6), (-6, 4, -6), (-7, -4, -13)]);
+            [(6, 13, 6), (6, 7, -6), (-6, 4, -6), (-7, -4, -13)],
+            [3, 3, 1, 0]);
 
     /// <summary>Point 0 at the origin and its three neighbours above it, one optionally dropped to <paramref name="down"/>.</summary>
     private static (float X, float Y, float Z)[] Tetrahedron(int steep = 0, float down = 1f)
@@ -244,7 +245,7 @@ public sealed class IvpVertexFaceSearchConformanceTests
 
         return new IvpSearchSide(
             [(-100f, -100f, 0f), (100f, -100f, 0f), (0f, 100f, 0f)],
-            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)]),
+            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)], [0]),
             new IvpMotionCache(body, current, resting: true),
             AngularSpeedBound: 0f,
             CoreInverseDiameter: inverseDiameter);

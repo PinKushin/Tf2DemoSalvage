@@ -273,7 +273,8 @@ jobs:
           # 1166 -> 1186 on 2026-09-12: twenty for B404, vphysics' per-solid loader branches. Synthetic
           # bytes, so all twenty run here.
           # 1186 -> 1188 on 2026-09-12: a malformed .phy header refuses with InvalidDataException (B405).
-          ./build/assert-test-count.sh '**/content.trx' 1188 Content
+          # 1188 -> 1189 on 2026-09-12: a triangle header's bits 12-23, the backside walk's start (B369).
+          ./build/assert-test-count.sh '**/content.trx' 1189 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           # 412 -> 414 on 2026-08-29, and that is TWO bumps: the stale-clock case on
           # `DemoSystems.Open` (B223 follow-up) was raised in build/gate.sh and missed here, and the
@@ -346,7 +347,8 @@ jobs:
           # 366 -> 378 on 2026-09-12: IvpVertexFaceSearchConformanceTests (12), FUN_1800a1b50 (B369). Synthetic.
           #
           # 378 -> 384 on 2026-09-12: IvpCoreSpeedBoundConformanceTests (6), FUN_180099d60 (B369). Synthetic.
-          ./build/assert-test-count.sh '**/animation.trx' 384 Animation
+          # 384 -> 387 on 2026-09-12: IvpLedgeTopologyConformanceTests, the pierce triangle (3) (B369). Synthetic.
+          ./build/assert-test-count.sh '**/animation.trx' 387 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView

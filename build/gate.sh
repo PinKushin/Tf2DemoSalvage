@@ -701,7 +701,9 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 #
 # 378 -> 384 on 2026-09-12: IvpCoreSpeedBoundConformanceTests (6), FUN_180099d60's angular and surface bounds and
 # rotation axis (B369). Compile-red first; four sabotages in one run reddened exactly the five predicted cases.
-run Tf2DemoSalvage.Animation.Tests animation 384
+# 384 -> 387 on 2026-09-12: IvpLedgeTopologyConformanceTests, the pierce triangle the minimize's backside walk starts from
+# (3). Synthetic.
+run Tf2DemoSalvage.Animation.Tests animation 387
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
@@ -1519,7 +1521,8 @@ run Tf2DemoSalvage.Presentation.Tests presentation 454
 # Synthetic bytes; fourteen red against the old reader and the Load cases compile-red; sabotages in B404.
 # 1186 -> 1188 on 2026-09-12: PhysicsModelConformanceTests, a .phy too short for its header and one declaring a
 # header size of 20 both refuse with InvalidDataException, the type every Scene caller catches (B405).
-run Tf2DemoSalvage.Content.Tests  content   1188
+# 1188 -> 1189 on 2026-09-12: PhysicsHullConformanceTests, a triangle header's bits 12-23 (B369). Synthetic.
+run Tf2DemoSalvage.Content.Tests  content   1189
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

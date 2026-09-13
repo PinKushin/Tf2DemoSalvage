@@ -12,6 +12,10 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// `FUN_1800a1b50` takes from an edge to walk the edges around a point, relative to the edge's own address. Kept
 /// as the file stores it, because the walk is address arithmetic over the ledge's triangle array.
 /// </param>
+/// <param name="PierceTriangles">
+/// **Each triangle's header word, bits 12–23: the index of a triangle across the ledge** (B369), where the minimize's
+/// backside walk `FUN_180094e30` starts. Kept as the file stores it; the walk refuses one past the ledge.
+/// </param>
 /// <remarks>
 /// **A ledge is the convex unit the engine's narrow phase works on**, not the whole solid: a
 /// concave shape is a TREE of them, and the point array can be SHARED between siblings — every one
@@ -24,6 +28,7 @@ public readonly record struct PhysicsLedge(
     IReadOnlyList<Vector3> Points,
     IReadOnlyList<(int A, int B, int C)> Triangles,
     IReadOnlyList<(int A, int B, int C)> EdgeOffsets,
+    IReadOnlyList<int> PierceTriangles,
     Vector3 Center,
     float Radius);
 
@@ -96,8 +101,9 @@ public enum PhysicsSolidLoad
 /// IVP_Compact_Ledge:
 ///   +0x00  c_point_offset  ADD to the ledge's own address; the array can be SHARED
 ///   +0x0C  low 16 bits = n_triangles
-///   +0x10  IVP_Compact_Triangle[n], sixteen bytes each: a header word nothing reads,
-///          then three four-byte edges whose LOW 16 BITS are the start point index
+///   +0x10  IVP_Compact_Triangle[n], sixteen bytes each: a header word whose low 12 bits are
+///          the triangle's own index and bits 12–23 a triangle across the ledge, then three
+///          four-byte edges whose LOW 16 BITS are the start point index
 /// </code>
 ///
 /// **Triangles start at `+0x10` and the decompiled bound says `+0x14`.** The validator's scan
@@ -462,13 +468,15 @@ public static class PhysicsHull
         List<Vector3> kept = [];
         List<(int A, int B, int C)> triangles = new(count);
         List<(int A, int B, int C)> offsets = new(count);
+        List<int> pierces = new(count);
 
         for (int index = 0; index < count; index++)
         {
             int triangle = ledge + LedgeHeaderSize + (index * TriangleSize);
 
-            // **The triangle's own header word is skipped and never read**, which is not an
-            // omission: nothing in the traced mindist path reads it either. The three edges follow.
+            // The header word: the engine finds a ledge from its low twelve bits, the triangle's own index, which is
+            // the triangle's position here; bits 12–23 name where the backside walk starts. The three edges follow.
+            int header = BitConverter.ToInt32(solid[triangle..]);
             int first = BitConverter.ToInt32(solid[(triangle + 4)..]);
             int second = BitConverter.ToInt32(solid[(triangle + 8)..]);
             int third = BitConverter.ToInt32(solid[(triangle + 12)..]);
@@ -484,13 +492,17 @@ public static class PhysicsHull
 
             triangles.Add((a, b, c));
             offsets.Add((EdgeOffset(first), EdgeOffset(second), EdgeOffset(third)));
+            pierces.Add(PierceTriangle(header));
         }
 
-        return new PhysicsLedge(kept, triangles, offsets, centre, radius);
+        return new PhysicsLedge(kept, triangles, offsets, pierces, centre, radius);
     }
 
     /// <summary>An edge word's bits 16–30, sign-extended: <c>(int)(word &lt;&lt; 1) &gt;&gt; 17</c>, as <c>FUN_1800a1b50</c> reads it.</summary>
     private static int EdgeOffset(int word) => (word << 1) >> 17;
+
+    /// <summary>A header word's bits 12–23: <c>(header &gt;&gt; 12) &amp; 0xFFF</c>, as <c>FUN_180094e30</c> reads it.</summary>
+    private static int PierceTriangle(int header) => (header >> 12) & 0xFFF;
 
     /// <summary>One point, read and renumbered, or -1 when it lies outside the blob.</summary>
     private static int Point(
