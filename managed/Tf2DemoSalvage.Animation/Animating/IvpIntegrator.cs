@@ -132,18 +132,18 @@ public sealed class IvpRigidBody
     /// turning.
     public float RotationDamping { get; set; } = 0.1f;
 
-    /// <summary>How many collisions this body has taken in the current step.</summary>
+    /// <summary>How many impacts this core has taken — the signed word at <c>core+0x2</c>.</summary>
     /// <remarks>
-    /// **`maxCollisionsPerObjectPerTimestep`, whose own comment says what happens at the limit** —
-    /// *"object will be frozen after this many collisions (visual hitching vs. CPU cost)"*
-    /// (`performance.h:21`). TF2 sets it to 10, raising Valve's default of 6 immediately after
-    /// `Defaults()` (`physics.cpp:224`).
+    /// **Compared against `maxCollisionsPerObjectPerTimestep`, whose own comment says what happens at the limit** —
+    /// *"object will be frozen after this many collisions (visual hitching vs. CPU cost)"* (`performance.h:21`). The impact
+    /// solver's commit adds one for a movable core (`FUN_18008deb0`), takes it back from a core it holds back, and asks the
+    /// anomaly manager once the word exceeds the limit (`FUN_18008ddf0`) — see <see cref="IvpImpactSolver"/>.
     ///
-    /// **It is the engine's safety net for exactly the body this project could not hold**: one
-    /// thrown hard enough to collide again and again inside a single step, which without a limit
-    /// grinds its way through the surface it is hitting.
+    /// **The client runs 6, not 10**: the server raises Valve's default before `SetPerformanceSettings`
+    /// (`game/server/physics.cpp:222-226`), and the client's `PhysicsLevelInit` never calls it
+    /// (`game/client/physics.cpp:163-187`) — see <see cref="IvpPerformanceSettings"/>. *What resets the word is unread.*
     /// </remarks>
-    public int Collisions { get; set; }
+    public short Collisions { get; set; }
 
 
     /// <summary>Whether this body has been frozen for the rest of the step.</summary>
@@ -379,6 +379,102 @@ public sealed class IvpRigidBody
     /// variant, so there is no separate world path at the API boundary either.
     /// </remarks>
     public bool Immovable { get; set; }
+
+    /// <summary>What a collision's freeze check left in bits 6–7 of <c>core+0x0</c>, zero to three (B369).</summary>
+    /// <remarks>
+    /// **Two writers are read.** Committing an impact, `FUN_18008ddf0` sets the bits from the anomaly manager's answer once
+    /// <see cref="Collisions"/> exceeds the limit; and the impact solver `FUN_18008e290`, finding either core's bits set, sets
+    /// both cores' to one — zero for an immovable core — and moves each core's velocities into its pending ones. *What
+    /// reads the bits after the solve, and what clears them, is unread.*
+    /// </remarks>
+    public int CollisionFreeze { get; set; }
+
+    /// <summary>The core's transform at <c>core+0x90</c>, in doubles — what a contact's arm and normal are measured in.</summary>
+    /// <remarks>
+    /// **The frame every contact routine turns through**: the contact record's arms (`FUN_18008d0c0`), a point's velocity
+    /// (`FUN_180077fa0`) and the impact solver's pushes (`FUN_180070620`). A core brought to an event's time has it rebuilt
+    /// from its working orientation and extrapolated position (`FUN_180078d60`). The identity by default.
+    /// </remarks>
+    public IvpMatrix CoreMatrix { get; set; } = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d));
+
+    /// <summary>The float at <c>core+0x8</c>, which the anomaly check reads beside <see cref="HasOffset58"/>.</summary>
+    /// <remarks>*Named by its offset because nothing read so far says what it is; no ragdoll element sets it.*</remarks>
+    public float Offset08 { get; set; }
+
+    /// <summary>Whether the pointer at <c>core+0x58</c> is set.</summary>
+    /// <remarks>
+    /// *Named by its offset because its writer is unread.* Two readers are read: the anomaly check skips a core's spin limit
+    /// when this is set and <see cref="Offset08"/> is zero or NaN (`FUN_18008dd00`), and the impact solver's entry gives a
+    /// pair with either core's set a cone of `(1, 0)` (`FUN_18008ed60`). No ragdoll element sets it.
+    /// </remarks>
+    public bool HasOffset58 { get; set; }
+
+    /// <summary>The velocity of a point fixed to this core — <c>FUN_180077fa0</c>.</summary>
+    /// <param name="arm">The point, in the core's frame.</param>
+    /// <param name="velocity">The core's velocity, as the caller holds it.</param>
+    /// <param name="spin">The core's angular velocity, as the caller holds it.</param>
+    /// <returns>The point's velocity in the world.</returns>
+    /// <remarks>
+    /// **`spin × arm` in float, turned into the world by <see cref="CoreMatrix"/> in double and narrowed, then the velocity added
+    /// in float.** The callers pass their own velocities rather than the core's, which is why they are arguments.
+    /// </remarks>
+    public (float X, float Y, float Z) PointVelocity(
+        (float X, float Y, float Z) arm, (float X, float Y, float Z) velocity, (float X, float Y, float Z) spin)
+    {
+        (float X, float Y, float Z) swept = (
+            (spin.Y * arm.Z) - (spin.Z * arm.Y),
+            (arm.X * spin.Z) - (spin.X * arm.Z),
+            (spin.X * arm.Y) - (arm.X * spin.Y));
+
+        (double X, double Y, double Z) turned = CoreMatrix.Rotate((swept.X, swept.Y, swept.Z));
+
+        return ((float)turned.X + velocity.X, (float)turned.Y + velocity.Y, (float)turned.Z + velocity.Z);
+    }
+
+    /// <summary>What a push of one unit at a point does to this core — <c>FUN_180078f50</c>.</summary>
+    /// <param name="arm">The point, in the core's frame.</param>
+    /// <param name="local">The push's direction in the core's frame.</param>
+    /// <param name="world">The same direction in the world.</param>
+    /// <returns>The change in velocity and in angular velocity.</returns>
+    /// <remarks>
+    /// **`(arm × local) ⊙ inverse inertia` in float for the spin, and `world · inverse mass` in double, narrowed, for the
+    /// velocity** — the cross product taken `(local.z·arm.y − local.y·arm.z, local.x·arm.z − arm.x·local.z, arm.x·local.y −
+    /// local.x·arm.y)`.
+    /// </remarks>
+    public ((float X, float Y, float Z) Velocity, (float X, float Y, float Z) Spin) UnitPush(
+        (float X, float Y, float Z) arm, (float X, float Y, float Z) local, (float X, float Y, float Z) world)
+    {
+        (float X, float Y, float Z) spin = (
+            ((local.Z * arm.Y) - (local.Y * arm.Z)) * InverseInertia.X,
+            ((local.X * arm.Z) - (arm.X * local.Z)) * InverseInertia.Y,
+            ((arm.X * local.Y) - (local.X * arm.Y)) * InverseInertia.Z);
+
+        double mass = InverseMass;
+
+        return (((float)(world.X * mass), (float)(world.Y * mass), (float)(world.Z * mass)), spin);
+    }
+
+    /// <summary>The mass this core presents to a push at a point — <c>FUN_1800770f0</c>.</summary>
+    /// <param name="arm">The point, in the core's frame.</param>
+    /// <param name="local">The push's direction in the core's frame.</param>
+    /// <param name="world">The same direction in the world.</param>
+    /// <returns><c>1</c> for a core flagged <c>0x10</c>; otherwise the reciprocal of the point's whole response.</returns>
+    /// <remarks>
+    /// **The reciprocal of the response's LENGTH, not of its component along the push**: <see cref="UnitPush"/>'s changes become
+    /// a point velocity through <see cref="PointVelocity"/>, and the answer is `1.0 / FUN_18006e120` of that.
+    /// </remarks>
+    public double VirtualMass(
+        (float X, float Y, float Z) arm, (float X, float Y, float Z) local, (float X, float Y, float Z) world)
+    {
+        if (SkipsGravity)
+        {
+            return 1d;
+        }
+
+        ((float X, float Y, float Z) velocity, (float X, float Y, float Z) spin) = UnitPush(arm, local, world);
+
+        return 1d / IvpVector.Length(PointVelocity(arm, velocity, spin));
+    }
 }
 
 /// <summary>

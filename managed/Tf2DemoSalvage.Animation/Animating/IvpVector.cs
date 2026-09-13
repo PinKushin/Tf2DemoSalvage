@@ -110,6 +110,28 @@ public static class IvpVector
         return false;
     }
 
+    /// <summary>Scales a float vector to unit length and returns the length it had — <c>FUN_18006fc90</c>.</summary>
+    /// <param name="vector">The vector, scaled in place when long enough.</param>
+    /// <returns>The length as <c>r·s</c>, <c>r</c> being the reciprocal root of the squared length <c>s</c>; zero below the threshold.</returns>
+    /// <remarks>
+    /// **Squared and summed in FLOAT and compared widened**, as <see cref="TryScaleToUnitLength(ref ValueTuple{float, float, float})"/>
+    /// does, **with the FIVE Newton steps of `FUN_18006edd0`**. Below the threshold, or for a NaN, the vector is left exactly
+    /// as it was. The impact solver's cone reads it (`FUN_1800904a0`).
+    /// </remarks>
+    public static double ScaleToUnitLength(ref (float X, float Y, float Z) vector)
+    {
+        float squared = (vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z);
+
+        if (squared >= DirectionThreshold)
+        {
+            double scale = ReciprocalSquareRoot(squared, FiveSteps);
+            vector = ((float)(vector.X * scale), (float)(vector.Y * scale), (float)(vector.Z * scale));
+            return scale * squared;
+        }
+
+        return 0d;
+    }
+
     /// <summary>Scales a vector to unit length and returns the length it had — <c>FUN_18006fd40</c>.</summary>
     /// <param name="vector">The vector, scaled in place when long enough.</param>
     /// <returns>The length as <c>r·s</c>, <c>r</c> being the reciprocal root of the squared length <c>s</c>; zero below the threshold.</returns>

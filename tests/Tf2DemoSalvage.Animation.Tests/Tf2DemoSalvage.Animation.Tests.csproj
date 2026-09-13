@@ -41,4 +41,16 @@
     <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
+  <!-- **The impact solver's expectations are written by Valve's binary, not here (B369).** The vphysics-impact probe calls
+       FUN_18008e290 in the game's own vphysics.dll and writes what it left to Data/ivp-impact-solver.txt. The lanes' one
+       definition is the probe's IvpImpactReplay, linked rather than copied, so the probe that asks and the suite that
+       replays cannot read a lane differently; linked rather than referenced, because the probe is an executable that
+       brings the renderer's projects with it. -->
+  <ItemGroup>
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpImpactReplay.cs" Link="Oracle\IvpImpactReplay.cs" />
+    <None Update="Data\ivp-impact-solver.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

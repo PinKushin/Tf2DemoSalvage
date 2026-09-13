@@ -4087,12 +4087,75 @@ if k > (double)−(solver+0x134):                                               
   `180104538`; the range limits `709.78`, `−744.03` and `−745.13`. `expf`'s `64/ln 2`, `ln 2/64`, `1/6` and `0.5` sit at
   `1801045a0..1801045d0`, its limits `8192` and `−9600` at `180104580`/`180104590`.
 
+#### The anomaly manager, and the limits a client environment runs (2026-09-13)
+
+**The environment constructor makes the anomaly manager itself.** `FUN_1800114f0` allocates `0x40` bytes at
+`CPhysicsEnvironment+0xb0` with two tables, `1800ebf78` at `+0x0` and `1800ebf90` at `+0x8`, and hands the application
+environment `+0x8` — so IVP's `env+0x40` is that half, and `SetCollisionSolver` leaves the game's solver at its `+0x10`
+(`env_ctor.log`, `anomaly_manager.log`, `anomaly_slots.log`):
+
+| slot | routine | what it does |
+|---|---|---|
+| 0 | `FUN_180017010` | asks the core's first object's `CPhysicsObject` (`[core+0x70]` → `+0x100`) for `GetShadowController`, `IPhysicsObject` slot 70; with none, the base `FUN_180089ae0` |
+| 1 | `FUN_180089a50` | the base, not overridden |
+| 2 | `FUN_180016cc0` | with a game solver, both objects movable (slot 10, `IsMoveable`) and neither's word `+0x48` holding `0x400`: files the pair, ordered by address, in the list at `+0x18` (count `+0x28`) if absent, then asks `ShouldSolvePenetration` (`IPhysicsCollisionSolver` slot 1) with both objects' `GetGameData` (slot 17) and `(float)env+0x108`; a yes, or no game solver, calls the base `FUN_1800896b0` |
+| 3 | `FUN_180016e80` | `ShouldFreezeObject` (slot 2) of the core's first object, or one with no game solver |
+| 4 | `180016e60` | tail-calls `AdditionalCollisionChecksThisTick` (slot 3), or answers zero |
+| 5 | `FUN_180016ec0` | `ShouldFreezeContacts` (slot 4) over each core's first object |
+
+*Slots 6 (`180016530`) and 7 (`180089660`) are unread. The slot numbers on `IPhysicsObject` and `IPhysicsCollisionSolver` are
+counted from the published declarations (`public/vphysics_interface.h:683-858`, `:500-516`); `IsMoveable` at 10 and
+`GetGameData` at 17 fit the same count, which is the check on it.*
+
+**The base clamps scale to a share of the limit, not to the limit.** `FUN_180089ae0` takes `s = ((double)limits+0xc ·
+(double)0.99f) / √(double)((v.x² + v.y²) + v.z²)` and `FUN_180089a50` takes `s = ((double)((float)env+0x110 · limits+0x14) ·
+(double)0.9f) / √(double)((ω.x² + ω.y²) + ω.z²)`, the squares and the product in float, each lane `(float)((double)v·s)`.
+
+**`SetPerformanceSettings` (`FUN_180015200`) fills the limits at `env+0x48`**: `+0xc = 0.0254f · maxVelocity`, `+0x10 =
+maxCollisionsPerObjectPerTimestep`, `+0x18 = maxCollisionChecksPerTimestep`, `+0x14 = (maxAngularVelocity · 0.017453292f) ·
+(float)env+0x108`, and `+0x1c`, `+0x20` the two friction masses clamped by `MAXSS` against one and `MINSS` against fifty
+thousand; the two look-ahead times go, widened, to `[env+0x38]+0x40` and `+0x18`.
+
+**The spin limit is per step of the PSI in force when the settings were given, and nothing takes it again.**
+`SetSimulationTimestep` (`1800152f0`) jumps to `FUN_180082470`, which writes the step at `+0x108`, its reciprocal at `+0x110`
+and `exp(step · ln 0.9)` at `+0x1b0` (`bfbaf8e892d15de8`) — and not the limits. The check multiplies by the CURRENT reciprocal
+(`FUN_18008dd00`), so an environment built at one step and run at another holds spin to the ratio of the two.
+
+**A client's environment gets its settings only from its own constructor.** `FUN_1800114f0` calls `FUN_180015200` with `{6,
+250, 2000, 3600, 1, 0.5, 10, 2500}` on its stack — `physics_performanceparams_t::Defaults()` (`public/vphysics/performance.h:30-40`)
+— before anything sets the step. The server raises the collisions to 10 before its own call (`game/server/physics.cpp:222-226`);
+the client's `PhysicsLevelInit` never makes one (`game/client/physics.cpp:163-187`), and its `CCollisionEvent::ShouldFreezeObject`
+answers `true` (`:76`). **So a corpse's environment allows 6 collisions, not 10** — this project had carried the server's number
+as the one TF2 runs.
+
+**Then the whole solver, called in process** (`vphysics-impact`). The probe writes the solver, both cores, the environment and
+the limits at the offsets above, gives the manager the image's own table, and answers the two calls that leave the library —
+the shadow controller as none, the freeze as each case says — with callbacks, counting any other call on a trap. **Controls**:
+slot 0 of the image's table is `FUN_180017010`; a core flagged `0x10` presents a virtual mass of exactly one; a point on a core
+with no spin moves at exactly the velocity given; and the image's `block[0x4a]` is `IvpCollisionTolerance.TwiceToleranceMetres`,
+`0x3c4ffe5a`. **`FUN_180077fa0`, `FUN_180078f50`, `FUN_1800770f0` and `FUN_180070620` agree with the port on 200,000 random calls
+each, and 20,000 random impacts agree on every lane** — 9,923 approaching, 7,915 holding a core back, 6,835 freezing — with no
+call reaching a trap. `IvpImpactSolverConformanceTests` replays 96 of them.
+
+**The first sweep differed on every impact, and not because of the port.** The loaded image holds the block `FUN_180002540`
+fills at load with `d = 0.01` until an environment is built, and none was, so every separating speed was off by exactly
+`1.2 · (0.02 − block[0x4a])` while the four helpers agreed. The probe now runs `FUN_180098fd0` as the constructor and
+`SetGravity` run it, and the last control proves the block it leaves.
+
+**The solver runs in IVP's units, and that is Valve's layering, not a choice here.** vphysics converts at its own interface:
+`SetGravity`, `SetPerformanceSettings` and the constructor's tolerance all multiply by `0.0254f`, the position converters turn
+Source's `(x, y, z)` into `(x·k, −z·k, y·k)`, and a `.phy` stores its hulls in metres. Everything above the interface is Hammer
+units; everything below it — every routine read in this document — computes in metres. Fed metres, the port agrees with the
+binary on every bit; fed Source units with the thresholds scaled, no routine could.
+
+*Evidence class: read from the disassembly for the manager, the clamps and both settings routines; published source for the
+settings, the interfaces and the client; differential against the shipped binary for the solver. Not established: whether a
+client's `env+0x108` at construction is exactly `1/66` in bits, which decides `+0x14`.*
+
 #### Not established
 
-What `FUN_18008fca0`, `FUN_18008fc00`, `FUN_1800770f0`, `FUN_180090240` and `FUN_18008f1c0` compute is read (`friction_solve2.log`,
-`impact_callees.log`) and not yet written here; the environment's `+0x40` object — the anomaly manager — and its slots `0`, `1`
-and `3` are unread; what the solver's `p3`, `p4` and `p5` are depends on `FUN_18008ed60`; and what the core flags' bits `6–7` and
-`0x10` mean.
+What reads and clears the core flags' bits 6–7 after a solve; what writes `core+0x58` and `core+0x8`; `FUN_1800d33b0`, which the
+push-out estimate calls; what the materials' slots 1 and 2 and `+0xc` are; and anomaly slots 6 and 7.
 
 *Evidence class: read from the disassembly for every routine, offset and constant named; `asinf`, `expf` and `exp` identified by
 their structure and, for `asinf`, by the name its error path passes.*

@@ -100,7 +100,7 @@ public sealed class IvpContactRecordConformanceTests
     {
         IvpContactPoint point = VertexOverFace();
         IvpRigidBody sliding = new() { Velocity = (1f, 0f, 0f), InverseInertia = (1f, 1f, 1f), InverseMass = 0.25f };
-        IvpContactBody face = new(IvpContactGeometryConformanceTests.Face((0d, 0d, 0d)), sliding, IvpMatrix.FromRotation(Unturned, (0d, 0d, -1d)), 0f);
+        IvpContactBody face = new(IvpContactGeometryConformanceTests.Face((0d, 0d, 0d)), At(sliding, (0d, 0d, -1d)), 0f);
 
         IvpContactRecord record = IvpContactRecord.Build(point, Vertex(Falling()), face, Now);
 
@@ -157,7 +157,7 @@ public sealed class IvpContactRecordConformanceTests
         IvpLedgeSide ball = IvpContactGeometryConformanceTests.Side([(9f, 9f, 9f), (9f, 8f, 9f), (8f, 9f, 9f)], (-1d, 0d, 3d));
         IvpContactPoint point = IvpContactGeometryConformanceTests.Contact(
             IvpFeatureKind.Ball, ball, IvpFeatureKind.Edge, IvpContactGeometryConformanceTests.Flat());
-        IvpContactBody first = new(ball, Falling(), IvpMatrix.FromRotation(Unturned, (-1d, 0d, 4d)), 0f);
+        IvpContactBody first = new(ball, At(Falling(), (-1d, 0d, 4d)), 0f);
         IvpContactBody second = Static(IvpContactGeometryConformanceTests.Flat());
 
         IvpContactRecord.Build(point, first, second, Now);
@@ -174,7 +174,7 @@ public sealed class IvpContactRecordConformanceTests
         IvpLedgeSide vertex = IvpContactGeometryConformanceTests.Side([(0f, 0f, 0f), (1f, 0f, 0f), (0f, 1f, 0f)], (-1d, 0d, 3d));
         IvpContactPoint point = IvpContactGeometryConformanceTests.Contact(
             IvpFeatureKind.Point, vertex, IvpFeatureKind.Edge, IvpContactGeometryConformanceTests.Flat());
-        IvpContactBody first = new(vertex, Falling(), IvpMatrix.FromRotation(Unturned, (-1d, 0d, 4d)), 0f);
+        IvpContactBody first = new(vertex, At(Falling(), (-1d, 0d, 4d)), 0f);
         IvpContactBody second = Static(IvpContactGeometryConformanceTests.Flat());
 
         IvpContactRecord firstRecord = IvpContactRecord.Build(point, first, second, Now);
@@ -215,10 +215,17 @@ public sealed class IvpContactRecordConformanceTests
         new() { Velocity = (0f, 0f, -2f), AngularVelocity = (0f, 0f, 1f), InverseInertia = (2f, 4f, 8f), InverseMass = 0.5f };
 
     private static IvpContactBody Vertex(IvpRigidBody core) =>
-        new(VertexSide(), core, IvpMatrix.FromRotation(Unturned, (0d, 0.25d, 4d)), 0f);
+        new(VertexSide(), At(core, (0d, 0.25d, 4d)), 0f);
 
     private static IvpContactBody StaticFace() => Static(IvpContactGeometryConformanceTests.Face((0d, 0d, 0d)));
 
     private static IvpContactBody Static(IvpLedgeSide side) =>
-        new(side, new IvpRigidBody { Immovable = true }, IvpMatrix.FromRotation(Unturned, (0d, 0d, 0d)), 0f);
+        new(side, At(new IvpRigidBody { Immovable = true }, (0d, 0d, 0d)), 0f);
+
+    /// <summary>Places a core unturned at a position, which is where its <see cref="IvpRigidBody.CoreMatrix"/> puts the arm.</summary>
+    private static IvpRigidBody At(IvpRigidBody core, (double X, double Y, double Z) position)
+    {
+        core.CoreMatrix = IvpMatrix.FromRotation(Unturned, position);
+        return core;
+    }
 }

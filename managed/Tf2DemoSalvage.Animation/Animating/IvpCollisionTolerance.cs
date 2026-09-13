@@ -89,6 +89,13 @@ public static class IvpCollisionTolerance
     /// </remarks>
     public static readonly float ParallelEdgeGap = Settled.ParallelEdgeGapMetres * IvpTransform.InchesPerMetre;
 
+    /// <summary><c>block[0x4a]</c>, <c>DAT_18012d668</c>, in METRES: <c>(float)(d + d)</c>.</summary>
+    /// <remarks>
+    /// **Carried in metres, not converted**, because its one reader so far is the impact solver `FUN_18008e290`, which adds it to
+    /// a speed in IVP's own units — `(p5 + block[0x4a]) · 1.2f` — and <see cref="IvpImpactSolver"/> runs in those units.
+    /// </remarks>
+    public static readonly float TwiceToleranceMetres = Settled.DoubledToleranceMetres;
+
     /// <summary>The margin for a class — <c>DAT_18012d548[class]</c>, which is <c>block[2 + class]</c>.</summary>
     /// <param name="marginClass">The mindist's byte at bits 22–29 of its <c>+0x20</c>.</param>
     /// <returns>The margin, in Source units.</returns>
@@ -136,7 +143,8 @@ public static class IvpCollisionTolerance
         float RampEndMetres,
         float ContactGapMetres,
         float ParallelEdgeGapMetres,
-        float EdgeTargetScaleMetres)
+        float EdgeTargetScaleMetres,
+        float DoubledToleranceMetres)
     {
         /// <summary>One run of <c>FUN_180098fd0</c> on a tolerance.</summary>
         /// <param name="tolerance">The tolerance <c>d</c>, in metres, as the double the routine takes.</param>
@@ -151,7 +159,8 @@ public static class IvpCollisionTolerance
             float contactGap = (float)(margin + tolerance);
             float parallelEdgeGap = (float)((tolerance * ParallelEdgeShare) + contactGap);
 
-            return new Block(epsilon, margin, margin, contactGap, parallelEdgeGap, margin * EdgeTargetShare);
+            return new Block(
+                epsilon, margin, margin, contactGap, parallelEdgeGap, margin * EdgeTargetShare, (float)(tolerance + tolerance));
         }
     }
 }

@@ -4,10 +4,9 @@ namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>One side of a contact as <c>FUN_18008d0c0</c> reads it (B369).</summary>
 /// <param name="Side">The object's ledge where the object is now — the cache object the builder refreshes before it measures.</param>
-/// <param name="Core">The object's core, <c>object+0xe8</c>.</param>
-/// <param name="CoreMatrix">The core's transform at <c>core+0x90</c>, which the arm and the normal are put into.</param>
+/// <param name="Core">The object's core, <c>object+0xe8</c>, whose <see cref="IvpRigidBody.CoreMatrix"/> the arm and the normal are put into.</param>
 /// <param name="ExtraRadius">The object's extra radius, <c>object+0xe0</c>.</param>
-public sealed record IvpContactBody(IvpLedgeSide Side, IvpRigidBody Core, IvpMatrix CoreMatrix, float ExtraRadius);
+public sealed record IvpContactBody(IvpLedgeSide Side, IvpRigidBody Core, float ExtraRadius);
 
 /// <summary>
 /// The record IVP builds each time a pair's contact point collides — the <c>0x110</c> bytes <c>FUN_18008d0c0</c> takes from
@@ -126,7 +125,7 @@ public sealed class IvpContactRecord
         if (!first.Core.Immovable)
         {
             (record.FirstArm, record.FirstTurn) = Lever(first, record.Position, normal);
-            relative = VelocityAt(first, record.FirstArm);
+            relative = first.Core.PointVelocity(record.FirstArm, first.Core.Velocity, first.Core.AngularVelocity);
             inverseMass = InverseMassAlong(record.FirstTurn, first.Core);
             record.FirstCore = first.Core;
         }
@@ -134,7 +133,8 @@ public sealed class IvpContactRecord
         if (!second.Core.Immovable)
         {
             (record.SecondArm, record.SecondTurn) = Lever(second, record.Position, normal);
-            (float X, float Y, float Z) velocity = VelocityAt(second, record.SecondArm);
+            (float X, float Y, float Z) velocity =
+                second.Core.PointVelocity(record.SecondArm, second.Core.Velocity, second.Core.AngularVelocity);
             relative = (relative.X - velocity.X, relative.Y - velocity.Y, relative.Z - velocity.Z);
             inverseMass = InverseMassAlong(record.SecondTurn, second.Core) + inverseMass;
             record.SecondCore = second.Core;
@@ -217,36 +217,16 @@ public sealed class IvpContactRecord
     private static ((float X, float Y, float Z) Arm, (float X, float Y, float Z) Turn) Lever(
         IvpContactBody body, (double X, double Y, double Z) position, (float X, float Y, float Z) normal)
     {
-        (double X, double Y, double Z) local = body.CoreMatrix.ToObject(position);
+        (double X, double Y, double Z) local = body.Core.CoreMatrix.ToObject(position);
         (float X, float Y, float Z) arm = ((float)local.X, (float)local.Y, (float)local.Z);
 
-        (double X, double Y, double Z) turned = body.CoreMatrix.RotateInverse((normal.X, normal.Y, normal.Z));
+        (double X, double Y, double Z) turned = body.Core.CoreMatrix.RotateInverse((normal.X, normal.Y, normal.Z));
         (float X, float Y, float Z) axis = ((float)turned.X, (float)turned.Y, (float)turned.Z);
 
         return (arm, (
             (arm.Y * axis.Z) - (arm.Z * axis.Y),
             (axis.X * arm.Z) - (axis.Z * arm.X),
             (axis.Y * arm.X) - (axis.X * arm.Y)));
-    }
-
-    /// <summary>The velocity of a point fixed to a core — <c>FUN_180077fa0</c>.</summary>
-    /// <remarks>
-    /// `ω × arm` in float, turned into the world by the core's matrix in double and narrowed, then the linear velocity added in
-    /// float.
-    /// </remarks>
-    private static (float X, float Y, float Z) VelocityAt(IvpContactBody body, (float X, float Y, float Z) arm)
-    {
-        (float X, float Y, float Z) spin = body.Core.AngularVelocity;
-
-        (float X, float Y, float Z) swept = (
-            (spin.Y * arm.Z) - (spin.Z * arm.Y),
-            (arm.X * spin.Z) - (spin.X * arm.Z),
-            (spin.X * arm.Y) - (arm.X * spin.Y));
-
-        (double X, double Y, double Z) turned = body.CoreMatrix.Rotate((swept.X, swept.Y, swept.Z));
-        (float X, float Y, float Z) velocity = body.Core.Velocity;
-
-        return ((float)turned.X + velocity.X, (float)turned.Y + velocity.Y, (float)turned.Z + velocity.Z);
     }
 
     /// <summary>A core's inverse mass along the normal, from its turn — <c>((t.y·I.y)·t.y + (t.x·I.x)·t.x) + (t.z·I.z)·t.z + m</c>, in float.</summary>

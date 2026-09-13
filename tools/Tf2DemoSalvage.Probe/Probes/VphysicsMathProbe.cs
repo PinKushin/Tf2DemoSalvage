@@ -5,8 +5,6 @@ using System.IO;
 using System.Runtime.InteropServices;
 
 using Tf2DemoSalvage.Animation.Animating;
-using Tf2DemoSalvage.Presentation;
-using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
@@ -28,9 +26,6 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// </remarks>
 public sealed class VphysicsMathProbe : IProbe
 {
-    /// <summary>The image base the addresses below were read at.</summary>
-    private const long ImageBase = 0x180000000;
-
     /// <summary><c>FUN_1800d40f0</c>, <c>expf</c>.</summary>
     private const long ExpfAddress = 0x1800d40f0;
 
@@ -97,34 +92,21 @@ public sealed class VphysicsMathProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder ||
-            Path.GetDirectoryName(folder) is not { } root)
+        if (!VphysicsLibrary.TryLoad(output, out nint module))
         {
-            output.WriteLine("The game folder could not be found.");
             return;
         }
-
-        string library = Path.Combine(root, "bin", "x64", "vphysics.dll");
-
-        if (!File.Exists(library))
-        {
-            output.WriteLine($"No library at {library}.");
-            return;
-        }
-
-        // Never freed: the process ends with the probe, and unloading runs the library's own teardown for nothing.
-        nint module = NativeLibrary.Load(library);
 
         Library math = new(
-            Function<SingleFunction>(module, ExpfAddress),
-            Function<DoubleFunction>(module, ExpAddress),
-            Function<SingleFunction>(module, AsinfAddress),
-            Function<DoubleFunction>(module, AtanAddress),
-            module + (nint)(FusedFlagAddress - ImageBase));
+            VphysicsLibrary.Function<SingleFunction>(module, ExpfAddress),
+            VphysicsLibrary.Function<DoubleFunction>(module, ExpAddress),
+            VphysicsLibrary.Function<SingleFunction>(module, AsinfAddress),
+            VphysicsLibrary.Function<DoubleFunction>(module, AtanAddress),
+            VphysicsLibrary.Address(module, FusedFlagAddress));
 
         int loaded = Marshal.ReadInt32(math.Flag);
 
-        output.WriteLine($"{library} loaded at 0x{module:x}; the fused-path flag reads {loaded}; IvpMath.FusedPath is {IvpMath.FusedPath}");
+        output.WriteLine($"The fused-path flag reads {loaded}; IvpMath.FusedPath is {IvpMath.FusedPath}");
 
         if (!Controls(output, math))
         {
@@ -155,7 +137,7 @@ public sealed class VphysicsMathProbe : IProbe
     /// </summary>
     private static void Damping(TextWriter output, nint module)
     {
-        DampFunction damp = Function<DampFunction>(module, DampAddress);
+        DampFunction damp = VphysicsLibrary.Function<DampFunction>(module, DampAddress);
 
         (float Rotation, float Speed, float Step)[] cases =
         [
@@ -377,29 +359,13 @@ public sealed class VphysicsMathProbe : IProbe
 
         for (int index = 0; index < SweepCount; index++)
         {
-            arguments.Add(BitConverter.Int64BitsToDouble(unchecked((long)SplitMix(ref state))));
-            arguments.Add(-750d + (1462d * Unit(SplitMix(ref state))));
+            arguments.Add(BitConverter.Int64BitsToDouble(unchecked((long)VphysicsLibrary.SplitMix(ref state))));
+            arguments.Add(-750d + (1462d * VphysicsLibrary.Unit(VphysicsLibrary.SplitMix(ref state))));
             arguments.Add(-3d + (6d * index / SweepCount));
         }
 
         return [.. arguments];
     }
-
-    /// <summary>SplitMix64: a fixed, reproducible stream of bits, so a sweep can be run again on the same arguments.</summary>
-    private static ulong SplitMix(ref ulong state)
-    {
-        unchecked
-        {
-            state += 0x9E3779B97F4A7C15UL;
-            ulong mixed = state;
-            mixed = (mixed ^ (mixed >> 30)) * 0xBF58476D1CE4E5B9UL;
-            mixed = (mixed ^ (mixed >> 27)) * 0x94D049BB133111EBUL;
-            return mixed ^ (mixed >> 31);
-        }
-    }
-
-    /// <summary>The top 53 bits of a draw as a double in [0, 1).</summary>
-    private static double Unit(ulong bits) => (bits >> 11) * (1d / (1UL << 53));
 
     private static float[] SineArguments()
     {
@@ -425,7 +391,7 @@ public sealed class VphysicsMathProbe : IProbe
 
         for (int index = 0; index < SweepCount; index++)
         {
-            arguments.Add(BitConverter.Int64BitsToDouble(unchecked((long)SplitMix(ref state))));
+            arguments.Add(BitConverter.Int64BitsToDouble(unchecked((long)VphysicsLibrary.SplitMix(ref state))));
             arguments.Add(-20d + (40d * index / SweepCount));
         }
 
@@ -451,10 +417,6 @@ public sealed class VphysicsMathProbe : IProbe
     }
 
     private static string Label(int path) => path == 0 ? "plain" : "fused";
-
-    private static T Function<T>(nint module, long address)
-        where T : Delegate =>
-        Marshal.GetDelegateForFunctionPointer<T>(module + (nint)(address - ImageBase));
 
     private static string Bits(float value) =>
         string.Create(CultureInfo.InvariantCulture, $"0x{BitConverter.SingleToInt32Bits(value):x8} ({value:R})");

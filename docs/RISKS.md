@@ -26120,6 +26120,19 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    arguments on both runtime paths finds no difference. **Not carried: damping's calm branch** — a core in movement state
    2 or more damps with every factor plus `0.1f`, and this project holds no IVP movement states, so every body damps as
    a moving one.
+   **The impact solver is ported and pinned to the binary, 2026-09-13** (`docs/findings/51`, *The anomaly manager, and the
+   limits a client environment runs*): `FUN_18008e290` and every routine under it as `IvpImpactSolver`, the anomaly manager
+   vphysics gives IVP as `VphysicsAnomalyManager`, and `SetPerformanceSettings` as `IvpAnomalyLimits`. The `vphysics-impact`
+   probe calls the binary's own solver on fabricated cores: 20,000 random impacts and 200,000 calls to each helper agree on
+   every lane, and `IvpImpactSolverConformanceTests` replays 96 of them. Not on the running path yet.
+   **It runs in IVP's units — metres, Y-up — as the binary does, and the wiring must keep it there.** vphysics converts at
+   its interface (`SetGravity`, `SetPerformanceSettings` and the constructor's tolerance multiply by `0.0254f`; a `.phy`
+   stores its hulls in metres), while this project's ported routines run on Source units with the metre thresholds scaled.
+   That is a divergence: the conversion belongs where vphysics makes it, between the object layer and the core, with
+   Hammer units everywhere above it — not in scaled constants inside the core.
+   **A fourth divergence is fixed: a corpse's environment allows 6 collisions per object, not 10.** The client never calls
+   `SetPerformanceSettings` (`game/client/physics.cpp:163-187`), so the constructor's `Defaults()` stand; the 10 is the
+   server's (`game/server/physics.cpp:225`). And the engine freezes a core once its count EXCEEDS the limit.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 
