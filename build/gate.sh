@@ -687,7 +687,10 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 342 -> 343 on 2026-09-12: RagdollBodyConformanceTests, a solid with no mass properties refused by Build and
 # BuildProp (+2), replacing the test that it carried a null hull inertia (-1) (B403). Both red first; one
 # sabotage substituting a made-up pair in each builder reddened exactly those two.
-run Tf2DemoSalvage.Animation.Tests animation 343
+#
+# 343 -> 356 on 2026-09-12: IvpLedgeTopologyConformanceTests (13), the compact ledge's edge address arithmetic
+# FUN_1800a1b50 walks (B369). Compile-red first; three sabotages, each reddening exactly its predicted cases.
+run Tf2DemoSalvage.Animation.Tests animation 356
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

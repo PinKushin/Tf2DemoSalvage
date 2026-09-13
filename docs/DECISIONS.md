@@ -8673,3 +8673,25 @@ every `agent()` in a Workflow script, and its backup in `.claude/hooks/global/` 
 evidence.
 
 Related: D145, B403.
+
+## D169 — no task cards: side work is done in the main loop or by a reviewed subagent (2026-09-12)
+
+**The owner, after a `spawn_task` card was offered** for a difference found in passing — `PhysicsHull`'s
+per-solid refusals against vphysics' load loop `FUN_18000a100`, while the vertex-face search (B369) was
+being ported:
+
+> *"you should probably not use cards, either take care of it yourself or subagent it, those cards end up
+> needing help being merged a lot of the time, because you end up hitting the same files"*
+
+and, of that card: *"i started that one though"*.
+
+**His reason is the merge, and this session had the example in hand.** A card runs as a separate session
+in its own worktree. The card's subject, `PhysicsHull.cs`, had just gained `PhysicsLedge.EdgeOffsets` on
+this branch (`8eb0a6dc`), so the two sessions were set to edit one file independently.
+
+**So:** no `spawn_task`. Side work is done in the main loop, or delegated to one subagent on `sonnet` (D168),
+scoped away from the files the main loop holds, with its diff reviewed (D145). The card already started runs
+to completion; this branch stays out of `PhysicsHull.cs` and `PhysicsModel.cs` until it lands, and then merges
+it.
+
+Related: D145, D168, B369.

@@ -2600,6 +2600,57 @@ read zero on disk and are runtime-initialized, so their values are not establish
 `FUN_18006edb0` and the whole of `FUN_1800a1b50`; the float-route comparison is arithmetic, by exhaustive
 replication over 2–5000.*
 
+### `FUN_1800a1b50` field by field, read again for the port (2026-09-12)
+
+**The routine's first argument is not the mindist, and three paragraphs above say it is.** Re-read from the
+disassembly (`D:\ghidra-proj\out\toi_a1b50_disasm.log`): `RCX` is a search context whose `+0x10` is the pair's
+approach speed, `+0x20` a pointer to the mindist, `+0x30`/`+0x38` the interval's start and end, `+0x40` the event
+kind and `+0x48` the event time. **The extra radius `+0x98`, the length `+0xa8` and the flags `+0x20` are the
+MINDIST's**, reached through `[RCX+0x20]`. The other arguments: `RDX` the vertex's edge in ledge A, `R8` the face's
+edge in ledge B, `R9` side A — its point array at `+0`, its cache object at `+0x10` — and on the stack side B,
+with the same two fields plus its compact ledge at `+8` and its real object at `+0x18`.
+
+In order, with `time` the context's `+0x48`:
+
+1. Both motion caches built; **`time := end`**.
+2. The point-plane evaluator: speed `ctx+0x10` and `1.0 / speed`; the vertex, the face's first point, and its
+   normal from the face edge and the triangle's next and previous edges.
+3. `tolerance = (double)(0.5f·extra + DAT_18012d540)`, `target = (double)margin + (double)extra` with `margin =
+   DAT_18012d548[(mindist+0x20 >> 22) & 0xFF]`, and a KNOWN starting distance `(double)(extra + length)`, all float
+   sums widened. `FUN_1800b6210` gets these and `time`; on a root, **`kind := 0x20`**.
+4. The edge evaluator's speed: `(double)(coreA+0x80 + coreB+0x80)` summed in float, plus `1e-19`; and `1.0 /
+   speed`. Its target: `((double)MINSS(length, margin) + (double)(0.1f·extra)) × (double)(−(DAT_18012d664 ·
+   coreB+0x54)) / (double)margin`.
+5. `u = A.RotateInverse(B.Rotate(normal))` through the two cache objects' CURRENT matrices at `+0x40`, and the
+   slope limit `(double)(float)(time − start) × speed` — taken once, after step 3, so an `0x20` root shortens it.
+6. **The ring** (`IvpLedgeTopology.Ring`): for each edge leaving the vertex, `d = Q − P` in float, `slope =
+   ((d.x·u.x + d.y·u.y) + d.z·u.z) × (double)rsqrt_f((float)|d|²)`; unless `slope ≥ limit` (`COMISD`/`JNC`, so NaN
+   is refined), the edge evaluator is filled with the scaled direction and `FUN_1800b6590` runs from `start` to
+   `time`, handed the slope as its known distance; on a root, **`kind := 0x21`** and `time` moves earlier for every
+   edge after.
+
+**The three runtime globals are the collision-tolerance block**, already mapped above: `DAT_18012d540` is
+`block[0] = 0.1·d`, `DAT_18012d548[i]` is `block[2 + i]` — the flat ramp, `d` for `i` from 0 to 63 — and
+`DAT_18012d664` is `block[0x49] = 0.1·d`. *What sets the mindist's byte at bits 22–29 is not read*; past 63 it
+would index the block's later fields.
+
+**The two core fields**, from their writers:
+
+- **`core+0x80` is an angular speed bound**, written by `FUN_180099d60(core, v)`, which the integrator calls
+  every step: `x = |v|` by a four-step reciprocal square root (zero, with axis `(1, 0, 0)`, when `|v|² ≤ 1e-19`),
+  the unit axis into `core+0x1c0..0x1c8`, and `core+0x80 = (float)((2x + x³/3) + 2·0.40414·x⁵) ×
+  core+0x1d8`, the inverse step; `core+0x254 = core+0x80 × core+0x8`. *What `v` is — the integrator builds it with
+  `FUN_180099fc0` — is not read here*; the series is a bound on an angle from a half-angle-sized input, INFERRED.
+- **`core+0x54 = 0.5f / core+0x4`**, written by `FUN_180076f80` beside the inverse inertia. **`core+0x4` and
+  `core+0x8` are set once, by `FUN_180078b90`**, from `FUN_180073df0`: the surface manager's slot `+0x10`
+  (`18007aeb0`) returns `radius = (float)((double)surface+0x18 + dist)` and `deviation = (float)((double)(byte
+  surface+0x1C × 0.004f × surface+0x18) + dist)`, `dist` being how far the surface's mass center is from the
+  centre asked about, and the object's float at `+0xe0` is added to the radius. *That `+0x18` is the ledge's upper
+  radius is INFERRED* from that use; `0.004f` is `DAT_1800fd1fc`, dumped.
+
+*Evidence class: read from the disassembly for `FUN_1800a1b50`, `FUN_180099d60`, `FUN_180076f80`,
+`FUN_180078b90`, the call in `FUN_180073df0` and `18007aeb0`; constants dumped.*
+
 **`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
 
 **`interpolate` is `FUN_180071060`, a shortest-path slerp that falls back to a normalised lerp.** It

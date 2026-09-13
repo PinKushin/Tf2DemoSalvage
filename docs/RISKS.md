@@ -26049,7 +26049,12 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    was replaced before sabotage by an evaluator whose estimates all stay above the target at a
    fifty-first of the bracket.
 5. **The vertex-face time of impact** (`FUN_1800a1b50`) — target `margin + extra`, tolerance
-   `0.5·extra + ε`; event `0x20` on a root, then the vertex's edge ring for event `0x21`.
+   `0.5·extra + ε`; event `0x20` on a root, then the vertex's edge ring for event `0x21`. **In progress,
+   2026-09-12:** read again field by field (`docs/findings/51`, *`FUN_1800a1b50` field by field*), which
+   corrected its first argument from the mindist to a search context and settled the three runtime globals
+   and both core fields it reads. Done so far: `PhysicsLedge.EdgeOffsets` carries each edge word's hop
+   (`8eb0a6dc`), and `IvpLedgeTopology` walks the ring by the engine's address arithmetic. Left: the
+   evaluators' speed fields, the routine itself, and carrying the offsets from `.phy` to the body.
 6. **The pair scheduler's near branch** (`FUN_180099380`) and the time-ordered event loop that
    consumes events inside the PSI — the piece that replaces the fixed step's speculative contacts.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then

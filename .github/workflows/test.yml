@@ -335,7 +335,9 @@ jobs:
           # 341 -> 342 on 2026-09-12: the object offset in the time-of-impact transform (B403), +1. Synthetic.
           #
           # 342 -> 343 on 2026-09-12: a solid with no mass properties refused (B403), +2 -1. Synthetic.
-          ./build/assert-test-count.sh '**/animation.trx' 343 Animation
+          #
+          # 343 -> 356 on 2026-09-12: IvpLedgeTopologyConformanceTests (13), the ledge's edge walk (B369). Synthetic.
+          ./build/assert-test-count.sh '**/animation.trx' 356 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView
