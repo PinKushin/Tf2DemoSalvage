@@ -1987,6 +1987,16 @@ So it is a **vertex fan**, not a twin: it enumerates every triangle touching a g
 exactly what the vertex-vertex and vertex-edge feature tests need. **The control is the 0 of 132**,
 because without it "132 of 132 hit a real edge" would be satisfied by several wrong readings.
 
+**What "not a twin" did and did not test** (2026-09-12, B369). The measured hop is `fc8` FIRST — to the
+triangle's previous edge, which ENDS at the start point — and the 15-bit field of THAT edge second. A field
+holding each edge's classic twin predicts exactly the 132 of 132 (the twin of an edge ending at `P` starts at
+`P`, in the neighbouring triangle) and the 0 of 132 (it is not the reverse of the edge started from). So the
+measurement rules out the field being the twin of the edge the walk started on, not the twin of the edge it
+is stored on; *whether it is the latter is not established*. The vertex-face search does not need the answer
+— it takes the far end of the edge it lands on, `start(next(hop))`, as its neighbour of `P` — and
+`PhysicsLedge.EdgeOffsets` now carries the field as stored, `(int)(word << 1) >> 17` per edge, so the walk is
+the engine's address arithmetic rather than a reconstruction.
+
 ### The ledgetree node's twenty unidentified bytes are a TIGHT bounding sphere
 
 **Filed above as "plausibly a bounding volume, unconfirmed", and the files settled it without a

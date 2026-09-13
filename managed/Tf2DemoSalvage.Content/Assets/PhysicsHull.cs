@@ -7,6 +7,11 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <summary>One convex piece of a collision hull — Ipion's <c>IVP_Compact_Ledge</c>.</summary>
 /// <param name="Points">Every point the ledge's triangles index, in IVP metres.</param>
 /// <param name="Triangles">Three point indices per triangle, in the file's own order.</param>
+/// <param name="EdgeOffsets">
+/// **Each edge word's bits 16–30, per triangle, as a signed count of four-byte edge words** (B369) — the hop
+/// `FUN_1800a1b50` takes from an edge to walk the edges around a point, relative to the edge's own address. Kept
+/// as the file stores it, because the walk is address arithmetic over the ledge's triangle array.
+/// </param>
 /// <remarks>
 /// **A ledge is the convex unit the engine's narrow phase works on**, not the whole solid: a
 /// concave shape is a TREE of them, and the point array can be SHARED between siblings — every one
@@ -18,6 +23,7 @@ namespace Tf2DemoSalvage.Content.Assets;
 public readonly record struct PhysicsLedge(
     IReadOnlyList<Vector3> Points,
     IReadOnlyList<(int A, int B, int C)> Triangles,
+    IReadOnlyList<(int A, int B, int C)> EdgeOffsets,
     Vector3 Center,
     float Radius);
 
@@ -355,6 +361,7 @@ public static class PhysicsHull
         Dictionary<int, int> renumbered = [];
         List<Vector3> kept = [];
         List<(int A, int B, int C)> triangles = new(count);
+        List<(int A, int B, int C)> offsets = new(count);
 
         for (int index = 0; index < count; index++)
         {
@@ -362,9 +369,13 @@ public static class PhysicsHull
 
             // **The triangle's own header word is skipped and never read**, which is not an
             // omission: nothing in the traced mindist path reads it either. The three edges follow.
-            int a = Point(solid, points, BitConverter.ToInt32(solid[(triangle + 4)..]) & 0xFFFF, renumbered, kept);
-            int b = Point(solid, points, BitConverter.ToInt32(solid[(triangle + 8)..]) & 0xFFFF, renumbered, kept);
-            int c = Point(solid, points, BitConverter.ToInt32(solid[(triangle + 12)..]) & 0xFFFF, renumbered, kept);
+            int first = BitConverter.ToInt32(solid[(triangle + 4)..]);
+            int second = BitConverter.ToInt32(solid[(triangle + 8)..]);
+            int third = BitConverter.ToInt32(solid[(triangle + 12)..]);
+
+            int a = Point(solid, points, first & 0xFFFF, renumbered, kept);
+            int b = Point(solid, points, second & 0xFFFF, renumbered, kept);
+            int c = Point(solid, points, third & 0xFFFF, renumbered, kept);
 
             if (a < 0 || b < 0 || c < 0)
             {
@@ -372,10 +383,14 @@ public static class PhysicsHull
             }
 
             triangles.Add((a, b, c));
+            offsets.Add((EdgeOffset(first), EdgeOffset(second), EdgeOffset(third)));
         }
 
-        return new PhysicsLedge(kept, triangles, centre, radius);
+        return new PhysicsLedge(kept, triangles, offsets, centre, radius);
     }
+
+    /// <summary>An edge word's bits 16–30, sign-extended: <c>(int)(word &lt;&lt; 1) &gt;&gt; 17</c>, as <c>FUN_1800a1b50</c> reads it.</summary>
+    private static int EdgeOffset(int word) => (word << 1) >> 17;
 
     /// <summary>One point, read and renumbered, or -1 when it lies outside the blob.</summary>
     private static int Point(

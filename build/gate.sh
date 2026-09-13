@@ -1494,7 +1494,9 @@ run Tf2DemoSalvage.Presentation.Tests presentation 454
 # rotation inertia (B403). Synthetic blobs; two sabotages, each reddening only its own case.
 # 1164 -> 1165 on 2026-09-12: PhysicsModelConformanceTests carries each solid's mass properties out of the
 # same blob walk as its hull (B403). Authored .phy with one VPHY blob.
-run Tf2DemoSalvage.Content.Tests  content   1165
+# 1165 -> 1166 on 2026-09-12: PhysicsHullConformanceTests, each edge word's bits 16-30 carried as a signed
+# edge offset for the vertex-face search's edge walk (B369). Compile-red first; an unsigned read reddened it.
+run Tf2DemoSalvage.Content.Tests  content   1166
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

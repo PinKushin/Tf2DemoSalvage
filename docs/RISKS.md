@@ -27005,7 +27005,9 @@ names no bone — and the branch and its `MinimumInertia` floor are deleted. Syn
 `RagdollMasses.Unit`, a mass center at the bone and one square inch per kilogram on each axis, which gives
 every core the same `mass × scale` the stand-in did: **every other Animation and Scene test kept its exact
 result**, the control that the conversion changed only what it meant to. Two conformance tests, red first;
-a made-up pair substituted in each builder reddened exactly those two.
+a made-up pair substituted in each builder reddened exactly those two. **And on real data nothing moved**:
+`corpse-drop` on `5ce303b1` reports all five seeds exactly as on `851d9582` — every solid of a shipped `.phy`
+carries its pair, so the refusal never fires there.
 
 **Closed with these not established:** nobody has looked at a corpse in the viewer since the core moved;
 whether TF2 settles the five probe seeds at those ticks is not measured; and the `CreatePolyObject` branch

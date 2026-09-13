@@ -168,6 +168,29 @@ public sealed class PhysicsHullConformanceTests
         PhysicsHull.MassProperties(new byte[0x20]).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **An edge word's bits 16–30 are a signed offset, counted in four-byte edge words, and bit 31 is not part
+    /// of it** (B369). `FUN_1800a1b50` reads it as `(int)(word &lt;&lt; 1) &gt;&gt; 17` before hopping `offset × 4` bytes
+    /// from the edge, which is how the vertex-face search walks the edges around a point (`docs/findings/51`,
+    /// *The edge, and a claim tested with a control*). The low 16 bits stay the start point. A negative, a
+    /// positive and the largest positive value, with bit 31 set on one word, so a shift that keeps bit 31, an
+    /// unsigned read or a sixteen-bit field each give a different answer.
+    /// </remarks>
+    [Test]
+    public void Read_AnEdgeWordsUpperBits_AreCarriedAsASignedEdgeOffset()
+    {
+        byte[] solid = Solid(
+            [new Vector3(1f, 2f, 3f), new Vector3(4f, 5f, 6f), new Vector3(7f, 8f, 9f)],
+            [(0, 1, 2)],
+            edgeOffsets: [(-3, 2, 16383)],
+            highBit: true);
+
+        PhysicsLedge ledge = PhysicsHull.Read(solid)[0];
+
+        ledge.Triangles[0].ShouldBe((0, 1, 2), "the start points are the low sixteen bits still");
+        ledge.EdgeOffsets[0].ShouldBe((-3, 2, 16383));
+    }
+
     /// <summary>Where the ledge is written, from the solid's <c>VPHY</c> tag.</summary>
     private const int LedgeAt = 0x1C + 0x30;
 
@@ -184,7 +207,9 @@ public sealed class PhysicsHullConformanceTests
         (int A, int B, int C)[] triangles,
         ReadOnlySpan<byte> magic = default,
         Vector3 massCenter = default,
-        Vector3 rotationInertia = default)
+        Vector3 rotationInertia = default,
+        (int A, int B, int C)[]? edgeOffsets = null,
+        bool highBit = false)
     {
         int trianglesAt = LedgeAt + 0x10;
         int pointsAt = trianglesAt + (triangles.Length * 0x10);
@@ -213,10 +238,13 @@ public sealed class PhysicsHullConformanceTests
         {
             int at = trianglesAt + (index * 0x10);
 
-            // `at` itself is the triangle's header word, which nothing reads.
-            BitConverter.GetBytes(triangles[index].A).CopyTo(solid, at + 4);
-            BitConverter.GetBytes(triangles[index].B).CopyTo(solid, at + 8);
-            BitConverter.GetBytes(triangles[index].C).CopyTo(solid, at + 12);
+            // `at` itself is the triangle's header word, which nothing reads. Each edge word is its start point in
+            // the low sixteen bits and its offset in bits 16–30; bit 31, when asked for, goes on the middle edge.
+            (int A, int B, int C) offsets = edgeOffsets?[index] ?? (0, 0, 0);
+
+            BitConverter.GetBytes(Edge(triangles[index].A, offsets.A, high: false)).CopyTo(solid, at + 4);
+            BitConverter.GetBytes(Edge(triangles[index].B, offsets.B, highBit)).CopyTo(solid, at + 8);
+            BitConverter.GetBytes(Edge(triangles[index].C, offsets.C, high: false)).CopyTo(solid, at + 12);
         }
 
         for (int index = 0; index < points.Length; index++)
@@ -233,4 +261,8 @@ public sealed class PhysicsHullConformanceTests
 
         return solid;
     }
+
+    /// <summary>One edge word: a start point, a fifteen-bit offset above it, and optionally bit 31.</summary>
+    private static uint Edge(int start, int offset, bool high) =>
+        (uint)(start & 0xFFFF) | (((uint)offset & 0x7FFF) << 16) | (high ? 0x8000_0000u : 0u);
 }
