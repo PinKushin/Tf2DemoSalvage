@@ -690,7 +690,11 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 #
 # 343 -> 356 on 2026-09-12: IvpLedgeTopologyConformanceTests (13), the compact ledge's edge address arithmetic
 # FUN_1800a1b50 walks (B369). Compile-red first; three sabotages, each reddening exactly its predicted cases.
-run Tf2DemoSalvage.Animation.Tests animation 356
+#
+# 356 -> 366 on 2026-09-12: the vertex-face search's inputs (B369) — the evaluators' speeds (4), the motion
+# cache's current matrix (1), the margin table and the edge target's scale (5). Compile-red first; seven
+# sabotages over two runs, each reddening only its own case.
+run Tf2DemoSalvage.Animation.Tests animation 366
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

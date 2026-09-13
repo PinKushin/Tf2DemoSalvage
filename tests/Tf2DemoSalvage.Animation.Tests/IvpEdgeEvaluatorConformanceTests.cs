@@ -42,7 +42,7 @@ public sealed class IvpEdgeEvaluatorConformanceTests
     [Test]
     public void ForEdge_AThreeFourFiveEdge_ScalesByAWidenedFloatReciprocalRoot()
     {
-        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((1f, 1f, 1f), (4f, 5f, 1f), (0d, 0d, 1d));
+        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((1f, 1f, 1f), (4f, 5f, 1f), (0d, 0d, 1d), 1d);
 
         BitConverter.DoubleToInt64Bits(evaluator.Direction.X).ShouldBe(0x3FE3333338000000L);
         BitConverter.DoubleToInt64Bits(evaluator.Direction.Y).ShouldBe(0x3FE99999A0000000L);
@@ -56,7 +56,7 @@ public sealed class IvpEdgeEvaluatorConformanceTests
     [Test]
     public void Distance_AnEdgeAlongTheFaceNormal_IsOne()
     {
-        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((0f, 0f, 0f), (0f, 0f, 2f), (0d, 0d, 1d));
+        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((0f, 0f, 0f), (0f, 0f, 2f), (0d, 0d, 1d), 1d);
 
         evaluator.Distance(Identity, Identity).ShouldBe(1d);
     }
@@ -69,7 +69,7 @@ public sealed class IvpEdgeEvaluatorConformanceTests
     [Test]
     public void Distance_WithTheFacesBodyTurnedAQuarterAboutX_TurnsTheNormalIntoTheWorld()
     {
-        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((0f, 0f, 0f), (0f, 2f, 0f), (0d, 0d, 1d));
+        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((0f, 0f, 0f), (0f, 2f, 0f), (0d, 0d, 1d), 1d);
 
         evaluator.Distance(Identity, QuarterTurnAboutX).ShouldBe(-1d, Tolerance);
     }
@@ -83,7 +83,7 @@ public sealed class IvpEdgeEvaluatorConformanceTests
     [Test]
     public void Distance_WithTheEdgesBodyTurnedAQuarterAboutX_TakesTheNormalIntoTheEdgesFrame()
     {
-        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((0f, 0f, 0f), (0f, 2f, 0f), (0d, 0d, 1d));
+        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((0f, 0f, 0f), (0f, 2f, 0f), (0d, 0d, 1d), 1d);
 
         evaluator.Distance(QuarterTurnAboutX, Identity).ShouldBe(1d, Tolerance);
     }
@@ -94,7 +94,7 @@ public sealed class IvpEdgeEvaluatorConformanceTests
     [Test]
     public void Distance_WithBothBodiesTranslated_IgnoresTheTranslation()
     {
-        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((0f, 0f, 0f), (0f, 0f, 2f), (0d, 0d, 1d));
+        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((0f, 0f, 0f), (0f, 0f, 2f), (0d, 0d, 1d), 1d);
 
         IvpMatrix edgeBody = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (5d, 6d, 7d));
         IvpMatrix faceBody = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (-8d, 9d, -10d));
@@ -110,9 +110,40 @@ public sealed class IvpEdgeEvaluatorConformanceTests
     [Test]
     public void Distance_TermsThatRoundDifferentlyByGrouping_SumsXAndYBeforeZ()
     {
-        IvpEdgeEvaluator evaluator = new(Direction: (0.1d, 0.2d, 2.2d), Normal: (1d, 1d, 1d));
+        IvpEdgeEvaluator evaluator = new(
+            Direction: (0.1d, 0.2d, 2.2d), Normal: (1d, 1d, 1d), ApproachSpeed: 1d, InverseApproachSpeed: 1d);
 
         BitConverter.DoubleToInt64Bits(evaluator.Distance(Identity, Identity))
             .ShouldBe(BitConverter.DoubleToInt64Bits(2.5d));
+    }
+
+    /// <remarks>
+    /// **The edge evaluator's speed is the two cores' angular bounds summed in FLOAT, widened, plus `1e-19`**
+    /// (`1800a1bed`–`1800a1c10`, then `ADDSD` of `DAT_1800f4f20` at `1800a1e34`). `16777216f + 1f` is `16777216f`,
+    /// so the float sum is `16777216`; a double sum would be `16777217`. The floor is too small to move it.
+    /// </remarks>
+    [Test]
+    public void SpeedBound_TwoCoresBounds_SumInFloatBeforeWidening() =>
+        IvpEdgeEvaluator.SpeedBound(16777216f, 1f).ShouldBe(16777216d);
+
+    /// <remarks>
+    /// **Two cores that are not turning still give a speed**, the floor alone, so the evaluator's reciprocal is
+    /// `1e19` rather than a division by zero.
+    /// </remarks>
+    [Test]
+    public void SpeedBound_TwoCoresNotTurning_IsTheFloor() =>
+        IvpEdgeEvaluator.SpeedBound(0f, 0f).ShouldBe(1e-19d);
+
+    /// <remarks>
+    /// **The speed is stored with one over it** at `+0x08` and `+0x10` (`1800a1e46`–`1800a1e57`), the pair every
+    /// root finder reads.
+    /// </remarks>
+    [Test]
+    public void ForEdge_AnApproachSpeed_IsCarriedWithOneOverIt()
+    {
+        IvpEdgeEvaluator evaluator = IvpEdgeEvaluator.ForEdge((0f, 0f, 0f), (0f, 0f, 2f), (0d, 0d, 1d), 1e-19d);
+
+        evaluator.ApproachSpeed.ShouldBe(1e-19d);
+        evaluator.InverseApproachSpeed.ShouldBe(1e19d);
     }
 }

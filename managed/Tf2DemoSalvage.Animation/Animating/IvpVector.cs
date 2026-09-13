@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 public static class IvpVector
 {
     /// <summary><c>DAT_1800f4f20</c>: the squared length below which a vector has no direction.</summary>
-    private const double DirectionThreshold = 1e-19d;
+    internal const double DirectionThreshold = 1e-19d;
 
     /// <summary><c>DAT_1800ee388</c>.</summary>
     private const double Half = 0.5d;

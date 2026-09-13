@@ -14,6 +14,13 @@ the same files"*. He had already started that card, so it runs; the rule governs
 usually in the same files — here the card's `PhysicsHull.cs` had just gained `EdgeOffsets` on the
 branch. Two sessions editing one file independently is a merge the owner then has to help with.
 
+**Minutes later he added the other reason and softened it to a preference:** *"it just seems easier for
+you all to pass messages back and forth, and for you to review if its a subagent, when its a peer agent,
+you have to look into the worktree itself and only talk through that filesystem mcp server i think, if its
+all the same really then i guess chips are fine, but i still would rather you subagent so they auto start"*.
+So a subagent is the default because it starts on its own, can be messaged, and hands its work back for
+review in place.
+
 **How to apply:**
 
 - **Do not call `spawn_task`.** Side work found in passing is done in the main loop, or delegated.

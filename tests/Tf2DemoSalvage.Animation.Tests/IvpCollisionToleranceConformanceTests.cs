@@ -89,4 +89,32 @@ public sealed class IvpCollisionToleranceConformanceTests
 
         at3200.ShouldBe(at800 * 2f, 1e-3f);
     }
+
+    /// <remarks>
+    /// **The margin table `DAT_18012d548` is the block from `[2]`: 64 entries ramped from `block[1]` to
+    /// `block[0x42]`**, `[1] + ([0x42] − [1]) · i / 64`, and both ends are `d` — so every class on the ramp is the
+    /// margin. `FUN_1800a1b50` indexes it by the mindist's byte at bits 22–29.
+    /// </remarks>
+    [TestCase(0)]
+    [TestCase(63)]
+    public void MarginFor_AClassOnTheRamp_IsTheMargin(int marginClass) =>
+        IvpCollisionTolerance.MarginFor(marginClass).ShouldBe(IvpCollisionTolerance.Margin);
+
+    /// <remarks>
+    /// **Past the ramp the engine reads the block's later fields** — `block[0x42]` onward, one of them
+    /// gravity-dependent — and below it reads before the table. Refused rather than guessed at, until what sets
+    /// the byte is read.
+    /// </remarks>
+    [TestCase(-1)]
+    [TestCase(64)]
+    public void MarginFor_AClassOffTheRamp_IsRefused(int marginClass) =>
+        Should.Throw<System.ArgumentOutOfRangeException>(() => IvpCollisionTolerance.MarginFor(marginClass));
+
+    /// <remarks>
+    /// `block[0x49] = 0.1 · d`, `DAT_18012d664`: the factor on the face core's `+0x54` in the edge search's target.
+    /// The same value as <see cref="IvpCollisionTolerance.Epsilon"/> from a different field.
+    /// </remarks>
+    [Test]
+    public void EdgeTargetScale_InSourceUnits_IsATenthOfTheMargin() =>
+        IvpCollisionTolerance.EdgeTargetScale.ShouldBe(0.02498995f, Tolerance);
 }

@@ -41,6 +41,15 @@ public sealed class IvpMotionCacheConformanceTests
     }
 
     /// <remarks>
+    /// **The current matrix is readable on its own**, because `FUN_1800a1b50` reads it straight from each cache
+    /// object's `+0x40` — the matrix slot 0 points at — to take the face normal into the vertex's frame before any
+    /// search runs.
+    /// </remarks>
+    [Test]
+    public void Current_IsTheMatrixTheCacheWasBuiltWith() =>
+        new IvpMotionCache(Rising(), Marker, resting: false).Current.ShouldBe(Marker);
+
+    /// <remarks>
     /// **A resting object points every slot at the current matrix**, so a lattice time deep in the interval
     /// still reads it and nothing is computed.
     /// </remarks>

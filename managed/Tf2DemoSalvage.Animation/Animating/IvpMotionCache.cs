@@ -41,6 +41,13 @@ public sealed class IvpMotionCache
         _resting = resting;
     }
 
+    /// <summary>The body's current matrix — the cache object's <c>+0x40</c>, which slot 0 points at.</summary>
+    /// <remarks>
+    /// `FUN_1800a1b50` reads it directly, not through a slot, to take the face normal into the vertex's frame
+    /// before its edge ring.
+    /// </remarks>
+    public IvpMatrix Current => _current;
+
     /// <summary>The body's transform at a lattice tick, filled on first use.</summary>
     /// <param name="tick">The search's running tick total.</param>
     /// <param name="time">The time to fill the slot at, if it is empty.</param>
