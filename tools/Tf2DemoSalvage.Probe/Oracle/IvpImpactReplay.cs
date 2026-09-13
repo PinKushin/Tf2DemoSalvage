@@ -59,8 +59,13 @@ public static class IvpImpactReplay
     /// <summary>Runs <see cref="IvpImpactSolver"/> on a case's inputs and reads back every output field.</summary>
     /// <param name="inputs">The inputs, by field name.</param>
     /// <returns>The outputs, by field name.</returns>
+    public static IReadOnlyDictionary<string, long[]> Run(IReadOnlyDictionary<string, long[]> inputs) => Solve(inputs).Outputs;
+
+    /// <summary><see cref="Run"/>, keeping the solver so its instruments can be read.</summary>
+    /// <param name="inputs">The inputs, by field name.</param>
+    /// <returns>The outputs and the solver.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="inputs"/> is null.</exception>
-    public static IReadOnlyDictionary<string, long[]> Run(IReadOnlyDictionary<string, long[]> inputs)
+    public static (IReadOnlyDictionary<string, long[]> Outputs, IvpImpactSolver Solver) Solve(IReadOnlyDictionary<string, long[]> inputs)
     {
         ArgumentNullException.ThrowIfNull(inputs);
 
@@ -115,7 +120,7 @@ public static class IvpImpactReplay
         AddCore(outputs, Sides[0], first);
         AddCore(outputs, Sides[1], second);
 
-        return outputs;
+        return (outputs, solver);
     }
 
     /// <summary>Every lane where two readings of the same case differ, named.</summary>

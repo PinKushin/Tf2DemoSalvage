@@ -44,6 +44,9 @@ public sealed class VphysicsImpactProbe : IProbe
     private const int FixtureCases = 96;
     private const ulong FixtureSeed = 18008;
     private const ulong SweepSeed = 20260913;
+    private const int SearchAttempts = 2_000_000;
+
+    private static readonly string[] Sides = ["first-", "second-"];
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void SolveFunction(nint solver, nint cores, int mayHoldBack, int impacts, float pushOut);
@@ -253,6 +256,100 @@ public sealed class VphysicsImpactProbe : IProbe
         output.WriteLine(
             $"impacts: {count} compared, {differing} differ; {approaching} approaching, {heldBack} held back, {frozen} frozen; " +
             $"{native.Traps} calls reached a trap");
+
+        int nanDiffering = 0;
+
+        for (int index = 0; index < count / 10; index++)
+        {
+            Dictionary<string, long[]> inputs = RandomCase(draws);
+            inputs[index % 2 == 0 ? "first-velocity" : "second-spin"][index % 3] = IvpImpactReplay.Lane(float.NaN);
+            nanDiffering += IvpImpactReplay.Differences(native.Solve(inputs), IvpImpactReplay.Run(inputs)).Count > 0 ? 1 : 0;
+        }
+
+        output.WriteLine($"with one NaN velocity or spin lane: {count / 10} compared, {nanDiffering} differ");
+    }
+
+    /// <summary>
+    /// Cases the draws miss, found through the port's instruments: the push loop at its cap, a heavier core closing between
+    /// the hold-back share and <c>−0.8</c>, a response small enough that the stiffness term sets the impulse, and a NaN.
+    /// </summary>
+    private static List<(string Label, Dictionary<string, long[]> Inputs)> Targeted(TextWriter output)
+    {
+        Draws draws = new(FixtureSeed + 1);
+        List<(string, Dictionary<string, long[]>)> found = [];
+
+        Dictionary<string, long[]>? cap = Search(draws, Stress, solver => solver.Pushes == 100);
+        Dictionary<string, long[]>? held = Search(draws, RandomCase, solver =>
+            solver.HoldBackSpeed >= solver.SeparationSpeed * -0.8333333f && solver.HoldBackSpeed < solver.SeparationSpeed * -0.8f);
+
+        output.WriteLine($"targeted: push cap found {cap is not null}; hold-back band found {held is not null}");
+
+        if (cap is not null)
+        {
+            found.Add(("cap", cap));
+        }
+
+        if (held is not null)
+        {
+            found.Add(("holdback", held));
+        }
+
+        // At rest, so the pair separates and the separating push divides by the response plus the stiffness term.
+        Dictionary<string, long[]> stiff = RandomCase(draws);
+        stiff["p5"] = [IvpImpactReplay.Lane(1f)];
+
+        foreach (string side in Sides)
+        {
+            stiff[side + "velocity"] = Lanes(default);
+            stiff[side + "spin"] = Lanes(default);
+            stiff[side + "pending-velocity"] = Lanes(default);
+            stiff[side + "pending-spin"] = Lanes(default);
+            stiff[side + "flags"] = [0];
+            stiff[side + "inverse-mass"] = [IvpImpactReplay.Lane(1e-15f)];
+            stiff[side + "inverse-inertia"] = Lanes((1e-15f, 1e-15f, 1e-15f));
+        }
+
+        Dictionary<string, long[]> nan = RandomCase(draws);
+        nan["first-velocity"][0] = IvpImpactReplay.Lane(float.NaN);
+
+        found.Add(("stiffness", stiff));
+        found.Add(("nan", nan));
+
+        return found;
+    }
+
+    private static Dictionary<string, long[]>? Search(
+        Draws draws, Func<Draws, Dictionary<string, long[]>> draw, Func<IvpImpactSolver, bool> wanted)
+    {
+        for (int attempt = 0; attempt < SearchAttempts; attempt++)
+        {
+            Dictionary<string, long[]> inputs = draw(draws);
+
+            if (wanted(IvpImpactReplay.Solve(inputs).Solver))
+            {
+                return inputs;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>A draw skewed to long arms, light cores and a wide cone, where a push mostly turns a core instead of parting it.</summary>
+    private static Dictionary<string, long[]> Stress(Draws draws)
+    {
+        Dictionary<string, long[]> inputs = RandomCase(draws);
+        (float cosine, float tangent) = Cone(draws.Between(0f, 1f), draws.Between(1f, 3f));
+
+        inputs["cone"] = [IvpImpactReplay.Lane(cosine), IvpImpactReplay.Lane(tangent)];
+
+        foreach (string side in Sides)
+        {
+            inputs[side + "arm"] = Lanes(Cube(draws, 5f));
+            inputs[side + "inverse-mass"] = [IvpImpactReplay.Lane(draws.Between(0.001f, 0.05f))];
+            inputs[side + "inverse-inertia"] = Lanes((draws.Between(10f, 200f), draws.Between(10f, 200f), draws.Between(10f, 200f)));
+        }
+
+        return inputs;
     }
 
     private static void Fixture(TextWriter output, NativeImpact native, string path)
@@ -270,12 +367,20 @@ public sealed class VphysicsImpactProbe : IProbe
             cases.Add(new IvpReplayCase(index.ToString("d3", CultureInfo.InvariantCulture), inputs, binary));
         }
 
+        foreach ((string label, Dictionary<string, long[]> inputs) in Targeted(output))
+        {
+            Dictionary<string, long[]> binary = native.Solve(inputs);
+
+            differing += IvpImpactReplay.Differences(binary, IvpImpactReplay.Run(inputs)).Count > 0 ? 1 : 0;
+            cases.Add(new IvpReplayCase(label, inputs, binary));
+        }
+
         using (StreamWriter writer = File.CreateText(path))
         {
             writer.WriteLine("# FUN_18008e290 in the game's x64 vphysics.dll, called in process by the vphysics-impact probe.");
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"# {FixtureCases} cases from seed {FixtureSeed}, written {DateTime.UtcNow:yyyy-MM-dd}; every lane is the bits the binary left."));
+                $"# {cases.Count} cases, {FixtureCases} drawn from seed {FixtureSeed} and the rest targeted, written {DateTime.UtcNow:yyyy-MM-dd}; every lane is the bits the binary left."));
 
             foreach (IvpReplayCase replay in cases)
             {

@@ -188,3 +188,24 @@ function shows it.
   ([[port-the-engines-bottom-layer-first]]).
 - **A decompiler's variable is not the disassembly's operand**: `record+0x94` was read as `rx*rx*core[+0x44]` with no
   cross product, and the disassembly squares `arm × normal` lane by lane ([[nothing-is-closed]]).
+
+---
+
+## `ponytail-works-inside-parity` — the lazy rule never cuts an engine branch
+
+The owner, 2026-09-13, on switching the session's style to the ponytail skill (laziest solution, shortest diff, YAGNI):
+*"keep in mind ponytail does not overide, valve parity, but it should end up being the same thing anyway"*.
+
+**Why:** ponytail's rungs — skip what isn't needed, shortest diff, no speculative branches — read naturally as licence
+to drop an engine branch nothing seems to reach, fold a float/double round trip, or skip a dead-looking call. Each of
+those is a divergence here. The owner's second half is the point: the engine's shape IS usually the lean one (the
+table above), so the two rarely pull apart — and when they seem to, parity wins.
+
+**How to apply:**
+
+- **"Does this need to exist?" is answered by the engine, not by our callers**: a branch Valve has exists, even when no
+  current input reaches it — port it, and make the oracle reach it.
+- **Lazy applies to OUR plumbing**: no invented abstraction, no config, no scaffolding around the ported code; reuse
+  what the repo already has (`IvpVector`, `IvpMatrix`, the probe library) before writing a helper.
+- **A dead computation the engine discards may be left out only when proved dead** — named in the remarks with the
+  instruction that shows it (as `FUN_180070b20` in the separating push), never on appearance.

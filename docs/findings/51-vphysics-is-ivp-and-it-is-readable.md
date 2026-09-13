@@ -4098,7 +4098,7 @@ environment `+0x8` — so IVP's `env+0x40` is that half, and `SetCollisionSolver
 |---|---|---|
 | 0 | `FUN_180017010` | asks the core's first object's `CPhysicsObject` (`[core+0x70]` → `+0x100`) for `GetShadowController`, `IPhysicsObject` slot 70; with none, the base `FUN_180089ae0` |
 | 1 | `FUN_180089a50` | the base, not overridden |
-| 2 | `FUN_180016cc0` | with a game solver, both objects movable (slot 10, `IsMoveable`) and neither's word `+0x48` holding `0x400`: files the pair, ordered by address, in the list at `+0x18` (count `+0x28`) if absent, then asks `ShouldSolvePenetration` (`IPhysicsCollisionSolver` slot 1) with both objects' `GetGameData` (slot 17) and `(float)env+0x108`; a yes, or no game solver, calls the base `FUN_1800896b0` |
+| 2 | `FUN_180016cc0` | with a game solver and both `CPhysicsObject`s present, neither's word `+0x48` holding `0x400`: when both are movable (slot 10, `IsMoveable`), a pair already in the list at `+0x18` (count `+0x28`, ordered by address) returns at once, and an absent one is filed; then — movable or not — asks `ShouldSolvePenetration` (`IPhysicsCollisionSolver` slot 1) with both objects' `GetGameData` (slot 17) and `(float)env+0x108`; a yes, or no game solver, calls the base `FUN_1800896b0` |
 | 3 | `FUN_180016e80` | `ShouldFreezeObject` (slot 2) of the core's first object, or one with no game solver |
 | 4 | `180016e60` | tail-calls `AdditionalCollisionChecksThisTick` (slot 3), or answers zero |
 | 5 | `FUN_180016ec0` | `ShouldFreezeContacts` (slot 4) over each core's first object |
@@ -4135,7 +4135,11 @@ slot 0 of the image's table is `FUN_180017010`; a core flagged `0x10` presents a
 with no spin moves at exactly the velocity given; and the image's `block[0x4a]` is `IvpCollisionTolerance.TwiceToleranceMetres`,
 `0x3c4ffe5a`. **`FUN_180077fa0`, `FUN_180078f50`, `FUN_1800770f0` and `FUN_180070620` agree with the port on 200,000 random calls
 each, and 20,000 random impacts agree on every lane** — 9,923 approaching, 7,915 holding a core back, 6,835 freezing — with no
-call reaching a trap. `IvpImpactSolverConformanceTests` replays 96 of them.
+call reaching a trap. `IvpImpactSolverConformanceTests` replays 96 of them and four found by searching with the port's
+instruments — the push loop at its cap, a heavier core closing inside the hold-back band, a response the `1e-15f` term
+decides, a NaN velocity — each failing alone under its own sabotage. **A branch audit found the divergence the sweeps
+could not reach**: the port wrote the first branch `!(u ≤ −1e-4f)`, which sends a NaN to the separating push, where
+`COMISS`/`JBE` sends it to the approaching one. Fixed; 2,000 impacts with a NaN lane now agree too.
 
 **The first sweep differed on every impact, and not because of the port.** The loaded image holds the block `FUN_180002540`
 fills at load with `d = 0.01` until an environment is built, and none was, so every separating speed was off by exactly

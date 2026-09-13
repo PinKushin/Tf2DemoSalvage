@@ -1,5 +1,5 @@
 # FUN_18008e290 in the game's x64 vphysics.dll, called in process by the vphysics-impact probe.
-# 96 cases from seed 18008, written 2026-09-13; every lane is the bits the binary left.
+# 100 cases, 96 drawn from seed 18008 and the rest targeted, written 2026-09-13; every lane is the bits the binary left.
 case 000
 p3 00000001
 p4 0000000b
@@ -6142,5 +6142,261 @@ second-flags-after 00000000
 second-collisions-after 00000007
 second-velocity-after 40fc94ff c0c81cf4 40124fb5
 second-spin-after c08dd17a 40c78d13 c107672d
+second-pending-velocity-after 00000000 00000000 00000000
+second-pending-spin-after 00000000 00000000 00000000
+case cap
+p3 00000001
+p4 00000003
+p5 3fe40a31
+max-velocity 424b3333
+max-collisions 00000002
+max-spin 3fc33d6a
+inverse-step 4050aaaaaaaaaaab
+freezes 00000001
+elasticity 3f03cdab
+cone 3e627c3d 3f81fc99
+uses-axis 00000000
+axis-tangent 00000000
+axis 00000000 00000000 00000000
+normal 3ead4781 3d6c4f67 bf7070a9
+first-arm 403c7b22 c01cd318 c024425c
+second-arm 406c1c70 bfe400fe c091a600
+first-flags 00000000
+first-collisions 00000005
+first-offset08 00000000
+first-offset58 00000000
+first-inverse-inertia 4263eaef 430d3b77 413a435e
+first-inverse-mass 3aaf6169
+first-velocity c1389563 bfaba65f 3ffbe52e
+first-spin c140de1e c14eda3e c0c42195
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin bfe80bf2 3fa1fd45 3fa0bdbf
+first-matrix bfbdf1ddabb11200 bfec212bb6b614a0 3fdd9400bb605330 3fee80bd788f21e0 3f9ffcd6c9dfc9e0 3fd33e3e4e232910 bfd1d6f1b6add8d0 3fde71fad74d52f0 3feab254ef24d88f
+second-flags 00000000
+second-collisions 00000007
+second-offset08 bd01500f
+second-offset58 00000000
+second-inverse-inertia 43110080 41f410b1 4233b3df
+second-inverse-mass 3bf78305
+second-velocity beea2795 4036c295 412920bd
+second-spin 411f64e2 c150d130 3f96547b
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 00000000 00000000 00000000
+second-matrix 3fc9ae5fbd322f90 3fe434827dd31350 bfe7f82c03fc89c0 bfe76d2846f784b0 bfda554cd906c880 bfe15fa911d82b9c bfe4d5104525fc40 3fe5087d32fef464 3fd84ccb98f75048
+separation 4009cc82
+virtual-mass 3f5b65fa1ccf00e7 3f58cc19d8cd43dd
+may-hold-back 00000001
+working-velocity c13895c8 bfaba8b4 3ffbea7f bee9e9e0 4036c937 41291cef
+working-spin c0b1ab96 c0e1d0b8 c0525571 bdaa2e80 c0d33594 c0a21b87
+velocity-change b8025fdc b6b1cc6e 38b4e7e7 3937fed6 37faeca1 b9ff4f45
+spin-change 3fcdf400 c12833e0 3f9a2de2 c0ffa546 bf8ef902 bfae6802
+relative c1142c78 c0819778 418801bd
+push bead4781 bd6c4f67 3f7070a9
+fallback 00000000 00000000 00000000
+record-relative c22576a4 c2e3cd8e c1777354
+counters 00000001 00000000 00000001
+cores 00000001 00000002
+first-flags-after 00000040
+first-collisions-after 00000006
+first-velocity-after 00000000 00000000 00000000
+first-spin-after 00000000 00000000 00000000
+first-pending-velocity-after c13895c8 bfaba8b4 3ffbea7f
+first-pending-spin-after c0b1ab96 c0e1d0b8 c0525571
+second-flags-after 00000040
+second-collisions-after 00000008
+second-velocity-after 00000000 00000000 00000000
+second-spin-after 00000000 00000000 00000000
+second-pending-velocity-after bee9e9e0 4036c937 41291cef
+second-pending-spin-after bdaa2e80 c0d33594 c0a21b87
+case holdback
+p3 00000001
+p4 00000000
+p5 3fd4ae33
+max-velocity 424b3333
+max-collisions 00000006
+max-spin 3f73b620
+inverse-step 4050800000000000
+freezes 00000000
+elasticity 3e59ff22
+cone 3f7074ec 3eafb128
+uses-axis 00000000
+axis-tangent 00000000
+axis 00000000 00000000 00000000
+normal 3eae32b7 bf63e7b4 be9b092b
+first-arm 3f1755bb 3dc43c6a 3eca0391
+second-arm bdeb442c 3ec2a689 bde16889
+first-flags 00000040
+first-collisions 00000006
+first-offset08 3f466d24
+first-offset58 00000000
+first-inverse-inertia 410c3880 41382ed2 40bb1e80
+first-inverse-mass 3f37e301
+first-velocity c08bafe5 c10be562 bf931a7e
+first-spin 4036e861 c023b139 c0c989e5
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+first-matrix bfe48de8c8568000 bfdb0a7f79124600 bfe47668b7346b00 bfe8219a48601900 3fdfd677594cb7e0 3fdb71422cd7f110 3fc18722af3a5c00 3fe83e8953c18778 bfe46bbffe13a410
+second-flags 00000000
+second-collisions 00000005
+second-offset08 00000000
+second-offset58 00000000
+second-inverse-inertia 3fc2e71a 4104c14f 4137c230
+second-inverse-mass 3dcfe2e2
+second-velocity 402909b8 c092c0c0 40670c85
+second-spin c00f4ff8 4152e846 41167f11
+second-pending-velocity bfc1a437 bf0869bd 3f7c197e
+second-pending-spin 00000000 00000000 00000000
+second-matrix 3fc0a724b7bf83fc 3fe6f728f91df4d4 3fe5e452f61d77c0 3fe8db5eb7a3792c 3fd6b8cf9e345a7e bfe0a52b7d315588 bfe3b7d217979580 3fe32bb34f01cd78 bfe05c6b698ed440
+separation 40009550
+virtual-mass 3fc99cafca37552e 3feb4f0aa89ceb5f
+may-hold-back 00000001
+working-velocity c091236f c102fe72 bf4bfdae 3f93840f c0a65211 4091717c
+working-spin 3d181520 c0ac020e c0485b8c bfeab708 41634658 4131abda
+velocity-change bce11d85 3d9342a2 3cc85a1b 3b7e7ee5 bc267ac7 bb62801c
+spin-change be8ed15f bf0551ac 3eafaa6c 3d4f3f02 3e0dcbea 3e870a87
+relative 40b78e7a c10749cf 41325060
+push beae32b7 3f63e7b4 3e9b092b
+fallback 00000000 00000000 00000000
+record-relative 404b0d46 3e7b4240 41493f32
+counters 00000001 00000000 00000000
+cores 00000001 00000002
+first-flags-after 00000000
+first-collisions-after 00000007
+first-velocity-after c091236f c102fe72 bf4bfdae
+first-spin-after 3d181520 c0ac020e c0485b8c
+first-pending-velocity-after 00000000 00000000 00000000
+first-pending-spin-after 00000000 00000000 00000000
+second-flags-after 00000000
+second-collisions-after 00000006
+second-velocity-after 3f93840f c0a65211 4091717c
+second-spin-after bfeab708 41634658 4131abda
+second-pending-velocity-after 00000000 00000000 00000000
+second-pending-spin-after 00000000 00000000 00000000
+case stiffness
+p3 00000000
+p4 0000000b
+p5 3f800000
+max-velocity 424b3333
+max-collisions 00000007
+max-spin 3f73b620
+inverse-step 4050aaaaaaaaaaab
+freezes 00000001
+elasticity 3f7680c0
+cone 3f509de3 3f146a9e
+uses-axis 00000000
+axis-tangent 00000000
+axis 00000000 00000000 00000000
+normal 3f44bcc1 bc32f6ea bf23c6b0
+first-arm 3ee368d0 3f0ad8b2 beacc06f
+second-arm bed58847 bee4a109 bdf51aa0
+first-flags 00000000
+first-collisions 00000000
+first-offset08 3e7d2124
+first-offset58 00000000
+first-inverse-inertia 26901d7d 26901d7d 26901d7d
+first-inverse-mass 26901d7d
+first-velocity 00000000 00000000 00000000
+first-spin 00000000 00000000 00000000
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+first-matrix bfe6cae6c7467410 bfe5653b59789670 bfcb584a02cf4180 3fd48da4911f3120 bfe298083e52a010 3fe7ee277f8e46e0 bfe3f8e2bd4fbd20 3fddb2df77c97740 3fe41d672e2ebde0
+second-flags 00000000
+second-collisions 00000004
+second-offset08 bf7589ca
+second-offset58 00000000
+second-inverse-inertia 26901d7d 26901d7d 26901d7d
+second-inverse-mass 26901d7d
+second-velocity 00000000 00000000 00000000
+second-spin 00000000 00000000 00000000
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 00000000 00000000 00000000
+second-matrix bfda9ab1edbed080 bfda751caf642380 3fe9ec8b60556ea0 3fecf1cffafe1b40 bfb841ca93b0d200 3fda9c0e851d0440 bfb859a811274500 3fecfabb7232bfe0 3fda73bd94500b00
+separation 3f9b8cca
+virtual-mass 4302a1bf6cb3374f 43080831e598d31a
+may-hold-back 00000000
+working-velocity be8210ed 3b6ca1e9 3e588cc6 3e8210ed bb6ca1e9 be588cc6
+working-spin 3e45551a bdcf5e8f 3dba31ea bdb37f89 3d7330fe 3dabd191
+velocity-change be8210ed 3b6ca1e9 3e588cc6 3e8210ed bb6ca1e9 be588cc6
+spin-change 3e45551a bdcf5e8f 3dba31ea bdb37f89 3d7330fe 3dabd191
+relative 00000000 00000000 00000000
+push 00000000 00000000 00000000
+fallback 00000000 00000000 00000000
+record-relative 00000000 00000000 00000000
+counters 00000001 00000000 00000000
+cores 00000001 00000002
+first-flags-after 00000000
+first-collisions-after 00000001
+first-velocity-after be8210ed 3b6ca1e9 3e588cc6
+first-spin-after 3e45551a bdcf5e8f 3dba31ea
+first-pending-velocity-after 00000000 00000000 00000000
+first-pending-spin-after 00000000 00000000 00000000
+second-flags-after 00000000
+second-collisions-after 00000005
+second-velocity-after 3e8210ed bb6ca1e9 be588cc6
+second-spin-after bdb37f89 3d7330fe 3dabd191
+second-pending-velocity-after 00000000 00000000 00000000
+second-pending-spin-after 00000000 00000000 00000000
+case nan
+p3 00000001
+p4 00000005
+p5 3fd454c3
+max-velocity 424b3333
+max-collisions 00000005
+max-spin 3f73b620
+inverse-step 4050800000000000
+freezes 00000000
+elasticity 3ef7baaa
+cone 3f2c5cb6 3f3d842f
+uses-axis 00000000
+axis-tangent 00000000
+axis 00000000 00000000 00000000
+normal bf595452 3f073f15 3c60d91a
+first-arm 3e27d2f4 bf09d3a5 befd6301
+second-arm 3e4a99ed be8ba773 3d942f9e
+first-flags 00000000
+first-collisions 00000007
+first-offset08 bebff684
+first-offset58 00000000
+first-inverse-inertia 3f8eac66 3fd5ad5f 40450171
+first-inverse-mass 3e46d0fc
+first-velocity ffc00000 4121dfc9 c109ee36
+first-spin c086cd73 40fb15ad 40d4dd2a
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+first-matrix bfc9dbc67678a140 3fea14aece9314c0 3fe160cfcbe2c8a0 bfc9b37e2b003300 bfe27855860fac40 3fe9544bfdf11b20 3feeacab47d8c760 3faa0ad4dc36b200 3fd1efa84cdf07e0
+second-flags 00000000
+second-collisions 00000003
+second-offset08 3e2ecea1
+second-offset58 00000001
+second-inverse-inertia 40d72b12 3e618c54 40f1f26e
+second-inverse-mass 3f34c739
+second-velocity c0cbc046 41196fe3 bfb3d227
+second-spin c1129c63 40e2f059 c13a30c2
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 3feac80d 3fb75158 bfb4f505
+second-matrix bfd0e303ea1b3698 bfc96a56398c1d20 bfee347672b448ea bfd4ef5faafdcbf0 3fee0c63634f6c64 bfbb28aacddb67e0 3fed0970b36ba216 3fd1f81bfb76fd08 bfd40382450e21a0
+separation 40005fa7
+virtual-mass 3ffa443a31c26dee 3fe80d9fcfabf559
+may-hold-back 00000001
+working-velocity ffc00000 4121dfc9 c109ee36 c0cbc046 41196fe3 bfb3d227
+working-spin c086cd73 40fb15ad 40d4dd2a c0ea86c3 41086258 c150cf63
+velocity-change 00000000 00000000 00000000 00000000 00000000 00000000
+spin-change 00000000 00000000 00000000 00000000 00000000 00000000
+relative ffc00000 c03bef2c 407beb06
+push 3f595452 bf073f15 bc60d91a
+fallback 00000000 00000000 00000000
+record-relative ffc00000 c03bef2c 407beb06
+counters 00000001 00000001 00000000
+cores 00000000 00000002
+first-flags-after 00000000
+first-collisions-after 00000007
+first-velocity-after ffc00000 4121dfc9 c109ee36
+first-spin-after c086cd73 40fb15ad 40d4dd2a
+first-pending-velocity-after ffc00000 00000000 00000000
+first-pending-spin-after 00000000 00000000 00000000
+second-flags-after 00000000
+second-collisions-after 00000004
+second-velocity-after c0cbc046 41196fe3 bfb3d227
+second-spin-after c0ea86c3 41086258 c150cf63
 second-pending-velocity-after 00000000 00000000 00000000
 second-pending-spin-after 00000000 00000000 00000000

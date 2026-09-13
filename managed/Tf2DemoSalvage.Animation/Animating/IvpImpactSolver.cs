@@ -172,6 +172,12 @@ public sealed class IvpImpactSolver
     /// <summary>The direction a push takes when the pair already separates, <c>+0xe0</c> — zeroed before the loop.</summary>
     public (float X, float Y, float Z) Fallback => _fallback;
 
+    /// <summary>The pushes the approaching loop took — <c>EDI</c>, a local; an instrument, so a probe can find the cap.</summary>
+    public int Pushes { get; private set; }
+
+    /// <summary>The heavier core's closing speed the hold-back test compared — <c>XMM3</c>, a local; an instrument.</summary>
+    public double HoldBackSpeed { get; private set; }
+
     /// <summary>The relative velocity as the solve began, written through <c>+0x148</c> to the record's <c>+0x30</c>.</summary>
     public (float X, float Y, float Z) RecordRelative { get; private set; }
 
@@ -236,7 +242,8 @@ public sealed class IvpImpactSolver
         double second = SecondVirtualMass;
         double share = ((Share / (first + second)) * first) * ((second + second) * approach);
 
-        if (!(approach <= Approaching))
+        // COMISS/JBE: a NaN approach takes the approaching branch, so the test is `>`, not a negated `<=`.
+        if (approach > Approaching)
         {
             Separate(Negate(normal), clamp: true);
 
@@ -309,6 +316,8 @@ public sealed class IvpImpactSolver
             speed = -Dot(normal, _relative);
             ChoosePush();
         }
+
+        Pushes = pushes;
 
         double target = speed + allowance;
 
@@ -666,6 +675,8 @@ public sealed class IvpImpactSolver
         {
             along = -along;
         }
+
+        HoldBackSpeed = along;
 
         if (along >= (double)(SeparationSpeed * HoldBackShare))
         {

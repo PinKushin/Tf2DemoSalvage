@@ -26124,7 +26124,9 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    limits a client environment runs*): `FUN_18008e290` and every routine under it as `IvpImpactSolver`, the anomaly manager
    vphysics gives IVP as `VphysicsAnomalyManager`, and `SetPerformanceSettings` as `IvpAnomalyLimits`. The `vphysics-impact`
    probe calls the binary's own solver on fabricated cores: 20,000 random impacts and 200,000 calls to each helper agree on
-   every lane, and `IvpImpactSolverConformanceTests` replays 96 of them. Not on the running path yet.
+   every lane, and `IvpImpactSolverConformanceTests` replays 96 of them plus four targeted cases (the push cap, the
+   hold-back band, the stiffness term, a NaN), each proved by sabotage. A NaN approach took the wrong branch; fixed. Not
+   on the running path yet.
    **It runs in IVP's units — metres, Y-up — as the binary does, and the wiring must keep it there.** vphysics converts at
    its interface (`SetGravity`, `SetPerformanceSettings` and the constructor's tolerance multiply by `0.0254f`; a `.phy`
    stores its hulls in metres), while this project's ported routines run on Source units with the metre thresholds scaled.
