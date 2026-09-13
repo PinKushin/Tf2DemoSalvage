@@ -71,6 +71,9 @@ public sealed class IvpMindist
     /// <summary>The environment's step counter when the minimize last ran, <c>+0xc0</c>; null before it ever has.</summary>
     public int? MinimizedAt { get; set; }
 
+    /// <summary>The time manager's slot at <c>+0x8</c>, or null when the mindist is not queued — the engine's <c>0xffff</c>.</summary>
+    public int? QueueSlot { get; set; }
+
     /// <summary>A synapse record.</summary>
     /// <param name="index">0 or 1.</param>
     /// <returns>The record.</returns>

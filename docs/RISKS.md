@@ -26078,6 +26078,11 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    with synthetic conformance tests and four sabotage rounds, and the table and its entry `FUN_1800a3fe0` that route a
    pair to one of the four as `IvpImpactDispatch` — also not on the running path. A ball first (`FUN_1800a3d30`,
    `FUN_1800a3b60`) is refused as unported; its point and edge routines `FUN_1800a0fc0` and `FUN_1800a0930` are unread.
+   **The scheduler's near branch and the time manager's queue are ported, 2026-09-13** (`docs/findings/51`, *The event
+   queue, and where the far branch hands a pair off*): `FUN_180099380` as `IvpPairScheduler` and the min-list as
+   `IvpMinList` — also not on the running path. **The far branch's filing is not**: past its threshold, a pair asked
+   to be removed goes to IVP's hull manager (`FUN_180098dd0`, then `FUN_180097bd0`/`FUN_180097c40` into each object's own
+   min-list), whose object fields and firing are unread, and the port refuses it by name.
    Still unread or unported beneath the
    fire routine: the impact itself (`FUN_18008ef60`), the
    mindist's virtual `+0x28` target (`FUN_1800947e0` reports to the environment's `+0x40` object), friction, and

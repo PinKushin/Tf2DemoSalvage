@@ -2826,6 +2826,56 @@ bookkeeping on both objects and cores; *that it is the impact solver is INFERRED
 *Evidence class: read from the disassembly for `FUN_1800992e0` and the call list of `FUN_18008ecb0`; the vtable
 slots from a table scan.*
 
+### The event queue, and where the far branch hands a pair off (2026-09-13)
+
+**Read from the disassembly** (`time_manager.log`, `scheduler_callees.log`), for the port of `FUN_180099380`.
+
+**The queue is a min-list of `0x18`-byte entries** (`FUN_1800aaed0` adds, `FUN_1800ab1b0` removes): a capacity word at
+`+0x0`, a free-list head at `+0x2`, the entries at `+0x8`, the minimum at `+0x10`, a long-list head at `+0x14`, the head
+at `+0x18` and a count at `+0x1c`; each entry a long-list next and previous at `+0x0`/`+0x2` (`0xfffe` for an entry the
+long list skips), a next and previous at `+0x4`/`+0x6`, a float value at `+0x8` and the element at `+0x10`.
+
+- **An add at or under the minimum becomes the head** (`COMISS`/`JA`, so a NaN does too, and so does a tie). Any other
+  walks the long list and then the short one while the value is over each entry's, and goes in before the first it is
+  not over: **a new event goes before every queued event of equal time**. The long list only shortens the walk —
+  rebalanced once a walk passes three hops — and cannot change where an entry lands.
+- **A free slot is reused last-freed-first**; with none free, the list grows to `min(2·capacity + 1, 0xfffc)` and the new
+  entry takes index `capacity`, the rest chained in order. *The constructor, and so the first capacity, is not read.*
+- **A remove unlinks in place**; removing the head makes the next entry's value the minimum, or `0x501502f9` —
+  `1e10f` — when the list empties. **An add over `1e10f` to an empty list walks from index `0xffff`**, past the entries;
+  a queue of event times never holds one.
+
+**The far branch, past its threshold test**, when `removeFar` is set: `FUN_180098dd0` takes the mindist out of the
+time manager if queued, out of the environment's exact-mindist list (`+0xc8`/`+0xd0` links, head at the manager's
+`+0x10`), out of both synapse records' object lists (`+0x38`/`+0x40` and `+0x70`/`+0x78`, heads at each object's
+`+0x40`), and swap-removes it from the manager's array (`+0x20`, count `+0x1a`). Then, with `gap = (float)(length −
+margin)` and records 0 and 1 taken **directly, not through the flags**:
+
+- record 0's object's byte `+0x78 & 7` zero: flags `&= ~0x280000`, `|= 0x140000`, and `FUN_180097c40` for record 0 with
+  `0` and for record 1 with `gap`, the mindist's `+0xa0` being their sum;
+- record 1's zero instead: `FUN_180097bd0(mindist, gap, 0)`, which does the same;
+- neither: `s = core+0x254 + core+0x1dc + 1e-10f` per record, and `FUN_180097bd0(mindist, gap·(0.1·s₁ + s₀)/Σ,
+  gap·(0.1·s₀ + s₁)/Σ)`, `Σ` the two shares summed — all in float.
+
+**`FUN_180097c40(record, allowance)` files a synapse in its OBJECT's own min-list at `+0xa0`**, keyed `(float)((double)((float)(now −
+object+0x80) · object+0x88 + object+0x90) + allowance)`, stores the slot at the record's `+0x8`, and returns
+`(double)((object+0x88 − object+0x8c)·t + (object+0x90 − object+0x94))`. **That is IVP's hull manager**, a subsystem of
+its own: *what writes those object fields, and what fires when an object's list comes due, is not read.*
+
+**The fire routine, `FUN_1800992e0`, read again whole**: profiler marks `8` and `0xe` through the environment's `+0x50`
+object's slot 1 around it; the minimize; flags `& 0xc000` ends it; a kind with low bits set reschedules with
+`FUN_180099380(mindist, 0, 1)`; otherwise `(float)(0.1·d + margin)` over the length (`COMISS`/`JBE`, so a NaN
+reschedules) calls the mindist's virtual `+0x40`, and anything else reschedules with mode `2`.
+
+**The near branch's constants are floats widened, read beside their instructions**: `2.1f`, `1.001f`, `0.1f`, `1e-7f`,
+`1e-5f`, `1e-4f`, `0.001f` and the `1e-6f` a float compares against; `1e-12` and `1e-19` are doubles; `DAT_18012d670`
+is `1.0`, set at runtime beside the tolerance block. **Carried in inches, `1e-12` (a gap) and `1e-19` (a closing speed)
+are metres and are converted**; the rest are times, ratios or already inches.
+
+*Evidence class: read from the disassembly for all six routines. Not established: the min-list's constructor, the hull
+manager beyond the two routines named, and what the object byte `+0x78`'s low three bits mean — the motion cache
+reads `≥ 8` as not moving, which says nothing about `& 7`.*
+
 ### The minimize, routine by routine (2026-09-12)
 
 **Read from the disassembly of every routine below** (`D:\ghidra-proj\out\minimize_*.log`,
