@@ -3044,6 +3044,16 @@ and compared bit for bit with C# literals — only the `1e-18` threshold differs
 purpose of result `4`, of the flags bits, of the `+0x9c` value and of kind `3` routines `FUN_180094ad0` and
 `FUN_180094860` (which take no ledge features; *INFERRED to be balls*) is not established.*
 
+**Ported as `IvpCompactLedgeSolver` and `IvpMindistMinimize`** (2026-09-13), with a triangle header's bits 12–23
+carried as `PhysicsLedge.PierceTriangles`. **The plain mindist's virtual `+0x28` is `FUN_1800947e0`**, read to find
+what the minimize's failure path calls: it asks the environment's `+0x40` object's slot 7 for a float and hands
+that object's slot 2 the mindist, both real objects and the float — the recursive mindist's slot 5 is
+`_guard_check_icall`, a no-op. The port reports that the call happens; what the object does with it is unread. Two
+readings carried into the port that are easy to lose, and that **no test yet pins**: **the point-edge routine's
+degenerate normal is written in the edge's own frame**, never turned into the world, and **the face-face routine
+handicaps every candidate after the point pairs by `1.000000000001`** while storing the unhandicapped distance, so
+a later candidate must be strictly closer by that factor.
+
 **`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
 
 **`interpolate` is `FUN_180071060`, a shortest-path slerp that falls back to a normalised lerp.** It

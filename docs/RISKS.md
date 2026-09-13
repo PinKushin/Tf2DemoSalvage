@@ -26058,8 +26058,9 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    is the routine**, instruction for instruction, with twelve conformance tests over a falling vertex and a
    tetrahedron's edges. **Not yet on the running path.** What it still needs from step 6: a search context
    per pair (its approach speed and the PSI), the mindist's extra radius, length and margin class, each core's
-   angular bound (`FUN_180099d60`, unported) and `+0x54` (`0.5f / (surface radius + object extra)`), and the
-   ledge edge offsets carried from `PhysicsLedge` through `RagdollBody` to the body.
+   `+0x54` (`0.5f / (surface radius + object extra)`), and the ledge edge offsets carried from `PhysicsLedge`
+   through `RagdollBody` to the body. The angular bound `FUN_180099d60` is ported as `IvpCoreSpeedBound`
+   (`440b40b2`).
 6. **The pair scheduler's near branch** (`FUN_180099380`) and the time-ordered event loop that
    consumes events inside the PSI — the piece that replaces the fixed step's speculative contacts.
    **Read instruction by instruction, 2026-09-12** (`docs/findings/51`, *The scheduler's near branch and the
@@ -26067,6 +26068,15 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    the scheduler queues is resolved by the mindist event's own fire routine — the impact itself, unread — and a
    pair the far branch parks comes back through the travel allowances `FUN_180097bd0` installs, also unread. The
    branch's decision logic can be ported on its own; replacing the fixed step needs both of those as well.
+   **The minimize the fire routine runs first is read and ported, 2026-09-13** (`docs/findings/51`, *The minimize,
+   routine by routine*, `c2e5bb53`): a triangle header's pierce field (`6d0f8d12`), the compact-ledge helpers as
+   `IvpCompactLedgeSolver` (`25fac2da`), and the entry, dispatch, eight feature routines, backside walk and loop
+   check as `IvpMindistMinimize`, each with synthetic conformance tests and sabotage rounds. **Also not on the
+   running path.** Still unread or unported beneath the fire routine: the time of impact for kinds (0,0), (0,1)
+   and (1,1) (`FUN_1800a2b30`, `FUN_1800a1ff0`, `FUN_1800a1420`), the impact itself (`FUN_18008ef60`), the
+   mindist's virtual `+0x28` target (`FUN_1800947e0` reports to the environment's `+0x40` object), friction, and
+   the far branch's travel allowances; and the cache object's slerp (`FUN_180071060`) that fills each side's
+   current matrix, which the minimize takes from its caller.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 

@@ -122,6 +122,27 @@ public sealed class IvpLedgeTopology
         return new IvpLedgeEdge(across, 0);
     }
 
+    /// <summary>The edges that END at an edge's start point, in the order the minimize's rings visit them.</summary>
+    /// <param name="start">An edge leaving the point.</param>
+    /// <returns>The previous edge of each edge <see cref="Ring"/> visits — the last being <paramref name="start"/>'s.</returns>
+    /// <remarks>
+    /// **`prev(P)`, hop, `prev`, and stop on reaching `prev(P)` again** (`FUN_1800b1b80`, `FUN_1800b11c0`, `FUN_1800b0c20`).
+    /// Each edge starts at a neighbor of the point, which is what the rings measure.
+    /// </remarks>
+    /// <exception cref="InvalidDataException">A hop is refused, or the ring does not return to its start.</exception>
+    public IEnumerable<IvpLedgeEdge> EndingAt(IvpLedgeEdge start)
+    {
+        foreach (IvpLedgeEdge leaving in Ring(start))
+        {
+            yield return Previous(leaving);
+        }
+    }
+
+    /// <summary>An edge's address from the ledge's first triangle, which the minimize's loop check keys on.</summary>
+    /// <param name="edge">The edge.</param>
+    /// <returns><c>16·triangle + 4 + 4·slot</c>.</returns>
+    internal int AddressOf(IvpLedgeEdge edge) => Address(edge);
+
     /// <summary>The edges from an edge's start point, in the order <c>FUN_1800a1b50</c> visits them.</summary>
     /// <param name="start">The edge the walk begins from.</param>
     /// <returns>Each hop, the last being <paramref name="start"/> itself.</returns>
