@@ -197,6 +197,118 @@ public sealed class IvpMindistManager
         LinkRecords(mindist, first.InvalidSynapses, second.InvalidSynapses);
     }
 
+    /// <summary>Minimizes every exact mindist — the PSI's phase 3, <c>FUN_1800983e0</c>, run right after the hull pass.</summary>
+    /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>.</param>
+    /// <param name="invalidate">The mindist's <c>+0x38</c> — <see cref="Invalidate"/> over its objects.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="NotSupportedException">A pair holds bits of <c>0x3000</c>, whose phantom path is not ported.</exception>
+    /// <remarks>
+    /// **Head first, each next link read before anything is called**, so a pair made invalid does not end the walk. A plain
+    /// pair whose minimize left bits of `0xc000` is made invalid and nothing else happens to it.
+    /// </remarks>
+    public void MinimizeExact(Action<IvpMindist> minimize, Action<IvpMindist> invalidate)
+    {
+        ArgumentNullException.ThrowIfNull(minimize);
+        ArgumentNullException.ThrowIfNull(invalidate);
+
+        LinkedListNode<IvpMindist>? node = Exact.First;
+
+        while (node is not null)
+        {
+            LinkedListNode<IvpMindist>? next = node.Next;
+            Recheck(node.Value, minimize, invalidate);
+            node = next;
+        }
+    }
+
+    /// <summary>
+    /// Minimizes every mindist in the rechecked array — <c>FUN_180098610</c>'s walk, each entry through <c>FUN_180098710</c>.
+    /// </summary>
+    /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>.</param>
+    /// <param name="invalidate">The mindist's <c>+0x38</c> — <see cref="Invalidate"/> over its objects.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="NotSupportedException">
+    /// A pair holds bits of <c>0x3000</c>, or is a ball against a triangle, whose resting contact <c>FUN_180096460</c> is not
+    /// ported.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The walk would read past the array's count.</exception>
+    /// <remarks>
+    /// **From the last entry to the first**, the count read once: making an entry invalid moves the last entry into its
+    /// place, which the walk is already past.
+    /// </remarks>
+    public void RecheckEveryPsi(Action<IvpMindist> minimize, Action<IvpMindist> invalidate)
+    {
+        ArgumentNullException.ThrowIfNull(minimize);
+        ArgumentNullException.ThrowIfNull(invalidate);
+
+        for (int index = _rechecked.Count - 1; index >= 0; index--)
+        {
+            if (index >= _rechecked.Count)
+            {
+                throw new InvalidOperationException("The rechecked array shrank past the walk, where the engine reads a stale slot.");
+            }
+
+            IvpMindist mindist = _rechecked[index];
+            Recheck(mindist, minimize, invalidate);
+
+            if (IsBallAgainstTriangle(mindist))
+            {
+                throw new NotSupportedException("A ball resting on a triangle goes to FUN_180096460, which is not ported.");
+            }
+        }
+    }
+
+    /// <summary>Hands every exact mindist to the scheduler — the PSI's phase 4, <c>FUN_1800985a0</c>.</summary>
+    /// <param name="examine">
+    /// <c>FUN_180099380(mindist, 1, 1)</c>: <see cref="IvpPairScheduler.Examine"/> with the pair's far filing and
+    /// <see cref="IvpRecheck.AfterFeatureChange"/>.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="examine"/> is null.</exception>
+    /// <remarks>
+    /// **Head first, each next link read before the call**, so a pair the scheduler files far — and so unfiles — does not end
+    /// the walk. This is how an exact plain pair goes back to far.
+    /// </remarks>
+    public void ExamineExact(Action<IvpMindist> examine)
+    {
+        ArgumentNullException.ThrowIfNull(examine);
+
+        LinkedListNode<IvpMindist>? node = Exact.First;
+
+        while (node is not null)
+        {
+            LinkedListNode<IvpMindist>? next = node.Next;
+            examine(node.Value);
+            node = next;
+        }
+    }
+
+    /// <summary>One exact mindist's minimize and split — the body shared by <c>FUN_1800983e0</c> and <c>FUN_180098710</c>.</summary>
+    private static void Recheck(IvpMindist mindist, Action<IvpMindist> minimize, Action<IvpMindist> invalidate)
+    {
+        minimize(mindist);
+
+        int flags = mindist.Flags;
+
+        if ((flags & 0x3000) != 0)
+        {
+            throw new NotSupportedException(
+                "A pair with bits of 0x3000 goes on to the phantom path, FUN_180098dd0 and FUN_180097d60, which is not ported.");
+        }
+
+        if ((flags & 0xC000) != 0)
+        {
+            invalidate(mindist);
+        }
+    }
+
+    private static bool IsBallAgainstTriangle(IvpMindist mindist)
+    {
+        IvpFeatureKind first = mindist.Synapse(0).Kind;
+        IvpFeatureKind second = mindist.Synapse(1).Kind;
+        return (first == IvpFeatureKind.Ball && second == IvpFeatureKind.Triangle)
+            || (first == IvpFeatureKind.Triangle && second == IvpFeatureKind.Ball);
+    }
+
     private static void LinkRecords(
         IvpMindist mindist, LinkedList<IvpMindistHullRecord> firstList, LinkedList<IvpMindistHullRecord> secondList)
     {

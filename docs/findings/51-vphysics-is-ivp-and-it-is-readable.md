@@ -2994,6 +2994,22 @@ with a budget of zero (`FUN_180095ad0`), the phantom's float `+0x10` widening th
 `FUN_18008ae50`/`FUN_18008b0a0`. **The states under `0x3c0000`**: `0x140000` filed with the hull managers, `0xc0000`
 exact, `0x80000` invalid, `0x100000` recursive.
 
+**How an exact pair goes back to far, read from the PSI's phases** (`hull_manager.log`, `exact_phases.log`). *The plan
+carried into this reading had `FUN_180097d60` as the way an exact pair is filed again; it is not, for a plain pair.*
+
+- **Phase 3, `FUN_1800983e0`, right after the hull pass**, walks the exact list head first, reading each next link before
+  it calls anything, and minimizes every mindist (`FUN_180095cb0`). A plain pair — flags `& 0x3000` clear — whose minimize
+  left bits of `0xc000` goes to the mindist's `+0x38` (`FUN_180097440`, invalid); nothing else happens to it. **Only a
+  pair with bits of `0x3000` goes on to `FUN_180098dd0` and `FUN_180097d60`**, through the phantom listeners.
+- **The rechecked array**, walked last first by `FUN_180098610` before the step, runs `FUN_180098710` on each entry: the
+  same minimize and the same split — invalid for a frozen plain pair, the phantom path otherwise — and then, for a pair
+  one of whose records is kind 3, the resting-contact routine `FUN_180096460`.
+- **Phase 4, `FUN_1800985a0`, walks the exact list again and hands every mindist to `FUN_180099380(mindist, 1, 1)`** — the
+  scheduler with `removeFar` set and recheck mode 1, the next link read first. **That is the plain pair's way back to
+  far**: a pair past its threshold is unfiled and filed with its objects' hull managers.
+- **So `FUN_180097d60` and `FUN_180097e20` serve the phantom path** (`FUN_180097940`, `FUN_180098710`, `FUN_1800983e0`)
+  and the recursive mindist's `FUN_1800b2460` and `FUN_1800b2700` — not a plain pair.
+
 **Carried in inches, the speed floors are metres a second and are converted**: `1e-10f` in the far split and
 `FUN_180097d60`, `1e-19` in `FUN_180097f00`. *The first port of the split left `1e-10f` in metres* — a difference only a
 pair creeping at about a nanometre a second can show, where the split is `0.546 : 0.454` in inches and `0.841 : 0.159`

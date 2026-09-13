@@ -724,7 +724,9 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 545 -> 567 on 2026-09-13: IvpMindistHullConformanceTests (20) and two more IvpMindistManagerConformanceTests for the
 # refusal they replace, the hull-passed handler FUN_180097f00, the exact handoff FUN_1800977f0 and the invalidation
 # FUN_180097440 (B369). Synthetic.
-run Tf2DemoSalvage.Animation.Tests animation 567
+# 567 -> 572 on 2026-09-13: IvpExactPhasesConformanceTests (5), the PSI's walks over the exact mindists FUN_1800983e0,
+# FUN_180098610 and FUN_1800985a0 (B369). Synthetic.
+run Tf2DemoSalvage.Animation.Tests animation 572
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
