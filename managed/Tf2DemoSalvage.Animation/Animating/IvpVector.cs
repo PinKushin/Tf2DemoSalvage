@@ -22,6 +22,9 @@ public static class IvpVector
     /// <summary><c>DAT_1800ea9b8</c>.</summary>
     private const double One = 1.0d;
 
+    /// <summary>The Newton steps <c>FUN_18006f730</c> and <c>FUN_18006edd0</c> take, where <c>FUN_18006ecf0</c> takes four.</summary>
+    internal const int FiveSteps = 5;
+
     private const int InfinityHighWord = 0x7ff00000;
     private const int GuessBias = 0x1ff00000;
     private const int NewtonSteps = 4;
@@ -84,6 +87,37 @@ public static class IvpVector
         }
 
         return false;
+    }
+
+    /// <summary>The difference of two float points, subtracted in FLOAT and only then widened.</summary>
+    /// <param name="from">The point subtracted.</param>
+    /// <param name="to">The point subtracted from.</param>
+    /// <returns><c>to − from</c>, each component <c>SUBSS</c> then <c>CVTPS2PD</c>.</returns>
+    /// <remarks>How every time-of-impact routine takes an edge's direction, unlike <see cref="FaceNormal"/>.</remarks>
+    internal static (double X, double Y, double Z) FloatDifference(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to) =>
+        (to.X - from.X, to.Y - from.Y, to.Z - from.Z);
+
+    /// <summary>An edge's float-subtracted direction scaled to unit length with <see cref="TryScaleToUnitLength(ref ValueTuple{double, double, double})"/>, its answer unread.</summary>
+    /// <param name="from">The edge's start.</param>
+    /// <param name="to">The edge's end.</param>
+    /// <returns>The direction; a degenerate edge's is left unscaled.</returns>
+    internal static (double X, double Y, double Z) UnitDifference(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to)
+    {
+        (double X, double Y, double Z) direction = FloatDifference(from, to);
+        _ = TryScaleToUnitLength(ref direction);
+        return direction;
+    }
+
+    /// <summary>A float point's distance from the origin — <c>FUN_18006e120</c>.</summary>
+    /// <param name="point">The point.</param>
+    /// <returns><c>√((x² + y²) + z²)</c>.</returns>
+    /// <remarks>**Squared and summed in FLOAT**, then widened for the root (<c>CVTPS2PD</c>, <c>SQRTPD</c>).</remarks>
+    internal static double Length((float X, float Y, float Z) point)
+    {
+        float squared = (point.X * point.X) + (point.Y * point.Y) + (point.Z * point.Z);
+        return Math.Sqrt(squared);
     }
 
     /// <summary>The cross product — <c>FUN_18006dd30</c>.</summary>

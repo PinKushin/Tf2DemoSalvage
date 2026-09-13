@@ -26072,8 +26072,12 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    routine by routine*, `c2e5bb53`): a triangle header's pierce field (`6d0f8d12`), the compact-ledge helpers as
    `IvpCompactLedgeSolver` (`25fac2da`), and the entry, dispatch, eight feature routines, backside walk and loop
    check as `IvpMindistMinimize`, each with synthetic conformance tests and sabotage rounds. **Also not on the
-   running path.** Still unread or unported beneath the fire routine: the time of impact for kinds (0,0), (0,1)
-   and (1,1) (`FUN_1800a2b30`, `FUN_1800a1ff0`, `FUN_1800a1420`), the impact itself (`FUN_18008ef60`), the
+   running path.** **The time of impact for kinds (0,0), (0,1) and (1,1) is read and ported, 2026-09-13**
+   (`docs/findings/51`, *The other three times of impact*): `FUN_1800a2b30`, `FUN_1800a1ff0` and `FUN_1800a1420` as
+   `IvpPointPointSearch`, `IvpPointEdgeSearch` and `IvpEdgeEdgeSearch`, over seven evaluators and `IvpCoreBounds`,
+   with synthetic conformance tests and four sabotage rounds — also not on the running path, and the dispatch
+   `FUN_1800a3fe0` that routes a pair to one of the four is read but not ported. Still unread or unported beneath the
+   fire routine: the impact itself (`FUN_18008ef60`), the
    mindist's virtual `+0x28` target (`FUN_1800947e0` reports to the environment's `+0x40` object), friction, and
    the far branch's travel allowances; and the cache object's slerp (`FUN_180071060`) that fills each side's
    current matrix, which the minimize takes from its caller.

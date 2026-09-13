@@ -3,30 +3,43 @@ using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
-/// <summary>The search context <c>FUN_1800a1b50</c> is handed: the pair's approach speed and the interval.</summary>
+/// <summary>The search context the time-of-impact routines are handed: the pair's speed bounds and the interval.</summary>
 /// <param name="ApproachSpeed">The bound on how fast the pair can close — <c>context+0x10</c>.</param>
+/// <param name="TotalBound">The pair's total speed bound — <c>context+0x18</c>, <c>((double)coreA+0x1dc + surface sum) + (double)coreB+0x1dc</c>.</param>
 /// <param name="Start">The interval's start time — <c>context+0x30</c>.</param>
 /// <param name="End">The interval's end time — <c>context+0x38</c>.</param>
-public readonly record struct IvpImpactContext(double ApproachSpeed, double Start, double End);
+public readonly record struct IvpImpactContext(double ApproachSpeed, double TotalBound, double Start, double End);
 
-/// <summary>The three fields of the pair's mindist the vertex-face search reads.</summary>
+/// <summary>The fields of the pair's mindist the time-of-impact searches read.</summary>
 /// <param name="ExtraRadius">The pair's extra radius — <c>mindist+0x98</c>.</param>
 /// <param name="Length">The pair's distance less that radius — <c>mindist+0xa8</c>.</param>
 /// <param name="MarginClass">The byte at bits 22–29 of <c>mindist+0x20</c>, which picks the margin.</param>
-public readonly record struct IvpMindistState(float ExtraRadius, float Length, int MarginClass);
+/// <param name="Normal">The pair's normal, in the world — <c>mindist+0xb0</c>.</param>
+public readonly record struct IvpMindistState(
+    float ExtraRadius, float Length, int MarginClass, (float X, float Y, float Z) Normal);
 
 /// <summary>One side of the pair: a ledge, how it is joined, where its body is going, and its core's bounds.</summary>
 /// <param name="Points">The ledge's points, in the object's frame.</param>
 /// <param name="Topology">The ledge's triangles and edge words.</param>
 /// <param name="Motion">The body's motion cache for the interval.</param>
-/// <param name="AngularSpeedBound">The core's angular speed bound — <c>core+0x80</c>.</param>
-/// <param name="CoreInverseDiameter">The core's <c>+0x54</c>, <c>0.5f / core+0x4</c>; read from the face's side only.</param>
+/// <param name="Core">The fields of the body's core the searches read.</param>
 public sealed record IvpSearchSide(
     IReadOnlyList<(float X, float Y, float Z)> Points,
     IvpLedgeTopology Topology,
     IvpMotionCache Motion,
-    float AngularSpeedBound,
-    float CoreInverseDiameter);
+    IvpCoreBounds Core)
+{
+    /// <summary>The point an edge starts at.</summary>
+    /// <param name="edge">The edge.</param>
+    /// <returns>The point, in the object's frame.</returns>
+    public (float X, float Y, float Z) StartOf(IvpLedgeEdge edge) => Points[Topology.Start(edge)];
+
+    /// <summary>The normal of an edge's triangle, not scaled — <c>FUN_18007b940</c>.</summary>
+    /// <param name="edge">The edge, whose triangle's start points are taken from it in their stored winding.</param>
+    /// <returns>The normal, in the object's frame.</returns>
+    public (double X, double Y, double Z) FaceNormal(IvpLedgeEdge edge) =>
+        IvpVector.FaceNormal(StartOf(edge), StartOf(Topology.Next(edge)), StartOf(Topology.Previous(edge)));
+}
 
 /// <summary>What a time-of-impact search leaves in its context: the event kind, if one was raised, and the time.</summary>
 /// <param name="Event">The kind last written to <c>context+0x40</c>, or null when neither search wrote one.</param>
@@ -51,8 +64,8 @@ public static class IvpVertexFaceSearch
     /// <summary>Written to <c>context+0x40</c> when an edge's refinement finds a root.</summary>
     public const int EdgeEvent = 0x21;
 
-    /// <summary><c>DAT_1800ea984</c>: the share of the extra radius in the point-plane tolerance.</summary>
-    private const float ToleranceShare = 0.5f;
+    /// <summary><c>DAT_1800ea984</c>: the share of the extra radius in the point-plane tolerance, and in the point-point one.</summary>
+    internal const float ToleranceShare = 0.5f;
 
     /// <summary><c>DAT_1800ea968</c>: the share of the extra radius in the edge target.</summary>
     private const float EdgeTargetShare = 0.1f;
@@ -114,11 +127,11 @@ public static class IvpVertexFaceSearch
             kind = PointPlaneEvent;
         }
 
-        double speed = IvpEdgeEvaluator.SpeedBound(vertexSide.AngularSpeedBound, faceSide.AngularSpeedBound);
+        double speed = IvpEdgeEvaluator.SpeedBound(vertexSide.Core.AngularSpeedBound, faceSide.Core.AngularSpeedBound);
 
         // MINSS: the length when it is under the margin, and the margin otherwise — a NaN included.
         float lesser = mindist.Length < margin ? mindist.Length : margin;
-        float factor = -(IvpCollisionTolerance.EdgeTargetScale * faceSide.CoreInverseDiameter);
+        float factor = -(IvpCollisionTolerance.EdgeTargetScale * faceSide.Core.InverseDiameter);
         double edgeTarget = (((double)lesser + (double)(extra * EdgeTargetShare)) * factor) / margin;
 
         (double X, double Y, double Z) normal =

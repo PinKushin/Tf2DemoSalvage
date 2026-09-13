@@ -3167,6 +3167,124 @@ runtime-initialised block. **The feature kinds are unnamed.** An earlier draft o
 kind 5 a ledge-tree or hull node; the code only shows kind 5 being replaced by kind 2 through
 `FUN_180094e30`, and that is all that is claimed.*
 
+### The other three times of impact, instruction by instruction (2026-09-13)
+
+**Read from the disassembly of `FUN_1800a2b30` (0,0), `FUN_1800a1ff0` (0,1) and `FUN_1800a1420` (1,1)**
+(`D:\ghidra-proj\out\toi_other_kinds.log`), with every evaluator they fill (`toi_evaluators.log`, `toi_helpers.log`),
+the cache object's three transforms (`toi_cacheobj.log`) and the motion cache builder (`toi_cache_a0800.log`). They
+share `FUN_1800a1b50`'s shape — the same search context, the same two sides, both motion caches built first, `time :=
+end`, and every root moving `time` earlier and overwriting the kind — and the same two finders. Each argument order is
+the dispatch's: synapse A's feature first, then B's, then side A, then side B on the stack.
+
+**Three fields none of the earlier routines read.** The context's `+0x18`, the total bound the scheduler builds
+(*The scheduler's near branch*); the mindist's float normal at `+0xb0`; and per core `+0x4` (the radius `+0x54` is
+half the reciprocal of), `+0x1dc` (the integrator's `|linear velocity|`) and `+0x254` (`+0x80 × +0x8`). **A motion
+cache's `+0x8` is its core**: `FUN_1800a0800` stores the cache object's real object (`+0xc8`) at `+0x0` and that
+object's `+0xe8` at `+0x8`, a dword from `+0xc0` at `+0x18`, and the 21 slots from `+0x20`.
+
+**The evaluators.** Vtables `1800fe720` to `1800fe760` are one slot each, eight in a row: `a3470` point-plane and
+`a3660` edge, already ported, and seven more. `first` and `second` are the two transforms the finder hands slot 0.
+
+| vtable | slot 0 | fields | distance |
+|---|---|---|---|
+| `1800fe730` | `a31e0` | `+0x28` P, `+0x48` Q, `+0x68` u | `d = Q' − P'`; `s = 1.2f·((d.y·u.y + d.x·u.x) + d.z·u.z)`; **`s` unless `|s|·s ≥ (d.y² + d.x²) + d.z²`, then `√` of that** |
+| `1800fe738` | `a3990` | `+0x28` P, `+0x48` Q, `+0x68` u | `((Q'.y − P'.y)·u'.y + (Q'.x − P'.x)·u'.x) + (Q'.z − P'.z)·u'.z`, `u' = second·u` |
+| `1800fe748` | `a36d0` | `+0x30` P, `+0x40` Q (floats), `+0x50` e, `+0x70` v, `+0x28` h | `c = (Q' − P') × e'`; `x = ((c·v') + h)`; **`x` unless `x ≥ |c|`, then `|c|`** (`JC`, so NaN keeps `x`) |
+| `1800fe740` | `a37f0` | `+0x28` P, `+0x48` a, `+0x68` Q, `+0x88` e | `w = P' − Q'`; `r = (e' × w) × e'`, **each component narrowed to float**, scaled to unit length with five steps; `(a'.y·r.y + a'.x·r.x) + a'.z·r.z`, `a' = first·a` |
+| `1800fe758` | `a32b0` | `+0x28` P, `+0x48` a, `+0x68` Q, `+0x88` b, `+0xa8` sign | `c = a' × b'`; `(rsqrt_f((float)|c|²) · (c·P' − Q'·c)) · sign` |
+| `1800fe760` | `a33e0` | `+0x28` a, `+0x48` b | `|a' × b'|²` |
+| `1800fe728` | `a3a30` | `+0x28` a, `+0x48` n | `(n'.x·a'.x + n'.y·a'.y) + n'.z·a'.z`, `a' = first·a`, `n' = second·n` |
+
+A primed point is `ToWorld` and a primed direction `Rotate`, each by the transform of the side named — P, a by
+`first`, Q, b, e, u, v, n by `second` unless the row says otherwise. Dots and squared lengths group `x` and `y` first;
+every cross product is `FUN_18006dd30`. `1.2f` is `DAT_1800eed28`, a float widened.
+
+**Point-point, `FUN_1800a2b30`:**
+
+1. The point-point evaluator: P = A's point, Q = B's, `u = −n` negated in float and widened, speed `ctx+0x10`.
+   `FUN_1800b6210` with target `(double)extra + (double)margin`, tolerance `(double)(0.5f·extra + 0.1·d)` and **no
+   known distance** — slot 0 is measured — raises **`0x10`**.
+2. `reach = (double)(float)(time − start)·ctx+0x18 + (double)length`, after that search.
+3. `speed(X) = (double)core+0x1dc + |X|·(double)core+0x80`, with `|X|` = `FUN_18006e120`, `√` of the float sum of
+   squares; `sum = speed(B) + speed(A)`.
+4. `factor = (MINSD(margin², reach²) · −0.5) / (double)MAXSS(coreA+0x4, coreB+0x4)`.
+5. **B's ring**, from B's edge, in `IvpLedgeTopology.Ring` order: vtable `1800fe738`, P = A's point, Q = B's, speed
+   `coreB+0x80·reach + sum`. For each edge, `d` its float-subtracted direction, `s = (d.y² + d.x²) + d.z²` in double,
+   `r = (double)rsqrt_f((float)s)`: the direction `d·r` and the target `(s·factor)·r`. `FUN_1800b6590` from `start`
+   to `time`, no known distance: **`0x11`**.
+6. **A's ring**, the same with the roles exchanged — P = B's point, Q = A's, speed `coreA+0x80·reach + sum` — and
+   **the two motion caches handed over the other way round**, so B's transform is `first`: **`0x11`**.
+
+**Point-edge, `FUN_1800a1ff0`:**
+
+1. `angular = (double)(coreB+0x80 + coreA+0x80)`, in float.
+2. The point-line evaluator: P = A's point, Q = the edge's start, `e` the float-subtracted edge scaled with four steps,
+   `h = ((double)margin + (double)extra) · 0.5`, speed `ctx+0x10`; and **`v` from the cache objects' CURRENT
+   matrices**: `v = B⁻¹·((B·Q − A·P) × B·e)` scaled with five steps — `FUN_180080720` for the two points,
+   `FUN_1800809d0` for `e`, `FUN_180080890` for the transpose. `FUN_1800b6210`, target `(double)margin +
+   (double)extra`, tolerance `(double)(0.9f·extra + 0.1·d)`, no known distance: **`0x30`**.
+3. **Two planes, the edge's own triangle and then its twin across the offset field** (`IvpLedgeTopology.Hop`). For
+   each, with `s₀ s₁ s₂` the triangle's start points from that edge: `m = (s₁ − s₀)_float × FaceNormal(s₀, s₁, s₂)`,
+   scaled with five steps; the point-plane evaluator over P, `m` and `s₀`, **speed `ctx+0x18`**. `FUN_1800b6590` to
+   `(double)(−(float)(0.1·d))`: **`0x31`**.
+4. `gap = MAXSD((double)length − (double)(float)(time − start)·ctx+0x18, 1e-8)`; the speed `((double)(float)(coreB+0x254
+   · coreB+0x80 + coreB+0x1dc) + speed(A)) / gap + angular`; the target `(MINSD((double)margin, (double)length) ·
+   (double)(coreB+0x54 + coreB+0x54)) · −0.3f`.
+5. **A's ring**: vtable `1800fe740`, P = A's point, Q the edge's start, `e` as in (2), and each ring edge's
+   float-subtracted direction scaled with four steps as `a`. `FUN_1800b6590` from `start` to `time`: **`0x32`**.
+
+**Edge-edge, `FUN_1800a1420`:**
+
+1. `angular = (double)(coreA+0x80 + coreB+0x80)`, in float. `a` and `b` are the two edges' float-subtracted
+   directions, each scaled with four steps.
+2. `c = A·a × B·b` through the CURRENT matrices; `dot = ((double)n.y·c.y + (double)n.x·c.x) + (double)n.z·c.z`;
+   **`sign = +1` when `dot ≥ −0.0`** (`COMISD`/`JNC`), `−1` otherwise and for NaN.
+3. The line-line evaluator over A's start and `a`, B's start and `b`, `sign`, speed `ctx+0x10`. `FUN_1800b6210` to
+   **`(double)margin`, tolerance `(double)(0.1·d)` — neither carries the extra radius** — no known distance: **`0x40`**.
+4. The cross evaluator over `a` and `b`, speed `angular + angular + 1e-19`. `FUN_1800b6590` to `1e-19`: **`0x41`**, the
+   edges turning parallel.
+5. **Four face checks**, vtable `1800fe728`, speed `angular + 1e-19`, each face normal `FUN_18007b940` scaled with four
+   steps, each target `(double)(−(float)(0.1·d · core+0x54))` **of the core whose EDGE is dotted** — the side whose
+   transform is `first` — and each raising **`0x42`**:
+
+   | order | direction, as `first` | face, as `second` | direction negated when |
+   |---|---|---|---|
+   | 1 | B's `b` | A's twin triangle | `sign` is `−1` |
+   | 2 | B's `b` | A's own triangle | `sign` is `+1` |
+   | 3 | A's `a` | B's twin triangle | `sign` is `−1` |
+   | 4 | A's `a` | B's own triangle | `sign` is `+1` |
+
+**Two of these targets are not in consistent units, and a port in inches has to say so.** Point-point's ring target
+`|d| · min(margin², reach²) · −0.5 / radius` is a length squared compared with a length, so the engine's answer
+belongs to metres: carried in inches it is scaled by `0.0254`. Point-edge's `1e-8` floor is a distance in metres,
+carried converted as `FUN_1800b6590`'s tolerance already is. Every other target and speed is either dimensionless or
+linear in length — `coreB+0x254 · coreB+0x80 + coreB+0x1dc` is `ω²·deviation + v`, odd in time but linear in length —
+and needs nothing. *Arithmetic.*
+
+**What the kinds say, read from the fire routine** (*When a queued mindist fires*): a kind with its low four bits clear
+— `0x10`, `0x30`, `0x40`, as `0x20` — is tested for a collision; any other is re-minimized and rescheduled. *So the
+three new "collision" events and six "feature change" events are INFERRED labels, by the same rule as `0x20` and
+`0x21`.* **Ported as `IvpPointPointSearch`, `IvpPointEdgeSearch` and `IvpEdgeEdgeSearch`**, over the seven
+evaluators and `IvpCoreBounds`.
+
+*Evidence class: read from the disassembly for the three routines, all seven evaluators, `FUN_18006e120`,
+`FUN_18006fc60` (`√((x² + y²) + z²)` in double), `FUN_18006f730` (five steps, as read before), `FUN_180070b20` (a
+float point widened, grouped as `FUN_180070bc0`), the cache object's `FUN_180080720`, `FUN_1800809d0` and
+`FUN_180080890` (its `+0x40` matrix: `ToWorld`, `Rotate`, `RotateInverse`), and `FUN_1800a0800`; dumped:
+`DAT_1800eed28` `1.2f`, `DAT_1800f1fc8` `−0.5`, `DAT_1800ee18c` `0.9f`, `DAT_1800ee388` `0.5`, `DAT_1800fe7c8`
+`−0.3f`, `DAT_1800fe7c0` `−0.0`, `DAT_1800eaa00` `−1.0`, `DAT_1800fb100` `1e-8`. **Not established:** what the
+face checks' `+0x54` choice is for.*
+
+**What the synthetic tests do not pin, found by sabotaging each branch** (four rounds, twenty-nine breaks, all caught):
+the float narrowing inside `a37f0`; the ring, plane and face speeds — the rings' formulas, the planes' use of the total
+bound, the `1e-8` gap floor — because every fixture that reaches them is still, so none of those refinements takes a
+step (only the three falling searches do, at the context's approach speed); that point-point
+measures its start rather than taking a known distance, since the fixtures' length is the distance; that edge-edge's
+line search omits the extra radius, since every fixture's is zero; and the cache order handed to each finder wherever
+both bodies are unturned. **Point-point's ring cache order IS caught, but not where a reader would look**: exchanged,
+the untouched edges point at the other point and raise the same `0x11` the ring tests expect, and the falling and
+rising controls are what redden.
+
 ## There are TWO contact solvers, and a resting corpse uses the other one
 
 **This is the correction that makes the section below only half the story, and it was found by

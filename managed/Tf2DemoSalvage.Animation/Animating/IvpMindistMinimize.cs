@@ -298,8 +298,6 @@ public static class IvpMindistMinimize
         /// <summary><c>DAT_1800fd268</c>: <c>1e-18f</c>, added to a rising edge's squared length.</summary>
         private const double RiseFloor = (double)1e-18f;
 
-        private const int FiveSteps = 5;
-
         private readonly IvpMindist _mindist;
         private readonly IvpLedgeSide[] _sides;
         private readonly IvpMinimizeLoopCheck _loop = new();
@@ -405,7 +403,7 @@ public static class IvpMindistMinimize
                 return GaveUp;
             }
 
-            double scale = IvpVector.ReciprocalSquareRoot(squared, FiveSteps);
+            double scale = IvpVector.ReciprocalSquareRoot(squared, IvpVector.FiveSteps);
             _mindist.Length = (float)((scale * squared) - _mindist.ExtraRadius);
             _mindist.Normal = ((float)(x * scale), (float)(y * scale), (float)(z * scale));
             WriteContactDot(sideP, sideQ);
@@ -639,7 +637,7 @@ public static class IvpMindistMinimize
 
             if (squared > OnTheLine)
             {
-                double scale = IvpVector.ReciprocalSquareRoot(squared, FiveSteps);
+                double scale = IvpVector.ReciprocalSquareRoot(squared, IvpVector.FiveSteps);
                 _mindist.Length = (float)((scale * squared) - _mindist.ExtraRadius);
 
                 (double X, double Y, double Z) turned = sk.Current.Rotate(IvpVector.Cross(along, across));
@@ -652,7 +650,7 @@ public static class IvpMindistMinimize
                 _mindist.Length = -_mindist.ExtraRadius;
 
                 (double X, double Y, double Z) sideways = IvpVector.Perpendicular(along);
-                IvpVector.TryScaleToUnitLength(ref sideways, FiveSteps);
+                IvpVector.TryScaleToUnitLength(ref sideways, IvpVector.FiveSteps);
 
                 // Written in the edge's frame and not turned into the world: the engine does not.
                 _mindist.Normal = ((float)sideways.X, (float)sideways.Y, (float)sideways.Z);
@@ -867,7 +865,7 @@ public static class IvpMindistMinimize
                                   ((lStart.Z - kStart.Z) * across.Z));
             int sign = SignBit(apart);
 
-            double scale = IvpVector.ReciprocalSquareRoot(SquaredLength(across), FiveSteps);
+            double scale = IvpVector.ReciprocalSquareRoot(SquaredLength(across), IvpVector.FiveSteps);
             (double X, double Y, double Z) world = sl.Current.Rotate(across);
             (double X, double Y, double Z) acrossInK = sk.Current.RotateInverse(world);
 

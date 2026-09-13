@@ -707,7 +707,10 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # Synthetic.
 # 409 -> 424 on 2026-09-13: IvpMindistMinimizeConformanceTests (15), the minimize's entry, dispatch and eight feature
 # routines (B369). Synthetic.
-run Tf2DemoSalvage.Animation.Tests animation 424
+# 424 -> 462 on 2026-09-13: the other three times of impact (B369) — IvpPointPointSearch, IvpPointEdgeSearch and
+# IvpEdgeEdgeSearch conformance tests (6, 6, 7) and their seven evaluators' (19). Compile-red first; four sabotage
+# rounds, twenty-nine breaks, every one caught. Synthetic.
+run Tf2DemoSalvage.Animation.Tests animation 462
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
