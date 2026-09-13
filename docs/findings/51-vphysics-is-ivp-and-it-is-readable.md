@@ -2237,10 +2237,12 @@ chasing corpses with limbs eighty units under the ground:
 4. **No impact found:** the next check is scheduled at `(distance − ε) / speedBound` from now, with a
    small floor, so the pair is looked at again no later than the earliest moment it could meet.
 
-**The minimize step descends the hull.** `FUN_180095cb0` walks a second feature-pair table
-(`DAT_18012d4b0`), up to two retries. A result of `3` where a synapse's kind is `5` replaces that node
-with its child (`FUN_180094e30`) and sets the kind to `2`, then retries — the same hull-then-triangles
-descent the virtual mesh's surface manager exposes from the other side.
+**The minimize step recovers from a backside.** `FUN_180095cb0` walks a second feature-pair table
+(`DAT_18012d4b0`), up to two retries. A result of `3` where a synapse's kind is `5` replaces that synapse's
+feature with a triangle `FUN_180094e30` walks to, sets the kind to `2`, and retries. **An earlier draft of this
+paragraph called that a hull descent, "replacing that node with its child"; it is not.** Kind `5` marks a point
+found BEHIND a face, and `FUN_180094e30` starts from the face's opposite triangle and walks the ledge toward the
+point — read in full in *The minimize, routine by routine* below.
 
 **Ours is a fixed step with speculative contacts and a push after penetration.** That is the
 structural divergence under B369: IVP never needs `TerrainDepth`, because no pair is ever allowed
@@ -2806,6 +2808,241 @@ bookkeeping on both objects and cores; *that it is the impact solver is INFERRED
 
 *Evidence class: read from the disassembly for `FUN_1800992e0` and the call list of `FUN_18008ecb0`; the vtable
 slots from a table scan.*
+
+### The minimize, routine by routine (2026-09-12)
+
+**Read from the disassembly of every routine below** (`D:\ghidra-proj\out\minimize_*.log`,
+`cache_object_fill.log`). Two assertion strings name the source files: `FUN_180095cb0` and `FUN_180094f80` assert in
+`ivp_mindist_minimize.cxx`, and `FUN_18007bbd0` asserts at line 674 of `ivp_compact_ledge_solver.cxx`; *that its
+neighbors from `18007b300` to `18007d480` are in the same file is INFERRED from their addresses*. Every dot product
+sums `x` and `y` before `z` unless a line says otherwise — the disassembly sometimes adds `y` first, which is the same
+bits — and every comparison's NaN case is written out, because the eight feature routines branch on `COMISD`/`JNC`,
+`JBE`, `JA` and `JC` in no consistent pattern.
+
+#### The solver, the sides, and what the minimize writes
+
+**The solver is a stack structure** in `FUN_180095cb0`: `+0x00` the mindist; `+0x08` a step budget of **20**,
+decremented by four of the eight feature routines on entry; `+0x10..0x20` a point in doubles, written when a routine
+reports a backside; `+0x30` up to **256** pair keys of eight bytes each, and `+0x830` their count.
+
+**A side** — one per synapse, built by `FUN_180094c70` exactly as the time-of-impact dispatch builds them — holds the
+ledge's point array at `+0x00`, the ledge at `+0x08`, the object's CACHE OBJECT at `+0x10`, the real object at
+`+0x18`, and its synapse record at `+0x20`, whose `+0x28` is the feature (an edge word's address) and whose word at
+`+0x32` is the feature's kind: `0` point, `1` edge, `2` triangle, `5` a triangle the point was found behind.
+
+**The cache object is the object at the environment's current time**, filled by `FUN_180080a60`: with `dt =
+(float)(now − core+0x1d0)`, the rotation is `FUN_180071060`'s slerp from `core+0x180` to `core+0x1a0` at
+`(double)(dt × core+0x1d8)` and the position is `core+0x150 + (double)core+0x170 × (double)dt` per component — or both
+copied straight from `core+0x180` and `core+0x150` when `dt` compares equal to zero, which `UCOMISS`/`JNZ` also says of
+NaN. **The core position goes to `+0x00`**; the matrix at `+0x40` is `FUN_180071330` of the two, with its translation
+replaced by the object offset put through it unless bit `0x800` is set — the same composition `IvpMotionCache.Fresh`
+ports.
+
+**What the minimize writes to the mindist:** the length at `+0xa8` (less the extra radius at `+0x98`), the normal at
+`+0xb0`, `+0x9c` = `(float)(coreFirst − coreSecond)` dotted in float with that normal, both synapses' feature and kind,
+bit 8 of the flags — **flipped whenever a routine is about to call another with the other side first**, so synapse A
+is always the first argument's — and bits 14–15.
+
+#### The entry and the two dispatchers
+
+```
+FUN_180095cb0(mindist):
+  if mindist+0xc0 == env+0x1a0: return 4            -- once per PSI
+  mindist+0xc0 = env+0x1a0
+  retries = 0
+  loop:
+    r = DAT_18012d4b0[kind(B) + 4·kind(A)](solver)  -- A = synapse (flags >> 8) & 3, B the other
+    if r == 1: flags &= ~0xC000; return 1
+    flags = (flags & ~0x8000) | 0x4000
+    if r == 2: break
+    if r != 3: assertion at line 0x138
+    s = synapse A if its kind is 5, else synapse B
+    s.feature = FUN_180094e30(s.feature, solver+0x10); s.kind = 2
+    if ++retries >= 2: break
+  unless (flags & 0x3000) == 0x1000 or (flags & 0x3C0000) == 0x100000: mindist.vtable[+0x28](mindist)
+  return r
+```
+
+`FUN_180094f70` is three instructions — flip bit 8, jump to `FUN_180094c70` — so `(1,0)` and `(2,0)` become `(0,1)`
+and `(0,2)`. `FUN_180094c70` builds both sides and routes on `kind(B) + 4·kind(A)`: `0` → PP, `1` → PK, `2` → PF, `5` →
+KK, anything else → FF, each called `(solver, featureA, featureB, sideA, sideB)`. *The result names — `1` settled, `2`
+gave up, `3` backside, `4` already done — are INFERRED from what each path does*; the virtual at `+0x28` is unread.
+
+**The loop check, `FUN_180094600(solver, typeA, featureA, typeB, featureB)`**, is consulted only once the budget has
+gone negative: it ORs each feature's low 32 bits with its type, orders the pair by signed value, returns `1` if the
+pair is already among the keys (scanned newest first) or if 256 are stored, and otherwise stores it and returns `0`.
+
+#### The compact-ledge helpers
+
+| routine | does |
+|---|---|
+| `18007ba70`, `18007d480` | a point of one side into the other side's frame: `T.RotateInverse(S.ToWorld(p) − T.t)`, each sum grouped as `IvpMatrix` groups it; the first takes an edge, the second a point |
+| `180080720` via `18007d2e0` | an edge's start point into the world, `ToWorld` of the widened float point |
+| `180080670` | a world point into a frame, `RotateInverse(p − t)` |
+| `18007d070` | an edge's two weights for a point `p` (`S` its start, `E` its end, `d = (double)(E − S)` subtracted in float): `a = (float)(((p.y − S.y)·d.y + (p.x − S.x)·d.x) + (p.z − S.z)·d.z + FLT_MIN)`, `b = (float)(((E.y − p.y)·d.y + (E.x − p.x)·d.x) + (E.z − p.z)·d.z + FLT_MIN)`; the points widened before subtracting `p` |
+| `18007cdf0` | a triangle's weights for `p`: barycentric about the start `A` of the triangle's SECOND edge word, whatever edge is passed — `u = B − A`, `v = C − A` (float subtraction, widened), `w = p − A`, `det = uu·vv − uv²`, `s = wu·vv − wv·uv`, `t = wv·uu − wu·uv` — each output `(float)(weight + FLT_MIN)`, and written so that **`out[0]` is the passed edge's, `out[4]` the next edge's, `out[8]` the previous edge's**, and `out[0xc] = (float)det` |
+| `18007d300` | an edge line's squared distance: `|(p − S) × (E − S)|² / (|S − E|² + 1e-18f)`, the cross's edge subtracted in DOUBLE and the divisor's in FLOAT |
+| `18007c1a0` | an edge SEGMENT's squared distance: if `(bits(a) | bits(b)) ≥ 0`, the line's; else the endpoint's — the start when `a < 0` or NaN, the end otherwise — as `((dy² + dx²) + dz²)` |
+| `18007b940` | `IvpVector.FaceNormal` over the passed edge, the next and the previous |
+| `18007b780` | a triangle's plane: `18006ddb0` crosses `(next − p0) × (prev − p0)`, the same bits as `FaceNormal`, with `d = −((n.y·p0.y + n.x·p0.x) + n.z·p0.z)`; `18006f6c0` scales all four by `1.0 / SQRTPD(|n|²)` — an exact root, no threshold |
+| `18006dd30` | the cross product, every term read before any is written |
+| `18006db60` | a vector perpendicular to `v`: swap the largest-magnitude component (strict `>`, checked `z`, `y`, `x`) with the one before it cyclically, negating the moved one, then cross that with `v` |
+| `18006e080`, `18006f730` | scale to unit length at or above `1e-19` — four Newton steps and FIVE respectively |
+| `18006edd0` (and `18006ece0`, a jump to it) | the reciprocal root with FIVE steps; `18006ecf0` takes four |
+| `180070050` | `(1 − t)·a + t·b` |
+| `18007b300` | the edge-edge input: `+0x00`/`+0x08` pointers to `L`'s two float points; `+0x10`, `+0x30` `K`'s two points in `L`'s frame; `+0x50` `K`'s float edge rotated into the world by `K` and back by `L`; `+0x70` `L`'s float edge widened; `+0x90`, `+0x98` the edges; `+0xa0`, `+0xa8` the sides; `+0xb0` the cross of `+0x50` and `+0x70` |
+| `18007c870` | the edge-edge weights: if `|cross|² > 0x3C32725DD1D243AB` — **one ulp under `1e-18`** — `a = +0x50 × cross` and `b = +0x70 × cross` give `out[8]`, `out[0xc]` for `L` WITHOUT `FLT_MIN` and `out[0]`, `out[4]` for `K` with it, and return `1`; otherwise a sampled search, below, returning `0` |
+| `18007c2a0` | the edge-edge squared distance from the input: `(cross·Ks − cross·Ls)² / |cross|²` above `1e-24`, else `18007c1a0` of `Ks` against `L` |
+| `18007bbd0` | the edge-edge squared distance from two edges, below |
+| `180094e30` | the backside walk, below |
+
+**The parallel edge-edge search** samples `K` at the floats `−1, 0.5, 2, 0, 1, −0.001, 0.001, 0.999, 1.001, −1e-6,
+1e-6` against `L`'s line, keeping the least `18007d300` (`<`, NaN taken) with `out[0] = f`, `out[4] = 1 − f` and `L`'s
+`18007d070` weights; then samples `L` — its points put into `K`'s frame by `18007d480` — at the first NINE of those
+against `K`'s line with the running minimum, writing `out[8] = f`, `out[0xc] = 1 − f` and `K`'s weights inline as
+`(float)(FLT_MIN − (S − q)·d)` and `(float)(((E − q)·d) + FLT_MIN)`, the second's `z` term added to `FLT_MIN` first.
+The table's last two floats, `0.999999` and `1.0000009`, are never sampled.
+
+**`18007bbd0(K, L)`**: with the weights, `L` inside and `K`'s start weight not `> 0` → the segment distance of `K`'s
+start to `L`; its end weight not `> 0` → of `K`'s end; else the line distance as `18007c2a0` takes it. `K` inside
+instead → `L`'s start or end against `K`, and an assertion when both of `L`'s weights are `> 0`. Both outside → the
+least of four segment distances, `L`'s start and `K`'s start then `L`'s end and `K`'s end, combined with `MINSD`.
+
+#### The eight feature routines
+
+`seen(...)` is the loop check under a spent budget; `In(e, S→T)` is `18007ba70`; `W(e)` is `180080720`; weights are
+`18007d070` and `18007cdf0`; `bits(x) ≥ 0` is a float's sign bit clear, as the `OR`/`JL` tests read it; and **"each edge
+ending at P"** is the walk `prev(P)`, hop, `prev`, stopping on reaching `prev(P)` again — the previous edge of each
+edge `IvpLedgeTopology.Ring` visits, in the same order.
+
+```
+PP  FUN_1800b1b80(P, Q):
+  if --budget < 0 and seen(0:P, 0:Q): return 2
+  wp = W(P); wq = W(Q); qInP = P.ToObject(wq); pInQ = Q.ToObject(wp)
+  d² = ((wp.y − wq.y)² + (wp.x − wq.x)²) + (wp.z − wq.z)²
+  if not d² > 1e-12: return 2
+  r = rsqrt5(d²); length = (float)(r·d² − extra); normal = (float)((wp − wq)·r); +0x9c
+  best = none, bestSlope = 0
+  around P, w = qInP − P, base = (P.y·w.y + P.x·w.x) + P.z·w.z:
+    for each edge E ending at P, N = start(E):
+      s = ((N.y·w.y + N.x·w.x) + N.z·w.z) − base
+      if s > 0: s ·= rsqrt_f((float)((e.y² + e.x²) + (e.z² + 1e-18f))), e = N − P in float
+                if s > bestSlope: best = E, other = (qInP, Q, sideQ)
+  around Q the same, w = pInQ − Q, other = (pInQ, P, sideP)
+  if none, or not b > 0 of best's weights for other's point: synapses (P,0), (Q,0); return 1
+  if not a ≥ 0: flip for best's side;  return PP(best, other feature)
+  flip for other's side;               return PK(other feature, best)
+
+PK  FUN_1800b1aa0(P, K):
+  (a, b) = weights of K for In(P)
+  not a ≥ 0 → PP(P, K);  not b ≥ 0 → PP(P, next(K));  else → PK-proximity(P, K)
+
+PF  FUN_1800b1910(P, F):
+  p = In(P); w = weights of F for p
+  all bits ≥ 0 → PF-proximity(P, p, F)
+  d0 = segment²(p, F):        m = (d0 < 1e101 or NaN) ? d0 : 1e101;   best = (d0 ≥ 1e101) ? null : F;  m0 = m
+  d1 = segment²(p, next(F)):  m = (d1 < m or NaN) ? d1 : m;           best = (m0 > d1) ? next(F) : best
+  d2 = segment²(p, nn(F)):                                            best = (m > d2) ? nn(F) : best
+  return PK(P, best)
+
+KK  FUN_1800afa40(K, L):
+  w = KK weights
+  L inside (bits(w2)|bits(w3) ≥ 0): not w0 ≥ 0 → PK(K, L); not w1 ≥ 0 → PK(next(K), L); else KK-proximity
+  K inside: flip; not w2 ≥ 0 → PK(L, K); else PK(next(L), K)
+  kNear = (w0 ≥ w1) ? next(K) : K;  lNear = (w2 ≥ w3) ? next(L) : L;  kFar, lFar the others
+  (a, b) = weights of L for In(kNear); both bits ≥ 0 → PK(kNear, L)
+  (c, d) = weights of K for In(lNear); both bits ≥ 0 → flip; PK(lNear, K)
+  not a·w2 ≥ 0 (float product) → PP(kNear, lFar)
+  not c·w0 ≥ 0 → flip; PP(lNear, kFar)
+  → PP(kNear, lNear)
+```
+
+```
+PK-proximity  FUN_1800b11c0(P, K):
+  if --budget < 0 and seen(0:P, 1:K): return 2
+  p = In(P); S, E, C1 = start(prev(K)); Kt = twin(K), C2 = start(prev(Kt))
+  kd = E − S, c1 = C1 − S, c2 = C2 − S (float subtraction, widened); w = p − S
+  a1 = cross(kd, c1)·w; a2 = cross(c2, kd)·w
+  t1 = F-weight of K for p; t2 = F-weight of Kt for p
+  t1 > 0: → PF(P, (t2 > 0 and a2 > 0) ? Kt : K)
+  t2 > 0: → PF(P, Kt)
+  not a1 ≥ 0 and not a2 ≥ 0: synapses (P,0), (K,5); solver point = p; return 3
+  c = cross(kd, w); inv = 1.0 / ((kd.y² + kd.x²) + kd.z²); d² = ((c.x² + c.y²) + c.z²)·inv
+  d² > 1e-19: r = rsqrt5(d²); length = (float)(r·d² − extra)
+              v = K.Rotate(cross(kd, c)); normal = (float)(v·(−(r·inv)));  dir = v
+  otherwise:  length = −extra; o = perpendicular(kd), unit5; normal = (float)o — IN K's FRAME;  dir = c
+  +0x9c; u = P.RotateInverse(dir); limit = d²·1e-12; best = none
+  for each edge E ending at P: e = N − P (float, widened); s = u·e
+    if s > 0: s ·= rsqrt_f((float)((e.y² + e.x²) + e.z²)); if s > limit: limit = s, best = E
+  none: synapses (P,0), (K,1); return 1
+  limit < 1e-8 or NaN: in = KK input(K, best); if 18007c870 returned 0, or not its w2 ≥ 0 → synapses (P,0), (K,1); return 1
+  → KK(best, K)
+
+PF-proximity  FUN_1800b0c20(P, p, F):
+  if --budget < 0 and seen(0:P, 2:F): return 2
+  n = FaceNormal(F), unit4; wn = F.Rotate(n); u = P.RotateInverse(wn)
+  length = (float)(((n.y·p.y + n.x·p.x) + n.z·p.z) − ((F0.y·n.y + F0.x·n.x) + F0.z·n.z));  normal = (float)wn
+  if 0 > length: u = −u      -- the normal is NOT flipped
+  length −= extra (float); +0x9c
+  best = none, bestCos = 0
+  for each edge E ending at P: e = N − P; s = u·e
+    if not s ≥ 0: s ·= rsqrt_f((float)((e.y² + e.x²) + e.z²)); unless s ≥ bestCos: bestCos = s, best = E
+  none: synapses (P,0), (F,2)
+        if not (length + extra) ≥ 0 (float): solver point = p; F's kind = 5; return 3
+        return 1
+  q = In(best); w = weights of F for q, F's ledge found from its header
+  all ≥ 0 → PF-proximity(best, q, F)
+  exactly one of the three not ≥ 0: the first of F, next, nn with 0 > weight → KK(best, that edge)
+  m = 1e101: each of F, next, nn whose weight is not > 0 → edge²(best, it), taken when < m or NaN — the last only when m > it
+  → KK(best, the pick)
+
+KK-proximity  FUN_1800b0280(K, L, in, w):
+  if --budget < 0 and seen(1:K, 1:L): return 2
+  n = in.cross (L's frame); s = (float)(((Ls − Ks)·n)), Ls widened; sign = its sign bit
+  r = rsqrt5((n.x² + n.y²) + n.z²); wn = L.Rotate(n); nK = K.RotateInverse(wn)
+  length = (float)|(double)s·r| − extra;  σ = (((float)sign − 0.5f) + (float)sign) − 0.5f
+  normal = (float)(wn·((double)σ·r)); +0x9c;  LsK, LeK = L's points in K's frame
+  records:  0 triangle twin(K) (K), point Ls → LsK (L, edge L)       flag against nK
+            1 triangle K       (K), point Le → LeK (L, edge twin(L)) flag against nK
+            2 triangle twin(L) (L), point Ks        (K, edge K)       flag against n, inverted
+            3 triangle L       (L), point Ke        (K, edge twin(K)) flag against n, inverted
+  f[i] = sign bit of (float)(FaceNormal(tri_i)·against) [inverted for 2, 3] XOR sign
+  best = none, bestCos = −4e-12
+  for i in 0..3: j = f[i] ^ sign ^ i; e = point[sign ^ i] − point[sign ^ i ^ 1]; s = normal_i·e
+    if not s ≥ 0: cos = rsqrt_f((float)((e.y² + e.x²) + e.z²))·s·rsqrt_f((float)((m.x² + m.y²) + m.z²))
+      unless cos ≥ bestCos: t = weights of tri_i for point[j]; if t.F > 0: best = (edge[j], side[j], tri_i), bestCos = cos
+  none: synapses (K,1), (L,1)
+        f0 + f1 == 2: synapses (K,5), (L,2); solver point = lerp(LsK, LeK, (double)(w2 / (w2 + w3))); return 3
+        f2 + f3 == 2: synapses (K,2), (L,5); solver point = lerp(Ks, Ke, (double)(w0 / (w0 + w1)));   return 3
+        return 1
+  flip for best's point side
+  all of t ≥ 0 → PF-proximity(edge, In(edge), tri)
+  t.prev ≥ 0 → KK(edge, next(tri));  t.next ≥ 0 → KK(edge, prev(tri))
+  → KK(edge, edge²(edge, next(tri)) > edge²(edge, twin(prev(tri))) ? prev(tri) : next(tri))
+
+FF  FUN_180094f80(F1, F2) — no budget, no loop check:
+  m = 1e101; k = 1.000000000001
+  every start of F1 against every start of F2, F1 outer: d² of W(a), W(b); not d² ≥ m → (a,0), (b,0)
+  (A's F1 points, B's F2 face), then (B's F2 points, A's F1 face): p = In(v); all weights ≥ 0 →
+      h = ((pl.x·p.x + pl.y·p.y) + pl.z·p.z) + pl.d; not h²·k ≥ m → m = h²; (v,0), (face,2)
+  (B's F2 points, A's F1 edges), then (A's F1 points, B's F2 edges): both weights ≥ 0 →
+      not line²·k ≥ m → m = line²; (edge,1), (v,0)
+  every F1 edge against every F2 edge: both pairs of weights ≥ 0 → not 18007c2a0·k ≥ m → m; (k,1), (l,1)
+  if B's kind is 0 and A's is not, B goes first; flip for the first
+  (0,0) → PP, (0,1) → PK, (0,2) → PF, (1,1) → KK; any other pair is an Error and a breakpoint trap
+```
+
+**The backside walk, `FUN_180094e30(feature, point)`**, starts from the triangle whose index is **bits 12–23 of the
+feature's triangle's header word** — the triangle on the other side of the ledge, *INFERRED from its use* — marks each
+triangle it enters in a byte array as long as the ledge's signed 16-bit triangle count, takes that triangle's weights
+for the point, and for each of its edge, next and previous in turn whose weight is at or below zero (`COMISS 0, w;
+JC`, so NaN does not move) hops to the twin edge if that triangle is unmarked. It returns the edge it stopped in.
+
+*Evidence class: read from the disassembly for all thirty routines named here; the constants `1e101`, `FLT_MIN` as a
+double, `1e-18f`, the sub-`1e-18` threshold, `1e-12`, `−4e-12`, `1e-8`, `1e-19`, `1e-24` and `1.000000000001` dumped
+and compared bit for bit with C# literals — only the `1e-18` threshold differs from its literal, by one ulp. The
+purpose of result `4`, of the flags bits, of the `+0x9c` value and of kind `3` routines `FUN_180094ad0` and
+`FUN_180094860` (which take no ledge features; *INFERRED to be balls*) is not established.*
 
 **`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
 
