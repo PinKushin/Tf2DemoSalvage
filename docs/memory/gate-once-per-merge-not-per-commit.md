@@ -28,3 +28,9 @@ edits stalled behind it and the waits compounded.
   change to `build/gate.sh` itself, or anything touching decode. Say which exception applies.
 - **Never stop a gate halfway to start another.** A stopped gate orphans its `dotnet test` tree; if a
   gate must be restarted, `pwsh build/reap-dotnet.ps1` after.
+- **A fresh worktree has no `celt.dll` or `speex.dll`** (gitignored builds in `tools/native-audio/`), so
+  phase 1 dies at Audio with `DllNotFoundException`. The owner, 2026-09-12, on the B404/B405 merge: *"if
+  you didnt touch audio, then dont worry about audio run everything else you did change and merge"*. So
+  when the branch does not touch Audio, run the remaining phase-1 assemblies against their gate floors by
+  hand, skip Audio, and say so in the report. Do not hand him a bash `cp` to fetch the DLLs: his terminal
+  is PowerShell, where it fails, and the file-write hook refuses the copy from the assistant's shell.
