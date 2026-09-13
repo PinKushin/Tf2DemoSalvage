@@ -1893,13 +1893,21 @@ chain `FUN_18000a100` → `FUN_18000c600` → `FUN_18000bcf0` → `FUN_18000c1c0
 0x00-0x0F  phyheader_t { int size = 16; int id; int solidCount; int32 checksum }
 0x10-0x13  per-solid size prefix (uint32); the solid's data follows at +4
 0x14-0x17  "VPHY"
-0x18-0x19  short type      (0 normal, 1 "Null physics model")
-0x1A-0x1B  reserved        (0 in every sample)
-0x1C-0x1F  int32 dataSize  -- guarded by `if (param_2 < 0x30) Error("Corrupt physics model")`
-0x20-0x2B  three floats    -- structure confirmed, MEANING NOT DECODED
+0x18-0x19  short           -- NOT read by the loader
+0x1A-0x1B  short type      -- 0 builds, 1 "Null physics model", anything else NULL
+0x1C-0x1F  int32 dataSize  -- how many bytes of surface the loader copies; checked against nothing
+0x20-0x2B  three floats    -- copied into the collide at +0x10..+0x18; MEANING NOT DECODED
 0x2C-0x2F  0 in every sample
 0x30..     IVP_Compact_Surface, then the plaintext KeyValues tail
 ```
+
+**Corrected 2026-09-12 (B404).** This block first named `0x18` the type and `0x1A` reserved, and hung the
+`< 0x30` guard on `dataSize`. The disassembly of `FUN_18000a100` kills all three: the type is read with
+`MOVSX ECX, word ptr [RDI + 0x6]` — the solid's `+6`, file `0x1A` — the word at `+4` is never touched,
+`[RDI + 0x8]` goes straight to the copy as its length, and the `CMP R14D, 0x30` is against the size PREFIX, on
+the branch for a solid with no tag. **And the word it named the type is `0x0100` in every one of the 36,917
+solids TF2 ships** (the census under *What the loader does with a solid it cannot use*), so a reader acting on
+that layout would have nulled every hull in the game. It survived because nothing here read either word.
 
 ### `IVP_Compact_Surface`, 0x30 bytes
 
@@ -1907,16 +1915,20 @@ chain `FUN_18000a100` → `FUN_18000c600` → `FUN_18000bcf0` → `FUN_18000c1c0
 |---|---|
 | `+0x1C` | packed: **byte size is `value >> 8`**; the low byte is unidentified |
 | `+0x20` | int32 offset from the SURFACE's own base to the ledge-tree root |
-| `+0x2C` | magic: `IVPS`, `SPVI` (byte-swapped), `MOPP` (a different format this reader REFUSES), or `0` (an old `.PHY`, loaded anyway) |
+| `+0x2C` | magic, read by the loader ONLY for a solid with no `VPHY` tag: `IVPS`, `SPVI` (byte-swapped) and `0` (an old `.PHY`) build; `MOPP` (Havok's own tree) and anything else is NULL |
 
 **The `>> 8` is verified three times over:** `barrel01` gives `0x00049cd3 >> 8` = 1180, exactly the
 `VPHY` dataSize; `ladder001` gives 4628; `barrel_flatbed01` gives 2668. Each matches its own file.
 
 ### What the loader does with a solid it cannot use
 
-**Read from the decompile of `FUN_18000a100`** (2026-09-12, B403), the loop that walks a `.phy`'s solids
-into a `vcollide_t` — `solidCount` into `+0`, a pointer array of collides at `+8`, and the text tail copied
-after the last solid. `FUN_18000c600` is the same body for one buffer. Per solid, with its size prefix:
+**Read from the decompile of `FUN_18000a100`** (2026-09-12, B403), **then settled in its disassembly**
+(B404, `D:\ghidra-proj\out\solid_load_a100_c600.log`). It is `IPhysicsCollision::VCollideLoad( vcollide_t
+*pOutput, int solidCount, const char *pBuffer, int size, bool swap )` (`vphysics_interface.h:265`): it writes
+`solidCount & 0x7FFF` and a zero `descSize` into the two words of `vcollide_t` (`vcollide.h:16-22`), a pointer
+array of collides at `+8`, and the text tail after the last solid at `+0x10`. `FUN_18000c600` is
+`UnserializeCollide( pBuffer, size, index )` (`vphysics_interface.h:223`) — the same branches, in the same
+order, for one solid. Per solid, with its size prefix:
 
 | the solid | what the loader does |
 |---|---|
@@ -1931,11 +1943,63 @@ after the last solid. `FUN_18000c600` is the same body for one buffer. Per solid
 
 **A NULL collide keeps its slot**, so later solids keep their indices, and nothing in the loop refuses the
 file. `RagdollAddSolid` then passes the NULL to `CreatePolyObject` and dereferences what comes back
-(`ragdoll_shared.cpp:200-201`); *what `CreatePolyObject` does with it is not read*. *Evidence class: decompiler
-control flow and immediates, not settled in the disassembly.*
+(`ragdoll_shared.cpp:200-201`); *what `CreatePolyObject` does with it is not read*.
 
-**`PhysicsHull` does not follow this table**: it reads every solid as `VPHY`-tagged, ignores the type word,
-and checks the magic on the tagged path where the engine does not.
+**What the disassembly adds to the table**, each read off the instruction rather than the C:
+
+- **The type is the word at `+6`** — `MOVSX ECX, word ptr [RDI + 0x6]`, signed, so a negative word is "other".
+  The word at `+4` is never read. The first account of the container above had these two swapped.
+- **A tagged solid is built from `[RDI + 0x8]` bytes**, the header's data size, passed to `FUN_18000bcf0` as
+  the length it allocates and copies (`FUN_180072aa0( size, 0x20 )`, then `FUN_1800e7c40( copy, source, size )`);
+  the size prefix is used only to step to the next solid. An untagged solid is built from its size prefix.
+- **The tagged branch then copies `+0x0C`, `+0x10` and `+0x14` into the collide at `+0x10..+0x18`**, where
+  `FUN_18000bcf0` has just written `1.0f` into each — so an untagged solid keeps three ones. *What the three
+  floats mean is not decoded.*
+- **The loop counter goes to `FUN_18000bcf0` as its fourth argument**, which writes it into the surface copy
+  at `+0x24`, the first of `IVP_Compact_Surface`'s three spare words.
+- **The byte-swap follows the caller's `swap` flag, not the magic**: `SPVI` takes the same branch as `IVPS`,
+  and only `FUN_18000bcf0`'s `if (swap)` reaches `FUN_18007b1f0` — *that `FUN_18007b1f0` is the swap is inferred*
+  from `studiobyteswap.cpp:572` loading with `swap` true "to let ivp swap the ledge tree".
+- **`DevMsg` is `[0x1800ea308]` and `Error` is `[0x1800ea310]`**, with the level in `ECX`: 2 for `"Null physics
+  model"`, 1 for `"Old format .PHY file loaded!!!"`; the `Error` is followed by `INT3`.
+
+**Does anything past the loader refuse a tagged solid whose magic is not `IVPS`?** No, by three routes.
+`FUN_18000c1c0`, which `FUN_18000bcf0` ends by calling, reads the surface's packed size at `+0x1C` and asks the
+collide's virtual `+0x10` for its convexes — `FUN_18000baf0`, a two-instruction thunk to the ledge-tree walk
+`FUN_18007d260` on the surface — and validates each ledge's point indices against the size (`Error("vphysics:
+Invalid collide map")`); none of the three reads `+0x2C`. And a search of every decompiled function for the
+`MOPP` immediate, `0x50504f4d`, found exactly `FUN_18000a100` and `FUN_18000c600` in 2811 with none failing —
+the two loaders being the control that the search can see the constant at all. The `IVPS` immediate had already
+turned up only in those two and the two builders that write it (`FUN_180008dd0`, `FUN_180009b30`).
+*Evidence class: disassembly for every branch, operand and constant of `FUN_18000a100`, `FUN_18000c600`,
+`FUN_18000c1c0` and `FUN_18000baf0` above; decompile for what `FUN_18000bcf0` writes and for `FUN_18007d260`.*
+
+**`PhysicsHull` follows this table since B404.** `PhysicsHull.Load` names the branch; `Read` and
+`MassProperties` answer nothing for a NULL, read a tagged surface from `+0x1C` for its data size whatever its
+magic, and read an untagged one from its first byte. `PhysicsModel.Read` refuses a file carrying a corrupt
+solid with `InvalidDataException`, and the map's collision reader stops before the model carrying one — a map's
+solids are `VCollideLoad`'s input too, which Valve's own lump swapper shows (`bsplib.cpp:1681`). *That
+`engine.dll` loads `LUMP_PHYSCOLLIDE` through `VCollideLoad` is not read.* Two departures, both D32: a tagged
+solid too short for its own header is NULL where the loader reads past it, and a data size larger than the
+solid is cut to the solid.
+
+**Which rows shipped content takes: the first, every time.** The `phy-solids` probe (2026-09-12) walked the
+4,755 `.phy` files in `tf2_misc_dir.vpk`, holding 5,338 solids, and the collision lumps of all 234 installed
+maps, holding 31,579. On both populations alike:
+
+| field | every shipped solid |
+|---|---|
+| tag | `VPHY` — no solid is untagged |
+| word at `+4`, unread | `0x0100` |
+| type at `+6` | `0` |
+| data size at `+8` | the size prefix less `0x1C` |
+| surface magic, unread on this branch | `IVPS` — **the control** that the offsets beside it are right |
+| `PhysicsHull.Load` | `Collide`, with mass properties and at least one ledge |
+
+The walk's own controls hold: `PhysicsModel` walked the same solid count in all 4,755 files and refused none,
+and the maps' models declare exactly the 31,579 solids found. **So the table's other seven rows are for content
+TF2 did not compile** — an old `.phy`, a stranger's map — and are pinned by synthetic bytes alone. *Evidence
+class: measured, on this install.*
 
 ### The ledge tree, and the ledge
 

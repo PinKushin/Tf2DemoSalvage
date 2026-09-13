@@ -101,7 +101,7 @@ public sealed class RagdollProbe : IProbe
         {
             physics = PhysicsModel.Read(physicsBytes);
         }
-        catch (InvalidOperationException failure)
+        catch (InvalidDataException failure)
         {
             output.WriteLine($"{model}: {failure.Message}");
             return;

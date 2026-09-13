@@ -287,8 +287,8 @@ public sealed class RagdollBody
     /// corpse posed by its animation. Said out loud rather than left as a silent improvement.
     ///
     /// **A solid whose surface carried no mass properties is the second** (B403). vphysics' per-solid load
-    /// loop, `FUN_18000a100`, leaves that solid's collide null — a `"Null physics model"`, or an old-format
-    /// solid whose magic is `MOPP` or unknown — and `RagdollAddSolid` passes it to `CreatePolyObject` and
+    /// loop, `FUN_18000a100`, leaves that solid's collide null — a `VPHY` solid of any type but 0, or an untagged
+    /// solid whose magic is `MOPP` or unknown (B404) — and `RagdollAddSolid` passes it to `CreatePolyObject` and
     /// dereferences the result on the next line (`ragdoll_shared.cpp:200-201`). No engine behaviour follows to
     /// copy; before B403 this answered with a made-up single inertia instead.
     /// </remarks>

@@ -1060,7 +1060,10 @@ run Tf2DemoSalvage.Animation.Tests animation 343
 # RagdollProps — the copy, the feign-death guard both ways, the no-install answer, and three that
 # only the engine's three-pass ORDER satisfies — plus the wiring case on TimelineMoments, which is
 # the only one that fails if the suppliers stop reaching Fill.
-run Tf2DemoSalvage.Scene.Tests    scene     736
+# 736 -> 737 on 2026-09-12: DemoModelsTests, a loose .phy too short for its header costs BreakPiecesOf its gib
+# list instead of escaping its catch (B405) — the output-level case beside Content's two, with a well-formed
+# .phy in the same folder as the control that the folder is read at all.
+run Tf2DemoSalvage.Scene.Tests    scene     737
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1496,7 +1499,13 @@ run Tf2DemoSalvage.Presentation.Tests presentation 454
 # same blob walk as its hull (B403). Authored .phy with one VPHY blob.
 # 1165 -> 1166 on 2026-09-12: PhysicsHullConformanceTests, each edge word's bits 16-30 carried as a signed
 # edge offset for the vertex-face search's edge walk (B369). Compile-red first; an unsigned read reddened it.
-run Tf2DemoSalvage.Content.Tests  content   1166
+# 1166 -> 1186 on 2026-09-12: twenty for B404, what vphysics' per-solid loader makes of a solid it cannot use.
+# PhysicsHullConformanceTests 9 -> 24 — three REPLACED, since they tested MOPP and a zero magic on the tagged
+# path, where the loader reads no magic — PhysicsModelConformanceTests +3, MapCollisionConformanceTests +2.
+# Synthetic bytes; fourteen red against the old reader and the Load cases compile-red; sabotages in B404.
+# 1186 -> 1188 on 2026-09-12: PhysicsModelConformanceTests, a .phy too short for its header and one declaring a
+# header size of 20 both refuse with InvalidDataException, the type every Scene caller catches (B405).
+run Tf2DemoSalvage.Content.Tests  content   1188
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

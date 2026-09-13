@@ -134,7 +134,7 @@ public sealed class RagdollBodyConformanceTests
     /// <remarks>
     /// **A solid whose surface carried no mass properties is a solid the engine made no collide for, and the
     /// ragdoll is refused** (B403). vphysics' per-solid load loop, `FUN_18000a100`, leaves that solid's collide
-    /// null — a `"Null physics model"`, or an old-format solid whose magic is `MOPP` or unknown — and
+    /// null — a `VPHY` solid of any type but 0, or an untagged solid whose magic is `MOPP` or unknown (B404) — and
     /// `RagdollAddSolid` hands it to `CreatePolyObject` and dereferences the result on the next line
     /// (`ragdoll_shared.cpp:200-201`). There is no engine behaviour past that to copy, which is the same position
     /// a solid naming no bone is in, and it is refused the same way. **The control** is every other test here:

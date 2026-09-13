@@ -41,6 +41,22 @@ public readonly record struct PhysicsLedge(
 /// </remarks>
 public readonly record struct PhysicsMassProperties(Vector3 MassCenter, Vector3 RotationInertia);
 
+/// <summary>What vphysics' per-solid loader makes of one solid — the three ends of <c>FUN_18000a100</c> (B404).</summary>
+public enum PhysicsSolidLoad
+{
+    /// <summary>A collide, built from the solid's compact surface.</summary>
+    Collide,
+
+    /// <summary>
+    /// A NULL collide, which keeps the solid's slot: a <c>VPHY</c> solid of any type but 0, or an untagged solid
+    /// whose magic is <c>MOPP</c> or one the loader does not name.
+    /// </summary>
+    Null,
+
+    /// <summary><c>Error("Corrupt physics model")</c>, which stops the load: an untagged solid under 0x30 bytes.</summary>
+    Corrupt,
+}
+
 /// <summary>
 /// The collision hull inside a <c>.phy</c> solid or a map's <c>LUMP_PHYSCOLLIDE</c> entry (B58).
 /// </summary>
@@ -57,15 +73,20 @@ public readonly record struct PhysicsMassProperties(Vector3 MassCenter, Vector3 
 /// → `FUN_18000c1c0` in `vphysics.dll`.
 ///
 /// <code>
-/// solid blob, from its "VPHY" tag:
-///   +0x00  "VPHY"
-///   +0x04  short type       0 normal, 1 "Null physics model"
-///   +0x08  int32 dataSize   guarded by `if (param_2 &lt; 0x30) Error("Corrupt physics model")`
-///   +0x1C  IVP_Compact_Surface
+/// a solid, after its size prefix, as FUN_18000a100 tells the two kinds apart (B404):
+///   tagged     +0x00  "VPHY"
+///              +0x04  short, which the loader does not read
+///              +0x06  short type       0 builds; 1 "Null physics model", NULL; anything else NULL
+///              +0x08  int32 dataSize   how many bytes of surface the loader copies
+///              +0x0C  three floats the loader copies into the collide (meaning not decoded)
+///              +0x1C  IVP_Compact_Surface
+///   untagged   +0x00  IVP_Compact_Surface, when the solid is at least 0x30 bytes;
+///                     under that, Error("Corrupt physics model") and the load stops
 ///
 /// IVP_Compact_Surface, 0x30 bytes:
 ///   +0x20  int32 offset from the SURFACE's own base to the ledge-tree root
-///   +0x2C  magic: IVPS, SPVI (byte-swapped), MOPP (refused), or 0 (an old .phy, loaded anyway)
+///   +0x2C  magic, read ONLY for an untagged solid: IVPS or SPVI builds, 0 builds as an
+///          "Old format .PHY", MOPP or anything else is NULL
 ///
 /// IVP_Compact_Ledgetree_Node:
 ///   +0x00  offset_right_node     0 means LEAF
@@ -94,7 +115,16 @@ public readonly record struct PhysicsMassProperties(Vector3 MassCenter, Vector3 
 /// </remarks>
 public static class PhysicsHull
 {
-    /// <summary>Where <c>IVP_Compact_Surface</c> begins, from the solid's <c>VPHY</c> tag.</summary>
+    /// <summary><c>VPHY</c>, little-endian — what <c>FUN_18000a100</c> compares a solid's first word against.</summary>
+    private const int VphyTag = 0x59485056;
+
+    /// <summary>Offset of a tagged solid's type word, which the loader reads signed: <c>MOVSX ECX, word ptr [RDI + 0x6]</c>.</summary>
+    private const int TypeOffset = 0x06;
+
+    /// <summary>Offset of a tagged solid's data size — the length the loader copies from <see cref="SurfaceOffset"/>.</summary>
+    private const int DataSizeOffset = 0x08;
+
+    /// <summary>Where a TAGGED solid's <c>IVP_Compact_Surface</c> begins; an untagged solid's begins at its first byte.</summary>
     private const int SurfaceOffset = 0x1C;
 
     /// <summary>Bytes of <c>IVP_Compact_Surface</c>, and the minimum a solid can declare.</summary>
@@ -130,6 +160,9 @@ public static class PhysicsHull
     /// <summary><c>SPVI</c> — the same thing, byte-swapped.</summary>
     private const int Spvi = 0x49565053;
 
+    /// <summary><c>MOPP</c>, little-endian — Havok's own tree, which the loader nulls.</summary>
+    private const int Mopp = 0x50504F4D;
+
     /// <summary>
     /// **How deep a ledge tree may go before it is treated as malformed.** Not a Valve constant:
     /// the engine's own walk is recursive with no depth guard because it trusts its input, and this
@@ -137,45 +170,49 @@ public static class PhysicsHull
     /// </summary>
     private const int MaximumDepth = 64;
 
+    /// <summary>Which end of vphysics' per-solid loader one solid reaches (B404).</summary>
+    /// <param name="solid">The solid's bytes, after its size prefix.</param>
+    /// <returns>Whether the loader builds a collide from it, leaves its collide NULL, or refuses the file.</returns>
+    /// <remarks>
+    /// **Asked by the readers that walk solids, because only they can act on a refusal.** <see cref="Read(ReadOnlySpan{byte})"/>
+    /// and <see cref="MassProperties"/> answer nothing for a NULL and for a corrupt solid alike — neither has a surface —
+    /// so a caller that must stop the load when the engine would asks here.
+    /// </remarks>
+    public static PhysicsSolidLoad Load(ReadOnlySpan<byte> solid) => Locate(solid).Load;
+
     /// <summary>Reads the ledges of one solid.</summary>
-    /// <param name="solid">The solid's bytes, starting at its <c>VPHY</c> tag.</param>
+    /// <param name="solid">The solid's bytes, after its size prefix.</param>
     /// <returns>Every convex ledge, or an empty list when there is nothing readable.</returns>
     /// <remarks>
-    /// **`MOPP` is refused rather than guessed at.** It is Havok's own tree format and a different
-    /// structure entirely; the deserialiser rejects it too. A magic of `0` is an old `.phy` and the
-    /// engine loads it anyway, so this does as well.
+    /// **Only from a surface the loader would build** (<see cref="Load"/>). `MOPP` on an untagged solid is refused
+    /// rather than guessed at — it is Havok's own tree and a different structure entirely — while a tagged solid is
+    /// read whatever its magic, because the loader never looks.
     /// </remarks>
     public static IReadOnlyList<PhysicsLedge> Read(ReadOnlySpan<byte> solid)
     {
-        if (solid.Length < SurfaceOffset + SurfaceSize)
+        ReadOnlySpan<byte> surface = Surface(solid);
+
+        if (surface.IsEmpty)
         {
             return [];
         }
 
-        int surface = SurfaceOffset;
-        int magic = BitConverter.ToInt32(solid[(surface + MagicOffset)..]);
+        int root = BitConverter.ToInt32(surface[LedgeTreeOffset..]);
 
-        if (magic is not (Ivps or Spvi or 0))
-        {
-            return [];
-        }
-
-        int root = surface + BitConverter.ToInt32(solid[(surface + LedgeTreeOffset)..]);
-
-        if (root < 0 || root + NodeHeaderSize > solid.Length)
+        if (root < 0 || root + NodeHeaderSize > surface.Length)
         {
             return [];
         }
 
         List<PhysicsLedge> ledges = [];
 
-        Walk(solid, root, ledges, MaximumDepth);
+        Walk(surface, root, ledges, MaximumDepth);
 
         return ledges;
     }
 
     /// <summary>The same read, reporting how many leaves it could not turn into a ledge.</summary>
-    /// <param name="solid">The solid's bytes, from <c>VPHY</c> onward.</param>
+    /// <param name="solid">The solid's bytes, after its size prefix.</param>
     /// <param name="dropped">How many tree LEAVES produced no ledge.</param>
     /// <returns>The ledges the tree yields.</returns>
     /// <remarks>
@@ -194,21 +231,16 @@ public static class PhysicsHull
     {
         dropped = 0;
 
-        if (solid.Length < SurfaceOffset + SurfaceSize)
+        ReadOnlySpan<byte> surface = Surface(solid);
+
+        if (surface.IsEmpty)
         {
             return [];
         }
 
-        int surface = SurfaceOffset;
+        int root = BitConverter.ToInt32(surface[LedgeTreeOffset..]);
 
-        if (BitConverter.ToInt32(solid[(surface + MagicOffset)..]) is not (Ivps or Spvi or 0))
-        {
-            return [];
-        }
-
-        int root = surface + BitConverter.ToInt32(solid[(surface + LedgeTreeOffset)..]);
-
-        if (root < 0 || root + NodeHeaderSize > solid.Length)
+        if (root < 0 || root + NodeHeaderSize > surface.Length)
         {
             return [];
         }
@@ -216,7 +248,7 @@ public static class PhysicsHull
         List<PhysicsLedge> ledges = [];
         int leaves = 0;
 
-        Count(solid, root, ledges, MaximumDepth, ref leaves);
+        Count(surface, root, ledges, MaximumDepth, ref leaves);
 
         dropped = leaves - ledges.Count;
 
@@ -224,30 +256,98 @@ public static class PhysicsHull
     }
 
     /// <summary>Reads the mass center and rotation inertia from one solid's surface header.</summary>
-    /// <param name="solid">The solid's bytes, starting at its <c>VPHY</c> tag.</param>
+    /// <param name="solid">The solid's bytes, after its size prefix.</param>
     /// <returns>The mass properties, or null when there is no readable surface.</returns>
     /// <remarks>
-    /// **Refused wherever <see cref="Read(ReadOnlySpan{byte})"/> refuses**: a blob too short for a surface,
-    /// or a magic the engine does not load. Returned as IVP writes them — metres, IVP axes — for the one seam
-    /// that converts.
+    /// **Refused wherever <see cref="Read(ReadOnlySpan{byte})"/> refuses**: a solid whose collide the loader leaves
+    /// NULL or whose file it refuses, or a surface too short to hold these six floats. Returned as IVP writes them —
+    /// metres, IVP axes — for the one seam that converts.
     /// </remarks>
     public static PhysicsMassProperties? MassProperties(ReadOnlySpan<byte> solid)
     {
-        if (solid.Length < SurfaceOffset + SurfaceSize)
+        ReadOnlySpan<byte> surface = Surface(solid);
+
+        return surface.IsEmpty
+            ? null
+            : new PhysicsMassProperties(Triple(surface, MassCenterOffset), Triple(surface, RotationInertiaOffset));
+    }
+
+    /// <summary>The bytes the loader builds a collide from, or empty when it builds none.</summary>
+    /// <remarks>
+    /// **Empty too when those bytes cannot hold a surface** — a tagged data size under 0x30. The loader copies
+    /// that many and reads the surface anyway, which past the copy is uninitialised memory; this reads nothing (D32).
+    /// </remarks>
+    private static ReadOnlySpan<byte> Surface(ReadOnlySpan<byte> solid)
+    {
+        (PhysicsSolidLoad load, int surface, int length) = Locate(solid);
+
+        return load == PhysicsSolidLoad.Collide && length >= SurfaceSize
+            ? solid.Slice(surface, length)
+            : ReadOnlySpan<byte>.Empty;
+    }
+
+    /// <summary>Which of the loader's branches a solid takes, and where the surface it builds from lies.</summary>
+    /// <returns>
+    /// The outcome, and for <see cref="PhysicsSolidLoad.Collide"/> the surface's offset in the solid and the bytes
+    /// the loader copies from there: a tagged solid's data size, or an untagged solid's whole length.
+    /// </returns>
+    /// <remarks>
+    /// **Read from the disassembly of `FUN_18000a100`**, whose single-buffer twin `FUN_18000c600` takes the same
+    /// branches in the same order (`docs/findings/51`, *What the loader does with a solid it cannot use*):
+    ///
+    /// <code>
+    /// CMP   dword ptr [RDI], 0x59485056     ; "VPHY"
+    /// JNZ   untagged
+    /// MOVSX ECX, word ptr [RDI + 0x6]       ; 0: build from RDI + 0x1C, [RDI + 0x8] bytes
+    ///                                       ; 1: DevMsg(2, "Null physics model"), NULL; else NULL
+    /// untagged:
+    /// CMP   R14D, 0x30                      ; the size prefix, unsigned
+    /// JC    Error("Corrupt physics model")
+    /// MOV   EAX, dword ptr [RDI + 0x2c]     ; MOPP: NULL. IVPS, SPVI: build from RDI.
+    ///                                       ; 0: DevMsg(1, "Old format .PHY file loaded!!!"), build. else NULL
+    /// </code>
+    ///
+    /// **Two departures, both D32.** A tagged solid too short for its own header is NULL here, where the loader reads
+    /// past it; and a data size larger than the solid is cut to the solid, where the loader copies past it.
+    /// </remarks>
+    private static (PhysicsSolidLoad Load, int Surface, int Length) Locate(ReadOnlySpan<byte> solid)
+    {
+        if (solid.Length >= sizeof(int) && BitConverter.ToInt32(solid) == VphyTag)
         {
-            return null;
+            if (solid.Length < SurfaceOffset)
+            {
+                return (PhysicsSolidLoad.Null, 0, 0);
+            }
+
+            // Type 1 is the `"Null physics model"` the loader announces; every type but 0 ends NULL alike.
+            if (BitConverter.ToInt16(solid[TypeOffset..]) != 0)
+            {
+                return (PhysicsSolidLoad.Null, 0, 0);
+            }
+
+            int dataSize = BitConverter.ToInt32(solid[DataSizeOffset..]);
+
+            return (PhysicsSolidLoad.Collide, SurfaceOffset, Math.Clamp(dataSize, 0, solid.Length - SurfaceOffset));
         }
 
-        int surface = SurfaceOffset;
-
-        if (BitConverter.ToInt32(solid[(surface + MagicOffset)..]) is not (Ivps or Spvi or 0))
+        if (solid.Length < SurfaceSize)
         {
-            return null;
+            return (PhysicsSolidLoad.Corrupt, 0, 0);
         }
 
-        return new PhysicsMassProperties(
-            Triple(solid, surface + MassCenterOffset),
-            Triple(solid, surface + RotationInertiaOffset));
+        int magic = BitConverter.ToInt32(solid[MagicOffset..]);
+
+        // **In the loader's order: `MOPP` is compared first.** It changes no answer here, since the fall-through
+        // below nulls it too — and it is kept because it is what the engine tests, so loosening the last branch
+        // cannot quietly start building Havok's format. No input tells the two apart.
+        if (magic == Mopp)
+        {
+            return (PhysicsSolidLoad.Null, 0, 0);
+        }
+
+        return magic is Ivps or Spvi or 0
+            ? (PhysicsSolidLoad.Collide, 0, solid.Length)
+            : (PhysicsSolidLoad.Null, 0, 0);
     }
 
     /// <summary>Three little-endian floats.</summary>

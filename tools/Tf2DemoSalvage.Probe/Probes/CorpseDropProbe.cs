@@ -1270,8 +1270,10 @@ public sealed class CorpseDropProbe : IProbe
             return RagdollBody.Build(
                 PhysicsModel.Read(physicsBytes), StudioBones.Read(modelBytes));
         }
-        catch (Exception failure) when (failure is InvalidDataException or InvalidOperationException)
+        catch (InvalidDataException)
         {
+            // **Handled, not swallowed**: every reader here throws this for a file it refuses (B405), and a model
+            // whose .phy or .mdl will not read has no ragdoll to drop, which is what null tells the caller.
             return null;
         }
     }

@@ -26823,6 +26823,132 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B405 FIXED 2026-09-12: a `.phy` too short for its header, or declaring another header size, escaped every Scene reader's catch
+
+**Found writing B404.** `PhysicsModel.Read` refused both headers with `InvalidOperationException`. Its Scene
+callers catch something else: `PropModels.ReadRagdoll`, `PropModels.ReadBreakPieces` and `MapPropCollision.Read`
+catch `InvalidDataException or ArgumentException`, and `DemoModels.BreakPiecesOf` catches only
+`InvalidDataException`. Each of them says a `.phy` it cannot parse costs that model its physics rather than the
+load (D32), and none of them could keep that promise for these two. Only the probes caught the type thrown.
+
+**What Valve does with the same header.** The game's own `.phy` loader is in `datacache.dll`, which the public
+SDK does not carry, *and it is not read*. Valve's tools refuse exactly these files:
+`if ( header->size != sizeof(*header) || header->solidCount <= 0 ) return false;` (`vradstaticprops.cpp:520`,
+and the same line at `glview.cpp:770`). `studiobyteswap.cpp:510` instead treats `size` as the offset of the
+solids. **Not established:** whether the game refuses a header size other than 16 or skips by it; and ours does
+not refuse `solidCount <= 0`, which both tools do.
+
+**The fix: one exception type for a malformed `.phy`.** Both header refusals throw `InvalidDataException`, the
+type B404's corrupt solid throws and the type every Scene caller catches. `RagdollProbe`, `CorpseDropProbe` and
+the `phy-solids` probe catch it instead of `InvalidOperationException` — `CorpseDropProbe`'s one catch also
+covers `StudioBones.Read`, which throws only `InvalidDataException`, so nothing it caught before is lost.
+
+**Three tests, red first.** `PhysicsModelConformanceTests` holds a four-byte file and an otherwise well-formed
+one-solid `.phy` whose header declares size 20, both expected to throw `InvalidDataException`; both failed on
+the old reader, which threw `InvalidOperationException`. **And the one that can see the wiring**:
+`DemoModelsTests.BreakPiecesOf_APhyTooShortForItsHeader_IsEmptyRatherThanThrowing` writes a four-byte loose
+`.phy` into a temp `tf` folder, beside a well-formed one with a `break` block as the control that the folder is
+read at all, and asks the real `DemoModels.BreakPiecesOf`. It failed with the exception escaping the catch —
+`System.InvalidOperationException : a .phy is at least 16 bytes of header; this one is 4`. Content 1186 → 1188,
+Scene 736 → 737.
+
+**Two sabotages, each restored.** The short-file refusal put back to `InvalidOperationException` reddened its
+Content case AND the Scene case; the header-size refusal put back reddened only its own Content case.
+
+### B404 FIXED 2026-09-12: the hull reader takes every solid for a `VPHY` one, never reads its type, and checks a magic the loader does not
+
+**Found closing B403**, whose last paragraph leaned on vphysics' per-solid load loop `FUN_18000a100` from its
+decompile. That loop is now settled in the disassembly, with its single-buffer twin `FUN_18000c600`, and the
+table of what it does with each kind of solid is `docs/findings/51`, *What the loader does with a solid it
+cannot use* — not restated here.
+
+**The engine, in one sentence per kind:** a solid opening with a `VPHY` tag is built from `+0x1C` for the data
+size at `+8` when its signed type word at `+6` is zero, whatever its magic says, and is NULL for any other
+type; a solid with no tag IS its compact surface, refused with `Error("Corrupt physics model")` under `0x30`
+bytes, built for the magic `IVPS`, `SPVI` or `0`, and NULL for `MOPP` or anything else. A NULL keeps its slot.
+
+**Ours, four ways off:**
+
+- `PhysicsHull.Read` and `MassProperties` took every solid's surface from `+0x1C` — so an untagged solid,
+  which is its own surface, was read from 28 bytes into its own ledges;
+- neither read the type word, so a `"Null physics model"` produced a hull and a mass;
+- the surface was bounded by the size prefix rather than the data size the loader copies;
+- and a tagged solid whose magic was `MOPP` or unknown was refused, where the loader never reads the magic
+  on that branch — checked past the loader too: `FUN_18000c1c0` and the convex walk it calls never read
+  `+0x2C`, and the `MOPP` constant appears in no function but the two loaders.
+
+Neither solid walker could refuse a file the loader refuses: `PhysicsModel` stopped silently at a zero-byte
+solid and read on past a short one, and the map reader did the same.
+
+**Also corrected, in `docs/findings/51`:** its container block named the word at `+4` the type, called `+6`
+reserved, and hung the `0x30` guard on the data size. The disassembly reads `+6`, never `+4`, and compares the
+size PREFIX, on the untagged branch only.
+
+**Measured on shipped content: nothing moves.** The `phy-solids` probe walked all 4,755 `.phy` files in
+`tf2_misc_dir.vpk` (5,338 solids) and all 234 installed maps (31,579 solids). Every solid is `VPHY`-tagged with
+type 0, a data size equal to its prefix less `0x1C`, and an `IVPS` surface, so every one reaches `Collide` with
+mass properties and ledges, as it did before. The census table is in `docs/findings/51`. **The divergence is
+real and latent:** it bites an old untagged `.phy`, a `"Null physics model"`, or a stranger's map, and TF2 ships
+none of them. The corrected container reading would not have been latent: the word it called the type is
+`0x0100` on every shipped solid.
+
+**The fix.** `PhysicsHull.Load` answers which end a solid reaches (`PhysicsSolidLoad`: `Collide`, `Null`,
+`Corrupt`), from one private `Locate` written in the loader's branch order, `MOPP` test included though no
+input distinguishes it from the fall-through. `Read` and `MassProperties` read only the surface the loader
+builds: from `+0x1C` for the data size when tagged, from the first byte when not. `PhysicsModel.Read` throws
+`InvalidDataException` for a corrupt solid — the type every Scene caller already catches, so the model loses
+its physics rather than the load (D32) — and keeps a NULL's slot. The map reader stops before the model
+carrying a corrupt solid, a map's solids being `VCollideLoad`'s input too (`bsplib.cpp:1681`). A zero-byte
+solid is now an extent in both walkers, because the loader refuses it rather than skipping it. Two named
+departures, both D32: a tagged solid too short for its own header is NULL, and a data size past the solid is
+cut to the solid.
+
+**Twenty conformance tests, Content 1166 → 1186**, synthetic bytes. Run against the old reader first:
+fourteen red — both tagged-type-zero cases, type one, both other types, the data-size bound, all three
+untagged builds, both corrupt `.phy` cases, both corrupt map cases, and the NULL's slot. The two untagged
+`MOPP`/unknown cases were GREEN on the old reader by accident — it read their "magic" from `+0x48`, which in
+that fixture is an edge word, and refused it — so only sabotage can prove them. The `Load` cases were
+compile-red. Three old tests were replaced, not kept: they asserted `MOPP` refused and a zero magic loaded on
+the TAGGED path.
+
+**Fifteen sabotages, each restored by its inverse edit** (run by a sonnet sabotage-verifier; the restored diff was
+byte-identical and the suite 47/47 after). Ten reddened exactly their own cases:
+
+| sabotage | reddened |
+|---|---|
+| tagged branch checks the magic | both tagged-type-zero cases, the classification case |
+| untagged surface taken from `+0x1C` | all three untagged builds, the `0x30` boundary, the NULL's slot |
+| corrupt at `<= 0x30` | the `0x30` boundary, the NULL's slot, the terminator fixture, both corrupt map cases |
+| corrupt answered as NULL | all three `Load` corrupt cases, both `.phy` refusals, both map stops |
+| zero dropped from the loadable magics | the zero-magic build, the classification case |
+| tagged-header length guard removed | both too-short cases |
+| `PhysicsModel`'s refusal removed | both `.phy` refusals |
+| `PhysicsModel` skipping a zero-byte solid | the zero-byte refusal only |
+| the map reader's stop removed | both corrupt map cases |
+| the map reader skipping a zero-byte solid | the zero-byte map case only |
+
+**Five could not be observed as first written** — reading the type from `+4`, building every type, ignoring the
+data size, building an unknown magic, and removing the `MOPP` test each deleted the only use of a private
+constant or local, and Sonar and the .NET analyzers failed the build (`S1144`, `CA1823`, `S1481`, `S3923`) before
+any test ran. `docs/memory/most-of-a-decoder-is-untested.md` already said so; the sabotage list should have been
+written from it. **So a second pass rewrote each to keep every name referenced**, and all compiled:
+
+| sabotage | reddened |
+|---|---|
+| type read from `+4` (`TypeOffset - 2`) | thirteen: every tagged fixture, since each carries the `0x0100` shipped solids carry there and so reads as a type the loader nulls — and type one and both other types, which carry zero there and so build |
+| only type 12345 is NULL | type one, both other types, the classification case, the NULL's slot |
+| the data size ignored (`Math.Max`) | the data-size case only |
+| `QQQQ` added to the loadable magics | the unknown-magic case, the classification case |
+| the `MOPP` test pointed at `MOPP + 1` | **nothing** — predicted, and what its comment says: the fall-through nulls `MOPP` too |
+| that, and `MOPP` added to the loadable magics | the `MOPP` case, the classification case — the proof the `MOPP` case can fail at all |
+
+Restored byte-identical after both passes; 49 of 49.
+
+**Closed with these not established:** what `CreatePolyObject` does with a NULL collide (B403's open item);
+that `engine.dll` loads `LUMP_PHYSCOLLIDE` through `VCollideLoad`; and what the three floats a tagged header
+carries at `+0x0C` mean — the loader copies them into the collide at `+0x10..+0x18`, where an untagged solid
+keeps `1.0f` each.
+
 ### B403 FIXED 2026-09-12: a corpse's bodies turn about the bone origin with one inertia, where IVP turns them about the hull's mass center with three
 
 **Found while porting the time-of-impact transform (B369), because a premise written into the code
