@@ -26082,7 +26082,11 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    queue, and where the far branch hands a pair off*): `FUN_180099380` as `IvpPairScheduler` and the min-list as
    `IvpMinList` — also not on the running path. **The far branch's filing is not**: past its threshold, a pair asked
    to be removed goes to IVP's hull manager (`FUN_180098dd0`, then `FUN_180097bd0`/`FUN_180097c40` into each object's own
-   min-list), whose object fields and firing are unread, and the port refuses it by name.
+   min-list), whose object fields and firing are unread, and the port refuses it by name. **The event loop
+   `FUN_18008a110` and the fire routine `FUN_1800992e0` are ported too**, as `IvpTimeManager` and `IvpMindistFire`, the
+   collision handed in: **the collision's own path — `FUN_18008ecb0` and `FUN_18008ef60` — is read to its first callees
+   and is a subsystem** (friction-system creation and merging, the listeners, a solve loop bounded at 5000, core
+   revival), recorded in `docs/findings/51` and unported; `IvpContact` covers only the solver at its centre.
    Still unread or unported beneath the
    fire routine: the impact itself (`FUN_18008ef60`), the
    mindist's virtual `+0x28` target (`FUN_1800947e0` reports to the environment's `+0x40` object), friction, and

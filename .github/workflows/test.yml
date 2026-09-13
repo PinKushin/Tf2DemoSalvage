@@ -353,7 +353,8 @@ jobs:
           # 424 -> 462 on 2026-09-13: the other three times of impact and their seven evaluators (38) (B369). Synthetic.
           # 462 -> 473 on 2026-09-13: IvpImpactDispatchConformanceTests (11) (B369). Synthetic.
           # 473 -> 501 on 2026-09-13: IvpMinListConformanceTests (7), IvpPairSchedulerConformanceTests (21) (B369). Synthetic.
-          ./build/assert-test-count.sh '**/animation.trx' 501 Animation
+          # 501 -> 512 on 2026-09-13: IvpTimeManagerConformanceTests (5), IvpMindistFireConformanceTests (6) (B369). Synthetic.
+          ./build/assert-test-count.sh '**/animation.trx' 512 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView

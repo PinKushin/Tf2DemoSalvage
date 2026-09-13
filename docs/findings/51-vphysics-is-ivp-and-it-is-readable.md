@@ -1009,6 +1009,14 @@ That is now the single remaining link between this loop and the constraint solve
 *Evidence class: read from the decompiled binary; vtable slot, xref and both constructor/destructor
 chains independently confirmed.*
 
+**Read again from the disassembly for the port (2026-09-13)** (`event_loop_8a110.log`), three points the text above does
+not carry. **The loop runs while the minimum is under `(float)(target − base)` or either is NaN** — `COMISS` then `JNC`
+to skip it, `JC` to repeat — the limit narrowed with `CVTPD2PS` at the top and `CVTSD2SS` at the bottom, which round
+alike. **The minimum is captured before the unlink**, and both clocks are set from it. **`FUN_180082460` is `env+0x1a0
++= 1; env+0x188 = time`**, so every clock set is counted, the final snap to the target included. The slot unlinked is
+the head element's own `+0x8`. **Ported as `IvpTimeManager`, and the fire routine as `IvpMindistFire`** with the
+minimize, the scheduler and the impact handed in; the fire routine's profiler marks are not carried.
+
 ## From reading to code: what is now transcribed
 
 **The physics work has crossed from reading into implementation**, and only the parts that were read
@@ -2875,6 +2883,32 @@ are metres and are converted**; the rest are times, ratios or already inches.
 *Evidence class: read from the disassembly for all six routines. Not established: the min-list's constructor, the hull
 manager beyond the two routines named, and what the object byte `+0x78`'s low three bits mean — the motion cache
 reads `≥ 8` as not moving, which says nothing about `& 7`.*
+
+**What the fire routine's collision call does, read to its first layer of callees (2026-09-13)** (`impact_8ef60.log`,
+`impact_callees.log`), because it is the next thing under the ported scheduler and it turns out to be a subsystem, not a
+routine:
+
+- **`FUN_18008ecb0`, the plain mindist's `+0x40`**: wakes both synapse objects (`FUN_180074360` — state `8` only, through
+  `FUN_1800758e0`), counts itself in the environment arena's user count (`env+0xf8`, `+0x20`; the arena is reset by
+  `FUN_180072970` when the count returns to zero), revives each core whose state byte `+0x1` is under `8` and whose
+  flags lack `0x10` (`FUN_180078d60`: a `+0x260` record from the arena, the rotation slerped and filled to now through
+  `FUN_180071060` and `FUN_180071330`, the position advanced `+0x150 + (float)(now − +0x1d0)·+0x170`, and — unless flags
+  `& 8` — the angular velocity rebuilt from the step's rotation through `FUN_1800d392c` three times, scaled by `2·+0x1d8`),
+  increments `env+0x1a4`, and calls `FUN_18008ef60(mindist, object 0, object 1)`.
+- **`FUN_18008ef60`**: finds or builds the pair's friction system (`FUN_180090e50`, which merges systems, allocates
+  `0x90`/`0x18` records, and hands islands between cores' `+0x1f8`), finds the pair's record in it by both cores
+  (`FUN_1800850b0`), stamps the record's time and the event's float `dt`, calls the environment's collision listeners
+  flagged `8` (`FUN_180082170`, slot 0, a list at `env+0x148`, count `+0x142`) and each object's listeners flagged `8`
+  when its flags hold `0x2000` (`FUN_180088800`), computes a float from both cores' angular velocities `+0x130`, the
+  material at `+0x70` and `DAT_18012d544` (`FUN_18008fca0`), runs the impact through `FUN_18008ed60` — the entry to the
+  solver `IvpContact` already carries — negates the pair's normal for a core flagged `2` around **`FUN_180090700`, which
+  adds the pair to the friction system and loops its solve up to `0x1388` times** before tailing into `FUN_1800909d0`,
+  restores the normal, and calls the same listeners flagged `1` (slot 1: `FUN_180082110`, `FUN_1800886c0`).
+
+**None of that is ported, and it is named here so the gap is honest**: `IvpContact` was ported from the decompiled solver
+before any of this was read, and the friction system around it — creation, merging, the solve loop, the listeners — has
+no counterpart. *`FUN_18008fca0`'s float being an impact strength is INFERRED from its inputs; `FUN_1800d392c` is taken
+to be an inverse trigonometric helper from its use, not from a name.*
 
 ### The minimize, routine by routine (2026-09-12)
 

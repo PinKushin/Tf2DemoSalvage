@@ -33,7 +33,7 @@ public readonly record struct IvpSynapse(IvpLedgeEdge Feature, IvpFeatureKind Ki
 /// `+0x20`, whose bits 8–9 name synapse A; the two synapse records from `+0x28`; the extra radius at `+0x98`; `+0x9c`;
 /// the length at `+0xa8`; the normal at `+0xb0`; and the step the minimize last ran in, at `+0xc0`.
 /// </remarks>
-public sealed class IvpMindist
+public sealed class IvpMindist : IIvpTimeEvent
 {
     private readonly IvpSynapse[] _synapses;
 
@@ -52,6 +52,9 @@ public sealed class IvpMindist
 
     /// <summary>Which synapse record is synapse A — <c>(flags &gt;&gt; 8) &amp; 3</c>.</summary>
     public int SynapseA => (Flags >> 8) & 3;
+
+    /// <summary>The margin class — the flags' byte at bits 22–29, which picks <see cref="IvpCollisionTolerance.MarginFor"/>'s margin.</summary>
+    public int MarginClass => (Flags >> 22) & 0xFF;
 
     /// <summary>The extra radius at <c>+0x98</c>, which every length is written less.</summary>
     public float ExtraRadius { get; }

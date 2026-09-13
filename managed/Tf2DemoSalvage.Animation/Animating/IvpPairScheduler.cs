@@ -170,7 +170,7 @@ public static class IvpPairScheduler
             mindist.QueueSlot = null;
         }
 
-        float margin = IvpCollisionTolerance.MarginFor((mindist.Flags >> MarginClassShift) & KindMask);
+        float margin = IvpCollisionTolerance.MarginFor(mindist.MarginClass);
         double length = mindist.Length;
 
         if (length > ((double)(float)environment.Step * totalBound * FarReach) + margin)
@@ -204,7 +204,7 @@ public static class IvpPairScheduler
         IvpImpact impact = timeOfImpact(
             new IvpImpactContext(ApproachSpeed: closing, TotalBound: totalBound, Start: now, End: end),
             new IvpMindistState(
-                mindist.ExtraRadius, mindist.Length, (mindist.Flags >> MarginClassShift) & KindMask, mindist.Normal));
+                mindist.ExtraRadius, mindist.Length, mindist.MarginClass, mindist.Normal));
 
         if (impact.Event is not int kind)
         {

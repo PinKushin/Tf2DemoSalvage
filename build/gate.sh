@@ -714,7 +714,9 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # Synthetic.
 # 473 -> 501 on 2026-09-13: IvpMinListConformanceTests (7) and IvpPairSchedulerConformanceTests (21), the time manager's
 # event queue and FUN_180099380 (B369). Compile-red first; five sabotage rounds, eleven breaks, all caught. Synthetic.
-run Tf2DemoSalvage.Animation.Tests animation 501
+# 501 -> 512 on 2026-09-13: IvpTimeManagerConformanceTests (5) and IvpMindistFireConformanceTests (6), the event loop
+# FUN_18008a110 and the fire routine FUN_1800992e0 (B369). Synthetic.
+run Tf2DemoSalvage.Animation.Tests animation 512
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
