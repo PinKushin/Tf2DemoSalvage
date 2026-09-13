@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 public static class IvpVector
 {
     /// <summary><c>DAT_1800f4f20</c>: the squared length below which a vector has no direction.</summary>
-    private const double DirectionThreshold = 1e-19d;
+    internal const double DirectionThreshold = 1e-19d;
 
     /// <summary><c>DAT_1800ee388</c>.</summary>
     private const double Half = 0.5d;
@@ -88,14 +88,24 @@ public static class IvpVector
     /// several percent off, and four steps of `r · ((0.5 − (r·r)·(x·0.5)) + 1.0)` leave some inputs a few
     /// ulps from `1/√x`. Those are the engine's bits, so they are these.
     /// </remarks>
-    public static double ReciprocalSquareRoot(double square)
+    public static double ReciprocalSquareRoot(double square) => ReciprocalSquareRoot(square, NewtonSteps);
+
+    /// <summary>The same guess and step, taken a given number of times — for the engine's inlined copies.</summary>
+    /// <param name="square">The value to take the reciprocal root of.</param>
+    /// <param name="steps">How many Newton steps the copy takes.</param>
+    /// <returns>The root after that many steps.</returns>
+    /// <remarks>
+    /// `FUN_180099d60` inlines the routine with FIVE steps where `FUN_18006ecf0` takes four; the guess and the
+    /// step's instruction order are the same in both.
+    /// </remarks>
+    internal static double ReciprocalSquareRoot(double square, int steps)
     {
         int high = (int)(BitConverter.DoubleToInt64Bits(square) >> 32);
         int guessHigh = ((InfinityHighWord - high) >> 1) + GuessBias;
         double root = BitConverter.Int64BitsToDouble((long)((ulong)(uint)guessHigh << 32));
         double halfSquare = square * Half;
 
-        for (int step = 0; step < NewtonSteps; step++)
+        for (int step = 0; step < steps; step++)
         {
             root *= (Half - (root * root * halfSquare)) + One;
         }

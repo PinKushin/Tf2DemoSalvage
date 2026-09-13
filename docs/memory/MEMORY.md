@@ -136,3 +136,4 @@
 - [The first step of a sequence is not the culprit](the-first-step-of-a-sequence-is-not-the-culprit.md) — skip exactly one; six agreeing logs agreed about the order.
 - [A native API wrapper owns a library handle](a-native-api-wrapper-owns-a-library-handle.md) — GetApi loads a fresh copy, Dispose is FreeLibrary; one per process.
 - [Gate once per merge, not per commit](gate-once-per-merge-not-per-commit.md) — ~15 min; iterate on the touched project plus a solution build.
+- [No task cards](no-task-cards.md) — D169; do side work yourself or with a reviewed sonnet subagent; a card hits the same files.

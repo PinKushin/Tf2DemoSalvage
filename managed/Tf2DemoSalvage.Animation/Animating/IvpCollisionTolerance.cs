@@ -53,6 +53,41 @@ public static class IvpCollisionTolerance
     /// </summary>
     public const float Epsilon = EpsilonShare * Margin;
 
+    /// <summary><c>0.1</c>: <c>block[0x49]</c> as a share of the tolerance.</summary>
+    private const float EdgeTargetShare = 0.1f;
+
+    /// <summary>
+    /// <c>block[0x49] = 0.1·d</c>, <c>DAT_18012d664</c>, in Source units: the factor on the face core's
+    /// <c>+0x54</c> in the vertex-face search's edge target.
+    /// </summary>
+    public const float EdgeTargetScale = EdgeTargetShare * Margin;
+
+    /// <summary><c>block[1]</c>, where the margin ramp starts: <c>0.1·d + 0.9·d</c>.</summary>
+    private const float RampStart = Margin;
+
+    /// <summary><c>block[0x42]</c>, where the margin ramp ends — also <c>d</c>.</summary>
+    private const float RampEnd = Margin;
+
+    /// <summary>How many margins the ramp holds, <c>block[2]</c> through <c>block[0x41]</c>.</summary>
+    private const int RampEntries = 64;
+
+    /// <summary>The margin for a class — <c>DAT_18012d548[class]</c>, which is <c>block[2 + class]</c>.</summary>
+    /// <param name="marginClass">The mindist's byte at bits 22–29 of its <c>+0x20</c>.</param>
+    /// <returns>The margin, in Source units.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="marginClass"/> is off the 64-entry ramp.</exception>
+    /// <remarks>
+    /// **`block[1] + (block[0x42] − block[1]) · class / 64`, and both ends are `d`**, so the whole ramp is the
+    /// margin. The engine indexes by a byte and past 63 reads the block's later fields; what sets the byte is
+    /// not read, so a class off the ramp is refused rather than answered.
+    /// </remarks>
+    public static float MarginFor(int marginClass)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(marginClass);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(marginClass, RampEntries);
+
+        return RampStart + ((RampEnd - RampStart) * marginClass / RampEntries);
+    }
+
     /// <summary>The closing speed below which the pair scheduler leaves a pair alone.</summary>
     /// <param name="gravity">Gravity's magnitude in Source units per second squared.</param>
     /// <returns>The threshold in Source units per second.</returns>

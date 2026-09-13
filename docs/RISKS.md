@@ -26049,9 +26049,24 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    was replaced before sabotage by an evaluator whose estimates all stay above the target at a
    fifty-first of the bracket.
 5. **The vertex-face time of impact** (`FUN_1800a1b50`) — target `margin + extra`, tolerance
-   `0.5·extra + ε`; event `0x20` on a root, then the vertex's edge ring for event `0x21`.
+   `0.5·extra + ε`; event `0x20` on a root, then the vertex's edge ring for event `0x21`. **In progress,
+   2026-09-12:** read again field by field (`docs/findings/51`, *`FUN_1800a1b50` field by field*), which
+   corrected its first argument from the mindist to a search context and settled the three runtime globals
+   and both core fields it reads. Done so far: `PhysicsLedge.EdgeOffsets` carries each edge word's hop
+   (`8eb0a6dc`), `IvpLedgeTopology` walks the ring by the engine's address arithmetic (`6a675f13`), the
+   evaluators carry their speeds and the margin table is ported (`3709b383`), and **`IvpVertexFaceSearch`
+   is the routine**, instruction for instruction, with twelve conformance tests over a falling vertex and a
+   tetrahedron's edges. **Not yet on the running path.** What it still needs from step 6: a search context
+   per pair (its approach speed and the PSI), the mindist's extra radius, length and margin class, each core's
+   angular bound (`FUN_180099d60`, unported) and `+0x54` (`0.5f / (surface radius + object extra)`), and the
+   ledge edge offsets carried from `PhysicsLedge` through `RagdollBody` to the body.
 6. **The pair scheduler's near branch** (`FUN_180099380`) and the time-ordered event loop that
    consumes events inside the PSI — the piece that replaces the fixed step's speculative contacts.
+   **Read instruction by instruction, 2026-09-12** (`docs/findings/51`, *The scheduler's near branch and the
+   dispatch into the search*). **Its scope is larger than this line said**, and saying so is the point: an event
+   the scheduler queues is resolved by the mindist event's own fire routine — the impact itself, unread — and a
+   pair the far branch parks comes back through the travel allowances `FUN_180097bd0` installs, also unread. The
+   branch's decision logic can be ported on its own; replacing the fixed step needs both of those as well.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 

@@ -25,13 +25,27 @@ public sealed class IvpPointPlaneEvaluatorConformanceTests
     private static readonly IvpMatrix Identity = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d));
 
     /// <remarks>
+    /// **The search context's speed is stored with one over it** at `+0x08` and `+0x10` (`1800a1c92`–`1800a1cbc`),
+    /// the pair both root finders read.
+    /// </remarks>
+    [Test]
+    public void ForFace_AnApproachSpeed_IsCarriedWithOneOverIt()
+    {
+        IvpPointPlaneEvaluator evaluator =
+            IvpPointPlaneEvaluator.ForFace((1f, 2f, 5f), (0f, 0f, 3f), (1f, 0f, 3f), (0f, 1f, 3f), 8d);
+
+        evaluator.ApproachSpeed.ShouldBe(8d);
+        evaluator.InverseApproachSpeed.ShouldBe(0.125d);
+    }
+
+    /// <remarks>
     /// Both bodies at the identity: the vertex `(1, 2, 5)` is two units above the face at `z = 3`.
     /// </remarks>
     [Test]
     public void Distance_AVertexAboveAFaceWithBothBodiesUnmoved_IsTheHeightAbove()
     {
         IvpPointPlaneEvaluator evaluator =
-            IvpPointPlaneEvaluator.ForFace((1f, 2f, 5f), (0f, 0f, 3f), (1f, 0f, 3f), (0f, 1f, 3f));
+            IvpPointPlaneEvaluator.ForFace((1f, 2f, 5f), (0f, 0f, 3f), (1f, 0f, 3f), (0f, 1f, 3f), 1d);
 
         evaluator.Distance(Identity, Identity).ShouldBe(2d);
     }
@@ -46,7 +60,7 @@ public sealed class IvpPointPlaneEvaluatorConformanceTests
     public void Distance_WithTheFacesBodyTurnedAQuarterAboutX_MeasuresAlongTheTurnedNormal()
     {
         IvpPointPlaneEvaluator evaluator =
-            IvpPointPlaneEvaluator.ForFace((1f, 2f, 5f), (0f, 0f, 3f), (1f, 0f, 3f), (0f, 1f, 3f));
+            IvpPointPlaneEvaluator.ForFace((1f, 2f, 5f), (0f, 0f, 3f), (1f, 0f, 3f), (0f, 1f, 3f), 1d);
 
         IvpMatrix turned = IvpMatrix.FromRotation((0.70710677f, 0f, 0f, 0.70710677f), (0d, 0d, 0d));
 
@@ -63,7 +77,7 @@ public sealed class IvpPointPlaneEvaluatorConformanceTests
     public void Distance_WithBothBodiesTranslated_PlacesTheVertexByItsBodyAndTheFaceByTheOther()
     {
         IvpPointPlaneEvaluator evaluator =
-            IvpPointPlaneEvaluator.ForFace((1f, 2f, 5f), (0f, 0f, 3f), (1f, 0f, 3f), (0f, 1f, 3f));
+            IvpPointPlaneEvaluator.ForFace((1f, 2f, 5f), (0f, 0f, 3f), (1f, 0f, 3f), (0f, 1f, 3f), 1d);
 
         IvpMatrix vertexBody = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 1d));
         IvpMatrix faceBody = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 10d));
@@ -80,7 +94,7 @@ public sealed class IvpPointPlaneEvaluatorConformanceTests
     public void Distance_AgainstADegenerateFace_IsZero()
     {
         IvpPointPlaneEvaluator evaluator =
-            IvpPointPlaneEvaluator.ForFace((1f, 2f, 5f), (0f, 0f, 3f), (1f, 0f, 3f), (2f, 0f, 3f));
+            IvpPointPlaneEvaluator.ForFace((1f, 2f, 5f), (0f, 0f, 3f), (1f, 0f, 3f), (2f, 0f, 3f), 1d);
 
         evaluator.Distance(Identity, Identity).ShouldBe(0d);
     }
@@ -94,7 +108,11 @@ public sealed class IvpPointPlaneEvaluatorConformanceTests
     public void Distance_TermsThatRoundDifferentlyByGrouping_SumsXAndYBeforeZ()
     {
         IvpPointPlaneEvaluator evaluator = new(
-            Vertex: (1d, 1d, 1d), Normal: (0.1d, 0.2d, 2.2d), PlanePoint: (0d, 0d, 0d));
+            Vertex: (1d, 1d, 1d),
+            Normal: (0.1d, 0.2d, 2.2d),
+            PlanePoint: (0d, 0d, 0d),
+            ApproachSpeed: 1d,
+            InverseApproachSpeed: 1d);
 
         BitConverter.DoubleToInt64Bits(evaluator.Distance(Identity, Identity))
             .ShouldBe(BitConverter.DoubleToInt64Bits(2.5d));

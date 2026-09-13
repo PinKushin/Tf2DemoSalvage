@@ -2273,7 +2273,7 @@ synapses' feature kinds 0–3:
 
 | table | filled by | default | set entries |
 |---|---|---|---|
-| minimize, `DAT_18012d4b0` | `FUN_180094700` | `FUN_180094e10` | row 3 → `FUN_180094ad0`, `(3,3)` → `FUN_180094860`; the rest among `94c70`, `94c50`, `94c30`, `94c10`, `94f70` |
+| minimize, `DAT_18012d4b0` | `FUN_180094700` | `FUN_180094e10` | `(0,0) (0,1) (0,2) (1,1) (2,2)` → `FUN_180094c70`; `(1,0) (2,0)` → `FUN_180094f70`; `(0,3)` → `94c50`, `(1,3)` → `94c30`, `(2,3)` → `94c10` (six-instruction assertions); row 3 → `FUN_180094ad0`, `(3,3)` → `FUN_180094860` — read slot by slot from the initializer's disassembly, 2026-09-12. **`FUN_180094c70` builds both sides as the time-of-impact dispatch does and routes again**: `(0,0)` → `FUN_1800b1b80`, `(0,1)` → `FUN_1800b1aa0`, `(0,2)` → `FUN_1800b1910`, `(1,1)` → `FUN_1800afa40`, anything else — `(2,2)` — → `FUN_180094f80` (696 instructions); all unread |
 | time of impact, `DAT_18012d910` | `FUN_1800a3aa0` | `FUN_1800a4200` | `(0,0) (0,1) (0,2) (1,1)` → `FUN_1800a3fe0`; `(3,0) (3,1) (3,2)` → `FUN_1800a3d30`; `(3,3)` → `FUN_1800a3b60` |
 
 **Only eight of sixteen kind pairs are LEGAL at event time, and the default is not "no event" — it
@@ -2663,6 +2663,149 @@ read zero on disk and are runtime-initialized, so their values are not establish
 *Evidence class: read from the disassembly for `FUN_1800a3660`, `FUN_1800709f0`, `FUN_1800706c0`,
 `FUN_18006edb0` and the whole of `FUN_1800a1b50`; the float-route comparison is arithmetic, by exhaustive
 replication over 2–5000.*
+
+### `FUN_1800a1b50` field by field, read again for the port (2026-09-12)
+
+**The routine's first argument is not the mindist, and three paragraphs above say it is.** Re-read from the
+disassembly (`D:\ghidra-proj\out\toi_a1b50_disasm.log`): `RCX` is a search context whose `+0x10` is the pair's
+approach speed, `+0x20` a pointer to the mindist, `+0x30`/`+0x38` the interval's start and end, `+0x40` the event
+kind and `+0x48` the event time. **The extra radius `+0x98`, the length `+0xa8` and the flags `+0x20` are the
+MINDIST's**, reached through `[RCX+0x20]`. The other arguments: `RDX` the vertex's edge in ledge A, `R8` the face's
+edge in ledge B, `R9` side A — its point array at `+0`, its cache object at `+0x10` — and on the stack side B,
+with the same two fields plus its compact ledge at `+8` and its real object at `+0x18`.
+
+In order, with `time` the context's `+0x48`:
+
+1. Both motion caches built; **`time := end`**.
+2. The point-plane evaluator: speed `ctx+0x10` and `1.0 / speed`; the vertex, the face's first point, and its
+   normal from the face edge and the triangle's next and previous edges.
+3. `tolerance = (double)(0.5f·extra + DAT_18012d540)`, `target = (double)margin + (double)extra` with `margin =
+   DAT_18012d548[(mindist+0x20 >> 22) & 0xFF]`, and a KNOWN starting distance `(double)(extra + length)`, all float
+   sums widened. `FUN_1800b6210` gets these and `time`; on a root, **`kind := 0x20`**.
+4. The edge evaluator's speed: `(double)(coreA+0x80 + coreB+0x80)` summed in float, plus `1e-19`; and `1.0 /
+   speed`. Its target: `((double)MINSS(length, margin) + (double)(0.1f·extra)) × (double)(−(DAT_18012d664 ·
+   coreB+0x54)) / (double)margin`.
+5. `u = A.RotateInverse(B.Rotate(normal))` through the two cache objects' CURRENT matrices at `+0x40`, and the
+   slope limit `(double)(float)(time − start) × speed` — taken once, after step 3, so an `0x20` root shortens it.
+6. **The ring** (`IvpLedgeTopology.Ring`): for each edge leaving the vertex, `d = Q − P` in float, `slope =
+   ((d.x·u.x + d.y·u.y) + d.z·u.z) × (double)rsqrt_f((float)|d|²)`; unless `slope ≥ limit` (`COMISD`/`JNC`, so NaN
+   is refined), the edge evaluator is filled with the scaled direction and `FUN_1800b6590` runs from `start` to
+   `time`, handed the slope as its known distance; on a root, **`kind := 0x21`** and `time` moves earlier for every
+   edge after.
+
+**The three runtime globals are the collision-tolerance block**, already mapped above: `DAT_18012d540` is
+`block[0] = 0.1·d`, `DAT_18012d548[i]` is `block[2 + i]` — the flat ramp, `d` for `i` from 0 to 63 — and
+`DAT_18012d664` is `block[0x49] = 0.1·d`. *What sets the mindist's byte at bits 22–29 is not read*; past 63 it
+would index the block's later fields.
+
+**The two core fields**, from their writers:
+
+- **`core+0x80` is an angular speed bound**, written by `FUN_180099d60(core, v)`, which the integrator calls
+  every step: `x = |v|` by a reciprocal square root of **five** Newton steps — one more than `FUN_18006ecf0`,
+  from the same guess; an earlier draft of this line said four — (zero, with axis `(1, 0, 0)`, when `|v|² ≤
+  1e-19`), the unit axis into `core+0x1c0..0x1c8`, and `core+0x80 = (float)((2x + x³/3) + 2·0.40414·x⁵) ×
+  core+0x1d8`, the inverse step; `core+0x254 = core+0x80 × core+0x8`. **`v` is the vector part of the step's
+  rotation quaternion**: `FUN_180099fc0`, already ported as `IvpIntegrator.Rotate`, writes it to the stack slot
+  the call passes, so `|v|` is `sin(θ/2)` and the series bounds the step's angle — INFERRED from the arithmetic.
+  Ported as `IvpCoreSpeedBound.From`.
+- **`core+0x54 = 0.5f / core+0x4`**, written by `FUN_180076f80` beside the inverse inertia. **`core+0x4` and
+  `core+0x8` are set once, by `FUN_180078b90`**, from `FUN_180073df0`: the surface manager's slot `+0x10`
+  (`18007aeb0`) returns `radius = (float)((double)surface+0x18 + dist)` and `deviation = (float)((double)(byte
+  surface+0x1C × 0.004f × surface+0x18) + dist)`, `dist` being how far the surface's mass center is from the
+  centre asked about, and the object's float at `+0xe0` is added to the radius. *That `+0x18` is the ledge's upper
+  radius is INFERRED* from that use; `0.004f` is `DAT_1800fd1fc`, dumped.
+
+**Ported as `IvpVertexFaceSearch.Search`**, over `IvpLedgeTopology`, the two evaluators and `IvpRootFinder`.
+One parity point the tests pin that is easy to lose: **the point-plane search trusts the mindist's length**. It
+is handed `extra + length` as its starting distance and never measures slot 0, so a vertex whose mindist says it
+is an inch away is searched from an inch, wherever the vertex actually is.
+
+*Evidence class: read from the disassembly for `FUN_1800a1b50`, `FUN_180099d60`, `FUN_180076f80`,
+`FUN_180078b90`, the call in `FUN_180073df0` and `18007aeb0`; constants dumped.*
+
+### The scheduler's near branch and the dispatch into the search, instruction by instruction (2026-09-12)
+
+**Read from the disassembly of `FUN_180099380(mindist, removeFar, recheckMode)` and `FUN_1800a3fe0`**
+(`D:\ghidra-proj\out\scheduler_near_99380.log`), which replace the decompiler-level summary above in
+*The NEAR branch of `FUN_180099380`*.
+
+**The two synapses.** The mindist's flags at `+0x20` pick them: synapse `A` is record `(flags >> 8) & 3` and `B` is
+`((flags ^ 0x100) >> 8) & 3` — bit 8 flipped — each a `0x38`-byte record from `mindist+0x48` whose `+0x48` is its real
+object (the core is the object's `+0xe8`), whose `+0x50` is its feature pointer into a compact ledge, and whose word at
+`+0x5a` is its feature kind.
+
+**The search context is built on the scheduler's stack**, and it is the struct `FUN_1800a1b50` receives:
+
+| offset | holds |
+|---|---|
+| `+0x00` | `(double)(coreB+0x254 + coreA+0x254)`, the surface bounds summed in float |
+| `+0x08` | the linear closing speed, `(double)(n·vB) − (double)(n·vA)`, `n` the mindist's normal at `+0xb0`, `v` each core's `+0x140` |
+| `+0x10` | the closing speed: `(√(1.001 − (n·axisB)²)·coreB+0x254 + √(1.001 − (n·axisA)²)·coreA+0x254) + linear`, the axes at `+0x1c0` |
+| `+0x18` | the total bound, `((double)coreA+0x1dc + surface sum) + (double)coreB+0x1dc` |
+| `+0x20` | the mindist |
+| `+0x28` | the environment |
+| `+0x30`, `+0x38` | `env+0x188` (now) and `env+0x190` (the next PSI) |
+| `+0x40`, `+0x48` | the event kind and time the search writes |
+
+Each dot sums its `y` and `x` terms before `z`, in float.
+
+**The branch, in order:**
+
+1. A mindist still queued (`+0x8 ≠ 0xffff`) is taken out of the time manager (`FUN_180089f90`) and marked `0xffff`.
+2. **Far** when `length > (double)(float)env+0x108 × totalBound × 2.1 + margin`; the travel-allowance path read earlier.
+3. **Near:** left alone when the closing speed is under `1e-19` or NaN — the test against `block[0x45]` (the
+   closing-speed threshold) only decides whether the `1e-19` test is made, and a speed between the two goes on.
+4. Left alone when `length ≥ (double)(float)(end − now) × closing + margin`: it cannot touch this PSI.
+5. Left alone when `(flags & 0x3000) == 0x1000`.
+6. **The margin class decays.** If the class byte at bits 22–29 is not zero, `env+0x13c` is incremented, and when its
+   old value was over 2 the class is decremented and the counter zeroed — a pair drops one margin class every fourth
+   examination.
+7. **The time of impact** through `DAT_18012d910[kind(B) + kind(A)·4]`, handed the context.
+8. No kind written: done. Otherwise, **an event within `1e-6` of now** (`(float)(time − now)`, `COMISS`/`JNC`) is
+   handled by `recheckMode`: `0` puts the event at now; any other mode replaces the time with a recheck — `(length −
+   ε)` against a floor of `1e-12`, and then `now + (length − ε)·0.1 / totalBound + 1e-7·step` for mode 1 on an event
+   kind whose low four bits are zero, `now + (length − ε) / totalBound + 1e-4·step` for mode 2 or any other kind, and
+   `now + 1e-5·step` or `now + 0.001·step` respectively under the floor — each `step` being `(double)(float)env+0x108`
+   times `DAT_18012d670` (`1.0`). A recheck at or past the next PSI is dropped.
+9. **The event goes into the time manager** at `(float)(time − tm+0x28)` (`FUN_1800aaed0`), its slot stored at
+   `mindist+0x8` and the kind in the flags' low byte.
+
+**`FUN_1800a3fe0` builds the two sides and routes by kind.** For each synapse: the cache object (`FUN_180094680`,
+reference-counted and released at the end), the real object, and the compact ledge found FROM THE FEATURE POINTER — the
+feature's triangle is `pointer − (pointer & 0xF)`, and **the triangle's header word's low twelve bits are its index in
+the ledge**, so `triangle − (index + 1)·16` is the ledge and `ledge + [ledge]` its points. Then `(0,0)` → `FUN_1800a2b30`,
+`(0,1)` → `FUN_1800a1ff0`, `(0,2)` → `FUN_1800a1b50`, `(1,1)` → `FUN_1800a1420`, with synapse `A`'s feature as the first
+argument — **so in `(0,2)` the vertex is synapse `A`'s** — and anything else the assertion at `0x4cf`, `0x4da` or `0x4df`.
+
+**Corrected by this:** `PhysicsHull` says a triangle's header word *"is skipped and never read… nothing in the traced
+mindist path reads it either"*. The dispatch reads it on every search. *What else the header's upper twenty bits hold is
+not read.*
+
+*Evidence class: read from the disassembly; constants read beside their instructions (`2.1`, `1.001`, `1e-6`, `1e-12`,
+`0.1`, `1e-7`, `1e-5`, `1e-4`, `0.001`, all floats widened except `1e-12`).*
+
+### When a queued mindist fires
+
+**Its fire routine is `FUN_1800992e0(mindist, env)`**, slot 1 of both mindist vtables found — the plain one whose
+table has `FUN_180096250` before it and `FUN_18008ecb0` eight slots on, and the recursive one at `1800fe960` —
+read from the disassembly (`D:\ghidra-proj\out\mindist_fire_992e0.log`), between two profiler marks (`8`, `0xe`):
+
+1. **`FUN_180095cb0(mindist)` first** — the minimize, which walks the feature-pair table `DAT_18012d4b0` and
+   descends a hull node into its triangles — so the length, normal and features are recomputed at the event's
+   time before anything is decided.
+2. Flags `& 0xc000` set: nothing more.
+3. **An event kind whose low four bits are set** — `0x21`, the edge event — is rescheduled at once,
+   `FUN_180099380(mindist, 0, 1)`.
+4. **Otherwise the collision test:** `DAT_18012d664 + margin[class]` — `0.1·d + d` — against the new length. **Over
+   the length, the mindist's virtual `+0x40` runs** (`FUN_18008ecb0` in the plain table, `FUN_1800b2460` in the
+   recursive one); at or under it, or NaN, the pair is rescheduled with `FUN_180099380(mindist, 0, 2)`.
+
+**So an impact happens only when a vertex-face event's re-minimized length is inside `1.1·d`**, and a feature
+change never collides directly — it re-minimizes and re-queues. `FUN_18008ecb0` calls `FUN_18008ef60` between
+bookkeeping on both objects and cores; *that it is the impact solver is INFERRED from where it sits, and it is unread*.
+
+*Evidence class: read from the disassembly for `FUN_1800992e0` and the call list of `FUN_18008ecb0`; the vtable
+slots from a table scan.*
 
 **`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
 
