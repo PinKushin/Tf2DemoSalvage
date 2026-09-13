@@ -1,6 +1,6 @@
 ---
 name: no-task-cards
-description: Do not offer spawn_task cards for side work; do it in the main loop or hand it to a reviewed sonnet subagent
+description: Main session is the first mate - side work goes to reviewed sonnet subagents, never cards or sibling sessions, and the main session works every merge
 metadata:
   type: feedback
 ---
@@ -37,3 +37,26 @@ to do those, so you get to do it here or call a subagent"*. That session had sta
 written, and a running session's memory index is the snapshot from its own start — a rule another session
 records mid-flight never reaches it. **Before offering side work anywhere, grep the memory directory for the
 rule itself, not only the index that loaded at the start.** The work was then done in that session (B405).
+
+**2026-09-13, he widened it to sibling sessions and named the role**, while the main session merged that card's
+branch to main: *"and this is why i like subagents over chips/sibling agents, I need a "first mate" to oversee
+agents, so the work gets merged and done right. thats why i want you running subagents over chips, you get to
+see where the work is at and work the merges so nothing gets weird."*
+
+**What "this" was:** the card's branch, `fix/vphysics-solid-load-table`, had merged the in-progress B369
+branch into itself, so a branch named for a loader fix held forty-four commits, most of them another port. It
+had never been pushed or merged, its session raised the scope only when the merge was announced, and the
+owner had to be asked what main should get (D170).
+
+**How to apply, added:**
+
+- **The main session is the first mate.** It runs the subagents, knows what every branch holds, and does the
+  merges itself — gate, merge, push — so nothing is left for the owner to reconcile.
+- **Prefer a subagent over a sibling session as well as over a card.** Where sibling sessions already exist
+  (`git worktree list`, `ListAgents`), check what their branches hold against main before merging anything of
+  theirs, and coordinate through `SendMessage` rather than working in their worktrees unannounced.
+- **Once a sibling's work is merged, archive its session** (*"the siblling session is done after the merge it
+  can be deleted and archived"*). Archiving is reversible and the main session does it; deleting is permanent
+  and stays the owner's own click.
+
+Recorded as D171.
