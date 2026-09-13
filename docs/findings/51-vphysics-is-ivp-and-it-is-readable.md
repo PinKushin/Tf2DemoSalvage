@@ -3977,6 +3977,87 @@ return (float)((double)(q + q) + p)
 
 *`FUN_1800d33b0` is another runtime-library routine, unidentified; `core+0x4` is unread; `2.5e-5` is `DAT_1800fd860`, a double.*
 
+#### The collision's own path, instruction by instruction (`impact_entry.log`)
+
+**`FUN_18008ecb0` reads as the summary under *What the fire routine's collision call does* gives it**, with the state byte
+compared unsigned (`JNC`). What that summary compresses, and one thing it has wrong:
+
+**`FUN_180078d60(core)`**: the `0x40` arena record at `core+0x260` holds the angular velocity at `+0x0` (the second and third
+lanes round-tripped through a double), the thirty-two bytes at `core+0x1a0` at `+0x10`, and a zeroed dword at `+0x30` — what
+`FUN_180079120` puts back. `FUN_1800712b0(&v, core+0x180, core+0x1a0)` leaves three doubles. The slerp parameter is
+`(double)((float)(now − core+0x1d0)·core+0x1d8)`, a float product; the matrix's translation `+0xf0..0x100` is
+`(double)core+0x170..0x178·(double)(float)(now − core+0x1d0) + core+0x150..0x160` in double; and unless flags `& 8`, each
+angular velocity lane is `(float)(FUN_1800d392c(v)·(double)(core+0x1d8 + core+0x1d8))`, the doubling in float.
+
+**`FUN_18008ef60(mindist, object0, object1)`**:
+
+```
+unit = object0+0x78 < 8 (a signed byte) ? core1+0x1f8 : core0+0x1f8
+cp = FUN_180090e50(mindist, &system, &cp, unit, 1);   record = *(cp+0x70)
+pair = FUN_1800850b0(system, core0, core1)
+event: dt = (float)(now − pair+0x28), then pair+0x28 = now;  env;  record
+FUN_180082170(env, event);  for each object whose +0x78 has 0x2000: FUN_180088800(env+0x18, object, event)
+f = FUN_18008fca0(cp, env);   FUN_18008ed60(record, cores, f, cp)          -- cores: two pointers on this frame
+s = record+0x30, negated when core1's flags have 0x2
+FUN_180090700(block, mindist, system, pair, cp)       -- block: three vectors {word, word, pointer}, empty
+free each vector's storage (FUN_180003e20) unless it points just past that vector
+record+0x30 = s
+FUN_180082110(env, event);  for each object whose +0x78 has 0x2000: FUN_1800886c0(env+0x18, object, event)
+```
+
+*That summary says the call negates "the pair's normal" and restores it around `FUN_180090700`.* What is saved is
+`record+0x30` — the relative velocity `FUN_18008e290` wrote through `solver+0x148` — and it is written back after
+`FUN_180090700` negated when core 1 is flagged `0x2`, so a flagged pair leaves the call with it negated, not restored.
+
+**`FUN_18008fe70(solver, cp)`**, which `FUN_18008ed60` calls when `cp+0x64` is set, is two blocks, one per synapse, each run
+when its material's `+0xc` is nonzero. A synapse's material is its object's `+0xd0` when `FUN_1800863d0` answers zero, else
+slot 1 of the manager at `object0+0x30` → `+0xe8`, called with the object and that answer:
+
+```
+axis = FUN_180070130((float)object+0xf0's +0x90, +0xb0, +0xd0, n = record+0x20)   -- its first matrix column, less its part along n
+len = FUN_18006e120(axis)                                                    -- a double
+if !(len >= 1e-19): skip the block                                            -- COMISD/JC: a NaN skips
+p = other.slot1() · this.slot2()                                              -- vtable +0x8 and +0x10, doubles
+t = (√(double)solver+0x130 + 1.0)·(double)(float)((double)cp+0x78 − ((double)cp+0x78 − p)·len)
+x = (float)atan(t);  c = (1f − x²·0.5f) + (x²·(1/24f))·x²
+solver+0x100 = axis scaled by FUN_18006dff0;  solver+0xf4 = (float)((double)c·t)
+```
+
+**The second block overwrites the first's axis and `+0xf4`**, and `solver+0xf0` is one when either block got past its length
+test, zero otherwise.
+
+*Evidence class: read from the disassembly for all four routines. Not established: what the materials' slots 1 and 2 and
+`+0xc` are, what `cp+0x78` holds, and `FUN_1800d392c`.*
+
+#### The solver's direction, its push, and the velocities it reads (`friction_solve2.log`)
+
+- **`FUN_18008fc00(solver)`**: `solver+0xc0 = vB − vA` in float, each from `FUN_180077fa0(core, arm, v, ω)` over the solver's own
+  velocities — A's `+0x60`/`+0x40`, B's `+0x70`/`+0x50`.
+- **`FUN_180090240(solver)` — which way to push**:
+
+```
+d = solver+0xc0, scaled by FUN_18006dff0 (float, four steps, over 1e-19)          -- d is solver+0xd0
+k = (double)((d.x·n.x + d.y·n.y) + d.z·n.z)
+if k > 0:  d = solver+0xe0, scaled the same way;  return                            -- COMISD/JBE
+if solver+0xf0 != 0:  FUN_1800904a0(solver, k);  return
+if k > (double)−(solver+0x134):                                                     -- inside the cone's cosine
+    u = (float)((double)n·(double)−k + (double)d) per lane, scaled;  u = (float)((double)u·(double)solver+0x138)
+    d = (float)((double)n·(double)−(solver+0x134) + (double)u) per lane
+```
+
+- **`FUN_18008f1c0(solver, double j)` — the push along `d`**: `p = (float)((double)d·j)`; unless A is unmovable, `p` turned into A's
+  frame through its matrix's transpose, each lane `((y·m2i + x·m0i) + z·m4i)`, then `(solver+0xa0, solver+0x80) = FUN_180078f50(A,
+  armA, p′, p)` and `solver+0x40 += +0x80`, `solver+0x60 += +0xa0`; unless B is unmovable, the same with `p·−1f` into `+0xb0`/`+0x90`
+  and B's `+0x50`/`+0x70`. **The turn is `FUN_180070620` inlined**, with the same grouping.
+- **`FUN_180070620(m, v, out)`** turns a float vector by a double matrix's transpose — `((y·m20 + x·m00) + z·m40, (x·m08 + y·m28) +
+  z·m48, (x·m10 + y·m30) + z·m50)` — and narrows.
+- **`FUN_18006fc90(v)`** scales a float vector in place with the five-step root when its float-summed square, widened, reaches
+  `1e-19` (`DAT_1800f4f20`), and returns the length `s·squared`; under that, or NaN, it returns zero and leaves the vector alone.
+- **`FUN_1800770f0(core, r, d, w)` — a virtual mass**: `1.0` for a core flagged `0x10`; otherwise the unit push's effect —
+  `Δω = (r × d) ⊙ +0x40..0x48` in float and `Δv = (float)((double)w·(double)+0x4c)` — becomes a point velocity through
+  `FUN_180077fa0`, and the answer is `1.0 / FUN_18006e120(that velocity)`: **the reciprocal of the whole response's length, not
+  of its component along `d`**.
+
 #### The solver's helpers, and where the block and the fused paths are decided
 
 - **`FUN_180078f50(core, r, d, w, out Δv, out Δω)` — the effect of a unit push**: `Δω = (r × d) ⊙ (+0x40, +0x44, +0x48)` in float, the
