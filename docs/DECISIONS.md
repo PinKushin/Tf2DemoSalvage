@@ -8715,3 +8715,41 @@ to one subagent on `sonnet` (D168), scoped away from the files the main loop hol
 `PhysicsModel.cs` until it lands, and then merges it.
 
 Related: D145, D168, B369.
+
+## D170 — the sibling branch lands on main whole, the unwired B369 port with it (2026-09-13)
+
+**Asked what should land on main** when `fix/vphysics-solid-load-table` was to be merged and pushed, the
+owner chose **"Whole branch"**. The branch carries the loader fix (B404/B405), B403's core mass
+properties, and — merged into it at `ef22e894` — the B369 narrow-phase port up to `875cbf83`, none of
+which runs yet. The choices he did not take were cherry-picking the loader fix alone, which conflicts in
+`RISKS.md` and `findings/51`, and merging `fix/b369-ivp-narrow-phase` with its further eleven commits. He
+gave no reason beyond the choice.
+
+**What follows:** unwired B369 code and its synthetic conformance tests are on main, and main's gate floors
+count them. `fix/b369-ivp-narrow-phase` stays open for the rest of the port, and merging main back into it
+is conflict-free, since it already contains this branch.
+
+Related: D169, B369, B403, B404, B405.
+
+## D171 — the main session is the first mate: subagents over cards and sibling sessions, and it works the merges (2026-09-13)
+
+**The owner, while this session merged the B404 card's branch to main:**
+
+> *"and this is why i like subagents over chips/sibling agents, I need a "first mate" to oversee agents, so
+> the work gets merged and done right. thats why i want you running subagents over chips, you get to see
+> where the work is at and work the merges so nothing gets weird."*
+
+**What "this" was:** `fix/vphysics-solid-load-table`, the branch of the card D169 let run, had merged the
+in-progress B369 branch into itself, so a branch named for a loader fix held forty-four commits, most of them
+another port. It had never been pushed or merged; its session raised the scope only when this session
+announced the merge, and the owner had to be asked what main should get (D170).
+
+**So D169's preference becomes the working model.** The main session runs side work as reviewed subagents on
+`sonnet` (D168), not as cards or sibling sessions, keeps track of what every branch holds, and does the merges
+itself — gate, merge, push — so nothing is left for the owner to reconcile. Sibling sessions that already exist
+are coordinated through `SendMessage`, and their branches are checked against main before anything of theirs is
+merged. **Once its work is merged, a sibling session is archived**, at the owner's word on this one: *"the
+siblling session is done after the merge it can be deleted and archived"* — archiving is reversible and is
+done by the main session; deleting stays the owner's own click.
+
+Related: D145, D168, D169, D170.
