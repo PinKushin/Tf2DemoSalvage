@@ -95,6 +95,35 @@ public sealed class IvpMathConformanceTests
     public void Atan_AnArgumentTheBinaryWasAsked_AnswersItsBits(long argument, long expected) =>
         Bits(IvpMath.Atan(System.BitConverter.Int64BitsToDouble(argument))).ShouldBe(expected);
 
+    /// <remarks>
+    /// FUN_1800d33b0 below `π/4` on both of its paths: the series, under `2^-13`, under `2^-27`, and a negative
+    /// argument. Every value was answered by vphysics.dll called in process.
+    /// </remarks>
+    [TestCase(0x3fd3333333333333, 0x3fee921dd42f09ba, false)]
+    [TestCase(0x3fd3333333333333, 0x3fee921dd42f09ba, true)]
+    [TestCase(0x3f264840e1719f80, 0x3feffffff83e01d3, false)]
+    [TestCase(0x3f264840e1719f80, 0x3feffffff83e01d3, true)]
+    [TestCase(0x3e112e0be826d695, 0x3ff0000000000000, false)]
+    [TestCase(0x3e112e0be826d695, 0x3ff0000000000000, true)]
+    [TestCase(0x3fe9212d77318fc5, 0x3fe6a12ff5f42bd9, false)]
+    [TestCase(0x3fe9212d77318fc5, 0x3fe6a12ff5f42bd9, true)]
+    [TestCase(unchecked((long)0xbfe0000000000000), 0x3fec1528065b7d50, false)]
+    [TestCase(unchecked((long)0xbfe0000000000000), 0x3fec1528065b7d50, true)]
+
+    // Found by search: arguments whose last bit moves when the plain path adds its rounding back in another order, or
+    // the fused path's second-to-last step multiplies and adds in two.
+    [TestCase(0x3fe4e68f72713f8d, 0x3fe969e57de70333, false)]
+    [TestCase(unchecked((long)0xbfe5e986b39a2205), 0x3fe8c94d55538a65, true)]
+    public void Cos_AnArgumentTheBinaryWasAsked_AnswersItsBitsOnThatPath(long argument, long expected, bool fused) =>
+        Bits(IvpMath.Cos(System.BitConverter.Int64BitsToDouble(argument), fused)).ShouldBe(expected);
+
+    /// <remarks>The reduction past `π/4` is not ported, so an argument that would need it refuses.</remarks>
+    [TestCase(0x3ff0000000000000, false)]
+    [TestCase(0x3ff0000000000000, true)]
+    [TestCase(0x7ff8000000000000, false)]
+    public void Cos_AnArgumentPastQuarterPi_Refuses(long argument, bool fused) =>
+        Should.Throw<System.NotSupportedException>(() => IvpMath.Cos(System.BitConverter.Int64BitsToDouble(argument), fused));
+
     private static int Bits(float value) => System.BitConverter.SingleToInt32Bits(value);
 
     private static long Bits(double value) => System.BitConverter.DoubleToInt64Bits(value);

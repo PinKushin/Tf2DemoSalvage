@@ -38,6 +38,9 @@ public sealed class VphysicsMathProbe : IProbe
     /// <summary><c>FUN_1800d4398</c>, <c>atan</c>.</summary>
     private const long AtanAddress = 0x1800d4398;
 
+    /// <summary><c>FUN_1800d33b0</c>, <c>cos</c>.</summary>
+    private const long CosAddress = 0x1800d33b0;
+
     /// <summary><c>DAT_180136418</c>, the fused-path flag <c>__acrt_initialize_fma3</c> writes.</summary>
     private const long FusedFlagAddress = 0x180136418;
 
@@ -102,6 +105,7 @@ public sealed class VphysicsMathProbe : IProbe
             VphysicsLibrary.Function<DoubleFunction>(module, ExpAddress),
             VphysicsLibrary.Function<SingleFunction>(module, AsinfAddress),
             VphysicsLibrary.Function<DoubleFunction>(module, AtanAddress),
+            VphysicsLibrary.Function<DoubleFunction>(module, CosAddress),
             VphysicsLibrary.Address(module, FusedFlagAddress));
 
         int loaded = Marshal.ReadInt32(math.Flag);
@@ -122,6 +126,18 @@ public sealed class VphysicsMathProbe : IProbe
         else if (arguments.Count > 0 && arguments[0] == "damping")
         {
             Damping(output, module);
+        }
+        else if (arguments.Count > 2 && arguments[0] == "call")
+        {
+            // Any double(double) routine at an address, on each argument: how an unnamed runtime routine is identified.
+            DoubleFunction routine = VphysicsLibrary.Function<DoubleFunction>(
+                module, long.Parse(arguments[1], NumberStyles.HexNumber, CultureInfo.InvariantCulture));
+
+            for (int index = 2; index < arguments.Count; index++)
+            {
+                double x = double.Parse(arguments[index], CultureInfo.InvariantCulture);
+                output.WriteLine($"{arguments[1]}({Bits(x)}) -> {Bits(routine(x))}");
+            }
         }
         else
         {
@@ -210,6 +226,7 @@ public sealed class VphysicsMathProbe : IProbe
             foreach (double x in custom.Count > 0 ? custom : [.. DoubleInputs])
             {
                 output.WriteLine($"exp   {label}  {Bits(x)}  ->  {Bits(math.Exp(x))}");
+                output.WriteLine($"cos   {label}  {Bits(x)}  ->  {Bits(math.Cos(x))}");
             }
         }
 
@@ -230,6 +247,7 @@ public sealed class VphysicsMathProbe : IProbe
         double[] doubles = DoubleArguments();
         float[] sines = SineArguments();
         double[] tangents = TangentArguments();
+        double[] cosines = CosineArguments();
 
         int[][] singleAnswers = new int[paths.Length][];
         long[][] doubleAnswers = new long[paths.Length][];
@@ -255,6 +273,13 @@ public sealed class VphysicsMathProbe : IProbe
                 doubleAnswers[path][index] = engine;
                 long port = BitConverter.DoubleToInt64Bits(IvpMath.Exp(doubles[index], fused));
                 return (engine == port, $"{Bits(doubles[index])}: engine 0x{engine:x16}, port 0x{port:x16}");
+            });
+
+            Compare(output, $"cos {Label(path)}", cosines.Length, index =>
+            {
+                long engine = BitConverter.DoubleToInt64Bits(math.Cos(cosines[index]));
+                long port = BitConverter.DoubleToInt64Bits(IvpMath.Cos(cosines[index], fused));
+                return (engine == port, $"{Bits(cosines[index])}: engine 0x{engine:x16}, port 0x{port:x16}");
             });
         }
 
@@ -398,6 +423,21 @@ public sealed class VphysicsMathProbe : IProbe
         return [.. arguments];
     }
 
+    /// <summary>Under π/4, where the ported <see cref="IvpMath.Cos(double, bool)"/> answers, and across its two small-argument steps.</summary>
+    private static double[] CosineArguments()
+    {
+        ulong state = 33;
+        List<double> arguments = [];
+
+        for (int index = 0; index < SweepCount; index++)
+        {
+            arguments.Add((VphysicsLibrary.Unit(VphysicsLibrary.SplitMix(ref state)) - 0.5) * 1.57);
+            arguments.Add(Math.ScaleB(VphysicsLibrary.Unit(VphysicsLibrary.SplitMix(ref state)), -12 - (index % 20)));
+        }
+
+        return [.. arguments];
+    }
+
     private static bool Controls(TextWriter output, Library math)
     {
         bool expfOne = BitConverter.SingleToInt32Bits(math.Expf(0f)) == BitConverter.SingleToInt32Bits(1f);
@@ -426,5 +466,5 @@ public sealed class VphysicsMathProbe : IProbe
 
     /// <summary>The four routines and the path flag, as one loaded image holds them.</summary>
     private sealed record Library(
-        SingleFunction Expf, DoubleFunction Exp, SingleFunction Asinf, DoubleFunction Atan, nint Flag);
+        SingleFunction Expf, DoubleFunction Exp, SingleFunction Asinf, DoubleFunction Atan, DoubleFunction Cos, nint Flag);
 }

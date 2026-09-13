@@ -479,6 +479,71 @@ public static class IvpMath
         return negative ? -result : result;
     }
 
+    private const long QuarterPiBits = 0x3fe921fb54442d18;
+    private const long CosineSmallBits = 0x3f20000000000000;
+    private const long CosineTinyBits = 0x3e40000000000000;
+    private static readonly double CosineSeventwentieth = BitConverter.Int64BitsToDouble(unchecked((long)0xbf56c16c16c16967));
+    private static readonly double CosineFortieth = BitConverter.Int64BitsToDouble(0x3efa01a019f4ec91);
+    private static readonly double CosineTenth = BitConverter.Int64BitsToDouble(unchecked((long)0xbe927e4fa17f667b));
+    private static readonly double CosineTwelfth = BitConverter.Int64BitsToDouble(0x3e21eeb69037ec2e);
+    private static readonly double CosineFourteenth = BitConverter.Int64BitsToDouble(unchecked((long)0xbda907db47258aa7));
+
+    /// <summary><c>FUN_1800d33b0</c>: <c>cos</c>, on the path the runtime chose.</summary>
+    /// <param name="x">The argument, under π/4 in magnitude.</param>
+    /// <returns>The image's bits.</returns>
+    public static double Cos(double x) => Cos(x, FusedPath);
+
+    /// <summary><c>FUN_1800d33b0</c> on a given path — the series `180105f20..f70` in `z = x²`, under π/4.</summary>
+    /// <param name="x">The argument.</param>
+    /// <param name="fused">Whether to take the fused-multiply-add path.</param>
+    /// <returns>The image's bits.</returns>
+    /// <exception cref="NotSupportedException">|x| is π/4 or more, or NaN: the reduction through <c>FUN_1800daa70</c> is not ported.</exception>
+    /// <remarks>Plain π/4 itself goes to the reduction (<c>JC</c>); fused π/4 stays on the series (<c>JG</c>).</remarks>
+    public static double Cos(double x, bool fused)
+    {
+        long magnitude = BitConverter.DoubleToInt64Bits(x) & long.MaxValue;
+        bool reduced = fused ? magnitude > QuarterPiBits : magnitude >= QuarterPiBits;
+
+        if (reduced)
+        {
+            throw new NotSupportedException("IvpMath.Cos ports FUN_1800d33b0 under pi/4 only; its reduction, FUN_1800daa70, is not ported.");
+        }
+
+        if (magnitude < CosineTinyBits)
+        {
+            return 1d;
+        }
+
+        if (magnitude < CosineSmallBits)
+        {
+            return fused ? Math.FusedMultiplyAdd(-(x * 0.5d), x, 1d) : 1d - (x * x * 0.5d);
+        }
+
+        double z = x * x;
+
+        if (fused)
+        {
+            double r = Math.FusedMultiplyAdd(CosineFourteenth, z, CosineTwelfth);
+            r = Math.FusedMultiplyAdd(r, z, CosineTenth);
+            r = Math.FusedMultiplyAdd(r, z, CosineFortieth);
+            r = Math.FusedMultiplyAdd(r, z, CosineSeventwentieth);
+            r = Math.FusedMultiplyAdd(r, z, TwentyFourthInverse);
+            r = Math.FusedMultiplyAdd(r, z, -0.5d);
+            return Math.FusedMultiplyAdd(r, z, 1d);
+        }
+
+        // w carries the rounding of 1 − z/2 in e, as the plain path adds them back last.
+        double squared = z * z;
+        double fourth = squared * squared;
+        double series = ((((CosineSeventwentieth * z) + TwentyFourthInverse) * squared) + (((CosineTenth * z) + CosineFortieth) * fourth)) +
+                        (squared * fourth * ((CosineFourteenth * z) + CosineTwelfth));
+        double t = z * -0.5d;
+        double w = t + 1d;
+        double e = (1d - w) + t;
+
+        return (e + series) + w;
+    }
+
     /// <summary><c>((((z·c₀ + c₁)·z + c₂)·z + c₃)·z + c₄)</c>, each step a multiply then an add.</summary>
     private static double Nested(ReadOnlySpan<long> coefficients, double z)
     {
