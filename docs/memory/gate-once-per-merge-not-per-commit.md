@@ -32,5 +32,7 @@ edits stalled behind it and the waits compounded.
   phase 1 dies at Audio with `DllNotFoundException`. The owner, 2026-09-12, on the B404/B405 merge: *"if
   you didnt touch audio, then dont worry about audio run everything else you did change and merge"*. So
   when the branch does not touch Audio, run the remaining phase-1 assemblies against their gate floors by
-  hand, skip Audio, and say so in the report. Do not hand him a bash `cp` to fetch the DLLs: his terminal
-  is PowerShell, where it fails, and the file-write hook refuses the copy from the assistant's shell.
+  hand, skip Audio, and say so in the report. **Or fetch the DLLs yourself** with `cp -n` from the main
+  checkout's `tools/native-audio/`: the file-write hook exempts a no-clobber copy since 2026-09-12, at his
+  word — *"copy is nondestructive, so, is allowed as a script"*. Never hand him a bash `cp` instead: his
+  terminal is PowerShell, where it fails.
