@@ -355,7 +355,8 @@ jobs:
           # 473 -> 501 on 2026-09-13: IvpMinListConformanceTests (7), IvpPairSchedulerConformanceTests (21) (B369). Synthetic.
           # 501 -> 512 on 2026-09-13: IvpTimeManagerConformanceTests (5), IvpMindistFireConformanceTests (6) (B369). Synthetic.
           # 512 -> 534 on 2026-09-13: IvpHullManagerConformanceTests (22) (B369). Synthetic.
-          ./build/assert-test-count.sh '**/animation.trx' 534 Animation
+          # 534 -> 545 on 2026-09-13: IvpMindistManagerConformanceTests (6), the scheduler's far filing (+5) (B369). Synthetic.
+          ./build/assert-test-count.sh '**/animation.trx' 545 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView

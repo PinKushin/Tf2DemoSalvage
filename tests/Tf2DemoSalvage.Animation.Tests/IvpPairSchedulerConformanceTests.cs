@@ -59,12 +59,92 @@ public sealed class IvpPairSchedulerConformanceTests
     }
 
     /// <remarks>
-    /// **Asked to remove a far pair, the engine files it with the hull manager**, whose travel allowances are not ported:
-    /// refused by name rather than left unfiled.
+    /// **Asked to remove a far pair, the engine files each record with its object's hull manager**, the gap `(float)(length
+    /// − margin)` split by speed: each side's speed is `+0x254 + +0x1dc + 1e-10f`, its weight its own speed plus a tenth of
+    /// the other's, and its allowance the gap over both weights times its own — falling at fifty against a still core,
+    /// fifty fifty-fifths of the gap for record 0 and five for record 1. Each key is the manager's value spread to now plus
+    /// the allowance in double, and the mindist keeps the two hulls past their centers, `0.5 + 3.5`, at `+0xa0`.
     /// </remarks>
     [Test]
-    public void Examine_AFarPairAskedToBeRemoved_IsRefusedAsUnported() =>
-        Should.Throw<NotSupportedException>(() => new Fixture(2f).Examine(IvpRecheck.AtNow, removeFar: true));
+    public void Examine_AFarPairAskedToBeRemoved_FilesBothRecordsSplitBySpeed()
+    {
+        Fixture fixture = new(2f);
+        fixture.LinkExact();
+        IvpHullManager firstHull = fixture.FirstObject.Hull;
+        firstHull.Time = Now - 0.5d;
+        firstHull.Gradient = 4f;
+        firstHull.CenterGradient = 1f;
+        firstHull.Value = 3f;
+        firstHull.CenterValue = 1f;
+        IvpHullManager secondHull = fixture.SecondObject.Hull;
+        secondHull.Time = Now;
+        secondHull.Value = 2f;
+        secondHull.CenterValue = 1.5f;
+
+        fixture.Examine(IvpRecheck.AtNow, removeFar: true).ShouldBe(IvpScheduleOutcome.Filed);
+
+        float gap = (float)((double)2f - (double)IvpCollisionTolerance.MarginFor(0));
+        float firstSpeed = 50f + 1e-10f;
+        float secondSpeed = 0f + 1e-10f;
+        float firstWeight = (secondSpeed * 0.1f) + firstSpeed;
+        float secondWeight = (firstSpeed * 0.1f) + secondSpeed;
+        float share = gap / (secondWeight + firstWeight);
+
+        (fixture.Mindist.Flags & 0x3C0000).ShouldBe(0x140000);
+        firstHull.Synapses.Minimum.ShouldBe((float)(5d + (double)(share * firstWeight)));
+        secondHull.Synapses.Minimum.ShouldBe((float)(2d + (double)(share * secondWeight)));
+        fixture.Mindist.HullPastCenters.ShouldBe(4d);
+        fixture.Mindist.HullRecord(0).HullSlot.ShouldBe(0);
+        fixture.Mindist.HullRecord(1).HullSlot.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A side whose object's byte `+0x78` has its low three bits clear takes no allowance, and the other side the whole
+    /// gap** — record 0 checked first, so with both clear record 1 takes it.
+    /// </remarks>
+    [TestCase(0, 1, 0f, 1f)]
+    [TestCase(8, 1, 0f, 1f)]
+    [TestCase(1, 0, 1f, 0f)]
+    [TestCase(0, 0, 0f, 1f)]
+    public void Examine_AFarPairWithAStillSide_GivesTheOtherSideTheWholeGap(
+        int firstState, int secondState, float firstShare, float secondShare)
+    {
+        Fixture fixture = new(2f);
+        fixture.FirstObject.MovementState = firstState;
+        fixture.SecondObject.MovementState = secondState;
+        fixture.LinkExact();
+
+        fixture.Examine(IvpRecheck.AtNow, removeFar: true);
+
+        float gap = (float)((double)2f - (double)IvpCollisionTolerance.MarginFor(0));
+        fixture.FirstObject.Hull.Synapses.Minimum.ShouldBe(gap * firstShare);
+        fixture.SecondObject.Hull.Synapses.Minimum.ShouldBe(gap * secondShare);
+        fixture.Mindist.HullPastCenters.ShouldBe(0d);
+    }
+
+    /// <remarks>
+    /// **Filing a far pair first unfiles it** (`FUN_180098dd0`): off the exact list, its records off their objects' lists,
+    /// and out of the rechecked array, the last entry moving into its place.
+    /// </remarks>
+    [Test]
+    public void Examine_AFarPairAskedToBeRemoved_LeavesTheExactListsAndTheRecheckedArray()
+    {
+        Fixture fixture = new(2f);
+        fixture.LinkExact();
+        IvpMindist other = Fixture.NewMindist(0.9f);
+        IvpMindist last = Fixture.NewMindist(0.9f);
+        fixture.Manager.LinkExact(other, fixture.FirstObject, fixture.SecondObject);
+        fixture.Manager.AddRechecked(fixture.Mindist);
+        fixture.Manager.AddRechecked(other);
+        fixture.Manager.AddRechecked(last);
+
+        fixture.Examine(IvpRecheck.AtNow, removeFar: true);
+
+        fixture.Manager.Exact.ShouldBe([other]);
+        fixture.FirstObject.Synapses.ShouldBe([other.HullRecord(0)]);
+        fixture.SecondObject.Synapses.ShouldBe([other.HullRecord(1)]);
+        fixture.Manager.Rechecked.ShouldBe([last, other]);
+    }
 
     /// <remarks>
     /// **A pair closing under the threshold is searched only if it is closing at all** — under `1e-19` it is left alone.
@@ -282,15 +362,7 @@ public sealed class IvpPairSchedulerConformanceTests
             _second = second ?? Still;
             _impact = impact ?? new IvpImpact(null, Now + Step);
 
-            Mindist = new IvpMindist(
-                new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
-                new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Triangle),
-                extraRadius: 0f)
-            {
-                Flags = flags,
-                Length = length,
-                Normal = (0f, 0f, 1f),
-            };
+            Mindist = NewMindist(length, flags);
 
             Environment = new IvpSchedulerEnvironment
             {
@@ -307,7 +379,29 @@ public sealed class IvpPairSchedulerConformanceTests
 
         public IvpSchedulerEnvironment Environment { get; }
 
+        public IvpMindistManager Manager { get; } = new();
+
+        /// <summary>Record 0's object, moving.</summary>
+        public IvpCollisionObject FirstObject { get; } = new() { MovementState = 1 };
+
+        /// <summary>Record 1's object, moving.</summary>
+        public IvpCollisionObject SecondObject { get; } = new() { MovementState = 1 };
+
         public List<(IvpImpactContext Context, IvpMindistState Mindist)> Searches { get; } = [];
+
+        public static IvpMindist NewMindist(float length, int flags = 0) =>
+            new(
+                new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
+                new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Triangle),
+                extraRadius: 0f)
+            {
+                Flags = flags,
+                Length = length,
+                Normal = (0f, 0f, 1f),
+            };
+
+        /// <summary>Makes the pair exact, as every caller that asks for a far pair's removal has.</summary>
+        public void LinkExact() => Manager.LinkExact(Mindist, FirstObject, SecondObject);
 
         public IvpScheduleOutcome Examine(IvpRecheck recheck, bool removeFar = false) =>
             IvpPairScheduler.Examine(
@@ -315,7 +409,7 @@ public sealed class IvpPairSchedulerConformanceTests
                 _first,
                 _second,
                 Environment,
-                removeFar,
+                removeFar ? new IvpFarFiling(Manager, FirstObject, SecondObject) : null,
                 recheck,
                 (context, mindist) =>
                 {

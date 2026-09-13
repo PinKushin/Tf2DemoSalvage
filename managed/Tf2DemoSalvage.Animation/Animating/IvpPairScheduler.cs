@@ -56,6 +56,9 @@ public enum IvpScheduleOutcome
     /// <summary>The pair is past its far threshold and was not asked to be removed.</summary>
     Far,
 
+    /// <summary>The pair is past its far threshold and was filed with its objects' hull managers.</summary>
+    Filed,
+
     /// <summary>The pair cannot close this PSI, or is parked.</summary>
     LeftAlone,
 
@@ -75,9 +78,10 @@ public enum IvpScheduleOutcome
 /// </summary>
 /// <remarks>
 /// **Read from the disassembly, instruction by instruction** (`docs/findings/51`, *The scheduler's near branch and the
-/// dispatch into the search* and *The event queue, and where the far branch hands a pair off*). **The far branch's filing
-/// with the hull manager is not ported**: a far pair asked to be removed is refused by name. Units are this project's —
-/// the `1e-12` gap floor and the `1e-19` closing-speed floor are metres and are carried converted.
+/// dispatch into the search*, *The event queue, and where the far branch hands a pair off* and *The hull manager, and how a
+/// far pair is told to look again*). **A far pair asked to be removed is unfiled and filed with its objects' hull
+/// managers**; the handler that takes it back when a hull passes it, `FUN_180097f00`, is not ported. Units are this
+/// project's — the `1e-12` gap floor and the `1e-19` closing-speed floor are metres and are carried converted.
 /// </remarks>
 public static class IvpPairScheduler
 {
@@ -130,7 +134,10 @@ public static class IvpPairScheduler
     /// <param name="first">Synapse record 0's core.</param>
     /// <param name="second">Synapse record 1's core.</param>
     /// <param name="environment">The step, the times, the threshold, the queue and the decay counter.</param>
-    /// <param name="removeFar">The second argument: whether a far pair is filed with the hull manager.</param>
+    /// <param name="removeFar">
+    /// The second argument: set, a far pair is unfiled from this manager and filed with these objects' hull managers; null,
+    /// it is left where it is.
+    /// </param>
     /// <param name="recheck">The third argument: what an event within a microsecond of now becomes.</param>
     /// <param name="timeOfImpact">
     /// The table's routine for the pair's kinds, handed the context and the mindist state after the margin class decays —
@@ -138,14 +145,15 @@ public static class IvpPairScheduler
     /// </param>
     /// <returns>What was done.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    /// <exception cref="InvalidOperationException">The flags name a synapse record past the two.</exception>
-    /// <exception cref="NotSupportedException">A far pair is asked to be removed.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The flags name a synapse record past the two, or a far pair asked to be removed is not exact.
+    /// </exception>
     public static IvpScheduleOutcome Examine(
         IvpMindist mindist,
         IvpSchedulerCore first,
         IvpSchedulerCore second,
         IvpSchedulerEnvironment environment,
-        bool removeFar,
+        IvpFarFiling? removeFar,
         IvpRecheck recheck,
         Func<IvpImpactContext, IvpMindistState, IvpImpact> timeOfImpact)
     {
@@ -175,10 +183,15 @@ public static class IvpPairScheduler
 
         if (length > ((double)(float)environment.Step * totalBound * FarReach) + margin)
         {
-            return removeFar
-                ? throw new NotSupportedException(
-                    "A far pair is filed with the hull manager's travel allowances (FUN_180098dd0, FUN_180097bd0), which are not ported.")
-                : IvpScheduleOutcome.Far;
+            if (removeFar is not IvpFarFiling filing)
+            {
+                return IvpScheduleOutcome.Far;
+            }
+
+            filing.Manager.Unlink(mindist, environment.Queue);
+            float gap = (float)((double)mindist.Length - (double)margin);
+            IvpMindistHull.FileFar(mindist, filing, first.Bounds, second.Bounds, environment.Now, gap);
+            return IvpScheduleOutcome.Filed;
         }
 
         double closing = ClosingSpeed(mindist.Normal, coreA, coreB);

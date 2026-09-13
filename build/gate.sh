@@ -719,7 +719,9 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 512 -> 534 on 2026-09-13: IvpHullManagerConformanceTests (22), the hull manager FUN_180099a00/FUN_18009a690 and its
 # rebase and filings (B369). Compile-red first; two sabotage rounds, twelve breaks, all caught once the tie case's
 # allowance was corrected. Synthetic.
-run Tf2DemoSalvage.Animation.Tests animation 534
+# 534 -> 545 on 2026-09-13: IvpMindistManagerConformanceTests (6) and IvpPairSchedulerConformanceTests' far filing (six
+# for the one refusal they replace), FUN_180098dd0, the exact linking and FUN_180099380's far branch (B369). Synthetic.
+run Tf2DemoSalvage.Animation.Tests animation 545
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

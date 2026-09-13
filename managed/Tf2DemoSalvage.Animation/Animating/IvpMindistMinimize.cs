@@ -36,6 +36,7 @@ public readonly record struct IvpSynapse(IvpLedgeEdge Feature, IvpFeatureKind Ki
 public sealed class IvpMindist : IIvpTimeEvent
 {
     private readonly IvpSynapse[] _synapses;
+    private readonly IvpMindistHullRecord[] _hullRecords;
 
     /// <summary>A mindist between two features, synapse A being the first.</summary>
     /// <param name="first">Synapse record 0.</param>
@@ -44,8 +45,18 @@ public sealed class IvpMindist : IIvpTimeEvent
     public IvpMindist(IvpSynapse first, IvpSynapse second, float extraRadius)
     {
         _synapses = [first, second];
+        _hullRecords = [new IvpMindistHullRecord(this, 0), new IvpMindistHullRecord(this, 1)];
         ExtraRadius = extraRadius;
     }
+
+    /// <summary>
+    /// <c>+0xa0</c>: the two hulls past their centers when the pair was last filed with its hull managers, moved by every
+    /// rebase since.
+    /// </summary>
+    public double HullPastCenters { get; set; }
+
+    /// <summary>The mindist's place in the manager's exact list — its <c>+0xc8</c>/<c>+0xd0</c> links — or null.</summary>
+    internal LinkedListNode<IvpMindist>? ListNode { get; set; }
 
     /// <summary>The flags at <c>+0x20</c>.</summary>
     public int Flags { get; set; }
@@ -66,8 +77,9 @@ public sealed class IvpMindist : IIvpTimeEvent
     public (float X, float Y, float Z) Normal { get; set; }
 
     /// <summary>
-    /// <c>+0x9c</c>: the first body's core position less the second's, dotted with the normal in float. <i>What reads it is
-    /// not established.</i>
+    /// <c>+0x9c</c>: the first body's core position less the second's, dotted with the normal in float. The hull-passed
+    /// handler <c>FUN_180097f00</c> reads it back against the cores' positions at now, and rewrites it when it files a far
+    /// pair again.
     /// </summary>
     public float ContactDot { get; set; }
 
@@ -81,6 +93,11 @@ public sealed class IvpMindist : IIvpTimeEvent
     /// <param name="index">0 or 1.</param>
     /// <returns>The record.</returns>
     public IvpSynapse Synapse(int index) => _synapses[index];
+
+    /// <summary>A synapse record as its object's list and hull manager see it.</summary>
+    /// <param name="index">0 or 1.</param>
+    /// <returns>The record.</returns>
+    public IvpMindistHullRecord HullRecord(int index) => _hullRecords[index];
 
     /// <summary>Replaces a synapse record.</summary>
     /// <param name="index">0 or 1.</param>
