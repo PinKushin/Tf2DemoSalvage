@@ -26075,8 +26075,10 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    running path.** **The time of impact for kinds (0,0), (0,1) and (1,1) is read and ported, 2026-09-13**
    (`docs/findings/51`, *The other three times of impact*): `FUN_1800a2b30`, `FUN_1800a1ff0` and `FUN_1800a1420` as
    `IvpPointPointSearch`, `IvpPointEdgeSearch` and `IvpEdgeEdgeSearch`, over seven evaluators and `IvpCoreBounds`,
-   with synthetic conformance tests and four sabotage rounds — also not on the running path, and the dispatch
-   `FUN_1800a3fe0` that routes a pair to one of the four is read but not ported. Still unread or unported beneath the
+   with synthetic conformance tests and four sabotage rounds, and the table and its entry `FUN_1800a3fe0` that route a
+   pair to one of the four as `IvpImpactDispatch` — also not on the running path. A ball first (`FUN_1800a3d30`,
+   `FUN_1800a3b60`) is refused as unported; its point and edge routines `FUN_1800a0fc0` and `FUN_1800a0930` are unread.
+   Still unread or unported beneath the
    fire routine: the impact itself (`FUN_18008ef60`), the
    mindist's virtual `+0x28` target (`FUN_1800947e0` reports to the environment's `+0x40` object), friction, and
    the far branch's travel allowances; and the cache object's slerp (`FUN_180071060`) that fills each side's

@@ -2293,6 +2293,23 @@ no impact event"; they cannot occur, and reaching one stops the process.
 | (1,1) | `FUN_1800a1420` |
 | anything else | the same assertion, at lines `0x4cf`, `0x4da`, `0x4df` |
 
+**Read again for the port, instruction by instruction (2026-09-13), with the ball entries beside it**
+(`scheduler_near_99380.log`, `toi_table_others.log`). `FUN_1800a3fe0` writes `0` to the context's event kind before it
+routes, and releases both cache objects' reference counts (`+0xc4`) after. **The table does not reorder a pair** — an
+edge against a point is `FUN_1800a4200` — so synapse A must already hold the lower kind, which the minimize's flips
+arrange. **A point against a backside indexes `0·4 + 5`, the `(1,1)` entry**, and faults inside `FUN_1800a3fe0` at
+line 1231 rather than at the table's 1258; a backside first indexes past the table's eighteen filled slots. Neither can
+occur, because the minimize resolves a backside before it returns.
+
+**The ball routines read synapse records 0 and 1 directly**, not the ones the flags select. `FUN_1800a3b60` (ball-ball)
+sets `time := end` and runs `FUN_1800b6210` over the point-point evaluator with both points at their objects' origins
+and `u` the difference of the two cache objects' translations (`+0xa0`) scaled with five steps, to `(double)extra +
+(double)margin`, tolerance `(double)(0.5f·extra + 0.1·d)`, no known distance: `0x10`, and nothing more. `FUN_1800a3d30`
+(ball first) routes the ledge synapse's kind: `0` to `FUN_1800a0fc0`, `1` to `FUN_1800a0930`, both unread, and `2`
+inline — the point-plane evaluator from the ball's centre to the face, **handed the known distance `(double)(extra +
+length)`** as the vertex-face search is, raising `0x20` — and **it never sets `time := end`**, which only the scheduler's
+own reading of the time could expose; it reads the time only when a kind was written. Anything else is line 1165.
+
 These are the four routines this document named earlier as the narrow phase. **The legal set has no
 (1,2) and no (2,2)** — which is exactly the minimal closest-feature pair set of the V-Clip method
 *if* kinds 0, 1 and 2 are vertex, edge and face. The absent pairs are what V-Clip reduces to the
