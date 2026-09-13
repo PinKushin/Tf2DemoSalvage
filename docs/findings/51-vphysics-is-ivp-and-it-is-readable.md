@@ -2637,10 +2637,13 @@ would index the block's later fields.
 **The two core fields**, from their writers:
 
 - **`core+0x80` is an angular speed bound**, written by `FUN_180099d60(core, v)`, which the integrator calls
-  every step: `x = |v|` by a four-step reciprocal square root (zero, with axis `(1, 0, 0)`, when `|v|² ≤ 1e-19`),
-  the unit axis into `core+0x1c0..0x1c8`, and `core+0x80 = (float)((2x + x³/3) + 2·0.40414·x⁵) ×
-  core+0x1d8`, the inverse step; `core+0x254 = core+0x80 × core+0x8`. *What `v` is — the integrator builds it with
-  `FUN_180099fc0` — is not read here*; the series is a bound on an angle from a half-angle-sized input, INFERRED.
+  every step: `x = |v|` by a reciprocal square root of **five** Newton steps — one more than `FUN_18006ecf0`,
+  from the same guess; an earlier draft of this line said four — (zero, with axis `(1, 0, 0)`, when `|v|² ≤
+  1e-19`), the unit axis into `core+0x1c0..0x1c8`, and `core+0x80 = (float)((2x + x³/3) + 2·0.40414·x⁵) ×
+  core+0x1d8`, the inverse step; `core+0x254 = core+0x80 × core+0x8`. **`v` is the vector part of the step's
+  rotation quaternion**: `FUN_180099fc0`, already ported as `IvpIntegrator.Rotate`, writes it to the stack slot
+  the call passes, so `|v|` is `sin(θ/2)` and the series bounds the step's angle — INFERRED from the arithmetic.
+  Ported as `IvpCoreSpeedBound.From`.
 - **`core+0x54 = 0.5f / core+0x4`**, written by `FUN_180076f80` beside the inverse inertia. **`core+0x4` and
   `core+0x8` are set once, by `FUN_180078b90`**, from `FUN_180073df0`: the surface manager's slot `+0x10`
   (`18007aeb0`) returns `radius = (float)((double)surface+0x18 + dist)` and `deviation = (float)((double)(byte

@@ -341,7 +341,9 @@ jobs:
           # 356 -> 366 on 2026-09-12: the vertex-face search's inputs (B369), +10. Synthetic.
           #
           # 366 -> 378 on 2026-09-12: IvpVertexFaceSearchConformanceTests (12), FUN_1800a1b50 (B369). Synthetic.
-          ./build/assert-test-count.sh '**/animation.trx' 378 Animation
+          #
+          # 378 -> 384 on 2026-09-12: IvpCoreSpeedBoundConformanceTests (6), FUN_180099d60 (B369). Synthetic.
+          ./build/assert-test-count.sh '**/animation.trx' 384 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView

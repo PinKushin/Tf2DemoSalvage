@@ -698,7 +698,10 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 366 -> 378 on 2026-09-12: IvpVertexFaceSearchConformanceTests (12), FUN_1800a1b50 itself (B369). Compile-red
 # first; four sabotages over two runs — the point-plane kind, MINSS as a max, the slope pre-check removed, the
 # known distance measured instead — each reddened exactly its predicted cases.
-run Tf2DemoSalvage.Animation.Tests animation 378
+#
+# 378 -> 384 on 2026-09-12: IvpCoreSpeedBoundConformanceTests (6), FUN_180099d60's angular and surface bounds and
+# rotation axis (B369). Compile-red first; four sabotages in one run reddened exactly the five predicted cases.
+run Tf2DemoSalvage.Animation.Tests animation 384
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
