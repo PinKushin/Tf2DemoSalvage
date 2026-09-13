@@ -2720,6 +2720,29 @@ not read.*
 *Evidence class: read from the disassembly; constants read beside their instructions (`2.1`, `1.001`, `1e-6`, `1e-12`,
 `0.1`, `1e-7`, `1e-5`, `1e-4`, `0.001`, all floats widened except `1e-12`).*
 
+### When a queued mindist fires
+
+**Its fire routine is `FUN_1800992e0(mindist, env)`**, slot 1 of both mindist vtables found — the plain one whose
+table has `FUN_180096250` before it and `FUN_18008ecb0` eight slots on, and the recursive one at `1800fe960` —
+read from the disassembly (`D:\ghidra-proj\out\mindist_fire_992e0.log`), between two profiler marks (`8`, `0xe`):
+
+1. **`FUN_180095cb0(mindist)` first** — the minimize, which walks the feature-pair table `DAT_18012d4b0` and
+   descends a hull node into its triangles — so the length, normal and features are recomputed at the event's
+   time before anything is decided.
+2. Flags `& 0xc000` set: nothing more.
+3. **An event kind whose low four bits are set** — `0x21`, the edge event — is rescheduled at once,
+   `FUN_180099380(mindist, 0, 1)`.
+4. **Otherwise the collision test:** `DAT_18012d664 + margin[class]` — `0.1·d + d` — against the new length. **Over
+   the length, the mindist's virtual `+0x40` runs** (`FUN_18008ecb0` in the plain table, `FUN_1800b2460` in the
+   recursive one); at or under it, or NaN, the pair is rescheduled with `FUN_180099380(mindist, 0, 2)`.
+
+**So an impact happens only when a vertex-face event's re-minimized length is inside `1.1·d`**, and a feature
+change never collides directly — it re-minimizes and re-queues. `FUN_18008ecb0` calls `FUN_18008ef60` between
+bookkeeping on both objects and cores; *that it is the impact solver is INFERRED from where it sits, and it is unread*.
+
+*Evidence class: read from the disassembly for `FUN_1800992e0` and the call list of `FUN_18008ecb0`; the vtable
+slots from a table scan.*
+
 **`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
 
 **`interpolate` is `FUN_180071060`, a shortest-path slerp that falls back to a normalised lerp.** It
