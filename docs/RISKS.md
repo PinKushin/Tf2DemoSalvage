@@ -26053,8 +26053,13 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    2026-09-12:** read again field by field (`docs/findings/51`, *`FUN_1800a1b50` field by field*), which
    corrected its first argument from the mindist to a search context and settled the three runtime globals
    and both core fields it reads. Done so far: `PhysicsLedge.EdgeOffsets` carries each edge word's hop
-   (`8eb0a6dc`), and `IvpLedgeTopology` walks the ring by the engine's address arithmetic. Left: the
-   evaluators' speed fields, the routine itself, and carrying the offsets from `.phy` to the body.
+   (`8eb0a6dc`), `IvpLedgeTopology` walks the ring by the engine's address arithmetic (`6a675f13`), the
+   evaluators carry their speeds and the margin table is ported (`3709b383`), and **`IvpVertexFaceSearch`
+   is the routine**, instruction for instruction, with twelve conformance tests over a falling vertex and a
+   tetrahedron's edges. **Not yet on the running path.** What it still needs from step 6: a search context
+   per pair (its approach speed and the PSI), the mindist's extra radius, length and margin class, each core's
+   angular bound (`FUN_180099d60`, unported) and `+0x54` (`0.5f / (surface radius + object extra)`), and the
+   ledge edge offsets carried from `PhysicsLedge` through `RagdollBody` to the body.
 6. **The pair scheduler's near branch** (`FUN_180099380`) and the time-ordered event loop that
    consumes events inside the PSI — the piece that replaces the fixed step's speculative contacts.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then

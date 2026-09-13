@@ -694,7 +694,11 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 356 -> 366 on 2026-09-12: the vertex-face search's inputs (B369) — the evaluators' speeds (4), the motion
 # cache's current matrix (1), the margin table and the edge target's scale (5). Compile-red first; seven
 # sabotages over two runs, each reddening only its own case.
-run Tf2DemoSalvage.Animation.Tests animation 366
+#
+# 366 -> 378 on 2026-09-12: IvpVertexFaceSearchConformanceTests (12), FUN_1800a1b50 itself (B369). Compile-red
+# first; four sabotages over two runs — the point-plane kind, MINSS as a max, the slope pre-check removed, the
+# known distance measured instead — each reddened exactly its predicted cases.
+run Tf2DemoSalvage.Animation.Tests animation 378
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

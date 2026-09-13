@@ -2648,6 +2648,11 @@ would index the block's later fields.
   centre asked about, and the object's float at `+0xe0` is added to the radius. *That `+0x18` is the ledge's upper
   radius is INFERRED* from that use; `0.004f` is `DAT_1800fd1fc`, dumped.
 
+**Ported as `IvpVertexFaceSearch.Search`**, over `IvpLedgeTopology`, the two evaluators and `IvpRootFinder`.
+One parity point the tests pin that is easy to lose: **the point-plane search trusts the mindist's length**. It
+is handed `extra + length` as its starting distance and never measures slot 0, so a vertex whose mindist says it
+is an inch away is searched from an inch, wherever the vertex actually is.
+
 *Evidence class: read from the disassembly for `FUN_1800a1b50`, `FUN_180099d60`, `FUN_180076f80`,
 `FUN_180078b90`, the call in `FUN_180073df0` and `18007aeb0`; constants dumped.*
 
