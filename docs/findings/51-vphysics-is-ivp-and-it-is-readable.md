@@ -3884,7 +3884,7 @@ if ℓ² > m:   σ = SQRTSS(m);  r' = asinf(σ);  c' = (0.5f − r'²·(1/24f))�
 
 ```
 a = ((float)((double)r.x·dt), (float)((double)r.y·dt), (float)((double)r.z·dt))
-f = ((a.y² + a.x²) + a.z²) < 0.5f ? (1f − a.x, 1f − a.y, 1f − a.z)                       -- COMISS/JNC: a NaN takes exp
+f = !((a.y² + a.x²) + a.z² ≥ 0.5f) ? (1f − a.x, 1f − a.y, 1f − a.z)                     -- COMISS/JNC: a NaN takes this
                                   : (expf(−a.x), (float)exp((double)−a.y), (float)exp((double)−a.z))
 k = dt·speedDamping;   k' = k < 0.25 ? 1.0 − k : exp(−k)
 ω.x = f.x·ω.x;  ω.y = f.y·ω.y;  ω.z = f.z·ω.z;   v = (float)((double)v·k') per lane
@@ -3921,6 +3921,26 @@ speed factor in float rather than double. *And `MathF.Exp` is the platform libra
   `3fe9c1b08fda1eec`; each step a multiply by `z` and an add, the order as listed. The sign is restored last. **The low
   parts are one below fdlibm's** in their last hex digit, which is reason enough to carry the image's constants rather
   than fdlibm's.
+
+#### Valve's binary as the oracle (2026-09-13)
+
+**The shipped `vphysics.dll` can be called in process, and that makes it the instrument for every leaf routine.** The
+`vphysics-math` probe loads the game's x64 library with `NativeLibrary.Load`, calls routines at their addresses against the
+image base `0x180000000`, and writes the fused-path flag in the loaded image to take either path. **Controls first**:
+`expf(0)` and `exp(0)` come back exactly one, `asinf(1)` exactly `π/2f` and `atan(1)` exactly `π/4`, so the addresses fit
+the installed build; on this machine the flag reads one.
+
+**A sweep against `IvpMath`** — 1.43 million `expf` and `asinf` arguments, three million `exp` arguments on each path, two
+million `atan` arguments — **found no difference after one fix**: the fused `exp` path hands every argument under `−744.03`
+to its underflow handler, which answers zero, where the plain path answers the least denormal down to `−745.13`; the first
+port had not separated them. The binary's two `exp` paths disagree on 3,641 of the three million (`−2.997306`: `…eb17`
+against `…eb16`), and its two `expf` paths on none of 1.43 million — so no test can tell `expf`'s paths apart.
+
+**`FUN_180077a20` itself was then called on a stand-in core** — it reads its factors through a pointer and writes only
+`+0x130..0x148` — and `IvpDamping.Damp` is pinned to the bits it left, for factors and steps straddling both thresholds.
+
+*Evidence class: differential against the shipped binary, on one machine. What the unread error handlers answer is taken
+from what the binary returned, not from reading them.*
 
 #### The impact solver's entry, and the push-out estimate
 

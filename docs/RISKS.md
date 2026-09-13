@@ -26113,9 +26113,13 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    `FUN_18008f570`, `FUN_18008dd00`, `FUN_18008deb0` and `FUN_1800904a0`, and the runtime library's `asinf`, `expf` and
    `exp`. **Two divergences found on the way are fixed**: `IvpTransform.InchesPerMetre` carried `39.37f` where the
    dword is `0x421d7af6`, `1f / 0.0254f`; and the tolerance block's `2·d` and `2.3·d`, which a contact point starts
-   with and a parallel edge pair measures, had been read as zero. **One is found and not yet fixed**: `IvpDamping`
-   diverges from `FUN_180077a20` on four counts, the widest being one `MathF.Exp` factor for three lanes where the
-   engine calls `expf` for one and `exp` for two.
+   with and a parallel edge pair measures, had been read as zero. **A third is fixed too: `IvpDamping` diverged from
+   `FUN_180077a20` on four counts**, the widest being one `MathF.Exp` factor for three lanes where the engine calls `expf`
+   for one and `exp` for two. `IvpMath` now carries the library's own `expf`, `exp`, `asinf` and `atan`, and both are
+   pinned to the shipped `vphysics.dll` called in process by the `vphysics-math` probe — a sweep of millions of
+   arguments on both runtime paths finds no difference. **Not carried: damping's calm branch** — a core in movement state
+   2 or more damps with every factor plus `0.1f`, and this project holds no IVP movement states, so every body damps as
+   a moving one.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 
