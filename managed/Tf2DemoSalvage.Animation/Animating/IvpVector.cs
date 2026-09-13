@@ -65,18 +65,88 @@ public static class IvpVector
     /// `COMISD` then `JNC`, so the scaling branch is taken at or above the threshold and **not for NaN**,
     /// which `>=` reproduces. Below it the vector is left exactly as it was.
     /// </remarks>
-    public static bool TryScaleToUnitLength(ref (double X, double Y, double Z) vector)
+    public static bool TryScaleToUnitLength(ref (double X, double Y, double Z) vector) =>
+        TryScaleToUnitLength(ref vector, NewtonSteps);
+
+    /// <summary>The same scaling with a given number of Newton steps — <c>FUN_18006f730</c> takes five.</summary>
+    /// <param name="vector">The vector, scaled in place when long enough.</param>
+    /// <param name="steps">How many steps the reciprocal root takes.</param>
+    /// <returns>Whether it was scaled.</returns>
+    internal static bool TryScaleToUnitLength(ref (double X, double Y, double Z) vector, int steps)
     {
         double squared = (vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z);
 
         if (squared >= DirectionThreshold)
         {
-            double scale = ReciprocalSquareRoot(squared);
+            double scale = ReciprocalSquareRoot(squared, steps);
             vector = (vector.X * scale, vector.Y * scale, vector.Z * scale);
             return true;
         }
 
         return false;
+    }
+
+    /// <summary>The cross product — <c>FUN_18006dd30</c>.</summary>
+    /// <param name="first">The left operand.</param>
+    /// <param name="second">The right operand.</param>
+    /// <returns><c>first × second</c>, every term read before any is written.</returns>
+    public static (double X, double Y, double Z) Cross(
+        (double X, double Y, double Z) first, (double X, double Y, double Z) second) =>
+        ((first.Y * second.Z) - (first.Z * second.Y),
+         (first.Z * second.X) - (first.X * second.Z),
+         (first.X * second.Y) - (first.Y * second.X));
+
+    /// <summary>A vector perpendicular to another — <c>FUN_18006db60</c>.</summary>
+    /// <param name="vector">The vector.</param>
+    /// <returns>The swapped vector crossed with <paramref name="vector"/>.</returns>
+    /// <remarks>
+    /// **The largest-magnitude component, checked `z`, `y`, `x` with a strict `&gt;`** — so a tie keeps the one checked
+    /// first and a NaN is never largest — is swapped with the component before it cyclically, the one moved up
+    /// negated, and the result crossed with the original. Not scaled.
+    /// </remarks>
+    public static (double X, double Y, double Z) Perpendicular((double X, double Y, double Z) vector)
+    {
+        double[] moved = [vector.X, vector.Y, vector.Z];
+        double largest = 0d;
+        int index = 0;
+
+        for (int component = 2; component >= 0; component--)
+        {
+            double magnitude = Math.Abs(moved[component]);
+            double before = largest;
+
+            if (magnitude > largest)
+            {
+                largest = magnitude;
+            }
+
+            if (magnitude > before)
+            {
+                index = component;
+            }
+        }
+
+        int other = index == 0 ? 2 : index - 1;
+        double negated = -moved[index];
+        moved[index] = moved[other];
+        moved[other] = negated;
+
+        return Cross((moved[0], moved[1], moved[2]), vector);
+    }
+
+    /// <summary><c>(1 − t)·a + t·b</c> — <c>FUN_180070050</c>.</summary>
+    /// <param name="from">Where <paramref name="fraction"/> zero lands.</param>
+    /// <param name="to">Where one lands.</param>
+    /// <param name="fraction">The fraction, as the caller widened it.</param>
+    /// <returns>The point between.</returns>
+    public static (double X, double Y, double Z) Lerp(
+        (double X, double Y, double Z) from, (double X, double Y, double Z) to, double fraction)
+    {
+        double rest = 1d - fraction;
+
+        return ((rest * from.X) + (fraction * to.X),
+                (rest * from.Y) + (fraction * to.Y),
+                (rest * from.Z) + (fraction * to.Z));
     }
 
     /// <summary><c>1/√x</c> the engine's way — <c>FUN_18006ecf0</c>.</summary>

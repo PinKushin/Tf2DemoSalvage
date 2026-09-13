@@ -111,4 +111,15 @@ public readonly record struct IvpMatrix(
         ((direction.X * M0) + (direction.Y * M4) + (direction.Z * M8),
          (direction.X * M1) + (direction.Y * M5) + (direction.Z * M9),
          (direction.X * M2) + (direction.Y * M6) + (direction.Z * M10));
+
+    /// <summary>Puts a point given in the world into the body's frame — <c>FUN_180080670</c>.</summary>
+    /// <param name="world">The point, in the world.</param>
+    /// <returns>The point in the body's frame.</returns>
+    /// <remarks>
+    /// **The translation off first, then the transpose** — each difference in double, then
+    /// <see cref="RotateInverse"/>'s columns. The minimize's helpers inline the same arithmetic when they carry a
+    /// point from one body into the other (`FUN_18007ba70`, `FUN_18007d480`).
+    /// </remarks>
+    public (double X, double Y, double Z) ToObject((double X, double Y, double Z) world) =>
+        RotateInverse((world.X - Translation.X, world.Y - Translation.Y, world.Z - Translation.Z));
 }
