@@ -8647,3 +8647,71 @@ case is covered exactly where it occurs, and the local suite keeps the hardware 
 be testing.
 
 Related: B402 in `docs/RISKS.md`, D89.
+
+## D168 — subagents run on sonnet, and haiku is refused (2026-09-12)
+
+**Reverses the haiku-only rule of 2026-09-07**, recorded in `docs/memory/one-subagent-and-prefer-cheap-models.md`
+and in the global hook's header. That rule rested on haiku costing less per call than any sonnet, with
+review paying for the bugs it would bring.
+
+**What changed his mind was an outcome, not a chart.** A haiku subagent sent to find where IVP writes an
+object's offset inside its core (B403) came back with its central evidence taken from the wrong struct —
+vphysics' wrapper object, a qword where IVP stores a float vector — and nothing established on the
+question. Review caught it, and the main loop read the answer from the disassembly itself. The owner had
+first assumed the opposite:
+
+> *"so the subagent found your assumption wrong? yes thats why they always get checked"*
+
+It had not: the check caught the subagent, and the false premise was caught by reading the binary. Told
+that, he decided:
+
+> *"change the rule/hook from haiku to sonnet, haiku really does just suck doesnt it lol"*
+
+**So `~/.claude/hooks/block-expensive-subagents.ps1` allows `sonnet` alone**, for an `Agent` call and for
+every `agent()` in a Workflow script, and its backup in `.claude/hooks/global/` is kept byte-identical.
+**Review stays mandatory (D145).** The model is a cost decision; it does not make a subagent's report
+evidence.
+
+Related: D145, B403.
+
+## D169 — no task cards: side work is done in the main loop or by a reviewed subagent (2026-09-12)
+
+**The owner, after a `spawn_task` card was offered** for a difference found in passing — `PhysicsHull`'s
+per-solid refusals against vphysics' load loop `FUN_18000a100`, while the vertex-face search (B369) was
+being ported:
+
+> *"you should probably not use cards, either take care of it yourself or subagent it, those cards end up
+> needing help being merged a lot of the time, because you end up hitting the same files"*
+
+and, of that card: *"i started that one though"*.
+
+**His reason is the merge, and this session had the example in hand.** A card runs as a separate session
+in its own worktree. The card's subject, `PhysicsHull.cs`, had just gained `PhysicsLedge.EdgeOffsets` on
+this branch (`8eb0a6dc`), so the two sessions were set to edit one file independently.
+
+**Then he gave the second reason, and softened the rule to a preference:**
+
+> *"it just seems easier for you all to pass messages back and forth, and for you to review if its a subagent,
+> when its a peer agent, you have to look into the worktree itself and only talk through that filesystem mcp
+> server i think, if its all the same really then i guess chips are fine, but i still would rather you
+> subagent so they auto start"*
+
+**So:** a subagent is the default for side work — it starts without him, it can be messaged, and its output
+comes back to be reviewed in place — and a card is not offered. **Asked whether he was right, checked
+rather than agreed:** right that a subagent starts itself and reports back for review, and that a card waits
+for his click; not right that a peer is reachable only through the filesystem — `ListAgents` listed the running
+card's session and `SendMessage` addresses it, and its worktree is an ordinary git branch. Neither route
+removes the merge risk on its own: a subagent in the same tree collides during the edit instead of at the
+merge, so scoping to disjoint files is what prevents it.
+
+**He then placed `SendMessage` as an MCP addition, newer than the cross-agent log files**, and said the
+measurement log has to be a file whatever else changes, *"because that actually needs to be able to be read
+even after all sessions die, and a new session is made"*. The second half stands and is why those logs stay
+files: a message does not outlive the sessions it passed between. On the first half, the tool list says
+otherwise — `SendMessage` and `ListAgents` are built-in names, where every MCP tool here is named
+`mcp__server__tool`. When it arrived is not something this session can check. Side work is done in the main loop or delegated
+to one subagent on `sonnet` (D168), scoped away from the files the main loop holds, with its diff reviewed
+(D145). The card already started runs to completion; this branch stays out of `PhysicsHull.cs` and
+`PhysicsModel.cs` until it lands, and then merges it.
+
+Related: D145, D168, B369.

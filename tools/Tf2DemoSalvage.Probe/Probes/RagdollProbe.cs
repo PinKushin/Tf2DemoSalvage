@@ -101,7 +101,7 @@ public sealed class RagdollProbe : IProbe
         {
             physics = PhysicsModel.Read(physicsBytes);
         }
-        catch (InvalidOperationException failure)
+        catch (InvalidDataException failure)
         {
             output.WriteLine($"{model}: {failure.Message}");
             return;
@@ -203,7 +203,7 @@ public sealed class RagdollProbe : IProbe
 
             output.WriteLine(
                 $"    hull {solid}: {ledges} ledges, {triangles} triangles, {points} points, " +
-                $"radius {extent:0.###} centre {Centre(physics.Hulls[solid])}");
+                $"radius {extent:0.###} centre {Centre(physics.Hulls[solid])}{Mass(physics, solid)}");
         }
 
         foreach (RagdollElement element in body.Elements)
@@ -257,6 +257,28 @@ public sealed class RagdollProbe : IProbe
         System.Numerics.Vector3 centre = hull[0].Center * SourceUnitsPerMetre;
 
         return $"({centre.X:0.#} {centre.Y:0.#} {centre.Z:0.#})";
+    }
+
+    /// <summary>A solid's mass center, in Source units, and its hull inertia per kilogram as IVP stores it.</summary>
+    /// <remarks>
+    /// **The value the reader produced, carried out** (B243, B403): the compact surface's first six floats, as
+    /// `PhysicsModel.MassProperties` holds them. A mass center of exactly zero on every solid would mean the
+    /// field is unfilled in shipped files, which is the control that decides whether the engine's core really
+    /// sits away from the bone on a TF2 corpse.
+    /// </remarks>
+    private static string Mass(PhysicsModel physics, int solid)
+    {
+        if (solid >= physics.MassProperties.Count || physics.MassProperties[solid] is not { } mass)
+        {
+            return " mass center none";
+        }
+
+        (float x, float y, float z) = IvpTransform.SourcePosition(mass.MassCenter.X, mass.MassCenter.Y, mass.MassCenter.Z);
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $" mass center ({x:0.##} {y:0.##} {z:0.##}) inertia/kg ivp ({mass.RotationInertia.X:0.#####} " +
+            $"{mass.RotationInertia.Y:0.#####} {mass.RotationInertia.Z:0.#####}) m²");
     }
 
     private static bool Names(IReadOnlyList<StudioBone> bones, string name) =>

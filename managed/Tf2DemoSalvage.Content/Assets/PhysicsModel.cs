@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
@@ -181,6 +182,14 @@ public sealed class PhysicsModel
     /// </remarks>
     public IReadOnlyList<IReadOnlyList<PhysicsLedge>> Hulls { get; }
 
+    /// <summary>Each solid's mass center and rotation inertia, in file order — empty for a model built by hand.</summary>
+    /// <remarks>
+    /// **Indexed like <see cref="Hulls"/>, and read from the same blob** (B403): the compact surface that holds
+    /// a solid's ledges leads with these six floats, which the engine's surface manager hands to the object
+    /// initializer. Null for a solid whose surface will not read, where <see cref="Hulls"/> is empty.
+    /// </remarks>
+    public IReadOnlyList<PhysicsMassProperties?> MassProperties { get; }
+
     /// <summary>The <c>collisionrules</c> block, or null when the file declares none.</summary>
     /// <remarks>
     /// **Null and empty mean opposite things here** — see <see cref="PhysicsCollisionRules"/>. A
@@ -239,6 +248,7 @@ public sealed class PhysicsModel
     /// <param name="checksum">The <c>.mdl</c> checksum this belongs to, or zero.</param>
     /// <param name="collisionRules">The rules, or null for a model that declares none.</param>
     /// <param name="hulls">One hull per solid, or null for a model with no collision geometry.</param>
+    /// <param name="massProperties">One mass center and inertia per solid, or null for a model whose surfaces carry none.</param>
     /// <returns>The model.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -252,13 +262,14 @@ public sealed class PhysicsModel
         int declaredSolidCount,
         int checksum,
         PhysicsCollisionRules? collisionRules,
-        IReadOnlyList<IReadOnlyList<PhysicsLedge>>? hulls)
+        IReadOnlyList<IReadOnlyList<PhysicsLedge>>? hulls,
+        IReadOnlyList<PhysicsMassProperties?>? massProperties = null)
     {
         ArgumentNullException.ThrowIfNull(solids);
         ArgumentNullException.ThrowIfNull(constraints);
 
         return new PhysicsModel(
-            solids, constraints, declaredSolidCount, checksum, collisionRules, hulls);
+            solids, constraints, declaredSolidCount, checksum, collisionRules, hulls, null, massProperties);
     }
 
     private PhysicsModel(
@@ -268,7 +279,8 @@ public sealed class PhysicsModel
         int checksum,
         PhysicsCollisionRules? collisionRules,
         IReadOnlyList<IReadOnlyList<PhysicsLedge>>? hulls = null,
-        IReadOnlyList<PhysicsBreakPiece>? pieces = null)
+        IReadOnlyList<PhysicsBreakPiece>? pieces = null,
+        IReadOnlyList<PhysicsMassProperties?>? massProperties = null)
     {
         Solids = solids;
         Constraints = constraints;
@@ -277,6 +289,7 @@ public sealed class PhysicsModel
         CollisionRules = collisionRules;
         Hulls = hulls ?? [];
         BreakPieces = pieces ?? [];
+        MassProperties = massProperties ?? [];
     }
 
     /// <summary>The pieces this model comes apart into — its <c>break</c> blocks (B371).</summary>
@@ -318,17 +331,23 @@ public sealed class PhysicsModel
     /// <param name="solidCount">What the header declares.</param>
     /// <remarks>
     /// **The section is a chain of length-prefixed blobs and cannot be indexed**, so this walks it:
-    /// a `uint32` size, then that many bytes starting at the `VPHY` tag, `solidCount` times. That is
+    /// a `uint32` size, then that many bytes of solid, `solidCount` times. That is
     /// the same walk the text scan deliberately avoids — see <see cref="Read"/>, where the reason
     /// was that nothing needed to understand these bytes. Something does now.
     ///
     /// **A blob whose size runs past the file ends the walk rather than throwing.** A `.phy` is a
     /// stranger's file (D32), and a truncated one should collide against the solids it does carry.
+    ///
+    /// **A solid vphysics refuses does throw** (B404): `FUN_18000a100` meets an untagged solid under 0x30 bytes with
+    /// `Error("Corrupt physics model")`, which does not return, so the file is not loaded at all. A NULL collide is
+    /// the opposite case — it keeps its slot, with no hull and no mass properties, and the walk goes on.
     /// </remarks>
-    private static List<IReadOnlyList<PhysicsLedge>> Hull(
+    /// <exception cref="InvalidDataException">A solid is one vphysics refuses.</exception>
+    private static (List<IReadOnlyList<PhysicsLedge>> Hulls, List<PhysicsMassProperties?> Masses) Hull(
         ReadOnlySpan<byte> bytes, int solidCount)
     {
         List<IReadOnlyList<PhysicsLedge>> hulls = [];
+        List<PhysicsMassProperties?> masses = [];
 
         int at = HeaderSize;
 
@@ -341,23 +360,37 @@ public sealed class PhysicsModel
 
             int size = BitConverter.ToInt32(bytes[at..]);
 
-            if (size <= 0 || at + 4 + size > bytes.Length)
+            if (size < 0 || (long)at + 4 + size > bytes.Length)
             {
                 break;
             }
 
-            hulls.Add(PhysicsHull.Read(bytes.Slice(at + 4, size)));
+            ReadOnlySpan<byte> blob = bytes.Slice(at + 4, size);
+
+            if (PhysicsHull.Load(blob) == PhysicsSolidLoad.Corrupt)
+            {
+                throw new InvalidDataException(
+                    $"solid {solid} of this .phy has no VPHY tag and {size} bytes, under a compact surface's 0x30; " +
+                    "vphysics refuses the file with \"Corrupt physics model\"");
+            }
+
+            hulls.Add(PhysicsHull.Read(blob));
+            masses.Add(PhysicsHull.MassProperties(blob));
 
             at += 4 + size;
         }
 
-        return hulls;
+        return (hulls, masses);
     }
 
     /// <summary>Reads a <c>.phy</c>.</summary>
     /// <param name="file">The whole file.</param>
     /// <returns>Its solids and constraints, both possibly empty.</returns>
-    /// <exception cref="InvalidOperationException">The header is short or malformed.</exception>
+    /// <exception cref="InvalidDataException">
+    /// The file is shorter than its header, declares a header size other than <c>sizeof(phyheader_t)</c>, or carries a
+    /// solid vphysics refuses (B404). **One type for every malformed `.phy`** (B405), because it is the one each Scene
+    /// reader catches to cost a model its physics rather than the load.
+    /// </exception>
     /// <remarks>
     /// **The text is found by scanning for the first block name rather than by arithmetic**, and
     /// that is a deliberate choice against the tidier one. `phyheader_t.size` is the size of the
@@ -372,7 +405,7 @@ public sealed class PhysicsModel
 
         if (bytes.Length < HeaderSize)
         {
-            throw new InvalidOperationException(
+            throw new InvalidDataException(
                 $"a .phy is at least {HeaderSize} bytes of header; this one is {bytes.Length}");
         }
 
@@ -381,23 +414,25 @@ public sealed class PhysicsModel
         int checksum = BitConverter.ToInt32(bytes[12..16]);
 
         // **Valve writes `sizeof(phyheader_t)` here**, so anything else means this is not one — a
-        // guard rather than a use, since nothing below needs the value.
+        // guard rather than a use, since nothing below needs the value. Valve's own tools refuse it the
+        // same way: `if ( header->size != sizeof(*header) || header->solidCount <= 0 ) return false;`
+        // (`vradstaticprops.cpp:520`). What the game's loader in datacache.dll does is not read (B405).
         if (size != HeaderSize)
         {
-            throw new InvalidOperationException(
+            throw new InvalidDataException(
                 $"a .phy header declares size {HeaderSize}; this one declares {size}");
         }
 
         int text = FindText(bytes);
 
-        IReadOnlyList<IReadOnlyList<PhysicsLedge>> hulls = Hull(bytes, solidCount);
+        (List<IReadOnlyList<PhysicsLedge>> hulls, List<PhysicsMassProperties?> masses) = Hull(bytes, solidCount);
 
         if (text < 0)
         {
-            return new PhysicsModel([], [], solidCount, checksum, null, hulls);
+            return new PhysicsModel([], [], solidCount, checksum, null, hulls, null, masses);
         }
 
-        return Parse(file[text..], solidCount, checksum, hulls);
+        return Parse(file[text..], solidCount, checksum, hulls, masses);
     }
 
     /// <summary>Where the KeyValues section starts, or -1.</summary>
@@ -452,7 +487,8 @@ public sealed class PhysicsModel
         ReadOnlyMemory<byte> text,
         int solidCount,
         int checksum,
-        IReadOnlyList<IReadOnlyList<PhysicsLedge>> hulls)
+        IReadOnlyList<IReadOnlyList<PhysicsLedge>> hulls,
+        IReadOnlyList<PhysicsMassProperties?> masses)
     {
         List<PhysicsSolid> solids = [];
         List<RagdollConstraint> constraints = [];
@@ -522,7 +558,7 @@ public sealed class PhysicsModel
         // (`docs/memory/author-the-specimen-the-corpus-lacks.md`).
         Close();
 
-        return new PhysicsModel(solids, constraints, solidCount, checksum, rules, hulls, pieces);
+        return new PhysicsModel(solids, constraints, solidCount, checksum, rules, hulls, pieces, masses);
     }
 
     /// <summary>Replays a <c>collisionrules</c> block the way the engine's handler consumes it.</summary>

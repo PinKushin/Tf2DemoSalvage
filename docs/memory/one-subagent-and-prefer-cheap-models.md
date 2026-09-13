@@ -150,6 +150,21 @@ bugs should be cought and fixed"*. The rework argument only favours a better mod
 is unpaid for, and review is what pays for it. **A session that stops reviewing subagent output has
 removed the reason haiku was acceptable.**
 
+### Sonnet, 2026-09-12 — haiku ruled out again, on an observed outcome
+
+A haiku agent sent to find where IVP writes an object's offset inside its core returned its central
+evidence from the wrong struct — vphysics' wrapper object, a qword where IVP stores a float vector —
+and established nothing on the question. Review caught it and the main loop read the answer from the
+disassembly itself (B403). The owner: *"change the rule/hook from haiku to sonnet, haiku really does
+just suck doesnt it lol"*.
+
+**So the hook allows `sonnet` alone** (`~/.claude/hooks/block-expensive-subagents.ps1`, D168). This is
+the 2026-09-06 measure — tokens per GOOD outcome — winning on evidence rather than on a chart: an
+answer that has to be redone costs its tokens twice. **Review is still required**; the model change
+does not make a report evidence. And when the owner asked whether the subagent had found the false
+premise, the true answer was no — the check caught the subagent, and the premise was caught by
+reading the binary.
+
 ### And ask whether it needs an agent at all
 
 The run that caused this was four read-only scouting agents over files in this repo and the SDK.

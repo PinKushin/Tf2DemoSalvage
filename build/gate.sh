@@ -187,7 +187,20 @@ rm -f /tmp/gate-*.log
 #
 # `dotnet build-server shutdown` rather than pkill: CLAUDE.md's gotcha 10 is that `pkill -f` matches
 # the shell running it, and this script's own command line contains every pattern worth matching.
-trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
+#
+# **That trap covered one leak of three** (2026-09-12, measured by a process census). A gate that is
+# KILLED never runs it — the shell is terminated outright, leaving its `dotnet test` tree orphaned — and
+# `build-server shutdown` never stops a test host even when it does run. `build/reap-dotnet.ps1` finds
+# orphans by parentage rather than by name, so it runs here at START too: a killed run cannot clean up
+# after itself, but the next one can.
+#
+# **At start it leaves the build servers alone.** Other agents build in this directory, and shutting
+# the compiler server down under a build that is running right now would break it; an orphan, by
+# contrast, has no living parent to break. The full shutdown stays at exit, where it always was, with
+# the old command as the fallback if pwsh is missing.
+trap 'pwsh -NoProfile -File "$here/reap-dotnet.ps1" >/dev/null 2>&1 || dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
+
+pwsh -NoProfile -File "$here/reap-dotnet.ps1" -SkipBuildServers || echo "reap-dotnet: could not run at start; continuing" >&2
 
 # **The floors are the CURRENT counts, not a comfortable distance below them.**
 #
@@ -621,7 +634,74 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # IvpWorldCollision.ToSource against IvpTransform.Position. That seam was the forward map applied
 # twice rather than inverted, rotating every collision hull 180 degrees about X (B400), and two of
 # these three were red before the fix.
-run Tf2DemoSalvage.Animation.Tests animation 255
+#
+# 255 -> 260 on 2026-09-12: IvpCollisionToleranceConformanceTests, five cases pinning IVP's collision
+# tolerance and the thresholds derived from it, each read from vphysics.dll with its multiplier dumped
+# (B369). Red first as a compile failure; one sabotage of the fall-height coefficient reddened the
+# value case and left the square-root-shape case green, which is the split the pair exists for.
+#
+# 260 -> 264 on 2026-09-12: IvpQuaternionInterpolateConformanceTests, four cases for FUN_180071060,
+# the rotation a body is evaluated at inside a step (B369). Red first as a compile failure; two
+# sabotages, each reddening only its own case -- the sign dropped from the slerp reddened the
+# negated-target case, and forcing every dot through the lerp reddened the quarter-turn case.
+#
+# 264 -> 271 on 2026-09-12: IvpRigidBodyTransformAtConformanceTests, seven cases for a body's
+# transform inside a step (FUN_1800734e0), the inverse step core+0x1d8, and sleep as the core's own
+# reset (FUN_180078bd0) (B369). Red first; two sabotages, each reddening only its own case.
+#
+# 271 -> 274 on 2026-09-12: IvpMatrixConformanceTests, three cases for the double-precision transform
+# IVP measures a body through (FUN_180071330, FUN_180070bc0) (B369). Red first; dropping the
+# translation reddened exactly the two translation cases.
+#
+# 274 -> 293 on 2026-09-12: the point-plane evaluator (FUN_1800a3470, B369). IvpVectorConformanceTests
+# (12) for the face normal, normalise and the engine's four-step 1/sqrt; IvpPointPlaneEvaluatorConformanceTests
+# (5); IvpMatrixConformanceTests +2, one of which was red against the committed ToWorld, whose sum
+# grouping had been taken from the decompiler. Compile-red first; three sabotages in one run.
+#
+# 293 -> 301 on 2026-09-12: the edge evaluator (FUN_1800a3660, B369). IvpEdgeEvaluatorConformanceTests (6)
+# and IvpMatrixConformanceTests +2 for RotateInverse (FUN_1800706c0). Compile-red first; three sabotages
+# in one run.
+#
+# 301 -> 316 on 2026-09-12: the time-of-impact searches (B369). IvpMotionCacheConformanceTests (5) for
+# FUN_1800a0800's index-keyed slots, IvpRootFinderConformanceTests (10) for FUN_1800b6210 and FUN_1800b6590.
+# Compile-red first; sabotaged before commit.
+#
+# 316 -> 329 on 2026-09-12: IvpObjectTemplateConformanceTests (13), vphysics' template fill
+# (FUN_18001c9d0) and the core's mass and per-axis inertia (FUN_180073df0) (B403). Compile-red first;
+# four sabotages, each reddening only its own case.
+#
+# 329 -> 333 on 2026-09-12: RagdollBodyConformanceTests +4, each element's mass center, hull inertia and
+# inertia limit brought into bone space (B403). Compile-red first; three sabotages, each reddening its own.
+#
+# 333 -> 339 on 2026-09-12: the core at the hull's mass center (B403). RagdollSimulationConformanceTests +4
+# (core placement, the bone reported, per-axis inertia, anchors in core space) and
+# IvpRigidBodyObjectOffsetConformanceTests (2). Compile-red first; sabotaged in two runs.
+#
+# 339 -> 341 on 2026-09-12: RagdollSimulationConformanceTests +2 for the engine's twist-axis score
+# (FUN_1800393d0, FUN_18003d320) (B403) — the inertia term, and both anchors squared from each core. Red
+# against the old rule first; one sabotage per term, each reddening only its own case.
+#
+# 341 -> 342 on 2026-09-12: IvpMotionCacheConformanceTests +1, the object offset composed into the
+# time-of-impact transform as FUN_1800734e0 does (B403). Red first; the composition removed reddened only it.
+#
+# 342 -> 343 on 2026-09-12: RagdollBodyConformanceTests, a solid with no mass properties refused by Build and
+# BuildProp (+2), replacing the test that it carried a null hull inertia (-1) (B403). Both red first; one
+# sabotage substituting a made-up pair in each builder reddened exactly those two.
+#
+# 343 -> 356 on 2026-09-12: IvpLedgeTopologyConformanceTests (13), the compact ledge's edge address arithmetic
+# FUN_1800a1b50 walks (B369). Compile-red first; three sabotages, each reddening exactly its predicted cases.
+#
+# 356 -> 366 on 2026-09-12: the vertex-face search's inputs (B369) — the evaluators' speeds (4), the motion
+# cache's current matrix (1), the margin table and the edge target's scale (5). Compile-red first; seven
+# sabotages over two runs, each reddening only its own case.
+#
+# 366 -> 378 on 2026-09-12: IvpVertexFaceSearchConformanceTests (12), FUN_1800a1b50 itself (B369). Compile-red
+# first; four sabotages over two runs — the point-plane kind, MINSS as a max, the slope pre-check removed, the
+# known distance measured instead — each reddened exactly its predicted cases.
+#
+# 378 -> 384 on 2026-09-12: IvpCoreSpeedBoundConformanceTests (6), FUN_180099d60's angular and surface bounds and
+# rotation axis (B369). Compile-red first; four sabotages in one run reddened exactly the five predicted cases.
+run Tf2DemoSalvage.Animation.Tests animation 384
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
@@ -994,7 +1074,10 @@ run Tf2DemoSalvage.Animation.Tests animation 255
 # RagdollProps — the copy, the feign-death guard both ways, the no-install answer, and three that
 # only the engine's three-pass ORDER satisfies — plus the wiring case on TimelineMoments, which is
 # the only one that fails if the suppliers stop reaching Fill.
-run Tf2DemoSalvage.Scene.Tests    scene     736
+# 736 -> 737 on 2026-09-12: DemoModelsTests, a loose .phy too short for its header costs BreakPiecesOf its gib
+# list instead of escaping its catch (B405) — the output-level case beside Content's two, with a well-formed
+# .phy in the same folder as the control that the folder is read at all.
+run Tf2DemoSalvage.Scene.Tests    scene     737
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1424,7 +1507,19 @@ run Tf2DemoSalvage.Presentation.Tests presentation 454
 # the control that a material that is not a Patch never asks for its include.
 # 1157 -> 1161 on 2026-09-10: four for B391 in SpriteMaterialConformanceTests — `$ignorevertexcolors`
 # absent and zero, and the Sprite shader's constant color broadcast, unclamped and defaulted.
-run Tf2DemoSalvage.Content.Tests  content   1161
+# 1161 -> 1164 on 2026-09-12: three PhysicsHullConformanceTests for the compact surface's mass center and
+# rotation inertia (B403). Synthetic blobs; two sabotages, each reddening only its own case.
+# 1164 -> 1165 on 2026-09-12: PhysicsModelConformanceTests carries each solid's mass properties out of the
+# same blob walk as its hull (B403). Authored .phy with one VPHY blob.
+# 1165 -> 1166 on 2026-09-12: PhysicsHullConformanceTests, each edge word's bits 16-30 carried as a signed
+# edge offset for the vertex-face search's edge walk (B369). Compile-red first; an unsigned read reddened it.
+# 1166 -> 1186 on 2026-09-12: twenty for B404, what vphysics' per-solid loader makes of a solid it cannot use.
+# PhysicsHullConformanceTests 9 -> 24 — three REPLACED, since they tested MOPP and a zero magic on the tagged
+# path, where the loader reads no magic — PhysicsModelConformanceTests +3, MapCollisionConformanceTests +2.
+# Synthetic bytes; fourteen red against the old reader and the Load cases compile-red; sabotages in B404.
+# 1186 -> 1188 on 2026-09-12: PhysicsModelConformanceTests, a .phy too short for its header and one declaring a
+# header size of 20 both refuse with InvalidDataException, the type every Scene caller catches (B405).
+run Tf2DemoSalvage.Content.Tests  content   1188
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

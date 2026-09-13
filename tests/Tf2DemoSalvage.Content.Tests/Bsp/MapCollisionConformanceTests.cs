@@ -171,24 +171,55 @@ public sealed class MapCollisionConformanceTests
     [Test]
     public void Read_ALumpWithAModelAfterTheTerminator_StopsAtTheTerminator()
     {
+        // A solid the loader would build, because a four-byte one is refused outright (B404) and would end the
+        // chain before the terminator was ever reached.
         byte[] lump =
         [
-            .. Model(modelIndex: 0, dataSize: 8, keydataSize: 0, solidCount: 1),
-            .. BitConverter.GetBytes(4),      // one solid, four bytes of payload
-            .. BitConverter.GetBytes(0),
+            .. Model(modelIndex: 0, dataSize: 4 + 0x30, keydataSize: 0, solidCount: 1),
+            .. BitConverter.GetBytes(0x30),
+            .. Surface(),
             .. Model(modelIndex: -1, dataSize: -1, keydataSize: 0, solidCount: 0),
 
             // Entirely well-formed, and unreachable — the engine has already stopped.
-            .. Model(modelIndex: 1, dataSize: 8, keydataSize: 0, solidCount: 1),
-            .. BitConverter.GetBytes(4),
-            .. BitConverter.GetBytes(0),
+            .. Model(modelIndex: 1, dataSize: 4 + 0x30, keydataSize: 0, solidCount: 1),
+            .. BitConverter.GetBytes(0x30),
+            .. Surface(),
         ];
 
         IReadOnlyList<MapPhysicsModel> models = BspPhysicsCollision.Read(lump);
 
         models.Count.ShouldBe(1, "the terminator ends the chain, trailing bytes and all");
         models[0].ModelIndex.ShouldBe(0);
-        models[0].Solids[0].Length.ShouldBe(4);
+        models[0].Solids[0].Length.ShouldBe(0x30);
+    }
+
+    /// <remarks>
+    /// **A solid with no `VPHY` tag and under `0x30` bytes stops the load** (B404). A map's solids are what
+    /// `VCollideLoad` takes — Valve's own lump swapper hands them to it (`bsplib.cpp:1681`) — and vphysics' loader
+    /// meets such a solid with `Error("Corrupt physics model")` (`FUN_18000a100`). This reader keeps what came before
+    /// it, as it does for every other damage (D32), and reads nothing from that model on.
+    /// </remarks>
+    [TestCase(0)]
+    [TestCase(4)]
+    public void Read_AModelWithACorruptSolid_StopsBeforeThatModel(int size)
+    {
+        byte[] lump =
+        [
+            .. Model(modelIndex: 0, dataSize: 4 + 0x30, keydataSize: 0, solidCount: 1),
+            .. BitConverter.GetBytes(0x30),
+            .. Surface(),
+            .. Model(modelIndex: 1, dataSize: 4 + size, keydataSize: 0, solidCount: 1),
+            .. BitConverter.GetBytes(size),
+            .. new byte[size],
+            .. Model(modelIndex: 2, dataSize: 4 + 0x30, keydataSize: 0, solidCount: 1),
+            .. BitConverter.GetBytes(0x30),
+            .. Surface(),
+        ];
+
+        IReadOnlyList<MapPhysicsModel> models = BspPhysicsCollision.Read(lump);
+
+        models.Count.ShouldBe(1);
+        models[0].ModelIndex.ShouldBe(0, "the model before the corrupt solid is kept");
     }
 
     /// <remarks>
@@ -245,6 +276,17 @@ public sealed class MapCollisionConformanceTests
         .. BitConverter.GetBytes(keydataSize),
         .. BitConverter.GetBytes(solidCount),
     ];
+
+    /// <summary>A bare <c>IVP_Compact_Surface</c> with no ledges — the smallest solid the loader builds.</summary>
+    /// <returns>Its 0x30 bytes, untagged, with the <c>IVPS</c> magic at <c>+0x2C</c>.</returns>
+    private static byte[] Surface()
+    {
+        byte[] surface = new byte[0x30];
+
+        "IVPS"u8.CopyTo(surface.AsSpan(0x2C));
+
+        return surface;
+    }
 
     /// <summary>One of the game's own maps, skipping when TF2 is not installed.</summary>
     /// <param name="map">The map's name, without extension.</param>

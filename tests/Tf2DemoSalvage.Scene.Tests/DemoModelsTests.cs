@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
@@ -105,6 +106,48 @@ public sealed class DemoModelsTests
     {
         Should.Throw<ArgumentNullException>(() => DemoModels.Worn(timeline: null, game: null!));
     }
+
+    /// <remarks>
+    /// **A `.phy` this project cannot parse costs the model its gib list, not the load** (B405, D32) — the contract
+    /// `BreakPiecesOf` states and keeps by catching `InvalidDataException`. A file too short for `phyheader_t` was
+    /// refused with `InvalidOperationException`, which went straight past that catch. **The control is the
+    /// well-formed `.phy` in the same folder**, which must yield its one piece: without it, a folder the install
+    /// never read would pass this test as well as a refusal that was caught.
+    /// </remarks>
+    [Test]
+    public void BreakPiecesOf_APhyTooShortForItsHeader_IsEmptyRatherThanThrowing()
+    {
+        // A tf folder with no gameinfo.txt is read as loose files, which is what lets a test put a .phy in one.
+        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-phy-");
+
+        try
+        {
+            string models = Directory.CreateDirectory(Path.Combine(tf.FullName, "models")).FullName;
+
+            File.WriteAllBytes(Path.Combine(models, "truncated.phy"), [0x10, 0, 0, 0]);
+            File.WriteAllBytes(Path.Combine(models, "gibbed.phy"), Gibbed());
+
+            GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
+
+            DemoModels.BreakPiecesOf("models/gibbed.mdl", game).Count.ShouldBe(1, "the control: the folder is read");
+            DemoModels.BreakPiecesOf("models/truncated.mdl", game).ShouldBeEmpty();
+        }
+        finally
+        {
+            tf.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>A <c>.phy</c> with no solids and one <c>break</c> block.</summary>
+    private static byte[] Gibbed() =>
+    [
+        .. BitConverter.GetBytes(16),  // size, sizeof(phyheader_t)
+        .. BitConverter.GetBytes(0),   // id
+        .. BitConverter.GetBytes(0),   // solidCount
+        .. BitConverter.GetBytes(0),   // checkSum
+        .. System.Text.Encoding.ASCII.GetBytes(
+            "break {\n  \"model\" \"player\\gibs\\medicgib001\"\n  \"health\" \"0\"\n  \"fadetime\" \"10\"\n}\n"),
+    ];
 
     /// <summary>An install that is not there, which is the only kind a unit test should assume.</summary>
     private static GameContent Empty() =>

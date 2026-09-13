@@ -25884,6 +25884,202 @@ world, and whatever fails there fails with the joints present and worse without 
 *Evidence class: measured for the terrain half and for the single-body/jointed split;
 read-from-source for the engine's single constraint group.*
 
+### Narrowed again 2026-09-12: the deep contacts are TERRAIN, limbs are buried under corpses that sleep, and the lump the engine reads is unread
+
+**The instrument was asked which path raised the deepest contact, and it said terrain every time.**
+`IvpEnvironment.DeepestContactItself` carries the contact out of the step — not a second computation
+of which one it was — and `corpse-drop` now prints its feature kind, whether a pass or the per-point
+fallback made it, and the triangle's vertex heights. On all five seeds, on nearly every sampled tick,
+the deepest contact is `AgainstTerrain`'s hull-vs-triangle pass.
+
+**Two hypotheses were measured and are dead, and both were reasonable:**
+
+- *A limb inside a big convex ledge makes GJK give up, and the per-point fallback pushes it out the
+  wrong face.* Refuted: the deep contacts are not ledge contacts at all.
+- *`TrianglesInSphere` returns triangles by grid cell, so a surface OVERHEAD is clipped as an infinite
+  prism and reports a deep upward push.* Refuted: the triangles are at z ≈ 0, directly under the body.
+
+**What the triangle heights show instead is worse than either:**
+
+| seed | root, as "settled" reported | deepest limb | its contact point | the triangle |
+|---|---|---|---|---|
+| (361.7, −1614.3) | z 18.3, **asleep** | body z −73.3 | z −82.6 | z 0.1 / 1.3 / 0 |
+| (256.9, −1416.1) | z 12, **asleep** | body z −19.7 | z −27.1 | z 0 / 0 / 0 |
+| (−953.8, −1556.3) | z 6.4, AWAKE | body z −13.3 | z −30.5 | z 0 / 0 / 0 |
+
+**"3 of 5 settle" was measuring the root bone only.** Corpses that sleep carry limbs eighty units under
+the ground they rest on, held there by the joints and pushed at by a contact the solve cannot win.
+Settling is not correctness, and the figure should not be quoted as progress again.
+
+**The engine's terrain is not ours, and the difference is structural.** Read from published source:
+
+- vbsp builds each displacement's collision as a virtual mesh with `params.buildOuterHull = true` and
+  writes it with `CollideWrite` into `LUMP_PHYSDISP` (`utils/vbsp/disp_ivp.cpp:314-350`);
+  `bspfile.h:459` names it *"the binary blob for each displacement surface's virtual hull"*.
+- At level load the game walks the world's key blocks, and a `virtualterrain` block sets
+  `bCreateVirtualTerrain` (`game/shared/physics_shared.cpp:682-685`); `PhysCreateVirtualTerrain` then
+  asks the engine for one `CPhysCollide` per displacement — `modelinfo->GetCollideForVirtualTerrain(i)`,
+  *"creates if necessary"* (`public/engine/ivmodelinfo.h:164-166`) — and makes each a static object
+  named `vdisp_%04d` (`physics_shared.cpp:563-586`).
+- The runtime triangle callback, `CDispCollTree::GetVirtualMeshList`, passes `pHull = NULL`
+  (`public/dispcoll_common.cpp:1480`) — so whatever closes the mesh at runtime does not come through
+  that callback.
+- Both engine-side `GetTrianglesInSphere` implementations are supersets: the runtime tree tests node
+  boxes and returns whole leaves (`dispcoll_common.cpp:723-765`), and vbsp's ignores the sphere and
+  returns every triangle (`disp_ivp.cpp:258-266`). **So a coarse query is Valve's shape, not the fault;**
+  IVP is built to be handed far triangles and reject them itself.
+
+**Ours rebuilds terrain from the RENDER displacement lumps and stands in for the outer hull with a
+slab** — `TerrainDepth` and `TerrainReach`, both 512 units, the second introduced in `83231c88` with no
+stated reason. The terrain half of `Sweep` is also one-sided: a point that starts even slightly behind a
+triangle's plane is never swept against it again.
+
+**`LUMP_PHYSDISP` has now been read, with two controls, on two maps** (`phys-disp` probe):
+
+| | `koth_harvest_final` | `cp_granary` |
+|---|---|---|
+| `numDisplacements` against the dispinfo count | 533 = 533 | 135 = 135 |
+| declared blob sizes against the bytes after the table | 108,915, exact | 35,025, exact |
+| displacements carrying a blob | 533 of 533 | 135 of 135 |
+| blob sizes | 37–499 bytes | 37–611 bytes |
+
+**The sizes rule out the obvious reading.** A power-3 displacement is 128 triangles; no vertex-and-index
+mesh with a hull fits in a hundred bytes. Every blob opens `01 00 00 00` followed by small byte values —
+blob 2 on harvest is `06 06 09 09` and then indices no larger than 8. *That each blob is a compact hull
+topology indexing the displacement's own vertices is INTERPOLATED from the byte shape and nothing else.*
+The format is to be read from vphysics' `UnserializeCollide` (slot 19 of `IPhysicsCollision` by
+declaration order, before any overload — arithmetic, to be confirmed in the binary) and from the
+engine's `GetCollideForVirtualTerrain`, not decoded by pattern.
+
+**The runtime route is now read from the shipped x64 `engine.dll`, end to end** — full account in
+`docs/findings/51`, *Terrain's outer hull is lump 28, handed to vphysics as `pHull`*. In one line:
+the engine loads lump 28 at level init, checks its count against the displacements, keeps the blobs,
+calls `CreateVirtualMesh` per displacement with `buildOuterHull = (lump length < 1)`, and its
+`GetVirtualMesh` callback sets **`pHull = blob + offset[i]`**. The engine builds a hull itself only for
+a map that has no lump 28.
+
+**The blob format is now read and checked on every blob** — one convex hull per displacement, its
+vertices given as indices into the displacement's own vertices; the size vphysics computes for it is
+exact on 533 of 533 blobs on harvest and 135 of 135 on granary (`docs/findings/51`).
+
+**Corrected: "the outer hull TF2 collides against is the blob, and ours is a slab" overstated it.**
+vphysics unpacks the hull and the triangles into one structure and hands IVP the TRIANGLES as its
+ledges, so it is not established that the hull makes ground below terrain solid. It may be an
+envelope for the radius query or a filter. The surface manager decides, and it is being read.
+
+**Read, and it moves the fix: the hull is a recursion root, not a solid.** vphysics' surface manager
+returns the hull ledge for a query with no root context and the triangles within the radius for one
+with it (`docs/findings/51`). The engine has no terrain thickness; contacts end on zero-thickness
+triangles as ours do. **So reading lump 28 alone would not raise one buried limb.** What buries them is
+our narrow phase letting a point pass a triangle and then pushing it back through a 512-unit slab —
+IVP never allows the penetration in the first place.
+
+**The order of work, from that:** (1) a tracked closest-feature pair per (body, triangle), so a
+contact exists before the surfaces meet and a pair never penetrates — `docs/findings/51`'s standing
+prescription, now with its mechanism read: **conservative advancement per pair** (*The NEAR branch
+of `FUN_180099380`*). Each pair's next check is scheduled no later than the earliest moment it could
+touch, `(distance − ε) / speedBound`; a pair that can close within the step gets an exact time of
+impact from a per-feature-kind solver and is resolved in time order before anything moves past it.
+Ours is a fixed step with speculative contacts, which is the structure to replace, not tune; (2) delete `TerrainDepth` and `TerrainReach`; (3) read lump 28 and query a
+displacement's triangles through its hull, as vphysics does. (3) is a parity gap in its own right and
+is not expected to change what `corpse-drop` measures.
+
+**First code, 2026-09-12: the constants only.** `IvpCollisionTolerance` carries the tolerance the
+pair scheduler reads — `d = (0.25 − 1e-4) × 0.0254` m, the 0.2499-inch margin, the 0.025-inch recheck
+`ε`, and the `√(2.6·d·g)` closing-speed threshold — pinned by
+`IvpCollisionToleranceConformanceTests` (5, compile-red first, one sabotage reddening the value case
+and not the shape case). **Nothing reads them yet**, on purpose: they are fixed from the binary before
+the scheduler exists, so the scheduler cannot be tuned into agreeing with its own constants.
+
+**The port, in the engine's own layers, bottom first** — every piece read from `vphysics.dll` and
+recorded in `docs/findings/51` before this list was written, so the list is a target and not a design:
+
+1. **Motion over an interval** — position linear in `t` from the core's velocity; rotation by
+   `FUN_180071060`, shortest-path slerp with a normalised lerp above a dot of `0.999` and two Newton
+   steps. **(a) `IvpQuaternion.Interpolate` — done.** The cut-over turned out to be unobservable in a
+   float, so it is documented rather than tested. **(b) `InverseStep` and `TransformAt(t)` — done.**
+   `core+0x1d8` is set inside the integrator as `dt ≤ 1e-10 ? 1e10 : (float)(1.0/dt)`, and a body placed
+   at `t` moves by its committed velocity and rotates by `Interpolate` over the step's fraction.
+   **(c) Sleep as the core's own reset — done**, `IvpRigidBody.Sleep`, the engine's shape
+   (`FUN_180078bd0` from `FUN_180078c90`): it zeroes the staged velocities as well as the real ones —
+   ours kept them, so a push staged before sleep landed after waking — copies the committed orientation
+   over the predicted one, and sets the inverse from `env+0x110`, which `SetSimulationTimestep` writes as
+   `1.0 / step` unguarded. `IvpRigidBodyTransformAtConformanceTests` (7), red first, two sabotages each
+   reddening only its own case.
+2. **The lattice** — 200 ticks a second, 0.005 s each, at most 20 per search, a 21-slot per-object
+   transform cache that a resting body fills with its current transform. **Done as `IvpMotionCache`**,
+   from the disassembly of `FUN_1800a0800`: slot 0 is the current matrix, a resting object points every
+   slot there, and a slot is keyed by its tick index only — the time that first fills it is what every
+   later lookup gets. The state byte is the object's (`object+0x78`), not the core's as first written.
+   Where the engine's current matrix comes from is not established (no call to `FUN_1800734e0` writes it),
+   so the caller supplies it. `IvpMotionCacheConformanceTests` (5).
+3. **Signed-distance evaluators** — point-plane (`FUN_1800a3470`) and edge (`FUN_1800a3660`), each
+   given two transforms. Tested at known geometry, including the sign on each side of a face.
+   **(a) `IvpMatrix` — done**, and **corrected**: its point transform had been ported from the
+   decompiler's `z·m2 + x·m0 + y·m1`, and the disassembly adds `x·m0 + y·m1` first — a last-bit
+   difference on ordinary inputs, pinned by a case that was red against the committed code.
+   **(b) Point-plane — done**, from the disassembly of the evaluator, its fill in `FUN_1800a1b50`, and
+   the three routines under it: `IvpVector` (face normal widened before subtracting; scaled to unit length at
+   `|n|² ≥ 1e-19`, NaN refused, result ignored by the fill; the engine's four-step `1/√x`, whose bits
+   for 3 and 36 no library root gives), `IvpMatrix.Rotate`, `IvpPointPlaneEvaluator`.
+   `IvpVectorConformanceTests` (12), `IvpPointPlaneEvaluatorConformanceTests` (5), `IvpMatrix` +2;
+   compile-red first; three sabotages in one run — five Newton steps, a threshold a millionth the size,
+   an unrotated normal — reddened exactly the four cases predicted. **(c) Edge — done**, from the
+   disassembly of `FUN_1800a3660` and the two rotations it calls: `IvpMatrix.RotateInverse`
+   (`FUN_1800706c0`, the transpose), `IvpVector.ReciprocalSquareRoot(float)` (`FUN_18006edb0`), and
+   `IvpEdgeEvaluator`, whose direction is subtracted in float and scaled by a widened float root.
+   `IvpEdgeEvaluatorConformanceTests` (6), `IvpMatrix` +2; compile-red first; three sabotages — a double
+   scale, `Rotate` for `RotateInverse`, a right-associated column sum — reddened exactly the three cases
+   predicted. The ring walk, slope pre-check and refine target around it are read and recorded for (5).
+4. **The root finders** — `FUN_1800b6210`: step `(distance − tolerance) / maxApproachSpeed` in whole
+   ticks to the interval's end; `FUN_1800b6590`: doubling steps up to 20 ticks, then regula falsi with a
+   `0.375` blend every fourth iteration to `|distance − target| < 1e-8` or 64 iterations. Tested with
+   evaluators whose root is known in closed form. **Done as `IvpRootFinder.Advance` and `Refine`, and the
+   disassembly corrected three things in this item:** the refinement's step is twice
+   `(distance − target) × inverse speed` RE-DERIVED from each distance, not a step that keeps doubling; the
+   regula falsi cap is checked only on passes with both low bits set and bites at pass 67, answering with
+   the last time still above the target; and the advancing search marches only when the pair starts
+   INSIDE the target, compares every distance with the one at the start, reports an event at the previous
+   lattice time, and hands any approach from outside to the refinement. Comparisons take the engine's
+   branch on NaN; the distance tolerance `1e-8` is metres converted to inches. `IvpRootFinderConformanceTests`
+   (10), compile-red first; six sabotages in one run — no doubling, comparing with the previous distance,
+   the event at the current lattice time, the cap answering the new estimate, a slot never kept, resting
+   ignored — reddened exactly the seven cases predicted. **The first cap test could not fail**: on a jump
+   in distance the bracket collapses to adjacent doubles and which side it answers is a coin flip, so it
+   was replaced before sabotage by an evaluator whose estimates all stay above the target at a
+   fifty-first of the bracket.
+5. **The vertex-face time of impact** (`FUN_1800a1b50`) — target `margin + extra`, tolerance
+   `0.5·extra + ε`; event `0x20` on a root, then the vertex's edge ring for event `0x21`. **In progress,
+   2026-09-12:** read again field by field (`docs/findings/51`, *`FUN_1800a1b50` field by field*), which
+   corrected its first argument from the mindist to a search context and settled the three runtime globals
+   and both core fields it reads. Done so far: `PhysicsLedge.EdgeOffsets` carries each edge word's hop
+   (`8eb0a6dc`), `IvpLedgeTopology` walks the ring by the engine's address arithmetic (`6a675f13`), the
+   evaluators carry their speeds and the margin table is ported (`3709b383`), and **`IvpVertexFaceSearch`
+   is the routine**, instruction for instruction, with twelve conformance tests over a falling vertex and a
+   tetrahedron's edges. **Not yet on the running path.** What it still needs from step 6: a search context
+   per pair (its approach speed and the PSI), the mindist's extra radius, length and margin class, each core's
+   angular bound (`FUN_180099d60`, unported) and `+0x54` (`0.5f / (surface radius + object extra)`), and the
+   ledge edge offsets carried from `PhysicsLedge` through `RagdollBody` to the body.
+6. **The pair scheduler's near branch** (`FUN_180099380`) and the time-ordered event loop that
+   consumes events inside the PSI — the piece that replaces the fixed step's speculative contacts.
+   **Read instruction by instruction, 2026-09-12** (`docs/findings/51`, *The scheduler's near branch and the
+   dispatch into the search*). **Its scope is larger than this line said**, and saying so is the point: an event
+   the scheduler queues is resolved by the mindist event's own fire routine — the impact itself, unread — and a
+   pair the far branch parks comes back through the travel allowances `FUN_180097bd0` installs, also unread. The
+   branch's decision logic can be ported on its own; replacing the fixed step needs both of those as well.
+7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
+   measure with `corpse-drop` by limb depth.
+
+Kinds (0,0), (0,1) and (1,1), and the kind-3 routines, follow the same layers once (5) is proven;
+lump 28's hull as the query root is its own later parity step.
+
+**What is NOT established:** that (1)–(7) remove the buried limbs. It closes this entry only when
+`corpse-drop` reports every body above the surface it rests on, on all five seeds.
+
+*Evidence class: measured, for every table here, through instruments carrying the value the code used;
+read-from-source for the vbsp, game and dispcoll citations; INTERPOLATED, and flagged, for the reading
+of the blob bytes.*
+
 ### Narrowed 2026-09-12 by B400: a corpse on BRUSH geometry now sleeps, and only the terrain half still does not
 
 **Everything above was measured while every collision hull in the project was rotated 180° about X**
@@ -26642,6 +26838,326 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B405 FIXED 2026-09-12: a `.phy` too short for its header, or declaring another header size, escaped every Scene reader's catch
+
+**Found writing B404.** `PhysicsModel.Read` refused both headers with `InvalidOperationException`. Its Scene
+callers catch something else: `PropModels.ReadRagdoll`, `PropModels.ReadBreakPieces` and `MapPropCollision.Read`
+catch `InvalidDataException or ArgumentException`, and `DemoModels.BreakPiecesOf` catches only
+`InvalidDataException`. Each of them says a `.phy` it cannot parse costs that model its physics rather than the
+load (D32), and none of them could keep that promise for these two. Only the probes caught the type thrown.
+
+**What Valve does with the same header.** The game's own `.phy` loader is in `datacache.dll`, which the public
+SDK does not carry, *and it is not read*. Valve's tools refuse exactly these files:
+`if ( header->size != sizeof(*header) || header->solidCount <= 0 ) return false;` (`vradstaticprops.cpp:520`,
+and the same line at `glview.cpp:770`). `studiobyteswap.cpp:510` instead treats `size` as the offset of the
+solids. **Not established:** whether the game refuses a header size other than 16 or skips by it; and ours does
+not refuse `solidCount <= 0`, which both tools do.
+
+**The fix: one exception type for a malformed `.phy`.** Both header refusals throw `InvalidDataException`, the
+type B404's corrupt solid throws and the type every Scene caller catches. `RagdollProbe`, `CorpseDropProbe` and
+the `phy-solids` probe catch it instead of `InvalidOperationException` — `CorpseDropProbe`'s one catch also
+covers `StudioBones.Read`, which throws only `InvalidDataException`, so nothing it caught before is lost.
+
+**Three tests, red first.** `PhysicsModelConformanceTests` holds a four-byte file and an otherwise well-formed
+one-solid `.phy` whose header declares size 20, both expected to throw `InvalidDataException`; both failed on
+the old reader, which threw `InvalidOperationException`. **And the one that can see the wiring**:
+`DemoModelsTests.BreakPiecesOf_APhyTooShortForItsHeader_IsEmptyRatherThanThrowing` writes a four-byte loose
+`.phy` into a temp `tf` folder, beside a well-formed one with a `break` block as the control that the folder is
+read at all, and asks the real `DemoModels.BreakPiecesOf`. It failed with the exception escaping the catch —
+`System.InvalidOperationException : a .phy is at least 16 bytes of header; this one is 4`. Content 1186 → 1188,
+Scene 736 → 737.
+
+**Two sabotages, each restored.** The short-file refusal put back to `InvalidOperationException` reddened its
+Content case AND the Scene case; the header-size refusal put back reddened only its own Content case.
+
+### B404 FIXED 2026-09-12: the hull reader takes every solid for a `VPHY` one, never reads its type, and checks a magic the loader does not
+
+**Found closing B403**, whose last paragraph leaned on vphysics' per-solid load loop `FUN_18000a100` from its
+decompile. That loop is now settled in the disassembly, with its single-buffer twin `FUN_18000c600`, and the
+table of what it does with each kind of solid is `docs/findings/51`, *What the loader does with a solid it
+cannot use* — not restated here.
+
+**The engine, in one sentence per kind:** a solid opening with a `VPHY` tag is built from `+0x1C` for the data
+size at `+8` when its signed type word at `+6` is zero, whatever its magic says, and is NULL for any other
+type; a solid with no tag IS its compact surface, refused with `Error("Corrupt physics model")` under `0x30`
+bytes, built for the magic `IVPS`, `SPVI` or `0`, and NULL for `MOPP` or anything else. A NULL keeps its slot.
+
+**Ours, four ways off:**
+
+- `PhysicsHull.Read` and `MassProperties` took every solid's surface from `+0x1C` — so an untagged solid,
+  which is its own surface, was read from 28 bytes into its own ledges;
+- neither read the type word, so a `"Null physics model"` produced a hull and a mass;
+- the surface was bounded by the size prefix rather than the data size the loader copies;
+- and a tagged solid whose magic was `MOPP` or unknown was refused, where the loader never reads the magic
+  on that branch — checked past the loader too: `FUN_18000c1c0` and the convex walk it calls never read
+  `+0x2C`, and the `MOPP` constant appears in no function but the two loaders.
+
+Neither solid walker could refuse a file the loader refuses: `PhysicsModel` stopped silently at a zero-byte
+solid and read on past a short one, and the map reader did the same.
+
+**Also corrected, in `docs/findings/51`:** its container block named the word at `+4` the type, called `+6`
+reserved, and hung the `0x30` guard on the data size. The disassembly reads `+6`, never `+4`, and compares the
+size PREFIX, on the untagged branch only.
+
+**Measured on shipped content: nothing moves.** The `phy-solids` probe walked all 4,755 `.phy` files in
+`tf2_misc_dir.vpk` (5,338 solids) and all 234 installed maps (31,579 solids). Every solid is `VPHY`-tagged with
+type 0, a data size equal to its prefix less `0x1C`, and an `IVPS` surface, so every one reaches `Collide` with
+mass properties and ledges, as it did before. The census table is in `docs/findings/51`. **The divergence is
+real and latent:** it bites an old untagged `.phy`, a `"Null physics model"`, or a stranger's map, and TF2 ships
+none of them. The corrected container reading would not have been latent: the word it called the type is
+`0x0100` on every shipped solid.
+
+**The fix.** `PhysicsHull.Load` answers which end a solid reaches (`PhysicsSolidLoad`: `Collide`, `Null`,
+`Corrupt`), from one private `Locate` written in the loader's branch order, `MOPP` test included though no
+input distinguishes it from the fall-through. `Read` and `MassProperties` read only the surface the loader
+builds: from `+0x1C` for the data size when tagged, from the first byte when not. `PhysicsModel.Read` throws
+`InvalidDataException` for a corrupt solid — the type every Scene caller already catches, so the model loses
+its physics rather than the load (D32) — and keeps a NULL's slot. The map reader stops before the model
+carrying a corrupt solid, a map's solids being `VCollideLoad`'s input too (`bsplib.cpp:1681`). A zero-byte
+solid is now an extent in both walkers, because the loader refuses it rather than skipping it. Two named
+departures, both D32: a tagged solid too short for its own header is NULL, and a data size past the solid is
+cut to the solid.
+
+**Twenty conformance tests, Content 1166 → 1186**, synthetic bytes. Run against the old reader first:
+fourteen red — both tagged-type-zero cases, type one, both other types, the data-size bound, all three
+untagged builds, both corrupt `.phy` cases, both corrupt map cases, and the NULL's slot. The two untagged
+`MOPP`/unknown cases were GREEN on the old reader by accident — it read their "magic" from `+0x48`, which in
+that fixture is an edge word, and refused it — so only sabotage can prove them. The `Load` cases were
+compile-red. Three old tests were replaced, not kept: they asserted `MOPP` refused and a zero magic loaded on
+the TAGGED path.
+
+**Fifteen sabotages, each restored by its inverse edit** (run by a sonnet sabotage-verifier; the restored diff was
+byte-identical and the suite 47/47 after). Ten reddened exactly their own cases:
+
+| sabotage | reddened |
+|---|---|
+| tagged branch checks the magic | both tagged-type-zero cases, the classification case |
+| untagged surface taken from `+0x1C` | all three untagged builds, the `0x30` boundary, the NULL's slot |
+| corrupt at `<= 0x30` | the `0x30` boundary, the NULL's slot, the terminator fixture, both corrupt map cases |
+| corrupt answered as NULL | all three `Load` corrupt cases, both `.phy` refusals, both map stops |
+| zero dropped from the loadable magics | the zero-magic build, the classification case |
+| tagged-header length guard removed | both too-short cases |
+| `PhysicsModel`'s refusal removed | both `.phy` refusals |
+| `PhysicsModel` skipping a zero-byte solid | the zero-byte refusal only |
+| the map reader's stop removed | both corrupt map cases |
+| the map reader skipping a zero-byte solid | the zero-byte map case only |
+
+**Five could not be observed as first written** — reading the type from `+4`, building every type, ignoring the
+data size, building an unknown magic, and removing the `MOPP` test each deleted the only use of a private
+constant or local, and Sonar and the .NET analyzers failed the build (`S1144`, `CA1823`, `S1481`, `S3923`) before
+any test ran. `docs/memory/most-of-a-decoder-is-untested.md` already said so; the sabotage list should have been
+written from it. **So a second pass rewrote each to keep every name referenced**, and all compiled:
+
+| sabotage | reddened |
+|---|---|
+| type read from `+4` (`TypeOffset - 2`) | thirteen: every tagged fixture, since each carries the `0x0100` shipped solids carry there and so reads as a type the loader nulls — and type one and both other types, which carry zero there and so build |
+| only type 12345 is NULL | type one, both other types, the classification case, the NULL's slot |
+| the data size ignored (`Math.Max`) | the data-size case only |
+| `QQQQ` added to the loadable magics | the unknown-magic case, the classification case |
+| the `MOPP` test pointed at `MOPP + 1` | **nothing** — predicted, and what its comment says: the fall-through nulls `MOPP` too |
+| that, and `MOPP` added to the loadable magics | the `MOPP` case, the classification case — the proof the `MOPP` case can fail at all |
+
+Restored byte-identical after both passes; 49 of 49.
+
+**Closed with these not established:** what `CreatePolyObject` does with a NULL collide (B403's open item);
+that `engine.dll` loads `LUMP_PHYSCOLLIDE` through `VCollideLoad`; and what the three floats a tagged header
+carries at `+0x0C` mean — the loader copies them into the collide at `+0x10..+0x18`, where an untagged solid
+keeps `1.0f` each.
+
+### B403 FIXED 2026-09-12: a corpse's bodies turn about the bone origin with one inertia, where IVP turns them about the hull's mass center with three
+
+**Found while porting the time-of-impact transform (B369), because a premise written into the code
+turned out to be false.** `IvpRigidBody.TransformAt` said the object's offset inside its core was not
+composed "because in this project a body and its core are one thing". The owner asked for it to be
+verified. It is not true of the engine.
+
+**The engine, read from the disassembly of `vphysics.dll`** (full account: `docs/findings/51`, *An IVP
+object's core sits at the hull's mass center*):
+
+- The object initializer `FUN_180073df0` takes the hull's mass center from the surface manager (virtual
+  `+8`) — ragdolls never set `objectparams_t::massCenterOverride` — and places the CORE there
+  (`FUN_1800790a0`). The object is stored inside the core at `object+0x60` = `−massCenter`, with bit
+  `0x800` set only when that is shorter than `1e-8` (`FUN_180074380`).
+- The core's rotational inertia is per axis: the hull's own (virtual `+0x18`) × the per-axis factor ×
+  the mass, floored at `rotInertiaLimit` × the largest — and `RagdollAddSolid` sets `rotInertiaLimit =
+  0.1` for every ragdoll element (`ragdoll_shared.cpp:192`).
+- Every transform the engine hands out for the object composes the offset back in (`FUN_1800734e0`,
+  `FUN_180032740`, `FUN_180037620`).
+
+**Ours:** a body's position is the bone origin (`RagdollSimulation.cs:125`), its hull points and joint
+anchors are relative to that origin, and its inertia is one number, `mass × inertia scale`, on all three
+axes (`RagdollSimulation.cs:115-129`), with no floor.
+
+**What is visible when it is wrong:** every limb whose hull's mass center is not at its bone origin —
+which is nearly all of them, since a bone origin sits at a joint and the hull hangs off it — swings
+about the joint rather than about its own middle when a contact or a constraint pushes it, and a long
+thin limb turns as easily about its length as across it. How a corpse tumbles and settles is different
+from TF2's, every time. *That the difference is large enough to see on a real corpse is not measured.*
+
+**Both inputs are now read, 2026-09-12.** The surface manager's `+8` copies the hull's mass center from
+`IVP_Compact_Surface+0x00..0x08` and its `+0x18` copies the rotation inertia from `+0x0C..0x14`, both in
+IVP's object frame. vphysics' template fill (`FUN_18001c9d0`) clamps the mass to `[0.1, 50000]`, keeps an
+inertia scale only above zero (else 1) and caps it at `1e18`, puts that scale on all three axes as a
+factor, and copies `rotInertiaLimit`. The floor multiplies the inertia's LENGTH, not its largest axis.
+**First code: `IvpObjectTemplate`** — the template fill and the core's mass and per-axis inertia, with
+`IvpObjectTemplateConformanceTests` (13), compile-red first; four sabotages (a floor from the largest axis,
+`>= 0` for the scale, `MAXSS` operands swapped, the mass floor a thousandth the size) reddened exactly the
+four cases predicted. **Not yet wired**: nothing reads the hull's mass center or inertia, and every body is
+still built as before.
+
+**Measured on a shipped corpse, 2026-09-12** — the `ragdoll` probe on `models/player/soldier.mdl`, printing
+what `PhysicsModel.MassProperties` carried out of each solid's compact surface:
+
+| hull | what | mass center, Source units, bone space | hull inertia per kg, IVP axes, m² |
+|---|---|---|---|
+| 0 | pelvis | (−0, −1.39, −0.27) | (0.00771, 0.01665, 0.0166) |
+| 1–4 | upper arms and thighs | (9.21–9.26, ~0, ~0) | (0.00187, 0.0111–0.0163, same) |
+| 8–9 | forearms | (6.93, ~0, ~0) | (0.0013, 0.0101, 0.0101) |
+| 10, 12 | hands | (5.45, ~0, ~0) | (0.0013, 0.0057, 0.0057) |
+| 13 | head | (0.12, 0.41, 1.11) | (0.00055, 0.00109, 0.00121) |
+
+**The control, because a filled-in-looking column can still be the wrong bytes:** every mass center agrees
+with the ledge's bounding-sphere centre the probe already printed from different bytes of the same hull —
+hull 1's `(9.2, −0, 0)` against `(9.23, 0.02, 0.03)`; hull 0's centre, printed in IVP axes as `(0, 0.3, −1.4)`,
+is `(0, −1.4, −0.3)` in Source axes against `(−0, −1.39, −0.27)`.
+
+**So the divergence is large on every corpse TF2 draws.** A long limb's core sits five to nine inches down
+the bone from where ours pivots, and it is six to nine times harder to turn across its length than along
+it. Ours has one inertia, `mass × scale`, with no length in it at all — against the engine's `mass × hull
+inertia`, which for a limb is 3 to 25 in² per kilogram once converted — so every limb currently turns
+several times too easily, and about the wrong point.
+
+**Carried into the element, 2026-09-12.** `PhysicsModel.MassProperties` holds each solid's pair, and
+`RagdollBody` brings them into bone space on `RagdollElement.MassCenter` (like a hull point) and
+`HullInertia` (by axes, units squared; null when the surface carried none), with `RotationInertiaLimit`
+at `0.1` for a ragdoll element and `g_PhysDefaultObjectParams`' `0.05` otherwise. Four
+`RagdollBodyConformanceTests`, three sabotages each reddening its own. **Still not read by the simulation.**
+
+**The same core placement changes the joint's twist axis, and that rule diverges on its own too.** From
+the decompile of `FUN_1800393d0` (`D:\ghidra-proj\out\gate_1800393d0.log`, decompiler only — to be settled
+in the disassembly before it is ported), each candidate axis scores
+
+```
+r_A = objectMatrix_A · anchor_A − core_A position        -- FUN_180032740 composes the object offset
+r_B = objectMatrix_B · anchor_B − core_B position
+score = |r_A × a_A|² · invMass_A  +  (a term FUN_18003d320 builds from the axis in each core's frame)
+      + |r_B × a_B|² · invMass_B
+```
+
+and the largest wins. *That the middle term is the inverse rotational inertia along the axis is inferred.*
+Ours (`RagdollSimulation.Turning`) scores one anchor, unsquared, measured from the bone origin, with the
+element's raw mass. With the core at the bone and one anchor at zero the argmax agreed; once both anchors
+are measured from mass centers, squared and unsquared sums pick different axes, so this is part of the
+same fix and not a separate one.
+
+**The core is placed at the mass center, 2026-09-12.** `RagdollSimulation.Create` now builds each body the
+engine's way when its element carries hull inertia:
+
+- **Position** is the CORE — the bone's start position plus the mass center turned by the start orientation —
+  and `IvpRigidBody.ObjectOffset` holds `−massCenter`, zeroed below `1e-16` m² as `FUN_180074380` does.
+- **Mass and inertia** come from `IvpObjectTemplate`: the clamped mass, and per-axis inertia of hull ×
+  scale × mass floored at the element's limit.
+- **Hull points are composed per use**, `IvpRigidBody.CoreHullPoint` adding the offset at each of the five
+  places the contact code reads them — the engine keeps ledge points in the object's frame and composes the
+  offset every time, and baking it into the stored hull would have to come out again for the time-of-impact
+  evaluators.
+- **Joint anchors are in core space**: the child's is its offset, the parent's is `OriginParentSpace` plus the
+  parent's offset.
+- **What leaves the simulation is the bone**: `State()` and the killing blow's `forcePosition` use
+  `IvpRigidBody.ObjectOrigin`, core plus turned offset, as vphysics' `GetPosition` does.
+
+An element whose surface carried no inertia keeps the old single inertia, since the engine never builds
+such an object. Six conformance tests, compile-red first; two sabotage runs, four and two, reddened exactly
+the cases each was predicted to.
+
+**Honest interim state, named so it is not mistaken for finished:** `RagdollSimulation.Turning` still scores
+one unsquared anchor, `OriginParentSpace`, measured from the bone — the old rule on the old geometry —
+while the anchors it would have to score have moved. The engine's rule is the next change; its disassembly
+is taken.
+
+**Measured on real corpses, 2026-09-12** — `corpse-drop` with its five default seeds, run on the commit
+before the core placement (`9f2f9a87`, in a scratch worktree) and on the one after (`d795a22e`), same probe,
+same machine:
+
+| seed | before | after |
+|---|---|---|
+| (361.7, −1614.3) | asleep tick 372, lowest 14.9 | asleep tick 381, lowest 24.8 |
+| (−11.5, −1558.8) | **AWAKE, lowest −0.3**, 150.6 u/s | asleep tick 395, lowest 4.5 |
+| (−972.6, −1400.3) | asleep tick 623, lowest 29.5 | **AWAKE**, lowest 37.2, 59.9 u/s |
+| (256.9, −1416.1) | asleep tick 607, lowest 2.3 | asleep tick 433, lowest 5.7 |
+| (−953.8, −1556.3) | **AWAKE, lowest −0.3**, 100.6 u/s | AWAKE, lowest 38.1, 61.3 u/s |
+
+**No corpse ends below its floor any more** — both that finished at −0.3 now finish above the surface they
+rest on, which is the half of B369's closing condition that concerns buried limbs — and the two that sleep
+in both runs settle sooner. **One that slept no longer does**, so three sleep and two stay awake, as
+before. *What keeps the awake two moving is not measured*; both rest near ledges at z ≈ 40 with residual
+speed near 60, and the twist-axis rule still being the old one is the known unported difference on this
+path.
+
+**The twist-axis rule is ported, 2026-09-12** — `RagdollSimulation.Turning` now scores each axis as
+`FUN_1800393d0` does (`docs/findings/51`, *The joint's twist axis*): both anchors' arms squared from each
+core and weighted by inverse mass, plus each core's inverse inertia about the axis, first strictly highest
+from −1. Two conformance tests, each red against the old rule and found by search so every wrong rule picks
+a different axis; one sabotage per term reddened only its own. The interim state above is closed.
+
+**Measured again after the twist port, 2026-09-12** — the same five seeds on `851d9582`:
+
+| seed | core placed, old twist (`d795a22e`) | engine's twist (`851d9582`) |
+|---|---|---|
+| (361.7, −1614.3) | asleep tick 381, lowest 24.8 | asleep tick 435, lowest 20.8 |
+| (−11.5, −1558.8) | asleep tick 395, lowest 4.5 | asleep tick 623, lowest 5.5 |
+| (−972.6, −1400.3) | AWAKE, lowest 37.2, 59.9 u/s | **asleep tick 490**, lowest 37 |
+| (256.9, −1416.1) | asleep tick 433, lowest 5.7 | asleep tick 380, lowest 4.4 |
+| (−953.8, −1556.3) | AWAKE, lowest 38.1, 61.3 u/s | **asleep tick 511**, lowest 35.2 |
+
+**Every corpse now sleeps, and none ends below its floor** — against two buried and two awake before B403
+began. *Evidence class: measured, on the probe; nobody has looked at these corpses in the viewer, and
+whether TF2 settles them at these ticks is not measured.*
+
+**The time-of-impact transform composes the object, 2026-09-12.** `IvpMotionCache.Fresh` built the core's
+matrix and stopped, where `FUN_1800734e0` goes on to put the object offset through it as the translation
+(skipped under bit `0x800`; the `object+0x58` rotation is always null for these objects, since
+`FUN_180074380` frees it whenever the object-from-core rotation's diagonal is exactly 1). The evaluators
+read hull points in the object's frame, so every lattice matrix was the mass center's, not the bone's. One
+conformance test, red first; the composition removed reddened only it. Not yet on the running path — the
+B369 scheduler that calls it is unported. `IvpRigidBody.TransformAt`'s remark claiming the two were "one
+thing" is corrected.
+
+**The remaining consumers of a body's position were checked** for the core/object split: the contact
+search and sweep put `CoreHullPoint` through the core's position and orientation, `ApplyForceOffset`
+measures its arm from the core (IVP's `r` is from the mass center), the ball socket joins core positions by
+core-space anchors, and the sleep watch in `RagdollSimulation.Step` follows the core. None reads the core as
+the bone.
+
+**The last stand-in is gone, 2026-09-12.** `RagdollSimulation.MassAndInertia` kept the old single inertia,
+`mass × scale`, for an element with no hull inertia — reachable in production only on a solid whose surface
+our reader refuses, and run by every synthetic element without mass data. **The engine has no such
+element**, read from the decompile of vphysics' per-solid load loop `FUN_18000a100` (`docs/findings/51`,
+*What the loader does with a solid it cannot use*): such a solid's collide is left NULL, and `RagdollAddSolid`
+hands it to `CreatePolyObject` and dereferences the result on the next line (`ragdoll_shared.cpp:200-201`).
+*What `CreatePolyObject` does with a null collide is not read*; nothing after it is behaviour to copy.
+**Corrected:** the first version of this paragraph said an unreadable surface "fails the collide's load"
+— written before the loop was read. The load fails outright only for an old-format solid under `0x30`
+bytes (`Error`); every other refused solid is nulled and the load carries on.
+
+So `RagdollElement.MassCenter` and `HullInertia` are now `required` and non-null, `RagdollBody.Build` and
+`BuildProp` refuse a solid without them — the second of `Build`'s two stated departures, beside a solid that
+names no bone — and the branch and its `MinimumInertia` floor are deleted. Synthetic fixtures supply
+`RagdollMasses.Unit`, a mass center at the bone and one square inch per kilogram on each axis, which gives
+every core the same `mass × scale` the stand-in did: **every other Animation and Scene test kept its exact
+result**, the control that the conversion changed only what it meant to. Two conformance tests, red first;
+a made-up pair substituted in each builder reddened exactly those two. **And on real data nothing moved**:
+`corpse-drop` on `5ce303b1` reports all five seeds exactly as on `851d9582` — every solid of a shipped `.phy`
+carries its pair, so the refusal never fires there.
+
+**Closed with these not established:** nobody has looked at a corpse in the viewer since the core moved;
+whether TF2 settles the five probe seeds at those ticks is not measured; and the `CreatePolyObject` branch
+above is unread.
+
+**The fix, in order:** read both unknowns from the binary; conformance tests for the placement, the
+offset, the inertia and the floor; then carry the core at the mass center with body-local geometry
+shifted by `−massCenter`, and report the bone as the core composed with the offset.
+
 ### B402 FIXED 2026-09-12: releasing the Silk.NET API object unloads `d3d11.dll`, and WARP's threads are still in it
 
 **One line, and a truth table that took one command each.** `Device3D.Dispose` ended with
@@ -26692,9 +27208,14 @@ release by mistake.
 opt-in: *"the fps was shit, do not run the tests as warp locally please"*. CI runs on WARP by having
 no adapter, so the case is covered where it actually occurs.
 
+**Confirmed on CI, the only instrument that ever saw it.** Test run `34714557935` on `34496ce5`:
+Viewer UI **21 passed, 0 failed**, 11 skipped, 32 total, where every failing run had read 20 passed and
+1 failed — so the capture test is the one that flipped. Zero annotations on both jobs.
+
 *Evidence class: measured — four controlled runs on this machine, one variable between each, plus
-the six CI runs and their uploaded logs. The mechanism (FreeLibrary against live driver threads) is
-read-from-source on Silk.NET's disposal plus arithmetic on the exit code.*
+the six CI runs and their uploaded logs, plus the confirming CI run. The mechanism (FreeLibrary
+against live driver threads) is read-from-source on Silk.NET's disposal plus arithmetic on the exit
+code.*
 
 #### Attempt four, wrong: our `Dispose` override disposed the form's own child controls
 

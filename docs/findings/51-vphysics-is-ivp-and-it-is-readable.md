@@ -1893,13 +1893,21 @@ chain `FUN_18000a100` → `FUN_18000c600` → `FUN_18000bcf0` → `FUN_18000c1c0
 0x00-0x0F  phyheader_t { int size = 16; int id; int solidCount; int32 checksum }
 0x10-0x13  per-solid size prefix (uint32); the solid's data follows at +4
 0x14-0x17  "VPHY"
-0x18-0x19  short type      (0 normal, 1 "Null physics model")
-0x1A-0x1B  reserved        (0 in every sample)
-0x1C-0x1F  int32 dataSize  -- guarded by `if (param_2 < 0x30) Error("Corrupt physics model")`
-0x20-0x2B  three floats    -- structure confirmed, MEANING NOT DECODED
+0x18-0x19  short           -- NOT read by the loader
+0x1A-0x1B  short type      -- 0 builds, 1 "Null physics model", anything else NULL
+0x1C-0x1F  int32 dataSize  -- how many bytes of surface the loader copies; checked against nothing
+0x20-0x2B  three floats    -- copied into the collide at +0x10..+0x18; MEANING NOT DECODED
 0x2C-0x2F  0 in every sample
 0x30..     IVP_Compact_Surface, then the plaintext KeyValues tail
 ```
+
+**Corrected 2026-09-12 (B404).** This block first named `0x18` the type and `0x1A` reserved, and hung the
+`< 0x30` guard on `dataSize`. The disassembly of `FUN_18000a100` kills all three: the type is read with
+`MOVSX ECX, word ptr [RDI + 0x6]` — the solid's `+6`, file `0x1A` — the word at `+4` is never touched,
+`[RDI + 0x8]` goes straight to the copy as its length, and the `CMP R14D, 0x30` is against the size PREFIX, on
+the branch for a solid with no tag. **And the word it named the type is `0x0100` in every one of the 36,917
+solids TF2 ships** (the census under *What the loader does with a solid it cannot use*), so a reader acting on
+that layout would have nulled every hull in the game. It survived because nothing here read either word.
 
 ### `IVP_Compact_Surface`, 0x30 bytes
 
@@ -1907,10 +1915,91 @@ chain `FUN_18000a100` → `FUN_18000c600` → `FUN_18000bcf0` → `FUN_18000c1c0
 |---|---|
 | `+0x1C` | packed: **byte size is `value >> 8`**; the low byte is unidentified |
 | `+0x20` | int32 offset from the SURFACE's own base to the ledge-tree root |
-| `+0x2C` | magic: `IVPS`, `SPVI` (byte-swapped), `MOPP` (a different format this reader REFUSES), or `0` (an old `.PHY`, loaded anyway) |
+| `+0x2C` | magic, read by the loader ONLY for a solid with no `VPHY` tag: `IVPS`, `SPVI` (byte-swapped) and `0` (an old `.PHY`) build; `MOPP` (Havok's own tree) and anything else is NULL |
 
 **The `>> 8` is verified three times over:** `barrel01` gives `0x00049cd3 >> 8` = 1180, exactly the
 `VPHY` dataSize; `ladder001` gives 4628; `barrel_flatbed01` gives 2668. Each matches its own file.
+
+### What the loader does with a solid it cannot use
+
+**Read from the decompile of `FUN_18000a100`** (2026-09-12, B403), **then settled in its disassembly**
+(B404, `D:\ghidra-proj\out\solid_load_a100_c600.log`). It is `IPhysicsCollision::VCollideLoad( vcollide_t
+*pOutput, int solidCount, const char *pBuffer, int size, bool swap )` (`vphysics_interface.h:265`): it writes
+`solidCount & 0x7FFF` and a zero `descSize` into the two words of `vcollide_t` (`vcollide.h:16-22`), a pointer
+array of collides at `+8`, and the text tail after the last solid at `+0x10`. `FUN_18000c600` is
+`UnserializeCollide( pBuffer, size, index )` (`vphysics_interface.h:223`) — the same branches, in the same
+order, for one solid. Per solid, with its size prefix:
+
+| the solid | what the loader does |
+|---|---|
+| `VPHY` tag, type `0` | builds the collide from `+0x1C` (`FUN_18000bcf0`), **with no size check and no magic check** |
+| `VPHY` tag, type `1` | `DevMsg(2, "Null physics model")`; the collide is NULL |
+| `VPHY` tag, any other type | NULL, silently |
+| no tag, size under `0x30` | `Error("Corrupt physics model")` — the load stops |
+| no tag, magic `MOPP` | NULL |
+| no tag, magic `IVPS` or `SPVI` | builds from the solid's first byte |
+| no tag, magic `0` | `DevMsg(1, "Old format .PHY file loaded!!!")`, then builds |
+| no tag, any other magic | NULL |
+
+**A NULL collide keeps its slot**, so later solids keep their indices, and nothing in the loop refuses the
+file. `RagdollAddSolid` then passes the NULL to `CreatePolyObject` and dereferences what comes back
+(`ragdoll_shared.cpp:200-201`); *what `CreatePolyObject` does with it is not read*.
+
+**What the disassembly adds to the table**, each read off the instruction rather than the C:
+
+- **The type is the word at `+6`** — `MOVSX ECX, word ptr [RDI + 0x6]`, signed, so a negative word is "other".
+  The word at `+4` is never read. The first account of the container above had these two swapped.
+- **A tagged solid is built from `[RDI + 0x8]` bytes**, the header's data size, passed to `FUN_18000bcf0` as
+  the length it allocates and copies (`FUN_180072aa0( size, 0x20 )`, then `FUN_1800e7c40( copy, source, size )`);
+  the size prefix is used only to step to the next solid. An untagged solid is built from its size prefix.
+- **The tagged branch then copies `+0x0C`, `+0x10` and `+0x14` into the collide at `+0x10..+0x18`**, where
+  `FUN_18000bcf0` has just written `1.0f` into each — so an untagged solid keeps three ones. *What the three
+  floats mean is not decoded.*
+- **The loop counter goes to `FUN_18000bcf0` as its fourth argument**, which writes it into the surface copy
+  at `+0x24`, the first of `IVP_Compact_Surface`'s three spare words.
+- **The byte-swap follows the caller's `swap` flag, not the magic**: `SPVI` takes the same branch as `IVPS`,
+  and only `FUN_18000bcf0`'s `if (swap)` reaches `FUN_18007b1f0` — *that `FUN_18007b1f0` is the swap is inferred*
+  from `studiobyteswap.cpp:572` loading with `swap` true "to let ivp swap the ledge tree".
+- **`DevMsg` is `[0x1800ea308]` and `Error` is `[0x1800ea310]`**, with the level in `ECX`: 2 for `"Null physics
+  model"`, 1 for `"Old format .PHY file loaded!!!"`; the `Error` is followed by `INT3`.
+
+**Does anything past the loader refuse a tagged solid whose magic is not `IVPS`?** No, by three routes.
+`FUN_18000c1c0`, which `FUN_18000bcf0` ends by calling, reads the surface's packed size at `+0x1C` and asks the
+collide's virtual `+0x10` for its convexes — `FUN_18000baf0`, a two-instruction thunk to the ledge-tree walk
+`FUN_18007d260` on the surface — and validates each ledge's point indices against the size (`Error("vphysics:
+Invalid collide map")`); none of the three reads `+0x2C`. And a search of every decompiled function for the
+`MOPP` immediate, `0x50504f4d`, found exactly `FUN_18000a100` and `FUN_18000c600` in 2811 with none failing —
+the two loaders being the control that the search can see the constant at all. The `IVPS` immediate had already
+turned up only in those two and the two builders that write it (`FUN_180008dd0`, `FUN_180009b30`).
+*Evidence class: disassembly for every branch, operand and constant of `FUN_18000a100`, `FUN_18000c600`,
+`FUN_18000c1c0` and `FUN_18000baf0` above; decompile for what `FUN_18000bcf0` writes and for `FUN_18007d260`.*
+
+**`PhysicsHull` follows this table since B404.** `PhysicsHull.Load` names the branch; `Read` and
+`MassProperties` answer nothing for a NULL, read a tagged surface from `+0x1C` for its data size whatever its
+magic, and read an untagged one from its first byte. `PhysicsModel.Read` refuses a file carrying a corrupt
+solid with `InvalidDataException`, and the map's collision reader stops before the model carrying one — a map's
+solids are `VCollideLoad`'s input too, which Valve's own lump swapper shows (`bsplib.cpp:1681`). *That
+`engine.dll` loads `LUMP_PHYSCOLLIDE` through `VCollideLoad` is not read.* Two departures, both D32: a tagged
+solid too short for its own header is NULL where the loader reads past it, and a data size larger than the
+solid is cut to the solid.
+
+**Which rows shipped content takes: the first, every time.** The `phy-solids` probe (2026-09-12) walked the
+4,755 `.phy` files in `tf2_misc_dir.vpk`, holding 5,338 solids, and the collision lumps of all 234 installed
+maps, holding 31,579. On both populations alike:
+
+| field | every shipped solid |
+|---|---|
+| tag | `VPHY` — no solid is untagged |
+| word at `+4`, unread | `0x0100` |
+| type at `+6` | `0` |
+| data size at `+8` | the size prefix less `0x1C` |
+| surface magic, unread on this branch | `IVPS` — **the control** that the offsets beside it are right |
+| `PhysicsHull.Load` | `Collide`, with mass properties and at least one ledge |
+
+The walk's own controls hold: `PhysicsModel` walked the same solid count in all 4,755 files and refused none,
+and the maps' models declare exactly the 31,579 solids found. **So the table's other seven rows are for content
+TF2 did not compile** — an old `.phy`, a stranger's map — and are pinned by synthetic bytes alone. *Evidence
+class: measured, on this install.*
 
 ### The ledge tree, and the ledge
 
@@ -1961,6 +2050,16 @@ over all 132 edges of `barrel01`'s ledge:
 So it is a **vertex fan**, not a twin: it enumerates every triangle touching a given point, which is
 exactly what the vertex-vertex and vertex-edge feature tests need. **The control is the 0 of 132**,
 because without it "132 of 132 hit a real edge" would be satisfied by several wrong readings.
+
+**What "not a twin" did and did not test** (2026-09-12, B369). The measured hop is `fc8` FIRST — to the
+triangle's previous edge, which ENDS at the start point — and the 15-bit field of THAT edge second. A field
+holding each edge's classic twin predicts exactly the 132 of 132 (the twin of an edge ending at `P` starts at
+`P`, in the neighbouring triangle) and the 0 of 132 (it is not the reverse of the edge started from). So the
+measurement rules out the field being the twin of the edge the walk started on, not the twin of the edge it
+is stored on; *whether it is the latter is not established*. The vertex-face search does not need the answer
+— it takes the far end of the edge it lands on, `start(next(hop))`, as its neighbour of `P` — and
+`PhysicsLedge.EdgeOffsets` now carries the field as stored, `(int)(word << 1) >> 17` per edge, so the walk is
+the engine's address arithmetic rather than a reconstruction.
 
 ### The ledgetree node's twenty unidentified bytes are a TIGHT bounding sphere
 
@@ -2118,6 +2217,708 @@ point where a contact becomes an impulse is not on this path at all. It is in th
 
 *Evidence class: read from the decompiled binary; the phase numbering is read from the profiler
 argument rather than inferred. The correction to `FUN_180098dd0` is read from the function itself.*
+
+### The NEAR branch of `FUN_180099380`, and why a pair never penetrates (B369)
+
+**The section above read the far branch. The other branch is the answer to "how does TF2 keep a limb
+above zero-thickness terrain", and it is conservative advancement per pair.** Read 2026-09-12 while
+chasing corpses with limbs eighty units under the ground:
+
+1. **The actual closing speed**, not the bound: the stored contact normal at `mindist+0xb0..0xb8`
+   dotted with both cores' linear velocities (`core+0x140..0x148`), plus each core's angular term
+   (`core+0x1c0..0x1c8` against the normal, scaled by `core+0x254`). If it is below two small
+   thresholds the pair is left alone.
+2. **Can it close the gap before this PSI ends?** `(env+0x190 − env+0x188) × closingSpeed + margin <=
+   distance` returns: it cannot touch this step.
+3. **Otherwise an exact time of impact**, through a dispatch table indexed by the two synapses'
+   feature kinds (`DAT_18012d910`, the kinds at `+0x5a` in each 0x38-byte synapse record). When it
+   finds an impact inside the PSI, the pair is inserted into the time manager at that moment
+   (`FUN_1800aaed0`); the time-ordered event loop then resolves it before anything moves past it.
+4. **No impact found:** the next check is scheduled at `(distance − ε) / speedBound` from now, with a
+   small floor, so the pair is looked at again no later than the earliest moment it could meet.
+
+**The minimize step descends the hull.** `FUN_180095cb0` walks a second feature-pair table
+(`DAT_18012d4b0`), up to two retries. A result of `3` where a synapse's kind is `5` replaces that node
+with its child (`FUN_180094e30`) and sets the kind to `2`, then retries — the same hull-then-triangles
+descent the virtual mesh's surface manager exposes from the other side.
+
+**Ours is a fixed step with speculative contacts and a push after penetration.** That is the
+structural divergence under B369: IVP never needs `TerrainDepth`, because no pair is ever allowed
+past the moment it could touch.
+
+**The constants, dumped.** Most are `float`s widened to `double`, which is why their low 32 bits are
+zero:
+
+| address | value | role in `FUN_180099380` |
+|---|---|---|
+| `1800f5108` | 2.1 | the far gate's factor on `step × speedBound` |
+| `1800f4f20` | ≈1e-19 | closing-speed floor |
+| `1800eb140` | 1e-6 (float) | an impact this close to now is taken as now |
+| `1800f4f28` | 1e-12 | distance floor before dividing by the bound |
+| `1800fd578` | 0.1 | recheck scale on `distance / speedBound` |
+| `1800f5100`, `1800fdf68`, `1800fdf60`, `1800f50f8` | 0.001, 1e-5, 1e-7, 1e-4 | time-floor factors on the two recheck paths |
+| `1800ea938` | 1e-10 (float) | added to each speed bound |
+| `1800ea968` | 0.1, 0.2 (floats) | the travel-allowance split between the two objects |
+| `1800fdf78` | 1.001 | `sqrt(1.001 − x²)` in the angular term |
+
+**And five that CANNOT be read from the file.** `18012d540`, the margin table `18012d548`,
+`18012d654`, `18012d664` and `18012d670` — with both dispatch tables, `DAT_18012d910` and
+`DAT_18012d4b0` — all read **0 on disk**, and all sit in `.data`, filled at startup. A zero there is
+the value before initialisation, not the value the solver uses. **This document already recorded
+`DAT_18012d664` as "dumps as 0.0" above, and that is the same trap:** it is not established. The
+writers are to be read before any of these is used as a number.
+
+**Both dispatch tables, from their initialisers**, each indexed `kindA × 4 + kindB` over the two
+synapses' feature kinds 0–3:
+
+| table | filled by | default | set entries |
+|---|---|---|---|
+| minimize, `DAT_18012d4b0` | `FUN_180094700` | `FUN_180094e10` | `(0,0) (0,1) (0,2) (1,1) (2,2)` → `FUN_180094c70`; `(1,0) (2,0)` → `FUN_180094f70`; `(0,3)` → `94c50`, `(1,3)` → `94c30`, `(2,3)` → `94c10` (six-instruction assertions); row 3 → `FUN_180094ad0`, `(3,3)` → `FUN_180094860` — read slot by slot from the initializer's disassembly, 2026-09-12. **`FUN_180094c70` builds both sides as the time-of-impact dispatch does and routes again**: `(0,0)` → `FUN_1800b1b80`, `(0,1)` → `FUN_1800b1aa0`, `(0,2)` → `FUN_1800b1910`, `(1,1)` → `FUN_1800afa40`, anything else — `(2,2)` — → `FUN_180094f80` (696 instructions); all unread |
+| time of impact, `DAT_18012d910` | `FUN_1800a3aa0` | `FUN_1800a4200` | `(0,0) (0,1) (0,2) (1,1)` → `FUN_1800a3fe0`; `(3,0) (3,1) (3,2)` → `FUN_1800a3d30`; `(3,3)` → `FUN_1800a3b60` |
+
+**Only eight of sixteen kind pairs are LEGAL at event time, and the default is not "no event" — it
+is a fault.** `FUN_1800a4200` is `Error("IVP Failed at %s %d", "...ivp_mindist_event.cxx", 0x4ea)`
+followed by a breakpoint trap. An earlier draft of this paragraph said the other combinations "raise
+no impact event"; they cannot occur, and reaching one stops the process.
+
+`FUN_1800a3fe0`, the entry for the polyhedral kinds, resolves each synapse's ledge and routes again:
+
+| kinds | routine |
+|---|---|
+| (0,0) | `FUN_1800a2b30` |
+| (0,1) | `FUN_1800a1ff0` |
+| (0,2) | `FUN_1800a1b50` |
+| (1,1) | `FUN_1800a1420` |
+| anything else | the same assertion, at lines `0x4cf`, `0x4da`, `0x4df` |
+
+These are the four routines this document named earlier as the narrow phase. **The legal set has no
+(1,2) and no (2,2)** — which is exactly the minimal closest-feature pair set of the V-Clip method
+*if* kinds 0, 1 and 2 are vertex, edge and face. The absent pairs are what V-Clip reduces to the
+others. That reading gains real support from the table's shape; nothing in the binary names the
+kinds, so it remains INFERRED.
+
+**The (0,2) routine, `FUN_1800a1b50`, is a root-find over the step, not a sweep** — and (0,2) is the
+case a corpse's hull vertex arriving at a terrain triangle takes:
+
+1. Each object's motion over the PSI is built (`FUN_1800a0800` on both cores); the vertex comes from
+   the ledge's point array, the face's plane from `FUN_18007b940`, normalised.
+2. **The generic root finder `FUN_1800b6210`** is handed a point-to-plane evaluator (vtable
+   `1800fe720`) and asked for the moment the distance reaches **the material margin plus the pair's
+   extra radius** (`mindist+0x98`), to a tolerance of `DAT_1800ea984 × extra + ε`, between the
+   interval's start (`mindist+0x30`) and end (`mindist+0x38`). A root is **event `0x20`**, a collision,
+   written at `mindist+0x48`.
+3. **Then the vertex's ring of edges is walked** through the half-edge offset tables. Any edge closing
+   on the plane faster than the remaining interval allows gets the refining finder `FUN_1800b6590` with
+   an edge evaluator (vtable `1800fe750`) and a target built from the margin, `0.1 × extra` and
+   `DAT_18012d664 ×` a core term. A root there is **event `0x21`**: the closest feature leaving the
+   vertex for an edge inside the step, which is the tracking half of a closest-feature pair.
+
+`DAT_1800ea9b8` dumps as `1.0` exactly, so `DAT_18012d670`, set from it at startup, is `1.0`; and
+`DAT_1800ea984` is `0.5`, so the (0,2) tolerance is `0.5 × extra + ε`.
+
+**The root finder `FUN_1800b6210` is conservative advancement on a discrete time lattice.** Its
+evaluator is an object whose slot 0 returns the pair's distance for two given transforms (point-plane
+`1800fe720` = {`a3470`, `a3a30`, `a31e0`}; edge `1800fe750` = {`a3660`, `a32b0`, `a33e0`}) and whose
+`[1]` holds the pair's maximum approach speed:
+
+1. The distance at the interval's start, or the one passed in. **If it is already above the target, the
+   whole search is handed to `FUN_1800b6590` at once.**
+2. Otherwise — the pair starts inside the target — a step of `(distance − tolerance) × (1.0 /
+   evaluator+0x08)`; if `(float)(t − end)` plus the step is past zero it becomes `(float)(end − t) + 1e-8`,
+   and otherwise it is held at zero or above (`MAXSD` against zero, which also turns NaN into zero).
+3. **Quantised to whole lattice ticks**, `(int)(step × 200.0)` truncated, at least one; the clock
+   advances by `(double)((float)ticks × 0.005f)`, and a running tick total indexes the motion caches.
+4. Both objects' transforms at that index, taken from the cache or computed there with
+   `FUN_1800734e0` and kept, and the distance evaluated.
+5. **A distance above the target** hands `(t, distance, tick total)` to `FUN_1800b6590` for the rest of the
+   interval, unless `t` is already past the end. **A distance at or below the one at the START** is an
+   event at the PREVIOUS lattice time, returned as 1. Anything between — inside the target but farther
+   than at the start — carries on until `(float)(t − end)` reaches zero, which is no event.
+
+**Corrected from the disassembly:** this list first read as a search for the distance falling to the
+target. The routine marches only while the pair starts inside the target, compares each distance with
+the one at the start rather than the previous one, and delegates any approach from outside to the
+refining finder.
+
+**Each object's motion cache is built by `FUN_1800a0800`**: 21 transform slots. When the OBJECT's
+movement-state byte at `object+0x78` is 8 or more, every slot points at the matrix at `+0x40` of the
+structure the cache is built from — the body is not moving, *inferred* from that shortcut — and
+otherwise slot 0 alone points there and the rest are null, filled on first use. **A slot is keyed by its
+tick index only**: whatever time first fills index `n` is what every later lookup of `n` in the same
+search gets, and a refinement handed the tick total carries on in the same caches. **Corrected from the
+disassembly:** this paragraph first put the state byte on the core; the cache reaches it through
+`+0xc8`, which is the object (its `+0xe8` is the core `FUN_1800734e0` reads).
+
+**`FUN_1800734e0` composes the object into its core** after the core's own transform at `t`: unless
+flag `0x800` at `object+0x78`, the translation becomes the float offset at `object+0x60` put through that
+matrix (`FUN_180070b20`, the same grouping as `FUN_180070bc0`); then, if `object+0x58` is set, the
+rotation is rebuilt from the interpolated quaternion times the one it points at (`FUN_180070d60`, a
+Hamilton product `a ⊗ b` in doubles). **This project treated a body and its core as one thing**, which
+drops both — and the next section shows that premise is false for any hull whose mass center is not its
+origin (B403). **The `+0x58` half never runs for an object `FUN_180073df0` makes**: its object-from-core
+rotation is built from an all-zero quaternion, which is the identity, so `FUN_180074380` always frees and
+nulls that pointer (step 3 below). The translation half is ported in `IvpMotionCache.Fresh`.
+
+**An IVP object's core sits at the hull's mass center, and its inertia is the hull's, per axis.** Read
+from the disassembly of the object initializer `FUN_180073df0` (in `ivp_object.cxx`) and what it calls:
+
+1. The mass center comes from the surface manager at `object+0xc8`, virtual `+8`, unless the template's
+   `+0x78` points at an override, whose doubles at `+0x60..+0x70` are narrowed instead.
+2. An object-from-core matrix is built with an all-zero quaternion — which `FUN_180071330` turns into the
+   identity rotation — and that mass center, widened, as its translation.
+3. That matrix goes to the object's virtual `+0x10`, `FUN_180074380`: it inverts it (`FUN_180070290`, the
+   rigid inverse, so the translation is `−massCenter`); if the squared length of that translation, `(x² +
+   y²) + z²`, is below `DAT_1800fcf98` = `1e-16` it SETS bit `0x800` (`BTS ECX, 0xb`) and zeroes the offset,
+   otherwise it CLEARS the bit (`BTR`) and stores the translation narrowed to float at `object+0x60`; and if
+   the rotation's diagonal is exactly `1.0` three times (`UCOMISD`) it frees and nulls `object+0x58`, else
+   allocates the quaternion there.
+4. The core's inertia at `core+0x20/+0x24/+0x28`: when the template's `+0x28` is set, a polygon object
+   asks the surface manager's virtual `+0x18` for the hull's rotational inertia (a ball uses `0.4 · r²` on
+   all three), multiplies each by the template's factor at `+0x30/+0x34/+0x38` in float, widens, multiplies
+   by the mass in double and narrows; otherwise the template's three values are taken as they are. The
+   mass is the template's `+0x20`, replaced by `1.0` below `1e-8`. A nonzero template `+0x40` floors every
+   axis at `FUN_18006e120` of the three times that factor.
+5. `FUN_1800790a0` places the core: `core+0x90 := core+0x90 · objectFromCore`, the position copied out of
+   that matrix and the orientation converted from it into both `+0x180` and `+0x1a0`.
+
+**What vphysics puts in the template, `FUN_18001c9d0`**, from `objectparams_t` (whose field offsets match
+`vphysics_interface.h:1062` exactly): mass `MINSS(MAXSS(mass, 0.1f), 50000f)` widened to `+0x20`; `1` at
+`+0x28`, so the three inertia values are factors on the hull's; `inertia` kept only when `COMISS` finds it
+above zero (otherwise `1.0f`), then `MINSS` against `1e18f`, written to all of `+0x30/+0x34/+0x38`;
+`rotInertiaLimit` copied raw to `+0x40`; `damping` widened to `+0x48`; `rotdamping` widened to `+0x50`,
+`+0x58` and `+0x60`. `FUN_18006e120`, whose result the floor multiplies, is a LENGTH — `sqrt` of the float
+sum of squares, widened — not a largest component.
+
+**Which hull bytes the surface manager returns.** `CreatePolyObject` (`FUN_18001b340`) asks the collide
+object's virtual `+8` (`FUN_18000b750`) for the manager, which allocates sixteen bytes: vtable `1800eae60`,
+then the `IVP_Compact_Surface` pointer. Its slots, from raw disassembly:
+
+| slot | reads | so |
+|---|---|---|
+| `+8` | `surface+0x00, +0x04, +0x08` copied out | the mass center |
+| `+0x10` | `surface+0x00..0x08` against a given center, then `+0x18` and the byte at `+0x1C` | a radius and deviation |
+| `+0x18` | `surface+0x0C, +0x10, +0x14` copied out | the rotation inertia |
+
+With the byte size read as `surface+0x1C >> 8` by `FUN_18000c1c0`, the 0x20 bytes before the ledge-tree
+offset are accounted for: mass center, rotation inertia, radius, and a deviation byte beside the size. **All
+of them are in IVP's own object frame and units** — metres, IVP axes — as the ledge points are.
+
+*Evidence class: read from the disassembly for `FUN_180073df0`, `FUN_180074380`, `FUN_18001c9d0`,
+`FUN_18006e120` and the surface manager's slots; from the decompiler for the shapes of `FUN_1800790a0`,
+`FUN_180070290`, `FUN_18001b340` and `FUN_18000b750`.*
+
+**The joint's twist axis.** `FUN_1800393d0` chooses which of a ragdoll joint's three axes is the twist by a
+score, read from its disassembly (`1800395f6..180039ae5`):
+
+1. Both objects' matrices, offset composed (`FUN_180032740`); each anchor put through its own
+   (`FUN_180033720`), less its CORE's position narrowed to float (`core+0xf0..+0x100`, `CVTPD2PS` then
+   `SUBSS`) — so each arm is measured from the mass center.
+2. For each axis `i`, the reference frame's column `i` and the attached frame's, each put into the world
+   through its object's matrix (`FUN_18003ec30`).
+3. A purely angular constraint row per body, the world axis taken back into that core's frame, handed to
+   `FUN_18003d320`, the general `J · M⁻¹ · Jᵀ` accumulator: its angular lanes are weighted by the core's
+   inverse inertia at `+0x40/+0x44/+0x48` and its linear lanes by the inverse mass at `+0x4c`. Both calls add
+   into the same element.
+4. `score = |r_A × a_A|² · invMass_A`, then `+` that element, then `+ |r_B × a_B|² · invMass_B`, all in
+   float.
+5. The best starts at `DAT_1800ea9f8` = `−1.0`; `COMISS` then `CMOVBE` keeps the previous index unless the
+   score is strictly higher, and `MAXSS` carries the best.
+
+**This project scored `|anchor × a|` for the attached side alone, unsquared, from the bone, by raw mass**
+(B306's rule). That picks the same axis as the engine only while the reference anchor sits at its core and
+the inertia is the same on every axis — both of which B403 undid. Ported as `RagdollSimulation.Turning`, in
+each body's frame: a rotation changes neither a cross product's length nor a vector's components in its own
+frame, so only the last bits of the engine's round trip through the world can differ.
+
+*Evidence class: read from the disassembly for the score, the start value and the comparison; that the
+accumulated element is `Σ a_k² · invInertia_k` for a purely angular row is read from `FUN_18003d320`'s lanes
+and the row's zeroed linear part.*
+
+**The lattice is 200 ticks a second.** `DAT_1800feb78` is `200.0` and `DAT_1800fd748` is `0.005`
+(float), and the refinement gives up at **20 ticks** — a tenth of a second, which is why the motion
+cache has 21 slots, the start and twenty.
+
+**A transform at time `t`**, `FUN_1800734e0`, is linear in position and interpolated in rotation:
+
+```
+position(t) = core+0x150 + core+0x170..0x178 × (t − core+0x1d0)
+rotation(t) = interpolate(core+0x180, core+0x1a0, (t − core+0x1d0) × core+0x1d8)
+```
+
+then composed with the object's offset inside its core (`object+0x60`, unless flag `0x800`) and an
+optional further transform (`object+0x58`).
+
+**`core+0x1d8` is the inverse PSI step, from its three writers.** A whole-program search of the
+decompiled `vphysics.dll` found it: the integrator `FUN_180099a00` sets `core+0x1d8 = param_2[1]` beside
+`dt = param_2[0]`, immediately before stamping `core+0x1d0` with the environment clock, advancing
+position by the committed velocity and committing `0x180 := 0x1a0`; and the two reset routines,
+`FUN_180078bd0` (which zeroes every velocity) and `FUN_180077670`, set it from `env+0x110` and from a
+parameter respectively, each with `0x1a0 := 0x180`. **So `rotation(t)` turns from the committed
+orientation to the predicted one by the fraction of the current step elapsed** — `0` at the stamp, `1`
+a whole step later. The integrator also sets `core+0x1dc = |linear velocity|`, the linear speed bound
+the pair scheduler sums.
+
+**The search itself needed a control, and got one.** Its first run printed nothing and its second
+printed only a usage line: a `)` inside the needle does not survive `analyzeHeadless.bat`, which
+dropped the arguments entirely. Only because the second run also searched for `0x1d0` — which three
+functions are already known to touch — was the silence recognisable as a broken instrument rather
+than an absent writer. The working run found 24 functions for the control and 17 for `0x1d8`.
+
+**The integrator's `param_2` is computed per step, not copied.** The island driver `FUN_1800909d0`
+builds it for every awake core:
+
+```c
+fVar9 = (float)(env[0x190] - env[0x188]);                 // dt, the island's nominal step
+local_864 = (dt <= DAT_1800fcfa0) ? 1e10 : (float)(1.0 / dt);
+FUN_180099a00(core, {fVar9, local_864}, ...);             // core+0x1d8 := local_864
+```
+
+So the inverse is taken from the step actually being run, with a guard against a vanishing one — which
+matters here, because this project sub-steps and its slice varies. **`DAT_1800fcfa0` is `1e-10`** (a
+float widened). **The second caller, `FUN_18009a590`** (phase 3, three call sites), applies the same
+rule to `dt = (float)env+0x108`, the environment's PSI step: `inverse = dt ≤ 1e-10 ? 1e10 :
+(float)(1.0 / dt)`. Both callers agree, so that is the rule.
+
+**And the sleep reset's copy is unguarded.** `FUN_180078bd0` takes `core+0x1d8` from `env+0x110`, and
+`CPhysicsEnvironment::SetSimulationTimestep` — slot 37 of the table at `1800ebbd8`, `1800152f0` —
+forwards to `FUN_180082470`:
+
+```c
+env[0x108] = step;                        // double, from the float argument
+env[0x110] = 1.0 / step;                  // no guard
+env[0x1b0] = FUN_1800d3cf0(step * DAT_1800fd4e0);   // not needed here; unread
+```
+
+So a core that goes to sleep gets `(float)(1.0 / step)`, while a core the integrator steps gets the
+guarded `dt ≤ 1e-10 ? 1e10 : (float)(1.0 / dt)` — the same number for any real step, and different
+only for a vanishing one. **Two controls pin the slot arithmetic:** slot 34 of that table is
+`FUN_180015310`, this document's `Simulate`, and slot 36 is exactly `return (float)env[0x108]`, the
+getter. An earlier dump of "slot 34" landed on slot 22 through an address slip, which is why the
+control was run twice.
+
+**The reset that copies the predicted orientation back has three callers, and one is sleep.**
+`FUN_180078bd0` — velocities zeroed, `core+0x1d8 := env+0x110`, `0x1a0 := 0x180` — is called from:
+
+| caller | when |
+|---|---|
+| `FUN_180078c90` | every object of the core gets `+0x78 = 8` and its synapses are re-timed |
+| `FUN_180079300` | the core's static bit, `& 2`, is set |
+| `FUN_1800791a0` | the core's last object is removed, while its state is below 8 |
+
+*That `FUN_180078c90` is putting a core to SLEEP is INFERRED*, from two readings that agree: it sets
+state 8, and the time-of-impact motion cache treats an object state above 7 as not moving.
+
+**Which exposes a divergence, not yet observable.** Sleeping a core leaves `rotation(t)` pinned to the
+committed orientation, because both ends of the interpolation are now equal. This project's sleep
+(`RagdollSimulation`'s `Asleep`) zeroes the velocities and leaves `WorkingOrientation` one step ahead of
+`Orientation`. Nothing evaluates a body inside a step yet, so nothing shows it; the moment the
+time-of-impact search does, a sleeping corpse would turn toward a predicted orientation it will never
+reach.
+
+**The reset's fields, mapped onto `IvpRigidBody` by offsets this project already cites:**
+
+| engine | field | this project's sleep |
+|---|---|---|
+| `+0x110..0x118` | `PendingAngularVelocity` | **left alone** |
+| `+0x120..0x128` | `PendingVelocity` | **left alone** |
+| `+0x130..0x138` | `AngularVelocity` | zeroed |
+| `+0x140..0x148` | `Velocity` | zeroed |
+| `+0x170..0x178` | `PreviousVelocity` | zeroed |
+| `+0x1d8` | the inverse step, from `env+0x110` | not carried |
+| `0x1a0 := 0x180` | `WorkingOrientation := Orientation` | **not done** |
+
+**So the same reset holds a second divergence:** the engine discards velocity STAGED for the next step,
+and ours keeps it, so a push staged just before a corpse sleeps lands on the first step after it wakes.
+Not mapped, because nothing here names them: `+0x80`, `+0x1dc` (written by the integrator as
+`|linear velocity|`), `+0x254`, `+0x1c0..0x1c8` (reset to `1.0, 0, 0`) and the state byte at `+1`.
+
+*Evidence class: read from the decompiled binary for all three writers and the island driver; that
+`env+0x110` is the inverse step is checked against this document's own reading of the environment.*
+
+**The refining finder `FUN_1800b6590`**, as the disassembly has it (`RCX` the evaluator, `XMM1` the
+target, `R8` the start, `R9` the end, then on the stack the tick total so far, both motion caches, an
+optional known distance and the out time):
+
+1. A distance at or under the target: the event is at the start, and it returns 1.
+2. If `(float)(start − end)` plus `(distance − target) × evaluator+0x10` is already past zero, there is
+   no event.
+3. Otherwise march. **Each step is TWICE `(distance − target) × evaluator+0x10`, recomputed from the
+   current distance** — not a step that keeps doubling — replaced by `(float)(end − t) + 1e-8` when it
+   would overshoot, times `200.0`, truncated to whole ticks, at least one. The time advances by
+   `(double)((float)ticks × 0.005f)` and the tick total indexes the motion caches. A distance still
+   above the target at a tick total of exactly 20 gives up, and so does a next step past the end.
+4. Once a lattice point is at or under the target, **regula falsi** between the last time above
+   (`t_a`, `d_a`) and the first at or under (`t_b`, `d_b`):
+   `t = ((double)(float)(t_b − t_a) · (target − d_a)) / (d_b − d_a) + t_a`. On every pass where
+   `iteration & 3 == 3` that point is replaced by `((double)(float)(t_a − t) + (double)(float)(t_b − t)) ·
+   0.375 + t`, and on those passes alone the cap is checked: past 64 it stops with `t_a`, the last time
+   still above the target — so the cap bites at iteration 67. Both transforms at `t` are computed fresh,
+   not from the caches. It stops when `|distance − target| < 1e-8`; otherwise a distance under the target
+   replaces `(t_b, d_b)` and any other replaces `(t_a, d_a)`.
+5. A final time past the end is no event; otherwise it is written out and the routine returns 1.
+
+**Corrected from the disassembly:** this list first said the step doubled every iteration and gave up
+after 64 iterations. The step is re-derived from each distance and doubled once; the cap is checked only
+every fourth pass, and what it returns is the last time above the target, not the latest estimate.
+**`1e-8` is an absolute distance in IVP's metres**, so a port running in inches carries it scaled.
+
+**The evaluators are signed distances.** Point-plane `FUN_1800a3470` transforms the vertex by object
+A's transform and the plane's point and normal by object B's, and returns
+`dot(vertex − planePoint, normal)`. Edge `FUN_1800a3660` takes the face normal stored in B's frame,
+rotates it into the world with B's matrix (`FUN_1800709f0`) and back out into **A's** frame with the
+transpose of A's (`FUN_1800706c0`), and dots that with a unit edge direction stored in A's frame.
+**Corrected from the disassembly:** this line first said the direction was transformed "into B's frame"
+and dotted with a stored normal, which has the stored and the transformed vectors the wrong way round.
+
+**The four routines under the point-plane evaluator**, all in doubles:
+
+- **`FUN_180071330` fills a 4×4's rotation from a quaternion** `(x, y, z, w)`:
+  `m0 = 1 − (z·2z + y·2y)`, `m1 = x·2y − w·2z`, `m2 = w·2y + x·2z`; `m4 = w·2z + x·2y`,
+  `m5 = 1 − (z·2z + x·2x)`, `m6 = y·2z − w·2x`; `m8 = x·2z − w·2y`, `m9 = w·2x + y·2z`,
+  `m10 = 1 − (y·2y + x·2x)`. **This is the fill `IvpQuaternion.Rotate`'s own remarks record as unread**
+  — that method reaches the same rotation by a vector formula, so the difference is rounding, and the
+  gap can now be closed. Closing it touches every constraint and contact that rotates through it, so it
+  is a change of its own, measured separately.
+- **`FUN_180070bc0` puts a local point in the world**, `out[i] = ((p.x·m[i,0] + p.y·m[i,1]) + p.z·m[i,2]) + t[i]`.
+  **Corrected from the disassembly.** This line first read `p.z·m[i,2] + p.x·m[i,0] + p.y·m[i,1] + t[i]`,
+  "summed in that order", taken from the decompiled C — and `IvpMatrix.ToWorld` was ported exactly so.
+  The instructions `ADDSD` the `x` and `y` products together first and add the `z` product to that. The
+  two groupings differ in the last bit for ordinary inputs: `(0.1 + 0.2) + 2.2` is exactly `2.5`, and
+  `(2.2 + 0.1) + 0.2` is `2.5000000000000004`. This is the decompiler rule in
+  `docs/DECOMPILING.md` biting a third time, and the conformance test that pins it was red against the
+  committed port before the fix.
+- **`FUN_18007b940` builds a face's normal** as `cross(B − A, C − A)` in doubles from the ledge's float
+  vertices, not scaled to unit length: `A` is the face's own point, `B` and `C` are reached through the half-edge
+  offset tables `DAT_180124fb8` and `DAT_180124fc8`.
+- **`FUN_18006e080` normalizes only a vector long enough to have a direction**: if `|n|² ≥ DAT_1800f4f20`
+  (≈`1e-19`) it scales by `FUN_18006ecf0(|n|²)` and returns true; otherwise it leaves the vector alone
+  and returns false.
+- **`FUN_18006ecf0` is a reciprocal square root in doubles, four Newton steps from a bit-built guess.**
+  The guess takes the argument's high word and sets `((0x7ff00000 − hi) >> 1) + 0x1ff00000`, with the low
+  word from `1.0`; then four times `r = r · ((0.5 − r² · ½x) + 1.0)`, which is the textbook
+  `r · (1.5 − ½x · r²)` in the order the instructions compute it.
+
+**Which three vertices `FUN_18007b940` takes.** `A` is the start point of the edge it is given; `B` is
+the start of the edge `DAT_180124fb8` reaches, which the table above shows is the NEXT edge of the same
+triangle (4→8→12→4); `C` is the start of the edge `DAT_180124fc8` reaches — and its offsets (`4: +8`,
+`8: −4`, `12: −4`) from a triangle's own edge words land on the PREVIOUS edge of that triangle. So the
+normal is `cross(P₁ − P₀, P₂ − P₀)` over the triangle's three start points in their own order: the
+triangle's stored winding. **That does not contradict the vertex-fan measurement above**, which follows
+`fc8` and then the 15-bit field — a second hop; `FUN_18007b940` takes only the first.
+
+**The point-plane evaluator, from the disassembly.** `FUN_1800a1b50` fills it on its stack: the vtable
+`1800fe720` at `+0x00`; the pair's approach speed from `mindist+0x10` at `+0x08` and `1.0` over it at
+`+0x10`; the vertex at `+0x28`, widened from body A's ledge points; the face normal at `+0x48`, written by
+`FUN_18007b940` and passed to `FUN_18006e080` **whose return value is never read**; and the face's own
+first point at `+0x68`, widened from body B's. `FUN_1800a3470` (`RDX` A's matrix, `R8` B's) then returns
+
+```
+v = FUN_180070bc0(A, +0x28)                         -- a call
+p[i] = ((m[i,0]·p.x + m[i,1]·p.y) + m[i,2]·p.z) + t[i]    -- inlined, B
+n[i] = (n.y·m[i,1] + n.x·m[i,0]) + n.z·m[i,2]            -- inlined, B, no translation
+distance = ((v.y − p.y)·n.y + (v.x − p.x)·n.x) + (v.z − p.z)·n.z
+```
+
+Every sum there groups the `x` and `y` terms before `z`, so one rotation routine and one dot serve all
+three bit for bit. **`FUN_18007b940` widens each float point before subtracting** (`CVTPS2PD`, then
+`SUBSD`) and crosses in the textbook component order; **`FUN_18006e080` sums `(x² + y²) + z²`** and
+branches on `COMISD`/`JNC`, so NaN takes the no-direction path. **`FUN_18006ecf0`'s steps are
+`r · ((0.5 − (r·r)·(x·0.5)) + 1.0)`**, and replicating them from the instructions leaves `1/√3` at
+`0.5773502691896244` against the converged `…258` — a value no library square root reproduces, and the one
+`IvpVectorConformanceTests` pins. Ported as `IvpVector`, `IvpMatrix.Rotate` and `IvpPointPlaneEvaluator`.
+
+*Evidence class: read from the disassembly for all five routines and the fill; the bit values are
+arithmetic, replicating the instruction sequence.*
+
+**The edge evaluator, from the disassembly.** For each edge of the vertex's ring, `FUN_1800a1b50` fills a
+second evaluator: vtable `1800fe750`; at `+0x08` the two motion caches' objects' `+0x80` floats added in
+float, widened, plus `1e-19`, and `1.0` over that at `+0x10`; the face normal copied to `+0x48`; and — only
+for an edge that passes the slope check below — a unit direction at `+0x28`. `FUN_1800a3660` (`RDX` A's
+matrix, `R8` B's) returns
+
+```
+w     = FUN_1800709f0(B, +0x48)     -- B·n; each row (x·m0 + y·m1) + z·m2
+u     = FUN_1800706c0(A, w)         -- Aᵀ·w; each column (x·m0 + y·m4) + z·m8
+value = (u.x·dir.x + u.y·dir.y) + u.z·dir.z
+```
+
+`FUN_1800709f0` is the same rotation the point-plane evaluator inlines, so `IvpMatrix.Rotate` is both;
+`FUN_1800706c0` is its transpose, `IvpMatrix.RotateInverse`. **The direction is built unlike the face
+normal:** `d = Q − P` is subtracted in FLOAT (`SUBSS`) and only then widened; `s = (d.x² + d.y²) + d.z²` in
+double is narrowed with `CVTPD2PS` and handed to `FUN_18006edb0`, which is nothing but
+`(float)FUN_18006ecf0((double)s)`; that float is widened and multiplied in. On every integer from 2 to
+5000 the float route rounds to the same bits as a correctly rounded `1/√s`, so what a test can pin is the
+narrowing itself — the edge `(3, 4, 0)` gets `0.6000000089406967`, not `0.6`. Ported as `IvpEdgeEvaluator`.
+
+**What the same routine does around it, left for the vertex-face step.** `P` is the vertex; `Q` is the start
+of the next edge after hopping the 15-bit twin field and then `DAT_180124fb8`; the walk steps back with
+`DAT_180124fc8` and stops on returning to the starting edge. Before filling, the slope against a normal
+taken into A's frame with the objects' CURRENT matrices at `object+0x40` is compared, `COMISD`/`JNC`,
+against `(double)(float)(eventTime − intervalStart) × (speed sum + 1e-19)`; only a smaller slope is refined,
+to a target of `((min(mindist+0xa8, DAT_18012d548[material]) + 0.1f·mindist+0x98) · −(DAT_18012d664 · f)) /
+DAT_18012d548[material]`, where `f` is the float at `+0x54` behind the face side's `[+0x18]+0xe8`.
+`DAT_1800ea968` dumps as `0.1f` and `DAT_1800ea5e0` is the float sign mask; the table and `DAT_18012d664`
+read zero on disk and are runtime-initialized, so their values are not established here.
+
+*Evidence class: read from the disassembly for `FUN_1800a3660`, `FUN_1800709f0`, `FUN_1800706c0`,
+`FUN_18006edb0` and the whole of `FUN_1800a1b50`; the float-route comparison is arithmetic, by exhaustive
+replication over 2–5000.*
+
+### `FUN_1800a1b50` field by field, read again for the port (2026-09-12)
+
+**The routine's first argument is not the mindist, and three paragraphs above say it is.** Re-read from the
+disassembly (`D:\ghidra-proj\out\toi_a1b50_disasm.log`): `RCX` is a search context whose `+0x10` is the pair's
+approach speed, `+0x20` a pointer to the mindist, `+0x30`/`+0x38` the interval's start and end, `+0x40` the event
+kind and `+0x48` the event time. **The extra radius `+0x98`, the length `+0xa8` and the flags `+0x20` are the
+MINDIST's**, reached through `[RCX+0x20]`. The other arguments: `RDX` the vertex's edge in ledge A, `R8` the face's
+edge in ledge B, `R9` side A — its point array at `+0`, its cache object at `+0x10` — and on the stack side B,
+with the same two fields plus its compact ledge at `+8` and its real object at `+0x18`.
+
+In order, with `time` the context's `+0x48`:
+
+1. Both motion caches built; **`time := end`**.
+2. The point-plane evaluator: speed `ctx+0x10` and `1.0 / speed`; the vertex, the face's first point, and its
+   normal from the face edge and the triangle's next and previous edges.
+3. `tolerance = (double)(0.5f·extra + DAT_18012d540)`, `target = (double)margin + (double)extra` with `margin =
+   DAT_18012d548[(mindist+0x20 >> 22) & 0xFF]`, and a KNOWN starting distance `(double)(extra + length)`, all float
+   sums widened. `FUN_1800b6210` gets these and `time`; on a root, **`kind := 0x20`**.
+4. The edge evaluator's speed: `(double)(coreA+0x80 + coreB+0x80)` summed in float, plus `1e-19`; and `1.0 /
+   speed`. Its target: `((double)MINSS(length, margin) + (double)(0.1f·extra)) × (double)(−(DAT_18012d664 ·
+   coreB+0x54)) / (double)margin`.
+5. `u = A.RotateInverse(B.Rotate(normal))` through the two cache objects' CURRENT matrices at `+0x40`, and the
+   slope limit `(double)(float)(time − start) × speed` — taken once, after step 3, so an `0x20` root shortens it.
+6. **The ring** (`IvpLedgeTopology.Ring`): for each edge leaving the vertex, `d = Q − P` in float, `slope =
+   ((d.x·u.x + d.y·u.y) + d.z·u.z) × (double)rsqrt_f((float)|d|²)`; unless `slope ≥ limit` (`COMISD`/`JNC`, so NaN
+   is refined), the edge evaluator is filled with the scaled direction and `FUN_1800b6590` runs from `start` to
+   `time`, handed the slope as its known distance; on a root, **`kind := 0x21`** and `time` moves earlier for every
+   edge after.
+
+**The three runtime globals are the collision-tolerance block**, already mapped above: `DAT_18012d540` is
+`block[0] = 0.1·d`, `DAT_18012d548[i]` is `block[2 + i]` — the flat ramp, `d` for `i` from 0 to 63 — and
+`DAT_18012d664` is `block[0x49] = 0.1·d`. *What sets the mindist's byte at bits 22–29 is not read*; past 63 it
+would index the block's later fields.
+
+**The two core fields**, from their writers:
+
+- **`core+0x80` is an angular speed bound**, written by `FUN_180099d60(core, v)`, which the integrator calls
+  every step: `x = |v|` by a reciprocal square root of **five** Newton steps — one more than `FUN_18006ecf0`,
+  from the same guess; an earlier draft of this line said four — (zero, with axis `(1, 0, 0)`, when `|v|² ≤
+  1e-19`), the unit axis into `core+0x1c0..0x1c8`, and `core+0x80 = (float)((2x + x³/3) + 2·0.40414·x⁵) ×
+  core+0x1d8`, the inverse step; `core+0x254 = core+0x80 × core+0x8`. **`v` is the vector part of the step's
+  rotation quaternion**: `FUN_180099fc0`, already ported as `IvpIntegrator.Rotate`, writes it to the stack slot
+  the call passes, so `|v|` is `sin(θ/2)` and the series bounds the step's angle — INFERRED from the arithmetic.
+  Ported as `IvpCoreSpeedBound.From`.
+- **`core+0x54 = 0.5f / core+0x4`**, written by `FUN_180076f80` beside the inverse inertia. **`core+0x4` and
+  `core+0x8` are set once, by `FUN_180078b90`**, from `FUN_180073df0`: the surface manager's slot `+0x10`
+  (`18007aeb0`) returns `radius = (float)((double)surface+0x18 + dist)` and `deviation = (float)((double)(byte
+  surface+0x1C × 0.004f × surface+0x18) + dist)`, `dist` being how far the surface's mass center is from the
+  centre asked about, and the object's float at `+0xe0` is added to the radius. *That `+0x18` is the ledge's upper
+  radius is INFERRED* from that use; `0.004f` is `DAT_1800fd1fc`, dumped.
+
+**Ported as `IvpVertexFaceSearch.Search`**, over `IvpLedgeTopology`, the two evaluators and `IvpRootFinder`.
+One parity point the tests pin that is easy to lose: **the point-plane search trusts the mindist's length**. It
+is handed `extra + length` as its starting distance and never measures slot 0, so a vertex whose mindist says it
+is an inch away is searched from an inch, wherever the vertex actually is.
+
+*Evidence class: read from the disassembly for `FUN_1800a1b50`, `FUN_180099d60`, `FUN_180076f80`,
+`FUN_180078b90`, the call in `FUN_180073df0` and `18007aeb0`; constants dumped.*
+
+### The scheduler's near branch and the dispatch into the search, instruction by instruction (2026-09-12)
+
+**Read from the disassembly of `FUN_180099380(mindist, removeFar, recheckMode)` and `FUN_1800a3fe0`**
+(`D:\ghidra-proj\out\scheduler_near_99380.log`), which replace the decompiler-level summary above in
+*The NEAR branch of `FUN_180099380`*.
+
+**The two synapses.** The mindist's flags at `+0x20` pick them: synapse `A` is record `(flags >> 8) & 3` and `B` is
+`((flags ^ 0x100) >> 8) & 3` — bit 8 flipped — each a `0x38`-byte record from `mindist+0x48` whose `+0x48` is its real
+object (the core is the object's `+0xe8`), whose `+0x50` is its feature pointer into a compact ledge, and whose word at
+`+0x5a` is its feature kind.
+
+**The search context is built on the scheduler's stack**, and it is the struct `FUN_1800a1b50` receives:
+
+| offset | holds |
+|---|---|
+| `+0x00` | `(double)(coreB+0x254 + coreA+0x254)`, the surface bounds summed in float |
+| `+0x08` | the linear closing speed, `(double)(n·vB) − (double)(n·vA)`, `n` the mindist's normal at `+0xb0`, `v` each core's `+0x140` |
+| `+0x10` | the closing speed: `(√(1.001 − (n·axisB)²)·coreB+0x254 + √(1.001 − (n·axisA)²)·coreA+0x254) + linear`, the axes at `+0x1c0` |
+| `+0x18` | the total bound, `((double)coreA+0x1dc + surface sum) + (double)coreB+0x1dc` |
+| `+0x20` | the mindist |
+| `+0x28` | the environment |
+| `+0x30`, `+0x38` | `env+0x188` (now) and `env+0x190` (the next PSI) |
+| `+0x40`, `+0x48` | the event kind and time the search writes |
+
+Each dot sums its `y` and `x` terms before `z`, in float.
+
+**The branch, in order:**
+
+1. A mindist still queued (`+0x8 ≠ 0xffff`) is taken out of the time manager (`FUN_180089f90`) and marked `0xffff`.
+2. **Far** when `length > (double)(float)env+0x108 × totalBound × 2.1 + margin`; the travel-allowance path read earlier.
+3. **Near:** left alone when the closing speed is under `1e-19` or NaN — the test against `block[0x45]` (the
+   closing-speed threshold) only decides whether the `1e-19` test is made, and a speed between the two goes on.
+4. Left alone when `length ≥ (double)(float)(end − now) × closing + margin`: it cannot touch this PSI.
+5. Left alone when `(flags & 0x3000) == 0x1000`.
+6. **The margin class decays.** If the class byte at bits 22–29 is not zero, `env+0x13c` is incremented, and when its
+   old value was over 2 the class is decremented and the counter zeroed — a pair drops one margin class every fourth
+   examination.
+7. **The time of impact** through `DAT_18012d910[kind(B) + kind(A)·4]`, handed the context.
+8. No kind written: done. Otherwise, **an event within `1e-6` of now** (`(float)(time − now)`, `COMISS`/`JNC`) is
+   handled by `recheckMode`: `0` puts the event at now; any other mode replaces the time with a recheck — `(length −
+   ε)` against a floor of `1e-12`, and then `now + (length − ε)·0.1 / totalBound + 1e-7·step` for mode 1 on an event
+   kind whose low four bits are zero, `now + (length − ε) / totalBound + 1e-4·step` for mode 2 or any other kind, and
+   `now + 1e-5·step` or `now + 0.001·step` respectively under the floor — each `step` being `(double)(float)env+0x108`
+   times `DAT_18012d670` (`1.0`). A recheck at or past the next PSI is dropped.
+9. **The event goes into the time manager** at `(float)(time − tm+0x28)` (`FUN_1800aaed0`), its slot stored at
+   `mindist+0x8` and the kind in the flags' low byte.
+
+**`FUN_1800a3fe0` builds the two sides and routes by kind.** For each synapse: the cache object (`FUN_180094680`,
+reference-counted and released at the end), the real object, and the compact ledge found FROM THE FEATURE POINTER — the
+feature's triangle is `pointer − (pointer & 0xF)`, and **the triangle's header word's low twelve bits are its index in
+the ledge**, so `triangle − (index + 1)·16` is the ledge and `ledge + [ledge]` its points. Then `(0,0)` → `FUN_1800a2b30`,
+`(0,1)` → `FUN_1800a1ff0`, `(0,2)` → `FUN_1800a1b50`, `(1,1)` → `FUN_1800a1420`, with synapse `A`'s feature as the first
+argument — **so in `(0,2)` the vertex is synapse `A`'s** — and anything else the assertion at `0x4cf`, `0x4da` or `0x4df`.
+
+**Corrected by this:** `PhysicsHull` says a triangle's header word *"is skipped and never read… nothing in the traced
+mindist path reads it either"*. The dispatch reads it on every search. *What else the header's upper twenty bits hold is
+not read.*
+
+*Evidence class: read from the disassembly; constants read beside their instructions (`2.1`, `1.001`, `1e-6`, `1e-12`,
+`0.1`, `1e-7`, `1e-5`, `1e-4`, `0.001`, all floats widened except `1e-12`).*
+
+### When a queued mindist fires
+
+**Its fire routine is `FUN_1800992e0(mindist, env)`**, slot 1 of both mindist vtables found — the plain one whose
+table has `FUN_180096250` before it and `FUN_18008ecb0` eight slots on, and the recursive one at `1800fe960` —
+read from the disassembly (`D:\ghidra-proj\out\mindist_fire_992e0.log`), between two profiler marks (`8`, `0xe`):
+
+1. **`FUN_180095cb0(mindist)` first** — the minimize, which walks the feature-pair table `DAT_18012d4b0` and
+   descends a hull node into its triangles — so the length, normal and features are recomputed at the event's
+   time before anything is decided.
+2. Flags `& 0xc000` set: nothing more.
+3. **An event kind whose low four bits are set** — `0x21`, the edge event — is rescheduled at once,
+   `FUN_180099380(mindist, 0, 1)`.
+4. **Otherwise the collision test:** `DAT_18012d664 + margin[class]` — `0.1·d + d` — against the new length. **Over
+   the length, the mindist's virtual `+0x40` runs** (`FUN_18008ecb0` in the plain table, `FUN_1800b2460` in the
+   recursive one); at or under it, or NaN, the pair is rescheduled with `FUN_180099380(mindist, 0, 2)`.
+
+**So an impact happens only when a vertex-face event's re-minimized length is inside `1.1·d`**, and a feature
+change never collides directly — it re-minimizes and re-queues. `FUN_18008ecb0` calls `FUN_18008ef60` between
+bookkeeping on both objects and cores; *that it is the impact solver is INFERRED from where it sits, and it is unread*.
+
+*Evidence class: read from the disassembly for `FUN_1800992e0` and the call list of `FUN_18008ecb0`; the vtable
+slots from a table scan.*
+
+**`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
+
+**`interpolate` is `FUN_180071060`, a shortest-path slerp that falls back to a normalised lerp.** It
+takes the dot product of the two rotations; at or below zero it negates the dot and flips the second
+rotation's sign, so the path is always the short one. When the dot reaches `DAT_1800fcea0` — the two
+nearly parallel — it lerps component by component and renormalises with two Newton steps of a
+reciprocal square root; otherwise it is a true slerp through `acos` and two `sin`s. Dumped: the
+cut-over `DAT_1800fcea0` is **`0.999`** (a float widened), the signs `DAT_1800ea988` and
+`DAT_1800ea9f8` are `+1` and `−1`, and the Newton constants `DAT_1800ee388` and `DAT_1800ea9c0` are
+`0.5` and `1.5`.
+
+**Read from the disassembly, because the decompiler dropped the `sin` arguments** (`RCX` out, `RDX`
+from, `R8` to, `XMM3` the fraction):
+
+```
+dot  = from · to                        -- all four lanes
+sign = dot > 0 ? +1 : (dot = −dot, −1)
+if dot ≥ 0.999:                         -- JNC, so the threshold itself takes this branch
+    out = from + (sign·to − from) · t
+    s   = 0.5 · |out|²
+    x   = 1.5 − s
+    x   = x + (0.5 − x²·s)              -- twice
+    x   = x + (0.5 − x²·s)
+    out = out · x
+else:
+    θ      = f(dot)                     -- 1800cce64
+    invSin = 1 / √(1 − dot²)
+    out    = g((1 − t)·θ)·invSin · from + sign · g(t·θ)·invSin · to     -- 1800c8020, twice
+```
+
+**The renormalisation is NOT the textbook Newton step** `x · (1.5 − s·x²)`; it is the linearised
+`x + 0.5 − s·x²`, from a start of `1.5 − s`. Near unit length the two agree closely, and this is the one
+read. **The slerp branch does not renormalise at all.** *That `f` is `acos` and `g` is `sin` is
+INFERRED from the arithmetic:* `√(1 − dot²)` is `sin θ` only when `θ = acos(dot)`.
+
+**Neither the cut-over nor the renormalisation variant can be seen in a float.** Running the read
+sequence in doubles at dots of 0.9991, 0.99991 and 0.99999 with a fraction of one half: lerp and slerp
+differ by at most `8e-12`, and the linearised renormalisation differs from the textbook one by `9e-17`.
+So the branch matters to the engine's doubles and to nothing this project stores as a float. What a
+wrong port DOES change is the slerp below the cut — at a fraction of one quarter, where a normalised
+lerp lands on `0.1875` against the slerp's `0.19509` for a quarter of a quarter turn — and the sign flip
+on a negative dot. Those are what `IvpQuaternionInterpolateConformanceTests` pins. **This project's `IvpQuaternion` does not port this routine** —
+only the product, the normalise and the angular step.
+
+**And a defect found on the way.** `IvpQuaternion.UnitTolerance` is `1e-9`, documented as *"ours, not
+the engine's — `DAT_1800f4f28` was not dumped"*. It was dumped above: **`1e-12`**. The comparison's
+shape matches `FUN_180070c60`; only the number was invented. **Fixed to `1e-12`.**
+
+**And no test can tell the two apart, which is arithmetic rather than a gap.** A float quaternion in
+the band exists — `(0.3631, 0, 0, 0.9317502)` is `7.8e-10` off unit, found by search — but rescaling it
+moves a component near `0.93` by about `4e-10`, under half a float's `6e-8` spacing, so the output
+rounds back to identical bits. The same bound holds for any input under `1e-9`. Through the float
+`Normalise` the constant is unobservable; it is carried because it is the engine's.
+
+*Evidence class: read from the decompiled binary; `1e-12` read from the image; the unobservability is
+arithmetic on float spacing, with the in-band input found by search.*
+
+*Evidence class: read from the decompiled binary. The labels "collision" for `0x20` and "feature
+change" for `0x21` are INFERRED from which search raises each.* **The margin and threshold block at `18012d540` is set twice**: at startup by
+`FUN_180098fd0(block, DAT_1800eb150, DAT_1800ec290)`, and again at runtime through
+`FUN_1800824c0(a, b)`, so its values depend on a caller. `DAT_18012d670` = `DAT_1800ea9b8` and
+`DAT_18012d66c` = 1000 are set beside it.
+
+**The block is linear in one collision tolerance `d`, plus gravity `g`.** Read from `FUN_180098fd0`,
+with its multipliers dumped (`0.1`, `0.9`, `1/64` exactly, `0.3`, `0.01`, `2.5`, `20`):
+
+| field | address | value | used by |
+|---|---|---|---|
+| `[0]` | `18012d540` | `0.1·d` | the recheck's `ε`, `(distance − ε) / speedBound` |
+| `[1]`, `[0x42]` | `544`, `648` | `1.0·d` | the two ends of the margin ramp |
+| `[2..0x41]` | `548..644` | 64 margins, `[1] + ([0x42] − [1])·i/64` | the per-material margin — flat at `1.0·d` until its ends differ |
+| `[0x43]`, `[0x44]` | `64c`, `650` | `2·d`, `2.3·d` | |
+| `[0x45]` | `654` | `√(2·(2.3·d − 1.0·d)·g)` = `√(2.6·d·g)` | the closing-speed threshold in `FUN_180099380` — the speed of a fall through that height |
+| `[0x46]` | `658` | `0.01·d` | |
+| `[0x47]`, `[0x48]` | `65c`, `660` | `4.5·d`, `22·d` | |
+| `[0x49]` | `664` | `0.1·d` | read in the event routines |
+| `[0x4a]` | `668` | `2·d` | |
+
+**`d` and `g` at runtime.** The startup call passes `0.01` and `9.81`. The environment constructor,
+`FUN_1800114f0`, then calls `FUN_1800824c0((DAT_18011f008 − DAT_1800eb144) × DAT_18011f000, 9.81)`, and
+`CPhysicsEnvironment::SetGravity` (`FUN_1800150f0`) re-calls it with the current `d` and the new
+gravity's magnitude, printing `"Set Gravity %.1f (%.3f tolerance)"` with `d × 39.37`. `DAT_18011f000`
+is the metres-per-inch constant `IvpTransform` already carries, so **`d` is a tolerance in inches
+converted to metres.**
+
+**Dumped, with two controls.** `DAT_18011f000` reads `0.0254` and `DAT_18011f004` reads `39.37`, the
+pair `IvpTransform` already holds, so the addresses are the right ones. Then `DAT_18011f008` is
+**`0.25`** and `DAT_1800eb144` is **`1e-4`**, both floats:
+
+```
+d = (0.25 − 0.0001) × 0.0254 = 0.00634746 m  =  0.2499 inch      -- printed "0.250 tolerance"
+```
+
+So in inches, the units this project's simulation runs in: **the collision margin is 0.2499, the
+recheck's `ε` is 0.025, and the closing-speed threshold is `√(2.6·d·g)`** — with `g` in metres per
+second squared, because `SetGravity` multiplies each component by `0.0254` before the block sees it
+(`IvpTransform`'s own citation of `1800150f0`). At `sv_gravity 800`, the default this project already
+cites from source in `PhysicsEnvironment.DefaultGravity` alongside
+`physenv->SetGravity( Vector(0, 0, -GetCurrentGravity()) )`, that is `g = 20.32` and a threshold of
+`√(2.6 × 0.00634746 × 20.32)` = **0.579 m/s, 22.8 inches a second** — *arithmetic on those two
+readings.*
+
+**This project's `IvpContact.Slop` is 0.25** — the same number, used the other way round. IVP holds a
+pair a margin APART and never lets it close further; ours lets a pair PENETRATE by that much before
+the solve pushes it back. Whether `Slop` was copied from the tolerance or arrived at independently, it
+answers the opposite question.
+
+*Evidence class: read from the decompiled binary for both functions and all three initialisers;
+constants read from the image where the image holds them, and explicitly NOT for the startup- and
+runtime-initialised block. **The feature kinds are unnamed.** An earlier draft of this section called
+kind 5 a ledge-tree or hull node; the code only shows kind 5 being replaced by kind 2 through
+`FUN_180094e30`, and that is all that is claimed.*
 
 ## There are TWO contact solvers, and a resting corpse uses the other one
 
@@ -3728,6 +4529,151 @@ does rather than re-deriving one each step — only then are the compensators re
 
 *Evidence class: read from published SDK source for the callback and the params; measured for the
 6.1484184f → 11.153114f attempt.*
+
+### Terrain's outer hull is lump 28, handed to vphysics as `pHull` (B369)
+
+**The slab this project uses for terrain thickness was filed as standing in for `buildOuterHull`.
+That was half right: the engine does close the mesh, but it does not build the hull at runtime at
+all when the map carries one — it reads it out of the BSP.** Read from the shipped
+`bin/x64/engine.dll`, Ghidra project `tf2enginex64` under `D:\ghidra-proj`, and from published SDK
+source where it exists.
+
+**vbsp writes it** (`utils/vbsp/disp_ivp.cpp:314-350`): each displacement becomes a virtual mesh with
+`params.buildOuterHull = true`, serialised by `CollideWrite` into `LUMP_PHYSDISP`, lump 28 —
+`bspfile.h:459`, *"the binary blob for each displacement surface's virtual hull"* — as a `ushort`
+count, one `short` size per displacement (`-1` for none), then the blobs back to back.
+
+**The game asks for it** (`game/shared/physics_shared.cpp`): a `virtualterrain` block in the world's
+physics keys sets `bCreateVirtualTerrain` (`:682-685`), and `PhysCreateVirtualTerrain` makes one static
+object per displacement, named `vdisp_%04d`, out of `modelinfo->GetCollideForVirtualTerrain(i)`
+(`:563-586`), declared *"Gets a virtual terrain collision model (creates if necessary)"*
+(`public/engine/ivmodelinfo.h:164-166`).
+
+**The engine loads it, in `FUN_18016f6d0`**, called from `CMod_LoadDispInfo` (`FUN_18016d520`) as
+`FUN_18016f6d0(lumpData, lumpLength)` for lump `0x1c`:
+
+```c
+if (*lump != displacementCount)
+    Error("LevelInit: Bad map data - displacement data does not match displacement collision data");
+// size table -> offset table: 0xffff becomes -1, otherwise a running sum
+blobs = alloc(total); memcpy(blobs, lump + 1 + count, total);
+for each displacement i (stride 0x158, one CDispCollTree):
+    if (!(tree[i].flags@+0x34 & 2))
+        mesh[i] = physcollision->vtable[+0x170]({ &handler, i, lumpLength < 1 });
+```
+
+**`+0x170` is `CreateVirtualMesh`, and two readings agree.** Slot arithmetic over
+`vphysics_interface.h` puts it at slot 46, which is `0x170`; and the argument is a three-field struct
+laid out exactly as `virtualmeshparams_t { pMeshEventHandler, userData, buildOuterHull }`. So
+**`buildOuterHull` is true only when the lump is empty** — a map that carries lump 28 never has its
+hull built at runtime.
+
+**The handler supplies the blob as the hull.** Its vtable is at `1803a2a50`, three slots in
+`IVirtualMeshEvent`'s declaration order:
+
+| slot | function | what it does |
+|---|---|---|
+| `GetVirtualMesh` | `FUN_18016f190` | fills the list from `CDispCollTree::GetVirtualMeshList` — which sets `pHull = NULL` (`dispcoll_common.cpp:1480`) — then **`pHull = blob + offset[i]`** when the map had the lump and this displacement's offset is not −1 |
+| `GetWorldspaceBounds` | `18016f200` | copies a 24-byte mins/maxs record for displacement `i` |
+| `GetTrianglesInSphere` | `FUN_18016f250` | the tree's sphere query with a cap of `0xc00`, which is `MAX_VIRTUAL_TRIANGLES * 3` = 3,072 (`virtualmesh.h:14`) |
+
+`pHull` at `+0x18` is `virtualmeshlist_t`'s field order by arithmetic: a pointer, four ints, then the
+hull pointer. **The unload, `FUN_18016f940`, frees the blobs and calls `physcollision` slot 16,
+`DestroyCollide`, on every mesh.**
+
+**So the chain is closed from compiler to collision:** vbsp builds and writes a hull per displacement;
+the engine loads it, rebuilds the triangle mesh from the displacement tree, and hands vphysics the
+stored hull beside the triangles. **This project reads the triangles and not the hull**, and a
+512-unit slab stands where the hull goes — which is where `corpse-drop` finds limbs resting eighty
+units under the ground.
+
+**The blobs are measured, not yet decoded** (`phys-disp` probe): 533 of 533 on `koth_harvest_final`
+and 135 of 135 on `cp_granary`, counts equal to the dispinfo count and declared sizes summing exactly
+to the bytes after the table, each 37–611 bytes. That is far too small to be a triangle mesh; the
+format is vphysics' own and is read from `CreateVirtualMesh`, the consumer of `pHull`.
+
+**vphysics' side of the call, located in `vphysics.dll`** (project `tf2vphysics`). The
+`VPhysicsCollision007` interface registers factory `18000c740`, which is `LEA RAX,[0x18011f0d8]; RET`
+— a singleton whose image-initialised vptr is **`1800eaa40`**. Slot 46 of that table is checked
+against its neighbours rather than trusted by position:
+
+| slot | expected by declaration | what the bytes are |
+|---|---|---|
+| 19 | `UnserializeCollide(buffer, size, index)` | a thunk forwarding three arguments |
+| 45 | `ThreadContextDestroy` | the shared bare `RET` an empty function folds to |
+| **46** | **`CreateVirtualMesh(params)`** | **`MOV RCX,RDX; JMP 0x180025880`** |
+| 47 | `SupportsVirtualMesh` | `MOV AL,1; RET` |
+
+`FUN_180025880` allocates a 0x38-byte object and hands it and `params` to the constructor
+`FUN_1800250e0`. **The constructor builds a hull only when `buildOuterHull` is set:** it calls the
+handler's `GetVirtualMesh`, builds one convex over all the triangles, and if that fails a test it
+builds two, one per half of the triangle range; `FUN_180003c50` packs the result into the object at
+`+0x20`. With lump 28 present the flag is false and nothing is built there — so the stored hull is
+consumed by a method of the object's own vtable (`1800ee278`, fifteen slots; slot 11 is the orphan
+`Virtual mesh!` site at `180026090`), not by the constructor.
+
+**The packer defines the blob, because its output is what vbsp serialised.** Read from
+`FUN_180003c50`:
+
+```
+u32   hullCount            -- every blob on harvest and granary opens 01 00 00 00
+per hull, 5 bytes           -- byte vertexCount, ..., byte (vertexCount * 3) / 2
+per hull, a body            -- FUN_180004110(header, stream, hull, meshList)
+```
+
+**Confirmed from the writer and the size function, then over every blob.** The body writer
+`FUN_180004110` and the object's own `CollideSize`, `FUN_180025e40`, agree on:
+
+```
+u32  hullCount
+per hull, 5 bytes:  [0] triangles T   [1] a triangle subclass count
+                    [2] edges E       [3] edges emitted   [4] base vertex
+per hull, body:     T × 4 bytes  -- three edge indices and one byte per triangle
+                    E × 2 bytes  -- two vertex bytes per edge, each (vertex index − base)
+size = 4 + 5·hulls + Σ(4·T + 2·E)
+```
+
+The vertex bytes index **the displacement's own vertex list** — the engine already holds the
+coordinates, so a hull costs a hundred bytes. The `phys-disp` probe checks the formula against
+every blob: **exact on 533 of 533 on `koth_harvest_final` and 135 of 135 on `cp_granary`**, every
+displacement storing exactly one hull, at most 86 triangles and 129 edges.
+
+**What the hull is FOR is a separate question, and the first write-up of this section answered it
+without evidence.** It said the hull "closes the mesh", so ground below terrain is inside something.
+The unpacker, `FUN_180025330`, does not show that: on first use it calls `GetVirtualMesh`, takes
+`pHull` (falling back to the object's `+0x20`), and builds ONE cache entry sized
+`hullSize + 16·vertices + 48·triangles` holding both, through `FUN_180025f10`. The object's slot 2
+then hands IVP ledges by walking that entry in 48-byte **triangle** records. So contacts come from
+the triangles; the hull sits beside them in the same structure, and whether it acts as a solid, an
+envelope for the radius query, or a filter is read from the surface manager (vtable `1800ee220`),
+not assumed.
+
+**Read: the hull is the ROOT of a two-level structure, not a solid.** `FUN_180025f10` lays out the
+cache entry as triangles (0x30 each), then vertices converted to IVP metres and axes, then the hull
+unpacked behind them, with the hull count at `+0x12`. The surface manager's radius query,
+`FUN_1800261a0`, branches on its fourth argument: **null returns the hull ledge**; anything else runs
+`FUN_180025bc0` and returns the **triangles** within the radius. Slot 0, `FUN_180026390`, returns the
+hull as the single convex. So a body is collided against the displacement's hull first and against
+its triangles once IVP descends. *That the fourth argument is IVP's root-ledge context is INTERPOLATED
+from the two branches; nothing names it.*
+
+**Which withdraws the premise this section opened with.** The hull does not make ground below terrain
+solid, and the engine has no terrain thickness at all — contacts end on zero-thickness triangles
+exactly as ours do. A TF2 limb does not end up under the ground because IVP never lets a pair
+penetrate: the mindist is watched before surfaces meet. So two divergences are separated here:
+
+- **We do not read lump 28**, so a displacement has no hull root and every triangle is queried
+  directly. Real, and a parity gap, but it changes which triangles are asked about rather than what
+  a contact does.
+- **Our narrow phase lets a point pass a triangle and then invents a thickness to push it back** —
+  `TerrainDepth` and `TerrainReach`, both 512. That is what buries limbs, and it is this document's
+  standing prescription: a closest-feature pair that is tracked, so a pair is never allowed to
+  penetrate, and then the compensators deleted.
+
+*Evidence class: read from the decompiled `engine.dll` for `FUN_18016f6d0`, its caller's arguments,
+the handler's three slots and the unload; read from published SDK source for vbsp, the game and the
+interface declarations; arithmetic for slot 46 and for `pHull`'s offset, each agreeing with an
+independent reading; measured for the lump counts and sizes. **The blob format is NOT established.***
 
 ### And the faces are already parsed — they are discarded one line before the physics (B306)
 

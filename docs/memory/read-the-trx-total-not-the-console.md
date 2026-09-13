@@ -253,6 +253,36 @@ up is the memory a machine keeps handing over, not the speed.
 - A symptom worth recognising: `Get-Process dotnet` showing several ~110 MB processes with a start
   time matching a build that finished long ago. They are idle, not stuck.
 
+**`build-server shutdown` turned out to cover one leak of three** (2026-09-12, owner: *"we have old
+dotnet processes too, you need to figure out why they keep being left over and fix it"*). Measured by
+a census of every `dotnet`/`testhost`/`VBCSCompiler` process with its parent and start time:
+
+| how processes were left | trap covers it? | measured |
+|---|---|---|
+| a gate that COMPLETES | yes | — |
+| a gate that is KILLED — a background task stopped, a terminal closed | **no**: the shell is terminated outright and the trap never runs; and `build-server shutdown` never stops a test host anyway | a `testhost` survived a stopped gate and locked `Tf2DemoSalvage.Animation.dll`, failing the next build with MSB3021 |
+| plain `dotnet build`/`test`/`run` outside the gate | **no**: no trap at all | a parentless `VBCSCompiler`, ten minutes after a standalone build |
+
+**`build/reap-dotnet.ps1` is the reaper now**, and the gate runs it at START as well as in its trap,
+because a killed run cannot clean up after itself but the next run can. It finds orphans by PARENTAGE,
+never by name: a process whose parent is gone, or whose parent's id is now held by something that
+started after it (ids are reused). It stops orphaned `dotnet`/`testhost` trees that mention this
+repository's path anywhere, orphaned MSBuild nodes started `/nodeReuse:false`, then runs
+`dotnet build-server shutdown`. A live run's processes all have living parents, so a concurrent gate is
+never touched. **Verified with a control:** an orphaned `dotnet` running a probe from this repository
+was reaped with its `conhost`, while an identical one with a live parent and the running gate were not.
+
+**Two traps from building it.** An orphan test process can finish before the check reaches it — the
+first dry run found nothing because both test processes had already exited, which proved nothing either
+way; the fix was to create, check and reap in one call. And PowerShell unrolls a collection returned
+from a function, so a one-process tree arrives as a bare object; `return , $tree` keeps it a list.
+
+**One observation against the bullet above:** every MSBuild node under a running gate's `dotnet test`
+showed `/nodeReuse:false`, so reuse ACROSS the gate's projects may not be happening at all. One census,
+not a rule — measure before changing `MSBUILDDISABLENODEREUSE` either way.
+
+- Run `pwsh build/reap-dotnet.ps1` after ad-hoc `dotnet` commands, and after stopping any run by force.
+
 ---
 
 ## `push-when-the-gate-is-green`

@@ -83,9 +83,8 @@ public static class IvpQuaternion
     /// scaled. An implementation that always divides changes bits the engine leaves alone — which
     /// accumulates over a corpse's life rather than showing up at once.
     ///
-    /// **The tolerance's value was NOT dumped**, so the constant below is this transcription's own:
-    /// it is chosen small enough that anything the engine would iterate on is iterated on here.
-    /// Marked because it is the one number on this page that is not read.
+    /// **The tolerance is read: `DAT_1800f4f28` dumps as `1e-12`** (B369, `docs/findings/51`). It was
+    /// `1e-9` here for a while, marked as this transcription's own because it had not been dumped.
     /// </remarks>
     public static (float X, float Y, float Z, float W) Normalise(
         (float X, float Y, float Z, float W) rotation)
@@ -104,6 +103,84 @@ public static class IvpQuaternion
         return (
             (float)(rotation.X * scale), (float)(rotation.Y * scale),
             (float)(rotation.Z * scale), (float)(rotation.W * scale));
+    }
+
+    /// <summary>A rotation part-way between two, the short way round — <c>FUN_180071060</c>.</summary>
+    /// <param name="from">The rotation at a fraction of zero.</param>
+    /// <param name="to">The rotation at a fraction of one.</param>
+    /// <param name="fraction">How far along, from zero to one.</param>
+    /// <returns>The interpolated rotation.</returns>
+    /// <remarks>
+    /// **Read from the disassembly, because the decompiler dropped both `sin` arguments** (B369,
+    /// `docs/findings/51`). It is what `FUN_1800734e0` rotates a body through when IVP evaluates it at a
+    /// lattice time inside a step — the first layer of the time-of-impact search.
+    ///
+    /// <code>
+    /// dot = from · to;  sign = dot > 0 ? +1 : (dot = −dot, −1)
+    /// dot ≥ 0.999:  out = from + (sign·to − from)·t;  s = 0.5·|out|²;  x = 1.5 − s;
+    ///               x = x + (0.5 − x²·s), twice;  out = out·x
+    /// otherwise:    out = sin((1 − t)θ)/sin θ · from + sign · sin(tθ)/sin θ · to,  θ = acos(dot)
+    /// </code>
+    ///
+    /// **The two branch tests are written to fall the same way the instructions do on a NaN.**
+    /// `COMISD` then `JBE` negates when the dot is at or below zero OR unordered, which is the `else` of
+    /// `dot > 0`; `JNC` takes the lerp only when the dot is at least the cut-over AND ordered, which is
+    /// `dot >= cut`. Rewriting either as its apparent opposite would change which branch a NaN takes.
+    ///
+    /// **Computed in doubles as the engine computes it, stored back as floats as this project stores a
+    /// rotation.** Above the cut-over the two branches differ by at most `8e-12`, which a float cannot
+    /// hold; the lerp is carried anyway, because it is the engine's.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) Interpolate(
+        (float X, float Y, float Z, float W) from,
+        (float X, float Y, float Z, float W) to,
+        float fraction)
+    {
+        double t = fraction;
+
+        double dot =
+            ((double)from.X * to.X) + ((double)from.Y * to.Y) +
+            ((double)from.Z * to.Z) + ((double)from.W * to.W);
+
+        double sign;
+
+        if (dot > 0d)
+        {
+            sign = 1d;
+        }
+        else
+        {
+            dot = -dot;
+            sign = -1d;
+        }
+
+        if (dot >= LerpCutOver)
+        {
+            double x = from.X + (((sign * to.X) - from.X) * t);
+            double y = from.Y + (((sign * to.Y) - from.Y) * t);
+            double z = from.Z + (((sign * to.Z) - from.Z) * t);
+            double w = from.W + (((sign * to.W) - from.W) * t);
+
+            double half = ((x * x) + (y * y) + (z * z) + (w * w)) * NewtonHalf;
+
+            double scale = NewtonStart - half;
+            scale += NewtonHalf - (scale * scale * half);
+            scale += NewtonHalf - (scale * scale * half);
+
+            return ((float)(x * scale), (float)(y * scale), (float)(z * scale), (float)(w * scale));
+        }
+
+        double angle = Math.Acos(dot);
+        double inverseSine = 1d / Math.Sqrt(1d - (dot * dot));
+
+        double fromWeight = Math.Sin((1d - t) * angle) * inverseSine;
+        double toWeight = sign * Math.Sin(t * angle) * inverseSine;
+
+        return (
+            (float)((fromWeight * from.X) + (toWeight * to.X)),
+            (float)((fromWeight * from.Y) + (toWeight * to.Y)),
+            (float)((fromWeight * from.Z) + (toWeight * to.Z)),
+            (float)((fromWeight * from.W) + (toWeight * to.W)));
     }
 
     /// <summary>One step's rotation, from an angular velocity — <c>FUN_180071680</c>.</summary>
@@ -188,9 +265,23 @@ public static class IvpQuaternion
 
     /// <summary>How far off unit length a rotation must be before it is rescaled.</summary>
     /// <remarks>
-    /// **This one is ours, not the engine's.** `DAT_1800f4f28` was not dumped, so the value is
-    /// chosen to be smaller than anything the engine would tolerate rather than transcribed. Named
-    /// and documented so the gap is visible instead of looking like a read constant.
+    /// **`DAT_1800f4f28`, dumped as `1e-12`.** It replaced an invented `1e-9`.
+    ///
+    /// **No test separates the two, and that is arithmetic, not an omission.** A float quaternion
+    /// inside the gap exists — `(0.3631, 0, 0, 0.9317502)` is `7.8e-10` off unit — but rescaling by
+    /// `1/√(1 − 7.8e-10)` moves a component near `0.93` by about `4e-10`, and a float's spacing there is
+    /// `6e-8`, so the result rounds back to the same bits. That holds for every input under `1e-9`:
+    /// through this float API the value cannot change an output. It is carried because it is the
+    /// engine's number, not because anything here could observe it.
     /// </remarks>
-    private const double UnitTolerance = 1e-9d;
+    private const double UnitTolerance = 1e-12d;
+
+    /// <summary><c>DAT_1800fcea0</c>: the float <c>0.999</c>, widened — the dot above which a lerp is taken.</summary>
+    private const double LerpCutOver = 0.999f;
+
+    /// <summary><c>DAT_1800ee388</c>, <c>0.5</c>: the renormalisation's half.</summary>
+    private const double NewtonHalf = 0.5d;
+
+    /// <summary><c>DAT_1800ea9c0</c>, <c>1.5</c>: the renormalisation's starting point.</summary>
+    private const double NewtonStart = 1.5d;
 }

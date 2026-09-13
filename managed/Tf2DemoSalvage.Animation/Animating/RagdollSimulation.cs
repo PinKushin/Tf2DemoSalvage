@@ -112,27 +112,25 @@ public sealed class RagdollSimulation
             RagdollElement element = ragdoll.Elements[index];
             (Vector3 position, Quaternion orientation) = start[index];
 
-            // **Inertia is a SCALE in Valve's parameters, not a tensor** — `objectparams_t::inertia`
-            // multiplies whatever the hull computes. With no hull inertia yet, mass carries the
-            // magnitude and the scale carries the model's intent.
-            float inertia = Math.Max(element.Mass * element.Inertia, MinimumInertia);
+            (float inverseMass, (float X, float Y, float Z) inertia) = MassAndInertia(element);
+            (float X, float Y, float Z) offset = ObjectOffset(element.MassCenter);
+
+            // **The CORE goes to the hull's mass center and the bone stays inside it** (B403), so the
+            // bone's own origin — the start position — is exactly the core plus the turned offset.
+            Vector3 core = position - Vector3.Transform(new Vector3(offset.X, offset.Y, offset.Z), orientation);
 
             bodies[index] = new IvpRigidBody
             {
                 // **NOT converted into IVP's convention, and that is a stated divergence.** See the
                 // remarks on this type: the environment holds gravity as Source gives it, so a body
                 // converted here would fall along the wrong axis in the wrong units.
-                Position = (position.X, position.Y, position.Z),
+                Position = (core.X, core.Y, core.Z),
+                ObjectOffset = offset,
                 Orientation = (orientation.X, orientation.Y, orientation.Z, orientation.W),
                 WorkingOrientation = (orientation.X, orientation.Y, orientation.Z, orientation.W),
-                Inertia = (inertia, inertia, inertia),
-                InverseInertia = (1f / inertia, 1f / inertia, 1f / inertia),
-
-                // **`objectparams_t::mass`, and it only starts mattering once something is
-                // touched.** The constraint solve is entirely angular, so a body's mass was
-                // unobservable until contacts arrived — which is why it is added here rather than
-                // having been carried all along.
-                InverseMass = element.Mass > MinimumInertia ? 1f / element.Mass : 0f,
+                Inertia = inertia,
+                InverseInertia = (1f / inertia.X, 1f / inertia.Y, 1f / inertia.Z),
+                InverseMass = inverseMass,
 
                 Hull = Points(element.Hull),
 
@@ -179,6 +177,14 @@ public sealed class RagdollSimulation
             // pReferenceObject which is attached by the constraint to pAttachedObject"*
             // (`vphysics_interface.h:572`). The frames are per side, so getting this round the
             // wrong way measures every joint against the wrong bone.
+            // **The same point from each end, measured from each body's CORE** (B403) — see the anchors below.
+            (float X, float Y, float Z) childAnchor = bodies[constraint.Child].ObjectOffset;
+            Vector3 childOrigin = ragdoll.Elements[constraint.Child].OriginParentSpace;
+            (float X, float Y, float Z) parentAnchor = (
+                childOrigin.X + bodies[constraint.Parent].ObjectOffset.X,
+                childOrigin.Y + bodies[constraint.Parent].ObjectOffset.Y,
+                childOrigin.Z + bodies[constraint.Parent].ObjectOffset.Z);
+
             environment.Constraints.Joints.Add(new IvpRagdollJoint
             {
                 BodyA = bodies[constraint.Child],
@@ -186,22 +192,19 @@ public sealed class RagdollSimulation
                 Constraint = Joint(
                     constraint,
                     ragdoll.Elements[constraint.Child].AxesParentSpace,
-                    (
-                        ragdoll.Elements[constraint.Child].OriginParentSpace.X,
-                        ragdoll.Elements[constraint.Child].OriginParentSpace.Y,
-                        ragdoll.Elements[constraint.Child].OriginParentSpace.Z),
-                    ragdoll.Elements[constraint.Child].Mass,
-                    ragdoll.Elements[constraint.Parent].Mass),
+                    bodies[constraint.Child],
+                    bodies[constraint.Parent],
+                    childAnchor,
+                    parentAnchor),
 
-                // **The same point from each end**, which is what a ball-and-socket is. The
-                // reference body is the child and its frame is centred on itself, so its anchor is
-                // the origin; the parent's is where the child stands in the parent's space, which
-                // is the offset the `.phy` already carries.
-                AnchorA = (0f, 0f, 0f),
-                AnchorB = (
-                    ragdoll.Elements[constraint.Child].OriginParentSpace.X,
-                    ragdoll.Elements[constraint.Child].OriginParentSpace.Y,
-                    ragdoll.Elements[constraint.Child].OriginParentSpace.Z),
+                // **The same point from each end, measured from each body's CORE** (B403), which is
+                // what a ball-and-socket is. The reference body is the child and the joint is at its
+                // own bone origin, which inside its core is its object offset; the parent's end is
+                // where the child's bone stands in the parent's space, carried into the parent's core
+                // by the parent's offset. The engine creates the constraint in object space and takes
+                // it into core space the same way.
+                AnchorA = childAnchor,
+                AnchorB = parentAnchor,
             });
         }
 
@@ -279,10 +282,10 @@ public sealed class RagdollSimulation
 
         IvpPush.ApplyForceCenter(_bodies[forceBone], force);
 
-        (float X, float Y, float Z) at = (
-            (float)_bodies[forceBone].Position.X,
-            (float)_bodies[forceBone].Position.Y,
-            (float)_bodies[forceBone].Position.Z);
+        // `GetPosition( &forcePosition, NULL )` reports the OBJECT's origin — the bone — not its core (B403).
+        (double X, double Y, double Z) struck = _bodies[forceBone].ObjectOrigin();
+
+        (float X, float Y, float Z) at = ((float)struck.X, (float)struck.Y, (float)struck.Z);
 
         for (int index = 0; index < _bodies.Length; index++)
         {
@@ -397,13 +400,13 @@ public sealed class RagdollSimulation
 
         Asleep = true;
 
+        // **Each core resets itself, as the engine's does** (B369): `FUN_180078c90` sleeps a core through
+        // `FUN_180078bd0`, which zeroes the staged velocities as well as the real ones and copies the
+        // committed orientation over the predicted one. This loop used to zero three velocities and
+        // nothing else.
         for (int index = 0; index < Environment.Bodies.Count; index++)
         {
-            IvpRigidBody body = Environment.Bodies[index];
-
-            body.Velocity = (0f, 0f, 0f);
-            body.PreviousVelocity = (0f, 0f, 0f);
-            body.AngularVelocity = (0f, 0f, 0f);
+            Environment.Bodies[index].Sleep(Environment.Step);
         }
     }
 
@@ -429,6 +432,38 @@ public sealed class RagdollSimulation
         return points;
     }
 
+    /// <summary>A body's inverse mass and per-axis inertia, as the engine derives them for its core (B403).</summary>
+    /// <remarks>
+    /// **`objectparams_t` becomes an IVP template and the template and the hull become the core** —
+    /// `FUN_18001c9d0` then `FUN_180073df0`, ported as <see cref="IvpObjectTemplate"/>. Every element carries its
+    /// hull's inertia, since the engine has no object without one; the single `mass × scale` this project gave
+    /// every body before B403 is gone.
+    /// </remarks>
+    private static (float InverseMass, (float X, float Y, float Z) Inertia) MassAndInertia(RagdollElement element)
+    {
+        IvpObjectTemplate template = IvpObjectTemplate.FromParameters(
+            element.Mass, element.Inertia, element.Damping, element.RotationDamping, element.RotationInertiaLimit);
+
+        Vector3 hull = element.HullInertia;
+        (float mass, (float X, float Y, float Z) inertia) = template.CoreInertia((hull.X, hull.Y, hull.Z));
+
+        return (1f / mass, inertia);
+    }
+
+    /// <summary>Where a bone sits inside its core: <c>−massCenter</c>, as <c>FUN_180074380</c> stores it.</summary>
+    /// <remarks>
+    /// **Zeroed when its squared length is under `1e-16` square metres** (`DAT_1800fcf98`, where the engine sets bit
+    /// `0x800`), carried here in square inches because this simulation runs in Source units.
+    /// </remarks>
+    private static (float X, float Y, float Z) ObjectOffset(Vector3 massCenter)
+    {
+        const float NegligibleSquared = 1e-16f * IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre;
+
+        return massCenter.LengthSquared() < NegligibleSquared
+            ? (0f, 0f, 0f)
+            : (-massCenter.X, -massCenter.Y, -massCenter.Z);
+    }
+
     /// <summary>Every element's current position and orientation, in Source space.</summary>
     /// <returns>One entry per element, ready for <c>RagdollBody.Pose</c>.</returns>
     public (Vector3 Position, Quaternion Orientation)[] State()
@@ -440,8 +475,11 @@ public sealed class RagdollSimulation
         {
             IvpRigidBody body = _bodies[index];
 
+            // **The bone, not the core** (B403) — vphysics' `GetPosition` composes the object offset back in.
+            (double X, double Y, double Z) origin = body.ObjectOrigin();
+
             state[index] = (
-                new Vector3((float)body.Position.X, (float)body.Position.Y, (float)body.Position.Z),
+                new Vector3((float)origin.X, (float)origin.Y, (float)origin.Z),
                 new Quaternion(
                     body.Orientation.X, body.Orientation.Y, body.Orientation.Z, body.Orientation.W));
         }
@@ -481,17 +519,17 @@ public sealed class RagdollSimulation
     /// hull inertia "this type does not have yet" — the anchors are `AnchorA`/`AnchorB` at the call
     /// site and the masses are on the elements, so the engine's own rule is computable here.
     ///
-    /// **Rotation about an axis moves an anchor by `|axis x anchor|`**, and the engine weights that
-    /// by inverse mass because a lighter body swings further for the same turn. The reference
-    /// body's anchor is its own origin, so its term is zero by construction and the attached side
-    /// decides — which is the geometry a limb actually has.
+    /// **Both anchors count, measured from each body's core, with their arms squared, and so does how
+    /// easily each core turns about the axis** — see <see cref="Turning"/>, read from the
+    /// disassembly (B403).
     /// </remarks>
     private static IvpRagdollConstraint Joint(
         RagdollConstraint constraint,
         RagdollAxes attached,
-        (float X, float Y, float Z) anchor,
-        float referenceMass,
-        float attachedMass)
+        IvpRigidBody reference,
+        IvpRigidBody attachedBody,
+        (float X, float Y, float Z) referenceAnchor,
+        (float X, float Y, float Z) attachedAnchor)
     {
         (float Minimum, float Maximum)[] axes =
         [
@@ -500,7 +538,7 @@ public sealed class RagdollSimulation
             (constraint.Z.Minimum, constraint.Z.Maximum),
         ];
 
-        int primary = Turning(anchor, referenceMass, attachedMass);
+        int primary = Turning(attached, reference, attachedBody, referenceAnchor, attachedAnchor);
         int wider = Widest(axes, primary, -1);
         int narrower = Widest(axes, primary, wider);
 
@@ -532,52 +570,76 @@ public sealed class RagdollSimulation
 
     /// <summary>The widest range not already taken.</summary>
     /// <summary>Which axis a joint actually turns about — <c>FUN_1800393d0</c>'s choice.</summary>
-    /// <param name="anchor">Where the attached body hangs, in the reference body's space.</param>
-    /// <param name="referenceMass">The reference body's mass.</param>
-    /// <param name="attachedMass">The attached body's mass.</param>
+    /// <param name="attached">The attached body's constraint frame, whose columns are its candidate axes.</param>
+    /// <param name="reference">The reference body — the child.</param>
+    /// <param name="attachedBody">The attached body — the parent.</param>
+    /// <param name="referenceAnchor">The joint, in the reference body's core frame.</param>
+    /// <param name="attachedAnchor">The joint, in the attached body's core frame.</param>
     /// <returns>The axis index, 0 for x through 2 for z.</returns>
     /// <remarks>
-    /// **The axis whose rotation moves the two anchors most, weighted by inverse mass.** Turning
-    /// about an axis carries a point at `|axis x anchor|`, so an axis lying ALONG the bone barely
-    /// moves the far anchor and one across it moves it fully. The reference body's own anchor is
-    /// the origin — a ball socket is the same point from each end — so its cross product is zero
-    /// and the attached side is what decides.
+    /// **Read from the disassembly** (`docs/findings/51`, *The joint's twist axis*). For each candidate axis
+    /// the engine scores
     ///
-    /// **Inverse mass, not mass**, because the engine weights by how far a body would actually
-    /// swing: the same torque moves a light limb further than a heavy one.
+    /// <code>
+    ///   invMass_A · |r_A × a_A|²  +  (Σ a_A,k² · invInertia_A,k  +  Σ a_B,k² · invInertia_B,k)  +  invMass_B · |r_B × a_B|²
+    /// </code>
+    ///
+    /// with `a_A` the reference frame's axis — the identity for a TF2 ragdoll — `a_B` the attached frame's, and
+    /// each `r` its anchor from its own core; the best starts at −1 and an axis wins only by scoring strictly
+    /// higher (`CMOVBE`). The bracketed sums are `FUN_18003d320` accumulating a purely angular row.
+    ///
+    /// **This project used to score one anchor, unsquared, measured from the bone, by the element's raw mass**
+    /// (B306), which agreed while the reference anchor sat at the core. Once the core moved to the hull's mass
+    /// center (B403) it could not.
+    ///
+    /// **The engine takes the arms and axes into the world and the axes back into each core**; a rotation
+    /// changes neither the length of a cross product nor a vector's components in its own frame, so this
+    /// scores in each body's frame and can differ only in the last bits that round trip adds.
     /// </remarks>
     private static int Turning(
-        (float X, float Y, float Z) anchor, float referenceMass, float attachedMass)
+        RagdollAxes attached,
+        IvpRigidBody reference,
+        IvpRigidBody attachedBody,
+        (float X, float Y, float Z) referenceAnchor,
+        (float X, float Y, float Z) attachedAnchor)
     {
-        float reference = referenceMass > MinimumInertia ? 1f / referenceMass : 0f;
-        float pull = attachedMass > MinimumInertia ? 1f / attachedMass : 0f;
-
         int turning = 0;
-        float furthest = -1f;
+        float best = -1f;
 
         for (int axis = 0; axis < 3; axis++)
         {
-            // |e_axis x anchor| — the two components the axis does NOT lie along.
-            float moved = axis switch
-            {
-                0 => MathF.Sqrt((anchor.Y * anchor.Y) + (anchor.Z * anchor.Z)),
-                1 => MathF.Sqrt((anchor.X * anchor.X) + (anchor.Z * anchor.Z)),
-                _ => MathF.Sqrt((anchor.X * anchor.X) + (anchor.Y * anchor.Y)),
-            };
+            Vector3 referenceAxis = RagdollAxes.Identity[axis];
+            Vector3 attachedAxis = attached[axis];
 
-            // The reference anchor is the origin, so it contributes nothing; carried so the shape
-            // is the engine's rather than a special case that happens to agree.
-            float weighted = (moved * pull) + (0f * reference);
+            float score = (ArmSquared(referenceAnchor, referenceAxis) * reference.InverseMass)
+                + (Turn(referenceAxis, reference.InverseInertia) + Turn(attachedAxis, attachedBody.InverseInertia))
+                + (ArmSquared(attachedAnchor, attachedAxis) * attachedBody.InverseMass);
 
-            if (weighted > furthest)
+            if (score > best)
             {
-                furthest = weighted;
+                best = score;
                 turning = axis;
             }
         }
 
         return turning;
     }
+
+    /// <summary><c>|anchor × axis|²</c> — how far turning about the axis carries the anchor, squared.</summary>
+    private static float ArmSquared((float X, float Y, float Z) anchor, Vector3 axis)
+    {
+        float x = (anchor.Y * axis.Z) - (anchor.Z * axis.Y);
+        float y = (anchor.Z * axis.X) - (anchor.X * axis.Z);
+        float z = (anchor.X * axis.Y) - (anchor.Y * axis.X);
+
+        return (x * x) + (y * y) + (z * z);
+    }
+
+    /// <summary><c>Σ a_k · (a_k · invInertia_k)</c> — <c>FUN_18003d320</c>'s diagonal for a purely angular row.</summary>
+    private static float Turn(Vector3 axis, (float X, float Y, float Z) inverseInertia) =>
+        (axis.X * (axis.X * inverseInertia.X))
+        + (axis.Y * (axis.Y * inverseInertia.Y))
+        + (axis.Z * (axis.Z * inverseInertia.Z));
 
     private static int Widest((float Minimum, float Maximum)[] axes, int first, int second)
     {
@@ -599,12 +661,4 @@ public sealed class RagdollSimulation
 
         return widest;
     }
-
-    /// <summary>The floor a body's inertia is held above, so nothing divides by zero.</summary>
-    /// <remarks>
-    /// **A `.phy` may declare a zero mass or a zero inertia scale**, and it is a stranger's file
-    /// (D32). The engine's own guard is the one in `FUN_180037bd0`, which zeroes the multiplier
-    /// rather than dividing — this floor keeps the reciprocal finite before it ever gets there.
-    /// </remarks>
-    private const float MinimumInertia = 1e-3f;
 }

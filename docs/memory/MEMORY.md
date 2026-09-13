@@ -44,7 +44,7 @@
 - [Output-level assertion or it is not done](output-level-assertion-or-it-is-not-done.md) — only it catches wiring.
 - [Wire names are strings](wire-names-are-strings.md) — SENDINFO_NAME sends under its second argument.
 - [A property can be declared by any table](a-property-can-be-declared-by-any-table.md) — a fixed table list dropped every projectile.
-- [Nothing is closed](nothing-is-closed.md) — SDK, headers, shipped data, binaries, decompiler; a Valve comment can be stale; settle a constant in the DISASSEMBLY.
+- [Nothing is closed](nothing-is-closed.md) — SDK, headers, shipped data, binaries, decompiler; a Valve comment can be stale; settle a constant in the DISASSEMBLY, and a float sum's grouping too.
 - [Death is EF_NODRAW, not an animation](death-is-ef-nodraw-not-an-animation.md) — a separate CTFRagdoll.
 - [Pose parameters live in the included model](pose-parameters-live-in-the-included-model.md) — paramindex is group-local.
 - [A property name needs its declaring table](a-property-name-needs-its-declaring-table.md) — check the pair.
@@ -67,7 +67,7 @@
 - [Name the reading you picked](name-the-reading-you-picked.md) — a requirement cannot be revisited.
 - [Never revert without asking](never-revert-without-asking.md) — asked-for and working is not yours to discard.
 - [Name the trade before fixing Valve](name-the-trade-before-fixing-valve.md) — arbitrary AND precise means a trick.
-- [Read the trx total, not the console](read-the-trx-total-not-the-console.md) — exact floors, skips, zero exits; a gate in flight owns the tree; a CI floor needs a green run's artifact, and two files hold the same floors.
+- [Read the trx total, not the console](read-the-trx-total-not-the-console.md) — exact floors, skips, zero exits; a gate in flight owns the tree; a CI floor needs a green run's artifact, and two files hold the same floors; leftover dotnet processes: `build/reap-dotnet.ps1`, by parentage.
 - [Boundaries find what tests cannot](boundaries-find-what-tests-cannot.md) — it questions the assumed structure.
 - [A config is a program](a-config-is-a-program.md) — aliases redefine at runtime; a running client serves a STALE cfg.
 - [Silence about a missing feature is not a preference](silence-about-a-missing-feature-is-not-a-preference.md) — falling back is not overriding.
@@ -103,7 +103,7 @@
 - [One look can be two mechanisms](one-look-can-be-two-mechanisms.md) — right texture, undrawn mesh.
 - [Parity is the search, not the defence](parity-is-the-search-not-the-defence.md) — read every branch.
 - [Take your own screenshot](take-your-own-screenshot.md) — TF2VIEW_CAMERA plus --shot, F5 in the viewer; `demo_gototick <tick> 0 1`; a still capture is a PAUSED frame and paused draws a different pose.
-- [One subagent, on haiku](one-subagent-and-prefer-cheap-models.md) — pass `model`; a Workflow agent inherits the session's otherwise.
+- [Subagents on sonnet, reviewed](one-subagent-and-prefer-cheap-models.md) — pass `model: sonnet`; haiku refused since 2026-09-12 (D168); a Workflow agent inherits the session's otherwise.
 - [A dropped field falls to a computed default](a-dropped-field-falls-to-a-computed-default.md) — the last transform sets it.
 - [The player send table excludes the animation](the-player-send-table-excludes-the-animation.md) — the client rebuilds it.
 - [Filing a divergence is not fixing it](filing-a-divergence-is-not-fixing-it.md) — rarity sets priority, not permission.
@@ -135,3 +135,5 @@
 - [Valve's shape beyond parity](valve-shape-beyond-parity.md) — D163; nothing to match still means Valve's mechanisms, order and names.
 - [The first step of a sequence is not the culprit](the-first-step-of-a-sequence-is-not-the-culprit.md) — skip exactly one; six agreeing logs agreed about the order.
 - [A native API wrapper owns a library handle](a-native-api-wrapper-owns-a-library-handle.md) — GetApi loads a fresh copy, Dispose is FreeLibrary; one per process.
+- [Gate once per merge, not per commit](gate-once-per-merge-not-per-commit.md) — ~15 min; iterate on the touched project plus a solution build.
+- [No task cards](no-task-cards.md) — D169; do side work yourself or with a reviewed sonnet subagent; a card hits the same files.

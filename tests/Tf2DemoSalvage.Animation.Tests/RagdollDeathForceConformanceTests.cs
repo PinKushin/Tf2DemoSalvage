@@ -120,7 +120,10 @@ public sealed class RagdollDeathForceConformanceTests
             ],
             [],
             2,
-            checksum: 0);
+            checksum: 0,
+            collisionRules: null,
+            hulls: null,
+            massProperties: RagdollMasses.Uniform(2));
 
         RagdollBody body = RagdollBody.Build(physics, RagdollSkeletons.Straight())!;
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -228,6 +229,162 @@ public sealed class PhysicsModelConformanceTests
         // The control on the assertion above: the second solid must survive too, so a reader that
         // kept only the final block would fail rather than pass on a count of one.
         physics.Solids[1].Name.ShouldBe("bip_spine_0");
+    }
+
+    /// <remarks>
+    /// **Each solid's mass center and rotation inertia come out beside its hull, indexed like it** (B403).
+    /// The engine takes both from the solid's compact surface through the surface manager — see
+    /// `PhysicsHullConformanceTests` for the offsets — and a ragdoll element needs them per solid, so they
+    /// ride the same blob walk that yields the hulls rather than a second pass over the file.
+    /// </remarks>
+    [Test]
+    public void Read_ASolidWithACompactSurface_CarriesItsMassProperties()
+    {
+        byte[] file = Phy(Surface(tagged: true, type: 0, new System.Numerics.Vector3(0.1f, -0.2f, 0.3f)));
+
+        PhysicsModel physics = PhysicsModel.Read(file);
+
+        physics.MassProperties.Count.ShouldBe(1);
+
+        PhysicsMassProperties? read = physics.MassProperties[0];
+
+        read.ShouldNotBeNull();
+        read.Value.MassCenter.ShouldBe(new System.Numerics.Vector3(0.1f, -0.2f, 0.3f));
+        read.Value.RotationInertia.ShouldBe(new System.Numerics.Vector3(0.004f, 0.005f, 0.006f));
+
+        // The control: the text half of the same solid is still read, so the blob walk did not swallow it.
+        physics.Solids[0].Name.ShouldBe("bip_pelvis");
+    }
+
+    /// <remarks>
+    /// **A solid the loader nulls keeps its slot** (B404). `FUN_18000a100` writes each solid's collide, NULL or not,
+    /// into `vcollide_t::solids[i]` and moves on (`vcollide.h:16-22`), so the solid after it keeps its index — and
+    /// the constraints and the text blocks refer to solids by that index. The middle solid is a `"Null physics
+    /// model"`; the last is an untagged surface, so its mass center arriving at index 2 also shows it was read from
+    /// its first byte.
+    /// </remarks>
+    [Test]
+    public void Read_ASolidTheLoaderNulls_KeepsItsSlot()
+    {
+        byte[] file = Phy(
+            Surface(tagged: true, type: 0, new System.Numerics.Vector3(1f, 0f, 0f)),
+            Surface(tagged: true, type: 1, new System.Numerics.Vector3(2f, 0f, 0f)),
+            Surface(tagged: false, type: 0, new System.Numerics.Vector3(3f, 0f, 0f)));
+
+        PhysicsModel physics = PhysicsModel.Read(file);
+
+        physics.Hulls.Count.ShouldBe(3);
+        physics.MassProperties.Count.ShouldBe(3);
+        physics.MassProperties[0]!.Value.MassCenter.X.ShouldBe(1f);
+        physics.MassProperties[1].ShouldBeNull("a Null physics model has no surface");
+        physics.MassProperties[2]!.Value.MassCenter.X.ShouldBe(3f);
+    }
+
+    /// <remarks>
+    /// **A solid with no `VPHY` tag and under `0x30` bytes refuses the whole file** (B404) — `FUN_18000a100` compares
+    /// the size prefix unsigned against `0x30` and calls `Error("Corrupt physics model")`, which does not return. The
+    /// solid before it is well-formed, so the refusal is the corrupt one's and not an earlier failure's.
+    /// </remarks>
+    [TestCase(0)]
+    [TestCase(0x2F)]
+    public void Read_AnUntaggedSolidUnder0x30Bytes_RefusesTheFile(int size)
+    {
+        byte[] file = Phy(Surface(tagged: true, type: 0, System.Numerics.Vector3.Zero), new byte[size]);
+
+        Should.Throw<InvalidDataException>(() => PhysicsModel.Read(file))
+            .Message.ShouldContain("Corrupt physics model");
+    }
+
+    /// <remarks>
+    /// **A file shorter than `phyheader_t` refuses with `InvalidDataException`** (B405) — the type B404's corrupt
+    /// solid throws and the type every Scene reader of a `.phy` catches, so a truncated file costs its model its
+    /// physics rather than the load (D32). Valve's tools refuse it too: they read the header and return false
+    /// (`vradstaticprops.cpp:520`).
+    /// </remarks>
+    [Test]
+    public void Read_AFileShorterThanItsHeader_RefusesWithInvalidDataException()
+    {
+        Should.Throw<InvalidDataException>(() => PhysicsModel.Read(new byte[4]));
+    }
+
+    /// <remarks>
+    /// **A header declaring a size other than `sizeof(phyheader_t)` refuses with `InvalidDataException`** (B405).
+    /// `if ( header->size != sizeof(*header) || header->solidCount &lt;= 0 ) return false;` —
+    /// `vradstaticprops.cpp:520`, and the same line at `glview.cpp:770`. The file is otherwise a well-formed one-solid
+    /// `.phy`, so the declared size is the only thing wrong with it.
+    /// </remarks>
+    [Test]
+    public void Read_AHeaderDeclaringASizeOf20_RefusesWithInvalidDataException()
+    {
+        byte[] file = Phy(Surface(tagged: true, type: 0, System.Numerics.Vector3.Zero));
+
+        BitConverter.GetBytes(20).CopyTo(file, 0);
+
+        Should.Throw<InvalidDataException>(() => PhysicsModel.Read(file));
+    }
+
+    /// <summary>A solid holding a bare compact surface, with no ledges.</summary>
+    /// <param name="tagged">Whether it opens with the <c>VPHY</c> header.</param>
+    /// <param name="type">The header's type word, at <c>+6</c>.</param>
+    /// <param name="massCenter">The surface's first three floats.</param>
+    /// <returns>The solid's bytes, without its size prefix.</returns>
+    /// <remarks>
+    /// **Written as a shipped `.phy` writes a solid**: the header's data size at `+8` is everything after the header.
+    /// The rotation inertia is fixed and distinct from the mass center, so a read six floats off is visible.
+    /// </remarks>
+    private static byte[] Surface(bool tagged, short type, System.Numerics.Vector3 massCenter)
+    {
+        int at = tagged ? 0x1C : 0;
+        byte[] blob = new byte[at + 0x30];
+
+        if (tagged)
+        {
+            "VPHY"u8.CopyTo(blob);
+            BitConverter.GetBytes((short)0x100).CopyTo(blob, 0x04);
+            BitConverter.GetBytes(type).CopyTo(blob, 0x06);
+            BitConverter.GetBytes(0x30).CopyTo(blob, 0x08);
+        }
+
+        BitConverter.GetBytes(massCenter.X).CopyTo(blob, at + 0x00);
+        BitConverter.GetBytes(massCenter.Y).CopyTo(blob, at + 0x04);
+        BitConverter.GetBytes(massCenter.Z).CopyTo(blob, at + 0x08);
+        BitConverter.GetBytes(0.004f).CopyTo(blob, at + 0x0C);
+        BitConverter.GetBytes(0.005f).CopyTo(blob, at + 0x10);
+        BitConverter.GetBytes(0.006f).CopyTo(blob, at + 0x14);
+        "IVPS"u8.CopyTo(blob.AsSpan(at + 0x2C));
+
+        return blob;
+    }
+
+    /// <summary>A <c>.phy</c> of the given solids, each with its size prefix, and one text block per solid.</summary>
+    /// <param name="solids">The solids' bytes, in order.</param>
+    /// <returns>The whole file.</returns>
+    private static byte[] Phy(params byte[][] solids)
+    {
+        List<byte> file =
+        [
+            .. BitConverter.GetBytes(16),             // size, which Valve writes as sizeof(phyheader_t)
+            .. BitConverter.GetBytes(0x59485056),     // id
+            .. BitConverter.GetBytes(solids.Length),  // solidCount
+            .. BitConverter.GetBytes(0),              // checkSum
+        ];
+
+        foreach (byte[] solid in solids)
+        {
+            file.AddRange(BitConverter.GetBytes(solid.Length));
+            file.AddRange(solid);
+        }
+
+        string[] names = ["bip_pelvis", "bip_spine_0", "bip_spine_1"];
+
+        for (int index = 0; index < solids.Length; index++)
+        {
+            file.AddRange(System.Text.Encoding.ASCII.GetBytes(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"solid {{\n  \"index\" \"{index}\"\n  \"name\" \"{names[index]}\"\n  \"mass\" \"7.470685\"\n}}\n")));
+        }
+
+        return [.. file];
     }
 
     /// <summary>Solid counts per class, measured with the `ragdoll-constraints` probe.</summary>

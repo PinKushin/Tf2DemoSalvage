@@ -923,7 +923,7 @@ public sealed class IvpContact
 
         for (int index = 0; index < body.Hull.Count; index++)
         {
-            (float x, float y, float z) = body.Hull[index];
+            (float x, float y, float z) = body.CoreHullPoint(index);
 
             points[index] = centre + Vector3.Transform(new Vector3(x, y, z), orientation);
 
@@ -1356,7 +1356,7 @@ public sealed class IvpContact
 
             for (int index = 0; index < body.Hull.Count; index++)
             {
-                (float x, float y, float z) = body.Hull[index];
+                (float x, float y, float z) = body.CoreHullPoint(index);
                 float reach = MathF.Sqrt((x * x) + (y * y) + (z * z));
 
                 bodyRadius = MathF.Max(bodyRadius, reach);
@@ -1373,7 +1373,7 @@ public sealed class IvpContact
 
                 for (int index = 0; index < body.Hull.Count; index++)
                 {
-                    (float x, float y, float z) = body.Hull[index];
+                    (float x, float y, float z) = body.CoreHullPoint(index);
                     Vector3 candidate = new(x, y, z);
                     float dot = Vector3.Dot(candidate, local);
 
@@ -1470,7 +1470,7 @@ public sealed class IvpContact
 
         for (int index = 0; index < body.Hull.Count; index++)
         {
-            (float x, float y, float z) = body.Hull[index];
+            (float x, float y, float z) = body.CoreHullPoint(index);
 
             Vector3 arm = Vector3.Transform(new Vector3(x, y, z), orientation);
 
@@ -1674,7 +1674,7 @@ public sealed class IvpContact
             // body, and a corpse caught up over six hundred ticks took minutes.
             checks++;
 
-            (float x, float y, float z) = body.Hull[index];
+            (float x, float y, float z) = body.CoreHullPoint(index);
 
             Vector3 at = centre + Vector3.Transform(new Vector3(x, y, z), orientation);
 

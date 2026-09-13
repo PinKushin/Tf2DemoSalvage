@@ -188,7 +188,8 @@ public sealed class RagdollCollisionConformanceTests
             new RagdollConstraint(0, 3, axis, axis, axis),
         ];
 
-        PhysicsModel physics = PhysicsModel.From(solids, constraints, solids.Length, 0, rules);
+        PhysicsModel physics = PhysicsModel.From(
+            solids, constraints, solids.Length, 0, rules, null, RagdollMasses.Uniform(solids.Length));
 
         RagdollBody? body = RagdollBody.Build(physics, Skeleton());
 

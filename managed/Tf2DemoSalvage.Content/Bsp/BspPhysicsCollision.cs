@@ -135,7 +135,18 @@ public static class BspPhysicsCollision
 
             foreach (PhysicsBrushSolid solid in solids)
             {
-                ledges.Add(PhysicsHull.Read(bytes.Slice(solid.Offset, solid.Length)));
+                ReadOnlySpan<byte> blob = bytes.Slice(solid.Offset, solid.Length);
+
+                // **A solid vphysics refuses ends the walk before its model** (B404). A map's solids are what
+                // `VCollideLoad` takes — Valve's own lump swapper hands them to it (`bsplib.cpp:1681`) — and its loader
+                // meets an untagged solid under 0x30 bytes with `Error("Corrupt physics model")`. What came before is
+                // kept, as for every other damage here (D32); a NULL collide is not damage, and keeps its slot.
+                if (PhysicsHull.Load(blob) == PhysicsSolidLoad.Corrupt)
+                {
+                    return models;
+                }
+
+                ledges.Add(PhysicsHull.Read(blob));
             }
 
             models.Add(new MapPhysicsModel(
@@ -181,7 +192,8 @@ public static class BspPhysicsCollision
 
             cursor += SolidPrefixSize;
 
-            if (size <= 0 || cursor + size > end)
+            // Zero is an extent: the loader refuses a zero-byte solid rather than skipping it (B404).
+            if (size < 0 || cursor + size > end)
             {
                 break;
             }
