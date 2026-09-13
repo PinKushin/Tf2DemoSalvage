@@ -37,7 +37,7 @@ public sealed class IvpHullConventionConformanceTests
 
     /// <remarks>
     /// **One metre on each axis, so the permutation is the whole answer.** `(1, 2, 3)` metres is
-    /// `(39.37, 118.11, −78.74)` inches: X passes through, IVP Z becomes Source Y, and IVP Y becomes
+    /// `(39.370079, 118.110237, −78.740158)` inches: X passes through, IVP Z becomes Source Y, and IVP Y becomes
     /// Source Z negated. A dropped sign or an exchanged pair cannot land on the same triple.
     /// </remarks>
     [Test]
@@ -45,9 +45,9 @@ public sealed class IvpHullConventionConformanceTests
     {
         Vector3 at = IvpWorldCollision.ToSource(new Vector3(1f, 2f, 3f));
 
-        at.X.ShouldBe(39.37f, Tolerance);
-        at.Y.ShouldBe(118.11f, Tolerance);
-        at.Z.ShouldBe(-78.74f, Tolerance);
+        at.X.ShouldBe(39.370079f, Tolerance);
+        at.Y.ShouldBe(118.110237f, Tolerance);
+        at.Z.ShouldBe(-78.740158f, Tolerance);
     }
 
     /// <remarks>
@@ -56,8 +56,8 @@ public sealed class IvpHullConventionConformanceTests
     /// `ToSource` and <see cref="IvpTransform.Position"/> disagreed by a 180° rotation, and nothing
     /// that only ever used one of them could tell.
     ///
-    /// The bound is `1e-3` inches because Valve stores `0.0254` and `39.37` as a pair rather than
-    /// one and its reciprocal, so a round trip loses two parts in a million by design.
+    /// The bound is `1e-3` inches because each crossing rounds once in float, at `71` inches a few
+    /// millionths.
     /// </remarks>
     [Test]
     public void ToSource_OfPosition_ReturnsTheSourcePoint()
@@ -85,7 +85,7 @@ public sealed class IvpHullConventionConformanceTests
         Vector3 across = IvpWorldCollision.ToSource(new Vector3(0f, 0f, 1f));
 
         across.X.ShouldBe(0f, Tolerance);
-        across.Y.ShouldBe(39.37f, Tolerance);
+        across.Y.ShouldBe(39.370079f, Tolerance);
         across.Z.ShouldBe(0f, Tolerance);
     }
 }

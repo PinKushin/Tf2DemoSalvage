@@ -26103,6 +26103,19 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    mindist's virtual `+0x28` target (`FUN_1800947e0` reports to the environment's `+0x40` object), friction, and
    the far branch's travel allowances; and the cache object's slerp (`FUN_180071060`) that fills each side's
    current matrix, which the minimize takes from its caller.
+   **The contact point and its record are read and ported, 2026-09-13** (`docs/findings/51`, *The contact point and
+   its record*): `FUN_180082ed0`, `FUN_18008d0c0`, the four measures and their helpers as `IvpContactPoint`,
+   `IvpContactGeometry` and `IvpContactRecord`, with synthetic conformance tests and sabotage rounds — also not on the
+   running path. **D172 makes the rest of the collision path this step's scope**, in the owner's words *"ok well fix it
+   all … lets get it done, thats your goal"*. Read since and recorded in `docs/findings/51` (*The impact solver and the
+   friction system's bookkeeping*): the record's estimate `FUN_18008db40`, contact removal `FUN_180083e40` and
+   `FUN_180083b30`, the per-core friction record, the union-find `FUN_1800877b0`, the impact solver `FUN_18008e290` with
+   `FUN_18008f570`, `FUN_18008dd00`, `FUN_18008deb0` and `FUN_1800904a0`, and the runtime library's `asinf`, `expf` and
+   `exp`. **Two divergences found on the way are fixed**: `IvpTransform.InchesPerMetre` carried `39.37f` where the
+   dword is `0x421d7af6`, `1f / 0.0254f`; and the tolerance block's `2·d` and `2.3·d`, which a contact point starts
+   with and a parallel edge pair measures, had been read as zero. **One is found and not yet fixed**: `IvpDamping`
+   diverges from `FUN_180077a20` on four counts, the widest being one `MathF.Exp` factor for three lanes where the
+   engine calls `expf` for one and `exp` for two.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 

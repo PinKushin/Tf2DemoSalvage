@@ -5,9 +5,9 @@ namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>The fields of an IVP real object the far and exact handoffs read (B369).</summary>
 /// <remarks>
-/// Its hull manager, the byte at <c>+0x78</c>, and its lists of exact and invalid synapse records. **What the byte's low
-/// three bits mean is not established**: a core coming to rest writes <c>8</c>, and a side whose low bits are clear takes no
-/// hull allowance when its pair is filed.
+/// Its hull manager, the byte at <c>+0x78</c>, its lists of exact and invalid synapse records, and its contact points. **What
+/// the byte's low three bits mean is not established**: a core coming to rest writes <c>8</c>, and a side whose low bits are
+/// clear takes no hull allowance when its pair is filed.
 /// </remarks>
 public sealed class IvpCollisionObject
 {
@@ -22,6 +22,12 @@ public sealed class IvpCollisionObject
 
     /// <summary>The invalid synapse records at <c>+0x48</c>, the latest first.</summary>
     public LinkedList<IvpMindistHullRecord> InvalidSynapses { get; } = new();
+
+    /// <summary>
+    /// The contact points it takes part in, the latest first — the friction synapses <c>FUN_180082ed0</c> links at the head of
+    /// the list at <c>+0x50</c>, each leading back to its contact point.
+    /// </summary>
+    public LinkedList<IvpContactPoint> ContactPoints { get; } = new();
 
     /// <summary>Whether <see cref="MovementState"/>'s low three bits are clear — <c>TEST byte ptr [obj + 0x78], 0x7</c>.</summary>
     internal bool StateBitsClear => (MovementState & 7) == 0;

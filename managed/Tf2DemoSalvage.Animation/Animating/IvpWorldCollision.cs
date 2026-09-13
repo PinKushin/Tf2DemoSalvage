@@ -117,12 +117,14 @@ public readonly record struct IvpWorldTriangle(
 /// </remarks>
 public sealed class IvpWorldCollision
 {
-    /// <summary>Source units per IVP metre — <c>1 / METERS_PER_INCH</c>.</summary>
+    /// <summary>Source units per IVP metre — <see cref="IvpTransform.InchesPerMetre"/>.</summary>
     /// <remarks>
-    /// **Valve's own constant, inverted.** `CPhysicsEnvironment` converts the other way at its
-    /// boundary; this project's simulation stays in Source units, so the hull comes to it.
+    /// **Valve's own constant, the dword beside `METERS_PER_INCH`**, its float reciprocal — the value this
+    /// field held as `1f / 0.0254f` before it became a name for the one constant. `CPhysicsEnvironment`
+    /// converts the other way at its boundary; this project's simulation stays in Source units, so the hull
+    /// comes to it.
     /// </remarks>
-    public const float SourceUnitsPerMetre = 1f / 0.0254f;
+    public const float SourceUnitsPerMetre = IvpTransform.InchesPerMetre;
 
     /// <summary>One point, out of IVP's convention and into Source's.</summary>
     /// <param name="point">A point as the <c>IVPS</c> section stores it.</param>

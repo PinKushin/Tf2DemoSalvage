@@ -89,6 +89,48 @@ public static class IvpVector
         return false;
     }
 
+    /// <summary>Scales a float vector to unit length if it has a direction — <c>FUN_18006dff0</c>.</summary>
+    /// <param name="vector">The vector, scaled in place when long enough.</param>
+    /// <returns>Whether it was scaled.</returns>
+    /// <remarks>
+    /// **Squared and summed in FLOAT, then compared widened** against the same inclusive `1e-19`; each component is widened,
+    /// scaled by <see cref="ReciprocalSquareRoot(double)"/>'s four steps and narrowed back (`CVTPS2PD`, `MULSD`, `CVTPD2PS`).
+    /// </remarks>
+    public static bool TryScaleToUnitLength(ref (float X, float Y, float Z) vector)
+    {
+        float squared = (vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z);
+
+        if (squared >= DirectionThreshold)
+        {
+            double scale = ReciprocalSquareRoot(squared, NewtonSteps);
+            vector = ((float)(vector.X * scale), (float)(vector.Y * scale), (float)(vector.Z * scale));
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Scales a vector to unit length and returns the length it had — <c>FUN_18006fd40</c>.</summary>
+    /// <param name="vector">The vector, scaled in place when long enough.</param>
+    /// <returns>The length as <c>r·s</c>, <c>r</c> being the reciprocal root of the squared length <c>s</c>; zero below the threshold.</returns>
+    /// <remarks>
+    /// **FIVE Newton steps** (`FUN_18006edd0`), where <see cref="TryScaleToUnitLength(ref ValueTuple{double, double, double})"/>
+    /// takes four, and the same inclusive threshold. Below it the vector is left exactly as it was.
+    /// </remarks>
+    public static double ScaleToUnitLength(ref (double X, double Y, double Z) vector)
+    {
+        double squared = (vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z);
+
+        if (squared >= DirectionThreshold)
+        {
+            double scale = ReciprocalSquareRoot(squared, FiveSteps);
+            vector = (vector.X * scale, vector.Y * scale, vector.Z * scale);
+            return scale * squared;
+        }
+
+        return 0d;
+    }
+
     /// <summary>The difference of two float points, subtracted in FLOAT and only then widened.</summary>
     /// <param name="from">The point subtracted.</param>
     /// <param name="to">The point subtracted from.</param>
@@ -119,6 +161,12 @@ public static class IvpVector
         float squared = (point.X * point.X) + (point.Y * point.Y) + (point.Z * point.Z);
         return Math.Sqrt(squared);
     }
+
+    /// <summary>A double vector's length — <c>FUN_18006fc60</c>.</summary>
+    /// <param name="vector">The vector.</param>
+    /// <returns><c>√((x² + y²) + z²)</c>, an exact root (<c>SQRTPD</c>).</returns>
+    public static double Length((double X, double Y, double Z) vector) =>
+        Math.Sqrt((vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z));
 
     /// <summary>The cross product — <c>FUN_18006dd30</c>.</summary>
     /// <param name="first">The left operand.</param>

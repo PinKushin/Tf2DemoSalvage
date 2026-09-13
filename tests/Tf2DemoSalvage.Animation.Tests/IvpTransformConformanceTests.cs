@@ -11,7 +11,7 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// - **Axes.** `Source (x, y, z)` becomes `IVP (x, −z, y)`, applied to a rotation as
 ///   `M' = P M Pᵀ` with `P = [[1,0,0],[0,0,−1],[0,1,0]]`. Source is Z-up; IVP is Y-up.
 /// - **Units.** Translations are multiplied by <b>0.0254</b>, metres per inch, dumped from
-///   `18011f000` with `39.37` in the adjacent dword.
+///   `18011f000` with its float reciprocal `39.370082` in the adjacent dword.
 /// - **Storage.** `FUN_18000ca70` writes the rows into COLUMNS of a 4×4 and puts the translation in
 ///   the last ROW.
 ///
@@ -50,10 +50,8 @@ public sealed class IvpTransformConformanceTests
     /// The round trip, which is what says the two directions describe one convention rather than two
     /// readings of it.
     ///
-    /// **The tolerance is loose on purpose, and by a measured amount.** Valve stores `0.0254` and
-    /// `39.37` as a pair rather than one and its reciprocal, and `0.0254 × 39.37` is `0.999998` —
-    /// so a round trip loses two parts in a million by design. At 33 inches that is `6.6e-5`, which
-    /// is why the bound is `1e-4` and not `1e-6`.
+    /// **The tolerance allows the constants' own mismatch and one float's rounding each way.** The two scales
+    /// multiply to within a few parts in a hundred million of one, and each crossing rounds once.
     /// </remarks>
     [Test]
     public void Position_ThenBack_ReturnsTheSourcePoint()
@@ -64,6 +62,18 @@ public sealed class IvpTransformConformanceTests
         back.X.ShouldBe(11f, 1e-4);
         back.Y.ShouldBe(-22f, 1e-4);
         back.Z.ShouldBe(33f, 1e-4);
+    }
+
+    /// <remarks>
+    /// **Both scales are pinned by their bits, dumped from `18011f000` and `18011f004`.** The second is
+    /// `0x421d7af6`, `1f / 0.0254f` in float — not `39.37f` (`0x421d7ae1`), which this project carried until the
+    /// dword was dumped rather than read off the decompiler's decimal.
+    /// </remarks>
+    [Test]
+    public void Scales_TheTwoAdjacentDwords_AreAFloatAndItsFloatReciprocal()
+    {
+        System.BitConverter.SingleToInt32Bits(IvpTransform.MetresPerInch).ShouldBe(0x3cd013a9);
+        System.BitConverter.SingleToInt32Bits(IvpTransform.InchesPerMetre).ShouldBe(0x421d7af6);
     }
 
     /// <remarks>

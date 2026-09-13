@@ -739,8 +739,7 @@ public static class IvpMindistMinimize
             IvpLedgeTopology topology = sf.Topology;
 
             (float X, float Y, float Z) origin = sf.StartOf(f);
-            (double X, double Y, double Z) normal =
-                IvpVector.FaceNormal(origin, sf.EndOf(f), sf.StartOf(topology.Previous(f)));
+            (double X, double Y, double Z) normal = sf.FaceNormal(f);
             IvpVector.TryScaleToUnitLength(ref normal);
 
             (double X, double Y, double Z) world = sf.Current.Rotate(normal);
@@ -922,10 +921,7 @@ public static class IvpMindistMinimize
                 Region region = regions[index];
                 IvpLedgeSide owner = _sides[region.TriangleSide];
 
-                (double X, double Y, double Z) faceNormal = IvpVector.FaceNormal(
-                    owner.StartOf(region.Triangle),
-                    owner.EndOf(region.Triangle),
-                    owner.StartOf(owner.Topology.Previous(region.Triangle)));
+                (double X, double Y, double Z) faceNormal = owner.FaceNormal(region.Triangle);
 
                 normals[index] = faceNormal;
 

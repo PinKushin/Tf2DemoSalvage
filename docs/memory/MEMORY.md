@@ -78,7 +78,7 @@
 - [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps are client-predicted.
 - [A fallback that makes sound hides itself](a-fallback-that-makes-sound-hides-itself.md) — refuse what the engine refuses.
 - [A loop is state, not an event](a-loop-is-state-not-an-event.md) — ask what should be PLAYING.
-- [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89/D143/D148; performance buys nothing, parity is the first hypothesis, check it during refactors.
+- [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89/D143/D148/D172; performance buys nothing, parity is the first hypothesis, check it during refactors, and claim it of a subsystem, never a function.
 - [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md) — six at 3 ms, remainder at 126.
 - [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — deliberate; do not "fix" it.
 - [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md) — the TFM enforces, not the file.
@@ -137,3 +137,4 @@
 - [A native API wrapper owns a library handle](a-native-api-wrapper-owns-a-library-handle.md) — GetApi loads a fresh copy, Dispose is FreeLibrary; one per process.
 - [Gate once per merge, not per commit](gate-once-per-merge-not-per-commit.md) — ~15 min; iterate on the touched project plus a solution build.
 - [No task cards](no-task-cards.md) — D169/D171; the main session is the first mate: reviewed sonnet subagents, never cards or sibling sessions, and it works every merge.
+- [Push when work piles up](push-when-work-piles-up.md) — crash safety outranks "push sparingly"; commit a green state first, never mid-sabotage.

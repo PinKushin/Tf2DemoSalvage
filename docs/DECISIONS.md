@@ -8753,3 +8753,30 @@ siblling session is done after the merge it can be deleted and archived"* — ar
 done by the main session; deleting stays the owner's own click.
 
 Related: D145, D168, D169, D170.
+
+## D172 — all of IVP's collision to parity and running: the goal of B369 (2026-09-13)
+
+**The owner asked, midway through porting the contact point:** *"how was everything so fucked up we needed this massive
+refactor anyway? i thought we had all this on parity and working but idk"*.
+
+**The answer given:** it never was. The body half — the integrator, gravity, damping, the joint solve, the hull reader,
+the mass properties — was read out of `vphysics.dll`. Collision was not: `IvpContact` transcribed the impact solver at
+the center of IVP's collision path, and this project invented everything around it — per-vertex sampling against
+triangle planes, manifold clipping, push-out compensators, warm starts keyed by normal — each labeled in its own remarks
+as not the engine's, while reports leaned on the per-function claims ("the impact loop is the engine's"), which made the
+whole sound closer to parity than it was. The measured failures were already recorded beside that code: a corpse bouncing
+for ever, limit cycles, uphill sliding, buried limbs, and about nine tuning attempts that each measured worse.
+
+**The owner's reply:**
+
+> *"ok well fix it all, i was hoping we had enough contraints that shit wouldnt happen but w/e lets get it done, thats
+> your goal"*
+
+**What follows:** B369's goal is the whole of IVP's collision path — the pair scheduler and hull managers already ported,
+the contact points and their records, the friction systems, both solves and the listeners — ported bottom layer first and
+put on the running path, replacing `IvpContact`'s invented structure rather than sitting beside it, with the compensators
+deleted as step 7 says. **A claim of parity names the subsystem, not a function**: a transcribed routine inside structure
+of this project's own is reported as exactly that. The owner's remark about constraints came with no instruction to add
+any, and none is inferred from it.
+
+Related: D89, D129, D131, D163, B369.

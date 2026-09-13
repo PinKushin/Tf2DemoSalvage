@@ -28,6 +28,12 @@ public sealed record IvpLedgeSide(
     /// <param name="edge">The edge.</param>
     /// <returns>The point, in the object's frame.</returns>
     public (float X, float Y, float Z) EndOf(IvpLedgeEdge edge) => StartOf(Topology.Next(edge));
+
+    /// <summary>The normal of an edge's triangle, not scaled — <c>FUN_18007b940</c>.</summary>
+    /// <param name="edge">The edge, whose triangle's start points are taken from it in their stored winding.</param>
+    /// <returns>The normal, in the object's frame.</returns>
+    public (double X, double Y, double Z) FaceNormal(IvpLedgeEdge edge) =>
+        IvpVector.FaceNormal(StartOf(edge), EndOf(edge), StartOf(Topology.Previous(edge)));
 }
 
 /// <summary>An edge's two weights for a point — <c>FUN_18007d070</c>'s output.</summary>
@@ -302,8 +308,7 @@ public static class IvpCompactLedgeSolver
         ArgumentNullException.ThrowIfNull(side);
 
         (float X, float Y, float Z) origin = side.StartOf(edge);
-        (double X, double Y, double Z) normal = IvpVector.FaceNormal(
-            origin, side.EndOf(edge), side.StartOf(side.Topology.Previous(edge)));
+        (double X, double Y, double Z) normal = side.FaceNormal(edge);
 
         double offset = -((normal.Y * origin.Y) + (normal.X * origin.X) + (normal.Z * origin.Z));
         double scale = 1d / Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y) + (normal.Z * normal.Z));

@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Numerics;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Animation.Tests;
@@ -20,7 +21,7 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// </remarks>
 internal static class RagdollMasses
 {
-    private const float SquareInchesPerSquareMetre = 39.37f * 39.37f;
+    private const float SquareInchesPerSquareMetre = IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre;
 
     /// <summary>A mass center at the bone and one square inch per kilogram about each axis, in IVP metres.</summary>
     public static PhysicsMassProperties Unit { get; } =

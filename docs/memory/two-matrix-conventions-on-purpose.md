@@ -40,7 +40,8 @@ through `FUN_180002cc0` in `vphysics.dll`, which changes three things at once:
 - **Axes.** `Source (x, y, z) → IVP (x, −z, y)`, applied to a rotation as `M' = P M Pᵀ` with
   `P = [[1,0,0],[0,0,−1],[0,1,0]]`. Source is Z-up; IVP is Y-up.
 - **Units.** Translations are multiplied by **0.0254** — metres per inch. The constant sits at
-  `18011f000` with `39.37` in the next dword.
+  `18011f000` with `0x421d7af6` (`39.3700790`, `1f/0.0254f` in float) in the next dword — *once carried
+  as `39.37`, the decompiler's decimal, which is a different float (`0x421d7ae1`)*.
 - **Storage.** `FUN_18000ca70` then writes the rows into COLUMNS of a 4×4 and puts the translation in
   the last row.
 

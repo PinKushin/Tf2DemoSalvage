@@ -131,4 +131,53 @@ public sealed class IvpVectorConformanceTests
     {
         BitConverter.DoubleToInt64Bits(IvpVector.ReciprocalSquareRoot(square)).ShouldBe(bits);
     }
+
+    /// <remarks>
+    /// **A float vector is squared and summed in float, compared widened, scaled in double by four steps and narrowed**
+    /// (`18006dff0`): `(0, 0, 4)` scales to `(0, 0, 1)`; `(0, 0, 1e-10f)` squares to about `1e-20`, under `1e-19`, and is
+    /// left as it was.
+    /// </remarks>
+    [TestCase(4f, true, 1f)]
+    [TestCase(1e-10f, false, 1e-10f)]
+    public void TryScaleToUnitLength_AFloatVector_ScalesOnlyAtOrAbove1e19Squared(float length, bool scaled, float after)
+    {
+        (float X, float Y, float Z) vector = (0f, 0f, length);
+
+        IvpVector.TryScaleToUnitLength(ref vector).ShouldBe(scaled);
+
+        vector.ShouldBe((0f, 0f, after));
+    }
+
+    /// <remarks>
+    /// **Scaled by FIVE steps, and the length it had returned as `r·s`** (`18006fd40`): `(1, 1, 1)` squares to three, whose
+    /// four-step root stops short of the five-step one, so both the components and the length are the five-step answer's.
+    /// </remarks>
+    [Test]
+    public void ScaleToUnitLength_ALongVector_ScalesByFiveStepsAndReturnsItsLength()
+    {
+        (double X, double Y, double Z) vector = (1d, 1d, 1d);
+        double root = IvpVector.ReciprocalSquareRoot(3d, IvpVector.FiveSteps);
+
+        IvpVector.ScaleToUnitLength(ref vector).ShouldBe(root * 3d);
+
+        vector.ShouldBe((root, root, root));
+    }
+
+    /// <remarks>**Below `1e-19` squared the length returned is zero and the vector is left alone.**</remarks>
+    [Test]
+    public void ScaleToUnitLength_AVectorTooShort_ReturnsZeroAndLeavesIt()
+    {
+        (double X, double Y, double Z) vector = (1e-10d, 0d, 0d);
+
+        IvpVector.ScaleToUnitLength(ref vector).ShouldBe(0d);
+
+        vector.ShouldBe((1e-10d, 0d, 0d));
+    }
+
+    /// <remarks>`FUN_18006fc60`: the exact root of `(x² + y²) + z²` in double — `(3, 4, 12)` is `13`.</remarks>
+    [Test]
+    public void Length_ADoubleVector_IsTheExactRootOfItsSquares()
+    {
+        IvpVector.Length((3d, 4d, 12d)).ShouldBe(13d);
+    }
 }
