@@ -391,24 +391,25 @@ public sealed class IvpMindistManager
 
     /// <summary>Minimizes every exact mindist — the PSI's phase 3, <c>FUN_1800983e0</c>, run right after the hull pass.</summary>
     /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>.</param>
-    /// <param name="invalidate">The mindist's <c>+0x38</c> — <see cref="Invalidate"/> over its objects.</param>
+    /// <param name="queue">The time manager's queue, handed to a frozen mindist's slot 7.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="NotSupportedException">A pair holds bits of <c>0x3000</c>, whose phantom path is not ported.</exception>
     /// <remarks>
-    /// **Head first, each next link read before anything is called**, so a pair made invalid does not end the walk. A plain
-    /// pair whose minimize left bits of `0xc000` is made invalid and nothing else happens to it.
+    /// **Head first, each next link read before anything is called**, so a pair its slot 7 unfiles does not end the walk. A plain
+    /// pair whose minimize left bits of `0xc000` goes to its own slot 7 (<see cref="IvpMindist.Freeze"/>) and nothing else happens
+    /// to it.
     /// </remarks>
-    public void MinimizeExact(Action<IvpMindist> minimize, Action<IvpMindist> invalidate)
+    public void MinimizeExact(Action<IvpMindist> minimize, IvpMinList<IvpMindist> queue)
     {
         ArgumentNullException.ThrowIfNull(minimize);
-        ArgumentNullException.ThrowIfNull(invalidate);
+        ArgumentNullException.ThrowIfNull(queue);
 
         LinkedListNode<IvpMindist>? node = Exact.First;
 
         while (node is not null)
         {
             LinkedListNode<IvpMindist>? next = node.Next;
-            Recheck(node.Value, minimize, invalidate);
+            Recheck(node.Value, minimize, queue);
             node = next;
         }
     }
@@ -417,7 +418,7 @@ public sealed class IvpMindistManager
     /// Minimizes every mindist in the rechecked array — <c>FUN_180098610</c>'s walk, each entry through <c>FUN_180098710</c>.
     /// </summary>
     /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>.</param>
-    /// <param name="invalidate">The mindist's <c>+0x38</c> — <see cref="Invalidate"/> over its objects.</param>
+    /// <param name="queue">The time manager's queue, handed to a frozen mindist's slot 7.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="NotSupportedException">
     /// A pair holds bits of <c>0x3000</c>, or is a ball against a triangle, whose resting contact <c>FUN_180096460</c> is not
@@ -428,10 +429,10 @@ public sealed class IvpMindistManager
     /// **From the last entry to the first**, the count read once: making an entry invalid moves the last entry into its
     /// place, which the walk is already past.
     /// </remarks>
-    public void RecheckEveryPsi(Action<IvpMindist> minimize, Action<IvpMindist> invalidate)
+    public void RecheckEveryPsi(Action<IvpMindist> minimize, IvpMinList<IvpMindist> queue)
     {
         ArgumentNullException.ThrowIfNull(minimize);
-        ArgumentNullException.ThrowIfNull(invalidate);
+        ArgumentNullException.ThrowIfNull(queue);
 
         for (int index = _rechecked.Count - 1; index >= 0; index--)
         {
@@ -441,7 +442,7 @@ public sealed class IvpMindistManager
             }
 
             IvpMindist mindist = _rechecked[index];
-            Recheck(mindist, minimize, invalidate);
+            Recheck(mindist, minimize, queue);
 
             if (IsBallAgainstTriangle(mindist))
             {
@@ -475,7 +476,7 @@ public sealed class IvpMindistManager
     }
 
     /// <summary>One exact mindist's minimize and split — the body shared by <c>FUN_1800983e0</c> and <c>FUN_180098710</c>.</summary>
-    private static void Recheck(IvpMindist mindist, Action<IvpMindist> minimize, Action<IvpMindist> invalidate)
+    private void Recheck(IvpMindist mindist, Action<IvpMindist> minimize, IvpMinList<IvpMindist> queue)
     {
         minimize(mindist);
 
@@ -489,7 +490,7 @@ public sealed class IvpMindistManager
 
         if ((flags & 0xC000) != 0)
         {
-            invalidate(mindist);
+            mindist.Freeze(this, queue);
         }
     }
 
@@ -541,8 +542,8 @@ public enum IvpHullPassOutcome
 /// <summary>What <see cref="IvpMindistHull.BecomeExact"/> did with a pair.</summary>
 public enum IvpExactOutcome
 {
-    /// <summary>The minimize left bits of <c>0xc000</c>, and the pair was made invalid.</summary>
-    Invalidated,
+    /// <summary>The minimize left bits of <c>0xc000</c>, and the pair went to its own slot 7 — for a plain pair, invalid.</summary>
+    Frozen,
 
     /// <summary>The pair went to the scheduler.</summary>
     Examined,
@@ -816,7 +817,8 @@ public static class IvpMindistHull
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// Linked exact (<see cref="IvpMindistManager.LinkExact"/>); minimized; appended to the rechecked array when either
-    /// core's `+0x58` is set; then **a minimize that left bits of `0xc000` makes it invalid**, and anything else examines it,
+    /// core's `+0x58` is set; then **a minimize that left bits of `0xc000` hands it to its own slot 7** — `CALL [RAX+0x38]` with
+    /// the manager at `180097914`, so a plain pair goes invalid and a larger one opens its ledge — and anything else examines it,
     /// asking for a far pair's removal when the cores' state bytes ORed are under `0x21`.
     /// </remarks>
     public static IvpExactOutcome BecomeExact(IvpMindist mindist, IvpExactHandoff handoff)
@@ -834,8 +836,8 @@ public static class IvpMindistHull
 
         if ((mindist.Flags & FrozenBits) != 0)
         {
-            handoff.Manager.Invalidate(mindist, handoff.First, handoff.Second, handoff.Queue);
-            return IvpExactOutcome.Invalidated;
+            mindist.Freeze(handoff.Manager, handoff.Queue);
+            return IvpExactOutcome.Frozen;
         }
 
         handoff.Examine((handoff.FirstCoreState | handoff.SecondCoreState) < RemovalStateLimit);

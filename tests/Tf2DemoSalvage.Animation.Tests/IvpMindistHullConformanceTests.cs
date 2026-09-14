@@ -235,7 +235,7 @@ public sealed class IvpMindistHullConformanceTests
     {
         HandoffFixture fixture = new() { MinimizeSets = 0x4000 };
 
-        fixture.Run(firstRechecked: true).ShouldBe(IvpExactOutcome.Invalidated);
+        fixture.Run(firstRechecked: true).ShouldBe(IvpExactOutcome.Frozen);
 
         fixture.Manager.Exact.ShouldBeEmpty();
         fixture.Manager.Invalid.ShouldBe([fixture.Mindist]);
@@ -245,6 +245,25 @@ public sealed class IvpMindistHullConformanceTests
         fixture.Second.InvalidSynapses.ShouldBe([fixture.Mindist.HullRecord(1)]);
         fixture.Examined.ShouldBeEmpty();
         fixture.Mindist.Flags.ShouldBe(0x84000);
+    }
+
+    /// <remarks>
+    /// **A frozen minimize hands the pair to its OWN slot 7** — `FUN_1800977f0` calls the mindist's `+0x38` with the manager at
+    /// `180097914` — so a larger mindist frozen at birth opens its ledge rather than going invalid, and the plain invalidation
+    /// does not run.
+    /// </remarks>
+    [Test]
+    public void BecomeExact_AFrozenMinimizeOfItsOwnKind_FreezesThroughItsOwnSlotSeven()
+    {
+        RecordingMindist own = new() { Flags = IvpMindistHull.FiledState };
+        HandoffFixture fixture = new(own) { MinimizeSets = 0x4000 };
+
+        fixture.Run().ShouldBe(IvpExactOutcome.Frozen);
+
+        own.Slots.ShouldBe(["freeze"]);
+        own.FrozenBy.ShouldBeSameAs(fixture.Manager);
+        fixture.Manager.Exact.ShouldBe([own], ignoreOrder: false, customMessage: "the plain invalidation did not run");
+        fixture.Examined.ShouldBeEmpty();
     }
 
     private static IvpMindist NewMindist(int flags) =>
@@ -325,13 +344,20 @@ public sealed class IvpMindistHullConformanceTests
     /// <summary>A pair about to become exact, and a minimize and scheduler that record what they were asked.</summary>
     private sealed class HandoffFixture
     {
+        public HandoffFixture()
+            : this(NewMindist(IvpMindistHull.FiledState))
+        {
+        }
+
+        public HandoffFixture(IvpMindist mindist) => Mindist = mindist;
+
         public IvpMindistManager Manager { get; } = new();
 
         public IvpCollisionObject First { get; } = new();
 
         public IvpCollisionObject Second { get; } = new();
 
-        public IvpMindist Mindist { get; } = NewMindist(IvpMindistHull.FiledState);
+        public IvpMindist Mindist { get; }
 
         public List<bool> Examined { get; } = [];
 

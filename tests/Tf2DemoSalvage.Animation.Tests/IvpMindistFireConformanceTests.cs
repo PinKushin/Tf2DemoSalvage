@@ -79,6 +79,22 @@ public sealed class IvpMindistFireConformanceTests
         fixture.Handle().ShouldBe(IvpFireOutcome.Rescheduled);
     }
 
+    /// <remarks>
+    /// **A collision goes through the mindist's OWN slot 8** (`+0x40`) — `FUN_1800992e0` calls through its table, which for a larger
+    /// mindist is `FUN_1800b2460`, not the plain `FUN_18008ecb0` handed in as the impact.
+    /// </remarks>
+    [Test]
+    public void Handle_ACollisionOfItsOwnKind_CollidesThroughItsOwnSlotEight()
+    {
+        RecordingMindist own = new() { Flags = 0x20, Length = 0.005f };
+        Fixture fixture = new(own);
+
+        fixture.Handle().ShouldBe(IvpFireOutcome.Collided);
+
+        own.Slots.ShouldBe(["collide"]);
+        fixture.Calls.ShouldBe(["minimize"], "the plain impact was not called");
+    }
+
     private sealed class Fixture
     {
         private readonly IvpMindist _mindist;
@@ -92,6 +108,8 @@ public sealed class IvpMindistFireConformanceTests
                 Flags = kind,
                 Length = length,
             };
+
+        public Fixture(IvpMindist mindist) => _mindist = mindist;
 
         public int MinimizeSets { get; init; }
 

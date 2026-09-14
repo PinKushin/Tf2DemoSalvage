@@ -5008,6 +5008,14 @@ ledge carries it decoded through the one `ReadLedge` (`PhysicsLedgeTreeNode.Ledg
 (`LedgeNodeOffset` null) instead of its own address. Five synthetic cases pin them, and two sabotages — the edge flags taken from
 the wrong slots, the zero word read as an offset — reddened exactly the three cases predicted.
 
+**Slots 7 and 8 became the mindist's own (2026-09-14).** The port had handed a frozen pair's fate and a collision's body in as
+delegates, so every caller did the plain mindist's work itself — which a larger mindist, whose slots differ, cannot survive:
+`FUN_1800977f0` calls the mindist's `+0x38` at `180097914`, so even a larger mindist frozen the moment it is made runs its own
+slot 7. `IvpMindist` is now unsealed with `Freeze` (slot 7, the plain body `FUN_180097440`) and `Collide` (slot 8, the plain body
+`FUN_18008ecb0` still handed in), and `IvpMindistHull.BecomeExact`, `IvpMindistManager.MinimizeExact`/`RecheckEveryPsi` and
+`IvpMindistFire.Handle` dispatch through them. A mindist of its own kind pins each call site; sabotaging each back to the plain
+call reddened exactly its own case.
+
 So **a larger mindist opens its ledge only when the pair would otherwise freeze or collide on a hull's virtual face**, and
 then waits on the hull managers like a far pair; `FUN_180097f00`, told its hull passed, sends it to `FUN_1800b28a0`, which
 closes it back into a plain exact pair once the length is past `DAT_18012d64c` and otherwise refreshes its children.

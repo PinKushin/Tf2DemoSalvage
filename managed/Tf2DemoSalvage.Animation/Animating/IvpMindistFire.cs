@@ -33,7 +33,10 @@ public static class IvpMindistFire
     /// <param name="mindist">The pair.</param>
     /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>.</param>
     /// <param name="reschedule">The scheduler, <c>FUN_180099380(mindist, 0, mode)</c>.</param>
-    /// <param name="collide">The mindist's <c>+0x40</c>.</param>
+    /// <param name="collide">
+    /// The plain mindist's <c>+0x40</c>, <c>FUN_18008ecb0</c>, unported and handed in — what the mindist's own slot 8
+    /// (<see cref="IvpMindist.Collide"/>) runs, or does not.
+    /// </param>
     /// <returns>What was done.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -68,7 +71,7 @@ public static class IvpMindistFire
 
         if (threshold > mindist.Length)
         {
-            collide(mindist);
+            mindist.Collide(collide);
             return IvpFireOutcome.Collided;
         }
 
