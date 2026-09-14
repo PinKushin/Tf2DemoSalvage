@@ -4522,6 +4522,18 @@ otherwise:  a solver on the stack (FUN_180083100(solver, system, event))
 the estimate and the elasticity the collision entry left, and `+0x88`/`+0x8c` two dwords — so what the impact loop reads there is
 only what it wrote since the last PSI. **Past 150 contacts the anomaly manager may freeze a heap outright**, zeroing its movers.
 
+**The three block fields the heap solve reads, from `FUN_180098fd0`'s tail** (`d` the tolerance, double; each stored narrowed):
+
+```
+block[0x43] (+0x10c) = (float)((double)block[0x42] + d)                      -- the contact gap, as already ported
+block[0x46] (+0x118) = (float)(d · DAT_1800eb150)       DAT_1800eb150 = 0x3f847ae140000000, (double)0.01f — nothing added
+block[0x47] (+0x11c) = (float)(d · DAT_1800fdf80 + (double)block[0x43])   DAT_1800fdf80 = 2.5 — the product the destination
+block[0x48] (+0x120) = (float)(d · 20.0 + (double)block[0x43])            -- DAT_1800fcfb0, as already ported
+```
+
+So a contact is dropped from a heap once its gap reaches `2.5·d` past the contact gap, and it is moved to the front of the list
+once its gap passes `block[0x46] + block[0x43]` — `0.01·d` past the contact gap — with both friction cores flagged.
+
 **The many-contact normal solve's setup:**
 
 ```
