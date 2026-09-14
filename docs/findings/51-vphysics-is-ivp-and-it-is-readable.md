@@ -4087,8 +4087,19 @@ and checked here at the three places that decide values:
 `FUN_1800192e0` and `FUN_1800192b0` on fabricated props, surfaces, records and objects with the image's own manager and material
 tables: **200,000 drawn cases agree on every answer**, after one fix the sweep itself found — the override's threshold written
 as the float literal `0.25881904f` rather than the dumped bits differed on 2. `VphysicsSurfacePropsConformanceTests` pins 23
-rows the probe's `list` printed. **Not ported yet: the parser**, which `SurfaceTable` diverges from on every count above — no
-`base`, no copy from `default`, `1.0` where the engine starts from `default` or zero, no shadow surface.
+rows the probe's `list` printed.
+
+**The parser is ported too** — `VphysicsSurfaceProps.ParseSurfaceData`, with `FUN_18002e6c0` (a key and a value, each lowercased by
+`FUN_1800b9a10`; a lone `}` reads no value) and `FUN_180003640`, Source's `ParseFile`: every byte up to `0x20` **and every byte
+from `0x80`** is whitespace, because the bytes are compared signed; `//` and `/* */` are comments; `{}()':` are tokens of their
+own; a token stops at `0x3ff` bytes. **Its oracle is the library's own props object**, the global behind `180120b30`, which the
+loaded image built at load: `vphysics-materials parse` hands it the game's `surfaceproperties_manifest.txt` files in order —
+`surfaceproperties.txt`, `_hl2`, `_tf`, 83, 93 and 100 surfaces with the shadow at 82 — then eight edge texts, and reads every
+surface back through slots 7 and 9. **All agree, after one fix**: the C runtime's `atof("nan")` is positive with every payload
+bit, `0x7fffffff` once narrowed, where `double.NaN` narrows to `0xffc00000`. `VphysicsSurfaceDataConformanceTests` pins the
+edge texts parsed from nothing. `SurfaceTable` still diverges from all of it — no `base`, no copy from `default`, `1.0` where the
+engine starts from `default` or zero, no shadow surface, archive order instead of the manifest's — and is what the running
+path reads.
 
 *Evidence class: read from the disassembly; the props slot 10 and the parameter layout INFERRED as marked. Not ported yet.*
 

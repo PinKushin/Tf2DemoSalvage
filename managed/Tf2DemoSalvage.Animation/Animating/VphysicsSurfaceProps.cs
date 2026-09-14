@@ -148,6 +148,20 @@ public sealed class VphysicsSurfaceProps : IIvpMaterialManager
         }
     }
 
+    /// <summary>Parses one surface-properties text into these surfaces — slot 1, <c>ParseSurfaceData</c> (<c>FUN_180018740</c>).</summary>
+    /// <param name="text">The file's bytes; its end reads as the engine's terminator.</param>
+    /// <exception cref="InvalidOperationException">A block closes onto an index that names no surface, where the engine writes through null.</exception>
+    public void ParseSurfaceData(ReadOnlySpan<byte> text) => VphysicsSurfaceData.Parse(this, text);
+
+    /// <summary>Whether the shadow surface has been made — the byte at <c>props+0x1c8</c>.</summary>
+    internal bool ShadowMade { get; set; }
+
+    /// <summary>Appends a surface — <c>FUN_1800185d0</c>.</summary>
+    internal void Add(VphysicsSurface surface) => _surfaces.Add(surface);
+
+    /// <summary>Puts a surface in another's place, as a closing block writes over an entry's parameters.</summary>
+    internal void Replace(VphysicsSurface target, VphysicsSurface surface) => _surfaces[_surfaces.IndexOf(target)] = surface;
+
     /// <inheritdoc />
     /// <remarks>
     /// Slot 1, <c>FUN_180019370</c>: an index up to <c>0x7f</c> goes through the world table, then <see cref="GetIVPMaterial"/>, and a

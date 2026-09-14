@@ -4,9 +4,12 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 
 using Tf2DemoSalvage.Animation.Animating;
-using Tf2DemoSalvage.Probe.Oracle;
+using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
@@ -34,6 +37,38 @@ public sealed class VphysicsMaterialProbe : IProbe
     private const long MaterialTableAddress = 0x1800ec528;
     private const int DefaultCases = 200_000;
     private const ulong Seed = 20260914;
+    private const long PropsPointerAddress = 0x180120b30;
+    private const long PropsTableAddress = 0x1800ec598;
+    private const string Manifest = "scripts/surfaceproperties_manifest.txt";
+
+    /// <summary>
+    /// Texts parsed after the game's own, each for a path its files do not take: a comment and a number with trailing letters, a
+    /// bare-word block with <c>base</c> after a key and a block comment, a redefinition, break characters, the shadow surface by
+    /// name, a pair before a block, a text that ends inside its block, and a byte past <c>0x7f</c> outside quotes.
+    /// </summary>
+    private static readonly string[] EdgeTexts =
+    [
+        "\"Edge_One\" { \"friction\" \"0.25\" // a comment\n \"elasticity\" \"2.5e-1xyz\" }",
+        "edge_two { friction .5 base edge_one density 7 /* a block */ dampening -3 }",
+        "\"edge_one\" { \"thickness\" \"4\" }",
+        "edge_three { friction(0.3) elasticity: 0.6 }",
+        "\"$material_index_shadow\" { \"elasticity\" \"0.75\" }",
+        "unwanted value edge_four { \"friction\" \"inf\" \"elasticity\" \"nan\" \"density\" \"+1e3\" }",
+        "edge_five { \"friction\" \"0.9\"",
+        "café_six { friction 0.4 } \"edge_seven\" { friction 0.45 }",
+    ];
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int ParseFunction(nint props, nint fileName, nint text);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int CountFunction(nint props);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate nint NameFunction(nint props, int index);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void ParametersFunction(nint props, int index, nint parameters);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint GetMaterialFunction(nint props, int index);
@@ -69,6 +104,12 @@ public sealed class VphysicsMaterialProbe : IProbe
 
         if (!VphysicsLibrary.TryLoad(output, out nint module))
         {
+            return;
+        }
+
+        if (arguments.Count >= 1 && arguments[0] == "parse")
+        {
+            Parse(output, module, edgesOnly: arguments.Count >= 2 && arguments[1] == "edges");
             return;
         }
 
@@ -115,6 +156,135 @@ public sealed class VphysicsMaterialProbe : IProbe
             $"materials: {count} compared; GetIVPMaterial {differ[0]} differ, MaterialAt {differ[1]}, friction {differ[2]}, " +
             $"elasticity {differ[3]}; {overridden} with the friction override; {native.Traps} calls reached a trap");
     }
+
+    /// <summary>
+    /// The library's own surface-props object — the global behind <c>180120b30</c>, built when the library loaded — handed the
+    /// game's surface files in its manifest's order and then <see cref="EdgeTexts"/>, beside <see cref="VphysicsSurfaceProps.ParseSurfaceData"/>
+    /// on the same texts; after each, every surface's name and parameters and the shadow index are compared.
+    /// </summary>
+    private static void Parse(TextWriter output, nint module, bool edgesOnly)
+    {
+        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+
+        if (locator.FindGameFolder() is not { } folder)
+        {
+            output.WriteLine("The game is not installed, so its surface files cannot be read.");
+            return;
+        }
+
+        GameArchives archives = GameArchives.Open(folder);
+        List<(string Name, byte[] Text)> texts = [];
+
+        if (!edgesOnly && archives.Read(Manifest) is { } manifest)
+        {
+            KeyValuesReader.Read(manifest, (key, value, _) =>
+            {
+                if (value is not null && string.Equals(key, "file", StringComparison.OrdinalIgnoreCase) && archives.Read(value) is { } text)
+                {
+                    texts.Add((value, text));
+                }
+
+                return true;
+            });
+        }
+
+        output.WriteLine($"{Manifest} lists {texts.Count} readable files: {string.Join(", ", texts.Select(text => text.Name))}");
+        texts.AddRange(EdgeTexts.Select((edge, index) => ($"edge text {index}", Encoding.Latin1.GetBytes(edge))));
+
+        nint props = Marshal.ReadIntPtr(VphysicsLibrary.Address(module, PropsPointerAddress));
+        nint table = Marshal.ReadIntPtr(props);
+        ParseFunction parse = Marshal.GetDelegateForFunctionPointer<ParseFunction>(Marshal.ReadIntPtr(table, 1 * 8));
+        CountFunction count = Marshal.GetDelegateForFunctionPointer<CountFunction>(Marshal.ReadIntPtr(table, 2 * 8));
+        NameFunction name = Marshal.GetDelegateForFunctionPointer<NameFunction>(Marshal.ReadIntPtr(table, 7 * 8));
+        ParametersFunction parameters = Marshal.GetDelegateForFunctionPointer<ParametersFunction>(Marshal.ReadIntPtr(table, 9 * 8));
+
+        output.WriteLine(
+            $"controls: the library's props object uses table 1800ec598 {table == VphysicsLibrary.Address(module, PropsTableAddress)}; " +
+            $"it holds {count(props)} surfaces before any parse");
+
+        VphysicsSurfaceProps port = new([]);
+        nint read = Marshal.AllocHGlobal(20);
+
+        try
+        {
+            foreach ((string file, byte[] text) in texts)
+            {
+                nint fileName = Marshal.StringToHGlobalAnsi(file);
+                nint buffer = Marshal.AllocHGlobal(text.Length + 1);
+
+                try
+                {
+                    Marshal.Copy(text, 0, buffer, text.Length);
+                    Marshal.WriteByte(buffer, text.Length, 0);
+                    parse(props, fileName, buffer);
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(buffer);
+                    Marshal.FreeHGlobal(fileName);
+                }
+
+                port.ParseSurfaceData(text);
+
+                int surfaces = count(props);
+                int shadow = Marshal.ReadInt32(props, 0x1cc);
+                List<string> differences = [];
+
+                for (int index = 0; index < Math.Max(surfaces, port.Surfaces.Count); index++)
+                {
+                    string binaryName = index < surfaces ? Marshal.PtrToStringAnsi(name(props, index)) ?? "(null)" : "(none)";
+                    string portName = index < port.Surfaces.Count ? port.Surfaces[index].Name : "(none)";
+                    long[] binaryBits = [];
+
+                    if (index < surfaces)
+                    {
+                        parameters(props, index, read);
+                        binaryBits = [.. Enumerable.Range(0, 5).Select(lane => (long)(uint)Marshal.ReadInt32(read, lane * 4))];
+                    }
+
+                    long[] portBits = index < port.Surfaces.Count ? Bits(port.Surfaces[index].Physics) : [];
+
+                    if (binaryName != portName || !binaryBits.SequenceEqual(portBits))
+                    {
+                        differences.Add(
+                            $"  [{index}] binary '{binaryName}' {string.Join(" ", binaryBits.Select(bits => bits.ToString("x8", CultureInfo.InvariantCulture)))}, " +
+                            $"port '{portName}' {string.Join(" ", portBits.Select(bits => bits.ToString("x8", CultureInfo.InvariantCulture)))}");
+                    }
+                }
+
+                output.WriteLine(
+                    $"{file}: binary {surfaces} surfaces, shadow {shadow}; port {port.Surfaces.Count}, shadow {port.ShadowSurface}; " +
+                    $"{differences.Count} differ");
+
+                foreach (string difference in differences.Take(5))
+                {
+                    output.WriteLine(difference);
+                }
+            }
+
+            if (edgesOnly)
+            {
+                for (int index = 0; index < count(props); index++)
+                {
+                    parameters(props, index, read);
+                    output.WriteLine(
+                        $"  [{index}] '{Marshal.PtrToStringAnsi(name(props, index))}' " +
+                        string.Join(" ", Enumerable.Range(0, 5).Select(lane => ((uint)Marshal.ReadInt32(read, lane * 4)).ToString("x8", CultureInfo.InvariantCulture))));
+                }
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(read);
+        }
+    }
+
+    private static long[] Bits(SurfacePhysicsParams physics) =>
+    [
+        (uint)BitConverter.SingleToInt32Bits(physics.Friction), (uint)BitConverter.SingleToInt32Bits(physics.Elasticity),
+        (uint)BitConverter.SingleToInt32Bits(physics.Density), (uint)BitConverter.SingleToInt32Bits(physics.Thickness),
+        (uint)BitConverter.SingleToInt32Bits(physics.Dampening),
+    ];
 
     private static void List(TextWriter output, Native native)
     {

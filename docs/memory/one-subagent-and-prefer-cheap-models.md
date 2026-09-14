@@ -95,6 +95,12 @@ never share files: one holding a source file mid-sabotage has already broken an 
 here, and with several running that risk multiplies. Give each a disjoint area, and do not build or
 measure while one holds a file.
 
+**A sabotage agent owns the whole PROJECT it builds, not just the file it edits** (2026-09-13). The main
+loop added a new `.cs` to the Animation project while a `sabotage-verifier` ran on a different file in
+it; the new file referenced members not yet written, every later build failed, and four sabotages went
+unrun. The agent caught the confound with a control build and stopped rather than misreport. While one
+runs, write only outside the projects its test run compiles — docs, Ghidra reads, other assemblies.
+
 See D145.
 
 **haiku was ruled OUT on 2026-09-06:** *"i dont really trust haiku, it just seemed horrible compared
