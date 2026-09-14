@@ -231,4 +231,40 @@ public static class IvpTangentialSolve
 
         return (onAxis0, onAxis1);
     }
+
+    /// <summary>
+    /// Clamps a contact's stored slide to a pair's friction-cone budget, carrying any excess forward —
+    /// <c>IvpFrictionSystem::SolveOncePerPsi</c>'s own pre-clamp, run once per PSI before the tangential solve reads
+    /// the slide.
+    /// </summary>
+    /// <param name="slide">The contact's stored slide — <see cref="IvpContactPoint.Slide"/>.</param>
+    /// <param name="budget">The pair's own friction-cone budget for this PSI.</param>
+    /// <param name="friction">The contact's friction factor — <see cref="IvpContactPoint.Friction"/>.</param>
+    /// <param name="pushOut">The contact's push-out estimate — <see cref="IvpContactRecord.PushOut"/>.</param>
+    /// <param name="carry">The excess already carried from a previous clamp.</param>
+    /// <returns>
+    /// The slide, unchanged when it is already inside the budget (allowing for a <c>1e-6</c> slack on the squared
+    /// magnitude), and the carry, updated only when it was clamped.
+    /// </returns>
+    /// <remarks>
+    /// **The excess is the SLIDE'S OWN magnitude past the budget, weighted by friction and push-out** — not the
+    /// clamped fraction, the raw distance clamping removed — matching the native's
+    /// <c>(|slide| − budget) × friction × pushOut</c>, added to whatever was already carried.
+    /// </remarks>
+    public static ((float Span, float CrossSpan) Slide, float Carry) ClampSlide(
+        (float Span, float CrossSpan) slide, float budget, float friction, float pushOut, float carry)
+    {
+        float magnitudeSquared = (slide.Span * slide.Span) + (slide.CrossSpan * slide.CrossSpan);
+
+        if (!((budget * budget) + 1e-6f < magnitudeSquared))
+        {
+            return (slide, carry);
+        }
+
+        float inverseMagnitude = IvpVector.ReciprocalSquareRoot(magnitudeSquared);
+        float magnitude = inverseMagnitude * magnitudeSquared;
+        float scale = budget * inverseMagnitude;
+
+        return ((slide.Span * scale, slide.CrossSpan * scale), ((magnitude - budget) * friction * pushOut) + carry);
+    }
 }

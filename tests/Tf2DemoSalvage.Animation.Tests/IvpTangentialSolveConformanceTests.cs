@@ -238,4 +238,30 @@ public sealed class IvpTangentialSolveConformanceTests
     [Test]
     public void RelativeVelocity_NeitherCoreMoving_IsZero() =>
         IvpTangentialSolve.RelativeVelocity(null, default, null, default, (1f, 0f, 0f), (0f, 1f, 0f)).ShouldBe((0d, 0d));
+
+    /// <remarks>A slide inside the budget (allowing the <c>1e-6</c> slack) is left exactly as it was, carry included.</remarks>
+    [Test]
+    public void ClampSlide_ASlideInsideTheBudget_IsUnchanged()
+    {
+        ((float Span, float CrossSpan) Slide, float Carry) result =
+            IvpTangentialSolve.ClampSlide((0.3f, 0.4f), budget: 1f, friction: 1f, pushOut: 1f, carry: 2f);
+
+        result.Slide.ShouldBe((0.3f, 0.4f));
+        result.Carry.ShouldBe(2f);
+    }
+
+    /// <remarks>
+    /// <c>(3, 4)</c> has magnitude 5; clamped to a budget of 1 it becomes <c>(0.6, 0.8)</c> — scaled by <c>1/5</c> — and
+    /// the excess, <c>5 − 1 = 4</c>, times friction 2 and push-out 3, is <c>24</c>, added to the existing carry of 1.
+    /// </remarks>
+    [Test]
+    public void ClampSlide_ASlideOverTheBudget_ScalesItDownAndCarriesTheExcess()
+    {
+        ((float Span, float CrossSpan) Slide, float Carry) result =
+            IvpTangentialSolve.ClampSlide((3f, 4f), budget: 1f, friction: 2f, pushOut: 3f, carry: 1f);
+
+        result.Slide.Span.ShouldBe(0.6f, 1e-4f);
+        result.Slide.CrossSpan.ShouldBe(0.8f, 1e-4f);
+        result.Carry.ShouldBe(25f, 1e-2f);
+    }
 }
