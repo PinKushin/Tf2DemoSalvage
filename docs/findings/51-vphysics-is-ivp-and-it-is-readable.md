@@ -4355,8 +4355,292 @@ otherwise:  a solver on the stack (FUN_180083100(solver, system, event))
 the estimate and the elasticity the collision entry left, and `+0x88`/`+0x8c` two dwords — so what the impact loop reads there is
 only what it wrote since the last PSI. **Past 150 contacts the anomaly manager may freeze a heap outright**, zeroing its movers.
 
-*Not read: the solve itself, `FUN_180083100`, `FUN_1800a9520` and `FUN_1800aa5c0`; `FUN_180085a80`, which only a core with
-`+0x58` reaches.*
+**The many-contact normal solve's setup:**
+
+```
+FUN_1800a4600(matrix):  +0x0 = 1e-9 (0x3e112e0be826d695);  +0x8 = 0;  +0x10 = +0x18 = +0x20 = null        -- FUN_1800a46f0 masks +0x10 to 8
+FUN_180083100(solver, system, event):  FUN_1800a4600(solver);  records vector +0x40 capacity 0x200, +0x48 = inline +0x50
+    +0x30 = env;  +0x38 = event;  n = system+0x7a − system+0x7c;  +0x8 = +0xc = n
+    from the arena (env+0xf0):  +0x10 an n×n matrix of doubles,  +0x18 n doubles,  +0x20 n doubles;  FUN_1800a46f0(solver)
+
+FUN_1800a9520(solver, system, active) → how many are active:
+    the matrix zeroed
+    every record i (the solver's vector):
+        s = the closing speed FUN_180084490 forms;  g = (double)(float)(block[0x43] − record+0x8c);  k = g ≥ 0 ? 1.0 : 20.0
+        +0x18[i] = k·g + s;   record+0x88 != 0 → active gains i
+        the first core (+0x98), if any:  n′ = (float)((double)n · −m⁻¹) per lane;  u = t ⊙ I⁻¹ in float
+            every contact j of record+0x78's vector (the core's contacts in this system) whose record index is not negative:
+                σ = its record's +0x98 is this core ? −1.0 (DAT_1800eaa00) : 1.0;  τ = that record's +0xf0 or +0x100 accordingly
+                matrix[j·n + i] += σ·((double)(float)((n′·nⱼ)) − (double)(float)((u·τ)))           -- dots in float
+        the second core (+0xa0), if any:  n′ = (float)((double)n · m⁻¹);  u = t′ ⊙ I⁻¹;  the same over record+0x80's vector with +
+    the list's records must carry their indices in order, else an assert at line 0x3a6
+```
+
+**So the matrix is each contact's response to a unit push at every other contact that shares a moving core**, built from the
+same arms and turns the impact solver pushes through, and the right-hand side is the same stiffness-and-closing-speed target a
+lone contact meets. *Not read: `FUN_180085a80`, which only a core with `+0x58` reaches.*
+
+**The many-contact normal solve itself, `FUN_1800aa5c0(solver, system, active, m, arena)`** (virtual; its one direct caller is
+`FUN_1800a9bf0`, where `system+0x7c` was just zeroed, so `n = system+0x7a`):
+
+```
+FUN_1800aa2c0(solver)                                         -- equilibrate the whole system in place
+    a = the largest diagonal element, walked from the last:  blocks of four from the top take MAXSD(a,d), MAXSD(a,d),
+        MAXSD(d,a), MAXSD(a,d);  the remainder MAXSD(d,a)          -- MAXSD(x,y) = x > y ? x : y, so a NaN's fate is per slot
+    s = a > 1e-19 ? 1.0/a : 1.0
+    b = the largest |rhs|, walked from the last, b = MAXSD(|r|, b) every step;  b > 1e-19 ? t = 1.0/b : (b = 1.0, t = 1.0)
+    solver+0x28 = s·b;   every matrix element ·= s (s·m);   every rhs ·= t (t·r)
+a sub-system on the stack (FUN_1800a4600), m×m, its matrix and two vectors from the arena
+solver+0x20 (the result) zeroed
+FUN_1800a4d40(sub, solver, active, m):  sub[i][j] = solver[activeᵢ][activeⱼ], sub.rhs[i] = rhs[activeᵢ]
+    (when active[m−1] == m−1 it copies whole leading rows instead — the same values)
+four more matrices initialised (FUN_1800a4600) for the constraint solver's object on the stack
+FUN_1800a80a0(sub) == 1  and  FUN_1800aa9f0(solver, sub.result, active, m, arena) == 1  → solved
+otherwise:
+    k = how many contacts lead the (sorted) list with a negative cp+0x92
+    FUN_1800a5e60(lcs, solver.matrix, solver.rhs, solver.result, n, k, arena) != 1 → return, nothing written
+solved:
+    result[i] ·= solver+0x28 (f·x), every i
+    before = FUN_1800aa1a0(system)
+    every contact of the list, index i (cp; record = cp+0x70):
+        i < system+0x7c → x = 0
+        x = result[i]:
+            x > 0:   cp+0x92 = cp+0x92 ≥ 0 ? −1 : cp+0x92 − 1
+            x == 0 (and NaN, UCOMISD):  cp+0x92 = 0;  no push
+            x < 0:   cp+0x92 < 0 → 0;  then +1;  above 9 → 0
+            x != 0:  FUN_1800a9280(record, x);  x = MAXSD(x, 0)
+        cp+0x88 = (float)((double)event+0x4 · x)
+    after = FUN_1800aa1a0(system);  allowance = FUN_1800aa010(system)
+    after > allowance + before  →  every movable core (system+0x60, count +0x5a, last first): FUN_180076670 — pending changes dropped
+    otherwise                   →  the same cores: FUN_180077950 — pending changes committed
+```
+
+The helpers:
+
+```
+FUN_1800a80a0(sub) — elimination without row exchange, then FUN_1800a8c90(sub):
+    every column i:  FUN_1800a4f20(sub, i);  p = M[i][i];  |p| < sub+0x0 (1e-9) or NaN → next column
+        q = −1.0 / p   (DAT_1800eaa00)
+        every row j > i with |M[j][i]| > 1e-9:  f = M[j][i]·q;  FUN_1800a5150(&M[j][i], &M[i][i], f, n − i, 0);  rhs[j] = f·rhs[i] + rhs[j]
+FUN_1800aa9f0(solver, x, active, m, arena) → whether the sub-system's answer holds for the whole:
+    flags = n zeroed ints from the arena;  bad = 0
+    every active i:  flags[activeᵢ] = 1;  solver.result[activeᵢ] = xᵢ
+        (double)(float)(env+0x138 · 0.01f) > (xᵢ·solver+0x28)·(double)record+0x94 → bad    -- COMISD/CMOVA: NaN is not bad
+    every i with flags[i] == 0:  FUN_1800a7270(solver, i) == 0 → return 0
+    return bad == 0
+FUN_1800a9280(record, x) — one push through the record, into the pending changes:
+    A = record+0x98, if any:  A+0x110 += (double)(float)(record+0xf0 ⊙ A+0x40)·(−x);  A+0x120 += (double)n·−((double)A+0x4c·x)
+                              FUN_180076710(A)
+    B = record+0xa0, if any:  B+0x110 += (double)(float)(record+0x100 ⊙ B+0x40)·x;   B+0x120 += (double)n·((double)B+0x4c·x)
+                              FUN_180076710(B)          -- n = record+0x20; each lane (float)(product + (double)old)
+FUN_180076710(core) — the limits (core+0x10 → env, +0x48):
+    limits+0xc > 0 (NaN passes):  |v| (+0x140) > it → v ·= (double)(float)(limit/|v|);  then |pending v| (+0x120) the same
+    limits+0x14 > 0:  w = (float)env+0x110 · limits+0x14;  |ω| (+0x130) > w → ω scaled;
+                      then |pending v| (+0x120!) > w → pending ω (+0x110) ·= w/|pending v|
+    -- |u| = sqrt((double)(float)((u.x² + u.y²) + u.z²)), narrowed to float before comparing
+FUN_1800aa1a0(system) = Σ over the cores (+0x50, count +0x4a, last first) of FUN_180077e80(core, v + pending v, ω + pending ω)
+FUN_180077e80(core, v, ω) = ((double)(float)((ω.x²·I.x + ω.y²·I.y) + ω.z²·I.z) + (double)(float)((v.x² + v.y²) + v.z²)·(double)core+0x2c)·0.5
+FUN_1800aa010(system) = Σ over the cores not flagged 2 (byte core+0x0) of (double)(float)(c·env+0x138)·(double)0.1f,
+    c = min(max(core+0x2c, limits+0x1c), limits+0x1c) — MAXSS then MINSS against the same value, so c is limits+0x1c whatever the mass
+FUN_180077950(core):  ω += pending ω;  v += pending v  (float);  pending zeroed        FUN_180076670(core):  pending zeroed
+FUN_1800a4f20(sub, i) — the pivot:  best = |M[i][i]|;  rows r = n−1 down to i+1:  |M[r][i]| > best → best, p = r   (ties keep the lower row)
+    a pivot found → rows i and p exchanged (n elements), then rhs[i] and rhs[p]
+FUN_1800a5150(d, s, f, count, 0):  d[k] = f·s[k] + d[k]    (the 0 aligns both pointers down to 8, a no-op on the arena's arrays)
+FUN_1800a8c90(sub) — back substitution, returns 1, or 0 with the result zeroed:
+    i = n−1 down to 0:  s = rhs[i];  k = n−1 down to i+1:  s −= rhs[k]·M[i][k]   (rhs[k] already holds x[k])
+        |M[i][i]| ≥ eps → x = s/M[i][i];   else |s| ≥ eps·1000.0 → fail;   else x = 0          -- COMISD/JNC: NaN pivot → the else
+        rhs[i] = x
+    result = rhs
+FUN_1800a7270(solver, i) → whether contact i is not left pulling:
+    s = Σ M[i][k]·x[k] (x the result, each product x·M):  when n ≥ 4 the first 4⌊n/4⌋ in two SSE pairs,
+        ((Σ k≡0 + Σ k≡2) + (Σ k≡1 + Σ k≡3)), each Σ from +0.0 in order;  the rest added one by one after
+    return |rhs[i]·(double)1e-5f| + s ≥ rhs[i]            -- SETNC: NaN → 0
+```
+
+**The constraint solver's setup, `FUN_1800a5e60(lcs, M, b, x, n, k, arena)`:**
+
+```
+lcs+0x78 = lcs+0x7c = n;  FUN_1800a4700(lcs, arena):
+    +0x68, +0x70: n ints each;  one block of doubles: +0x48, +0x50, +0x40, +0x58, +0x60 (n each), +0xb0, +0xb8 (n·n each),
+    +0xd0, +0xd8, +0xe0, +0xe8 (n), +0x108 (n·n), +0x110, +0x118 (n), +0x180 (n·n), +0x188, +0x190 (n)
++0x80 = 0;  +0x0 = +0x8 = +0xf8 = +0x120 = +0x170 = 0x3e7ad7f2a0000000 ((double)1e-7f)
++0x10 = 0x3f1a36e2f0400000;  +0x18 = 10000.0;  +0xa8 = 0x3eb0c6f7a4000000        -- neither of these two is a widened float
++0x30 = +0xe0;  +0x138 = +0x40;  +0x140 = +0x50;  +0x88 = +0xa4 = 0;  +0xf0 = n;  +0xf4 = 0
++0x128 = +0x12c = n;  +0x130 = M                                            -- a matrix view at +0x120 over M, rhs +0x40, result +0x50
+every i < n:  +0x68[i] = +0x70[i] = i;  x[i] = 0;  +0x48[i] = −b[i]
++0x20 = M;  +0x28 = b;  +0x38 = x;  +0x8c..+0xa3 = 0
+FUN_1800a9010(lcs, k);  r = FUN_1800a8200(lcs)
+the views' pointers cleared (+0x108..0x11f, +0x130..0x147, +0x180..0x197);  return r
+
+FUN_1800a9010(lcs, k) — the warm start:
+    +0x80 = +0x84 = +0x88 = +0xf4 = k;  +0x58[i] = 0 every i
+    FUN_1800a7e80(lcs) != 1 → +0x80 = +0x88 = +0xf4 = 0;  return
+    +0xa4 = 0
+    loop:
+        FUN_1800a8be0(lcs+0xa8)
+        every j < +0x80:  +0x58[+0x68[j]] = +0xd8[j]
+        FUN_1800a59e0(lcs)
+        the last j < +0x80 with 0 > +0x38[+0x68[j]] (NaN is not);  none → return
+        p = +0x68[j]:  +0x38[p] = +0x58[p] = 0;  +0x88 −= 1;  a = +0x80 − 1;  +0x80 = a
+            exchange +0x68[a] and +0x68[j], and +0x70 of both to match
+        +0xa4 == 0 ? (FUN_1800a4870(lcs+0xa8) != 1 → +0xa4 = 2) : +0xf4 −= 1
+        +0xa4 > 0 → +0x48[i] = +0x38[i] = 0 every i < +0x78;  +0x80 = +0x88 = +0xf4 = 0;  return
+        every j < +0x80:  +0xd0[j] = +0x28[+0x68[j]]
+```
+
+**The active set's inverse lives in an object at `lcs+0xa8`** — call it `inv`: `+0x0` its epsilon, `+0x8` the inverse `I` and
+`+0x10` the working copy `A` (both `lcs+0xf0`-stride, n·n), `+0x28` a gathered rhs, `+0x30` a solution, `+0x40` scratch,
+`+0x48` the stride, `+0x4c` the size (`lcs+0xf4`, the active count). `lcs` indexes the full system through `+0x68` (active
+position → contact) and `+0x70` (its inverse); the first `+0x80` positions are the active contacts.
+
+```
+FUN_1800a7e80(lcs) → 1 when the active set's matrix inverts:
+    every active row r:  inv.rhs[r] = b[+0x68[r]];  A[r][c] = M[+0x68[r]][+0x68[c]] every active c
+    size 0 → 1
+    I = identity (rows from the last: size zeros, then the diagonal 1.0)
+    every s = 1 .. size−1, column c = s − 1:
+        FUN_1800a7ca0(inv, c);  FUN_1800a7990(inv, c) == 0 → return 0
+        rows r = size−1 down to s:  f = A[r][c];  f != 0 (UCOMISD: NaN skipped too) → FUN_1800a4630(inv, c, r, f)
+    return FUN_1800a7990(inv, size−1) != 0
+FUN_1800a7ca0(inv, c) — the pivot:  best = |A[c][c]|, p = c;  rows r = size−1 down to c+1:  |A[r][c]| > best → best, p = r
+    p != c → FUN_1800a5210(&A[c][c], &A[p][c], size − c, 0);  FUN_1800a5210(&I[c][0], &I[p][0], size, 0)
+FUN_1800a7990(inv, c):  d = A[c][c];  |d| < inv+0x0 or NaN → 0
+    q = 1.0/d;  I[c][k] ·= q every k < size;  A[c][k] ·= q every k in c+1 .. size−1;  A[c][c] = 1.0;  → 1
+FUN_1800a4630(inv, c, r, f):  g = −f;  A[r][k] = g·A[c][k] + A[r][k] for k in c+1 .. size−1;  I[r][k] = g·I[c][k] + I[r][k] every k;  A[r][c] = 0
+FUN_1800a8be0(inv):  inv+0x40[i] = inv.rhs[i] every i;  FUN_1800a7870(inv);  then FUN_1800a8ea0(inv)
+FUN_1800a7870(inv):  i = size−1 down to 0:  inv+0x38[i] = Σ I[i][k]·inv+0x40[k], k from size−1 down, from +0.0
+FUN_1800a8ea0(inv):  i = size−1 down to 0:  s = Σ A[i][k]·x[k] for k from size−1 down to i+1, from +0.0 (x = inv+0x38);
+    x[i] = x[i] − s;  inv+0x30[i] = x[i]
+FUN_1800a5210(a, b, count, 0):  a[k] ⇄ b[k]
+FUN_1800a4870(inv, j) → 1, or 0 when the last pivot vanishes — contact j leaves the active set; size −= 1 either way:
+    every row r < size:  I[r][j] ⇄ I[r][size−1];  then every row: A[r][j] ⇄ A[r][size−1]
+    rows r = size−2 down to j+1:  f = A[r][j];  f != 0 (NaN skipped) → I[r][k] = −f·I[size−1][k] + I[r][k] every k;  A[r][j] = 0 always
+    FUN_1800a7990(inv, j) != 1 → I[j][k] = 1.0·I[size−1][k] + I[j][k] every k;  A[j][j] = 1.0
+    columns c = j .. size−2:  f = A[size−1][c];  f != 0 → FUN_1800a4630(inv, c, size−1, f)
+    d = I[size−1][size−1];  |d| < eps or NaN → size −= 1, return 0
+    I[size−1][k] ·= 1.0/d every k;  I[size−1][size−1] = 1.0
+    rows r = size−2 down to 0:  f = I[r][size−1];  f != 0 → I[r][k] = −f·I[size−1][k] + I[r][k] every k, then I[r][size−1] = 0
+    size −= 1;  return 1
+FUN_1800a4be0(lcs) — the anti-cycling shuffle, nothing when fewer than two are active:
+    +0x94 += 1, +0x98 += 2, each brought below +0x80 by repeated subtraction;  exchange +0x68 at those two positions (+0x70 to match)
+    +0x9c += 1, +0xa0 += 2;  e = +0x78 − +0x88 − 1;  e < 2 → return
+    each brought below e the same way;  exchange +0x68 at +0x88 + +0xa0 + 1 and +0x88 + +0x9c + 1 (+0x70 to match)
+FUN_1800a7530(lcs) — the change in every inactive residual per unit step:
+    every position i from +0x80 to +0x78−1, c = +0x68[i]:
+        s = Σ +0x40[p]·M[c][p] over the active p = +0x68[j], j ascending, from +0.0;   +0x50[c] = s + M[c][+0x68[+0x88]]
+FUN_1800a7af0(lcs) → whether the answer holds:
+    every i < +0x78:  +0x30[i] = (Σ M[i][k]·x[k], k from the last, from +0.0) − b[i]
+    any active p:  |+0x30[p]| > +0x10 → 0;   any other position's p:  |+0x30[p] − +0x48[p]| > +0x10 → 0;   → 1   (NaN passes)
+```
+
+**The constraint solver's loop, `FUN_1800a8200(lcs)` → 1 solved, 0 given up.** Positions `[0, +0x80)` are active (pushing, residual
+held at zero), `[+0x80, +0x88)` are settled inactive (push zero, residual positive), `+0x88` is the one being brought in, and the
+rest wait. `x` is `+0x38`, the residual `w` is `+0x48`, the step's direction `+0x40` (x) and `+0x50` (w); `eps` is `+0x0`, `big`
+is `+0x18` (10000.0). Its locals: `total` 0, `small` 0, `countdown` 7, `stepped` 0.
+
+```
+top:  stepped → total += 1;  total > 250 → return 0
+      countdown == 0 → (FUN_1800a7af0(lcs) ? countdown = 7 : goto restart)  else countdown −= 1
+next: j = +0x88;  j ≥ +0x78 → return 1;   c = +0x68[j]
+      +0xa4 == 1 and stepped → FUN_1800a4be0(lcs); FUN_1800a7e80(lcs) == 1 → +0xa4 = 0
+      +0xa4 > 0 otherwise → +0xa4 = 1
+      |w[c]| < eps (NaN too) → |x[c]| < eps (NaN too) ? goto settle : goto join(j)
+      w[c] ≥ 0 → goto settle
+      FUN_1800a5740(lcs) == 0 → goto restart
+      +0x40[c] = 1.0;  FUN_1800a7530(lcs);  +0x50[p] = 0 for every active p
+      −w[c] < +0x50[c]·big ? (t = (−1.0/+0x50[c])·w[c], best = j) : (t = DAT_1800eedc0 = 0x54e6dc186ef9f45c ≈ 1e101, best = −1)
+      every active position i, p = +0x68[i], d = +0x40[p]:  d < −eps (NaN too):
+          r = (−1.0/d)·x[p]
+          |r| < eps (NaN too) and x[p] < eps (NaN too) → best = i, s = r, goto chosen            -- no clamp at zero on this exit
+          r < t + eps → t = r, best = i
+      every settled position i, p:  d = +0x50[p] < −eps:  r = (−1.0/d)·w[p];  r < t − eps → t = r, best = i
+      s = MAXSD(t, 0);  best < 0 → return 0
+chosen:
+      s > big → goto restart
+      s ≥ eps → small = 0  else  small += 1, small > (+0x78 >> 1) + 2 → goto restart
+      stepped = 1
+      every i < +0x78:  w[i] = s·+0x50[i] + w[i];  x[i] = s·+0x40[i] + x[i]
+      settled p with 0 > w[p] → w[p] = 0;   active p with 0 > x[p] → x[p] = 0
+      best < +0x80 (an active contact's push reaches zero):
+          x[+0x68[best]] = 0;  +0x80 −= 1;  exchange positions best and +0x80 (+0x70 to match)
+          +0xa4 == 0 ? (FUN_1800a4870(inv, best) != 1 → +0xa4 = 2) : +0xf4 −= 1;   goto top
+      best < +0x88 (a settled contact's residual reaches zero):
+          s > eps → drop every active contact with eps > x (below)
+          w[+0x68[best]] = 0;  exchange positions best and +0x80;  goto grow
+      otherwise goto join(best)                                                              -- best == j
+join(b):
+      drop every active contact with eps > x
+      p = +0x68[b]:  w[p] = 0;  0 > x[p] → x[p] = 0;  exchange positions b and +0x80;  +0x88 += 1
+      +0x88 ≥ +0x78 → +0x80 += 1, countdown = 0, goto top
+grow: q = +0x68[+0x80];  +0x80 += 1
+      +0xa4 != 0 → +0xf4 += 1, goto top
+      A[+0xf4][r] = M[q][+0x68[r]] every r < +0x80;  inv.rhs[r] = M[+0x68[r]][q] every r < +0x80 − 1
+      FUN_1800a5b80(inv) != 1 → +0xa4 = 2;   goto top
+settle:
+      stepped = 0;  p = +0x68[+0x88]:  x[p] = 0;  0 > w[p] → w[p] = 0;  +0x88 += 1;  +0x88 ≥ +0x78 → countdown = 0;  goto top
+restart:
+      total += 1;  total > 250 → return 0;  small = 0;  FUN_1800a52d0(lcs) == 0 → return 0;  countdown = 7;  goto next
+drop every active contact with eps > x:   i from 0 while i < +0x80:  p = +0x68[i];  eps > x[p] (not NaN):
+      x[p] = 0;  exchange positions i and +0x80 − 1;  +0x80 −= 1
+      +0xa4 == 0 ? (FUN_1800a4870(inv, i) != 1 → +0xa4 = 2) : +0xf4 −= 1;   look at position i again
+```
+
+Its three larger helpers:
+
+```
+FUN_1800a5740(lcs) → 1, or the elimination's answer — the direction for bringing +0x68[+0x88] = q in:
+    +0x40[i] = 0 every i < +0x7c;   no active contact → 1
+    +0xa4 == 0:  inv.rhs[r] = −M[+0x68[r]][q] every active r;  FUN_1800a8be0(inv);  result 1
+    otherwise:   +0x90 += 1;  the view at +0xf8 sized +0x80 × +0x80:  its rhs[r] = −M[p][q], its M[r][c] = M[p][+0x68[c]]  (p = +0x68[r])
+                 result = FUN_1800a80a0(view);  +0xd8[r] = the view's result[r]
+    +0x40[+0x68[r]] = +0xd8[r] every active r;  +0x40[q] = 1.0;  return result
+FUN_1800a5b80(inv) → FUN_1800a7990's answer — the inverse grows by the row and column the caller left:
+    inv+0x40[i] = inv.rhs[i];  FUN_1800a7870(inv)
+    A[r][size] = inv+0x38[r] every r, from the last;  I[r][size] = 0 every r;  I[size][k] = 0 every k < size;  I[size][size] = 1.0
+    size += 1;  every c < size−1:  FUN_1800a4630(inv, c, size−1, A[size−1][c])       -- no zero test here
+    return FUN_1800a7990(inv, size−1)
+FUN_1800a52d0(lcs) → 1, or 0 when even elimination fails — the restart:
+    do:
+        +0xf4 = +0x80;  +0x58[i] = 0 every i;  FUN_1800a4be0(lcs)
+        FUN_1800a7e80(lcs) == 1:  +0xa4 = 0;  FUN_1800a8be0(inv);  +0x58[+0x68[r]] = +0xd8[r] every active r
+        otherwise:  +0xa4 = 2;  FUN_1800a6160(lcs);  FUN_1800a4be0(lcs)
+                    the view at +0xf8 over the active block, its rhs[r] = b[+0x68[r]];  FUN_1800a80a0(view) != 1 → return 0
+                    +0x58[+0x68[r]] = the view's result[r]
+        FUN_1800a59e0(lcs)
+    while FUN_1800a5520(lcs) > 0
+    return 1
+FUN_1800a6160(lcs) — the active positions sorted by x, largest first:  insertion sort, a later one moving down while its x is
+    strictly greater than its neighbour's (+0x70 kept matching)
+FUN_1800a5520(lcs) → how many active contacts were pushing BACKWARDS:
+    every active position i:  p = +0x68[i];  x[p] ≥ eps → keep
+        x[p] > −eps:  x[p] = 0;  exchange positions i and +0x80 − 1
+        otherwise (NaN too):  position i moved to the very end, everything after it one down;  count += 1;  +0x88 −= 1
+        either way:  +0x80 −= 1;  +0xa4 = 1;  +0xf4 −= 1;  look at position i again
+    every settled position i:  0 > w[+0x68[i]] (not NaN) → moved to the very end the same way;  +0x88 −= 1;  look again
+    return count
+```
+
+**It is a Dantzig-style principal pivoting loop**: bring each contact in, move along the direction that keeps the active
+contacts' residuals at zero until the first active push or settled residual hits zero, swap it, repeat. The inverse of the active
+block is kept incrementally (`FUN_1800a5b80` grows it, `FUN_1800a4870` shrinks it), and when that bookkeeping fails `+0xa4` marks it
+stale so the next pass rebuilds it from scratch (`FUN_1800a7e80`), shuffling the order first to break a cycle. Every seven steps
+the answer is checked against the full system, and a failed check or a runaway step restarts from the current answer.
+FUN_1800a59e0(lcs) — the full system's residual at the current x:
+    the view at lcs+0x120 (M, +0x128 rows, +0x12c columns) pointed at +0x58 → +0x60:  FUN_1800a76c0(view);  pointed back at +0x40 → +0x50
+    +0x60[i] −= b[i] every i < +0x78;  +0x60[+0x68[j]] = 0 every active j
+    i from the last:  +0x48[i] = +0x60[i];  x[i] = +0x58[i]
+FUN_1800a76c0(view):  result[i] = Σ M[i][k]·x[k] — the same two-pair SSE sum as FUN_1800a7270, its length the ROW count (+0x8)
+```
+
+**So a heap of contacts first tries the contacts that pushed last time as an exact system**, keeps that answer when every push
+is firm enough and no other contact is left pulling, and only otherwise hands the whole set to the constraint solver, warm-started
+with the contacts that have pushed longest. **Then it refuses its own answer if the heap gained more energy than a tenth of `g`
+times a per-core constant** — the changes are pending until that test. `record+0x94` is the contact's inverse effective mass along
+its normal (the record's own setup, above: arm terms plus both inverse masses, `+0x90` its reciprocal), so the firmness test reads
+`x·scale·m⁻¹` — the speed the push makes — against `g·0.01`. `limits+0x1c` is the **minimum** friction mass `SetPerformanceSettings`
+clamps to `[1, 50000]`; `+0x20`, the maximum, is never read here, so the allowance is `n · (float)(minFrictionMass·g) · 0.1f` for
+the heap's movable cores whatever their masses. *Not established: whether a client environment's `+0x1c` is IVP's
+`FUN_180089550` default or something else, since the client never calls `SetPerformanceSettings`.*
 
 **So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
 entry's port keeps it because the routine has it. *Not read: `FUN_180086240` (merging systems), the controller bases, and the
