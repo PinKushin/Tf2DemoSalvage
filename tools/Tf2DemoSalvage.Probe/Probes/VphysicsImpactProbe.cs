@@ -47,6 +47,7 @@ public sealed class VphysicsImpactProbe : IProbe
     private const long EstimateAddress = 0x18008db40;
     private const long PushOutAddress = 0x18008fca0;
     private const long EnterAddress = 0x18008ed60;
+    private const long MaterialAxesAddress = 0x18008fe70;
 
     private const int DefaultSweep = 20_000;
     private const int HelperSweep = 200_000;
@@ -95,6 +96,9 @@ public sealed class VphysicsImpactProbe : IProbe
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void EnterFunction(nint record, nint cores, float pushOut, nint point);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void MaterialAxesFunction(nint solver, nint point);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint MaterialAtFunction(nint self, nint collisionObject, nint position, int index);
@@ -502,6 +506,40 @@ public sealed class VphysicsImpactProbe : IProbe
 
         drawn.Add(("axis-along-normal", along));
 
+        // Cones along a material's axis whose fourth-order term rounds apart when its product is regrouped — `(x²·(1/24f))·x²`
+        // against `(x²·x²)·(1/24f)` — as far as FUN_18008fe70's tangent, which no drawn case reached. The axis is the frame's x
+        // across a z normal, so its length is exactly one and only the first material's block runs; the search only selects.
+        int regrouped = 0;
+
+        for (int attempt = 0; attempt < SearchAttempts && regrouped < 4; attempt++)
+        {
+            Dictionary<string, long[]> candidate = RandomEntry(draws);
+
+            candidate["normal"] = Lanes((0f, 0f, 1f));
+            candidate["first-frame"] = MatrixLanes(IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)));
+            candidate["material-indices"] = [0, 0];
+            candidate["material-has-second"] = [1, 0, 0];
+
+            double axisFriction = BitConverter.Int64BitsToDouble(candidate["material-friction"][1]) *
+                                  BitConverter.Int64BitsToDouble(candidate["material-second-friction"][0]);
+            double friction = (float)BitConverter.Int64BitsToDouble(candidate["manager"][0]);
+            float elasticity = (float)BitConverter.Int64BitsToDouble(candidate["manager"][1]);
+            double tangent = (Math.Sqrt(elasticity) + 1d) * (float)(friction - (friction - axisFriction));
+            float angle = (float)IvpMath.Atan(tangent);
+            float squared = angle * angle;
+            float grouped = (1f - (squared * 0.5f)) + (squared * (1f / 24f) * squared);
+            float regroupedCosine = (1f - (squared * 0.5f)) + (squared * squared * (1f / 24f));
+
+            if (BitConverter.SingleToInt32Bits((float)(grouped * tangent)) ==
+                BitConverter.SingleToInt32Bits((float)(regroupedCosine * tangent)))
+            {
+                continue;
+            }
+
+            drawn.Add(($"regrouped-cone-{regrouped}", candidate));
+            regrouped++;
+        }
+
         List<IvpReplayCase> cases = [];
         int differing = 0;
 
@@ -737,6 +775,7 @@ public sealed class VphysicsImpactProbe : IProbe
         private readonly EstimateFunction _estimate;
         private readonly PushOutFunction _pushOut;
         private readonly EnterFunction _enter;
+        private readonly MaterialAxesFunction _materialAxes;
         private readonly MaterialAtFunction _materialAt;
         private readonly PairFunction _pairFriction;
         private readonly PairFunction _pairElasticity;
@@ -826,6 +865,7 @@ public sealed class VphysicsImpactProbe : IProbe
             _estimate = VphysicsLibrary.Function<EstimateFunction>(module, EstimateAddress);
             _pushOut = VphysicsLibrary.Function<PushOutFunction>(module, PushOutAddress);
             _enter = VphysicsLibrary.Function<EnterFunction>(module, EnterAddress);
+            _materialAxes = VphysicsLibrary.Function<MaterialAxesFunction>(module, MaterialAxesAddress);
             _materialAt = (_, _, _, _) => _materials[2];
             _pairFriction = (_, _) => _managerFriction;
             _pairElasticity = (_, _) => _managerElasticity;
@@ -998,6 +1038,14 @@ public sealed class VphysicsImpactProbe : IProbe
             float pushOut = _pushOut(_point, _environment);
             long[] pushed = [IvpImpactReplay.Lane(pushOut), ReadSingle(_record, 0x78)];
 
+            // FUN_18008fe70 alone, on a zeroed solver holding only the record's elasticity at +0x130.
+            Zero(_solver, SolverSize);
+            Marshal.WriteInt32(_solver, 0x130, Marshal.ReadInt32(_record, 0x80));
+            _materialAxes(_solver, _point);
+
+            long axisUses = Marshal.ReadInt32(_solver, 0xf0);
+            long[] axisCone = [ReadSingle(_solver, 0xf4), .. ReadVector(_solver, 0x100)];
+
             _enter(_record, _cores, pushOut, _point);
 
             Dictionary<string, long[]> outputs = new(StringComparer.Ordinal)
@@ -1009,6 +1057,8 @@ public sealed class VphysicsImpactProbe : IProbe
                 ["estimated"] = [estimated],
                 ["estimate"] = estimate,
                 ["push-out"] = pushed,
+                ["axis-uses"] = [axisUses],
+                ["axis-cone"] = axisCone,
                 ["record-relative"] = ReadVector(_record, 0x30),
                 ["counters"] =
                 [

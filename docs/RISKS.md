@@ -26135,6 +26135,20 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    **A fourth divergence is fixed: a corpse's environment allows 6 collisions per object, not 10.** The client never calls
    `SetPerformanceSettings` (`game/client/physics.cpp:163-187`), so the constructor's `Defaults()` stand; the 10 is the
    server's (`game/server/physics.cpp:225`). And the engine freezes a core once its count EXCEEDS the limit.
+   **The collision entry above the solver is ported and pinned, 2026-09-13** (`docs/findings/51`, *The impact solver's
+   entry, and the push-out estimate*): `FUN_1800908d0` as `IvpContactPoint.SetMaterials`, `FUN_18008db40` as `Estimate`,
+   `FUN_18008fca0` as `PushOut` (through vphysics' own `cos`, `FUN_1800d33b0`, now `IvpMath.Cos`), and `FUN_18008ed60`
+   with `FUN_18008fe70` as `IvpImpactSolver.Enter`. The probe's `entry` mode runs all four in order on fabricated
+   structs: 20,000 entries agree on every lane, and `IvpImpactEntryConformanceTests` replays 101 cases the binary wrote,
+   13 sabotages each reddening it (one only after four targeted cone cases were added).
+   **vphysics' material manager and materials are read but not ported** (`docs/findings/51`, *vphysics' material manager
+   and its materials*): a pair's friction is `clamp(f₀·f₁, 0, 1)` and its elasticity `clamp(e₀·e₁, 0, 1)` over the two
+   surfaces' `surfacephysicsparams_t`, with a friction override that needs a core's `+0x58`, which a ragdoll never has.
+   Until that port lands, the entry's port and its oracle answer the slots with fixed values. Not read: what increments a record's impact count at `+0x72`, what
+   sets a contact point's `+0x64`, or the writer of a core's radius at `+0x4` (`FUN_180078b90`). **The entry compares a
+   contact point's gap against metre fields of the block, while the contact point ported before it starts its gap at
+   `IvpCollisionTolerance.ContactGap` in Source units** — one more place the units move to vphysics' interface when this
+   is wired.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 

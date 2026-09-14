@@ -267,7 +267,7 @@ public sealed class IvpImpactSolver
     /// </code>
     /// **The second synapse's block overwrites the first's.** `e` is the record's elasticity and `f` the contact point's friction.
     /// </remarks>
-    private static (bool Uses, float Tangent, (float X, float Y, float Z) Axis) MaterialAxes(
+    internal static (bool Uses, float Tangent, (float X, float Y, float Z) Axis) MaterialAxes(
         IvpImpactEnvironment environment, IvpContactPoint point, IvpContactRecord record)
     {
         IIvpMaterial first = point.FirstMaterial(environment.Materials);

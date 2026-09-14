@@ -1,5 +1,5 @@
 # FUN_1800908d0, FUN_18008db40, FUN_18008fca0 and FUN_18008ed60 in the game's x64 vphysics.dll, called in process by the vphysics-impact probe.
-# 97 cases, 96 drawn from seed 18008 and the rest targeted, written 2026-09-14; every output lane is the bits the binary left.
+# 101 cases, 96 drawn from seed 18008 and the rest targeted, written 2026-09-14; every output lane is the bits the binary left.
 case 000
 max-velocity 41f01b92
 max-collisions 00000006
@@ -54,6 +54,8 @@ friction 3ec849ab
 estimated 00000001
 estimate 3e13e5af 3faba511
 push-out 3e13e5af 00000000
+axis-uses 00000001
+axis-cone 3f3f921f beaed8a3 3df1932d 3f6eb529
 record-relative 41a0ef5a befa8800 417117c2
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -123,6 +125,8 @@ friction 3f2100ee
 estimated 00000001
 estimate 3eabd8cc be37c66e
 push-out 3eabd8cc 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 40a1ddd7 41ea3fe2 419a6584
 counters 00000001 00000001 00000001
 cores 00000001 00000002
@@ -192,6 +196,8 @@ friction 3f694009
 estimated 00000001
 estimate 3edfcee6 3be59af9
 push-out 3edfcee6 3edfcee6
+axis-uses 00000001
+axis-cone 3ea2d302 3ece0101 bd9ac9b2 bf69906f
 record-relative 41877ef6 c00d9c82 c172b30e
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -261,6 +267,8 @@ friction 3ef6e080
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 416725e1 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c26ce100 c2a4de1b c22adb89
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -330,6 +338,8 @@ friction 3f5d4103
 estimated 00000001
 estimate 3e168aef 3c211a9d
 push-out 3e168aef 00000000
+axis-uses 00000001
+axis-cone 3f0f6ecb be878247 3da82f6b 3f75f96d
 record-relative c0e9f546 c1313943 3e83e840
 counters 00000001 00000000 00000001
 cores 00000002 00000001
@@ -399,6 +409,8 @@ friction 3f9ad4f8
 estimated 00000001
 estimate 3e99f2a6 3d9e307c
 push-out 3e99f2a6 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative bfad5808 4105e3e0 c11b466e
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -468,6 +480,8 @@ friction 3f4772f6
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3e893fc9 00000000
+axis-uses 00000001
+axis-cone 3ef0c37f 3e588ac2 bf3030e0 3f31a844
 record-relative 3fcacb58 4008d854 c0a1283a
 counters 00000001 00000001 00000000
 cores 00000000 00000002
@@ -537,6 +551,8 @@ friction 3f0d54be
 estimated 00000001
 estimate 3e56c99e 3c625d4f
 push-out 3e56c99e 00000000
+axis-uses 00000001
+axis-cone 3f1c2ab6 3d4994fa 3f308063 bf38ffa4
 record-relative 4125f2d2 409fbbd5 41fbf448
 counters 00000001 00000001 00000000
 cores 00000000 00000001
@@ -606,6 +622,8 @@ friction 3fa3a598
 estimated 00000001
 estimate 3d2d0cee 3e87a156
 push-out 3d2d0cee 00000000
+axis-uses 00000001
+axis-cone 3f5b0e4d bd907bb6 bf576b43 3f092122
 record-relative 41b89a50 414ba9b8 c0e39371
 counters 00000001 00000001 00000000
 cores 00000002 00000000
@@ -675,6 +693,8 @@ friction 3f8af677
 estimated 00000001
 estimate 3e75566b bf906e8d
 push-out 3e75566b 00000000
+axis-uses 00000001
+axis-cone 3f3ec0fc 3e7c8712 bf5d8834 bedf5f90
 record-relative 40f4e86b c27f6e1d 4295f22a
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -744,6 +764,8 @@ friction 3f7dae62
 estimated 00000001
 estimate 3e724aa5 3db77fe9
 push-out 3e724aa5 3e724aa5
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 401568c4 3fb32e38 415abd67
 counters 00000001 00000000 00000000
 cores 00000002 00000001
@@ -813,6 +835,8 @@ friction 3f8a00de
 estimated 00000001
 estimate 41023951 3f10dacd
 push-out 41023951 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 3fd3629e c284c1c0 409375ea
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -882,6 +906,8 @@ friction 3f413688
 estimated 00000001
 estimate 00000000 3e91527d
 push-out 00000000 00000000
+axis-uses 00000001
+axis-cone 3e880843 3e0cb25b bf1915a1 3f4a25f4
 record-relative 3f8dd33c 40c632b0 c087e42a
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -951,6 +977,8 @@ friction 3f6b8779
 estimated 00000001
 estimate 00000000 3e5dcb7d
 push-out 00000000 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c120ed38 c0897cb1 4111ca05
 counters 00000001 00000001 00000001
 cores 00000002 00000001
@@ -1020,6 +1048,8 @@ friction 3f663058
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3e1cb25f 00000000
+axis-uses 00000001
+axis-cone 3f4689fc bf0aa2d2 3de322a8 bf5554a4
 record-relative bf1f6acf c0f6e916 c0ded569
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -1089,6 +1119,8 @@ friction 3f7343d7
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out ffc00000 00000000
+axis-uses 00000001
+axis-cone 3f747ac7 3ee8940f beb5166e 3f5151ca
 record-relative 40467e30 c1bd807c 40fd620c
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -1158,6 +1190,8 @@ friction 3fb741a7
 estimated 00000001
 estimate 3e9cc430 3f94be4c
 push-out 3e9cc430 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c2916143 42af27b4 42876da8
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -1227,6 +1261,8 @@ friction 3fa05ee2
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3efb5e16 00000000
+axis-uses 00000001
+axis-cone 3e45bde1 3d639278 bf7cda5c 3e159de2
 record-relative c12b7b1a 40c68b18 3ef6a1c0
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -1296,6 +1332,8 @@ friction 3fb012cb
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 00000000 00000000
+axis-uses 00000001
+axis-cone 3e8034f4 bf18365f bc7302d9 bf4dcc62
 record-relative 41d2f7cf 42385c12 c28b95b0
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -1365,6 +1403,8 @@ friction 3dcce259
 estimated 00000001
 estimate 3eaa87fe 3e7cc2ea
 push-out 3eaa87fe 00000000
+axis-uses 00000001
+axis-cone 3f46115e 3df20eb2 bf19c229 bf4a6ead
 record-relative 418d794c c1aaf5b0 40abacf7
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -1434,6 +1474,8 @@ friction 3f6a134b
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3e9ff4e4 00000000
+axis-uses 00000001
+axis-cone 3c5bc043 bf51ea12 3dfca5ff bf0f16eb
 record-relative 41818541 428e4326 427de52f
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -1503,6 +1545,8 @@ friction 3eb55103
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3e3b1eee 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 404c384c bfe6c083 c12f0801
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -1572,6 +1616,8 @@ friction 3f8d8159
 estimated 00000001
 estimate 3ec00087 3e4a06dc
 push-out 3ec00087 00000000
+axis-uses 00000001
+axis-cone 3f3d69dc bec0517e 3e2bec56 bf695407
 record-relative bf9c15c9 41492fe2 c14f4c8e
 counters 00000001 00000001 00000001
 cores 00000001 00000002
@@ -1641,6 +1687,8 @@ friction 3f2d009c
 estimated 00000001
 estimate 3ed2acb0 be140e73
 push-out 3ed2acb0 00000000
+axis-uses 00000001
+axis-cone 3f2de7d8 3e0790d8 bf7c75b9 bdcc2d87
 record-relative 42734b7a 423a1a29 4108e7f4
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -1710,6 +1758,8 @@ friction 3ebfadc1
 estimated 00000001
 estimate 4159e593 3d542509
 push-out 4159e593 00000000
+axis-uses 00000001
+axis-cone 3f372f9c bf6943ad 3ebc6767 3e3db9a5
 record-relative 41d1e23c c229f4f8 c1f9912c
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -1779,6 +1829,8 @@ friction 3fb2cb54
 estimated 00000001
 estimate 413af085 3f1dc23f
 push-out 413af085 00000000
+axis-uses 00000001
+axis-cone 3e39dd28 bcc9cbfe bdf6b68c 3f7e0eb4
 record-relative c20cef18 42329705 c22eed5e
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -1848,6 +1900,8 @@ friction 3c73fe66
 estimated 00000001
 estimate 3d9b63b9 be41f7d2
 push-out 3d9b63b9 00000000
+axis-uses 00000001
+axis-cone 3f0a9b61 3f3770a2 3e32b6a9 bf2ce2da
 record-relative c0910858 c20c6b58 4244e40e
 counters 00000001 00000001 00000000
 cores 00000002 00000000
@@ -1917,6 +1971,8 @@ friction 3fa31e1b
 estimated 00000001
 estimate 3e4ac8a7 3d88500b
 push-out 3e4ac8a7 00000000
+axis-uses 00000001
+axis-cone 3f5e53dc bde1c977 bf42ad13 3f23d4cb
 record-relative c0837166 40d59471 411d7cf6
 counters 00000001 00000000 00000001
 cores 00000002 00000001
@@ -1986,6 +2042,8 @@ friction 3f21398e
 estimated 00000001
 estimate 3e7a08f3 beb8d4a6
 push-out 3e7a08f3 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c19f238a c13323bd 412c76fc
 counters 00000001 00000001 00000000
 cores 00000000 00000002
@@ -2055,6 +2113,8 @@ friction 3ec173fc
 estimated 00000001
 estimate 3e8f5ff7 3c584ea0
 push-out 3e8f5ff7 00000000
+axis-uses 00000001
+axis-cone 3f3d432a 3f4c7d22 3c90f6ea 3f19f28a
 record-relative 41556543 427c9682 408f5435
 counters 00000001 00000001 00000000
 cores 00000000 00000001
@@ -2124,6 +2184,8 @@ friction 3de44345
 estimated 00000001
 estimate 3e92cc11 bdf095d1
 push-out 3e92cc11 00000000
+axis-uses 00000001
+axis-cone 3d223b82 bf658803 beb85cf8 3e83f800
 record-relative 41a35802 bf249f70 c18b9371
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -2193,6 +2255,8 @@ friction 3c761939
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3eec9bcb 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c000fd98 c0d0d91a 40a1497d
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -2262,6 +2326,8 @@ friction 3fb0fce0
 estimated 00000001
 estimate 3e8d22c5 3e50a876
 push-out 3e8d22c5 00000000
+axis-uses 00000001
+axis-cone 3eef20d0 3f72a8d4 3e42f289 be82cc90
 record-relative c0b0a58d c1a795c6 c2104ebd
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -2331,6 +2397,8 @@ friction 3f997954
 estimated 00000001
 estimate 41507611 3ea514f2
 push-out 41507611 00000000
+axis-uses 00000001
+axis-cone 3f306c16 bc4b9c33 be83e3cd bf775713
 record-relative 427ccb42 42b04ecc c2286733
 counters 00000001 00000001 00000000
 cores 00000000 00000002
@@ -2400,6 +2468,8 @@ friction 3f71529c
 estimated 00000001
 estimate 3efce0fc bd81635f
 push-out 3efce0fc 00000000
+axis-uses 00000001
+axis-cone 3f455c24 3ec35d9d be2def25 3f6899de
 record-relative c004741e 417df2eb c18569f3
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -2469,6 +2539,8 @@ friction 3f801b15
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3e7afaf1 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c217417c c194261a c2b7ea42
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -2538,6 +2610,8 @@ friction 3da22167
 estimated 00000001
 estimate 3d827ba1 bc68da1d
 push-out 3d827ba1 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c10a37c2 41b96ba0 3f0914c0
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -2607,6 +2681,8 @@ friction 3c9a8bdd
 estimated 00000001
 estimate 3e8f579a bd0f0d03
 push-out 3e8f579a 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c1499129 c132238c 40d66b34
 counters 00000001 00000001 00000000
 cores 00000000 00000002
@@ -2676,6 +2752,8 @@ friction 3fa0b0e6
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 415343fd 00000000
+axis-uses 00000001
+axis-cone 3f5fb102 3f2fa89d 3e2b9467 bf3537e1
 record-relative bf545d00 40d4edba 421c808a
 counters 00000001 00000001 00000001
 cores 00000001 00000002
@@ -2745,6 +2823,8 @@ friction 3fa879f0
 estimated 00000001
 estimate 3ed0f1ec be9d82f9
 push-out 3ed0f1ec 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 40f59a6c 41078213 410e4921
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -2814,6 +2894,8 @@ friction 3fbd8cfb
 estimated 00000001
 estimate 3f22acda bca3806a
 push-out 3f22acda 3f22acda
+axis-uses 00000001
+axis-cone 3e0e7cc8 be400f46 3e49d70e 3f76578a
 record-relative c2461c0b 4262b17a c2710df5
 counters 00000001 00000000 00000000
 cores 00000002 00000001
@@ -2883,6 +2965,8 @@ friction 3fbdf1a5
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out ffc00000 00000000
+axis-uses 00000001
+axis-cone 3f540cf9 bef29610 bf1097e2 3f2cf6f2
 record-relative c23d2239 42542186 40839da2
 counters 00000001 00000001 00000001
 cores 00000002 00000001
@@ -2952,6 +3036,8 @@ friction 3e9846ee
 estimated 00000001
 estimate 3d32c735 3d976dd9
 push-out 3d32c735 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 418a248e c180f6e1 c07c9ff4
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -3021,6 +3107,8 @@ friction 3f67dd37
 estimated 00000001
 estimate 3d73b433 bfd1301d
 push-out 3d73b433 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 426715ea c230f923 40f2960a
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -3090,6 +3178,8 @@ friction 3fb9a181
 estimated 00000001
 estimate 410d9741 3f93dd9d
 push-out 410d9741 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 429284dc c288d7b9 c2639104
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -3159,6 +3249,8 @@ friction 3e2fd3c2
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3df49964 00000000
+axis-uses 00000001
+axis-cone 3f66f6cf 3da3e9ca 3f3efcec 3f293ba2
 record-relative 424f4226 41128b6d 429284df
 counters 00000001 00000001 00000001
 cores 00000001 00000002
@@ -3228,6 +3320,8 @@ friction 3f0e7211
 estimated 00000001
 estimate 00000000 3ca031d4
 push-out 00000000 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 41067f72 bf029640 c1889768
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -3297,6 +3391,8 @@ friction 3f11ade0
 estimated 00000001
 estimate 3e8e951e bef42c9e
 push-out 3e8e951e 00000000
+axis-uses 00000001
+axis-cone 3f0fd03e 3e588b22 3d5ee75e bf79d288
 record-relative c1b6e546 c1a36935 4136fb5d
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -3366,6 +3462,8 @@ friction 3ea3ab4b
 estimated 00000001
 estimate 3eb95cd8 3e8ab03e
 push-out 3eb95cd8 00000000
+axis-uses 00000001
+axis-cone 3f20caa2 be9a7ea7 be3a6d2f 3f6f9376
 record-relative c15e5c4c 40fbdbde c158d154
 counters 00000001 00000001 00000000
 cores 00000002 00000000
@@ -3435,6 +3533,8 @@ friction 3f96931e
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3f081565 00000000
+axis-uses 00000001
+axis-cone 3f6b64b5 3f1fd0aa bf407c3e be590dea
 record-relative c186c0f8 c1c033ce c0f71b55
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -3504,6 +3604,8 @@ friction 3f597bc9
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3ebdc202 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c103bbee 419a6fdc c1058032
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -3573,6 +3675,8 @@ friction 3f88b9d9
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3e34d9ea 00000000
+axis-uses 00000001
+axis-cone 3f4b52a0 be63052e 3f1113a2 3f4b24f3
 record-relative bf333500 c17c5092 415b05df
 counters 00000001 00000001 00000001
 cores 00000001 00000002
@@ -3642,6 +3746,8 @@ friction 3e10fecf
 estimated 00000001
 estimate 00000000 be7e1fe8
 push-out 00000000 00000000
+axis-uses 00000001
+axis-cone 3ec1435c bd197f0a 3f774f61 be82de87
 record-relative 3fcda860 413f4a34 c11bfa0e
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -3711,6 +3817,8 @@ friction 3f9fe5c2
 estimated 00000001
 estimate 3e158beb 3d9fdbae
 push-out 3e158beb 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c1873aa2 41123d22 c03df938
 counters 00000001 00000000 00000001
 cores 00000002 00000001
@@ -3780,6 +3888,8 @@ friction 3f204659
 estimated 00000001
 estimate 3f18e8e9 bd772000
 push-out 3f18e8e9 3f18e8e9
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 41981b36 41b23653 41c18588
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -3849,6 +3959,8 @@ friction 3e736a73
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out ffc00000 00000000
+axis-uses 00000001
+axis-cone 3dbb281b 3eb09c7f bf30deca bf22a667
 record-relative c2d5d0eb 42dcf13b 41b630f0
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -3918,6 +4030,8 @@ friction 3ed4738f
 estimated 00000001
 estimate 3e42f44a bf42c97a
 push-out 3e42f44a 00000000
+axis-uses 00000001
+axis-cone 3f298798 bf2885ca bf1ded05 3edcddf2
 record-relative c258c668 42461a71 c20b442b
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -3987,6 +4101,8 @@ friction 3f9f06fe
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 00000000 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 400dd1e8 3f4b5fc0 c08e19fc
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -4056,6 +4172,8 @@ friction 3e883199
 estimated 00000001
 estimate 00000000 bf06c923
 push-out 00000000 00000000
+axis-uses 00000001
+axis-cone 3f1347d3 3f55faac 3ef703d7 3e861627
 record-relative 42b4351a 40ddeb3b 42632c80
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -4125,6 +4243,8 @@ friction 3ee90503
 estimated 00000001
 estimate 3d1f8d2e bc3d2cd0
 push-out 3d1f8d2e 00000000
+axis-uses 00000001
+axis-cone 3f0c5d6f 3f795f9e 3def3dc2 be462c5b
 record-relative 41892856 411d2202 409288ca
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -4194,6 +4314,8 @@ friction 3f8383c0
 estimated 00000001
 estimate 3e6e2f07 3e8429ed
 push-out 3e6e2f07 00000000
+axis-uses 00000001
+axis-cone 3f2595c9 3d4d4d6c 3e3a2c4e 3f7b67fd
 record-relative 3fb06e60 c14961d9 c1202c63
 counters 00000001 00000001 00000000
 cores 00000000 00000002
@@ -4263,6 +4385,8 @@ friction 3d283f6f
 estimated 00000001
 estimate 3e7893f2 3c9c8a46
 push-out 3e7893f2 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 41900332 40fe927e 3ef2cd3e
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -4332,6 +4456,8 @@ friction 3f8463d7
 estimated 00000001
 estimate 3f109559 be07bd39
 push-out 3f109559 3f109559
+axis-uses 00000001
+axis-cone 3ee58efc 3ea14754 3ea1258c bf653801
 record-relative 411c06b4 c185673e c1061464
 counters 00000001 00000000 00000001
 cores 00000002 00000001
@@ -4401,6 +4527,8 @@ friction 3fb44d02
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 407ae1a2 00000000
+axis-uses 00000001
+axis-cone 3f63608f be07063e bf33600b bf338097
 record-relative c2b0b3cd 41fd065b c1d9552a
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -4470,6 +4598,8 @@ friction 3f2e7d40
 estimated 00000001
 estimate 3eae6ccc 3f26a7b9
 push-out 3eae6ccc 00000000
+axis-uses 00000001
+axis-cone 3f45c7ae bf484c29 be9ae9ba 3f0b58aa
 record-relative 421854e5 c1b75a00 41f964b3
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -4539,6 +4669,8 @@ friction 3fa8476d
 estimated 00000001
 estimate 3e4c0e4d 3d96cb9a
 push-out 3e4c0e4d 00000000
+axis-uses 00000001
+axis-cone 3f379cc1 3f2e8824 bef1b62b bf0f117a
 record-relative 4062bddc c1981037 4102dda5
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -4608,6 +4740,8 @@ friction 3f37739f
 estimated 00000001
 estimate 3f06a644 3dd1883b
 push-out 3f06a644 00000000
+axis-uses 00000001
+axis-cone 3f72eca8 3d878ccc 3dc00a6a bf7e4ee7
 record-relative 408f27d0 3ee17100 414f574f
 counters 00000001 00000001 00000001
 cores 00000001 00000002
@@ -4677,6 +4811,8 @@ friction 3f80d949
 estimated 00000001
 estimate 401249c2 bf0d9f0c
 push-out 401249c2 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c0a6b98c 425ceefa c1ccb4ce
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -4746,6 +4882,8 @@ friction 3f73e0ac
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3ebf94d0 00000000
+axis-uses 00000001
+axis-cone 3f074c81 bd7a4fe4 bf7f4804 3d313be4
 record-relative c09fb63e c18e9d39 40a99add
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -4815,6 +4953,8 @@ friction 3e381fc6
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3d343ab2 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 418be694 c185f3d0 c2164e4b
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -4884,6 +5024,8 @@ friction 3f03f219
 estimated 00000001
 estimate 3c8de0f7 3e4f8981
 push-out 3c8de0f7 00000000
+axis-uses 00000001
+axis-cone 3d6f592e 3ead8294 bf4d80fe befb3803
 record-relative c0d0b942 c28eec60 c262ed12
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -4953,6 +5095,8 @@ friction 3fa447c9
 estimated 00000001
 estimate 3ca0a2d2 3e7d0729
 push-out 3ca0a2d2 00000000
+axis-uses 00000001
+axis-cone 3f63146d 3f6806eb 3e9649d9 be9b997c
 record-relative 40e6fd90 c14dadb8 3ffdcfec
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -5022,6 +5166,8 @@ friction 3eb2c88d
 estimated 00000001
 estimate 00000000 be97c4ce
 push-out 00000000 00000000
+axis-uses 00000001
+axis-cone 3f4a1b77 3f257348 3ea07a73 bf321caa
 record-relative c0a961f9 3fdb4d2c c186417d
 counters 00000001 00000001 00000000
 cores 00000000 00000002
@@ -5091,6 +5237,8 @@ friction 3f9bab96
 estimated 00000001
 estimate 3e7732a0 be3eb8bf
 push-out 3e7732a0 00000000
+axis-uses 00000001
+axis-cone 3ed25067 3f2087c2 bf45514f bde6b996
 record-relative c16e80c8 c031b6a2 3fca7ed4
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -5160,6 +5308,8 @@ friction 3f5d35fc
 estimated 00000001
 estimate 411a2965 3f530b0e
 push-out 411a2965 00000000
+axis-uses 00000001
+axis-cone 3f208ec9 be1318e0 bf242d85 bf40f2ee
 record-relative c216e5e8 410eeab2 410cce77
 counters 00000001 00000001 00000001
 cores 00000001 00000002
@@ -5229,6 +5379,8 @@ friction 3f0e1541
 estimated 00000001
 estimate 3ed8ed7d 3caa1cc9
 push-out 3ed8ed7d 3ed8ed7d
+axis-uses 00000001
+axis-cone 3eb29ef7 3f2e2e01 3f23f397 beb66619
 record-relative c12f81b0 c190c9c9 c08cc90f
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -5298,6 +5450,8 @@ friction 3f045169
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out ffc00000 00000000
+axis-uses 00000001
+axis-cone 3f0d2393 3efb2011 bf2bd7ea 3f0e4452
 record-relative c1cc7ffd c1c25596 40ea3645
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -5367,6 +5521,8 @@ friction 3eafa819
 estimated 00000001
 estimate 409b4239 3dffe488
 push-out 409b4239 00000000
+axis-uses 00000001
+axis-cone 3e46b57f bd7e5b03 bf568522 bf0acbdd
 record-relative 404eac78 c1113ea4 c0097e29
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -5436,6 +5592,8 @@ friction 3f2efc30
 estimated 00000001
 estimate 41319f95 bf88c0d4
 push-out 41319f95 00000000
+axis-uses 00000001
+axis-cone 3ec08f16 bf2c1cb0 bf26bd28 3eb420f0
 record-relative c28998d2 40259470 c2f3f043
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -5505,6 +5663,8 @@ friction 3e9d47b9
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3f667163 00000000
+axis-uses 00000001
+axis-cone 3d51e94d ba8571eb bf7a6c10 3e549766
 record-relative c28cf639 426bba26 42df7374
 counters 00000001 00000001 00000001
 cores 00000001 00000002
@@ -5574,6 +5734,8 @@ friction 3f032444
 estimated 00000001
 estimate 40a7ce5c bf3f6ced
 push-out 40a7ce5c 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c11b10bf 415a5882 4142f192
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -5643,6 +5805,8 @@ friction 3fa31f11
 estimated 00000001
 estimate 3de237eb 3ecfb71f
 push-out 3de237eb 00000000
+axis-uses 00000001
+axis-cone 3f765f20 3e5e900f bf3a34c0 bf26a2b6
 record-relative c1c14730 40a84900 3f995c48
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -5712,6 +5876,8 @@ friction 3f922c54
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 40c8d913 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c13d72c0 c2191424 c1c2c3c8
 counters 00000001 00000000 00000001
 cores 00000002 00000001
@@ -5781,6 +5947,8 @@ friction 3f50371b
 estimated 00000001
 estimate 3d10bbca 3dc02c79
 push-out 3d10bbca 00000000
+axis-uses 00000001
+axis-cone 3f0def8e 3f3bd403 be6323f0 bf246a09
 record-relative 41e43b8c 42953893 c2828d18
 counters 00000001 00000001 00000000
 cores 00000002 00000000
@@ -5850,6 +6018,8 @@ friction 3f9bc8de
 estimated 00000001
 estimate 00000000 bdaf74da
 push-out 00000000 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 424b4a10 c2907aa3 c2a5595d
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -5919,6 +6089,8 @@ friction 3f9cbd6d
 estimated 00000001
 estimate 3f12964e be707af0
 push-out 3f12964e 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c2923564 428e69d2 41ae2e73
 counters 00000001 00000001 00000000
 cores 00000001 00000000
@@ -5988,6 +6160,8 @@ friction 3f44d6f9
 estimated 00000001
 estimate 41034300 3eea3c30
 push-out 41034300 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c1d6fd0e c2346f54 409a3e00
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -6057,6 +6231,8 @@ friction 3d47deb3
 estimated 00000001
 estimate 00000000 3e476940
 push-out 00000000 00000000
+axis-uses 00000001
+axis-cone 3f466b3f bf27acc8 3f1f39d3 3edbb608
 record-relative c1a49fa8 426d471d c2936d34
 counters 00000001 00000000 00000001
 cores 00000002 00000001
@@ -6126,6 +6302,8 @@ friction 3fbcd164
 estimated 00000001
 estimate 3eb1abc3 bed2ae0d
 push-out 3eb1abc3 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c277477c 41c05a2c 4140bb03
 counters 00000001 00000001 00000001
 cores 00000002 00000001
@@ -6195,6 +6373,8 @@ friction 3f816f9c
 estimated 00000001
 estimate 3ea19006 3ed342b4
 push-out 3ea19006 00000000
+axis-uses 00000001
+axis-cone 3dda9d47 bdd1b2a8 be64bfcc 3f782675
 record-relative 40f707a9 410779d4 40ec7158
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -6264,6 +6444,8 @@ friction 3f44a54d
 estimated 00000001
 estimate 3e4d1e05 3eb40873
 push-out 3e4d1e05 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative c106489a 4107455f c1846c20
 counters 00000001 00000000 00000000
 cores 00000001 00000002
@@ -6333,6 +6515,8 @@ friction 3f84a695
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 00000000 00000000
+axis-uses 00000001
+axis-cone 3f356acf 3f4219db be44d341 3f1f7f6f
 record-relative c09b310b c0a2f892 414a4c63
 counters 00000001 00000001 00000000
 cores 00000000 00000002
@@ -6402,6 +6586,8 @@ friction 3f828536
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out ffc00000 00000000
+axis-uses 00000001
+axis-cone 3ea558dc bd9d233d bf576f1b 3f08e361
 record-relative 417ab56e c15b8ee0 c191d546
 counters 00000001 00000001 00000000
 cores 00000000 00000002
@@ -6471,6 +6657,8 @@ friction 3d222309
 estimated 00000001
 estimate 3e86826c bb2cfc51
 push-out 3e86826c 00000000
+axis-uses 00000001
+axis-cone 3ea7489d bf4f0abe ba956965 3f169068
 record-relative c1345b6d 40f24d8e 40cf8c94
 counters 00000001 00000001 00000000
 cores 00000000 00000002
@@ -6540,6 +6728,8 @@ friction 3fbfffd1
 estimated 00000001
 estimate 00000000 60ad78ec
 push-out 3dc8322b 00000000
+axis-uses 00000001
+axis-cone 3f54dc38 3e15ae27 bf591db4 3f025ec0
 record-relative 41f36d83 c18baaaa c22ddad6
 counters 00000001 00000001 00000000
 cores 00000000 00000002
@@ -6609,6 +6799,8 @@ friction 3f305af7
 estimated 00000001
 estimate 3dcf41c5 bf37f315
 push-out 3dcf41c5 00000000
+axis-uses 00000001
+axis-cone 3ec2e175 3ddd0a29 3f08fc7d bf567e44
 record-relative c1f1a4f6 c0e002bc c2b33069
 counters 00000001 00000000 00000001
 cores 00000001 00000002
@@ -6678,6 +6870,8 @@ friction 3f310d98
 estimated 00000001
 estimate 3e763d3d beb85754
 push-out 3e763d3d 00000000
+axis-uses 00000000
+axis-cone 00000000 00000000 00000000 00000000
 record-relative 413b4738 40b3a9dd c1065a4a
 counters 00000001 00000001 00000001
 cores 00000001 00000002
@@ -6693,3 +6887,287 @@ second-velocity-after 00000000 00000000 00000000
 second-spin-after 00000000 00000000 00000000
 second-pending-velocity-after 3fa6096d 40445a96 bf3767b4
 second-pending-spin-after 413bd2bd c19d9f1c 404a8349
+case regrouped-cone-0
+max-velocity 424b3333
+max-collisions 00000006
+max-spin 3f73b620
+inverse-step 4050aaaaaaaaaaab
+step 3f8eb851eb851eb8
+freezes 00000001
+gap 3e14d7bd
+kinds 00000001 00000001
+uses-material-axes 00000000
+material-indices 00000000 00000000
+normal 00000000 00000000 3f800000
+first-arm bcb42ca8 be8f4412 bf0efd50
+second-arm ba9863c2 3e36d41b beff02eb
+turns 3f13d59a bf15d70c 3ebab2bb bf13ad2f 3e54451f be92bac9
+movable 00000000 00000001
+impacts 00000001
+material-friction 3fd5f32900000000 3ff243d480000000 3fe21bb9e0000000
+material-second-friction 3ff2acea00000000 3ff148f2a0000000 3fdcb3a900000000
+material-has-second 00000001 00000000 00000000
+manager 3ff46850c0000000 3fed62f9a0000000
+first-flags 00000000
+first-collisions 00000008
+first-offset08 bf7b845d
+first-offset58 00000000
+first-inverse-inertia 3f9dcb7a 40a35b05 412fd8f7
+first-inverse-mass 3f359ee8
+first-velocity c0f1f636 4056ab89 c129d169
+first-spin 402d0308 c13a0e46 41243ef5
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+first-matrix bfe4683da4603190 3fe761637ac4f686 bfcf3746ecd39a20 bfe4250c97a2bb7a bfd3f6e2fc947f40 3fe6c5875f4b45b8 3fdc6823a1689ff0 3fe36f4ebf0dfcc8 3fe5159bad2ab0d0
+first-radius 3ef76eaa
+first-frame 3ff0000000000000 0000000000000000 0000000000000000 0000000000000000 3ff0000000000000 0000000000000000 0000000000000000 0000000000000000 3ff0000000000000
+second-flags 00000000
+second-collisions 00000007
+second-offset08 00000000
+second-offset58 00000000
+second-inverse-inertia 4128fba4 4050d635 40f91e6b
+second-inverse-mass 3e1c8a5b
+second-velocity c067c333 c1096afd 40afda1a
+second-spin 413d1309 416fc6e5 415275e9
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 00000000 00000000 00000000
+second-matrix 3fc4ab7fc1508d9c 3fd1d5322a7af910 3fee4b8dd8a81df7 bf97d00944484900 3feeb950b3ed08ee bfd1d4d147f4f010 bfef923d1a0a7c09 3f97870c13ab3900 3fc4acce0bd8761c
+second-radius 3e852d7a
+second-frame bfae5dc6481b6500 bfeb5ccbc5cc7840 bfe07babf1cdd960 bfcb8bb3b1982f00 bfdf8bfde15b7c80 3feafa320e2262a0 bfef314ac532cea0 3fc496b6951aea80 bfc3cfca02d1e040
+objects 00000001 00000002
+materials 00000001 00000002
+elasticity 3f6b17cd
+friction 3fa34286
+estimated 00000001
+estimate 00000000 60ad78ec
+push-out 3e6e3b50 00000000
+axis-uses 00000001
+axis-cone 3f71cfce 3f800000 00000000 00000000
+record-relative 412cb3f5 3eb1a498 41affb77
+counters 00000001 00000001 00000001
+cores 00000001 00000002
+first-flags-after 00000040
+first-collisions-after 00000009
+first-velocity-after 00000000 00000000 00000000
+first-spin-after 00000000 00000000 00000000
+first-pending-velocity-after c0f1f636 4056ab89 c12b3d20
+first-pending-spin-after 402b7b8a c137ab61 4121ce6f
+second-flags-after 00000040
+second-collisions-after 00000007
+second-velocity-after 00000000 00000000 00000000
+second-spin-after 00000000 00000000 00000000
+second-pending-velocity-after c067c333 c1096afd 40b076d9
+second-pending-spin-after 413ded25 4172fd40 415534d7
+case regrouped-cone-1
+max-velocity 426ad763
+max-collisions 00000006
+max-spin 3f73b620
+inverse-step 4050aaaaaaaaaaab
+step 3f8eb851eb851eb8
+freezes 00000000
+gap 3e3765df
+kinds 00000002 00000001
+uses-material-axes 00000000
+material-indices 00000000 00000000
+normal 00000000 00000000 3f800000
+first-arm 3ec9c8c6 3d187581 3edac1c0
+second-arm be0cba1f be5edbc2 3edefb6a
+turns 3e515e8f be6becf0 bdf308c5 becb7603 3e3baf64 bd93d96e
+movable 00000000 00000001
+impacts 00000006
+material-friction 3fc1b9b120000000 3ff6e2df20000000 3fe89fe8a0000000
+material-second-friction 3fed5a39e0000000 3fd8a28860000000 3ff6a62c00000000
+material-has-second 00000001 00000000 00000000
+manager 3fe62685e0000000 3fe13fac80000000
+first-flags 00000000
+first-collisions 00000004
+first-offset08 bf62c6d2
+first-offset58 00000000
+first-inverse-inertia 409eb7b9 3e62c1e4 40873e8f
+first-inverse-mass 3f9fb556
+first-velocity c03221ba c096a1d8 c0c8e985
+first-spin c150a881 40e93d00 413ec848
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+first-matrix 3fee3acc77c3dc16 bfd36cacd9feac98 bfbfd684ab3162e0 bfd19069c23163a8 bfe0c27bcc663fa6 bfe9ce865a9eebd5 3fc6fe27661a0810 3fe978a37de67dab bfe27f78ea9094c4
+first-radius 3f340f9a
+first-frame 3ff0000000000000 0000000000000000 0000000000000000 0000000000000000 3ff0000000000000 0000000000000000 0000000000000000 0000000000000000 3ff0000000000000
+second-flags 00000000
+second-collisions 00000004
+second-offset08 00000000
+second-offset58 00000000
+second-inverse-inertia 41171865 40e4ecae 4114a00d
+second-inverse-mass 3f524f32
+second-velocity 40fda5aa ba02388d c07980df
+second-spin 40bb237d 40d308a2 40136212
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 00000000 00000000 00000000
+second-matrix bfe430501f0bf680 3fc62fc340def156 3fe83340ae3f6d21 bfc5e9837fe805aa 3fed6d66e36768b5 bfd6a11e2b0a4936 bfe83740704b381f bfd68ffaf91451ca bfe19dba1e26014c
+second-radius 3f45c98f
+second-frame bfce82431b315900 3fedb2b3ac6af520 bfd250657b096400 3fd854c27de0ea40 3fd70f197ec900e0 3feb42626dd11e00 3fec98fee9123600 3fb820ca679b5000 bfdc13b19fc6aba0
+objects 00000001 00000002
+materials 00000001 00000002
+elasticity 3f09fd64
+friction 3f31342f
+estimated 00000001
+estimate 00000000 60ad78ec
+push-out 3ddad52f 00000000
+axis-uses 00000001
+axis-cone 3f6c4192 3f800000 00000000 00000000
+record-relative 40ff87c7 40a0f540 c118ed98
+counters 00000001 00000001 00000000
+cores 00000000 00000002
+first-flags-after 00000000
+first-collisions-after 00000004
+first-velocity-after c03221ba c096a1d8 c0c8e985
+first-spin-after c150a881 40e93d00 413ec848
+first-pending-velocity-after 400a40d6 3f1ef220 c0881fcb
+first-pending-spin-after 40f55606 bd0c8080 c0bf01fb
+second-flags-after 00000000
+second-collisions-after 00000005
+second-velocity-after 40d0220a bed18f39 bf8c803a
+second-spin-after 41a0c0d3 bf3bff68 3ffc0c18
+second-pending-velocity-after 00000000 00000000 00000000
+second-pending-spin-after 00000000 00000000 00000000
+case regrouped-cone-2
+max-velocity 424b3333
+max-collisions 00000006
+max-spin 3f73b620
+inverse-step 4050800000000000
+step 3f8f07c1f07c1f08
+freezes 00000001
+gap 3e08cede
+kinds 00000002 00000002
+uses-material-axes 00000000
+material-indices 00000000 00000000
+normal 00000000 00000000 3f800000
+first-arm bcdb17d0 bf0847aa 3f100305
+second-arm 3ec6be46 3ed30bef 3f14f43a
+turns bd29485e 3f13c12b bde45268 3e10c493 bf143532 bc8ad9fc
+movable 00000001 00000001
+impacts 00000006
+material-friction 3fc2fff640000000 3ff7607560000000 3fef84b1e0000000
+material-second-friction 3febb6d2a0000000 3fb23af6c0000000 3fe7ad4420000000
+material-has-second 00000001 00000000 00000000
+manager 3fd5b15e80000000 3fd394b660000000
+first-flags 00000000
+first-collisions 00000000
+first-offset08 3f1729c7
+first-offset58 00000000
+first-inverse-inertia 3ec89529 40fe8020 40cc2287
+first-inverse-mass 3ed64637
+first-velocity c0ff9467 c13f3152 4139f149
+first-spin 40e81538 3f9b8d8f c13e4920
+first-pending-velocity 3fc45520 3f35a56b bf2f79f4
+first-pending-spin 00000000 00000000 00000000
+first-matrix bfd8575dfb666f2c bfe7c5a3da8e4117 3fe1a0e868ae9d47 bfe6904e5ac81aa9 3fe3c99b3066851a 3fd6360ba25b229c bfe3269d9b87a2f9 bfd069a78ef44b24 bfe849b18c57c7d0
+first-radius 3f586bed
+first-frame 3ff0000000000000 0000000000000000 0000000000000000 0000000000000000 3ff0000000000000 0000000000000000 0000000000000000 0000000000000000 3ff0000000000000
+second-flags 00000010
+second-collisions 00000007
+second-offset08 bf5a136c
+second-offset58 00000000
+second-inverse-inertia 412c0f61 41306d05 410527ca
+second-inverse-mass 3f26a079
+second-velocity c0ad8d67 c09ae230 bfd74e21
+second-spin 40bd2253 416c3ed0 c1446538
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 00000000 00000000 00000000
+second-matrix 3fd975acd429bd80 3fd539ae1785bd80 bfeb5faefb429a80 3fed043c5be1dec0 bf208bfbce740000 3fdafc053b22f100 3fc1e27db7d79600 bfee305de7940780 bfd33fe7c0a48d00
+second-radius 3ef90a23
+second-frame 3fd773710c74bb00 bfcd1303e3c47000 bfecdfa01e76ca00 bfeab42b385eca00 bfe04ad73f24da40 bfcaf8c3bd541300 bfda56801155c800 3fea90c64d96c340 bfd81223bf792080
+objects 00000001 00000002
+materials 00000001 00000002
+elasticity 3e9ca5b3
+friction 3ead8af4
+estimated 00000001
+estimate 3f18a572 be5975e1
+push-out 3f18a572 00000000
+axis-uses 00000001
+axis-cone 3f655fa9 3f800000 00000000 00000000
+record-relative 406e5ec8 41887fd8 c113afb4
+counters 00000001 00000000 00000001
+cores 00000001 00000002
+first-flags-after 00000040
+first-collisions-after 00000001
+first-velocity-after 00000000 00000000 00000000
+first-spin-after 00000000 00000000 00000000
+first-pending-velocity-after c0ccec15 c12b2aa7 41174679
+first-pending-spin-after 40c749f9 40e2c61c c103ac60
+second-flags-after 00000050
+second-collisions-after 00000008
+second-velocity-after 00000000 00000000 00000000
+second-spin-after 00000000 00000000 00000000
+second-pending-velocity-after c0b0003e c0b5dc98 3f1f2583
+second-pending-spin-after 41a2d194 418487f4 c1a58cef
+case regrouped-cone-3
+max-velocity 422f342c
+max-collisions 00000006
+max-spin 3f73b620
+inverse-step 4050aaaaaaaaaaab
+step 3f8eb851eb851eb8
+freezes 00000000
+gap 3daa92be
+kinds 00000000 00000002
+uses-material-axes 00000001
+material-indices 00000000 00000000
+normal 00000000 00000000 3f800000
+first-arm bd18a69c be9cc474 bd9cc595
+second-arm bd7409ee be561fe8 bcd11d50
+turns bee411f1 3f03444d bd9c34bd bf02bfd3 3d5f2451 beabab03
+movable 00000001 00000001
+impacts 00000003
+material-friction 3fe8fe9d40000000 3ff2b23940000000 3feb313f20000000
+material-second-friction 3ff56fdc40000000 3fd4290f40000000 3fdc7454a0000000
+material-has-second 00000001 00000000 00000000
+manager 3ff19eb5e0000000 3fdb688f80000000
+first-flags 00000000
+first-collisions 00000001
+first-offset08 bc3fc35d
+first-offset58 00000000
+first-inverse-inertia 405bb747 4092d20c 412a994d
+first-inverse-mass 3eff12f2
+first-velocity c10d6695 c0dc3dda c0aa5bcc
+first-spin c148f8d8 414ffbc7 415af720
+first-pending-velocity 3f821d4c bfd5cacf bf080a37
+first-pending-spin 00000000 00000000 00000000
+first-matrix 3fc54961732efc6c bfe4505b3d5cf236 bfe8255b69ca3d1e 3fe362efee59cdca bfe1372d16802900 3fe2c18dd5ba9140 bfe8e58cbb28c2e2 bfe1bf57a9831f40 3fd2e3310d972c36
+first-radius 3f07707b
+first-frame 3ff0000000000000 0000000000000000 0000000000000000 0000000000000000 3ff0000000000000 0000000000000000 0000000000000000 0000000000000000 3ff0000000000000
+second-flags 00000000
+second-collisions 00000004
+second-offset08 00000000
+second-offset58 00000000
+second-inverse-inertia 3ec7ebbe 3fdb0cdd 412a076e
+second-inverse-mass 3f7cb815
+second-velocity c2334192 41ee0f96 c21a1cc5
+second-spin 413ddbba c0635965 c01a7619
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 00000000 00000000 00000000
+second-matrix 3fea62a32e5d69ec bfde327483c086d4 3fd3fc273127e348 bfe0a26dc723dcd6 bfda7bc435088388 3fe7ea5d95d5e536 bfcc98ae81d51cf0 bfe8e9e6121ff68a bfe2c459644f20d0
+second-radius 3eee4883
+second-frame bfb28766a1dd9000 bfe813e54e482f00 bfe4f32d77430500 bfef03a7663ccb00 3fca9f8ffcfd5800 bfc0e20a7f454c00 3fce221216ec7c00 3fe3ffc3e606a100 bfe7d15929b90a00
+objects 00000001 00000002
+materials 00000001 00000002
+elasticity 3edb447c
+friction 3f8cf5af
+estimated 00000001
+estimate 3f13857b bf2b451e
+push-out 3f13857b 00000000
+axis-uses 00000001
+axis-cone 3f7187d0 3f800000 00000000 00000000
+record-relative c2125608 41f88040 c1f7a827
+counters 00000001 00000000 00000000
+cores 00000001 00000002
+first-flags-after 00000000
+first-collisions-after 00000002
+first-velocity-after c18d9cce c06d9e2f c1a16577
+first-spin-after c1473f8c 4082e37b 425e61e5
+first-pending-velocity-after 00000000 00000000 00000000
+first-pending-spin-after 00000000 00000000 00000000
+second-flags-after 00000000
+second-collisions-after 00000005
+second-velocity-after c1c9e21a 41a155e2 c122754a
+second-spin-after 4150dacc c0c119b2 4241b3fa
+second-pending-velocity-after 00000000 00000000 00000000
+second-pending-spin-after 00000000 00000000 00000000

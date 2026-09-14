@@ -9,7 +9,8 @@ namespace Tf2DemoSalvage.Probe.Oracle;
 /// <summary>
 /// IVP's collision entry as lanes of bits — a contact point's materials (<c>FUN_1800908d0</c>), its record's estimate
 /// (<c>FUN_18008db40</c>), the push-out estimate (<c>FUN_18008fca0</c>) and the impact solver's entry (<c>FUN_18008ed60</c>, with
-/// <c>FUN_18008fe70</c>), run in that order on one case (B369).
+/// <c>FUN_18008fe70</c>), run in that order on one case — with <c>FUN_18008fe70</c> also called alone on a solver buffer, whose
+/// cone tangent the entry's solve can round away (B369).
 /// </summary>
 /// <remarks>
 /// **The form and the core lanes are <see cref="IvpImpactReplay"/>'s**, written by the `vphysics-impact` probe's `entry` mode from
@@ -87,6 +88,7 @@ public static class IvpEntryReplay
         long[] estimate = [IvpImpactReplay.Lane(record.PushOut), IvpImpactReplay.Lane(record.PredictedGap)];
         float pushOut = point.PushOut(environment);
         long[] pushed = [IvpImpactReplay.Lane(pushOut), IvpImpactReplay.Lane(record.PushOut)];
+        (bool Uses, float Tangent, (float X, float Y, float Z) Axis) axes = IvpImpactSolver.MaterialAxes(environment, point, record);
         IvpRigidBody?[] cores = new IvpRigidBody?[2];
 
         IvpImpactSolver.Enter(environment, point, cores, pushOut);
@@ -100,6 +102,8 @@ public static class IvpEntryReplay
             ["estimated"] = [estimated],
             ["estimate"] = estimate,
             ["push-out"] = pushed,
+            ["axis-uses"] = [axes.Uses ? 1 : 0],
+            ["axis-cone"] = [IvpImpactReplay.Lane(axes.Tangent), .. IvpImpactReplay.Lanes(axes.Axis)],
             ["record-relative"] = IvpImpactReplay.Lanes(record.RelativeVelocity),
             ["counters"] = [environment.Impacts, environment.HeldBack, environment.Frozen],
             ["cores"] = [IvpImpactReplay.Slot(cores[0], first, second), IvpImpactReplay.Slot(cores[1], first, second)],
@@ -209,6 +213,8 @@ public static class IvpEntryReplay
             new("estimated", IvpReplayKind.Whole32, 1),
             new("estimate", IvpReplayKind.Real32, 2),
             new("push-out", IvpReplayKind.Real32, 2),
+            new("axis-uses", IvpReplayKind.Whole32, 1),
+            new("axis-cone", IvpReplayKind.Real32, 4),
             new("record-relative", IvpReplayKind.Real32, 3),
             new("counters", IvpReplayKind.Whole32, 3),
             new("cores", IvpReplayKind.Whole32, 2),

@@ -15,7 +15,9 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// **Every expected lane was written by Valve's binary, not by this project.** The `vphysics-impact` probe's `entry-fixture` mode
 /// loaded the game's x64 `vphysics.dll`, wrote each case into a fabricated contact point, record, two objects with their triangles
 /// and frames, three materials and a material manager whose slots are callbacks, called `FUN_1800908d0`, `FUN_18008db40`,
-/// `FUN_18008fca0` and `FUN_18008ed60` in that order, and wrote every field they left to `Data/ivp-impact-entry.txt`.
+/// `FUN_18008fca0` and `FUN_18008ed60` in that order — and `FUN_18008fe70` alone on a solver buffer, whose cone tangent a solve
+/// can round away — and wrote every field they left to `Data/ivp-impact-entry.txt`. The four `regrouped-cone` cases are the only
+/// ones that tell the cone series' product from its regrouping.
 /// <see cref="IvpEntryReplay"/> is the one definition of the lanes, shared with the probe.
 /// </remarks>
 public sealed class IvpImpactEntryConformanceTests
@@ -57,6 +59,8 @@ public sealed class IvpImpactEntryConformanceTests
         replays.Count(replay => float.IsNaN(IvpImpactReplay.Real32(replay.Inputs, "gap", 0))).ShouldBeGreaterThan(0);
         replays.Count(replay => replay.Outputs["materials"].Contains(3)).ShouldBeGreaterThan(0);
         replays.Count(AsksForTheAxes).ShouldBeGreaterThan(0);
+        replays.Count(replay => replay.Outputs["axis-uses"][0] != 0).ShouldBeGreaterThan(0);
+        replays.Count(replay => replay.Outputs["axis-uses"][0] == 0).ShouldBeGreaterThan(0);
     }
 
     private static bool AsksForTheAxes(IvpReplayCase replay) =>

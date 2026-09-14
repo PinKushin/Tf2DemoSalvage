@@ -3975,7 +3975,78 @@ for A = record+0x98 unless cp's first kind (+0x2a) is a ball, then B = record+0x
 return (float)((double)(q + q) + p)
 ```
 
-*`FUN_1800d33b0` is another runtime-library routine, unidentified; `core+0x4` is unread; `2.5e-5` is `DAT_1800fd860`, a double.*
+*`2.5e-5` is `DAT_1800fd860`, a double.* ~~`FUN_1800d33b0` is another runtime-library routine, unidentified; `core+0x4` is
+unread~~ — **both settled since**: `FUN_1800d33b0` is `cos`, identified by calling it in process and ported under `π/4` as
+`IvpMath.Cos` (two million arguments on each runtime path, none differ; the push-out's argument never exceeds `√0.25`), and
+`core+0x4` is the core's radius `FUN_180078b90` sets (*core+0x54 = 0.5f / core+0x4* above).
+
+#### The entry, ported and pinned (2026-09-13)
+
+**`FUN_1800908d0`, `FUN_18008db40`, `FUN_18008fca0` and `FUN_18008ed60` with `FUN_18008fe70` are ported** —
+`IvpContactPoint.SetMaterials`, `Estimate`, `PushOut` and `IvpImpactSolver.Enter` — and the `vphysics-impact` probe's `entry`
+mode calls all four in that order on a fabricated contact point, record, two objects with their triangles and frame cores,
+three materials and a material manager whose slots are callbacks. **20,000 random entries agree on every lane, with no call
+reaching a trap**; `IvpImpactEntryConformanceTests` replays 96 of them and five targeted cases. **Each case also calls
+`FUN_18008fe70` alone** on a zeroed solver holding only the record's elasticity, and compares `+0xf0`, `+0xf4` and `+0x100`
+— because a sabotage round reddened 12 of 13 and the thirteenth, the cone series' product regrouped from `(x²·(1/24f))·x²` to
+`(x²·x²)·(1/24f)`, survived both every drawn case and that direct lane: the two groupings round alike for nearly every `x²`,
+and a one-ulp cosine rounds away inside a solve. Four cases found by search, an axis of length exactly one with only the first
+material's block running and the two groupings' tangents apart, redden under it and nothing else does. What the reading
+needed that earlier sections left open:
+
+- **`block[0x48]` is `(float)(d·20.0 + (double)block[0x43])`** — `DAT_1800fcfb0` is `20.0`, read from `FUN_180098fd0`'s tail;
+  `22·d` above was its value, not its arithmetic.
+- **A triangle's material index is its header word's bits 24–30** (`FUN_1800863d0`: the edge's address masked to its triangle,
+  byte 3, `& 0x7f`). `PhysicsHull` now carries it per triangle beside the pierce field.
+- **`FUN_180070130` is the arithmetic the solver inlines for its slide** — each lane `(float)((double)n·(double)−k + (double)v)`
+  with `k` the float dot — so the port has one `Across` for both.
+- **`FUN_18008fe70` calls both materials' slots before its length test**, so a material is asked even when its axis is skipped;
+  the calls are pure in the fabricated materials, and whether vphysics' are is unread.
+- **The entry reads through a null core when neither of the record's cores is movable** (`CMP [R8+0x58]` with `R8 = 0`); the port
+  refuses that case rather than answering it.
+
+*Not read yet*: vphysics' material manager and material classes, whose answers decide every friction and elasticity; what
+increments `record+0x72`; what sets `cp+0x64`.
+
+*Evidence class: read from the disassembly; differential against the shipped binary for every lane the four routines write,
+with the materials' answers fixed on both sides.*
+
+#### vphysics' material manager and its materials (2026-09-13)
+
+**The manager at `env+0xe8` is one global, `180120be8`**, built at load by `FUN_180001840`: IVP's base constructor
+(`FUN_1800911f0`, vtable `1800ec4f0`), then vphysics' vtable `1800ec560`; `+0x10` is the surface-props object at
+`180120b38`, and `+0x18` a table of 128 words filled with their own indices. vphysics overrides slots 1–3 and keeps IVP's 4
+and 5:
+
+```
+slot 1  FUN_180019370(manager, object, position, index):  index ≤ 0x7f → index = table[index]
+        m = props slot 10 (+0x50)(index);  null → m = props slot 10(props slot 3 (GetSurfaceIndex)("default"))
+slot 2  FUN_1800192e0(manager, record):  f = 1f;  FUN_180024080(&f, record+0x40, record+0x48, &record+0x20) → return (double)f
+        p = FUN_180091340 = m₀.slot1 · m₁.slot1;  p < 0 or NaN → 0 (COMISD/JC);  else MINSD 1.0
+slot 3  FUN_1800192b0(manager, record):  e = FUN_1800912f0 = m₀.slot3 · m₁.slot3;  MAXSD 0 (a NaN gives 0), MINSD 1.0
+```
+
+Slot 3 of the props object is `GetSurfaceIndex` in `IPhysicsSurfaceProps`'s order (`public/vphysics_interface.h:968`); slot 10
+is past the public interface, and *that it hands out the surface's material is INFERRED from its use*. IVP's own slots, which
+vphysics replaces: slot 1 (`FUN_180091390`) lazily builds one `IVP_Material_Simple` (`0x38` bytes, vtable `1800fd888`, name
+"Simple material") with `+0x10` and `+0x20` at `0.5`, `+0x28`, `+0x30` and `+0xc` zero; slots 2 and 3 the same products
+unclamped; slots 4 and 5 the sums of the materials' slots 4 and 5.
+
+**`FUN_180024080` zeroes the friction** when either object's core has `+0x58` set: the first object — the first synapse's,
+then the second's — whose physics object (`object+0x100`) has bit 6 of its byte `+0x48`, with the normal's float `|n|²` at
+least `1e-4f`, turned into that object's core frame (`FUN_180070620`), `|x|` widened above `DAT_1800ee1a8` —
+`0.25881904f`, `sin 15°`, widened — writes `0f` and answers true. *What that bit is, is not read.* A ragdoll's cores have no
+`+0x58`, so for a corpse it never fires.
+
+**vphysics' material is vtable `1800ec528`, one inside each 0x78-byte surface entry** `FUN_180018740` parses: slot 1 answers
+`(double)+0x14`, slot 3 `(double)+0x18`, slot 4 `(double)+0x24`, slots 2 and 5 zero (`FUN_180007e40`: `XORPS`, `RET`), and
+slot 6 the name through the word at `+0x10`. **`+0x14..+0x24` is `surfacephysicsparams_t`** — friction, elasticity, density,
+thickness, dampening (`public/vphysics_interface.h:882`) — *matched by order and by the parser's 16-byte copies, not by reading
+its key strings.* So **a corpse on the world rubs at `clamp(f₀·f₁, 0, 1)` and bounces at `clamp(e₀·e₁, 0, 1)`** of the two
+surfaces' `surfaceproperties` values, and with slot 2 answering zero the axis friction of `FUN_18008fe70` has nothing to
+multiply. *Whether any entry's `+0xc` is set, so that its blocks run at all, is not read.*
+
+*Evidence class: read from the disassembly; the props slot 10 and the parameter layout INFERRED as marked. Not ported yet.*
 
 #### The collision's own path, instruction by instruction (`impact_entry.log`)
 
@@ -4158,8 +4229,9 @@ client's `env+0x108` at construction is exactly `1/66` in bits, which decides `+
 
 #### Not established
 
-What reads and clears the core flags' bits 6–7 after a solve; what writes `core+0x58` and `core+0x8`; `FUN_1800d33b0`, which the
-push-out estimate calls; what the materials' slots 1 and 2 and `+0xc` are; and anomaly slots 6 and 7.
+What reads and clears the core flags' bits 6–7 after a solve; what writes `core+0x58`; what the materials' slots 1 and 2 and
+`+0xc` are; and anomaly slots 6 and 7. *(Since settled: `FUN_1800d33b0` is `cos`, under* The entry, ported and pinned*; and
+`core+0x8` was already read above as the deviation `FUN_180078b90` sets, which the port still names `Offset08`.)*
 
 *Evidence class: read from the disassembly for every routine, offset and constant named; `asinf`, `expf` and `exp` identified by
 their structure and, for `asinf`, by the name its error path passes.*
