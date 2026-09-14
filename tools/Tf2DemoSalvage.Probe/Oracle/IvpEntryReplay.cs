@@ -145,7 +145,7 @@ public static class IvpEntryReplay
         {
             Material = material,
             Core = core,
-            FrameCore = new IvpRigidBody { CoreMatrix = IvpImpactReplay.Matrix(inputs, side + "frame") },
+            FrictionCore = new IvpRigidBody { CoreMatrix = IvpImpactReplay.Matrix(inputs, side + "frame") },
         };
 
     /// <summary>One triangle whose header carries a material index — all a synapse's material lookup reads of its ledge.</summary>

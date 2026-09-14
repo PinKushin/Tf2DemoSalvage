@@ -3984,7 +3984,7 @@ unread~~ — **both settled since**: `FUN_1800d33b0` is `cos`, identified by cal
 
 **`FUN_1800908d0`, `FUN_18008db40`, `FUN_18008fca0` and `FUN_18008ed60` with `FUN_18008fe70` are ported** —
 `IvpContactPoint.SetMaterials`, `Estimate`, `PushOut` and `IvpImpactSolver.Enter` — and the `vphysics-impact` probe's `entry`
-mode calls all four in that order on a fabricated contact point, record, two objects with their triangles and frame cores,
+mode calls all four in that order on a fabricated contact point, record, two objects with their triangles and friction cores,
 three materials and a material manager whose slots are callbacks. **20,000 random entries agree on every lane, with no call
 reaching a trap**; `IvpImpactEntryConformanceTests` replays 96 of them and five targeted cases. **Each case also calls
 `FUN_18008fe70` alone** on a zeroed solver holding only the record's elasticity, and compares `+0xf0`, `+0xf4` and `+0x100`
@@ -4144,9 +4144,72 @@ FUN_18008da40(block, core, pair):  push core on +0x10;  core+0x260's +0x30 = 1
 **So the loop is event-ordered by estimate, not by contact order**: every pass re-estimates what the last solve invalidated,
 solves the one contact predicted to close first below the margin, and pulls in each newly moved core's other pairs. **A NaN
 estimate ends the search for that pass** — `MINSD` answers its second operand, so the best becomes NaN and no later compare can
-beat it. The cap of 5,000 passes asks the mindist's slot 0 with one; *what that slot does is not read.* **Not ported**, and
-`FUN_1800909d0`, the island driver it tails into, is read only in part (above, *Contact response is accumulated* and the step's
-inverse).
+beat it. The cap of 5,000 passes asks the mindist's slot 0 with one; *what that slot does is not read.* **Not ported.**
+
+**`FUN_1800909d0(block)`, the tail, read whole:**
+
+```
+every core of +0x20, last to first:  +0x260 set and its +0x30 zero → FUN_180079120(core)  (put back);  core+0x260 = null
+dt = (double)(float)(env+0x190 − env+0x188);  a local vector of 256 inline entries
+every core of +0x10, last to first, unless flags & 2:
+    FUN_180099a00(core, {(float)dt, dt > 1e-10 ? (float)(1.0/dt) : 1e10f}, &local)     -- COMISD/JBE: a NaN dt takes 1e10f
+    core+0x260 = null;  every contact of FUN_180077f00(core, system):  record+0x74 = 0
+FUN_18009a690(env, &local);  free the local vector unless it is still inline
+every core of +0x10, last to first, unless flags & 2:  FUN_1800792b0(core)
+```
+
+**So a core the loop only brought to the event and never moved is put back exactly as it was**, and only the cores an impact
+actually moved are stepped — each over the environment's whole remaining PSI span, through the same integrator a PSI uses — then
+re-checked by the scheduler and stamped with the impact counter. `FUN_180077f00(core, system)` is the per-system record: through
+the hash at `core+0x60` for an unmovable core, else `core+0x60` itself when its `+0x10` is the system.
+
+#### Filing a contact into a friction system — `FUN_180090e50(mindist, &system, &built, unit, rebuild)` (2026-09-13)
+
+**Read from the disassembly**, with every callee named below:
+
+```
+A, B = the mindist's synapse objects ((flags >> 8) & 3 and its flip);  their friction cores, object+0xf0
+M = the one of the two NOT flagged unmovable (bit 1) — A's when both or neither;  S = the other
+info = M+0x60 (FUN_180078460);  env = M+0x10
+cp = FUN_18008c4b0(mindist, &made)
+not made:  *system = info+0x10;  *built = 0;  rebuild and cp → FUN_18008d0c0(cp, env), FUN_1800908d0(cp, record);  return cp
+made:  rebuild → the same two calls;  the environment's listeners (FUN_180081e50) and each object flagged 0x2000 (FUN_180088310)
+       hear {env, record, cp};  *built = 1
+    info set, system T = info+0x10:
+        S's record in T (FUN_180077f00) → file
+        S movable with its own record → merge S's system into T (FUN_180086240) → file
+        else a new 0x18 record for S in T (FUN_180076690), and S joins T (FUN_180087bf0) → file
+    info null:  a new record for M
+        S movable with its own record, system T:  M's record in T;  M joins T → file
+        else  T = a new 0x90 system (FUN_1800879e0, env);  a new record for S;  both records attached;
+              cp into T (FUN_180087c90, FUN_180088090);  M joins T;  S joins T
+    file:  cp into T's contact list (FUN_180087c90) and its pair (FUN_180088090)
+    cp onto both records' contact vectors (FUN_180054640);  *system = T;  FUN_180083a60(cp)
+    unless either core is unmovable or they share one:  merge the two cores' simulation units (+0x1f8) into the one passed
+        as unit (FUN_180074e40), then destroy (FUN_1800747a0) and free (0x48) the other
+```
+
+- **`FUN_180076690(core, record)`**: an unmovable core keeps its records in a hash at `+0x60` (`0x20` bytes, `FUN_180071e80`,
+  inserted by `FUN_180072070` under the record's system); a movable core holds its one record there.
+- **`FUN_180087bf0(system, core)`**: onto the cores (`+0x48` capacity, `+0x4a` count, `+0x50` elements); unless unmovable, onto the
+  movable cores (`+0x58`, `+0x5a`, `+0x60`) and into the system's three controller bases (`FUN_1800748b0` with `+0x10`, the system
+  itself and `+0x20`); `+0x78 += 1`.
+- **`FUN_180087c90(system, cp)`**: `cp+0xc0 = system`; `cp` at the head of the list at `+0x40` (`cp+0x0` next, `cp+0x8` previous);
+  `+0x7a += 1`.
+- **`FUN_180088090(system, cp)`**: the pair of the two contact objects' `+0xe8` cores, found in either order (`FUN_1800863f0`) or
+  made (`0x50` bytes, `FUN_1800830d0`, `+0x38`/`+0x40` the cores, added by `FUN_1800833d0`); `cp` onto its contact vector. **The
+  pair is keyed by the physical cores, the system by the friction cores.**
+- **`FUN_1800850b0(system, a, b)`** is the same search as `FUN_1800863f0`, answering null rather than asserting.
+- **`FUN_180083a60(cp)` writes `cp+0x64`** — one when either synapse's material (`FUN_18008fb60`, the lookup `FUN_1800908d0` makes)
+  has `+0xc` set, the reader `FUN_18008ed60` gates `FUN_18008fe70` on — **and `cp+0x60`**: `1 / (m₀m₁ / (m₀ + m₁))` over the two
+  physical cores that move (`flags & 0x12` clear), or `1 / m` when one does, each `m = FUN_180077840(core, arm)`.
+- **`FUN_180077840(core, r)`**: with `x², y², z²` the arm's squares in float, `1.0 / (MAXSD(MAXSD((double)((x² + z²)·Iy⁻¹),
+  (double)((y² + z²)·Ix⁻¹)), (double)((x² + y²)·Iz⁻¹)) + m⁻¹)` — `1.0` in place of `m⁻¹` for a core flagged `0x10`. A contact's
+  mass along its worst axis, not along its normal.
+
+**So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
+entry's port keeps it because the routine has it. *Not read: `FUN_180086240` (merging systems), the controller bases, and the
+simulation units `FUN_180074e40`/`FUN_1800747a0` merge.* **Nothing here is ported.**
 
 **A wrong citation found on the way, kept here because it was repeated in four places:** `SurfaceTable`, `GameContent`,
 `CorpsePhysics` and `IvpRigidBody.Friction` all call their friction of `1` `g_PhysDefaultObjectParams`' friction. That struct has

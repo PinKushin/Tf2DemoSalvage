@@ -35,9 +35,13 @@ public sealed class IvpCollisionObject
     /// <summary>The object's core, <c>+0xe8</c>.</summary>
     public IvpRigidBody? Core { get; set; }
 
-    /// <summary>The core at <c>+0xf0</c>, whose matrix's first column a material's axis friction runs along (<c>FUN_18008fe70</c>).</summary>
-    /// <remarks>*Named by its one read use; its writer is not read.*</remarks>
-    public IvpRigidBody? FrameCore { get; set; }
+    /// <summary>The object's friction core, <c>+0xf0</c>: the core the friction system files it under.</summary>
+    /// <remarks>
+    /// **Named by both read uses**: `FUN_180090e50` files a contact's two objects into a friction system by these cores, and
+    /// `FUN_18008fe70` runs a material's axis friction along this core's matrix's first column. The impact itself pushes `+0xe8`.
+    /// *Its writer is not read.*
+    /// </remarks>
+    public IvpRigidBody? FrictionCore { get; set; }
 
     /// <summary>Bit 6 of the byte at <c>+0x48</c> of the object's physics object (<c>+0x100</c>); false when it has none.</summary>
     /// <remarks>*Named by its offset: its one read use is vphysics' friction override `FUN_180024080`, and what sets it is not read.*</remarks>

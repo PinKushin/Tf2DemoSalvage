@@ -293,8 +293,8 @@ public sealed class IvpImpactSolver
             return;
         }
 
-        IvpRigidBody frame = owner.FrameCore ??
-            throw new InvalidOperationException("A material with an axis friction belongs to an object with no frame core.");
+        IvpRigidBody frame = owner.FrictionCore ??
+            throw new InvalidOperationException("A material with an axis friction belongs to an object with no friction core.");
         IvpMatrix matrix = frame.CoreMatrix;
         (float X, float Y, float Z) axis = Across(((float)matrix.M0, (float)matrix.M4, (float)matrix.M8), record.Normal);
         double length = IvpVector.Length(axis);
