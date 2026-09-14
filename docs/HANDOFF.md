@@ -314,13 +314,25 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      shape). `IvpFrictionSystem::SolveTangentialPair` (`1800857c0`) is the other dispatch branch, not yet read, likely
      similarly sized. **Confirms the tangential solve is genuinely its own dedicated port+oracle stage**, not
      something to fold into the PSI driver pass — same conclusion as the previous entry, now with more precision.
-   - **Next, in order**: (1) read `IvpFrictionSystem::SolveTangentialPair` in full, extend `IvpFrictionPair` with
-     whatever per-pair contact list it needs, port both dispatch branches with their own `vphysics-friction-solve`
-     oracle probe; (2) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — `FUN_180090700`'s mini-island
-     construction, the retry loop, `collide`'s generation bump (`env+0x1a4`), using the now-ready
-     `IvpLedgeSide.FromLedge`; (3) a `vphysics-friction-link`/`vphysics-collide` oracle probe before trusting any of
-     this in a real running loop — everything so far is synthetic conformance testing, not a replay against the
-     shipped binary; (4) only then replace `IvpEnvironment`/`IvpContact`.
+   - **`IvpFrictionSystem::SolveTangentialPair` read in full, 2026-09-14 — confirms a full separate subsystem, at the
+     scale of the whole impact solver.** A proper 2×2 symmetric-matrix friction-cone solve: computes the tangential
+     slip velocity, inverts a 2×2 symmetric system to find the friction impulse that would cancel it, clips it to the
+     cone's radius if it exceeds the budget, applies it, and tracks a running average magnitude (`param+0x84`) for
+     the caller's `+0x30` accumulator. Pulls in **four more unread functions**: `FUN_180085a80` (an early-out branch,
+     gated on some per-pair condition involving `+0x58`), `IvpContact::TangentialSlipVelocity`, `IvpContact::TryInvertSymmetric`
+     (the 2×2 inverse itself), `FUN_18009c620` (applies the found impulse). **This is not a small remaining piece —
+     it is the same scale of work as `IvpImpactSolver` itself**, which earned its own dedicated
+     `vphysics-impact`/`vphysics-heap-solve` oracle-backed ports. Treat the tangential solve as its own
+     multi-session port, following the exact same precedent (OV tree, larger mindist, recursive mindist, impact
+     solver), not a step folded into finishing the running path.
+   - **Next, in order**: (1) as its own dedicated port: read `FUN_180085a80`, `IvpContact::TangentialSlipVelocity`,
+     `IvpContact::TryInvertSymmetric`, `FUN_18009c620` in full, design `IvpFrictionSystem`'s per-pair contact list and
+     the tangential solve's own state, port both `SolveOncePerPsi` dispatch branches, build a `vphysics-friction-solve`
+     probe and oracle fixture, sabotage-verify; (2) the top-level `IntegrateAwakeCores`-shaped PSI/island driver —
+     `FUN_180090700`'s mini-island construction, the retry loop, `collide`'s generation bump (`env+0x1a4`), using the
+     now-ready `IvpLedgeSide.FromLedge`; (3) a `vphysics-friction-link`/`vphysics-collide` oracle probe for
+     everything built this session — still synthetic conformance testing, not a replay against the shipped binary;
+     (4) only then replace `IvpEnvironment`/`IvpContact`.
    - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
      when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
      transform (`+0x1a0/+0x1b0`), then clears the pointer. `IvpMindistMinimize::Minimize` (`180095cb0`) was already
