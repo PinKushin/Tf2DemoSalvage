@@ -143,12 +143,21 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      `1/√magnitude²` when off by more than it, then all four components scaled. Both are directly portable
      (`System.Numerics.Quaternion`-shaped, though the Newton iteration's exact step count may matter for bit parity —
      check when porting, not a design question).
-   - **Still unread, needed before a rewrite can be written**: `FUN_180094460`/`FUN_180094540` (the heap
-     comparator/swap pair in `NotifyAll`), `FUN_18009a4f0` and `FUN_180094490` (event firing and tick stamping),
-     `FUN_180079120` and `FUN_180095cb0` (both small, called conditionally). **Everything read so far in this item is
-     either already-ported (`IvpCoreSpeedBound::From`) or ordinary portable math (rotation/position integration) —
-     the actual collision-scheduling wiring (event firing, generation-based revalidation) is entirely in the pieces
-     still unread.**
+   - **`FUN_180094460`/`FUN_180094540` read in full 2026-09-14, in `NotifyAll`'s per-pair heap loop** (`NotifyAll`'s
+     params corrected on this read: `RCX`=manager, `RDX`=`&localMinList`, not the reverse guessed earlier).
+     `FUN_180094460(pair, manager)` is a trivial getter (`manager+0x48 → +0x18`, an id/generation counter, shape).
+     `FUN_180094540(pair, manager, index)` dispatches through **the manager's own vtable, slot at `+0x20`** — this is
+     polymorphic, resolved by whatever concrete manager type is running. **Hypothesis, not yet confirmed**: given the
+     compare-a-stamped-id-then-notify shape matches exactly what item 1's `Examine`/`RevalidateOne` already do, this
+     slot most likely resolves to the same `IvpPairScheduler.Examine` path, reached virtually here instead of
+     directly. **Needs the concrete vtable read to confirm before relying on it** — not yet located which type
+     implements this manager interface at runtime for a live environment.
+   - **Still unread, needed before a rewrite can be written**: the concrete vtable behind `FUN_180094540`'s slot
+     `+0x20` (to confirm or refute the `Examine` hypothesis above), `FUN_18009a4f0` and `FUN_180094490` (event firing
+     and tick stamping in `NotifyAll`'s tail), `FUN_180079120` and `FUN_180095cb0` (both small, called
+     conditionally). **Everything else read in this item is either already-ported (`IvpCoreSpeedBound::From`) or
+     ordinary portable math (rotation/position/quaternion integration)** — narrowing what remains to the four items
+     just named.
    - Replacing `IvpContact`/`IvpEnvironment` means reproducing this exact two-pass shape — build each controller's local
      candidate list, drain it as a heap firing real events, then a second full pass revalidating every pair's cache
      generation — not a single merged loop, and not `Advance`'s ad hoc per-collision subdivision. **A full rewrite, not a
