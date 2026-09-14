@@ -4511,7 +4511,55 @@ FUN_180074240(object):  every synapse of the object's list (+0x48, linked by +0x
 **The rest test depends on a generator shared by the whole process.** The countdown between tests is 15 to 19 PSIs drawn from
 `seed·75`, and every draw anywhere in the process advances it, so which PSI a corpse's heap is tested on depends on how many
 tests ran before it since the game started. *A replay can match the rule but not the phase; not established: whether anything
-else draws from the same seed.*
+else draws from the same seed.* The multiplier is `DAT_1800ee1c8` = `0xc0a00000`, `−5f`, and the generator's scale
+`DAT_1800fd2a0`; the seed is multiplied with `IMUL EAX,[seed],0x4b` and only its low word is used.
+
+**The PSI around the units, `FUN_180082560`, read from the disassembly (2026-09-14)** — `env+0x1ac` records the phase:
+
+```
+profiler 1;  +0x1ac = 0;  +0x162 set → FUN_180089210(env);  +0x58 set → FUN_180087e50(env+0x18, +0x58);  (env+0xe0) slot 10(env)
+    the controllers at +0x158 (count +0x152), last first, slot 0(&env);  FUN_180098610(env+0x20)
+profiler 2;  FUN_180075a90(env+0x10, env, a 0x80-entry buffer)      -- every awake unit's PSI, the cores collected
+profiler 3;  FUN_18009a590(env, that buffer, a second)             -- every core integrated, FUN_180099a00, last first
+profiler 4;  +0x1ac = 2;  FUN_18009a690(env, the second buffer)   -- the collision event walk
+profiler 5;  +0x1ac = 3;  FUN_1800983e0(env+0x20)
+profiler 6;  +0x1ac = 4;  FUN_1800985a0(env+0x20)
+profiler 7;  +0x1ac = 5
+```
+
+`FUN_18009a590`'s event is `{(float)env+0x108, dt > DAT_1800fcfa0 ? (float)(1.0/dt) : 1e10f}` (`0x501502f9`), and gravity's
+slot 4 `FUN_180074c80` walks the cores of its own entry in the unit (`R8`, last first), skipping a core flagged `0x10`: damping
+`FUN_180078250(core, (double)event[0])`, the flush, then `v += g·dt` in double, each lane the product first — `g` the controller's
+`+0x20..0x28` when the core is flagged `0x20`, else `+0x10..0x18`. **So a contact's friction and normal pushes are solved in
+phase 2, inside each unit's PSI, before any core is integrated or any collision walked.**
+
+**The unit's own bookkeeping:**
+
+```
+FUN_180074770(unit):  the core vector inline (capacity 2, elements +0x28);  no entries;  dword = 8, bits 8–9 and 10–13 clear
+FUN_1800749b0(unit, core):  appended to the cores (+0x18)
+FUN_180074ba0(unit):  every entry, last first, freed (its core vector freed unless inline);  the entry vector emptied
+FUN_180075470(unit):  every core, last first, every controller of the core (+0x1e8, +0x1e2), last first: the controller's entry
+    (searched last first, appended when missing) gains the core;  then FUN_180075990
+FUN_180074e80(unit) — whether the unit came apart:  every core's +0x258 = null;  every entry, last first: the controller's own
+    cores (its slot 2) joined — each root (FUN_1800878d0, along +0x258, no compression) that differs from the first core's root
+    gets +0x258 = that root;  then the unit's first core's root R;  the first core in order whose root is not R →
+    FUN_180074ba0(unit), FUN_1800761c0(unit, that root), FUN_180075470(unit)
+FUN_1800761c0(unit, r):  repeat:  a new unit, dword 1, onto the manager (FUN_1800749f0);  every core of unit whose root is r
+    moves to it (removed in order, +0x1f8 pointed at it), and the first other root seen is kept;  FUN_180075470(new);
+    until no third root was seen, r = the root kept
+FUN_180076350(unit, other):  other's cores appended, each +0x1f8 = unit;  other unlinked from its manager list (+0x18, or +0x338
+    when its state is 8 or more)
+```
+
+**A frozen core, `FUN_180088930`**: `FUN_180078c90(core)`; then every object, last first — every listener the environment's hash at
+`env+0x18` holds for it, last first, slot 3 with `{env, object}`, stopping once the object's entry is gone after a call — and
+`FUN_180082070(env, {env, object})`, the environment's own listeners at `+0x1c0` (count `+0x1ba`), last first, slot 3.
+
+**`FUN_180078c90`'s object half**, after `FUN_180078bd0` resets the core: every object, last first — `+0x78 = 8`;
+`FUN_180098880(env+0x20, object)`; its hull manager at `+0x80` folded to the time — `t = (float)(now − +0x80)`,
+`+0x94 = t·+0x8c + +0x94`, `+0x90 = t·+0x88 + +0x90` (float, the product first), `+0x88` and `+0x8c` zeroed, then
+`FUN_180094490(object+0x80)`; and `FUN_180080650(object)` when `+0x70` is set.
 
 **`FUN_1800a9bf0(system, event)`, the many-contact priority-0 routine, first half:**
 

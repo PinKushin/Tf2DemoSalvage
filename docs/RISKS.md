@@ -26190,7 +26190,10 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    and the priority-0 routine over both (`FUN_180084320`) are ported beside it and pinned through the same probe. Not
    ported yet: `FUN_1800a9bf0`'s filing pass (a contact dropped by `FUN_180083e40`, one moved to the head), the lone
    contact's drop, the empty system's deletion and the split — read in `docs/findings/51` — which land with the filing
-   routines and the simulation units.
+   routines and the simulation units. **The running path solves in the wrong phase**: `FUN_180082560` runs every unit's
+   controllers — damping, gravity, friction, the constraints, the normal pushes — in phase 2, then integrates every core, then
+   walks the collisions; `IvpEnvironment.Simulate` walks the collisions and rubs its contacts after. Replacing it with the
+   engine's phases is part of wiring these ports in.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 
