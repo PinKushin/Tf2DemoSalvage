@@ -272,14 +272,20 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      `asin(double)`, not yet confirmed) applied to `FUN_1800712b0`'s output (**unread** — extracts axis components
      from the quaternion delta). **Needs**: `FUN_1800712b0` read, a snapshot type added to `IvpRigidBody`, the new
      event-time-position field. Small, well-scoped — not rushed into this pass.
-   - **Next, in order**: (1) read `FUN_1800712b0`, add the snapshot/event-time-position fields, port
-     `RebuildMatrixAtEventTime`; (2) wire the actual `collide` callback (`FUN_18008ecb0`/`FUN_18008ef60`) using
-     `IvpFrictionLinking` plus `IvpContactRecord.Build`/`IvpContactPoint.SetMaterials`/`IvpImpactSolver.Enter` (all
-     already ported), taking pre-built `IvpLedgeSide`s as parameters; (3) port the impact-retry loop
-     (`FUN_180090700`/`FUN_180090bd0`, read in full, close to pure orchestration since
-     `Estimate`/`Enter`/`Solve` already exist); (4) the top-level `IntegrateAwakeCores`-shaped PSI driver, including
-     the still-missing "build fresh ledge sides from live objects each PSI" piece; (5) a `vphysics-friction-link`
-     and/or `vphysics-collide` oracle probe before trusting any of this in a real running loop; (6) only then replace
+   - **Done, same session: `RebuildMatrixAtEventTime` ported** (`IvpRigidBody.RebuildMatrixAtEventTime`,
+     `IvpCoreSnapshot`, `EventPosition`, `RestoreFromSnapshot`) with 5 tests, and **`collide` itself is wired**
+     (`IvpMindistCollide.Collide`) through `IvpFrictionLinking` → `IvpContactRecord.Build` →
+     `IvpContactPoint.SetMaterials`/`PushOut` → `IvpImpactSolver.Enter` (which runs its own solve internally, no
+     separate `.Solve()` call needed — simpler than first assumed). **A real hang was found and fixed by actually
+     running the tests, not by inspection**: `LinkContactByCore` was relinking an already-filed contact into
+     `IvpFrictionSystem`'s list unconditionally, setting the point's own `Next` to itself — a one-node cycle. Fixed by
+     skipping the link when the contact already belongs to the system.
+   - **Next, in order**: (1) port the impact-retry loop (`FUN_180090700`/`FUN_180090bd0`, read in full, close to pure
+     orchestration since `Estimate`/`Enter` already exist and `Enter` does its own solve — this should now be small);
+     (2) the top-level `IntegrateAwakeCores`-shaped PSI driver, including the still-missing "build fresh ledge sides
+     from live objects each PSI" piece and `collide`'s generation bump (`env+0x1a4`); (3) a `vphysics-friction-link`
+     and/or `vphysics-collide` oracle probe before trusting any of this in a real running loop — everything so far is
+     synthetic conformance testing, not a replay against the shipped binary; (4) only then replace
      `IvpEnvironment`/`IvpContact`.
    - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
      when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
