@@ -16,8 +16,8 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// **Only the fields the refresh reads are fabricated**: the cache's object (`+0xc8`); the object's environment (`+0x30`), core
 /// (`+0xe8`), rotation pointer (`+0x58`), offset (`+0x60`) and flags (`+0x78`, bit `0x800` when it has no offset); the
 /// environment's time (`+0x188`) and PSI (`+0x1a0`); and the core's position, previous velocity, both orientations, stamp and
-/// inverse step. **Every input is finite**: the matrix fill `FUN_180071330` is ported with C#'s own operators, whose NaN
-/// destinations are not yet settled, so a NaN here would test that rather than the refresh.
+/// inverse step. **A twentieth of the cases carry a NaN of one of two payloads** in one or two lanes, so the destinations the
+/// refresh, the interpolation and the matrix fill `FUN_180071330` keep are all in the lanes.
 ///
 /// **Modes.** With no mode, or `sweep n`, random cases are compared lane by lane; `fixture path` writes the cases
 /// `IvpObjectCacheConformanceTests` reads.
@@ -122,6 +122,7 @@ public sealed class VphysicsObjectCacheProbe : IProbe
         Store(inputs["orientation"], orientation);
         Store(inputs["working"], working);
         Store(inputs["rotation"], draws.Rotation());
+        draws.Poison(inputs);
         inputs["stepped"][0] = IvpImpactReplay.Lane(stepped);
         inputs["inverse-step"][0] = IvpImpactReplay.Lane(draws.Unit() < 0.7 ? 66f : (float)(1d / (0.001d + (draws.Unit() * 0.1d))));
         inputs["now"][0] = IvpImpactReplay.Lane(stepped + elapsed);
@@ -150,6 +151,37 @@ public sealed class VphysicsObjectCacheProbe : IProbe
         public double Signed() => (Unit() * 2d) - 1d;
 
         public (double X, double Y, double Z, double W) Rotation() => Normalised((Signed(), Signed(), Signed(), Signed() + 1e-3));
+
+        /// <summary>A twentieth of the cases get a NaN — one of two payloads — in one or two lanes of the core's or the object's fields.</summary>
+        public void Poison(Dictionary<string, long[]> inputs)
+        {
+            if (Unit() >= 0.05)
+            {
+                return;
+            }
+
+            string[] doubles = ["position", "orientation", "working", "rotation"];
+            string[] singles = ["velocity", "offset", "inverse-step"];
+            int poisons = 1 + (int)(Unit() * 2);
+
+            for (int poison = 0; poison < poisons; poison++)
+            {
+                bool payload = Unit() < 0.5;
+
+                if (Unit() < 0.6)
+                {
+                    long[] lanes = inputs[doubles[(int)(Unit() * doubles.Length)]];
+
+                    lanes[(int)(Unit() * lanes.Length)] = payload ? unchecked((long)0xfff8000000000001UL) : unchecked((long)0x7ff8000000000002UL);
+                }
+                else
+                {
+                    long[] lanes = inputs[singles[(int)(Unit() * singles.Length)]];
+
+                    lanes[(int)(Unit() * lanes.Length)] = payload ? 0xffc00001L : 0x7fc00002L;
+                }
+            }
+        }
 
         public (double X, double Y, double Z, double W) Near((double X, double Y, double Z, double W) rotation) =>
             Normalised((rotation.X + (Signed() * 0.05d), rotation.Y + (Signed() * 0.05d), rotation.Z + (Signed() * 0.05d), rotation.W + (Signed() * 0.05d)));

@@ -37,7 +37,8 @@ public sealed class IvpObjectCacheConformanceTests
     /// <remarks>
     /// **The control on the fixture itself**: the binary must have copied the core for a case with no time elapsed — its cached
     /// rotation the core's committed orientation, bit for bit — and interpolated for another, and composed an object rotation and an
-    /// offset somewhere, so both branches and both compositions were reached.
+    /// offset somewhere, so both branches and both compositions were reached; and some matrix must hold a NaN, so the destinations
+    /// were in the lanes.
     /// </remarks>
     [Test]
     public void Fixture_TheCasesTheBinaryWasGiven_ReachBothBranchesAndBothCompositions()
@@ -50,6 +51,7 @@ public sealed class IvpObjectCacheConformanceTests
             !replay.Outputs["cached-rotation"].SequenceEqual(replay.Inputs["orientation"])).ShouldBeGreaterThan(0);
         replays.Count(replay => replay.Inputs["has-rotation"][0] != 0).ShouldBeGreaterThan(0);
         replays.Count(replay => replay.Inputs["has-offset"][0] != 0).ShouldBeGreaterThan(0);
+        replays.Count(replay => replay.Outputs["matrix"].Any(lane => double.IsNaN(BitConverter.Int64BitsToDouble(lane)))).ShouldBeGreaterThan(0);
     }
 
     private static IReadOnlyList<IvpReplayCase> Load()

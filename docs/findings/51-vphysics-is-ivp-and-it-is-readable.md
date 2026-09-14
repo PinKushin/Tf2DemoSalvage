@@ -4889,8 +4889,11 @@ FUN_180080a60(cache):  object = +0xc8;  +0xc0 = env+0x1a0;  dt = (float)(env+0x1
 **Ported and pinned (2026-09-14)** as `IvpObjectCache`: the `vphysics-object-cache` probe calls `FUN_180080a60` on a fabricated
 cache, object, core and environment — elapsed times of zero, inside a step and past it, half the objects with an offset and a
 fifth with a rotation — and **100,000 cases agree on every lane** on the first sweep; `IvpObjectCacheConformanceTests` replays
-400. *Not established: NaN inputs, which the probe leaves out because `IvpMatrix.FromRotation` still uses C#'s operators; and the
-ring's size and eviction order, which decide only when a cache is rebuilt.*
+400. **The matrix fill's destinations were read and pinned with it**: `FUN_180071330` keeps the left operand of every product
+and sum as `IvpMatrix.FromRotation` writes them, which C#'s operators leave to the JIT, so the fill now goes through
+`Addsd`/`Mulsd`, and a twentieth of the probe's cases carry a NaN of one of two payloads in the core's or the object's fields
+— **100,000 cases with them agree too**. *Not established: the ring's size and eviction order, which decide only when a cache
+is rebuilt.*
 
 **The OV tree is ported and pinned (2026-09-14)** as `IvpOvTree`: the insert, its key, growth, descent, path, both overlap
 walks and the removal. The `vphysics-ov-tree` probe builds a real tree with `FUN_18009d820` and sixteen nodes with
