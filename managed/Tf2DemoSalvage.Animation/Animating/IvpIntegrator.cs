@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>
@@ -265,6 +267,16 @@ public sealed class IvpRigidBody
 
         set => _faces = value ?? [];
     }
+
+    /// <summary>The body's undiscarded ledges — what a real mindist needs, kept beside the GJK path's flat <see cref="Hull"/>/<see cref="Faces"/> (B369).</summary>
+    /// <remarks>
+    /// **Carried, not yet consumed.** `IvpMindist` and <see cref="IvpLedgeSide.FromLedge"/> both need a
+    /// <see cref="PhysicsLedge"/>'s triangles, edge offsets and material indices, which flattening into
+    /// <see cref="Hull"/>/<see cref="Faces"/> already discards. A real ledge-tree hull for a moving body — matching
+    /// what <see cref="IvpWorldCollision"/> already builds for the world — is not yet built from this; see
+    /// `docs/HANDOFF.md`, item 3.
+    /// </remarks>
+    public IReadOnlyList<PhysicsLedge> Ledges { get; set; } = [];
 
     /// <summary>Each contact FEATURE's tangential slip, carried between steps, keyed by normal.</summary>
     /// <remarks>

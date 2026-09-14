@@ -125,6 +125,18 @@ public readonly record struct RagdollElement(
     /// </remarks>
     public required Vector3 HullInertia { get; init; }
 
+    /// <summary>
+    /// The element's ledges, undiscarded — the same <see cref="PhysicsLedge"/>s <see cref="Hull"/>/<see cref="Faces"/> are
+    /// flattened from, kept whole for what a real mindist needs (B369).
+    /// </summary>
+    /// <remarks>
+    /// **Carried so a later port can build a real ledge-tree hull for a ragdoll body, not only the world.**
+    /// <see cref="IvpMindist"/> and <see cref="IvpLedgeSide.FromLedge"/> both need a <see cref="PhysicsLedge"/>'s
+    /// triangles, edge offsets and material indices — data <see cref="Hull"/>/<see cref="Faces"/> already discard once
+    /// flattened. Not yet consumed anywhere; see `docs/HANDOFF.md`, item 3.
+    /// </remarks>
+    public IReadOnlyList<PhysicsLedge> Ledges { get; init; } = [];
+
     /// <summary>The inertia floor, as a fraction of the inertia's length — <c>objectparams_t::rotInertiaLimit</c>.</summary>
     /// <remarks>
     /// **`0.05` is `g_PhysDefaultObjectParams`'** (`physics_shared.cpp:50`), and a ragdoll element overrides it
@@ -320,7 +332,7 @@ public sealed class RagdollBody
                 return null;
             }
 
-            (List<Vector3> Points, List<(int A, int B, int C)> Faces) shape =
+            (List<Vector3> Points, List<(int A, int B, int C)> Faces, IReadOnlyList<PhysicsLedge> Ledges) shape =
                 HullInBoneSpace(physics, index);
 
             if (MassInBoneSpace(physics, index) is not var (massCenter, hullInertia))
@@ -347,6 +359,7 @@ public sealed class RagdollBody
             {
                 MassCenter = massCenter,
                 HullInertia = hullInertia,
+                Ledges = shape.Ledges,
 
                 // `solid.params.rotInertiaLimit = 0.1;` — `ragdoll_shared.cpp:192`, for every element.
                 RotationInertiaLimit = RagdollRotationInertiaLimit,
@@ -596,7 +609,7 @@ public sealed class RagdollBody
 
         PhysicsSolid solid = physics.Solids[0];
 
-        (List<Vector3> points, List<(int A, int B, int C)> faces) = HullInBoneSpace(physics, 0);
+        (List<Vector3> points, List<(int A, int B, int C)> faces, IReadOnlyList<PhysicsLedge> ledges) = HullInBoneSpace(physics, 0);
 
         if (points.Count == 0)
         {
@@ -629,6 +642,7 @@ public sealed class RagdollBody
                 {
                     MassCenter = massCenter,
                     HullInertia = hullInertia,
+                    Ledges = ledges,
                 },
             ],
             [],
@@ -637,12 +651,12 @@ public sealed class RagdollBody
             null);
     }
 
-    private static (List<Vector3> Points, List<(int A, int B, int C)> Faces) HullInBoneSpace(
+    private static (List<Vector3> Points, List<(int A, int B, int C)> Faces, IReadOnlyList<PhysicsLedge> Ledges) HullInBoneSpace(
         PhysicsModel physics, int solid)
     {
         if (solid >= physics.Hulls.Count)
         {
-            return ([], []);
+            return ([], [], []);
         }
 
         List<Vector3> hull = [];
@@ -667,7 +681,7 @@ public sealed class RagdollBody
             }
         }
 
-        return (hull, faces);
+        return (hull, faces, physics.Hulls[solid]);
     }
 
     /// <summary><c>solid.params.rotInertiaLimit = 0.1;</c> — <c>RagdollAddSolid</c>, <c>ragdoll_shared.cpp:192</c>.</summary>

@@ -139,6 +139,10 @@ public sealed class RagdollSimulation
                 // `IvpRigidBody.Faces` for what their absence cost.
                 Faces = element.Faces,
 
+                // **Undiscarded, for a real mindist rather than the GJK-based path above** (B369). See
+                // `IvpRigidBody.Ledges`.
+                Ledges = element.Ledges,
+
                 // **The surface this body is made of, resolved as the game resolves a ragdoll solid's** — its `surfaceprop`,
                 // else `default`. Every player element says `flesh`; a prop says whatever its `.phy` declares.
                 Friction = surfaces.ObjectMaterial(element.SurfaceProp)?.Physics.Friction ?? IvpRigidBody.NoSurfaceFriction,

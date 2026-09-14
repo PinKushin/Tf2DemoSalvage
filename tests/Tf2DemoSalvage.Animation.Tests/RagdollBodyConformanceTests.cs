@@ -102,6 +102,39 @@ public sealed class RagdollBodyConformanceTests
     }
 
     /// <remarks>
+    /// **The ledge that gets flattened into <see cref="RagdollElement.Hull"/>/<see cref="RagdollElement.Faces"/> is
+    /// also carried whole** — what a real mindist needs and the flattened form has already discarded.
+    /// </remarks>
+    [Test]
+    public void Build_ASolidWithAHull_CarriesItsLedgesUndiscarded()
+    {
+        PhysicsLedge ledge = new(
+            [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
+            [(0, 1, 2)],
+            [(0, 0, 0)],
+            [0],
+            [0],
+            Vector3.Zero,
+            0.1f);
+
+        PhysicsModel physics = PhysicsModel.From(
+            [
+                new PhysicsSolid(0, "bip_root", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f),
+                new PhysicsSolid(1, "bip_child", "bip_root", "flesh", 2f, 1f, 0f, 0f, 20f, 0f),
+            ],
+            [],
+            2,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [[ledge], [ledge]],
+            massProperties: RagdollMasses.Uniform(2));
+
+        RagdollBody body = RagdollBody.Build(physics, Skeleton())!;
+
+        body.Elements[1].Ledges.ShouldBe([ledge]);
+    }
+
+    /// <remarks>
     /// **The mass center crosses the same seam as the hull's points** (B403): the compact surface holds it in
     /// IVP metres and axes, in the solid's own frame, which is bone space here. IVP `(0.1, 0.2, 0.3)` is Source
     /// `(x, z, −y)` × 39.3700790 = `(3.937, 11.811, −7.874)` to a thousandth.
