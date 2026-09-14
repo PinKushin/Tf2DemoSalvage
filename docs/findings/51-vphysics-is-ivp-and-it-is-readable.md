@@ -5025,6 +5025,18 @@ subtracted back out, the flags ORed without their clear, the both-at-rest order 
 the split handed the first core twice. Handing it the cores swapped did not compile: Sonar's S2234 refuses arguments named like
 the parameters in another order.
 
+**The larger mindist is ported (2026-09-14).** `IvpRecursiveMindist` carries slot 0 (`FUN_1800b2250`), slot 7 (`FUN_1800b2700`),
+slot 8 (`FUN_1800b2460`), `FUN_1800b28a0` and `FUN_1800b29b0`, with its own delegator for the slots of table `1800fe9a8`. Porting it
+settled four things the reading had left implicit. `FUN_180096680` calls `FUN_1800975d0` for both kinds of mindist: the larger
+one's constructor returns to `180096cc7`, where the plain one's inline writes also arrive, so the two differ only in their table.
+The delegator's slot 3 asks the outer delegator a second time when the first answer is above zero, because that branch is a tail
+call rather than a return of the value it already has. The hull-passed handler's close test is `COMISS` then `JNC`, so a NaN length
+closes the pair, and `FUN_180097ae0` reads the phantom bits for the rechecked array before the handler clears them. And the side
+choice needs the node a ledge names, not the node it was found at: `PhysicsLedgeTreeNode.LedgeNode` now carries it, and a ledge
+naming an offset where no node lies is refused rather than read as a radius. A record's slot 1 reaches `FUN_180097f00` through the
+environment's handler, which sends the recursive state to the larger mindist on the flags alone, as the binary does; a plain
+mindist in that state is refused.
+
 So **a larger mindist opens its ledge only when the pair would otherwise freeze or collide on a hull's virtual face**, and
 then waits on the hull managers like a far pair; `FUN_180097f00`, told its hull passed, sends it to `FUN_1800b28a0`, which
 closes it back into a plain exact pair once the length is past `DAT_18012d64c` and otherwise refreshes its children.

@@ -8800,3 +8800,26 @@ happens once, where `CPhysicsEnvironment` and `CPhysicsObject` do it. The code s
 `IvpContact`, `RagdollSimulation`) is the structure D172 replaces; it is not converted in place.
 
 Related: D89, D172, B369.
+
+## D174 — a read function is named for what it does; `FUN_` addresses stop being the vocabulary (2026-09-14)
+
+**The owner, mid-port:** *"Can we start renaming the functions to have readable names which say what they do, like how a human
+reverse engineers. We don't keep the decomped naming, when we do this stuff by hand, because it's more difficult to read. So even
+though you are AI and can easily match the decomp function name, you still have to either note somewhere what that function does,
+which can be replaced by renaming, or rederive it every time. Both of which are unneeded if you rename the functions to tell us
+what they do, rather than having generic fun_ names."*
+
+**Why it follows:** `FUN_1800b2700` in a comment carries no meaning, so every reader — the owner, or a later session — has to look
+it up in a findings table or read the disassembly again to learn that it is the larger mindist's freeze. A name in the Ghidra
+project answers that at every call site the decompiler shows, and in every document that cites it.
+
+**What follows:**
+- **In the Ghidra project** (`D:\ghidra-proj`, saved after renaming), a function with a port is named for the port member it
+  became, as `Type::Member` — `FUN_1800b2700` is `IvpRecursiveMindist::Freeze` — so the disassembly, the code and the documents
+  share one name. A function read but not ported is named by what it writes, under IVP's class where the evidence names one. **Only
+  a read function is named**: an unread one keeps its `FUN_` name, which then says truthfully that nobody knows what it does.
+- **New code and documents cite the name.** The address goes beside it only where a reader must find the instructions — a reading
+  block, an instruction address. Existing `FUN_` references convert when their file is next edited, not in one scripted pass.
+- Data labels (`DAT_`) follow the same rule once read.
+
+Related: D89, D172, B369.

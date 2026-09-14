@@ -367,6 +367,25 @@ public sealed class IvpRecursiveMindistConformanceTests
         (pair.Mindist.Flags & IvpMindistHull.StateMask).ShouldBe(IvpMindistHull.RecursiveState);
     }
 
+    /// <remarks>
+    /// **Past the limit, refreshing still counts `env+0xbc` and files both records again, but nothing beneath is refreshed** —
+    /// `FUN_1800b29b0` reads the count first and returns, telling no change.
+    /// </remarks>
+    [Test]
+    public void HullPassed_RefreshingPastTheLimit_FilesTheRecordsButRefreshesNothingBeneath()
+    {
+        Pair pair = Opened();
+        pair.Outer.Answer = 1001;
+
+        pair.Mindist.HullPassed(mindist => mindist.Length = 0f).ShouldBeFalse();
+
+        pair.Environment.WatcherRefreshes.ShouldBe(1);
+        pair.FirstSurface.Roots.ShouldBe([pair.FirstTree.Root]);
+        pair.Outer.Told.ShouldBe([("added", 2)]);
+        pair.Mindist.HullRecord(0).HullSlot.ShouldNotBeNull();
+        pair.Mindist.HullRecord(1).HullSlot.ShouldNotBeNull();
+    }
+
     /// <remarks>**`FUN_180097f00` sends the recursive state to `FUN_1800b28a0`** with the recheck, handing nothing off.</remarks>
     [Test]
     public void HullPassed_TheHullManagersHandler_SendsTheRecursiveStateToTheLargerMindist()
@@ -597,6 +616,9 @@ public sealed class IvpRecursiveMindistConformanceTests
 
         public int Asked { get; private set; }
 
+        /// <summary>What slot 3 answers.</summary>
+        public int Answer { get; set; } = answer;
+
         public void CollisionRemoved(IvpCollision collision) => Told.Add(("removed", 0));
 
         public void MindistsAdded(int change) => Told.Add(("added", change));
@@ -604,7 +626,7 @@ public sealed class IvpRecursiveMindistConformanceTests
         public int MindistsBeneath()
         {
             Asked++;
-            return answer;
+            return Answer;
         }
     }
 

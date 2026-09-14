@@ -140,3 +140,4 @@
 - [Spend fewer tokens](spend-fewer-tokens.md) — ponytail ultra; LSP/MCP over raw reads, one-line remarks, no reflexive agents.
 - [Push when work piles up](push-when-work-piles-up.md) — crash safety outranks "push sparingly"; commit a green state first, never mid-sabotage.
 - [The JIT picks the NaN destination](the-jit-picks-the-nan-destination.md) — C# `+`/`*` leave two-NaN results to operand order; Addsd/Mulsd pin it, never license it; an order nothing can redden may be dead — trace it to an output first.
+- [Rename decompiled functions](rename-decompiled-functions.md) — D174; a read function is renamed in Ghidra for its port member, `Type::Member`; cite names, not `FUN_` addresses.
