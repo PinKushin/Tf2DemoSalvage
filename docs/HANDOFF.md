@@ -373,6 +373,16 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      rotation from a stale axis pair, because this project recomputes both tangent axes fresh every PSI
      (`IvpMindistCollide`) rather than caching them across PSIs the way the native's axis-reuse case would need one.
      `ClampSlide`'s pre-clamp formula is likewise confirmed byte-for-byte against `SolveOncePerPsi`'s own instructions.
+   - **`SolveContact` landed, 2026-09-14: the tangential solve now runs end to end for one contact**
+     (`IvpTangentialSolve.SolveContact`) — `Solve`, `ClipImpulse` and `ApplyImpulse` wired together off a contact's
+     own `IvpContactRecord` fields, confirming `IvpContactRecord.Build` is the SAME native function
+     (`18008d0c0`) that computes the tangent axes (`Span`/`CrossSpan`) and both arm vectors (`FirstArm`/`SecondArm`)
+     `SolveTangentialPair` reads — there is no separate axis/arm builder. The material axis-friction factor
+     (`BuildJacobian`'s `+0x40/44/48/4c`) is identity for the ordinary isotropic case; a contact using
+     `IvpContactPoint.UsesMaterialAxes` throws rather than guess a factor nothing has confirmed. 4 new tests,
+     5100/5101 total. **What `SolveContact` still does NOT do**: compute or receive the pair's own friction-cone
+     budget — its caller must still pass one in, and that caller (the `SolveOncePerPsi`/pair-walk orchestration) is
+     not yet written.
    - **Two gaps this same read surfaced, still open**: (1) the native sets a flag byte at contact `+0x91` whenever
      `ClampSlide`'s clamp fires — this collides with `IvpContactPoint.FirstMeasure`'s already-documented offset
      (`+0x91`, "whether the next measure is the first"), so either that field is reused for two purposes across the
