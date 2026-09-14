@@ -389,7 +389,17 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      contact's lifetime or one of the two offset readings is wrong; needs a targeted re-read before porting the flag.
      (2) the per-pair friction-cone budget's third multiplicand — `Σ contact[+0x88] × contact[+0x78] × contact[+0x60]`,
      scaled by `inverseStep²` — has `+0x88` (`NormalPush`) and `+0x78` (`Friction`) identified, but `+0x60`'s owning
-     field is still unnamed; the decompile shows the read but not what wrote it. **Confirmed, not a struct
+     field is still unnamed. **Searched again, 2026-09-14, specifically for its writer: none found.** Neither the
+     contact's constructor (`180082ed0`) nor its allocator zero or write it, unlike every neighbouring field — the
+     constructor explicitly zeroes `+0x64`, `+0x68`, `+0x7c`, `+0x84..0x8b`, `+0x92`, `+0xc0` and leaves `+0x60`
+     conspicuously untouched, and `SetMaterials` (`1800908d0`)'s own `+0x60`/`+0x68` writes are on the MATERIALS
+     PAIR OUTPUT struct it builds, a different object entirely, not the contact. Read-only in every function found
+     this session. **This means whatever writes it is either the arena/pool allocator zero-initializing raw memory
+     (in which case it is always zero and the whole third multiplicand is a no-op — plausible, since a genuinely
+     unset per-contact field defaulting to zero would just make the "cone budget" collapse to zero contribution per
+     contact, which is a real and legitimate constant-folding possibility, not a hole in the reading) or a caller
+     not yet located.** Not safe to port until one of those is confirmed; `SolveOncePerPsi`'s orchestration should
+     take the budget as a parameter from its caller rather than compute it, until this is resolved. **Confirmed, not a struct
      `SolveOncePerPsi` builds itself**: the per-pair contact list is `IvpFrictionPair`'s own array (matching this
      project's `IvpFrictionPair.Contacts`, not yet filed into by anything), and the two tangent axes/arm
      vectors/material axis factors `BuildJacobian` needs are NOT built inside `SolveOncePerPsi` — they come from
