@@ -4207,6 +4207,25 @@ made:  rebuild → the same two calls;  the environment's listeners (FUN_180081e
   (double)((y² + z²)·Ix⁻¹)), (double)((x² + y²)·Iz⁻¹)) + m⁻¹)` — `1.0` in place of `m⁻¹` for a core flagged `0x10`. A contact's
   mass along its worst axis, not along its normal.
 
+**The records themselves:**
+
+- **A friction system is `0x90` bytes** (`FUN_1800879e0(system, env)`): three controller tables — `1800fd638` at `+0x0` with the
+  environment at `+0x8`, `1800fd5f8` at `+0x10` and `1800fd5a8` at `+0x20`, each followed by the system itself — the contact list
+  head `+0x40`, the cores `+0x48`, the movable cores `+0x58`, the pairs `+0x68` (count `+0x6a`, elements `+0x70`), the core count
+  `+0x78`, the contact count `+0x7a` and a byte `+0x80`. **The three tables differ in slot 4** (`1800843c0`, `180084320`,
+  `180084240`) and slot 5 (`180088be0`, `18000a6f0`, `180088bd0`); slot 7 of the first is the deleting destructor.
+- **A pair is `0x50` bytes** (`FUN_1800830d0`): its contact vector at `+0x0`/`+0x2`/`+0x8`, `+0x20 = 1`, `+0x28` a time starting at
+  `DAT_1800fd590` = `−1000.0`, `+0x30 = 0`, and its two physical cores at `+0x38`/`+0x40`; `FUN_1800833d0(system, pair)` appends it
+  and tells the environment's listeners (`FUN_180081f10`).
+- **`FUN_180086240(target, source)` merges two systems**: every contact of `source`'s list is unlinked (`FUN_180088ce0`), taken out
+  of its pair (`FUN_180088130`) and filed into `target` (`FUN_180087c90`, `FUN_180088090`); then every core of `source`, last first —
+  a core already in `target` moves its contacts into its `target` record and loses the `source` one (`FUN_180077c10`); otherwise
+  its record is detached (`FUN_180079180`), pointed at `target`, reattached, and the core leaves `source` (`FUN_180088c80`) and
+  joins `target` — and `source` deletes itself through slot 7.
+- **`FUN_1800748b0(core, controller)`** appends the controller to the core's (`+0x1e0` capacity, `+0x1e2` count, `+0x1e8`), finds or
+  makes (`FUN_180074820`) the controller's `0x28`-byte entry in the core's simulation unit (`+0x1f8`; entries `+0x3a`/`+0x40`),
+  appends the core to that entry's cores (`+0x8`/`+0xa`/`+0x10`) and tails into `FUN_180075990(unit)`.
+
 **So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
 entry's port keeps it because the routine has it. *Not read: `FUN_180086240` (merging systems), the controller bases, and the
 simulation units `FUN_180074e40`/`FUN_1800747a0` merge.* **Nothing here is ported.**
