@@ -4869,6 +4869,29 @@ FUN_180025bc0(mesh manager, &centre, double r, root, list) — a displacement's 
 
 *Not read yet: `FUN_18007bea0`, the phantom's other path, and the game's virtual-mesh query, which lives in the engine.*
 
+**The object cache**, read from the disassembly (2026-09-14) — the structure whose `+0x40` matrix `FUN_1800a0800` builds its
+motion cache over, which that port had filed as "not established":
+
+```
+FUN_18008c420(object):  its cache (+0x70), or one from env+0xd8's ring (FUN_1800805a0);  object+0x78 < 8 and env+0x1a0 past
+    the cache's +0xc0 → FUN_180080a60
+FUN_1800805a0(ring, object):  the next slot (0xd0 bytes from +0x8, +0x4 the cursor, +0x0 the count, a power of two) whose +0xc4
+    is clear;  its previous object's +0x70 cleared;  +0xc8 = object, object+0x70 = the slot, +0xc0 = 0;  object+0x78 ≥ 8 →
+    FUN_180080a60 at once
+FUN_180080a60(cache):  object = +0xc8;  +0xc0 = env+0x1a0;  dt = (float)(env+0x188 − core+0x1d0)
+    UCOMISS dt, 0 equal or unordered → q = core+0x180, p = core+0x150                     -- a NaN copies too
+    else → q = FUN_180071060(core+0x180, core+0x1a0, (double)(dt·core+0x1d8)), p = (double)core+0x170·(double)dt + core+0x150
+    +0xa0 = +0x0 = p;  +0x20 = q;  +0x40 = FUN_180071330(q)
+    object+0x78 & 0x800 clear → +0xa0 = FUN_180070b20(+0x40, object+0x60):  (s.z·m[i,2] + (s.x·m[i,0] + s.y·m[i,1])) + t[i]
+    object+0x58 set → +0x20 = q·r inline (the product routine's values; r·q the destination in three lanes), +0x40 again
+```
+
+**Ported and pinned (2026-09-14)** as `IvpObjectCache`: the `vphysics-object-cache` probe calls `FUN_180080a60` on a fabricated
+cache, object, core and environment — elapsed times of zero, inside a step and past it, half the objects with an offset and a
+fifth with a rotation — and **100,000 cases agree on every lane** on the first sweep; `IvpObjectCacheConformanceTests` replays
+400. *Not established: NaN inputs, which the probe leaves out because `IvpMatrix.FromRotation` still uses C#'s operators; and the
+ring's size and eviction order, which decide only when a cache is rebuilt.*
+
 **The OV tree is ported and pinned (2026-09-14)** as `IvpOvTree`: the insert, its key, growth, descent, path, both overlap
 walks and the removal. The `vphysics-ov-tree` probe builds a real tree with `FUN_18009d820` and sixteen nodes with
 `FUN_18009d7b0`, runs cases of 24 drawn inserts and removals through `FUN_18009ecb0` and `FUN_18009efc0`, and compares each
