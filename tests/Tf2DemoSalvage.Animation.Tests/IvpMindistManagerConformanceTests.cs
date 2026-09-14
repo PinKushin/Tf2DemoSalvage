@@ -301,6 +301,41 @@ public sealed class IvpMindistManagerConformanceTests
         both.Flags.ShouldBe(0xCC000);
     }
 
+    /// <remarks>
+    /// **The next record is read before the minimize runs** (`MOV RSI, [RAX+0x10]` ahead of the call), so a minimize that takes the
+    /// current pair off the invalid lists does not end the walk: the pair after it is still minimized.
+    /// </remarks>
+    [Test]
+    public void RecheckInvalid_AMinimizeThatUnlinksTheCurrentPair_StillReachesTheNext()
+    {
+        IvpMindistManager manager = new();
+        IvpCollisionObject first = new() { Core = new IvpRigidBody() };
+        IvpCollisionObject second = new() { Core = new IvpRigidBody() };
+        IvpMinList<IvpMindist> queue = new();
+        IvpMindist earlier = NewMindist();
+        IvpMindist later = NewMindist();
+        List<IvpMindist> minimized = [];
+
+        foreach (IvpMindist mindist in new[] { earlier, later })
+        {
+            manager.LinkExact(mindist, first, second);
+            manager.Invalidate(mindist, first, second, queue);
+        }
+
+        first.RecheckInvalid(manager, mindist =>
+        {
+            minimized.Add(mindist);
+            mindist.Flags |= 0x4000;
+
+            if (ReferenceEquals(mindist, later))
+            {
+                manager.UnlinkInvalid(mindist);
+            }
+        });
+
+        minimized.ShouldBe([later, earlier]);
+    }
+
     private static IvpMindist NewMindist(int flags = 0) =>
         new(
             new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),

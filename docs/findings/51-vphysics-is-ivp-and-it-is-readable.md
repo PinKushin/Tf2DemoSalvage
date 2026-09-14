@@ -4521,8 +4521,114 @@ FUN_180097ae0(manager, m):  flags & ~0x300000 | 0xc0000;  m at the head of the e
     read only when it has not — and flags & 0x3000 is not 0x1000.  No minimize, unlike FUN_1800977f0
 ```
 
-*Not established: a case that tells the zero budget from twenty — it needs a minimize that revisits a pair of features — and
-`FUN_180098880`, the broad phase a freezing core's objects run.*
+*Not established: a case that tells the zero budget from twenty — it needs a minimize that revisits a pair of features.*
+
+**The broad phase, `FUN_180098880(manager, object)`, first reading (2026-09-14)** — what a core coming to rest runs for each
+of its objects (`FUN_180078c90`, `FUN_1800791a0`), and a teleport and an object's creation too (`FUN_18009a870`,
+`FUN_180073700`, `FUN_180073a90`, `FUN_180073b00`, `FUN_1800742c0`, `FUN_180074530`, `FUN_18008a320`). It is IVP's OV tree: a
+sphere per object, filed in a hierarchy of integer-keyed cells.
+
+```
+node = object+0xd8;  none → return
+FUN_18009efc0(env+0x28 tree, node)                              -- out of its cell
+env+0xc0 += 1;  node+0x20..0x28 = (float)core+0xf0..0x100       -- the unit PSI's extrapolated position
+manager+0x0 set (a pair creation is running) → FUN_18009ecb0(tree, node, core+0x4, core+0x4, no list);
+    FUN_18009de80(node, object+0x80, DAT_1800f4f20);  return
+r = env+0x38's slot 2(object) + (double)core+0x4
+env+0x58 set and object+0x78 & 7 → manager+0x0 = 1;  env+0x58's slot 0(object, &node+0x20, r);  manager+0x0 = 0
+g = FUN_18009ecb0(tree, node, r, r, a 0x80-entry list of the nodes it overlaps);  FUN_18009de80(node, object+0x80, g − core+0x4)
+the node's partner records (+0x40 count +0x42, elements +0x48), each slot 2 → its two objects, indexed in an open table of
+    shorts by (a ^ b ^ object) + ((a ^ b ^ object) >> 8)·0x3ff, sized a power of two over 4·(partners + found), at most 0x400
+every overlapping node, last first — other = its +0x38:
+    both objects' +0x78 & 7 clear → skip;  same friction core (+0xf0) → skip;  object's core & 0x12 and other's core & 0x12 → skip
+    object+0x78 bit 9 with other's bit 9 → skip;  object bit 10 (not 9) with other's bit 9, or bit 9 with other's bit 10 → kept
+        without the filter;  otherwise env+0x30's slot 0(object, other) zero → skip
+    FUN_1800962c0(table, other, object) finds the partner record and swaps it into the kept prefix;  none → other listed as new
+every partner record past the kept prefix, last first: slot 0(record, 1)          -- a pair no longer overlapping deleted
+every new other, last first: env+0x1d0's creators (count +0x1ca), last first, slot 5(creator, object, other) until one answers
+```
+
+```
+FUN_18009efc0(tree, node):  cell = node+0x10;  node+0x10 = null;  node removed from the cell's nodes (+0x32, +0x38; the last
+    match, the rest moved down);  while the cell has no nodes (+0x32) and no children (+0x22):  no parent (+0x18) → tree+0x58 =
+    null;  the cell out of tree+0x48's hash;  FUN_18009dc50(cell) — out of its parent's children (+0x22, +0x28), vectors freed;
+    freed;  cell = its parent
+FUN_18009df30(key, node, r, r₂):  the level e from the exponent of r + r less 0x3fe, at least −40, scale = the loaded table below
+    18012d7c8;  per axis lo = floor((float)((c − r)·scale)), hi = ceil((float)((c + r)·scale)), until every hi ≤ lo + 2, e rising;
+    key = {lo.x, lo.y, lo.z, e − 1, e};  r₂ > r → the same at the next level from 18012d680, taken when it fits;  returns the radius used
+FUN_18009ecb0(tree, node, r, r₂, list):  key = FUN_18009df30;  node+0x30 = (float)that radius;  the cell by key in tree+0x48
+    (FUN_1800b5c10 — the CRC-32 of the 20-byte key with bit 31 set — and FUN_1800722b0);  found → the node joins it;  else a new
+    0x40-byte cell with the key and the node:  no root (+0x58) → it is the root, hashed;  else the root grown (FUN_18009e920, a
+    parent one level up whose coordinates are the child's halved, rounded by 18012d680+0x140/+0x148) until it holds the cell, the
+    two merged when they are one cell, or the cell hashed and hung under its deepest existing ancestor (FUN_18009eb20) through new
+    cells one level at a time (FUN_18009e730);  a list → tree+0x40 = list, FUN_18009e3d0(tree, node, root, cell)
+FUN_18009e3d0(tree, node, cell, target):  every node of the cell, last first, whose centre is within the two radii —
+    ((Δy² + Δx²) + Δz²) of float differences widened, against ((float)(r + r'))² — appended to the list;  then every child, first
+    to last, the target itself through FUN_18009e630 and any other whose box, shifted to a common level, overlaps the target's
+    recursed into
+FUN_1800962c0(table, other, object):  probe by (other >> 8)·0x3ff + other;  each entry's record slot 2 → its objects; a record
+    naming other → swapped with the entry at the kept count (+0x18), both records' back-indices (+0x18/+0x1c) rewritten, the
+    count raised, the record returned
+FUN_180071f90 / FUN_180072570:  Robin-Hood insert and delete in the cell hash (16-byte slots, the hash's low bits the home)
+```
+
+**The level tables at `18012d680` and `18012d7c8` are zeros in the file** — they are written when `vphysics.dll` loads, so they
+must be read from the loaded image, as the minimize's dispatch table is.
+
+**Where a pair's mindists come from** — `FUN_180096680(objectA, objectB, gap, pair vector, ledgeA, ledgeB, …)`, called by
+`FUN_1800b29b0` and `FUN_1800b6080`, and the constructor it ends in:
+
+```
+FUN_18009e630(tree, node, cell):  every node of the cell within the two radii appended, as FUN_18009e3d0 does;  then every child,
+    last first, recursed with no box test                                            -- the target's whole subtree
+FUN_180096680:  for a side given no ledge, the other object's core extrapolated to env+0x188 over (float)(now − +0x1d0) by
+        its previous velocity (+0x170, each lane the product first), r = (float)(this object's +0xe0 + that core's +0x4) + gap,
+        FUN_18008c420 and FUN_180070800 put the point in this object's frame, and its surface manager (+0xc8) slot 4 lists the
+        ledges within r;  a given ledge is the list
+    the pair vector's mindists indexed by (ledgeB·75 ^ ledgeA) + that >> 8·0x3ff in an open table of shorts, a power of two
+        over 2·(A's·B's + existing) + 2, at most 0x400
+    every ledge of A, last first, against every ledge of B, last first:  an existing mindist → swapped into the kept prefix, its
+        back-indices (+0x18/+0x1c) rewritten;  otherwise a new one:  either ledge's +0x8 & 3 → 0x100 bytes through FUN_1800b21f0;
+        else 0xe0 bytes — table 1800fdec8, both records' listener tables 1800fdea0, +0x18 = −1, +0x8 = 0xffff, flags
+        & 0xcfc000ff | 0x0fc00000, +0xa0, +0xc0 and +0xd8 zeroed, env+0xb0 and +0xb4 counted — then FUN_1800975d0(m, A, B,
+        ledgeA+0x14, ledgeB+0x14);  listed as new
+    every mindist past the kept prefix, last first: slot 0(m, 1);  every new one, last first, appended with its back-index
+FUN_1800975d0(m, A, B, featureA, featureB):  each object's kind (+0x8): 2 a polygon — the record's feature the pointer with its low
+    four bits cleared, less (header & 0xfff + 1)·16 handed to the surface manager's slot 7 (a reference), kind word 0;
+    3 a ball — kind word 3, and of two balls the record order follows the objects' +0x100 addresses;  anything else asserts
+    record: +0x20 the object, +0x28 the feature, +0x30 the word back to the mindist, +0x32 the kind
+    +0x98 = A+0xe0 + B+0xe0 (float);  neither object has +0x38 → FUN_1800977f0 (becoming exact);  else flags bit 13 cleared,
+    bit 12 set, FUN_180097940 (the phantom)
+```
+
+**The two things that call it.** A pair of objects the broad phase finds gets a watcher, and a mindist can stand for many:
+
+```
+FUN_1800b5dd0(watcher, creator, A, B):  table 1800feb28, +0x10 the creator, +0x18 = −1, +0x20 table 1800feb50;  two hull
+    records at +0x28 and +0x48 with listener table 1800feb00, filed over A and B (FUN_1800b61a0);  a pair vector at +0x68
+    (capacity 8, elements +0x70);  then FUN_1800b6080
+FUN_1800b6080(watcher):  env+0xbc counted;  env+0x38's slot 1(A, B, &rA, &rB);  FUN_180096680(A, B, rA + rB, watcher+0x68,
+    no ledges);  each record filed again over now (FUN_180099970) with rA and rB
+FUN_1800b28a0(m) — what FUN_180097f00 tails into for state 0x100000, a mindist standing for its objects' ledges:
+    FUN_180095ad0(m);  no bits of 0xc000 and DAT_18012d64c < +0xa8 (COMISS/JNC: a NaN takes the other branch) →
+        FUN_1800b23a0(m), FUN_180098ef0(manager, m), FUN_180097ae0(manager, m), flags &= ~0x3000
+    otherwise → env+0xbc counted;  env+0x38's slot 1(A, B, &rA, &rB);  FUN_1800b29b0(m, rA + rB);  both records filed again
+FUN_1800b29b0(m, gap):  its object pair's count against DAT_18012d66c (over → nothing);  the features of synapse A and B each
+    handed back to their ledges (pointer with its low bits cleared, less (header & 0xfff + 1)·16);  FUN_180096680(A, B, gap,
+    m+0xe8's vector, ledgeA, ledgeB);  m+0xe0's slot 2(count added)
+```
+
+```
+FUN_1800a06f0(creator, A, B) — a creator's slot, from the table at 1800fe710:  a 0x78-byte watcher through FUN_1800b5dd0;  it
+    registered on both objects' OV nodes (+0xd8) through FUN_18009de20;  returned
+FUN_1800b61a0(record, owner, object):  +0x10 the object;  filed in the object's hull manager (+0xa0) at
+    (float)(now − object+0x80)·+0x88 + +0x90 + DAT_1800eb920 (float, the product first);  +0x8 its slot;  +0x18 the owner
+FUN_180098ef0(manager, m):  both records out of their objects' hull managers (+0xa0) by their slots (+0x30, +0x68)
+FUN_1800b23a0(m):  every mindist of its vector (+0xea, +0xf0), last first, slot 0(it, 1);  +0xe0's slot 2(−count);  the vector freed
+```
+
+*Not read yet: `FUN_18009de80`'s filing in full, the rounding helpers' exact negative-floor sequence, the classes at env+0x30,
++0x38 and +0x58, a surface manager's slots 4 and 7, and `FUN_1800b21f0`'s larger mindist.*
 
 **The rest test depends on a generator shared by the whole process.** The countdown between tests is 15 to 19 PSIs drawn from
 `seed·75`, and every draw anywhere in the process advances it, so which PSI a corpse's heap is tested on depends on how many
