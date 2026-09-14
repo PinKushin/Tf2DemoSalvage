@@ -9,11 +9,11 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// **Read from the disassembly** (`docs/findings/51`, *The other three times of impact*). The point-point evaluator is
 /// searched to the margin plus the extra radius and raises `0x10`; then every edge leaving the second point, and then
 /// every edge leaving the first, is refined toward `|d| · min(margin², reach²) · −0.5 / max(radius)` — a length squared,
-/// so carried in inches it is scaled by `0.0254` — and raises `0x11`.
+/// which the engine's own arithmetic already leaves in metres — and raises `0x11`.
 ///
-/// **The fixtures are two tetrahedra with point 0 at their bodies' origins**, the first ten inches above the second
+/// **The fixtures are two tetrahedra with point 0 at their bodies' origins**, the first ten metres above the second
 /// unless a test says otherwise: the first's neighbours above it and the second's below, so neither ring runs toward the
-/// other point until a test turns one edge. Units are inches and seconds; the interval is one step of `0.015`.
+/// other point until a test turns one edge. Units are metres and seconds; the interval is one step of `0.015`.
 /// </remarks>
 public sealed class IvpPointPointSearchConformanceTests
 {
@@ -25,7 +25,7 @@ public sealed class IvpPointPointSearchConformanceTests
     /// <remarks>
     /// **A point falling onto a point raises `0x10` when their distance reaches the margin plus the extra radius.**
     /// Along the pair's normal the stretched projection passes the distance, so the distance is what is searched; half
-    /// an inch above the margin at fifty inches a second, it arrives at `0.01`.
+    /// a metre above the margin at fifty metres a second, it arrives at `0.01`.
     /// </remarks>
     [Test]
     public void Search_APointFallingOntoAPoint_RaisesAPointPointEventWhenItReachesTheMargin()
@@ -60,7 +60,7 @@ public sealed class IvpPointPointSearchConformanceTests
 
     /// <remarks>
     /// **Both rings are walked.** An edge of the second point's ring turned up at the first point, or an edge of the
-    /// first point's ring turned down at the second, lies about seven inches behind the other point along itself, far
+    /// first point's ring turned down at the second, lies about seven metres behind the other point along itself, far
     /// under the target: `0x11` at the start. *What this does not pin is each ring's cache order*: walked the wrong way
     /// round, the untouched edges point at the other point instead and raise the same event. The falling and rising
     /// tests are what redden then, and did when it was tried.
@@ -81,17 +81,16 @@ public sealed class IvpPointPointSearchConformanceTests
 
     /// <remarks>
     /// **The ring target takes the LESSER of margin² and reach², over the LARGER radius, in metres.** A nearly level
-    /// edge of the second ring lies `−0.0004` along itself from the first point. With radii `1` and `0.25` and nothing
-    /// moving, reach is the length: at `0.1` the target is `0.01 · −0.5 / 1 · 0.0254 = −0.000127`, which the edge is
-    /// under; at `10` the margin's square wins, `−0.000793`, which it is not. The smaller radius would make the first
-    /// `−0.000508`, and inches unconverted `−0.005`, both missed.
+    /// edge of the second ring lies `−0.00001` along itself from the first point. With radii `1` and `0.25` and nothing
+    /// moving, reach is the length: at `0.003` the length's square wins, `0.000009 · −0.5 / 1 = −0.0000045`, which the
+    /// edge is under; at `10` the margin's square wins, `0.00634746² · −0.5 / 1 = −0.0000201`, which it is not.
     /// </remarks>
-    [TestCase(0.1f, true)]
+    [TestCase(0.003f, true)]
     [TestCase(10f, false)]
     public void Search_ANearlyLevelRingEdge_IsMeasuredAgainstTheLesserSquareOverTheLargerRadius(float length, bool raised)
     {
         (float X, float Y, float Z)[] level = Down();
-        level[1] = (0f, 1f, 4e-5f);
+        level[1] = (0f, 1f, 1e-6f);
 
         IvpImpact impact = Search(
             1d,
@@ -111,7 +110,7 @@ public sealed class IvpPointPointSearchConformanceTests
             second,
             new IvpLedgeEdge(0, 0));
 
-    /// <summary>Point 0 at the origin and its neighbours an inch above, one optionally turned an inch below.</summary>
+    /// <summary>Point 0 at the origin and its neighbours a metre above, one optionally turned a metre below.</summary>
     private static (float X, float Y, float Z)[] Up(int turned = 0)
     {
         (float X, float Y, float Z)[] points = [(0f, 0f, 0f), (0f, 1f, 1f), (1f, 0f, 1f), (-1f, -1f, 1f)];
@@ -124,7 +123,7 @@ public sealed class IvpPointPointSearchConformanceTests
         return points;
     }
 
-    /// <summary>Point 0 at the origin and its neighbours an inch below, one optionally turned an inch above.</summary>
+    /// <summary>Point 0 at the origin and its neighbours a metre below, one optionally turned a metre above.</summary>
     private static (float X, float Y, float Z)[] Down(int turned = 0)
     {
         (float X, float Y, float Z)[] points = [(0f, 0f, 0f), (0f, 1f, -1f), (1f, 0f, -1f), (-1f, -1f, -1f)];

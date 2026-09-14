@@ -121,7 +121,7 @@ public static class IvpBroadPhase
     /// <remarks>
     /// <code>
     /// node out of the tree;  env+0xc0 += 1;  centre = (float)core+0xf0..0x100
-    /// a pair creation running → insert with (double)core+0x4 twice and no list;  file the node with 1e-20;  return
+    /// a pair creation running → insert with (double)core+0x4 twice and no list;  file the node with 1e-19;  return
     /// r = (double)core+0x4 + range slot 2(object);  env+0x58 and object+0x78 &amp; 7 → the flag set around its slot 0(object, &amp;centre, r)
     /// g = insert(node, r, r, found);  file the node with g − (double)core+0x4
     /// every found node, last first — other = its object:

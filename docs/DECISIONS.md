@@ -8780,3 +8780,23 @@ of this project's own is reported as exactly that. The owner's remark about cons
 any, and none is inferred from it.
 
 Related: D89, D129, D131, D163, B369.
+
+## D173 — IVP runs in metres inside; Hammer units stop at the vphysics seam (2026-09-14)
+
+**The owner asked, while the older IVP ports were being converted from inches:** *"Why tf are converting to real life
+measures valve uses hammer units"*.
+
+**The answer given:** the game uses Hammer units and keeps them; `vphysics.dll` converts at its own boundary and runs IVP in
+metres. The SDK says so — `METERS_PER_INCH (0.0254f)` in `src/public/vphysics_interface.h:40`, and game code converting before
+it calls in through `HL2IVP`/`IVP2HL` in `game/server/fourwheelvehiclephysics.cpp:562-564` — and so does the binary: `0.0254f`
+at `DAT_18011f000`, the collision tolerance derived as `(0.25f − 1e-4f) × 0.0254f`, gravity multiplied by `0.0254f` in
+`SetGravity`, and every IVP threshold (`1e-19`, `1e-12`, `1e-10f`, `1e-8`) a metre value. The older ports had multiplied those
+constants by 39.37 to stay in inches, which rounds differently from the binary's arithmetic and cannot reach bit parity.
+
+**The owner's reply:** *"Oh ok so parity."*
+
+**What follows:** every IVP port runs in metres with the binary's own constants, and the conversion to and from Hammer units
+happens once, where `CPhysicsEnvironment` and `CPhysicsObject` do it. The code still running in Source units (`IvpEnvironment`,
+`IvpContact`, `RagdollSimulation`) is the structure D172 replaces; it is not converted in place.
+
+Related: D89, D172, B369.

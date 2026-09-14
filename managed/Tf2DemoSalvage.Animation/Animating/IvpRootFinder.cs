@@ -12,8 +12,8 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// refining finder*). Every comparison is written so that NaN takes the branch the engine's `COMISD` and
 /// jump pair takes: unordered sets the carry flag, so `JBE` and `JC` are taken and `JA` and `JNC` are not.
 ///
-/// **Units are this project's**: distances in inches, times in seconds. The engine's `1e-8` serves as both a
-/// time slack and a distance tolerance; the distance one is in IVP's metres and is carried converted.
+/// **Units are metres and seconds**, matching the engine's own. The `1e-8` serves as both a time slack and a
+/// distance tolerance; the distance one is the engine's own value, carried directly.
 /// </remarks>
 public static class IvpRootFinder
 {
@@ -30,9 +30,7 @@ public static class IvpRootFinder
     private const double TimeSlack = 1e-8d;
 
     /// <summary><c>DAT_1800fb100</c> compared with a distance, which the engine measures in metres.</summary>
-    private const double ConvergenceMetres = 1e-8d;
-
-    private const double Convergence = ConvergenceMetres * IvpTransform.InchesPerMetre;
+    private const double Convergence = 1e-8d;
 
     /// <summary><c>DAT_1800feb70</c>.</summary>
     private const double Blend = 0.375d;

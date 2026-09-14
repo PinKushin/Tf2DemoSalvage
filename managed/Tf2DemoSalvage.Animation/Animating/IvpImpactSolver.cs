@@ -369,7 +369,7 @@ public sealed class IvpImpactSolver
 
         float restitution = One - ((One - Elasticity) / (((float)impacts * Half) + One));
 
-        SeparationSpeed = (pushOut + IvpCollisionTolerance.TwiceToleranceMetres) * Restitution;
+        SeparationSpeed = (pushOut + IvpCollisionTolerance.TwiceTolerance) * Restitution;
 
         cores[0] = First;
         cores[1] = Second;

@@ -26041,7 +26041,7 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    the last time still above the target; and the advancing search marches only when the pair starts
    INSIDE the target, compares every distance with the one at the start, reports an event at the previous
    lattice time, and hands any approach from outside to the refinement. Comparisons take the engine's
-   branch on NaN; the distance tolerance `1e-8` is metres converted to inches. `IvpRootFinderConformanceTests`
+   branch on NaN; the distance tolerance `1e-8` is metres, carried directly since D173 (converted to inches before). `IvpRootFinderConformanceTests`
    (10), compile-red first; six sabotages in one run — no doubling, comparing with the previous distance,
    the event at the current lattice time, the cap answering the new estimate, a slot never kept, resting
    ignored — reddened exactly the seven cases predicted. **The first cap test could not fail**: on a jump
@@ -26132,9 +26132,12 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    on the running path yet.
    **It runs in IVP's units — metres, Y-up — as the binary does, and the wiring must keep it there.** vphysics converts at
    its interface (`SetGravity`, `SetPerformanceSettings` and the constructor's tolerance multiply by `0.0254f`; a `.phy`
-   stores its hulls in metres), while this project's ported routines run on Source units with the metre thresholds scaled.
-   That is a divergence: the conversion belongs where vphysics makes it, between the object layer and the core, with
-   Hammer units everywhere above it — not in scaled constants inside the core.
+   stores its hulls in metres), while this project's older ported routines ran on Source units with the metre thresholds
+   scaled. That was a divergence: the conversion belongs where vphysics makes it, between the object layer and the core,
+   with Hammer units everywhere above it — not in scaled constants inside the core. **Since D173 (2026-09-14) those routines —
+   the tolerance block, the pair scheduler, the hull filing, the time-of-impact searches and the root finder — run in
+   metres with the binary's constants**; only the running path (`IvpEnvironment`, `IvpContact`, `RagdollSimulation`) is still
+   in Source units, and it is replaced rather than converted.
    **A fourth divergence is fixed: a corpse's environment allows 6 collisions per object, not 10.** The client never calls
    `SetPerformanceSettings` (`game/client/physics.cpp:163-187`), so the constructor's `Defaults()` stand; the 10 is the
    server's (`game/server/physics.cpp:225`). And the engine freezes a core once its count EXCEEDS the limit.
@@ -26155,9 +26158,9 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    `default`. **Visible**: TF2's `flesh` names no friction, so a player corpse's elements went from `1.0` to the engine's
    `0.8`. Its `1.0` had been cited as `g_PhysDefaultObjectParams`' friction, a struct whose `1.0` is mass. Not read: what increments a record's impact count at `+0x72`, what
    sets a contact point's `+0x64`, or the writer of a core's radius at `+0x4` (`FUN_180078b90`). **The entry compares a
-   contact point's gap against metre fields of the block, while the contact point ported before it starts its gap at
-   `IvpCollisionTolerance.ContactGap` in Source units** — one more place the units move to vphysics' interface when this
-   is wired.
+   contact point's gap against metre fields of the block; the contact point ported before it started its gap at
+   `IvpCollisionTolerance.ContactGap` in Source units until D173 put the whole tolerance block in metres**, so the two now
+   agree.
    **The many-contact solve's linear algebra is ported and pinned, 2026-09-13** (`docs/findings/51`, *The constraint
    solver's loop* and its port): `FUN_1800aa2c0`, `FUN_1800a4d40`, `FUN_1800a80a0` and `FUN_1800a7270` as
    `IvpLinearSystem`, the active block's inverse at the solver's `+0xa8` as `IvpActiveInverse`, and `FUN_1800a5e60` with

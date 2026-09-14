@@ -116,7 +116,7 @@ public sealed class VphysicsHeapSolveProbe : IProbe
     {
         output.WriteLine(
             $"block[0x43]: the binary 0x{(uint)BitConverter.SingleToInt32Bits(native.ContactGap):x8}, " +
-            $"the port 0x{(uint)BitConverter.SingleToInt32Bits(IvpCollisionTolerance.ContactGapInMetres):x8}");
+            $"the port 0x{(uint)BitConverter.SingleToInt32Bits(IvpCollisionTolerance.ContactGap):x8}");
 
         ulong state = SweepSeed;
         Dictionary<string, long[]> inputs = RandomCase(ref state, native, poison: false);

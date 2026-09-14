@@ -33,7 +33,7 @@ internal static class IvpSearchFixtures
     /// <summary>A tetrahedron side on a body at a position, falling along −Z, resting when it does not fall.</summary>
     /// <param name="points">The tetrahedron's four points.</param>
     /// <param name="position">Where the body is.</param>
-    /// <param name="fallingAt">How fast it falls, in inches a second; negative rises.</param>
+    /// <param name="fallingAt">How fast it falls, in metres a second; negative rises.</param>
     /// <param name="core">The core's bounds.</param>
     /// <returns>The side.</returns>
     public static IvpSearchSide Side(
@@ -47,7 +47,7 @@ internal static class IvpSearchFixtures
     /// <param name="points">The ledge's points.</param>
     /// <param name="topology">The ledge's topology.</param>
     /// <param name="position">Where the body is.</param>
-    /// <param name="fallingAt">How fast it falls, in inches a second; negative rises.</param>
+    /// <param name="fallingAt">How fast it falls, in metres a second; negative rises.</param>
     /// <param name="resting">Whether the motion cache treats the body as not moving.</param>
     /// <param name="core">The core's bounds.</param>
     /// <returns>The side.</returns>

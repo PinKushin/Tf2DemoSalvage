@@ -249,7 +249,7 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
             closing = IvpMath.Addsd(closing, (double)(-moving) - turning);
         }
 
-        double gap = IvpCollisionTolerance.ContactGapInMetres - point.Gap;
+        double gap = IvpCollisionTolerance.ContactGap - point.Gap;
         double stiffness = gap >= 0d ? 1d : Penetrating;
         double push = IvpMath.Mulsd(IvpMath.Addsd(IvpMath.Mulsd(stiffness, gap), closing), record.VirtualMass);
 
@@ -356,7 +356,7 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
                 closing = IvpMath.Addsd(closing, (double)(-moving) - turning);
             }
 
-            double gap = IvpCollisionTolerance.ContactGapInMetres - record.SolveGap;
+            double gap = IvpCollisionTolerance.ContactGap - record.SolveGap;
             double stiffness = gap >= 0d ? 1d : Penetrating;
 
             system.RightHandSide[row] = IvpMath.Addsd(IvpMath.Mulsd(stiffness, gap), closing);

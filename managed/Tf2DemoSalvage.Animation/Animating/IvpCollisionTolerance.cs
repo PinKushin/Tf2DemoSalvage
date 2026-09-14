@@ -18,8 +18,8 @@ namespace Tf2DemoSalvage.Animation.Animating;
 ///   converted gravity's length (`FUN_18006fc60`).
 ///
 /// **So the block a simulation reads is the derivation run twice, the second time on its own margin**, and every field
-/// here is taken from that second run, in metres as the engine computes it, and converted once through
-/// <see cref="IvpTransform.InchesPerMetre"/> because this simulation runs in Source units.
+/// here is taken from that second run, in metres as the engine computes it — no conversion, because this project's
+/// callers of this class now run in metres too.
 ///
 /// **What these are FOR is the opposite of what this project's `IvpContact.Slop` does, and that is the point of carrying
 /// them.** IVP keeps a pair at least <see cref="Margin"/> apart and schedules its next look no later than
@@ -61,59 +61,49 @@ public static class IvpCollisionTolerance
     /// <summary>The block as <c>SetGravity</c> leaves it: the derivation run again on the constructor's own margin.</summary>
     private static readonly Block Settled = Block.Derive(Block.Derive(Metres).MarginMetres);
 
-    /// <summary><c>block[1]</c>, the collision margin, in Source units.</summary>
-    public static readonly float Margin = Settled.MarginMetres * IvpTransform.InchesPerMetre;
+    /// <summary><c>block[1]</c>, <c>DAT_18012d544</c>, in metres: the margin the push-out estimate measures a gap against.</summary>
+    public static readonly float Margin = Settled.MarginMetres;
 
     /// <summary>
-    /// <c>block[0]</c>, in Source units: taken off a pair's distance before the recheck divides it by the speed bound.
+    /// <c>block[0]</c>, in metres: taken off a pair's distance before the recheck divides it by the speed bound.
     /// </summary>
-    public static readonly float Epsilon = Settled.EpsilonMetres * IvpTransform.InchesPerMetre;
+    public static readonly float Epsilon = Settled.EpsilonMetres;
 
     /// <summary>
-    /// <c>block[0x49]</c>, <c>DAT_18012d664</c>, in Source units: the factor on the face core's <c>+0x54</c> in the
+    /// <c>block[0x49]</c>, <c>DAT_18012d664</c>, in metres: the factor on the face core's <c>+0x54</c> in the
     /// vertex-face search's edge target.
     /// </summary>
-    public static readonly float EdgeTargetScale = Settled.EdgeTargetScaleMetres * IvpTransform.InchesPerMetre;
+    public static readonly float EdgeTargetScale = Settled.EdgeTargetScaleMetres;
 
-    /// <summary><c>block[0x43]</c>, <c>DAT_18012d64c</c>, in Source units: the gap a new contact point starts with.</summary>
+    /// <summary><c>block[0x43]</c>, <c>DAT_18012d64c</c>, in metres: the gap a new contact point starts with.</summary>
     /// <remarks>
     /// `(float)((double)block[0x42] + d)` — the margin ramp's far end plus one tolerance. Four other routines read it
     /// (`FUN_180084490`, `FUN_1800a9520`, `FUN_1800a9bf0`, `FUN_1800b28a0`); none is ported.
     /// </remarks>
-    public static readonly float ContactGap = Settled.ContactGapMetres * IvpTransform.InchesPerMetre;
+    public static readonly float ContactGap = Settled.ContactGapMetres;
 
     /// <summary>
-    /// <c>block[0x44]</c>, <c>DAT_18012d650</c>, in Source units: the gap the edge–edge measure gives two edges with no
+    /// <c>block[0x44]</c>, <c>DAT_18012d650</c>, in metres: the gap the edge–edge measure gives two edges with no
     /// crossing.
     /// </summary>
     /// <remarks>
     /// `(float)(d · 0.3f + (double)block[0x43])`. The closing-speed threshold is the speed of a fall from this height to the
     /// margin — <see cref="ClosingSpeedThreshold"/>.
     /// </remarks>
-    public static readonly float ParallelEdgeGap = Settled.ParallelEdgeGapMetres * IvpTransform.InchesPerMetre;
+    public static readonly float ParallelEdgeGap = Settled.ParallelEdgeGapMetres;
 
-    /// <summary><c>block[0x4a]</c>, <c>DAT_18012d668</c>, in METRES: <c>(float)(d + d)</c>.</summary>
-    /// <remarks>
-    /// **Carried in metres, not converted**, because its one reader so far is the impact solver `FUN_18008e290`, which adds it to
-    /// a speed in IVP's own units — `(p5 + block[0x4a]) · 1.2f` — and <see cref="IvpImpactSolver"/> runs in those units.
-    /// </remarks>
-    public static readonly float TwiceToleranceMetres = Settled.DoubledToleranceMetres;
+    /// <summary><c>block[0x4a]</c>, <c>DAT_18012d668</c>, in metres: <c>(float)(d + d)</c>.</summary>
+    /// <remarks>Its one reader so far is the impact solver `FUN_18008e290`, which adds it to a speed in IVP's own units —
+    /// `(p5 + block[0x4a]) · 1.2f` — and <see cref="IvpImpactSolver"/> runs in those units.</remarks>
+    public static readonly float TwiceTolerance = Settled.DoubledToleranceMetres;
 
-    /// <summary><c>block[1]</c>, <c>DAT_18012d544</c>, in METRES: the margin the push-out estimate measures a gap against.</summary>
-    /// <remarks>Carried in metres for <see cref="IvpContactPoint.PushOut"/>, which runs in IVP's own units.</remarks>
-    public static readonly float CollisionMarginMetres = Settled.MarginMetres;
-
-    /// <summary><c>block[0x48]</c>, <c>DAT_18012d660</c>, in METRES: <c>(float)(d·20 + (double)block[0x43])</c>, which is <c>22·d</c>.</summary>
+    /// <summary><c>block[0x48]</c>, <c>DAT_18012d660</c>, in metres: <c>(float)(d·20 + (double)block[0x43])</c>, which is <c>22·d</c>.</summary>
     /// <remarks>The gap past which <see cref="IvpContactPoint.Estimate"/> gives a record no estimate.</remarks>
-    public static readonly float EstimateGapMetres = Settled.EstimateLimitMetres;
-
-    /// <summary><c>block[0x43]</c>, <c>DAT_18012d64c</c>, in METRES — <see cref="ContactGap"/> as IVP's own routines read it.</summary>
-    /// <remarks>Carried in metres for <see cref="IvpFrictionSystem"/>, whose matrix build takes each record's gap off it.</remarks>
-    public static readonly float ContactGapInMetres = Settled.ContactGapMetres;
+    public static readonly float EstimateGap = Settled.EstimateLimitMetres;
 
     /// <summary>The margin for a class — <c>DAT_18012d548[class]</c>, which is <c>block[2 + class]</c>.</summary>
     /// <param name="marginClass">The mindist's byte at bits 22–29 of its <c>+0x20</c>.</param>
-    /// <returns>The margin, in Source units.</returns>
+    /// <returns>The margin, in metres.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="marginClass"/> is off the 64-entry ramp.</exception>
     /// <remarks>
     /// **`(float)(((double)(block[0x42] − block[1]) · class) · (1/64) + (double)block[1])`, and both ends are the margin**,
@@ -128,27 +118,27 @@ public static class IvpCollisionTolerance
         float span = Settled.RampEndMetres - Settled.MarginMetres;
         double margin = (span * (double)marginClass * RampStep) + Settled.MarginMetres;
 
-        return (float)margin * IvpTransform.InchesPerMetre;
+        return (float)margin;
     }
 
     /// <summary>The closing speed below which the pair scheduler leaves a pair alone — <c>block[0x45]</c>.</summary>
-    /// <param name="gravity">Gravity's magnitude in Source units per second squared.</param>
-    /// <returns>The threshold in Source units per second.</returns>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="gravity"/> is negative.</exception>
+    /// <param name="gravityLength">
+    /// The IVP gravity's LENGTH, in metres per second squared — what `FUN_18006fc60` measures after `SetGravity` converts
+    /// each Source component with `* 0.0254f` in float.
+    /// </param>
+    /// <returns>The threshold in metres per second.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="gravityLength"/> is negative.</exception>
     /// <remarks>
     /// **`(float)√((double)((block[0x44] − block[1]) + (block[0x44] − block[1])) · g)`, with `g` the length of the gravity
-    /// `SetGravity` converted** — each Source component times `0.0254f` in float, the down lane negated into IVP's `y`,
-    /// widened, and measured by `FUN_18006fc60`. Read against `DAT_18012d654` in `FUN_180099380`.
+    /// `SetGravity` converted.** Read against `DAT_18012d654` in `FUN_180099380`.
     /// </remarks>
-    public static float ClosingSpeedThreshold(float gravity)
+    public static float ClosingSpeedThreshold(double gravityLength)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(gravity);
+        ArgumentOutOfRangeException.ThrowIfNegative(gravityLength);
 
-        double down = gravity * IvpTransform.MetresPerInch;
-        double length = Math.Sqrt(down * down);
         float fall = Settled.ParallelEdgeGapMetres - Settled.MarginMetres;
 
-        return (float)Math.Sqrt((fall + fall) * length) * IvpTransform.InchesPerMetre;
+        return (float)Math.Sqrt((fall + fall) * gravityLength);
     }
 
     /// <summary>The block's fields this project reads, in metres, as one run of <c>FUN_180098fd0</c> leaves them.</summary>

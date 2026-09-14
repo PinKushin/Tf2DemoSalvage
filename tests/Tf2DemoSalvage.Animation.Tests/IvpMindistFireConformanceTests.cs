@@ -41,11 +41,14 @@ public sealed class IvpMindistFireConformanceTests
         fixture.Calls.ShouldBe(["minimize", "reschedule AfterFeatureChange"]);
     }
 
-    /// <remarks>**A collision kind whose re-minimized length is under `0.1·d + margin` collides.**</remarks>
+    /// <remarks>
+    /// **A collision kind whose re-minimized length is under `0.1·d + margin` collides.** In metres that threshold is
+    /// about `0.00698`, so `0.005f` is under it.
+    /// </remarks>
     [Test]
     public void Handle_ACollisionKindUnderTheThreshold_Collides()
     {
-        Fixture fixture = new(0x20, 0.1f);
+        Fixture fixture = new(0x20, 0.005f);
 
         fixture.Handle().ShouldBe(IvpFireOutcome.Collided);
 

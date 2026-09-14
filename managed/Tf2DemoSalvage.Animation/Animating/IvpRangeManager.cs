@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// </remarks>
 public static class IvpRangeManager
 {
-    /// <summary><c>DAT_1800f4f20</c>, added to each speed: <c>0x3bfd83c94fb6d2ac</c>, about <c>1e-20</c>, by its bits.</summary>
+    /// <summary><c>DAT_1800f4f20</c>, added to each speed: <c>0x3bfd83c94fb6d2ac</c>, the double <c>1e-19</c>, by its bits.</summary>
     private static readonly double SpeedFloor = BitConverter.Int64BitsToDouble(0x3bfd83c94fb6d2ac);
 
     /// <summary>The constructor's <c>+0x18</c>.</summary>
@@ -54,7 +54,7 @@ public static class IvpRangeManager
     /// <returns>The range, in double.</returns>
     /// <remarks>
     /// <code>
-    /// s = (double)(+0x254 + +0x1dc) + 1e-20;  r = (double)+0x4;  dt = (double)(float)step
+    /// s = (double)(+0x254 + +0x1dc) + 1e-19;  r = (double)+0x4;  dt = (double)(float)step
     /// a = MINSD(s·1, r·5);  a = MAXSD(a, 0.5);  a = MINSD(a, 15);  a −= dt·s;  MAXSD(a, s·0.06f + r)
     /// </code>
     /// </remarks>

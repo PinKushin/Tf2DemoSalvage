@@ -80,8 +80,8 @@ public enum IvpScheduleOutcome
 /// **Read from the disassembly, instruction by instruction** (`docs/findings/51`, *The scheduler's near branch and the
 /// dispatch into the search*, *The event queue, and where the far branch hands a pair off* and *The hull manager, and how a
 /// far pair is told to look again*). **A far pair asked to be removed is unfiled and filed with its objects' hull
-/// managers**; the handler that takes it back when a hull passes it, `FUN_180097f00`, is not ported. Units are this
-/// project's — the `1e-12` gap floor and the `1e-19` closing-speed floor are metres and are carried converted.
+/// managers**; the handler that takes it back when a hull passes it, `FUN_180097f00`, is not ported. Units are metres and
+/// seconds — the `1e-12` gap floor and the `1e-19` closing-speed floor are the engine's own, carried directly.
 /// </remarks>
 public static class IvpPairScheduler
 {
@@ -92,17 +92,13 @@ public static class IvpPairScheduler
     private const double AxisSlack = 1.001f;
 
     /// <summary><c>DAT_1800f4f20</c>, a closing speed in IVP's metres a second.</summary>
-    private const double ClosingFloorMetres = 1e-19d;
-
-    private const double ClosingFloor = ClosingFloorMetres * IvpTransform.InchesPerMetre;
+    private const double ClosingFloor = 1e-19d;
 
     /// <summary><c>DAT_1800eb140</c>: an event this close to now is rechecked instead.</summary>
     private const float NearNow = 1e-6f;
 
     /// <summary><c>DAT_1800f4f28</c>, a gap in IVP's metres.</summary>
-    private const double GapFloorMetres = 1e-12d;
-
-    private const double GapFloor = GapFloorMetres * IvpTransform.InchesPerMetre;
+    private const double GapFloor = 1e-12d;
 
     /// <summary><c>DAT_1800fd578</c>, <c>0.1f</c> widened: the share of the gap a close recheck covers.</summary>
     private const double CloseRecheckShare = 0.1f;

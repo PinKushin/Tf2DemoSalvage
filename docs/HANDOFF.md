@@ -44,13 +44,18 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    slots 7 and 8 as dispatch on the mindist**: today callers hand `invalidate` and `collide` in as delegates
    (`IvpMindistManager.MinimizeExact`/`RecheckEveryPsi`, `IvpMindistHull.BecomeExact`, `IvpMindistFire`), and
    `IvpMindistHull.HullPassed` throws for the recursive state. An oracle sketch: trees whose root is a hull ledge
-   (`IvpLedgeTreeReplay.InnerWithLedge`) so `FUN_180096680` makes one; the exact tail detoured to a recorder that only links
-   (flags and the lists `FUN_180098dd0` unlinks); `FUN_180095ad0` and `FUN_18008ecb0` detoured to recorders driven by lanes;
-   then slot 7, slot 8 and `FUN_180097f00` called on it.
-2. **Units.** vphysics runs IVP in metres and converts once at `CPhysicsEnvironment`'s boundary. The new ports are metres (their
-   constants are the binary's), but `IvpMindistHull`, `IvpPairScheduler` and `IvpEnvironment` still carry metre constants
-   converted to inches (`* IvpTransform.InchesPerMetre`). Convert them to metres before anything is wired together — mixing the
-   two is a defect, not a style choice.
+   (`IvpLedgeTreeReplay.InnerWithLedge`) so `FUN_180096680` makes one; the exact tail `FUN_1800977f0` detoured to a recorder that
+   records the event and calls the binary's own `FUN_180097ae0` — link exact without the minimize — so the mindist sits on the
+   manager's `+0x10` list and its objects' `+0x40` lists that `FUN_180098dd0` unlinks (its queue slot `+0x8` stays `0xffff`, and
+   with the cores' `+0x58` null nothing joins the rechecked vector); `FUN_180095ad0` and `FUN_18008ecb0` (twelve bytes of register
+   saves each) detoured to recorders driven by lanes; then slot 7, slot 8 and a record's slot 1 (`FUN_180097f00`) called on it. The
+   manager block needs `+0x10`, the vector at `+0x18` (capacity, `+0x1a` count, `+0x20` elements) and `+0x28`; the probe's own
+   delegator needs slot 2 (nothing) and slot 3 (`−1`), as the watcher's has.
+2. **Units — done (D173).** vphysics runs IVP in metres and converts once at `CPhysicsEnvironment`'s boundary, so every IVP
+   port now does too: `IvpCollisionTolerance`, `IvpMindistHull`, `IvpPairScheduler`, the time-of-impact searches and
+   `IvpRootFinder` were converted from inches with their tests. The running path (`IvpEnvironment`, `IvpContact`,
+   `RagdollSimulation`) stays in Source units until it is replaced; the conversion belongs at the `CPhysicsEnvironment` and
+   `CPhysicsObject` seam, nowhere inside the core.
 3. **Displacements**: the mesh manager's `FUN_180025bc0` calls the engine's virtual-mesh query, which is not in vphysics;
    `FUN_18007bea0` is unread.
 4. **The running path**: the unit/scheduler layer and the filing layer, then replace `IvpContact`/`IvpEnvironment`, then step 7.

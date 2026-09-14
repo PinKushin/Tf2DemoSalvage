@@ -11,9 +11,9 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// parallel raises `0x41`; and four checks of one edge's direction against the other's two faces, each refined to
 /// `−0.1·d · f` with `f` from the core of the edge whose direction is dotted, raise `0x42`.
 ///
-/// **The first edge runs along X from its body's origin, ten inches above the second unless a test says otherwise, and
+/// **The first edge runs along X from its body's origin, ten metres above the second unless a test says otherwise, and
 /// the second along Y.** Each is edge `(0, 0)` of a tetrahedron, so its own triangle's third point is point 2 and its
-/// twin's is point 3. Units are inches and seconds.
+/// twin's is point 3. Units are metres and seconds.
 /// </remarks>
 public sealed class IvpEdgeEdgeSearchConformanceTests
 {
@@ -22,8 +22,8 @@ public sealed class IvpEdgeEdgeSearchConformanceTests
     private static readonly IvpCoreBounds Soft =
         new(Radius: 1f, InverseDiameter: 1f, AngularSpeedBound: 0f, LinearSpeed: 0f, SurfaceSpeedBound: 0f);
 
-    /// <summary>A core whose face target, <c>−0.1·d · 100</c>, no unit dot reaches.</summary>
-    private static readonly IvpCoreBounds Stiff = Soft with { InverseDiameter = 100f };
+    /// <summary>A core whose face target, <c>−0.1·d · 10000</c>, no unit dot reaches.</summary>
+    private static readonly IvpCoreBounds Stiff = Soft with { InverseDiameter = 10000f };
 
     /// <remarks>
     /// **The sign follows the pair's normal against `a × b`.** With the normal along `+Z` the falling X edge is

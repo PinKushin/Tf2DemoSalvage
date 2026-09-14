@@ -14,9 +14,9 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// its length this PSI, or holds the parked flag bits; otherwise its margin class decays every fourth look, its time of
 /// impact runs, and an event is queued — at its time, or at a recheck when it is within a microsecond of now.
 ///
-/// **The fixture**: record 0's core falls along `−Z` at fifty inches a second onto record 1's still core, the normal
-/// `+Z`, so the closing speed is fifty; the length is `0.9`, one step is `0.015` from `now = 1` to the next PSI, and the
-/// queue's base is `1`. Units are inches and seconds.
+/// **The fixture**: record 0's core falls along `−Z` at fifty metres a second onto record 1's still core, the normal
+/// `+Z`, so the closing speed is fifty; the length is `0.5`, one step is `0.015` from `now = 1` to the next PSI, and the
+/// queue's base is `1`. Units are metres and seconds.
 /// </remarks>
 public sealed class IvpPairSchedulerConformanceTests
 {
@@ -36,11 +36,11 @@ public sealed class IvpPairSchedulerConformanceTests
 
     /// <remarks>
     /// **A queued mindist leaves the queue first, and a pair past `(double)(float)step · bound · 2.1f + margin` is far.**
-    /// With a total bound of fifty that threshold is about `1.82`: a length of two is far, nothing is searched, and the
-    /// queue is empty; a length of `0.9` is near and searched.
+    /// With a total bound of fifty that threshold is about `1.58`: a length of two is far, nothing is searched, and the
+    /// queue is empty; a length of `0.5` is near and searched.
     /// </remarks>
     [TestCase(2f, true)]
-    [TestCase(0.9f, false)]
+    [TestCase(0.5f, false)]
     public void Examine_APairPastTwoPointOneStepsOfItsBound_IsFarAndLeavesTheQueue(float length, bool far)
     {
         Fixture fixture = new(length);
@@ -148,14 +148,14 @@ public sealed class IvpPairSchedulerConformanceTests
 
     /// <remarks>
     /// **A pair closing under the threshold is searched only if it is closing at all** — under `1e-19` it is left alone.
-    /// At rest it is left alone; at one inch a second, under the threshold of twenty, it is searched — at a length of
-    /// `0.2`, which one inch a second can still cover this PSI.
+    /// At rest it is left alone; at one metre a second, under the threshold of twenty, it is searched — at a length of
+    /// `0.01`, under the not-closable threshold of about `0.0213` that one metre a second gives.
     /// </remarks>
     [TestCase(0f, false)]
     [TestCase(-1f, true)]
     public void Examine_AClosingSpeedUnderTheThreshold_IsSearchedOnlyIfClosing(float velocity, bool searched)
     {
-        Fixture fixture = new(0.2f, first: Falling with { Velocity = (0f, 0f, velocity) });
+        Fixture fixture = new(0.01f, first: Falling with { Velocity = (0f, 0f, velocity) });
 
         fixture.Examine(IvpRecheck.AtNow);
 
@@ -163,11 +163,29 @@ public sealed class IvpPairSchedulerConformanceTests
     }
 
     /// <remarks>
-    /// **A pair that cannot close its length before the next PSI is left alone**: `(float)(end − now) · 50 + margin` is
-    /// about `0.99989`, which a length of one is not under and `0.9` is.
+    /// **The closing floor is `1e-19`, `DAT_1800f4f20`.** At a closing speed of `1e-18` — over the floor and under the
+    /// floor times `39.3700787` (`3.937e-18`) — the pair is searched: the threshold of twenty is nowhere near it, so
+    /// only the floor decides. The length of `0.005` stays under the margin (`0.00634746`), since `(end − now) ·
+    /// 1e-18` is negligible next to it, so nothing else blocks the search. A mutant multiplying the floor by
+    /// <see cref="IvpTransform.InchesPerMetre"/> puts `1e-18` under the scaled floor instead, and the pair is left
+    /// alone.
     /// </remarks>
-    [TestCase(1f, false)]
-    [TestCase(0.9f, true)]
+    [Test]
+    public void Examine_AClosingSpeedBetweenTheFloorAndItsInchesScaling_IsSearchedOnlyAtTheMetreFloor()
+    {
+        Fixture fixture = new(0.005f, first: Falling with { Velocity = (0f, 0f, -1e-18f) });
+
+        fixture.Examine(IvpRecheck.AtNow);
+
+        fixture.Searches.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A pair that cannot close its length before the next PSI is left alone**: `(float)(end − now) · 50 + margin` is
+    /// about `0.75635`, which a length of `0.8` is not under and `0.7` is.
+    /// </remarks>
+    [TestCase(0.8f, false)]
+    [TestCase(0.7f, true)]
     public void Examine_ALengthTheClosingSpeedCannotCoverThisPsi_IsLeftAlone(float length, bool searched)
     {
         Fixture fixture = new(length);
@@ -183,7 +201,7 @@ public sealed class IvpPairSchedulerConformanceTests
     [TestCase(0x3000, true)]
     public void Examine_FlagsWhoseParkedBitsAreSet_AreLeftAlone(int bits, bool searched)
     {
-        Fixture fixture = new(0.9f);
+        Fixture fixture = new(0.5f);
         fixture.Mindist.Flags |= bits;
 
         fixture.Examine(IvpRecheck.AtNow);
@@ -199,7 +217,7 @@ public sealed class IvpPairSchedulerConformanceTests
     [Test]
     public void Examine_AMarginClassOverZero_DecaysOneClassEveryFourthLook()
     {
-        Fixture fixture = new(0.9f);
+        Fixture fixture = new(0.5f);
         fixture.Mindist.Flags |= 3 << 22;
 
         for (int look = 0; look < 4; look++)
@@ -211,7 +229,7 @@ public sealed class IvpPairSchedulerConformanceTests
         fixture.Environment.MarginDecayCounter.ShouldBe(0);
         ((fixture.Mindist.Flags >> 22) & 0xFF).ShouldBe(2);
 
-        Fixture unclassed = new(0.9f);
+        Fixture unclassed = new(0.5f);
         unclassed.Examine(IvpRecheck.AtNow);
         unclassed.Environment.MarginDecayCounter.ShouldBe(0);
     }
@@ -236,8 +254,8 @@ public sealed class IvpPairSchedulerConformanceTests
         IvpSchedulerCore still = Still with { Bounds = Still.Bounds with { SurfaceSpeedBound = 2f } };
 
         Fixture fixture = recordOneIsA
-            ? new(0.9f, first: still, second: falling, flags: 0x100)
-            : new(0.9f, first: falling, second: still);
+            ? new(0.5f, first: still, second: falling, flags: 0x100)
+            : new(0.5f, first: falling, second: still);
 
         fixture.Examine(IvpRecheck.AtNow);
 
@@ -254,7 +272,7 @@ public sealed class IvpPairSchedulerConformanceTests
     [Test]
     public void Examine_ASearchRaisingNothing_QueuesNothing()
     {
-        Fixture fixture = new(0.9f, impact: new IvpImpact(null, Now + Step));
+        Fixture fixture = new(0.5f, impact: new IvpImpact(null, Now + Step));
 
         fixture.Examine(IvpRecheck.AtNow).ShouldBe(IvpScheduleOutcome.NoEvent);
 
@@ -269,7 +287,7 @@ public sealed class IvpPairSchedulerConformanceTests
     [Test]
     public void Examine_AnEventLaterThanAMicrosecond_IsQueuedAtItsTime()
     {
-        Fixture fixture = new(0.9f, impact: new IvpImpact(0x20, Now + 0.01d));
+        Fixture fixture = new(0.5f, impact: new IvpImpact(0x20, Now + 0.01d));
 
         fixture.Examine(IvpRecheck.AfterMiss).ShouldBe(IvpScheduleOutcome.Queued);
 
@@ -282,7 +300,7 @@ public sealed class IvpPairSchedulerConformanceTests
     [Test]
     public void Examine_AnEventWithinAMicrosecondInModeZero_IsQueuedAtNow()
     {
-        Fixture fixture = new(0.9f, impact: new IvpImpact(0x20, Now + 1e-7d));
+        Fixture fixture = new(0.5f, impact: new IvpImpact(0x20, Now + 1e-7d));
 
         fixture.Examine(IvpRecheck.AtNow).ShouldBe(IvpScheduleOutcome.Queued);
 
@@ -290,20 +308,20 @@ public sealed class IvpPairSchedulerConformanceTests
     }
 
     /// <remarks>
-    /// **Within a microsecond of now, a recheck replaces the time**, from the gap `length − 0.1·d`, about `0.87501`, over a
-    /// total bound of a hundred — at fifty, mode 2's recheck would fall past the step and be dropped: mode 1 on a collision
-    /// kind is `(gap · 0.1f)/bound + now + 1e-7f · step`, about `0.000875012`; mode 2, or any kind with low bits set, is
-    /// `gap/bound + now + 1e-4f · step`, about `0.0087516`, the step's share of `1.5e-6` being well over the tolerance.
-    /// *The close recheck's `1e-7f · step`, `1.5e-9`, is under it and not pinned.*
+    /// **Within a microsecond of now, a recheck replaces the time**, from the gap `length − 0.1·d`, about `0.499365`, over
+    /// a total bound of a hundred — at fifty, mode 2's recheck would fall past the step and be dropped: mode 1 on a
+    /// collision kind is `(gap · 0.1f)/bound + now + 1e-7f · step`, about `0.000499367`; mode 2, or any kind with low bits
+    /// set, is `gap/bound + now + 1e-4f · step`, about `0.00499515`, the step's share of `1.5e-6` being well over the
+    /// tolerance. *The close recheck's `1e-7f · step`, `1.5e-9`, is under it and not pinned.*
     /// </remarks>
-    [TestCase(IvpRecheck.AfterFeatureChange, 0x20, 0.000875012d)]
-    [TestCase(IvpRecheck.AfterFeatureChange, 0x21, 0.0087516d)]
-    [TestCase(IvpRecheck.AfterMiss, 0x20, 0.0087516d)]
+    [TestCase(IvpRecheck.AfterFeatureChange, 0x20, 0.000499367d)]
+    [TestCase(IvpRecheck.AfterFeatureChange, 0x21, 0.00499515d)]
+    [TestCase(IvpRecheck.AfterMiss, 0x20, 0.00499515d)]
     public void Examine_AnEventAtNowInARecheckMode_IsRequeuedFromTheGapOverTheBound(
         IvpRecheck recheck, int kind, double expected)
     {
         Fixture fixture = new(
-            0.9f,
+            0.5f,
             first: Falling with { Bounds = Falling.Bounds with { LinearSpeed = 100f } },
             impact: new IvpImpact(kind, Now));
 
@@ -329,13 +347,13 @@ public sealed class IvpPairSchedulerConformanceTests
 
     /// <remarks>
     /// **A recheck at or past the next PSI is dropped.** With a total bound of twenty-one — still near, since `0.015 · 21 ·
-    /// 2.1 + margin` is about `0.911` — mode 2's `gap/bound` is about `0.042`, past the step.
+    /// 2.1 + margin` is about `0.668` — mode 2's `gap/bound` is about `0.0238`, past the step.
     /// </remarks>
     [Test]
     public void Examine_ARecheckPastTheNextPsi_IsDropped()
     {
         Fixture fixture = new(
-            0.9f,
+            0.5f,
             first: Falling with { Bounds = Falling.Bounds with { LinearSpeed = 21f } },
             impact: new IvpImpact(0x20, Now));
 

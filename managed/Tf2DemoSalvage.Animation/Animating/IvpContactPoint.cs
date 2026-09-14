@@ -215,7 +215,7 @@ public sealed class IvpContactPoint
 
         IvpContactRecord record = RecordOrThrow();
         double inverseStep = (float)environment.InverseStep;
-        double margin = IvpCollisionTolerance.CollisionMarginMetres;
+        double margin = IvpCollisionTolerance.Margin;
         double push = 0d;
 
         if (Gap >= margin)
@@ -263,7 +263,7 @@ public sealed class IvpContactPoint
 
         record.Estimated = true;
 
-        if (!(IvpCollisionTolerance.EstimateGapMetres >= Gap))
+        if (!(IvpCollisionTolerance.EstimateGap >= Gap))
         {
             record.PredictedGap = NoEstimate;
             return;

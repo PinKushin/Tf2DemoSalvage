@@ -34,9 +34,7 @@ public static class IvpPointEdgeSearch
     private const double RingTargetShare = -0.3f;
 
     /// <summary><c>DAT_1800fb100</c>, the floor under the gap the ring's speed divides by — a distance in IVP's metres.</summary>
-    private const double GapFloorMetres = 1e-8d;
-
-    private const double GapFloor = GapFloorMetres * IvpTransform.InchesPerMetre;
+    private const double GapFloor = 1e-8d;
 
     /// <summary>Searches one point against one edge, as <c>FUN_1800a1ff0</c> does.</summary>
     /// <param name="context">The speed bounds and the interval.</param>

@@ -616,7 +616,7 @@ public sealed class IvpExactHandoff
 /// <summary>How a mindist is filed with its objects' hull managers, told it has passed, and made exact (B369).</summary>
 /// <remarks>
 /// **Read from the disassembly** (`docs/findings/51`, *The hull manager, and how a far pair is told to look again*). **The
-/// speed floors are metres a second and are carried in inches**: `1e-10f` in the split, `1e-19` in the handler.
+/// speed floors are metres a second, carried directly**: `1e-10f` in the split, `1e-19` in the handler.
 /// </remarks>
 public static class IvpMindistHull
 {
@@ -638,14 +638,10 @@ public static class IvpMindistHull
     private const int FiledClears = 0x280000;
 
     /// <summary><c>DAT_1800ea938</c>, a speed in IVP's metres a second.</summary>
-    private const float SplitSpeedFloorMetres = 1e-10f;
-
-    private const float SplitSpeedFloor = SplitSpeedFloorMetres * IvpTransform.InchesPerMetre;
+    private const float SplitSpeedFloor = 1e-10f;
 
     /// <summary><c>DAT_1800f4f20</c>, a speed in IVP's metres a second.</summary>
-    private const double PassSpeedFloorMetres = 1e-19d;
-
-    private const double PassSpeedFloor = PassSpeedFloorMetres * IvpTransform.InchesPerMetre;
+    private const double PassSpeedFloor = 1e-19d;
 
     /// <summary><c>DAT_1800ea968</c>: the share of the other side's speed each side's weight takes.</summary>
     private const float OtherSpeedShare = 0.1f;

@@ -36,7 +36,7 @@ public static class IvpPointPointSearch
     /// 1. **The point-point search measures its start** — no known distance — to `(double)extra + (double)margin`.
     /// 2. `reach = (double)(float)(time − start) · totalBound + length`, taken after it.
     /// 3. **The ring target is `|d| · (min(margin², reach²) · −0.5) / max(radius)`**, a length squared the engine
-    ///    compares with a length in metres, so carried in inches it is scaled by <see cref="IvpTransform.MetresPerInch"/>.
+    ///    computes in metres — this project's callers run in metres too, so nothing scales it.
     /// 4. **B's ring first, then A's with the motion caches exchanged**, each at `core+0x80 · reach` plus both points'
     ///    speeds.
     /// </remarks>
@@ -141,7 +141,7 @@ public static class IvpPointPointSearch
                 ApproachSpeed: search.Speed,
                 InverseApproachSpeed: inverse);
 
-            double target = squared * search.Factor * scale * IvpTransform.MetresPerInch;
+            double target = squared * search.Factor * scale;
 
             if (IvpRootFinder.Refine(
                 evaluator, target, search.Start, time, 0, pointSide.Motion, ringSide.Motion, null, ref time))

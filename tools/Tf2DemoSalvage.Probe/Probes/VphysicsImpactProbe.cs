@@ -185,7 +185,7 @@ public sealed class VphysicsImpactProbe : IProbe
         bool still = moved == given;
 
         int settled = Marshal.ReadInt32(VphysicsLibrary.Address(module, ToleranceBlockAddress), TwiceToleranceOffset);
-        bool block = settled == BitConverter.SingleToInt32Bits(IvpCollisionTolerance.TwiceToleranceMetres);
+        bool block = settled == BitConverter.SingleToInt32Bits(IvpCollisionTolerance.TwiceTolerance);
 
         output.WriteLine($"controls: anomaly slot 0 is FUN_180017010 {table}; a 0x10 core's virtual mass is 1 {unit}; " +
                          $"a point with no spin moves at the velocity {still}; block[0x4a] is the port's 0x{settled:x8} {block}");

@@ -26,8 +26,8 @@ namespace Tf2DemoSalvage.Animation.Tests;
 ///            d &gt; target → Refine from here; d ≤ d0 → event at the PREVIOUS lattice time
 /// </code>
 ///
-/// **The distances here are in inches**, as this project's simulation runs, so the `1e-8` convergence is
-/// carried as metres converted.
+/// **The distances here are in metres**, matching the engine's own, so the `1e-8` convergence is the engine's
+/// value, uncarried.
 /// </remarks>
 public sealed class IvpRootFinderConformanceTests
 {
@@ -111,6 +111,18 @@ public sealed class IvpRootFinderConformanceTests
             LastHeight = first.Translation.Z;
             return Evaluations == 2 ? -45d : 6d;
         }
+    }
+
+    /// <summary>Returns a scripted distance per call, ignoring where it is asked — for pinning the convergence loop's iteration count.</summary>
+    private sealed class Scripted(double approachSpeed, params double[] distances) : IIvpDistanceEvaluator
+    {
+        public int Evaluations { get; private set; }
+
+        public double ApproachSpeed => approachSpeed;
+
+        public double InverseApproachSpeed => 1d / approachSpeed;
+
+        public double Distance(IvpMatrix first, IvpMatrix second) => distances[Evaluations++];
     }
 
     /// <remarks>
@@ -211,6 +223,28 @@ public sealed class IvpRootFinderConformanceTests
 
         evaluator.Evaluations.ShouldBe(69);
         Moving(body).Fresh(time).Translation.Z.ShouldBe(evaluator.LastHeight);
+    }
+
+    /// <remarks>
+    /// **The convergence floor is `1e-8` metres, `DAT_1800fb100`.** Above by `1` at the start (distance `6`, target
+    /// `5`), the march's one step — doubled once to `0.01`, two ticks — measures `4`, at or under target, and
+    /// brackets it. Regula falsi's first estimate is `(0.01 · −1) / (−2) = 0.005`; the scripted distance there is
+    /// `5.0000001`, `1e-7` over the target — over the metre floor, so the correct code keeps iterating and a third
+    /// scripted distance, exactly `5`, converges on a second estimate. The inches-scaled floor, `3.937e-7`, would
+    /// let that same `1e-7` gap pass on the FIRST estimate, so a mutant multiplying the floor by
+    /// <see cref="IvpTransform.InchesPerMetre"/> stops at two evaluations instead of three — the two estimates land
+    /// within a float epsilon of each other, so the count catches it where the time would not.
+    /// </remarks>
+    [Test]
+    public void Refine_AGapBetweenTheFloorAndItsInchesScaling_TakesAnExtraIterationOnlyAtTheMetreFloor()
+    {
+        Scripted evaluator = new(200d, 4d, 5.0000001d, 5d);
+        double time = Untouched;
+
+        IvpRootFinder.Refine(evaluator, Target, 0d, 0.1d, 0, Moving(Body(0d, 0f)), Floor(), 6d, ref time).ShouldBeTrue();
+
+        evaluator.Evaluations.ShouldBe(3);
+        time.ShouldBe(0.005d, 1e-6d);
     }
 
     /// <remarks>

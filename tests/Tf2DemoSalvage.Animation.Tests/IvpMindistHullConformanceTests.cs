@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// <remarks>
 /// **Read from the disassembly** (`docs/findings/51`, *The hull manager, and how a far pair is told to look again*).
 ///
-/// **The pass fixture**: synapse A's body sits ten inches up the normal and falls at two inches a second, last stepped
+/// **The pass fixture**: synapse A's body sits ten metres up the normal and falls at two metres a second, last stepped
 /// half a second ago, so at `now = 1` it is at nine; synapse B's is still at the origin. A's hull has gradients `3` and `2`
 /// and values `1` and `0.5` from half a second ago, so it is `1` past its center; B's is at rest. The mindist was filed
 /// `10` apart with `0.25` past the centers, and is `20` long.
@@ -115,19 +115,66 @@ public sealed class IvpMindistHullConformanceTests
     }
 
     /// <remarks>
-    /// **Each side's speed floor is `1e-10` metres a second, in inches**: with record 0 at a nanometre a second and record 1
-    /// still, the split is about `0.546 : 0.454`, where a floor left in metres would give about `0.841 : 0.159`.
+    /// **The pass speed floor is `1e-19`, `DAT_1800f4f20`** (<see cref="IvpMindistHull"/> remarks): with both cores
+    /// entirely still, `speedA` and `speedB` are the floor alone, so `speeds = 2e-19` and the six-step threshold
+    /// (`(float)step · speeds · 6`, step `1`) is `1.2e-18`. A length of `1e-17` clears that and is refiled. The
+    /// inches-scaled floor, `3.937e-18`, raises the threshold to `4.7244e-17`, which the same length does not
+    /// clear, so a mutant multiplying the floor by <see cref="IvpTransform.InchesPerMetre"/> hands the pair off
+    /// instead.
     /// </remarks>
     [Test]
-    public void SplitGap_SpeedsNearTheFloor_AddTheFloorInInches()
+    public void HullPassed_BothCoresStillAtTheSpeedFloor_RefilesAtALengthTheInchesScaledFloorWouldHandOff()
+    {
+        IvpMindist mindist = NewMindist(IvpMindistHull.FiledState);
+        mindist.Normal = (0f, 0f, 1f);
+        mindist.Length = 1e-17f;
+
+        IvpCollisionObject first = new() { MovementState = 1 };
+        IvpCollisionObject second = new() { MovementState = 1 };
+        IvpRigidBody firstBody = new() { LastStepped = 1d };
+        IvpRigidBody secondBody = new() { LastStepped = 1d };
+
+        first.Hull.Install(mindist.HullRecord(0), 1d, 0d);
+        second.Hull.Install(mindist.HullRecord(1), 1d, 0d);
+
+        IvpCoreBounds still = new(Radius: 1f, InverseDiameter: 1f, AngularSpeedBound: 0f, LinearSpeed: 0f, SurfaceSpeedBound: 0f);
+        List<IvpMindist> handedOff = [];
+
+        IvpHullPassOutcome outcome = IvpMindistHull.HullPassed(
+            mindist,
+            overshoot: 0f,
+            new IvpHullPass
+            {
+                Now = 1d,
+                Step = 1d,
+                First = first,
+                Second = second,
+                FirstBody = firstBody,
+                SecondBody = secondBody,
+                FirstBounds = still,
+                SecondBounds = still,
+                HandOff = handedOff.Add,
+            });
+
+        outcome.ShouldBe(IvpHullPassOutcome.Refiled);
+        mindist.Length.ShouldBe(1e-17f);
+        handedOff.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Each side's speed floor is `1e-10` metres a second, carried directly**: with record 0 at a nanometre a second and
+    /// record 1 still, the split is about `0.841 : 0.159`.
+    /// </remarks>
+    [Test]
+    public void SplitGap_SpeedsNearTheFloor_AddTheFloorInMetres()
     {
         IvpCoreBounds creeping = new(Radius: 1f, InverseDiameter: 1f, AngularSpeedBound: 0f, LinearSpeed: 1e-9f, SurfaceSpeedBound: 0f);
         IvpCoreBounds still = creeping with { LinearSpeed = 0f };
 
         (float first, float second) = IvpMindistHull.SplitGap(1f, creeping, still);
 
-        first.ShouldBe(0.5461f, 0.001f);
-        second.ShouldBe(0.4539f, 0.001f);
+        first.ShouldBe(0.8409f, 0.001f);
+        second.ShouldBe(0.1591f, 0.001f);
     }
 
     /// <remarks>

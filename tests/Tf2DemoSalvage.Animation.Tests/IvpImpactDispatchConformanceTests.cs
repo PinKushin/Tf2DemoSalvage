@@ -13,7 +13,7 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// `FUN_1800a3fe0`, which routes each to its search with synapse A's feature first; a ball first reaches
 /// `FUN_1800a3d30` or `FUN_1800a3b60`; every other entry is `FUN_1800a4200`, an assertion at line 1258.
 ///
-/// **One geometry serves all four searches**: a tetrahedron's point 0 falling from half an inch above the margin onto
+/// **One geometry serves all four searches**: a tetrahedron's point 0 falling from half a metre above the margin onto
 /// a tetrahedron whose point 0 is at the origin, whose edge `(0, 0)` runs along X and whose triangle 0 lies flat at
 /// `z = 0`. Each search raises an event in its own family, so the kind's high nibble names the search that ran.
 /// </remarks>

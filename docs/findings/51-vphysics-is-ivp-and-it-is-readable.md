@@ -2882,8 +2882,17 @@ reschedules) calls the mindist's virtual `+0x40`, and anything else reschedules 
 
 **The near branch's constants are floats widened, read beside their instructions**: `2.1f`, `1.001f`, `0.1f`, `1e-7f`,
 `1e-5f`, `1e-4f`, `0.001f` and the `1e-6f` a float compares against; `1e-12` and `1e-19` are doubles; `DAT_18012d670`
-is `1.0`, set at runtime beside the tolerance block. **Carried in inches, `1e-12` (a gap) and `1e-19` (a closing speed)
-are metres and are converted**; the rest are times, ratios or already inches.
+is `1.0`, set at runtime beside the tolerance block. **`1e-12` (a gap) and `1e-19` (a closing speed) are the engine's
+metres**: the port first carried them converted to inches, and since D173 it runs in metres and carries both directly; the
+rest are times or ratios.
+
+**The metre conversion's sabotage round (2026-09-14) put each constant back in inches, one at a time.** The tolerance
+block's members and `MarginFor`, the far split's `1e-10f` and the point-point ring target reddened at once; five floors did
+not, because no fixture drove the guarded quantity near them. Four now have a case between the floor and 39.37 times it —
+a hull pass with both cores at the speed floor, a closing speed of `1e-18`, a point-edge gap of `1e-7`, a regula-falsi
+residual of `1e-7` — each reddening alone. **The fifth is equivalent**: the recheck's `1e-12` guards `length − ε`, two floats
+near `6.35e-4`, whose difference is zero or at least one float step, `2⁻³⁴ ≈ 5.8e-11` — above both floors — so no input a
+float length can hold falls between them.
 
 *Evidence class: read from the disassembly for all six routines. Not established: the min-list's constructor, the hull
 manager beyond the two routines named, and what the object byte `+0x78`'s low three bits mean — the motion cache
@@ -3015,10 +3024,11 @@ carried into this reading had `FUN_180097d60` as the way an exact pair is filed 
 - **So `FUN_180097d60` and `FUN_180097e20` serve the phantom path** (`FUN_180097940`, `FUN_180098710`, `FUN_1800983e0`)
   and the recursive mindist's `FUN_1800b2460` and `FUN_1800b2700` — not a plain pair.
 
-**Carried in inches, the speed floors are metres a second and are converted**: `1e-10f` in the far split and
-`FUN_180097d60`, `1e-19` in `FUN_180097f00`. *The first port of the split left `1e-10f` in metres* — a difference only a
-pair creeping at about a nanometre a second can show, where the split is `0.546 : 0.454` in inches and `0.841 : 0.159`
-unconverted — and a case that tells the two apart now pins it.
+**The speed floors are metres a second**: `1e-10f` in the far split and `FUN_180097d60`, `1e-19` in `FUN_180097f00`. The port
+first carried them converted to inches; since D173 it runs in metres and carries them directly. *The first port of the split
+left `1e-10f` in metres inside an inch port* — a difference only a pair creeping at about a nanometre a second can show, where
+the split is `0.546 : 0.454` in inches and `0.841 : 0.159` in metres — and a case that tells the two apart pins it, now at the
+metre split.
 
 *Evidence class: read from the disassembly, and from the SDK for the performance defaults and the client's solver. Not
 established: what an object's `+0x78 & 7` and a core's `+0x58` and byte `+0x1` mean; the recursive mindist
@@ -3470,10 +3480,10 @@ every cross product is `FUN_18006dd30`. `1.2f` is `DAT_1800eed28`, a float widen
    | 3 | A's `a` | B's twin triangle | `sign` is `−1` |
    | 4 | A's `a` | B's own triangle | `sign` is `+1` |
 
-**Two of these targets are not in consistent units, and a port in inches has to say so.** Point-point's ring target
-`|d| · min(margin², reach²) · −0.5 / radius` is a length squared compared with a length, so the engine's answer
-belongs to metres: carried in inches it is scaled by `0.0254`. Point-edge's `1e-8` floor is a distance in metres,
-carried converted as `FUN_1800b6590`'s tolerance already is. Every other target and speed is either dimensionless or
+**Two of these targets are not in consistent units, which mattered while the port ran in inches.** Point-point's ring
+target `|d| · min(margin², reach²) · −0.5 / radius` is a length squared compared with a length, so the engine's answer
+belongs to metres: the inch port scaled it by `0.0254`, and since D173 the port runs in metres and scales nothing.
+Point-edge's `1e-8` floor is a distance in metres, carried directly, as `FUN_1800b6590`'s tolerance is. Every other target and speed is either dimensionless or
 linear in length — `coreB+0x254 · coreB+0x80 + coreB+0x1dc` is `ω²·deviation + v`, odd in time but linear in length —
 and needs nothing. *Arithmetic.*
 
@@ -5906,7 +5916,7 @@ as the one TF2 runs.
 the limits at the offsets above, gives the manager the image's own table, and answers the two calls that leave the library —
 the shadow controller as none, the freeze as each case says — with callbacks, counting any other call on a trap. **Controls**:
 slot 0 of the image's table is `FUN_180017010`; a core flagged `0x10` presents a virtual mass of exactly one; a point on a core
-with no spin moves at exactly the velocity given; and the image's `block[0x4a]` is `IvpCollisionTolerance.TwiceToleranceMetres`,
+with no spin moves at exactly the velocity given; and the image's `block[0x4a]` is `IvpCollisionTolerance.TwiceTolerance`,
 `0x3c4ffe5a`. **`FUN_180077fa0`, `FUN_180078f50`, `FUN_1800770f0` and `FUN_180070620` agree with the port on 200,000 random calls
 each, and 20,000 random impacts agree on every lane** — 9,923 approaching, 7,915 holding a core back, 6,835 freezing — with no
 call reaching a trap. `IvpImpactSolverConformanceTests` replays 96 of them and four found by searching with the port's

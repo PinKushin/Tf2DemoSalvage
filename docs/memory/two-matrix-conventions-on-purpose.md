@@ -92,3 +92,16 @@ identical error, because one belief wrote both. Ten tests round-tripped through 
 authority is a different SOURCE. Call the function that was read from the binary. See
 [[instrument-bugs-outnumber-decoder-bugs]] and
 [[most-of-a-decoder-is-untested]].
+
+### IVP's interior stays in metres; Hammer units stop at the seam (D173, 2026-09-14)
+
+**The owner challenged converting the older IVP ports to metres — "valve uses hammer units" — and
+accepted the answer: "Oh ok so parity."** The game side is Hammer units and stays so. `vphysics.dll`
+converts once at its API and runs IVP in metres: `METERS_PER_INCH (0.0254f)`
+(`src/public/vphysics_interface.h:40`), the collision tolerance built as `(0.25f − 1e-4f) × 0.0254f`,
+gravity scaled in `SetGravity`, and every IVP floor (`1e-19`, `1e-12`, `1e-10f`, `1e-8`) a metre value.
+A port that multiplies those by 39.37 to stay in inches rounds differently and cannot reach bit parity.
+
+**How to apply:** an IVP port takes and returns metres and holds the binary's constants by their bits;
+convert only where `CPhysicsEnvironment`/`CPhysicsObject` convert. When asked why metres, the answer is
+the seam, with those citations — never a preference.
