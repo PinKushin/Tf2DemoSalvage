@@ -50,6 +50,10 @@
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpImpactReplay.cs" Link="Oracle\IvpImpactReplay.cs" />
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpEntryReplay.cs" Link="Oracle\IvpEntryReplay.cs" />
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpComplementarityReplay.cs" Link="Oracle\IvpComplementarityReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpHeapCoreReplay.cs" Link="Oracle\IvpHeapCoreReplay.cs" />
+    <None Update="Data\ivp-heap-core.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="Data\ivp-complementarity.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

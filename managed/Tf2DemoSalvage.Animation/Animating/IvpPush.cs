@@ -63,6 +63,46 @@ public static class IvpPush
         Drop(body);
     }
 
+    /// <summary>
+    /// A body's speed and spin, and their staged changes, held to the environment's limits — <c>FUN_180076710(core)</c>, which
+    /// the heap solve calls after every push.
+    /// </summary>
+    /// <param name="body">The body.</param>
+    /// <param name="limits">The environment's limits, <c>env+0x48</c>: <c>+0xc</c> the fastest speed, <c>+0x14</c> the fastest turn per step.</param>
+    /// <param name="inverseStep">The environment's inverse step, <c>env+0x110</c>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// limit+0xc > 0 (NaN too):  |v| > it → v ·= (d)(limit/|v|);  then |staged v| > it → staged v scaled the same way
+    /// limit+0x14 > 0:  w = (f)inverse step · limit+0x14;  |ω| > w → ω scaled;
+    ///                  then |staged v| > w → STAGED ω ·= (d)(w/|staged v|)
+    /// </code>
+    /// **The last test measures the staged velocity and scales the staged spin** — `LEA RCX,[RBX+0x120]` before the length,
+    /// `[RBX+0x110]` after — so a staged spin is held by how fast the staged push would move the body, not how fast it would
+    /// turn it. That is the binary; it is carried.
+    /// </remarks>
+    internal static void Limit(IvpRigidBody body, IvpAnomalyLimits limits, double inverseStep)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(limits);
+
+        float fastest = limits.MaximumVelocity;
+
+        if (!(0f >= fastest))
+        {
+            body.Velocity = Held(body.Velocity, fastest, body.Velocity);
+            body.PendingVelocity = Held(body.PendingVelocity, fastest, body.PendingVelocity);
+        }
+
+        if (!(0f >= limits.MaximumAngularVelocityPerPsi))
+        {
+            float turning = IvpMath.Mulss((float)inverseStep, limits.MaximumAngularVelocityPerPsi);
+
+            body.AngularVelocity = Held(body.AngularVelocity, turning, body.AngularVelocity);
+            body.PendingAngularVelocity = Held(body.PendingVelocity, turning, body.PendingAngularVelocity);
+        }
+    }
+
     /// <summary>A body's staged velocity discarded — <c>FUN_180076670(core)</c>.</summary>
     /// <param name="body">The body whose staged changes are dropped.</param>
     /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
@@ -72,6 +112,29 @@ public static class IvpPush
 
         body.PendingAngularVelocity = (0f, 0f, 0f);
         body.PendingVelocity = (0f, 0f, 0f);
+    }
+
+    /// <summary>
+    /// <paramref name="scaled"/> times <c>(double)(limit/|measured|)</c> when <paramref name="measured"/> is longer than
+    /// <paramref name="limit"/>; otherwise unchanged. The length is <c>FUN_18006e120</c>'s, narrowed; each lane
+    /// <c>(float)((double)lane · share)</c> with the lane as destination.
+    /// </summary>
+    private static (float X, float Y, float Z) Held(
+        (float X, float Y, float Z) measured, float limit, (float X, float Y, float Z) scaled)
+    {
+        float length = (float)IvpVector.Length(measured);
+
+        if (!(length > limit))
+        {
+            return scaled;
+        }
+
+        double share = limit / length;
+
+        return (
+            (float)IvpMath.Mulsd(scaled.X, share),
+            (float)IvpMath.Mulsd(scaled.Y, share),
+            (float)IvpMath.Mulsd(scaled.Z, share));
     }
 
     /// <summary>Stages a velocity change directly — <c>AddVelocity</c>.</summary>

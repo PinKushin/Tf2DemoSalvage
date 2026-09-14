@@ -4892,6 +4892,16 @@ the heap's movable cores whatever their masses. The client never calls `SetPerfo
 default from `FUN_180089550`: `10.0f` (`0x41200000`; `+0x20` is `2500.0f`), the same numbers as
 `physics_performanceparams_t::Defaults()`.
 
+**The core-level routines are ported and pinned, 2026-09-14**: `FUN_1800a9280` as `IvpContactRecord.Push`, `FUN_180076710` as
+`IvpPush.Limit`, `FUN_180077950` and `FUN_180076670` as `IvpPush.Flush(IvpRigidBody)` and `IvpPush.Drop`, and `FUN_180077e80`
+as `IvpRigidBody.KineticEnergy`, beside `IvpRigidBody.Mass` for `core+0x2c` (written by `FUN_180073df0`'s port). The
+`vphysics-heap-core` probe writes two cores, a record and an environment at the offsets above and runs each routine on fresh
+copies: 20,000 cases, a quarter of them seeded with NaNs of both signs, signalling NaNs and infinities, agree on every lane.
+Two things the destination map settled there: **the flush adds the real velocity to the staged one in its `x` lanes and the
+staged to the real in `y` and `z`**, and **the push's first core multiplies the turn by the inertia in `x` but the inertia by
+the turn in `y` and `z`**, while its second core takes the turn first in all three. `FUN_18006e120` — the float length the
+limits measure with — sums onto the running total, and `IvpVector.Length` now says so.
+
 **So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
 entry's port keeps it because the routine has it. The merge, the controller bases and the simulation units are read below and
 above. **Nothing here is ported.**

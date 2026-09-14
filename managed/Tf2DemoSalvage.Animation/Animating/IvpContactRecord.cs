@@ -197,6 +197,73 @@ public sealed class IvpContactRecord
         return record;
     }
 
+    /// <summary>
+    /// One push along this record's normal staged into both movable cores, each then held to the limits — <c>FUN_1800a9280(record, x)</c>,
+    /// which the heap solve calls for every contact whose push is not zero.
+    /// </summary>
+    /// <param name="push">The push, <c>x</c>: the first core is pushed by <c>−x</c>, the second by <c>+x</c>.</param>
+    /// <param name="limits">The environment's limits, for <see cref="IvpPush.Limit"/>.</param>
+    /// <param name="inverseStep">The environment's inverse step.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="limits"/> is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// first core:  staged ω += (d)(f)(turn ⊙ I⁻¹)·−x;  staged v += (d)n·−((d)m⁻¹·x);  FUN_180076710
+    /// second core: staged ω += (d)(f)(turn′ ⊙ I⁻¹)·x;   staged v += (d)n·((d)m⁻¹·x);   FUN_180076710      -- each lane narrowed
+    /// </code>
+    /// **The first core's turn products are not written the same way round in every lane**: `x` takes the turn as destination,
+    /// `y` and `z` the inertia (`MOVSS XMM4,[core+0x44]; MULSS XMM4,XMM3`), while the second core's all take the turn. Which NaN
+    /// survives two decides it, so each lane names the binary's destination.
+    /// </remarks>
+    internal void Push(double push, IvpAnomalyLimits limits, double inverseStep)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+
+        if (FirstCore is { } first)
+        {
+            double against = -push;
+            (float X, float Y, float Z) turn = FirstTurn;
+            (float X, float Y, float Z) inertia = first.InverseInertia;
+            (float X, float Y, float Z) spin = first.PendingAngularVelocity;
+
+            first.PendingAngularVelocity = (
+                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.X, inertia.X), against), spin.X),
+                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(inertia.Y, turn.Y), against), spin.Y),
+                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(inertia.Z, turn.Z), against), spin.Z));
+
+            double share = -IvpMath.Mulsd(first.InverseMass, push);
+            (float X, float Y, float Z) velocity = first.PendingVelocity;
+
+            first.PendingVelocity = (
+                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.X, share), velocity.X),
+                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Y, share), velocity.Y),
+                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Z, share), velocity.Z));
+
+            IvpPush.Limit(first, limits, inverseStep);
+        }
+
+        if (SecondCore is { } second)
+        {
+            (float X, float Y, float Z) turn = SecondTurn;
+            (float X, float Y, float Z) inertia = second.InverseInertia;
+            (float X, float Y, float Z) spin = second.PendingAngularVelocity;
+
+            second.PendingAngularVelocity = (
+                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.X, inertia.X), push), spin.X),
+                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.Y, inertia.Y), push), spin.Y),
+                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.Z, inertia.Z), push), spin.Z));
+
+            double share = IvpMath.Mulsd(second.InverseMass, push);
+            (float X, float Y, float Z) velocity = second.PendingVelocity;
+
+            second.PendingVelocity = (
+                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.X, share), velocity.X),
+                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Y, share), velocity.Y),
+                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Z, share), velocity.Z));
+
+            IvpPush.Limit(second, limits, inverseStep);
+        }
+    }
+
     /// <summary>Picks and runs the measure the contact point's two kinds call for.</summary>
     private static void Measure(IvpContactPoint point, IvpContactBody first, IvpContactBody second, IvpContactRecord record)
     {

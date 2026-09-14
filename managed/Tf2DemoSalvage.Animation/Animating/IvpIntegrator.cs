@@ -76,6 +76,24 @@ public sealed class IvpRigidBody
     /// </remarks>
     public float Mass { get; set; } = 1f;
 
+    /// <summary>This body's kinetic energy at a velocity and a spin — <c>FUN_180077e80(core, v, ω)</c>.</summary>
+    /// <param name="velocity">The velocity, in metres per second.</param>
+    /// <param name="spin">The angular velocity.</param>
+    /// <returns><c>((d)(f)((ω.y²·I.y + ω.x²·I.x) + ω.z²·I.z) + (d)(f)((v.x² + v.y²) + v.z²)·(d)m)·0.5</c>.</returns>
+    /// <remarks>
+    /// The heap solve sums it over a friction system's cores before and after its pushes (`FUN_1800aa1a0`), with each core's
+    /// staged changes added in. Every product and sum names the binary's destination first (<see cref="IvpMath.Mulss"/>).
+    /// </remarks>
+    internal double KineticEnergy((float X, float Y, float Z) velocity, (float X, float Y, float Z) spin)
+    {
+        float turning = IvpMath.Addss(
+            IvpMath.Addss(IvpMath.Mulss(spin.Y * spin.Y, Inertia.Y), IvpMath.Mulss(spin.X * spin.X, Inertia.X)),
+            IvpMath.Mulss(spin.Z * spin.Z, Inertia.Z));
+        float moving = IvpMath.Addss(IvpMath.Addss(velocity.X * velocity.X, velocity.Y * velocity.Y), velocity.Z * velocity.Z);
+
+        return IvpMath.Mulsd(IvpMath.Addsd(turning, IvpMath.Mulsd(moving, Mass)), 0.5d);
+    }
+
     /// <summary>The reciprocal of this body's mass — <c>core+0x4c</c>.</summary>
     /// <remarks>
     /// **Named by the contact builder, which is the only traced site that reads it.**

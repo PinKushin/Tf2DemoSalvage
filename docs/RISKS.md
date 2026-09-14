@@ -26171,7 +26171,14 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    now pinned by targeted cases and cases found by sweeping the binary against a port broken on each rule; fifteen
    sabotages, the two path-dependent NaN destinations included, all redden the 210-case fixture except the one the binary
    itself makes dead (`FUN_1800a9010`'s `2` at `+0xa4`, zeroed on the next line).
-   Not ported yet: the solve above it (`FUN_1800aa5c0`,
+   **Open, and wider than the solver: every IVP port written before 2026-09-13 leaves NaN-meets-NaN to the JIT.**
+   `IvpContactRecord`, `IvpImpactSolver`, `IvpDamping`, the integrator, the evaluators and the rest write plain C# `+` and
+   `*`, and their probes' sweeps seed no NaNs, so a 0-differing sweep there says nothing about which NaN survives two. The
+   fix is the solver's: seed each probe's sweep with NaNs of both signs to find the routines that differ, map their
+   destinations per instruction, and route those operations through `IvpMath.Addsd`/`Mulsd`/`Addss`/`Mulss`. New ports
+   use the helpers from the start. **The heap solve's core-level routines are ported and pinned, 2026-09-14** — the record
+   push `FUN_1800a9280`, the limits `FUN_180076710`, the flush and drop, and the kinetic energy `FUN_180077e80`: 20,000
+   NaN-seeded cases agree with the binary (`IvpHeapCoreConformanceTests`). Not ported yet: the solve above it (`FUN_1800aa5c0`,
    `FUN_1800a9520`, `FUN_1800aa9f0`, `FUN_1800a9280`), which needs the friction system's records and cores.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.

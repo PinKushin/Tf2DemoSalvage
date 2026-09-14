@@ -177,10 +177,13 @@ public static class IvpVector
     /// <summary>A float point's distance from the origin — <c>FUN_18006e120</c>.</summary>
     /// <param name="point">The point.</param>
     /// <returns><c>√((x² + y²) + z²)</c>.</returns>
-    /// <remarks>**Squared and summed in FLOAT**, then widened for the root (<c>CVTPS2PD</c>, <c>SQRTPD</c>).</remarks>
+    /// <remarks>
+    /// **Squared and summed in FLOAT**, then widened for the root (<c>CVTPS2PD</c>, <c>SQRTPD</c>) — <c>ADDSS XMM2,XMM0</c> then
+    /// <c>ADDSS XMM2,XMM1</c>, so the running sum is each addition's destination (<see cref="IvpMath.Addss"/>).
+    /// </remarks>
     internal static double Length((float X, float Y, float Z) point)
     {
-        float squared = (point.X * point.X) + (point.Y * point.Y) + (point.Z * point.Z);
+        float squared = IvpMath.Addss(IvpMath.Addss(point.X * point.X, point.Y * point.Y), point.Z * point.Z);
         return Math.Sqrt(squared);
     }
 
