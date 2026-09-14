@@ -118,6 +118,11 @@ public static class IvpFrictionLinking
     /// without being truly immovable, which no TF2 ragdoll element produces. <c>IvpFrictionPair::Build</c>'s extra
     /// fields (a relative-velocity direction and per-core response coefficients) are deliberately not computed: this path
     /// never calls it natively either, and <see cref="IvpFrictionSystem"/>'s heap solve does not read them.
+    ///
+    /// **Links the contact only when it is not already filed in this system.** A reused contact from
+    /// <see cref="FindOrAllocate"/> is already on the system's list from an earlier collision; linking it again would set
+    /// its own <see cref="IvpContactPoint.Next"/> to itself — a one-node cycle that hangs the first walk of the list.
+    /// Found by a hanging test, not read from the native, which never reaches this call for an already-linked point.
     /// </remarks>
     public static IvpFrictionSystem LinkContactByCore(
         IvpContactPoint contact, IvpRigidBody firstCore, IvpRigidBody secondCore, IvpImpactEnvironment environment)
@@ -155,7 +160,10 @@ public static class IvpFrictionLinking
             system.AddPair(new IvpFrictionPair(movable, other));
         }
 
-        system.Link(contact);
+        if (!ReferenceEquals(contact.FrictionSystem, system))
+        {
+            system.Link(contact);
+        }
 
         return system;
     }
