@@ -329,7 +329,20 @@ public static class PhysicsHull
         Dictionary<int, PhysicsLedgeTreeNode> nodes = [];
         PhysicsLedgeTreeNode? root = TreeNode(surface, BitConverter.ToInt32(surface[LedgeTreeOffset..]), nodes, MaximumDepth);
 
-        return root is null ? null : new PhysicsLedgeTree(root, nodes);
+        if (root is null)
+        {
+            return null;
+        }
+
+        foreach (PhysicsLedgeTreeNode node in nodes.Values)
+        {
+            if (node.LedgeNodeOffset is int offset && nodes.TryGetValue(offset, out PhysicsLedgeTreeNode? named))
+            {
+                node.LedgeNode = named;
+            }
+        }
+
+        return new PhysicsLedgeTree(root, nodes);
     }
 
     /// <summary>One node of <see cref="Tree"/> and everything beneath it, or null when any of it lies outside the bytes.</summary>

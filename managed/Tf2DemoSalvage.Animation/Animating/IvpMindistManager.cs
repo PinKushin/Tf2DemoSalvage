@@ -330,6 +330,24 @@ public sealed class IvpMindistManager
         ArgumentNullException.ThrowIfNull(second);
 
         Unlink(mindist, queue);
+        LinkInvalid(mindist, first, second);
+    }
+
+    /// <summary>Links an unfiled mindist invalid — <c>FUN_180097ce0</c>, <see cref="Invalidate"/> without its unlinking.</summary>
+    /// <param name="mindist">The mindist; its state bits are written.</param>
+    /// <param name="first">Synapse record 0's object.</param>
+    /// <param name="second">Synapse record 1's object.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// Flags `&amp; ~0x340000 | 0x80000`; the mindist at the head of the invalid list, then record 0 and record 1 each at the head of
+    /// its object's invalid list. A larger mindist past the limit calls it after <see cref="Unlink"/> (<c>FUN_1800b2700</c>).
+    /// </remarks>
+    public void LinkInvalid(IvpMindist mindist, IvpCollisionObject first, IvpCollisionObject second)
+    {
+        ArgumentNullException.ThrowIfNull(mindist);
+        ArgumentNullException.ThrowIfNull(first);
+        ArgumentNullException.ThrowIfNull(second);
+
         mindist.Flags = (mindist.Flags & ~InvalidClears) | IvpMindistHull.InvalidState;
         mindist.ListNode = Invalid.AddFirst(mindist);
         LinkRecords(mindist, first, first.InvalidSynapses, second, second.InvalidSynapses);
@@ -537,6 +555,9 @@ public enum IvpHullPassOutcome
 
     /// <summary>Both records were unfiled and the pair handed to <c>FUN_1800977f0</c>.</summary>
     HandedOff,
+
+    /// <summary>A larger mindist, sent to <c>FUN_1800b28a0</c> (<see cref="IvpRecursiveMindist.HullPassed"/>).</summary>
+    Recursive,
 }
 
 /// <summary>What <see cref="IvpMindistHull.BecomeExact"/> did with a pair.</summary>
@@ -578,6 +599,9 @@ public sealed class IvpHullPass
 
     /// <summary><c>FUN_1800977f0</c> — <see cref="IvpMindistHull.BecomeExact"/> over the environment.</summary>
     public required Action<IvpMindist> HandOff { get; init; }
+
+    /// <summary>The minimize with no step budget, <c>FUN_180095ad0</c>, which a larger mindist runs first when told.</summary>
+    public required Action<IvpMindist> Recheck { get; init; }
 }
 
 /// <summary>What <see cref="IvpMindistHull.BecomeExact"/> reads beyond the mindist — <c>FUN_1800977f0</c>'s environment.</summary>
@@ -633,7 +657,7 @@ public static class IvpMindistHull
     /// <summary>Invalid: its minimize left bits of <c>0xc000</c> as it became exact.</summary>
     public const int InvalidState = 0x80000;
 
-    /// <summary>A recursive mindist's state, whose handler <c>FUN_1800b28a0</c> is not read.</summary>
+    /// <summary>A larger mindist's opened state, whose handler is <c>FUN_1800b28a0</c>.</summary>
     public const int RecursiveState = 0x100000;
 
     private const int FiledClears = 0x280000;
@@ -780,8 +804,10 @@ public static class IvpMindistHull
     /// <param name="pass">The time, the step, both objects and cores, and the handoff.</param>
     /// <returns>What was done.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    /// <exception cref="InvalidOperationException">The flags name a synapse record past the two.</exception>
-    /// <exception cref="NotSupportedException">A recursive mindist, or a phantom's pair at its handoff.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The flags name a synapse record past the two, or a mindist in the recursive state is not a larger one.
+    /// </exception>
+    /// <exception cref="NotSupportedException">A phantom's pair at its handoff.</exception>
     /// <remarks>
     /// **Unless the flags hold bits of `0x30000`, the pair is measured again from the cores and hulls at now**, synapse A
     /// first: `d` is `A − B` along the normal, each core placed at `+0x150 + +0x170·(float)(now − +0x1d0)` in double; each
@@ -799,7 +825,11 @@ public static class IvpMindistHull
 
         if ((flags & StateMask) == RecursiveState)
         {
-            throw new NotSupportedException("A recursive mindist's hull-passed handler, FUN_1800b28a0, is not read.");
+            IvpRecursiveMindist recursive = mindist as IvpRecursiveMindist ?? throw new InvalidOperationException(
+                "A mindist in the recursive state is not a larger one, where the engine tails into FUN_1800b28a0 on the flags alone.");
+
+            recursive.HullPassed(pass.Recheck);
+            return IvpHullPassOutcome.Recursive;
         }
 
         if ((flags & 0x200) != 0)

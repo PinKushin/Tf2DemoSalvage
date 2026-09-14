@@ -65,6 +65,12 @@ public sealed class PhysicsLedgeTreeNode
     public int? LedgeNodeOffset { get; internal set; }
 
     /// <summary>
+    /// The node <see cref="LedgeNodeOffset"/> names, or null when it names none — a zero word, or an offset where no node of the tree
+    /// lies. The larger mindist reads its radius to choose the side it opens (<c>FUN_1800b2700</c>, <c>FUN_1800b2460</c>).
+    /// </summary>
+    public PhysicsLedgeTreeNode? LedgeNode { get; internal set; }
+
+    /// <summary>
     /// The ledge, decoded as <see cref="PhysicsHull.Read(System.ReadOnlySpan{byte})"/> decodes a leaf's, when <see cref="HasLedge"/> and
     /// its bytes read as one — an inner node's hull as much as a leaf's ledge.
     /// </summary>

@@ -415,19 +415,43 @@ public sealed class PhysicsHullConformanceTests
     {
         byte[] surface = Solid(Triangle, [(0, 1, 2)], tagged: false);
 
-        PhysicsHull.Tree(surface).ShouldNotBeNull().Root.LedgeNodeOffset.ShouldBeNull();
+        PhysicsLedgeTreeNode root = PhysicsHull.Tree(surface).ShouldNotBeNull().Root;
+
+        root.LedgeNodeOffset.ShouldBeNull();
+        root.LedgeNode.ShouldBeNull();
     }
 
-    /// <remarks>The control on the one above: a ledge whose word names its node carries that node's offset.</remarks>
+    /// <remarks>The control on the one above: a ledge whose word names its node carries that node's offset, and the node.</remarks>
     [Test]
-    public void Tree_ALedgeNamingItsNode_CarriesTheNodesOffset()
+    public void Tree_ALedgeNamingItsNode_CarriesTheNodesOffsetAndTheNode()
     {
         byte[] surface = Solid(Triangle, [(0, 1, 2)], tagged: false);
         int treeAt = surface.Length - 0x1C;
 
         Write(surface, 0x30 + 4, treeAt - 0x30);
 
-        PhysicsHull.Tree(surface).ShouldNotBeNull().Root.LedgeNodeOffset.ShouldBe(treeAt);
+        PhysicsLedgeTree tree = PhysicsHull.Tree(surface).ShouldNotBeNull();
+
+        tree.Root.LedgeNodeOffset.ShouldBe(treeAt);
+        tree.Root.LedgeNode.ShouldBeSameAs(tree.Root);
+    }
+
+    /// <remarks>
+    /// **A ledge whose word names an offset where no node lies carries the offset but no node** (B369): the engine would read
+    /// the bytes there as a node, which the larger mindist refuses to do rather than take a radius from a triangle. Here the word
+    /// names the ledge's first triangle.
+    /// </remarks>
+    [Test]
+    public void Tree_ALedgeNamingNoNodesOffset_CarriesTheOffsetButNoNode()
+    {
+        byte[] surface = Solid(Triangle, [(0, 1, 2)], tagged: false);
+
+        Write(surface, 0x30 + 4, 0x10);
+
+        PhysicsLedgeTreeNode root = PhysicsHull.Tree(surface).ShouldNotBeNull().Root;
+
+        root.LedgeNodeOffset.ShouldBe(0x40);
+        root.LedgeNode.ShouldBeNull();
     }
 
     /// <summary>

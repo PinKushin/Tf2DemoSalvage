@@ -25,12 +25,27 @@ public sealed record IvpPolygonSurfaceManager(PhysicsLedgeTree Tree) : IIvpSurfa
         IvpLedgeTree.LedgesWithin(Tree, root, center, radius, into);
 }
 
-/// <summary>What a collision's delegator is told — slot 0 of the table at a watcher's <c>+0x20</c> (B369).</summary>
+/// <summary>What a collision's delegator is told and asked — the table at a watcher's <c>+0x20</c> or a larger mindist's <c>+0xe0</c> (B369).</summary>
+/// <remarks>
+/// **Slots 2 and 3 answer as the watcher's table does unless overridden** — <c>1800feb50</c> holds a bare <c>RET</c> and
+/// <c>FUN_1800a0790</c>, which answers −1 — so the count of mindists beneath larger mindists stops at the outermost one.
+/// </remarks>
 public interface IIvpCollisionDelegator
 {
     /// <summary>Slot 0: a collision it holds is going away.</summary>
     /// <param name="collision">The collision.</param>
     public void CollisionRemoved(IvpCollision collision);
+
+    /// <summary>Slot 2: mindists added beneath it, or taken away — a larger mindist's <c>FUN_1800b2300</c>; the watcher's does nothing.</summary>
+    /// <param name="change">How many more.</param>
+    public void MindistsAdded(int change)
+    {
+        // The watcher's slot 2 is a bare RET: nothing outside a larger mindist counts what is beneath it.
+    }
+
+    /// <summary>Slot 3: how many mindists are beneath the outermost larger mindist — a larger mindist's <c>FUN_1800b2860</c>; the watcher's answers −1.</summary>
+    /// <returns>The count.</returns>
+    public int MindistsBeneath() => -1;
 }
 
 /// <summary>A list of collisions kept with their back-indices, as IVP's node, pair and recursive vectors keep them (B369).</summary>
@@ -120,13 +135,14 @@ public static class IvpPairMindists
     /// <param name="secondRoot">A hull ledge's node the second side is queried beneath, or null.</param>
     /// <param name="delegator">What each new mindist tells when it goes.</param>
     /// <exception cref="ArgumentNullException">An object or the pair is null.</exception>
-    /// <exception cref="InvalidOperationException">An object lacks what the pair creation reads, or a ledge has children.</exception>
+    /// <exception cref="InvalidOperationException">An object lacks what the pair creation reads.</exception>
     /// <remarks>
     /// <code>
     /// side A:  a ledge → it alone;  else B's core moved to now over dt = (float)(now − +0x1d0), (double)v·(double)dt + p per lane;
     ///     r = (double)(A+0xe0 + coreB+0x4) + gap;  the point into A's frame through A's object cache;  A's slot 4(point, r, rootA)
     /// side B:  the same, the objects swapped
-    /// A's ledges last first, B's last first:  a mindist naming both → into the kept prefix;  else a new one (FUN_1800975d0)
+    /// A's ledges last first, B's last first:  a mindist naming both → into the kept prefix;  else a new one — FUN_1800b21f0 when
+    ///     either ledge's +0x8 &amp; 3, else a plain one — and FUN_1800975d0
     /// every mindist past the kept prefix, last first, deleted;  every new one, last first, appended with its back-index
     /// </code>
     /// </remarks>
@@ -232,24 +248,22 @@ public static class IvpPairMindists
         return true;
     }
 
-    /// <summary>A new plain mindist — the base constructor's writes, then <c>FUN_1800975d0</c>.</summary>
+    /// <summary>
+    /// A new mindist — the larger one, <c>FUN_1800b21f0</c>, when either ledge has children, else the base constructor's writes inline —
+    /// then <c>FUN_1800975d0</c>, which both take (<c>180096cc7</c>).
+    /// </summary>
     private static IvpMindist Construct(
         IvpCollisionEnvironment environment, IvpCollisionObject first, IvpCollisionObject second, PhysicsLedgeTreeNode firstLedge,
         PhysicsLedgeTreeNode secondLedge, IIvpCollisionDelegator? delegator)
     {
-        if ((firstLedge.LedgeChildren | secondLedge.LedgeChildren) != 0)
-        {
-            throw new InvalidOperationException("A ledge with children makes the larger mindist FUN_1800b21f0, which is not ported.");
-        }
+        IvpSynapse point = new(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point);
+        float extraRadius = IvpMath.Addss(first.ExtraRadius, second.ExtraRadius);
+        IvpMindist mindist = (firstLedge.LedgeChildren | secondLedge.LedgeChildren) != 0
+            ? new IvpRecursiveMindist(point, point, extraRadius)
+            : new IvpMindist(point, point, extraRadius);
 
-        IvpMindist mindist = new(
-            new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
-            new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
-            IvpMath.Addss(first.ExtraRadius, second.ExtraRadius))
-        {
-            Flags = BaseFlags,
-            Delegator = delegator,
-        };
+        mindist.Flags = BaseFlags;
+        mindist.Delegator = delegator;
 
         environment.LiveMindists++;
         environment.CreatedMindists++;

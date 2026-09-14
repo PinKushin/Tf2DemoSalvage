@@ -89,10 +89,13 @@ public sealed class IvpMindistHullConformanceTests
         fixture.HandedOff.ShouldBe([fixture.Mindist]);
     }
 
-    /// <remarks>**A recursive mindist, state `0x100000`, goes to `FUN_1800b28a0`**, which is not read: refused.</remarks>
+    /// <remarks>
+    /// **The recursive state, `0x100000`, goes to `FUN_1800b28a0` on the flags alone**, so a plain mindist carrying it is refused
+    /// rather than measured as a far pair (`IvpRecursiveMindistConformanceTests` sends a larger one).
+    /// </remarks>
     [Test]
-    public void HullPassed_ARecursiveMindist_IsRefused() =>
-        Should.Throw<NotSupportedException>(() => new PassFixture(20f, flags: 0x100000).Run(-0.5f));
+    public void HullPassed_APlainMindistInTheRecursiveState_Throws() =>
+        Should.Throw<InvalidOperationException>(() => new PassFixture(20f, flags: 0x100000).Run(-0.5f));
 
     /// <remarks>
     /// **A phantom's pair, flags `0x3000` exactly `0x1000`, is handed to `FUN_180097940`**, which is not ported: refused
@@ -154,6 +157,7 @@ public sealed class IvpMindistHullConformanceTests
                 FirstBounds = still,
                 SecondBounds = still,
                 HandOff = handedOff.Add,
+                Recheck = _ => throw new InvalidOperationException("A plain far pair is not rechecked."),
             });
 
         outcome.ShouldBe(IvpHullPassOutcome.Refiled);
@@ -392,6 +396,7 @@ public sealed class IvpMindistHullConformanceTests
                     FirstBounds = _recordOneIsA ? still : moving,
                     SecondBounds = _recordOneIsA ? moving : still,
                     HandOff = HandedOff.Add,
+                    Recheck = _ => throw new InvalidOperationException("A plain far pair is not rechecked."),
                 });
         }
     }
