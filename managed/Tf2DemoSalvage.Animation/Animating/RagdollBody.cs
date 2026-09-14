@@ -89,8 +89,8 @@ public readonly record struct RagdollAxes(Vector3 X, Vector3 Y, Vector3 Z)
 /// <param name="SurfaceProp">
 /// **What this body is made of, by name** — `flesh` for every element of a player. The engine
 /// resolves it through `physprops-&gt;GetSurfaceIndex( solid.surfaceprop )` and hands the index to
-/// `CreatePolyObject` (`ragdoll_shared.cpp:194`); here it is looked up in
-/// <see cref="SurfaceTable"/> for the friction a contact needs.
+/// `CreatePolyObject` (`ragdoll_shared.cpp:194`); here it is resolved the same way through
+/// <see cref="VphysicsSurfaceProps.ObjectMaterial"/> for the friction a contact needs.
 /// </param>
 public readonly record struct RagdollElement(
     int BoneIndex,

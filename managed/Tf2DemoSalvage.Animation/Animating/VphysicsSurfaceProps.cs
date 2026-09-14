@@ -90,8 +90,27 @@ public sealed class VphysicsSurfaceProps : IIvpMaterialManager
     public IReadOnlyList<VphysicsSurface> Surfaces => _surfaces;
 
     /// <summary>The surface <see cref="ShadowIndex"/> stands for — <c>props+0x1cc</c>.</summary>
-    /// <remarks>*Its writer is not read.*</remarks>
+    /// <remarks>Written once, at the end of the first <see cref="ParseSurfaceData"/>, as the shadow surface is appended.</remarks>
     public int ShadowSurface { get; set; }
+
+    /// <summary>The material an object is made with, by its surface's name — <c>ragdoll_shared.cpp:194-197</c> and <c>FUN_18001c9d0</c>.</summary>
+    /// <param name="surfaceProp">The name a solid declares; null reads as the empty name.</param>
+    /// <returns>That surface, else <c>default</c>; null when neither is parsed.</returns>
+    /// <remarks>
+    /// The game asks <see cref="GetSurfaceIndex"/> for the name and, when that is negative, for <c>default</c>; vphysics' template fill
+    /// asks for <c>default</c> again on a negative index, then <see cref="GetIVPMaterial"/>.
+    /// </remarks>
+    public VphysicsSurface? ObjectMaterial(string? surfaceProp)
+    {
+        int index = GetSurfaceIndex(surfaceProp ?? string.Empty);
+
+        if (index < 0)
+        {
+            index = GetSurfaceIndex(DefaultName);
+        }
+
+        return GetIVPMaterial(index);
+    }
 
     /// <summary>A surface's index by name — slot 3, <c>FUN_180018500</c>.</summary>
     /// <param name="name">The name.</param>

@@ -77,13 +77,13 @@ public sealed class RagdollSimulation
         RagdollBody ragdoll,
         float step,
         IReadOnlyList<(Vector3 Position, Quaternion Orientation)> start) =>
-        Create(ragdoll, step, start, SurfaceTable.Empty);
+        Create(ragdoll, step, start, new VphysicsSurfaceProps([]));
 
     /// <summary>Builds a running simulation, resolving each body's surface.</summary>
     /// <param name="ragdoll">The bodies and joints the <c>.phy</c> declares.</param>
     /// <param name="step">The simulation timestep — the demo's tick interval.</param>
     /// <param name="start">Each element's starting position and orientation, in Source space.</param>
-    /// <param name="surfaces">The game's surface table, for the friction a contact needs.</param>
+    /// <param name="surfaces">The game's surfaces, parsed by vphysics' parser, for the friction a body collides with.</param>
     /// <returns>The simulation.</returns>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     /// <exception cref="ArgumentException">The starting state does not match the element count.</exception>
@@ -91,7 +91,7 @@ public sealed class RagdollSimulation
         RagdollBody ragdoll,
         float step,
         IReadOnlyList<(Vector3 Position, Quaternion Orientation)> start,
-        SurfaceTable surfaces)
+        VphysicsSurfaceProps surfaces)
     {
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(ragdoll);
@@ -138,9 +138,9 @@ public sealed class RagdollSimulation
                 // `IvpRigidBody.Faces` for what their absence cost.
                 Faces = element.Faces,
 
-                // **The game's own number for what this body is made of.** Every player element
-                // says `flesh`; a prop says whatever its `.phy` declares.
-                Friction = surfaces.FrictionOf(element.SurfaceProp),
+                // **The surface this body is made of, resolved as the game resolves a ragdoll solid's** — its `surfaceprop`,
+                // else `default`. Every player element says `flesh`; a prop says whatever its `.phy` declares.
+                Friction = surfaces.ObjectMaterial(element.SurfaceProp)?.Physics.Friction ?? IvpRigidBody.NoSurfaceFriction,
 
                 // **Both damping terms, which the `.phy` has carried since it was first read and
                 // nothing applied** — see `IvpDamping`. Linear is zero on every TF2 ragdoll

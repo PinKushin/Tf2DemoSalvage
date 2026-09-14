@@ -154,15 +154,19 @@ public sealed class IvpRigidBody
     /// </remarks>
     public bool Frozen { get; set; }
 
-    /// <summary>This body's coefficient of friction — its surface's, from the game's own table.</summary>
+    /// <summary>The friction a body keeps when no surface file was parsed — a viewer with no install (D83).</summary>
     /// <remarks>
-    /// **`surfacephysicsparams_t::friction`**, looked up by the `surfaceprop` its `.phy` solid
-    /// names (`ragdoll_shared.cpp:194`). One rather than zero by default, which is
-    /// `g_PhysDefaultObjectParams` — a zero default would make every body frictionless the moment
-    /// somebody forgot to set one, and that failure looks like working physics until a corpse
-    /// slides off the map.
+    /// **This project's own number**, which the engine never runs with. It was once cited as `g_PhysDefaultObjectParams`'
+    /// friction, a struct with no friction whose `1.0` is mass (`physics_shared.cpp:46`, `docs/findings/51`).
     /// </remarks>
-    public float Friction { get; set; } = 1f;
+    public const float NoSurfaceFriction = 1f;
+
+    /// <summary>This body's coefficient of friction — its surface's, from the game's own surface files.</summary>
+    /// <remarks>
+    /// **`surfacephysicsparams_t::friction` of the surface its `.phy` solid names**, resolved as the game resolves it: the
+    /// `surfaceprop`, else `default` (<see cref="VphysicsSurfaceProps.ObjectMaterial"/>).
+    /// </remarks>
+    public float Friction { get; set; } = NoSurfaceFriction;
 
     /// <summary>The hull this body collides with, in its own space and in SOURCE units.</summary>
     /// <remarks>

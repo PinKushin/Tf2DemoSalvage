@@ -4098,8 +4098,13 @@ loaded image built at load: `vphysics-materials parse` hands it the game's `surf
 surface back through slots 7 and 9. **All agree, after one fix**: the C runtime's `atof("nan")` is positive with every payload
 bit, `0x7fffffff` once narrowed, where `double.NaN` narrows to `0xffc00000`. `VphysicsSurfaceDataConformanceTests` pins the
 edge texts parsed from nothing. `SurfaceTable` still diverges from all of it — no `base`, no copy from `default`, `1.0` where the
-engine starts from `default` or zero, no shadow surface, archive order instead of the manifest's — and is what the running
-path reads.
+engine starts from `default` or zero, no shadow surface, archive order instead of the manifest's — and was what the running
+path read. **It is gone**: `GameContent` now parses the manifest's files in order through `ParseSurfaceData`, and a ragdoll body's
+friction is `VphysicsSurfaceProps.ObjectMaterial(surfaceprop)` — the name, else `default`, as `ragdoll_shared.cpp:194-197` and
+`FUN_18001c9d0` resolve it. **Measured on the game's files, and it moves a number the owner can see:** TF2's `flesh` block names
+no `friction`, `elasticity` or `base` in any of the three files, so the engine's `flesh` is a copy of `default` — friction `0.8`,
+elasticity `0.25` — where `SurfaceTable` closed the block with its own `1.0`. **Every player corpse element rubbed a quarter harder
+than the engine's** on the running path until now. (`concrete` 0.8/0.2 and `ice` 0.1/0.1 name their keys and did not move.)
 
 #### The impact loop — `FUN_180090700`, `FUN_180090bd0` and `FUN_18008da40` (2026-09-13)
 

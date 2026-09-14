@@ -262,6 +262,40 @@ public sealed class VphysicsMaterialProbe : IProbe
                 }
             }
 
+            if (!edgesOnly)
+            {
+                foreach (string surface in (string[])["default", "flesh", "concrete", "ice", "metal"])
+                {
+                    SurfacePhysicsParams? physics = port.ObjectMaterial(surface)?.Physics;
+                    List<string> blocks = [];
+
+                    foreach ((string file, byte[] text) in texts.Where(text => !text.Name.StartsWith("edge", StringComparison.Ordinal)))
+                    {
+                        string? block = null;
+
+                        KeyValuesReader.Read(text, (key, value, depth) =>
+                        {
+                            if (depth == 0)
+                            {
+                                block = value is null ? key : null;
+                            }
+                            else if (string.Equals(block, surface, StringComparison.OrdinalIgnoreCase) &&
+                                     key.ToUpperInvariant() is "FRICTION" or "ELASTICITY" or "BASE")
+                            {
+                                blocks.Add($"{Path.GetFileName(file)} {key}={value}");
+                            }
+
+                            return true;
+                        });
+                    }
+
+                    output.WriteLine(
+                        $"{surface}: friction {physics?.Friction.ToString("R", CultureInfo.InvariantCulture) ?? "none"}, " +
+                        $"elasticity {physics?.Elasticity.ToString("R", CultureInfo.InvariantCulture) ?? "none"}; " +
+                        $"the files say [{string.Join("; ", blocks)}]");
+                }
+            }
+
             if (edgesOnly)
             {
                 for (int index = 0; index < count(props); index++)

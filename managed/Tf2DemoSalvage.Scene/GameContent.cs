@@ -5,6 +5,7 @@ using System.IO;
 
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Scene;
@@ -66,16 +67,16 @@ public sealed class GameContent
     /// <remarks>A real resolver that answers nothing when there is no install, never null (D83).</remarks>
     public WeaponModels Weapons { get; }
 
-    /// <summary>What each surface is like to touch, from the game's own tables (B58).</summary>
+    /// <summary>What each surface is like to touch, parsed by vphysics' own parser from the game's files (B58, B369).</summary>
     /// <remarks>
-    /// **The friction a corpse settles with**, out of `scripts/surfaceproperties*.txt` — shipped
-    /// data rather than code, and the engine reads exactly the same files through
-    /// `IPhysicsSurfaceProps::ParseSurfaceData`.
+    /// **The friction and elasticity a corpse collides with**, out of the files `scripts/surfaceproperties_manifest.txt` lists —
+    /// shipped data, parsed in the manifest's order through <see cref="VphysicsSurfaceProps.ParseSurfaceData"/>, the port of the
+    /// parser the engine hands them to.
     ///
-    /// **Empty when there is no install**, like everything else here: a viewer with no game folder
-    /// falls back to `g_PhysDefaultObjectParams`' friction of 1 rather than failing (D83).
+    /// **Empty when there is no install**, like everything else here: every body then keeps
+    /// <see cref="IvpRigidBody.NoSurfaceFriction"/> rather than failing (D83).
     /// </remarks>
-    public SurfaceTable Surfaces { get; init; } = SurfaceTable.Empty;
+    public VphysicsSurfaceProps Surfaces { get; init; } = new([]);
 
     // **The soundscape catalog is NOT here, deliberately.** It reads from these same archives, so it
     // looks like it belongs — but it lives in the Audio project, and putting it here would mean
@@ -126,48 +127,65 @@ public sealed class GameContent
         };
     }
 
-    /// <summary>Reads the surface tables, base file first so a mod's overrides win.</summary>
+    /// <summary>Parses the game's surface files in its manifest's order — <c>PhysParseSurfaceData</c> (<c>physics_shared.cpp:537-561</c>).</summary>
     /// <remarks>
-    /// **The order is the engine's.** `surfaceproperties.txt` is parsed and then every
-    /// `surfaceproperties_*.txt` the mod ships, each entry replacing what came before — which is
-    /// how TF2 changes a surface without editing HL2's copy.
+    /// **The order is the engine's: each `file` key of `scripts/surfaceproperties_manifest.txt`, in turn**, so a later file
+    /// redefines an earlier surface in place, keeping every parameter it does not name, and the shadow surface follows the first
+    /// file. The archive order this read before diverged from it.
     ///
-    /// **Reported rather than silent, because an empty table is indistinguishable from a working
-    /// one** until a corpse slides: every surface would fall back to friction 1 and nothing would
-    /// say so.
+    /// **Reported rather than silent, because an empty set is indistinguishable from a working one** until a corpse slides.
+    /// The engine stops on a missing manifest or file (`Error`); a viewer reports it and goes on (D83).
     /// </remarks>
-    private static SurfaceTable ReadSurfaces(GameArchives archives, ILogger assets)
+    private static VphysicsSurfaceProps ReadSurfaces(GameArchives archives, ILogger assets)
     {
+        VphysicsSurfaceProps surfaces = new([]);
+
         if (archives.IsEmpty)
         {
-            return SurfaceTable.Empty;
+            return surfaces;
         }
 
-        SurfaceTable surfaces = new();
-
-        foreach (string path in archives.Paths())
+        if (archives.Read(SurfacePropertiesManifest) is not { Length: > 0 } manifest)
         {
-            if (!path.StartsWith("scripts/surfaceproperties", StringComparison.OrdinalIgnoreCase) ||
-                !path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+            assets.LogWarning("{Message}", $"surface properties: unable to load manifest file '{SurfacePropertiesManifest}'");
+            return surfaces;
+        }
+
+        KeyValuesReader.Read(manifest, (key, value, depth) =>
+        {
+            if (depth != 1 || value is null)
             {
-                continue;
+                return true;
             }
 
-            if (archives.Read(path) is { Length: > 0 } text)
+            if (!string.Equals(key, "file", StringComparison.OrdinalIgnoreCase))
             {
-                surfaces.Read(text);
+                assets.LogWarning("{Message}", $"surface properties: manifest key '{key}' is not 'file'");
             }
-        }
+            else if (archives.Read(value) is { } text)
+            {
+                surfaces.ParseSurfaceData(text);
+            }
+            else
+            {
+                assets.LogWarning("{Message}", $"surface properties: unable to load surface prop file '{value}'");
+            }
+
+            return true;
+        });
 
         assets.LogInformation(
             "{Message}",
-            $"surface properties: {surfaces.Count.ToString(CultureInfo.InvariantCulture)} surfaces, "
-            + $"flesh {surfaces.FrictionOf("flesh").ToString("0.##", CultureInfo.InvariantCulture)}, "
-            + $"concrete {surfaces.FrictionOf("concrete").ToString("0.##", CultureInfo.InvariantCulture)}, "
-            + $"ice {surfaces.FrictionOf("ice").ToString("0.##", CultureInfo.InvariantCulture)}");
+            $"surface properties: {surfaces.Surfaces.Count.ToString(CultureInfo.InvariantCulture)} surfaces, "
+            + $"flesh {FrictionText(surfaces, "flesh")}, concrete {FrictionText(surfaces, "concrete")}, ice {FrictionText(surfaces, "ice")}");
 
         return surfaces;
     }
+
+    private const string SurfacePropertiesManifest = "scripts/surfaceproperties_manifest.txt";
+
+    private static string FrictionText(VphysicsSurfaceProps surfaces, string name) =>
+        surfaces.ObjectMaterial(name)?.Physics.Friction.ToString("0.##", CultureInfo.InvariantCulture) ?? "none";
 
     /// <summary>The model every playable class wears.</summary>
     /// <remarks>
