@@ -563,6 +563,126 @@ public sealed class IvpRigidBody
 
         return 1d / IvpVector.Length(PointVelocity(arm, velocity, spin));
     }
+
+    /// <summary><c>DAT_1800fcfd8</c>: how far, squared, a core may drift from its anchor.</summary>
+    private static readonly double NearAnchor = BitConverter.Int64BitsToDouble(0x3f1a36e2d7731900);
+
+    /// <summary><c>DAT_1800fcfd0</c>: how far a core may turn from its anchor, as <c>2·(1 − dot²)·r²</c>.</summary>
+    private static readonly double TurnedFromAnchor = BitConverter.Int64BitsToDouble(0x3efa36e2d7731900);
+
+    /// <summary><c>DAT_1800fcfe0</c>: the settle anchor's drift, squared.</summary>
+    private static readonly double NearSettleAnchor = BitConverter.Int64BitsToDouble(0x3f847ae151eb8520);
+
+    /// <summary><c>DAT_1800fcfe8</c>: the settle anchor's turn.</summary>
+    private static readonly double TurnedFromSettleAnchor = BitConverter.Int64BitsToDouble(0x3fa47ae151eb8520);
+
+    /// <summary><c>DAT_1800fcff0</c>: <c>3π/4</c>, the turn a resting core may make over the rest delay.</summary>
+    private static readonly double SpinAllowance = BitConverter.Int64BitsToDouble(0x4002d97c7f3321d2);
+
+    /// <summary><c>DAT_1800ed2f8</c>: how long, in seconds, a core must hold its settle anchor to count as resting after re-anchoring.</summary>
+    private const float SettleTime = 4f;
+
+    /// <summary>The position the rest test last anchored this core at — the floats at <c>core+0x230</c>.</summary>
+    public (float X, float Y, float Z) RestAnchorPosition { get; set; }
+
+    /// <summary>The working orientation at that moment — <c>core+0x210</c>.</summary>
+    public (float X, float Y, float Z, float W) RestAnchorOrientation { get; set; }
+
+    /// <summary>When that was — <c>core+0x200</c>.</summary>
+    public double RestAnchorTime { get; set; }
+
+    /// <summary>The wider anchor, moved only past its own bounds — <c>core+0x240</c>.</summary>
+    public (float X, float Y, float Z) SettleAnchorPosition { get; set; }
+
+    /// <summary>The committed orientation when the wider anchor moved — <c>core+0x220</c>.</summary>
+    public (float X, float Y, float Z, float W) SettleAnchorOrientation { get; set; }
+
+    /// <summary>When that was — <c>core+0x208</c>.</summary>
+    public double SettleAnchorTime { get; set; }
+
+    /// <summary>Whether this core is moving, still, or at rest — <c>FUN_180077220</c>.</summary>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <param name="restDelay">How long a core must stay by its anchor — the environment's float at <c>+0xc8</c>.</param>
+    /// <returns>What the unit's PSI keeps in the core's byte <c>+0x1</c>.</returns>
+    /// <remarks>
+    /// <code>
+    /// |P − A|² > DAT_1800fcfd8, or 2·(1 − (q·Q)²)·r·r > DAT_1800fcfd0      (A, q the anchor; Q working; r core+0x4) → re-anchor
+    /// (float)(now − core+0x200) ≤ delay, a NaN too → Still
+    /// (ωx² + ωy²) + ωz² ≤ ((float)(3π/4 / delay))², or the turn of (float)Q′ against Q ≤ DAT_1800fcfd0 → Resting
+    /// re-anchor:  q = (float)Q;  A = (float)P;  core+0x200 = now
+    ///     |P − B|² > DAT_1800fcfe0, or the turn of q₂ against Q′ > DAT_1800fcfe8 → q₂ = (float)Q′;  B = (float)P;  core+0x208 = now → Moving
+    ///     (float)(now − core+0x208) > 4 → Resting, else Moving
+    /// </code>
+    /// Every dot is `(a.w·Q.w + a.z·Q.z) + (a.y·Q.y + a.x·Q.x)` with the float anchor widened and the destination, every
+    /// distance `((P.y − B.y)² + (P.x − B.x)²) + (P.z − B.z)²`; each comparison falls the way `COMISD`/`JA` or `JBE` does on a
+    /// NaN. Pinned by the `vphysics-rest` probe (`IvpRestConformanceTests`).
+    /// </remarks>
+    public IvpCoreMotion TestRest(double now, float restDelay)
+    {
+        if (SquaredDistance(RestAnchorPosition) > NearAnchor || Turn(RestAnchorOrientation, WorkingOrientation) > TurnedFromAnchor)
+        {
+            return Reanchor(now);
+        }
+
+        if ((float)(now - RestAnchorTime) > restDelay)
+        {
+            float limit = (float)(SpinAllowance / restDelay);
+            float spin = IvpMath.Addss(
+                IvpMath.Addss(IvpMath.Mulss(AngularVelocity.X, AngularVelocity.X), IvpMath.Mulss(AngularVelocity.Y, AngularVelocity.Y)),
+                IvpMath.Mulss(AngularVelocity.Z, AngularVelocity.Z));
+
+            if (spin > IvpMath.Mulss(limit, limit) && Turn(Narrow(Orientation), WorkingOrientation) > TurnedFromAnchor)
+            {
+                return Reanchor(now);
+            }
+
+            return IvpCoreMotion.Resting;
+        }
+
+        return IvpCoreMotion.Still;
+    }
+
+    private static (float X, float Y, float Z, float W) Narrow((double X, double Y, double Z, double W) rotation) =>
+        ((float)rotation.X, (float)rotation.Y, (float)rotation.Z, (float)rotation.W);
+
+    /// <summary>The rest test's re-anchoring tail: the near anchor always, the wider one past its bounds.</summary>
+    private IvpCoreMotion Reanchor(double now)
+    {
+        RestAnchorOrientation = Narrow(WorkingOrientation);
+        RestAnchorPosition = ((float)Position.X, (float)Position.Y, (float)Position.Z);
+        RestAnchorTime = now;
+
+        if (SquaredDistance(SettleAnchorPosition) > NearSettleAnchor || Turn(SettleAnchorOrientation, Orientation) > TurnedFromSettleAnchor)
+        {
+            SettleAnchorOrientation = Narrow(Orientation);
+            SettleAnchorPosition = ((float)Position.X, (float)Position.Y, (float)Position.Z);
+            SettleAnchorTime = now;
+
+            return IvpCoreMotion.Moving;
+        }
+
+        return (float)(now - SettleAnchorTime) > SettleTime ? IvpCoreMotion.Resting : IvpCoreMotion.Moving;
+    }
+
+    private double SquaredDistance((float X, float Y, float Z) anchor)
+    {
+        double x = Position.X - anchor.X;
+        double y = Position.Y - anchor.Y;
+        double z = Position.Z - anchor.Z;
+
+        return IvpMath.Addsd(IvpMath.Addsd(IvpMath.Mulsd(y, y), IvpMath.Mulsd(x, x)), IvpMath.Mulsd(z, z));
+    }
+
+    /// <summary>The rest test's turn: <c>2·(1 − dot²)·r·r</c>, the float anchor widened.</summary>
+    private double Turn((float X, float Y, float Z, float W) anchor, (double X, double Y, double Z, double W) rotation)
+    {
+        double dot = IvpMath.Addsd(
+            IvpMath.Addsd(IvpMath.Mulsd(anchor.W, rotation.W), IvpMath.Mulsd(anchor.Z, rotation.Z)),
+            IvpMath.Addsd(IvpMath.Mulsd(anchor.Y, rotation.Y), IvpMath.Mulsd(anchor.X, rotation.X)));
+        double gap = 1d - IvpMath.Mulsd(dot, dot);
+
+        return IvpMath.Mulsd(IvpMath.Mulsd(IvpMath.Addsd(gap, gap), Radius), Radius);
+    }
 }
 
 /// <summary>
@@ -780,8 +900,9 @@ public static class IvpIntegrator
     /// `(Iy − Iz)·(1/Ix)`, `(Iz − Ix)·(1/Iy)`, `(Ix − Iy)·(1/Iz)`, each in float.
     ///
     /// **The spin products are float and the rest is double**, read from the disassembly:
-    /// `ωx′ = (float)((double)(float)((double)(ωz·ωy)·(double)about) · h + (double)ωx)` — the coefficient's product taken in
-    /// double and narrowed, which rounds differently from the float product.
+    /// `ωx′ = (float)((double)(float)((double)(ωz·ωy)·(double)about) · h + (double)ωx)`. The coefficient's product is taken in
+    /// double and narrowed, which is carried as the binary's instructions but equals the float product for every input: two
+    /// floats' mantissas multiply exactly in 48 bits, so the narrowing is the only rounding either way.
     /// </remarks>
     public static (float X, float Y, float Z) FreeRotation(
         (float X, float Y, float Z) angularVelocity,
@@ -809,7 +930,10 @@ public static class IvpIntegrator
         (float)IvpMath.Addsd(IvpMath.Mulsd((float)IvpMath.Mulsd(product, about), delta), rate);
 
     /// <summary><c>CVTTSD2SI</c>: truncation toward zero, and <c>int.MinValue</c> for anything an int cannot hold.</summary>
-    /// <remarks>.NET's own cast saturates instead, since .NET 9.</remarks>
+    /// <remarks>
+    /// .NET's own cast saturates instead, since .NET 9 — which no output can see: a count past an int's range comes out
+    /// negative either way, and <c>(float)</c> rounds both negative counts to <c>−2³¹</c>. Carried as the binary's instruction.
+    /// </remarks>
     private static int Truncate(double value) =>
         value is >= -2147483648d and < 2147483648d ? (int)value : int.MinValue;
 

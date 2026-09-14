@@ -53,6 +53,10 @@
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpHeapCoreReplay.cs" Link="Oracle\IvpHeapCoreReplay.cs" />
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpHeapSolveReplay.cs" Link="Oracle\IvpHeapSolveReplay.cs" />
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpRotationReplay.cs" Link="Oracle\IvpRotationReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpRestReplay.cs" Link="Oracle\IvpRestReplay.cs" />
+    <None Update="Data\ivp-rest.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="Data\ivp-rotation.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

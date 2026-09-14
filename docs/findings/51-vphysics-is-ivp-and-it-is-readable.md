@@ -4514,6 +4514,13 @@ tests ran before it since the game started. *A replay can match the rule but not
 else draws from the same seed.* The multiplier is `DAT_1800ee1c8` = `0xc0a00000`, `−5f`, and the generator's scale
 `DAT_1800fd2a0`; the seed is multiplied with `IMUL EAX,[seed],0x4b` and only its low word is used.
 
+**`FUN_180077220` and `FUN_18007d5c0` are ported and pinned (2026-09-14)** as `IvpRigidBody.TestRest` and `IvpRandom`. The
+`vphysics-rest` probe calls both in process on a fabricated core: 100,000 cases — the binary answering moving 36,740 times,
+still 29,046 and resting 34,214, a fifth seeded with NaNs and infinities — agree on every lane, and `IvpRestConformanceTests`
+replays 400. Read with them: the thresholds are not the round numbers above but `0x3f1a36e2d7731900`, `0x3efa36e2d7731900`,
+`0x3f847ae151eb8520` and `0x3fa47ae151eb8520`; and **the time arrives by value in `RDX`**, an `IVP_Time` struct, not in `XMM1`.
+*Not established: `env+0xc8`'s writer.*
+
 **The PSI around the units, `FUN_180082560`, read from the disassembly (2026-09-14)** — `env+0x1ac` records the phase:
 
 ```
@@ -4600,7 +4607,14 @@ interpolation's branches, a sub-stepped step and both second routes. What the po
 - **The inlined sub-step product is not `FUN_180070d60` with its operands swapped**: four of its multiplications take the
   other operand as the destination, which only a pair of NaNs can see.
 - **The sub-step count is `CVTTSD2SI` plus one**, which truncates a count too large for an int to `int.MinValue`, so the
-  step runs once over a negative sub-step. .NET's own cast saturates since .NET 9; the port truncates by hand.
+  step runs once over a negative sub-step. .NET's own cast saturates since .NET 9, and the port truncates by hand to carry
+  the instruction — though no output can tell: `(float)` rounds both negative counts to `−2³¹`.
+- **Three orders a sabotage could not redden, and why none can** (2026-09-14): the Euler coefficient's product taken in
+  double and narrowed equals the float product, since two floats' mantissas multiply exactly in 48 bits; the saturating cast
+  above; and the slerp lane's `wa·a` operand order, because a NaN in `a` makes the dot, `θ` and the other lane's product NaN
+  first, and that NaN is the sum's destination. *Evidence: arithmetic.* Two further survivors needed inputs random draws
+  never reach — a spin whose sub-step count moves when its squares are summed in double, and a dot whose `Math.Acos`
+  differs from vphysics' — and the fixture now carries cases searched for each.
 - **`FUN_1800734e0`'s fraction is `MULSS` with the elapsed time the destination**, widened for the interpolation's double.
 
 #### vphysics' own `sin`, `cos` and `acos`, ported whole (2026-09-14)

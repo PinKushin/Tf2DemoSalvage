@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Probe.Oracle;
 
 namespace Tf2DemoSalvage.Probe.Probes;
@@ -208,13 +209,79 @@ public sealed class VphysicsRotationProbe : IProbe
         }
 
         List<(string Label, Dictionary<string, long[]> Inputs)> pairs = NaNPairs(ref state, fusedAvailable);
+        List<(string Label, Dictionary<string, long[]> Inputs)> killers = Killers(ref state, fusedAvailable);
 
-        foreach ((string label, Dictionary<string, long[]> inputs) in pairs)
+        foreach ((string label, Dictionary<string, long[]> inputs) in pairs.Concat(killers))
         {
             IvpRotationReplay.Write(writer, new IvpReplayCase(label, inputs, native.Run(inputs)));
         }
 
-        output.WriteLine($"{FixtureCases} random and {pairs.Count} NaN-pair cases written to {path}");
+        output.WriteLine(
+            $"{FixtureCases} random, {pairs.Count} NaN-pair and {killers.Count} searched cases " +
+            $"({killers.Count(killer => killer.Label.StartsWith("substeps-", StringComparison.Ordinal))} sub-step counts) written to {path}");
+    }
+
+    /// <summary>
+    /// Cases random draws almost never reach, searched for: a spin whose sub-step count moves when its squares are summed in
+    /// double rather than float, and a dot whose arc cosine <c>Math.Acos</c> answers a bit differently from vphysics'.
+    /// </summary>
+    private static List<(string Label, Dictionary<string, long[]> Inputs)> Killers(ref ulong state, bool fusedAvailable)
+    {
+        const int Wanted = 8;
+        const int Trials = 4_000_000;
+        List<(string Label, Dictionary<string, long[]> Inputs)> cases = [];
+        int counts = 0;
+        int arcs = 0;
+
+        for (int trial = 0; trial < Trials && counts < Wanted; trial++)
+        {
+            float step = Chance(ref state, 0.5) ? 0.015f : 0.001f + ((float)Unit(ref state) * 0.3f);
+            double length = (2 + Below(ref state, 40)) / (12d * step) * (1d + (Signed(ref state) * 1e-6));
+            (double X, double Y, double Z, double W) direction = UnitQuaternion(ref state);
+            double norm = Math.Sqrt((direction.X * direction.X) + (direction.Y * direction.Y) + (direction.Z * direction.Z));
+            (float X, float Y, float Z) spin = (
+                (float)(direction.X / norm * length), (float)(direction.Y / norm * length), (float)(direction.Z / norm * length));
+
+            if (IvpIntegrator.SubSteps(spin, step) == DoubleSumSubSteps(spin, step))
+            {
+                continue;
+            }
+
+            Dictionary<string, long[]> inputs = RandomCase(ref state, poison: false, fusedAvailable);
+
+            inputs["spin"] = [IvpImpactReplay.Lane(spin.X), IvpImpactReplay.Lane(spin.Y), IvpImpactReplay.Lane(spin.Z)];
+            inputs["step"][0] = IvpImpactReplay.Lane(step);
+            inputs["flags"][0] = 0;
+            inputs["phase"][0] = 0;
+            cases.Add(($"substeps-{counts++}", inputs));
+        }
+
+        for (int trial = 0; trial < Trials && arcs < Wanted; trial++)
+        {
+            double dot = Unit(ref state) * 0.998d;
+
+            if (BitConverter.DoubleToInt64Bits(IvpMath.Acos(dot)) == BitConverter.DoubleToInt64Bits(Math.Acos(dot)))
+            {
+                continue;
+            }
+
+            Dictionary<string, long[]> inputs = RandomCase(ref state, poison: false, fusedAvailable);
+
+            inputs["first"] = [0L, 0L, 0L, IvpImpactReplay.Lane(1d)];
+            inputs["second"] = [IvpImpactReplay.Lane(Math.Sqrt(1d - (dot * dot))), 0L, 0L, IvpImpactReplay.Lane(dot)];
+            cases.Add(($"acos-{arcs++}", inputs));
+        }
+
+        return cases;
+    }
+
+    /// <summary>The sub-step count with the spin's squares summed in double — the variant <c>Killers</c> searches against.</summary>
+    private static int DoubleSumSubSteps((float X, float Y, float Z) spin, float step)
+    {
+        double square = (((double)spin.Y * spin.Y) + ((double)spin.X * spin.X)) + ((double)spin.Z * spin.Z);
+        double turn = square * step * step;
+
+        return turn > 1d / 36d ? (int)Math.Sqrt(turn * 144d) + 1 : 1;
     }
 
     /// <summary>
