@@ -137,10 +137,18 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      variant and NaN/inf special-casing, not IVP code at all. **`Math.Sin`/`Math.Sqrt` are the correct C# equivalents
      for both paths**; no oracle or dedicated port pass needed for this piece — it was a false alarm raised by its
      size, not by any actual engine-specific behaviour.
-   - **Still unread, needed before a rewrite can be written**: `FUN_180070d60`/`FUN_180070c60` (normalize/matrix
-     rebuild after the quaternion update), `FUN_180094460`/`FUN_180094540` (the heap comparator/swap pair in
-     `NotifyAll`), `FUN_18009a4f0` and `FUN_180094490` (event firing and tick stamping), `FUN_180079120` and
-     `FUN_180095cb0` (both small, called conditionally).
+   - **`FUN_180070d60`/`FUN_180070c60` also closed, read in full 2026-09-14 — standard math, no port gap.**
+     `FUN_180070d60` is a plain quaternion multiply (Hamilton product, `new = delta * old`).
+     `FUN_180070c60` is quaternion normalize: magnitude² checked against an epsilon, an iterative Newton refinement of
+     `1/√magnitude²` when off by more than it, then all four components scaled. Both are directly portable
+     (`System.Numerics.Quaternion`-shaped, though the Newton iteration's exact step count may matter for bit parity —
+     check when porting, not a design question).
+   - **Still unread, needed before a rewrite can be written**: `FUN_180094460`/`FUN_180094540` (the heap
+     comparator/swap pair in `NotifyAll`), `FUN_18009a4f0` and `FUN_180094490` (event firing and tick stamping),
+     `FUN_180079120` and `FUN_180095cb0` (both small, called conditionally). **Everything read so far in this item is
+     either already-ported (`IvpCoreSpeedBound::From`) or ordinary portable math (rotation/position integration) —
+     the actual collision-scheduling wiring (event firing, generation-based revalidation) is entirely in the pieces
+     still unread.**
    - Replacing `IvpContact`/`IvpEnvironment` means reproducing this exact two-pass shape — build each controller's local
      candidate list, drain it as a heap firing real events, then a second full pass revalidating every pair's cache
      generation — not a single merged loop, and not `Advance`'s ad hoc per-collision subdivision. **A full rewrite, not a
