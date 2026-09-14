@@ -78,18 +78,43 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    `IvpRootFinder` were converted from inches with their tests. The running path (`IvpEnvironment`, `IvpContact`,
    `RagdollSimulation`) stays in Source units until it is replaced; the conversion belongs at the `CPhysicsEnvironment` and
    `CPhysicsObject` seam, nowhere inside the core.
-3. **The running path — scoped 2026-09-14, not started.** `IvpEnvironment.Simulate()` (897 lines) is a fully independent,
-   invented solver: damping → push flush → gravity → `Constraints.Solve()` → an event-walk subdivided per collision
-   (`Advance`, bounded by `MaximumCollisionChecks`) → once-per-PSI friction (`Rub`), built on its own `IvpContact`/manifold
-   types (1765 lines). **None of it is wired to the ported core** — `IvpBroadPhase`, `IvpPairCreator`/`IvpPairWatcher`,
-   `IvpPairScheduler.Examine` (item 1's scheduler, already fully ported per-pair), `IvpMindistManager`'s queue, or
-   `IvpRecursiveMindist`. Replacing it means: each `IvpRigidBody` pair gets a real mindist via the broad phase/pair
-   creator instead of the invented per-step manifold search; each PSI walks the event queue calling `Examine` per pair
-   (as `FUN_180074c80`'s own PSI loop does — read next, not yet read) instead of `Advance`'s ad hoc subdivision; a
-   time-of-impact event becomes the contact the joint/friction solve reads, replacing `IvpContact` outright rather than
-   feeding it. **Read `FUN_180074c80` in full next** (the PSI driver `Simulate()`'s own comment already cites for
-   ordering) to find the real loop shape before writing any C#. This is a multi-session rewrite; do not attempt it in one
-   sitting.
+3. **The running path — the real driver is found: `IvpEnvironment::IntegrateAwakeCores` (`180090bac`/`1800909d0`), read in
+   full 2026-09-14.** `IvpEnvironment.Simulate()` (897 lines, `managed/.../IvpEnvironment.cs`) is a fully independent,
+   invented solver — damping → push flush → gravity → `Constraints.Solve()` → an event-walk subdivided per collision
+   (`Advance`) → once-per-PSI friction (`Rub`), on its own `IvpContact`/manifold types (1765 lines) — **wired to none of
+   the ported core.** The engine's actual shape, read this session, call by call:
+   - `IntegrateAwakeCores` first clears each core's `+0x260` slot (calling `FUN_180079120` when it named a still-current
+     record — unread), then computes `dt = env+0x190 − env+0x188` (`NextPsi − Now`, item 1's own fields).
+   - **For each active controller** (its flags' `0x2` bit clear): a bound/inverse-bound pair is built from `dt` (capped,
+     never divided by a too-small step) and handed with a local stack min-list (`0x100` bytes, `IvpMinList`-shaped) to
+     `FUN_180099a00` — **unread past its outline**: phantom/listener bound check (a vtable call at the controller's
+     `+0x40`, the still-unported phantom controller HANDOFF already flags), `IvpCoreSpeedBound::From` (already ported)
+     for the angular bound, position-history shift (`+0x180..0x1a0`), two unread helpers `0x180070d60`/`0x180070c60`
+     (quaternion normalize/rebuild, guessed from the shape, not confirmed), then a per-pair loop over the controller's
+     own touching-pair array (`+0x70`, count `+0x6a`) computing a candidate time and appending each pair pointer into the
+     local min-list (`FUN_180072ba0` grows it — unread, plain array grow).
+   - `IvpHullManager::NotifyAll` (`18009a690`, already named/read in full this session) then drains that min-list: a
+     bottom-up heap sift using two unread comparators `FUN_180094460`/`FUN_180094540`, firing a vtable slot at each
+     pair's `+0x28`-indexed table on a swap (this is where a queued time-of-impact becomes a real event — the
+     `IvpMindistFire`/`Examine` path item 1 already ported per-pair almost certainly lands here), then for the smallest
+     1–3 entries calls `FUN_18009a4f0` (unread) and stamps an integer tick from a double time via `FUN_180094490`
+     (unread) when the entry is due.
+   - After every controller is processed, `IntegrateAwakeCores` loops the controllers again calling
+     `IvpMindistHull::RevalidateOne` (`1800746c0`, renamed and read in full this session — per-pair: compares each
+     side's hull-cache generation at `+0x250`, revalidates via `FUN_180095cb0` [unread] on a mismatch, then re-`Examine`s
+     with `recheck = AfterMiss` when not parked) through `IvpMindistHull::RevalidateTouching` (`1800792b0`, renamed and
+     read in full this session — stamps the object's own `+0x250` generation from the environment's `+0x1a4` counter,
+     then walks the object's hull array calling `RevalidateOne` on each).
+   - **Still unread, needed before a rewrite can be written**: `FUN_180099a00` in full (the actual per-controller PSI
+     step — rotation integration, phantom listener dispatch, the pair-time computation that feeds the min-list),
+     `FUN_180094460`/`FUN_180094540` (the heap comparator/swap pair), `FUN_18009a4f0` and `FUN_180094490` (event firing
+     and tick stamping), `FUN_180079120` and `FUN_180095cb0` (both small, called conditionally).
+   - Replacing `IvpContact`/`IvpEnvironment` means reproducing this exact two-pass shape — build each controller's local
+     candidate list, drain it as a heap firing real events, then a second full pass revalidating every pair's cache
+     generation — not a single merged loop, and not `Advance`'s ad hoc per-collision subdivision. **A full rewrite, not a
+     patch** (owner's direction, 2026-09-14): this replaces the invented solver outright rather than feeding it.
+   - This is a multi-session rewrite; the next session should start by reading the five still-unread functions above in
+     full before writing any C#.
 4. **Displacements — deferred 2026-09-14, pick up after item 3 (or later).** `FUN_180025bc0` calls the engine's
    virtual-mesh query, which is outside vphysics.dll, so this subsystem can never be corpse-drop tested standalone even
    fully ported — and most TF2 maps don't use physics displacements. `FUN_18007bea0` (closest-point-on-triangle distance,
