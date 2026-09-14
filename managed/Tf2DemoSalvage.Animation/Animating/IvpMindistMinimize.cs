@@ -117,6 +117,18 @@ public class IvpMindist : IvpCollision, IIvpTimeEvent
     /// <summary>What the mindist tells when it goes, <c>+0x10</c>, or null.</summary>
     public IIvpCollisionDelegator? Delegator { get; set; }
 
+    /// <summary>
+    /// The persistent friction contact this mindist collides through, <c>+0x70</c>, or null before the pair's first
+    /// collision.
+    /// </summary>
+    /// <remarks>
+    /// **Not a per-collision value.** `FUN_18008d0c0` caches the record here and keeps it while the pair stays
+    /// close, so the same <see cref="IvpContactPoint"/> is measured again on every collision rather than rebuilt —
+    /// which is what lets its <see cref="IvpContactPoint.Slide"/> and <see cref="IvpContactPoint.PushStreak"/> warm
+    /// the next solve from the last one instead of starting from nothing.
+    /// </remarks>
+    public IvpContactPoint? ContactPoint { get; set; }
+
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">A record was never given its object.</exception>
     public override (IvpCollisionObject First, IvpCollisionObject Second) Objects =>
