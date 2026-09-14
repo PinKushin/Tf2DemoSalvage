@@ -205,4 +205,37 @@ public sealed class IvpTangentialSolveConformanceTests
         system.A.ShouldBe(7d);
         system.D.ShouldBe(10d);
     }
+
+    /// <remarks>A body sliding at <c>(3,0,0)</c> with no spin has a relative velocity of exactly that along the matching axis.</remarks>
+    [Test]
+    public void RelativeVelocity_OneMovingCoreAgainstAStaticSide_IsItsOwnVelocityAlongTheAxis()
+    {
+        IvpRigidBody first = new() { Velocity = (3f, 0f, 0f) };
+
+        (double Axis0, double Axis1) relative = IvpTangentialSolve.RelativeVelocity(
+            first, default, null, default, (1f, 0f, 0f), (0f, 1f, 0f));
+
+        relative.Axis0.ShouldBe(3d, 1e-6);
+        relative.Axis1.ShouldBe(0d, 1e-6);
+    }
+
+    /// <remarks>
+    /// **The second core's velocity is SUBTRACTED**, matching the normal's own first-minus-second convention — two
+    /// bodies approaching each other at <c>2</c> and <c>−2</c> along the axis have a relative velocity of <c>4</c>.
+    /// </remarks>
+    [Test]
+    public void RelativeVelocity_BothCoresMoving_SubtractsTheSecondsVelocity()
+    {
+        IvpRigidBody first = new() { Velocity = (2f, 0f, 0f) };
+        IvpRigidBody second = new() { Velocity = (-2f, 0f, 0f) };
+
+        (double Axis0, double Axis1) relative = IvpTangentialSolve.RelativeVelocity(
+            first, default, second, default, (1f, 0f, 0f), (0f, 1f, 0f));
+
+        relative.Axis0.ShouldBe(4d, 1e-6);
+    }
+
+    [Test]
+    public void RelativeVelocity_NeitherCoreMoving_IsZero() =>
+        IvpTangentialSolve.RelativeVelocity(null, default, null, default, (1f, 0f, 0f), (0f, 1f, 0f)).ShouldBe((0d, 0d));
 }

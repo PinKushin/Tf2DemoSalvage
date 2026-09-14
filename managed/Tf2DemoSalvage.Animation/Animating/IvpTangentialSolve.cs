@@ -183,4 +183,52 @@ public static class IvpTangentialSolve
 
         return (a, b, d);
     }
+
+    /// <summary>
+    /// The two cores' relative velocity at the contact, projected onto both tangent axes — part of
+    /// <c>IvpContact::TangentialSlipVelocity</c>'s accumulation, ahead of <c>SolveTangentialPair</c>'s own target-minus-current
+    /// right-hand side.
+    /// </summary>
+    /// <param name="first">The first core, or null for a static side.</param>
+    /// <param name="firstArm">The contact point relative to the first core's position, in world space.</param>
+    /// <param name="second">The second core, or null for a static side.</param>
+    /// <param name="secondArm">The contact point relative to the second core's position, in world space.</param>
+    /// <param name="axis0">The slide's first tangent axis, in world space.</param>
+    /// <param name="axis1">The slide's second tangent axis, in world space.</param>
+    /// <returns>
+    /// The relative velocity's component along each axis — the first core's own velocity minus the second's, matching
+    /// <see cref="IvpMindist.Normal"/>'s own convention of pointing from the second body toward the first.
+    /// </returns>
+    /// <remarks>
+    /// **This is the CURRENT slip only.** `SolveTangentialPair`'s actual right-hand side additionally mixes in the
+    /// pair's own stored, scaled slip target (<see cref="IvpContactPoint.Slide"/>) before subtracting this — not yet
+    /// carried here; see `docs/HANDOFF.md`, item 3.
+    /// </remarks>
+    public static (double Axis0, double Axis1) RelativeVelocity(
+        IvpRigidBody? first,
+        (float X, float Y, float Z) firstArm,
+        IvpRigidBody? second,
+        (float X, float Y, float Z) secondArm,
+        (float X, float Y, float Z) axis0,
+        (float X, float Y, float Z) axis1)
+    {
+        (float X, float Y, float Z) relative = default;
+
+        if (first is { } firstCore)
+        {
+            (float X, float Y, float Z) velocity = firstCore.PointVelocity(firstArm, firstCore.Velocity, firstCore.AngularVelocity);
+            relative = (relative.X + velocity.X, relative.Y + velocity.Y, relative.Z + velocity.Z);
+        }
+
+        if (second is { } secondCore)
+        {
+            (float X, float Y, float Z) velocity = secondCore.PointVelocity(secondArm, secondCore.Velocity, secondCore.AngularVelocity);
+            relative = (relative.X - velocity.X, relative.Y - velocity.Y, relative.Z - velocity.Z);
+        }
+
+        double onAxis0 = (relative.X * axis0.X) + (relative.Y * axis0.Y) + (relative.Z * axis0.Z);
+        double onAxis1 = (relative.X * axis1.X) + (relative.Y * axis1.Y) + (relative.Z * axis1.Z);
+
+        return (onAxis0, onAxis1);
+    }
 }
