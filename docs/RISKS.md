@@ -26176,7 +26176,12 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    `*`, and their probes' sweeps seed no NaNs, so a 0-differing sweep there says nothing about which NaN survives two. The
    fix is the solver's: seed each probe's sweep with NaNs of both signs to find the routines that differ, map their
    destinations per instruction, and route those operations through `IvpMath.Addsd`/`Mulsd`/`Addss`/`Mulss`. New ports
-   use the helpers from the start. **The heap solve's core-level routines are ported and pinned, 2026-09-14** — the record
+   use the helpers from the start. **Scope, measured 2026-09-14:** only five probes call `vphysics.dll` in process —
+   `vphysics-math`, `vphysics-materials`, `vphysics-impact`, `vphysics-contact-solve` and `vphysics-heap-core` — and of those
+   only the last two put NaNs of different payload on both operands of one operation. `vphysics-impact` seeds one
+   `float.NaN` lane at a time, always the same sign, so two NaNs never meet there. Every other IVP port — the evaluators, the
+   mindist searches, the integrator, the damping, the constraints, the contact record's build — was pinned without calling the
+   binary, so the audit needs an in-process oracle for each before its destinations can be read off, not just NaN seeding. **The heap solve's core-level routines are ported and pinned, 2026-09-14** — the record
    push `FUN_1800a9280`, the limits `FUN_180076710`, the flush and drop, and the kinetic energy `FUN_180077e80`: 20,000
    NaN-seeded cases agree with the binary (`IvpHeapCoreConformanceTests`). Not ported yet: the solve above it (`FUN_1800aa5c0`,
    `FUN_1800a9520`, `FUN_1800aa9f0`, `FUN_1800a9280`), which needs the friction system's records and cores.
