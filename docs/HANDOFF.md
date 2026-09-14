@@ -105,10 +105,35 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      with `recheck = AfterMiss` when not parked) through `IvpMindistHull::RevalidateTouching` (`1800792b0`, renamed and
      read in full this session — stamps the object's own `+0x250` generation from the environment's `+0x1a4` counter,
      then walks the object's hull array calling `RevalidateOne` on each).
-   - **Still unread, needed before a rewrite can be written**: `FUN_180099a00` in full (the actual per-controller PSI
-     step — rotation integration, phantom listener dispatch, the pair-time computation that feeds the min-list),
-     `FUN_180094460`/`FUN_180094540` (the heap comparator/swap pair), `FUN_18009a4f0` and `FUN_180094490` (event firing
-     and tick stamping), `FUN_180079120` and `FUN_180095cb0` (both small, called conditionally).
+   - **`FUN_180099a00` read in full 2026-09-14** — the actual per-controller PSI step, and it is large:
+     - **Phantom listener dispatch** (the unported mechanism HANDOFF already flagged, `FUN_18008ae50`/`FUN_18008b0a0`):
+       when `core+0x58` (a listener pointer) is set and `core+0x8` is nonzero, checks squared linear movement
+       (`core+0x130` accumulated offset vs. the hull bound's `+0x110`/`+0x14`) and calls listener vtable `+0x8` on
+       overflow, then squared angular movement (`core+0x140..0x148` vs. the bound's `+0xc`) and calls vtable `+0x0`.
+     - **Rotation integration is `FUN_180099fc0`, read in full — IVP's real quaternion integrator with adaptive
+       substepping**: when a flag bit (`core & 0x8`, or the hull's `+0x1ac == 5`) is clear, computes the angular speed
+       magnitude (`FUN_18006e120` — trivial, `sqrt(x²+y²+z²)`), and if `speed² · dt² ·` a constant exceeds a threshold,
+       subdivides the step into `ceil(sqrt(...))+1` sub-steps, each applying a quaternion multiply (`FUN_180071680`
+       plus inline quaternion math) — otherwise takes the flag-bit path through `FUN_180070f50` (axis-locked, unread
+       in detail) instead. **This is a substantial, self-contained IVP mechanism** (`ivp_mindist`'s rotation update,
+       almost certainly `change_orientation`/`rot_change` in the real IVP source naming) — expect several more
+       functions (`0x180071680`, `0x180070f50`, `0x1800c8020`) if it needs porting exactly, or a justified equivalence
+       if `System.Numerics.Quaternion`'s own integration is provably the same to the ULP this project already holds
+       itself to.
+     - **Position/orientation history**: after rotation, extrapolates position linearly using last-step velocity
+       (`core+0x150..0x160` position, `core+0x170..0x178` velocity), then double-buffers the transform
+       (`core+0x1a0/0x1b0` current → `core+0x180/0x190` previous) before calling `FUN_180070d60`/`FUN_180070c60`
+       (quaternion normalize + world-matrix rebuild, guessed from the shape, not read in detail).
+     - **The per-pair aging/enqueue loop** (own pairs at `core+0x70`, count `core+0x6a`): ages each pair's
+       extra-radius/margin fields over elapsed time using the pair's cached bound values, and appends the pair into
+       the caller's local candidate list (`FUN_180072ba0` — read in full, trivial capacity-doubling array grow, no
+       port gap) when the aged margin goes negative.
+   - **Still unread, needed before a rewrite can be written**: `FUN_180071680`, `FUN_180070f50`, `FUN_1800c8020` (the
+     quaternion integrator's own pieces), `FUN_180070d60`/`FUN_180070c60` (normalize/matrix rebuild),
+     `FUN_180094460`/`FUN_180094540` (the heap comparator/swap pair in `NotifyAll`), `FUN_18009a4f0` and
+     `FUN_180094490` (event firing and tick stamping), `FUN_180079120` and `FUN_180095cb0` (both small, called
+     conditionally). **The rotation integrator alone is a big enough piece that it may be worth its own oracle/port
+     pass before the rest of the running path**, given how self-contained it looks.
    - Replacing `IvpContact`/`IvpEnvironment` means reproducing this exact two-pass shape — build each controller's local
      candidate list, drain it as a heap firing real events, then a second full pass revalidating every pair's cache
      generation — not a single merged loop, and not `Advance`'s ad hoc per-collision subdivision. **A full rewrite, not a
