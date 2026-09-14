@@ -255,14 +255,32 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      **Still not pinned by an oracle probe against the shipped binary** — these are synthetic conformance tests, not a
      replay, so treat them as "internally consistent with the read behaviour," not "proven bit-identical to
      vphysics.dll" until a `vphysics-friction-link` probe exists.
-   - **Next, in order**: (1) wire the actual `collide` callback (`FUN_18008ecb0`/`FUN_18008ef60`) using
+   - **Checked `IvpMindistMinimize.Solver.Route` (`180094c70`) — it is NOT the side builder.** It's the
+     feature-kind dispatcher (`PointPoint`/`PointEdge`/`PointFace`/`EdgeEdge`/`FaceFace`), matching the C# port's own
+     `Solver.Dispatch` already. **`IvpLedgeSide` construction from a live `IvpCollisionObject` genuinely does not
+     exist anywhere in this port** — every native path either receives sides as arguments or (per `Minimize`'s own
+     C# signature) takes them as parameters. `collide` should follow the same convention: take pre-built sides as
+     parameters, deferring "who builds them from live objects each PSI" to the same still-unbuilt orchestration layer
+     that will need to feed `Minimize` its sides anyway.
+   - **`IvpRigidBody::RebuildMatrixAtEventTime` (`180078d60`) read in full — real work, one more dependency needed.**
+     Saves the core's current angular velocity/orientation into a NEW snapshot (`core+0x260`, arena-allocated — the
+     save half of `FUN_180079120`'s restore, already ported this session), overwrites the core's live orientation
+     with the value interpolated to the exact event time (`IvpQuaternion.Interpolate`, already ported), rebuilds
+     `CoreMatrix` at that instant (`IvpMatrix.FromRotation`, already ported) along with a new "position at event
+     time" field (`core+0xf0/0xf8/0x100`, not yet on `IvpRigidBody`), then — unless `FlagBit3` — recovers the exact
+     instantaneous angular velocity implied by the interpolated quaternion via `FUN_1800d392c` (signature matches
+     `asin(double)`, not yet confirmed) applied to `FUN_1800712b0`'s output (**unread** — extracts axis components
+     from the quaternion delta). **Needs**: `FUN_1800712b0` read, a snapshot type added to `IvpRigidBody`, the new
+     event-time-position field. Small, well-scoped — not rushed into this pass.
+   - **Next, in order**: (1) read `FUN_1800712b0`, add the snapshot/event-time-position fields, port
+     `RebuildMatrixAtEventTime`; (2) wire the actual `collide` callback (`FUN_18008ecb0`/`FUN_18008ef60`) using
      `IvpFrictionLinking` plus `IvpContactRecord.Build`/`IvpContactPoint.SetMaterials`/`IvpImpactSolver.Enter` (all
-     already ported) — needs fresh `IvpLedgeSide`s built at collision time, which nothing currently exposes publicly
-     (`IvpMindistMinimize.Solver.Route` builds them but is private; check whether to expose it or write an
-     equivalent); (2) port the impact-retry loop (`FUN_180090700`/`FUN_180090bd0`, read in full, close to pure
-     orchestration since `Estimate`/`Enter`/`Solve` already exist); (3) the top-level `IntegrateAwakeCores`-shaped PSI
-     driver; (4) a `vphysics-friction-link` and/or `vphysics-collide` oracle probe before trusting any of this in a
-     real running loop; (5) only then replace `IvpEnvironment`/`IvpContact`.
+     already ported), taking pre-built `IvpLedgeSide`s as parameters; (3) port the impact-retry loop
+     (`FUN_180090700`/`FUN_180090bd0`, read in full, close to pure orchestration since
+     `Estimate`/`Enter`/`Solve` already exist); (4) the top-level `IntegrateAwakeCores`-shaped PSI driver, including
+     the still-missing "build fresh ledge sides from live objects each PSI" piece; (5) a `vphysics-friction-link`
+     and/or `vphysics-collide` oracle probe before trusting any of this in a real running loop; (6) only then replace
+     `IvpEnvironment`/`IvpContact`.
    - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
      when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
      transform (`+0x1a0/+0x1b0`), then clears the pointer. `IvpMindistMinimize::Minimize` (`180095cb0`) was already
