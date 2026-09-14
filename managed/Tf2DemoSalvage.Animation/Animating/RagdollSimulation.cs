@@ -482,7 +482,7 @@ public sealed class RagdollSimulation
             state[index] = (
                 new Vector3((float)origin.X, (float)origin.Y, (float)origin.Z),
                 new Quaternion(
-                    body.Orientation.X, body.Orientation.Y, body.Orientation.Z, body.Orientation.W));
+                    (float)body.Orientation.X, (float)body.Orientation.Y, (float)body.Orientation.Z, (float)body.Orientation.W));
         }
 
         return state;

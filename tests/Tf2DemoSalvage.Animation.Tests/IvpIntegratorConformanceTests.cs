@@ -41,8 +41,8 @@ public sealed class IvpIntegratorConformanceTests
     [Test]
     public void Delta_ForAQuarterRadianHalfAngle_UsesTheTaylorSineRatherThanASine()
     {
-        (float X, float Y, float Z, float W) delta =
-            IvpQuaternion.Delta((2f, 0f, 0f), 0.5f);
+        (double X, double Y, double Z, double W) delta =
+            IvpQuaternion.Delta((2f, 0f, 0f), 0.5d);
 
         delta.X.ShouldBe(0.47916667f, Close, "0.5 - 0.5^3/6, not sin(0.5)");
         delta.Y.ShouldBe(0f, Close);
@@ -64,7 +64,7 @@ public sealed class IvpIntegratorConformanceTests
     [Test]
     public void Delta_ForTwoAxesAtOnce_BuildsEachAxisSeparatelyRatherThanOneCombinedTurn()
     {
-        (float X, float Y, float Z, float W) delta = IvpQuaternion.Delta((2f, 2f, 0f), 0.5f);
+        (double X, double Y, double Z, double W) delta = IvpQuaternion.Delta((2f, 2f, 0f), 0.5d);
 
         delta.X.ShouldBe(0.47916667f, Close);
         delta.Y.ShouldBe(0.47916667f, Close);
@@ -89,10 +89,10 @@ public sealed class IvpIntegratorConformanceTests
     [Test]
     public void Product_ForTwoRotationsMoreThanHalfATurnApart_DoesNotAlignThem()
     {
-        (float X, float Y, float Z, float W) first = (0f, 0f, 0.70710678f, 0.70710678f);
-        (float X, float Y, float Z, float W) second = (0f, 0f, -0.70710678f, -0.70710678f);
+        (double X, double Y, double Z, double W) first = (0d, 0d, 0.70710678d, 0.70710678d);
+        (double X, double Y, double Z, double W) second = (0d, 0d, -0.70710678d, -0.70710678d);
 
-        (float X, float Y, float Z, float W) product = IvpQuaternion.Product(first, second);
+        (double X, double Y, double Z, double W) product = IvpQuaternion.Product(first, second);
 
         // Unaligned: (0,0,s,c) * (0,0,-s,-c) = (0, 0, -2sc, -(c^2 - s^2)) = (0, 0, -1, 0).
         product.X.ShouldBe(0f, Close);
@@ -110,7 +110,7 @@ public sealed class IvpIntegratorConformanceTests
     [Test]
     public void Normalise_ForAQuaternionAlreadyAtUnitLength_ReturnsItUnchanged()
     {
-        (float X, float Y, float Z, float W) unit = (0f, 0f, 0f, 1f);
+        (double X, double Y, double Z, double W) unit = (0d, 0d, 0d, 1d);
 
         IvpQuaternion.Normalise(unit).ShouldBe(unit);
     }
@@ -118,11 +118,15 @@ public sealed class IvpIntegratorConformanceTests
     /// <remarks>
     /// **And one that is not gets scaled to unit length**, which is the control on the assertion
     /// above: without it, a `Normalise` that did nothing at all would pass.
+    ///
+    /// **Not `(0, 0, 0, 4)`, which this test used while the port divided by the length**: the binary's iteration has slope
+    /// `1 − √n` at its root, so a squared length of sixteen never converges and the call never returns, in the binary and in
+    /// a faithful port alike. `1.5` squares to `2.25`, where the slope is `−0.5`.
     /// </remarks>
     [Test]
     public void Normalise_ForAQuaternionOffUnitLength_ScalesItBack()
     {
-        (float X, float Y, float Z, float W) result = IvpQuaternion.Normalise((0f, 0f, 0f, 4f));
+        (double X, double Y, double Z, double W) result = IvpQuaternion.Normalise((0d, 0d, 0d, 1.5d));
 
         result.W.ShouldBe(1f, Close);
     }
@@ -219,12 +223,12 @@ public sealed class IvpIntegratorConformanceTests
             Velocity = (10f, 0f, 0f),
         };
 
-        IvpIntegrator.Step(body, positionDelta: 1d, orientationDelta: 1f);
+        IvpIntegrator.Step(body, positionDelta: 1d, orientationDelta: 1f, phase: 0);
 
         body.Position.X.ShouldBe(0d, "the previous-step velocity was zero");
 
         // The control: the cache took the velocity, so the NEXT step moves it.
-        IvpIntegrator.Step(body, positionDelta: 1d, orientationDelta: 1f);
+        IvpIntegrator.Step(body, positionDelta: 1d, orientationDelta: 1f, phase: 0);
 
         body.Position.X.ShouldBe(10d, Close);
     }
@@ -257,10 +261,10 @@ public sealed class IvpIntegratorConformanceTests
             AngularVelocity = (2f, 0f, 0f),
         };
 
-        IvpIntegrator.Step(body, positionDelta: 1d, orientationDelta: 0.05f);
+        IvpIntegrator.Step(body, positionDelta: 1d, orientationDelta: 0.05f, phase: 0);
 
         body.Orientation.ShouldBe(
-            (0f, 0f, 0f, 1f), "the visible orientation is last step's working one");
+            (0d, 0d, 0d, 1d), "the visible orientation is last step's working one");
 
         // 0.05 - 0.05^3 / 6 = 0.049979167
         body.WorkingOrientation.X.ShouldBe(

@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// <remarks>
 /// **Read from the disassembly** (`docs/findings/51`, *`FUN_1800a1b50` field by field*). The integrator
 /// `FUN_180099a00` calls it every step with the rotation quaternion `FUN_180099fc0` built
-/// (<see cref="IvpIntegrator.Rotate"/>); the vertex-face search sums two cores' <see cref="Angular"/> for its edge
+/// (<see cref="IvpIntegrator.Rotate(IvpRigidBody, float, int, bool)"/>); the vertex-face search sums two cores' <see cref="Angular"/> for its edge
 /// speed, and the pair scheduler scales <see cref="Axis"/> by <see cref="Surface"/>. *That the series bounds the
 /// angle `2·asin |v|` is INFERRED from its arithmetic.*
 /// </remarks>

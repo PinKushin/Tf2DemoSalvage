@@ -843,7 +843,7 @@ public sealed class IvpEnvironment
                 continue;
             }
 
-            IvpIntegrator.Step(body, Now - body.LastStepped, slice);
+            IvpIntegrator.Step(body, Now - body.LastStepped, slice, phase: 0);
 
             // **The environment's own speed limits, which are Valve's published numbers.** See
             // `MaximumVelocity`. **Where in the step the engine clamps is INFERRED** — the

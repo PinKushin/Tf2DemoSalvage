@@ -49,12 +49,12 @@ public sealed class IvpRigidBody
     /// <summary>How fast it is turning — <c>core+0x130/0x134/0x138</c>, radians per second.</summary>
     public (float X, float Y, float Z) AngularVelocity { get; set; }
 
-    /// <summary>The orientation everything outside the solver reads — <c>core+0x180</c>.</summary>
+    /// <summary>The orientation everything outside the solver reads — <c>core+0x180</c>, in doubles.</summary>
     /// <remarks>**One step behind <see cref="WorkingOrientation"/>, deliberately.**</remarks>
-    public (float X, float Y, float Z, float W) Orientation { get; set; } = (0f, 0f, 0f, 1f);
+    public (double X, double Y, double Z, double W) Orientation { get; set; } = (0d, 0d, 0d, 1d);
 
-    /// <summary>The orientation the integrator advances — <c>core+0x1a0</c>.</summary>
-    public (float X, float Y, float Z, float W) WorkingOrientation { get; set; } = (0f, 0f, 0f, 1f);
+    /// <summary>The orientation the integrator advances — <c>core+0x1a0</c>, in doubles.</summary>
+    public (double X, double Y, double Z, double W) WorkingOrientation { get; set; } = (0d, 0d, 0d, 1d);
 
     /// <summary>Rotational inertia about each axis — <c>core+0x20/0x24/0x28</c>.</summary>
     public (float X, float Y, float Z) Inertia { get; set; } = (1f, 1f, 1f);
@@ -336,7 +336,7 @@ public sealed class IvpRigidBody
     /// matrix. This remark used to say the offset was skipped "because in this project a body and its core
     /// are one thing" — which was never true of the engine and stopped being true here with B403.
     /// </remarks>
-    public ((double X, double Y, double Z) Position, (float X, float Y, float Z, float W) Orientation)
+    public ((double X, double Y, double Z) Position, (double X, double Y, double Z, double W) Orientation)
         TransformAt(double time)
     {
         float elapsed = (float)(time - LastStepped);
@@ -346,8 +346,9 @@ public sealed class IvpRigidBody
             Position.Y + ((double)PreviousVelocity.Y * elapsed),
             Position.Z + ((double)PreviousVelocity.Z * elapsed));
 
-        (float X, float Y, float Z, float W) orientation =
-            IvpQuaternion.Interpolate(Orientation, WorkingOrientation, elapsed * InverseStep);
+        // MULSS with the elapsed time the destination, widened for FUN_180071060's double fraction.
+        (double X, double Y, double Z, double W) orientation =
+            IvpQuaternion.Interpolate(Orientation, WorkingOrientation, IvpMath.Mulss(elapsed, InverseStep));
 
         return (position, orientation);
     }
@@ -419,6 +420,14 @@ public sealed class IvpRigidBody
     /// </remarks>
     public bool FlagBit0 { get; set; }
 
+    /// <summary>Bit <c>0x8</c> of <c>core+0x0</c>.</summary>
+    /// <remarks>
+    /// *Named by its bit because what IVP calls it, and what sets it, are unread.* The rotation step `FUN_180099fc0` takes its
+    /// second route for a core carrying it — real sines, no sub-steps and no Euler update
+    /// (<see cref="IvpIntegrator.Rotate(IvpRigidBody, float, int, bool)"/>).
+    /// </remarks>
+    public bool FlagBit3 { get; set; }
+
     /// <summary>A movable core's share of the one friction system it is in — <c>core+0x60</c>.</summary>
     public IvpFrictionInfo? FrictionInfo { get; set; }
 
@@ -475,9 +484,18 @@ public sealed class IvpRigidBody
     /// <remarks>
     /// *Named by its offset because its writer is unread.* Two readers are read: the anomaly check skips a core's spin limit
     /// when this is set and <see cref="Offset08"/> is zero or NaN (`FUN_18008dd00`), and the impact solver's entry gives a
-    /// pair with either core's set a cone of `(1, 0)` (`FUN_18008ed60`). No ragdoll element sets it.
+    /// pair with either core's set a cone of `(1, 0)` (`FUN_18008ed60`). The rotation step's second route turns such a core
+    /// about <see cref="Offset58Axis"/> by a sine of its own (`FUN_180099fc0`). No ragdoll element sets it.
     /// </remarks>
     public bool HasOffset58 { get; set; }
+
+    /// <summary>The axis the object at <c>core+0x58</c> names — the int at <c>+0x48</c> of that object's <c>+0x8</c>.</summary>
+    /// <remarks>
+    /// *Named by its offset because its writer is unread.* `FUN_180099fc0`'s second route, for a core with
+    /// <see cref="HasOffset58"/> set and <see cref="Offset08"/> zero or NaN, turns the other two axes through `FUN_180070f50`
+    /// and this one by `sin((ω·0.5)·dt)` of its own, and composes the two. Read as `0`, `1` or `2`.
+    /// </remarks>
+    public int Offset58Axis { get; set; }
 
     /// <summary>The velocity of a point fixed to this core — <c>FUN_180077fa0</c>.</summary>
     /// <param name="arm">The point, in the core's frame.</param>
@@ -574,6 +592,7 @@ public static class IvpIntegrator
     /// <param name="orientationDelta">
     /// The island's nominal step — <c>env+0x190 − env+0x188</c>, shared by every core in it.
     /// </param>
+    /// <param name="phase">The environment's phase, <c>env+0x1ac</c> — see <see cref="Rotate(IvpRigidBody, float, int, bool)"/>.</param>
     /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
     /// <remarks>
     /// **The order is the finding.** Verbatim, and every line of it matters:
@@ -599,7 +618,7 @@ public static class IvpIntegrator
     /// - **The per-core dt is narrowed to `float` before use** — `(double)(float)(dVar9 - dVar2)` —
     ///   so the arithmetic runs at single precision even though both operands are doubles.
     /// </remarks>
-    public static void Step(IvpRigidBody body, double positionDelta, float orientationDelta)
+    public static void Step(IvpRigidBody body, double positionDelta, float orientationDelta, int phase)
     {
         ArgumentNullException.ThrowIfNull(body);
 
@@ -616,6 +635,9 @@ public static class IvpIntegrator
             ? 1e10f
             : (float)(1.0 / orientationDelta);
 
+        // FUN_180099fc0 runs before the stamp, the move and the commit, as FUN_180099a00 calls it.
+        (double X, double Y, double Z, double W) turn = Rotate(body, orientationDelta, phase);
+
         body.Position = (
             body.Position.X + (body.PreviousVelocity.X * delta),
             body.Position.Y + (body.PreviousVelocity.Y * delta),
@@ -625,44 +647,72 @@ public static class IvpIntegrator
 
         // **Commit first.** What the rest of the engine reads is last step's working orientation.
         body.Orientation = body.WorkingOrientation;
-
-        (float X, float Y, float Z, float W) turn = Rotate(body, orientationDelta);
-
-        body.WorkingOrientation =
-            IvpQuaternion.Normalise(IvpQuaternion.Product(body.WorkingOrientation, turn));
+        body.WorkingOrientation = IvpQuaternion.Normalise(IvpQuaternion.Product(body.WorkingOrientation, turn));
     }
 
-    /// <summary>Builds a step's rotation and advances the angular velocity — <c>FUN_180099fc0</c>.</summary>
+    /// <summary>Builds a step's rotation and advances the angular velocity — <c>FUN_180099fc0</c>, on the path the runtime chose.</summary>
     /// <param name="body">The body, whose angular velocity this updates.</param>
     /// <param name="delta">The step, in seconds.</param>
+    /// <param name="phase">The environment's phase, <c>env+0x1ac</c>.</param>
     /// <returns>The rotation to apply to the orientation.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    public static (double X, double Y, double Z, double W) Rotate(IvpRigidBody body, float delta, int phase) =>
+        Rotate(body, delta, phase, IvpMath.FusedPath);
+
+    /// <summary><c>FUN_180099fc0</c>, with vphysics' <c>sin</c> on a given path.</summary>
+    /// <param name="body">The body, whose angular velocity this updates.</param>
+    /// <param name="delta">The step, in seconds.</param>
+    /// <param name="phase">The environment's phase, <c>env+0x1ac</c>.</param>
+    /// <param name="fused">Whether <c>sin</c> takes its fused-multiply-add path.</param>
+    /// <returns>The rotation to apply to the orientation.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">The second route's axis is not 0, 1 or 2.</exception>
     /// <remarks>
-    /// **Sub-steps when the turn is large**, then applies Euler's torque-free equations between each
-    /// one. The sub-step count and the free rotation are separate enough to test on their own — see
-    /// <see cref="SubSteps"/> and <see cref="FreeRotation"/>.
+    /// <code>
+    /// bit 0x8 of core+0x0, or env+0x1ac == 5 → the second route below
+    /// h = (double)dt;  k = SubSteps;  k ≠ 1 → h = h / (double)(float)k
+    /// out = FUN_180071680(ω, h);  ω = FreeRotation(ω, h)
+    /// k − 1 times:  d = FUN_180071680(ω, h);  out = d ⊗ out, FUN_180070d60 inlined with the NEW delta on the left;  ω = FreeRotation
+    /// core+0x130 = ω
+    ///
+    /// second route:  core+0x58 set and core+0x8 zero or NaN (UCOMISS/JNZ) →
+    ///                    a = FUN_180070f50(ω with the axis lane zeroed, dt);  s = sin(((double)ω[axis]·0.5)·dt)
+    ///                    out = FUN_180070d60(a, (the axis lane (double)(float)s, the others 0, √(1 − s·s)))
+    ///                otherwise out = FUN_180070f50(ω, dt);   neither updates ω
+    /// </code>
+    /// **Phase 5 is set after the PSI's last section** (`FUN_180082560`), so the second route is what a core integrated between
+    /// PSIs takes; the integrate section itself runs in phase 0. **The inlined product is not `FUN_180070d60` with its operands
+    /// swapped**: four of its multiplications take the other operand as the destination, which only a pair of NaNs can see.
     /// </remarks>
-    public static (float X, float Y, float Z, float W) Rotate(IvpRigidBody body, float delta)
+    public static (double X, double Y, double Z, double W) Rotate(IvpRigidBody body, float delta, int phase, bool fused)
     {
         ArgumentNullException.ThrowIfNull(body);
 
+        if (body.FlagBit3 || phase == FinishedPhase)
+        {
+            return Unstepped(body, delta, fused);
+        }
+
         int steps = SubSteps(body.AngularVelocity, delta);
+        double step = delta;
 
-        float step = (float)((double)delta / steps);
+        if (steps != 1)
+        {
+            step /= (float)steps;
+        }
 
-        (float X, float Y, float Z, float W) turn = IvpQuaternion.Delta(body.AngularVelocity, step);
+        (float X, float Y, float Z) spin = body.AngularVelocity;
+        (double X, double Y, double Z, double W) turn = IvpQuaternion.Delta(spin, step);
 
-        body.AngularVelocity =
-            FreeRotation(body.AngularVelocity, body.Inertia, body.InverseInertia, step);
+        spin = FreeRotation(spin, body.Inertia, body.InverseInertia, step);
 
         for (int index = 1; index < steps; index++)
         {
-            turn = IvpQuaternion.Product(
-                turn, IvpQuaternion.Delta(body.AngularVelocity, step));
-
-            body.AngularVelocity =
-                FreeRotation(body.AngularVelocity, body.Inertia, body.InverseInertia, step);
+            turn = Accumulate(IvpQuaternion.Delta(spin, step), turn);
+            spin = FreeRotation(spin, body.Inertia, body.InverseInertia, step);
         }
+
+        body.AngularVelocity = spin;
 
         return turn;
     }
@@ -688,19 +738,21 @@ public static class IvpIntegrator
     ///
     /// **The comparison is strictly less-than**, so a turn of exactly 1/6 radian does not sub-step.
     ///
+    /// **The squared spin is summed in FLOAT, `(ωy² + ωx²) + ωz²`**, then widened and multiplied by the double step twice.
+    /// **The count is `CVTTSD2SI` plus one**, so a turn too large for an int truncates to `int.MinValue` and the count comes out
+    /// negative: one delta over a negative step, and no further sub-steps.
+    ///
     /// **A transcription that stepped rotation once per PSI is right for a settling corpse and wrong
     /// for a limb that is whipping** — which is the frame anyone watching a demo is looking at.
     /// </remarks>
     public static int SubSteps((float X, float Y, float Z) angularVelocity, float delta)
     {
-        double square =
-            ((double)angularVelocity.X * angularVelocity.X) +
-            ((double)angularVelocity.Y * angularVelocity.Y) +
-            ((double)angularVelocity.Z * angularVelocity.Z);
+        float square = IvpMath.Addss(
+            IvpMath.Addss(IvpMath.Mulss(angularVelocity.Y, angularVelocity.Y), IvpMath.Mulss(angularVelocity.X, angularVelocity.X)),
+            IvpMath.Mulss(angularVelocity.Z, angularVelocity.Z));
+        double turn = IvpMath.Mulsd(IvpMath.Mulsd(square, delta), delta);
 
-        double turn = square * delta * delta;
-
-        return SubStepThreshold < turn ? (int)Math.Sqrt(turn * SubStepScale) + 1 : 1;
+        return turn > SubStepThreshold ? unchecked(Truncate(Math.Sqrt(IvpMath.Mulsd(turn, SubStepScale))) + 1) : 1;
     }
 
     /// <summary>Euler's torque-free equations for one step.</summary>
@@ -725,28 +777,87 @@ public static class IvpIntegrator
     /// do — feeds the new `ωx` into `ωy` and both into `ωz`, and the error grows with the timestep.
     ///
     /// **The coefficients pair each difference with the reciprocal of the axis being written:**
-    /// `(Iy − Iz)·(1/Ix)`, `(Iz − Ix)·(1/Iy)`, `(Ix − Iy)·(1/Iz)`.
+    /// `(Iy − Iz)·(1/Ix)`, `(Iz − Ix)·(1/Iy)`, `(Ix − Iy)·(1/Iz)`, each in float.
+    ///
+    /// **The spin products are float and the rest is double**, read from the disassembly:
+    /// `ωx′ = (float)((double)(float)((double)(ωz·ωy)·(double)about) · h + (double)ωx)` — the coefficient's product taken in
+    /// double and narrowed, which rounds differently from the float product.
     /// </remarks>
     public static (float X, float Y, float Z) FreeRotation(
         (float X, float Y, float Z) angularVelocity,
         (float X, float Y, float Z) inertia,
         (float X, float Y, float Z) inverseInertia,
-        float delta)
+        double delta)
     {
-        float aboutX = (inertia.Y - inertia.Z) * inverseInertia.X;
-        float aboutY = (inertia.Z - inertia.X) * inverseInertia.Y;
-        float aboutZ = (inertia.X - inertia.Y) * inverseInertia.Z;
+        double aboutX = IvpMath.Mulss(inertia.Y - inertia.Z, inverseInertia.X);
+        double aboutY = IvpMath.Mulss(inertia.Z - inertia.X, inverseInertia.Y);
+        double aboutZ = IvpMath.Mulss(inertia.X - inertia.Y, inverseInertia.Z);
 
         // Every product is taken from the values passed in, never from a partly updated triple.
-        float yz = angularVelocity.Z * angularVelocity.Y;
-        float zx = angularVelocity.Z * angularVelocity.X;
-        float yx = angularVelocity.Y * angularVelocity.X;
+        float zy = IvpMath.Mulss(angularVelocity.Z, angularVelocity.Y);
+        float zx = IvpMath.Mulss(angularVelocity.Z, angularVelocity.X);
+        float yx = IvpMath.Mulss(angularVelocity.Y, angularVelocity.X);
 
         return (
-            (float)(((double)(yz * aboutX) * delta) + angularVelocity.X),
-            (float)(((double)(zx * aboutY) * delta) + angularVelocity.Y),
-            (float)(((double)(yx * aboutZ) * delta) + angularVelocity.Z));
+            Advance(zy, aboutX, delta, angularVelocity.X),
+            Advance(zx, aboutY, delta, angularVelocity.Y),
+            Advance(yx, aboutZ, delta, angularVelocity.Z));
     }
+
+    /// <summary>One lane of <see cref="FreeRotation"/>: <c>(float)((double)(float)(product·about)·h + rate)</c>.</summary>
+    private static float Advance(float product, double about, double delta, float rate) =>
+        (float)IvpMath.Addsd(IvpMath.Mulsd((float)IvpMath.Mulsd(product, about), delta), rate);
+
+    /// <summary><c>CVTTSD2SI</c>: truncation toward zero, and <c>int.MinValue</c> for anything an int cannot hold.</summary>
+    /// <remarks>.NET's own cast saturates instead, since .NET 9.</remarks>
+    private static int Truncate(double value) =>
+        value is >= -2147483648d and < 2147483648d ? (int)value : int.MinValue;
+
+    /// <summary><c>FUN_180099fc0</c>'s inlined product for a later sub-step: the new delta on the left, the turn so far on the right.</summary>
+    private static (double X, double Y, double Z, double W) Accumulate(
+        (double X, double Y, double Z, double W) delta, (double X, double Y, double Z, double W) turn)
+    {
+        (double d0, double d1, double d2, double d3) = delta;
+        (double t0, double t1, double t2, double t3) = turn;
+
+        return (
+            IvpMath.Addsd(IvpMath.Addsd(IvpMath.Mulsd(t0, d3), IvpMath.Mulsd(t3, d0)), IvpMath.Mulsd(t2, d1)) - IvpMath.Mulsd(t1, d2),
+            IvpMath.Addsd(IvpMath.Addsd(IvpMath.Mulsd(t1, d3), IvpMath.Mulsd(t3, d1)), IvpMath.Mulsd(d2, t0)) - IvpMath.Mulsd(t2, d0),
+            IvpMath.Addsd(IvpMath.Addsd(IvpMath.Mulsd(t2, d3), IvpMath.Mulsd(t3, d2)), IvpMath.Mulsd(t1, d0)) - IvpMath.Mulsd(d1, t0),
+            ((IvpMath.Mulsd(t3, d3) - IvpMath.Mulsd(t0, d0)) - IvpMath.Mulsd(t1, d1)) - IvpMath.Mulsd(t2, d2));
+    }
+
+    /// <summary><c>FUN_180099fc0</c>'s second route: real sines, and no sub-steps or Euler update.</summary>
+    private static (double X, double Y, double Z, double W) Unstepped(IvpRigidBody body, float delta, bool fused)
+    {
+        (float X, float Y, float Z) spin = body.AngularVelocity;
+
+        if (!body.HasOffset58 || body.Offset08 < 0f || body.Offset08 > 0f)
+        {
+            return IvpQuaternion.SineDelta(spin, delta, fused);
+        }
+
+        int axis = body.Offset58Axis;
+        double rate = axis switch
+        {
+            0 => spin.X,
+            1 => spin.Y,
+            2 => spin.Z,
+            _ => throw new InvalidOperationException($"core+0x58's axis must be 0, 1 or 2, not {axis}."),
+        };
+
+        (double X, double Y, double Z, double W) others =
+            IvpQuaternion.SineDelta((axis == 0 ? 0f : spin.X, axis == 1 ? 0f : spin.Y, axis == 2 ? 0f : spin.Z), delta, fused);
+        double sine = IvpMath.Sin(IvpMath.Mulsd(IvpMath.Mulsd(rate, 0.5d), delta), fused);
+        double lane = (float)sine;
+        (double X, double Y, double Z, double W) about = (
+            axis == 0 ? lane : 0d, axis == 1 ? lane : 0d, axis == 2 ? lane : 0d, Math.Sqrt(1d - IvpMath.Mulsd(sine, sine)));
+
+        return IvpQuaternion.Product(others, about);
+    }
+
+    /// <summary><c>env+0x1ac</c> once <c>FUN_180082560</c> has run its last section.</summary>
+    private const int FinishedPhase = 5;
 
     /// <summary><c>DAT_1800fdf90</c>, dumped — 1/36, so the test is on 1/6 radian.</summary>
     private const double SubStepThreshold = 0.027777777777777776d;

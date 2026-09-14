@@ -41,12 +41,11 @@ public readonly record struct IvpMatrix(
     /// m8 = x·2z − w·2y         m9 = w·2x + y·2z         m10 = 1 − (y·2y + x·2x)
     /// </code>
     ///
-    /// **Every term in doubles**, from a float rotation widened first, as the engine's rotation at
-    /// `core+0x180` is stored in doubles. The indices skip 3, 7 and 11 because the engine's storage is a
-    /// 4×4 and those are its unused fourth column.
+    /// **Every term in doubles**, as the engine's rotation at `core+0x180` is stored in doubles. The indices skip 3, 7 and 11
+    /// because the engine's storage is a 4×4 and those are its unused fourth column.
     /// </remarks>
     public static IvpMatrix FromRotation(
-        (float X, float Y, float Z, float W) rotation, (double X, double Y, double Z) position)
+        (double X, double Y, double Z, double W) rotation, (double X, double Y, double Z) position)
     {
         double x = rotation.X;
         double y = rotation.Y;

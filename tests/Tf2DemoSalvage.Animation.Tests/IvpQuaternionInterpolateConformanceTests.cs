@@ -19,11 +19,10 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// evaluating both bodies at lattice times inside the step (`FUN_1800734e0`), and every one of those
 /// transforms rotates through this.
 ///
-/// **What is deliberately NOT tested, and why: the 0.999 cut-over and the renormalisation.** Above the
-/// cut, lerp and slerp differ by at most `8e-12` and the linearised renormalisation differs from the
-/// textbook one by `9e-17` — measured by running the read sequence in doubles at dots of 0.9991,
-/// 0.99991 and 0.99999. A float cannot see either, so a test claiming to pin the branch could not
-/// fail. The cases below are the ones a wrong implementation actually changes.
+/// **The 0.999 cut-over and the renormalisation are pinned elsewhere.** Above the cut, lerp and slerp differ by at most
+/// `8e-12` — invisible to these tolerances, and the reason this suite once could not test the branch while the port was
+/// float. With the rotation in doubles, `IvpRotationConformanceTests` replays the binary's own bits on both branches. The
+/// cases below are the ones a wrong implementation changes by a visible amount.
 /// </remarks>
 public sealed class IvpQuaternionInterpolateConformanceTests
 {
@@ -44,7 +43,7 @@ public sealed class IvpQuaternionInterpolateConformanceTests
     [Test]
     public void Interpolate_AQuarterOfAQuarterTurn_IsTheSlerpNotANormalisedLerp()
     {
-        (float X, float Y, float Z, float W) at = IvpQuaternion.Interpolate(Identity, QuarterTurnAboutZ, 0.25f);
+        (double X, double Y, double Z, double W) at = IvpQuaternion.Interpolate(Identity, QuarterTurnAboutZ, 0.25f);
 
         at.X.ShouldBe(0f, Tolerance);
         at.Y.ShouldBe(0f, Tolerance);
@@ -60,7 +59,7 @@ public sealed class IvpQuaternionInterpolateConformanceTests
     [Test]
     public void Interpolate_TowardTheNegatedIdentity_StaysAtTheIdentity()
     {
-        (float X, float Y, float Z, float W) at = IvpQuaternion.Interpolate(Identity, (0f, 0f, 0f, -1f), 0.5f);
+        (double X, double Y, double Z, double W) at = IvpQuaternion.Interpolate(Identity, (0f, 0f, 0f, -1f), 0.5f);
 
         at.X.ShouldBe(0f, Tolerance);
         at.Y.ShouldBe(0f, Tolerance);
@@ -77,7 +76,7 @@ public sealed class IvpQuaternionInterpolateConformanceTests
     [Test]
     public void Interpolate_AtFractionOneTowardANegatedTarget_ReturnsTheTargetFlipped()
     {
-        (float X, float Y, float Z, float W) at =
+        (double X, double Y, double Z, double W) at =
             IvpQuaternion.Interpolate(Identity, (0f, 0f, -0.70710677f, -0.70710677f), 1f);
 
         at.Z.ShouldBe(0.70710677f, Tolerance);
@@ -90,7 +89,7 @@ public sealed class IvpQuaternionInterpolateConformanceTests
     [Test]
     public void Interpolate_AtFractionZero_ReturnsTheStart()
     {
-        (float X, float Y, float Z, float W) at = IvpQuaternion.Interpolate(QuarterTurnAboutZ, Identity, 0f);
+        (double X, double Y, double Z, double W) at = IvpQuaternion.Interpolate(QuarterTurnAboutZ, Identity, 0f);
 
         at.Z.ShouldBe(0.70710677f, Tolerance);
         at.W.ShouldBe(0.70710677f, Tolerance);

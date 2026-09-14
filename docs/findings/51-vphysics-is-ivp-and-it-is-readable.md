@@ -4588,6 +4588,21 @@ unless the core has `+0x58` with a zero `+0x8`, the anomaly manager's slot 1 whe
 
 *Not read: what sets a core's bit `0x8`.* vphysics' `sin` and `acos` are read and ported since, in the next section.
 
+**Ported and pinned (2026-09-14).** `IvpQuaternion.Product`, `Normalise`, `Interpolate`, `Delta` and `SineDelta` and
+`IvpIntegrator.Rotate` carry the routines above in doubles, B369's seven divergences gone, and the `vphysics-rotation` probe
+calls all six in process on both `sin` paths: 50,000 random cases — a quarter seeded with NaNs and infinities — agree on every
+lane, and `IvpRotationConformanceTests` replays 400 of them and 102 NaN pairs, the fixture's own control asserting both of the
+interpolation's branches, a sub-stepped step and both second routes. What the port met that the reading above did not say:
+
+- **`FUN_180070c60` never returns for a squared length of four or more, for an infinity, or for zero.** Its loop is
+  `s = s + (1 − s²n)/2`, whose slope at the root is `1 − √n`. This project's own test normalized `(0, 0, 0, 4)` while the port
+  divided by the length; a faithful port hangs on it, and the binary would. *Evidence: arithmetic.*
+- **The inlined sub-step product is not `FUN_180070d60` with its operands swapped**: four of its multiplications take the
+  other operand as the destination, which only a pair of NaNs can see.
+- **The sub-step count is `CVTTSD2SI` plus one**, which truncates a count too large for an int to `int.MinValue`, so the
+  step runs once over a negative sub-step. .NET's own cast saturates since .NET 9; the port truncates by hand.
+- **`FUN_1800734e0`'s fraction is `MULSS` with the elapsed time the destination**, widened for the interpolation's double.
+
 #### vphysics' own `sin`, `cos` and `acos`, ported whole (2026-09-14)
 
 **`FUN_1800c8020` `sin`, `FUN_1800d33b0` `cos` past `π/4`, and `FUN_1800cce64` `acos` are ported as `IvpMath.Sin`, `Cos` and

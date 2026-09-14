@@ -47,7 +47,7 @@ public sealed class IvpRigidBodyTransformAtConformanceTests
     {
         IvpRigidBody body = new();
 
-        IvpIntegrator.Step(body, 0.015d, 0.015f);
+        IvpIntegrator.Step(body, 0.015d, 0.015f, phase: 0);
 
         body.InverseStep.ShouldBe((float)(1.0 / (double)0.015f));
     }
@@ -61,7 +61,7 @@ public sealed class IvpRigidBodyTransformAtConformanceTests
     {
         IvpRigidBody body = new();
 
-        IvpIntegrator.Step(body, 0d, 0f);
+        IvpIntegrator.Step(body, 0d, 0f, phase: 0);
 
         body.InverseStep.ShouldBe(1e10f);
     }
@@ -76,7 +76,7 @@ public sealed class IvpRigidBodyTransformAtConformanceTests
     {
         IvpRigidBody body = Moving();
 
-        ((double X, double Y, double Z) position, (float X, float Y, float Z, float W) rotation) =
+        ((double X, double Y, double Z) position, (double X, double Y, double Z, double W) rotation) =
             body.TransformAt(5.05d);
 
         position.X.ShouldBe(10.1d, Tolerance);
@@ -95,7 +95,7 @@ public sealed class IvpRigidBodyTransformAtConformanceTests
     {
         IvpRigidBody body = Moving();
 
-        ((double X, double Y, double Z) position, (float X, float Y, float Z, float W) rotation) =
+        ((double X, double Y, double Z) position, (double X, double Y, double Z, double W) rotation) =
             body.TransformAt(5d);
 
         position.X.ShouldBe(10d);
@@ -118,7 +118,7 @@ public sealed class IvpRigidBodyTransformAtConformanceTests
 
         body.Sleep(0.1f);
 
-        ((double X, double Y, double Z) _, (float X, float Y, float Z, float W) rotation) =
+        ((double X, double Y, double Z) _, (double X, double Y, double Z, double W) rotation) =
             body.TransformAt(5.05d);
 
         rotation.Z.ShouldBe(0f, Tolerance);
