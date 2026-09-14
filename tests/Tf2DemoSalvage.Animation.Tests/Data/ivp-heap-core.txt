@@ -14159,3 +14159,2658 @@ dropped-second-spin c04e5051 403618f1 40c451bd
 dropped-second-pending-velocity 00000000 00000000 00000000
 dropped-second-pending-spin 00000000 00000000 00000000
 energy 40a66a415858fa50 4095c29cbad64120
+case nan-turns0-first-inverse-inertia0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push bfe9cd3dc9e12166
+normal 3d1f536a bf056813 bf5a43cc
+turns 7fc00001 c11576ee c0e92a8c 3fb170c0 bfe05d08 40bc59c3
+movable 00000001 00000001
+energy-velocity 399bdfa4 3a56f049 3a7920a3
+energy-spin ba7dd213 3a7738e4 3a00dfc3
+first-mass 41dc53e4
+first-inertia 4012d132 403f6133 40f4fdeb
+first-inverse-inertia ffc00002 3eab3848 3e05c05a
+first-inverse-mass 3e6f62de
+first-velocity 3a6aca8a ba6b3e9f ba242ec1
+first-spin c28cf6db c2ad9747 414d8699
+first-pending-velocity 3f635582 bfa02caf 3e20ce47
+first-pending-spin bbfdf4e3 3c1265f6 3b64437d
+second-mass 42206ff4
+second-inertia 3f9c5113 40a161d7 40464ac5
+second-inverse-inertia 3f51a02f 3e4b0bc4 3ea5404e
+second-inverse-mass 3ccc3de4
+second-velocity ba7a8773 3988ce3e ba36d61e
+second-spin 3dc882e2 bbe1b83b bc997871
+second-pending-velocity 411d5730 40e26760 c00797a4
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity 3a6aca8a ba6b3e9f ba242ec1
+pushed-first-spin c28cf6db c2ad9747 414d8699
+pushed-first-pending-velocity 3f653605 bfacbf6b bb70b130
+pushed-first-pending-spin 7fc00001 c020a255 bf438f01
+pushed-second-velocity ba7a8773 3988ce3e ba36d61e
+pushed-second-spin 3dc882e2 bbe1b83b bc997871
+pushed-second-pending-velocity 411d53fc 40e2bd32 c0067ed4
+pushed-second-pending-spin bf6a4eaf 3e8f7c0c bfc410af
+limited-first-velocity 3a6aca8a ba6b3e9f ba242ec1
+limited-first-spin c28cf6db c2ad9747 414d8699
+limited-first-pending-velocity 3f635582 bfa02caf 3e20ce47
+limited-first-pending-spin bbfdf4e3 3c1265f6 3b64437d
+limited-second-velocity ba7a8773 3988ce3e ba36d61e
+limited-second-spin 3dc882e2 bbe1b83b bc997871
+limited-second-pending-velocity 411d5730 40e26760 c00797a4
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity 3f639035 bfa04a17 3e202a18
+flushed-first-spin c28cfad3 c2ad92b4 414d94dd
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 411d5346 40e26983 c007a311
+flushed-second-spin 3dc882e2 bbe1b83b bc997871
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 3a6aca8a ba6b3e9f ba242ec1
+dropped-first-spin c28cf6db c2ad9747 414d8699
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity ba7a8773 3988ce3e ba36d61e
+dropped-second-spin 3dc882e2 bbe1b83b bc997871
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 3efb844674804c80 3f032a9a1dd50e80
+case nan-normal0-first-inverse-mass0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 401cd1164a199873
+normal 7fc00001 be1bb7d2 bf576c2a
+turns 3f333ca0 bf420ab7 3f1593c1 bf63b0e0 be2eb84c be5f215b
+movable 00000001 00000001
+energy-velocity 3d91a167 bd41ce62 3c0737d1
+energy-spin c3f6a1e9 43a0d80a c283c3b2
+first-mass 42b833cf
+first-inertia 40f41bf7 40811d8e 40420a9e
+first-inverse-inertia 3e063c28 3e7dc9d3 3ea8df01
+first-inverse-mass ffc00002
+first-velocity 39ae1b90 395eb373 3a01d5e0
+first-spin bda03510 bcb3e410 3ca8f806
+first-pending-velocity c0986a28 c233c817 c1ab6cfc
+first-pending-spin 00000000 00000000 00000000
+second-mass 42863b66
+second-inertia 40fff9b7 402fa7d4 41026e12
+second-inverse-inertia 3e000325 3eba8c00 3dfb3b0a
+second-inverse-mass 3c741d58
+second-velocity bd0bae45 bda870d8 3dc82f08
+second-spin 3d00bf02 bdacea7a bda6875f
+second-pending-velocity ba789083 ba694ecf 39d53c40
+second-pending-spin 43b9294a 42c71e19 442d3d21
+pushed-first-velocity 39ae1b90 395eb373 3a01d5e0
+pushed-first-spin bda03510 bcb3e410 3ca8f806
+pushed-first-pending-velocity 7fc00001 7fc00002 7fc00002
+pushed-first-pending-spin bf2944ea 3fad3ac8 bfb1b51c
+pushed-second-velocity bd0bae45 bda870d8 3dc82f08
+pushed-second-spin 3d00bf02 bdacea7a bda6875f
+pushed-second-pending-velocity 7fc00001 bc8d021a bdb8274b
+pushed-second-pending-spin 43b8c2c2 42c638cb 442d30ce
+limited-first-velocity 39ae1b90 395eb373 3a01d5e0
+limited-first-spin bda03510 bcb3e410 3ca8f806
+limited-first-pending-velocity c0986a28 c233c817 c1ab6cfc
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity bd0bae45 bda870d8 3dc82f08
+limited-second-spin 3d00bf02 bdacea7a bda6875f
+limited-second-pending-velocity ba789083 ba694ecf 39d53c40
+limited-second-pending-spin 43b9294a 42c71e19 442d3d21
+flushed-first-velocity c0986770 c233c7df c1ab6bf8
+flushed-first-spin bda03510 bcb3e410 3ca8f806
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity bd0f9087 bdaa4376 3dc90444
+flushed-second-spin 43b92d50 42c6f2de 442d37ed
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 39ae1b90 395eb373 3a01d5e0
+dropped-first-spin bda03510 bcb3e410 3ca8f806
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity bd0bae45 bda870d8 3dc82f08
+dropped-second-spin 3d00bf02 bdacea7a bda6875f
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 41317259b6ce6253 413149323f41e76e
+case nan-first-pending-spin0-first-spin0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 407d0b6c3bb09ace
+normal bf17e080 bf1481cb 3f0ee19c
+turns c1e2fc4d 41c3f36e c1b508ec 4227fedd c1beef6c c1fbd274
+movable 00000001 00000001
+energy-velocity 3a1e981e 3a3ddea1 b9aff04d
+energy-spin c0953c5b 4074340d c10dbc57
+first-mass 40ec8fc7
+first-inertia 3ff221f5 3fb00b70 4116e123
+first-inverse-inertia 3f0754ae 3f3a2273 3dd92e16
+first-inverse-mass 3e0a848f
+first-velocity 3d72a129 bd0dfddf 3d9e58de
+first-spin ffc00002 3d039ab7 bb07639a
+first-pending-velocity 41b782ac c1d5dd08 419a08cd
+first-pending-spin 7fc00001 c0a18a84 bf85f81a
+second-mass 42881f2a
+second-inertia 406e94e4 4068180c 40185c7e
+second-inverse-inertia 3e895855 3e8d2f29 3ed71157
+second-inverse-mass 3f3a49bc
+second-velocity c40c0ce6 c46cd561 43e3ab9e
+second-spin 3b656e2f b9c47bb6 38fa75cc
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin bf26e73e 3ef61f9d bea67ffb
+pushed-first-velocity 3d72a129 bd0dfddf 3d9e58de
+pushed-first-spin ffc00002 3d039ab7 bb07639a
+pushed-first-pending-velocity 4270eec5 411bbe2d c17d4c4b
+pushed-first-pending-spin 7fc00001 c60164eb 448b4480
+pushed-second-velocity c40c0ce6 c46cd561 43e3ab9e
+pushed-second-spin 3b656e2f b9c47bb6 38fa75cc
+pushed-second-pending-velocity c3489fb5 c3442c1a 433cbdac
+pushed-second-pending-spin 45a39797 c53f1f20 c5c00789
+limited-first-velocity 3d72a129 bd0dfddf 3d9e58de
+limited-first-spin ffc00002 3d039ab7 bb07639a
+limited-first-pending-velocity 41b782ac c1d5dd08 419a08cd
+limited-first-pending-spin 7fc00001 c0a18a84 bf85f81a
+limited-second-velocity c40c0ce6 c46cd561 43e3ab9e
+limited-second-spin 3b656e2f b9c47bb6 38fa75cc
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin bf26e73e 3ef61f9d bea67ffb
+flushed-first-velocity 41b7fbfd c1d62407 419aa726
+flushed-first-spin 7fc00001 c0a0834f bf863bcc
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c40c0ce6 c46cd561 43e3ab9e
+flushed-second-spin bf2601d0 3ef5ee7e bea67054
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 3d72a129 bd0dfddf 3d9e58de
+dropped-first-spin ffc00002 3d039ab7 bb07639a
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity c40c0ce6 c46cd561 43e3ab9e
+dropped-second-spin 3b656e2f b9c47bb6 38fa75cc
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 4079094a83e369ae 40640b15c798e614
+case nan-first-pending-velocity0-first-velocity0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 3f430c6f0df3ce06
+normal 3f7d2f83 bcc2b795 be157434
+turns c2373e13 c2bef24a 4242d8b5 c2b83eaa 422d1e68 c28424f9
+movable 00000001 00000001
+energy-velocity 3d6c5dd2 3d954b5c bd00b430
+energy-spin c40f66ec 435c6ae6 440f6a48
+first-mass 42858377
+first-inertia 403a1db4 409e80c1 40f0d0db
+first-inverse-inertia 3eb00fed 3e4ebbfd 3e08121f
+first-inverse-mass 3c756da5
+first-velocity ffc00002 40b7de45 409d24da
+first-spin c2025093 4244659d c15f11f8
+first-pending-velocity 7fc00001 4070c16a 4017df77
+first-pending-spin bd8ed292 bbf215d4 3db2de2c
+second-mass 42b5664a
+second-inertia 41166be3 40f3b6d4 3f9a635b
+second-inverse-inertia 3dd9d75f 3e0673dc 3f543e8c
+second-inverse-mass 3c34a3d1
+second-velocity c197c77c 43d50e1d c4285106
+second-spin 3ba8d81a ba0c4280 bbc63200
+second-pending-velocity 443140ce 437f28e0 43af71c9
+second-pending-spin ba52b40d b9acb21e 39e8d21a
+pushed-first-velocity ffc00002 40b7de45 409d24da
+pushed-first-spin c2025093 4244659d c15f11f8
+pushed-first-pending-velocity 7fc00001 4070c16b 4017df7c
+pushed-first-pending-spin bd7822da 3b7a26ca 3dab2963
+pushed-second-velocity c197c77c 43d50e1d c4285106
+pushed-second-spin 3ba8d81a ba0c4280 bbc63200
+pushed-second-pending-velocity 443140ce 437f28e0 43af71c9
+pushed-second-pending-spin bbd4fdfd 3b42e82e bd009d32
+limited-first-velocity ffc00002 40b7de45 409d24da
+limited-first-spin c2025093 4244659d c15f11f8
+limited-first-pending-velocity 7fc00001 4070c16a 4017df77
+limited-first-pending-spin bd8ed292 bbf215d4 3db2de2c
+limited-second-velocity c197c77c 43d50e1d c4285106
+limited-second-spin 3ba8d81a ba0c4280 bbc63200
+limited-second-pending-velocity 443140ce 437f28e0 43af71c9
+limited-second-pending-spin ba52b40d b9acb21e 39e8d21a
+flushed-first-velocity 7fc00001 41181f7d 40e91496
+flushed-first-spin c20297fc 42445e0c c15dac3c
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 442c8292 442a5146 c3a13043
+flushed-second-spin 3b8e8198 ba629b8f bbb7a4de
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity ffc00002 40b7de45 409d24da
+dropped-first-spin c2025093 4244659d c15f11f8
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity c197c77c 43d50e1d c4285106
+dropped-second-spin 3ba8d81a ba0c4280 bbc63200
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 413c07cfd24cad33 413d73868fd12dc5
+case nan-energy-spin0-first-inertia0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 3f19f45bf3ad521d
+normal bdbb9a0f bf738ce5 be9696ec
+turns 3bc602bb b9f5629c bb539122 bad1bf94 3ac97b87 3baae7f0
+movable 00000001 00000001
+energy-velocity 3fc20869 c112c25f bf1ca9c1
+energy-spin 7fc00001 40433909 c10f23c6
+first-mass 4214f2d3
+first-inertia ffc00002 411bbd66 3f889b2e
+first-inverse-inertia 3e789d1a 3dd266f5 3f6fdf3e
+first-inverse-mass 3cdbfed6
+first-velocity bf679c9f bf639426 3e22f7f5
+first-spin bf96aff8 40041a78 3fdb8ad5
+first-pending-velocity 4287427b c18a3c03 be7ec4ed
+first-pending-spin 00000000 00000000 00000000
+second-mass 424bea95
+second-inertia 40cd3007 40fc1a77 40679d42
+second-inverse-inertia 3e1fb2a0 3e01fa7a 3e8d7a02
+second-inverse-mass 3ca0b180
+second-velocity 3b5a02a0 3c00d49b bb665ff2
+second-spin 3a476214 b9343d05 ba39bea3
+second-pending-velocity 4416a1b1 433d626a c45d4989
+second-pending-spin 3d5e9c0e 3aea47f9 3c49d0d0
+pushed-first-velocity bf679c9f bf639426 3e22f7f5
+pushed-first-spin bf96aff8 40041a78 3fdb8ad5
+pushed-first-pending-velocity 4287427b c18a3c02 be7ec4b9
+pushed-first-pending-spin b41bf7ed 31a393ab 34a0c970
+pushed-second-velocity 3b5a02a0 3c00d49b bb665ff2
+pushed-second-spin 3a476214 b9343d05 ba39bea3
+pushed-second-pending-velocity 4416a1b1 433d626a c45d4989
+pushed-second-pending-spin 3d5e9c07 3aea489f 3c49d169
+limited-first-velocity bf679c9f bf639426 3e22f7f5
+limited-first-spin bf96aff8 40041a78 3fdb8ad5
+limited-first-pending-velocity 4287427b c18a3c03 be7ec4ed
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity 3b5a02a0 3c00d49b bb665ff2
+limited-second-spin 3a476214 b9343d05 ba39bea3
+limited-second-pending-velocity 4416a1b1 433d626a c45d4989
+limited-second-pending-spin 3d5e9c0e 3aea47f9 3c49d0d0
+flushed-first-velocity 42857342 c19158a4 bdb799f0
+flushed-first-spin bf96aff8 40041a78 3fdb8ad5
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 4416a1e8 433d646d c45d49c3
+flushed-second-spin 3d61b996 3ad3c058 3c3e34e6
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity bf679c9f bf639426 3e22f7f5
+dropped-first-spin bf96aff8 40041a78 3fdb8ad5
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3b5a02a0 3c00d49b bb665ff2
+dropped-second-spin 3a476214 b9343d05 ba39bea3
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-turns1-first-inverse-inertia1
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 400f35b3fad4618a
+normal 3f2a5309 3f2afb21 beaac6af
+turns 4083a2a6 7fc00001 402f2e8d 407db2cb 40d56987 c09c0041
+movable 00000001 00000001
+energy-velocity 40ac26e4 40712a58 c10cfb22
+energy-spin bdc1986c bd8eadbb bd062232
+first-mass 42abebc8
+first-inertia 401cd8ff 3eb3c3d1 401ec41f
+first-inverse-inertia 3ed0ea87 ffc00002 3ece6444
+first-inverse-mass 3c3e9962
+first-velocity c2ac4cfc 42865c0f 42546aa1
+first-spin 42770a9d 41365c49 c2b0f06a
+first-pending-velocity 3dcc3117 baf10102 bdc7a8bf
+first-pending-spin 3bd9db20 3b53219c 374e280f
+second-mass 42389469
+second-inertia 3ee95fd6 40caf94b 410dfad9
+second-inverse-inertia 400c68db 3e217087 3de6cb14
+second-inverse-mass 3cb18712
+second-velocity c0ea8d40 c35a5c9c 43852c8d
+second-spin c23e29d7 c238861b c2618ab6
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin bd9c4e34 bdb14aed 3da23c0c
+pushed-first-velocity c2ac4cfc 42865c0f 42546aa1
+pushed-first-spin 42770a9d 41365c49 c2b0f06a
+pushed-first-pending-velocity 3d8e5a16 bd03b019 bda8a840
+pushed-first-pending-spin c0d154cc ffc00002 c089bf1e
+pushed-second-velocity c0ea8d40 c35a5c9c 43852c8d
+pushed-second-spin c23e29d7 c238861b c2618ab6
+pushed-second-pending-velocity 3d66652b 3d67488c bce7019b
+pushed-second-pending-spin 420767e1 40807d34 c0041901
+limited-first-velocity c2ac4cfc 42865c0f 42546aa1
+limited-first-spin 42770a9d 41365c49 c2b0f06a
+limited-first-pending-velocity 3dcc3117 baf10102 bdc7a8bf
+limited-first-pending-spin 3bd9db20 3b53219c 374e280f
+limited-second-velocity c0ea8d40 c35a5c9c 43852c8d
+limited-second-spin c23e29d7 c238861b c2618ab6
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin bd9c4e34 bdb14aed 3da23c0c
+flushed-first-velocity c2ac19f0 42865b1e 425406cd
+flushed-first-spin 4277116c 4136697b c2b0f068
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c0ea8d40 c35a5c9c 43852c8d
+flushed-second-spin c23e77fe c238dec0 c2613998
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity c2ac4cfc 42865c0f 42546aa1
+dropped-first-spin 42770a9d 41365c49 c2b0f06a
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity c0ea8d40 c35a5c9c 43852c8d
+dropped-second-spin c23e29d7 c238861b c2618ab6
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 40b4472e70e47400 40a5c57179aaf480
+case nan-normal1-first-inverse-mass0
+inverse-step 4064f64de80a67e9
+max-velocity 00000000
+max-spin 00000000
+push bf60caf1405975a9
+normal 3f02eef6 7fc00001 bf02b4e9
+turns 423dbcb1 c1181de7 c2a5b76f c238892a 4226e5a0 426e457a
+movable 00000001 00000001
+energy-velocity 3f31e38f 40827da9 c0045df0
+energy-spin 3e7d3d43 3e96ce0f bf084329
+first-mass 426cec66
+first-inertia 402c5012 3fd702a3 411a20bf
+first-inverse-inertia 3ebe2a73 3f1866ea 3dd49a46
+first-inverse-mass ffc00002
+first-velocity c2988be6 427c3d41 42a70832
+first-spin 396923d1 3a51a0b0 ba74d541
+first-pending-velocity 3dc7e530 bd7877de 3d09601c
+first-pending-spin 38a0f151 3a3d2de7 3a7ea60c
+second-mass 426e81bd
+second-inertia 4114492e 3f8f73bf 3f4ad4ad
+second-inverse-inertia 3ddcfa85 3f646cb4 3fa18dac
+second-inverse-mass 3c89635c
+second-velocity 3e25582a 3f1cacbe bea011eb
+second-spin c17cca02 42b13496 c26208ed
+second-pending-velocity 411fece3 c0e0c4fc 4116b1e7
+second-pending-spin 39b9ca7a 3ae6dc86 3b7565ea
+pushed-first-velocity c2988be6 427c3d41 42a70832
+pushed-first-spin 396923d1 3a51a0b0 ba74d541
+pushed-first-pending-velocity 7fc00002 7fc00001 7fc00002
+pushed-first-pending-spin 3d143db1 bc324435 bc887c32
+pushed-second-velocity 3e25582a 3f1cacbe bea011eb
+pushed-second-spin c17cca02 42b13496 c26208ed
+pushed-second-pending-velocity 411fecd1 7fc00001 4116b1f9
+pushed-second-pending-spin 3c2cfd38 bd98b0d0 be19fb2f
+limited-first-velocity c2988be6 427c3d41 42a70832
+limited-first-spin 396923d1 3a51a0b0 ba74d541
+limited-first-pending-velocity 3dc7e530 bd7877de 3d09601c
+limited-first-pending-spin 38a0f151 3a3d2de7 3a7ea60c
+limited-second-velocity 3e25582a 3f1cacbe bea011eb
+limited-second-spin c17cca02 42b13496 c26208ed
+limited-second-pending-velocity 411fece3 c0e0c4fc 4116b1e7
+limited-second-pending-spin 39b9ca7a 3ae6dc86 3b7565ea
+flushed-first-velocity c29859ed 427bff23 42a7195e
+flushed-first-spin 399cce3d 3ac7674c 381d0cb0
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 41228244 c0cd2f64 4111b158
+flushed-second-spin c17cc88e 42b1357d c2620517
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity c2988be6 427c3d41 42a70832
+dropped-first-spin 396923d1 3a51a0b0 ba74d541
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3e25582a 3f1cacbe bea011eb
+dropped-second-spin c17cca02 42b13496 c26208ed
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 4083d7c417c35800 4083f1074f9c1400
+case nan-first-pending-spin1-first-spin1
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 0000000000000000
+normal bdfdcaa5 3f7dab5a 3d5786ff
+turns be2032a0 c0f3d877 bf69d39a c0fafb9b c047e628 3f19b3eb
+movable 00000001 00000001
+energy-velocity 3c17806a 3b15d4a0 3b731473
+energy-spin 3e43cd00 be67e152 3f714a26
+first-mass 42b13871
+first-inertia 40a0d83c 40e7d9bd 3ec0d523
+first-inverse-inertia 3e4bb979 3e0d551a 4029ee08
+first-inverse-mass 3c38e64e
+first-velocity bd2c9d32 bd5fc094 bdb552dd
+first-spin 44316945 ffc00002 444446f1
+first-pending-velocity 4108dd8b c1092c46 c0bcd9c0
+first-pending-spin 35fdaf26 7fc00001 b9360b30
+second-mass 42b2af0b
+second-inertia 3e0fed5b 40db3e6b 408b5f4b
+second-inverse-inertia 40e3abb3 3e15758c 3e6b1c84
+second-inverse-mass 3c3762ac
+second-velocity bf043310 3ece2827 bf06c986
+second-spin 3b47b724 3a8a5821 3bac8c84
+second-pending-velocity c0d6ace0 c0e9063f 40c08cf2
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity bd2c9d32 bd5fc094 bdb552dd
+pushed-first-spin 44316945 ffc00002 444446f1
+pushed-first-pending-velocity 4108dd8b c1092c46 c0bcd9c0
+pushed-first-pending-spin 35fdaf26 7fc00001 b9360b30
+pushed-second-velocity bf043310 3ece2827 bf06c986
+pushed-second-spin 3b47b724 3a8a5821 3bac8c84
+pushed-second-pending-velocity c0d6ace0 c0e9063f 40c08cf2
+pushed-second-pending-spin 00000000 00000000 00000000
+limited-first-velocity bd2c9d32 bd5fc094 bdb552dd
+limited-first-spin 44316945 ffc00002 444446f1
+limited-first-pending-velocity 4108dd8b c1092c46 c0bcd9c0
+limited-first-pending-spin 35fdaf26 7fc00001 b9360b30
+limited-second-velocity bf043310 3ece2827 bf06c986
+limited-second-spin 3b47b724 3a8a5821 3bac8c84
+limited-second-pending-velocity c0d6ace0 c0e9063f 40c08cf2
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity 410830ee c10a0c07 c0bfaf0b
+flushed-first-spin 44316945 ffc00002 444446ee
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c0e73342 c0dc23bd 40afb3c1
+flushed-second-spin 3b47b724 3a8a5821 3bac8c84
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity bd2c9d32 bd5fc094 bdb552dd
+dropped-first-spin 44316945 ffc00002 444446f1
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity bf043310 3ece2827 bf06c986
+dropped-second-spin 3b47b724 3a8a5821 3bac8c84
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 3fdcc5c60677faee 4000f0a8b33dc15b
+case nan-first-pending-velocity1-first-velocity1
+inverse-step 4045357d5934e3f8
+max-velocity 00000000
+max-spin 00000000
+push 3fb651d18ae3f3e0
+normal 3f3aa2ac 3c2f14a8 bf2f33b5
+turns 428b80d6 c194471a 428c5270 41af8f16 c24b4fb6 425e228c
+movable 00000001 00000001
+energy-velocity 43e15fe1 438d50d0 c4388392
+energy-spin 43a40efb c465c158 4397d1f8
+first-mass 40f22000
+first-inertia 408234ab 41114e2b 4041b804
+first-inverse-inertia 3e7ba9cc 3de182e6 3ea92703
+first-inverse-mass 3e0755c6
+first-velocity 3fae527c ffc00002 40c8405d
+first-spin 3c6e3ad4 3c9125fa 3c7a557d
+first-pending-velocity 00000000 7fc00001 00000000
+first-pending-spin 3beae308 3b5c3fd6 ba9d460b
+second-mass 42b22d56
+second-inertia 400ab061 411ef886 3f98b0bb
+second-inverse-inertia 3eec4509 3dce203c 3f569ab1
+second-inverse-mass 3f46a520
+second-velocity 40f55516 c00bd034 c0fd865e
+second-spin bf32cbd3 bf070714 bf26975b
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 3da7bb4f bdad492b 3d4d683a
+pushed-first-velocity 3fae527c ffc00002 40c8405d
+pushed-first-spin 3c6e3ad4 3c9125fa 3c7a557d
+pushed-first-pending-velocity bc09a2ba 7fc00001 3c013437
+pushed-first-pending-spin bfbe63b1 3e39a69c c0016a85
+pushed-second-velocity 40f55516 c00bd034 c0fd865e
+pushed-second-spin bf32cbd3 bf070714 bf26975b
+pushed-second-pending-velocity 3d4a0597 3a3d83b7 bd3da553
+pushed-second-pending-spin 3f76fdf1 bf07d747 40837cd2
+limited-first-velocity 3fae527c ffc00002 40c8405d
+limited-first-spin 3c6e3ad4 3c9125fa 3c7a557d
+limited-first-pending-velocity 00000000 7fc00001 00000000
+limited-first-pending-spin 3beae308 3b5c3fd6 ba9d460b
+limited-second-velocity 40f55516 c00bd034 c0fd865e
+limited-second-spin bf32cbd3 bf070714 bf26975b
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin 3da7bb4f bdad492b 3d4d683a
+flushed-first-velocity 3fae527c ffc00002 40c8405d
+flushed-first-spin 3cb1d62c 3cacadf5 3c66acbc
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 40f55516 c00bd034 c0fd865e
+flushed-second-spin bf1dd469 bf1cb039 bf19c0d7
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 3fae527c ffc00002 40c8405d
+dropped-first-spin 3c6e3ad4 3c9125fa 3c7a557d
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 40f55516 c00bd034 c0fd865e
+dropped-second-spin bf32cbd3 bf070714 bf26975b
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 415bf1b1b3b00000 4183aa3a8774b200
+case nan-energy-spin1-first-inertia1
+inverse-step 4064001b7377ab93
+max-velocity 00000000
+max-spin 00000000
+push c05029deb64dc31f
+normal be18525b bf335d79 3f32a51e
+turns 420fc1b4 c1c2e7a1 41f55c52 41b0a080 c1b3e12d c2661d3f
+movable 00000001 00000001
+energy-velocity bc07624d 3b525556 3bc4db8e
+energy-spin bbb4b1bf 7fc00001 bc041973
+first-mass 429bd5c5
+first-inertia 3e3cbf83 ffc00002 3fcf040d
+first-inverse-inertia 40ad9b68 3dd14f33 3f1e4994
+first-inverse-mass 3c52460d
+first-velocity bf726624 c1189ca9 c0e172a8
+first-spin b9936244 3be20d84 b8f2618b
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+second-mass 42a40673
+second-inertia 3fc12dc8 40c90031 40d1fab3
+second-inverse-inertia 3f29a00e 3e230637 3e1c0db1
+second-inverse-mass 3f37984d
+second-velocity be8766c9 bf68d63d 3e7edaf2
+second-spin bf08827e 3f1e27e8 be7fb67e
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 3ff65388 3fe2da31 40927165
+pushed-first-velocity bf726624 c1189ca9 c0e172a8
+pushed-first-spin b9936244 3be20d84 b8f2618b
+pushed-first-pending-velocity bdfcc94b bf14d54b 3f143c52
+pushed-first-pending-spin 4644f892 c320fc6b 44994281
+pushed-second-velocity be8766c9 bf68d63d 3e7edaf2
+pushed-second-spin bf08827e 3f1e27e8 be7fb67e
+pushed-second-pending-velocity 40dcb6b8 4201f326 c2016d95
+pushed-second-pending-spin c46bfa20 436936b6 440eda18
+limited-first-velocity bf726624 c1189ca9 c0e172a8
+limited-first-spin b9936244 3be20d84 b8f2618b
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity be8766c9 bf68d63d 3e7edaf2
+limited-second-spin bf08827e 3f1e27e8 be7fb67e
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin 3ff65388 3fe2da31 40927165
+flushed-first-velocity bf726624 c1189ca9 c0e172a8
+flushed-first-spin b9936244 3be20d84 b8f2618b
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity be8766c9 bf68d63d 3e7edaf2
+flushed-second-spin 3fb21249 4018f712 408a73b1
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity bf726624 c1189ca9 c0e172a8
+dropped-first-spin b9936244 3be20d84 b8f2618b
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity be8766c9 bf68d63d 3e7edaf2
+dropped-second-spin bf08827e 3f1e27e8 be7fb67e
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-turns2-first-inverse-inertia2
+inverse-step 4058dd8104a94286
+max-velocity 00000000
+max-spin 00000000
+push bfdcc4177d493604
+normal bf701452 3e8f5c7b be522273
+turns c119f2b0 c0ce73cb 7fc00001 c11dd0b2 3fb09dad 40c5489b
+movable 00000001 00000001
+energy-velocity bd04a098 bd9fd1d3 bdcc8614
+energy-spin 380d8a47 ba41dde0 b9aea794
+first-mass 422031e3
+first-inertia 410cec96 40057271 408e4a16
+first-inverse-inertia 3de885b0 3ef58cf4 ffc00002
+first-inverse-mass 3ccc8d06
+first-velocity ba0e66fe 39998f8f b90513a6
+first-spin bc09eec6 bac8ce86 3c0e328f
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 3d998e51 bcf5228a bd45b411
+second-mass 42a45366
+second-inertia 3f83a999 4011f1a2 40b913f7
+second-inverse-inertia 3f78e0f8 3ee08650 3e310cb8
+second-inverse-mass 3c4768a5
+second-velocity 37f3d1ca 3a65c1c3 39fbe455
+second-spin 40ab1125 c0a40f6e c04eb937
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin be43cf68 ba8eba0f 3e5ddea8
+pushed-first-velocity ba0e66fe 39998f8f b90513a6
+pushed-first-spin bc09eec6 bac8ce86 3c0e328f
+pushed-first-pending-velocity bc2c7166 3b4df20f bb16ef32
+pushed-first-pending-spin bed501b5 bfb5d7b1 ffc00002
+pushed-second-velocity 37f3d1ca 3a65c1c3 39fbe455
+pushed-second-spin 40ab1125 c0a40f6e c04eb937
+pushed-second-pending-velocity 3ba81ba6 bac8c4b4 3a9323dd
+pushed-second-pending-spin 4083ccf1 be8bcdbd be865e9d
+limited-first-velocity ba0e66fe 39998f8f b90513a6
+limited-first-spin bc09eec6 bac8ce86 3c0e328f
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin 3d998e51 bcf5228a bd45b411
+limited-second-velocity 37f3d1ca 3a65c1c3 39fbe455
+limited-second-spin 40ab1125 c0a40f6e c04eb937
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin be43cf68 ba8eba0f 3e5ddea8
+flushed-first-velocity ba0e66fe 39998f8f b90513a6
+flushed-first-spin 3d885078 bd00d7b9 bd22276d
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 37f3d1ca 3a65c1c3 39fbe455
+flushed-second-spin 40a4f2aa c0a4185a c040db4c
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity ba0e66fe 39998f8f b90513a6
+dropped-first-spin bc09eec6 bac8ce86 3c0e328f
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 37f3d1ca 3a65c1c3 39fbe455
+dropped-second-spin 40ab1125 c0a40f6e c04eb937
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 3fd5eddb235c9240 3fe67e9cf0444c80
+case nan-normal2-first-inverse-mass0
+inverse-step 4062defc1d2238e8
+max-velocity 00000000
+max-spin 00000000
+push 3ff779b28627713e
+normal 3f032c6c bf5120ce 7fc00001
+turns bbae3a66 bbfddd75 bb41d89f bb09e47a 3bd1d450 39dbcaac
+movable 00000001 00000001
+energy-velocity bfa9edea 40a474ea 41163673
+energy-spin c08875ad be820a19 c104faac
+first-mass 40931b0b
+first-inertia 405d02e4 3fc228af 40fe678d
+first-inverse-inertia 3e944390 3f28c4db 3e00cd81
+first-inverse-mass ffc00002
+first-velocity bc0245e5 3b913873 3bf14589
+first-spin 42a0cf3c 42455e28 42136298
+first-pending-velocity 43dffa3e 43fa06ba 4470a6f8
+first-pending-spin bf25aa5f bf36afd9 3f6d7838
+second-mass 4296eb74
+second-inertia 40c15b22 401b82c1 40fb0d72
+second-inverse-inertia 3e297845 3ed2b64d 3e0285c2
+second-inverse-mass 3c591f3d
+second-velocity ba153b98 ba2b8b43 3a32cd73
+second-spin 4239b34d c28b2a7a 42afe99c
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 3bf52683 39ecda93 baef9c9c
+pushed-first-velocity bc0245e5 3b913873 3bf14589
+pushed-first-spin 42a0cf3c 42455e28 42136298
+pushed-first-pending-velocity 7fc00002 7fc00002 7fc00001
+pushed-first-pending-spin bf251652 bf34c4bd 3f6d9bfe
+pushed-second-velocity ba153b98 ba2b8b43 3a32cd73
+pushed-second-spin 4239b34d c28b2a7a 42afe99c
+pushed-second-pending-velocity 3c233b26 bc821e56 7fc00001
+pushed-second-pending-spin 3be468ad 3b8d80ff bae555ec
+limited-first-velocity bc0245e5 3b913873 3bf14589
+limited-first-spin 42a0cf3c 42455e28 42136298
+limited-first-pending-velocity 43dffa3e 43fa06ba 4470a6f8
+limited-first-pending-spin bf25aa5f bf36afd9 3f6d7838
+limited-second-velocity ba153b98 ba2b8b43 3a32cd73
+limited-second-spin 4239b34d c28b2a7a 42afe99c
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin 3bf52683 39ecda93 baef9c9c
+flushed-first-velocity 43dff939 43fa074b 4470a771
+flushed-first-spin 429f83e7 42428369 42171879
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity ba153b98 ba2b8b43 3a32cd73
+flushed-second-spin 4239baf6 c28b2a3f 42afe8ac
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity bc0245e5 3b913873 3bf14589
+dropped-first-spin 42a0cf3c 42455e28 42136298
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity ba153b98 ba2b8b43 3a32cd73
+dropped-second-spin 4239b34d c28b2a7a 42afe99c
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 4081eb0e39e3df20 40b26a868185ff00
+case nan-first-pending-spin2-first-spin2
+inverse-step 4065253cecff0177
+max-velocity 00000000
+max-spin 00000000
+push bf437e1fba01dfac
+normal 3f334c6b 3f361231 bd76ed74
+turns 3c67dc29 bd9e1f07 3d611b82 3da0bf86 bd7baa67 bd4b60ec
+movable 00000001 00000001
+energy-velocity 3f72b069 bda225b2 bf54888a
+energy-spin 406c93e9 c2977a90 41c850c4
+first-mass 42a76e9e
+first-inertia 407d0e26 409af0d9 401ded6f
+first-inverse-inertia 3e817d50 3e537cba 3ecf7cd6
+first-inverse-mass 3c43b58d
+first-velocity c149956e c2037ac2 41b93c0e
+first-spin 39d24a0f ba7b551d ffc00002
+first-pending-velocity 3da9789e 3d408da1 bcad4ce4
+first-pending-spin 00000000 00000000 7fc00001
+second-mass 4251e641
+second-inertia 401f564c 3fa0ddf8 40f47797
+second-inverse-inertia 3ecda6ec 3f4bb236 3e0609d9
+second-inverse-mass 3c9c1ce4
+second-velocity 3f31e890 bf550344 3f261fd0
+second-spin ba2aeff4 ba129d49 b8ceceec
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin c3bcfd07 c2883d4c 43edd9ca
+pushed-first-velocity c149956e c2037ac2 41b93c0e
+pushed-first-spin 39d24a0f ba7b551d ffc00002
+pushed-first-pending-velocity 3da97b3a 3d4092ee bcad4dca
+pushed-first-pending-spin 360ee150 b71f246e 7fc00001
+pushed-second-velocity 3f31e890 bf550344 3f261fd0
+pushed-second-spin ba2aeff4 ba129d49 b8ceceec
+pushed-second-pending-velocity b70534f8 b7074449 35377368
+pushed-second-pending-spin c3bcfd08 c2883d48 43edd9ca
+limited-first-velocity c149956e c2037ac2 41b93c0e
+limited-first-spin 39d24a0f ba7b551d ffc00002
+limited-first-pending-velocity 3da9789e 3d408da1 bcad4ce4
+limited-first-pending-spin 00000000 00000000 7fc00001
+limited-second-velocity 3f31e890 bf550344 3f261fd0
+limited-second-spin ba2aeff4 ba129d49 b8ceceec
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin c3bcfd07 c2883d4c 43edd9ca
+flushed-first-velocity c148427d c2034a9f 41b910bb
+flushed-first-spin 39d24a0f ba7b551d ffc00002
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 3f31e890 bf550344 3f261fd0
+flushed-second-spin c3bcfd1c c2883d95 43edd9c7
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity c149956e c2037ac2 41b93c0e
+dropped-first-spin 39d24a0f ba7b551d ffc00002
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3f31e890 bf550344 3f261fd0
+dropped-second-spin ba2aeff4 ba129d49 b8ceceec
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 40ccd17d572e61e1 40b7aa7692757ac8
+case nan-first-pending-velocity2-first-velocity2
+inverse-step 405feda51c79f5c2
+max-velocity 00000000
+max-spin 00000000
+push 40277dee932d85b6
+normal bf69196e bddd50ab becc4eb4
+turns 43af1192 c410d6b9 c44ad5e2 c3c33c50 c3b17d05 435db29a
+movable 00000001 00000001
+energy-velocity ba4e4745 3a404c35 b9157f47
+energy-spin 3edd9b33 3f1bd25a 3f3ddfed
+first-mass 42b3363f
+first-inertia 402f63ba 40f81a75 40d7688a
+first-inverse-inertia 3ebad46f 3e0412f1 3e181ed1
+first-inverse-mass 3c36d852
+first-velocity bf17249e be952b13 ffc00002
+first-spin c2c6f5b9 bd0694c8 42a5a9f5
+first-pending-velocity 3ba66fab 3b994e32 7fc00001
+first-pending-spin c380d96e c26962e4 4412ae50
+second-mass 40b44b3b
+second-inertia 407b7aea 3ffa3610 41179be1
+second-inverse-inertia 3e824cf1 3f02f61d 3dd82294
+second-inverse-mass 3e35bf6b
+second-velocity 445f1617 4420e98e c46ba018
+second-spin 3ae08ba8 bc224550 bb035115
+second-pending-velocity c1843451 41883ca3 c25609a9
+second-pending-spin 3a614373 ba697cd2 39cb57be
+pushed-first-velocity bf17249e be952b13 ffc00002
+pushed-first-spin c2c6f5b9 bd0694c8 42a5a9f5
+pushed-first-pending-velocity 3dfed920 3c9a5ed1 7fc00001
+pushed-first-pending-spin c4dbcdc7 444cd737 44fa4e76
+pushed-second-velocity 445f1617 4420e98e c46ba018
+pushed-second-spin 3ae08ba8 bc224550 bb035115
+pushed-second-pending-velocity c19363fb 41866f3f c2595d87
+pushed-second-pending-spin c491e71c c5055015 438968bc
+limited-first-velocity bf17249e be952b13 ffc00002
+limited-first-spin c2c6f5b9 bd0694c8 42a5a9f5
+limited-first-pending-velocity 3ba66fab 3b994e32 7fc00001
+limited-first-pending-spin c380d96e c26962e4 4412ae50
+limited-second-velocity 445f1617 4420e98e c46ba018
+limited-second-spin 3ae08ba8 bc224550 bb035115
+limited-second-pending-velocity c1843451 41883ca3 c25609a9
+limited-second-pending-spin 3a614373 ba697cd2 39cb57be
+flushed-first-velocity bf15d7bf be92c5da ffc00002
+flushed-first-spin c3b296dc c2698489 4427638f
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 445af474 44252b73 c47900b3
+flushed-second-spin 3b2896b1 bc30dd1d bad3cc3a
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity bf17249e be952b13 ffc00002
+dropped-first-spin c2c6f5b9 bd0694c8 42a5a9f5
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 445f1617 4420e98e c46ba018
+dropped-second-spin 3ae08ba8 bc224550 bb035115
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 400c5b3ca97ef0ba 400ab127fd43fe1b
+case nan-energy-spin2-first-inertia2
+inverse-step 40581d31ae545bcf
+max-velocity 00000000
+max-spin 00000000
+push 403dd40747db61f0
+normal 3e1d5802 bf5fbef0 3eec055f
+turns 428bf403 c1280c6c 42432222 c1d31853 4220c85e 42a070a1
+movable 00000001 00000001
+energy-velocity bbd58327 3b7c35ba 3b930ee5
+energy-spin 3c1ef167 3b716a92 7fc00001
+first-mass 42535a9b
+first-inertia 411f5c89 3ffe46ae ffc00002
+first-inverse-inertia 3dcd9ee0 3f00de28 3e600a22
+first-inverse-mass 3c9b09dc
+first-velocity 442262e8 c31be05e 4204bdf5
+first-spin 3b537c04 bbce30e9 39a4efff
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin befe45b0 bf217bb7 3de0dab3
+second-mass 42b86fa6
+second-inertia 409b7fc2 401f284e 4113377c
+second-inverse-inertia 3e52ba5c 3ecde25a 3dde9559
+second-inverse-mass 3f28d475
+second-velocity c4204e2c c3e071fe c19d2e86
+second-spin 3c0272aa 3bb09ee3 bbd1168f
+second-pending-velocity bcbab766 3dc3244b bd1a2143
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity 442262e8 c31be05e 4204bdf5
+pushed-first-spin 3b537c04 bbce30e9 39a4efff
+pushed-first-pending-velocity bdb1a585 3efc9de6 be853ce8
+pushed-first-pending-spin c3520f8f 431d131d c39f2087
+pushed-second-velocity c4204e2c c3e071fe c19d2e86
+pushed-second-spin 3c0272aa 3bb09ee3 bbd1168f
+pushed-second-pending-velocity 403ffd86 c188c827 41107cec
+pushed-second-pending-spin c321f8a1 43f11009 438207a1
+limited-first-velocity 442262e8 c31be05e 4204bdf5
+limited-first-spin 3b537c04 bbce30e9 39a4efff
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin befe45b0 bf217bb7 3de0dab3
+limited-second-velocity c4204e2c c3e071fe c19d2e86
+limited-second-spin 3c0272aa 3bb09ee3 bbd1168f
+limited-second-pending-velocity bcbab766 3dc3244b bd1a2143
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity 442262e8 c31be05e 4204bdf5
+flushed-first-spin befc9eb8 bf231819 3de17fa3
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c4204fa1 c3e065cc c19d7b97
+flushed-second-spin 3c0272aa 3bb09ee3 bbd1168f
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 442262e8 c31be05e 4204bdf5
+dropped-first-spin 3b537c04 bbce30e9 39a4efff
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity c4204e2c c3e071fe c19d2e86
+dropped-second-spin 3c0272aa 3bb09ee3 bbd1168f
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-turns0-push0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push fff8000000000002
+normal 3efe8249 bf4b1977 3eb3ebd2
+turns 7fc00001 43f91d47 44228579 c436e5f5 c33158de c3da789b
+movable 00000001 00000001
+energy-velocity c0e1a9bd c108423f 40855efb
+energy-spin beeeb1fb bf4e5aae bee32b43
+first-mass 427a5060
+first-inertia 410796ac 41058549 40d9269d
+first-inverse-inertia 3df1ac1c 3df56a4d 3e16e654
+first-inverse-mass 3c82e858
+first-velocity c295d8d3 c15c8ccd 41e874fc
+first-spin 3f080989 be25aeb0 bf04c86b
+first-pending-velocity bf1cddb5 3eb385aa bf0d8df1
+first-pending-spin bf12d58d 3f7d3d3d 3d98e325
+second-mass 428c71e1
+second-inertia 3f15f8df 410df093 41179f9b
+second-inverse-inertia 3fda7e70 3de6dbc8 3dd81d44
+second-inverse-mass 3c6950d8
+second-velocity c4253c15 c2454569 c1b4cbce
+second-spin c096967e 40fd3ec8 410e1678
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 42b6dca7 c03c4fd4 426bfcd8
+pushed-first-velocity c295d8d3 c15c8ccd 41e874fc
+pushed-first-spin 3f080989 be25aeb0 bf04c86b
+pushed-first-pending-velocity 7fc00000 7fc00000 7fc00000
+pushed-first-pending-spin 7fc00001 7fc00000 7fc00000
+pushed-second-velocity c4253c15 c2454569 c1b4cbce
+pushed-second-spin c096967e 40fd3ec8 410e1678
+pushed-second-pending-velocity ffc00000 ffc00000 ffc00000
+pushed-second-pending-spin ffc00000 ffc00000 ffc00000
+limited-first-velocity c295d8d3 c15c8ccd 41e874fc
+limited-first-spin 3f080989 be25aeb0 bf04c86b
+limited-first-pending-velocity bf1cddb5 3eb385aa bf0d8df1
+limited-first-pending-spin bf12d58d 3f7d3d3d 3d98e325
+limited-second-velocity c4253c15 c2454569 c1b4cbce
+limited-second-spin c096967e 40fd3ec8 410e1678
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin 42b6dca7 c03c4fd4 426bfcd8
+flushed-first-velocity c297128e c156f0a0 41e4088c
+flushed-first-spin bd2cc040 3f53d191 bee3580d
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c4253c15 c2454569 c1b4cbce
+flushed-second-spin 42ad733f 409f16de 4287c13b
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity c295d8d3 c15c8ccd 41e874fc
+dropped-first-spin 3f080989 be25aeb0 bf04c86b
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity c4253c15 c2454569 c1b4cbce
+dropped-second-spin c096967e 40fd3ec8 410e1678
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 40b1151af37e5c00 40b32a54bb37af40
+case nan-turns0-first-pending-spin0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 0000000000000000
+normal be891e71 bf6cc24c 3e8a4958
+turns 7fc00001 c2a381bb c448f841 c446b51c 438b8a8d c2414555
+movable 00000001 00000001
+energy-velocity c2850df8 c13e9dd1 c1c61f46
+energy-spin 393b9fd7 3a36ec48 b9b57155
+first-mass 424824fe
+first-inertia 406a5c49 40e44a32 40e8c41f
+first-inverse-inertia 3e8bd19c 3e0f896e 3e0cc6ca
+first-inverse-mass 3ca3b8c2
+first-velocity bf494b8a bf4a690a 3e4bd77b
+first-spin 3b756a5b 3d1a2004 bda83fff
+first-pending-velocity 3f6b0b63 3bf50128 3e103a33
+first-pending-spin ffc00002 00000000 00000000
+second-mass 40b768a5
+second-inertia 4112d28e 410ff151 400a11ee
+second-inverse-inertia 3ddf2e5b 3de3a56f 3eed542e
+second-inverse-mass 3e32a939
+second-velocity 3f0a7a89 3f42623f 3f7be112
+second-spin bf175cc0 3d9a57d5 3ef6e3f3
+second-pending-velocity c249cc2a c2b29ced c2305a95
+second-pending-spin c3eb0a2d c3b94e61 c3b297bd
+pushed-first-velocity bf494b8a bf4a690a 3e4bd77b
+pushed-first-spin 3b756a5b 3d1a2004 bda83fff
+pushed-first-pending-velocity 3f6b0b63 3bf50128 3e103a33
+pushed-first-pending-spin 7fc00001 00000000 00000000
+pushed-second-velocity 3f0a7a89 3f42623f 3f7be112
+pushed-second-spin bf175cc0 3d9a57d5 3ef6e3f3
+pushed-second-pending-velocity c249cc2a c2b29ced c2305a95
+pushed-second-pending-spin c3eb0a2d c3b94e61 c3b297bd
+limited-first-velocity bf494b8a bf4a690a 3e4bd77b
+limited-first-spin 3b756a5b 3d1a2004 bda83fff
+limited-first-pending-velocity 3f6b0b63 3bf50128 3e103a33
+limited-first-pending-spin ffc00002 00000000 00000000
+limited-second-velocity 3f0a7a89 3f42623f 3f7be112
+limited-second-spin bf175cc0 3d9a57d5 3ef6e3f3
+limited-second-pending-velocity c249cc2a c2b29ced c2305a95
+limited-second-pending-spin c3eb0a2d c3b94e61 c3b297bd
+flushed-first-velocity 3e06ff64 bf487f08 3eae08d7
+flushed-first-spin ffc00002 3d1a2004 bda83fff
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c247a240 c2b11829 c22c6b11
+flushed-second-spin c3eb55db c3b944bc c3b25a04
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity bf494b8a bf4a690a 3e4bd77b
+dropped-first-spin 3b756a5b 3d1a2004 bda83fff
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3f0a7a89 3f42623f 3f7be112
+dropped-second-spin bf175cc0 3d9a57d5 3ef6e3f3
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 40ffa55d4eaa51e6 40ccfff14b658cf3
+case nan-first-inverse-mass0-push0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push fff8000000000002
+normal bca45546 3e93d0e9 bf750b9d
+turns b8b9e603 b92d1530 ba50f86f 3a06ea09 ba01a84e b9eea0b7
+movable 00000001 00000001
+energy-velocity 3f4e48f1 3f24f05e 3f305002
+energy-spin 40ba61ce 40a1ffaa bf4fd730
+first-mass 41be6b5b
+first-inertia 40ce5601 40330c5d 3f06b503
+first-inverse-inertia 3e1ecf19 3eb70317 3ff340f5
+first-inverse-mass 7fc00001
+first-velocity c09aee7c 41acf374 c2690570
+first-spin 418f17c6 418b3500 42b8d661
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+second-mass 42625d6d
+second-inertia 40534a5e 409cbd70 40eb61f1
+second-inverse-inertia 3e9b15c7 3e510f42 3e0b362f
+second-inverse-mass 3c90c1e5
+second-velocity bd58aa44 3d2d7c70 3d97485d
+second-spin 3a4f896d 3a770faa b9db12e3
+second-pending-velocity c2654763 43076d63 c3cc570c
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity c09aee7c 41acf374 c2690570
+pushed-first-spin 418f17c6 418b3500 42b8d661
+pushed-first-pending-velocity ffc00001 ffc00001 ffc00001
+pushed-first-pending-spin 7fc00000 7fc00000 7fc00000
+pushed-second-velocity bd58aa44 3d2d7c70 3d97485d
+pushed-second-spin 3a4f896d 3a770faa b9db12e3
+pushed-second-pending-velocity ffc00000 ffc00000 ffc00000
+pushed-second-pending-spin ffc00000 ffc00000 ffc00000
+limited-first-velocity c09aee7c 41acf374 c2690570
+limited-first-spin 418f17c6 418b3500 42b8d661
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity bd58aa44 3d2d7c70 3d97485d
+limited-second-spin 3a4f896d 3a770faa b9db12e3
+limited-second-pending-velocity c2654763 43076d63 c3cc570c
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity c09aee7c 41acf374 c2690570
+flushed-first-spin 418f17c6 418b3500 42b8d661
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c2657d8e 4307783b c3cc4d97
+flushed-second-spin 3a4f896d 3a770faa b9db12e3
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity c09aee7c 41acf374 c2690570
+dropped-first-spin 418f17c6 418b3500 42b8d661
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity bd58aa44 3d2d7c70 3d97485d
+dropped-second-spin 3a4f896d 3a770faa b9db12e3
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 406476a279f3b7a0 4064975425f96ec0
+case nan-normal0-first-pending-velocity0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 3f3dc0cbb71d07cb
+normal 7fc00001 3dd5d213 3f2e82f4
+turns 3cfe3c90 bc843ae7 3dc8eb5b bd992b66 3db46e8f bd89fb0a
+movable 00000001 00000001
+energy-velocity bdc753ac 3d59cd05 b926c1d2
+energy-spin 3b8d58e4 bbd3614a 3a49cc0e
+first-mass 41c39e9c
+first-inertia 410903bf 3f6c8fb7 4043be63
+first-inverse-inertia 3def282d 3f8a8499 3ea7670f
+first-inverse-mass 3d278241
+first-velocity b9748ed1 3a38171e 3a5cae53
+first-spin bbb44d2f 3efac0ca bf0cdc26
+first-pending-velocity ffc00002 bed42fb1 bf495b54
+first-pending-spin 00000000 00000000 00000000
+second-mass 41061191
+second-inertia 408c936b 4004f5e0 3fa61663
+second-inverse-inertia 3e69192e 3ef67301 3f454b2d
+second-inverse-mass 3f797ea3
+second-velocity 3f53e8fb bf0160b9 c1162d09
+second-spin ba7d7148 ba02d2e3 ba2f86d0
+second-pending-velocity 44353bd1 44319d2a c45b9aa1
+second-pending-spin 4430dfb3 43ddfde4 436e6917
+pushed-first-velocity b9748ed1 3a38171e 3a5cae53
+pushed-first-spin bbb44d2f 3efac0ca bf0cdc26
+pushed-first-pending-velocity 7fc00001 bed42ff2 bf495c28
+pushed-first-pending-spin b5dcd52d 37050c52 b7745188
+pushed-second-velocity 3f53e8fb bf0160b9 c1162d09
+pushed-second-spin ba7d7148 ba02d2e3 ba2f86d0
+pushed-second-pending-velocity 7fc00001 44319d2b c45b9a9c
+pushed-second-pending-spin 4430dfb3 43ddfde5 436e6915
+limited-first-velocity b9748ed1 3a38171e 3a5cae53
+limited-first-spin bbb44d2f 3efac0ca bf0cdc26
+limited-first-pending-velocity ffc00002 bed42fb1 bf495b54
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity 3f53e8fb bf0160b9 c1162d09
+limited-second-spin ba7d7148 ba02d2e3 ba2f86d0
+limited-second-pending-velocity 44353bd1 44319d2a c45b9aa1
+limited-second-pending-spin 4430dfb3 43ddfde4 436e6917
+flushed-first-velocity ffc00002 bed3d3a5 bf492428
+flushed-first-spin bbb44d2f 3efac0ca bf0cdc26
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 443570cb 44317cd2 c45df355
+flushed-second-spin 4430dfa3 43ddfdd4 436e68eb
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity b9748ed1 3a38171e 3a5cae53
+dropped-first-spin bbb44d2f 3efac0ca bf0cdc26
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3f53e8fb bf0160b9 c1162d09
+dropped-second-spin ba7d7148 ba02d2e3 ba2f86d0
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 3fc3431199823b00 3faa6da4dacdce80
+case nan-energy-velocity0-first-mass0
+inverse-step 404cdd21c02bea92
+max-velocity 00000000
+max-spin 00000000
+push 4049067eda59dd37
+normal beb550ae bf04fe1f bf4712c0
+turns bd92a33f bda7d74b 3dbbec6b 3c02221b 3c73c1e8 3d5a2175
+movable 00000001 00000001
+energy-velocity 7fc00001 39c544fb 3a4d624e
+energy-spin b9e22e35 3a2bab4c b9fe2825
+first-mass ffc00002
+first-inertia 41176195 404265c0 40fb1157
+first-inverse-inertia 3dd875cf 3ea88fd7 3e0283bc
+first-inverse-mass 3c5c9f0b
+first-velocity b9cdc96f bba79125 3c228184
+first-spin bf7d66c8 bee29cbc bba1b52b
+first-pending-velocity 3d184b89 3d57d745 3da313f1
+first-pending-spin 40c60247 3f9dd28d 405c86a7
+second-mass 426b00d5
+second-inertia 41044592 40ca165c 4084bf6f
+second-inverse-inertia 3df7bb7e 3e2225d0 3e76d813
+second-inverse-mass 3f2e0041
+second-velocity bdbf3691 3d092608 bc7c3c16
+second-spin 3f8f319b c0d203e9 410430c9
+second-pending-velocity ba6e6920 ba71d87c ba119585
+second-pending-spin 3d06ed6a 3d3a475a bc9564f5
+pushed-first-velocity b9cdc96f bba79125 3c228184
+pushed-first-spin bf7d66c8 bee29cbc bba1b52b
+pushed-first-pending-velocity 3e8d3cb5 3ece3ec4 3f1a8da7
+pushed-first-pending-spin 40d22127 40255684 4037102a
+pushed-second-velocity bdbf3691 3d092608 bc7c3c16
+pushed-second-spin 3f8f319b c0d203e9 410430c9
+pushed-second-pending-velocity c140c518 c18d642c c1d3a36a
+pushed-second-pending-spin 3da5f260 3e274fdc 3f1fd15e
+limited-first-velocity b9cdc96f bba79125 3c228184
+limited-first-spin bf7d66c8 bee29cbc bba1b52b
+limited-first-pending-velocity 3d184b89 3d57d745 3da313f1
+limited-first-pending-spin 40c60247 3f9dd28d 405c86a7
+limited-second-velocity bdbf3691 3d092608 bc7c3c16
+limited-second-spin 3f8f319b c0d203e9 410430c9
+limited-second-pending-velocity ba6e6920 ba71d87c ba119585
+limited-second-pending-spin 3d06ed6a 3d3a475a bc9564f5
+flushed-first-velocity 3d16aff6 3d42e520 3db76422
+flushed-first-spin 40a6556e 3f4a56bc 405c35cc
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity bdc11363 3d055ea6 bc82aab7
+flushed-second-spin 3f936906 c0d08f5a 4103e617
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity b9cdc96f bba79125 3c228184
+dropped-first-spin bf7d66c8 bee29cbc bba1b52b
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity bdbf3691 3d092608 bc7c3c16
+dropped-second-spin 3f8f319b c0d203e9 410430c9
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-turns3-second-inverse-inertia0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push c020deaa27912140
+normal bf3057ff 3e5174d5 3f320945
+turns c10f0f7d c0ca1f0d c09ce303 7fc00001 4012349f c0930259
+movable 00000001 00000001
+energy-velocity c0ea13c9 c0dabe35 40abb535
+energy-spin 3bcd5cd7 bbc0c238 bbfaabc1
+first-mass 4214d5cc
+first-inertia 410f1cfc 410c9513 40ecc263
+first-inverse-inertia 3de4f730 3de9166f 3e0a66f3
+first-inverse-mass 3cdc29be
+first-velocity 420b4d77 c28edcf4 41c14bd6
+first-spin 40b498fc c115dd98 c10dee4b
+first-pending-velocity c1fe2cdf c1ce8fce c239304d
+first-pending-spin ba80679b ba3d8eea ba58e0ea
+second-mass 4274528a
+second-inertia 3d39c9a5 40a4f706 40538343
+second-inverse-inertia ffc00002 3e46a2db 3e9aec0f
+second-inverse-mass 3c861e2c
+second-velocity 43ce1a60 444fedc7 c1e675e1
+second-spin b9c19df7 398e2746 39b6f7fa
+second-pending-velocity c1172968 40517800 3fa5c47c
+second-pending-spin bbc4043f bc22d2c5 3ac23090
+pushed-first-velocity 420b4d77 c28edcf4 41c14bd6
+pushed-first-spin 40b498fc c115dd98 c10dee4b
+pushed-first-pending-velocity c1ff6cad c1ce30d7 c2388edd
+pushed-first-pending-spin c106ec9a c0c20ef9 c0b2e276
+pushed-second-velocity 43ce1a60 444fedc7 c1e675e1
+pushed-second-spin b9c19df7 398e2746 39b6f7fa
+pushed-second-pending-velocity c115a3c6 404fa934 3f997980
+pushed-second-pending-spin 7fc00001 c06fdbbe 413ba02c
+limited-first-velocity 420b4d77 c28edcf4 41c14bd6
+limited-first-spin 40b498fc c115dd98 c10dee4b
+limited-first-pending-velocity c1fe2cdf c1ce8fce c239304d
+limited-first-pending-spin ba80679b ba3d8eea ba58e0ea
+limited-second-velocity 43ce1a60 444fedc7 c1e675e1
+limited-second-spin b9c19df7 398e2746 39b6f7fa
+limited-second-pending-velocity c1172968 40517800 3fa5c47c
+limited-second-pending-spin bbc4043f bc22d2c5 3ac23090
+flushed-first-velocity 40437078 c2c280e8 c1b114c4
+flushed-first-spin 40b490f6 c115e08e c10df1af
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 43c96115 4450bf3f c1dc1999
+flushed-second-spin bbd01e1e bc1e618b 3aefee8e
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 420b4d77 c28edcf4 41c14bd6
+dropped-first-spin 40b498fc c115dd98 c10dee4b
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 43ce1a60 444fedc7 c1e675e1
+dropped-second-spin b9c19df7 398e2746 39b6f7fa
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 40a2c0f603cf8d00 40aec9155cb73380
+case nan-normal0-second-inverse-mass0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push c046857955ddb5ad
+normal 7fc00001 be2d47d3 3f198716
+turns 3e9d5527 be49450f 3f7162f0 3ed62c8e 3e194b20 3ee8f873
+movable 00000001 00000001
+energy-velocity 3c181849 bbbb691a 3a3652cd
+energy-spin 410057cb c0a24151 c0b0dcdf
+first-mass 429b211d
+first-inertia 3fd1fbf4 40b5ffcd 3f8e0f8a
+first-inverse-inertia 3f1c0cc2 3e340b73 3f66a976
+first-inverse-mass 3f4ebd58
+first-velocity 44397352 4429dace c4376b3c
+first-spin c2aef7c6 c0b727df c1c76803
+first-pending-velocity ba3a2095 38cab532 ba42085d
+first-pending-spin 00000000 00000000 00000000
+second-mass 428b5ae5
+second-inertia 411e4ad7 3f49ef74 3e5bf221
+second-inverse-inertia 3dcf0267 3fa2450e 4094fb6e
+second-inverse-mass ffc00002
+second-velocity 3d542b11 bcaa02c1 bd720a9f
+second-spin c46bbc5a 44590fd2 c3f891e2
+second-pending-velocity 442f457a c3340121 44357bce
+second-pending-spin bf18e7fa bf290079 bebe752d
+pushed-first-velocity 44397352 4429dace c4376b3c
+pushed-first-spin c2aef7c6 c0b727df c1c76803
+pushed-first-pending-velocity 7fc00001 c0c4f887 41ae83a3
+pushed-first-pending-spin 4106feaf bfc73f7f 42191246
+pushed-second-velocity 3d542b11 bcaa02c1 bd720a9f
+pushed-second-spin c46bbc5a 44590fd2 c3f891e2
+pushed-second-pending-velocity 7fc00001 ffc00002 ffc00002
+pushed-second-pending-spin c0201d65 c1135596 c2bf9598
+limited-first-velocity 44397352 4429dace c4376b3c
+limited-first-spin c2aef7c6 c0b727df c1c76803
+limited-first-pending-velocity ba3a2095 38cab532 ba42085d
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity 3d542b11 bcaa02c1 bd720a9f
+limited-second-spin c46bbc5a 44590fd2 c3f891e2
+limited-second-pending-velocity 442f457a c3340121 44357bce
+limited-second-pending-spin bf18e7fa bf290079 bebe752d
+flushed-first-velocity 44397346 4429dad0 c4376b48
+flushed-first-spin c2aef7c6 c0b727df c1c76803
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 442f48cb c3340671 44357806
+flushed-second-spin c46be294 4458e592 c3f8c17f
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 44397352 4429dace c4376b3c
+dropped-first-spin c2aef7c6 c0b727df c1c76803
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3d542b11 bcaa02c1 bd720a9f
+dropped-second-spin c46bbc5a 44590fd2 c3f891e2
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 4061db0dccba4035 4074bb54c8bfb8ba
+case nan-second-pending-spin0-second-spin0
+inverse-step 4060b076d02bfc93
+max-velocity 00000000
+max-spin 00000000
+push bfe8a1843fad8aee
+normal befe0d08 bf3b353c 3eef9d31
+turns 3f0cc382 40ebd05b 41161432 40fb0d39 409a9edd 4016ad61
+movable 00000001 00000001
+energy-velocity 44251e37 c3e4cf44 c4700144
+energy-spin 3c1f6e47 bbfb93d7 3b89871a
+first-mass 410c7e06
+first-inertia 4004adb1 40053f2a 40d2252e
+first-inverse-inertia 3ef6f915 3ef5eb73 3e1bee25
+first-inverse-mass 3de93cad
+first-velocity bd09f949 3d116ca4 3a6b679c
+first-spin c45368b8 c45cff64 c254fa7a
+first-pending-velocity 3e94258d be8ff351 bf2a4115
+first-pending-spin 00000000 00000000 00000000
+second-mass 41cf01f9
+second-inertia 40b5e5a9 41175a9c 400e9c58
+second-inverse-inertia 3e342553 3dd87fc8 3ee5c5b9
+second-inverse-mass 3d1e4b2b
+second-velocity b9865b37 39c27023 b924eb78
+second-spin ffc00002 bb95847a 3d27f33c
+second-pending-velocity bc00a208 bbe94adb bb55a2cc
+second-pending-spin 7fc00001 c24bd47d 424284b7
+pushed-first-velocity bd09f949 3d116ca4 3a6b679c
+pushed-first-spin c45368b8 c45cff64 c254fa7a
+pushed-first-pending-velocity 3e7bc0e5 beb0c582 bf1fc084
+pushed-first-pending-spin 3e510e1f 402e5cd8 3f8cb98e
+pushed-second-velocity b9865b37 39c27023 b924eb78
+pushed-second-spin ffc00002 bb95847a 3d27f33c
+pushed-second-pending-velocity 3be26367 3c6fc122 bc8cbf36
+pushed-second-pending-spin 7fc00001 c24d6717 423f43f1
+limited-first-velocity bd09f949 3d116ca4 3a6b679c
+limited-first-spin c45368b8 c45cff64 c254fa7a
+limited-first-pending-velocity 3e94258d be8ff351 bf2a4115
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity b9865b37 39c27023 b924eb78
+limited-second-spin ffc00002 bb95847a 3d27f33c
+limited-second-pending-velocity bc00a208 bbe94adb bb55a2cc
+limited-second-pending-spin 7fc00001 c24bd47d 424284b7
+flushed-first-velocity 3e82e664 be7b8b79 bf2a063b
+flushed-first-spin c45368b8 c45cff64 c254fa7a
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity bc04d4e2 bbdd23d9 bb5ff184
+flushed-second-spin 7fc00001 c24bd929 4242aeb4
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity bd09f949 3d116ca4 3a6b679c
+dropped-first-spin c45368b8 c45cff64 c254fa7a
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity b9865b37 39c27023 b924eb78
+dropped-second-spin ffc00002 bb95847a 3d27f33c
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 415a3fac950aa8a3 417356895c3499dd
+case nan-second-pending-velocity0-second-velocity0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 3f4ebf3383d07858
+normal be9a4306 be1dda52 bf70e4a1
+turns be54a9f0 bf377188 bf33d096 3f62b8e0 be237f24 3f6154e6
+movable 00000001 00000001
+energy-velocity c1091a6d c0470269 4117d4fd
+energy-spin bb2e5e28 bc04833c bbce7935
+first-mass 4291b82d
+first-inertia 4081499e 40fb9275 4096003c
+first-inverse-inertia 3e7d7355 3e0240bf 3e5a73b6
+first-inverse-mass 3c60ded8
+first-velocity 3a2d0249 ba77227b 37bceacf
+first-spin bbc88ed0 bbc8a36b bbe5feb2
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 3f3486e0 bf66dd4c 3f360e5a
+second-mass 416679e5
+second-inertia 408c3918 404e92be 411bee4b
+second-inverse-inertia 3e69af54 3e9ea067 3dd224fb
+second-inverse-mass 3d8e2cdc
+second-velocity ffc00002 c08ad3cd 41058978
+second-spin 3bc8e286 3bef2087 3b6e75d9
+second-pending-velocity 7fc00001 38d5fc2d 39d89bbc
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity 3a2d0249 ba77227b 37bceacf
+pushed-first-spin bbc88ed0 bbc8a36b bbe5feb2
+pushed-first-pending-velocity 36823282 36053a66 374b5075
+pushed-first-pending-spin 3f348a09 bf66d7b1 3f361791
+pushed-second-velocity ffc00002 c08ad3cd 41058978
+pushed-second-spin 3bc8e286 3bef2087 3b6e75d9
+pushed-second-pending-velocity 7fc00001 38c0ed33 39b878c6
+pushed-second-pending-spin 3946dac9 b842ae9a 38b1b9e2
+limited-first-velocity 3a2d0249 ba77227b 37bceacf
+limited-first-spin bbc88ed0 bbc8a36b bbe5feb2
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin 3f3486e0 bf66dd4c 3f360e5a
+limited-second-velocity ffc00002 c08ad3cd 41058978
+limited-second-spin 3bc8e286 3bef2087 3b6e75d9
+limited-second-pending-velocity 7fc00001 38d5fc2d 39d89bbc
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity 3a2d0249 ba77227b 37bceacf
+flushed-first-spin 3f32f5c2 bf686e93 3f34425d
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 7fc00001 c08ad2f7 41058b29
+flushed-second-spin 3bc8e286 3bef2087 3b6e75d9
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 3a2d0249 ba77227b 37bceacf
+dropped-first-spin bbc88ed0 bbc8a36b bbe5feb2
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity ffc00002 c08ad3cd 41058978
+dropped-second-spin 3bc8e286 3bef2087 3b6e75d9
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 40b8a3b5618376c0 40937c45e2de04e0
+case nan-energy-spin0-second-inertia0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push bfa3f71cb32b73d4
+normal bf147e99 bda948cc 3f4f7480
+turns 40cfb441 c1114b44 c11e6ff2 c0f6aa4d 40ea9ec1 40d73fb7
+movable 00000001 00000001
+energy-velocity 42ed5aa0 c41d3c93 44403f78
+energy-spin 7fc00001 44386e4f c382e070
+first-mass 422e5545
+first-inertia 3fc26f8b 41136d83 40e7edc7
+first-inverse-inertia 3f288759 3dde43c7 3e0d48e4
+first-inverse-mass 3cbbf647
+first-velocity 3f475e1f bee523d0 bf132848
+first-spin c0c53ea6 42b2d268 c2b431e9
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+second-mass 41b43ffa
+second-inertia ffc00002 40598f1d 40a4c4b2
+second-inverse-inertia 3dd52b9f 3e969dd9 3e46df87
+second-inverse-mass 3d35cac4
+second-velocity c2951baa c288c362 427a84a2
+second-spin bcf8f577 3d44ff3c ba89b3f0
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 3dc1d15f bd81ca1f 3d13bc61
+pushed-first-velocity 3f475e1f bee523d0 bf132848
+pushed-first-spin c0c53ea6 42b2d268 c2b431e9
+pushed-first-pending-velocity ba080c99 b89b18bf 3a3e117c
+pushed-first-pending-spin 3e2a9f2d bd1d6919 bd5a38c7
+pushed-second-velocity c2951baa c288c362 427a84a2
+pushed-second-spin bcf8f577 3d44ff3c ba89b3f0
+pushed-second-pending-velocity 3a839554 3916016a bab7d445
+pushed-second-pending-spin 3e00f251 be1704c6 bc73af12
+limited-first-velocity 3f475e1f bee523d0 bf132848
+limited-first-spin c0c53ea6 42b2d268 c2b431e9
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity c2951baa c288c362 427a84a2
+limited-second-spin bcf8f577 3d44ff3c ba89b3f0
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin 3dc1d15f bd81ca1f 3d13bc61
+flushed-first-velocity 3f475e1f bee523d0 bf132848
+flushed-first-spin c0c53ea6 42b2d268 c2b431e9
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c2951baa c288c362 427a84a2
+flushed-second-spin 3d839401 bc7a5408 3d0f6ec2
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 3f475e1f bee523d0 bf132848
+dropped-first-spin c0c53ea6 42b2d268 c2b431e9
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity c2951baa c288c362 427a84a2
+dropped-second-spin bcf8f577 3d44ff3c ba89b3f0
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-turns4-second-inverse-inertia1
+inverse-step 404834990a4a6565
+max-velocity 00000000
+max-spin 00000000
+push bf643fd98aac4b15
+normal bf205343 3f29b32b 3ed2155f
+turns c42ad3da 44573d6d c2bca32c c335cb32 7fc00001 433f5a2b
+movable 00000001 00000001
+energy-velocity c27ae285 c2788b2e c0fd1453
+energy-spin 3ea5d85b 3f7583a9 3f78abe5
+first-mass 42aeec81
+first-inertia 3fe52c55 40bf73c0 40ea4a77
+first-inverse-inertia 3f0efbcc 3e2b27b1 3e0bdc3f
+first-inverse-mass 3c3b53c6
+first-velocity 3eba0745 3f0bcdb1 bf635f0b
+first-spin bf0c673c bf026fcc bf2a16a5
+first-pending-velocity bd0ddf42 3dc496af bd3b4733
+first-pending-spin c296c04e 41e90171 42addca2
+second-mass 4103ab7c
+second-inertia 3f994eae 4012329a 4042e690
+second-inverse-inertia 3f55bd97 ffc00002 3ea8206f
+second-inverse-mass 3df8dd67
+second-velocity bd275786 3da5d99b 3f061c91
+second-spin 439e0b21 44107c27 44267e01
+second-pending-velocity b95a8f24 b6377887 3a642023
+second-pending-spin c061aae9 40993649 40bda06f
+pushed-first-velocity 3eba0745 3f0bcdb1 bf635f0b
+pushed-first-spin bf0c673c bf026fcc bf2a16a5
+pushed-first-pending-velocity bd0df1d1 3dc4a082 bd3b3b0a
+pushed-first-pending-spin c298a351 41ebd9ef 42adcc54
+pushed-second-velocity bd275786 3da5d99b 3f061c91
+pushed-second-spin 439e0b21 44107c27 44267e01
+pushed-second-pending-velocity b7aa783e b953a6a2 3a43d123
+pushed-second-pending-spin c049a7d6 7fc00001 40b8a811
+limited-first-velocity 3eba0745 3f0bcdb1 bf635f0b
+limited-first-spin bf0c673c bf026fcc bf2a16a5
+limited-first-pending-velocity bd0ddf42 3dc496af bd3b4733
+limited-first-pending-spin c296c04e 41e90171 42addca2
+limited-second-velocity bd275786 3da5d99b 3f061c91
+limited-second-spin 439e0b21 44107c27 44267e01
+limited-second-pending-velocity b95a8f24 b6377887 3a642023
+limited-second-pending-spin c061aae9 40993649 40bda06f
+flushed-first-velocity 3ea84b5d 3f246087 bf6f137e
+flushed-first-spin c297d91c 41e4edf3 42ac8875
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity bd283215 3da5d82c 3f065599
+flushed-second-spin 439c47cb 4411ae94 4427f942
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 3eba0745 3f0bcdb1 bf635f0b
+dropped-first-spin bf0c673c bf026fcc bf2a16a5
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity bd275786 3da5d99b 3f061c91
+dropped-second-spin 439e0b21 44107c27 44267e01
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 4114f90293f0fec0 40df9348dd764a00
+case nan-normal1-second-inverse-mass0
+inverse-step 4064c0abdd6d5abc
+max-velocity 00000000
+max-spin 00000000
+push bf4e8cc2e5d8e78b
+normal 3f2a013a 7fc00001 3ef120fa
+turns 42a19c0d 42a19199 c225378c 428397d2 c29b05cf 42b406bb
+movable 00000001 00000001
+energy-velocity 3f354eb8 be7f71c9 3f4477d7
+energy-spin bfb47f85 4090791e 4047a66f
+first-mass 4252e951
+first-inertia 40253e85 41066c12 4086082e
+first-inverse-inertia 3ec64ce9 3df3c4f4 3e747aa1
+first-inverse-mass 3c9b5d23
+first-velocity c0c17f50 c069baeb 40e828ef
+first-spin 42a751d1 40fb8eb4 420793b9
+first-pending-velocity bbe87247 3c0897ed bb3e45c6
+first-pending-spin 3ee86c89 3ca82784 bcff240b
+second-mass 410119eb
+second-inertia 3d675c62 40f3e23a 40ff02cd
+second-inverse-inertia 418da1ae 3e065bf0 3e007f17
+second-inverse-mass ffc00002
+second-velocity ba79c71e ba048b2b 38bea9d4
+second-spin c2aa7fea 42587049 c2be3499
+second-pending-velocity 38f92b79 b99ce222 b91530e1
+second-pending-spin 3c89ce16 bb9230b6 3d7d34ff
+pushed-first-velocity c0c17f50 c069baeb 40e828ef
+pushed-first-spin 42a751d1 40fb8eb4 420793b9
+pushed-first-pending-velocity bbe80fc7 7fc00001 bb3dba11
+pushed-first-pending-spin 3ef75ce8 3cf197d9 bd253a6e
+pushed-second-velocity ba79c71e ba048b2b 38bea9d4
+pushed-second-spin c2aa7fea 42587049 c2be3499
+pushed-second-pending-velocity ffc00002 7fc00001 ffc00002
+pushed-second-pending-spin bf88db04 3ba4828d 3d5212c8
+limited-first-velocity c0c17f50 c069baeb 40e828ef
+limited-first-spin 42a751d1 40fb8eb4 420793b9
+limited-first-pending-velocity bbe87247 3c0897ed bb3e45c6
+limited-first-pending-spin 3ee86c89 3ca82784 bcff240b
+limited-second-velocity ba79c71e ba048b2b 38bea9d4
+limited-second-spin c2aa7fea 42587049 c2be3499
+limited-second-pending-velocity 38f92b79 b99ce222 b91530e1
+limited-second-pending-spin 3c89ce16 bb9230b6 3d7d34ff
+flushed-first-velocity c0c1b96d c0693253 40e81126
+flushed-first-spin 42a83a3e 40fc36dc 420773d4
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity ba5aa1af ba52fc3c b8576fdc
+flushed-second-spin c2aa774d 42586bb7 c2be14f2
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity c0c17f50 c069baeb 40e828ef
+dropped-first-spin 42a751d1 40fb8eb4 420793b9
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity ba79c71e ba048b2b 38bea9d4
+dropped-second-spin c2aa7fea 42587049 c2be3499
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 40615ed66b17f180 405e4a099e808440
+case nan-second-pending-spin1-second-spin1
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push c04cf01a5fb7c53b
+normal bee0c283 3ead1766 3f551c99
+turns 411f8077 c106df40 40e58db2 c0220ef1 c05be8f5 404260d7
+movable 00000001 00000001
+energy-velocity 3d51e4ed bb02773c bdcc2ff0
+energy-spin bd135254 3cce6f7a 3ae1b1ac
+first-mass 42bde38b
+first-inertia 40de9125 401ac900 3fa4c947
+first-inverse-inertia 3e133a44 3ed3b32c 3f46da00
+first-inverse-mass 3c2c906a
+first-velocity 441bdca8 c45bc796 44210ac1
+first-spin 4203c549 41f03f5f 4254032f
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 399630d5 39c9851a b95ead83
+second-mass 42026604
+second-inertia 41120563 4118c46d 410f5f87
+second-inverse-inertia 3de067f1 3dd67f06 3de48ceb
+second-inverse-mass 3cfb4a8f
+second-velocity ba0a81c0 b8b6ad80 ba65a469
+second-spin bb95654f ffc00002 bc16a731
+second-pending-velocity c4676336 c43d4f71 c43661fc
+second-pending-spin bf5df662 7fc00001 3f663be3
+pushed-first-velocity 441bdca8 c45bc796 44210ac1
+pushed-first-spin 4203c549 41f03f5f 4254032f
+pushed-first-pending-velocity be890213 3e53064c 3f01e85f
+pushed-first-pending-spin 42a5e812 c349b851 43a13f0d
+pushed-second-velocity ba0a81c0 b8b6ad80 ba65a469
+pushed-second-spin bb95654f ffc00002 bc16a731
+pushed-second-pending-velocity c4673155 c43d75db c436c092
+pushed-second-pending-spin 41730e69 7fc00001 c195bc4c
+limited-first-velocity 441bdca8 c45bc796 44210ac1
+limited-first-spin 4203c549 41f03f5f 4254032f
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin 399630d5 39c9851a b95ead83
+limited-second-velocity ba0a81c0 b8b6ad80 ba65a469
+limited-second-spin bb95654f ffc00002 bc16a731
+limited-second-pending-velocity c4676336 c43d4f71 c43661fc
+limited-second-pending-spin bf5df662 7fc00001 3f663be3
+flushed-first-velocity 441bdca8 c45bc796 44210ac1
+flushed-first-spin 4203c594 41f04029 425402f7
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c467633f c43d4f72 c436620a
+flushed-second-spin bf5f212d ffc00002 3f63e146
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 441bdca8 c45bc796 44210ac1
+dropped-first-spin 4203c549 41f03f5f 4254032f
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity ba0a81c0 b8b6ad80 ba65a469
+dropped-second-spin bb95654f ffc00002 bc16a731
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 3fe3439691e8cf80 3fcb5f114140f400
+case nan-second-pending-velocity1-second-velocity1
+inverse-step 40410de0bb249460
+max-velocity 00000000
+max-spin 00000000
+push 3f77effb03f54be7
+normal be9ae38f bf59c68c bedc1c4b
+turns bb0db3b7 b9fc6766 3c203522 3bc1a81d 3a926e9c ba788874
+movable 00000001 00000001
+energy-velocity c2969d04 c168db1e c2af4798
+energy-spin 3bf168b1 bbd253d3 3b27c640
+first-mass 41800c6f
+first-inertia 410c8413 403f0bba 405c05cd
+first-inverse-inertia 3de932a2 3eab84e2 3e94ee1c
+first-inverse-mass 3f62d577
+first-velocity 4422114a 440e0eb2 43f8f4cc
+first-spin ba2ec52d ba3537cc ba7d8cf5
+first-pending-velocity bc17d4d6 ba9a6090 3b76243c
+first-pending-spin 421c1460 427c4a6a c2b1cfde
+second-mass 41de4e42
+second-inertia 40b07713 4093f97a 3fbf6cb9
+second-inverse-inertia 3e39b0ea 3e5d718b 3f2b2df9
+second-inverse-mass 3d136690
+second-velocity c10b538c ffc00002 c0cf9455
+second-spin 419d0e8c 42a62a49 c180498a
+second-pending-velocity c1107578 7fc00001 c0becd54
+second-pending-spin 43d75e19 c2a4f5ba c414f718
+pushed-first-velocity 4422114a 440e0eb2 43f8f4cc
+pushed-first-spin ba2ec52d ba3537cc ba7d8cf5
+pushed-first-pending-velocity bbfc54c2 3b5380d4 3bc4047e
+pushed-first-pending-spin 421c1460 427c4a6a c2b1cfe0
+pushed-second-velocity c10b538c ffc00002 c0cf9455
+pushed-second-spin 419d0e8c 42a62a49 c180498a
+pushed-second-pending-velocity c11075bb 7fc00001 c0bece12
+pushed-second-pending-spin 43d75e19 c2a4f5ba c414f718
+limited-first-velocity 4422114a 440e0eb2 43f8f4cc
+limited-first-spin ba2ec52d ba3537cc ba7d8cf5
+limited-first-pending-velocity bc17d4d6 ba9a6090 3b76243c
+limited-first-pending-spin 421c1460 427c4a6a c2b1cfde
+limited-second-velocity c10b538c ffc00002 c0cf9455
+limited-second-spin 419d0e8c 42a62a49 c180498a
+limited-second-pending-velocity c1107578 7fc00001 c0becd54
+limited-second-pending-spin 43d75e19 c2a4f5ba c414f718
+flushed-first-velocity 442210b2 440e0e9f 43f8f547
+flushed-first-spin 421c13b1 427c49b5 c2b1d05d
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c18de482 ffc00002 c14730d4
+flushed-second-spin 43e12f02 3f1a4780 c418f964
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 4422114a 440e0eb2 43f8f4cc
+dropped-first-spin ba2ec52d ba3537cc ba7d8cf5
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity c10b538c ffc00002 c0cf9455
+dropped-second-spin 419d0e8c 42a62a49 c180498a
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 40fa8064860c17fc 410701350f5b8c97
+case nan-energy-spin1-second-inertia1
+inverse-step 405a04f68f16d517
+max-velocity 00000000
+max-spin 00000000
+push 4031cd1b2fd094d2
+normal bea479fe bda2a473 bf7193c4
+turns c12117cc c2a693b1 428ca07b c23f37f1 423598e2 c22eb306
+movable 00000001 00000001
+energy-velocity c40128d9 c431f3f5 c4718532
+energy-spin 3b124492 7fc00001 3b6bbb9f
+first-mass 422b7deb
+first-inertia 40f1ed4a 3fb0e496 40b1d5b6
+first-inverse-inertia 3e077224 3f393df5 3e3842ca
+first-inverse-mass 3e8dea06
+first-velocity 42c3c0da 423f5316 42816404
+first-spin c05bc16c 3f3c1a23 c10519c7
+first-pending-velocity bfa49284 c111f6ff 407376dc
+first-pending-spin b8a3fc2b 3a530779 39b77b24
+second-mass 421448ab
+second-inertia 409185df ffc00002 3d7aaacf
+second-inverse-inertia 3e612c94 3e59ad3f 4182b91e
+second-inverse-mass 3cdcfb48
+second-velocity bd117f11 bd424e90 bc8f740e
+second-spin bf8c9ada 3daa2e28 c0b575d1
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity 42c3c0da 423f5316 42816404
+pushed-first-spin c05bc16c 3f3c1a23 c10519c7
+pushed-first-pending-velocity 3e993fac c10bb205 41075d0a
+pushed-first-pending-spin 41bda736 44861acc c3613a0f
+pushed-second-velocity bd117f11 bd424e90 bc8f740e
+pushed-second-spin bf8c9ada 3daa2e28 c0b575d1
+pushed-second-pending-velocity be1df5f5 bd1c3304 bee801d0
+pushed-second-pending-spin c33b20a6 432bcb83 c6468045
+limited-first-velocity 42c3c0da 423f5316 42816404
+limited-first-spin c05bc16c 3f3c1a23 c10519c7
+limited-first-pending-velocity bfa49284 c111f6ff 407376dc
+limited-first-pending-spin b8a3fc2b 3a530779 39b77b24
+limited-second-velocity bd117f11 bd424e90 bc8f740e
+limited-second-spin bf8c9ada 3daa2e28 c0b575d1
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity 42c12e90 421ad556 4288ffbb
+flushed-first-spin c05bc2b4 3f3c4ee5 c1051858
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity bd117f11 bd424e90 bc8f740e
+flushed-second-spin bf8c9ada 3daa2e28 c0b575d1
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 42c3c0da 423f5316 42816404
+dropped-first-spin c05bc16c 3f3c1a23 c10519c7
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity bd117f11 bd424e90 bc8f740e
+dropped-second-spin bf8c9ada 3daa2e28 c0b575d1
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-turns5-second-inverse-inertia2
+inverse-step 40679058ed879274
+max-velocity 00000000
+max-spin 00000000
+push bfa7ebdf04ebc007
+normal bf35f90e be60b579 bf2b12b5
+turns 3dc5685d 3d5e5ebc 3ccc1685 3dbbb940 bdb87bb5 7fc00001
+movable 00000001 00000001
+energy-velocity 3c0f78bb 3c040a71 3bd5a88b
+energy-spin 4094bd5a c088b7cc 40bed240
+first-mass 41a3117f
+first-inertia 40bcfa15 4096dad6 410ede50
+first-inverse-inertia 3e2d6599 3e593728 3de55ba0
+first-inverse-mass 3d48f249
+first-velocity 42be1480 bfeeb778 c22cae10
+first-spin 3f319672 bba3495c 3cc6dbad
+first-pending-velocity 3da684de bd03e3b5 bcf5c20a
+first-pending-spin 00000000 00000000 00000000
+second-mass 42c733e8
+second-inertia 40c08904 408547bd 40030877
+second-inverse-inertia 3e2a3137 3e75dba1 ffc00002
+second-inverse-mass 3c247ee7
+second-velocity bf7475d3 3f736676 3f1b9a1d
+second-spin c2c48889 4283eb81 c25b0553
+second-pending-velocity 41713e41 41102659 421d5de7
+second-pending-spin bf1088f1 be89232b 3ebd58b5
+pushed-first-velocity 42be1480 bfeeb778 c22cae10
+pushed-first-spin 3f319672 bba3495c 3cc6dbad
+pushed-first-pending-velocity 3da32ea4 bd05f321 bd012724
+pushed-first-pending-spin 3a47e898 3a0d0bf9 3908afe1
+pushed-second-velocity bf7475d3 3f736676 3f1b9a1d
+pushed-second-spin c2c48889 4283eb81 c25b0553
+pushed-second-pending-velocity 41713f9f 411026c5 421d5e39
+pushed-second-pending-spin bf10b797 be889eb9 7fc00001
+limited-first-velocity 42be1480 bfeeb778 c22cae10
+limited-first-spin 3f319672 bba3495c 3cc6dbad
+limited-first-pending-velocity 3da684de bd03e3b5 bcf5c20a
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity bf7475d3 3f736676 3f1b9a1d
+limited-second-spin c2c48889 4283eb81 c25b0553
+limited-second-pending-velocity 41713e41 41102659 421d5de7
+limited-second-pending-spin bf1088f1 be89232b 3ebd58b5
+flushed-first-velocity 42be3e21 bff2d696 c22cccc8
+flushed-first-spin 3f319672 bba3495c 3cc6dbad
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 4161f6e4 411f5cc0 421fcc4f
+flushed-second-spin c2c5a99b 4283625e c2598aa2
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 42be1480 bfeeb778 c22cae10
+dropped-first-spin 3f319672 bba3495c 3cc6dbad
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity bf7475d3 3f736676 3f1b9a1d
+dropped-second-spin c2c48889 4283eb81 c25b0553
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 4070994eeff0f5f7 40616d71802605d8
+case nan-normal2-second-inverse-mass0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 40198192b13728be
+normal bc865535 bf540fb3 7fc00001
+turns bb91c044 3af106dd bc146899 3aac21c3 bb7e6cc0 bb9a81c1
+movable 00000001 00000001
+energy-velocity 3ffb7a27 40b9a3b6 be83b3fb
+energy-spin b9f51b18 3c09c41d bb2a2112
+first-mass 42990be8
+first-inertia 405009ad 403629fe 40be554c
+first-inverse-inertia 3e9d8285 3eb3e1c0 3e2c2948
+first-inverse-mass 3c561ad8
+first-velocity 3b9513e6 bbde58b6 bc1ae9f0
+first-spin 3dbaee5e bd486062 3d2433ca
+first-pending-velocity 3cb1300b bd72dac0 3cc29054
+first-pending-spin c3e0ce03 c44515dd 43d41997
+second-mass 429f2c64
+second-inertia 4060f1fe 408aa954 4118dff4
+second-inverse-inertia 3e91abc5 3e6c510d 3dd65866
+second-inverse-mass ffc00002
+second-velocity 41041745 3ff84f93 c0a0fae9
+second-spin b98a673d 3b905ace ba1c225d
+second-pending-velocity 40a1685d c106d008 bf545cd8
+second-pending-spin 3bce887e 3ba058b9 bbc9c56d
+pushed-first-velocity 3b9513e6 bbde58b6 bc1ae9f0
+pushed-first-spin 3dbaee5e bd486062 3d2433ca
+pushed-first-pending-velocity 3cbc61a1 3c1f812b 7fc00001
+pushed-first-pending-spin c3e0cce5 c4451620 43d41ad5
+pushed-second-velocity 41041745 3ff84f93 c0a0fae9
+pushed-second-spin b98a673d 3b905ace ba1c225d
+pushed-second-pending-velocity ffc00002 ffc00002 7fc00001
+pushed-second-pending-spin 3c0e4d52 ba56d636 bc187146
+limited-first-velocity 3b9513e6 bbde58b6 bc1ae9f0
+limited-first-spin 3dbaee5e bd486062 3d2433ca
+limited-first-pending-velocity 3cb1300b bd72dac0 3cc29054
+limited-first-pending-spin c3e0ce03 c44515dd 43d41997
+limited-second-velocity 41041745 3ff84f93 c0a0fae9
+limited-second-spin b98a673d 3b905ace ba1c225d
+limited-second-pending-velocity 40a1685d c106d008 bf545cd8
+limited-second-pending-spin 3bce887e 3ba058b9 bbc9c56d
+flushed-first-velocity 3cd67504 bd8752eb 3c6a36b8
+flushed-first-spin c3e0c254 c44518ff 43d41eb9
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 4154cb74 c0cf8c2b c0bb8684
+flushed-second-spin 3bc5e20a 3c1859c4 bbdd49b9
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 3b9513e6 bbde58b6 bc1ae9f0
+dropped-first-spin 3dbaee5e bd486062 3d2433ca
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 41041745 3ff84f93 c0a0fae9
+dropped-second-spin b98a673d 3b905ace ba1c225d
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 4096778c9dc788e0 40975dccf358b200
+case nan-second-pending-spin2-second-spin2
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 3f869775ff97879a
+normal 3f4c7a90 3d643d89 bf195d8a
+turns 3da370d8 bcbdd627 3bf134cc bcc4c1f7 3d526154 3da8d428
+movable 00000001 00000001
+energy-velocity 40e39b0d 3fe72710 c0a6cb0f
+energy-spin c4387b31 42779574 4446ee18
+first-mass 3f2925be
+first-inertia 409ebef0 40ceb57c 4100eeb4
+first-inverse-inertia 3e4e6b02 3e1e85be 3dfe260c
+first-inverse-mass 3fc1b978
+first-velocity 440cfec9 c433230c c3abfbab
+first-spin c0a59d06 4085a4c9 c08f263a
+first-pending-velocity bc1c8e9a bbc2bdc8 bc0c564c
+first-pending-spin 3f5753c2 bf09ea8b be4981bf
+second-mass 4246b5ca
+second-inertia 3fca214a 4109a6a5 40236f04
+second-inverse-inertia 3f221d0c 3dee0d27 3ec87f4c
+second-inverse-mass 3ca4e74e
+second-velocity 3d6063e8 3db8ed08 3cd8d644
+second-spin b94d3a0a b899291c ffc00002
+second-pending-velocity b943a5bd b705a1be 3a0cd106
+second-pending-spin ba76e7d0 3a72553f 7fc00001
+pushed-first-velocity 440cfec9 c433230c c3abfbab
+pushed-first-spin c0a59d06 4085a4c9 c08f263a
+pushed-first-pending-velocity bcbb8551 bbe139bd 3abc43a1
+pushed-first-pending-spin 3f574821 bf09e7f3 be498463
+pushed-second-velocity 3d6063e8 3db8ed08 3cd8d644
+pushed-second-spin b94d3a0a b899291c ffc00002
+pushed-second-pending-velocity b71aae0f 3693eb8c 39d3e33d
+pushed-second-pending-spin ba9171a6 3a81cc6d 7fc00001
+limited-first-velocity 440cfec9 c433230c c3abfbab
+limited-first-spin c0a59d06 4085a4c9 c08f263a
+limited-first-pending-velocity bc1c8e9a bbc2bdc8 bc0c564c
+limited-first-pending-spin 3f5753c2 bf09ea8b be4981bf
+limited-second-velocity 3d6063e8 3db8ed08 3cd8d644
+limited-second-spin b94d3a0a b899291c ffc00002
+limited-second-pending-velocity b943a5bd b705a1be 3a0cd106
+limited-second-pending-spin ba76e7d0 3a72553f 7fc00001
+flushed-first-velocity 440cfe2c c433236d c3abfcc4
+flushed-first-spin c08ab28e 4068ceef c0957248
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 3d5fa042 3db8e8db 3cdd3ccc
+flushed-second-spin ba951b29 3a5f301c ffc00002
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 440cfec9 c433230c c3abfbab
+dropped-first-spin c0a59d06 4085a4c9 c08f263a
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3d6063e8 3db8ed08 3cd8d644
+dropped-second-spin b94d3a0a b899291c ffc00002
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 414ddce9a20d66a9 41332db7eb73201e
+case nan-second-pending-velocity2-second-velocity2
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 3f2bc5407d7db4a4
+normal 3f2cd37d 3f27f924 3eaca6c8
+turns bb263f04 3b93518d ba82fd7f 3ab47339 bb0eada6 3adb9b89
+movable 00000001 00000001
+energy-velocity c25a93da c2a619c6 c2bb9cf6
+energy-spin 3d35b7a8 3d196840 bcc54390
+first-mass 41b63e83
+first-inertia 4084a8bb 3e0179ed 4053ced4
+first-inverse-inertia 3e770252 40fd14c4 3e9ab4ca
+first-inverse-mass 3d33cd7f
+first-velocity be22e1cf be8363a3 bf001577
+first-spin 3be9291f bbedbdde 3c07aa61
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+second-mass 42be7800
+second-inertia 4105b5eb 3f81ff46 408424cd
+second-inverse-inertia 3df5110a 3f7c112a 3e77f8ed
+second-inverse-mass 3c2c09ea
+second-velocity 443be1ae c33e59b8 ffc00002
+second-spin bb76facf bc22bf29 bbcfac87
+second-pending-velocity bdaedf14 be44f473 7fc00001
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity be22e1cf be8363a3 bf001577
+pushed-first-spin 3be9291f bbedbdde 3c07aa61
+pushed-first-pending-velocity b6d2aede b6ccc463 b652785e
+pushed-first-pending-spin 340b34c8 b6fcc775 33896518
+pushed-second-velocity 443be1ae c33e59b8 ffc00002
+pushed-second-spin bb76facf bc22bf29 bbcfac87
+pushed-second-pending-velocity bdaede4a be44f411 7fc00001
+pushed-second-pending-spin 3315e95c b4f3d60b 33b89b00
+limited-first-velocity be22e1cf be8363a3 bf001577
+limited-first-spin 3be9291f bbedbdde 3c07aa61
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity 443be1ae c33e59b8 ffc00002
+limited-second-spin bb76facf bc22bf29 bbcfac87
+limited-second-pending-velocity bdaedf14 be44f473 7fc00001
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity be22e1cf be8363a3 bf001577
+flushed-first-spin 3be9291f bbedbdde 3c07aa61
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 443bdc37 c33e8af5 ffc00002
+flushed-second-spin bb76facf bc22bf29 bbcfac87
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity be22e1cf be8363a3 bf001577
+dropped-first-spin 3be9291f bbedbdde 3c07aa61
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 443be1ae c33e59b8 ffc00002
+dropped-second-spin bb76facf bc22bf29 bbcfac87
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 4109fa25aaf18ef0 412b264391883d30
+case nan-energy-spin2-second-inertia2
+inverse-step 404ebc010c68578f
+max-velocity 00000000
+max-spin 00000000
+push 40214e3db7477887
+normal bf158f06 3ef3a106 3f285041
+turns be38c50e 3f2c3e61 3d797ccc be38ae21 be9ae423 bf6ecbbd
+movable 00000001 00000001
+energy-velocity 3b577593 bba44c17 3a81c43b
+energy-spin 3db55052 bd1563a8 7fc00001
+first-mass 41b7d671
+first-inertia 3ecfcda8 40965538 4095db48
+first-inverse-inertia 401db003 3e59f838 3e5aa994
+first-inverse-mass 3f1ca163
+first-velocity bcb48600 3cb8305b bdb4b25b
+first-spin 3d467545 3db3187e bd35d828
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin b9e51d1e ba133dac ba56246e
+second-mass 42279462
+second-inertia 4109b3ab 4113e225 ffc00002
+second-inverse-inertia 3dedf6a4 3ddd947b 3e103dd4
+second-inverse-mass 3cc38972
+second-velocity c4676814 c2952d5e c4261a59
+second-spin c23bd4aa c25f9246 426bd74e
+second-pending-velocity be49c649 be77b769 bf039936
+second-pending-spin 443e0adf c2a355a8 438ce728
+pushed-first-velocity bcb48600 3cb8305b bdb4b25b
+pushed-first-spin 3d467545 3db3187e bd35d828
+pushed-first-pending-velocity 4045f1ff c021399d c05ec491
+pushed-first-pending-spin 40762bb2 bf9eb1f0 bde8297d
+pushed-second-velocity c4676814 c2952d5e c4261a59
+pushed-second-spin c23bd4aa c25f9246 426bd74e
+pushed-second-pending-velocity bea2aa74 be13147d bec1abdb
+pushed-second-pending-spin 443dff44 c2a3e6a9 438c55a1
+limited-first-velocity bcb48600 3cb8305b bdb4b25b
+limited-first-spin 3d467545 3db3187e bd35d828
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin b9e51d1e ba133dac ba56246e
+limited-second-velocity c4676814 c2952d5e c4261a59
+limited-second-spin c23bd4aa c25f9246 426bd74e
+limited-second-pending-velocity be49c649 be77b769 bf039936
+limited-second-pending-spin 443e0adf c2a355a8 438ce728
+flushed-first-velocity bcb48600 3cb8305b bdb4b25b
+flushed-first-spin 3d44ab0b 3db1f203 bd3930ba
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c46774b0 c295a93a c4263b3f
+flushed-second-spin 44324d94 c3098f66 43aa6212
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity bcb48600 3cb8305b bdb4b25b
+dropped-first-spin 3d467545 3db3187e bd35d828
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity c4676814 c2952d5e c4261a59
+dropped-second-spin c23bd4aa c25f9246 426bd74e
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-turns3-push0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push fff8000000000002
+normal 3f526e6e 3f02a7b9 3e815d97
+turns ba5b7c3c b912e6c0 b9b1fe2f 7fc00001 3a05a8a4 395d99f2
+movable 00000001 00000001
+energy-velocity bda0e110 bcbec993 3d62f0b2
+energy-spin c02a4032 c085bc8a c100b492
+first-mass 42bf3a24
+first-inertia 40a5f53e 3efbc799 40d93e31
+first-inverse-inertia 3e457294 40022542 3e16d5f3
+first-inverse-mass 3c2b5b41
+first-velocity 424a60b1 bea09122 c1fb63c1
+first-spin 3d3b74e3 bd9693db bd3fa048
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+second-mass 4273c90a
+second-inertia 40d4db4f 4106bbe8 410f447c
+second-inverse-inertia 3e19f1a8 3df33482 3de4b80f
+second-inverse-mass 3c8669d1
+second-velocity 43cd11b3 440e5b04 c3e5fcc7
+second-spin 3f8a246e bfe114c1 c09a3ba8
+second-pending-velocity c0d5e350 3f85019d c0c081ff
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity 424a60b1 bea09122 c1fb63c1
+pushed-first-spin 3d3b74e3 bd9693db bd3fa048
+pushed-first-pending-velocity 7fc00000 7fc00000 7fc00000
+pushed-first-pending-spin 7fc00000 7fc00000 7fc00000
+pushed-second-velocity 43cd11b3 440e5b04 c3e5fcc7
+pushed-second-spin 3f8a246e bfe114c1 c09a3ba8
+pushed-second-pending-velocity ffc00000 ffc00000 ffc00000
+pushed-second-pending-spin 7fc00001 ffc00000 ffc00000
+limited-first-velocity 424a60b1 bea09122 c1fb63c1
+limited-first-spin 3d3b74e3 bd9693db bd3fa048
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity 43cd11b3 440e5b04 c3e5fcc7
+limited-second-spin 3f8a246e bfe114c1 c09a3ba8
+limited-second-pending-velocity c0d5e350 3f85019d c0c081ff
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity 424a60b1 bea09122 c1fb63c1
+flushed-first-spin 3d3b74e3 bd9693db bd3fa048
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 43c9ba26 440e9d85 c3e8fecf
+flushed-second-spin 3f8a246e bfe114c1 c09a3ba8
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 424a60b1 bea09122 c1fb63c1
+dropped-first-spin 3d3b74e3 bd9693db bd3fa048
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 43cd11b3 440e5b04 c3e5fcc7
+dropped-second-spin 3f8a246e bfe114c1 c09a3ba8
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 406e5831d1357344 4078313755f7c0e5
+case nan-turns3-second-pending-spin0
+inverse-step 405f7a17304dbac3
+max-velocity 00000000
+max-spin 00000000
+push 404646f96782e242
+normal bf00847a 3f3ed2c8 3ee08cdc
+turns 3b61ee65 3b83ba8b bbf4c159 7fc00001 bb55d726 3a407643
+movable 00000001 00000001
+energy-velocity be0f5bd3 bef60f30 bdc1970a
+energy-spin 3f10c627 3f76b978 be06c5d1
+first-mass 428cc379
+first-inertia 4036bfab 40232cf0 3f600e27
+first-inverse-inertia 3eb34e6c 3ec8d07d 3f923fe7
+first-inverse-mass 3c68c99a
+first-velocity 413a061a c2bd2566 c16f9411
+first-spin 3c229adb 3bcca09a 3b272c4c
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 00000000 00000000 00000000
+second-mass 41a925ef
+second-inertia 40d2d09d 40ad3970 40fef567
+second-inverse-inertia 3e1b6f58 3e3d2a42 3e0085d8
+second-inverse-mass 3e5b5b11
+second-velocity 3d074767 bcf89cec 3cf8efd9
+second-spin c20219f7 41e477e1 c2618c27
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin ffc00002 00000000 00000000
+pushed-first-velocity 413a061a c2bd2566 c16f9411
+pushed-first-spin 3c229adb 3bcca09a 3b272c4c
+pushed-first-pending-velocity 3ea2b6a3 bef19900 be8e2637
+pushed-first-pending-spin bd5c5474 bd8fdf45 3ec2aee0
+pushed-second-velocity 3d074767 bcf89cec 3cf8efd9
+pushed-second-spin c20219f7 41e477e1 c2618c27
+pushed-second-pending-velocity c099532d 40e3a854 4085f283
+pushed-second-pending-spin 7fc00001 bcdc013d 3b868847
+limited-first-velocity 413a061a c2bd2566 c16f9411
+limited-first-spin 3c229adb 3bcca09a 3b272c4c
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity 3d074767 bcf89cec 3cf8efd9
+limited-second-spin c20219f7 41e477e1 c2618c27
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin ffc00002 00000000 00000000
+flushed-first-velocity 413a061a c2bd2566 c16f9411
+flushed-first-spin 3c229adb 3bcca09a 3b272c4c
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 3d074767 bcf89cec 3cf8efd9
+flushed-second-spin ffc00002 41e477e1 c2618c27
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 413a061a c2bd2566 c16f9411
+dropped-first-spin 3c229adb 3bcca09a 3b272c4c
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3d074767 bcf89cec 3cf8efd9
+dropped-second-spin c20219f7 41e477e1 c2618c27
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 40258f771b1ebe00 401984fa5d14f900
+case nan-second-inverse-mass0-push0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push fff8000000000002
+normal 3f60f1f4 3dd2cf4c 3eeeac81
+turns ba5ac085 38176670 ba062092 3a20afe3 ba4f828a 3a7a9e75
+movable 00000001 00000001
+energy-velocity 3d8b3c67 3db139bf 3dbaa0c0
+energy-spin 3d4deffb bdc7de36 3da3c35a
+first-mass 413e1c53
+first-inertia 3f8a609f 40a81b27 40ad5e51
+first-inverse-inertia 3f6ccd38 3e42ecb0 3e3d0205
+first-inverse-mass 3dac5ce0
+first-velocity 3be647bc 3a65131c 3b410727
+first-spin 3c8ef857 3c135101 3d583201
+first-pending-velocity 39367620 ba254d98 ba504995
+first-pending-spin 00000000 00000000 00000000
+second-mass 41b12ef5
+second-inertia 407d7e28 40f68304 40b5c59d
+second-inverse-inertia 3e814419 3e04ed3d 3e344516
+second-inverse-mass 7fc00001
+second-velocity 3ec28166 bf448ba8 bcbe1ad7
+second-spin ba5d94d3 3939860d ba4c10ca
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 39c35260 ba081219 b9a20b95
+pushed-first-velocity 3be647bc 3a65131c 3b410727
+pushed-first-spin 3c8ef857 3c135101 3d583201
+pushed-first-pending-velocity 7fc00000 7fc00000 7fc00000
+pushed-first-pending-spin 7fc00000 7fc00000 7fc00000
+pushed-second-velocity 3ec28166 bf448ba8 bcbe1ad7
+pushed-second-spin ba5d94d3 3939860d ba4c10ca
+pushed-second-pending-velocity 7fc00001 7fc00001 7fc00001
+pushed-second-pending-spin ffc00000 ffc00000 ffc00000
+limited-first-velocity 3be647bc 3a65131c 3b410727
+limited-first-spin 3c8ef857 3c135101 3d583201
+limited-first-pending-velocity 39367620 ba254d98 ba504995
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity 3ec28166 bf448ba8 bcbe1ad7
+limited-second-spin ba5d94d3 3939860d ba4c10ca
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin 39c35260 ba081219 b9a20b95
+flushed-first-velocity 3bebfb6d 397f1610 3b0cf4c2
+flushed-first-spin 3c8ef857 3c135101 3d583201
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 3ec28166 bf448ba8 bcbe1ad7
+flushed-second-spin b9f7d746 b9b3612c ba8e8b4a
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 3be647bc 3a65131c 3b410727
+dropped-first-spin 3c8ef857 3c135101 3d583201
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3ec28166 bf448ba8 bcbe1ad7
+dropped-second-spin ba5d94d3 3939860d ba4c10ca
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 3fc51e483ac47180 3fd24c8f2f8bf280
+case nan-normal0-second-pending-velocity0
+inverse-step 4065989a20ab86a4
+max-velocity 00000000
+max-spin 00000000
+push 0000000000000000
+normal 7fc00001 be1f5a40 bf791251
+turns 3dac0f65 bc12cdf8 bdb89925 3dae650f 3d014231 3d5960a8
+movable 00000001 00000001
+energy-velocity c3d75d62 c41f9584 440757ac
+energy-spin b9f060b8 3731cceb 3a23678c
+first-mass 4287d3b3
+first-inertia 40e4d815 40a70d57 411f9579
+first-inverse-inertia 3e0f3070 3e442784 3dcd5583
+first-inverse-mass 3c713f87
+first-velocity c11f3719 40d6a984 407472c7
+first-spin 3da37a96 bdafa397 3794f2df
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin 3aae50ca 3b407fae bb816d3a
+second-mass 429b23dd
+second-inertia 4059c0dd 40df3d37 4000b7d5
+second-inverse-inertia 3e967b70 3e12c8c8 3efe9263
+second-inverse-mass 3e841379
+second-velocity 3a6aadc2 bb746a27 3ab80998
+second-spin 3e7ff7d2 3ebe7558 bf3eeb13
+second-pending-velocity ffc00002 43cf424e 44718802
+second-pending-spin c10bc440 c1082cb3 c107c8b3
+pushed-first-velocity c11f3719 40d6a984 407472c7
+pushed-first-spin 3da37a96 bdafa397 3794f2df
+pushed-first-pending-velocity 7fc00001 00000000 00000000
+pushed-first-pending-spin 3aae50ca 3b407fae bb816d3a
+pushed-second-velocity 3a6aadc2 bb746a27 3ab80998
+pushed-second-spin 3e7ff7d2 3ebe7558 bf3eeb13
+pushed-second-pending-velocity 7fc00001 43cf424e 44718802
+pushed-second-pending-spin c10bc440 c1082cb3 c107c8b3
+limited-first-velocity c11f3719 40d6a984 407472c7
+limited-first-spin 3da37a96 bdafa397 3794f2df
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin 3aae50ca 3b407fae bb816d3a
+limited-second-velocity 3a6aadc2 bb746a27 3ab80998
+limited-second-spin 3e7ff7d2 3ebe7558 bf3eeb13
+limited-second-pending-velocity ffc00002 43cf424e 44718802
+limited-second-pending-spin c10bc440 c1082cb3 c107c8b3
+flushed-first-velocity c11f3719 40d6a984 407472c7
+flushed-first-spin 3da633d9 bda99f9a bb80d847
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity ffc00002 43cf41d4 44718819
+flushed-second-spin c107c461 c1023908 c113b764
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity c11f3719 40d6a984 407472c7
+dropped-first-spin 3da37a96 bdafa397 3794f2df
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3a6aadc2 bb746a27 3ab80998
+dropped-second-spin 3e7ff7d2 3ebe7558 bf3eeb13
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 417cb1d12a0a2752 41806328287ada24
+case nan-energy-velocity0-second-mass0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 3f385e048fcd23cf
+normal 3e89f865 bf4cf9dc 3f08f95a
+turns 3b291e49 bc21bdbe 3c1ce9ad 3c0dcd46 bc14971b 3c1df3dc
+movable 00000001 00000001
+energy-velocity 7fc00001 3bee1697 bc1041e5
+energy-spin c2908efc c244b269 4222a5fa
+first-mass 428c8d2e
+first-inertia 4117e6fd 4110d41d 40785b2c
+first-inverse-inertia 3dd7b7b5 3de240f3 3e83f087
+first-inverse-mass 3c692386
+first-velocity b8f76c3a 3a5b4b16 b8abb293
+first-spin 421273de c29c212d 426aab18
+first-pending-velocity 3db96e26 bd955225 3d8f2bd4
+first-pending-spin 4434d903 445deca3 c446e0da
+second-mass ffc00002
+second-inertia 3ef32e28 4017359f 3fedb6b0
+second-inverse-inertia 4006bf6d 3ed8b4be 3f09d8b7
+second-inverse-mass 3d5b9a26
+second-velocity 3d6c3319 bd8e2e18 bd17f231
+second-spin 43a3fa21 c3abcc41 c2cf46be
+second-pending-velocity 40162bda 4032a2ec c0883768
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity b8f76c3a 3a5b4b16 b8abb293
+pushed-first-spin 421273de c29c212d 426aab18
+pushed-first-pending-velocity 3db96d67 bd954fec 3d8f2a58
+pushed-first-pending-spin 4434d903 445deca3 c446e0da
+pushed-second-velocity 3d6c3319 bd8e2e18 bd17f231
+pushed-second-spin 43a3fa21 c3abcc41 c2cf46be
+pushed-second-pending-velocity 40162bf1 4032a2a9 c0883752
+pushed-second-pending-spin 36e3579c b5bf8fb8 36018799
+limited-first-velocity b8f76c3a 3a5b4b16 b8abb293
+limited-first-spin 421273de c29c212d 426aab18
+limited-first-pending-velocity 3db96e26 bd955225 3d8f2bd4
+limited-first-pending-spin 4434d903 445deca3 c446e0da
+limited-second-velocity 3d6c3319 bd8e2e18 bd17f231
+limited-second-spin 43a3fa21 c3abcc41 c2cf46be
+limited-second-pending-velocity 40162bda 4032a2ec c0883768
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity 3db9304b bd939b8f 3d8f00e7
+flushed-first-spin 443e0041 444a687d c4383628
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 4019dca6 402e317b c089674c
+flushed-second-spin 43a3fa21 c3abcc41 c2cf46be
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity b8f76c3a 3a5b4b16 b8abb293
+dropped-first-spin 421273de c29c212d 426aab18
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3d6c3319 bd8e2e18 bd17f231
+dropped-second-spin 43a3fa21 c3abcc41 c2cf46be
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-energy-spin1-energy-spin0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 3fa870d5ece266dd
+normal bf309264 3efb4e8b bf084535
+turns 3fd4d13e bf9a7c2e be80ff37 41052ee8 c0cf1fb7 3f788977
+movable 00000001 00000001
+energy-velocity 3d8a5cde 3c24b2eb bd7e2553
+energy-spin ffc00002 7fc00001 c11de5f1
+first-mass 42810891
+first-inertia 3f382f66 402a9626 40ca4bba
+first-inverse-inertia 3fb1e86f 3ec01718 3e21fb0a
+first-inverse-mass 3c7df31b
+first-velocity bdb9682a 3dc113d5 3d15f66c
+first-spin bc1ad792 3bc89bcb bbf8397c
+first-pending-velocity 3d1f2951 bd94d30b 3ccd42b9
+first-pending-spin 00000000 00000000 00000000
+second-mass 41695529
+second-inertia 3f751bdb 40a68544 408a608d
+second-inverse-inertia 3f85b004 3e44c7cf 3e6ccd56
+second-inverse-mass 3f173946
+second-velocity 3a0bcfb4 3a76d569 b89d34a9
+second-spin 3e877986 bfe94607 3db3e55d
+second-pending-velocity 3a517c1a b9b6ceaa 3a4652af
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity bdb9682a 3dc113d5 3d15f66c
+pushed-first-spin bc1ad792 3bc89bcb bbf8397c
+pushed-first-pending-velocity 3d214071 bd959172 3cd07cb1
+pushed-first-pending-spin bde1ebdc 3cb11216 3af95c3c
+pushed-second-velocity 3a0bcfb4 3a76d569 b89d34a9
+pushed-second-spin 3e877986 bfe94607 3db3e55d
+pushed-second-pending-velocity bc98c87a 3c5d0dc8 bc698821
+pushed-second-pending-spin 3ed47bcc bd7333b4 3c2f9734
+limited-first-velocity bdb9682a 3dc113d5 3d15f66c
+limited-first-spin bc1ad792 3bc89bcb bbf8397c
+limited-first-pending-velocity 3d1f2951 bd94d30b 3ccd42b9
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity 3a0bcfb4 3a76d569 b89d34a9
+limited-second-spin 3e877986 bfe94607 3db3e55d
+limited-second-pending-velocity 3a517c1a b9b6ceaa 3a4652af
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity bd53a703 3cb10328 3d7c97c8
+flushed-first-spin bc1ad792 3bc89bcb bbf8397c
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 3aaea5e7 3a1b6e14 3a32ac1a
+flushed-second-spin 3e877986 bfe94607 3db3e55d
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity bdb9682a 3dc113d5 3d15f66c
+dropped-first-spin bc1ad792 3bc89bcb bbf8397c
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3a0bcfb4 3a76d569 b89d34a9
+dropped-second-spin 3e877986 bfe94607 3db3e55d
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-energy-spin0-energy-spin2
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push bf3a3ecae731dbe8
+normal bf1d6f9e bec2eb3a 3f30c7f7
+turns be444609 3f3c8ff9 bf251e10 3f4c3e59 bf08f833 3f72b461
+movable 00000001 00000001
+energy-velocity 445222c5 c30d4dbd c3b490bb
+energy-spin 7fc00001 4082abea ffc00002
+first-mass 42bd0cbc
+first-inertia 3fae8131 40c31610 3f9c335c
+first-inverse-inertia 3f3bc6f8 3e27f780 3f51c810
+first-inverse-mass 3c2d547e
+first-velocity b9b4d96f 3c201c99 3a3bcdf1
+first-spin bc00b795 bc1399e4 bb2f2280
+first-pending-velocity c436cee6 c472c7e6 430388b7
+first-pending-spin 00000000 00000000 00000000
+second-mass 42bd4402
+second-inertia 4088d0f0 40fd0571 40983534
+second-inverse-inertia 3e6f80fd 3e0181c5 3e5748db
+second-inverse-mass 3c2d21df
+second-velocity 3e8aabcd be964559 3ea7c4cd
+second-spin 39dc0538 392cd791 3a548049
+second-pending-velocity 3f409336 3ef4594b bf155866
+second-pending-spin 40a3dbb0 3f8d29b4 c11c65aa
+pushed-first-velocity b9b4d96f 3c201c99 3a3bcdf1
+pushed-first-spin bc00b795 bc1399e4 bb2f2280
+pushed-first-pending-velocity c436cee6 c472c7e6 430388b7
+pushed-first-pending-spin b86c2788 384af0e7 b95df2b7
+pushed-second-velocity 3e8aabcd be964559 3ea7c4cd
+pushed-second-spin 39dc0538 392cd791 3a548049
+pushed-second-pending-velocity 3f409362 3ef45981 bf155897
+pushed-second-pending-spin 40a3db13 3f8d2a97 c11c65fe
+limited-first-velocity b9b4d96f 3c201c99 3a3bcdf1
+limited-first-spin bc00b795 bc1399e4 bb2f2280
+limited-first-pending-velocity c436cee6 c472c7e6 430388b7
+limited-first-pending-spin 00000000 00000000 00000000
+limited-second-velocity 3e8aabcd be964559 3ea7c4cd
+limited-second-spin 39dc0538 392cd791 3a548049
+limited-second-pending-velocity 3f409336 3ef4594b bf155866
+limited-second-pending-spin 40a3dbb0 3f8d29b4 c11c65aa
+flushed-first-velocity c436ceec c472c746 430388e6
+flushed-first-spin bc00b795 bc1399e4 bb2f2280
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity 3f82f48e 3e3c27e4 be82ebff
+flushed-second-spin 40a3df20 3f8d2f1b c11c6258
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity b9b4d96f 3c201c99 3a3bcdf1
+dropped-first-spin bc00b795 bc1399e4 bb2f2280
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3e8aabcd be964559 3ea7c4cd
+dropped-second-spin 39dc0538 392cd791 3a548049
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-energy-velocity0-energy-velocity1
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push 408970e7c724230b
+normal 3f55fcb3 bd832c0e bf0b8f10
+turns c1c929d6 c1721945 42a5171d 42a08365 4101827e 42609d45
+movable 00000001 00000001
+energy-velocity 7fc00001 ffc00002 3d68ce0b
+energy-spin 3f5c9e27 beb73ded 3f7343d0
+first-mass 42423a4b
+first-inertia 40b20eb3 3fdcb8f7 40da8df1
+first-inverse-inertia 3e3807d0 3f147538 3e15ee3b
+first-inverse-mass 3ca8b58e
+first-velocity bc6f3c1c 3c288203 3c5e6141
+first-spin bb48ce64 ba16be68 3b964edd
+first-pending-velocity c10cf7a9 40b1d227 c06640d4
+first-pending-spin c4280d0c c356f07d 4396c7cd
+second-mass 42510665
+second-inertia 4006c1b4 410ccdc6 4119c571
+second-inverse-inertia 3ef32a0c 3de8b893 3dd51883
+second-inverse-mass 3f2c29ba
+second-velocity 3bd9ae39 bc050caf 3a0c8634
+second-spin bf24ee62 3f115460 3f5a838f
+second-pending-velocity c192bfab c2a47d02 41d1e070
+second-pending-spin c402c802 443042b4 411b5534
+pushed-first-velocity bc6f3c1c 3c288203 3c5e6141
+pushed-first-spin bb48ce64 ba16be68 3b964edd
+pushed-first-pending-velocity c1b699c4 40d42f29 40b15b4a
+pushed-first-pending-spin 453bed44 45d885bc c615072c
+pushed-second-velocity 3bd9ae39 bc050caf 3a0c8634
+pushed-second-spin bf24ee62 3f115460 3f5a838f
+pushed-second-pending-velocity 43dba70f c2ea9f35 c3881e40
+pushed-second-pending-spin 46ee57b5 44b5bb56 4594f362
+limited-first-velocity bc6f3c1c 3c288203 3c5e6141
+limited-first-spin bb48ce64 ba16be68 3b964edd
+limited-first-pending-velocity c10cf7a9 40b1d227 c06640d4
+limited-first-pending-spin c4280d0c c356f07d 4396c7cd
+limited-second-velocity 3bd9ae39 bc050caf 3a0c8634
+limited-second-spin bf24ee62 3f115460 3f5a838f
+limited-second-pending-velocity c192bfab c2a47d02 41d1e070
+limited-second-pending-spin c402c802 443042b4 411b5534
+flushed-first-velocity c10d3378 40b22668 c0656273
+flushed-first-spin c4280d3e c356f0a3 4396c863
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c192b210 c2a4812a 41d1e189
+flushed-second-spin c402f13e 44306709 4128fd6d
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity bc6f3c1c 3c288203 3c5e6141
+dropped-first-spin bb48ce64 ba16be68 3b964edd
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity 3bd9ae39 bc050caf 3a0c8634
+dropped-second-spin bf24ee62 3f115460 3f5a838f
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-energy-velocity0-energy-velocity2
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push bfcb436e30198538
+normal 3f5e6149 be1595e6 bef25c40
+turns c0927f9f c07dcbee c08f4ca5 c0644ef9 c10dc863 bfa91546
+movable 00000001 00000001
+energy-velocity 7fc00001 c05e23ce ffc00002
+energy-spin bbaa338c 3b9137df 3d247233
+first-mass 42337a25
+first-inertia 401b24ef 40ff2ea5 4107605b
+first-inverse-inertia 3ed335b9 3e006903 3df20d13
+first-inverse-mass 3cb69326
+first-velocity 42299cca 4285ecf0 c29dda97
+first-spin 4008245c c10aa546 c01aab80
+first-pending-velocity 428d3dee c2024f73 41a9746e
+first-pending-spin bbe202b0 bb9ffbe1 3a1f5f36
+second-mass 420d5f7f
+second-inertia 40981b11 4105a461 401acf18
+second-inverse-inertia 3e576dd9 3df53133 3ed3aad6
+second-inverse-mass 3ce7c8b1
+second-velocity c0ba288b 409f4435 4115ca44
+second-spin c11278c1 403c4048 4008ad83
+second-pending-velocity 3961c0fd b89e52f1 397e836f
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity 42299cca 4285ecf0 c29dda97
+pushed-first-spin 4008245c c10aa546 c01aab80
+pushed-first-pending-velocity 428d400a c2025029 41a96fd4
+pushed-first-pending-spin bed17bef bde2ec01 bde5a083
+pushed-second-velocity c0ba288b 409f4435 4115ca44
+pushed-second-spin c11278c1 403c4048 4008ad83
+pushed-second-pending-velocity bba47c98 3a52fc9e 3b4adc77
+pushed-second-pending-spin 3e23b018 3e676498 3dee37bd
+limited-first-velocity 42299cca 4285ecf0 c29dda97
+limited-first-spin 4008245c c10aa546 c01aab80
+limited-first-pending-velocity 428d3dee c2024f73 41a9746e
+limited-first-pending-spin bbe202b0 bb9ffbe1 3a1f5f36
+limited-second-velocity c0ba288b 409f4435 4115ca44
+limited-second-spin c11278c1 403c4048 4008ad83
+limited-second-pending-velocity 3961c0fd b89e52f1 397e836f
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity 42e20c53 42098a6d c266faf7
+flushed-first-spin 4007b35b c10ab945 c01aa18a
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity c0ba26c7 409f4397 4115cb43
+flushed-second-spin c11278c1 403c4048 4008ad83
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 42299cca 4285ecf0 c29dda97
+dropped-first-spin 4008245c c10aa546 c01aab80
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity c0ba288b 409f4435 4115ca44
+dropped-second-spin c11278c1 403c4048 4008ad83
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000
+case nan-energy-spin0-energy-velocity0
+inverse-step 4050800000000000
+max-velocity 00000000
+max-spin 00000000
+push bfacff4dde7b5284
+normal bf6f940b 3e852c04 be7375ce
+turns c1a869bd c1b1290f c2c56ba3 42131f5f 416bced4 c2bf44ea
+movable 00000001 00000001
+energy-velocity ffc00002 c0828ba5 c2bbdb78
+energy-spin 7fc00001 3ba0e844 bab5e152
+first-mass 42b09390
+first-inertia 40933dcb 3f60285c 40d0a5a8
+first-inverse-inertia 3e5e8bd0 3f922ece 3e1d0cc5
+first-inverse-mass 3ea9211c
+first-velocity 3d3af12c 3d224da4 3da99e4d
+first-spin 3a3f4e67 398810ae b801f65b
+first-pending-velocity 00000000 00000000 00000000
+first-pending-spin bc1751b1 ba489f6c bc0fdc09
+second-mass 41e974f2
+second-inertia 3f9123bd 408af4d7 3fa486d4
+second-inverse-inertia 3f61c4d3 3e6bd0a2 3f472a4f
+second-inverse-mass 3d0c5c29
+second-velocity b910fabe bb8bf3d3 bbfbbfc9
+second-spin c44bc4b3 c4072524 426a9e35
+second-pending-velocity 00000000 00000000 00000000
+second-pending-spin 00000000 00000000 00000000
+pushed-first-velocity 3d3af12c 3d224da4 3da99e4d
+pushed-first-spin 3a3f4e67 398810ae b801f65b
+pushed-first-pending-velocity bc8f6d8d 3b9f739f bb91c07c
+pushed-first-pending-spin be896552 bfb77074 bf5dbe7b
+pushed-second-velocity b910fabe bb8bf3d3 bbfbbfc9
+pushed-second-spin c44bc4b3 c4072524 426a9e35
+pushed-second-pending-velocity 3aee0f9b ba045419 39f1eb12
+pushed-second-pending-spin bfeb25ca be44d528 4086d79d
+limited-first-velocity 3d3af12c 3d224da4 3da99e4d
+limited-first-spin 3a3f4e67 398810ae b801f65b
+limited-first-pending-velocity 00000000 00000000 00000000
+limited-first-pending-spin bc1751b1 ba489f6c bc0fdc09
+limited-second-velocity b910fabe bb8bf3d3 bbfbbfc9
+limited-second-spin c44bc4b3 c4072524 426a9e35
+limited-second-pending-velocity 00000000 00000000 00000000
+limited-second-pending-spin 00000000 00000000 00000000
+flushed-first-velocity 3d3af12c 3d224da4 3da99e4d
+flushed-first-spin bc0b5ccb ba049715 bc105dff
+flushed-first-pending-velocity 00000000 00000000 00000000
+flushed-first-pending-spin 00000000 00000000 00000000
+flushed-second-velocity b910fabe bb8bf3d3 bbfbbfc9
+flushed-second-spin c44bc4b3 c4072524 426a9e35
+flushed-second-pending-velocity 00000000 00000000 00000000
+flushed-second-pending-spin 00000000 00000000 00000000
+dropped-first-velocity 3d3af12c 3d224da4 3da99e4d
+dropped-first-spin 3a3f4e67 398810ae b801f65b
+dropped-first-pending-velocity 00000000 00000000 00000000
+dropped-first-pending-spin 00000000 00000000 00000000
+dropped-second-velocity b910fabe bb8bf3d3 bbfbbfc9
+dropped-second-spin c44bc4b3 c4072524 426a9e35
+dropped-second-pending-velocity 00000000 00000000 00000000
+dropped-second-pending-spin 00000000 00000000 00000000
+energy 7ff8000020000000 7ff8000020000000

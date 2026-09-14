@@ -161,8 +161,70 @@ public sealed class VphysicsHeapCoreProbe : IProbe
             IvpHeapCoreReplay.Write(writer, new IvpReplayCase(index.ToString(CultureInfo.InvariantCulture), inputs, native.Run(inputs)));
         }
 
-        output.WriteLine($"{FixtureCases} cases written to {path}");
+        List<(string Label, Dictionary<string, long[]> Inputs)> pairs = NaNPairs(ref state);
+
+        foreach ((string label, Dictionary<string, long[]> inputs) in pairs)
+        {
+            IvpHeapCoreReplay.Write(writer, new IvpReplayCase(label, inputs, native.Run(inputs)));
+        }
+
+        output.WriteLine($"{FixtureCases} random and {pairs.Count} NaN-pair cases written to {path}");
     }
+
+    /// <summary>
+    /// For every addition and multiplication that meets two of a case's inputs, a case with exactly those two lanes set to
+    /// NaNs of opposite sign and different payload, the limits off so nothing scales them away — the only inputs that tell
+    /// which operand the binary makes the destination. Random seeding almost never lines two up.
+    /// </summary>
+    private static List<(string Label, Dictionary<string, long[]> Inputs)> NaNPairs(ref ulong state)
+    {
+        List<(string First, int FirstLane, string Second, int SecondLane)> pairs = [];
+
+        foreach ((string side, int turn) in new[] { ("first-", 0), ("second-", 3) })
+        {
+            for (int lane = 0; lane < 3; lane++)
+            {
+                pairs.Add(("turns", turn + lane, side + "inverse-inertia", lane));
+                pairs.Add(("normal", lane, side + "inverse-mass", 0));
+                pairs.Add((side + "pending-spin", lane, side + "spin", lane));
+                pairs.Add((side + "pending-velocity", lane, side + "velocity", lane));
+                pairs.Add(("energy-spin", lane, side + "inertia", lane));
+            }
+
+            pairs.Add(("turns", turn, "push", 0));
+            pairs.Add(("turns", turn, side + "pending-spin", 0));
+            pairs.Add((side + "inverse-mass", 0, "push", 0));
+            pairs.Add(("normal", 0, side + "pending-velocity", 0));
+            pairs.Add(("energy-velocity", 0, side + "mass", 0));
+        }
+
+        pairs.Add(("energy-spin", 1, "energy-spin", 0));
+        pairs.Add(("energy-spin", 0, "energy-spin", 2));
+        pairs.Add(("energy-velocity", 0, "energy-velocity", 1));
+        pairs.Add(("energy-velocity", 0, "energy-velocity", 2));
+        pairs.Add(("energy-spin", 0, "energy-velocity", 0));
+
+        List<(string Label, Dictionary<string, long[]> Inputs)> cases = [];
+
+        foreach ((string first, int firstLane, string second, int secondLane) in pairs)
+        {
+            Dictionary<string, long[]> inputs = RandomCase(ref state, poison: false);
+
+            inputs["max-velocity"][0] = IvpImpactReplay.Lane(0f);
+            inputs["max-spin"][0] = IvpImpactReplay.Lane(0f);
+            inputs["movable"][0] = 1;
+            inputs["movable"][1] = 1;
+            SetNaN(inputs, first, firstLane, 0x7fc00001, 0x7ff8000000000001);
+            SetNaN(inputs, second, secondLane, 0xffc00002, unchecked((long)0xfff8000000000002UL));
+            cases.Add(($"nan-{first}{firstLane}-{second}{secondLane}", inputs));
+        }
+
+        return cases;
+    }
+
+    /// <summary>One lane set to a NaN — the float bits for a float field, the double bits for the push.</summary>
+    private static void SetNaN(Dictionary<string, long[]> inputs, string field, int lane, long floatBits, long doubleBits) =>
+        inputs[field][lane] = field == "push" ? doubleBits : floatBits;
 
     private static Dictionary<string, long[]> RandomCase(ref ulong state, bool poison)
     {

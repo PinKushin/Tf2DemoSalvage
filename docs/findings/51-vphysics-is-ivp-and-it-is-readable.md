@@ -4497,17 +4497,23 @@ else draws from the same seed.*
 
 ```
 (env+0xf0)+0x20 += 1
-the contact list sorted by (cp+0x90 & 0xffff0000), by adjacent swaps in the linked list, keeping +0x40 the head
-every contact:  !(gap < block[0x47]) or record+0x76 == 1 → FUN_180083e40(system, cp)          -- COMISS/JNC: NaN removes
-                gap > block[0x46] + block[0x43] and both friction cores' flag bit 0 set → unlinked and linked again at the head
+the contact list insertion-sorted by (cp+0x90 & 0xffff0000) — the signed word cp+0x92, most negative first; a contact moves back
+    while its predecessor's key is strictly greater (signed), keeping +0x40 the head
+every contact, the next saved first (gap = cp+0x8c, float):
+    gap ≥ block[0x47] (ordered; COMISS/JNC — a NaN gap does NOT take this) or the record's word +0x76 == 1 → FUN_180083e40(system, cp)
+    else gap > block[0x46] + block[0x43] (ADDSS, block[0x46] the destination) and (byte (cp+0x20)+0xf0 & byte (cp+0x48)+0xf0) & 1
+        → FUN_180088ce0(system, cp) then FUN_180087c90(system, cp): unlinked and linked again at the head
+    -- cp+0x20 and cp+0x48 are the two synapses' objects; +0xf0 each object's friction core
 system+0x7c = 0
 more than 150 contacts (0x96) and the anomaly manager's slot 5 (env+0x40, +0x28) answers for the cores (+0x50, +0x4a):
     every movable core's word gains bit 0;  a core in more than one pair with a mover (neither core flagged 2) has its
     velocity and spin zeroed (+0x130..0x13b, +0x140..0x14b);  the arena's +0x20 −= 1, reset at zero (FUN_180072970);  return
 otherwise:  a solver on the stack (FUN_180083100(solver, system, event))
-    every contact in the sorted order, index i:  i < system+0x7c → record+0x70 = 0xffff
-        else  record+0x78 = FUN_180077f00(object0's +0xe8, system);  record+0x80 = the same for object1   -- qwords
-              record+0x8c = cp+0x8c;  record+0x88 = (int)(short)cp+0x92;  record onto the solver's vector;  record+0x70 = i
+    every contact in the sorted order, counted from 0 (record = cp+0x70):  the count < system+0x7c (just zeroed, so never) → record+0x70 = 0xffff
+        else  record+0x78 = FUN_180077f00((cp+0x20)+0xe8, system);  record+0x80 = FUN_180077f00((cp+0x48)+0xe8, system)
+              -- the objects' PHYSICAL cores (+0xe8) here, where the re-link test above read their friction cores (+0xf0)
+              record+0x8c = cp+0x8c (the dword copied);  record+0x88 = (int)(short)cp+0x92
+              record appended to the solver's vector (capacity +0x70, count +0x72, elements +0x78, inline +0x80);  record+0x70 = its position
     an arena array of 4 bytes per contact;  n = FUN_1800a9520(solver, system, array);  FUN_1800aa5c0(solver, system, array, n, arena)
     the arena's +0x20 −= 1, reset at zero;  the solver's vector freed unless inline
 ```
