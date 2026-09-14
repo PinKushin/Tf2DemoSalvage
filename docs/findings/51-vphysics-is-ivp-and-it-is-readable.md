@@ -4101,6 +4101,54 @@ edge texts parsed from nothing. `SurfaceTable` still diverges from all of it —
 engine starts from `default` or zero, no shadow surface, archive order instead of the manifest's — and is what the running
 path reads.
 
+#### The impact loop — `FUN_180090700`, `FUN_180090bd0` and `FUN_18008da40` (2026-09-13)
+
+**Read from the disassembly.** `FUN_18008ef60` hands `FUN_180090700` an empty block on its stack — `+0x0` the environment, `+0x8`
+a pass count, three vectors `{word capacity, word count, pointer}` at `+0x10` (cores added), `+0x20` (cores brought to the event)
+and `+0x30` (pairs), and `+0x40` the friction system:
+
+```
+FUN_180090700(block, mindist, system, pair, cp):
+    block+0x8 = 0;  block+0x40 = system;  block+0x0 = pair+0x38's core's +0x10
+    core of cp's first object, unless flags & 0x12:  FUN_18008da40(block, core, pair)
+    pair+0x38, unless flags & 0x12:  push on +0x20
+    the same for cp's second object's core and pair+0x40
+    push pair on +0x30
+    every contact of the pair but cp, last to first:  FUN_18008d0c0(contact, env);  FUN_1800908d0(contact, record)
+                                                     record+0x76 == 1 → FUN_180083e40(system, contact)
+    while FUN_180090bd0(block) == 1:  block+0x8 += 1;  n += 1;  block+0x8 > 0x1388 → mindist slot 0(mindist, 1), stop
+    env+0x98 += n + 1;  tail into FUN_1800909d0(block)
+
+FUN_180090bd0(block):  best = (double)block[0x42];  none
+    every pair of +0x30, last to first, unless BOTH cores' (flags >> 5 | flags & 2) & 6:
+        every contact, last to first:  record+0x74 != 1 → env+0xa8 += 1, FUN_18008db40(contact)
+            e = (double)record+0x7c;  best > e → this contact and pair;  best = MINSD(best, e)    -- a NaN e makes best NaN
+    none → 0
+    record+0xa0's core, then +0x98's:  unless +0x260 is set:  push on +0x20;  state +0x1 < 8 and not flags & 0x10 → FUN_180078d60
+    record+0x72 += 1;  FUN_18008ed60(record, cores, record+0x78, contact)
+    each core the solve left, second then first, unless flags & 0x12:
+        +0x260 set and its +0x30 zero → FUN_18008da40(block, core, pair)
+        else every contact of FUN_180077f00(core, system):  record+0x74 = 0
+    → 1
+
+FUN_18008da40(block, core, pair):  push core on +0x10;  core+0x260's +0x30 = 1
+    every pair of the system (+0x6a count, +0x70 array), last to first, touching core, not pair, not already on +0x30:
+        FUN_180083b30(that pair, system) > 0 → push it on +0x30
+```
+
+**So the loop is event-ordered by estimate, not by contact order**: every pass re-estimates what the last solve invalidated,
+solves the one contact predicted to close first below the margin, and pulls in each newly moved core's other pairs. **A NaN
+estimate ends the search for that pass** — `MINSD` answers its second operand, so the best becomes NaN and no later compare can
+beat it. The cap of 5,000 passes asks the mindist's slot 0 with one; *what that slot does is not read.* **Not ported**, and
+`FUN_1800909d0`, the island driver it tails into, is read only in part (above, *Contact response is accumulated* and the step's
+inverse).
+
+**A wrong citation found on the way, kept here because it was repeated in four places:** `SurfaceTable`, `GameContent`,
+`CorpsePhysics` and `IvpRigidBody.Friction` all call their friction of `1` `g_PhysDefaultObjectParams`' friction. That struct has
+no friction: its first `1.0` is **mass** and its second **inertia** (`game/shared/physics_shared.cpp:43-56`). The engine's answer
+for a solid whose `surfaceprop` names nothing is the `default` surface — `ragdoll_shared.cpp:194-197` asks `GetSurfaceIndex` for
+it, and `FUN_18001c9d0` asks again for any negative index — so the `1` was this project's own number, attributed to Valve.
+
 *Evidence class: read from the disassembly; the props slot 10 and the parameter layout INFERRED as marked. Not ported yet.*
 
 #### The collision's own path, instruction by instruction (`impact_entry.log`)

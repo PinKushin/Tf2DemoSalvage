@@ -301,6 +301,17 @@ public sealed class VphysicsMaterialProbe : IProbe
             ("tiny-normal", MaterialCase.Fixed([0.8f, 0.8f], [0.8f, 0.8f]) with { Offset58 = [true, false], Flag = [true, false], Normal = (0.005f, 0f, 0f) }),
             ("second-flagged", MaterialCase.Fixed([0.8f, 0.8f], [0.8f, 0.8f]) with { Offset58 = [false, true], Flag = [false, true], Normal = (0.3f, 0.953939f, 0f) }),
             ("unflagged", MaterialCase.Fixed([0.8f, 0.8f], [0.8f, 0.8f]) with { Offset58 = [true, true], Flag = [false, false], Normal = (1f, 0f, 0f) }),
+            ("both-flagged", MaterialCase.Fixed([0.8f, 0.8f], [0.8f, 0.8f]) with
+            {
+                Offset58 = [true, true],
+                Flag = [true, true],
+                Normal = (1f, 0f, 0f),
+                Matrices =
+                [
+                    IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)),
+                    IvpMatrix.FromRotation((0f, 0f, 0.70710677f, 0.70710677f), (0d, 0d, 0d)),
+                ],
+            }),
         ];
 
         foreach ((string label, MaterialCase row) in rows)

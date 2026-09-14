@@ -53,6 +53,21 @@ public sealed class VphysicsSurfacePropsConformanceTests
     }
 
     /// <remarks>
+    /// **With both objects flagged, the first object's core decides**: the normal lies along its unturned x, so the friction is zeroed
+    /// even though the second core, turned a quarter about z, sees the same normal across its own x.
+    /// </remarks>
+    [Test]
+    public void FrictionFactor_BothObjectsFlagged_AsksTheFirstObjectsCore()
+    {
+        VphysicsSurfaceProps props = Props([0.8f, 0.8f], [0.8f, 0.8f]);
+        IvpContactRecord record = Record(props, (true, true), (true, true), (1f, 0f, 0f));
+
+        record.SecondObject!.Core!.CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0.70710677f, 0.70710677f), (0d, 0d, 0d));
+
+        Bits(props.FrictionFactor(record)).ShouldBe(0L);
+    }
+
+    /// <remarks>
     /// Three surfaces with `default` second, the shadow surface the third. **An index past `0x7f` is surface zero unless it is
     /// `0xf000`**, and a negative or past-the-end index is none.
     /// </remarks>
