@@ -404,6 +404,39 @@ public static class IvpTangentialSolve
         return clipped;
     }
 
+    /// <summary>
+    /// Every contact of one pair, clamped and solved against a shared friction-cone budget for this PSI —
+    /// <c>IvpFrictionSystem::SolveOncePerPsi</c>'s own per-pair walk, the non-sticking branch of both dispatches.
+    /// </summary>
+    /// <param name="pair">The pair; its own <see cref="IvpFrictionPair.Contacts"/> is what is walked.</param>
+    /// <param name="budget">
+    /// The pair's own friction-cone budget for this PSI. **Not computed here** — the native derives it from a
+    /// summed <c>NormalPush × Friction × &lt;an unnamed field, no writer found in this project's reads&gt;</c>; see
+    /// `docs/HANDOFF.md`, item 3, for why porting that sum would mean guessing a value nothing has confirmed.
+    /// </param>
+    /// <param name="inverseStep">The environment's reciprocal PSI step.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="pair"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A contact in the pair has no record.</exception>
+    /// <remarks>
+    /// **The sticking dispatch (<c>FUN_180085a80</c>, the byte at contact <c>+0x64</c>) is not carried** — every
+    /// contact here is solved by <see cref="SolveContact"/>, the non-sticking branch only.
+    /// </remarks>
+    public static void SolveOncePerPair(IvpFrictionPair pair, float budget, double inverseStep)
+    {
+        ArgumentNullException.ThrowIfNull(pair);
+
+        float carry = 0f;
+
+        foreach (IvpContactPoint contact in pair.Contacts)
+        {
+            IvpContactRecord record = contact.Record ?? throw new InvalidOperationException("A pair's contact has no record.");
+
+            (contact.Slide, carry) = ClampSlide(contact.Slide, budget, contact.Friction, record.PushOut, carry);
+
+            SolveContact(contact, budget, inverseStep);
+        }
+    }
+
     /// <summary>Clips an impulse to a magnitude budget — the same shape <see cref="ClampSlide"/> uses, without a carry term.</summary>
     /// <param name="impulse">The impulse.</param>
     /// <param name="budget">The pair's own friction-cone budget.</param>

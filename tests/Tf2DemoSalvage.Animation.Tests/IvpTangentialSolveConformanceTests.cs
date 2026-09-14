@@ -390,6 +390,42 @@ public sealed class IvpTangentialSolveConformanceTests
         Should.Throw<NotSupportedException>(() => IvpTangentialSolve.SolveContact(point, budget: 10f, inverseStep: 100d));
     }
 
+    /// <remarks>A slide already inside the budget is untouched by the pair walk, and the contact is still solved.</remarks>
+    [Test]
+    public void SolveOncePerPair_AContactAlreadyInsideBudget_LeavesItsSlideUnchanged()
+    {
+        IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+        point.Slide = (0.1f, 0f);
+        IvpFrictionPair pair = new(core, core);
+        pair.Contacts.Add(point);
+
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 10f, inverseStep: 100d);
+
+        point.Slide.ShouldBe((0.1f, 0f));
+    }
+
+    /// <remarks>A slide over the budget is clamped to it before the contact is solved.</remarks>
+    [Test]
+    public void SolveOncePerPair_AContactOverTheBudget_ClampsItsSlideToTheBudget()
+    {
+        IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+        point.Slide = (100f, 0f);
+        IvpFrictionPair pair = new(core, core);
+        pair.Contacts.Add(point);
+
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, inverseStep: 100d);
+
+        point.Slide.Span.ShouldBe(1f, 1e-3f);
+    }
+
+    [Test]
+    public void SolveOncePerPair_ANullPair_ThrowsArgumentNullException() =>
+        Should.Throw<ArgumentNullException>(() => IvpTangentialSolve.SolveOncePerPair(null!, budget: 1f, inverseStep: 100d));
+
     private static IvpContactPoint ContactPoint(IvpContactRecord record)
     {
         IvpCollisionObject first = new();
