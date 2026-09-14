@@ -7122,6 +7122,16 @@ not restart from nothing every call. That is IVP's actual narrow phase — a rea
 closest-points solver with warm-started simplex state — not a formula this project can transcribe
 into a few lines.
 
+> **Corrected 2026-09-14 — this reading, and the two paragraphs around it, were wrong, and they came from a decompile.** Read
+> from the disassembly and pinned by calling the binary in process, `FUN_180096680` is a pair's mindist refresh: it queries each
+> object's ledges within the other's extrapolated core sphere and keeps, makes or deletes one mindist per ledge pair, its
+> "hashed cache" an open-addressed table of the pair's EXISTING mindists keyed by their two ledges — no simplex, no support
+> function (`IvpPairMindists`, 5,000 cases agreeing; *The pair's mindists, instruction by instruction*). `FUN_1800b2460` is
+> the larger mindist's slot 8, which opens a hull ledge when a collision lands on a virtual face, and `FUN_1800b29b0` refreshes
+> that mindist's children beneath the opened ledge (*The larger mindist in full*). The closest-points search is the minimize,
+> `FUN_180095cb0`, which is a feature walk, not GJK (`IvpMindistMinimize`). The conclusion drawn below — that a GJK/EPA solver
+> would have to be built — does not follow and was not acted on.
+
 **What this settles:** the project's "one retained pair" model was never going to be the fix by
 itself, because the engine's pair is backed by a stateful GJK solver whose OWN warm start is the
 thing doing the work session after session — re-deriving the shallowest ledge face each step (what
