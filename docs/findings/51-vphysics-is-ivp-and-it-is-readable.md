@@ -4534,7 +4534,7 @@ FUN_18009efc0(env+0x28 tree, node)                              -- out of its ce
 env+0xc0 += 1;  node+0x20..0x28 = (float)core+0xf0..0x100       -- the unit PSI's extrapolated position
 manager+0x0 set (a pair creation is running) → FUN_18009ecb0(tree, node, core+0x4, core+0x4, no list);
     FUN_18009de80(node, object+0x80, DAT_1800f4f20);  return
-r = env+0x38's slot 2(object) + (double)core+0x4
+r = (double)core+0x4 + env+0x38's slot 2(object)                 -- the widened radius the destination
 env+0x58 set and object+0x78 & 7 → manager+0x0 = 1;  env+0x58's slot 0(object, &node+0x20, r);  manager+0x0 = 0
 g = FUN_18009ecb0(tree, node, r, r, a 0x80-entry list of the nodes it overlaps);  FUN_18009de80(node, object+0x80, g − core+0x4)
 the node's partner records (+0x40 count +0x42, elements +0x48), each slot 2 → its two objects, indexed in an open table of
