@@ -69,6 +69,7 @@ public sealed class VphysicsContactSolveProbe : IProbe
         (RandomGenerator, 83), (TiesGenerator, 11), (PoisonedGenerator, 93),
         (RandomGenerator, 12837), (TiesGenerator, 188), (PoisonedGenerator, 225),
         (RandomGenerator, 4237), (PoisonedGenerator, 11), (PoisonedGenerator, 128), (PoisonedGenerator, 254),
+        (PoisonedGenerator, 4098),
     ];
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -318,8 +319,10 @@ public sealed class VphysicsContactSolveProbe : IProbe
 
     /// <summary>
     /// The inputs a random draw almost never reaches, each named by the rule it pins: a vanished pivot whose residual falls
-    /// either side of <c>1000·eps</c>; a row test within <c>(double)1e-5f</c>'s last digits; and a symmetric heap whose active
-    /// contacts tie on the step.
+    /// either side of <c>1000·eps</c>; a row test within <c>(double)1e-5f</c>'s last digits; a symmetric heap whose active
+    /// contacts tie on the step; and an identity warm-started whole, with two NaNs of different sign and payload in its first
+    /// row, so the inverse's four-wide back substitution meets a NaN product against a NaN sum where the binary's operand
+    /// order decides which survives.
     /// </summary>
     private static List<(string Label, Dictionary<string, long[]> Inputs)> Targeted()
     {
@@ -360,6 +363,27 @@ public sealed class VphysicsContactSolveProbe : IProbe
 
                 cases.Add(($"symmetric-{cases.Count}", System(size, 0, [], values, rhs)));
             }
+        }
+
+        foreach ((int size, int later, int earlier, long laterBits, long earlierBits) in new[]
+        {
+            (10, 8, 5, 0x7ff8000000000008L, unchecked((long)0xfff8000000000005UL)),
+            (10, 8, 5, unchecked((long)0xfff8000000000008UL), 0x7ff8000000000005L),
+            (9, 7, 4, 0x7ff8000000000007L, unchecked((long)0xfff8000000000004UL)),
+        })
+        {
+            double[] values = new double[size * size];
+            double[] rhs = new double[size];
+
+            for (int i = 0; i < size; i++)
+            {
+                values[i * size + i] = 1d;
+                rhs[i] = 1d;
+            }
+
+            values[later] = BitConverter.Int64BitsToDouble(laterBits);
+            values[earlier] = BitConverter.Int64BitsToDouble(earlierBits);
+            cases.Add(($"nan-slot-{cases.Count}", System(size, size, [], values, rhs)));
         }
 
         return cases;

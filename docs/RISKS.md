@@ -26119,7 +26119,10 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    pinned to the shipped `vphysics.dll` called in process by the `vphysics-math` probe — a sweep of millions of
    arguments on both runtime paths finds no difference. **Not carried: damping's calm branch** — a core in movement state
    2 or more damps with every factor plus `0.1f`, and this project holds no IVP movement states, so every body damps as
-   a moving one.
+   a moving one. **What sets the state is now read** (`docs/findings/51`, *A unit's PSI*): every 15 to 19 PSIs the
+   simulation unit's rest test `FUN_180077220` writes each core's byte `+0x1` — `1` moved, `2` still but not for long
+   enough, `3` at rest — so a settling corpse's limbs damp harder once they hold still, before the unit freezes. It stays
+   uncarried until the simulation units are on the running path.
    **The impact solver is ported and pinned to the binary, 2026-09-13** (`docs/findings/51`, *The anomaly manager, and the
    limits a client environment runs*): `FUN_18008e290` and every routine under it as `IvpImpactSolver`, the anomaly manager
    vphysics gives IVP as `VphysicsAnomalyManager`, and `SetPerformanceSettings` as `IvpAnomalyLimits`. The `vphysics-impact`
@@ -26165,7 +26168,9 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    every addition and multiplication now goes through `IvpLinearSystem.Addsd`/`Mulsd` with the binary's destination first,
    mapped per instruction, and 30,000 NaN-seeded systems agree bit for bit. Five rules the first 160 random cases could not
    fail on — the vanished pivot's `1000·eps`, `(double)1e-5f`, the tie margin, the restart's sort and its near-zero push — are
-   now pinned by 27 targeted cases and 19 found by sweeping the binary against a port broken on each rule (206 cases).
+   now pinned by targeted cases and cases found by sweeping the binary against a port broken on each rule; fifteen
+   sabotages, the two path-dependent NaN destinations included, all redden the 210-case fixture except the one the binary
+   itself makes dead (`FUN_1800a9010`'s `2` at `+0xa4`, zeroed on the next line).
    Not ported yet: the solve above it (`FUN_1800aa5c0`,
    `FUN_1800a9520`, `FUN_1800aa9f0`, `FUN_1800a9280`), which needs the friction system's records and cores.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then

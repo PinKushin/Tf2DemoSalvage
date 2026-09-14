@@ -4835,6 +4835,17 @@ showed the difference. The sabotage-found cases are listed in the probe by gener
 them. **One sabotage cannot redden at its site in the binary either**: `FUN_1800a9010` writes `2` to `+0xa4` and then zeroes
 the state whenever it is positive, so `1` and `2` are indistinguishable there. On the restored port, 120,000 systems across the
 four generators agree on every lane.
+
+**Fifteen sabotages, then two more inputs.** An independent run against the 206-case fixture reddened twelve; the thirteenth
+was that dead `2`. The other two were the path-dependent NaN destinations: the third product of `FUN_1800a8c90`'s four-wide
+block, which 30,000 NaN-seeded systems told apart once (kept), and the first add of `FUN_1800a8ea0`'s block, which none of
+120,000 did — **and the arithmetic says why a sweep cannot find it**: the second add names the next product as destination, so a
+NaN there overwrites whichever NaN the first add kept; the inverse must also be valid, which a NaN on its diagonal or below
+refuses. The input had to be built: an identity of nine or ten contacts warm-started whole, with NaNs of different sign and
+payload only in its first row — at the second add of the first four and the first add of the second four, the next product
+finite. It inverts untouched, and back substitution leaves the binary's NaN in that contact's push: `0xfff8…05` against the
+broken port's `0x7ff8…08`, exactly as worked out beforehand. With three such cases the fixture holds 210 (160 random, 30
+targeted, 20 sabotage-found), and every sabotage that can redden does.
 FUN_1800a59e0(lcs) — the full system's residual at the current x:
     the view at lcs+0x120 (M, +0x128 rows, +0x12c columns) pointed at +0x58 → +0x60:  FUN_1800a76c0(view);  pointed back at +0x40 → +0x50
     +0x60[i] −= b[i] every i < +0x78;  +0x60[+0x68[j]] = 0 every active j
