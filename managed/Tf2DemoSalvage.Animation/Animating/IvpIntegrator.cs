@@ -615,7 +615,9 @@ public sealed class IvpRigidBody
     /// </code>
     /// Every dot is `(a.w·Q.w + a.z·Q.z) + (a.y·Q.y + a.x·Q.x)` with the float anchor widened and the destination, every
     /// distance `((P.y − B.y)² + (P.x − B.x)²) + (P.z − B.z)²`; each comparison falls the way `COMISD`/`JA` or `JBE` does on a
-    /// NaN. Pinned by the `vphysics-rest` probe (`IvpRestConformanceTests`).
+    /// NaN. Pinned by the `vphysics-rest` probe (`IvpRestConformanceTests`). **The operand destinations in those sums and
+    /// products are carried but no output can see them**: every one feeds a comparison, and a NaN compares false whatever its
+    /// payload.
     /// </remarks>
     public IvpCoreMotion TestRest(double now, float restDelay)
     {

@@ -37,7 +37,9 @@ public sealed class IvpRestConformanceTests
 
     /// <remarks>
     /// **The control on the fixture itself**: the binary must have answered each of moving, still and resting, moved the wider
-    /// anchor in some cases and not in others, and been handed a NaN.
+    /// anchor in some cases and not in others, and been handed a NaN — and the fixture must carry the searched cases a sabotage
+    /// round needed: an elapsed time only the float narrowing holds under the delay, turns straddling the threshold between the
+    /// dot's groupings and between which orientation is narrowed, and spins straddling the limit between the squares' groupings.
     /// </remarks>
     [Test]
     public void Fixture_TheCasesTheBinaryWasGiven_ReachTheBranchesTheLanesShow()
@@ -47,6 +49,11 @@ public sealed class IvpRestConformanceTests
         foreach (long motion in new long[] { 1, 2, 3 })
         {
             replays.Count(replay => replay.Outputs["motion"][0] == motion).ShouldBeGreaterThan(0);
+        }
+
+        foreach (string searched in new[] { "delay-", "turn-grouping-", "turn-narrowing-", "spin-grouping-" })
+        {
+            replays.Count(replay => replay.Label.StartsWith(searched, StringComparison.Ordinal)).ShouldBeGreaterThan(0, searched);
         }
 
         replays.Count(replay => replay.Outputs["settled-time"][0] != replay.Inputs["settle-time"][0]).ShouldBeGreaterThan(0);

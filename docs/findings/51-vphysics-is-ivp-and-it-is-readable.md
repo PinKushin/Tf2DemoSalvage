@@ -4519,7 +4519,11 @@ else draws from the same seed.* The multiplier is `DAT_1800ee1c8` = `0xc0a00000`
 still 29,046 and resting 34,214, a fifth seeded with NaNs and infinities — agree on every lane, and `IvpRestConformanceTests`
 replays 400. Read with them: the thresholds are not the round numbers above but `0x3f1a36e2d7731900`, `0x3efa36e2d7731900`,
 `0x3f847ae151eb8520` and `0x3fa47ae151eb8520`; and **the time arrives by value in `RDX`**, an `IVP_Time` struct, not in `XMM1`.
-*Not established: `env+0xc8`'s writer.*
+*Not established: `env+0xc8`'s writer.* **A sabotage round found four orders random cases could not see**, and the fixture carries
+cases searched for each: an elapsed time a quarter of a float step past the delay, which only the `(float)` narrowing holds
+under it; turns straddling the threshold between the dot's `(w + z) + (y + x)` and `((w + z) + y) + x`, and between narrowing
+`Q′` or `Q`; and spins straddling the limit between `(x² + y²) + z²` and `x² + (y² + z²)`. A fifth — the operand destinations
+inside the sums — is unobservable by construction, since every one feeds a comparison.
 
 **The PSI around the units, `FUN_180082560`, read from the disassembly (2026-09-14)** — `env+0x1ac` records the phase:
 

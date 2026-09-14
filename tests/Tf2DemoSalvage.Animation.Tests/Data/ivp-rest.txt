@@ -9599,3 +9599,387 @@ settled-orientation bd9fce91 becc7a44 bf11fdf8 3f36ad0c
 settled-position 420f10b6 c27b28a0 41f06276
 draw 3e9f0800
 drawn-seed cbc44f84
+case delay-0
+now 405ab74491038588
+rest-delay 3e478d90
+radius 3f7be08a
+position c048534900000000 c047b5f6a0000000 c011c1bf80000000
+orientation bfe20d59f25e0324 3fc54eb2898aaa8e bfe01dfe7a9f4602 3fe43f7cc1f3b041
+working-orientation bfe20d59f25e0324 3fc54eb2898aaa8e bfe01dfe7a9f4602 3fe43f7cc1f3b041
+spin 00000000 00000000 00000000
+anchor-time 405aaacbb7ff8588
+anchor-orientation bf106ad0 3e2a7594 bf00eff4 3f21fbe6
+anchor-position c2429a48 c23dafb5 c08e0dfc
+settle-time 4058374491038588
+settle-orientation bf106ad0 3e2a7594 bf00eff4 3f21fbe6
+settle-position c2429a48 c23dafb5 c08e0dfc
+seed c54a4830
+motion 00000002
+anchored-time 405aaacbb7ff8588
+anchored-orientation bf106ad0 3e2a7594 bf00eff4 3f21fbe6
+anchored-position c2429a48 c23dafb5 c08e0dfc
+settled-time 4058374491038588
+settled-orientation bf106ad0 3e2a7594 bf00eff4 3f21fbe6
+settled-position c2429a48 c23dafb5 c08e0dfc
+draw 3e184000
+drawn-seed ccc32610
+case delay-1
+now 4053a6c66641cf64
+rest-delay 3f5d899a
+radius 3f1caab1
+position 404c9dc0e0000000 403ee53080000000 c056226f20000000
+orientation bfe27ef89ba0d862 bfe3c0e93c314333 bfe0da2a76c743f4 bfb6327428dbced8
+working-orientation bfe27ef89ba0d862 bfe3c0e93c314333 bfe0da2a76c743f4 bfb6327428dbced8
+spin 00000000 00000000 00000000
+anchor-time 40536f63ffb1cf64
+anchor-orientation bf13f7c5 bf1e074a bf06d154 bdb193a1
+anchor-position 4264ee07 41f72984 c2b11379
+settle-time 405126c66641cf64
+settle-orientation bf13f7c5 bf1e074a bf06d154 bdb193a1
+settle-position 4264ee07 41f72984 c2b11379
+seed 9c083274
+motion 00000002
+anchored-time 40536f63ffb1cf64
+anchored-orientation bf13f7c5 bf1e074a bf06d154 bdb193a1
+anchored-position 4264ee07 41f72984 c2b11379
+settled-time 405126c66641cf64
+settled-orientation bf13f7c5 bf1e074a bf06d154 bdb193a1
+settled-position 4264ee07 41f72984 c2b11379
+draw 3f47fc00
+drawn-seed b666c7fc
+case delay-2
+now 40367aa02b5e2a7d
+rest-delay 3fe79199
+radius 3ebbdd45
+position 4050c17ec0000000 4057efc7c0000000 c00f61a460000000
+orientation bfe01f24e588510a bfde1482accfbe11 bfe56759e930d7b4 bfd1dcdf50b00faf
+working-orientation bfe01f24e588510a bfde1482accfbe11 bfe56759e930d7b4 bfd1dcdf50b00faf
+spin 00000000 00000000 00000000
+anchor-time 4034ab7cf8de2a7d
+anchor-orientation bf00f927 bef0a415 bf2b3acf be8ee6fb
+anchor-position 42860bf6 42bf7e3e c07b0d23
+settle-time 4028f54056bc54fa
+settle-orientation bf00f927 bef0a415 bf2b3acf be8ee6fb
+settle-position 42860bf6 42bf7e3e c07b0d23
+seed 117e1b8d
+motion 00000002
+anchored-time 4034ab7cf8de2a7d
+anchored-orientation bf00f927 bef0a415 bf2b3acf be8ee6fb
+anchored-position 42860bf6 42bf7e3e c07b0d23
+settled-time 4028f54056bc54fa
+settled-orientation bf00f927 bef0a415 bf2b3acf be8ee6fb
+settled-position 42860bf6 42bf7e3e c07b0d23
+draw 3d927800
+drawn-seed 1ff2124f
+case delay-3
+now 404e5ce9626ac97b
+rest-delay 3f8b7c50
+radius 3e329f1b
+position c03c4682c0000000 4036e1d320000000 c043b8aca0000000
+orientation bfd14534705500b3 3fb38297561a5153 bf94d0caace5bde3 bfeeb596ec3ab883
+working-orientation bfd14534705500b3 3fb38297561a5153 bf94d0caace5bde3 bfeeb596ec3ab883
+spin 00000000 00000000 00000000
+anchor-time 404dd16d122ac97b
+anchor-orientation be8a29a4 3d9c14bb bca68655 bf75acb7
+anchor-position c1e23416 41b70e99 c21dc565
+settle-time 40495ce9626ac97b
+settle-orientation be8a29a4 3d9c14bb bca68655 bf75acb7
+settle-position c1e23416 41b70e99 c21dc565
+seed 9d98831e
+motion 00000002
+anchored-time 404dd16d122ac97b
+anchored-orientation be8a29a4 3d9c14bb bca68655 bf75acb7
+anchored-position c1e23416 41b70e99 c21dc565
+settled-time 40495ce9626ac97b
+settled-orientation be8a29a4 3d9c14bb bca68655 bf75acb7
+settled-position c1e23416 41b70e99 c21dc565
+draw 3ed39400
+drawn-seed 2bae69ca
+case turn-grouping-0
+now 405ac929d373f019
+rest-delay 3fda3132
+radius 3ee16978
+position 4021601560000000 c025eb1c80000000 404662e240000000
+orientation 3fe05e3f6b1180d9 bfe0b573cc546c2e bfddbe9e4893ba3a bfdffb6d150ecad2
+working-orientation 3fe05e3f6b1180d9 bfe0b573cc546c2e bfddbe9e4893ba3a bfdffb6d150ecad2
+spin 00000000 00000000 00000000
+anchor-time 40584929d373f019
+anchor-orientation 3f01d1b6 bf052255 beee1834 bf018f99
+anchor-position 410b00ab c12f58e4 42331712
+settle-time 40584929d373f019
+settle-orientation 3f02f1fb bf05ab9e beedf4f2 beffdb69
+settle-position 410b00ab c12f58e4 42331712
+seed 9f7b6a72
+motion 00000003
+anchored-time 405ac929d373f019
+anchored-orientation 3f02f1fb bf05ab9e beedf4f2 beffdb69
+anchored-position 410b00ab c12f58e4 42331712
+settled-time 40584929d373f019
+settled-orientation 3f02f1fb bf05ab9e beedf4f2 beffdb69
+settled-position 410b00ab c12f58e4 42331712
+draw 3e3d9800
+drawn-seed b9282f66
+case turn-grouping-1
+now 404730023d58cd1c
+rest-delay 3fe2b6cd
+radius 3f14e2d7
+position c03a65e2c0000000 c03d135ee0000000 40501ac0c0000000
+orientation bfcd88cb02cfbb43 bfdf31c2fa3917ee bfe6d3532ac485da 3fdca66e7ed5c0b8
+working-orientation bfcd88cb02cfbb43 bfdf31c2fa3917ee bfe6d3532ac485da 3fdca66e7ed5c0b8
+spin 00000000 00000000 00000000
+anchor-time 404230023d58cd1c
+anchor-orientation be6bc89b bef96e06 bf377b40 3ee2a573
+anchor-position c1d32f16 c1e89af7 4280d606
+settle-time 404230023d58cd1c
+settle-orientation be6c4658 bef98e18 bf369a99 3ee53374
+settle-position c1d32f16 c1e89af7 4280d606
+seed f134dd7b
+motion 00000003
+anchored-time 404230023d58cd1c
+anchored-orientation be6bc89b bef96e06 bf377b40 3ee2a573
+anchored-position c1d32f16 c1e89af7 4280d606
+settled-time 404230023d58cd1c
+settled-orientation be6c4658 bef98e18 bf369a99 3ee53374
+settled-position c1d32f16 c1e89af7 4280d606
+draw 3f630900
+drawn-seed aa7ce309
+case turn-grouping-2
+now 4032298fc14265f4
+rest-delay 3fc1c330
+radius 3ecbf0ea
+position 4056fba940000000 4013e34680000000 4036b81480000000
+orientation 3fd23fd0a14e85b1 3fe2b658fdec6733 bfc6aae4f0573418 bfe7a1d2f4b40390
+working-orientation 3fd23fd0a14e85b1 3fe2b658fdec6733 bfc6aae4f0573418 bfe7a1d2f4b40390
+spin 00000000 00000000 00000000
+anchor-time 4020531f8284cbe8
+anchor-orientation 3e8e9492 3f159502 be3b1ea2 bf3d72b3
+anchor-position 42b7dd4a 409f1a34 41b5c0a4
+settle-time 4020531f8284cbe8
+settle-orientation 3e91fe85 3f15b2c8 be355728 bf3d0e98
+settle-position 42b7dd4a 409f1a34 41b5c0a4
+seed f20ec4dc
+motion 00000003
+anchored-time 4032298fc14265f4
+anchored-orientation 3e91fe85 3f15b2c8 be355728 bf3d0e98
+anchored-position 42b7dd4a 409f1a34 41b5c0a4
+settled-time 4020531f8284cbe8
+settled-orientation 3e91fe85 3f15b2c8 be355728 bf3d0e98
+settled-position 42b7dd4a 409f1a34 41b5c0a4
+draw 3f2c7400
+drawn-seed ea53ac74
+case turn-grouping-3
+now 405aa6b28601a061
+rest-delay 3ff2e417
+radius 3f4f3b0b
+position 40453ab500000000 c052509de0000000 405199c540000000
+orientation bfec408b40a795a0 3fd47be7e658073f 3facfa4e96e80c87 bfd5b138d9925a26
+working-orientation bfec408b40a795a0 3fd47be7e658073f 3facfa4e96e80c87 bfd5b138d9925a26
+spin 00000000 00000000 00000000
+anchor-time 405826b28601a061
+anchor-orientation bf61b034 3ea5abfa 3d70e946 bead58d6
+anchor-position 4229d5a8 c29284ef 428cce2a
+settle-time 405826b28601a061
+settle-orientation bf62045a 3ea3df3f 3d67d275 bead89c7
+settle-position 4229d5a8 c29284ef 428cce2a
+seed ff2988a9
+motion 00000003
+anchored-time 405826b28601a061
+anchored-orientation bf61b034 3ea5abfa 3d70e946 bead58d6
+anchored-position 4229d5a8 c29284ef 428cce2a
+settled-time 405826b28601a061
+settled-orientation bf62045a 3ea3df3f 3d67d275 bead89c7
+settled-position 4229d5a8 c29284ef 428cce2a
+draw 3d183000
+drawn-seed c12b0983
+case turn-narrowing-0
+now 404b0c48e61233cc
+rest-delay 3eb17a16
+radius 3f195669
+position c047a5d420000000 4056695d40000000 c0424cb4a0000000
+orientation 3fe3a6bc18de7629 3fe5efafa8b34152 3fba1149090a2114 bfd82ab36759bae1
+working-orientation 3fe3ba19b7d28407 3fe5d53bd4c9a818 3fb93ad9fd30e836 bfd859749175e093
+spin 415983d8 415983d8 415983d8
+anchor-time 40460c48e61233cc
+anchor-orientation 3f1dd0ce 3f2ea9df 3dc9d6d0 bec2cba5
+anchor-position c23d2ea1 42b34aea c21265a5
+settle-time 40460c48e61233cc
+settle-orientation 3f1dd0ce 3f2ea9df 3dc9d6d0 bec2cba5
+settle-position c23d2ea1 42b34aea c21265a5
+seed 8410ea79
+motion 00000003
+anchored-time 404b0c48e61233cc
+anchored-orientation 3f1dd0ce 3f2ea9df 3dc9d6d0 bec2cba5
+anchored-position c23d2ea1 42b34aea c21265a5
+settled-time 40460c48e61233cc
+settled-orientation 3f1dd0ce 3f2ea9df 3dc9d6d0 bec2cba5
+settled-position c23d2ea1 42b34aea c21265a5
+draw 3f317300
+drawn-seed b0f4b173
+case turn-narrowing-1
+now 40444bd5bdd8817e
+rest-delay 3ebcc60c
+radius 3e6dd808
+position 405593d9c0000000 c043b55480000000 c03ca78880000000
+orientation bfe4bb008807312f bfdf57ac80588154 bfe29f8339ff9041 3fa5b3f75a61225d
+working-orientation bfe506a1481d1e0b bfdec19b0ca3983e bfe28d5e3760d781 3fa1d08f87f96c67
+spin 414c7f93 414c7f93 414c7f93
+anchor-time 403e97ab7bb102fc
+anchor-orientation bf28350a bef60cd8 bf146af2 3d0e847c
+anchor-position 42ac9ece c21daaa4 c1e53c44
+settle-time 403e97ab7bb102fc
+settle-orientation bf28350a bef60cd8 bf146af2 3d0e847c
+settle-position 42ac9ece c21daaa4 c1e53c44
+seed a16a8819
+motion 00000003
+anchored-time 403e97ab7bb102fc
+anchored-orientation bf28350a bef60cd8 bf146af2 3d0e847c
+anchored-position 42ac9ece c21daaa4 c1e53c44
+settled-time 403e97ab7bb102fc
+settled-orientation bf28350a bef60cd8 bf146af2 3d0e847c
+settled-position 42ac9ece c21daaa4 c1e53c44
+draw 3f5f5300
+drawn-seed 4a35df53
+case turn-narrowing-2
+now 405b0fcf6d9bf417
+rest-delay 3ea51f19
+radius 3e98213c
+position 404172b200000000 c0494258e0000000 c036152200000000
+orientation bfe9656fcdfc5265 3fde14361be02ebb 3fd83622bfac26bd 3fb413054448722b
+working-orientation bfe98c0933d6654f 3fdd6df1a2c26c0c 3fd8689b0c23368c 3fb366c1bf19b5c8
+spin 4169ca75 4169ca75 4169ca75
+anchor-time 40588fcf6d9bf417
+anchor-orientation bf4c604a 3eeb6f8d 3ec344d8 3d9b360e
+anchor-position 420b9590 c24a12c7 c1b0a910
+settle-time 40588fcf6d9bf417
+settle-orientation bf4c604a 3eeb6f8d 3ec344d8 3d9b360e
+settle-position 420b9590 c24a12c7 c1b0a910
+seed 96e83a28
+motion 00000003
+anchored-time 405b0fcf6d9bf417
+anchored-orientation bf4c604a 3eeb6f8d 3ec344d8 3d9b360e
+anchored-position 420b9590 c24a12c7 c1b0a910
+settled-time 40588fcf6d9bf417
+settled-orientation bf4c604a 3eeb6f8d 3ec344d8 3d9b360e
+settled-position 420b9590 c24a12c7 c1b0a910
+draw 3d1b8000
+drawn-seed 360909b8
+case turn-narrowing-3
+now 4053187bbdb1c36f
+rest-delay 3dd68005
+radius 3f5ac35c
+position 40360fc2e0000000 404345d3c0000000 c03b219b00000000
+orientation bfe255d2889e5ebb 3fe1df1f079b5c5b 3fe28dd27de38844 3fc3aad6ad327d18
+working-orientation bfe265eccd06bbec 3fe1c4b30509effa 3fe293fd289e7867 3fc3dbe5502f6bb6
+spin 4233f8b1 4233f8b1 4233f8b1
+anchor-time 4050987bbdb1c36f
+anchor-orientation bf132f66 3f0e2598 3f149fe9 3e1edf2b
+anchor-position 41b07e17 421a2e9e c1d90cd8
+settle-time 4050987bbdb1c36f
+settle-orientation bf132f66 3f0e2598 3f149fe9 3e1edf2b
+settle-position 41b07e17 421a2e9e c1d90cd8
+seed de7774c6
+motion 00000003
+anchored-time 4050987bbdb1c36f
+anchored-orientation bf132f66 3f0e2598 3f149fe9 3e1edf2b
+anchored-position 41b07e17 421a2e9e c1d90cd8
+settled-time 4050987bbdb1c36f
+settled-orientation bf132f66 3f0e2598 3f149fe9 3e1edf2b
+settled-position 41b07e17 421a2e9e c1d90cd8
+draw 3e580800
+drawn-seed 2cff3602
+case spin-grouping-0
+now 403df47ae20b142d
+rest-delay 3fe50843
+radius 3f2eb747
+position c04512ac40000000 4013c3e180000000 c015acbae0000000
+orientation 3fed925f870b8201 3fc061521f5765cd bfd23c5465291c4e 3fcc2c3424d6be16
+working-orientation bfe28a1e519565b2 bfd3ed138c636f9e 3fd43b6d5c30b207 3fe5e103afc41af2
+spin bf37ec61 3f8d365a 3cdd759c
+anchor-time 4033f47ae20b142d
+anchor-orientation bf1450f3 be9f689c 3ea1db6b 3f2f081d
+anchor-position c2289562 409e1f0c c0ad65d7
+settle-time 4033f47ae20b142d
+settle-orientation bf1450f3 be9f689c 3ea1db6b 3f2f081d
+settle-position c2289562 409e1f0c c0ad65d7
+seed f8bf288b
+motion 00000001
+anchored-time 403df47ae20b142d
+anchored-orientation bf1450f3 be9f689c 3ea1db6b 3f2f081d
+anchored-position c2289562 409e1f0c c0ad65d7
+settled-time 403df47ae20b142d
+settled-orientation 3f6c92fc 3e030a91 be91e2a3 3e6161a1
+settled-position c2289562 409e1f0c c0ad65d7
+draw 3f60b900
+drawn-seed e000e0b9
+case spin-grouping-1
+now 40561c621a3ebd17
+rest-delay 3fda358d
+radius 3e511f60
+position c0107abb80000000 4052e88fa0000000 4045a55ec0000000
+orientation bfcd2134cb1b160e bfc8737cb6db3f03 3fec6b5b069a5018 3fd671d2c32fcffb
+working-orientation bfe5752ecb1ed943 3fcf767a889e275b bfdf1a3fec597e1e bfe01eb7614db3c8
+spin bf62ed37 bf61c6ec 3f16bc0c
+anchor-time 40539c621a3ebd17
+anchor-orientation bf2ba976 3e7bb3d4 bef8d1ff bf00f5bb
+anchor-position c083d5dc 4297447d 422d2af6
+settle-time 40539c621a3ebd17
+settle-orientation bf2ba976 3e7bb3d4 bef8d1ff bf00f5bb
+settle-position c083d5dc 4297447d 422d2af6
+seed 97eee72f
+motion 00000001
+anchored-time 40561c621a3ebd17
+anchored-orientation bf2ba976 3e7bb3d4 bef8d1ff bf00f5bb
+anchored-position c083d5dc 4297447d 422d2af6
+settled-time 40561c621a3ebd17
+settled-orientation be6909a6 be439be6 3f635ad8 3eb38e96
+settled-position c083d5dc 4297447d 422d2af6
+draw 3f3ac500
+drawn-seed 82fdbac5
+case spin-grouping-2
+now 403c1bb103d25ccc
+rest-delay 3ee29465
+radius 3e8ef017
+position 404428f220000000 404183d720000000 c03cccaba0000000
+orientation bf82ae6fef911c39 3fd6a0428276d7a2 3febe094027ca3b7 bfd5cc4f41dd6a01
+working-orientation bfe41fd390eb54c7 bfe1d9e368f4411d bfd1e2299476038d bfddb0fe647c09d7
+spin c0749919 4041c69d c008e0c3
+anchor-time 40321bb103d25ccc
+anchor-orientation bf20fe9d bf0ecf1b be8f114d beed87f3
+anchor-position 42214791 420c1eb9 c1e6655d
+settle-time 40321bb103d25ccc
+settle-orientation bf20fe9d bf0ecf1b be8f114d beed87f3
+settle-position 42214791 420c1eb9 c1e6655d
+seed 19629a49
+motion 00000003
+anchored-time 40321bb103d25ccc
+anchored-orientation bf20fe9d bf0ecf1b be8f114d beed87f3
+anchored-position 42214791 420c1eb9 c1e6655d
+settled-time 40321bb103d25ccc
+settled-orientation bf20fe9d bf0ecf1b be8f114d beed87f3
+settled-position 42214791 420c1eb9 c1e6655d
+draw 3e4d8c00
+drawn-seed 6fe33363
+case spin-grouping-3
+now 40354cc2dad06dc0
+rest-delay 3f56f693
+radius 3f60507c
+position c04c82a340000000 4053e76e60000000 4048c83ec0000000
+orientation 3fd4be902a8498a2 3fe457a86669162f 3fbf0ae9dd40d6b7 3fe6149940d90dde
+working-orientation 3fbb0eb48c0bd4e7 3fe71f440a5af11e 3fde1f6ddeeaf6f9 bfdfb0f0736f22bd
+spin 401f3539 bf975205 bf09542e
+anchor-time 40269985b5a0db80
+anchor-orientation 3dd875a4 3f38fa20 3ef0fb6f befd8784
+anchor-position c264151a 429f3b73 424641f6
+settle-time 40269985b5a0db80
+settle-orientation 3dd875a4 3f38fa20 3ef0fb6f befd8784
+settle-position c264151a 429f3b73 424641f6
+seed 2bd09d5b
+motion 00000001
+anchored-time 40354cc2dad06dc0
+anchored-orientation 3dd875a4 3f38fa20 3ef0fb6f befd8784
+anchored-position c264151a 429f3b73 424641f6
+settled-time 40354cc2dad06dc0
+settled-orientation 3ea5f481 3f22bd43 3df8574f 3f30a4ca
+settled-position c264151a 429f3b73 424641f6
+draw 3dcd4800
+drawn-seed d61e19a9
