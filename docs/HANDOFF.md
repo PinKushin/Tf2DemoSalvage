@@ -165,18 +165,22 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      this offset accumulation/flattening** — `IvpMindist`/`IvpMindistState` track length/normal/flags but nothing
      shaped like a per-pair accumulated delta redistributed across a linked side-list. This needs its own dedicated
      investigation before the running-path rewrite can model it.
-   - **Refined 2026-09-14, checked `FUN_180094490`'s callers**: one of its three call sites is
-     `IvpRigidBody::PutCoreToSleep` (already named), alongside `NotifyAll`'s own three gated calls. **This shape —
-     accumulate cheaply, flatten only when a pair is actually touched or its core is about to sleep — is IVP's own
-     lazy-deferred-update optimization, not necessarily a new physical quantity the port lacks.** If so, a port that
-     always applies the delta immediately (never defers) is functionally equivalent as long as the observable
-     end-state (length/normal/flags) matches — the deferral only exists to avoid touching every pair every step.
-     **Not yet confirmed**: still need to find every WRITER of the `+0x10`/`+0x14` fields (not just this reader) to
-     check whether anything actually depends on the deferred timing rather than just the eventual value.
-   - **Still unread**: `FUN_180079120`, `FUN_180095cb0` (both small, called conditionally — lower priority), and the
+   - **Resolved 2026-09-14 — confirmed a lazy-deferred optimization, not a new physical quantity.** Traced the raw
+     bytes at `IvpRigidBody::PutCoreToSleep`'s call site (`180078d12..180078d26`, which the decompiler had elided into
+     an unrelated-looking `IvpHullManager::Rebase` neighbourhood — **read the disassembly, not just the decompile,
+     for this one**): `pair+0x10`/`+0x14` are incremented by a velocity × elapsed-time delta immediately before the
+     call, the exact same math `FUN_180099a00`'s per-pair loop already ages every PSI. **`+0x10`/`+0x14` is the same
+     margin/extra-radius-growth-over-time quantity already scoped for that loop — not a separate new field.**
+     `FUN_180094490` is its redistribution/flatten step, run whenever a pair actually fires (`NotifyAll`'s three
+     gated calls) or once more right before its core sleeps, so a deferred update never goes stale past those two
+     triggers. **Conclusion for the port: no new state is needed beyond what `IvpMindistState`/the pair-aging loop
+     already models** — a port that recomputes the aged margin at the point of use (rather than deferring it into an
+     accumulator that's periodically flushed) is equivalent, since the accumulator's only purpose is to avoid
+     touching every pair's cache every step. This closes the biggest open question from `FUN_180099a00`.
+   - **Still unread, lower priority**: `FUN_180079120`, `FUN_180095cb0` (both small, called conditionally), and the
      concrete vtable behind `FUN_180094540`'s slot `+0x20` (to confirm or refute the `Examine`-dispatch hypothesis).
-     **Priority for the next session**: find the writers of a mindist's `+0x10`/`+0x14` delta fields, to settle
-     whether `FUN_180094490` is a real port gap or a skippable optimization.
+     **`IntegrateAwakeCores`'s full call graph is now closed** except these three — the running-path rewrite can be
+     designed once they're read, or a decision is made that they're not load-bearing enough to block starting.
    - Replacing `IvpContact`/`IvpEnvironment` means reproducing this exact two-pass shape — build each controller's local
      candidate list, drain it as a heap firing real events, then a second full pass revalidating every pair's cache
      generation — not a single merged loop, and not `Advance`'s ad hoc per-collision subdivision. **A full rewrite, not a
