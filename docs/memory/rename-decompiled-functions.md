@@ -1,6 +1,6 @@
 ---
 name: rename-decompiled-functions
-description: D174 — once a Ghidra function is read, rename it for what it does (Type::Member of its port); cite names, not FUN_ addresses; old references convert when their file is edited.
+description: D174, reversed 2026-09-14 — renaming is no longer mandatory on every newly-read function (token cost, no script shortcut exists); existing renames stay, case-by-case renaming still fine.
 metadata:
   type: feedback
 ---
@@ -25,4 +25,11 @@ time; a name makes both unnecessary, in the decompiler's output as much as in th
 `mcp__ghidra__save_program`. Name a ported function `Type::Member` after the port member it became; name an unported one by what
 it writes ([[an-unused-method-may-be-the-engines]]), under IVP's class where the evidence names one. Never name an unread function.
 New code and docs write the name, with the address beside it only where instructions must be found. Convert a file's old `FUN_`
-references when you next edit that file, not by a scripted pass. Full entry: D174.
+references when you next edit that file, not by a scripted pass.
+
+**Reversed 2026-09-14.** The owner: *"that shit took a lot of tokens, and it still needs a lot... unless the real reason it took
+so many tokens was it didnt script but the rename cant really be scripted to save tokens."* Correct — the rename call itself is
+cheap, but naming requires the same close read a port needs anyway, so mandating a rename on every function doubles down on an
+already token-heavy activity during a budget-constrained week. **No longer the default.** Existing renames stay; renaming a
+specific function is still fine when there's a concrete reason (it recurs a lot, the address is actively confusing, it's about
+to be cited repeatedly) — just not automatic anymore. Full entry: D174 (with its reversal).

@@ -8836,4 +8836,17 @@ paths name IVP's source files (`ivp_collision\ivp_mindist_recursive.cxx`), which
 plugin's own naming check demands a Hungarian `g_` prefix on globals; that check is switched off per call (`strict_mode: false`) so
 vtables keep Ghidra's `Class::vftable` form.
 
+**Reversed 2026-09-14 — the practice itself stands (existing renames kept), but it stops being mandatory for every newly-read
+function.** The owner: *"i think we will remove the decomp renaming rule/memory, that shit took a lot of tokens, and it still
+needs a lot, and thats going to cost way too many tokens... unless the real reason it took so many tokens was it didnt script
+but the rename cant really be scripted to save tokens i wouldnt think."* He is right about the second half: a rename call is
+cheap, but it buys nothing without the reading that decided the name, and that reading is the same reading the port needs
+anyway — so the cost isn't the renaming, it's that renaming got asked for as a per-function ceremony on top of an already
+token-heavy reverse-engineering pass, during a week already at 41% of budget. Full parameter/struct/global/vtable typing and a
+plate comment on every function, going forward, is the part that stops — not because the practice is wrong, but because it is
+not the highest-value use of the tokens a read costs, under the standing budget constraint (`docs/memory/rename-decompiled-functions.md`,
+now noting the reversal). A function already renamed keeps its name. A function worth naming for a specific reason (it recurs,
+it's about to be cited a lot, the address is actively confusing) can still be renamed case by case — it just is not the default
+anymore.
+
 Related: D89, D172, B369.
