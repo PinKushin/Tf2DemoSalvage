@@ -4329,8 +4329,121 @@ second core (+0xa0):  ω += (float)((double)(float)(t′·I⁻¹) · f);        
 **`FUN_180084680(pair, arena)`, every fifth PSI, shares the slides of parallel contacts**: the pair's contacts go into an arena
 array and a zeroed stack vector per contact; for each `i < j` whose normals satisfy `||nᵢ·nⱼ| − 1| < DAT_1800f5100` (the dot
 in float, its absolute value widened), `FUN_180084c70(cpⱼ, cpᵢ, …, 1/(count + 1e-19))`; then each contact's slide gains its
-vector turned onto the record's spans — `+0x68 += (s·u)` and `+0x6c += (c·u)` in float. *Read in part: `FUN_180084c70` and the
-tail are not.*
+vector turned onto the record's spans — `+0x68 += (s·u)` and `+0x6c += (c·u)` in float. Read whole:
+
+```
+FUN_180084680(pair, arena):
+    n = pair+0x2;  cps = the pair's contacts copied into n arena pointers;  k = 1.0 / ((double)n + 1e-19)
+    u = n three-float vectors on the stack, zeroed
+    every i < n−1, every j in i+1 .. n−1   (R = cp+0x70, the record):
+        d = (Rⱼ.n.y·Rᵢ.n.y + Rⱼ.n.x·Rᵢ.n.x) + Rⱼ.n.z·Rᵢ.n.z              -- float, normal at +0x20
+        |(double)|d| − 1.0| < DAT_1800f5100 → FUN_180084c70(cpⱼ, cpᵢ, &uⱼ, &uᵢ, k)
+    every r:  cp+0x68 = (R.b4·u.y + R.b0·u.x) + (R.b8·u.z + cp+0x68)
+              cp+0x6c = (R.c4·u.y + u.x·R.c0) + (R.c8·u.z + cp+0x6c)       -- all float
+    (DAT_1800f5100 = (double)0.001f)
+
+FUN_180084c70(a, b, ua, ub, k) — two near-parallel contacts meet halfway along the line between them:
+    σ = (a+0x20)+0xe8 == (b+0x20)+0xe8 ? 1.0 : −1.0                        -- the same core on both first sides, or swapped
+    d = (float)(Ra.p − Rb.p) per lane, p the record's double position at +0x0;  FUN_18006dff0(&d)
+    wa_l = (float)((double)(float)((double)Ra.s_l·(double)a+0x68) + (double)Ra.c_l·(double)a+0x6c)   -- s at +0xb0, c at +0xc0
+    pa = (wa.y·d.y + wa.x·d.x) + wa.z·d.z;   qa_l = (float)((double)d_l·(double)pa)
+    wb, pb the same for b;   qb_l = (float)((double)d_l·((double)pb·σ))
+    m_l = (qb_l + qa_l)·0.5f
+    ua_l = (float)((double)(m_l − qa_l)·k) + ua_l;   ub_l = (float)((double)(m_l − qb_l)·(σ·k)) + ub_l
+FUN_18006dff0(v) → 0 leaving v alone when (double)(float)((x² + y²) + z²) < 1e-19 (NaN too), else
+    s = FUN_18006ecf0(that);  v_l = (float)((double)v_l·s);  → 1
+```
+
+**The priority-2000 routines:**
+
+```
+FUN_180088ae0(system) — the work the normal pushes did:  every pair, last first:
+    acc = 0f;  every contact, last first:  g = cp+0x8c;  FUN_18008d0c0(cp, env);  acc = acc + (g − cp+0x8c)·cp+0x88   -- float
+    acc > 0 → pair+0x30 = acc + pair+0x30
+FUN_180086b40(system) — that work paid back as damping:  every pair, last first:
+    e = (float)((double)pair+0x30·(double)env+0x1b0);  pair+0x30 = e          -- env through the first core's +0x10
+    e < 0 (NaN too), or either core's +0x58 set → next
+    FUN_180086670(&L, pair)
+    for (a, b, c, d, f) = (L+0x58, L+0x70, L+0x78, L+0x68, L+0x60) and then (L+0x30, L+0x48, L+0x50, L+0x40, L+0x38):
+        t = a/(b + c);  r = a − c·t;  E = MAXSD(((d·a)·a + 1e-19) − (((f·(b·t))·(b·t)) + ((d·r)·r)), 0)·0.5
+    total = E₂ + E₁;  x = MINSD(total·(double)0.1f, (double)e)
+    total < 1e-19 (NaN too) → x = 0   else   FUN_180083f70(&L, x/total)
+    env+0x78 = x + env+0x78;   pair+0x30 = (float)((double)pair+0x30 − x)
+FUN_180086670(L, A, B) — the pair's relative motion:
+    B flagged 0x12 → P = B, Q = A;  else P = A, Q = B;   L+0x90 = P, L+0x98 = Q
+    L+0x0 = Q.v − P.v (float, +0x140);  L+0x30 = FUN_18006fc90(&L+0x0)                    -- unit direction, its length
+    Δω = FUN_180070950(Q+0x90, Q.ω) − FUN_180070950(P+0x90, P.ω) (float);  L+0x58 = FUN_18006fc90(&Δω)
+    L+0x10 = FUN_180070620(P+0x90, Δω);  L+0x20 = FUN_180070620(Q+0x90, Δω·−1f)
+    FUN_180086440(P, &L+0x10, &L+0x60, &L+0x70);  FUN_180086440(Q, &L+0x20, &L+0x68, &L+0x78)
+    L+0x40 = (double)Q+0x2c (mass);  L+0x50 = (double)Q+0x4c (inverse mass)
+    P not flagged 0x12:  L+0x38 = (double)P+0x2c;  L+0x48 = (double)P+0x4c
+    otherwise:           L+0x38 = L+0x40·10000.0;  L+0x60 = L+0x68·10000.0;  L+0x48 = L+0x50·1e-4;  L+0x70 = L+0x78·1e-4
+FUN_180086440(core, u, I, J):  w = I⊙u in float (core+0x20..0x28);  I = FUN_18006e120(&w)
+    I < 1e-19 (NaN too) → I = J = 1.0   else  J = 1.0/I
+FUN_180083f70(L, f) — the pair's relative motion damped by the fraction f of its energy:
+    jω = (L+0x58 − √|L+0x58² − (2·(f·L+0x80))·(L+0x78 + L+0x70)|) / (L+0x78 + L+0x70)
+    jv = (L+0x30 − √|L+0x30² − (2·(f·L+0x88))·(L+0x48 + L+0x50)|) / (L+0x48 + L+0x50)
+    P not flagged 2 nor 0x10:  P+0x120 += (double)L+0x0·(L+0x48·jv);  P+0x110 += (double)L+0x10·(jω·L+0x70)   -- per lane, narrowed
+    L+0x0 = −L+0x0 (float)
+    Q+0x120 += (double)L+0x0·(jv·L+0x50);  Q+0x110 += (double)L+0x20·(jω·L+0x78)
+    (L+0x80 is the rotational energy E₁ and L+0x88 the linear E₂ that FUN_180086b40 left there)
+```
+
+**So every fifth-PSI's slide sharing and every PSI's damping are what keeps a heap of contacts from creeping**: the normal pushes'
+work (`FUN_180088ae0`) is banked per pair and paid out, at most a tenth of the pair's releasable relative kinetic energy a PSI, as
+equal and opposite impulses along the relative velocity and the relative spin — a static partner counting as ten thousand times the
+other's mass.
+
+**The split, `FUN_180086e80(S, r)`**, run at priority 0 when `S+0x80` was set and `FUN_1800877b0` named a root:
+
+```
+do:
+    T = a new system (0x90 bytes, FUN_1800879e0(T, S+0x8))
+    every core c of S, last first:
+        c flagged 2 (unmovable):  a 0x18-byte record {count 0, no elements, +0x10 = T};  FUN_180087bf0(T, c);  FUN_180076690(c, record)
+        else, c's root (+0x258 followed to its end) is r:  FUN_180088c80(S, c);  FUN_180087bf0(T, c);  FUN_180077f00(c, S)+0x10 = T
+    every pair p of S, last first:  A = p+0x38, B = p+0x40
+        one of them unmovable → s = that one, m = the other;  RS = FUN_180077f00(s, S), RT = FUN_180077f00(s, T)
+        otherwise m = A and no records
+        m's root is not r → next
+        FUN_180081f70(env, p);  p removed from S's pairs (the last match, the rest moved down);  appended to T's;  FUN_180081f10(env, p)
+        every contact cp of p, last first:  cp must be in S's list (assert at line 0x5ef)
+            FUN_180088ce0(S, cp);  FUN_180087c90(T, cp);  RS → FUN_180075130(RS, cp), cp appended to RT
+    every unmovable core c of S, last first:
+        its T record empty → FUN_180077c10(c, it), FUN_180088c80(T, c);   its S record empty → the same against S
+    T has fewer than two cores → its first core's T record removed (FUN_180077c10) and freed;  T deletes itself (slot 7);  return
+    S has fewer than two cores → the same for S;  return
+    r = FUN_1800877b0(S)
+while r
+
+FUN_1800877b0(S) → the root of a part that no longer touches the rest, or null:
+    every core's +0x258 = null
+    every pair, last first, neither core unmovable:  ra = A's root, rb = B's root;  ra != rb → rb+0x258 = ra        -- no path compression
+    R = the root of the lowest-index movable core (the cores walked from the last, each movable one overwriting)
+    return the root of the lowest-index movable core whose root is not R (walked the same way), or null
+```
+
+*Not read: `FUN_180085a80`, which a contact reaches only when its first core has `+0x58` set and there is no second core. Nothing
+read so far writes `core+0x58`; that it is IVP's car-wheel pointer is a guess from the shape (a one-sided special friction), not
+a reading, and until the writer is found the routine counts as reachable.*
+
+**The simulation units** (a core's `+0x1f8`): `+0x0` a state that picks the manager's list (`≥ 8` → `+0x338`, else `+0x18`),
+`+0x8`/`+0x10` that list's links, the cores at `+0x18`/`+0x1a`/`+0x20`, and the controller entries at `+0x38`/`+0x3a`/`+0x40`
+(`0x28` bytes each: the controller, then its cores at `+0x8`/`+0xa`/`+0x10`, inline room for two at `+0x18`).
+
+```
+FUN_180074820(unit, controller):  a new entry for the controller, appended
+FUN_180075990(unit):  the entries insertion-sorted by the controller's slot 5 (priority), ascending, a later one moving down while
+    its neighbour's priority is strictly greater
+FUN_180074ba0(unit):  every entry freed, last first;  the entry vector emptied (freed unless inline)
+FUN_1800747a0(unit):  FUN_180074ba0;  both vectors emptied
+FUN_180076350(unit, other):  other's cores appended, each core's +0x1f8 = unit;  other unlinked from its manager list
+FUN_180075470(unit):  every core, last first, every controller of the core (+0x1e8, count +0x1e2), last first:
+    the controller's entry (searched from the last, made when missing) gains the core;  then FUN_180075990(unit)
+FUN_180074e40(unit, other):  FUN_180074ba0(unit);  FUN_180076350(unit, other);  FUN_180075470(unit)      -- the merge
+FUN_180075130(vector, item):  the last match removed, the rest moved down — a missing item removes the FIRST element
+FUN_180079180(core, system):  core flagged 2 → FUN_1800726e0(core+0x60, system+0x10), else core+0x60 = null
+```
 
 **`FUN_1800a9bf0(system, event)`, the many-contact priority-0 routine, first half:**
 
@@ -4639,8 +4752,9 @@ times a per-core constant** — the changes are pending until that test. `record
 its normal (the record's own setup, above: arm terms plus both inverse masses, `+0x90` its reciprocal), so the firmness test reads
 `x·scale·m⁻¹` — the speed the push makes — against `g·0.01`. `limits+0x1c` is the **minimum** friction mass `SetPerformanceSettings`
 clamps to `[1, 50000]`; `+0x20`, the maximum, is never read here, so the allowance is `n · (float)(minFrictionMass·g) · 0.1f` for
-the heap's movable cores whatever their masses. *Not established: whether a client environment's `+0x1c` is IVP's
-`FUN_180089550` default or something else, since the client never calls `SetPerformanceSettings`.*
+the heap's movable cores whatever their masses. The client never calls `SetPerformanceSettings`, so its `+0x1c` is IVP's own
+default from `FUN_180089550`: `10.0f` (`0x41200000`; `+0x20` is `2500.0f`), the same numbers as
+`physics_performanceparams_t::Defaults()`.
 
 **So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
 entry's port keeps it because the routine has it. *Not read: `FUN_180086240` (merging systems), the controller bases, and the
