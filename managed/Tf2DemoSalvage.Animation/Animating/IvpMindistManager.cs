@@ -727,6 +727,53 @@ public static class IvpMindistHull
         mindist.HullPastCenters = secondPast + firstPast;
     }
 
+    /// <summary>Files an opened pair's records at the next PSI — <c>FUN_180097d60</c> and <c>FUN_180097e20</c>.</summary>
+    /// <param name="mindist">The mindist; its state bits are written.</param>
+    /// <param name="filing">The two records' objects, and what their slot 1 hands the mindist to.</param>
+    /// <param name="first">Record 0's core.</param>
+    /// <param name="second">Record 1's core.</param>
+    /// <param name="gap">The gap, the two ranges' sum.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="mindist"/> or the filing's handler is null.</exception>
+    /// <remarks>
+    /// Flags `&amp; ~0x280000 | 0x140000`. **The side whose object has its low state bits clear takes `1e-10f`, never zero**,
+    /// record 0's tested first; else the gap is split by speed. Each record is filed at its manager's next PSI value plus its
+    /// allowance (<see cref="IvpHullManager.InstallAtNextPsi"/>), and `+0xa0` is not written — not <see cref="FileFar"/>
+    /// (`docs/findings/51`, *The larger mindist in full*).
+    /// </remarks>
+    public static void FileRecursive(IvpMindist mindist, IvpFarFiling filing, IvpCoreBounds first, IvpCoreBounds second, float gap)
+    {
+        ArgumentNullException.ThrowIfNull(mindist);
+        ArgumentNullException.ThrowIfNull(filing.HullPassed);
+
+        float firstAllowance;
+        float secondAllowance;
+
+        if (filing.First.StateBitsClear)
+        {
+            firstAllowance = SplitSpeedFloor;
+            secondAllowance = gap;
+        }
+        else if (filing.Second.StateBitsClear)
+        {
+            firstAllowance = gap;
+            secondAllowance = SplitSpeedFloor;
+        }
+        else
+        {
+            (firstAllowance, secondAllowance) = SplitGap(gap, first, second);
+        }
+
+        mindist.Flags = (mindist.Flags & ~FiledClears) | FiledState;
+
+        IvpMindistHullRecord firstRecord = mindist.HullRecord(0);
+        IvpMindistHullRecord secondRecord = mindist.HullRecord(1);
+        firstRecord.OnPassed = filing.HullPassed;
+        secondRecord.OnPassed = filing.HullPassed;
+
+        filing.First.Hull.InstallAtNextPsi(firstRecord, firstAllowance);
+        filing.Second.Hull.InstallAtNextPsi(secondRecord, secondAllowance);
+    }
+
     /// <summary>A far pair told its hull passed — <c>FUN_180097f00</c>.</summary>
     /// <param name="mindist">The pair.</param>
     /// <param name="overshoot">The hull manager's minimum less its next PSI's value.</param>

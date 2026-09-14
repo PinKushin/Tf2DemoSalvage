@@ -5016,6 +5016,15 @@ slot 7. `IvpMindist` is now unsealed with `Freeze` (slot 7, the plain body `FUN_
 `IvpMindistFire.Handle` dispatch through them. A mindist of its own kind pins each call site; sabotaging each back to the plain
 call reddened exactly its own case.
 
+**An opened pair is filed at the next PSI, not over now (2026-09-14).** `IvpMindistHull.FileRecursive` ports `FUN_180097d60` and
+`FUN_180097e20` beside `FileFar` rather than through it, because the two differ in three places: a side at rest takes `1e-10f`
+where the far filing gives it zero, each record's key is its manager's next PSI value plus its allowance rather than the hull
+over a time, and `+0xa0` is left alone. Four synthetic cases pin it, with every next PSI value zero in the clear-side cases so
+the floor is the key itself. Five sabotages each reddened exactly the cases predicted: either floor zeroed, the next PSI value
+subtracted back out, the flags ORed without their clear, the both-at-rest order swapped, either record's slot 1 left unset, and
+the split handed the first core twice. Handing it the cores swapped did not compile: Sonar's S2234 refuses arguments named like
+the parameters in another order.
+
 So **a larger mindist opens its ledge only when the pair would otherwise freeze or collide on a hull's virtual face**, and
 then waits on the hull managers like a far pair; `FUN_180097f00`, told its hull passed, sends it to `FUN_1800b28a0`, which
 closes it back into a plain exact pair once the length is past `DAT_18012d64c` and otherwise refreshes its children.

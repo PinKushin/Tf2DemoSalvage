@@ -178,6 +178,61 @@ public sealed class IvpMindistHullConformanceTests
     }
 
     /// <remarks>
+    /// **An opened mindist's records are filed at the next PSI, a side at rest taking the split's floor** — `FUN_180097d60` tests
+    /// record 0's object's `+0x78 &amp; 7` first and hands `FUN_180097e20` `1e-10f` for that side, never zero, and the gap for the
+    /// other, each added in float to its manager's next PSI value (`docs/findings/51`, *The larger mindist in full*). With both
+    /// next PSI values at zero, the side at rest's key is `1e-10f` itself, which `FileFar`'s zero would not give. Both objects at
+    /// rest take the first branch.
+    /// </remarks>
+    [TestCase(0, 1)]
+    [TestCase(0, 0)]
+    public void FileRecursive_ARecordZeroObjectAtRest_TakesTheFloorAndGivesTheGapToRecordOne(int firstState, int secondState)
+    {
+        RecursiveFiling filing = new(firstState, secondState);
+
+        filing.Run(0.5f);
+
+        filing.KeyOf(0).ShouldBe(1e-10f);
+        filing.KeyOf(1).ShouldBe(0.5f);
+    }
+
+    /// <remarks>The mirror: record 0's object moving and record 1's at rest, so record 1 takes the floor and record 0 the gap.</remarks>
+    [Test]
+    public void FileRecursive_ARecordOneObjectAtRest_TakesTheFloorAndGivesTheGapToRecordZero()
+    {
+        RecursiveFiling filing = new(1, 0);
+
+        filing.Run(0.5f);
+
+        filing.KeyOf(0).ShouldBe(0.5f);
+        filing.KeyOf(1).ShouldBe(1e-10f);
+    }
+
+    /// <remarks>
+    /// **Both moving, the gap is split by speed** — `FUN_180097d60`'s split is <see cref="IvpMindistHull.SplitGap"/>'s, operand for
+    /// operand — and each share lands on its manager's next PSI value, here `2` and `3`. The flags become filed, the other bits kept:
+    /// `0xc0100 &amp; ~0x280000 | 0x140000` is `0x140100`. Either record's slot 1 hands the mindist to the filing's handler.
+    /// </remarks>
+    [Test]
+    public void FileRecursive_BothObjectsMoving_SplitsTheGapBySpeedAtTheNextPsi()
+    {
+        RecursiveFiling filing = new(1, 1, firstNext: 2f, secondNext: 3f);
+
+        filing.Run(0.5f);
+
+        (float firstShare, float secondShare) = IvpMindistHull.SplitGap(0.5f, filing.FirstBounds, filing.SecondBounds);
+
+        filing.KeyOf(0).ShouldBe(2f + firstShare);
+        filing.KeyOf(1).ShouldBe(3f + secondShare);
+        filing.Mindist.Flags.ShouldBe(0x140100);
+
+        filing.Mindist.HullRecord(0).HullPassed(filing.First.Hull, -2f);
+        filing.Mindist.HullRecord(1).HullPassed(filing.Second.Hull, -1f);
+
+        filing.Passed.ShouldBe([(filing.Mindist, -2f), (filing.Mindist, -1f)]);
+    }
+
+    /// <remarks>
     /// **Becoming exact links the pair, minimizes it, and — the minimize settling — examines it**, the state bits set to
     /// exact.
     /// </remarks>
@@ -338,6 +393,45 @@ public sealed class IvpMindistHullConformanceTests
                     SecondBounds = _recordOneIsA ? moving : still,
                     HandOff = HandedOff.Add,
                 });
+        }
+    }
+
+    /// <summary>An opened pair about to be filed at the next PSI, two objects in given states, and a handler that records its calls.</summary>
+    private sealed class RecursiveFiling
+    {
+        public RecursiveFiling(int firstState, int secondState, float firstNext = 0f, float secondNext = 0f)
+        {
+            First = new IvpCollisionObject { MovementState = firstState };
+            Second = new IvpCollisionObject { MovementState = secondState };
+            First.Hull.NextPsiValue = firstNext;
+            Second.Hull.NextPsiValue = secondNext;
+        }
+
+        public IvpMindist Mindist { get; } = NewMindist(IvpMindistHull.ExactState | 0x100);
+
+        public IvpCollisionObject First { get; }
+
+        public IvpCollisionObject Second { get; }
+
+        public IvpCoreBounds FirstBounds { get; } = new(Radius: 1f, InverseDiameter: 1f, AngularSpeedBound: 0f, LinearSpeed: 2f, SurfaceSpeedBound: 1f);
+
+        public IvpCoreBounds SecondBounds { get; } = new(Radius: 1f, InverseDiameter: 1f, AngularSpeedBound: 0f, LinearSpeed: 0.5f, SurfaceSpeedBound: 0f);
+
+        public List<(IvpMindist Mindist, float Overshoot)> Passed { get; } = [];
+
+        public void Run(float gap) =>
+            IvpMindistHull.FileRecursive(
+                Mindist,
+                new IvpFarFiling(new IvpMindistManager(), First, Second, (mindist, overshoot) => Passed.Add((mindist, overshoot))),
+                FirstBounds,
+                SecondBounds,
+                gap);
+
+        public float KeyOf(int record)
+        {
+            IvpHullManager hull = record == 0 ? First.Hull : Second.Hull;
+
+            return hull.Synapses.ValueOf(Mindist.HullRecord(record).HullSlot.ShouldNotBeNull());
         }
     }
 
