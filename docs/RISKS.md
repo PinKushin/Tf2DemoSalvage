@@ -26155,6 +26155,16 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    contact point's gap against metre fields of the block, while the contact point ported before it starts its gap at
    `IvpCollisionTolerance.ContactGap` in Source units** — one more place the units move to vphysics' interface when this
    is wired.
+   **The many-contact solve's linear algebra is ported and pinned, 2026-09-13** (`docs/findings/51`, *The constraint
+   solver's loop* and its port): `FUN_1800aa2c0`, `FUN_1800a4d40`, `FUN_1800a80a0` and `FUN_1800a7270` as
+   `IvpLinearSystem`, the active block's inverse at the solver's `+0xa8` as `IvpActiveInverse`, and `FUN_1800a5e60` with
+   everything under it as `IvpComplementaritySolver`. The `vphysics-contact-solve` probe runs them in `FUN_1800aa5c0`'s
+   order: 20,000 random systems agree on every lane — pushes, residuals, the permutation and nine counters of state — and
+   `IvpComplementaritySolverConformanceTests` replays the cases the binary wrote. **A NaN's sign bit differed once and is
+   fixed**: when two NaNs meet, SSE keeps the destination operand's, and the JIT picks the destination of a C# `+` or `*`;
+   every addition and multiplication now goes through `IvpLinearSystem.Addsd`/`Mulsd` with the binary's destination first,
+   mapped per instruction, and 30,000 NaN-seeded systems agree bit for bit. Not ported yet: the solve above it (`FUN_1800aa5c0`,
+   `FUN_1800a9520`, `FUN_1800aa9f0`, `FUN_1800a9280`), which needs the friction system's records and cores.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 

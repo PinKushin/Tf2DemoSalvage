@@ -4786,6 +4786,41 @@ contacts' residuals at zero until the first active push or settled residual hits
 block is kept incrementally (`FUN_1800a5b80` grows it, `FUN_1800a4870` shrinks it), and when that bookkeeping fails `+0xa4` marks it
 stale so the next pass rebuilds it from scratch (`FUN_1800a7e80`), shuffling the order first to break a cycle. Every seven steps
 the answer is checked against the full system, and a failed check or a runaway step restarts from the current answer.
+
+**Ported and pinned, 2026-09-13.** `IvpLinearSystem` (the `FUN_1800a4600` object: `Equilibrate`, `Gather`, `Solve`, `Holds`,
+`Multiply`), `IvpActiveInverse` (the `+0xa8` object: `Invert`, `Solve`, `Grow`, `Shrink`) and `IvpComplementaritySolver`
+(`FUN_1800a5e60`, the warm start, the loop and its helpers). The `vphysics-contact-solve` probe writes each system at the offsets
+above, gives the solver a megabyte of arena, and calls the five routines in `FUN_1800aa5c0`'s order: **20,000 random systems —
+Gram matrices of short rows, often singular, general and integer-valued ones, nearly vanishing ones, NaN and infinity — agree
+on every lane**, the permutation at `+0x68` and the counters at `+0x80..+0xf4` included. The identity with right-hand side
+`(1, 2, −1)` is the control, solved to `(0.5, 1, 0)` after scaling by both.
+
+**One sweep case differed, and only in a NaN's sign — and it is fixed, not licensed.** With a NaN in both a matrix element and
+the right-hand side, the binary left `0xfff8…` in a residual and the port `0x7ff8…`. `DOTNET_JitDisasm` on the step shows why:
+the binary adds `s·dw + w` with the product as SSE's destination, whose NaN survives two NaNs, while the JIT — unoptimised, at
+Tier0 — loaded `w` first. **Which operand of a commutative `+` or `*` is the destination is the JIT's choice, not the
+source's.** It was first filed as a difference C# could not avoid, and that was wrong: the ECMA rules leave only the
+two-NaN case open, so `Addsd(d, s) = IsNaN(d) ? d + d : d + s` (and `Mulsd` alike) returns the destination's NaN, quieted,
+whatever order the JIT emits, and every other case carries the one NaN either way. Every addition and multiplication in the
+three ports now names the binary's destination first.
+
+**The destinations were mapped twice, independently, and they are not uniform.** Two passes per file read every `ADDSD`,
+`MULSD`, `ADDPD` and `MULPD` against the C#, and an adjudicator settled the eight sites they disagreed on; the grouping claims
+they raised were then checked by hand, and both were wrong (the sums are in order). What held:
+
+- `FUN_1800a8c90`'s back substitution, four columns at a time from the last, makes the **third** product of each four with the
+  value as destination and the other three with the right-hand side; the scalar tail uses the right-hand side.
+- `FUN_1800a8ea0`'s back substitution, four at a time, adds the first two products with **the product** as destination
+  (`1800a8f5f`, and `1800a8f73` after `MOVAPS XMM2,XMM1` — which one pass read as the running sum), multiplies those two with
+  the right-hand side first and the last two with the matrix first; the tail adds onto the sum with the matrix first.
+- `FUN_1800a7990` and `FUN_1800a4870` scale a run four at a time with each element as `MULPD`'s destination, and the remaining
+  elements with the factor as `MULSD`'s.
+- Everything else keeps one destination on every path: the scalar before the array in each scaling and step, the running sum
+  before the product, and in the SSE pair sums the accumulators.
+
+**Checked by a sweep built to make NaNs meet**: 30,000 systems with one to four values replaced by quiet or signalling NaNs of
+either sign, a payload, or an infinity agree with the binary on every lane, NaN bits included, alongside 30,000 random and
+30,000 near-singular ones.
 FUN_1800a59e0(lcs) — the full system's residual at the current x:
     the view at lcs+0x120 (M, +0x128 rows, +0x12c columns) pointed at +0x58 → +0x60:  FUN_1800a76c0(view);  pointed back at +0x40 → +0x50
     +0x60[i] −= b[i] every i < +0x78;  +0x60[+0x68[j]] = 0 every active j
