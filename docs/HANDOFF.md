@@ -164,14 +164,19 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      `+0x18`/`+0x30` (gate/time) fields and clears it. **The current C# port has no equivalent field or mechanism for
      this offset accumulation/flattening** — `IvpMindist`/`IvpMindistState` track length/normal/flags but nothing
      shaped like a per-pair accumulated delta redistributed across a linked side-list. This needs its own dedicated
-     investigation (what writes `+0x10` in the first place, and under what condition) before the running-path
-     rewrite can model it — flag as the biggest open question, not `FUN_180079120`/`FUN_180095cb0` (both still
-     genuinely unread, but small and conditional, lower priority).
+     investigation before the running-path rewrite can model it.
+   - **Refined 2026-09-14, checked `FUN_180094490`'s callers**: one of its three call sites is
+     `IvpRigidBody::PutCoreToSleep` (already named), alongside `NotifyAll`'s own three gated calls. **This shape —
+     accumulate cheaply, flatten only when a pair is actually touched or its core is about to sleep — is IVP's own
+     lazy-deferred-update optimization, not necessarily a new physical quantity the port lacks.** If so, a port that
+     always applies the delta immediately (never defers) is functionally equivalent as long as the observable
+     end-state (length/normal/flags) matches — the deferral only exists to avoid touching every pair every step.
+     **Not yet confirmed**: still need to find every WRITER of the `+0x10`/`+0x14` fields (not just this reader) to
+     check whether anything actually depends on the deferred timing rather than just the eventual value.
    - **Still unread**: `FUN_180079120`, `FUN_180095cb0` (both small, called conditionally — lower priority), and the
      concrete vtable behind `FUN_180094540`'s slot `+0x20` (to confirm or refute the `Examine`-dispatch hypothesis).
-     **Priority for the next session: `FUN_180094490`'s offset-accumulation mechanism** — find every writer of a
-     mindist's `+0x10`/`+0x14` delta fields to understand what it represents before designing how the port carries
-     it.
+     **Priority for the next session**: find the writers of a mindist's `+0x10`/`+0x14` delta fields, to settle
+     whether `FUN_180094490` is a real port gap or a skippable optimization.
    - Replacing `IvpContact`/`IvpEnvironment` means reproducing this exact two-pass shape — build each controller's local
      candidate list, drain it as a heap firing real events, then a second full pass revalidating every pair's cache
      generation — not a single merged loop, and not `Advance`'s ad hoc per-collision subdivision. **A full rewrite, not a
