@@ -42,6 +42,8 @@ public sealed class VphysicsContactSolveProbe : IProbe
     private const string NearTwinsGenerator = "near-twins";
     private const string PoisonedGenerator = "poisoned";
     private const ulong PoisonedSeed = 18007;
+    private const string TiesGenerator = "ties";
+    private const ulong TiesSeed = 18008;
 
     /// <summary>Quiet NaNs of both signs, one with a payload, signalling NaNs of both signs, and both infinities.</summary>
     private static readonly long[] Poisons =
@@ -59,7 +61,15 @@ public sealed class VphysicsContactSolveProbe : IProbe
     /// Cases from the sweeps' streams that a port broken on purpose got wrong while the random fixture did not notice, each
     /// found by <c>sweep n generator path</c> against that sabotage.
     /// </summary>
-    private static readonly (string Generator, int Index)[] Killers = [];
+    private static readonly (string Generator, int Index)[] Killers =
+    [
+        (RandomGenerator, 19459), (PoisonedGenerator, 1746), (PoisonedGenerator, 5232),
+        (PoisonedGenerator, 0), (PoisonedGenerator, 364), (PoisonedGenerator, 947),
+        (TiesGenerator, 20), (TiesGenerator, 57), (TiesGenerator, 79),
+        (RandomGenerator, 83), (TiesGenerator, 11), (PoisonedGenerator, 93),
+        (RandomGenerator, 12837), (TiesGenerator, 188), (PoisonedGenerator, 225),
+        (RandomGenerator, 4237), (PoisonedGenerator, 11), (PoisonedGenerator, 128), (PoisonedGenerator, 254),
+    ];
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void EquilibrateFunction(nint system);
@@ -83,7 +93,7 @@ public sealed class VphysicsContactSolveProbe : IProbe
     public string Summary =>
         "vphysics.dll's many-contact scaling, elimination, row test and constraint solver FUN_1800a5e60 called in process and " +
         "compared with IvpLinearSystem and IvpComplementaritySolver; 'sweep' can write the cases that differ, and 'fixture' " +
-        "writes the conformance suite's cases: vphysics-contact-solve [sweep n [random|near-twins|poisoned] [path] | fixture path]";
+        "writes the conformance suite's cases: vphysics-contact-solve [sweep n [random|near-twins|poisoned|ties] [path] | fixture path]";
 
     /// <inheritdoc />
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -114,7 +124,7 @@ public sealed class VphysicsContactSolveProbe : IProbe
         string generator = sweeping && arguments.Count >= 3 ? arguments[2] : RandomGenerator;
         string? path = sweeping && arguments.Count >= 4 ? arguments[3] : null;
 
-        if (generator is not (RandomGenerator or NearTwinsGenerator or PoisonedGenerator))
+        if (generator is not (RandomGenerator or NearTwinsGenerator or PoisonedGenerator or TiesGenerator))
         {
             output.WriteLine($"No generator named '{generator}'.");
             return;
@@ -195,6 +205,7 @@ public sealed class VphysicsContactSolveProbe : IProbe
     {
         NearTwinsGenerator => NearTwinsSeed,
         PoisonedGenerator => PoisonedSeed,
+        TiesGenerator => TiesSeed,
         _ => SweepSeed,
     };
 
@@ -202,8 +213,41 @@ public sealed class VphysicsContactSolveProbe : IProbe
     {
         NearTwinsGenerator => NearTwins(ref state),
         PoisonedGenerator => Poisoned(ref state),
+        TiesGenerator => Ties(ref state),
         _ => RandomCase(ref state),
     };
+
+    /// <summary>
+    /// A heap whose contacts are interchangeable — <c>a·I + b·11ᵀ</c> over small whole or halved numbers, groups of equal
+    /// right-hand sides — so steps tie within the solver's epsilon and which contact leaves is decided by its tie rule.
+    /// </summary>
+    private static Dictionary<string, long[]> Ties(ref ulong state)
+    {
+        int size = 2 + Below(ref state, Contacts - 1);
+        double diagonal = (1 + Below(ref state, 4)) * 0.5;
+        double shared = (Below(ref state, 5) - 1) * 0.5;
+        int groups = 1 + Below(ref state, 3);
+        double[] values = new double[size * size];
+        double[] rhs = new double[size];
+        double[] levels = new double[groups];
+
+        for (int group = 0; group < groups; group++)
+        {
+            levels[group] = (1 + Below(ref state, 4)) * (Chance(ref state, 0.2) ? -0.5 : 0.5);
+        }
+
+        for (int i = 0; i < size; i++)
+        {
+            rhs[i] = levels[Below(ref state, groups)];
+
+            for (int j = 0; j < size; j++)
+            {
+                values[i * size + j] = i == j ? diagonal + shared : shared;
+            }
+        }
+
+        return System(size, Below(ref state, size + 1), [], values, rhs);
+    }
 
     /// <summary>
     /// A random system with one to four of its values or right-hand side replaced by a NaN — quiet or signalling, either sign,
@@ -269,7 +313,7 @@ public sealed class VphysicsContactSolveProbe : IProbe
                 $"{generator}-{wanted.ToString(CultureInfo.InvariantCulture)}", inputs, native.Run(inputs)));
         }
 
-        output.WriteLine($"{FixtureCases} random and {targeted.Count} targeted cases written to {path}");
+        output.WriteLine($"{FixtureCases} random, {targeted.Count} targeted and {Killers.Length} sabotage-found cases written to {path}");
     }
 
     /// <summary>
