@@ -4226,6 +4226,27 @@ made:  rebuild → the same two calls;  the environment's listeners (FUN_180081e
   makes (`FUN_180074820`) the controller's `0x28`-byte entry in the core's simulation unit (`+0x1f8`; entries `+0x3a`/`+0x40`),
   appends the core to that entry's cores (`+0x8`/`+0xa`/`+0x10`) and tails into `FUN_180075990(unit)`.
 
+**The system is a controller named `sys:friction`** (slot 6, `1800fd5e8`), filed three times at different priorities (slot 5),
+and each filing's slot 4 is what it does every PSI — `event` its argument, `+0x8` the environment and `+0x10` the simulation unit:
+
+```
+priority 600,  FUN_1800843c0(system, event):
+    one contact or none:  cp = the list head;  FUN_180083970(cp, ((event[0]² · cp+0x60) · (cp+0x88 · cp+0x78)))  -- all float
+                          cp+0x64 → FUN_180085100(cp, event)  else  FUN_1800857c0(cp, event)
+    more:  FUN_1800836b0(system, event);  every pair, last first:  pair+0x20 −= 1;  reaching 0 → FUN_180084680(pair, env+0xf0), pair+0x20 = 5
+priority 0,  FUN_180084320(system+0x10, event):
+    one contact or none → FUN_180084490(that)  else  FUN_1800a9bf0
+    no contacts left:  forget the system and delete it (slot 7)
+    else, when +0x80 is set:  clear it;  r = FUN_1800877b0(system);  r → FUN_180086e80(system, r), r = its unit
+    either way the unit's dword loses bit 9 and gains bit 8
+priority 2000,  FUN_180084240(system+0x20, event):
+    one contact or none → FUN_18008d0c0(list head, env)            -- the record rebuilt, nothing else
+    else  FUN_180088ae0(system);  unit dword & 0x3000 → every pair's +0x30 = 0;  unless & 0xc00 → FUN_180086b40(system)
+```
+
+**So the pair counter at `+0x20` fires every fifth PSI** (it starts at one, so the first fires at once), and a lone contact takes a
+different, cheaper path at every priority. *Not read yet: the routines each branch calls.*
+
 **So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
 entry's port keeps it because the routine has it. *Not read: `FUN_180086240` (merging systems), the controller bases, and the
 simulation units `FUN_180074e40`/`FUN_1800747a0` merge.* **Nothing here is ported.**
