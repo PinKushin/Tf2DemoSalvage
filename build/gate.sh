@@ -701,7 +701,32 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 #
 # 378 -> 384 on 2026-09-12: IvpCoreSpeedBoundConformanceTests (6), FUN_180099d60's angular and surface bounds and
 # rotation axis (B369). Compile-red first; four sabotages in one run reddened exactly the five predicted cases.
-run Tf2DemoSalvage.Animation.Tests animation 384
+# 384 -> 387 on 2026-09-12: IvpLedgeTopologyConformanceTests, the pierce triangle the minimize's backside walk starts from
+# (3). Synthetic.
+# 387 -> 409 on 2026-09-13: IvpCompactLedgeSolverConformanceTests (22), the minimize's compact-ledge helpers (B369).
+# Synthetic.
+# 409 -> 424 on 2026-09-13: IvpMindistMinimizeConformanceTests (15), the minimize's entry, dispatch and eight feature
+# routines (B369). Synthetic.
+# 424 -> 462 on 2026-09-13: the other three times of impact (B369) — IvpPointPointSearch, IvpPointEdgeSearch and
+# IvpEdgeEdgeSearch conformance tests (6, 6, 7) and their seven evaluators' (19). Compile-red first; four sabotage
+# rounds, twenty-nine breaks, every one caught. Synthetic.
+# 462 -> 473 on 2026-09-13: IvpImpactDispatchConformanceTests (11), the time-of-impact table and FUN_1800a3fe0 (B369).
+# Synthetic.
+# 473 -> 501 on 2026-09-13: IvpMinListConformanceTests (7) and IvpPairSchedulerConformanceTests (21), the time manager's
+# event queue and FUN_180099380 (B369). Compile-red first; five sabotage rounds, eleven breaks, all caught. Synthetic.
+# 501 -> 512 on 2026-09-13: IvpTimeManagerConformanceTests (5) and IvpMindistFireConformanceTests (6), the event loop
+# FUN_18008a110 and the fire routine FUN_1800992e0 (B369). Synthetic.
+# 512 -> 534 on 2026-09-13: IvpHullManagerConformanceTests (22), the hull manager FUN_180099a00/FUN_18009a690 and its
+# rebase and filings (B369). Compile-red first; two sabotage rounds, twelve breaks, all caught once the tie case's
+# allowance was corrected. Synthetic.
+# 534 -> 545 on 2026-09-13: IvpMindistManagerConformanceTests (6) and IvpPairSchedulerConformanceTests' far filing (six
+# for the one refusal they replace), FUN_180098dd0, the exact linking and FUN_180099380's far branch (B369). Synthetic.
+# 545 -> 567 on 2026-09-13: IvpMindistHullConformanceTests (20) and two more IvpMindistManagerConformanceTests for the
+# refusal they replace, the hull-passed handler FUN_180097f00, the exact handoff FUN_1800977f0 and the invalidation
+# FUN_180097440 (B369). Synthetic.
+# 567 -> 572 on 2026-09-13: IvpExactPhasesConformanceTests (5), the PSI's walks over the exact mindists FUN_1800983e0,
+# FUN_180098610 and FUN_1800985a0 (B369). Synthetic.
+run Tf2DemoSalvage.Animation.Tests animation 572
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
@@ -1519,7 +1544,8 @@ run Tf2DemoSalvage.Presentation.Tests presentation 454
 # Synthetic bytes; fourteen red against the old reader and the Load cases compile-red; sabotages in B404.
 # 1186 -> 1188 on 2026-09-12: PhysicsModelConformanceTests, a .phy too short for its header and one declaring a
 # header size of 20 both refuse with InvalidDataException, the type every Scene caller catches (B405).
-run Tf2DemoSalvage.Content.Tests  content   1188
+# 1188 -> 1189 on 2026-09-12: PhysicsHullConformanceTests, a triangle header's bits 12-23 (B369). Synthetic.
+run Tf2DemoSalvage.Content.Tests  content   1189
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

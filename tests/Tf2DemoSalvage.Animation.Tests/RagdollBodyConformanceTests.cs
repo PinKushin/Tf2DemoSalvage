@@ -67,6 +67,8 @@ public sealed class RagdollBodyConformanceTests
             [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
             [(0, 1, 2)],
             [(0, 0, 0)],
+            [0],
+            [0],
             Vector3.Zero,
             0.1f);
 
@@ -102,7 +104,7 @@ public sealed class RagdollBodyConformanceTests
     /// <remarks>
     /// **The mass center crosses the same seam as the hull's points** (B403): the compact surface holds it in
     /// IVP metres and axes, in the solid's own frame, which is bone space here. IVP `(0.1, 0.2, 0.3)` is Source
-    /// `(x, z, −y)` × 39.37 = `(3.937, 11.811, −7.874)`.
+    /// `(x, z, −y)` × 39.3700790 = `(3.937, 11.811, −7.874)` to a thousandth.
     /// </remarks>
     [Test]
     public void Build_ASolidWithMassProperties_CarriesItsMassCenterIntoSourceUnits()
@@ -117,7 +119,7 @@ public sealed class RagdollBodyConformanceTests
     /// <remarks>
     /// **The hull inertia follows the AXES, not the signs, and its units are squared** (B403). IVP's per-axis
     /// inertia `(0.001, 0.002, 0.003)` about its x, y and z: Source x is IVP x, Source y is IVP z, Source z is IVP
-    /// −y, so about Source's axes it is `(0.001, 0.003, 0.002)` — and metres² to inches² is `39.37²`, giving
+    /// −y, so about Source's axes it is `(0.001, 0.003, 0.002)` — and metres² to inches² is `39.3700790²`, giving
     /// `(1.55, 4.65, 3.1)`. A conversion that moved the axes like a point would negate one; one that scaled
     /// once would be 39 times too small.
     /// </remarks>
@@ -126,9 +128,9 @@ public sealed class RagdollBodyConformanceTests
     {
         Vector3 inertia = RagdollBody.Build(WithMassProperties(), Skeleton())!.Elements[1].HullInertia;
 
-        inertia.X.ShouldBe(0.001f * 39.37f * 39.37f, 1e-3f);
-        inertia.Y.ShouldBe(0.003f * 39.37f * 39.37f, 1e-3f);
-        inertia.Z.ShouldBe(0.002f * 39.37f * 39.37f, 1e-3f);
+        inertia.X.ShouldBe(0.001f * IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre, 1e-3f);
+        inertia.Y.ShouldBe(0.003f * IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre, 1e-3f);
+        inertia.Z.ShouldBe(0.002f * IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre, 1e-3f);
     }
 
     /// <remarks>
@@ -178,6 +180,8 @@ public sealed class RagdollBodyConformanceTests
             [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
             [(0, 1, 2)],
             [(0, 0, 0)],
+            [0],
+            [0],
             Vector3.Zero,
             0.1f);
 
@@ -498,6 +502,8 @@ public sealed class RagdollBodyConformanceTests
             [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
             [(0, 1, 2)],
             [(0, 0, 0)],
+            [0],
+            [0],
             Vector3.Zero,
             0.1f);
 
@@ -533,6 +539,8 @@ public sealed class RagdollBodyConformanceTests
             [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
             [(0, 1, 2)],
             [(0, 0, 0)],
+            [0],
+            [0],
             Vector3.Zero,
             0.1f);
 

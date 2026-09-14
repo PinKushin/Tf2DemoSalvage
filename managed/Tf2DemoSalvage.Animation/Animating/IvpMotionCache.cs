@@ -93,7 +93,7 @@ public sealed class IvpMotionCache
     /// </remarks>
     public IvpMatrix Fresh(double time)
     {
-        ((double X, double Y, double Z) position, (float X, float Y, float Z, float W) rotation) = _body.TransformAt(time);
+        ((double X, double Y, double Z) position, (double X, double Y, double Z, double W) rotation) = _body.TransformAt(time);
 
         IvpMatrix core = IvpMatrix.FromRotation(rotation, position);
         (float X, float Y, float Z) offset = _body.ObjectOffset;

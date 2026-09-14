@@ -70,7 +70,7 @@ public sealed class IvpMotionCacheConformanceTests
         IvpRigidBody body = Rising();
         IvpMotionCache cache = new(body, Marker, resting: false);
 
-        ((double X, double Y, double Z) position, (float X, float Y, float Z, float W) rotation) =
+        ((double X, double Y, double Z) position, (double X, double Y, double Z, double W) rotation) =
             body.TransformAt(0.02d);
 
         cache.At(4, 0.02d).ShouldBe(IvpMatrix.FromRotation(rotation, position));

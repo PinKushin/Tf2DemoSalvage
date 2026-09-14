@@ -273,7 +273,8 @@ jobs:
           # 1166 -> 1186 on 2026-09-12: twenty for B404, vphysics' per-solid loader branches. Synthetic
           # bytes, so all twenty run here.
           # 1186 -> 1188 on 2026-09-12: a malformed .phy header refuses with InvalidDataException (B405).
-          ./build/assert-test-count.sh '**/content.trx' 1188 Content
+          # 1188 -> 1189 on 2026-09-12: a triangle header's bits 12-23, the backside walk's start (B369).
+          ./build/assert-test-count.sh '**/content.trx' 1189 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           # 412 -> 414 on 2026-08-29, and that is TWO bumps: the stale-clock case on
           # `DemoSystems.Open` (B223 follow-up) was raised in build/gate.sh and missed here, and the
@@ -346,7 +347,18 @@ jobs:
           # 366 -> 378 on 2026-09-12: IvpVertexFaceSearchConformanceTests (12), FUN_1800a1b50 (B369). Synthetic.
           #
           # 378 -> 384 on 2026-09-12: IvpCoreSpeedBoundConformanceTests (6), FUN_180099d60 (B369). Synthetic.
-          ./build/assert-test-count.sh '**/animation.trx' 384 Animation
+          # 384 -> 387 on 2026-09-12: IvpLedgeTopologyConformanceTests, the pierce triangle (3) (B369). Synthetic.
+          # 387 -> 409 on 2026-09-13: IvpCompactLedgeSolverConformanceTests (22) (B369). Synthetic.
+          # 409 -> 424 on 2026-09-13: IvpMindistMinimizeConformanceTests (15) (B369). Synthetic.
+          # 424 -> 462 on 2026-09-13: the other three times of impact and their seven evaluators (38) (B369). Synthetic.
+          # 462 -> 473 on 2026-09-13: IvpImpactDispatchConformanceTests (11) (B369). Synthetic.
+          # 473 -> 501 on 2026-09-13: IvpMinListConformanceTests (7), IvpPairSchedulerConformanceTests (21) (B369). Synthetic.
+          # 501 -> 512 on 2026-09-13: IvpTimeManagerConformanceTests (5), IvpMindistFireConformanceTests (6) (B369). Synthetic.
+          # 512 -> 534 on 2026-09-13: IvpHullManagerConformanceTests (22) (B369). Synthetic.
+          # 534 -> 545 on 2026-09-13: IvpMindistManagerConformanceTests (6), the scheduler's far filing (+5) (B369). Synthetic.
+          # 545 -> 567 on 2026-09-13: IvpMindistHullConformanceTests (20), IvpMindistManagerConformanceTests (+2) (B369). Synthetic.
+          # 567 -> 572 on 2026-09-13: IvpExactPhasesConformanceTests (5) (B369). Synthetic.
+          ./build/assert-test-count.sh '**/animation.trx' 572 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView

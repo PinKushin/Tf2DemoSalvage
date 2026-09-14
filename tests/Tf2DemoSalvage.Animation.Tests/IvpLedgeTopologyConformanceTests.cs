@@ -75,7 +75,7 @@ public sealed class IvpLedgeTopologyConformanceTests
     [Test]
     public void Hop_OntoATrianglesHeader_IsRefused()
     {
-        IvpLedgeTopology topology = new([(0, 1, 2), (0, 3, 1)], [(0, 0, 0), (0, -2, 0)]);
+        IvpLedgeTopology topology = new([(0, 1, 2), (0, 3, 1)], [(0, 0, 0), (0, -2, 0)], [1, 0], [0, 0]);
 
         Should.Throw<InvalidDataException>(() => topology.Hop(new IvpLedgeEdge(1, 1)));
     }
@@ -84,9 +84,32 @@ public sealed class IvpLedgeTopologyConformanceTests
     [Test]
     public void Hop_PastTheLedge_IsRefused()
     {
-        IvpLedgeTopology topology = new([(0, 1, 2)], [(4, 0, 0)]);
+        IvpLedgeTopology topology = new([(0, 1, 2)], [(4, 0, 0)], [0], [0]);
 
         Should.Throw<InvalidDataException>(() => topology.Hop(new IvpLedgeEdge(0, 0)));
+    }
+
+    /// <remarks>
+    /// **The backside walk starts from the first edge of the triangle a header names**, whichever of the three edges it
+    /// was handed: `FUN_180094e30` masks the feature to its triangle, reads `(header &gt;&gt; 12) &amp; 0xFFF`, and takes
+    /// `ledge + 16·index + 0x14` (`docs/findings/51`, *The minimize, routine by routine*). Triangle 1's third edge names
+    /// triangle 3; triangle 3 names triangle 0.
+    /// </remarks>
+    [TestCase(1, 2, 3)]
+    [TestCase(3, 1, 0)]
+    public void Pierce_AnyEdgeOfATriangle_IsTheFirstEdgeOfTheTriangleItsHeaderNames(int triangle, int slot, int across) =>
+        Tetrahedron().Pierce(new IvpLedgeEdge(triangle, slot)).ShouldBe(new IvpLedgeEdge(across, 0));
+
+    /// <remarks>
+    /// **A header naming a triangle past the ledge is refused (D32).** The engine would take whatever bytes lie there as a
+    /// triangle; twelve bits can name 4,095 and a ledge rarely has more than a few dozen.
+    /// </remarks>
+    [Test]
+    public void Pierce_PastTheLedge_IsRefused()
+    {
+        IvpLedgeTopology topology = new([(0, 1, 2)], [(0, 0, 0)], [1], [0]);
+
+        Should.Throw<InvalidDataException>(() => topology.Pierce(new IvpLedgeEdge(0, 0)));
     }
 
     /// <remarks>
@@ -97,7 +120,7 @@ public sealed class IvpLedgeTopologyConformanceTests
     [Test]
     public void Ring_ThatNeverReturnsToItsStart_IsRefused()
     {
-        IvpLedgeTopology topology = new([(0, 1, 2), (0, 3, 1)], [(0, 0, 2), (0, 0, 0)]);
+        IvpLedgeTopology topology = new([(0, 1, 2), (0, 3, 1)], [(0, 0, 2), (0, 0, 0)], [1, 0], [0, 0]);
 
         Should.Throw<InvalidDataException>(() => topology.Ring(new IvpLedgeEdge(0, 0)).ToList());
     }
@@ -106,10 +129,13 @@ public sealed class IvpLedgeTopologyConformanceTests
     /// <remarks>
     /// Edge addresses are `16·triangle + 4 + 4·slot`; each offset is the twin's address less the edge's own, over
     /// four. Triangle 0 is `(0, 1, 2)`: `0 → 1` at `+4` twins `1 → 0` at `+28`, `+6`; `1 → 2` at `+8` twins `2 → 1`
-    /// at `+60`, `+13`; `2 → 0` at `+12` twins `0 → 2` at `+36`, `+6`. The other three follow the same way.
+    /// at `+60`, `+13`; `2 → 0` at `+12` twins `0 → 2` at `+36`, `+6`. The other three follow the same way. Each
+    /// header names a triangle other than its own as the one across the ledge.
     /// </remarks>
     private static IvpLedgeTopology Tetrahedron() =>
         new(
             [(0, 1, 2), (0, 3, 1), (0, 2, 3), (1, 3, 2)],
-            [(6, 13, 6), (6, 7, -6), (-6, 4, -6), (-7, -4, -13)]);
+            [(6, 13, 6), (6, 7, -6), (-6, 4, -6), (-7, -4, -13)],
+            [3, 3, 1, 0],
+            [0, 0, 0, 0]);
 }

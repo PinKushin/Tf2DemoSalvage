@@ -8753,3 +8753,50 @@ siblling session is done after the merge it can be deleted and archived"* — ar
 done by the main session; deleting stays the owner's own click.
 
 Related: D145, D168, D169, D170.
+
+## D172 — all of IVP's collision to parity and running: the goal of B369 (2026-09-13)
+
+**The owner asked, midway through porting the contact point:** *"how was everything so fucked up we needed this massive
+refactor anyway? i thought we had all this on parity and working but idk"*.
+
+**The answer given:** it never was. The body half — the integrator, gravity, damping, the joint solve, the hull reader,
+the mass properties — was read out of `vphysics.dll`. Collision was not: `IvpContact` transcribed the impact solver at
+the center of IVP's collision path, and this project invented everything around it — per-vertex sampling against
+triangle planes, manifold clipping, push-out compensators, warm starts keyed by normal — each labeled in its own remarks
+as not the engine's, while reports leaned on the per-function claims ("the impact loop is the engine's"), which made the
+whole sound closer to parity than it was. The measured failures were already recorded beside that code: a corpse bouncing
+for ever, limit cycles, uphill sliding, buried limbs, and about nine tuning attempts that each measured worse.
+
+**The owner's reply:**
+
+> *"ok well fix it all, i was hoping we had enough contraints that shit wouldnt happen but w/e lets get it done, thats
+> your goal"*
+
+**What follows:** B369's goal is the whole of IVP's collision path — the pair scheduler and hull managers already ported,
+the contact points and their records, the friction systems, both solves and the listeners — ported bottom layer first and
+put on the running path, replacing `IvpContact`'s invented structure rather than sitting beside it, with the compensators
+deleted as step 7 says. **A claim of parity names the subsystem, not a function**: a transcribed routine inside structure
+of this project's own is reported as exactly that. The owner's remark about constraints came with no instruction to add
+any, and none is inferred from it.
+
+Related: D89, D129, D131, D163, B369.
+
+## D173 — IVP runs in metres inside; Hammer units stop at the vphysics seam (2026-09-14)
+
+**The owner asked, while the older IVP ports were being converted from inches:** *"Why tf are converting to real life
+measures valve uses hammer units"*.
+
+**The answer given:** the game uses Hammer units and keeps them; `vphysics.dll` converts at its own boundary and runs IVP in
+metres. The SDK says so — `METERS_PER_INCH (0.0254f)` in `src/public/vphysics_interface.h:40`, and game code converting before
+it calls in through `HL2IVP`/`IVP2HL` in `game/server/fourwheelvehiclephysics.cpp:562-564` — and so does the binary: `0.0254f`
+at `DAT_18011f000`, the collision tolerance derived as `(0.25f − 1e-4f) × 0.0254f`, gravity multiplied by `0.0254f` in
+`SetGravity`, and every IVP threshold (`1e-19`, `1e-12`, `1e-10f`, `1e-8`) a metre value. The older ports had multiplied those
+constants by 39.37 to stay in inches, which rounds differently from the binary's arithmetic and cannot reach bit parity.
+
+**The owner's reply:** *"Oh ok so parity."*
+
+**What follows:** every IVP port runs in metres with the binary's own constants, and the conversion to and from Hammer units
+happens once, where `CPhysicsEnvironment` and `CPhysicsObject` do it. The code still running in Source units (`IvpEnvironment`,
+`IvpContact`, `RagdollSimulation`) is the structure D172 replaces; it is not converted in place.
+
+Related: D89, D172, B369.

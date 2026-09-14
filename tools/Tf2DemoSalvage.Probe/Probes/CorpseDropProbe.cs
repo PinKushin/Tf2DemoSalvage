@@ -817,7 +817,7 @@ public sealed class CorpseDropProbe : IProbe
         TextWriter output,
         MapLevel level,
         RagdollBody ragdoll,
-        SurfaceTable surfaces,
+        VphysicsSurfaceProps surfaces,
         (float X, float Y, float Z) at,
         (float X, float Y, float Z) blow,
         byte[] map)

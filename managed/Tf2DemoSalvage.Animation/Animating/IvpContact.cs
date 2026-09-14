@@ -107,7 +107,7 @@ public sealed class IvpContact
         }
 
         // The inverse rotation, which for a unit quaternion is its conjugate.
-        (float X, float Y, float Z, float W) back = (
+        (double X, double Y, double Z, double W) back = (
             -Body.Orientation.X, -Body.Orientation.Y, -Body.Orientation.Z, Body.Orientation.W);
 
         (float X, float Y, float Z) local = IvpQuaternion.Rotate(back, fresh);
@@ -1318,7 +1318,7 @@ public sealed class IvpContact
         }
 
         Quaternion orientation = new(
-            body.Orientation.X, body.Orientation.Y, body.Orientation.Z, body.Orientation.W);
+            (float)body.Orientation.X, (float)body.Orientation.Y, (float)body.Orientation.Z, (float)body.Orientation.W);
 
         Vector3 centre = new((float)body.Position.X, (float)body.Position.Y, (float)body.Position.Z);
 
@@ -1655,7 +1655,7 @@ public sealed class IvpContact
         }
 
         Quaternion orientation = new(
-            body.Orientation.X, body.Orientation.Y, body.Orientation.Z, body.Orientation.W);
+            (float)body.Orientation.X, (float)body.Orientation.Y, (float)body.Orientation.Z, (float)body.Orientation.W);
 
         Vector3 centre = new((float)body.Position.X, (float)body.Position.Y, (float)body.Position.Z);
 

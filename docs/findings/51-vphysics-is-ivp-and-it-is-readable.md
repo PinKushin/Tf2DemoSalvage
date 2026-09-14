@@ -236,7 +236,8 @@ param_2[0xe] = (double)(0.0254f * param_1[7]);                  // + ty
 
 Both constants are dumped, not inferred: `1800ea5e0` is `0x8000000080000000` — the **sign bit**, so
 every XOR above is a negation — and `18011f000` is `0x3cd013a9` = **0.0254**, metres per inch, with
-`39.37` sitting in the adjacent dword.
+`0x421d7af6` = `39.3700790`, the float reciprocal of `0.0254f`, in the adjacent dword. *This line said `39.37` until the
+dword was dumped on 2026-09-13; see the correction under `SetGravity` below.*
 
 **The rule is `Source (x, y, z) → IVP (x, −z, y)`**, applied as a similarity transform `M' = P M Pᵀ`
 with
@@ -290,8 +291,12 @@ local_48 = (double)(0.0254f * g[1]);
 
 `CreatePolyObject` (`18001b340`) repeats it for the object's position and again for
 `objectparams_t::massCenterOverride`. **`SetGravity` also settles which constant runs the other
-way**: it converts a tolerance back for its own `DevMsg` with `DAT_18011f004`, the 39.37 dword —
-not a reciprocal of 0.0254, and the two differ by two parts in a million.
+way**: it converts a tolerance back for its own `DevMsg` with `DAT_18011f004`. *This paragraph first called that
+"the 39.37 dword — not a reciprocal of 0.0254, and the two differ by two parts in a million".* **Wrong, and killed by
+dumping the bits** (2026-09-13, `tolerance_init.log`): the dword is `0x421d7af6`, `39.3700790` — exactly `1f / 0.0254f`
+in float, checked by evaluating it — while `39.37f` is `0x421d7ae1`. The decompiler prints a float's short decimal, `39.37`
+was taken for the value, and `IvpTransform.InchesPerMetre` carried the wrong float until then;
+`IvpWorldCollision.SourceUnitsPerMetre`, written as `1f / 0.0254f`, held the right one all along.
 
 **`CreatePolyObject` refuses a non-finite position rather than passing it on**, and the test is on
 the raw bits:
@@ -1008,6 +1013,14 @@ That is now the single remaining link between this loop and the constraint solve
 
 *Evidence class: read from the decompiled binary; vtable slot, xref and both constructor/destructor
 chains independently confirmed.*
+
+**Read again from the disassembly for the port (2026-09-13)** (`event_loop_8a110.log`), three points the text above does
+not carry. **The loop runs while the minimum is under `(float)(target − base)` or either is NaN** — `COMISS` then `JNC`
+to skip it, `JC` to repeat — the limit narrowed with `CVTPD2PS` at the top and `CVTSD2SS` at the bottom, which round
+alike. **The minimum is captured before the unlink**, and both clocks are set from it. **`FUN_180082460` is `env+0x1a0
++= 1; env+0x188 = time`**, so every clock set is counted, the final snap to the target included. The slot unlinked is
+the head element's own `+0x8`. **Ported as `IvpTimeManager`, and the fire routine as `IvpMindistFire`** with the
+minimize, the scheduler and the impact handed in; the fire routine's profiler marks are not carried.
 
 ## From reading to code: what is now transcribed
 
@@ -2237,10 +2250,12 @@ chasing corpses with limbs eighty units under the ground:
 4. **No impact found:** the next check is scheduled at `(distance − ε) / speedBound` from now, with a
    small floor, so the pair is looked at again no later than the earliest moment it could meet.
 
-**The minimize step descends the hull.** `FUN_180095cb0` walks a second feature-pair table
-(`DAT_18012d4b0`), up to two retries. A result of `3` where a synapse's kind is `5` replaces that node
-with its child (`FUN_180094e30`) and sets the kind to `2`, then retries — the same hull-then-triangles
-descent the virtual mesh's surface manager exposes from the other side.
+**The minimize step recovers from a backside.** `FUN_180095cb0` walks a second feature-pair table
+(`DAT_18012d4b0`), up to two retries. A result of `3` where a synapse's kind is `5` replaces that synapse's
+feature with a triangle `FUN_180094e30` walks to, sets the kind to `2`, and retries. **An earlier draft of this
+paragraph called that a hull descent, "replacing that node with its child"; it is not.** Kind `5` marks a point
+found BEHIND a face, and `FUN_180094e30` starts from the face's opposite triangle and walks the ledge toward the
+point — read in full in *The minimize, routine by routine* below.
 
 **Ours is a fixed step with speculative contacts and a push after penetration.** That is the
 structural divergence under B369: IVP never needs `TerrainDepth`, because no pair is ever allowed
@@ -2290,6 +2305,23 @@ no impact event"; they cannot occur, and reaching one stops the process.
 | (0,2) | `FUN_1800a1b50` |
 | (1,1) | `FUN_1800a1420` |
 | anything else | the same assertion, at lines `0x4cf`, `0x4da`, `0x4df` |
+
+**Read again for the port, instruction by instruction (2026-09-13), with the ball entries beside it**
+(`scheduler_near_99380.log`, `toi_table_others.log`). `FUN_1800a3fe0` writes `0` to the context's event kind before it
+routes, and releases both cache objects' reference counts (`+0xc4`) after. **The table does not reorder a pair** — an
+edge against a point is `FUN_1800a4200` — so synapse A must already hold the lower kind, which the minimize's flips
+arrange. **A point against a backside indexes `0·4 + 5`, the `(1,1)` entry**, and faults inside `FUN_1800a3fe0` at
+line 1231 rather than at the table's 1258; a backside first indexes past the table's eighteen filled slots. Neither can
+occur, because the minimize resolves a backside before it returns.
+
+**The ball routines read synapse records 0 and 1 directly**, not the ones the flags select. `FUN_1800a3b60` (ball-ball)
+sets `time := end` and runs `FUN_1800b6210` over the point-point evaluator with both points at their objects' origins
+and `u` the difference of the two cache objects' translations (`+0xa0`) scaled with five steps, to `(double)extra +
+(double)margin`, tolerance `(double)(0.5f·extra + 0.1·d)`, no known distance: `0x10`, and nothing more. `FUN_1800a3d30`
+(ball first) routes the ledge synapse's kind: `0` to `FUN_1800a0fc0`, `1` to `FUN_1800a0930`, both unread, and `2`
+inline — the point-plane evaluator from the ball's centre to the face, **handed the known distance `(double)(extra +
+length)`** as the vertex-face search is, raising `0x20` — and **it never sets `time := end`**, which only the scheduler's
+own reading of the time could expose; it reads the time only when a kind was written. Anything else is line 1165.
 
 These are the four routines this document named earlier as the narrow phase. **The legal set has no
 (1,2) and no (2,2)** — which is exactly the minimal closest-feature pair set of the V-Clip method
@@ -2807,6 +2839,447 @@ bookkeeping on both objects and cores; *that it is the impact solver is INFERRED
 *Evidence class: read from the disassembly for `FUN_1800992e0` and the call list of `FUN_18008ecb0`; the vtable
 slots from a table scan.*
 
+### The event queue, and where the far branch hands a pair off (2026-09-13)
+
+**Read from the disassembly** (`time_manager.log`, `scheduler_callees.log`), for the port of `FUN_180099380`.
+
+**The queue is a min-list of `0x18`-byte entries** (`FUN_1800aaed0` adds, `FUN_1800ab1b0` removes): a capacity word at
+`+0x0`, a free-list head at `+0x2`, the entries at `+0x8`, the minimum at `+0x10`, a long-list head at `+0x14`, the head
+at `+0x18` and a count at `+0x1c`; each entry a long-list next and previous at `+0x0`/`+0x2` (`0xfffe` for an entry the
+long list skips), a next and previous at `+0x4`/`+0x6`, a float value at `+0x8` and the element at `+0x10`.
+
+- **An add at or under the minimum becomes the head** (`COMISS`/`JA`, so a NaN does too, and so does a tie). Any other
+  walks the long list and then the short one while the value is over each entry's, and goes in before the first it is
+  not over: **a new event goes before every queued event of equal time**. The long list only shortens the walk —
+  rebalanced once a walk passes three hops — and cannot change where an entry lands.
+- **A free slot is reused last-freed-first**; with none free, the list grows to `min(2·capacity + 1, 0xfffc)` and the new
+  entry takes index `capacity`, the rest chained in order. *The constructor, and so the first capacity, is not read.*
+- **A remove unlinks in place**; removing the head makes the next entry's value the minimum, or `0x501502f9` —
+  `1e10f` — when the list empties. **An add over `1e10f` to an empty list walks from index `0xffff`**, past the entries;
+  a queue of event times never holds one.
+
+**The far branch, past its threshold test**, when `removeFar` is set: `FUN_180098dd0` takes the mindist out of the
+time manager if queued, out of the environment's exact-mindist list (`+0xc8`/`+0xd0` links, head at the manager's
+`+0x10`), out of both synapse records' object lists (`+0x38`/`+0x40` and `+0x70`/`+0x78`, heads at each object's
+`+0x40`), and swap-removes it from the manager's array (`+0x20`, count `+0x1a`). Then, with `gap = (float)(length −
+margin)` and records 0 and 1 taken **directly, not through the flags**:
+
+- record 0's object's byte `+0x78 & 7` zero: flags `&= ~0x280000`, `|= 0x140000`, and `FUN_180097c40` for record 0 with
+  `0` and for record 1 with `gap`, the mindist's `+0xa0` being their sum;
+- record 1's zero instead: `FUN_180097bd0(mindist, gap, 0)`, which does the same;
+- neither: `s = core+0x254 + core+0x1dc + 1e-10f` per record, and `FUN_180097bd0(mindist, gap·(0.1·s₁ + s₀)/Σ,
+  gap·(0.1·s₀ + s₁)/Σ)`, `Σ` the two shares summed — all in float.
+
+**`FUN_180097c40(record, allowance)` files a synapse in its OBJECT's own min-list at `+0xa0`**, keyed `(float)((double)((float)(now −
+object+0x80) · object+0x88 + object+0x90) + allowance)`, stores the slot at the record's `+0x8`, and returns
+`(double)((object+0x88 − object+0x8c)·t + (object+0x90 − object+0x94))`. **That is IVP's hull manager**, a subsystem of
+its own: *what writes those object fields, and what fires when an object's list comes due, is not read.*
+
+**The fire routine, `FUN_1800992e0`, read again whole**: profiler marks `8` and `0xe` through the environment's `+0x50`
+object's slot 1 around it; the minimize; flags `& 0xc000` ends it; a kind with low bits set reschedules with
+`FUN_180099380(mindist, 0, 1)`; otherwise `(float)(0.1·d + margin)` over the length (`COMISS`/`JBE`, so a NaN
+reschedules) calls the mindist's virtual `+0x40`, and anything else reschedules with mode `2`.
+
+**The near branch's constants are floats widened, read beside their instructions**: `2.1f`, `1.001f`, `0.1f`, `1e-7f`,
+`1e-5f`, `1e-4f`, `0.001f` and the `1e-6f` a float compares against; `1e-12` and `1e-19` are doubles; `DAT_18012d670`
+is `1.0`, set at runtime beside the tolerance block. **`1e-12` (a gap) and `1e-19` (a closing speed) are the engine's
+metres**: the port first carried them converted to inches, and since D173 it runs in metres and carries both directly; the
+rest are times or ratios.
+
+**The metre conversion's sabotage round (2026-09-14) put each constant back in inches, one at a time.** The tolerance
+block's members and `MarginFor`, the far split's `1e-10f` and the point-point ring target reddened at once; five floors did
+not, because no fixture drove the guarded quantity near them. Four now have a case between the floor and 39.37 times it —
+a hull pass with both cores at the speed floor, a closing speed of `1e-18`, a point-edge gap of `1e-7`, a regula-falsi
+residual of `1e-7` — each reddening alone. **The fifth is equivalent**: the recheck's `1e-12` guards `length − ε`, two floats
+near `6.35e-4`, whose difference is zero or at least one float step, `2⁻³⁴ ≈ 5.8e-11` — above both floors — so no input a
+float length can hold falls between them.
+
+*Evidence class: read from the disassembly for all six routines. Not established: the min-list's constructor, the hull
+manager beyond the two routines named, and what the object byte `+0x78`'s low three bits mean — the motion cache
+reads `≥ 8` as not moving, which says nothing about `& 7`.*
+
+**What the fire routine's collision call does, read to its first layer of callees (2026-09-13)** (`impact_8ef60.log`,
+`impact_callees.log`), because it is the next thing under the ported scheduler and it turns out to be a subsystem, not a
+routine:
+
+- **`FUN_18008ecb0`, the plain mindist's `+0x40`**: wakes both synapse objects (`FUN_180074360` — state `8` only, through
+  `FUN_1800758e0`), counts itself in the environment arena's user count (`env+0xf8`, `+0x20`; the arena is reset by
+  `FUN_180072970` when the count returns to zero), revives each core whose state byte `+0x1` is under `8` and whose
+  flags lack `0x10` (`FUN_180078d60`: a `+0x260` record from the arena, the rotation slerped and filled to now through
+  `FUN_180071060` and `FUN_180071330`, the position advanced `+0x150 + (float)(now − +0x1d0)·+0x170`, and — unless flags
+  `& 8` — the angular velocity rebuilt from the step's rotation through `FUN_1800d392c` three times, scaled by `2·+0x1d8`),
+  increments `env+0x1a4`, and calls `FUN_18008ef60(mindist, object 0, object 1)`.
+- **`FUN_18008ef60`**: finds or builds the pair's friction system (`FUN_180090e50`, which merges systems, allocates
+  `0x90`/`0x18` records, and hands islands between cores' `+0x1f8`), finds the pair's record in it by both cores
+  (`FUN_1800850b0`), stamps the record's time and the event's float `dt`, calls the environment's collision listeners
+  flagged `8` (`FUN_180082170`, slot 0, a list at `env+0x148`, count `+0x142`) and each object's listeners flagged `8`
+  when its flags hold `0x2000` (`FUN_180088800`), computes a float from both cores' angular velocities `+0x130`, the
+  material at `+0x70` and `DAT_18012d544` (`FUN_18008fca0`), runs the impact through `FUN_18008ed60` — the entry to the
+  solver `IvpContact` already carries — negates the pair's normal for a core flagged `2` around **`FUN_180090700`, which
+  adds the pair to the friction system and loops its solve up to `0x1388` times** before tailing into `FUN_1800909d0`,
+  restores the normal, and calls the same listeners flagged `1` (slot 1: `FUN_180082110`, `FUN_1800886c0`).
+
+**None of that is ported, and it is named here so the gap is honest**: `IvpContact` was ported from the decompiled solver
+before any of this was read, and the friction system around it — creation, merging, the solve loop, the listeners — has
+no counterpart. *`FUN_18008fca0`'s float being an impact strength is INFERRED from its inputs; `FUN_1800d392c` is taken
+to be an inverse trigonometric helper from its use, not from a name.*
+
+### The hull manager, and how a far pair is told to look again (2026-09-13)
+
+**Read from the disassembly** (`hull_update.log`, `hull_helpers.log`, `hull_psi.log`, `hull_core.log`, `hull_gradient.log`,
+`hull_far.log`, `hull_thunks.log`, `hull_ctor*.log`, `anomaly*.log`, `perf_settings.log`), for the port of the far branch.
+**A far pair is not rechecked on a clock: each of its two synapse records is filed in its object's hull manager, keyed
+at a hull value, and told when the object's hull passes it.**
+
+**The manager, at `object+0x80`**, zeroed by `FUN_1800943d0`: a double time at `+0x0`; floats for the gradient `+0x8`,
+the center gradient `+0xc`, the value `+0x10`, the center value `+0x14` and the next PSI's value `+0x18`; an int reset
+time at `+0x1c`; and a min-list at `+0x20` built with capacity `8`. **`FUN_1800aae10`, the min-list constructor**, takes
+`min(capacity, 0xfffc)`, chains the entries free in index order, heads both lists at `0xffff` and sets the minimum to
+`1e10f` — so the time manager's slot numbering, carried as a list that grows from empty, was right.
+
+- **Each PSI, per core** (`FUN_18009a590` → `FUN_180099a00`, cores and then objects walked last first): after the
+  integrator, `FUN_180099d60` rebuilds the angular bound from the step's rotation `r` — over `|r|² > 1e-19`, a five-step
+  inverse square root gives `a = |r|` and the bound `(2a + a³·(1/3) + 2·0.40414·a⁵)·(1/dt)`, whose `a⁵` coefficient makes
+  `a = 1` give `3.14161`, at least π; the surface bound `+0x254` is that times `core+0x8`, and the axis `+0x1c0` is the
+  core's rotation rows dotted with `r/|r|`; under the floor the axis is `(1, 0, 0)` and both bounds zero. **The gradient is
+  `(surface bound + linear speed)·1.00001f`**, and each object's manager then takes `dt = (float)(now − time)`, moves the
+  center value along the old center gradient and the value along the old gradient, takes the linear speed as the center
+  gradient, the time as now and the new gradient, and projects `next = gradient·step + value` — all in float. **A manager
+  whose list minimum less `next` is under zero (`COMISS`/`JNC`, so a NaN too) is pushed.**
+- **`FUN_18009a690` walks the pushed managers from the last to the first.** Each tells its head synapse's listener slot 1,
+  handing it the minimum less `next`, while that is under zero; then, when `(double)` its reset time is under its time
+  (`COMISD`/`JNC`), it rebases and sets the reset to `(int)(time + 10.0)`, truncated.
+- **The telling is budgeted** by the environment's anomaly limits `env+0x48`, int `+0x18`: counted down per telling, and
+  once under zero the environment's anomaly manager `env+0x40`, slot `+0x20`, is asked with the checks done so far and its
+  answer added back; still under zero, the pass stops, and otherwise the checks done become `done + 1 + remaining`.
+  **For TF2's client the budget is 250 and the extension zero**: vphysics's environment constructor `FUN_1800114f0` calls
+  its `SetPerformanceSettings`, `FUN_180015200`, with `physics_performanceparams_t::Defaults()` (`6, 250, 2000, 3600, 1,
+  0.5, 10, 2500`, `vphysics/performance.h:30`), which writes `maxCollisionChecksPerTimestep` to `+0x18` — beside
+  `maxCollisionsPerObjectPerTimestep` at `+0x10`, `0.0254·maxVelocity` at `+0xc`, `maxAngularVelocity·0.017453292f·psi` at
+  `+0x14` and both friction masses clamped to `[1, 50000]` at `+0x1c`/`+0x20`, over IVP's own `FUN_180089550` defaults
+  (`2000`, `70000`, π/2, `1000`, `10`, `2500`). vphysics's anomaly manager's slot `+0x20`, `FUN_180016e60`, asks the
+  collision solver's `AdditionalCollisionChecksThisTick` (`vphysics_interface.h:511`), which the client's `CCollisionEvent`
+  answers `0` (`game/client/physics.cpp:77`), and the client never calls `SetPerformanceSettings` itself. **So a client
+  manager tells at most 251 synapses in one pass.**
+- **The rebase, `FUN_180094490`**, walks the list head first adding `−value` to each key and telling each listener's slot 3
+  `(−value, −center)`; then adds `−value` to `next` and to the list's minimum — **an empty list's `1e10f` drifts with it** —
+  and zeroes the value and center.
+- **A core coming to rest** (`FUN_1800791a0`, `FUN_180078c90`) sets each object's byte `+0x78` to `8`, runs the broad phase
+  `FUN_180098880` for it, folds both gradients into the values over `(float)(now − time)`, zeroes the gradients, leaves
+  the time, and rebases unconditionally.
+- **A teleport** (`FUN_18009a870`, from `FUN_1800733c0`) adds the core's movement bound to every object's `+0x98`, takes
+  that as the value with zero gradients, adds the moved distance to the center, tells and rebases as the pass does, and
+  zeroes the core's speed bounds.
+
+**Filing.** `FUN_180097c40(record, allowance)` keys at `(float)((double)((float)(now − time)·gradient + value) +
+allowance)` — the allowance added in double — and returns `(double)((gradient − center gradient)·t + (value − center
+value))`, the hull past its center, in float. `FUN_180099970(manager, record, time, allowance)` takes the record out and
+files it again at the same key over a given time. `FUN_180097e20(mindist, a₀, a₁)` sets the flags `& ~0x280000 |
+0x140000` and files both records at `next + aᵢ` in float, writing nothing to `+0xa0`; `FUN_180097d60(mindist, gap)` calls
+it with `1e-10f` for a side whose object's `+0x78 & 7` is zero and the gap for the other, or with the far branch's split.
+
+**The listener table the records carry, `1800fdea0`**: slot 0 returns zero; slot 1, `FUN_180097570`, finds the mindist
+from the record's `+0x30` word and tails into `FUN_180097f00` with the shortfall; slot 2, `FUN_180097580`, deletes the
+mindist — `FUN_180094420`, the manager's teardown, calls it for every entry; slot 3, `FUN_1800975a0`, adds `(double)(value
+shift − center shift)` to the mindist's `+0xa0`; slot 4 destroys a `0x38`-byte record. **The mindist's own table follows
+at slot 5**: its deleting destructor, the fire routine `FUN_1800992e0` at `+0x8`, `+0x28` `FUN_1800947e0` (the anomaly
+manager's slot `+0x38` for a float and then its `+0x10`), `+0x38` `FUN_180097440`, and `+0x40` `FUN_18008ecb0`.
+
+**`FUN_180097f00`, told that a hull passed**: state `0x100000` tails into `FUN_1800b28a0`, *not read*. Flags `& 0x30000`
+hand the pair off at once. Otherwise each core's position at now is `+0x150 + (double)(float)(now − +0x1d0)·+0x170`;
+`d = ((y₀ − y₁)·n_y + (x₀ − x₁)·n_x) + (z₀ − z₁)·n_z` in double; each side's hull past its center is the float
+`(gradient − center gradient)·(float)(now − time) + (value − center value)`, summed `h` in double; **the new length is
+`length − (h − +0xa0) − (+0x9c − d)`**; each side's speed is `(double)(+0x254 + +0x1dc) + 1e-19`. When the shortfall
+plus the new length is over `(double)(float)step·(s₀ + s₁)·6.0`, the mindist keeps `h` at `+0xa0`, `(float)d` at `+0x9c`
+and `(float)` the new length at `+0xa8`, and each record is filed again over now with `((shortfall + new length)/(s₀ +
+s₁))·sᵢ`. **Otherwise both records leave their managers and the pair is handed off**: to `FUN_180097940` when `flags &
+0x3000` is `0x1000`, and to `FUN_1800977f0` otherwise.
+
+**`FUN_1800977f0`, becoming exact**: flags `& ~0x300000 | 0xc0000`; the mindist at the head of the mindist manager's
+exact list (`+0xc8`/`+0xd0` links, head `+0x10`) and each record at the head of its object's `+0x40` list; the minimize
+`FUN_180095cb0`; appended to the manager's array (`+0x18` capacity, `+0x1a` count, `+0x20`) that `FUN_180098610` walks
+each PSI when either core's `+0x58` is set; then, with flags `& 0xc000`, the mindist's `+0x38` — `FUN_180097440`, which
+unfiles it, sets the flags `& ~0x340000 | 0x80000` and lists it and its records on the manager's `+0x28` and the objects'
+`+0x48` — and otherwise `FUN_180099380(mindist, (core₀ byte +0x1 | core₁ byte +0x1) < 0x21, 0)`.
+
+**`0x1000` is the phantom state**: the constructor `FUN_1800975d0` sums both objects' `+0xe0` into `+0x98` and becomes
+exact unless either object has a `+0x38` pointer, when it sets `0x1000` and goes through `FUN_180097940` — the minimize
+with a budget of zero (`FUN_180095ad0`), the phantom's float `+0x10` widening the gap, and the phantom listeners
+`FUN_18008ae50`/`FUN_18008b0a0`. **The states under `0x3c0000`**: `0x140000` filed with the hull managers, `0xc0000`
+exact, `0x80000` invalid, `0x100000` recursive.
+
+**How an exact pair goes back to far, read from the PSI's phases** (`hull_manager.log`, `exact_phases.log`). *The plan
+carried into this reading had `FUN_180097d60` as the way an exact pair is filed again; it is not, for a plain pair.*
+
+- **Phase 3, `FUN_1800983e0`, right after the hull pass**, walks the exact list head first, reading each next link before
+  it calls anything, and minimizes every mindist (`FUN_180095cb0`). A plain pair — flags `& 0x3000` clear — whose minimize
+  left bits of `0xc000` goes to the mindist's `+0x38` (`FUN_180097440`, invalid); nothing else happens to it. **Only a
+  pair with bits of `0x3000` goes on to `FUN_180098dd0` and `FUN_180097d60`**, through the phantom listeners.
+- **The rechecked array**, walked last first by `FUN_180098610` before the step, runs `FUN_180098710` on each entry: the
+  same minimize and the same split — invalid for a frozen plain pair, the phantom path otherwise — and then, for a pair
+  one of whose records is kind 3, the resting-contact routine `FUN_180096460`.
+- **Phase 4, `FUN_1800985a0`, walks the exact list again and hands every mindist to `FUN_180099380(mindist, 1, 1)`** — the
+  scheduler with `removeFar` set and recheck mode 1, the next link read first. **That is the plain pair's way back to
+  far**: a pair past its threshold is unfiled and filed with its objects' hull managers.
+- **So `FUN_180097d60` and `FUN_180097e20` serve the phantom path** (`FUN_180097940`, `FUN_180098710`, `FUN_1800983e0`)
+  and the recursive mindist's `FUN_1800b2460` and `FUN_1800b2700` — not a plain pair.
+
+**The speed floors are metres a second**: `1e-10f` in the far split and `FUN_180097d60`, `1e-19` in `FUN_180097f00`. The port
+first carried them converted to inches; since D173 it runs in metres and carries them directly. *The first port of the split
+left `1e-10f` in metres inside an inch port* — a difference only a pair creeping at about a nanometre a second can show, where
+the split is `0.546 : 0.454` in inches and `0.841 : 0.159` in metres — and a case that tells the two apart pins it, now at the
+metre split.
+
+*Evidence class: read from the disassembly, and from the SDK for the performance defaults and the client's solver. Not
+established: what an object's `+0x78 & 7` and a core's `+0x58` and byte `+0x1` mean; the recursive mindist
+`FUN_1800b28a0`; the phantom path past its first layer; and the broad phase `FUN_180098880`, which files its own
+listener in the same managers through `FUN_18009de80`.*
+
+### The minimize, routine by routine (2026-09-12)
+
+**Read from the disassembly of every routine below** (`D:\ghidra-proj\out\minimize_*.log`,
+`cache_object_fill.log`). Two assertion strings name the source files: `FUN_180095cb0` and `FUN_180094f80` assert in
+`ivp_mindist_minimize.cxx`, and `FUN_18007bbd0` asserts at line 674 of `ivp_compact_ledge_solver.cxx`; *that its
+neighbors from `18007b300` to `18007d480` are in the same file is INFERRED from their addresses*. Every dot product
+sums `x` and `y` before `z` unless a line says otherwise — the disassembly sometimes adds `y` first, which is the same
+bits — and every comparison's NaN case is written out, because the eight feature routines branch on `COMISD`/`JNC`,
+`JBE`, `JA` and `JC` in no consistent pattern.
+
+#### The solver, the sides, and what the minimize writes
+
+**The solver is a stack structure** in `FUN_180095cb0`: `+0x00` the mindist; `+0x08` a step budget of **20**,
+decremented by four of the eight feature routines on entry; `+0x10..0x20` a point in doubles, written when a routine
+reports a backside; `+0x30` up to **256** pair keys of eight bytes each, and `+0x830` their count.
+
+**A side** — one per synapse, built by `FUN_180094c70` exactly as the time-of-impact dispatch builds them — holds the
+ledge's point array at `+0x00`, the ledge at `+0x08`, the object's CACHE OBJECT at `+0x10`, the real object at
+`+0x18`, and its synapse record at `+0x20`, whose `+0x28` is the feature (an edge word's address) and whose word at
+`+0x32` is the feature's kind: `0` point, `1` edge, `2` triangle, `5` a triangle the point was found behind.
+
+**The cache object is the object at the environment's current time**, filled by `FUN_180080a60`: with `dt =
+(float)(now − core+0x1d0)`, the rotation is `FUN_180071060`'s slerp from `core+0x180` to `core+0x1a0` at
+`(double)(dt × core+0x1d8)` and the position is `core+0x150 + (double)core+0x170 × (double)dt` per component — or both
+copied straight from `core+0x180` and `core+0x150` when `dt` compares equal to zero, which `UCOMISS`/`JNZ` also says of
+NaN. **The core position goes to `+0x00`**; the matrix at `+0x40` is `FUN_180071330` of the two, with its translation
+replaced by the object offset put through it unless bit `0x800` is set — the same composition `IvpMotionCache.Fresh`
+ports.
+
+**What the minimize writes to the mindist:** the length at `+0xa8` (less the extra radius at `+0x98`), the normal at
+`+0xb0`, `+0x9c` = `(float)(coreFirst − coreSecond)` dotted in float with that normal, both synapses' feature and kind,
+bit 8 of the flags — **flipped whenever a routine is about to call another with the other side first**, so synapse A
+is always the first argument's — and bits 14–15.
+
+#### The entry and the two dispatchers
+
+```
+FUN_180095cb0(mindist):
+  if mindist+0xc0 == env+0x1a0: return 4            -- once per PSI
+  mindist+0xc0 = env+0x1a0
+  retries = 0
+  loop:
+    r = DAT_18012d4b0[kind(B) + 4·kind(A)](solver)  -- A = synapse (flags >> 8) & 3, B the other
+    if r == 1: flags &= ~0xC000; return 1
+    flags = (flags & ~0x8000) | 0x4000
+    if r == 2: break
+    if r != 3: assertion at line 0x138
+    s = synapse A if its kind is 5, else synapse B
+    s.feature = FUN_180094e30(s.feature, solver+0x10); s.kind = 2
+    if ++retries >= 2: break
+  unless (flags & 0x3000) == 0x1000 or (flags & 0x3C0000) == 0x100000: mindist.vtable[+0x28](mindist)
+  return r
+```
+
+`FUN_180094f70` is three instructions — flip bit 8, jump to `FUN_180094c70` — so `(1,0)` and `(2,0)` become `(0,1)`
+and `(0,2)`. `FUN_180094c70` builds both sides and routes on `kind(B) + 4·kind(A)`: `0` → PP, `1` → PK, `2` → PF, `5` →
+KK, anything else → FF, each called `(solver, featureA, featureB, sideA, sideB)`. *The result names — `1` settled, `2`
+gave up, `3` backside, `4` already done — are INFERRED from what each path does*; the virtual at `+0x28` is unread.
+
+**The loop check, `FUN_180094600(solver, typeA, featureA, typeB, featureB)`**, is consulted only once the budget has
+gone negative: it ORs each feature's low 32 bits with its type, orders the pair by signed value, returns `1` if the
+pair is already among the keys (scanned newest first) or if 256 are stored, and otherwise stores it and returns `0`.
+
+#### The compact-ledge helpers
+
+| routine | does |
+|---|---|
+| `18007ba70`, `18007d480` | a point of one side into the other side's frame: `T.RotateInverse(S.ToWorld(p) − T.t)`, each sum grouped as `IvpMatrix` groups it; the first takes an edge, the second a point |
+| `180080720` via `18007d2e0` | an edge's start point into the world, `ToWorld` of the widened float point |
+| `180080670` | a world point into a frame, `RotateInverse(p − t)` |
+| `18007d070` | an edge's two weights for a point `p` (`S` its start, `E` its end, `d = (double)(E − S)` subtracted in float): `a = (float)(((p.y − S.y)·d.y + (p.x − S.x)·d.x) + (p.z − S.z)·d.z + FLT_MIN)`, `b = (float)(((E.y − p.y)·d.y + (E.x − p.x)·d.x) + (E.z − p.z)·d.z + FLT_MIN)`; the points widened before subtracting `p` |
+| `18007cdf0` | a triangle's weights for `p`: barycentric about the start `A` of the triangle's SECOND edge word, whatever edge is passed — `u = B − A`, `v = C − A` (float subtraction, widened), `w = p − A`, `det = uu·vv − uv²`, `s = wu·vv − wv·uv`, `t = wv·uu − wu·uv` — each output `(float)(weight + FLT_MIN)`, and written so that **`out[0]` is the passed edge's, `out[4]` the next edge's, `out[8]` the previous edge's**, and `out[0xc] = (float)det` |
+| `18007d300` | an edge line's squared distance: `|(p − S) × (E − S)|² / (|S − E|² + 1e-18f)`, the cross's edge subtracted in DOUBLE and the divisor's in FLOAT |
+| `18007c1a0` | an edge SEGMENT's squared distance: if `(bits(a) | bits(b)) ≥ 0`, the line's; else the endpoint's — the start when `a < 0` or NaN, the end otherwise — as `((dy² + dx²) + dz²)` |
+| `18007b940` | `IvpVector.FaceNormal` over the passed edge, the next and the previous |
+| `18007b780` | a triangle's plane: `18006ddb0` crosses `(next − p0) × (prev − p0)`, the same bits as `FaceNormal`, with `d = −((n.y·p0.y + n.x·p0.x) + n.z·p0.z)`; `18006f6c0` scales all four by `1.0 / SQRTPD(|n|²)` — an exact root, no threshold |
+| `18006dd30` | the cross product, every term read before any is written |
+| `18006db60` | a vector perpendicular to `v`: swap the largest-magnitude component (strict `>`, checked `z`, `y`, `x`) with the one before it cyclically, negating the moved one, then cross that with `v` |
+| `18006e080`, `18006f730` | scale to unit length at or above `1e-19` — four Newton steps and FIVE respectively |
+| `18006edd0` (and `18006ece0`, a jump to it) | the reciprocal root with FIVE steps; `18006ecf0` takes four |
+| `180070050` | `(1 − t)·a + t·b` |
+| `18007b300` | the edge-edge input: `+0x00`/`+0x08` pointers to `L`'s two float points; `+0x10`, `+0x30` `K`'s two points in `L`'s frame; `+0x50` `K`'s float edge rotated into the world by `K` and back by `L`; `+0x70` `L`'s float edge widened; `+0x90`, `+0x98` the edges; `+0xa0`, `+0xa8` the sides; `+0xb0` the cross of `+0x50` and `+0x70` |
+| `18007c870` | the edge-edge weights: if `|cross|² > 0x3C32725DD1D243AB` — **one ulp under `1e-18`** — `a = +0x50 × cross` and `b = +0x70 × cross` give `out[8]`, `out[0xc]` for `L` WITHOUT `FLT_MIN` and `out[0]`, `out[4]` for `K` with it, and return `1`; otherwise a sampled search, below, returning `0` |
+| `18007c2a0` | the edge-edge squared distance from the input: `(cross·Ks − cross·Ls)² / |cross|²` above `1e-24`, else `18007c1a0` of `Ks` against `L` |
+| `18007bbd0` | the edge-edge squared distance from two edges, below |
+| `180094e30` | the backside walk, below |
+
+**The parallel edge-edge search** samples `K` at the floats `−1, 0.5, 2, 0, 1, −0.001, 0.001, 0.999, 1.001, −1e-6,
+1e-6` against `L`'s line, keeping the least `18007d300` (`<`, NaN taken) with `out[0] = f`, `out[4] = 1 − f` and `L`'s
+`18007d070` weights; then samples `L` — its points put into `K`'s frame by `18007d480` — at the first NINE of those
+against `K`'s line with the running minimum, writing `out[8] = f`, `out[0xc] = 1 − f` and `K`'s weights inline as
+`(float)(FLT_MIN − (S − q)·d)` and `(float)(((E − q)·d) + FLT_MIN)`, the second's `z` term added to `FLT_MIN` first.
+The table's last two floats, `0.999999` and `1.0000009`, are never sampled.
+
+**`18007bbd0(K, L)`**: with the weights, `L` inside and `K`'s start weight not `> 0` → the segment distance of `K`'s
+start to `L`; its end weight not `> 0` → of `K`'s end; else the line distance as `18007c2a0` takes it. `K` inside
+instead → `L`'s start or end against `K`, and an assertion when both of `L`'s weights are `> 0`. Both outside → the
+least of four segment distances, `L`'s start and `K`'s start then `L`'s end and `K`'s end, combined with `MINSD`.
+
+#### The eight feature routines
+
+`seen(...)` is the loop check under a spent budget; `In(e, S→T)` is `18007ba70`; `W(e)` is `180080720`; weights are
+`18007d070` and `18007cdf0`; `bits(x) ≥ 0` is a float's sign bit clear, as the `OR`/`JL` tests read it; and **"each edge
+ending at P"** is the walk `prev(P)`, hop, `prev`, stopping on reaching `prev(P)` again — the previous edge of each
+edge `IvpLedgeTopology.Ring` visits, in the same order.
+
+```
+PP  FUN_1800b1b80(P, Q):
+  if --budget < 0 and seen(0:P, 0:Q): return 2
+  wp = W(P); wq = W(Q); qInP = P.ToObject(wq); pInQ = Q.ToObject(wp)
+  d² = ((wp.y − wq.y)² + (wp.x − wq.x)²) + (wp.z − wq.z)²
+  if not d² > 1e-12: return 2
+  r = rsqrt5(d²); length = (float)(r·d² − extra); normal = (float)((wp − wq)·r); +0x9c
+  best = none, bestSlope = 0
+  around P, w = qInP − P, base = (P.y·w.y + P.x·w.x) + P.z·w.z:
+    for each edge E ending at P, N = start(E):
+      s = ((N.y·w.y + N.x·w.x) + N.z·w.z) − base
+      if s > 0: s ·= rsqrt_f((float)((e.y² + e.x²) + (e.z² + 1e-18f))), e = N − P in float
+                if s > bestSlope: best = E, other = (qInP, Q, sideQ)
+  around Q the same, w = pInQ − Q, other = (pInQ, P, sideP)
+  if none, or not b > 0 of best's weights for other's point: synapses (P,0), (Q,0); return 1
+  if not a ≥ 0: flip for best's side;  return PP(best, other feature)
+  flip for other's side;               return PK(other feature, best)
+
+PK  FUN_1800b1aa0(P, K):
+  (a, b) = weights of K for In(P)
+  not a ≥ 0 → PP(P, K);  not b ≥ 0 → PP(P, next(K));  else → PK-proximity(P, K)
+
+PF  FUN_1800b1910(P, F):
+  p = In(P); w = weights of F for p
+  all bits ≥ 0 → PF-proximity(P, p, F)
+  d0 = segment²(p, F):        m = (d0 < 1e101 or NaN) ? d0 : 1e101;   best = (d0 ≥ 1e101) ? null : F;  m0 = m
+  d1 = segment²(p, next(F)):  m = (d1 < m or NaN) ? d1 : m;           best = (m0 > d1) ? next(F) : best
+  d2 = segment²(p, nn(F)):                                            best = (m > d2) ? nn(F) : best
+  return PK(P, best)
+
+KK  FUN_1800afa40(K, L):
+  w = KK weights
+  L inside (bits(w2)|bits(w3) ≥ 0): not w0 ≥ 0 → PK(K, L); not w1 ≥ 0 → PK(next(K), L); else KK-proximity
+  K inside: flip; not w2 ≥ 0 → PK(L, K); else PK(next(L), K)
+  kNear = (w0 ≥ w1) ? next(K) : K;  lNear = (w2 ≥ w3) ? next(L) : L;  kFar, lFar the others
+  (a, b) = weights of L for In(kNear); both bits ≥ 0 → PK(kNear, L)
+  (c, d) = weights of K for In(lNear); both bits ≥ 0 → flip; PK(lNear, K)
+  not a·w2 ≥ 0 (float product) → PP(kNear, lFar)
+  not c·w0 ≥ 0 → flip; PP(lNear, kFar)
+  → PP(kNear, lNear)
+```
+
+```
+PK-proximity  FUN_1800b11c0(P, K):
+  if --budget < 0 and seen(0:P, 1:K): return 2
+  p = In(P); S, E, C1 = start(prev(K)); Kt = twin(K), C2 = start(prev(Kt))
+  kd = E − S, c1 = C1 − S, c2 = C2 − S (float subtraction, widened); w = p − S
+  a1 = cross(kd, c1)·w; a2 = cross(c2, kd)·w
+  t1 = F-weight of K for p; t2 = F-weight of Kt for p
+  t1 > 0: → PF(P, (t2 > 0 and a2 > 0) ? Kt : K)
+  t2 > 0: → PF(P, Kt)
+  not a1 ≥ 0 and not a2 ≥ 0: synapses (P,0), (K,5); solver point = p; return 3
+  c = cross(kd, w); inv = 1.0 / ((kd.y² + kd.x²) + kd.z²); d² = ((c.x² + c.y²) + c.z²)·inv
+  d² > 1e-19: r = rsqrt5(d²); length = (float)(r·d² − extra)
+              v = K.Rotate(cross(kd, c)); normal = (float)(v·(−(r·inv)));  dir = v
+  otherwise:  length = −extra; o = perpendicular(kd), unit5; normal = (float)o — IN K's FRAME;  dir = c
+  +0x9c; u = P.RotateInverse(dir); limit = d²·1e-12; best = none
+  for each edge E ending at P: e = N − P (float, widened); s = u·e
+    if s > 0: s ·= rsqrt_f((float)((e.y² + e.x²) + e.z²)); if s > limit: limit = s, best = E
+  none: synapses (P,0), (K,1); return 1
+  limit < 1e-8 or NaN: in = KK input(K, best); if 18007c870 returned 0, or not its w2 ≥ 0 → synapses (P,0), (K,1); return 1
+  → KK(best, K)
+
+PF-proximity  FUN_1800b0c20(P, p, F):
+  if --budget < 0 and seen(0:P, 2:F): return 2
+  n = FaceNormal(F), unit4; wn = F.Rotate(n); u = P.RotateInverse(wn)
+  length = (float)(((n.y·p.y + n.x·p.x) + n.z·p.z) − ((F0.y·n.y + F0.x·n.x) + F0.z·n.z));  normal = (float)wn
+  if 0 > length: u = −u      -- the normal is NOT flipped
+  length −= extra (float); +0x9c
+  best = none, bestCos = 0
+  for each edge E ending at P: e = N − P; s = u·e
+    if not s ≥ 0: s ·= rsqrt_f((float)((e.y² + e.x²) + e.z²)); unless s ≥ bestCos: bestCos = s, best = E
+  none: synapses (P,0), (F,2)
+        if not (length + extra) ≥ 0 (float): solver point = p; F's kind = 5; return 3
+        return 1
+  q = In(best); w = weights of F for q, F's ledge found from its header
+  all ≥ 0 → PF-proximity(best, q, F)
+  exactly one of the three not ≥ 0: the first of F, next, nn with 0 > weight → KK(best, that edge)
+  m = 1e101: each of F, next, nn whose weight is not > 0 → edge²(best, it), taken when < m or NaN — the last only when m > it
+  → KK(best, the pick)
+
+KK-proximity  FUN_1800b0280(K, L, in, w):
+  if --budget < 0 and seen(1:K, 1:L): return 2
+  n = in.cross (L's frame); s = (float)(((Ls − Ks)·n)), Ls widened; sign = its sign bit
+  r = rsqrt5((n.x² + n.y²) + n.z²); wn = L.Rotate(n); nK = K.RotateInverse(wn)
+  length = (float)|(double)s·r| − extra;  σ = (((float)sign − 0.5f) + (float)sign) − 0.5f
+  normal = (float)(wn·((double)σ·r)); +0x9c;  LsK, LeK = L's points in K's frame
+  records:  0 triangle twin(K) (K), point Ls → LsK (L, edge L)       flag against nK
+            1 triangle K       (K), point Le → LeK (L, edge twin(L)) flag against nK
+            2 triangle twin(L) (L), point Ks        (K, edge K)       flag against n, inverted
+            3 triangle L       (L), point Ke        (K, edge twin(K)) flag against n, inverted
+  f[i] = sign bit of (float)(FaceNormal(tri_i)·against) [inverted for 2, 3] XOR sign
+  best = none, bestCos = −4e-12
+  for i in 0..3: j = f[i] ^ sign ^ i; e = point[sign ^ i] − point[sign ^ i ^ 1]; s = normal_i·e
+    if not s ≥ 0: cos = rsqrt_f((float)((e.y² + e.x²) + e.z²))·s·rsqrt_f((float)((m.x² + m.y²) + m.z²))
+      unless cos ≥ bestCos: t = weights of tri_i for point[j]; if t.F > 0: best = (edge[j], side[j], tri_i), bestCos = cos
+  none: synapses (K,1), (L,1)
+        f0 + f1 == 2: synapses (K,5), (L,2); solver point = lerp(LsK, LeK, (double)(w2 / (w2 + w3))); return 3
+        f2 + f3 == 2: synapses (K,2), (L,5); solver point = lerp(Ks, Ke, (double)(w0 / (w0 + w1)));   return 3
+        return 1
+  flip for best's point side
+  all of t ≥ 0 → PF-proximity(edge, In(edge), tri)
+  t.prev ≥ 0 → KK(edge, next(tri));  t.next ≥ 0 → KK(edge, prev(tri))
+  → KK(edge, edge²(edge, next(tri)) > edge²(edge, twin(prev(tri))) ? prev(tri) : next(tri))
+
+FF  FUN_180094f80(F1, F2) — no budget, no loop check:
+  m = 1e101; k = 1.000000000001
+  every start of F1 against every start of F2, F1 outer: d² of W(a), W(b); not d² ≥ m → (a,0), (b,0)
+  (A's F1 points, B's F2 face), then (B's F2 points, A's F1 face): p = In(v); all weights ≥ 0 →
+      h = ((pl.x·p.x + pl.y·p.y) + pl.z·p.z) + pl.d; not h²·k ≥ m → m = h²; (v,0), (face,2)
+  (B's F2 points, A's F1 edges), then (A's F1 points, B's F2 edges): both weights ≥ 0 →
+      not line²·k ≥ m → m = line²; (edge,1), (v,0)
+  every F1 edge against every F2 edge: both pairs of weights ≥ 0 → not 18007c2a0·k ≥ m → m; (k,1), (l,1)
+  if B's kind is 0 and A's is not, B goes first; flip for the first
+  (0,0) → PP, (0,1) → PK, (0,2) → PF, (1,1) → KK; any other pair is an Error and a breakpoint trap
+```
+
+**The backside walk, `FUN_180094e30(feature, point)`**, starts from the triangle whose index is **bits 12–23 of the
+feature's triangle's header word** — the triangle on the other side of the ledge, *INFERRED from its use* — marks each
+triangle it enters in a byte array as long as the ledge's signed 16-bit triangle count, takes that triangle's weights
+for the point, and for each of its edge, next and previous in turn whose weight is at or below zero (`COMISS 0, w;
+JC`, so NaN does not move) hops to the twin edge if that triangle is unmarked. It returns the edge it stopped in.
+
+*Evidence class: read from the disassembly for all thirty routines named here; the constants `1e101`, `FLT_MIN` as a
+double, `1e-18f`, the sub-`1e-18` threshold, `1e-12`, `−4e-12`, `1e-8`, `1e-19`, `1e-24` and `1.000000000001` dumped
+and compared bit for bit with C# literals — only the `1e-18` threshold differs from its literal, by one ulp. The
+purpose of result `4`, of the flags bits, of the `+0x9c` value and of kind `3` routines `FUN_180094ad0` and
+`FUN_180094860` (which take no ledge features; *INFERRED to be balls*) is not established.*
+
+**Ported as `IvpCompactLedgeSolver` and `IvpMindistMinimize`** (2026-09-13), with a triangle header's bits 12–23
+carried as `PhysicsLedge.PierceTriangles`. **The plain mindist's virtual `+0x28` is `FUN_1800947e0`**, read to find
+what the minimize's failure path calls: it asks the environment's `+0x40` object's slot 7 for a float and hands
+that object's slot 2 the mindist, both real objects and the float — the recursive mindist's slot 5 is
+`_guard_check_icall`, a no-op. The port reports that the call happens; what the object does with it is unread. Two
+readings carried into the port that are easy to lose, and that **no test yet pins**: **the point-edge routine's
+degenerate normal is written in the edge's own frame**, never turned into the world, and **the face-face routine
+handicaps every candidate after the point pairs by `1.000000000001`** while storing the unhandicapped distance, so
+a later candidate must be strictly closer by that factor.
+
 **`DAT_1800feb70` is `0.375`**, the blend applied on every fourth regula-falsi iteration.
 
 **`interpolate` is `FUN_180071060`, a shortest-path slerp that falls back to a normalised lerp.** It
@@ -2919,6 +3392,2568 @@ constants read from the image where the image holds them, and explicitly NOT for
 runtime-initialised block. **The feature kinds are unnamed.** An earlier draft of this section called
 kind 5 a ledge-tree or hull node; the code only shows kind 5 being replaced by kind 2 through
 `FUN_180094e30`, and that is all that is claimed.*
+
+### The other three times of impact, instruction by instruction (2026-09-13)
+
+**Read from the disassembly of `FUN_1800a2b30` (0,0), `FUN_1800a1ff0` (0,1) and `FUN_1800a1420` (1,1)**
+(`D:\ghidra-proj\out\toi_other_kinds.log`), with every evaluator they fill (`toi_evaluators.log`, `toi_helpers.log`),
+the cache object's three transforms (`toi_cacheobj.log`) and the motion cache builder (`toi_cache_a0800.log`). They
+share `FUN_1800a1b50`'s shape — the same search context, the same two sides, both motion caches built first, `time :=
+end`, and every root moving `time` earlier and overwriting the kind — and the same two finders. Each argument order is
+the dispatch's: synapse A's feature first, then B's, then side A, then side B on the stack.
+
+**Three fields none of the earlier routines read.** The context's `+0x18`, the total bound the scheduler builds
+(*The scheduler's near branch*); the mindist's float normal at `+0xb0`; and per core `+0x4` (the radius `+0x54` is
+half the reciprocal of), `+0x1dc` (the integrator's `|linear velocity|`) and `+0x254` (`+0x80 × +0x8`). **A motion
+cache's `+0x8` is its core**: `FUN_1800a0800` stores the cache object's real object (`+0xc8`) at `+0x0` and that
+object's `+0xe8` at `+0x8`, a dword from `+0xc0` at `+0x18`, and the 21 slots from `+0x20`.
+
+**The evaluators.** Vtables `1800fe720` to `1800fe760` are one slot each, eight in a row: `a3470` point-plane and
+`a3660` edge, already ported, and seven more. `first` and `second` are the two transforms the finder hands slot 0.
+
+| vtable | slot 0 | fields | distance |
+|---|---|---|---|
+| `1800fe730` | `a31e0` | `+0x28` P, `+0x48` Q, `+0x68` u | `d = Q' − P'`; `s = 1.2f·((d.y·u.y + d.x·u.x) + d.z·u.z)`; **`s` unless `|s|·s ≥ (d.y² + d.x²) + d.z²`, then `√` of that** |
+| `1800fe738` | `a3990` | `+0x28` P, `+0x48` Q, `+0x68` u | `((Q'.y − P'.y)·u'.y + (Q'.x − P'.x)·u'.x) + (Q'.z − P'.z)·u'.z`, `u' = second·u` |
+| `1800fe748` | `a36d0` | `+0x30` P, `+0x40` Q (floats), `+0x50` e, `+0x70` v, `+0x28` h | `c = (Q' − P') × e'`; `x = ((c·v') + h)`; **`x` unless `x ≥ |c|`, then `|c|`** (`JC`, so NaN keeps `x`) |
+| `1800fe740` | `a37f0` | `+0x28` P, `+0x48` a, `+0x68` Q, `+0x88` e | `w = P' − Q'`; `r = (e' × w) × e'`, **each component narrowed to float**, scaled to unit length with five steps; `(a'.y·r.y + a'.x·r.x) + a'.z·r.z`, `a' = first·a` |
+| `1800fe758` | `a32b0` | `+0x28` P, `+0x48` a, `+0x68` Q, `+0x88` b, `+0xa8` sign | `c = a' × b'`; `(rsqrt_f((float)|c|²) · (c·P' − Q'·c)) · sign` |
+| `1800fe760` | `a33e0` | `+0x28` a, `+0x48` b | `|a' × b'|²` |
+| `1800fe728` | `a3a30` | `+0x28` a, `+0x48` n | `(n'.x·a'.x + n'.y·a'.y) + n'.z·a'.z`, `a' = first·a`, `n' = second·n` |
+
+A primed point is `ToWorld` and a primed direction `Rotate`, each by the transform of the side named — P, a by
+`first`, Q, b, e, u, v, n by `second` unless the row says otherwise. Dots and squared lengths group `x` and `y` first;
+every cross product is `FUN_18006dd30`. `1.2f` is `DAT_1800eed28`, a float widened.
+
+**Point-point, `FUN_1800a2b30`:**
+
+1. The point-point evaluator: P = A's point, Q = B's, `u = −n` negated in float and widened, speed `ctx+0x10`.
+   `FUN_1800b6210` with target `(double)extra + (double)margin`, tolerance `(double)(0.5f·extra + 0.1·d)` and **no
+   known distance** — slot 0 is measured — raises **`0x10`**.
+2. `reach = (double)(float)(time − start)·ctx+0x18 + (double)length`, after that search.
+3. `speed(X) = (double)core+0x1dc + |X|·(double)core+0x80`, with `|X|` = `FUN_18006e120`, `√` of the float sum of
+   squares; `sum = speed(B) + speed(A)`.
+4. `factor = (MINSD(margin², reach²) · −0.5) / (double)MAXSS(coreA+0x4, coreB+0x4)`.
+5. **B's ring**, from B's edge, in `IvpLedgeTopology.Ring` order: vtable `1800fe738`, P = A's point, Q = B's, speed
+   `coreB+0x80·reach + sum`. For each edge, `d` its float-subtracted direction, `s = (d.y² + d.x²) + d.z²` in double,
+   `r = (double)rsqrt_f((float)s)`: the direction `d·r` and the target `(s·factor)·r`. `FUN_1800b6590` from `start`
+   to `time`, no known distance: **`0x11`**.
+6. **A's ring**, the same with the roles exchanged — P = B's point, Q = A's, speed `coreA+0x80·reach + sum` — and
+   **the two motion caches handed over the other way round**, so B's transform is `first`: **`0x11`**.
+
+**Point-edge, `FUN_1800a1ff0`:**
+
+1. `angular = (double)(coreB+0x80 + coreA+0x80)`, in float.
+2. The point-line evaluator: P = A's point, Q = the edge's start, `e` the float-subtracted edge scaled with four steps,
+   `h = ((double)margin + (double)extra) · 0.5`, speed `ctx+0x10`; and **`v` from the cache objects' CURRENT
+   matrices**: `v = B⁻¹·((B·Q − A·P) × B·e)` scaled with five steps — `FUN_180080720` for the two points,
+   `FUN_1800809d0` for `e`, `FUN_180080890` for the transpose. `FUN_1800b6210`, target `(double)margin +
+   (double)extra`, tolerance `(double)(0.9f·extra + 0.1·d)`, no known distance: **`0x30`**.
+3. **Two planes, the edge's own triangle and then its twin across the offset field** (`IvpLedgeTopology.Hop`). For
+   each, with `s₀ s₁ s₂` the triangle's start points from that edge: `m = (s₁ − s₀)_float × FaceNormal(s₀, s₁, s₂)`,
+   scaled with five steps; the point-plane evaluator over P, `m` and `s₀`, **speed `ctx+0x18`**. `FUN_1800b6590` to
+   `(double)(−(float)(0.1·d))`: **`0x31`**.
+4. `gap = MAXSD((double)length − (double)(float)(time − start)·ctx+0x18, 1e-8)`; the speed `((double)(float)(coreB+0x254
+   · coreB+0x80 + coreB+0x1dc) + speed(A)) / gap + angular`; the target `(MINSD((double)margin, (double)length) ·
+   (double)(coreB+0x54 + coreB+0x54)) · −0.3f`.
+5. **A's ring**: vtable `1800fe740`, P = A's point, Q the edge's start, `e` as in (2), and each ring edge's
+   float-subtracted direction scaled with four steps as `a`. `FUN_1800b6590` from `start` to `time`: **`0x32`**.
+
+**Edge-edge, `FUN_1800a1420`:**
+
+1. `angular = (double)(coreA+0x80 + coreB+0x80)`, in float. `a` and `b` are the two edges' float-subtracted
+   directions, each scaled with four steps.
+2. `c = A·a × B·b` through the CURRENT matrices; `dot = ((double)n.y·c.y + (double)n.x·c.x) + (double)n.z·c.z`;
+   **`sign = +1` when `dot ≥ −0.0`** (`COMISD`/`JNC`), `−1` otherwise and for NaN.
+3. The line-line evaluator over A's start and `a`, B's start and `b`, `sign`, speed `ctx+0x10`. `FUN_1800b6210` to
+   **`(double)margin`, tolerance `(double)(0.1·d)` — neither carries the extra radius** — no known distance: **`0x40`**.
+4. The cross evaluator over `a` and `b`, speed `angular + angular + 1e-19`. `FUN_1800b6590` to `1e-19`: **`0x41`**, the
+   edges turning parallel.
+5. **Four face checks**, vtable `1800fe728`, speed `angular + 1e-19`, each face normal `FUN_18007b940` scaled with four
+   steps, each target `(double)(−(float)(0.1·d · core+0x54))` **of the core whose EDGE is dotted** — the side whose
+   transform is `first` — and each raising **`0x42`**:
+
+   | order | direction, as `first` | face, as `second` | direction negated when |
+   |---|---|---|---|
+   | 1 | B's `b` | A's twin triangle | `sign` is `−1` |
+   | 2 | B's `b` | A's own triangle | `sign` is `+1` |
+   | 3 | A's `a` | B's twin triangle | `sign` is `−1` |
+   | 4 | A's `a` | B's own triangle | `sign` is `+1` |
+
+**Two of these targets are not in consistent units, which mattered while the port ran in inches.** Point-point's ring
+target `|d| · min(margin², reach²) · −0.5 / radius` is a length squared compared with a length, so the engine's answer
+belongs to metres: the inch port scaled it by `0.0254`, and since D173 the port runs in metres and scales nothing.
+Point-edge's `1e-8` floor is a distance in metres, carried directly, as `FUN_1800b6590`'s tolerance is. Every other target and speed is either dimensionless or
+linear in length — `coreB+0x254 · coreB+0x80 + coreB+0x1dc` is `ω²·deviation + v`, odd in time but linear in length —
+and needs nothing. *Arithmetic.*
+
+**What the kinds say, read from the fire routine** (*When a queued mindist fires*): a kind with its low four bits clear
+— `0x10`, `0x30`, `0x40`, as `0x20` — is tested for a collision; any other is re-minimized and rescheduled. *So the
+three new "collision" events and six "feature change" events are INFERRED labels, by the same rule as `0x20` and
+`0x21`.* **Ported as `IvpPointPointSearch`, `IvpPointEdgeSearch` and `IvpEdgeEdgeSearch`**, over the seven
+evaluators and `IvpCoreBounds`.
+
+*Evidence class: read from the disassembly for the three routines, all seven evaluators, `FUN_18006e120`,
+`FUN_18006fc60` (`√((x² + y²) + z²)` in double), `FUN_18006f730` (five steps, as read before), `FUN_180070b20` (a
+float point widened, grouped as `FUN_180070bc0`), the cache object's `FUN_180080720`, `FUN_1800809d0` and
+`FUN_180080890` (its `+0x40` matrix: `ToWorld`, `Rotate`, `RotateInverse`), and `FUN_1800a0800`; dumped:
+`DAT_1800eed28` `1.2f`, `DAT_1800f1fc8` `−0.5`, `DAT_1800ee18c` `0.9f`, `DAT_1800ee388` `0.5`, `DAT_1800fe7c8`
+`−0.3f`, `DAT_1800fe7c0` `−0.0`, `DAT_1800eaa00` `−1.0`, `DAT_1800fb100` `1e-8`. **Not established:** what the
+face checks' `+0x54` choice is for.*
+
+**What the synthetic tests do not pin, found by sabotaging each branch** (four rounds, twenty-nine breaks, all caught):
+the float narrowing inside `a37f0`; the ring, plane and face speeds — the rings' formulas, the planes' use of the total
+bound, the `1e-8` gap floor — because every fixture that reaches them is still, so none of those refinements takes a
+step (only the three falling searches do, at the context's approach speed); that point-point
+measures its start rather than taking a known distance, since the fixtures' length is the distance; that edge-edge's
+line search omits the extra radius, since every fixture's is zero; and the cache order handed to each finder wherever
+both bodies are unturned. **Point-point's ring cache order IS caught, but not where a reader would look**: exchanged,
+the untouched edges point at the other point and raise the same `0x11` the ring tests expect, and the falling and
+rising controls are what redden.
+
+### The contact point and its record, instruction by instruction (2026-09-13)
+
+**Read from the disassembly** (`contact_point.log`, `contact_helpers.log`, `friction_callees.log`, `impact_callees.log`)
+and **ported as `IvpContactPoint`, `IvpContactGeometry` and `IvpContactRecord`** — not yet on the running path. This is the
+layer `FUN_180090e50` builds before anything is solved: a contact point that persists for an exact pair, and a fresh record
+of where and how the pair touches every time it collides.
+
+#### Finding or building the contact point — `FUN_18008c4b0(mindist, &built)`
+
+```
+if (flags & 0x3C0000) != 0xC0000: built = 0; return null           -- only an exact mindist has one
+for each friction synapse on record 0's object's list (+0x50), newest first:
+    cp = synapse + (short)synapse[+0x18]
+    if (cp+0x20 or cp+0x48 is record 1's object) and FUN_1800869a0(cp, mindist): built = 0; return cp
+cp = allocate 0xd0; FUN_180082ed0(cp, mindist); built = 1; return cp  -- a failed allocation returns null with built = 1
+```
+
+**`FUN_1800869a0(cp, mindist)`** matches both synapses in either order — cp's first against record 0 and its second against
+record 1 when the objects line up that way, crossed otherwise. **`FUN_180086a50(friction synapse, mindist synapse)`**
+compares one: the kinds must be equal; a point needs the same ledge (the address of its first triangle,
+`triangle − (header & 0xfff)·16`) and the same start point (the edge words' low sixteen bits); an edge, the same edge word
+or its opposite (`edge + ((int)(word << 1) >> 17)·4`); a triangle, the same triangle (`(a ^ b) & ~0xF == 0`); a ball always
+matches; any other kind asserts at line `0x90a`.
+
+#### The contact point — `FUN_180082ed0`
+
+```
+A = (flags >> 8) & 3,  B = ((flags ^ 0x100) >> 8) & 3
++0x10  friction synapse 0 = record A: object +0x20, back offset −0x10 at +0x28, kind +0x2a, edge +0x30;
+       linked at the head of object A's list at +0x50
++0x38  friction synapse 1 = record B, back offset −0x38, the same shape, at the head of object B's list
+each synapse's ledge handed to its object's surface manager (object+0xc8), slot 7    -- a reference; nothing for polygons
++0x98 = env+0x188, read through record 0's object
+if record B's kind is 2:  +0x80 = (float)(1.0 / (FUN_18006fc60(FUN_18007b940(B's edge)) + (double)1e-18f))
++0x68 = 0 (8 bytes), +0x84 = 0 (8), +0x7c = 0, +0x91 = 1, +0xa4 = 0 (8), +0xa0 = 0, +0xac = 0, +0x92 = 0 (16 bits),
++0xc0 = 0 (8), +0x64 = 0, +0x8c = DAT_18012d64c, +0x90 = 20
+```
+
+**`DAT_18012d64c` and `DAT_18012d650` are the tolerance block's `2·d` and `2.3·d`.** *This paragraph first said both were
+zero*: both read zero in the image, and a search of every instruction's text found readers and no instruction storing to
+either — with the caveat that *a store through a computed base address is not excluded*. That caveat is what happened; see
+*A correction first* under *The impact solver and the friction system's bookkeeping* below. **`+0x80` is written only for a triangle**; for any other second kind it keeps whatever the
+allocation held, and only the point–triangle measure reads it.
+
+#### The record — `FUN_18008d0c0(cp, environment)`
+
+`FUN_180090e50` passes the environment, reached through a core's `+0x10`. The record is `0x110` bytes bumped from the arena at
+`env+0xf8` (the cursor rounded up to 32 bytes; `FUN_180072ae0` when the block is full), zeroed only at `+0x20..0x2b`,
+`+0x72..0x75` and `+0x76`, left at `cp+0x70`, and counted at `env+0xc4`. Each object's cache object (`object+0x70`, taken by
+`FUN_1800805a0` from the manager at `env+0xd8` when absent) is referenced and — when the object's state byte is under 8 and
+the cache's time code `+0xc0` is behind `env+0x1a0` — refreshed by `FUN_180080a60`. The sides are built as the minimize's are.
+
+```
+kind of cp's synapse 0:  0 point → P = its edge's start in the world (FUN_18007d2e0)
+                         1 edge  → FUN_18008cbc0(cp, edge0, edge1, side0, side1, record, &scratch); skip the next switch
+                         3 ball  → P = cache0+0xa0, the object's position;  cp+0x91 = 1
+                         else    → assertion, line 0x1c4
+kind of cp's synapse 1:  0 point → Q = its edge's start;  FUN_18008cab0(cp, &P, &Q, record)
+                         1 edge  → FUN_18008c7c0(cp, &P, edge1, side1, record)
+                         2 tri   → FUN_18008c5b0(cp, &P, edge1, side1, record)
+                         3 ball  → FUN_18008cab0(cp, &P, cache1+0xa0, record)
+                         else    → assertion, line 0x1ba
+r0 = object0+0xe0:  record+0x00 += (double)n·(double)r0, each component
+cp+0x8c = cp+0x8c − (r0 + object1+0xe0) in float;  COMISS/JNC: zero unless ≥ 0, so a NaN becomes zero
+both caches' references released;  FUN_18006dff0(record+0xb0)
+record+0xc0 = (s.z·n.y − n.z·s.y,  n.z·s.x − s.z·n.x,  s.y·n.x − n.y·s.x) in float          -- normal × span
+core0 = object0+0xe8; unless its byte 0 & 2:
+    record+0xd0 = FUN_1800708a0(core0+0x90, record)             -- (float) world → core frame, grouped as RotateInverse
+    n' = (float)((n.y·m20 + n.x·m00) + n.z·m40,  (n.x·m08 + n.y·m28) + n.z·m48,  (n.x·m10 + n.y·m30) + n.z·m50)
+    record+0xf0 = (r.y·n'.z − r.z·n'.y,  n'.x·r.z − n'.z·r.x,  n'.y·r.x − n'.x·r.y)           -- arm × normal
+    v = FUN_180077fa0(core0, record+0xd0, core0+0x140, core0+0x130)
+    record+0x94 = (((t.y·I.y)·t.y + (t.x·I.x)·t.x) + (t.z·I.z)·t.z) + core0+0x4c;  record+0x98 = core0
+  else: v = 0, record+0x94 = 0, record+0xd0 = 0, record+0xf0 = 0, record+0x98 = null
+core1 the same into +0xe0, +0x100 and +0xa0, then v −= v1 and record+0x94 = (its terms + m1) + record+0x94;
+  a static core1 zeroes +0xe0 and +0x100, leaves +0xa0 null, and leaves v alone
+record+0x90 = 1.0f / record+0x94
+dt = (float)(env+0x188 − cp+0x98);  cp+0x98 = env+0x188
+cp+0x68 = (float)((double)cp+0x68 − (double)((v.x·s.x + v.y·s.y) + v.z·s.z)·(double)dt)
+cp+0x6c = (float)((double)cp+0x6c − (double)((v.y·c.y + v.x·c.x) + v.z·c.z)·(double)dt)
+cp+0xa0..0xa8 = (float)record+0x00;  cp+0xb0 = n.x, cp+0xb4 = n.y, cp+0xac = n.z
+```
+
+**`FUN_180077fa0(core, r, v, ω)` is the velocity of a point fixed to a core**: `ω × r` in float, turned by the core's
+matrix at `+0x90` in double — each row grouped as `IvpMatrix.Rotate` groups it — narrowed, and `v` added in float. The other
+helpers: `FUN_180080920` and `FUN_1800809d0` turn a float and a double vector by a cache object's matrix (`+0x40`), the first
+narrowing; `FUN_18006dff0` scales a float vector whose float-summed square, widened, reaches `1e-19`, with the four-step
+root in double; `FUN_18006fd40` scales a double vector with the FIVE-step root and returns `r·s`; `FUN_18006fc60` is
+`SQRTPD((x² + y²) + z²)`. `FUN_180077840(core, r)`, read here and called elsewhere, is `1.0 / (max((x²+z²)·I.y,
+(y²+z²)·I.x, (x²+y²)·I.z) + (core byte 0 & 0x10 ? 1.0 : m))`, the maxima taken with `MAXSD` in that order.
+
+#### The four measures
+
+**Point–point, `FUN_18008cab0(cp, P, Q, record)`:** `d = Q − P` scaled by `FUN_18006fd40`, whose return is the gap; the
+normal is `(float)d`; if `n.x²` in float compares below `0.9f`, or unordered, the span is `n × (1, 0, 0)`, otherwise
+`n × (0, 0, 1)`, both computed as `(n.y·b, n.z·a − n.x·b, −(n.y·a))` and scaled by `FUN_18006dff0`; the position is `P`. No
+range.
+
+**Point–edge, `FUN_18008c7c0`:** the edge's two ends in the world; `d = (float)(E₁ − E₀)` and `o = (float)(P − E₀)`;
+`r = FUN_18006ece0` — a jump to the five-step root — of `(d.y² + d.x²) + d.z²` summed in float; `c = d × o` in float; the
+gap `FUN_18006e120(c)·r`; the span `c·(r / gap)`, narrowed, when `gap² > 1e-19`, else `(1, 0, 0)`; the normal `d × span` in
+float, scaled; the position `P`. **On a first measure** (`cp+0x91 == 1`, cleared as it is checked) the record is outside
+when `(double)((d.x·o.x + d.y·o.y) + d.z·o.z)·r²` is below zero, unordered, or above one.
+
+**Point–triangle, `FUN_18008c5b0`:** the position `P`; `p` = `P` put into the side's frame (`FUN_180080670`); on a first
+measure, outside when any of `FUN_18007cdf0`'s three weights for `p` has its sign bit set; `n` = `FUN_18007b940(edge)`
+times `(double)cp+0x80`; the gap `(p·n) − (e·n)`, `e` the edge's start widened and each dot's `x` and `y` terms added before
+`z`; the normal `(float)(−1 · FUN_1800809d0(n))`; the span the edge's float vector turned out by `FUN_180080920`, unscaled.
+**No root anywhere**: the stored reciprocal is what makes the normal unit length.
+
+**Edge–edge, `FUN_18008cbc0`:** `a`, `b` the edges' world directions scaled by `FUN_18006e080`; `c = a × b`; degenerate unless
+`|c|² > (double)1e-10f`. `u = a × c` and `w = b × c`; `tQ = (u·Q₀ − u·P₀) / (u·Q₀ − u·Q₁)` and `tP = (w·P₀ − w·Q₀) / (w·P₀ −
+w·P₁)`, each denominator degenerate when under `1e-19` in magnitude or unordered; `A`, `B` the points at `tP`, `tQ`
+(`FUN_180070050`); `g = FUN_18006fc60(B − A)`: above `1e-19`, the gap is `g` and the normal `(B − A)/g`, otherwise the gap
+is zero and the normal `c / SQRTPD(|c|²)`; the position `A`; the span `(float)a`; on a first measure, outside when `tQ` or
+`tP` is below zero, unordered, or above one. **Degenerate**: outside, the gap `DAT_18012d650`, the position `P₀`, the normal
+`(1, 0, 0)`, the span `(0, 1, 0)`, the first-measure byte untouched — and the caller's scratch vector zeroed, which the
+caller then overwrites with the second core's velocity or, for a static core, never reads.
+
+**Every normal points from the contact point's first feature toward its second**, and **touching edges can flip it**: with
+no gap the normal is `a × b`, which for a first edge above a second is the opposite of the `B − A` a gap gives.
+
+#### After the record — `FUN_1800908d0(cp, record)`, and a correction to the impact's cone
+
+`FUN_180090e50` calls it straight after the builder. It writes `record+0x60` and `+0x68` with each synapse's material — the
+object's `+0xd0` when the triangle's material bits (`FUN_1800863d0`: `triangle+3 & 0x7f`) are zero, else slot 1 of the
+environment's material manager (`env+0xe8`) with the object and the index — `record+0x40..0x58` with both objects and both
+edges, **`record+0x80 = (float)` the manager's slot 3, and `cp+0x78 = (float)` its slot 2**.
+
+**That settles the producers *The impact solver, found* names as untraced.** `FUN_18008ed60`'s first argument is the record
+and its fourth the contact point, so its `(√(record+0x80) + 1)·cp+0x78` is built from slots 3 and 2 of the material manager.
+*Which slot is elasticity and which the friction factor is INFERRED*: `cp+0x78` is what the friction driver's Coulomb product
+multiplies, so slot 2 is taken as friction and slot 3 as elasticity; vphysics' implementations of both are unread.
+
+**And its series is not the one that section names.** `1 − x²/2 + C·x⁴` has `C = DAT_1800fd858 = 0.041666668`, which is
+`1/24` — the fourth-order term of `cos x` — and its `x` is `FUN_1800d4398(s)`, not `s`. The series for `1/√(1 + s²)` would
+have `3/8`. So the pair is `(cos x, cos x · s)` with `x = FUN_1800d4398(s)`: the `(cos θ, sin θ)` that section describes if
+`FUN_1800d4398` is the arc tangent, *which is INFERRED from its sign-bit handling and the pair, not read*. `IvpContact` uses
+`1/√(1 + s²)` exactly, which is not the engine's arithmetic whatever the helper is.
+
+#### Corrections to earlier readings
+
+- **`record+0x94` is the arm crossed with the normal, and each lane takes its own axis.** *Contact response is accumulated,
+  not applied* and `IvpContact`'s remarks read the decompiled `rx*rx * core[+0x44] + ry*ry * core[+0x40] + …` as the lever
+  arm, with no cross product and its `x` lane on `+0x44` "by the engine's axis order". The disassembly squares
+  `record+0xf0..0xf8` — `arm × normal` in the core's frame — and pairs `x` with `+0x40`, `y` with `+0x44`, `z` with `+0x48`.
+  The decompiler named the first product after the lane it loaded first.
+- **The record is written at every field above**, not only at the seven offsets *There are TWO contact solvers* lists, which
+  is what a decompiled field search could see.
+- **The friction-system contact whose `+0x60`, `+0x64`, `+0x68`/`+0x6c` and `+0x78` that section reads is this contact
+  point**, the `0xd0` object — a different structure from the record, as it says. **`+0x68`/`+0x6c` are distances**: the
+  builder moves them by a velocity times a time, so the friction solve's `param_2[1]·stored` is a velocity only if
+  `param_2[1]` is an inverse time — *INFERRED*.
+
+**Ported** (B369, not on the running path): `IvpContactPoint` (the constructor and the state the builder reads and writes),
+`IvpContactGeometry` (the four measures), `IvpContactRecord` (the builder, with `IvpContactBody` carrying each side, its core,
+the core's matrix at `+0x90` and the object's extra radius), `IvpVector`'s float scaling, five-step scaling and double
+length, and `IvpCollisionObject.ContactPoints` for the lists at `+0x50`. Synthetic conformance tests with exact expectations:
+`IvpContactGeometryConformanceTests` (23), `IvpContactRecordConformanceTests` (12), `IvpContactPointConformanceTests` (7),
+`IvpVectorConformanceTests` +5. **Not ported**: the find-or-create walk and its matchers, which need a synapse to know its
+ledge; the cache object's allocation and reference counts, for which each side stands; `FUN_1800908d0`'s materials; and
+everything above the record.
+
+*Not established:* what reads `cp+0x64`, `+0x7c`, `+0x84`, `+0x90`, `+0x92` and `+0xc0`; what `env+0xc4` counts beyond
+records built; and whether the point–edge measure's five-step root differs from a four-step one in any output, since every
+output it feeds is narrowed to float and no fixture separates them.
+
+*Evidence class: read from the disassembly for every routine, constant and offset named; the zero globals by a whole-program
+instruction search, its limit stated; the material slots' meanings and the arc tangent INFERRED.*
+
+### The impact solver and the friction system's bookkeeping, instruction by instruction (2026-09-13)
+
+**Read from the disassembly** (`friction_solve3.log`, `impact_solver4.log`), for the layers above the contact point. **None of it
+is ported yet**; it is written down in full first, because a decode that lives only in a session's context is lost with it.
+
+#### A correction first: the two "zero" globals are tolerance-block fields
+
+*The contact point* above first called `DAT_18012d64c` and `DAT_18012d650` zero, with the caveat that a store through a
+computed base address was not excluded. **That is exactly how they are written**: a search over the block's range finds
+`FUN_180002540` and `FUN_1800824c0` each loading `LEA RCX,[0x18012d540]` before calling the initialiser, which stores by
+offset, and *The block is linear in one collision tolerance* already tabulates both — `[0x43]` at `64c` is `2·d`, `[0x44]` at
+`650` is `2.3·d`. The image holds zero because the block is filled at startup. **So a fresh contact point's gap is `2·d` and the
+edge–edge measure's degenerate gap `2.3·d`.** The same search names this layer's other readers of the block: `660` (`22·d`) in
+`FUN_18008db40`, `668` (`2·d`) in `FUN_18008e290`, `648` (`d`) in `FUN_180090bd0`, `544` (`d`) in `FUN_18008fca0` and
+`FUN_180082250` (which returns it widened), and `65c` (`4.5·d`) in `FUN_180084490`, `FUN_180086500`, `FUN_180098610` and
+`FUN_1800a9bf0`.
+
+#### A record's estimate — `FUN_18008db40(cp)`
+
+```
+record = cp+0x70;  record+0x74 (short) = 1
+if !(block[0x48] (22·d) >= cp+0x8c):  record+0x7c = 1e20f;  return                -- COMISS/JNC: a NaN gap takes this
+f = FUN_18008fca0(cp, object0+0x30);  record+0x78 = f
+s = 0
+core0 = record+0x98, if any:  s = (double)((t.y·ω.y + t.x·ω.x) + t.z·ω.z) + (double)((n.y·v.y + n.x·v.x) + n.z·v.z)
+core1 = record+0xa0, if any:  s += (double)−((t'.y·ω.y + t'.x·ω.x) + t'.z·ω.z) − (double)((n.y·v.y + n.x·v.x) + n.z·v.z)
+record+0x7c = (float)((double)cp+0x8c − ((double)(0.5f·f) + s)·(double)(float)env+0x108)
+```
+
+`t` and `t'` are the record's turns (`+0xf0`, `+0x100`), `n` its normal, `ω` and `v` each core's `+0x130` and `+0x140`, every
+product and sum in float before its widening. `FUN_180090bd0` picks the record with the smallest `+0x7c` under `block[0x42]`.
+
+#### Removing a contact point — `FUN_180083e40(system, cp)`, and its inline copy in `FUN_180083b30`
+
+```
+core0 = object0+0xe8;  core1 = object1+0xe8
+FUN_180078820(core0); FUN_180078820(core1)          -- core+0x200 = core+0x208 = env+0x188
+FUN_180088ce0(system, cp)                           -- unlink: cp+0x0 next, cp+0x8 previous, head system+0x40; system+0x7a −= 1
+if FUN_180088130(system, cp) == 1:  system+0x80 = 1  -- the pair emptied and was deleted
+info0 = FUN_180077f00(core0, system);  info1 = FUN_180077f00(core1, system)
+FUN_180075130(info0, cp)                            -- ordered removal from the info's contact vector
+if info0's count (+0x2) is 0:  FUN_180077c10(core0, info0);  FUN_180088c80(system, core0);
+                               core0+0x1f8's word: bit 9 cleared, bit 8 set
+the same for info1 and core1
+FUN_180083210(cp);  free(cp, 0xd0)
+```
+
+**`FUN_180083b30(pair, system)`** walks the pair's contacts (`+0x2` count, `+0x8` elements) from last to first: the record is
+rebuilt (`FUN_18008d0c0(cp, core+0x10)`, the core being the pair's `+0x38`) and its materials set (`FUN_1800908d0`), and a
+contact whose record's `+0x76` is `1` — outside — is removed exactly as above, inline. It returns how many are left.
+
+**`FUN_180088130(system, cp)`** finds the pair of the two cores (`FUN_1800863f0`, asserting line `0x299` when there is none),
+removes the contact from it (`FUN_180083da0`), and unless `FUN_180086b30(pair)` answers nonzero removes the pair from the system
+(`FUN_180083db0`), destroys (`FUN_180054600`) and frees it (`0x50`), and returns `1`; otherwise `0`.
+
+#### What a core keeps per system, and taking a core out
+
+**The per-system record is `0x18` bytes**: a contact vector (capacity word `+0x0`, count `+0x2`, elements `+0x8`) and the system at
+`+0x10`. **`FUN_180077c10(core, info)`** removes it from the core — from the hash at `core+0x60` (`FUN_1800726e0`, keyed by the
+system) when the core's byte `0` has bit `2`, the unmovable flag, since an unmovable core can sit in many systems; otherwise by
+nulling `core+0x60` — then clears the vector (freed unless its elements pointer is the record's `+0x10`, the vector class's
+inline-storage test) and frees the record.
+
+**`FUN_180088c80(system, core)`**: unless the core is unmovable, it leaves the movable cores (`FUN_180075130(system+0x58, core)`)
+and loses the system's three controller bases (`FUN_180074fb0(core, system+0x20)`, `(core, system)`, `(core, system+0x10)`);
+then it leaves the cores (`system+0x48`) and `system+0x78 −= 1`. **`FUN_180074fb0(core, controller)`** removes the controller
+from the core's (`+0x1e2` count, `+0x1e8` elements) and, in the core's simulation unit at `+0x1f8`, removes the core from that
+controller's `0x28`-byte entry (controller `+0x0`, a core vector at `+0x8`/`+0xa`/`+0x10` with inline storage `+0x18`) in the
+unit's vector (`+0x3a`, `+0x40`), freeing and removing the entry when it empties. **`FUN_180075130(vector, element)`** finds
+the element last-first and removes it in order.
+
+#### The union-find — `FUN_1800877b0(system)`
+
+```
+for each core (system+0x50, count +0x4a):  core+0x258 = null
+for each pair (system+0x70, count +0x6a), last first:  a = pair+0x38, b = pair+0x40
+    unless either is unmovable:  ra, rb = the roots along +0x258;  if ra != rb:  rb+0x258 = ra
+r = the root of the lowest-indexed movable core
+answer = null;  for each movable core, last first:  if its root != r:  answer = its root
+return answer                               -- a root outside the first core's set, or null when all are joined
+```
+
+#### The contact point's destructor, the listeners, and re-looking at a core's pairs
+
+- **`FUN_180083210(cp)`** releases each synapse's ledge through its object's surface manager (`object+0xc8`, slot `8`), builds an
+  event on the stack — the environment (`object0+0x30`), `cp+0xa0..0xa8` widened as the position, the contact point, both objects
+  and both edges, the rest from `FUN_18008c590` — hands it to the environment's listeners (`FUN_180081eb0`) and, for an object
+  whose `+0x78` has `0x2000`, to `FUN_180088450(env+0x18, object, event)`, then unlinks both friction synapses from their objects'
+  `+0x50` lists.
+- **`FUN_180081f10` and `FUN_180081f70(env, event)`** walk the environment's listeners (`+0x148`, count `+0x142`) last first,
+  calling slot `+0x28` or `+0x30` of each whose byte `+0x8` has bit `4`.
+- **`FUN_1800792b0(core)`** stamps `core+0x250` with `env+0x1a4` — the counter `FUN_18008ecb0` advances per impact — and hands each
+  of the core's objects (`+0x70`, count `+0x6a`, last first) to **`FUN_1800746c0(object)`**, which, for each mindist on the
+  object's `+0x40` list (next at the record's `+0x10`, the mindist at the record plus its word `+0x30`), unless both records'
+  objects' cores carry the same `+0x250`, minimizes it (`FUN_180095cb0`) and, unless its flags have `0xc000`, reschedules it
+  (`FUN_180099380(mindist, 0, 2)`). A pair whose two cores were both stamped this impact is looked at once, not twice.
+- **`FUN_180079120(core)`** restores the angular velocity (`+0x130..0x138`) and sixteen bytes each at `+0x1a0` and `+0x1b0` from
+  the `+0x260` record revival allocates, and nulls `+0x260`. *What `+0x1a0..0x1bf` hold is not read.*
+
+#### The impact solver — `FUN_18008e290(solver, cores, p3, p4, float p5)`
+
+```
+solver+0x18 = p3
+e = 1f − (1f − solver+0x130)/((float)p4·0.5f + 1f)                 -- float, then widened
+solver+0x0 = (p5 + block[0x4a] (2·d))·1.2f
+cores[0] = A = solver+0x110;  cores[1] = B = solver+0x118;  A's env+0x94 += 1
+solver+0x30 = &A+0x90;  solver+0x38 = &B+0x90                          -- the cores' matrices
+solver+0x40 = A+0x130 + A+0x110;  solver+0x60 = A+0x140 + A+0x120      -- ω and v plus their pending changes, float
+solver+0x50 = B+0x130 + B+0x110;  solver+0x70 = B+0x140 + B+0x120
+solver+0x28 (8 bytes) = 0
+FUN_18008fc00(solver)                                                   -- the relative velocity c into +0xc0
+*(solver+0x148) = c;   n = *(solver+0x140)
+solver+0x10 = FUN_1800770f0(B, solver+0x128, FUN_180070620(B's matrix, n), n)
+solver+0x8  = FUN_1800770f0(A, solver+0x120, FUN_180070620(A's matrix, −n), −n)    -- −n as n·−1f
+if A unmovable:  solver+0x8 = solver+0x10·1e5;   if B unmovable:  solver+0x10 = solver+0x8·1e5
+u = (n.y·c.y + n.x·c.x) + n.z·c.z                                        -- float
+k = (((double)−0.1f/(mA + mB))·mA)·((mB + mB)·(double)u)
+if !(u <= −1e-4f):                                                       -- COMISS/JBE: a NaN solves instead
+    FUN_18008f570(solver, −n, 1);   if p4 > 10:  solver+0x18 = 0
+else:
+    FUN_180090240(solver);   solver+0xe0..0xeb = 0
+    s = (double)−u;   b = √(double)p4 · (double)0.01f + √e·s                -- both roots SQRTPD
+    i = 0
+    while s > 0 and i < 100:   i += 1;  FUN_18008f1c0(solver, k);  FUN_18008fc00(solver)
+                               s = (double)−((c.x·n.x + n.y·c.y) + n.z·c.z);  FUN_180090240(solver)
+    t = s + b;   solver+0xd0 = −n
+    if t > 0 and i != 100:                                               -- COMISD/JBE, then the count
+        FUN_18008f1c0(solver, 1.0);  FUN_18008fc00(solver)
+        δ = (double)((c.x·n.x + n.y·c.y) + n.z·c.z) + s
+        j = |δ| > (double)1e-4f ? t/δ : 0
+        unless A unmovable:  solver+0x40 −= solver+0x80;  solver+0x60 −= solver+0xa0      -- undo the unit test push
+        unless B unmovable:  solver+0x50 −= solver+0x90;  solver+0x70 −= solver+0xb0
+        FUN_18008f1c0(solver, j)
+    FUN_18008f570(solver, solver+0xd0, 0)
+FUN_18008dd00(A, solver+0x60, solver+0x40);   FUN_18008dd00(B, solver+0x70, solver+0x50)
+FUN_18008deb0(solver, cores)
+if (A's byte 0 | B's byte 0) & 0xc0:
+    A's env+0xac += 1
+    for A, then B:  flags' bits 6–7 = unmovable ? 0 : 1;   +0x120 = +0x140 + +0x120;  +0x110 = +0x130 + +0x110;
+                    +0x130..0x13b = 0;  +0x140..0x14b = 0
+    cores[0] = A;  cores[1] = B
+```
+
+Constants read beside their instructions: `1.2f`; `1e5` and `1.0` as doubles; `−0.1f`, `1e-4f` and `0.01f` widened; `−1e-4f`;
+`−1.0f`. **The loop is capped at a hundred pushes and a capped loop skips the final correction.**
+
+**`FUN_18008f570(solver, d, clamp)`** — push the pair apart along `d` until it separates at `solver+0x0`:
+
+```
+FUN_180070b20 of each arm through its core's matrix                         -- computed, never read
+vA = FUN_180077fa0(A, armA, solver+0x60, solver+0x40);   vB = … B, solver+0x70, solver+0x50
+a = (double)−(((vB.y − vA.y)·d.y + (vB.x − vA.x)·d.x) + (vB.z − vA.z)·d.z)
+if clamp == 1:  a = MINSD(a, 0)
+g = (double)solver+0x0 − a;   if g < 0 or NaN:  return
+m = 0
+unless B unmovable:  (Δv, Δω) = FUN_180078f50(B, armB, FUN_180070620(B's matrix, −d), −d)
+                     q = FUN_180077fa0(B, armB, Δv, Δω);   m = (double)((q.y·−d.y + q.x·−d.x) + q.z·−d.z)
+unless A unmovable:  the same for A along d;   m += (double)((q.y·d.y + q.x·d.x) + q.z·d.z)
+j = g/(m + (double)1e-15f);   if j < 0 or NaN:  return
+unless A unmovable:  p = (float)((double)−d·−j);  (solver+0xa0, solver+0x80) = FUN_180078f50(A, armA, FUN_180070620(A's matrix, p), p)
+                     solver+0x40 += solver+0x80;  solver+0x60 += solver+0xa0
+unless B unmovable:  p = (float)((double)−d·j);   (solver+0xb0, solver+0x90) = … B;   solver+0x50 += +0x90;  solver+0x70 += +0xb0
+```
+
+**`FUN_18008dd00(core, v, ω)`** — the anomaly limits, `env+0x48`, through the environment's `+0x40` object:
+
+```
+unless core+0x58 is set and core+0x8 == 0f (UCOMISS/JZ: a NaN also skips):
+    if (double)((ω.x² + ω.y²) + ω.z²) > ((double)((float)env+0x110 · limits+0x14))²:  env+0x40 slot 1 (limits, core, ω)
+if (double)((v.x² + v.y²) + v.z²) > ((double)limits+0xc)²:  env+0x40 slot 0 (limits, core, v)
+```
+
+**`FUN_18008deb0(solver, cores)`** — committing, or holding back the heavier side:
+
+```
+A+0x2 += 1 unless A unmovable;   B+0x2 += 1 unless B unmovable                  -- words
+if solver+0x18 != 0:
+    h = solver+0x8 <= solver+0x10 ? 1 : 0                                          -- COMISD/SETBE: a NaN picks 1
+    if cores[h] is not unmovable:
+        o = 1 − h
+        w = FUN_180077d70(core h, core o, arm h, arm o, core h's +0x140, core h's +0x130, the solver's v and ω of o)
+        x = (double)((w.y·n.y + w.x·n.x) + w.z·n.z);   if h == 1:  x = −x
+        if !(x >= (double)(solver+0x0·−0.8333333f)):                               -- COMISD/JNC: a NaN takes this
+            A's env+0xa4 += 1;   cores[h] = null
+            A+0x110..0x12b = 0;  B+0x110..0x12b = 0
+            FUN_18008ddf0(solver, o)
+            H = core h:  H+0x120 = the solver's v of h − H+0x140;  H+0x110 = the solver's ω of h − H+0x130;  H+0x2 −= 1
+            return
+A+0x110..0x12b = 0;  B+0x110..0x12b = 0;   FUN_18008ddf0(solver, 0);  FUN_18008ddf0(solver, 1)
+```
+
+**`FUN_1800904a0(solver, double p)`** — a direction held inside a cone:
+
+```
+v = (float)((double)n·−p + (double)solver+0xd0) per lane;   ℓ = (float)FUN_18006fc90(&v), v read back after
+q = |(v.y·s.y + v.x·s.x) + v.z·s.z|, s = solver+0x100;   r = asinf(q)
+c = (1f − r²·0.5f) + (r²·(1/24f))·r²
+m = q²·(solver+0xf4)² + (solver+0x138)²·c²
+if ℓ² > m:   σ = SQRTSS(m);  r' = asinf(σ);  c' = (0.5f − r'²·(1/24f))·r'² − 1f
+             solver+0xd0 = (float)((double)v·(double)σ + (double)(float)((double)n·(double)c')) per lane
+```
+
+#### Four small helpers and the damping applier read again
+
+- **`FUN_180070130(out, a, n)`**: `k = (n.x·a.x + n.y·a.y) + n.z·a.z` in float, `out = (float)((double)n·(double)−k + (double)a)` per
+  lane — `a` less its part along `n`.
+- **`FUN_18006dcb0(out, a, b)`** is `a × b` in float: `(b.z·a.y − a.z·b.y, a.z·b.x − b.z·a.x, b.y·a.x − a.y·b.x)`.
+- **`FUN_180070950(m, v, out)`** turns a float vector by a double matrix, each row `((v.x·m0 + v.y·m1) + v.z·m2)`, narrowed.
+- **`FUN_180078820(core)`** sets `+0x200` and `+0x208` to `env+0x188`.
+
+**`FUN_180077a20(core, double dt, rotation, double speedDamping)`**, which `IvpDamping` ports:
+
+```
+a = ((float)((double)r.x·dt), (float)((double)r.y·dt), (float)((double)r.z·dt))
+f = !((a.y² + a.x²) + a.z² ≥ 0.5f) ? (1f − a.x, 1f − a.y, 1f − a.z)                     -- COMISS/JNC: a NaN takes this
+                                  : (expf(−a.x), (float)exp((double)−a.y), (float)exp((double)−a.z))
+k = dt·speedDamping;   k' = k < 0.25 ? 1.0 − k : exp(−k)
+ω.x = f.x·ω.x;  ω.y = f.y·ω.y;  ω.z = f.z·ω.z;   v = (float)((double)v·k') per lane
+```
+
+**The `x` lane calls `expf` and the other two call `exp` on a widened argument**, so three equal damping values need not give
+three equal factors. **`IvpDamping` diverges on four counts**: one factor for all three lanes from `MathF.Exp`; the threshold as
+`3·s²` rather than the grouped float sum; the products in float from a float step rather than from the double one; and the
+speed factor in float rather than double. *And `MathF.Exp` is the platform library, not this image's `expf`.*
+
+#### The math routines, identified
+
+- **`FUN_1800d4f9c` is `asinf`** — its domain error passes the name `"asinf"` (`180104808`). Under `2^−14` it returns `x`, `±1`
+  gives `±π/2` (`3fc90fdb`), and over one is the domain error. Otherwise, with `z = x²` under `0.5` and `z = (1 − |x|)·0.5`, `s =
+  √z` at or over it: `w = p/q`, `p = (((−0.013381929 − z·0.0039613745)·z − 0.05652987)·z + 0.1841616)·z`, `q = 1.1049696 −
+  z·0.8364113`; under `0.5` the answer is `|x|·w + |x|`; over, with `f` = `s` with its low sixteen bits cleared and `c = (z −
+  f²)/(f + s)`, it is `π/4ʰ − ((2s·w − (π/4ˡ − 2c)) − (π/4ʰ − 2f))` (`3f490fda`, `33a22168`), signed like `x`. All float; the
+  under-one-half branch is taken by reusing the carry flag of the exponent compare across the rational function.
+- **`FUN_1800d40f0` is `expf` and `FUN_1800d3cf0` is `exp`**, the table-driven kind: `n` from `x·64/ln 2` (`expf` rounds it to
+  nearest, `exp` truncates), `r = x − n·ln 2/64` (`exp` with the constant in two parts), `2^(j/64)` from a 64-entry table at
+  `180108740` (`exp` adds two more tables' entries), and a scale by `2^(n>>6)` applied to the bits. **Each has two paths chosen
+  at run time by `DAT_180136418`** — one with separate multiplies and adds, one with fused multiply-adds — and they group the
+  series differently: `exp`'s plain path sums `(r + r²(1/2 + r/6)) + r⁴((r/720 + 1/120)r + 1/24)`, its fused path nests all five
+  terms in one Horner chain. `DAT_180136418` is set at startup by `__acrt_initialize_fma3`, below.
+
+- **`FUN_1800d4398` is `atan`, with fdlibm's breakpoints and not fdlibm's series.** With `a = |x|`: over `2^62·1.0537`
+  (`43d0dc00…`) the answer is `±π/2` (`3ff921fb54442d18`) outright, and a NaN goes to the error path; over `39/16`, `t = −1/a`
+  against `π/2` and its low part `3c91a62633145c06`; over `19/16`, `t = (a − 1.5)/(a·1.5 + 1)` against `3fef730bd281f69b` and
+  `3c7007887af0cbbc`; over `11/16`, `t = (a − 1)/(a + 1)` against `π/4` (`3fe921fb54442d18`) and `3c81a62633145c06`; over
+  `7/16`, `t = ((a + a) − 1)/(a + 2)` against `3fddac670561bb4f` and `3c7a2b7f222f65e0`; otherwise `t = a` against zero. Then
+  `z = t·t` and `atan = hi − (((t·z)·P(z))/Q(z) − lo − t)`, **a rational function in place of fdlibm's eleven-term
+  polynomial**: `P` nests `z·3f22a75ce41b9f87 + 3f9f2d2116f053f2`, then `3fcc3de43db425c0`, `3fdca6be4c993b3c`,
+  `3fd12bcb0a9169f3`; `Q` nests `z·3fa3f197f1e85ed9 + 3fdb2cb05bf9beff`, then `3ff699c644c48d2e`, `3ffd372a17cdf5a0`,
+  `3fe9c1b08fda1eec`; each step a multiply by `z` and an add, the order as listed. The sign is restored last. **The low
+  parts are one below fdlibm's** in their last hex digit, which is reason enough to carry the image's constants rather
+  than fdlibm's.
+
+#### Valve's binary as the oracle (2026-09-13)
+
+**The shipped `vphysics.dll` can be called in process, and that makes it the instrument for every leaf routine.** The
+`vphysics-math` probe loads the game's x64 library with `NativeLibrary.Load`, calls routines at their addresses against the
+image base `0x180000000`, and writes the fused-path flag in the loaded image to take either path. **Controls first**:
+`expf(0)` and `exp(0)` come back exactly one, `asinf(1)` exactly `π/2f` and `atan(1)` exactly `π/4`, so the addresses fit
+the installed build; on this machine the flag reads one.
+
+**A sweep against `IvpMath`** — 1.43 million `expf` and `asinf` arguments, three million `exp` arguments on each path, two
+million `atan` arguments — **found no difference after one fix**: the fused `exp` path hands every argument under `−744.03`
+to its underflow handler, which answers zero, where the plain path answers the least denormal down to `−745.13`; the first
+port had not separated them. The binary's two `exp` paths disagree on 3,641 of the three million (`−2.997306`: `…eb17`
+against `…eb16`), and its two `expf` paths on none of 1.43 million — so no test can tell `expf`'s paths apart.
+
+**`FUN_180077a20` itself was then called on a stand-in core** — it reads its factors through a pointer and writes only
+`+0x130..0x148` — and `IvpDamping.Damp` is pinned to the bits it left, for factors and steps straddling both thresholds.
+
+*Evidence class: differential against the shipped binary, on one machine. What the unread error handlers answer is taken
+from what the binary returned, not from reading them.*
+
+#### The impact solver's entry, and the push-out estimate
+
+**`FUN_18008ed60(record, cores, float p5, cp)`** fills a solver on its stack and calls `FUN_18008e290(solver, cores, 1,
+(short)record+0x72, p5)` — so the solver's `p3` is always one and its `p4` is the record's impact count:
+
+```
+if record+0xa0 (core B) is null:           -- a static second body
+    A = record+0x48's core (+0xe8);  B = record+0x98;  armA = &record+0xe0;  armB = &record+0xd0;  n = −record+0x20
+else:
+    A = record+0x98, or record+0x40's core when that is null;  B = record+0xa0;  armA = &record+0xd0;  armB = &record+0xe0
+    n = &record+0x20
+solver+0x110/+0x118 = A/B;  +0x120/+0x128 = the arms;  +0x140 = n;  +0x148 = &record+0x30;  +0x130 = record+0x80;  +0xf0 = 0
+if A+0x58 or B+0x58 is set:  solver+0x134 = 1f, +0x138 = 0f
+else:  t = (√(double)record+0x80 + 1.0)·(double)cp+0x78;  x = (float)atan(t);  x² in float
+       c = (1f − x²·0.5f) + (x²·(1/24f))·x²;  solver+0x134 = c;  solver+0x138 = (float)((double)c·t)
+       if cp+0x64:  FUN_18008fe70(solver, cp)
+```
+
+**The static body is always the solver's `A`**, the normal turned to match. The cone pair `(+0x134, +0x138)` is `(cos x, cos x·t)`
+with `x = atan(t)` — *Corrections to earlier readings* above already records that the series is cosine's.
+
+**`FUN_18008fca0(cp, env)` — the float `FUN_18008db40` stores at `record+0x78`**:
+
+```
+gap = (double)cp+0x8c;  m = (double)block[1]
+p = gap < m ? (m − gap)·((double)(float)env+0x110 + same) : 0, and record+0x78 = 0 when not     -- COMISD/JNC
+q = 0
+for A = record+0x98 unless cp's first kind (+0x2a) is a ball, then B = record+0xa0 unless the second (+0x52) is:
+    s = (double)((ω.x² + ω.y²) + ω.z²)·2.5e-5, MINSD 0.25, SQRTPD
+    q = (float)((1.0 − FUN_1800d33b0(√s))·(double)core+0x4·(double)(float)env+0x110 [+ (double)q for B])
+return (float)((double)(q + q) + p)
+```
+
+*`2.5e-5` is `DAT_1800fd860`, a double.* ~~`FUN_1800d33b0` is another runtime-library routine, unidentified; `core+0x4` is
+unread~~ — **both settled since**: `FUN_1800d33b0` is `cos`, identified by calling it in process and ported as `IvpMath.Cos` —
+under `π/4` first, whole since (*vphysics' own `sin`, `cos` and `acos`*, below; the push-out's argument never exceeds `√0.25`), and
+`core+0x4` is the core's radius `FUN_180078b90` sets (*core+0x54 = 0.5f / core+0x4* above).
+
+#### The entry, ported and pinned (2026-09-13)
+
+**`FUN_1800908d0`, `FUN_18008db40`, `FUN_18008fca0` and `FUN_18008ed60` with `FUN_18008fe70` are ported** —
+`IvpContactPoint.SetMaterials`, `Estimate`, `PushOut` and `IvpImpactSolver.Enter` — and the `vphysics-impact` probe's `entry`
+mode calls all four in that order on a fabricated contact point, record, two objects with their triangles and friction cores,
+three materials and a material manager whose slots are callbacks. **20,000 random entries agree on every lane, with no call
+reaching a trap**; `IvpImpactEntryConformanceTests` replays 96 of them and five targeted cases. **Each case also calls
+`FUN_18008fe70` alone** on a zeroed solver holding only the record's elasticity, and compares `+0xf0`, `+0xf4` and `+0x100`
+— because a sabotage round reddened 12 of 13 and the thirteenth, the cone series' product regrouped from `(x²·(1/24f))·x²` to
+`(x²·x²)·(1/24f)`, survived both every drawn case and that direct lane: the two groupings round alike for nearly every `x²`,
+and a one-ulp cosine rounds away inside a solve. Four cases found by search, an axis of length exactly one with only the first
+material's block running and the two groupings' tangents apart, redden under it and nothing else does. What the reading
+needed that earlier sections left open:
+
+- **`block[0x48]` is `(float)(d·20.0 + (double)block[0x43])`** — `DAT_1800fcfb0` is `20.0`, read from `FUN_180098fd0`'s tail;
+  `22·d` above was its value, not its arithmetic.
+- **A triangle's material index is its header word's bits 24–30** (`FUN_1800863d0`: the edge's address masked to its triangle,
+  byte 3, `& 0x7f`). `PhysicsHull` now carries it per triangle beside the pierce field.
+- **`FUN_180070130` is the arithmetic the solver inlines for its slide** — each lane `(float)((double)n·(double)−k + (double)v)`
+  with `k` the float dot — so the port has one `Across` for both.
+- **`FUN_18008fe70` calls both materials' slots before its length test**, so a material is asked even when its axis is skipped;
+  the calls are pure in the fabricated materials, and whether vphysics' are is unread.
+- **The entry reads through a null core when neither of the record's cores is movable** (`CMP [R8+0x58]` with `R8 = 0`); the port
+  refuses that case rather than answering it.
+
+*Not read yet*: vphysics' material manager and material classes, whose answers decide every friction and elasticity; what
+increments `record+0x72`; what sets `cp+0x64`.
+
+*Evidence class: read from the disassembly; differential against the shipped binary for every lane the four routines write,
+with the materials' answers fixed on both sides.*
+
+#### vphysics' material manager and its materials (2026-09-13)
+
+**The manager at `env+0xe8` is one global, `180120be8`**, built at load by `FUN_180001840`: IVP's base constructor
+(`FUN_1800911f0`, vtable `1800ec4f0`), then vphysics' vtable `1800ec560`; `+0x10` is the surface-props object at
+`180120b38`, and `+0x18` a table of 128 words filled with their own indices. vphysics overrides slots 1–3 and keeps IVP's 4
+and 5:
+
+```
+slot 1  FUN_180019370(manager, object, position, index):  index ≤ 0x7f → index = table[index]
+        m = props slot 10 (+0x50)(index);  null → m = props slot 10(props slot 3 (GetSurfaceIndex)("default"))
+slot 2  FUN_1800192e0(manager, record):  f = 1f;  FUN_180024080(&f, record+0x40, record+0x48, &record+0x20) → return (double)f
+        p = FUN_180091340 = m₀.slot1 · m₁.slot1;  p < 0 or NaN → 0 (COMISD/JC);  else MINSD 1.0
+slot 3  FUN_1800192b0(manager, record):  e = FUN_1800912f0 = m₀.slot3 · m₁.slot3;  MAXSD 0 (a NaN gives 0), MINSD 1.0
+```
+
+Slot 3 of the props object is `GetSurfaceIndex` in `IPhysicsSurfaceProps`'s order (`public/vphysics_interface.h:968`); slot 10
+is past the public interface, and *that it hands out the surface's material is INFERRED from its use*. IVP's own slots, which
+vphysics replaces: slot 1 (`FUN_180091390`) lazily builds one `IVP_Material_Simple` (`0x38` bytes, vtable `1800fd888`, name
+"Simple material") with `+0x10` and `+0x20` at `0.5`, `+0x28`, `+0x30` and `+0xc` zero; slots 2 and 3 the same products
+unclamped; slots 4 and 5 the sums of the materials' slots 4 and 5.
+
+**`FUN_180024080` zeroes the friction** when either object's core has `+0x58` set: the first object — the first synapse's,
+then the second's — whose physics object (`object+0x100`) has bit 6 of its byte `+0x48`, with the normal's float `|n|²` at
+least `1e-4f`, turned into that object's core frame (`FUN_180070620`), `|x|` widened above `DAT_1800ee1a8` —
+`0.25881904f`, `sin 15°`, widened — writes `0f` and answers true. *What that bit is, is not read.* A ragdoll's cores have no
+`+0x58`, so for a corpse it never fires.
+
+**vphysics' material is vtable `1800ec528`, one inside each 0x78-byte surface entry** `FUN_180018740` parses: slot 1 answers
+`(double)+0x14`, slot 3 `(double)+0x18`, slot 4 `(double)+0x24`, slots 2 and 5 zero (`FUN_180007e40`: `XORPS`, `RET`), and
+slot 6 the name through the word at `+0x10`. **`+0x14..+0x24` is `surfacephysicsparams_t`** — friction, elasticity, density,
+thickness, dampening (`public/vphysics_interface.h:882`) — *matched by order and by the parser's 16-byte copies, not by reading
+its key strings.* So **a corpse on the world rubs at `clamp(f₀·f₁, 0, 1)` and bounces at `clamp(e₀·e₁, 0, 1)`** of the two
+surfaces' `surfaceproperties` values, and with slot 2 answering zero the axis friction of `FUN_18008fe70` has nothing to
+multiply. *Whether any entry's `+0xc` is set, so that its blocks run at all, is not read.*
+
+**The surface-props object is `180120b38`** (vtable `1800ec598`; the manager is its `+0xb0`, so the manager's table at `+0x18` is
+the props' `+0xc8`). Its entries are a vector at `+0x70` with the count at `+0x80`, and **each 0x78-byte entry is itself the
+material** — slot 10 (`FUN_1800181d0`, `GetIVPMaterial`) answers `&entries[index]`:
+
+```
+index > 0x7f:  index = (index == 0xf000) ? props+0x1cc : 0          -- 0xf000 is GetSurfaceIndex("$MATERIAL_INDEX_SHADOW")
+index < 0 or index > count − 1:  null;  else  entries + index·0x78
+```
+
+Slot 11 (`FUN_180018210`) is its inverse, `−1` off the vector; slot 9 (`GetPhysicsParameters`) copies the 20 bytes at `+0x14`;
+slot 8 (`FUN_180019220`, `SetWorldMaterialIndexTable`) writes `min(size, 128)` words of the caller's ints into that shared
+table; and slot 3 (`FUN_180018500`, `GetSurfaceIndex`) answers `0xf000` for `$MATERIAL_INDEX_SHADOW`, otherwise finds the name's
+symbol and walks the entries for the one whose word `+0x10` holds it. The symbol table is built case-insensitive
+(`FUN_180001840` passes `1` as the fourth argument to its constructor `FUN_1800b9b40`).
+
+**An object's own material — `object+0xd0` — is the surface its creator names**: `FUN_18001c9d0` fills the IVP template's
+`+0x18` with `GetIVPMaterial(index)` for a non-negative surface index, else with `GetIVPMaterial(GetSurfaceIndex("default"))`
+(`18001ca0c..18001ca39`). vphysics reaches props through the pointer at `180120b30`. And the world's table is
+`game/shared/physics_shared.cpp:674-680`: a map's `materialtable` block becomes 128 surface indices, zero where unnamed.
+
+**How `ParseSurfaceData` (`FUN_180018740`, props slot 1) builds an entry** — read by a delegated pass over the whole routine
+and checked here at the three places that decide values:
+
+- **A block starts from the surface of the same name, else from `default`, else from zeros** (`18001883a..1800188cc`: slot 3 on
+  the block's name, then on `"default"`, through `GetIVPMaterial`'s index rules, copying `+0x14..+0x73` into the staging entry).
+- **Keys apply in file order, and `base` is one of them** (`180018901`): it copies the named surface's whole `+0x14..+0x73` at the
+  point it appears, so keys before it are overwritten and keys after it win. Float keys go through `atof` and are narrowed
+  (`CVTSD2SS`): `friction` `+0x14`, `elasticity` `+0x18`, `density` `+0x1c`, `thickness` `+0x20`, `dampening` `+0x24`.
+- **The closing brace writes the staging entry back over an existing surface of that name, or appends a new one** — a later
+  file redefines in place, keeping every field it does not name.
+- **Once, at the end of the first parse** (`18001907c`: the byte `props+0x1c8`), it appends a shadow surface named by slot 14 —
+  `$MATERIAL_INDEX_SHADOW` for `0xf000` — copied from `default` with friction `0.8f` and elasticity `0x3a83126f` (`0.001f`), and
+  stores its index at `props+0x1cc`: the writer `GetIVPMaterial`'s shadow index reads.
+- A new entry's `+0xc` is zero (`180018781`), so **no vphysics surface has an axis friction** and `FUN_18008fe70`'s blocks never
+  run for a surface's material.
+
+**Ported: the manager and the lookups** — `VphysicsSurfaceProps` and `VphysicsSurface`, with the object's physics-object flag as
+`IvpCollisionObject.PhysicsFlag48Bit6`. The `vphysics-materials` probe calls `FUN_1800181d0`, `FUN_180019220`, `FUN_180019370`,
+`FUN_1800192e0` and `FUN_1800192b0` on fabricated props, surfaces, records and objects with the image's own manager and material
+tables: **200,000 drawn cases agree on every answer**, after one fix the sweep itself found — the override's threshold written
+as the float literal `0.25881904f` rather than the dumped bits differed on 2. `VphysicsSurfacePropsConformanceTests` pins 23
+rows the probe's `list` printed.
+
+**The parser is ported too** — `VphysicsSurfaceProps.ParseSurfaceData`, with `FUN_18002e6c0` (a key and a value, each lowercased by
+`FUN_1800b9a10`; a lone `}` reads no value) and `FUN_180003640`, Source's `ParseFile`: every byte up to `0x20` **and every byte
+from `0x80`** is whitespace, because the bytes are compared signed; `//` and `/* */` are comments; `{}()':` are tokens of their
+own; a token stops at `0x3ff` bytes. **Its oracle is the library's own props object**, the global behind `180120b30`, which the
+loaded image built at load: `vphysics-materials parse` hands it the game's `surfaceproperties_manifest.txt` files in order —
+`surfaceproperties.txt`, `_hl2`, `_tf`, 83, 93 and 100 surfaces with the shadow at 82 — then eight edge texts, and reads every
+surface back through slots 7 and 9. **All agree, after one fix**: the C runtime's `atof("nan")` is positive with every payload
+bit, `0x7fffffff` once narrowed, where `double.NaN` narrows to `0xffc00000`. `VphysicsSurfaceDataConformanceTests` pins the
+edge texts parsed from nothing. `SurfaceTable` still diverges from all of it — no `base`, no copy from `default`, `1.0` where the
+engine starts from `default` or zero, no shadow surface, archive order instead of the manifest's — and was what the running
+path read. **It is gone**: `GameContent` now parses the manifest's files in order through `ParseSurfaceData`, and a ragdoll body's
+friction is `VphysicsSurfaceProps.ObjectMaterial(surfaceprop)` — the name, else `default`, as `ragdoll_shared.cpp:194-197` and
+`FUN_18001c9d0` resolve it. **Measured on the game's files, and it moves a number the owner can see:** TF2's `flesh` block names
+no `friction`, `elasticity` or `base` in any of the three files, so the engine's `flesh` is a copy of `default` — friction `0.8`,
+elasticity `0.25` — where `SurfaceTable` closed the block with its own `1.0`. **Every player corpse element rubbed a quarter harder
+than the engine's** on the running path until now. (`concrete` 0.8/0.2 and `ice` 0.1/0.1 name their keys and did not move.)
+
+#### The impact loop — `FUN_180090700`, `FUN_180090bd0` and `FUN_18008da40` (2026-09-13)
+
+**Read from the disassembly.** `FUN_18008ef60` hands `FUN_180090700` an empty block on its stack — `+0x0` the environment, `+0x8`
+a pass count, three vectors `{word capacity, word count, pointer}` at `+0x10` (cores added), `+0x20` (cores brought to the event)
+and `+0x30` (pairs), and `+0x40` the friction system:
+
+```
+FUN_180090700(block, mindist, system, pair, cp):
+    block+0x8 = 0;  block+0x40 = system;  block+0x0 = pair+0x38's core's +0x10
+    core of cp's first object, unless flags & 0x12:  FUN_18008da40(block, core, pair)
+    pair+0x38, unless flags & 0x12:  push on +0x20
+    the same for cp's second object's core and pair+0x40
+    push pair on +0x30
+    every contact of the pair but cp, last to first:  FUN_18008d0c0(contact, env);  FUN_1800908d0(contact, record)
+                                                     record+0x76 == 1 → FUN_180083e40(system, contact)
+    while FUN_180090bd0(block) == 1:  block+0x8 += 1;  n += 1;  block+0x8 > 0x1388 → mindist slot 0(mindist, 1), stop
+    env+0x98 += n + 1;  tail into FUN_1800909d0(block)
+
+FUN_180090bd0(block):  best = (double)block[0x42];  none
+    every pair of +0x30, last to first, unless BOTH cores' (flags >> 5 | flags & 2) & 6:
+        every contact, last to first:  record+0x74 != 1 → env+0xa8 += 1, FUN_18008db40(contact)
+            e = (double)record+0x7c;  best > e → this contact and pair;  best = MINSD(best, e)    -- a NaN e makes best NaN
+    none → 0
+    record+0xa0's core, then +0x98's:  unless +0x260 is set:  push on +0x20;  state +0x1 < 8 and not flags & 0x10 → FUN_180078d60
+    record+0x72 += 1;  FUN_18008ed60(record, cores, record+0x78, contact)
+    each core the solve left, second then first, unless flags & 0x12:
+        +0x260 set and its +0x30 zero → FUN_18008da40(block, core, pair)
+        else every contact of FUN_180077f00(core, system):  record+0x74 = 0
+    → 1
+
+FUN_18008da40(block, core, pair):  push core on +0x10;  core+0x260's +0x30 = 1
+    every pair of the system (+0x6a count, +0x70 array), last to first, touching core, not pair, not already on +0x30:
+        FUN_180083b30(that pair, system) > 0 → push it on +0x30
+```
+
+**So the loop is event-ordered by estimate, not by contact order**: every pass re-estimates what the last solve invalidated,
+solves the one contact predicted to close first below the margin, and pulls in each newly moved core's other pairs. **A NaN
+estimate ends the search for that pass** — `MINSD` answers its second operand, so the best becomes NaN and no later compare can
+beat it. The cap of 5,000 passes asks the mindist's slot 0 with one; *what that slot does is not read.* **Not ported.**
+
+**`FUN_1800909d0(block)`, the tail, read whole:**
+
+```
+every core of +0x20, last to first:  +0x260 set and its +0x30 zero → FUN_180079120(core)  (put back);  core+0x260 = null
+dt = (double)(float)(env+0x190 − env+0x188);  a local vector of 256 inline entries
+every core of +0x10, last to first, unless flags & 2:
+    FUN_180099a00(core, {(float)dt, dt > 1e-10 ? (float)(1.0/dt) : 1e10f}, &local)     -- COMISD/JBE: a NaN dt takes 1e10f
+    core+0x260 = null;  every contact of FUN_180077f00(core, system):  record+0x74 = 0
+FUN_18009a690(env, &local);  free the local vector unless it is still inline
+every core of +0x10, last to first, unless flags & 2:  FUN_1800792b0(core)
+```
+
+**So a core the loop only brought to the event and never moved is put back exactly as it was**, and only the cores an impact
+actually moved are stepped — each over the environment's whole remaining PSI span, through the same integrator a PSI uses — then
+re-checked by the scheduler and stamped with the impact counter. `FUN_180077f00(core, system)` is the per-system record: through
+the hash at `core+0x60` for an unmovable core, else `core+0x60` itself when its `+0x10` is the system.
+
+#### Filing a contact into a friction system — `FUN_180090e50(mindist, &system, &built, unit, rebuild)` (2026-09-13)
+
+**Read from the disassembly**, with every callee named below:
+
+```
+A, B = the mindist's synapse objects ((flags >> 8) & 3 and its flip);  their friction cores, object+0xf0
+M = the one of the two NOT flagged unmovable (bit 1) — A's when both or neither;  S = the other
+info = M+0x60 (FUN_180078460);  env = M+0x10
+cp = FUN_18008c4b0(mindist, &made)
+not made:  *system = info+0x10;  *built = 0;  rebuild and cp → FUN_18008d0c0(cp, env), FUN_1800908d0(cp, record);  return cp
+made:  rebuild → the same two calls;  the environment's listeners (FUN_180081e50) and each object flagged 0x2000 (FUN_180088310)
+       hear {env, record, cp};  *built = 1
+    info set, system T = info+0x10:
+        S's record in T (FUN_180077f00) → file
+        S movable with its own record → merge S's system into T (FUN_180086240) → file
+        else a new 0x18 record for S in T (FUN_180076690), and S joins T (FUN_180087bf0) → file
+    info null:  a new record for M
+        S movable with its own record, system T:  M's record in T;  M joins T → file
+        else  T = a new 0x90 system (FUN_1800879e0, env);  a new record for S;  both records attached;
+              cp into T (FUN_180087c90, FUN_180088090);  M joins T;  S joins T
+    file:  cp into T's contact list (FUN_180087c90) and its pair (FUN_180088090)
+    cp onto both records' contact vectors (FUN_180054640);  *system = T;  FUN_180083a60(cp)
+    unless either core is unmovable or they share one:  merge the two cores' simulation units (+0x1f8) into the one passed
+        as unit (FUN_180074e40), then destroy (FUN_1800747a0) and free (0x48) the other
+```
+
+- **`FUN_180076690(core, record)`**: an unmovable core keeps its records in a hash at `+0x60` (`0x20` bytes, `FUN_180071e80`,
+  inserted by `FUN_180072070` under the record's system); a movable core holds its one record there.
+- **`FUN_180087bf0(system, core)`**: onto the cores (`+0x48` capacity, `+0x4a` count, `+0x50` elements); unless unmovable, onto the
+  movable cores (`+0x58`, `+0x5a`, `+0x60`) and into the system's three controller bases (`FUN_1800748b0` with `+0x10`, the system
+  itself and `+0x20`); `+0x78 += 1`.
+- **`FUN_180087c90(system, cp)`**: `cp+0xc0 = system`; `cp` at the head of the list at `+0x40` (`cp+0x0` next, `cp+0x8` previous);
+  `+0x7a += 1`.
+- **`FUN_180088090(system, cp)`**: the pair of the two contact objects' `+0xe8` cores, found in either order (`FUN_1800863f0`) or
+  made (`0x50` bytes, `FUN_1800830d0`, `+0x38`/`+0x40` the cores, added by `FUN_1800833d0`); `cp` onto its contact vector. **The
+  pair is keyed by the physical cores, the system by the friction cores.**
+- **`FUN_1800850b0(system, a, b)`** is the same search as `FUN_1800863f0`, answering null rather than asserting.
+- **`FUN_180083a60(cp)` writes `cp+0x64`** — one when either synapse's material (`FUN_18008fb60`, the lookup `FUN_1800908d0` makes)
+  has `+0xc` set, the reader `FUN_18008ed60` gates `FUN_18008fe70` on — **and `cp+0x60`**: `1 / (m₀m₁ / (m₀ + m₁))` over the two
+  physical cores that move (`flags & 0x12` clear), or `1 / m` when one does, each `m = FUN_180077840(core, arm)`.
+- **`FUN_180077840(core, r)`**: with `x², y², z²` the arm's squares in float, `1.0 / (MAXSD(MAXSD((double)((x² + z²)·Iy⁻¹),
+  (double)((y² + z²)·Ix⁻¹)), (double)((x² + y²)·Iz⁻¹)) + m⁻¹)` — `1.0` in place of `m⁻¹` for a core flagged `0x10`. A contact's
+  mass along its worst axis, not along its normal.
+
+**The records themselves:**
+
+- **A friction system is `0x90` bytes** (`FUN_1800879e0(system, env)`): three controller tables — `1800fd638` at `+0x0` with the
+  environment at `+0x8`, `1800fd5f8` at `+0x10` and `1800fd5a8` at `+0x20`, each followed by the system itself — the contact list
+  head `+0x40`, the cores `+0x48`, the movable cores `+0x58`, the pairs `+0x68` (count `+0x6a`, elements `+0x70`), the core count
+  `+0x78`, the contact count `+0x7a` and a byte `+0x80`. **The three tables differ in slot 4** (`1800843c0`, `180084320`,
+  `180084240`) and slot 5 (`180088be0`, `18000a6f0`, `180088bd0`); slot 7 of the first is the deleting destructor.
+- **A pair is `0x50` bytes** (`FUN_1800830d0`): its contact vector at `+0x0`/`+0x2`/`+0x8`, `+0x20 = 1`, `+0x28` a time starting at
+  `DAT_1800fd590` = `−1000.0`, `+0x30 = 0`, and its two physical cores at `+0x38`/`+0x40`; `FUN_1800833d0(system, pair)` appends it
+  and tells the environment's listeners (`FUN_180081f10`).
+- **`FUN_180086240(target, source)` merges two systems**: every contact of `source`'s list is unlinked (`FUN_180088ce0`), taken out
+  of its pair (`FUN_180088130`) and filed into `target` (`FUN_180087c90`, `FUN_180088090`); then every core of `source`, last first —
+  a core already in `target` moves its contacts into its `target` record and loses the `source` one (`FUN_180077c10`); otherwise
+  its record is detached (`FUN_180079180`), pointed at `target`, reattached, and the core leaves `source` (`FUN_180088c80`) and
+  joins `target` — and `source` deletes itself through slot 7.
+- **`FUN_1800748b0(core, controller)`** appends the controller to the core's (`+0x1e0` capacity, `+0x1e2` count, `+0x1e8`), finds or
+  makes (`FUN_180074820`) the controller's `0x28`-byte entry in the core's simulation unit (`+0x1f8`; entries `+0x3a`/`+0x40`),
+  appends the core to that entry's cores (`+0x8`/`+0xa`/`+0x10`) and tails into `FUN_180075990(unit)`.
+
+**The system is a controller named `sys:friction`** (slot 6, `1800fd5e8`), filed three times at different priorities (slot 5),
+and each filing's slot 4 is what it does every PSI — `event` its argument, `+0x8` the environment and `+0x10` the simulation unit:
+
+```
+priority 600,  FUN_1800843c0(system, event):
+    one contact or none:  cp = the list head;  FUN_180083970(cp, ((event[0]² · cp+0x60) · (cp+0x88 · cp+0x78)))  -- all float
+                          cp+0x64 → FUN_180085100(cp, event)  else  FUN_1800857c0(cp, event)
+    more:  FUN_1800836b0(system, event);  every pair, last first:  pair+0x20 −= 1;  reaching 0 → FUN_180084680(pair, env+0xf0), pair+0x20 = 5
+priority 0,  FUN_180084320(system+0x10, event):
+    one contact or none → FUN_180084490(that)  else  FUN_1800a9bf0
+    no contacts left:  forget the system and delete it (slot 7)
+    else, when +0x80 is set:  clear it;  r = FUN_1800877b0(system);  r → FUN_180086e80(system, r), r = its unit
+    either way the unit's dword loses bit 9 and gains bit 8
+priority 2000,  FUN_180084240(system+0x20, event):
+    one contact or none → FUN_18008d0c0(list head, env)            -- the record rebuilt, nothing else
+    else  FUN_180088ae0(system);  unit dword & 0x3000 → every pair's +0x30 = 0;  unless & 0xc00 → FUN_180086b40(system)
+```
+
+**The other controllers a corpse's unit holds, and the order a PSI runs them** (slot 5 read as bytes, 2026-09-14):
+
+| controller | table | slot 4 (the PSI's work) | slot 5 | priority |
+|---|---|---|---|---|
+| friction, base `+0x20` | `1800fd5a8` | `180084240` | `180088bd0`: `B8 D0 07 00 00 C3` | 2000 |
+| gravity, the environment's `+0x0` | `1800ea728` | `180074c80` | `180007e90`: `B8 E8 03 00 00 C3` | 1000 |
+| friction, base `+0x0` | `1800fd638` | `1800843c0` | `180088be0`: `B8 58 02 00 00 C3` | 600 |
+| vphysics' constraints (`FUN_18003c780`'s table, from `1800eeb10`) | `1800eeb10` | `18003cdf0` | `18003cf80`: `B8 95 01 00 00 C3` | 405 |
+| friction, base `+0x10` | `1800fd5f8` | `180084320` | `18000a6f0`: `33 C0 C3` | 0 |
+
+`FUN_180075990` sorts a unit's entries ascending and `FUN_180075c80` walks them last first, so **one PSI is: the records rebuilt and
+the pushes' work banked, gravity, friction, the constraints, then the normal pushes** — top to bottom as the table reads. A core
+gets the gravity controller from its constructor (`FUN_1800782d0`, when its third argument is set: `[[core+0x10]]`, the
+environment's first field), a unit of its own (`FUN_180074770`, state `8`), and `core+0x1` = 8. *The constraint table's start is
+inferred from the slots every controller table above shares — `180007ea0` at slot 1 and `1800073e0` at slot 3.* Its slot 4 is
+`48 8B 01 48 FF 60 40` — `MOV RAX,[RCX]; JMP [RAX+0x40]`, a tail call into its own slot 8, which is `FUN_18003c780`, the solve
+`IvpConstraintGroup` ports, held at `1800eeb50`. *The routine's three other data references (`18011306c`, `1801130e0`,
+`18013a5a0`) are not read.*
+
+**So the pair counter at `+0x20` fires every fifth PSI** (it starts at one, so the first fires at once), and a lone contact takes a
+different, cheaper path at every priority. *Not read yet: the routines each branch calls.*
+
+#### One resting contact, instruction by instruction (2026-09-13)
+
+**`FUN_1800857c0(cp, event)`** — `event[0]` is scaled into a limit and `event[1]` multiplies a distance into a velocity, so they
+read as the step and its inverse, **and they are**: the unit manager's PSI `FUN_180075a90` builds the event on its stack as
+`(float)env+0x108`, `(float)env+0x110` and the environment, then hands it to `FUN_180075c80` for each unit in its list:
+
+```
+L = (double)((cp+0x88 · cp+0x78) · event[0])                          -- float products
+L < (double)1e-6f → 0f                                                -- COMISD/JC: NaN too
+record = cp+0x70;  A = record+0x98;  B = record+0xa0
+A with +0x58 set, no B, and cp's next contact (cp+0x0) absent or with +0x88 zero → FUN_180085a80(cp, A, record, event, &out); true → out
+frame = FUN_18009ca70(A, B, record, &record+0xb0, &record+0xc0)       -- the two tangents: span and cross span
+t = ((double)(float)(event[1]·cp+0x68 − frame v₀), (double)(float)(event[1]·cp+0x6c − frame v₁))
+M⁻¹ = FUN_1800868d0(frame+0xf0, frame+0xf8, frame+0xf8, frame+0x118);  singular → 0f
+p = ((float)(M⁻¹₁·t₁ + M⁻¹₀·t₀), (float)(M⁻¹₃·t₁ + M⁻¹₂·t₀))
+|p|² in float, widened, > L² → p ·= (double)FUN_18006edb0(|p|²)·L, each lane narrowed
+FUN_18009c620(frame, A, B, p)
+e = (float)(√(double)((x² + y²)·(float)(((double)event[0]·(double)|p|²)·(double)event[0]))·0.5)   -- x, y the slide pair
+return e − cp+0x84;  cp+0x84 = e
+```
+
+**`+0x68` and `+0x6c` are the slide distances** `FUN_18008d0c0` advances along the record's two spans — *Friction is a
+WARM-STARTED 2×2 SOLVE* below read them from the decompiler as a stored impulse. **So static friction is a spring back to where
+the contact began**: the target velocity is the slide times the inverse step, less what the pair already moves at.
+
+- **`FUN_18009ca70(frame, A, B, record, s, c, third)`** keeps the directions, zeroes the matrix `+0xf0..0x14f` and the velocities
+  `+0x150`/`+0x154`, and runs `FUN_18009d010` for A with sign `1f` into rows `+0x20` and masses `+0x90`, and for B with
+  `DAT_1800ea9f8` = `−1f` into `+0x50` and `+0xc0`.
+- **`FUN_18009d010(frame, record, core, rows, masses, sign)`**, per direction `d`: `r = (float)(record position − core+0xf0)` in
+  double; `w = r × d` in float, turned into the core's frame by the transpose of its matrix at `+0x90` (each lane
+  `((w.x·m₀ᵢ + w.y·m₂ᵢ) + w.z·m₄ᵢ)` in double, narrowed); `rows = (w′, 1f)`; `masses = (w′ ⊙ I⁻¹, m⁻¹)`, each narrowed. The diagonal
+  term `+0xf0` (or `+0x118`) gains `(double)((m₀r₀ + m₁r₁) + (m₃r₃ + m₂r₂))`; the off-diagonal `+0xf8` gains the second direction's
+  masses against the first's rotational rows only; the velocity `+0x150` (or `+0x154`) gains `sign·((d·v) + (ω·w′))` in float.
+- **`FUN_1800868d0(a, b, c, d)`**: `det = a·d − b·c`; `det² < DAT_1800fd3e8` (about `1e-38`, NaN too) → refuse; else
+  `(d, −c, −b, a)/det`, each a double product.
+- **`FUN_18009c620(frame, A, B, p)`** writes straight into velocity and spin: A's `v += (float)((double)(float)(s·(p₀·m⁻¹)) +
+  c·(p₁·m⁻¹))` per lane, `ω += (float)((double)(float)(masses₀·p₀) + masses₁·p₁)`; B the same with `p` negated.
+- **`FUN_180083970(cp, budget)`**, the lone contact's first call: when `|slide|²` (float, widened) exceeds `(double)(budget² +
+  1e-6f)`, `k = FUN_18006edb0(|slide|²)`; `cp+0x91 = 1`; `cp+0x7c += (float)(((k·|slide|² − budget)·cp+0x78)·cp+0x88)`; the slide
+  pair `·= budget·k` — **it lets the contact slip**, pulling the spring's anchor to the friction limit and keeping the work done.
+
+**`FUN_1800836b0(system, event)`, the many-contact driver, read from the disassembly — and the budget is per PAIR**, not per
+system as *There are TWO contact solvers* read it:
+
+```
+every pair of the system (+0x6a, +0x70), last first:
+    sum = Σ over the pair's contacts, last first, of (cp+0x88 · cp+0x78) · cp+0x60        -- float, from +0.0
+    budget = (sum · event[0]) · event[0];  limit² = (double)(budget² + 1e-6f)
+    every contact, last first:  the slip of FUN_180083970 inlined with this budget
+                                cp+0x64 → FUN_180085100(cp, event)  else  energy += FUN_1800857c0(cp, event)
+    energy > 0 → pair+0x30 += energy                                                          -- COMISS/JBE: NaN skips
+```
+
+**The lone contact forms its budget in another grouping** — `(event[0]² · cp+0x60) · (cp+0x88 · cp+0x78)` against the driver's
+`((cp+0x88 · cp+0x78) · cp+0x60) · event[0] · event[0]` — and float products round apart, so the two paths are two ports.
+
+**`FUN_180084490(system+0x10, event)`, the lone contact at priority 0, is the writer of `cp+0x88`:**
+
+```
+s = the closing speed FUN_18008db40 forms (n·v and t·ω per movable core, the second negated)
+g = (double)(float)(block[0x43] − cp+0x8c);  k = g ≥ 0 ? 1.0 : 20.0 (DAT_1800fcfb0)          -- COMISD/JNC: NaN takes 20
+f = ((k · g) + s) · (double)record+0x90
+f > 0 → cp+0x88 = (float)((double)event[1] · f);  FUN_180083420(cp)      else  cp+0x88 = 0
+!(block[0x47] > cp+0x8c) or record+0x76 == 1 → FUN_180083e40(system, cp)                   -- COMISS/JBE: NaN removes
+```
+
+**So `cp+0x88` is the normal push a resting contact needs this step** — the gap's shortfall below `block[0x43]` (twenty times as
+stiff once it penetrates) plus the closing speed, through the record's virtual mass, per unit time — and the friction limit is
+that push times the friction factor. A contact is dropped once its gap reaches `block[0x47]`.
+
+`block[0x47]` is `(float)(d·DAT_1800fdf80 + (double)block[0x43])` with `DAT_1800fdf80` = `2.5` — `4.5·d`, read from
+`FUN_180098fd0`'s tail.
+
+**`FUN_180083420(record, f)` applies that push at once, into velocity and spin** — `f` the double before `event[1]`:
+
+```
+first core (+0x98):   ω += (float)((double)(float)(t·I⁻¹) · −f) per lane;   k = −((double)m⁻¹ · f);   v += (float)((double)n·k) per lane
+second core (+0xa0):  ω += (float)((double)(float)(t′·I⁻¹) · f);            k = (double)m⁻¹ · f;       v += (float)((double)n·k)
+```
+
+**`FUN_180084680(pair, arena)`, every fifth PSI, shares the slides of parallel contacts**: the pair's contacts go into an arena
+array and a zeroed stack vector per contact; for each `i < j` whose normals satisfy `||nᵢ·nⱼ| − 1| < DAT_1800f5100` (the dot
+in float, its absolute value widened), `FUN_180084c70(cpⱼ, cpᵢ, …, 1/(count + 1e-19))`; then each contact's slide gains its
+vector turned onto the record's spans — `+0x68 += (s·u)` and `+0x6c += (c·u)` in float. Read whole:
+
+```
+FUN_180084680(pair, arena):
+    n = pair+0x2;  cps = the pair's contacts copied into n arena pointers;  k = 1.0 / ((double)n + 1e-19)
+    u = n three-float vectors on the stack, zeroed
+    every i < n−1, every j in i+1 .. n−1   (R = cp+0x70, the record):
+        d = (Rⱼ.n.y·Rᵢ.n.y + Rⱼ.n.x·Rᵢ.n.x) + Rⱼ.n.z·Rᵢ.n.z              -- float, normal at +0x20
+        |(double)|d| − 1.0| < DAT_1800f5100 → FUN_180084c70(cpⱼ, cpᵢ, &uⱼ, &uᵢ, k)
+    every r:  cp+0x68 = (R.b4·u.y + R.b0·u.x) + (R.b8·u.z + cp+0x68)
+              cp+0x6c = (R.c4·u.y + u.x·R.c0) + (R.c8·u.z + cp+0x6c)       -- all float
+    (DAT_1800f5100 = (double)0.001f)
+
+FUN_180084c70(a, b, ua, ub, k) — two near-parallel contacts meet halfway along the line between them:
+    σ = (a+0x20)+0xe8 == (b+0x20)+0xe8 ? 1.0 : −1.0                        -- the same core on both first sides, or swapped
+    d = (float)(Ra.p − Rb.p) per lane, p the record's double position at +0x0;  FUN_18006dff0(&d)
+    wa_l = (float)((double)(float)((double)Ra.s_l·(double)a+0x68) + (double)Ra.c_l·(double)a+0x6c)   -- s at +0xb0, c at +0xc0
+    pa = (wa.y·d.y + wa.x·d.x) + wa.z·d.z;   qa_l = (float)((double)d_l·(double)pa)
+    wb, pb the same for b;   qb_l = (float)((double)d_l·((double)pb·σ))
+    m_l = (qb_l + qa_l)·0.5f
+    ua_l = (float)((double)(m_l − qa_l)·k) + ua_l;   ub_l = (float)((double)(m_l − qb_l)·(σ·k)) + ub_l
+FUN_18006dff0(v) → 0 leaving v alone when (double)(float)((x² + y²) + z²) < 1e-19 (NaN too), else
+    s = FUN_18006ecf0(that);  v_l = (float)((double)v_l·s);  → 1
+```
+
+**The priority-2000 routines:**
+
+```
+FUN_180088ae0(system) — the work the normal pushes did:  every pair, last first:
+    acc = 0f;  every contact, last first:  g = cp+0x8c;  FUN_18008d0c0(cp, env);  acc = acc + (g − cp+0x8c)·cp+0x88   -- float
+    acc > 0 → pair+0x30 = acc + pair+0x30
+FUN_180086b40(system) — that work paid back as damping:  every pair, last first:
+    e = (float)((double)pair+0x30·(double)env+0x1b0);  pair+0x30 = e          -- env through the first core's +0x10
+    e < 0 (NaN too), or either core's +0x58 set → next
+    FUN_180086670(&L, pair)
+    for (a, b, c, d, f) = (L+0x58, L+0x70, L+0x78, L+0x68, L+0x60) and then (L+0x30, L+0x48, L+0x50, L+0x40, L+0x38):
+        t = a/(b + c);  r = a − c·t;  E = MAXSD(((d·a)·a + 1e-19) − (((f·(b·t))·(b·t)) + ((d·r)·r)), 0)·0.5
+    total = E₂ + E₁;  x = MINSD(total·(double)0.1f, (double)e)
+    total < 1e-19 (NaN too) → x = 0   else   FUN_180083f70(&L, x/total)
+    env+0x78 = x + env+0x78;   pair+0x30 = (float)((double)pair+0x30 − x)
+FUN_180086670(L, A, B) — the pair's relative motion:
+    B flagged 0x12 → P = B, Q = A;  else P = A, Q = B;   L+0x90 = P, L+0x98 = Q
+    L+0x0 = Q.v − P.v (float, +0x140);  L+0x30 = FUN_18006fc90(&L+0x0)                    -- unit direction, its length
+    Δω = FUN_180070950(Q+0x90, Q.ω) − FUN_180070950(P+0x90, P.ω) (float);  L+0x58 = FUN_18006fc90(&Δω)
+    L+0x10 = FUN_180070620(P+0x90, Δω);  L+0x20 = FUN_180070620(Q+0x90, Δω·−1f)
+    FUN_180086440(P, &L+0x10, &L+0x60, &L+0x70);  FUN_180086440(Q, &L+0x20, &L+0x68, &L+0x78)
+    L+0x40 = (double)Q+0x2c (mass);  L+0x50 = (double)Q+0x4c (inverse mass)
+    P not flagged 0x12:  L+0x38 = (double)P+0x2c;  L+0x48 = (double)P+0x4c
+    otherwise:           L+0x38 = L+0x40·10000.0;  L+0x60 = L+0x68·10000.0;  L+0x48 = L+0x50·1e-4;  L+0x70 = L+0x78·1e-4
+FUN_180086440(core, u, I, J):  w = I⊙u in float (core+0x20..0x28);  I = FUN_18006e120(&w)
+    I < 1e-19 (NaN too) → I = J = 1.0   else  J = 1.0/I
+FUN_180083f70(L, f) — the pair's relative motion damped by the fraction f of its energy:
+    jω = (L+0x58 − √|L+0x58² − (2·(f·L+0x80))·(L+0x78 + L+0x70)|) / (L+0x78 + L+0x70)
+    jv = (L+0x30 − √|L+0x30² − (2·(f·L+0x88))·(L+0x48 + L+0x50)|) / (L+0x48 + L+0x50)
+    P not flagged 2 nor 0x10:  P+0x120 += (double)L+0x0·(L+0x48·jv);  P+0x110 += (double)L+0x10·(jω·L+0x70)   -- per lane, narrowed
+    L+0x0 = −L+0x0 (float)
+    Q+0x120 += (double)L+0x0·(jv·L+0x50);  Q+0x110 += (double)L+0x20·(jω·L+0x78)
+    (L+0x80 is the rotational energy E₁ and L+0x88 the linear E₂ that FUN_180086b40 left there)
+```
+
+**So every fifth-PSI's slide sharing and every PSI's damping are what keeps a heap of contacts from creeping**: the normal pushes'
+work (`FUN_180088ae0`) is banked per pair and paid out, at most a tenth of the pair's releasable relative kinetic energy a PSI, as
+equal and opposite impulses along the relative velocity and the relative spin — a static partner counting as ten thousand times the
+other's mass.
+
+**The split, `FUN_180086e80(S, r)`**, run at priority 0 when `S+0x80` was set and `FUN_1800877b0` named a root:
+
+```
+do:
+    T = a new system (0x90 bytes, FUN_1800879e0(T, S+0x8))
+    every core c of S, last first:
+        c flagged 2 (unmovable):  a 0x18-byte record {count 0, no elements, +0x10 = T};  FUN_180087bf0(T, c);  FUN_180076690(c, record)
+        else, c's root (+0x258 followed to its end) is r:  FUN_180088c80(S, c);  FUN_180087bf0(T, c);  FUN_180077f00(c, S)+0x10 = T
+    every pair p of S, last first:  A = p+0x38, B = p+0x40
+        one of them unmovable → s = that one, m = the other;  RS = FUN_180077f00(s, S), RT = FUN_180077f00(s, T)
+        otherwise m = A and no records
+        m's root is not r → next
+        FUN_180081f70(env, p);  p removed from S's pairs (the last match, the rest moved down);  appended to T's;  FUN_180081f10(env, p)
+        every contact cp of p, last first:  cp must be in S's list (assert at line 0x5ef)
+            FUN_180088ce0(S, cp);  FUN_180087c90(T, cp);  RS → FUN_180075130(RS, cp), cp appended to RT
+    every unmovable core c of S, last first:
+        its T record empty → FUN_180077c10(c, it), FUN_180088c80(T, c);   its S record empty → the same against S
+    T has fewer than two cores → its first core's T record removed (FUN_180077c10) and freed;  T deletes itself (slot 7);  return
+    S has fewer than two cores → the same for S;  return
+    r = FUN_1800877b0(S)
+while r
+
+FUN_1800877b0(S) → the root of a part that no longer touches the rest, or null:
+    every core's +0x258 = null
+    every pair, last first, neither core unmovable:  ra = A's root, rb = B's root;  ra != rb → rb+0x258 = ra        -- no path compression
+    R = the root of the lowest-index movable core (the cores walked from the last, each movable one overwriting)
+    return the root of the lowest-index movable core whose root is not R (walked the same way), or null
+```
+
+*Not read: `FUN_180085a80`, which a contact reaches only when its first core has `+0x58` set and there is no second core. Nothing
+read so far writes `core+0x58`; that it is IVP's car-wheel pointer is a guess from the shape (a one-sided special friction), not
+a reading, and until the writer is found the routine counts as reachable.*
+
+**The simulation units** (a core's `+0x1f8`): `+0x0` a state that picks the manager's list (`≥ 8` → `+0x338`, else `+0x18`),
+`+0x8`/`+0x10` that list's links, the cores at `+0x18`/`+0x1a`/`+0x20`, and the controller entries at `+0x38`/`+0x3a`/`+0x40`
+(`0x28` bytes each: the controller, then its cores at `+0x8`/`+0xa`/`+0x10`, inline room for two at `+0x18`).
+
+```
+FUN_180074820(unit, controller):  a new entry for the controller, appended
+FUN_180075990(unit):  the entries insertion-sorted by the controller's slot 5 (priority), ascending, a later one moving down while
+    its neighbour's priority is strictly greater
+FUN_180074ba0(unit):  every entry freed, last first;  the entry vector emptied (freed unless inline)
+FUN_1800747a0(unit):  FUN_180074ba0;  both vectors emptied
+FUN_180076350(unit, other):  other's cores appended, each core's +0x1f8 = unit;  other unlinked from its manager list
+FUN_180075470(unit):  every core, last first, every controller of the core (+0x1e8, count +0x1e2), last first:
+    the controller's entry (searched from the last, made when missing) gains the core;  then FUN_180075990(unit)
+FUN_180074e40(unit, other):  FUN_180074ba0(unit);  FUN_180076350(unit, other);  FUN_180075470(unit)      -- the merge
+FUN_180075130(vector, item):  the last match removed, the rest moved down — a missing item removes the FIRST element
+FUN_180079180(core, system):  core flagged 2 → FUN_1800726e0(core+0x60, system+0x10), else core+0x60 = null
+```
+
+**A unit's PSI, `FUN_180075c80(unit, event, list)`** — what `FUN_180075a90` calls for every awake unit:
+
+```
+env+0xf8's +0x20 += 1;  k = unit+0x3a (the entry count, taken now);  now = env+0x188;  bits = 0
+every core, last first (the first core last):
+    dt = (double)(float)(now − core+0x1d0)
+    FUN_180071330(core+0x1a0, core+0x90)                                   -- the rotation from the quaternion
+    core+0xf0/+0xf8/+0x100 = (double)core+0x170/+0x174/+0x178·dt + core+0x150/+0x158/+0x160
+    FUN_180077950(core)                                                    -- the pending changes committed
+    core word +0x0 &= 0xff3f;  core word +0x2 = 0
+    bits |= the bits of 1f − ((v.x² + v.y²) + v.z²)                      -- float, v = +0x140
+bits' sign set (some core faster than 1 m/s) → unit dword: bit 11 cleared, bit 10 set
+otherwise → bits 12–13 = bits 10–11;  bits 12–13 now set → every core, last first: FUN_180078820(core);  bits 10–11 cleared
+env word +0x1a8 −= 1;  reaching 0 → +0x1a8 = 15 − (int)(FUN_18007d5c0()·−5f), and the rest test runs this PSI
+every entry, LAST FIRST (so highest priority first):  entry's controller, slot 4 (controller, event, &entry+0x8)
+every core appended to list, last first
+the rest test:  s = 3;  every core, last first: core byte +0x1 = FUN_180077220(core, now), s &= it
+    s == 3 → every core, last first: FUN_180088930(core);  the unit leaves its manager list, unit+0x0 = 8, and goes to the head of
+             the manager's +0x338 list
+every core, every object of it (+0x70, count +0x6a), last first:  FUN_180074240(object)
+unit dword & 0x300 → FUN_180074ba0(unit);  FUN_180075470(unit);  FUN_180074e80(unit);  bits 8–9 cleared
+env+0xf8's +0x20 −= 1;  reaching 0 → FUN_180072970
+```
+
+```
+FUN_18007d5c0() — the process-wide generator:  seed (0x180124fe8, starting at 1) = seed·75;  → (float)(seed & 0xffff)·(1/65536f)
+FUN_180077220(core, now) → 1 moved, 2 still but not for long enough, 3 at rest     (r = (double)core+0x4, the radius)
+    P = the position (+0x150, doubles);  Q = the quaternion (+0x1a0);  Q′ = the one before (+0x180)
+    |P − A|² > 0x3f1a36e2d7731900 (≈1e-4), A the float anchor at +0x230 → goto re-anchor
+    2·(1 − ((q.w·Q.w + q.z·Q.z) + (q.y·Q.y + q.x·Q.x))²)·r·r > 0x3efa36e2d7731900 (≈1e-5), q the float anchor at +0x210 → goto re-anchor
+    t = (float)(now − core+0x200);  t ≤ env+0xc8 (NaN too) → 2
+    (ω.x² + ω.y²) + ω.z² ≤ ((float)(3π/4 / (double)env+0xc8))² → 3
+    the same angle test with Q′ narrowed to float in place of q ≤ 1e-5 → 3
+re-anchor:  q = (float)Q;  A = (float)P;  core+0x200 = now
+    |P − B|² > 0x3f847ae151eb8520 (≈0.01), B at +0x240, or the angle test of q₂ (+0x220) against Q′ > 0x3fa47ae151eb8520 (≈0.04)
+        → q₂ = (float)Q′;  B = (float)P;  core+0x208 = now;  → 1
+    (float)(now − core+0x208) > 4f → 3,  else → 1
+FUN_180088930(core) — frozen:  FUN_180078c90(core);  every object, last first: every listener the environment's hash holds for it,
+    last first, slot 3 ({env, object}), stopping when the object's entry is gone;  then FUN_180082070({env, object})
+FUN_180074240(object):  every synapse of the object's list (+0x48, linked by +0x10):  m = the synapse's mindist (its +0x30 offset);
+    FUN_180095ad0(m);  unless (m+0x20 & 0xc000) == 0x4000:  FUN_180098f30(mgr, m), FUN_180097ae0(mgr, m)   -- mgr = (object+0x30)+0x20
+```
+
+**What `FUN_180074240` calls, read from the disassembly (2026-09-14)** — ported as `IvpCollisionObject.RecheckInvalid`,
+`IvpMindistManager.UnlinkInvalid` and `Revalidate`, and `IvpMindistMinimize.Minimize` with a budget:
+
+```
+FUN_180095ad0(m):  FUN_180095cb0 instruction for instruction but for MOV [RSP+0x28], 0 — a step budget of zero where the
+    minimize has 0x14, so its loop check (FUN_180094600) is consulted from the first step
+FUN_180098f30(manager, m):  m off the invalid list (+0xc8 next, +0xd0 previous, head manager+0x28);  record 0 (+0x28) and
+    record 1 (+0x60) off their objects' +0x48 lists (+0x10 next, +0x18 previous, the object at the record's +0x20);  flags untouched
+FUN_180097ae0(manager, m):  flags & ~0x300000 | 0xc0000;  m at the head of the exact list (+0x10);  each record at the head of its
+    object's +0x40 list;  appended to the rechecked array (+0x18) when record 0's object's core (+0xe8) has +0x58 — the second's
+    read only when it has not — and flags & 0x3000 is not 0x1000.  No minimize, unlike FUN_1800977f0
+```
+
+*Not established: a case that tells the zero budget from twenty — it needs a minimize that revisits a pair of features.*
+
+**The broad phase, `FUN_180098880(manager, object)`, first reading (2026-09-14)** — what a core coming to rest runs for each
+of its objects (`FUN_180078c90`, `FUN_1800791a0`), and a teleport and an object's creation too (`FUN_18009a870`,
+`FUN_180073700`, `FUN_180073a90`, `FUN_180073b00`, `FUN_1800742c0`, `FUN_180074530`, `FUN_18008a320`). It is IVP's OV tree: a
+sphere per object, filed in a hierarchy of integer-keyed cells.
+
+```
+node = object+0xd8;  none → return
+FUN_18009efc0(env+0x28 tree, node)                              -- out of its cell
+env+0xc0 += 1;  node+0x20..0x28 = (float)core+0xf0..0x100       -- the unit PSI's extrapolated position
+manager+0x0 set (a pair creation is running) → FUN_18009ecb0(tree, node, core+0x4, core+0x4, no list);
+    FUN_18009de80(node, object+0x80, DAT_1800f4f20);  return
+r = (double)core+0x4 + env+0x38's slot 2(object)                 -- the widened radius the destination
+env+0x58 set and object+0x78 & 7 → manager+0x0 = 1;  env+0x58's slot 0(object, &node+0x20, r);  manager+0x0 = 0
+g = FUN_18009ecb0(tree, node, r, r, a 0x80-entry list of the nodes it overlaps);  FUN_18009de80(node, object+0x80, g − core+0x4)
+the node's partner records (+0x40 count +0x42, elements +0x48), each slot 2 → its two objects, indexed in an open table of
+    shorts by (a ^ b ^ object) + ((a ^ b ^ object) >> 8)·0x3ff, sized a power of two over 4·(partners + found), at most 0x400
+every overlapping node, last first — other = its +0x38:
+    both objects' +0x78 & 7 clear → skip;  same friction core (+0xf0) → skip;  object's core & 0x12 and other's core & 0x12 → skip
+    object+0x78 bit 9 with other's bit 9 → skip;  object bit 10 (not 9) with other's bit 9, or bit 9 with other's bit 10 → kept
+        without the filter;  otherwise env+0x30's slot 0(object, other) zero → skip
+    FUN_1800962c0(table, other, object) finds the partner record and swaps it into the kept prefix;  none → other listed as new
+every partner record past the kept prefix, last first: slot 0(record, 1)          -- a pair no longer overlapping deleted
+every new other, last first: env+0x1d0's creators (count +0x1ca), last first, slot 5(creator, object, other) until one answers
+```
+
+```
+FUN_18009efc0(tree, node):  cell = node+0x10;  node+0x10 = null;  node removed from the cell's nodes (+0x32, +0x38; the last
+    match, the rest moved down);  while the cell has no nodes (+0x32) and no children (+0x22):  no parent (+0x18) → tree+0x58 =
+    null;  the cell out of tree+0x48's hash;  FUN_18009dc50(cell) — out of its parent's children (+0x22, +0x28), vectors freed;
+    freed;  cell = its parent
+FUN_18009df30(key, node, r, r₂):  the level e from the exponent of r + r less 0x3fe, at least −40, scale = the loaded table below
+    18012d7c8;  per axis lo = floor((float)((c − r)·scale)), hi = ceil((float)((c + r)·scale)), until every hi ≤ lo + 2, e rising;
+    key = {lo.x, lo.y, lo.z, e − 1, e};  r₂ > r → the same at the next level from 18012d680, taken when it fits;  returns the radius used
+FUN_18009ecb0(tree, node, r, r₂, list):  key = FUN_18009df30;  node+0x30 = (float)that radius;  the cell by key in tree+0x48
+    (FUN_1800b5c10 — the CRC-32 of the 20-byte key with bit 31 set — and FUN_1800722b0);  found → the node joins it;  else a new
+    0x40-byte cell with the key and the node:  no root (+0x58) → it is the root, hashed;  else the root grown (FUN_18009e920, a
+    parent one level up whose coordinates are the child's halved, rounded by 18012d680+0x140/+0x148) until it holds the cell, the
+    two merged when they are one cell, or the cell hashed and hung under its deepest existing ancestor (FUN_18009eb20) through new
+    cells one level at a time (FUN_18009e730);  a list → tree+0x40 = list, FUN_18009e3d0(tree, node, root, cell)
+FUN_18009e3d0(tree, node, cell, target):  every node of the cell, last first, whose centre is within the two radii —
+    ((Δy² + Δx²) + Δz²) of float differences widened, against ((float)(r + r'))² — appended to the list;  then every child, first
+    to last, the target itself through FUN_18009e630 and any other whose box, shifted to a common level, overlaps the target's
+    recursed into
+FUN_1800962c0(table, other, object):  probe by (other >> 8)·0x3ff + other;  each entry's record slot 2 → its objects; a record
+    naming other → swapped with the entry at the kept count (+0x18), both records' back-indices (+0x18/+0x1c) rewritten, the
+    count raised, the record returned
+FUN_180071f90 / FUN_180072570:  Robin-Hood insert and delete in the cell hash (16-byte slots, the hash's low bits the home)
+```
+
+**The level tables at `18012d680` and `18012d7c8` are zeros in the file, and still zeros once the library is loaded** — the
+`vphysics-data` probe read 82 zero doubles there from the game's own `vphysics.dll`. They are written by `FUN_18009d820`, the OV
+tree's constructor, which the environment's construction `FUN_180080d90` calls: 80 doubles copied from `.rdata` `1800fe120`
+into `18012d680`, and `1800fe118` into `18012d900`. **Every entry is a power of two, `18012d680[i] = 2^(i − 40)`** for `i` from 0
+to 80 (`0x3d70…` to `0x4270…`, read from `.rdata`), so the key's scale `18012d7c8 − 8e` is `2^(1 − e)`, a cell `2^(e − 1)` wide,
+and `FUN_18009ebf0` turns a key back into the world as `lo·2^level` with radius `2^e`. *Evidence: read from `.rdata`; the
+copy read from the disassembly.*
+
+**What the environment's construction `FUN_180080d90(env, manager list, template)` installs** — the classes the broad phase
+calls through, read from the disassembly (2026-09-14):
+
+```
++0xc8 = 0.3f (0x3e99999a)                      -- the rest test's delay, written outright, not from the template
++0x1ac = 5;  +0x80 = env;  +0x13c = 0
++0x108 = 1/66 (0x3f8f07c1f07c1f08);  +0x110 = 66.0;  +0x1b0 = 0x3feff2eed61b4202   -- the step until vphysics sets its own
++0x0   a 0x30-byte gravity controller (table 1800ea728), its +0x10..0x18 from FUN_1800824e0 and 1800fd4f0
++0x8   FUN_180089dc0 (0x30)          +0x10  the unit manager FUN_180074750 (0x340)     +0x18  FUN_180087900 (0x30)
++0x20  the mindist manager FUN_180095f90 (0x30)      +0x28  the OV tree FUN_18009d820 (0x60)    +0xd0  FUN_1800a4560 (0x40)
+template's +0x18 or FUN_1800911f0 → +0xe8;   +0x50 or FUN_18009f490 → +0xe0;   +0x20 → +0x30 (the pair filter, no default)
+template's +0x38 or FUN_180089590 → +0x40 (the anomaly manager);   +0x40 or FUN_180089550 → +0x48 (its limits)
+template's +0x48 or FUN_1800a0650 (8 bytes, table 1800fe6e8) appended to the creators at +0x1c8/+0x1ca/+0x1d0 — slot 5 is
+    FUN_1800a06f0, the object-pair watcher's maker
+template's +0x28 → +0x58 (no default);   +0x58 or FUN_1800a0420 (0x68) → +0x38;   +0x30 or FUN_1800a4220 (0xa8) → +0x50
+```
+
+*Not established: whether vphysics writes `+0xc8` after construction.*
+
+Three more from the same reading. **The cell hash compares a key's level (`+0xc`) and then `x`, `y`, `z`, and never `+0x10`**
+(slot 0 of table `1800fe058`, `1800b5be0`, which Ghidra has no function for — read from its bytes); its hash is the reflected
+CRC-32 (table `180127000`, `0x77073096` second) of the 20-byte key with bit 31 set. **`FUN_180096eb0` is the broad phase
+that makes the node**: the object's old node (`+0xd8`) deleted through its slot 4, a 0x50-byte node built by
+`FUN_18009d7b0(node, object)` and stored, and then everything `FUN_180098880` does — `FUN_180073970`, adding an object to
+the simulation, calls it. **And a core's inverse inertia is written as a reciprocal**: `FUN_180074530`, which moves a core
+between movable and not, sets `+0x40..0x4c = 1f / +0x20..0x2c` with four `DIVSS` before running the broad phase — the
+division the port had filed as not found.
+
+**The tolerance block's loaded values**, before vphysics sets its own: `18012d540` `0.001`, the margin table from `18012d544`
+`0.01` throughout, and past it `18012d640`–`18012d648` `0.01`, **`DAT_18012d64c` `0.02`** (the gap a contact point starts with,
+`block[0x43]`, and the recursive mindist's length threshold), `0.023`, `0.505`, `0.0001`, `0.045`, `0.22`, `0.001`, `0.02`, and
+**`DAT_18012d66c` the int `1000`**, the most ledge pairs a recursive mindist refreshes. *Evidence: read from the loaded image.*
+
+**Where a pair's mindists come from** — `FUN_180096680(objectA, objectB, gap, pair vector, ledgeA, ledgeB, …)`, called by
+`FUN_1800b29b0` and `FUN_1800b6080`, and the constructor it ends in:
+
+```
+FUN_18009e630(tree, node, cell):  every node of the cell within the two radii appended, as FUN_18009e3d0 does;  then every child,
+    last first, recursed with no box test                                            -- the target's whole subtree
+FUN_180096680:  for a side given no ledge, the other object's core extrapolated to env+0x188 over (float)(now − +0x1d0) by
+        its previous velocity (+0x170, each lane the product first), r = (float)(this object's +0xe0 + that core's +0x4) + gap,
+        FUN_18008c420 and FUN_180070800 put the point in this object's frame, and its surface manager (+0xc8) slot 4 lists the
+        ledges within r;  a given ledge is the list
+    the pair vector's mindists indexed by (ledgeB·75 ^ ledgeA) + that >> 8·0x3ff in an open table of shorts, a power of two
+        over 2·(A's·B's + existing) + 2, at most 0x400
+    every ledge of A, last first, against every ledge of B, last first:  an existing mindist → swapped into the kept prefix, its
+        back-indices (+0x18/+0x1c) rewritten;  otherwise a new one:  either ledge's +0x8 & 3 → 0x100 bytes through FUN_1800b21f0;
+        else 0xe0 bytes — table 1800fdec8, both records' listener tables 1800fdea0, +0x18 = −1, +0x8 = 0xffff, flags
+        & 0xcfc000ff | 0x0fc00000, +0xa0, +0xc0 and +0xd8 zeroed, env+0xb0 and +0xb4 counted — then FUN_1800975d0(m, A, B,
+        ledgeA+0x14, ledgeB+0x14);  listed as new
+    every mindist past the kept prefix, last first: slot 0(m, 1);  every new one, last first, appended with its back-index
+FUN_1800975d0(m, A, B, featureA, featureB):  each object's kind (+0x8): 2 a polygon — the record's feature the pointer with its low
+    four bits cleared, less (header & 0xfff + 1)·16 handed to the surface manager's slot 7 (a reference), kind word 0;
+    3 a ball — kind word 3, and of two balls the record order follows the objects' +0x100 addresses;  anything else asserts
+    record: +0x20 the object, +0x28 the feature, +0x30 the word back to the mindist, +0x32 the kind
+    +0x98 = A+0xe0 + B+0xe0 (float);  neither object has +0x38 → FUN_1800977f0 (becoming exact);  else flags bit 13 cleared,
+    bit 12 set, FUN_180097940 (the phantom)
+```
+
+**The two things that call it.** A pair of objects the broad phase finds gets a watcher, and a mindist can stand for many:
+
+```
+FUN_1800b5dd0(watcher, creator, A, B):  table 1800feb28, +0x10 the creator, +0x18 = −1, +0x20 table 1800feb50;  two hull
+    records at +0x28 and +0x48 with listener table 1800feb00, filed over A and B (FUN_1800b61a0);  a pair vector at +0x68
+    (capacity 8, elements +0x70);  then FUN_1800b6080
+FUN_1800b6080(watcher):  env+0xbc counted;  env+0x38's slot 1(A, B, &rA, &rB);  FUN_180096680(A, B, rA + rB, watcher+0x68,
+    no ledges);  each record filed again over now (FUN_180099970) with rA and rB
+FUN_1800b28a0(m) — what FUN_180097f00 tails into for state 0x100000, a mindist standing for its objects' ledges:
+    FUN_180095ad0(m);  no bits of 0xc000 and DAT_18012d64c < +0xa8 (COMISS/JNC: a NaN takes the other branch) →
+        FUN_1800b23a0(m), FUN_180098ef0(manager, m), FUN_180097ae0(manager, m), flags &= ~0x3000
+    otherwise → env+0x38's slot 1(A, B, &rA, &rB);  env+0xbc counted (after the call, unlike FUN_1800b6080's);
+        FUN_1800b29b0(m, rA + rB);  both records filed again
+FUN_1800b29b0(m, gap):  its object pair's count against DAT_18012d66c (over → nothing);  the features of synapse A and B each
+    handed back to their ledges (pointer with its low bits cleared, less (header & 0xfff + 1)·16);  FUN_180096680(A, B, gap,
+    m+0xe8's vector, ledgeA, ledgeB);  m+0xe0's slot 2(count added)
+```
+
+```
+FUN_1800a06f0(creator, A, B) — a creator's slot, from the table at 1800fe710:  a 0x78-byte watcher through FUN_1800b5dd0;  it
+    registered on both objects' OV nodes (+0xd8) through FUN_18009de20;  returned
+FUN_1800b61a0(record, owner, object):  +0x10 the object;  filed in the object's hull manager (+0xa0) at
+    (float)(now − object+0x80)·+0x88 + +0x90 + DAT_1800eb920 (float, the product first);  +0x8 its slot;  +0x18 the owner
+FUN_180098ef0(manager, m):  both records out of their objects' hull managers (+0xa0) by their slots (+0x30, +0x68)
+FUN_1800b23a0(m):  every mindist of its vector (+0xea, +0xf0), last first, slot 0(it, 1);  +0xe0's slot 2(−count);  the vector freed
+```
+
+**The node's filing and its watchers**, read from the disassembly (2026-09-14). The node's first 0x20 bytes are a hull
+listener — `+0x8` its slot in a hull manager, `+0x18` the manager — so the broad phase files the sphere in the object's own
+hull manager (`object+0x80`: `+0x0` a time base, `+0x8` and `+0x10` floats, `+0x20` the min-list), the one a mindist's
+records are filed in:
+
+```
+FUN_18009de80(node, hull, double gap):  now = node+0x38 (the object) → +0x30 (the environment) → +0x188, read first
+    node+0x18 set → FUN_1800ab1b0(its +0x20, node+0x8), out of it;  else node+0x18 = hull
+    t = (float)(now − manager+0x0) · manager+0x8 + manager+0x10     -- float, the product first, the manager node+0x18
+    node+0x8 = FUN_1800aaed0(manager+0x20, node, (float)((double)t + gap))
+FUN_18009de20(node, watcher):  the watcher appended to node+0x40 (grown through FUN_180072ba0 when full);  its +0x18 still −1 →
+    +0x18 = the index, else +0x1c = the index                   -- a watcher sits on two nodes and keeps both slots
+```
+
+**What vphysics hands the construction, and the two classes the broad phase asks** (read from the disassembly, 2026-09-14).
+`FUN_1800114f0`, vphysics' own environment constructor, fills a template on its stack through `FUN_180080d30` — every field
+zero but `+0x0 = 0x100` — and sets only three: `+0x18` from `[180120b30]`'s slot 12, and `+0x20` and `+0x38` from one 0x40-byte
+object of vphysics' own (tables `1800ebf78` and, at its `+0x8`, `1800ebf90` over the anomaly manager `FUN_180089590`). **So
+`env+0x58` is null and the broad phase's `env+0x58` branch never runs in vphysics, and `env+0x38` is always IVP's default
+range manager**, `FUN_1800a0420(rm, env, 1)`:
+
+```
++0x8 = 1 (the policy, read by neither slot below);  +0x10 = env
++0x18 0.5  +0x20 (double)0.9f  +0x28 (double)0.8f  +0x30 10.0  +0x38 (double)0.06f
++0x40 1.0  +0x48 5.0  +0x50 0.5  +0x58 15.0  +0x60 (double)0.06f
+slot 2(rm, object) — the broad phase's range:  core = object+0xe8
+    s = (double)(core+0x254 + core+0x1dc) + 1e-20 (DAT_1800f4f20);  r = (double)core+0x4;  dt = (double)(float)env+0x108
+    a = min(s·+0x40, r·+0x48);  a = max(a, +0x50);  a = min(a, +0x58);  a −= dt·s  (dt the destination)
+    result max(a, s·+0x60 + r)
+slot 1(rm, A, B, &rA, &rB) — a pair's range:  sA, sB as s above;  m = (double)MINSS(coreA+0x4, coreB+0x4);  sum = sB + sA
+    g = min(m·+0x20, sum·+0x18);  g = max(g, +0x28);  g = min(g, +0x30);  g −= dt·sum;  g = max(g, sum·+0x38)
+    wA = sA + sB·(double)0.2f (DAT_1800f4f40);  wB = sB + wA·(double)0.18f (DAT_1800fe6c0)
+    rA = g·wA · 1/(wB + wA);  rB = g·wB · 1/(wB + wA)      -- every product and sum with the left operand the destination
+```
+
+**`env+0x30`, the pair filter, is vphysics' bridge to the game** — slot 0 `FUN_1800161e0(filter, A, B)`: no game solver at
+`filter+0x18`, or either object without its `IPhysicsObject` at `+0x100` → collide. Otherwise the two objects' callback flags
+(`IPhysicsObject+0x48`): one with `CALLBACK_ENABLING_COLLISION` (`0x800`) and the other with `CALLBACK_MARKED_FOR_DELETE`
+(`0x400`), in either order → no pair. Else the game's `IPhysicsCollisionSolver::ShouldCollide(A, B, A's game data, B's game
+data)`, B's game data fetched first, non-zero → collide. On the client that is `CCollisionEvent::ShouldCollide`, which
+`source-sdk-2013` publishes (`game/client/physics.cpp`). *Evidence: read from the disassembly; the flag names from
+`vphysics_interface.h`.*
+
+**The range manager is ported and pinned (2026-09-14)** as `IvpRangeManager`. The `vphysics-range` probe builds one with
+`FUN_1800a0420(rm, env, 1)` and calls both slots on fabricated cores, a tenth of the fields NaNs of two payloads, infinities,
+negative zero and the largest float: **100,000 cases agree on every lane**, and `IvpRangeConformanceTests` replays 400. The
+first sweep differed in 81% of cases by one unit in the last place, and the second in 1.4%: **the constants had been typed as
+decimals** — `0.0599999986588955` for `(double)0.06f`, and `1e-20` for `DAT_1800f4f20` — and neither decimal names the
+binary's bits. Written as `0.06f` widened, and the floor by its bits `0x3bfd83c94fb6d2ac`, both sweeps went to zero.
+
+**The OV tree's sabotage round**, run by a subagent over 22 mutants: 17 reddened most of the suite, two hung it (a containment
+margin and a root never cleared, each leaving `Grow`'s loop without an end), and three survived — the collect walk's
+level-equal boundary, the strictness of one axis of the box test, and the radius sum added in double instead of float. The
+fixture now carries eight searched cases: two unit spheres tangent on each axis in each order, a node filed into the root's own
+cell while the root has children, and radii `1f` and `2^−24`, whose float sum is `1f`, with centres between the two squares.
+**The tangent spheres were predicted to be pruned by the strict box test and are not** — the binary finds both, and so does
+the port — so the walk's boxes are wider than the prediction assumed; *not established: which reading of the box was wrong.*
+
+**The OV node's own table, its destructor, and what turns an object's collisions on and off** (read from the disassembly,
+2026-09-14). The broad phase's first argument is the environment's mindist manager (`env+0x20`): its `+0x0` is the
+creation-running flag and its `+0x8` the environment.
+
+```
+the node, table 1800fe030 — a hull listener:  slot 0 its type, 3;  slot 1 FUN_18009ec70, the hull passed:
+    FUN_180098880(node+0x38's env+0x20, node+0x38) — the broad phase run again for its object;  slot 2 FUN_18009ec90, the
+    manager going away: the node's slot 4 with 1;  slot 3 nothing;  slot 4 FUN_18009dda0, the deleting destructor
+FUN_18009dae0(node):  filed in a hull manager (+0x18) → out of its min-list by +0x8, +0x18 cleared;
+    FUN_1800821d0(env, object) — every creator (env+0x1ca, +0x1d0), last first, its slot 4(object): each deletes the
+    object's watchers;  then the node out of its cell and every emptied cell after it, as FUN_18009efc0 does, inline;
+    the watcher vector freed unless inline
+FUN_180096eb0(manager, object):  the object's old node deleted through its slot 4;  a new 0x50-byte node (FUN_18009d7b0)
+    stored at +0xd8;  then FUN_180098880's body over it, inline
+FUN_180073970(object, enable) — bit 8 (0x100) of object+0x78 marks collisions on:
+    enable and the bit clear → FUN_180096eb0(env+0x20, object), the bit set
+    disable and the bit set → the node deleted (slot 4 with 1), the bit cleared, +0xd8 null;  then while the object has a
+        friction synapse (+0x50), its contact point (the synapse's +0xc0 through its +0x18 word) out of its friction system
+        (FUN_180083e40), deleted through its slot 7 when its +0x7a word is zero
+```
+
+The broad phase runs for an object at: collisions turned on (`FUN_180073970`, called from `FUN_1800057e0`,
+`FUN_180010ee0`, `FUN_18001b910`, `FUN_18001f260`, `FUN_180074530`), its hull passing its node, a core coming to rest
+(`FUN_180078c90`, `FUN_1800791a0`), a teleport (`FUN_18009a870`), and `FUN_180073700`, `FUN_180073a90`, `FUN_180073b00`,
+`FUN_1800742c0`, `FUN_18008a320`.
+
+**The broad phase is ported and pinned (2026-09-14)** as `IvpBroadPhase` — `Refile` for `FUN_180098880`, `Rebuild` for
+`FUN_180096eb0`, `Delete` for the node's destructor — with the node's filing (`FUN_18009de80`), its watcher list
+(`FUN_18009de20`, `FUN_18009ef40`) and the partner table's keep-and-swap (`FUN_1800962c0`). The `vphysics-broad-phase` probe
+runs the binary's own two routines over eight fabricated objects with its own OV tree, range manager, hull min-lists and nodes,
+and gives it a filter, two creators and their watchers as managed callbacks behind fabricated tables — each call out logged,
+and each doing what the port's twin does. **5,000 cases of sixteen steps agree on every lane, the calls out included**, and
+`IvpBroadPhaseConformanceTests` replays 200. *Not established: the range callback `env+0x58` (null in vphysics, so never
+fabricated), duplicate watchers for one pair (the table's probe order would decide which is kept), and turning collisions off
+(`FUN_180073970`'s friction clean-up, not ported).* Its sabotage round left four survivors. Two are equivalent: an object with
+bit 9 skips an other with bit 9 before the filter test is reached, so the guard on bit 10 is never the deciding term; and one
+watcher per pair leaves the table's lookup order nothing to choose between. Two needed lanes the fixture lacked — the gap a
+node is filed with during a pair creation, `1e-20`, which only a hull with no gradient and no value shows, now a searched case;
+and a deleted node left in its hull manager, which no lane read until each object's min-list count became one.
+
+**A pair's mindists are ported and pinned (2026-09-14)** as `IvpPairMindists.Refresh` — `FUN_180096680` with the constructor
+`FUN_1800975d0` and the destructor `FUN_180095fb0` (`IvpMindist.Delete`), an object's cache as `FUN_18008c420` asks it
+(`IvpCollisionObject.CacheFor`), and the polygon manager's query behind `IIvpSurfaceManager`. **The oracle detours the binary**:
+the `vphysics-pair-mindists` probe patches the first twelve bytes of `FUN_1800977f0` and `FUN_180097940`, the constructor's
+exact and phantom tails, into jumps to managed recorders, so `FUN_180096680` runs whole — its own allocations, its own table,
+its own constructor and destructor — without the minimize and scheduler behind the tails. Two resting objects with synthesized
+surfaces (each ledge stub `0x20` bytes, so a feature's first triangle header reads zero, as `FUN_180097510` needs) are refreshed
+over six steps. **5,000 cases agree on every lane** — the pair after each step, every tail and every removal in order, and the
+environment's three mindist counters — and `IvpPairMindistsConformanceTests` replays 200. *Not established: the larger mindist a
+hull ledge makes (the trees hold none), phantoms, and the object cache ring's eviction.*
+
+**The pair mindists' sabotage round** (24 mutants, the sonnet `sabotage-verifier`, the whole Animation suite each) reddened
+nineteen, the broad phase's two searched killers among them. Four survivors are **equivalent**: `Keep`'s scan direction and its
+swap guard's `>` against `>=` — a pair never holds two mindists of one ledge pair, since a refresh makes one only when none is
+found, and swapping an entry with itself rewrites nothing — and the collision list's preference of the first index over the
+second with its move guard's `>` against `>=`, for the same two reasons: a collision sits in a list once, and moving the last
+entry onto itself is a no-op. **One was not**: the extrapolation's elapsed time taken in double rather than narrowed, which only
+a ledge at the edge of its reach can show. The searched case `float-elapsed` puts both cores at 64 m/s over 10.5 − 10.4 s against
+a lone ledge of radius 1 whose reach is 6.40000005: the double's 6.39999999999999773 is inside it and the float's 6.40000009536743
+outside, and the binary, as predicted, paired nothing.
+
+**The pair watcher is ported and pinned (2026-09-14)** as `IvpPairWatcher` — the construction `FUN_1800b5dd0`, the refresh
+`FUN_1800b6080`, the destructor `FUN_1800b5e80` and the delegator's `FUN_1800b5fd0`, its records (`IvpPairWatcherRecord`, table
+`1800feb00`) filed through `IvpHullManager.InstallInFloat` and refiled through `Reinstall` — with the default creator as
+`IvpPairCreator` (`FUN_1800a06f0`, `FUN_1800a07a0`, and `FUN_1800a0690`, now slot 0 of `IIvpCollisionCreator`). The
+`vphysics-pair-watcher` probe shares the pair mindists probe's objects and detoured tails, adds the binary's own range manager and
+min-lists, files each fabricated OV node first, makes the watcher through the creator's own table, tells one of its records that
+its hull passed five times, and ends the case through the watcher's destructor or the creator's removal notice. **5,000 cases
+agree on every lane** — the pair, the tails, the four counters, both records' slots and keys, the nodes' watcher counts and the
+watcher's indices, and what each ending leaves — the binary making 95,627 mindists; `IvpPairWatcherConformanceTests` replays 200.
+**The first run faulted inside `FUN_1800b61a0`**: a min-list its constructor leaves empty holds a minimum of 1e10, so a record
+keyed at 1e20 takes the ordered walk from the list's first entry, which is 0xffff. The broad phase never reaches that state,
+because it files the object's node before any creator runs, and the probe now does the same. *Not established: a record's slot 2
+(its hull manager going away), the larger mindist, and a refresh while the objects' caches are refreshing.*
+
+**The watcher's sabotage round** (14 mutants) reddened nine, the pair mindists' `float-elapsed` killer among them. Three survivors
+are **equivalent**: a new record's initial key — the constant, the value addend, the time subtracted — is replaced by the
+refresh's refiling before anything reads it, and the other records' order and slots in the min-list depend only on their own keys
+and the free list, never on it. **Two were not**, and the fixture was blind to them because each node held only the watcher: the
+creator registering the watcher on the second node first, and the removal notice walking the node first to last. Each node now
+holds up to three of the probe's own collisions ahead of the watcher, so the watcher's two indices differ, and the ending records
+the order they are deleted in; the regenerated fixture (5,000 swept cases agreeing, 101,447 mindists) reddens both, the first on the
+watcher's indices and the second on the ending's events. **One ordering stays untested**: the watcher's destructor deleting its mindists last first. With the
+constructor's tails detoured, a mindist is on no list, so the order changes nothing a lane reads; it becomes visible — in the
+rechecked array and the event queue's free slots — only once the tails run.
+
+**The watcher's three tables and the creator's**, read from the disassembly (2026-09-14) — what keeps a broad-phase pair alive
+and what ends it:
+
+```
+creator FUN_1800a0650, table 1800fe6e8:
+    slot 0 FUN_1800a0690(creator, watcher) — a watcher going away:  its slot 2 names its objects;  FUN_18009ef40 takes the watcher
+        off each object's OV node (+0xd8), first then second
+    slot 1 the destructor (8 bytes);  slot 2 nothing;  slot 3 answers −1;  slot 5 FUN_1800a06f0, the maker;  slot 6 deletes itself
+    slot 4 FUN_1800a07a0(creator, object) — an object leaving:  every watcher on its node (+0x42, +0x48), last first, its slot 4
+        (FUN_180017b40: slot 0 with 1, the deleting destructor)
+watcher, table 1800feb28:
+    slot 0 FUN_1800b5e80 — the destructor:  every mindist of its pair vector (+0x6a, +0x70), last first, slot 0 with 1;  the
+        creator's slot 0 (off both nodes);  the vector freed unless inline;  the second record out of its object's min-list
+        (object+0xa0, by +0x50), then the first (by +0x30);  0x78 bytes freed
+    slot 1 a pure virtual (FUN_180082760 asserts);  slot 2 its objects (+0x38, +0x58);  slot 3 no ledges (two nulls);
+    slot 4 FUN_180017b40
+watcher+0x20, table 1800feb50 — the delegator a pair's mindists hold:
+    slot 0 FUN_1800b5fd0(delegator, mindist) — a mindist going away:  out of the pair vector by its back-index (+0x18, or +0x1c
+        when +0x18 does not name it), the last element moved into its place and that element's index rewritten
+    slot 1 the destructor through the outer object
+each hull record, table 1800feb00 — IVP's hull listener:
+    slot 0 its type, 2;  slot 1 FUN_1800b6170, the hull passed:  the watcher's FUN_1800b6080 — ranges asked again, the pair's
+    mindists refreshed, both records filed again;  slot 2 FUN_1800b6180, the manager going away:  the watcher deleted;
+    slot 3 nothing;  slot 4 FUN_1800b5f80, the record's destructor, out of its object's min-list
+```
+
+**The watcher's construction and refresh**, instruction by instruction (2026-09-14):
+
+```
+FUN_1800b5dd0(watcher, creator, A, B):  +0x10 creator;  table 1800feb28;  +0x18 and +0x1c = −1;  +0x20 table 1800feb50;
+    the records +0x28 and +0x48 table 1800feb00;  the pair vector +0x68 capacity 8, count 0, 0x40 bytes from the IVP heap
+    FUN_1800b61a0(+0x28, watcher, A);  FUN_1800b61a0(+0x48, watcher, B);  FUN_1800b6080(watcher)
+FUN_1800b61a0(record, owner, object):  +0x10 object;  key = (float)(env+0x188 − object+0x80)·object+0x88 + object+0x90
+    + DAT_1800eb920, every step in float;  +0x8 = FUN_1800aaed0(object+0xa0, record, key);  +0x18 owner
+FUN_1800b6080(watcher):  A = +0x38, B = +0x58;  A's env+0xbc += 1;  env+0x38's slot 1(A, B, &rA, &rB)
+    FUN_180096680(A, B, rA + rB, +0x68, 0, 0, 0, 0, watcher+0x20)
+    FUN_180099970(A+0x80, +0x28, env+0x188, rA);  FUN_180099970(B+0x80, +0x48, env+0x188, rB)       -- now read again
+```
+
+So **a broad-phase pair is re-examined only when one object's hull passes its record**, at a time the range manager's pair
+range set — never on a schedule — and it ends when either object leaves or its hull manager does.
+
+**The rest of the watcher's life, instruction by instruction** (read from the disassembly, 2026-09-14):
+
+```
+FUN_1800a06f0(creator, A, B) — the maker:  0x78 bytes;  FUN_1800b5dd0(w, creator, A, B) — so the first refresh runs BEFORE the
+    watcher is on either node;  both nodes (A+0xd8, B+0xd8) read, then FUN_18009de20(A's node, w), FUN_18009de20(B's node, w)
+FUN_1800b61a0's key is float throughout:  (float)(now − hull+0x0) MULSS hull+0x8, ADDSS hull+0x10, ADDSS 1e20f (60ad78ec) —
+    unlike FUN_180097c40's, which adds its allowance in double
+FUN_1800b6080's range call:  slot 1(rm, A, B, &rA, &rB);  gap = rA ADDSD rB, rA the destination;  now (env+0x188) is read after
+    the refresh;  FUN_180099970(hull, record, now, r) removes the record by its slot (FUN_1800ab1b0) and adds it at
+    (float)((double)((float)(now − hull+0x0)·hull+0x8 + hull+0x10) + r) — IvpHullManager.Reinstall's key
+record slot 1 FUN_1800b6170:  RCX = record+0x18 (the watcher), JMP FUN_1800b6080
+record slot 2 FUN_1800b6180:  the watcher, when not null, its slot 0 with 1
+record slot 4 FUN_1800b5f80:  out of its object's (record+0x10) min-list by its slot;  0x20 bytes freed when asked
+FUN_1800b5e80(w, flags) — the destructor:  the pair count (+0x6a) read once;  every mindist, last first, slot 0 with 1 when not null
+    (each takes itself out through the delegator, and is the last);  the creator's slot 0 — FUN_1800a0690: slot 2 names the
+    objects, both nodes read, then FUN_18009ef40 off A's node and off B's;  the vector freed unless inline, capacity and count
+    zeroed;  record 1 out of B's min-list (B+0xa0, by +0x50), then record 0 out of A's (by +0x30);  0x78 bytes freed on flag 1
+FUN_1800a07a0(creator, object) — an object leaving:  its node's watcher count (+0x42) read once;  every watcher, last first,
+    slot 4 (FUN_180017b40, slot 0 with 1)
+```
+
+**The ledges a pair is built from: the surface managers' slot 4** (read from the disassembly, 2026-09-14). A `.phy` solid and the
+world's brushes use vphysics' 16-byte polygon manager (table `1800eae60`, `+0x8` the `IVP_Compact_Surface`); a displacement
+uses the virtual-mesh manager (table `1800ee220`). Slot 7 is nothing for the polygon manager, and for the mesh manager
+`FUN_180025330`, the cache entry's reference.
+
+```
+slot 4(sm, &centre (doubles), double r, ledge, a5, a6, list) — FUN_180096680 passes a5 and a6 (0 or a pointer, and an object);
+    neither manager below reads them, and the list is the seventh argument
+FUN_18007ada0 — the polygon manager:
+    no ledge → FUN_18007afb0(…, the root node (surface + surface+0x20), centre, r, list)
+    a ledge → its node (ledge + ledge+0x4):  FUN_18007afb0 on the node's left child (node+0x1c), then on its right (node + node+0x0)
+FUN_18007afb0(…, node, centre, r, list):
+    d = (double)node+0x8..0x10 − centre per axis;  ((d.y² + d.x²) + d.z²) > ((double)node+0x14 + r)² (COMISD/JA) → return
+    loop:  s = (float)((double)node+0x14 · 0.004);  any axis |d| ≥ (double)((float)box byte (+0x18..0x1a) · s) + r → return
+                                                                 -- COMISD/JNC: a NaN returns
+        the node has a ledge (+0x4 non-zero) → that ledge appended (FUN_18007ad60, a big vector: +0x0 capacity, +0x4 count);  return
+        no ledge and terminal (+0x0 zero) → the node read as a ledge: two triangles (+0xc) and FUN_18007bea0's squared distance to
+            them > r² → return;  else appended;  return               -- only a malformed tree reaches it
+        FUN_18007afb0 on the left child (node+0x1c);  node = node + node+0x0;  the sphere test again, passed → loop, else return
+FUN_1800261a0 — the mesh manager:
+    no ledge → the cache entry (FUN_180025330):  its first MIN(entry+0x12, 2) hull ledges, from entry+0x8 + entry+0x10 stepping
+        0x10 + 16·(+0xc) each, appended in order;  the entry released (FUN_1800259e0)
+    a ledge → FUN_180025bc0(mesh, centre, r, ledge, list), the triangles within r
+```
+
+**A node's ledge stops the walk**: an inner node's hull is returned in place of everything beneath it, which is the ledge whose
+`+0x8 & 3` (IVP's `has_chilren_flag`) sends `FUN_180096680` to the larger mindist `FUN_1800b21f0` — a mindist that opens its
+ledge up when the pair comes close. *Not read yet: `FUN_18007bea0` and `FUN_180025bc0`.*
+
+**The polygon manager's query is ported and pinned (2026-09-14)** as `IvpLedgeTree`, over a tree `PhysicsHull.Tree` now reads
+whole — the flat reader kept only terminal ledges, and the query answers an inner node's hull in their place. The
+`vphysics-ledge-tree` probe lays random trees out as the compiler does (surface header, a stub per ledge, nodes in preorder),
+hands them to a manager built on the binary's own table, and asks slot 4 from the root and from beneath a hull: **20,000 cases
+of four queries, the binary finding 96,952 ledges, agree on every lane**, and `IvpLedgeTreeConformanceTests` replays 300. The
+first sweep's queries found under one ledge in eight — the box bytes were drawn anywhere in 0–255 and pruned nearly every walk
+— and were redrawn before any case was kept.
+
+**A second sabotage round**, over the survivors' killers and the range manager: the OV tree's level-equal boundary is
+**equivalent** — at the tie both shifts are zero and the box test is symmetric at shift zero; three of the range manager's
+operand orders are **equivalent** too — a NaN speed reaches both outputs through the other operand whichever way the first
+`MINSD`, the step's product or the weights' sum is written. One order was not: which speed `ADDSS` keeps, seen when both are
+NaNs with different payloads, and the fixture now carries that case. The box test's strict lower edges survived the tangent
+spheres, which were predicted wrong — two tangent spheres at one level always land in adjacent keys, since `2r·scale` is under
+one at the first level that fits. Random case 218 mirrored onto the lower edges survived too, because floor and ceiling do
+not mirror. **What reaches a box edge is a node filed at its outer radius**, which spans two key units: two spheres of radius
+`0.5`, outer `2`, centred at `∓2` on an axis, fill boxes meeting at `0`, and the second walk tests the first's cell with its
+lower edge — each axis a searched case. The ledge tree's round left ten more, and each now has a case the binary answered as
+predicted: both tests at equality (`d = r_node + r`, `|d| = box reach`), the reach summed in double (`1 + 0.3` above
+`1f + 0.3f`, a tie that rounds to even), the box unit narrowed after its product, a box byte's product kept in float, a
+point whose squared distance straddles the reach between the two groupings, and a hull whose `+0x4` names another node.
+**A third round killed all ten, each by its own case.**
+
+**The larger mindist's tables beside the plain one's** (read from the disassembly, 2026-09-14). Both start from the base
+constructor `FUN_180095f20(m, env, delegator)`: `+0x10` the delegator, `+0x18 = −1`, both records' listener table `1800fdea0`,
+flags byte 0 cleared then `& 0xcfc000ff | 0x0fc00000`, `+0x8 = 0xffff`, `+0xa0`, `+0xc0` and `+0xd8` zeroed, `env+0xb0` and
+`+0xb4` counted. `FUN_1800b21f0` adds table `1800fe960`, a delegator of its own at `+0xe0` (table `1800fe9a8`), and an empty
+mindist vector at `+0xe8`.
+
+```
+slot   plain 1800fdec8      larger 1800fe960
+0      FUN_180096250        FUN_1800b2250 — its mindists deleted (FUN_1800b23a0), the vector freed, the base destructor
+1–4    shared: FUN_1800992e0, FUN_180097550, FUN_180097510, FUN_180017b40
+5      FUN_1800947e0        nothing
+6      FUN_18000a6f0        FUN_180028aa0
+7      FUN_180097440        FUN_1800b2700 — its own delegator's count above DAT_18012d66c (1000) → FUN_180098dd0, FUN_180097ce0
+8      FUN_18008ecb0        FUN_1800b2460 — the count against 1000, then a switch on record 0's kind word (+0x5a)
++0xe0 delegator:  slot 0 FUN_1800b2320, a child mindist out of the vector by its back-index;  slot 2 FUN_1800b2300, the count
+    (+0xfc) moved and the outer delegator's slot 2 told;  slot 3 FUN_1800b2860, the outer delegator's slot 3
+```
+
+**The larger mindist in full** (read from the disassembly, 2026-09-14). Its tables' bytes: `1800fe960` is `b2250, 992e0,
+97550, 97510, 17b40, 073e0 (RET), 28aa0, b2700, b2460`; its delegator `1800fe9a8` is `b2320, b2240, b2300, b2860`; the watcher's
+delegator `1800feb50` is `b5fd0, b5e74, 073e0 (RET), a0790`. `FUN_180028aa0`, slot 6, answers 1.
+
+```
+FUN_1800b21f0(m, …):  the base constructor;  table 1800fe960;  +0xe0 table 1800fe9a8;  +0xe8 dword 0 (capacity and count),
+    +0xf0 null;  +0xfc = 0, the mindists beneath it;  +0xf8 = −1, which side it opens
+delegator slot 0 FUN_1800b2320(d, child):  out of the vector (+0xea count, +0xf0) by its back-index — FUN_18009ef40's rule
+delegator slot 2 FUN_1800b2300(d, n):  +0xfc += n;  tail into the outer delegator's (m+0x10) slot 2 with n
+delegator slot 3 FUN_1800b2860(d):  the outer delegator's slot 3;  above zero → that again (tail);  else +0xfc
+    -- the watcher's slot 3 FUN_1800a0790 answers −1 and its slot 2 is RET, so the count stops at the outermost larger mindist
+slot 7 FUN_1800b2700(m, manager) — what a frozen minimize makes of it, where a plain one goes invalid:
+    count (slot 3) > DAT_18012d66c (1000, an int) → FUN_180098dd0(manager, m), FUN_180097ce0(manager, m);  return
+    ledge A = feature +0x50, ledge B = feature +0x88 (each & ~0xf, less header & 0xfff times 16, so +0x10 past the ledge)
+    A without children (ledge+0x8 & 3) → +0xf8 = 1;  else B without → 0;  else each ledge's node (ledge + ledge+0x4, null when
+        +0x4 is zero) radius +0x14, a null node 1e15f (DAT_1800fea24, 58635fa9):  +0xf8 = rA ≤ rB (COMISS/SETBE, so a NaN too)
+    FUN_180098dd0(manager, m);  env+0x38's slot 1(A, B, &rA, &rB);  FUN_180097d60(m, (float)(rA + rB))
+    flags & 0xffd3ffff | 0x100000 (recursive);  FUN_1800b29b0(m, rA + rB)
+slot 8 FUN_1800b2460(m) — the collision event, where a plain one runs FUN_18008ecb0:
+    count > 1000 → FUN_18008ecb0(m) (tail)
+    a feature's triangle word (& ~0xf) negative marks it on a hull, not real geometry;  by record kinds (+0x5a A, +0x92 B):
+        A point or ball:  B point or ball → FUN_18008ecb0;  B edge (its +0x88 word) or triangle (& ~0xf) negative → open B
+            (+0xf8 = 1), else FUN_18008ecb0
+        A edge:  B point or ball → A's triangle negative → open A (0), else FUN_18008ecb0;  B edge → B negative and A not → 1,
+            both negative → rA ≤ rB as slot 7, B not and A negative → 0, neither → FUN_18008ecb0;  B triangle → assertion
+        A triangle:  A's triangle negative → open A (0), else FUN_18008ecb0
+    opening:  +0xf8 written;  FUN_180098dd0(env+0x20, m);  slot 1 ranges;  FUN_180097d60(m, (float)(rA + rB));  flags
+        & 0xffd3ffff | 0x100000;  FUN_1800b29b0(m, rA + rB)
+FUN_1800b29b0(m, double gap):  count > 1000 → return;  the child count (+0xea) saved;  s = +0xf8:  the other side's feature
+    handed back to its ledge as that side's LEDGE, side s's as its ROOT, the rest null — FUN_180096680(A, B, gap, +0xe8,
+    ledgeA, ledgeB, rootA, rootB, m+0xe0);  the delegator's slot 2(new count − saved)
+FUN_1800b2250(m, flags) — slot 0:  FUN_1800b23a0(m);  the vector freed unless inline;  the base destructor FUN_180095fb0;
+    0x100 bytes freed on flag 1
+FUN_180097ce0(manager, m):  flags & 0xffcbffff | 0x80000 (invalid);  m at the head of the manager's +0x28 list;  record 0,
+    then record 1, at the head of its object's +0x48 list — FUN_180097440 without its unlinking
+FUN_180097d60(m, float gap):  A's object state (+0x78) & 7 clear → FUN_180097e20(m, 1e-10f, gap);  else B's clear →
+    FUN_180097e20(m, gap, 1e-10f);  else sA = (A core +0x254 ADDSS +0x1dc) ADDSS 1e-10f, sB likewise (DAT_1800ea938, 2edbe6ff);
+    wA = sB·0.1f + sA, wB = sA·0.1f + sB (DAT_1800ea968, the product the destination);  g = gap / (wB + wA);
+    FUN_180097e20(m, g·wA, g·wB)
+FUN_180097e20(m, float a, float b):  flags & 0xffd7ffff | 0x140000 (filed);  record 0 into A's min-list at A+0x98 + a
+    (ADDSS, the next PSI's value the destination), its slot +0x30;  record 1 into B's at B+0x98 + b, its slot +0x68
+```
+
+**Re-verified instruction by instruction (2026-09-14)** by independent re-readers with a refuter for each claimed discrepancy:
+every claim above stands. Two were challenged and held — `DAT_18012d66c` is zero in the image but `FUN_180002540` writes `0x3e8`
+to it at `180002570`, and `FUN_180097d60`'s clear side gets `1e-10f`, never zero, so it is not `IvpMindistHull.FileFar`'s branch
+shape — and one order was corrected: `FUN_1800b28a0` counts `env+0xbc` after the range call.
+
+So **a larger mindist opens its ledge only when the pair would otherwise freeze or collide on a hull's virtual face**, and
+then waits on the hull managers like a far pair; `FUN_180097f00`, told its hull passed, sends it to `FUN_1800b28a0`, which
+closes it back into a plain exact pair once the length is past `DAT_18012d64c` and otherwise refreshes its children.
+
+**The pair's mindists, instruction by instruction** (read from the disassembly, 2026-09-14) — `FUN_180096680` takes nine
+arguments, where the first reading named six:
+
+```
+FUN_180096680(A, B, double gap, pair vector, ledgeA, ledgeB, rootA, rootB, delegator):
+    side A:  a ledge → it alone;  else B's core (+0xe8) moved to now (env+0x188) over dt = (float)(now − core+0x1d0), each lane
+        (double)core+0x170..0x178 · dt then + core+0x150..0x160;  r = (double)(A+0xe0 + coreB+0x4) + gap (the float sum A's
+        first);  FUN_18008c420(A) — A's motion cache, made through env+0xd8 when absent (FUN_1800805a0) and refreshed
+        (FUN_180080a60) when A+0x78 < 8 and env+0x1a0 is past the cache's +0xc0;  FUN_180070800(cache+0x40, the point) — the
+        point less the matrix's +0x60..0x70, then ((d.y·m[1][c] + d.x·m[0][c]) + d.z·m[2][c]) per column c, rows 0x20 apart;
+        A's surface manager slot 4(the point, r, rootA, 0, ledgeB, list A)
+    side B:  the same with the objects swapped, slot 4(…, rootB, 0, ledgeA, list B)
+    the table:  size 0x400 halved while it exceeds 2·(|A|·|B| + existing) + 2, then doubled until over twice the existing count
+        (from the heap when it had to grow, else the stack);  every existing mindist, last first, indexed by its slot 3's
+        two ledge pointers, (ledgeB·75 ^ ledgeA) + ((…) >> 8)·0x3ff, linear probing over shorts, −1 empty
+    every ledge of A, last first, against every ledge of B, last first:
+        found (its slot 3 names both) → swapped with the entry at the kept count, both back-indices (+0x18 or +0x1c, whichever
+            named the old place) rewritten, the table's two shorts swapped, the count raised
+        not found → either ledge's +0x8 & 3 → FUN_1800b21f0 (0x100);  else 0xe0 bytes inline — the base constructor's writes with
+            the delegator at +0x10;  FUN_1800975d0(m, env? — its +0x30 and +0x38 saved arguments, ledgeA+0x14, ledgeB+0x14)
+            — then listed as new (a vector of capacity 0x80 on the stack)
+    every mindist past the kept count, last first:  slot 0 with 1, deleted
+    every new mindist, last first:  appended to the pair vector, its back-index +0x18 when −1, else +0x1c
+FUN_1800975d0(m, A, B, featureA, featureB):  the two records +0x28 and +0x60 — for two balls ordered by their +0x100 pointers
+    kind 2 (polygon):  record +0x80.. = A, +0x88 the feature, +0x90 the back-word, +0x92 = 0; the feature's ledge
+        (pointer with its low four bits cleared, less (header & 0xfff + 1)·16) handed to A's surface manager slot 7
+    kind 3 (ball):  record +0x20 = A, +0x28 the feature, +0x30 the back-word, +0x32 = 3
+    +0x98 = A+0xe0 + B+0xe0 (float, A's the destination — MOVSS from A, ADDSS B);  neither object's +0x38 set →
+    FUN_1800977f0(env+0x20, m);  else flags bit 13 cleared and bit 12 set, FUN_180097940(env+0x20, m)
+    -- two polygons: record 0 (+0x28) takes A and featureA, record 1 (+0x60) B and featureB; the feature is ledge+0x14
+FUN_180095fb0(m) — a plain mindist's destructor:  env (record 0's object's +0x30) +0xb0 −= 1, +0xb8 += 1
+    flags & 0xc00 → flags & 0xfffcf3ff, and each object's phantom (+0x38) told through FUN_18008b0a0
+    by the state (flags bits 18–21, signed):  2, invalid → off the manager's invalid list (+0x28) and each record off its
+        object's invalid list (+0x48);  3, exact → FUN_180098dd0(manager, m);  4 or 5, filed → each record out of its object's
+        min-list by its slot (+0x30, +0x68)
+    each record's ledge released through its object's surface manager slot 8;  the delegator's (+0x10) slot 0(m)
+FUN_1800977f0(manager, m) — becoming exact at birth:  flags & 0xffcfffff | 0xc0000;  m at the head of the manager's exact list
+    (+0x10, through m+0xc8/+0xd0);  record 0 at the head of its object's +0x40 list, then record 1;  FUN_180095cb0(m);
+    either object's core has +0x58 set → m appended to the manager's rechecked vector (+0x18);  flags & 0xc000 clear →
+    FUN_180099380(m, (coreA+0x1 | coreB+0x1) < 0x21, 0);  else m's slot 7(manager)
+FUN_180097940(manager, m) — the phantom:  FUN_180095ad0(m);  flags & 0xc000 set, or +0xa8 ≤ 0 → filed far instead: the gap
+    +0x98 when frozen, else −(+0xa8) (XORPS with the sign mask);  without bits of 0xc00 FUN_180097ea0(m);  the first object's
+    phantom (+0x38), else the second's, adds its float +0x10;  tail into FUN_180097d60(m, gap) — read 2026-09-14;
+    else flags & 0xc00 → FUN_180098380(m);  then linked exact as above, appended to the rechecked vector unless
+    flags & 0x3000 is 0x1000, and tailed into FUN_180099380(m, 1, 2)
+FUN_180025bc0(mesh manager, &centre, double r, root, list) — a displacement's triangles:  the point scaled into Source's
+    units by DAT_18011f004 (float) with its axes turned (x, z, −y), the radius (float)r times the same scale;  the game's
+    virtual-mesh query (mesh+0x8, slot 2) fills up to a stack's worth of triangle indices;  when the entry holds two hulls,
+    the triangles are split in half by index and the root names which half;  each triangle (0x30-byte records from the entry's
+    +0x8) whose FUN_18007bea0 squared distance is not above r² (COMISD/JA) appended
+```
+
+*Not read yet: `FUN_18007bea0`, the phantom's other path, and the game's virtual-mesh query, which lives in the engine.*
+
+**The object cache**, read from the disassembly (2026-09-14) — the structure whose `+0x40` matrix `FUN_1800a0800` builds its
+motion cache over, which that port had filed as "not established":
+
+```
+FUN_18008c420(object):  its cache (+0x70), or one from env+0xd8's ring (FUN_1800805a0);  object+0x78 < 8 and env+0x1a0 past
+    the cache's +0xc0 → FUN_180080a60
+FUN_1800805a0(ring, object):  the next slot (0xd0 bytes from +0x8, +0x4 the cursor, +0x0 the count, a power of two) whose +0xc4
+    is clear;  its previous object's +0x70 cleared;  +0xc8 = object, object+0x70 = the slot, +0xc0 = 0;  object+0x78 ≥ 8 →
+    FUN_180080a60 at once
+FUN_180080a60(cache):  object = +0xc8;  +0xc0 = env+0x1a0;  dt = (float)(env+0x188 − core+0x1d0)
+    UCOMISS dt, 0 equal or unordered → q = core+0x180, p = core+0x150                     -- a NaN copies too
+    else → q = FUN_180071060(core+0x180, core+0x1a0, (double)(dt·core+0x1d8)), p = (double)core+0x170·(double)dt + core+0x150
+    +0xa0 = +0x0 = p;  +0x20 = q;  +0x40 = FUN_180071330(q)
+    object+0x78 & 0x800 clear → +0xa0 = FUN_180070b20(+0x40, object+0x60):  (s.z·m[i,2] + (s.x·m[i,0] + s.y·m[i,1])) + t[i]
+    object+0x58 set → +0x20 = q·r inline (the product routine's values; r·q the destination in three lanes), +0x40 again
+```
+
+**Ported and pinned (2026-09-14)** as `IvpObjectCache`: the `vphysics-object-cache` probe calls `FUN_180080a60` on a fabricated
+cache, object, core and environment — elapsed times of zero, inside a step and past it, half the objects with an offset and a
+fifth with a rotation — and **100,000 cases agree on every lane** on the first sweep; `IvpObjectCacheConformanceTests` replays
+400. **The matrix fill's destinations were read and pinned with it**: `FUN_180071330` keeps the left operand of every product
+and sum as `IvpMatrix.FromRotation` writes them, which C#'s operators leave to the JIT, so the fill now goes through
+`Addsd`/`Mulsd`, and a twentieth of the probe's cases carry a NaN of one of two payloads in the core's or the object's fields
+— **100,000 cases with them agree too**. *Not established: the ring's size and eviction order, which decide only when a cache
+is rebuilt.* A sabotage round over the cache and the fill left eight survivors. Three are equivalent — the interpolation's
+position product and fraction never see a NaN time, which copies instead, and `x·2x` carries `x`'s payload whichever factor
+leads. Five needed inputs the random cases never drew, and the fixture now carries twenty searched cases: a NaN time; two
+NaNs of different payloads in one position lane's velocity and position, in the object rotation's `w` and the orientation's
+`y`, and in its `x` and the orientation's `z`; and sixteen offsets on cores at the origin, **where the offset's three terms are
+not swallowed by a translation a hundred times their size** — the reason a regrouping of them reddened only NaN cases.
+
+**The OV tree is ported and pinned (2026-09-14)** as `IvpOvTree`: the insert, its key, growth, descent, path, both overlap
+walks and the removal. The `vphysics-ov-tree` probe builds a real tree with `FUN_18009d820` and sixteen nodes with
+`FUN_18009d7b0`, runs cases of 24 drawn inserts and removals through `FUN_18009ecb0` and `FUN_18009efc0`, and compares each
+step's returned radius, the node's `+0x30` and cell key, the nodes found in order, and a digest of the whole tree walked from
+`+0x58`: **50,000 cases, the binary finding 1,601,646 nodes, agree on every lane**, and `IvpOvTreeConformanceTests` replays
+300. The rounding helpers' negative-floor sequence is settled by that agreement: `CVTTSS2SI` of the narrowed product, one
+taken off (floor) or added (ceiling) when the truncation differs from the value, and the result truncated again. Three
+things the sweep showed on the way. **The found list includes the node itself** — the probe's control, two unit spheres a
+quarter apart, finds two nodes — so the broad phase's skip of an overlapping node on the same friction core is what keeps an
+object from pairing with itself. **The node constructor allocates its watcher vector** (`0x80` bytes through
+`FUN_180072b90`, capacity `0x10` at `+0x40`), so the probe resets the fields it writes rather than calling it per case.
+**And removal leaves `+0x30` as it was**: a node taken out still carries the radius it was filed with, which the first
+sweep reported as 190 differing cases before the probe stopped carrying one case's nodes into the next. *Evidence:
+differential against the shipped binary. Not established: what the binary does with a non-finite centre or radii far enough
+apart to read past the 81-entry level table — the draws keep out of both, and the port throws there.*
+
+**The rest test depends on a generator shared by the whole process.** The countdown between tests is 15 to 19 PSIs drawn from
+`seed·75`, and every draw anywhere in the process advances it, so which PSI a corpse's heap is tested on depends on how many
+tests ran before it since the game started. *A replay can match the rule but not the phase; not established: whether anything
+else draws from the same seed.* The multiplier is `DAT_1800ee1c8` = `0xc0a00000`, `−5f`, and the generator's scale
+`DAT_1800fd2a0`; the seed is multiplied with `IMUL EAX,[seed],0x4b` and only its low word is used.
+
+**`FUN_180077220` and `FUN_18007d5c0` are ported and pinned (2026-09-14)** as `IvpRigidBody.TestRest` and `IvpRandom`. The
+`vphysics-rest` probe calls both in process on a fabricated core: 100,000 cases — the binary answering moving 36,740 times,
+still 29,046 and resting 34,214, a fifth seeded with NaNs and infinities — agree on every lane, and `IvpRestConformanceTests`
+replays 400. Read with them: the thresholds are not the round numbers above but `0x3f1a36e2d7731900`, `0x3efa36e2d7731900`,
+`0x3f847ae151eb8520` and `0x3fa47ae151eb8520`; and **the time arrives by value in `RDX`**, an `IVP_Time` struct, not in `XMM1`.
+*Not established: `env+0xc8`'s writer.* **A sabotage round found four orders random cases could not see**, and the fixture carries
+cases searched for each: an elapsed time a quarter of a float step past the delay, which only the `(float)` narrowing holds
+under it; turns straddling the threshold between the dot's `(w + z) + (y + x)` and `((w + z) + y) + x`, and between narrowing
+`Q′` or `Q`; and spins straddling the limit between `(x² + y²) + z²` and `x² + (y² + z²)`. A fifth — the operand destinations
+inside the sums — is unobservable by construction, since every one feeds a comparison.
+
+**The PSI around the units, `FUN_180082560`, read from the disassembly (2026-09-14)** — `env+0x1ac` records the phase:
+
+```
+profiler 1;  +0x1ac = 0;  +0x162 set → FUN_180089210(env);  +0x58 set → FUN_180087e50(env+0x18, +0x58);  (env+0xe0) slot 10(env)
+    the controllers at +0x158 (count +0x152), last first, slot 0(&env);  FUN_180098610(env+0x20)
+profiler 2;  FUN_180075a90(env+0x10, env, a 0x80-entry buffer)      -- every awake unit's PSI, the cores collected
+profiler 3;  FUN_18009a590(env, that buffer, a second)             -- every core integrated, FUN_180099a00, last first
+profiler 4;  +0x1ac = 2;  FUN_18009a690(env, the second buffer)   -- the collision event walk
+profiler 5;  +0x1ac = 3;  FUN_1800983e0(env+0x20)
+profiler 6;  +0x1ac = 4;  FUN_1800985a0(env+0x20)
+profiler 7;  +0x1ac = 5
+```
+
+`FUN_18009a590`'s event is `{(float)env+0x108, dt > DAT_1800fcfa0 ? (float)(1.0/dt) : 1e10f}` (`0x501502f9`), and gravity's
+slot 4 `FUN_180074c80` walks the cores of its own entry in the unit (`R8`, last first), skipping a core flagged `0x10`: damping
+`FUN_180078250(core, (double)event[0])`, the flush, then `v += g·dt` in double, each lane the product first — `g` the controller's
+`+0x20..0x28` when the core is flagged `0x20`, else `+0x10..0x18`. **So a contact's friction and normal pushes are solved in
+phase 2, inside each unit's PSI, before any core is integrated or any collision walked.**
+
+**The unit's own bookkeeping:**
+
+```
+FUN_180074770(unit):  the core vector inline (capacity 2, elements +0x28);  no entries;  dword = 8, bits 8–9 and 10–13 clear
+FUN_1800749b0(unit, core):  appended to the cores (+0x18)
+FUN_180074ba0(unit):  every entry, last first, freed (its core vector freed unless inline);  the entry vector emptied
+FUN_180075470(unit):  every core, last first, every controller of the core (+0x1e8, +0x1e2), last first: the controller's entry
+    (searched last first, appended when missing) gains the core;  then FUN_180075990
+FUN_180074e80(unit) — whether the unit came apart:  every core's +0x258 = null;  every entry, last first: the controller's own
+    cores (its slot 2) joined — each root (FUN_1800878d0, along +0x258, no compression) that differs from the first core's root
+    gets +0x258 = that root;  then the unit's first core's root R;  the first core in order whose root is not R →
+    FUN_180074ba0(unit), FUN_1800761c0(unit, that root), FUN_180075470(unit)
+FUN_1800761c0(unit, r):  repeat:  a new unit, dword 1, onto the manager (FUN_1800749f0);  every core of unit whose root is r
+    moves to it (removed in order, +0x1f8 pointed at it), and the first other root seen is kept;  FUN_180075470(new);
+    until no third root was seen, r = the root kept
+FUN_180076350(unit, other):  other's cores appended, each +0x1f8 = unit;  other unlinked from its manager list (+0x18, or +0x338
+    when its state is 8 or more)
+```
+
+#### A core's rotation, instruction by instruction (2026-09-14)
+
+**Read because the rest test reads the quaternions as doubles** — `FUN_180077220`'s `MOVSD [core+0x1a0..0x1b8]` — while this
+project stores them as floats. Every routine below takes and writes doubles:
+
+```
+FUN_180070d60(out, a, b):  out0 = ((b0·a3 + a0·b3) + b2·a1) − a2·b1      out1 = ((b1·a3 + b3·a1) + a2·b0) − a0·b2
+                           out2 = ((a2·b3 + a3·b2) + b1·a0) − a1·b0      out3 = ((a3·b3 − a0·b0) − b1·a1) − b2·a2
+FUN_180070c60(q):  n = (w·w + z·z) + (x·x + y·y);  !(|1 − n| > 1e-12) → unchanged   (COMISD/JBE: a NaN leaves q)
+                   s = 1.5 − n·0.5;  repeat s = s + (1 − (s·s)·n)·0.5  while |1 − (s·s)·n| > 1e-12;  q = q·s
+FUN_180071680(out, &ω float, dt double):  h = dt·0.5;  θ = (f)((d)ω.l·h);  l = (d)(θ − (θ·θ)·(θ·0.16666667f))   per lane
+                   out3 = √(1 − ((y·y + x·x) + z·z))                   -- double, no clamp: a negative gives NaN
+FUN_180070f50(out, &ω, dt):  l = sin((d)ω.l·(dt·0.5)) per lane;  s = (y·y + x·x) + z·z;  s > 1 →
+                   each l ·= 0x3feffffffaa19c47/√s and s summed again;  out3 = √(1 − s)
+FUN_180071330(q, M):  the terms FUN_180071330's port already carries, from the double quaternion
+FUN_180071060(out, a, b, t):  dot = (a3·b3 + a2·b2) + (a1·b1 + a0·b0);  dot > 0 → σ = 1f  else dot = −dot, σ = −1f
+                   dot ≥ (double)0.999f → out = (σ·b − a)·t + a, then n = (w² + z²) + (x² + y²), h = n·0.5,
+                       s = 1.5 − h;  s = s + (0.5 − (s·s)·h), twice;  out ·= s
+                   else θ = acos(dot) (FUN_1800cce64);  k = 1/√(1 − dot²);  out = b·(σ·(sin(tθ)·k)) + a·(sin((1 − t)θ)·k)
+FUN_180099fc0(core, dt float, out):  bit 0x8, or env+0x1ac == 5 → the second route below
+    I′ = ((Iy − Iz)·I⁻¹x, (Iz − Ix)·I⁻¹y, (Ix − Iy)·I⁻¹z) in float;  s = (ωy² + ωx²) + ωz² in float
+    h = (double)dt;  (d)s·h·h > 1/36 → k = (int)√(that·144) + 1,  h = h / (double)(float)k
+    out = FUN_180071680(ω, h);  ωx = (f)((d)(f)((d)(ωz·ωy)·(d)I′x)·h + (d)ωx), and ωy, ωz the same with ωz·ωx and ωy·ωx
+    each further sub-step:  d = FUN_180071680(ω, h);  out = FUN_180070d60(d, out) inlined — the NEW delta on the left;  ω again
+second route:  core+0x58 set and +0x8 zero → one axis (the +0x58 object's +0x48) through FUN_180070f50 and sin, composed
+    with FUN_180070d60;  otherwise out = FUN_180070f50(ω, (double)dt)
+```
+
+**`FUN_180099a00`, the integrator, calls it and then**: `+0x1d8 = event[1]`, `+0x1dc = (float)|v|` (`FUN_18006e120`), the
+position moved by the last velocity through `(double)(float)(now − +0x1d0)`, `+0x170 = v`, `+0x180 = +0x1a0`,
+`FUN_180070d60(+0x1a0, +0x1a0, delta)` — the working orientation on the left — and `FUN_180070c60(+0x1a0)`; before any of it,
+unless the core has `+0x58` with a zero `+0x8`, the anomaly manager's slot 1 when `(ωx² + ωy²) + ωz²` exceeds
+`((float)env+0x110 · limits+0x14)²` and slot 0 when `|v|²` exceeds `limits+0xc²`.
+
+*Not read: what sets a core's bit `0x8`.* vphysics' `sin` and `acos` are read and ported since, in the next section.
+
+**Ported and pinned (2026-09-14).** `IvpQuaternion.Product`, `Normalise`, `Interpolate`, `Delta` and `SineDelta` and
+`IvpIntegrator.Rotate` carry the routines above in doubles, B369's seven divergences gone, and the `vphysics-rotation` probe
+calls all six in process on both `sin` paths: 50,000 random cases — a quarter seeded with NaNs and infinities — agree on every
+lane, and `IvpRotationConformanceTests` replays 400 of them and 102 NaN pairs, the fixture's own control asserting both of the
+interpolation's branches, a sub-stepped step and both second routes. What the port met that the reading above did not say:
+
+- **`FUN_180070c60` never returns for a squared length of four or more, for an infinity, or for zero.** Its loop is
+  `s = s + (1 − s²n)/2`, whose slope at the root is `1 − √n`. This project's own test normalized `(0, 0, 0, 4)` while the port
+  divided by the length; a faithful port hangs on it, and the binary would. *Evidence: arithmetic.*
+- **The inlined sub-step product is not `FUN_180070d60` with its operands swapped**: four of its multiplications take the
+  other operand as the destination, which only a pair of NaNs can see.
+- **The sub-step count is `CVTTSD2SI` plus one**, which truncates a count too large for an int to `int.MinValue`, so the
+  step runs once over a negative sub-step. .NET's own cast saturates since .NET 9, and the port truncates by hand to carry
+  the instruction — though no output can tell: `(float)` rounds both negative counts to `−2³¹`.
+- **Three orders a sabotage could not redden, and why none can** (2026-09-14): the Euler coefficient's product taken in
+  double and narrowed equals the float product, since two floats' mantissas multiply exactly in 48 bits; the saturating cast
+  above; and the slerp lane's `wa·a` operand order, because a NaN in `a` makes the dot, `θ` and the other lane's product NaN
+  first, and that NaN is the sum's destination. *Evidence: arithmetic.* Two further survivors needed inputs random draws
+  never reach — a spin whose sub-step count moves when its squares are summed in double, and a dot whose `Math.Acos`
+  differs from vphysics' — and the fixture now carries cases searched for each.
+- **`FUN_1800734e0`'s fraction is `MULSS` with the elapsed time the destination**, widened for the interpolation's double.
+
+#### vphysics' own `sin`, `cos` and `acos`, ported whole (2026-09-14)
+
+**`FUN_1800c8020` `sin`, `FUN_1800d33b0` `cos` past `π/4`, and `FUN_1800cce64` `acos` are ported as `IvpMath.Sin`, `Cos` and
+`Acos`**, with the reductions a large argument is handed to: the plain routines reduce inline under 500000 and through
+`FUN_1800daa70` above it, the fused ones through `FUN_1800dafb0` under `2·10⁷` and `FUN_1800dadc0` above, both large routines
+taking `2/π` from a byte table. The `vphysics-math` probe's sweep compared them with the binary over six million `sin` and
+`cos` arguments on each path — every branch's range, near every multiple of `π/2`, random bits with the infinities and NaNs
+among them — and four million `acos` arguments, and found no difference. **The binary's own two paths disagree on 44,881 of
+those `cos` arguments and 44,510 of the `sin`**; `IvpMathConformanceTests` carries pairs of both. *Evidence: differential.*
+
+**A wrong conclusion, kept: "the same instruction bytes give a different answer."** Three arguments came back one ulp from the
+binary, on the plain path only. The binary's kernel entered directly at `d3495` with the port's reduced pair answered the
+binary's bits, so the reduction was right and the kernel was the suspect — and yet the C# kernel, a replica in SSE2
+intrinsics one instruction per call, and an exact dyadic simulation of the decoded thirty steps all answered the port's
+bits. Three instruments agreed with one another and not with the binary. What settled it was copying the loaded kernel
+beside the module, its RIP-relative operands rebased, and cutting it after each step: the carried term agreed and the series
+already differed. **The twelfth coefficient at `180105f60` is `0x3e21eeb690382eec`; the port carried `0x3e21eeb69037ec2e`**,
+and every replica had been written from the port's literal. The loaded bytes had been printed beside Ghidra's and matched —
+a check of the image against the listing, never of the port against the image.
+
+**A frozen core, `FUN_180088930`**: `FUN_180078c90(core)`; then every object, last first — every listener the environment's hash at
+`env+0x18` holds for it, last first, slot 3 with `{env, object}`, stopping once the object's entry is gone after a call — and
+`FUN_180082070(env, {env, object})`, the environment's own listeners at `+0x1c0` (count `+0x1ba`), last first, slot 3.
+
+**`FUN_180078c90`'s object half**, after `FUN_180078bd0` resets the core: every object, last first — `+0x78 = 8`;
+`FUN_180098880(env+0x20, object)`; its hull manager at `+0x80` folded to the time — `t = (float)(now − +0x80)`,
+`+0x94 = t·+0x8c + +0x94`, `+0x90 = t·+0x88 + +0x90` (float, the product first), `+0x88` and `+0x8c` zeroed, then
+`FUN_180094490(object+0x80)`; and `FUN_180080650(object)` when `+0x70` is set.
+
+**`FUN_1800a9bf0(system, event)`, the many-contact priority-0 routine, first half:**
+
+```
+(env+0xf0)+0x20 += 1
+the contact list insertion-sorted by (cp+0x90 & 0xffff0000) — the signed word cp+0x92, most negative first; a contact moves back
+    while its predecessor's key is strictly greater (signed), keeping +0x40 the head
+every contact, the next saved first (gap = cp+0x8c, float):
+    gap ≥ block[0x47] (ordered; COMISS/JNC — a NaN gap does NOT take this) or the record's word +0x76 == 1 → FUN_180083e40(system, cp)
+    else gap > block[0x46] + block[0x43] (ADDSS, block[0x46] the destination) and (byte (cp+0x20)+0xf0 & byte (cp+0x48)+0xf0) & 1
+        → FUN_180088ce0(system, cp) then FUN_180087c90(system, cp): unlinked and linked again at the head
+    -- cp+0x20 and cp+0x48 are the two synapses' objects; +0xf0 each object's friction core
+system+0x7c = 0
+more than 150 contacts (0x96) and the anomaly manager's slot 5 (env+0x40, +0x28) answers for the cores (+0x50, +0x4a):
+    every movable core's word gains bit 0;  a core in more than one pair with a mover (neither core flagged 2) has its
+    velocity and spin zeroed (+0x130..0x13b, +0x140..0x14b);  the arena's +0x20 −= 1, reset at zero (FUN_180072970);  return
+otherwise:  a solver on the stack (FUN_180083100(solver, system, event))
+    every contact in the sorted order, counted from 0 (record = cp+0x70):  the count < system+0x7c (just zeroed, so never) → record+0x70 = 0xffff
+        else  record+0x78 = FUN_180077f00((cp+0x20)+0xe8, system);  record+0x80 = FUN_180077f00((cp+0x48)+0xe8, system)
+              -- the objects' PHYSICAL cores (+0xe8) here, where the re-link test above read their friction cores (+0xf0)
+              record+0x8c = cp+0x8c (the dword copied);  record+0x88 = (int)(short)cp+0x92
+              record appended to the solver's vector (capacity +0x70, count +0x72, elements +0x78, inline +0x80);  record+0x70 = its position
+    an arena array of 4 bytes per contact;  n = FUN_1800a9520(solver, system, array);  FUN_1800aa5c0(solver, system, array, n, arena)
+    the arena's +0x20 −= 1, reset at zero;  the solver's vector freed unless inline
+```
+
+**A record's memory is the many-contact solve's scratch every PSI**: `+0x78` and `+0x80` become 8-byte pointers over the push-out,
+the estimate and the elasticity the collision entry left, and `+0x88`/`+0x8c` two dwords — so what the impact loop reads there is
+only what it wrote since the last PSI. **Past 150 contacts the anomaly manager may freeze a heap outright**, zeroing its movers.
+
+**The three block fields the heap solve reads, from `FUN_180098fd0`'s tail** (`d` the tolerance, double; each stored narrowed):
+
+```
+block[0x43] (+0x10c) = (float)((double)block[0x42] + d)                      -- the contact gap, as already ported
+block[0x46] (+0x118) = (float)(d · DAT_1800eb150)       DAT_1800eb150 = 0x3f847ae140000000, (double)0.01f — nothing added
+block[0x47] (+0x11c) = (float)(d · DAT_1800fdf80 + (double)block[0x43])   DAT_1800fdf80 = 2.5 — the product the destination
+block[0x48] (+0x120) = (float)(d · 20.0 + (double)block[0x43])            -- DAT_1800fcfb0, as already ported
+```
+
+So a contact is dropped from a heap once its gap reaches `2.5·d` past the contact gap, and it is moved to the front of the list
+once its gap passes `block[0x46] + block[0x43]` — `0.01·d` past the contact gap — with both friction cores flagged.
+
+**The many-contact normal solve's setup:**
+
+```
+FUN_1800a4600(matrix):  +0x0 = 1e-9 (0x3e112e0be826d695);  +0x8 = 0;  +0x10 = +0x18 = +0x20 = null        -- FUN_1800a46f0 masks +0x10 to 8
+FUN_180083100(solver, system, event):  FUN_1800a4600(solver);  records vector +0x40 capacity 0x200, +0x48 = inline +0x50
+    +0x30 = env;  +0x38 = event;  n = system+0x7a − system+0x7c;  +0x8 = +0xc = n
+    from the arena (env+0xf0):  +0x10 an n×n matrix of doubles,  +0x18 n doubles,  +0x20 n doubles;  FUN_1800a46f0(solver)
+
+FUN_1800a9520(solver, system, active) → how many are active:
+    the matrix zeroed
+    every record i (the solver's vector):
+        s = the closing speed FUN_180084490 forms;  g = (double)(float)(block[0x43] − record+0x8c);  k = g ≥ 0 ? 1.0 : 20.0
+        +0x18[i] = k·g + s;   record+0x88 != 0 → active gains i
+        the first core (+0x98), if any:  n′ = (float)((double)n · −m⁻¹) per lane;  u = t ⊙ I⁻¹ in float
+            every contact j of record+0x78's vector (the core's contacts in this system) whose record index is not negative:
+                σ = its record's +0x98 is this core ? −1.0 (DAT_1800eaa00) : 1.0;  τ = that record's +0xf0 or +0x100 accordingly
+                matrix[j·n + i] += σ·((double)(float)((n′·nⱼ)) − (double)(float)((u·τ)))           -- dots in float
+        the second core (+0xa0), if any:  n′ = (float)((double)n · m⁻¹);  u = t′ ⊙ I⁻¹;  the same over record+0x80's vector with +
+    the list's records must carry their indices in order, else an assert at line 0x3a6
+```
+
+**`FUN_1800a9520` read again for porting, every grouping and destination** (floats `f`, doubles `d`; `a·b` names `a` as the
+destination):
+
+```
+matrix zeroed (rows·columns)
+every record i of the solver's vector (+0x42 count, +0x48 elements), i ascending:
+    s = 0.0
+    A = record+0x98:  s = (d)((t.y·A.ω.y + t.x·A.ω.x) + t.z·A.ω.z) + (d)((n.y·A.v.y + n.x·A.v.x) + n.z·A.v.z)
+                      -- t = record+0xf0, n = +0x20, ω = core+0x130, v = +0x140; each product the record's lane first, in float
+    B = record+0xa0:  s = s + ((d)(−((n.y·B.v.y + n.x·B.v.x) + n.z·B.v.z)) − (d)((t′.y·B.ω.y + t′.x·B.ω.x) + t′.z·B.ω.z))
+                      -- t′ = record+0x100; the linear dot is negated in float, then the turn's subtracted in double
+    g = (d)(f)(block[0x43] − record+0x8c);  k = g ≥ 0 ? 1.0 : 20.0 (NaN: 20.0);  rhs[i] = k·g + s
+    record+0x88 (dword) != 0 → active gains i
+    A:  q = (d)(−A+0x4c);  u = (t.x·A+0x40, t.y·A+0x44, t.z·A+0x48) in float;  n′ = (f)((d)n·q) per lane
+        every contact of record+0x78's vector (+0x2 count, +0x8 elements), ascending:
+            j = (short)(contact+0x70)+0x70;  j < 0 → next;  R = the solver's record j
+            σ = R+0x98 == A ? −1.0 : 1.0;  that side's core pointer (R+0x98 or R+0xa0) null → next;  τ = R+0xf0 or R+0x100
+            dn = (n′.y·R.n.y + n′.x·R.n.x) + n′.z·R.n.z;  dt = (u.y·τ.y + u.x·τ.x) + u.z·τ.z      -- float, n′ and u first
+            matrix[j·columns + i] = (((d)dn − (d)dt)·σ) + matrix[j·columns + i]
+    B:  q = (d)B+0x4c;  u = (t′.x·B+0x40, …);  n′ = (f)((d)n·q);  the same over record+0x80's vector, but ((d)dn + (d)dt)
+then every contact of system+0x40, in list order, counted from 0:  its record's index non-negative and not its position → assert 0x3a6
+return how many are active
+```
+
+`FUN_180077f00(core, system)` — a core's record in a system: an unmovable core (byte `+0x0` bit `2`) looks the system up in the
+hash at `+0x60` (`FUN_180072350`, none when `+0x60` is null); a movable core answers `+0x60` itself when its `+0x10` is the system,
+else null.
+
+**So the matrix is each contact's response to a unit push at every other contact that shares a moving core**, built from the
+same arms and turns the impact solver pushes through, and the right-hand side is the same stiffness-and-closing-speed target a
+lone contact meets. *Not read: `FUN_180085a80`, which only a core with `+0x58` reaches.*
+
+**The many-contact normal solve itself, `FUN_1800aa5c0(solver, system, active, m, arena)`** (virtual; its one direct caller is
+`FUN_1800a9bf0`, where `system+0x7c` was just zeroed, so `n = system+0x7a`):
+
+```
+FUN_1800aa2c0(solver)                                         -- equilibrate the whole system in place
+    a = the largest diagonal element, walked from the last:  blocks of four from the top take MAXSD(a,d), MAXSD(a,d),
+        MAXSD(d,a), MAXSD(a,d);  the remainder MAXSD(d,a)          -- MAXSD(x,y) = x > y ? x : y, so a NaN's fate is per slot
+    s = a > 1e-19 ? 1.0/a : 1.0
+    b = the largest |rhs|, walked from the last, b = MAXSD(|r|, b) every step;  b > 1e-19 ? t = 1.0/b : (b = 1.0, t = 1.0)
+    solver+0x28 = s·b;   every matrix element ·= s (s·m);   every rhs ·= t (t·r)
+a sub-system on the stack (FUN_1800a4600), m×m, its matrix and two vectors from the arena
+solver+0x20 (the result) zeroed
+FUN_1800a4d40(sub, solver, active, m):  sub[i][j] = solver[activeᵢ][activeⱼ], sub.rhs[i] = rhs[activeᵢ]
+    (when active[m−1] == m−1 it copies whole leading rows instead — the same values)
+four more matrices initialised (FUN_1800a4600) for the constraint solver's object on the stack
+FUN_1800a80a0(sub) == 1  and  FUN_1800aa9f0(solver, sub.result, active, m, arena) == 1  → solved
+otherwise:
+    k = how many contacts lead the (sorted) list with a negative cp+0x92
+    FUN_1800a5e60(lcs, solver.matrix, solver.rhs, solver.result, n, k, arena) != 1 → return, nothing written
+solved:
+    result[i] ·= solver+0x28 (f·x), every i
+    before = FUN_1800aa1a0(system)
+    every contact of the list, index i (cp; record = cp+0x70):
+        i < system+0x7c → x = 0
+        x = result[i]:
+            x > 0:   cp+0x92 = cp+0x92 ≥ 0 ? −1 : cp+0x92 − 1
+            x == 0 (and NaN, UCOMISD):  cp+0x92 = 0;  no push
+            x < 0:   cp+0x92 < 0 → 0;  then +1;  above 9 → 0
+            x != 0:  FUN_1800a9280(record, x);  x = MAXSD(x, 0)
+        cp+0x88 = (float)((double)event+0x4 · x)
+    after = FUN_1800aa1a0(system);  allowance = FUN_1800aa010(system)
+    after > allowance + before  →  every movable core (system+0x60, count +0x5a, last first): FUN_180076670 — pending changes dropped
+    otherwise                   →  the same cores: FUN_180077950 — pending changes committed
+```
+
+The helpers:
+
+```
+FUN_1800a80a0(sub) — elimination without row exchange, then FUN_1800a8c90(sub):
+    every column i:  FUN_1800a4f20(sub, i);  p = M[i][i];  |p| < sub+0x0 (1e-9) or NaN → next column
+        q = −1.0 / p   (DAT_1800eaa00)
+        every row j > i with |M[j][i]| > 1e-9:  f = M[j][i]·q;  FUN_1800a5150(&M[j][i], &M[i][i], f, n − i, 0);  rhs[j] = f·rhs[i] + rhs[j]
+FUN_1800aa9f0(solver, x, active, m, arena) → whether the sub-system's answer holds for the whole:
+    flags = n zeroed ints from the arena;  bad = 0
+    every active i:  flags[activeᵢ] = 1;  solver.result[activeᵢ] = xᵢ
+        (double)(float)(env+0x138 · 0.01f) > (xᵢ·solver+0x28)·(double)record+0x94 → bad    -- COMISD/CMOVA: NaN is not bad
+    every i with flags[i] == 0:  FUN_1800a7270(solver, i) == 0 → return 0
+    return bad == 0
+FUN_1800a9280(record, x) — one push through the record, into the pending changes:
+    A = record+0x98, if any:  A+0x110 += (double)(float)(record+0xf0 ⊙ A+0x40)·(−x);  A+0x120 += (double)n·−((double)A+0x4c·x)
+                              FUN_180076710(A)
+    B = record+0xa0, if any:  B+0x110 += (double)(float)(record+0x100 ⊙ B+0x40)·x;   B+0x120 += (double)n·((double)B+0x4c·x)
+                              FUN_180076710(B)          -- n = record+0x20; each lane (float)(product + (double)old)
+FUN_180076710(core) — the limits (core+0x10 → env, +0x48):
+    limits+0xc > 0 (NaN passes):  |v| (+0x140) > it → v ·= (double)(float)(limit/|v|);  then |pending v| (+0x120) the same
+    limits+0x14 > 0:  w = (float)env+0x110 · limits+0x14;  |ω| (+0x130) > w → ω scaled;
+                      then |pending v| (+0x120!) > w → pending ω (+0x110) ·= w/|pending v|
+    -- |u| = sqrt((double)(float)((u.x² + u.y²) + u.z²)), narrowed to float before comparing
+FUN_1800aa1a0(system) = Σ over the cores (+0x50, count +0x4a, last first) of FUN_180077e80(core, v + pending v, ω + pending ω)
+FUN_180077e80(core, v, ω) = ((double)(float)((ω.x²·I.x + ω.y²·I.y) + ω.z²·I.z) + (double)(float)((v.x² + v.y²) + v.z²)·(double)core+0x2c)·0.5
+FUN_1800aa010(system) = Σ over the cores not flagged 2 (byte core+0x0) of (double)(float)(c·env+0x138)·(double)0.1f,
+    c = min(max(core+0x2c, limits+0x1c), limits+0x1c) — MAXSS then MINSS against the same value, so c is limits+0x1c whatever the mass
+FUN_180077950(core):  ω += pending ω;  v += pending v  (float);  pending zeroed        FUN_180076670(core):  pending zeroed
+FUN_1800a4f20(sub, i) — the pivot:  best = |M[i][i]|;  rows r = n−1 down to i+1:  |M[r][i]| > best → best, p = r   (ties keep the lower row)
+    a pivot found → rows i and p exchanged (n elements), then rhs[i] and rhs[p]
+FUN_1800a5150(d, s, f, count, 0):  d[k] = f·s[k] + d[k]    (the 0 aligns both pointers down to 8, a no-op on the arena's arrays)
+FUN_1800a8c90(sub) — back substitution, returns 1, or 0 with the result zeroed:
+    i = n−1 down to 0:  s = rhs[i];  k = n−1 down to i+1:  s −= rhs[k]·M[i][k]   (rhs[k] already holds x[k])
+        |M[i][i]| ≥ eps → x = s/M[i][i];   else |s| ≥ eps·1000.0 → fail;   else x = 0          -- COMISD/JNC: NaN pivot → the else
+        rhs[i] = x
+    result = rhs
+FUN_1800a7270(solver, i) → whether contact i is not left pulling:
+    s = Σ M[i][k]·x[k] (x the result, each product x·M):  when n ≥ 4 the first 4⌊n/4⌋ in two SSE pairs,
+        ((Σ k≡0 + Σ k≡2) + (Σ k≡1 + Σ k≡3)), each Σ from +0.0 in order;  the rest added one by one after
+    return |rhs[i]·(double)1e-5f| + s ≥ rhs[i]            -- SETNC: NaN → 0
+```
+
+**The constraint solver's setup, `FUN_1800a5e60(lcs, M, b, x, n, k, arena)`:**
+
+```
+lcs+0x78 = lcs+0x7c = n;  FUN_1800a4700(lcs, arena):
+    +0x68, +0x70: n ints each;  one block of doubles: +0x48, +0x50, +0x40, +0x58, +0x60 (n each), +0xb0, +0xb8 (n·n each),
+    +0xd0, +0xd8, +0xe0, +0xe8 (n), +0x108 (n·n), +0x110, +0x118 (n), +0x180 (n·n), +0x188, +0x190 (n)
++0x80 = 0;  +0x0 = +0x8 = +0xf8 = +0x120 = +0x170 = 0x3e7ad7f2a0000000 ((double)1e-7f)
++0x10 = 0x3f1a36e2f0400000;  +0x18 = 10000.0;  +0xa8 = 0x3eb0c6f7a4000000        -- neither of these two is a widened float
++0x30 = +0xe0;  +0x138 = +0x40;  +0x140 = +0x50;  +0x88 = +0xa4 = 0;  +0xf0 = n;  +0xf4 = 0
++0x128 = +0x12c = n;  +0x130 = M                                            -- a matrix view at +0x120 over M, rhs +0x40, result +0x50
+every i < n:  +0x68[i] = +0x70[i] = i;  x[i] = 0;  +0x48[i] = −b[i]
++0x20 = M;  +0x28 = b;  +0x38 = x;  +0x8c..+0xa3 = 0
+FUN_1800a9010(lcs, k);  r = FUN_1800a8200(lcs)
+the views' pointers cleared (+0x108..0x11f, +0x130..0x147, +0x180..0x197);  return r
+
+FUN_1800a9010(lcs, k) — the warm start:
+    +0x80 = +0x84 = +0x88 = +0xf4 = k;  +0x58[i] = 0 every i
+    FUN_1800a7e80(lcs) != 1 → +0x80 = +0x88 = +0xf4 = 0;  return
+    +0xa4 = 0
+    loop:
+        FUN_1800a8be0(lcs+0xa8)
+        every j < +0x80:  +0x58[+0x68[j]] = +0xd8[j]
+        FUN_1800a59e0(lcs)
+        the last j < +0x80 with 0 > +0x38[+0x68[j]] (NaN is not);  none → return
+        p = +0x68[j]:  +0x38[p] = +0x58[p] = 0;  +0x88 −= 1;  a = +0x80 − 1;  +0x80 = a
+            exchange +0x68[a] and +0x68[j], and +0x70 of both to match
+        +0xa4 == 0 ? (FUN_1800a4870(lcs+0xa8) != 1 → +0xa4 = 2) : +0xf4 −= 1
+        +0xa4 > 0 → +0x48[i] = +0x38[i] = 0 every i < +0x78;  +0x80 = +0x88 = +0xf4 = 0;  return
+        every j < +0x80:  +0xd0[j] = +0x28[+0x68[j]]
+```
+
+**The active set's inverse lives in an object at `lcs+0xa8`** — call it `inv`: `+0x0` its epsilon, `+0x8` the inverse `I` and
+`+0x10` the working copy `A` (both `lcs+0xf0`-stride, n·n), `+0x28` a gathered rhs, `+0x30` a solution, `+0x40` scratch,
+`+0x48` the stride, `+0x4c` the size (`lcs+0xf4`, the active count). `lcs` indexes the full system through `+0x68` (active
+position → contact) and `+0x70` (its inverse); the first `+0x80` positions are the active contacts.
+
+```
+FUN_1800a7e80(lcs) → 1 when the active set's matrix inverts:
+    every active row r:  inv.rhs[r] = b[+0x68[r]];  A[r][c] = M[+0x68[r]][+0x68[c]] every active c
+    size 0 → 1
+    I = identity (rows from the last: size zeros, then the diagonal 1.0)
+    every s = 1 .. size−1, column c = s − 1:
+        FUN_1800a7ca0(inv, c);  FUN_1800a7990(inv, c) == 0 → return 0
+        rows r = size−1 down to s:  f = A[r][c];  f != 0 (UCOMISD: NaN skipped too) → FUN_1800a4630(inv, c, r, f)
+    return FUN_1800a7990(inv, size−1) != 0
+FUN_1800a7ca0(inv, c) — the pivot:  best = |A[c][c]|, p = c;  rows r = size−1 down to c+1:  |A[r][c]| > best → best, p = r
+    p != c → FUN_1800a5210(&A[c][c], &A[p][c], size − c, 0);  FUN_1800a5210(&I[c][0], &I[p][0], size, 0)
+FUN_1800a7990(inv, c):  d = A[c][c];  |d| < inv+0x0 or NaN → 0
+    q = 1.0/d;  I[c][k] ·= q every k < size;  A[c][k] ·= q every k in c+1 .. size−1;  A[c][c] = 1.0;  → 1
+FUN_1800a4630(inv, c, r, f):  g = −f;  A[r][k] = g·A[c][k] + A[r][k] for k in c+1 .. size−1;  I[r][k] = g·I[c][k] + I[r][k] every k;  A[r][c] = 0
+FUN_1800a8be0(inv):  inv+0x40[i] = inv.rhs[i] every i;  FUN_1800a7870(inv);  then FUN_1800a8ea0(inv)
+FUN_1800a7870(inv):  i = size−1 down to 0:  inv+0x38[i] = Σ I[i][k]·inv+0x40[k], k from size−1 down, from +0.0
+FUN_1800a8ea0(inv):  i = size−1 down to 0:  s = Σ A[i][k]·x[k] for k from size−1 down to i+1, from +0.0 (x = inv+0x38);
+    x[i] = x[i] − s;  inv+0x30[i] = x[i]
+FUN_1800a5210(a, b, count, 0):  a[k] ⇄ b[k]
+FUN_1800a4870(inv, j) → 1, or 0 when the last pivot vanishes — contact j leaves the active set; size −= 1 either way:
+    every row r < size:  I[r][j] ⇄ I[r][size−1];  then every row: A[r][j] ⇄ A[r][size−1]
+    rows r = size−2 down to j+1:  f = A[r][j];  f != 0 (NaN skipped) → I[r][k] = −f·I[size−1][k] + I[r][k] every k;  A[r][j] = 0 always
+    FUN_1800a7990(inv, j) != 1 → I[j][k] = 1.0·I[size−1][k] + I[j][k] every k;  A[j][j] = 1.0
+    columns c = j .. size−2:  f = A[size−1][c];  f != 0 → FUN_1800a4630(inv, c, size−1, f)
+    d = I[size−1][size−1];  |d| < eps or NaN → size −= 1, return 0
+    I[size−1][k] ·= 1.0/d every k;  I[size−1][size−1] = 1.0
+    rows r = size−2 down to 0:  f = I[r][size−1];  f != 0 → I[r][k] = −f·I[size−1][k] + I[r][k] every k, then I[r][size−1] = 0
+    size −= 1;  return 1
+FUN_1800a4be0(lcs) — the anti-cycling shuffle, nothing when fewer than two are active:
+    +0x94 += 1, +0x98 += 2, each brought below +0x80 by repeated subtraction;  exchange +0x68 at those two positions (+0x70 to match)
+    +0x9c += 1, +0xa0 += 2;  e = +0x78 − +0x88 − 1;  e < 2 → return
+    each brought below e the same way;  exchange +0x68 at +0x88 + +0xa0 + 1 and +0x88 + +0x9c + 1 (+0x70 to match)
+FUN_1800a7530(lcs) — the change in every inactive residual per unit step:
+    every position i from +0x80 to +0x78−1, c = +0x68[i]:
+        s = Σ +0x40[p]·M[c][p] over the active p = +0x68[j], j ascending, from +0.0;   +0x50[c] = s + M[c][+0x68[+0x88]]
+FUN_1800a7af0(lcs) → whether the answer holds:
+    every i < +0x78:  +0x30[i] = (Σ M[i][k]·x[k], k from the last, from +0.0) − b[i]
+    any active p:  |+0x30[p]| > +0x10 → 0;   any other position's p:  |+0x30[p] − +0x48[p]| > +0x10 → 0;   → 1   (NaN passes)
+```
+
+**The constraint solver's loop, `FUN_1800a8200(lcs)` → 1 solved, 0 given up.** Positions `[0, +0x80)` are active (pushing, residual
+held at zero), `[+0x80, +0x88)` are settled inactive (push zero, residual positive), `+0x88` is the one being brought in, and the
+rest wait. `x` is `+0x38`, the residual `w` is `+0x48`, the step's direction `+0x40` (x) and `+0x50` (w); `eps` is `+0x0`, `big`
+is `+0x18` (10000.0). Its locals: `total` 0, `small` 0, `countdown` 7, `stepped` 0.
+
+```
+top:  stepped → total += 1;  total > 250 → return 0
+      countdown == 0 → (FUN_1800a7af0(lcs) ? countdown = 7 : goto restart)  else countdown −= 1
+next: j = +0x88;  j ≥ +0x78 → return 1;   c = +0x68[j]
+      +0xa4 == 1 and stepped → FUN_1800a4be0(lcs); FUN_1800a7e80(lcs) == 1 → +0xa4 = 0
+      +0xa4 > 0 otherwise → +0xa4 = 1
+      |w[c]| < eps (NaN too) → |x[c]| < eps (NaN too) ? goto settle : goto join(j)
+      w[c] ≥ 0 → goto settle
+      FUN_1800a5740(lcs) == 0 → goto restart
+      +0x40[c] = 1.0;  FUN_1800a7530(lcs);  +0x50[p] = 0 for every active p
+      −w[c] < +0x50[c]·big ? (t = (−1.0/+0x50[c])·w[c], best = j) : (t = DAT_1800eedc0 = 0x54e6dc186ef9f45c ≈ 1e101, best = −1)
+      every active position i, p = +0x68[i], d = +0x40[p]:  d < −eps (NaN too):
+          r = (−1.0/d)·x[p]
+          |r| < eps (NaN too) and x[p] < eps (NaN too) → best = i, s = r, goto chosen            -- no clamp at zero on this exit
+          r < t + eps → t = r, best = i
+      every settled position i, p:  d = +0x50[p] < −eps:  r = (−1.0/d)·w[p];  r < t − eps → t = r, best = i
+      s = MAXSD(t, 0);  best < 0 → return 0
+chosen:
+      s > big → goto restart
+      s ≥ eps → small = 0  else  small += 1, small > (+0x78 >> 1) + 2 → goto restart
+      stepped = 1
+      every i < +0x78:  w[i] = s·+0x50[i] + w[i];  x[i] = s·+0x40[i] + x[i]
+      settled p with 0 > w[p] → w[p] = 0;   active p with 0 > x[p] → x[p] = 0
+      best < +0x80 (an active contact's push reaches zero):
+          x[+0x68[best]] = 0;  +0x80 −= 1;  exchange positions best and +0x80 (+0x70 to match)
+          +0xa4 == 0 ? (FUN_1800a4870(inv, best) != 1 → +0xa4 = 2) : +0xf4 −= 1;   goto top
+      best < +0x88 (a settled contact's residual reaches zero):
+          s > eps → drop every active contact with eps > x (below)
+          w[+0x68[best]] = 0;  exchange positions best and +0x80;  goto grow
+      otherwise goto join(best)                                                              -- best == j
+join(b):
+      drop every active contact with eps > x
+      p = +0x68[b]:  w[p] = 0;  0 > x[p] → x[p] = 0;  exchange positions b and +0x80;  +0x88 += 1
+      +0x88 ≥ +0x78 → +0x80 += 1, countdown = 0, goto top
+grow: q = +0x68[+0x80];  +0x80 += 1
+      +0xa4 != 0 → +0xf4 += 1, goto top
+      A[+0xf4][r] = M[q][+0x68[r]] every r < +0x80;  inv.rhs[r] = M[+0x68[r]][q] every r < +0x80 − 1
+      FUN_1800a5b80(inv) != 1 → +0xa4 = 2;   goto top
+settle:
+      stepped = 0;  p = +0x68[+0x88]:  x[p] = 0;  0 > w[p] → w[p] = 0;  +0x88 += 1;  +0x88 ≥ +0x78 → countdown = 0;  goto top
+restart:
+      total += 1;  total > 250 → return 0;  small = 0;  FUN_1800a52d0(lcs) == 0 → return 0;  countdown = 7;  goto next
+drop every active contact with eps > x:   i from 0 while i < +0x80:  p = +0x68[i];  eps > x[p] (not NaN):
+      x[p] = 0;  exchange positions i and +0x80 − 1;  +0x80 −= 1
+      +0xa4 == 0 ? (FUN_1800a4870(inv, i) != 1 → +0xa4 = 2) : +0xf4 −= 1;   look at position i again
+```
+
+Its three larger helpers:
+
+```
+FUN_1800a5740(lcs) → 1, or the elimination's answer — the direction for bringing +0x68[+0x88] = q in:
+    +0x40[i] = 0 every i < +0x7c;   no active contact → 1
+    +0xa4 == 0:  inv.rhs[r] = −M[+0x68[r]][q] every active r;  FUN_1800a8be0(inv);  result 1
+    otherwise:   +0x90 += 1;  the view at +0xf8 sized +0x80 × +0x80:  its rhs[r] = −M[p][q], its M[r][c] = M[p][+0x68[c]]  (p = +0x68[r])
+                 result = FUN_1800a80a0(view);  +0xd8[r] = the view's result[r]
+    +0x40[+0x68[r]] = +0xd8[r] every active r;  +0x40[q] = 1.0;  return result
+FUN_1800a5b80(inv) → FUN_1800a7990's answer — the inverse grows by the row and column the caller left:
+    inv+0x40[i] = inv.rhs[i];  FUN_1800a7870(inv)
+    A[r][size] = inv+0x38[r] every r, from the last;  I[r][size] = 0 every r;  I[size][k] = 0 every k < size;  I[size][size] = 1.0
+    size += 1;  every c < size−1:  FUN_1800a4630(inv, c, size−1, A[size−1][c])       -- no zero test here
+    return FUN_1800a7990(inv, size−1)
+FUN_1800a52d0(lcs) → 1, or 0 when even elimination fails — the restart:
+    do:
+        +0xf4 = +0x80;  +0x58[i] = 0 every i;  FUN_1800a4be0(lcs)
+        FUN_1800a7e80(lcs) == 1:  +0xa4 = 0;  FUN_1800a8be0(inv);  +0x58[+0x68[r]] = +0xd8[r] every active r
+        otherwise:  +0xa4 = 2;  FUN_1800a6160(lcs);  FUN_1800a4be0(lcs)
+                    the view at +0xf8 over the active block, its rhs[r] = b[+0x68[r]];  FUN_1800a80a0(view) != 1 → return 0
+                    +0x58[+0x68[r]] = the view's result[r]
+        FUN_1800a59e0(lcs)
+    while FUN_1800a5520(lcs) > 0
+    return 1
+FUN_1800a6160(lcs) — the active positions sorted by x, largest first:  insertion sort, a later one moving down while its x is
+    strictly greater than its neighbour's (+0x70 kept matching)
+FUN_1800a5520(lcs) → how many active contacts were pushing BACKWARDS:
+    every active position i:  p = +0x68[i];  x[p] ≥ eps → keep
+        x[p] > −eps:  x[p] = 0;  exchange positions i and +0x80 − 1
+        otherwise (NaN too):  position i moved to the very end, everything after it one down;  count += 1;  +0x88 −= 1
+        either way:  +0x80 −= 1;  +0xa4 = 1;  +0xf4 −= 1;  look at position i again
+    every settled position i:  0 > w[+0x68[i]] (not NaN) → moved to the very end the same way;  +0x88 −= 1;  look again
+    return count
+```
+
+**It is a Dantzig-style principal pivoting loop**: bring each contact in, move along the direction that keeps the active
+contacts' residuals at zero until the first active push or settled residual hits zero, swap it, repeat. The inverse of the active
+block is kept incrementally (`FUN_1800a5b80` grows it, `FUN_1800a4870` shrinks it), and when that bookkeeping fails `+0xa4` marks it
+stale so the next pass rebuilds it from scratch (`FUN_1800a7e80`), shuffling the order first to break a cycle. Every seven steps
+the answer is checked against the full system, and a failed check or a runaway step restarts from the current answer.
+
+**Ported and pinned, 2026-09-13.** `IvpLinearSystem` (the `FUN_1800a4600` object: `Equilibrate`, `Gather`, `Solve`, `Holds`,
+`Multiply`), `IvpActiveInverse` (the `+0xa8` object: `Invert`, `Solve`, `Grow`, `Shrink`) and `IvpComplementaritySolver`
+(`FUN_1800a5e60`, the warm start, the loop and its helpers). The `vphysics-contact-solve` probe writes each system at the offsets
+above, gives the solver a megabyte of arena, and calls the five routines in `FUN_1800aa5c0`'s order: **20,000 random systems —
+Gram matrices of short rows, often singular, general and integer-valued ones, nearly vanishing ones, NaN and infinity — agree
+on every lane**, the permutation at `+0x68` and the counters at `+0x80..+0xf4` included. The identity with right-hand side
+`(1, 2, −1)` is the control, solved to `(0.5, 1, 0)` after scaling by both.
+
+**One sweep case differed, and only in a NaN's sign — and it is fixed, not licensed.** With a NaN in both a matrix element and
+the right-hand side, the binary left `0xfff8…` in a residual and the port `0x7ff8…`. `DOTNET_JitDisasm` on the step shows why:
+the binary adds `s·dw + w` with the product as SSE's destination, whose NaN survives two NaNs, while the JIT — unoptimised, at
+Tier0 — loaded `w` first. **Which operand of a commutative `+` or `*` is the destination is the JIT's choice, not the
+source's.** It was first filed as a difference C# could not avoid, and that was wrong: the ECMA rules leave only the
+two-NaN case open, so `Addsd(d, s) = IsNaN(d) ? d + d : d + s` (and `Mulsd` alike) returns the destination's NaN, quieted,
+whatever order the JIT emits, and every other case carries the one NaN either way. Every addition and multiplication in the
+three ports now names the binary's destination first.
+
+**The destinations were mapped twice, independently, and they are not uniform.** Two passes per file read every `ADDSD`,
+`MULSD`, `ADDPD` and `MULPD` against the C#, and an adjudicator settled the eight sites they disagreed on; the grouping claims
+they raised were then checked by hand, and both were wrong (the sums are in order). What held:
+
+- `FUN_1800a8c90`'s back substitution, four columns at a time from the last, makes the **third** product of each four with the
+  value as destination and the other three with the right-hand side; the scalar tail uses the right-hand side.
+- `FUN_1800a8ea0`'s back substitution, four at a time, adds the first two products with **the product** as destination
+  (`1800a8f5f`, and `1800a8f73` after `MOVAPS XMM2,XMM1` — which one pass read as the running sum), multiplies those two with
+  the right-hand side first and the last two with the matrix first; the tail adds onto the sum with the matrix first.
+- `FUN_1800a7990` and `FUN_1800a4870` scale a run four at a time with each element as `MULPD`'s destination, and the remaining
+  elements with the factor as `MULSD`'s.
+- Everything else keeps one destination on every path: the scalar before the array in each scaling and step, the running sum
+  before the product, and in the SSE pair sums the accumulators.
+
+**Checked by a sweep built to make NaNs meet**: 30,000 systems with one to four values replaced by quiet or signalling NaNs of
+either sign, a payload, or an infinity agree with the binary on every lane, NaN bits included, alongside 30,000 random and
+30,000 near-singular ones.
+
+**The first fixture could not fail on five rules, and random draws do not reach them.** Sabotage showed 160 random systems
+blind to the vanished pivot's `1000·eps`, the row test's `(double)1e-5f`, the step's tie margin, the restart's sort and the
+restart's near-zero push; 200,000 heaps of near-identical contacts reached the restart's fallback once. **The instrument that
+found the inputs was the oracle itself, pointed at a port broken on purpose**: `sweep n generator path` writes every case whose
+lanes differ from the binary, so with one rule sabotaged the file holds exactly the inputs that rule decides. Two rules were
+settled by hand-built cases (a singular `2×2` whose residual lands either side of `1000·eps`; a row `r − r·9.9999999e-6` that
+holds under `(double)1e-5f` and not under `1e-5`), and the other three by generators aimed at them — a tie-heavy heap
+`a·I + b·11ᵀ` with grouped right-hand sides (1,062 of 30,000 told the tie margin apart), and NaN-seeded systems. Swapping one
+NaN destination in the step separated 934 of 30,000 NaN-seeded systems from the binary and one random one — the case that first
+showed the difference. The sabotage-found cases are listed in the probe by generator and index, so the fixture regenerates
+them. **One sabotage cannot redden at its site in the binary either**: `FUN_1800a9010` writes `2` to `+0xa4` and then zeroes
+the state whenever it is positive, so `1` and `2` are indistinguishable there. On the restored port, 120,000 systems across the
+four generators agree on every lane.
+
+**Fifteen sabotages, then two more inputs.** An independent run against the 206-case fixture reddened twelve; the thirteenth
+was that dead `2`. The other two were the path-dependent NaN destinations: the third product of `FUN_1800a8c90`'s four-wide
+block, which 30,000 NaN-seeded systems told apart once (kept), and the first add of `FUN_1800a8ea0`'s block, which none of
+120,000 did — **and the arithmetic says why a sweep cannot find it**: the second add names the next product as destination, so a
+NaN there overwrites whichever NaN the first add kept; the inverse must also be valid, which a NaN on its diagonal or below
+refuses. The input had to be built: an identity of nine or ten contacts warm-started whole, with NaNs of different sign and
+payload only in its first row — at the second add of the first four and the first add of the second four, the next product
+finite. It inverts untouched, and back substitution leaves the binary's NaN in that contact's push: `0xfff8…05` against the
+broken port's `0x7ff8…08`, exactly as worked out beforehand. With three such cases the fixture holds 210 (160 random, 30
+targeted, 20 sabotage-found), and every sabotage that can redden does.
+FUN_1800a59e0(lcs) — the full system's residual at the current x:
+    the view at lcs+0x120 (M, +0x128 rows, +0x12c columns) pointed at +0x58 → +0x60:  FUN_1800a76c0(view);  pointed back at +0x40 → +0x50
+    +0x60[i] −= b[i] every i < +0x78;  +0x60[+0x68[j]] = 0 every active j
+    i from the last:  +0x48[i] = +0x60[i];  x[i] = +0x58[i]
+FUN_1800a76c0(view):  result[i] = Σ M[i][k]·x[k] — the same two-pair SSE sum as FUN_1800a7270, its length the ROW count (+0x8)
+```
+
+**So a heap of contacts first tries the contacts that pushed last time as an exact system**, keeps that answer when every push
+is firm enough and no other contact is left pulling, and only otherwise hands the whole set to the constraint solver, warm-started
+with the contacts that have pushed longest. **Then it refuses its own answer if the heap gained more energy than a tenth of `g`
+times a per-core constant** — the changes are pending until that test. `record+0x94` is the contact's inverse effective mass along
+its normal (the record's own setup, above: arm terms plus both inverse masses, `+0x90` its reciprocal), so the firmness test reads
+`x·scale·m⁻¹` — the speed the push makes — against `g·0.01`. `limits+0x1c` is the **minimum** friction mass `SetPerformanceSettings`
+clamps to `[1, 50000]`; `+0x20`, the maximum, is never read here, so the allowance is `n · (float)(minFrictionMass·g) · 0.1f` for
+the heap's movable cores whatever their masses. The client never calls `SetPerformanceSettings`, so its `+0x1c` is IVP's own
+default from `FUN_180089550`: `10.0f` (`0x41200000`; `+0x20` is `2500.0f`), the same numbers as
+`physics_performanceparams_t::Defaults()`.
+
+**The core-level routines are ported and pinned, 2026-09-14**: `FUN_1800a9280` as `IvpContactRecord.Push`, `FUN_180076710` as
+`IvpPush.Limit`, `FUN_180077950` and `FUN_180076670` as `IvpPush.Flush(IvpRigidBody)` and `IvpPush.Drop`, and `FUN_180077e80`
+as `IvpRigidBody.KineticEnergy`, beside `IvpRigidBody.Mass` for `core+0x2c` (written by `FUN_180073df0`'s port). The
+`vphysics-heap-core` probe writes two cores, a record and an environment at the offsets above and runs each routine on fresh
+copies: 20,000 cases, a quarter of them seeded with NaNs of both signs, signalling NaNs and infinities, agree on every lane.
+Two things the destination map settled there: **the flush adds the real velocity to the staged one in its `x` lanes and the
+staged to the real in `y` and `z`**, and **the push's first core multiplies the turn by the inertia in `x` but the inertia by
+the turn in `y` and `z`**, while its second core takes the turn first in all three. `FUN_18006e120` — the float length the
+limits measure with — sums onto the running total, and `IvpVector.Length` now says so.
+
+**The first fixture reddened on five of ten sabotages, and the NaN seeding was why.** Two of the five that stayed green are
+equivalent mutants — a NaN limit and a length exactly equal to the limit both leave the vectors unchanged either way the test
+is written. The other three swapped the operands of an add or multiply, and a quarter of cases seeded with NaNs never put two
+NaNs of different payload on one operation, so no case could tell which survived. **45 NaN-pair cases** — one per add and
+multiply these routines meet two inputs at, each with a different-payload NaN on both sides — took the fixture to 285 cases.
+An independent run then swapped six operand orders (the push's first-core `y` and second-core `x` multiply, its first-core
+spin add, the flush's velocity `x` and spin `y` adds, and the energy's mass multiply): **all six reddened**, each by one or two
+NaN-pair cases whose diagnostic showed the two payloads exchanged, and none by any other case.
+
+**The heap solve itself is ported and pinned, 2026-09-14**: `FUN_1800a9bf0`'s sort and its solve from `+0x7c = 0` on — the
+freeze past 150 contacts, `FUN_180083100`'s records, `FUN_1800a9520`, `FUN_1800aa5c0`, `FUN_1800aa9f0`, `FUN_1800aa1a0` and
+`FUN_1800aa010` — as `IvpFrictionSystem`, beside `IvpFrictionInfo` (a core's `0x18`-byte share), `IvpFrictionPair`, the contact
+point's list links, streak and push, and the record's row, shares and copies. The `vphysics-heap-solve` probe writes a whole
+friction system at the offsets above — cores, objects, contact points, records, shares, pairs, the environment with its limits,
+an eight-megabyte arena and an anomaly manager whose slot 5 is a managed callback — settles the tolerance block with the binary's
+own `FUN_180098fd0` run as `IvpCollisionTolerance` runs it (`block[0x43]` comes out `0x3c4ffe5a` both ways), and calls
+`FUN_1800a9bf0`: **30,000 random systems of up to eight contacts among up to four cores, a quarter NaN-seeded, agree on every
+lane**, and `IvpHeapSolveConformanceTests` replays 208 the binary wrote: 200 random, three 152-contact heaps (each answer from slot 5,
+and a frozen one whose mover pairs with an immovable core named second) and five sweep cases found against sabotaged ports.
+
+**Twenty-four sabotages, then more inputs.** The first 202-case fixture reddened on thirteen; three sabotages were malformed and
+broke the build. Of the eight that stayed green, four are dead by construction: `k·0` is `+0` whichever stiffness takes a zero
+gap, and a NaN's payload never reaches an output from the closing-speed sum or the energy sums — the energies meet only a
+comparison, and a NaN push is treated as no push. The other four named missing inputs: **no case had a pull** (a sub-system answer
+below zero survives `FUN_1800aa9f0` only when gravity's `0.01` share is not above it, so the generator now draws negative gravity
+too), none started a pull streak at 8, none changed the active rows enough to round differently from the constraint solver, and
+none froze a heap where the pair test's second immovable check mattered. Sweeping the binary against a port broken on each found
+the cases the probe now lists as `Killers`. **An independent run of those four and the three rewritten well-formed reddened all
+seven** against the 208-case fixture, each by its own subset.
+
+**The lone contact and the controller routine over both paths are ported too, 2026-09-14**: `FUN_180084320`'s dispatch as
+`IvpFrictionSystem.SolveNormalPushes`, `FUN_180084490` as its lone-contact branch, and `FUN_180083420` as
+`IvpContactRecord.Apply` — `FUN_1800a9280`'s arithmetic instruction for instruction, into the velocity and spin themselves and
+with no limits after, so the two now share one body. The probe calls `FUN_180084320` on the controller base at `system+0x10`
+(whose `+0x8` is the system) with the event's unit at `+0x10`: 30,000 random systems, an eighth of them one contact, agree.
+
+- **The lone contact's closing speed adds the first core's normal term to its turn term** (`ADDSD XMM6,XMM0` with the normal
+  dot in `XMM6`), the other way round from the heap's matrix build, and it reads the contact's own gap rather than a record copy.
+- **A lone contact's NaN gap drops it** (`COMISS block[0x47], gap; JBE`), where the heap's filing pass keeps one. The sweep
+  found that first as a crash: a poisoned gap sent the binary into `FUN_180083e40` on fabricated objects. The fixture keeps a
+  lone contact's gap finite or `−∞` until the drop is ported.
+
+Eight sabotages of the lone path and the shared push body — the dispatch's `≤ 1`, the gap, the virtual mass, the push's sign on
+either core, the zero written for no push, the base spin, and one turn product's operand order — each redden the heap-solve and
+heap-core fixtures; the operand order only through the heap-core NaN pair built for it.
+
+*Not carried yet: the drop, the empty system's deletion, and the split `FUN_180084320` runs when `+0x80` is set.*
+
+What reading it for porting settled, beyond the decode above:
+
+- **A contact is active when its streak copy is nonzero as a dword** — `CMP [R8+0x88],0` is `41 83 B8`, not the byte form `41 80
+  B8` — so a contact pushed 256 PSIs running, whose low byte is zero, still starts active. The fixture's streaks include `−256`.
+- **The heap's energy sums each core's velocity with its `x` lane staged first and `y`, `z` real first, and its spin real first
+  in every lane** (`FUN_1800aa1a0`), which is not the order the flush adds them in.
+- **A zero or NaN push leaves `+0.0` behind whatever its sign** — `MOVAPS XMM6,XMM7` before the `MAXSD` — so the contact's
+  `+0x88` is the event's float times positive zero.
+- **Slot 5 does not check for a game solver** (`FUN_180016ec0`): each core's first object's `CPhysicsObject` goes into a list
+  handed straight to `ShouldFreezeContacts`, where slot 3 answers yes when there is none. The client's answers yes
+  (`game/client/physics.cpp:78`).
+- **The record's `+0x78` and `+0x80` shares are written over its push-out, estimate and elasticity.** The port keeps them as
+  separate fields; the two readings agree while every reader of those bytes rebuilds the record first, *which is not established.*
+
+**The filing pass between the sort and the solve is read but not ported.** `FUN_180083e40(system, cp)`, which drops a contact:
+
+```
+FUN_180078820 on both objects' physical cores:  core+0x200 = core+0x208 = env+0x188 (the time)
+FUN_180088ce0: unlinked, +0x7a − 1 (the head moved when it was first)
+FUN_180088130: its pair found (FUN_1800863f0; none → assert, line 0x299); FUN_180083da0 takes the contact off the pair;
+    FUN_180086b30 answers whether any remain; none → FUN_180083db0 takes the pair off the system, destructor, 0x50 freed, answer 1
+    answer 1 → system+0x80 = 1
+each object's share (FUN_180077f00):  FUN_180075130 takes the contact off it (last match, the rest moved down)
+    a share left empty → FUN_180077c10 takes it off its core (an immovable core's hash, FUN_1800726e0; a movable core's +0x60 zeroed),
+        FUN_180088c80 takes the core off the system (a movable one off +0x58 and three more of the system's vectors at +0x20, +0x0
+        and +0x10 by FUN_180074fb0; every core off +0x48; +0x78 − 1), and the core's unit (+0x1f8) has bit 9 cleared and bit 8 set
+FUN_180083210: the contact point's destructor;  0xd0 freed
+```
+
+`FUN_180088ce0` then `FUN_180087c90` is the move to the head: unlinked with the count taken down, then linked at the head with
+`cp+0xc0` pointed at the system and the count put back.
+
+**So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
+entry's port keeps it because the routine has it. The merge, the controller bases and the simulation units are read below and
+above. **Nothing here is ported.**
+
+**A wrong citation found on the way, kept here because it was repeated in four places:** `SurfaceTable`, `GameContent`,
+`CorpsePhysics` and `IvpRigidBody.Friction` all call their friction of `1` `g_PhysDefaultObjectParams`' friction. That struct has
+no friction: its first `1.0` is **mass** and its second **inertia** (`game/shared/physics_shared.cpp:43-56`). The engine's answer
+for a solid whose `surfaceprop` names nothing is the `default` surface — `ragdoll_shared.cpp:194-197` asks `GetSurfaceIndex` for
+it, and `FUN_18001c9d0` asks again for any negative index — so the `1` was this project's own number, attributed to Valve.
+
+*Evidence class: read from the disassembly; the props slot 10 and the parameter layout INFERRED as marked. Not ported yet.*
+
+#### The collision's own path, instruction by instruction (`impact_entry.log`)
+
+**`FUN_18008ecb0` reads as the summary under *What the fire routine's collision call does* gives it**, with the state byte
+compared unsigned (`JNC`). What that summary compresses, and one thing it has wrong:
+
+**`FUN_180078d60(core)`**: the `0x40` arena record at `core+0x260` holds the angular velocity at `+0x0` (the second and third
+lanes round-tripped through a double), the thirty-two bytes at `core+0x1a0` at `+0x10`, and a zeroed dword at `+0x30` — what
+`FUN_180079120` puts back. `FUN_1800712b0(&v, core+0x180, core+0x1a0)` leaves three doubles. The slerp parameter is
+`(double)((float)(now − core+0x1d0)·core+0x1d8)`, a float product; the matrix's translation `+0xf0..0x100` is
+`(double)core+0x170..0x178·(double)(float)(now − core+0x1d0) + core+0x150..0x160` in double; and unless flags `& 8`, each
+angular velocity lane is `(float)(FUN_1800d392c(v)·(double)(core+0x1d8 + core+0x1d8))`, the doubling in float.
+
+**`FUN_18008ef60(mindist, object0, object1)`**:
+
+```
+unit = object0+0x78 < 8 (a signed byte) ? core1+0x1f8 : core0+0x1f8
+cp = FUN_180090e50(mindist, &system, &cp, unit, 1);   record = *(cp+0x70)
+pair = FUN_1800850b0(system, core0, core1)
+event: dt = (float)(now − pair+0x28), then pair+0x28 = now;  env;  record
+FUN_180082170(env, event);  for each object whose +0x78 has 0x2000: FUN_180088800(env+0x18, object, event)
+f = FUN_18008fca0(cp, env);   FUN_18008ed60(record, cores, f, cp)          -- cores: two pointers on this frame
+s = record+0x30, negated when core1's flags have 0x2
+FUN_180090700(block, mindist, system, pair, cp)       -- block: three vectors {word, word, pointer}, empty
+free each vector's storage (FUN_180003e20) unless it points just past that vector
+record+0x30 = s
+FUN_180082110(env, event);  for each object whose +0x78 has 0x2000: FUN_1800886c0(env+0x18, object, event)
+```
+
+*That summary says the call negates "the pair's normal" and restores it around `FUN_180090700`.* What is saved is
+`record+0x30` — the relative velocity `FUN_18008e290` wrote through `solver+0x148` — and it is written back after
+`FUN_180090700` negated when core 1 is flagged `0x2`, so a flagged pair leaves the call with it negated, not restored.
+
+**`FUN_18008fe70(solver, cp)`**, which `FUN_18008ed60` calls when `cp+0x64` is set, is two blocks, one per synapse, each run
+when its material's `+0xc` is nonzero. A synapse's material is its object's `+0xd0` when `FUN_1800863d0` answers zero, else
+slot 1 of the manager at `object0+0x30` → `+0xe8`, called with the object and that answer:
+
+```
+axis = FUN_180070130((float)object+0xf0's +0x90, +0xb0, +0xd0, n = record+0x20)   -- its first matrix column, less its part along n
+len = FUN_18006e120(axis)                                                    -- a double
+if !(len >= 1e-19): skip the block                                            -- COMISD/JC: a NaN skips
+p = other.slot1() · this.slot2()                                              -- vtable +0x8 and +0x10, doubles
+t = (√(double)solver+0x130 + 1.0)·(double)(float)((double)cp+0x78 − ((double)cp+0x78 − p)·len)
+x = (float)atan(t);  c = (1f − x²·0.5f) + (x²·(1/24f))·x²
+solver+0x100 = axis scaled by FUN_18006dff0;  solver+0xf4 = (float)((double)c·t)
+```
+
+**The second block overwrites the first's axis and `+0xf4`**, and `solver+0xf0` is one when either block got past its length
+test, zero otherwise.
+
+*Evidence class: read from the disassembly for all four routines. Not established: what the materials' slots 1 and 2 and
+`+0xc` are, what `cp+0x78` holds, and `FUN_1800d392c`.*
+
+#### The solver's direction, its push, and the velocities it reads (`friction_solve2.log`)
+
+- **`FUN_18008fc00(solver)`**: `solver+0xc0 = vB − vA` in float, each from `FUN_180077fa0(core, arm, v, ω)` over the solver's own
+  velocities — A's `+0x60`/`+0x40`, B's `+0x70`/`+0x50`.
+- **`FUN_180090240(solver)` — which way to push**:
+
+```
+d = solver+0xc0, scaled by FUN_18006dff0 (float, four steps, over 1e-19)          -- d is solver+0xd0
+k = (double)((d.x·n.x + d.y·n.y) + d.z·n.z)
+if k > 0:  d = solver+0xe0, scaled the same way;  return                            -- COMISD/JBE
+if solver+0xf0 != 0:  FUN_1800904a0(solver, k);  return
+if k > (double)−(solver+0x134):                                                     -- inside the cone's cosine
+    u = (float)((double)n·(double)−k + (double)d) per lane, scaled;  u = (float)((double)u·(double)solver+0x138)
+    d = (float)((double)n·(double)−(solver+0x134) + (double)u) per lane
+```
+
+- **`FUN_18008f1c0(solver, double j)` — the push along `d`**: `p = (float)((double)d·j)`; unless A is unmovable, `p` turned into A's
+  frame through its matrix's transpose, each lane `((y·m2i + x·m0i) + z·m4i)`, then `(solver+0xa0, solver+0x80) = FUN_180078f50(A,
+  armA, p′, p)` and `solver+0x40 += +0x80`, `solver+0x60 += +0xa0`; unless B is unmovable, the same with `p·−1f` into `+0xb0`/`+0x90`
+  and B's `+0x50`/`+0x70`. **The turn is `FUN_180070620` inlined**, with the same grouping.
+- **`FUN_180070620(m, v, out)`** turns a float vector by a double matrix's transpose — `((y·m20 + x·m00) + z·m40, (x·m08 + y·m28) +
+  z·m48, (x·m10 + y·m30) + z·m50)` — and narrows.
+- **`FUN_18006fc90(v)`** scales a float vector in place with the five-step root when its float-summed square, widened, reaches
+  `1e-19` (`DAT_1800f4f20`), and returns the length `s·squared`; under that, or NaN, it returns zero and leaves the vector alone.
+- **`FUN_1800770f0(core, r, d, w)` — a virtual mass**: `1.0` for a core flagged `0x10`; otherwise the unit push's effect —
+  `Δω = (r × d) ⊙ +0x40..0x48` in float and `Δv = (float)((double)w·(double)+0x4c)` — becomes a point velocity through
+  `FUN_180077fa0`, and the answer is `1.0 / FUN_18006e120(that velocity)`: **the reciprocal of the whole response's length, not
+  of its component along `d`**.
+
+#### The solver's helpers, and where the block and the fused paths are decided
+
+- **`FUN_180078f50(core, r, d, w, out Δv, out Δω)` — the effect of a unit push**: `Δω = (r × d) ⊙ (+0x40, +0x44, +0x48)` in float, the
+  cross product taken `(d.z·r.y − d.y·r.z, d.x·r.z − r.x·d.z, r.x·d.y − d.x·r.y)` with `d` in the core's frame, and
+  `Δv = (float)((double)w·(double)+0x4c)` per lane with `w` the world direction — `+0x40..0x4c` being the inverse inertia and mass.
+- **`FUN_180077d70(A, B, rA, rB, vA, ωA, vB, ωB, out)`**: each point's velocity by `FUN_180077fa0`, zero for a core whose byte `0`
+  has `0x12`, and `out = pA − pB` in float.
+- **`FUN_18008ddf0(solver, i)` — committing one side**: core `i`'s `+0x140` and `+0x130` take the solver's velocity and angular
+  velocity for that side; then, when the core's word `+0x2` — the impacts counted this step — exceeds the anomaly limits' `+0x10`,
+  the environment's `+0x40` object's slot 3 `(limits, core)` answers, and its low two bits become the core's flag bits `6–7`.
+- **`FUN_180070b20(m, p, out)`**: a float point widened, turned and moved by a double matrix — each row `((x·m0 + y·m1) + z·m2) + t`.
+- **`FUN_1800863f0(system, a, b)`** finds, last first, a pair whose `+0x38` and `+0x40` hold both cores in either order;
+  **`FUN_180086b30(pair)`** is its contact count at `+0x2`, so a pair begins with its contact vector; **`FUN_180083da0`** is the
+  vector removal; **`FUN_180083db0(system, pair)`** tells the environment's listeners (`FUN_180081f70`) and removes the pair from
+  `system+0x70`.
+- **The tolerance block is derived twice before a simulation reads it.** The environment constructor `FUN_1800114f0` passes
+  `(double)((0.25f − 1e-4f) × 0.0254f)` and `9.81`; `CPhysicsEnvironment::SetGravity` (`FUN_1800150f0`) passes `(double)block[1]`
+  (`FUN_180082250`) and the length of the gravity it converted — `0.0254f` times each component in float, the down lane negated
+  into `y`, widened, measured by `FUN_18006fc60`. The client calls `SetGravity` once, at physics init
+  (`game/client/physics.cpp:177`). For this preset the second derivation returns the first's block unchanged — *arithmetic,
+  evaluated over the dumped bits*.
+- **`DAT_180136418` is written by `__acrt_initialize_fma3`**: one when CPUID leaf 1's `ECX` has FMA, OSXSAVE and AVX
+  (`& 0x18001000`) and `XCR0` enables XMM and YMM state (`& 6`), zero otherwise. So on a machine with FMA and OS-enabled AVX,
+  `exp` and `expf` take their fused paths.
+- **The `exp` tables are dumped** (`impact_solver5.log`): `2^(j/64)` at `180108740`, its low parts at `180107d60` and high parts at
+  `180107b60`, 64 doubles each; the series coefficients at `180104480..1801044c8`; `−ln 2/64` in two parts at `180104530` and
+  `180104538`; the range limits `709.78`, `−744.03` and `−745.13`. `expf`'s `64/ln 2`, `ln 2/64`, `1/6` and `0.5` sit at
+  `1801045a0..1801045d0`, its limits `8192` and `−9600` at `180104580`/`180104590`.
+
+#### The anomaly manager, and the limits a client environment runs (2026-09-13)
+
+**The environment constructor makes the anomaly manager itself.** `FUN_1800114f0` allocates `0x40` bytes at
+`CPhysicsEnvironment+0xb0` with two tables, `1800ebf78` at `+0x0` and `1800ebf90` at `+0x8`, and hands the application
+environment `+0x8` — so IVP's `env+0x40` is that half, and `SetCollisionSolver` leaves the game's solver at its `+0x10`
+(`env_ctor.log`, `anomaly_manager.log`, `anomaly_slots.log`):
+
+| slot | routine | what it does |
+|---|---|---|
+| 0 | `FUN_180017010` | asks the core's first object's `CPhysicsObject` (`[core+0x70]` → `+0x100`) for `GetShadowController`, `IPhysicsObject` slot 70; with none, the base `FUN_180089ae0` |
+| 1 | `FUN_180089a50` | the base, not overridden |
+| 2 | `FUN_180016cc0` | with a game solver and both `CPhysicsObject`s present, neither's word `+0x48` holding `0x400`: when both are movable (slot 10, `IsMoveable`), a pair already in the list at `+0x18` (count `+0x28`, ordered by address) returns at once, and an absent one is filed; then — movable or not — asks `ShouldSolvePenetration` (`IPhysicsCollisionSolver` slot 1) with both objects' `GetGameData` (slot 17) and `(float)env+0x108`; a yes, or no game solver, calls the base `FUN_1800896b0` |
+| 3 | `FUN_180016e80` | `ShouldFreezeObject` (slot 2) of the core's first object, or one with no game solver |
+| 4 | `180016e60` | tail-calls `AdditionalCollisionChecksThisTick` (slot 3), or answers zero |
+| 5 | `FUN_180016ec0` | `ShouldFreezeContacts` (slot 4) over each core's first object |
+
+*Slots 6 (`180016530`) and 7 (`180089660`) are unread. The slot numbers on `IPhysicsObject` and `IPhysicsCollisionSolver` are
+counted from the published declarations (`public/vphysics_interface.h:683-858`, `:500-516`); `IsMoveable` at 10 and
+`GetGameData` at 17 fit the same count, which is the check on it.*
+
+**The base clamps scale to a share of the limit, not to the limit.** `FUN_180089ae0` takes `s = ((double)limits+0xc ·
+(double)0.99f) / √(double)((v.x² + v.y²) + v.z²)` and `FUN_180089a50` takes `s = ((double)((float)env+0x110 · limits+0x14) ·
+(double)0.9f) / √(double)((ω.x² + ω.y²) + ω.z²)`, the squares and the product in float, each lane `(float)((double)v·s)`.
+
+**`SetPerformanceSettings` (`FUN_180015200`) fills the limits at `env+0x48`**: `+0xc = 0.0254f · maxVelocity`, `+0x10 =
+maxCollisionsPerObjectPerTimestep`, `+0x18 = maxCollisionChecksPerTimestep`, `+0x14 = (maxAngularVelocity · 0.017453292f) ·
+(float)env+0x108`, and `+0x1c`, `+0x20` the two friction masses clamped by `MAXSS` against one and `MINSS` against fifty
+thousand; the two look-ahead times go, widened, to `[env+0x38]+0x40` and `+0x18`.
+
+**The spin limit is per step of the PSI in force when the settings were given, and nothing takes it again.**
+`SetSimulationTimestep` (`1800152f0`) jumps to `FUN_180082470`, which writes the step at `+0x108`, its reciprocal at `+0x110`
+and `exp(step · ln 0.9)` at `+0x1b0` (`bfbaf8e892d15de8`) — and not the limits. The check multiplies by the CURRENT reciprocal
+(`FUN_18008dd00`), so an environment built at one step and run at another holds spin to the ratio of the two.
+
+**A client's environment gets its settings only from its own constructor.** `FUN_1800114f0` calls `FUN_180015200` with `{6,
+250, 2000, 3600, 1, 0.5, 10, 2500}` on its stack — `physics_performanceparams_t::Defaults()` (`public/vphysics/performance.h:30-40`)
+— before anything sets the step. The server raises the collisions to 10 before its own call (`game/server/physics.cpp:222-226`);
+the client's `PhysicsLevelInit` never makes one (`game/client/physics.cpp:163-187`), and its `CCollisionEvent::ShouldFreezeObject`
+answers `true` (`:76`). **So a corpse's environment allows 6 collisions, not 10** — this project had carried the server's number
+as the one TF2 runs.
+
+**Then the whole solver, called in process** (`vphysics-impact`). The probe writes the solver, both cores, the environment and
+the limits at the offsets above, gives the manager the image's own table, and answers the two calls that leave the library —
+the shadow controller as none, the freeze as each case says — with callbacks, counting any other call on a trap. **Controls**:
+slot 0 of the image's table is `FUN_180017010`; a core flagged `0x10` presents a virtual mass of exactly one; a point on a core
+with no spin moves at exactly the velocity given; and the image's `block[0x4a]` is `IvpCollisionTolerance.TwiceTolerance`,
+`0x3c4ffe5a`. **`FUN_180077fa0`, `FUN_180078f50`, `FUN_1800770f0` and `FUN_180070620` agree with the port on 200,000 random calls
+each, and 20,000 random impacts agree on every lane** — 9,923 approaching, 7,915 holding a core back, 6,835 freezing — with no
+call reaching a trap. `IvpImpactSolverConformanceTests` replays 96 of them and four found by searching with the port's
+instruments — the push loop at its cap, a heavier core closing inside the hold-back band, a response the `1e-15f` term
+decides, a NaN velocity — each failing alone under its own sabotage. **A branch audit found the divergence the sweeps
+could not reach**: the port wrote the first branch `!(u ≤ −1e-4f)`, which sends a NaN to the separating push, where
+`COMISS`/`JBE` sends it to the approaching one. Fixed; 2,000 impacts with a NaN lane now agree too.
+
+**The first sweep differed on every impact, and not because of the port.** The loaded image holds the block `FUN_180002540`
+fills at load with `d = 0.01` until an environment is built, and none was, so every separating speed was off by exactly
+`1.2 · (0.02 − block[0x4a])` while the four helpers agreed. The probe now runs `FUN_180098fd0` as the constructor and
+`SetGravity` run it, and the last control proves the block it leaves.
+
+**The solver runs in IVP's units, and that is Valve's layering, not a choice here.** vphysics converts at its own interface:
+`SetGravity`, `SetPerformanceSettings` and the constructor's tolerance all multiply by `0.0254f`, the position converters turn
+Source's `(x, y, z)` into `(x·k, −z·k, y·k)`, and a `.phy` stores its hulls in metres. Everything above the interface is Hammer
+units; everything below it — every routine read in this document — computes in metres. Fed metres, the port agrees with the
+binary on every bit; fed Source units with the thresholds scaled, no routine could.
+
+*Evidence class: read from the disassembly for the manager, the clamps and both settings routines; published source for the
+settings, the interfaces and the client; differential against the shipped binary for the solver. Not established: whether a
+client's `env+0x108` at construction is exactly `1/66` in bits, which decides `+0x14`.*
+
+#### Not established
+
+What reads and clears the core flags' bits 6–7 after a solve; what writes `core+0x58`; what the materials' slots 1 and 2 and
+`+0xc` are; and anomaly slots 6 and 7. *(Since settled: `FUN_1800d33b0` is `cos`, under* The entry, ported and pinned*; and
+`core+0x8` was already read above as the deviation `FUN_180078b90` sets, which the port still names `Offset08`.)*
+
+*Evidence class: read from the disassembly for every routine, offset and constant named; `asinf`, `expf` and `exp` identified by
+their structure and, for `asinf`, by the name its error path passes.*
 
 ## There are TWO contact solvers, and a resting corpse uses the other one
 
@@ -4086,6 +7121,16 @@ function (`(**(code**)(*plVar13+0x18))`), with per-entry state cached across STE
 not restart from nothing every call. That is IVP's actual narrow phase — a real convex-convex
 closest-points solver with warm-started simplex state — not a formula this project can transcribe
 into a few lines.
+
+> **Corrected 2026-09-14 — this reading, and the two paragraphs around it, were wrong, and they came from a decompile.** Read
+> from the disassembly and pinned by calling the binary in process, `FUN_180096680` is a pair's mindist refresh: it queries each
+> object's ledges within the other's extrapolated core sphere and keeps, makes or deletes one mindist per ledge pair, its
+> "hashed cache" an open-addressed table of the pair's EXISTING mindists keyed by their two ledges — no simplex, no support
+> function (`IvpPairMindists`, 5,000 cases agreeing; *The pair's mindists, instruction by instruction*). `FUN_1800b2460` is
+> the larger mindist's slot 8, which opens a hull ledge when a collision lands on a virtual face, and `FUN_1800b29b0` refreshes
+> that mindist's children beneath the opened ledge (*The larger mindist in full*). The closest-points search is the minimize,
+> `FUN_180095cb0`, which is a feature walk, not GJK (`IvpMindistMinimize`). The conclusion drawn below — that a GJK/EPA solver
+> would have to be built — does not follow and was not acted on.
 
 **What this settles:** the project's "one retained pair" model was never going to be the fix by
 itself, because the engine's pair is backed by a stateful GJK solver whose OWN warm start is the

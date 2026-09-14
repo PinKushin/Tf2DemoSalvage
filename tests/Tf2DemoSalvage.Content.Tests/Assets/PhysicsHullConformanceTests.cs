@@ -325,6 +325,24 @@ public sealed class PhysicsHullConformanceTests
         ledge.EdgeOffsets[0].ShouldBe((-3, 2, 16383));
     }
 
+    /// <remarks>
+    /// **A triangle's header word carries the index of the triangle on the other side of the ledge in bits 12–23**
+    /// (B369). `FUN_180094e30`, the minimize's backside walk, starts from the triangle `(header &gt;&gt; 12) &amp; 0xFFF`
+    /// names; the dispatch reads the low twelve bits as the triangle's own index (`docs/findings/51`, *The minimize,
+    /// routine by routine*). Every other bit is set here — the own index, bits 24–30 and bit 31 — so a shift without the
+    /// mask, a wider field or a read of the low bits each give a different answer.
+    /// </remarks>
+    [Test]
+    public void Read_ATrianglesHeaderWord_CarriesTheTriangleAcrossTheLedgeInBits12To23()
+    {
+        byte[] solid = Solid(
+            Triangle,
+            [(0, 1, 2), (0, 2, 1)],
+            headers: [0xFF00_0000u | (1u << 12), 0xFF00_0001u | (0xFFFu << 12)]);
+
+        PhysicsHull.Read(solid)[0].PierceTriangles.ShouldBe([1, 0xFFF]);
+    }
+
     /// <summary>Where the ledge is written in a tagged solid, from its <c>VPHY</c> tag.</summary>
     private const int LedgeAt = 0x1C + 0x30;
 
@@ -348,6 +366,7 @@ public sealed class PhysicsHullConformanceTests
         Vector3 massCenter = default,
         Vector3 rotationInertia = default,
         (int A, int B, int C)[]? edgeOffsets = null,
+        uint[]? headers = null,
         bool highBit = false,
         bool tagged = true,
         short version = 0x100,
@@ -389,10 +408,12 @@ public sealed class PhysicsHullConformanceTests
         {
             int at = trianglesAt + (index * 0x10);
 
-            // `at` itself is the triangle's header word, which nothing reads. Each edge word is its start point in
-            // the low sixteen bits and its offset in bits 16–30; bit 31, when asked for, goes on the middle edge.
+            // `at` itself is the triangle's header word — its own index in the low twelve bits, the triangle across
+            // the ledge in bits 12–23 — then each edge word is its start point in the low sixteen bits and its offset
+            // in bits 16–30; bit 31, when asked for, goes on the middle edge.
             (int A, int B, int C) offsets = edgeOffsets?[index] ?? (0, 0, 0);
 
+            BitConverter.GetBytes(headers?[index] ?? (uint)index).CopyTo(solid, at);
             BitConverter.GetBytes(Edge(triangles[index].A, offsets.A, high: false)).CopyTo(solid, at + 4);
             BitConverter.GetBytes(Edge(triangles[index].B, offsets.B, highBit)).CopyTo(solid, at + 8);
             BitConverter.GetBytes(Edge(triangles[index].C, offsets.C, high: false)).CopyTo(solid, at + 12);

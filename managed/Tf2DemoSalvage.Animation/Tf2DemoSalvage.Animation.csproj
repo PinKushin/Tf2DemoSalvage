@@ -40,6 +40,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Tf2DemoSalvage.Animation.Tests" />
+    <!-- The vphysics probes build contact records and points field by field, as the binary is handed them (B369). -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Probe" />
   </ItemGroup>
 
   <ItemGroup>

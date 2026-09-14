@@ -57,7 +57,7 @@
 - [The demo dates its own fields](the-demo-dates-its-own-fields.md) — its embedded schema answers.
 - [A neutral default must be neutral](a-neutral-default-must-be-neutral.md) — `_white` is the magenta chequer.
 - [The client builds what the demo omits](the-client-builds-what-the-demo-omits.md) — index plus items_game.txt.
-- [Two matrix conventions, on purpose](two-matrix-conventions-on-purpose.md) — cross over once; IVP is a THIRD, axes and units and transpose at once; an inverse is not the map applied twice.
+- [Two matrix conventions, on purpose](two-matrix-conventions-on-purpose.md) — cross over once; IVP is a THIRD, axes and units and transpose at once; an inverse is not the map applied twice; IVP's interior is metres, Hammer units stop at the seam (D173).
 - [A default is not a constant](a-default-is-not-a-constant.md) — grep `ConVar`; cvarlist prints what is in force.
 - [Where the game and clients live](where-the-game-and-clients-live.md) — game on `F:`, decompilation on `D:`.
 - [Write can destroy what you did not read](write-can-destroy-what-you-did-not-read.md) — grep before building.
@@ -78,7 +78,7 @@
 - [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps are client-predicted.
 - [A fallback that makes sound hides itself](a-fallback-that-makes-sound-hides-itself.md) — refuse what the engine refuses.
 - [A loop is state, not an event](a-loop-is-state-not-an-event.md) — ask what should be PLAYING.
-- [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89/D143/D148; performance buys nothing, parity is the first hypothesis, check it during refactors.
+- [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89/D143/D148/D172; performance buys nothing, parity is the first hypothesis, check it during refactors, claim it of a subsystem, never a function; ponytail's lazy rule never cuts an engine branch.
 - [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md) — six at 3 ms, remainder at 126.
 - [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — deliberate; do not "fix" it.
 - [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md) — the TFM enforces, not the file.
@@ -137,3 +137,6 @@
 - [A native API wrapper owns a library handle](a-native-api-wrapper-owns-a-library-handle.md) — GetApi loads a fresh copy, Dispose is FreeLibrary; one per process.
 - [Gate once per merge, not per commit](gate-once-per-merge-not-per-commit.md) — ~15 min; iterate on the touched project plus a solution build.
 - [No task cards](no-task-cards.md) — D169/D171; the main session is the first mate: reviewed sonnet subagents, never cards or sibling sessions, and it works every merge.
+- [Spend fewer tokens](spend-fewer-tokens.md) — ponytail ultra; LSP/MCP over raw reads, one-line remarks, no reflexive agents.
+- [Push when work piles up](push-when-work-piles-up.md) — crash safety outranks "push sparingly"; commit a green state first, never mid-sabotage.
+- [The JIT picks the NaN destination](the-jit-picks-the-nan-destination.md) — C# `+`/`*` leave two-NaN results to operand order; Addsd/Mulsd pin it, never license it; an order nothing can redden may be dead — trace it to an output first.

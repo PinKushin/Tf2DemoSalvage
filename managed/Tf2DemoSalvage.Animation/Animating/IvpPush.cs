@@ -16,7 +16,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 ///
 /// **Nothing here reaches a velocity directly.** Everything stages into
 /// <see cref="IvpRigidBody.PendingVelocity"/>, which `FUN_180077950` drains at the start of the
-/// next step — see <see cref="Flush"/>. That is the engine's arrangement rather than a buffer
+/// next step — see <see cref="Flush(IvpRigidBody)"/>. That is the engine's arrangement rather than a buffer
 /// invented here, and it is why a corpse's creation force shows up one step after it is applied.
 /// </remarks>
 public static class IvpPush
@@ -34,21 +34,107 @@ public static class IvpPush
 
         for (int index = 0; index < bodies.Count; index++)
         {
-            IvpRigidBody body = bodies[index];
-
-            body.AngularVelocity = (
-                body.AngularVelocity.X + body.PendingAngularVelocity.X,
-                body.AngularVelocity.Y + body.PendingAngularVelocity.Y,
-                body.AngularVelocity.Z + body.PendingAngularVelocity.Z);
-
-            body.Velocity = (
-                body.Velocity.X + body.PendingVelocity.X,
-                body.Velocity.Y + body.PendingVelocity.Y,
-                body.Velocity.Z + body.PendingVelocity.Z);
-
-            body.PendingAngularVelocity = (0f, 0f, 0f);
-            body.PendingVelocity = (0f, 0f, 0f);
+            Flush(bodies[index]);
         }
+    }
+
+    /// <summary>One body's staged velocity drained into its real one — <c>FUN_180077950(core)</c>.</summary>
+    /// <param name="body">The body to flush.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    /// <remarks>
+    /// **Its `x` lanes add the real velocity to the staged one, its `y` and `z` lanes the staged to the real** —
+    /// `MOVSS XMM1,[+0x110]; ADDSS XMM1,[+0x130]` against `MOVSS XMM0,[+0x134]; ADDSS XMM0,[+0x114]` — which decides
+    /// which NaN survives two, so each lane names the binary's destination first (`docs/findings/51`).
+    /// </remarks>
+    public static void Flush(IvpRigidBody body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        body.AngularVelocity = (
+            IvpMath.Addss(body.PendingAngularVelocity.X, body.AngularVelocity.X),
+            IvpMath.Addss(body.AngularVelocity.Y, body.PendingAngularVelocity.Y),
+            IvpMath.Addss(body.AngularVelocity.Z, body.PendingAngularVelocity.Z));
+
+        body.Velocity = (
+            IvpMath.Addss(body.PendingVelocity.X, body.Velocity.X),
+            IvpMath.Addss(body.Velocity.Y, body.PendingVelocity.Y),
+            IvpMath.Addss(body.Velocity.Z, body.PendingVelocity.Z));
+
+        Drop(body);
+    }
+
+    /// <summary>
+    /// A body's speed and spin, and their staged changes, held to the environment's limits — <c>FUN_180076710(core)</c>, which
+    /// the heap solve calls after every push.
+    /// </summary>
+    /// <param name="body">The body.</param>
+    /// <param name="limits">The environment's limits, <c>env+0x48</c>: <c>+0xc</c> the fastest speed, <c>+0x14</c> the fastest turn per step.</param>
+    /// <param name="inverseStep">The environment's inverse step, <c>env+0x110</c>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// limit+0xc > 0 (NaN too):  |v| > it → v ·= (d)(limit/|v|);  then |staged v| > it → staged v scaled the same way
+    /// limit+0x14 > 0:  w = (f)inverse step · limit+0x14;  |ω| > w → ω scaled;
+    ///                  then |staged v| > w → STAGED ω ·= (d)(w/|staged v|)
+    /// </code>
+    /// **The last test measures the staged velocity and scales the staged spin** — `LEA RCX,[RBX+0x120]` before the length,
+    /// `[RBX+0x110]` after — so a staged spin is held by how fast the staged push would move the body, not how fast it would
+    /// turn it. That is the binary; it is carried.
+    /// </remarks>
+    internal static void Limit(IvpRigidBody body, IvpAnomalyLimits limits, double inverseStep)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(limits);
+
+        float fastest = limits.MaximumVelocity;
+
+        if (!(0f >= fastest))
+        {
+            body.Velocity = Held(body.Velocity, fastest, body.Velocity);
+            body.PendingVelocity = Held(body.PendingVelocity, fastest, body.PendingVelocity);
+        }
+
+        if (!(0f >= limits.MaximumAngularVelocityPerPsi))
+        {
+            float turning = IvpMath.Mulss((float)inverseStep, limits.MaximumAngularVelocityPerPsi);
+
+            body.AngularVelocity = Held(body.AngularVelocity, turning, body.AngularVelocity);
+            body.PendingAngularVelocity = Held(body.PendingVelocity, turning, body.PendingAngularVelocity);
+        }
+    }
+
+    /// <summary>A body's staged velocity discarded — <c>FUN_180076670(core)</c>.</summary>
+    /// <param name="body">The body whose staged changes are dropped.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    public static void Drop(IvpRigidBody body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        body.PendingAngularVelocity = (0f, 0f, 0f);
+        body.PendingVelocity = (0f, 0f, 0f);
+    }
+
+    /// <summary>
+    /// <paramref name="scaled"/> times <c>(double)(limit/|measured|)</c> when <paramref name="measured"/> is longer than
+    /// <paramref name="limit"/>; otherwise unchanged. The length is <c>FUN_18006e120</c>'s, narrowed; each lane
+    /// <c>(float)((double)lane · share)</c> with the lane as destination.
+    /// </summary>
+    private static (float X, float Y, float Z) Held(
+        (float X, float Y, float Z) measured, float limit, (float X, float Y, float Z) scaled)
+    {
+        float length = (float)IvpVector.Length(measured);
+
+        if (!(length > limit))
+        {
+            return scaled;
+        }
+
+        double share = limit / length;
+
+        return (
+            (float)IvpMath.Mulsd(scaled.X, share),
+            (float)IvpMath.Mulsd(scaled.Y, share),
+            (float)IvpMath.Mulsd(scaled.Z, share));
     }
 
     /// <summary>Stages a velocity change directly — <c>AddVelocity</c>.</summary>

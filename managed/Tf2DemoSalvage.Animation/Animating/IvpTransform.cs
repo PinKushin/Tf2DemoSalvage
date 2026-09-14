@@ -36,18 +36,17 @@ public static class IvpTransform
     /// </remarks>
     public const float MetresPerInch = 0.0254f;
 
-    /// <summary>The reverse scale, as the binary spells it.</summary>
+    /// <summary>The reverse scale, as the binary stores it.</summary>
     /// <remarks>
-    /// **`39.37`, the dword adjacent to <see cref="MetresPerInch"/>**, and deliberately not
-    /// `1f / MetresPerInch` — which is 39.3700787, a different number. Valve stores the pair, so the
-    /// pair is carried.
+    /// **`0x421d7af6`, the dword adjacent to <see cref="MetresPerInch"/> — `39.3700790`, the float reciprocal of
+    /// `0.0254f`.** This constant was carried as `39.37f` (`0x421d7ae1`) until the dword was dumped: the decimal the
+    /// decompiler printed had been taken for the stored value, and the note beside it — that the stored value was
+    /// deliberately not `1f / MetresPerInch` — was the wrong way round.
     ///
-    /// **Confirmed in use, in `CPhysicsEnvironment::SetGravity`** (`1800150f0`), which converts a
-    /// tolerance back for its own log line with `dVar4 * DAT_18011f004` — the 39.37 dword, not a
-    /// reciprocal of the other. This doc said the reverse constant had not been read; it has, and
-    /// it is this one.
+    /// **Confirmed in use, in `CPhysicsEnvironment::SetGravity`** (`1800150f0`), which converts the tolerance
+    /// back for its own log line through `DAT_18011f004`, this dword.
     /// </remarks>
-    public const float InchesPerMetre = 39.37f;
+    public const float InchesPerMetre = 39.3700787f;
 
     /// <summary>Where a Source point is, in the physics engine's space.</summary>
     /// <param name="x">Source X, in inches.</param>

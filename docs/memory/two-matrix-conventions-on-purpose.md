@@ -40,7 +40,8 @@ through `FUN_180002cc0` in `vphysics.dll`, which changes three things at once:
 - **Axes.** `Source (x, y, z) → IVP (x, −z, y)`, applied to a rotation as `M' = P M Pᵀ` with
   `P = [[1,0,0],[0,0,−1],[0,1,0]]`. Source is Z-up; IVP is Y-up.
 - **Units.** Translations are multiplied by **0.0254** — metres per inch. The constant sits at
-  `18011f000` with `39.37` in the next dword.
+  `18011f000` with `0x421d7af6` (`39.3700790`, `1f/0.0254f` in float) in the next dword — *once carried
+  as `39.37`, the decompiler's decimal, which is a different float (`0x421d7ae1`)*.
 - **Storage.** `FUN_18000ca70` then writes the rows into COLUMNS of a 4×4 and puts the translation in
   the last row.
 
@@ -91,3 +92,16 @@ identical error, because one belief wrote both. Ten tests round-tripped through 
 authority is a different SOURCE. Call the function that was read from the binary. See
 [[instrument-bugs-outnumber-decoder-bugs]] and
 [[most-of-a-decoder-is-untested]].
+
+### IVP's interior stays in metres; Hammer units stop at the seam (D173, 2026-09-14)
+
+**The owner challenged converting the older IVP ports to metres — "valve uses hammer units" — and
+accepted the answer: "Oh ok so parity."** The game side is Hammer units and stays so. `vphysics.dll`
+converts once at its API and runs IVP in metres: `METERS_PER_INCH (0.0254f)`
+(`src/public/vphysics_interface.h:40`), the collision tolerance built as `(0.25f − 1e-4f) × 0.0254f`,
+gravity scaled in `SetGravity`, and every IVP floor (`1e-19`, `1e-12`, `1e-10f`, `1e-8`) a metre value.
+A port that multiplies those by 39.37 to stay in inches rounds differently and cannot reach bit parity.
+
+**How to apply:** an IVP port takes and returns metres and holds the binary's constants by their bits;
+convert only where `CPhysicsEnvironment`/`CPhysicsObject` convert. When asked why metres, the answer is
+the seam, with those citations — never a preference.

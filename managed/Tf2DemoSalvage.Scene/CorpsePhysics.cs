@@ -44,13 +44,12 @@ public sealed class CorpsePhysics
     /// </remarks>
     public IvpWorldCollision? World { get; set; }
 
-    /// <summary>The game's surface table, for the friction that stops a corpse sliding.</summary>
+    /// <summary>The game's surfaces, parsed by vphysics' own parser, for the friction a corpse collides with.</summary>
     /// <remarks>
-    /// **Empty is a working state and not a missing input**, which is what makes the game folder
-    /// optional here: every surface then falls back to `g_PhysDefaultObjectParams`' friction of 1,
-    /// which is the engine's own answer for an unknown surface.
+    /// **Empty is a working state and not a missing input**, which is what makes the game folder optional here: every body then
+    /// keeps <see cref="IvpRigidBody.NoSurfaceFriction"/>. That number is this project's; the engine never runs without surfaces.
     /// </remarks>
-    public SurfaceTable Surfaces { get; set; } = SurfaceTable.Empty;
+    public VphysicsSurfaceProps Surfaces { get; set; } = new([]);
 
     /// <summary>How many were rebuilt from death because the tick could not be reached forwards.</summary>
     /// <remarks>

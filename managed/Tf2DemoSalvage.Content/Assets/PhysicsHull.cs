@@ -12,6 +12,14 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// `FUN_1800a1b50` takes from an edge to walk the edges around a point, relative to the edge's own address. Kept
 /// as the file stores it, because the walk is address arithmetic over the ledge's triangle array.
 /// </param>
+/// <param name="PierceTriangles">
+/// **Each triangle's header word, bits 12–23: the index of a triangle across the ledge** (B369), where the minimize's
+/// backside walk `FUN_180094e30` starts. Kept as the file stores it; the walk refuses one past the ledge.
+/// </param>
+/// <param name="MaterialIndices">
+/// **Each triangle's header word, bits 24–30: its material index** (B369) — `FUN_1800863d0` reads byte 3 less its top bit;
+/// zero means the object's own material, anything else is asked of the environment's material manager.
+/// </param>
 /// <remarks>
 /// **A ledge is the convex unit the engine's narrow phase works on**, not the whole solid: a
 /// concave shape is a TREE of them, and the point array can be SHARED between siblings — every one
@@ -24,6 +32,8 @@ public readonly record struct PhysicsLedge(
     IReadOnlyList<Vector3> Points,
     IReadOnlyList<(int A, int B, int C)> Triangles,
     IReadOnlyList<(int A, int B, int C)> EdgeOffsets,
+    IReadOnlyList<int> PierceTriangles,
+    IReadOnlyList<int> MaterialIndices,
     Vector3 Center,
     float Radius);
 
@@ -96,8 +106,9 @@ public enum PhysicsSolidLoad
 /// IVP_Compact_Ledge:
 ///   +0x00  c_point_offset  ADD to the ledge's own address; the array can be SHARED
 ///   +0x0C  low 16 bits = n_triangles
-///   +0x10  IVP_Compact_Triangle[n], sixteen bytes each: a header word nothing reads,
-///          then three four-byte edges whose LOW 16 BITS are the start point index
+///   +0x10  IVP_Compact_Triangle[n], sixteen bytes each: a header word whose low 12 bits are
+///          the triangle's own index and bits 12–23 a triangle across the ledge, then three
+///          four-byte edges whose LOW 16 BITS are the start point index
 /// </code>
 ///
 /// **Triangles start at `+0x10` and the decompiled bound says `+0x14`.** The validator's scan
@@ -273,17 +284,91 @@ public static class PhysicsHull
     }
 
     /// <summary>The bytes the loader builds a collide from, or empty when it builds none.</summary>
+    /// <param name="solid">The solid's bytes, after its size prefix.</param>
+    /// <returns>The <c>IVP_Compact_Surface</c> and the bytes the loader copies with it.</returns>
     /// <remarks>
     /// **Empty too when those bytes cannot hold a surface** — a tagged data size under 0x30. The loader copies
     /// that many and reads the surface anyway, which past the copy is uninitialised memory; this reads nothing (D32).
     /// </remarks>
-    private static ReadOnlySpan<byte> Surface(ReadOnlySpan<byte> solid)
+    public static ReadOnlySpan<byte> Surface(ReadOnlySpan<byte> solid)
     {
         (PhysicsSolidLoad load, int surface, int length) = Locate(solid);
 
         return load == PhysicsSolidLoad.Collide && length >= SurfaceSize
             ? solid.Slice(surface, length)
             : ReadOnlySpan<byte>.Empty;
+    }
+
+    /// <summary>Reads one surface's ledge tree as a tree.</summary>
+    /// <param name="surface">The <c>IVP_Compact_Surface</c> and the bytes after it — <see cref="Surface"/> of a solid.</param>
+    /// <returns>
+    /// The tree, or null when the root or any node or ledge it names lies outside the bytes, or the tree is deeper than a compiler
+    /// writes (D32).
+    /// </returns>
+    /// <remarks>
+    /// **Every node the engine's walk can reach is read, the inner nodes' hulls included** — <see cref="Read(ReadOnlySpan{byte})"/>
+    /// keeps only the terminal ledges, and the radius query `FUN_18007afb0` returns a hull in place of everything beneath it.
+    /// </remarks>
+    public static PhysicsLedgeTree? Tree(ReadOnlySpan<byte> surface)
+    {
+        if (surface.Length < SurfaceSize)
+        {
+            return null;
+        }
+
+        Dictionary<int, PhysicsLedgeTreeNode> nodes = [];
+        PhysicsLedgeTreeNode? root = TreeNode(surface, BitConverter.ToInt32(surface[LedgeTreeOffset..]), nodes, MaximumDepth);
+
+        return root is null ? null : new PhysicsLedgeTree(root, nodes);
+    }
+
+    /// <summary>One node of <see cref="Tree"/> and everything beneath it, or null when any of it lies outside the bytes.</summary>
+    private static PhysicsLedgeTreeNode? TreeNode(
+        ReadOnlySpan<byte> surface, int node, Dictionary<int, PhysicsLedgeTreeNode> nodes, int budget)
+    {
+        if (budget <= 0 || node < 0 || node > surface.Length - NodeHeaderSize)
+        {
+            return null;
+        }
+
+        PhysicsLedgeTreeNode read = new(
+            node,
+            new Vector3(
+                BitConverter.ToSingle(surface[(node + 0x08)..]),
+                BitConverter.ToSingle(surface[(node + 0x0C)..]),
+                BitConverter.ToSingle(surface[(node + 0x10)..])),
+            BitConverter.ToSingle(surface[(node + 0x14)..]),
+            (surface[node + 0x18], surface[node + 0x19], surface[node + 0x1A]));
+        int ledge = BitConverter.ToInt32(surface[(node + 4)..]);
+
+        if (ledge != 0)
+        {
+            int at = node + ledge;
+
+            if (at < 0 || at > surface.Length - LedgeHeaderSize)
+            {
+                return null;
+            }
+
+            read.HasLedge = true;
+            read.LedgeOffset = at;
+            read.LedgeNodeOffset = at + BitConverter.ToInt32(surface[(at + 4)..]);
+            read.LedgeChildren = BitConverter.ToInt32(surface[(at + 8)..]) & 3;
+        }
+
+        nodes[node] = read;
+
+        int right = BitConverter.ToInt32(surface[node..]);
+
+        if (right == 0)
+        {
+            return read;
+        }
+
+        read.Left = TreeNode(surface, node + NodeHeaderSize, nodes, budget - 1);
+        read.Right = TreeNode(surface, node + right, nodes, budget - 1);
+
+        return read.Left is null || read.Right is null ? null : read;
     }
 
     /// <summary>Which of the loader's branches a solid takes, and where the surface it builds from lies.</summary>
@@ -462,13 +547,16 @@ public static class PhysicsHull
         List<Vector3> kept = [];
         List<(int A, int B, int C)> triangles = new(count);
         List<(int A, int B, int C)> offsets = new(count);
+        List<int> pierces = new(count);
+        List<int> materials = new(count);
 
         for (int index = 0; index < count; index++)
         {
             int triangle = ledge + LedgeHeaderSize + (index * TriangleSize);
 
-            // **The triangle's own header word is skipped and never read**, which is not an
-            // omission: nothing in the traced mindist path reads it either. The three edges follow.
+            // The header word: the engine finds a ledge from its low twelve bits, the triangle's own index, which is
+            // the triangle's position here; bits 12–23 name where the backside walk starts. The three edges follow.
+            int header = BitConverter.ToInt32(solid[triangle..]);
             int first = BitConverter.ToInt32(solid[(triangle + 4)..]);
             int second = BitConverter.ToInt32(solid[(triangle + 8)..]);
             int third = BitConverter.ToInt32(solid[(triangle + 12)..]);
@@ -484,13 +572,21 @@ public static class PhysicsHull
 
             triangles.Add((a, b, c));
             offsets.Add((EdgeOffset(first), EdgeOffset(second), EdgeOffset(third)));
+            pierces.Add(PierceTriangle(header));
+            materials.Add(MaterialIndex(header));
         }
 
-        return new PhysicsLedge(kept, triangles, offsets, centre, radius);
+        return new PhysicsLedge(kept, triangles, offsets, pierces, materials, centre, radius);
     }
+
+    /// <summary>A header word's bits 24–30: byte 3 less its top bit, as <c>FUN_1800863d0</c> reads it.</summary>
+    private static int MaterialIndex(int header) => (header >> 24) & 0x7F;
 
     /// <summary>An edge word's bits 16–30, sign-extended: <c>(int)(word &lt;&lt; 1) &gt;&gt; 17</c>, as <c>FUN_1800a1b50</c> reads it.</summary>
     private static int EdgeOffset(int word) => (word << 1) >> 17;
+
+    /// <summary>A header word's bits 12–23: <c>(header &gt;&gt; 12) &amp; 0xFFF</c>, as <c>FUN_180094e30</c> reads it.</summary>
+    private static int PierceTriangle(int header) => (header >> 12) & 0xFFF;
 
     /// <summary>One point, read and renumbered, or -1 when it lies outside the blob.</summary>
     private static int Point(

@@ -130,14 +130,14 @@ public sealed class IvpEnvironment
 
     /// <summary>How many collisions one body may take in a step before the engine freezes it.</summary>
     /// <remarks>
-    /// **The game raises Valve's own default from 6 to 10** — `params.maxCollisionsPerObjectPerTimestep
-    /// = 10` immediately after `params.Defaults()` (`physics.cpp:224`), which is the value TF2
-    /// actually runs. The field's comment: *"object will be frozen after this many collisions
-    /// (visual hitching vs. CPU cost)"*.
-    ///
-    /// **Carried and not yet enforced**, so a body here is never frozen for taking too many.
+    /// **6, Valve's own default, because a corpse's environment is the client's** — and the client never gives its
+    /// environment performance settings, so the constructor's `physics_performanceparams_t::Defaults()` stand
+    /// (`game/client/physics.cpp:163-187`; `docs/findings/51`, *The anomaly manager, and the limits a client environment
+    /// runs*). This said 10, which is the SERVER's: `params.maxCollisionsPerObjectPerTimestep = 10` before its own
+    /// `SetPerformanceSettings` (`game/server/physics.cpp:222-226`). The field's comment: *"object will be frozen after
+    /// this many collisions (visual hitching vs. CPU cost)"*.
     /// </remarks>
-    public int MaximumCollisionsPerBody { get; set; } = 10;
+    public int MaximumCollisionsPerBody { get; set; } = 6;
 
     /// <summary>And the whole step's budget — <c>maxCollisionChecksPerTimestep = 250</c>.</summary>
     /// <remarks>
@@ -503,11 +503,12 @@ public sealed class IvpEnvironment
                 body.Collisions++;
             }
 
-            // **Frozen at the limit, which is the engine's own word and its own number.** A body
-            // thrown hard enough to collide ten times inside one step is one that would otherwise
-            // grind through the surface it keeps hitting — measured on `z1800`, where corpses
-            // launched by a rocket ended below a floor that has a hull and a normal of `0 0 1`.
-            if (body.Collisions >= MaximumCollisionsPerBody)
+            // **Frozen once past the limit, which is the engine's own word and its own number** — the
+            // commit asks the anomaly manager when the count EXCEEDS it (`FUN_18008ddf0`). A body thrown
+            // hard enough to collide that often inside one step is one that would otherwise grind
+            // through the surface it keeps hitting — measured on `z1800`, where corpses launched by a
+            // rocket ended below a floor that has a hull and a normal of `0 0 1`.
+            if (body.Collisions > MaximumCollisionsPerBody)
             {
                 body.Frozen = true;
 
@@ -842,7 +843,7 @@ public sealed class IvpEnvironment
                 continue;
             }
 
-            IvpIntegrator.Step(body, Now - body.LastStepped, slice);
+            IvpIntegrator.Step(body, Now - body.LastStepped, slice, phase: 0);
 
             // **The environment's own speed limits, which are Valve's published numbers.** See
             // `MaximumVelocity`. **Where in the step the engine clamps is INFERRED** — the

@@ -22,6 +22,9 @@ public static class IvpVector
     /// <summary><c>DAT_1800ea9b8</c>.</summary>
     private const double One = 1.0d;
 
+    /// <summary>The Newton steps <c>FUN_18006f730</c> and <c>FUN_18006edd0</c> take, where <c>FUN_18006ecf0</c> takes four.</summary>
+    internal const int FiveSteps = 5;
+
     private const int InfinityHighWord = 0x7ff00000;
     private const int GuessBias = 0x1ff00000;
     private const int NewtonSteps = 4;
@@ -65,18 +68,199 @@ public static class IvpVector
     /// `COMISD` then `JNC`, so the scaling branch is taken at or above the threshold and **not for NaN**,
     /// which `>=` reproduces. Below it the vector is left exactly as it was.
     /// </remarks>
-    public static bool TryScaleToUnitLength(ref (double X, double Y, double Z) vector)
+    public static bool TryScaleToUnitLength(ref (double X, double Y, double Z) vector) =>
+        TryScaleToUnitLength(ref vector, NewtonSteps);
+
+    /// <summary>The same scaling with a given number of Newton steps — <c>FUN_18006f730</c> takes five.</summary>
+    /// <param name="vector">The vector, scaled in place when long enough.</param>
+    /// <param name="steps">How many steps the reciprocal root takes.</param>
+    /// <returns>Whether it was scaled.</returns>
+    internal static bool TryScaleToUnitLength(ref (double X, double Y, double Z) vector, int steps)
     {
         double squared = (vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z);
 
         if (squared >= DirectionThreshold)
         {
-            double scale = ReciprocalSquareRoot(squared);
+            double scale = ReciprocalSquareRoot(squared, steps);
             vector = (vector.X * scale, vector.Y * scale, vector.Z * scale);
             return true;
         }
 
         return false;
+    }
+
+    /// <summary>Scales a float vector to unit length if it has a direction — <c>FUN_18006dff0</c>.</summary>
+    /// <param name="vector">The vector, scaled in place when long enough.</param>
+    /// <returns>Whether it was scaled.</returns>
+    /// <remarks>
+    /// **Squared and summed in FLOAT, then compared widened** against the same inclusive `1e-19`; each component is widened,
+    /// scaled by <see cref="ReciprocalSquareRoot(double)"/>'s four steps and narrowed back (`CVTPS2PD`, `MULSD`, `CVTPD2PS`).
+    /// </remarks>
+    public static bool TryScaleToUnitLength(ref (float X, float Y, float Z) vector)
+    {
+        float squared = (vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z);
+
+        if (squared >= DirectionThreshold)
+        {
+            double scale = ReciprocalSquareRoot(squared, NewtonSteps);
+            vector = ((float)(vector.X * scale), (float)(vector.Y * scale), (float)(vector.Z * scale));
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Scales a float vector to unit length and returns the length it had — <c>FUN_18006fc90</c>.</summary>
+    /// <param name="vector">The vector, scaled in place when long enough.</param>
+    /// <returns>The length as <c>r·s</c>, <c>r</c> being the reciprocal root of the squared length <c>s</c>; zero below the threshold.</returns>
+    /// <remarks>
+    /// **Squared and summed in FLOAT and compared widened**, as <see cref="TryScaleToUnitLength(ref ValueTuple{float, float, float})"/>
+    /// does, **with the FIVE Newton steps of `FUN_18006edd0`**. Below the threshold, or for a NaN, the vector is left exactly
+    /// as it was. The impact solver's cone reads it (`FUN_1800904a0`).
+    /// </remarks>
+    public static double ScaleToUnitLength(ref (float X, float Y, float Z) vector)
+    {
+        float squared = (vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z);
+
+        if (squared >= DirectionThreshold)
+        {
+            double scale = ReciprocalSquareRoot(squared, FiveSteps);
+            vector = ((float)(vector.X * scale), (float)(vector.Y * scale), (float)(vector.Z * scale));
+            return scale * squared;
+        }
+
+        return 0d;
+    }
+
+    /// <summary>Scales a vector to unit length and returns the length it had — <c>FUN_18006fd40</c>.</summary>
+    /// <param name="vector">The vector, scaled in place when long enough.</param>
+    /// <returns>The length as <c>r·s</c>, <c>r</c> being the reciprocal root of the squared length <c>s</c>; zero below the threshold.</returns>
+    /// <remarks>
+    /// **FIVE Newton steps** (`FUN_18006edd0`), where <see cref="TryScaleToUnitLength(ref ValueTuple{double, double, double})"/>
+    /// takes four, and the same inclusive threshold. Below it the vector is left exactly as it was.
+    /// </remarks>
+    public static double ScaleToUnitLength(ref (double X, double Y, double Z) vector)
+    {
+        double squared = (vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z);
+
+        if (squared >= DirectionThreshold)
+        {
+            double scale = ReciprocalSquareRoot(squared, FiveSteps);
+            vector = (vector.X * scale, vector.Y * scale, vector.Z * scale);
+            return scale * squared;
+        }
+
+        return 0d;
+    }
+
+    /// <summary>The difference of two float points, subtracted in FLOAT and only then widened.</summary>
+    /// <param name="from">The point subtracted.</param>
+    /// <param name="to">The point subtracted from.</param>
+    /// <returns><c>to − from</c>, each component <c>SUBSS</c> then <c>CVTPS2PD</c>.</returns>
+    /// <remarks>How every time-of-impact routine takes an edge's direction, unlike <see cref="FaceNormal"/>.</remarks>
+    internal static (double X, double Y, double Z) FloatDifference(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to) =>
+        (to.X - from.X, to.Y - from.Y, to.Z - from.Z);
+
+    /// <summary>An edge's float-subtracted direction scaled to unit length with <see cref="TryScaleToUnitLength(ref ValueTuple{double, double, double})"/>, its answer unread.</summary>
+    /// <param name="from">The edge's start.</param>
+    /// <param name="to">The edge's end.</param>
+    /// <returns>The direction; a degenerate edge's is left unscaled.</returns>
+    internal static (double X, double Y, double Z) UnitDifference(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to)
+    {
+        (double X, double Y, double Z) direction = FloatDifference(from, to);
+        _ = TryScaleToUnitLength(ref direction);
+        return direction;
+    }
+
+    /// <summary>A float point's distance from the origin — <c>FUN_18006e120</c>.</summary>
+    /// <param name="point">The point.</param>
+    /// <returns><c>√((x² + y²) + z²)</c>.</returns>
+    /// <remarks>
+    /// **Squared and summed in FLOAT**, then widened for the root (<c>CVTPS2PD</c>, <c>SQRTPD</c>) — <c>ADDSS XMM2,XMM0</c> then
+    /// <c>ADDSS XMM2,XMM1</c>, so the running sum is each addition's destination (<see cref="IvpMath.Addss"/>).
+    /// </remarks>
+    internal static double Length((float X, float Y, float Z) point)
+    {
+        float squared = IvpMath.Addss(IvpMath.Addss(point.X * point.X, point.Y * point.Y), point.Z * point.Z);
+        return Math.Sqrt(squared);
+    }
+
+    /// <summary>A float dot product, <c>(x·x' + y·y') + z·z'</c> in float.</summary>
+    /// <param name="first">The left operand.</param>
+    /// <param name="second">The right operand.</param>
+    /// <returns>The product.</returns>
+    internal static float Dot((float X, float Y, float Z) first, (float X, float Y, float Z) second) =>
+        (first.X * second.X) + (first.Y * second.Y) + (first.Z * second.Z);
+
+    /// <summary>A double vector's length — <c>FUN_18006fc60</c>.</summary>
+    /// <param name="vector">The vector.</param>
+    /// <returns><c>√((x² + y²) + z²)</c>, an exact root (<c>SQRTPD</c>).</returns>
+    public static double Length((double X, double Y, double Z) vector) =>
+        Math.Sqrt((vector.X * vector.X) + (vector.Y * vector.Y) + (vector.Z * vector.Z));
+
+    /// <summary>The cross product — <c>FUN_18006dd30</c>.</summary>
+    /// <param name="first">The left operand.</param>
+    /// <param name="second">The right operand.</param>
+    /// <returns><c>first × second</c>, every term read before any is written.</returns>
+    public static (double X, double Y, double Z) Cross(
+        (double X, double Y, double Z) first, (double X, double Y, double Z) second) =>
+        ((first.Y * second.Z) - (first.Z * second.Y),
+         (first.Z * second.X) - (first.X * second.Z),
+         (first.X * second.Y) - (first.Y * second.X));
+
+    /// <summary>A vector perpendicular to another — <c>FUN_18006db60</c>.</summary>
+    /// <param name="vector">The vector.</param>
+    /// <returns>The swapped vector crossed with <paramref name="vector"/>.</returns>
+    /// <remarks>
+    /// **The largest-magnitude component, checked `z`, `y`, `x` with a strict `&gt;`** — so a tie keeps the one checked
+    /// first and a NaN is never largest — is swapped with the component before it cyclically, the one moved up
+    /// negated, and the result crossed with the original. Not scaled.
+    /// </remarks>
+    public static (double X, double Y, double Z) Perpendicular((double X, double Y, double Z) vector)
+    {
+        double[] moved = [vector.X, vector.Y, vector.Z];
+        double largest = 0d;
+        int index = 0;
+
+        for (int component = 2; component >= 0; component--)
+        {
+            double magnitude = Math.Abs(moved[component]);
+            double before = largest;
+
+            if (magnitude > largest)
+            {
+                largest = magnitude;
+            }
+
+            if (magnitude > before)
+            {
+                index = component;
+            }
+        }
+
+        int other = index == 0 ? 2 : index - 1;
+        double negated = -moved[index];
+        moved[index] = moved[other];
+        moved[other] = negated;
+
+        return Cross((moved[0], moved[1], moved[2]), vector);
+    }
+
+    /// <summary><c>(1 − t)·a + t·b</c> — <c>FUN_180070050</c>.</summary>
+    /// <param name="from">Where <paramref name="fraction"/> zero lands.</param>
+    /// <param name="to">Where one lands.</param>
+    /// <param name="fraction">The fraction, as the caller widened it.</param>
+    /// <returns>The point between.</returns>
+    public static (double X, double Y, double Z) Lerp(
+        (double X, double Y, double Z) from, (double X, double Y, double Z) to, double fraction)
+    {
+        double rest = 1d - fraction;
+
+        return ((rest * from.X) + (fraction * to.X),
+                (rest * from.Y) + (fraction * to.Y),
+                (rest * from.Z) + (fraction * to.Z));
     }
 
     /// <summary><c>1/√x</c> the engine's way — <c>FUN_18006ecf0</c>.</summary>

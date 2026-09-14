@@ -1,223 +1,97 @@
-# Handoff — the ragdoll solver is transcribed and running; nothing draws with it yet
+# Handoff — IVP's collision path, ported function by function against vphysics.dll (B369, D172)
 
-Written 2026-09-07, superseding the handoff of 2026-09-01 (launch options, the chase camera, the
-frame floor — all merged and done).
+Written 2026-09-14, superseding the handoff at `e47dc3f1` (same direction, earlier state).
 
-`feat/ragdoll-constraint-group` AND `feat/ragdoll-bind-pose-frames` are both merged to `main` and
-pushed. Gate green both times, both phases: twelve assemblies at or above floor (animation
-111 → 210 → 215), UI 31/31 under the machine-wide lock each time.
+**Branch `fix/b369-ivp-narrow-phase`, pushed.** The last full Animation run: 4682 total, 4681 passed, 1 skipped (the medic
+medigun bone test, skipped before this work too). Solution build: zero warnings.
 
-**In progress, on `refactor/corpus-tests-that-measure-tf2`, uncommitted:** a probe,
-`tools/Tf2DemoSalvage.Probe/Probes/TimelineCostProbe.cs`, written but not yet run or built. It prints
-`DemoTimeline.Build`'s own `TimelinePhases` (carried, not recomputed — B243) per demo, because the
-fast gate's cost is lopsided and nobody had the breakdown: `Tf2DemoSalvage.Corpus.Tests` takes 142 s
-under `TF2DEMOSALVAGE_GCOR_ONLY=1`, and one test alone that asks for `z1800`'s timeline (8.96 MB, 4×
-any other gcor demo) takes 68 s by itself. Twelve of the slowest-reporting tests all key off
-`Corpus.Demo("z1800")` and block on the SAME shared `TimelineCache` entry — they are not twelve
-redundant decodes, they are twelve waiters on one, so cutting test COUNT there saves nothing.
+**Read `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` first** — every port cites it by address. This session's
+reading starts at *The broad phase* and runs to the end of the file.
 
-**Next step, not yet done:** build the probe (`dotnet build tools/Tf2DemoSalvage.Probe`), run
-`timeline-cost z1800` plus a couple of the small gcor demos as controls, and read which column —
-commands, schema, messages, entities, sampling, viewmodels, or the unnamed "rest" — actually holds
-the 68 s before touching anything. Do not assume it is decode size scaling linearly; z1800 is ~4×
-the largest other gcor demo by bytes but was taking ~34× as long per-test before this was measured,
-which is disproportionate enough to be a real finding rather than noise.
+## The direction, unchanged
 
-**Separately, real D38 violations were found and are NOT yet converted:** at least
-`PlayersAt_OnARealMatch_ProducesAReloadGesture`, `..._LeavesSomePlayersWithNoGesture`,
-`..._ReportsGesturesFromTheTempEntityStream`, `AttachmentPoint_AcrossTheCorpus_IsUsedByRealItems`,
-`PropsAt_OnARealMatch_CarriesWireLayersOnBuildingsAndNoneOnPlayers`, and
-`OffHandViewmodelAt_AcrossARealMatch_OffersOnlyModelsThatAreOnScreen` assert what a REAL demo
-contains — a claim about TF2, not about this parser (the same mistake `CorpusObserverModeTests` and
-`CorpusRenderModeTests` were converted for). These should become synthetic tests in `Core.Tests` with
-a `[Explicit]` census diagnostic left for the real-demo half, same pattern as those two conversions.
-Not started — the timeline-cost measurement above was judged more likely to explain the wall-clock
-number and was done first.
+D172: port ALL of IVP's collision path to parity and put it on the running path, replacing the invented
+`IvpContact`/`IvpEnvironment` structure; then step 7 — delete TerrainDepth/TerrainReach and the compensators, run the
+corpse-drop measurement, gate (`TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh`), merge. Valve's way, always (D89/D129/D131).
 
-**The original next item, still not started:** handoff item 1 below, wiring `RagdollSimulation` into
-`RagdollProps` so a corpse actually simulates instead of playing a death sequence. Owner is stepping
-away for token reasons and will resume from Claude Desktop once the session's limit resets.
+## Done — each pinned to the shipped binary called in process
 
-**Read `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` before touching any of this.** It is
-the reverse-engineering account, it is long, and it carries three wrong turns kept on purpose. The
-code cites it by function address throughout.
+| port | engine | probe | cases agreeing | fixture |
+|---|---|---|---|---|
+| `IvpOvTree` | `FUN_18009ecb0` insert, `FUN_18009efc0` removal and helpers | `vphysics-ov-tree` | 50,000 | 300 + 11 searched |
+| `IvpRangeManager` | `FUN_1800a0420` policy 1, slots 1–2 | `vphysics-range` | 100,000 | 400 + 1 searched |
+| `IvpLedgeTree` + `PhysicsHull.Tree` | polygon manager slot 4, `FUN_18007ada0`/`FUN_18007afb0` | `vphysics-ledge-tree` | 20,000 | 300 + 7 searched |
+| `IvpObjectCache` | `FUN_180080a60` | `vphysics-object-cache` | 100,000, NaNs included | 400 + 20 searched |
+| `IvpBroadPhase` | `FUN_180098880`, `FUN_180096eb0`, node filing and destructor | `vphysics-broad-phase` | 5,000 × 16 steps | 200 + 1 searched |
+| `IvpPairMindists` | `FUN_180096680`, `FUN_1800975d0`, `FUN_180095fb0` | `vphysics-pair-mindists` | 5,000 × 6 steps | 200 + 1 searched |
+| `IvpPairWatcher`, `IvpPairCreator` | `FUN_1800b5dd0`/`b6080`/`b5e80`/`b5fd0`, `FUN_1800a06f0`/`a07a0`/`a0690` | `vphysics-pair-watcher` | 5,000 × 6 steps | 200 |
 
----
+Sabotage rounds (sonnet `sabotage-verifier`) have killed every non-equivalent mutant of every row, each survivor by a searched
+case or a new lane; the equivalences are argued in findings 51. **One ordering is untested**: the watcher's destructor deleting its
+mindists last first, which no lane can see while the mindist constructor's tails are detoured.
 
-## What is done
+The two pair probes share `tools/Tf2DemoSalvage.Probe/Probes/VphysicsPairObjects.cs` (the fabricated objects, the detoured
+constructor tails, the random draws). **A watcher probe must file each OV node before making a watcher**: a record keyed at
+`1e20` in an empty min-list walks from slot `0xffff` and faults, a state the broad phase never reaches.
 
-A TF2 corpse's physics is transcribed end to end. `src/vphysics` ships no source, so all of it was
-read out of `vphysics.dll` with Ghidra; the published half (`ragdoll_shared.cpp`) supplied
-construction and the bone read-back.
+## Next, in order
 
-| piece | type | reads |
-|---|---|---|
-| per-body integration | `IvpIntegrator` | `FUN_180099a00`, `FUN_180099fc0` |
-| quaternion delta / product / normalise | `IvpQuaternion` | `FUN_180071680`, `FUN_180070d60`, `FUN_180070c60` |
-| gravity | `IvpGravity` | `FUN_180074c80`, the controller at `env+0x0` |
-| environment and step order | `IvpEnvironment` | `FUN_18008a020` → `FUN_180082560` → `FUN_1800909d0` |
-| one angular limit | `IvpAngularLimit`, `IvpJacobian` | `FUN_180036f80`, `FUN_1800372c0`, `FUN_180037bd0` |
-| the three deflections | `IvpRagdollConstraint` | `FUN_180038620`, `FUN_180036b80` |
-| relaxation driver | `IvpConstraintGroup` | `FUN_18003c780`, `FUN_18003c330`/`FUN_18003d240` |
-| `.phy` → running bodies | `RagdollSimulation` | the seam; both halves |
+1. **The larger mindist** — `FUN_1800b21f0` and everything it reaches is read (findings 51, *The larger mindist in full*):
+   slot 7 `FUN_1800b2700` (a frozen minimize opens the ledge), slot 8 `FUN_1800b2460` (a collision on a hull's virtual face
+   opens it), `FUN_1800b29b0` (the children refreshed beneath the opened side's ledge), `FUN_1800b28a0` (told its hull passed:
+   collapse to plain exact past `DAT_18012d64c`, else refresh), `FUN_1800b23a0`, `FUN_1800b2250`, the delegator
+   `FUN_1800b2320`/`b2300`/`b2860`, and `FUN_180097ce0`, `FUN_180097d60`, `FUN_180097e20`, `FUN_180098ef0`. **The port needs
+   slots 7 and 8 as dispatch on the mindist**: today callers hand `invalidate` and `collide` in as delegates
+   (`IvpMindistManager.MinimizeExact`/`RecheckEveryPsi`, `IvpMindistHull.BecomeExact`, `IvpMindistFire`), and
+   `IvpMindistHull.HullPassed` throws for the recursive state. An oracle sketch: trees whose root is a hull ledge
+   (`IvpLedgeTreeReplay.InnerWithLedge`) so `FUN_180096680` makes one; the exact tail `FUN_1800977f0` detoured to a recorder that
+   records the event and calls the binary's own `FUN_180097ae0` — link exact without the minimize — so the mindist sits on the
+   manager's `+0x10` list and its objects' `+0x40` lists that `FUN_180098dd0` unlinks (its queue slot `+0x8` stays `0xffff`, and
+   with the cores' `+0x58` null nothing joins the rechecked vector); `FUN_180095ad0` and `FUN_18008ecb0` (twelve bytes of register
+   saves each) detoured to recorders driven by lanes; then slot 7, slot 8 and a record's slot 1 (`FUN_180097f00`) called on it. The
+   manager block needs `+0x10`, the vector at `+0x18` (capacity, `+0x1a` count, `+0x20` elements) and `+0x28`; the probe's own
+   delegator needs slot 2 (nothing) and slot 3 (`−1`), as the watcher's has.
 
-**The one thing worth knowing if you read nothing else:** a ragdoll joint's three limits measure
-three *different kinds of quantity*. Only the twist is an angle.
+   **The design, chosen 2026-09-14 from a three-design, two-judge panel and the re-verified reading:**
+   - **Stages, each committed green:** (1) `PhysicsLedge` gains optional TRAILING virtual-bit lists (header and edge bit 31),
+     every tree node with a ledge carries its decoded `PhysicsLedge` (inner hulls included, through the one `ReadLedge`), and
+     `LedgeNodeOffset` models a zero `+0x4` as no node; (2) `IvpMindist` unsealed with `virtual Freeze(manager, queue)` (slot 7,
+     base = `Invalidate`, which is `FUN_180098dd0` + `FUN_180097ce0`) and `virtual Collide(Action<IvpMindist>)` (slot 8, base =
+     the still-unported `FUN_18008ecb0` handed in); `IvpMindistManager.Recheck` and **`IvpMindistHull.BecomeExact` both dispatch
+     through `Freeze`** — `FUN_1800977f0` calls the mindist's own `+0x38` at `180097914`, so a larger mindist frozen at birth runs
+     its own slot 7 — and `IvpMindistFire.Handle` through `Collide`; `IIvpCollisionDelegator` gains slots 2 and 3 as default
+     members (no-op, `−1`) so the watcher is untouched; (3) `IvpMindistHull.FileRecursive` for `FUN_180097d60`+`FUN_180097e20`:
+     `SplitGap`'s split, `1e-10f` on a clear side, both records through `InstallAtNextPsi` — never `FileFar`; (4)
+     `IvpRecursiveMindist : IvpMindist` with a nested child delegator mirroring the `+0xe0` object (child removal
+     `IvpCollisionList.Remove`, slot 2 adds to its own `+0xfc` total and tails outward, slot 3 asks outward first) — **the limit
+     reads the outermost total, never a child list's count**; `Delete` = children deleted last first then `-count` told, then
+     the base; slots 7/8 and `FUN_1800b28a0` as read, `FUN_1800b29b0` as a call to the unchanged `IvpPairMindists.Refresh` with
+     the open side as ROOT and the other as LEDGE; `IvpPairMindists.Construct` builds it for a ledge with children, and
+     `IvpMindistHull.HullPassed` sends the recursive state to it (a flags test, as `FUN_180097f00` does, not a vtable call);
+     (5) the oracle above, then a sabotage round.
+   - **Not added:** a slot-6 `IsRecursive` member — `FUN_180028aa0` answers 1, but no ported caller reads slot 6.
+   - **Slot 7's side choice reads each ledge's OWN node** (`ledge + ledge+0x4`, `tree.Node(LedgeNodeOffset)`), a null node's
+     radius `1e15f`; not the found node, and not `Left`.
+2. **Units — done (D173).** vphysics runs IVP in metres and converts once at `CPhysicsEnvironment`'s boundary, so every IVP
+   port now does too: `IvpCollisionTolerance`, `IvpMindistHull`, `IvpPairScheduler`, the time-of-impact searches and
+   `IvpRootFinder` were converted from inches with their tests. The running path (`IvpEnvironment`, `IvpContact`,
+   `RagdollSimulation`) stays in Source units until it is replaced; the conversion belongs at the `CPhysicsEnvironment` and
+   `CPhysicsObject` seam, nowhere inside the core.
+3. **Displacements**: the mesh manager's `FUN_180025bc0` calls the engine's virtual-mesh query, which is not in vphysics;
+   `FUN_18007bea0` is unread.
+4. **The running path**: the unit/scheduler layer and the filing layer, then replace `IvpContact`/`IvpEnvironment`, then step 7.
+   `vphysics.dll` exports `CreateInterface` with `VPhysics031` and `VPhysicsCollision007` (`src/public/vphysics_interface.h`), so a
+   real corpse drop can likely be simulated in process and compared end to end. Not tried.
 
-```
-m = normalise( A[primary]_world + B[primary]_world )      the bisector, cached at geom+0x110
-p = normalise( m × A[wider]_world )
-q = B[wider]_world
+**Phantoms stay unported** (`FUN_180097940`'s far path is read, `FUN_18008ae50`/`FUN_18008b0a0` are the phantom controller's
+listeners); whether a TF2 client corpse ever meets one is not established — the port throws where one would be told.
 
-twist = −atan2( q·p , q·(p×m) )      an ANGLE
-swing = B[primary] · A[wider]        a SINE   — zero at the bind pose
-cone  = B[primary] · A[primary]      a COSINE — one at the bind pose
-```
+## How the ports are built, so the next one matches
 
-and each block takes its bounds from a *different* axis than the one it measures, which reads like a
-bug and is what `FUN_1800393d0` does:
-
-| block | bounds |
-|---|---|
-| twist | `−hi`, `−lo` of the primary — negated and swapped to match its negated angle |
-| cone | `range × ∓0.5` of the **wider** swing |
-| swing | `lo`, `hi` of the **narrower** swing, straight through |
-
-**The bind pose is the control that makes all of it checkable.** `constraintToReference` and
-`constraintToAttached` exist precisely so each constraint axis maps to the same world vector through
-either body at rest, so `0, 0, 1` is an exact prediction — and it caught a sign error on its first
-run.
-
----
-
-## What is NOT done, in the order it should be picked up
-
-### 1. Nothing draws with it (the reason corpses still T-pose or play a death animation)
-
-`RagdollBody.Build`, `RagdollBody.Pose` and `RagdollSimulation` have **no production caller**.
-Corpses are posed today by a death sequence (`RagdollDeath.SequenceFor`) through
-`RagdollProps` → `SceneProp`.
-
-Wiring it means per-corpse simulation state that lives across ticks and resets on a seek — the same
-shape as the persistent sample in D131, and the same hazard: a stepped timeline must equal a freshly
-built one. `PersistentSampleTests` is the pattern to copy.
-
-**This changes what the owner sees, so it needs their eyes, not a green suite**
-(`docs/memory/state-the-assumptions-the-owner-can-falsify.md`).
-
-### 2. ~~The bind-pose rotation~~ — DONE 2026-09-07, and it found a defect beside it
-
-`RagdollBody` keeps the rotation now, as `AxesParentSpace`: the **columns** of
-`Studio_CalcBoneToBoneTransform`'s matrix, because a frame is used as `matrix · e_k` and
-`matrix3x4_t` is row-major. Both frames reach the joint in the same permutation, so a joint measures
-its deflection from the bind pose and the bind pose reads `0`, `0`, `1` exactly.
-
-**The defect found on the way: the CHILD is the reference body**, not the parent —
-`CreateRagdollConstraint( childElement.pObject, ragdoll.list[parentIndex].pObject, … )`
-(`ragdoll_shared.cpp:253`) against *"a constraint in the space of pReferenceObject"*
-(`vphysics_interface.h:572`). This had them reversed, which was invisible while both frames were the
-identity because every test started both bodies at the same orientation — the condition where
-correct and broken predict the same observation. A two-bone fixture with one bone **turned a quarter
-turn** is what separates them, and it is in `RagdollSkeletons`.
-
-Also closed: a constraint joining a body to itself now makes no joint at all, matching the engine
-nulling BOTH indices on *"Bogus constraint on ragdoll %s"*.
-
-### 3. Three smaller stated departures, each documented at its site
-
-- **Isotropic inertia.** `CreatePolyObject` seeds it from the hull; hulls are decoded but not
-  integrated. Isotropic makes Euler's free-rotation terms vanish, so a wrong scalar changes joint
-  stiffness, not direction.
-- **The axis permutation is by declared range**, where the engine picks the twist as the axis whose
-  rotation moves the two anchors most, weighted by inverse mass (needs hull inertia).
-- **The rate gain is zero.** It would let a limit clamp the *predicted* deflection rather than the
-  current one; at zero a joint resists a limit it has already broken instead of stopping short.
-  It arrives in the per-sweep vector the driver builds and its provenance is unread.
-
-### 4. The cone limit's sense — a real open question, not a gap
-
-The cone measures a cosine and is bounded by half the wider swing's range in radians. Worked on the
-demoman's own joints, the clamp fires when the cone angle is **small** and releases when it is large
-— so it reads as a *minimum* bend of roughly 64–67° on his tighter joints, and never fires at all on
-his 136° one. At the exact bind pose the axis is degenerate and retired, so a settled corpse is not
-fighting it.
-
-Two things were checked and came back negative: `useClockwiseRotations` is false everywhere
-(`Defaults()` sets it, nothing in the SDK sets it, no `.phy` declares the key), and the range is
-invariant under that flip anyway. **The transcription is pinned by test either way**; what is open
-is whether a limit in that sense is physically what Valve intended. This is the first reading that
-predicts what the owner describes — *"the ragdolls do funny things thats why they are fun"*.
-
-### 5. Units — filed against `IvpEnvironment`, harmless today
-
-`CPhysicsEnvironment::SetGravity` converts on the way in (inches → metres, Z-up → Y-up). Our
-environment holds `(0, 0, −800)` unconverted and its tests bake that in, so the whole simulation
-runs in Source units and axes. Nothing transcribed so far notices — the integrator carries no length
-constant and the constraint solve is entirely angular. **It stops being harmless the moment hull
-collision arrives**, since a hull's extents are metres.
-
----
-
-## FPS, which is a separate open thread
-
-Measured this session with a `PoseBuilds` counter added for it: `built ≈ posed × 1.1`. So the
-readable-bone cache works, `_previousMask` does its job, and there is **no mask thrash** — the
-remaining cost is genuine bone math. About 104 entities at ~62 µs each against TF2's implied ~5 µs:
-a twelve-fold gap, ~620 ns/bone for a quaternion-to-matrix plus a 3×4 concatenate.
-
-The candidate is contiguous `BoneAccessor` storage — **not** for cache locality (that reasoning was
-wrong; jagged arrays allocated in a loop are adjacent) but for per-access overhead: `Bone()` and
-`BoneForWrite()` each make two `ArgumentOutOfRangeException.ThrowIf*` guard calls plus a double
-indirection, three times per bone. 123 call sites across 26 files.
-
----
-
-## Tooling and process changes made this session
-
-**`D:\ghidra-proj\scripts\DisasmWithData.java`** — disassembly with every memory operand resolved to
-its four lanes, printed on the instruction that reads it. Built because two wrong conclusions in one
-session were both made in decompiled C rather than in the disassembly:
-
-- `DAT_1800eea1c` taken for π because its neighbour `DAT_1800eea18` genuinely is 2π. It is `1e-16`,
-  and a whole conclusion was committed off it before being retracted.
-- `uVar6` read as a dumped mask in one expression and a comparison result three lines later, because
-  Ghidra reuses local names for unrelated SSA values.
-
-**The rule: shape from the decompiler, identity from the instructions.** The trigger is a sentence
-naming a `DAT_`/`_UNK_` symbol, or reaching for a value because it is *adjacent* to a known one —
-adjacency is where dumping feels most redundant and is most likely wrong. See
-`docs/memory/nothing-is-closed.md#settle-a-constant-in-the-disassembly`.
-
-**A sabotage that reddened nothing found a real defect**, which is the second time that memory has
-paid (`docs/memory/most-of-a-decoder-is-untested.md#a-sabotage-that-reddens-nothing-names-the-missing-input`). Reversing the cone
-axis left every test green; closing the hole exposed that `IvpAngularLimit` had collapsed the
-engine's **two** axis routines into one, on a note claiming their opposite sign conventions cancel.
-They do not — with the rate gain at zero the two `θ` are identical and only the impulse sign
-differs, so two of every joint's three axes were being driven backwards. The routine is now named at
-every call site, never defaulted.
-
----
-
-## Standing constraints that bit this session, so they are worth repeating
-
-- **The UI phase of the gate exits 0 even when it fails.** `run-exclusive.ps1` does not propagate
-  the inner exit code — measured: `Failed: 1, Passed: 30` with exit 0. Read the `Passed!`/`Failed!`
-  line, never the status. And do not `| tail -6` it; that cut the only line naming the failing test.
-- **A person at the keyboard is an input to a UI suite.** One failure this session was the owner
-  pressing space. Re-run before investigating, and say which of the two you are reporting.
-- **Back-to-back pushes to `main` cancel each other's CI Test run** (`concurrency:
-  cancel-in-progress`). Several Test runs were cancelled tonight and never completed; branch pushes
-  trigger nothing, so batch main pushes and watch by SHA.
-- **Never run Ghidra while the UI suite has the desktop** — it is timing-sensitive and headless
-  analysis is CPU-heavy.
-
----
-
-## Where to look
-
-| question | file |
-|---|---|
-| how any of the physics was worked out, and what was got wrong | `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` |
-| what a `.phy` holds, measured over all 4,755 the game ships | the `ragdoll-constraints` probe |
-| what a corpse's joints and bodies are | `RagdollBody`, `docs/RISKS.md` B58 |
-| why the project is built this way | `docs/DECISIONS.md` — D142, D143, D146, D147 |
+A port in `managed/Tf2DemoSalvage.Animation/Animating/`; its lanes in `tools/Tf2DemoSalvage.Probe/Oracle/Ivp*Replay.cs`
+(linked into `Tf2DemoSalvage.Animation.Tests.csproj` with its `Data/*.txt`); a probe in `tools/.../Probes/Vphysics*Probe.cs`
+with `sweep n` and `fixture path` modes; a `*ConformanceTests` class with a fixture control. **Isolate a routine by detouring its
+callees** (`VphysicsDetour`, twelve bytes, restored on dispose) rather than fabricating their state. Constants by their bits or as
+widened floats — a decimal literal cost an ulp twice. Every product and sum through `IvpMath` with the disassembly's destination.
+Use the MCP servers: `mcp__ghidra__*` (`disassemble_function`, `disassemble_bytes` for code Ghidra has no function for,
+`read_memory`, `get_xrefs_to`) and `mcp__agent-lsp__*` for the C# side.

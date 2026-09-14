@@ -41,4 +41,68 @@
     <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
+  <!-- **The impact solver's expectations are written by Valve's binary, not here (B369).** The vphysics-impact probe calls
+       FUN_18008e290 in the game's own vphysics.dll and writes what it left to Data/ivp-impact-solver.txt. The lanes' one
+       definition is the probe's IvpImpactReplay, linked rather than copied, so the probe that asks and the suite that
+       replays cannot read a lane differently; linked rather than referenced, because the probe is an executable that
+       brings the renderer's projects with it. -->
+  <ItemGroup>
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpImpactReplay.cs" Link="Oracle\IvpImpactReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpEntryReplay.cs" Link="Oracle\IvpEntryReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpComplementarityReplay.cs" Link="Oracle\IvpComplementarityReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpHeapCoreReplay.cs" Link="Oracle\IvpHeapCoreReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpHeapSolveReplay.cs" Link="Oracle\IvpHeapSolveReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpRotationReplay.cs" Link="Oracle\IvpRotationReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpRestReplay.cs" Link="Oracle\IvpRestReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpOvTreeReplay.cs" Link="Oracle\IvpOvTreeReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpRangeReplay.cs" Link="Oracle\IvpRangeReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpLedgeTreeReplay.cs" Link="Oracle\IvpLedgeTreeReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpObjectCacheReplay.cs" Link="Oracle\IvpObjectCacheReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpBroadPhaseReplay.cs" Link="Oracle\IvpBroadPhaseReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpPairMindistsReplay.cs" Link="Oracle\IvpPairMindistsReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpPairWatcherReplay.cs" Link="Oracle\IvpPairWatcherReplay.cs" />
+    <None Update="Data\ivp-pair-watcher.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-pair-mindists.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-broad-phase.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-object-cache.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-ledge-tree.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-range.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-ov-tree.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-rest.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-rotation.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-heap-solve.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-heap-core.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-complementarity.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-impact-solver.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-impact-entry.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

@@ -41,33 +41,37 @@ public readonly record struct IvpMatrix(
     /// m8 = x·2z − w·2y         m9 = w·2x + y·2z         m10 = 1 − (y·2y + x·2x)
     /// </code>
     ///
-    /// **Every term in doubles**, from a float rotation widened first, as the engine's rotation at
-    /// `core+0x180` is stored in doubles. The indices skip 3, 7 and 11 because the engine's storage is a
-    /// 4×4 and those are its unused fourth column.
+    /// **Every term in doubles**, as the engine's rotation at `core+0x180` is stored in doubles. The indices skip 3, 7 and 11
+    /// because the engine's storage is a 4×4 and those are its unused fourth column. **Each product and sum keeps the
+    /// disassembly's destination**, the left operand as written, so a NaN component reaches each term with the payload the
+    /// binary gives it.
     /// </remarks>
     public static IvpMatrix FromRotation(
-        (float X, float Y, float Z, float W) rotation, (double X, double Y, double Z) position)
+        (double X, double Y, double Z, double W) rotation, (double X, double Y, double Z) position)
     {
         double x = rotation.X;
         double y = rotation.Y;
         double z = rotation.Z;
         double w = rotation.W;
 
-        double twoZ = z + z;
-        double twoY = y + y;
-        double xTwoX = x * (x + x);
-        double wTwoX = w * (x + x);
+        double twoZ = IvpMath.Addsd(z, z);
+        double twoY = IvpMath.Addsd(y, y);
+        double twoX = IvpMath.Addsd(x, x);
+        double zTwoZ = IvpMath.Mulsd(z, twoZ);
+        double yTwoY = IvpMath.Mulsd(y, twoY);
+        double xTwoX = IvpMath.Mulsd(x, twoX);
+        double wTwoX = IvpMath.Mulsd(w, twoX);
 
         return new IvpMatrix(
-            M0: 1d - ((z * twoZ) + (y * twoY)),
-            M1: (x * twoY) - (w * twoZ),
-            M2: (w * twoY) + (x * twoZ),
-            M4: (w * twoZ) + (x * twoY),
-            M5: 1d - ((z * twoZ) + xTwoX),
-            M6: (y * twoZ) - wTwoX,
-            M8: (x * twoZ) - (w * twoY),
-            M9: wTwoX + (y * twoZ),
-            M10: 1d - ((y * twoY) + xTwoX),
+            M0: 1d - IvpMath.Addsd(zTwoZ, yTwoY),
+            M1: IvpMath.Mulsd(x, twoY) - IvpMath.Mulsd(w, twoZ),
+            M2: IvpMath.Addsd(IvpMath.Mulsd(w, twoY), IvpMath.Mulsd(x, twoZ)),
+            M4: IvpMath.Addsd(IvpMath.Mulsd(w, twoZ), IvpMath.Mulsd(x, twoY)),
+            M5: 1d - IvpMath.Addsd(zTwoZ, xTwoX),
+            M6: IvpMath.Mulsd(y, twoZ) - wTwoX,
+            M8: IvpMath.Mulsd(x, twoZ) - IvpMath.Mulsd(w, twoY),
+            M9: IvpMath.Addsd(wTwoX, IvpMath.Mulsd(y, twoZ)),
+            M10: 1d - IvpMath.Addsd(yTwoY, xTwoX),
             Translation: position);
     }
 
@@ -111,4 +115,30 @@ public readonly record struct IvpMatrix(
         ((direction.X * M0) + (direction.Y * M4) + (direction.Z * M8),
          (direction.X * M1) + (direction.Y * M5) + (direction.Z * M9),
          (direction.X * M2) + (direction.Y * M6) + (direction.Z * M10));
+
+    /// <summary>Turns a float direction given in the world into the body's frame, narrowed — <c>FUN_180070620</c>.</summary>
+    /// <param name="direction">The direction, in the world.</param>
+    /// <returns>The direction in the body's frame, each component narrowed.</returns>
+    /// <remarks>
+    /// **Widened, turned by <see cref="RotateInverse"/>'s columns, and narrowed.** `FUN_180070620` groups the first column
+    /// `(y·m[1,0] + x·m[0,0]) + z·m[2,0]`, which is the same bits because swapping two addends is exact. The impact solver's
+    /// push inlines the same arithmetic (`FUN_18008f1c0`).
+    /// </remarks>
+    public (float X, float Y, float Z) RotateInverseNarrowed((float X, float Y, float Z) direction)
+    {
+        (double X, double Y, double Z) turned = RotateInverse((direction.X, direction.Y, direction.Z));
+
+        return ((float)turned.X, (float)turned.Y, (float)turned.Z);
+    }
+
+    /// <summary>Puts a point given in the world into the body's frame — <c>FUN_180080670</c>.</summary>
+    /// <param name="world">The point, in the world.</param>
+    /// <returns>The point in the body's frame.</returns>
+    /// <remarks>
+    /// **The translation off first, then the transpose** — each difference in double, then
+    /// <see cref="RotateInverse"/>'s columns. The minimize's helpers inline the same arithmetic when they carry a
+    /// point from one body into the other (`FUN_18007ba70`, `FUN_18007d480`).
+    /// </remarks>
+    public (double X, double Y, double Z) ToObject((double X, double Y, double Z) world) =>
+        RotateInverse((world.X - Translation.X, world.Y - Translation.Y, world.Z - Translation.Z));
 }

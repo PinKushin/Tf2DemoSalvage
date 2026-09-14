@@ -1,0 +1,66 @@
+using System.Linq;
+using System.Text;
+
+using Tf2DemoSalvage.Animation.Animating;
+
+namespace Tf2DemoSalvage.Animation.Tests;
+
+/// <summary>
+/// vphysics' surface-properties parser — <c>FUN_180018740</c>, its key parser <c>FUN_18002e6c0</c> and its tokenizer
+/// <c>FUN_180003640</c> — against what the shipped binary's own props object held after the same texts (B369).
+/// </summary>
+/// <remarks>
+/// **Every expected surface was printed by `vphysics-materials parse edges`**, which handed these eight texts, in this order, to
+/// the loaded library's global props object through its slot 1 and read each surface back through slots 7 and 9. The same probe's
+/// `parse` mode runs the game's three manifest files first: 83, 93 and 100 surfaces, every name and parameter agreeing.
+/// </remarks>
+public sealed class VphysicsSurfaceDataConformanceTests
+{
+    private static readonly string[] Texts =
+    [
+        "\"Edge_One\" { \"friction\" \"0.25\" // a comment\n \"elasticity\" \"2.5e-1xyz\" }",
+        "edge_two { friction .5 base edge_one density 7 /* a block */ dampening -3 }",
+        "\"edge_one\" { \"thickness\" \"4\" }",
+        "edge_three { friction(0.3) elasticity: 0.6 }",
+        "\"$material_index_shadow\" { \"elasticity\" \"0.75\" }",
+        "unwanted value edge_four { \"friction\" \"inf\" \"elasticity\" \"nan\" \"density\" \"+1e3\" }",
+        "edge_five { \"friction\" \"0.9\"",
+        "café_six { friction 0.4 } \"edge_seven\" { friction 0.45 }",
+    ];
+
+    /// <remarks>
+    /// **What each text proves**, in the binary's own answer: names are lowercased and a comment and trailing letters are skipped
+    /// (`edge_one`); `base` overwrites the keys before it, copying the base as it stood then (`edge_two` has `edge_one`'s friction
+    /// but not the thickness a later text gave it); a redefinition keeps what it does not name; `(`, `)` and `:` are tokens of
+    /// their own, so `edge_three` swallows its `}` as a value and the text ends inside the block, which drops it; the shadow surface
+    /// is made after the first text and reached by name; a pair before a block is skipped, and `inf` and `nan` are the C runtime's;
+    /// a text ending inside its block adds nothing; and a byte past `0x7f` outside quotes separates tokens.
+    /// </remarks>
+    [Test]
+    public void ParseSurfaceData_TheEdgeTextsInOrder_LeaveTheBinarysSurfaces()
+    {
+        VphysicsSurfaceProps props = new([]);
+
+        foreach (string text in Texts)
+        {
+            props.ParseSurfaceData(Encoding.Latin1.GetBytes(text));
+        }
+
+        props.ShadowSurface.ShouldBe(1);
+        props.Surfaces.Select(surface => surface.Name).ShouldBe(["edge_one", "$MATERIAL_INDEX_SHADOW", "edge_two", "edge_four", "edge_seven"]);
+        Bits(props.Surfaces[0]).ShouldBe([0x3e800000, 0x3e800000, 0x00000000, 0x40800000, 0x00000000]);
+        Bits(props.Surfaces[1]).ShouldBe([0x3f4ccccd, 0x3f400000, 0x00000000, 0x00000000, 0x00000000]);
+        Bits(props.Surfaces[2]).ShouldBe([0x3e800000, 0x3e800000, 0x40e00000, 0x00000000, unchecked((int)0xc0400000)]);
+        Bits(props.Surfaces[3]).ShouldBe([0x7f800000, 0x7fffffff, 0x447a0000, 0x00000000, 0x00000000]);
+        Bits(props.Surfaces[4]).ShouldBe([0x3ee66666, 0x00000000, 0x00000000, 0x00000000, 0x00000000]);
+    }
+
+    private static int[] Bits(VphysicsSurface surface) =>
+    [
+        System.BitConverter.SingleToInt32Bits(surface.Physics.Friction),
+        System.BitConverter.SingleToInt32Bits(surface.Physics.Elasticity),
+        System.BitConverter.SingleToInt32Bits(surface.Physics.Density),
+        System.BitConverter.SingleToInt32Bits(surface.Physics.Thickness),
+        System.BitConverter.SingleToInt32Bits(surface.Physics.Dampening),
+    ];
+}

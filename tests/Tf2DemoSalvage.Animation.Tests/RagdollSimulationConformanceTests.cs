@@ -426,7 +426,7 @@ public sealed class RagdollSimulationConformanceTests
     [Test]
     public void Create_AJointWhoseChildTurnsEasilyAboutOneAxis_GivesThatAxisTheTwist()
     {
-        const float Squared = 39.37f * 39.37f;
+        const float Squared = IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre;
 
         RagdollConstraint constraint = new(
             0,
@@ -481,7 +481,7 @@ public sealed class RagdollSimulationConformanceTests
     [Test]
     public void Create_AJointWithBothAnchorsOffTheBone_ScoresTheirSquaredArmsFromEachCore()
     {
-        const float Squared = 39.37f * 39.37f;
+        const float Squared = IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre;
 
         RagdollConstraint constraint = new(
             0,
@@ -502,10 +502,10 @@ public sealed class RagdollSimulationConformanceTests
             hulls: null,
             massProperties:
             [
-                // Source (3, 1, 0) is IVP (3, 0, −1)... inverted: IVP (x, y, z) = Source (x, −z, y) / 39.37.
+                // Source (3, 1, 0) is IVP (3, 0, −1)... inverted: IVP (x, y, z) = Source (x, −z, y) / 39.3700790.
                 new PhysicsMassProperties(new Vector3(3f, 0f, 1f) * Metre, new Vector3(1f, 1f, 1f) / Squared),
 
-                // Source (−3, −1, −2) is IVP (−3, 2, −1) / 39.37.
+                // Source (−3, −1, −2) is IVP (−3, 2, −1) / 39.3700790.
                 new PhysicsMassProperties(new Vector3(-3f, 2f, -1f) * Metre, new Vector3(1f, 1f, 1f) / Squared),
             ]);
 
@@ -527,11 +527,11 @@ public sealed class RagdollSimulationConformanceTests
     /// <remarks>
     /// Chosen to land on round Source numbers: the child's mass center is Source `(1, 0, 0)`, which is IVP
     /// `(0.0254, 0, 0)`; the parent's is Source `(0, 2, 0)`, IVP `(0, 0, 0.0508)`, since Source Y is IVP Z. The
-    /// child's hull inertia is Source `(1, 2, 3)` per kilogram, which about IVP's axes is `(1, 3, 2) / 39.37²`.
+    /// child's hull inertia is Source `(1, 2, 3)` per kilogram, which about IVP's axes is `(1, 3, 2) / 39.3700790²`.
     /// </remarks>
     private static PhysicsModel WithMassProperties()
     {
-        const float Squared = 39.37f * 39.37f;
+        const float Squared = IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre;
 
         return PhysicsModel.From(
             [
@@ -588,7 +588,8 @@ public sealed class RagdollSimulationConformanceTests
             (1, 2, 6), (1, 6, 5), (3, 0, 4), (3, 4, 7),
         ];
 
-        List<PhysicsLedge> hull = [new PhysicsLedge(points, triangles, new (int, int, int)[triangles.Count], Vector3.Zero, Half * 2f)];
+        List<PhysicsLedge> hull =
+            [new PhysicsLedge(points, triangles, new (int, int, int)[triangles.Count], new int[triangles.Count], new int[triangles.Count], Vector3.Zero, Half * 2f)];
 
         return PhysicsModel.From(
             [

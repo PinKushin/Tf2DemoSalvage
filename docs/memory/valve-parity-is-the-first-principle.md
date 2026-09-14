@@ -161,3 +161,51 @@ untestable without a window, which is B188.
   part of what a later reader needs.
 
 Related: [[conformance-test-before-implementation]], [[nothing-is-closed]].
+
+---
+
+## `a-transcribed-function-is-not-a-ported-subsystem` — D172, parity is claimed of a structure
+
+The owner, 2026-09-13, midway through B369's contact point port: *"how was everything so fucked up we needed this
+massive refactor anyway? i thought we had all this on parity and working but idk"*, and then *"ok well fix it all, i
+was hoping we had enough contraints that shit wouldnt happen but w/e lets get it done, thats your goal"*. Recorded as
+D172.
+
+**Why:** `IvpContact` transcribed IVP's impact solver faithfully, so every report saying "the impact loop is the
+engine's" was true — and the collision around it (per-vertex plane sampling, manifold clipping, push-out compensators,
+normal-keyed warm starts) was this project's own, labeled so only inside the code's remarks. The per-function claims
+added up, for the owner, to a subsystem on parity, while the measured failures — a corpse bouncing for ever, limit
+cycles, uphill sliding, buried limbs — were treated as tuning problems. The structure decides the behavior, and no single
+function shows it.
+
+**How to apply:**
+
+- **Claim parity of a subsystem, never of a function**: name which structure is still ours — the set being solved, what
+  persists between steps, what schedules a pair — in the same sentence as the function that is the engine's.
+- **A transcribed center inside invented plumbing is a partial port**, and `RISKS.md` says so beside the code, naming the
+  unread callers.
+- **Tuning that measures worse twice means the shape is wrong**: read the structure's callers before a third attempt
+  ([[port-the-engines-bottom-layer-first]]).
+- **A decompiler's variable is not the disassembly's operand**: `record+0x94` was read as `rx*rx*core[+0x44]` with no
+  cross product, and the disassembly squares `arm × normal` lane by lane ([[nothing-is-closed]]).
+
+---
+
+## `ponytail-works-inside-parity` — the lazy rule never cuts an engine branch
+
+The owner, 2026-09-13, on switching the session's style to the ponytail skill (laziest solution, shortest diff, YAGNI):
+*"keep in mind ponytail does not overide, valve parity, but it should end up being the same thing anyway"*.
+
+**Why:** ponytail's rungs — skip what isn't needed, shortest diff, no speculative branches — read naturally as licence
+to drop an engine branch nothing seems to reach, fold a float/double round trip, or skip a dead-looking call. Each of
+those is a divergence here. The owner's second half is the point: the engine's shape IS usually the lean one (the
+table above), so the two rarely pull apart — and when they seem to, parity wins.
+
+**How to apply:**
+
+- **"Does this need to exist?" is answered by the engine, not by our callers**: a branch Valve has exists, even when no
+  current input reaches it — port it, and make the oracle reach it.
+- **Lazy applies to OUR plumbing**: no invented abstraction, no config, no scaffolding around the ported code; reuse
+  what the repo already has (`IvpVector`, `IvpMatrix`, the probe library) before writing a helper.
+- **A dead computation the engine discards may be left out only when proved dead** — named in the remarks with the
+  instruction that shows it (as `FUN_180070b20` in the separating push), never on appearance.

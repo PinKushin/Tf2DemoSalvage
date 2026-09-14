@@ -13,15 +13,17 @@ namespace Tf2DemoSalvage.Animation.Tests;
 ///
 /// **The fixtures are a face at `z = 0` facing up on a body that does not move, and a tetrahedron whose point 0
 /// is the vertex**, its three edges leaving it and walked in the order `0 → 2`, `0 → 3`, `0 → 1`. Units are
-/// inches and seconds; the interval is one step of `0.015`.
+/// metres and seconds; the interval is one step of `0.015`.
 /// </remarks>
 public sealed class IvpVertexFaceSearchConformanceTests
 {
-    private const double End = 0.015d;
+    private const double End = IvpSearchFixtures.End;
+
+    private static readonly (float X, float Y, float Z) Up = (0f, 0f, 1f);
 
     /// <remarks>
     /// **A vertex falling onto the face raises `0x20` when its height reaches the margin plus the extra radius.**
-    /// Half an inch above that and falling at fifty inches a second, it arrives at `0.01`: the refinement marches
+    /// Half a metre above that and falling at fifty metres a second, it arrives at `0.01`: the refinement marches
     /// three lattice ticks to the end, brackets, and regula falsi lands on the linear root in one pass.
     /// </remarks>
     [Test]
@@ -30,8 +32,8 @@ public sealed class IvpVertexFaceSearchConformanceTests
         double height = IvpCollisionTolerance.Margin + 0.5d;
 
         IvpImpact impact = IvpVertexFaceSearch.Search(
-            new IvpImpactContext(ApproachSpeed: 50d, Start: 0d, End: End),
-            new IvpMindistState(ExtraRadius: 0f, Length: (float)height, MarginClass: 0),
+            new IvpImpactContext(ApproachSpeed: 50d, TotalBound: 0d, Start: 0d, End: End),
+            new IvpMindistState(ExtraRadius: 0f, Length: (float)height, MarginClass: 0, Normal: Up),
             Vertex(Tetrahedron(), height, fallingAt: 50f, angularBound: 0f),
             new IvpLedgeEdge(0, 0),
             Face(inverseDiameter: 1f),
@@ -43,17 +45,17 @@ public sealed class IvpVertexFaceSearchConformanceTests
 
     /// <remarks>
     /// **The point-plane search starts from the mindist's length, not from where the vertex is** — the known
-    /// distance `(double)(extra + length)` is passed, so slot 0 is never measured. The vertex sits still at `0.05`,
-    /// inside the margin, while the length says an inch: from an inch the refinement cannot close within the step,
-    /// so nothing is raised. Measured instead, `0.05` is inside and not moving away, an event at the start.
+    /// distance `(double)(extra + length)` is passed, so slot 0 is never measured. The vertex sits still at `0.005`,
+    /// inside the margin, while the length says a metre: from a metre the refinement cannot close within the step,
+    /// so nothing is raised. Measured instead, `0.005` is inside and not moving away, an event at the start.
     /// </remarks>
     [Test]
     public void Search_AMindistLengthOutsideTheMargin_IsTrustedOverWhereTheVertexIs()
     {
         IvpImpact impact = IvpVertexFaceSearch.Search(
-            new IvpImpactContext(ApproachSpeed: 1d, Start: 0d, End: End),
-            new IvpMindistState(ExtraRadius: 0f, Length: 1f, MarginClass: 0),
-            Vertex(Tetrahedron(), 0.05d, fallingAt: 0f, angularBound: 0f),
+            new IvpImpactContext(ApproachSpeed: 1d, TotalBound: 0d, Start: 0d, End: End),
+            new IvpMindistState(ExtraRadius: 0f, Length: 1f, MarginClass: 0, Normal: Up),
+            Vertex(Tetrahedron(), 0.005d, fallingAt: 0f, angularBound: 0f),
             new IvpLedgeEdge(0, 0),
             Face(inverseDiameter: 1f),
             new IvpLedgeEdge(0, 0));
@@ -69,8 +71,8 @@ public sealed class IvpVertexFaceSearchConformanceTests
         double height = IvpCollisionTolerance.Margin + 0.5d;
 
         IvpImpact impact = IvpVertexFaceSearch.Search(
-            new IvpImpactContext(ApproachSpeed: 50d, Start: 0d, End: End),
-            new IvpMindistState(ExtraRadius: 0f, Length: (float)height, MarginClass: 0),
+            new IvpImpactContext(ApproachSpeed: 50d, TotalBound: 0d, Start: 0d, End: End),
+            new IvpMindistState(ExtraRadius: 0f, Length: (float)height, MarginClass: 0, Normal: Up),
             Vertex(Tetrahedron(), height, fallingAt: -50f, angularBound: 0f),
             new IvpLedgeEdge(0, 0),
             Face(inverseDiameter: 1f),
@@ -81,7 +83,7 @@ public sealed class IvpVertexFaceSearchConformanceTests
     }
 
     /// <remarks>
-    /// **Every edge leaving the vertex is examined, the start edge last.** With the vertex ten inches up and not
+    /// **Every edge leaving the vertex is examined, the start edge last.** With the vertex ten metres up and not
     /// moving, the point-plane search finds nothing; one edge turned to point down into the face has a slope far
     /// under the edge target `((min(length, margin) + 0.1·extra) · −(0.1·d · f)) / margin`, so its refinement
     /// answers at once: `0x21` at the start. Each of the three neighbours takes a turn as the steep one.
@@ -92,8 +94,8 @@ public sealed class IvpVertexFaceSearchConformanceTests
     public void Search_AnyEdgeOfTheRingPointingIntoTheFace_RaisesAnEdgeEventAtTheStart(int steep)
     {
         IvpImpact impact = IvpVertexFaceSearch.Search(
-            new IvpImpactContext(ApproachSpeed: 1d, Start: 0d, End: End),
-            new IvpMindistState(ExtraRadius: 0f, Length: 1f, MarginClass: 0),
+            new IvpImpactContext(ApproachSpeed: 1d, TotalBound: 0d, Start: 0d, End: End),
+            new IvpMindistState(ExtraRadius: 0f, Length: 1f, MarginClass: 0, Normal: Up),
             Vertex(Tetrahedron(steep, down: -1f), 10d, fallingAt: 0f, angularBound: 0f),
             new IvpLedgeEdge(0, 0),
             Face(inverseDiameter: 1f),
@@ -108,8 +110,8 @@ public sealed class IvpVertexFaceSearchConformanceTests
     public void Search_NoEdgePointingIntoTheFace_RaisesNothing()
     {
         IvpImpact impact = IvpVertexFaceSearch.Search(
-            new IvpImpactContext(ApproachSpeed: 1d, Start: 0d, End: End),
-            new IvpMindistState(ExtraRadius: 0f, Length: 1f, MarginClass: 0),
+            new IvpImpactContext(ApproachSpeed: 1d, TotalBound: 0d, Start: 0d, End: End),
+            new IvpMindistState(ExtraRadius: 0f, Length: 1f, MarginClass: 0, Normal: Up),
             Vertex(Tetrahedron(), 10d, fallingAt: 0f, angularBound: 0f),
             new IvpLedgeEdge(0, 0),
             Face(inverseDiameter: 1f),
@@ -120,18 +122,28 @@ public sealed class IvpVertexFaceSearchConformanceTests
     }
 
     /// <remarks>
-    /// **The edge target takes the LESSER of the length and the margin** (`MINSS`). With `f = 1` and no extra
-    /// radius the target is `min(length, 0.2499) · −0.02499 / 0.2499`: `−0.0099996` at a length of `0.1`, and
-    /// `−0.02499` at `0.5`, where the length alone would give `−0.05`. An edge whose slope is about `−0.02` is
-    /// under the first; one about `−0.03` is under the second and not under `−0.05`.
+    /// **The edge target takes the LESSER of the length and the margin** (`MINSS`). With `f = 1`, no extra radius, and
+    /// `EdgeTargetScale = margin · 0.1`, the target is `min(length, margin) · −EdgeTargetScale / margin`. At a length of
+    /// `0.001`, under the margin of `0.00634746`, the length wins and the target is `0.001 · −0.1 = −0.0001`; at `0.5`,
+    /// over the margin, the margin wins and the target is `−EdgeTargetScale = −0.000634746` — the margin cancels
+    /// itself out of its own branch.
+    ///
+    /// **Case 1's edge must be under the length-wins target and NOT under the margin-wins one**, or a mutant that
+    /// always takes the margin survives it: `Shallow(drop)`'s slope is `drop / √(1 + drop²)` (point 0 to point 1's
+    /// float difference `(1, 0, drop)`, dotted with the face's `+Z` normal and scaled to a unit direction), which for
+    /// a drop this small is `drop` to five decimal places. `−0.0003` sits strictly between `−0.000634746` and
+    /// `−0.0001`, so the correct (length-wins) target raises the event and the always-margin target does not — the
+    /// body is at rest, so a slope that starts above a target never crosses it. Case 2 keeps `−0.01`, well under
+    /// both targets, so it still catches a mutant that always takes the length instead: at `0.5`, that would give a
+    /// target of `−0.05`, which `−0.01` is NOT under.
     /// </remarks>
-    [TestCase(0.1f, -0.02f)]
-    [TestCase(0.5f, -0.03f)]
+    [TestCase(0.001f, -0.0003f)]
+    [TestCase(0.5f, -0.01f)]
     public void Search_AShallowEdge_IsMeasuredAgainstTheLesserOfLengthAndMargin(float length, float drop)
     {
         IvpImpact impact = IvpVertexFaceSearch.Search(
-            new IvpImpactContext(ApproachSpeed: 1d, Start: 0d, End: End),
-            new IvpMindistState(ExtraRadius: 0f, Length: length, MarginClass: 0),
+            new IvpImpactContext(ApproachSpeed: 1d, TotalBound: 0d, Start: 0d, End: End),
+            new IvpMindistState(ExtraRadius: 0f, Length: length, MarginClass: 0, Normal: Up),
             Vertex(Shallow(drop), 10d, fallingAt: 0f, angularBound: 0f),
             new IvpLedgeEdge(0, 0),
             Face(inverseDiameter: 1f),
@@ -151,8 +163,8 @@ public sealed class IvpVertexFaceSearchConformanceTests
     public void Search_AnEdgeNotUnderTheSlopeLimit_IsNotRefined(float drop, bool raised)
     {
         IvpImpact impact = IvpVertexFaceSearch.Search(
-            new IvpImpactContext(ApproachSpeed: 1d, Start: End, End: 0d),
-            new IvpMindistState(ExtraRadius: 0f, Length: 1f, MarginClass: 0),
+            new IvpImpactContext(ApproachSpeed: 1d, TotalBound: 0d, Start: End, End: 0d),
+            new IvpMindistState(ExtraRadius: 0f, Length: 1f, MarginClass: 0, Normal: Up),
             Vertex(Shallow(drop), 10d, fallingAt: 0f, angularBound: 10f),
             new IvpLedgeEdge(0, 0),
             Face(inverseDiameter: 1f),
@@ -171,8 +183,8 @@ public sealed class IvpVertexFaceSearchConformanceTests
         double height = IvpCollisionTolerance.Margin + 0.5d;
 
         IvpImpact impact = IvpVertexFaceSearch.Search(
-            new IvpImpactContext(ApproachSpeed: 50d, Start: 0d, End: End),
-            new IvpMindistState(ExtraRadius: 0f, Length: (float)height, MarginClass: 0),
+            new IvpImpactContext(ApproachSpeed: 50d, TotalBound: 0d, Start: 0d, End: End),
+            new IvpMindistState(ExtraRadius: 0f, Length: (float)height, MarginClass: 0, Normal: Up),
             Vertex(Tetrahedron(2, down: -1f), height, fallingAt: 50f, angularBound: 0f),
             new IvpLedgeEdge(0, 0),
             Face(inverseDiameter: 1f),
@@ -181,12 +193,6 @@ public sealed class IvpVertexFaceSearchConformanceTests
         impact.Event.ShouldBe(IvpVertexFaceSearch.EdgeEvent);
         impact.Time.ShouldBe(0d);
     }
-
-    /// <summary>The tetrahedron's topology: every edge word hops to its twin, as in <c>IvpLedgeTopologyConformanceTests</c>.</summary>
-    private static IvpLedgeTopology TetrahedronTopology() =>
-        new(
-            [(0, 1, 2), (0, 3, 1), (0, 2, 3), (1, 3, 2)],
-            [(6, 13, 6), (6, 7, -6), (-6, 4, -6), (-7, -4, -13)]);
 
     /// <summary>Point 0 at the origin and its three neighbours above it, one optionally dropped to <paramref name="down"/>.</summary>
     private static (float X, float Y, float Z)[] Tetrahedron(int steep = 0, float down = 1f)
@@ -201,52 +207,29 @@ public sealed class IvpVertexFaceSearchConformanceTests
         return points;
     }
 
-    /// <summary>Point 1 one inch along X and <paramref name="drop"/> down; the others well above.</summary>
+    /// <summary>Point 1 one metre along X and <paramref name="drop"/> down; the others well above.</summary>
     private static (float X, float Y, float Z)[] Shallow(float drop) =>
         [(0f, 0f, 0f), (1f, 0f, drop), (0f, 1f, 1f), (-1f, -1f, 1f)];
 
     private static IvpSearchSide Vertex(
-        (float X, float Y, float Z)[] points, double height, float fallingAt, float angularBound)
-    {
-        IvpRigidBody body = new()
-        {
-            Position = (0d, 0d, height),
-            PreviousVelocity = (0f, 0f, -fallingAt),
-            Orientation = (0f, 0f, 0f, 1f),
-            WorkingOrientation = (0f, 0f, 0f, 1f),
-            LastStepped = 0d,
-            InverseStep = 66f,
-        };
-
-        IvpMatrix current = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, height));
-
-        return new IvpSearchSide(
+        (float X, float Y, float Z)[] points, double height, float fallingAt, float angularBound) =>
+        IvpSearchFixtures.Side(
             points,
-            TetrahedronTopology(),
-            new IvpMotionCache(body, current, resting: false),
-            AngularSpeedBound: angularBound,
-            CoreInverseDiameter: 0f);
-    }
+            IvpSearchFixtures.TetrahedronTopology(),
+            (0d, 0d, height),
+            fallingAt,
+            resting: false,
+            new IvpCoreBounds(
+                Radius: 0f, InverseDiameter: 0f, AngularSpeedBound: angularBound, LinearSpeed: 0f, SurfaceSpeedBound: 0f));
 
     /// <summary>A large triangle at <c>z = 0</c>, wound so its normal is <c>+Z</c>, on a body at rest.</summary>
-    private static IvpSearchSide Face(float inverseDiameter)
-    {
-        IvpRigidBody body = new()
-        {
-            Position = (0d, 0d, 0d),
-            Orientation = (0f, 0f, 0f, 1f),
-            WorkingOrientation = (0f, 0f, 0f, 1f),
-            LastStepped = 0d,
-            InverseStep = 66f,
-        };
-
-        IvpMatrix current = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d));
-
-        return new IvpSearchSide(
+    private static IvpSearchSide Face(float inverseDiameter) =>
+        IvpSearchFixtures.Side(
             [(-100f, -100f, 0f), (100f, -100f, 0f), (0f, 100f, 0f)],
-            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)]),
-            new IvpMotionCache(body, current, resting: true),
-            AngularSpeedBound: 0f,
-            CoreInverseDiameter: inverseDiameter);
-    }
+            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)], [0], [0]),
+            (0d, 0d, 0d),
+            fallingAt: 0f,
+            resting: true,
+            new IvpCoreBounds(
+                Radius: 0f, InverseDiameter: inverseDiameter, AngularSpeedBound: 0f, LinearSpeed: 0f, SurfaceSpeedBound: 0f));
 }

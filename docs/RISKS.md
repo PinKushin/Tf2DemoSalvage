@@ -26041,7 +26041,7 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    the last time still above the target; and the advancing search marches only when the pair starts
    INSIDE the target, compares every distance with the one at the start, reports an event at the previous
    lattice time, and hands any approach from outside to the refinement. Comparisons take the engine's
-   branch on NaN; the distance tolerance `1e-8` is metres converted to inches. `IvpRootFinderConformanceTests`
+   branch on NaN; the distance tolerance `1e-8` is metres, carried directly since D173 (converted to inches before). `IvpRootFinderConformanceTests`
    (10), compile-red first; six sabotages in one run — no doubling, comparing with the previous distance,
    the event at the current lattice time, the cap answering the new estimate, a slot never kept, resting
    ignored — reddened exactly the seven cases predicted. **The first cap test could not fail**: on a jump
@@ -26058,8 +26058,9 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    is the routine**, instruction for instruction, with twelve conformance tests over a falling vertex and a
    tetrahedron's edges. **Not yet on the running path.** What it still needs from step 6: a search context
    per pair (its approach speed and the PSI), the mindist's extra radius, length and margin class, each core's
-   angular bound (`FUN_180099d60`, unported) and `+0x54` (`0.5f / (surface radius + object extra)`), and the
-   ledge edge offsets carried from `PhysicsLedge` through `RagdollBody` to the body.
+   `+0x54` (`0.5f / (surface radius + object extra)`), and the ledge edge offsets carried from `PhysicsLedge`
+   through `RagdollBody` to the body. The angular bound `FUN_180099d60` is ported as `IvpCoreSpeedBound`
+   (`440b40b2`).
 6. **The pair scheduler's near branch** (`FUN_180099380`) and the time-ordered event loop that
    consumes events inside the PSI — the piece that replaces the fixed step's speculative contacts.
    **Read instruction by instruction, 2026-09-12** (`docs/findings/51`, *The scheduler's near branch and the
@@ -26067,6 +26068,142 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    the scheduler queues is resolved by the mindist event's own fire routine — the impact itself, unread — and a
    pair the far branch parks comes back through the travel allowances `FUN_180097bd0` installs, also unread. The
    branch's decision logic can be ported on its own; replacing the fixed step needs both of those as well.
+   **The minimize the fire routine runs first is read and ported, 2026-09-13** (`docs/findings/51`, *The minimize,
+   routine by routine*, `c2e5bb53`): a triangle header's pierce field (`6d0f8d12`), the compact-ledge helpers as
+   `IvpCompactLedgeSolver` (`25fac2da`), and the entry, dispatch, eight feature routines, backside walk and loop
+   check as `IvpMindistMinimize`, each with synthetic conformance tests and sabotage rounds. **Also not on the
+   running path.** **The time of impact for kinds (0,0), (0,1) and (1,1) is read and ported, 2026-09-13**
+   (`docs/findings/51`, *The other three times of impact*): `FUN_1800a2b30`, `FUN_1800a1ff0` and `FUN_1800a1420` as
+   `IvpPointPointSearch`, `IvpPointEdgeSearch` and `IvpEdgeEdgeSearch`, over seven evaluators and `IvpCoreBounds`,
+   with synthetic conformance tests and four sabotage rounds, and the table and its entry `FUN_1800a3fe0` that route a
+   pair to one of the four as `IvpImpactDispatch` — also not on the running path. A ball first (`FUN_1800a3d30`,
+   `FUN_1800a3b60`) is refused as unported; its point and edge routines `FUN_1800a0fc0` and `FUN_1800a0930` are unread.
+   **The scheduler's near branch and the time manager's queue are ported, 2026-09-13** (`docs/findings/51`, *The event
+   queue, and where the far branch hands a pair off*): `FUN_180099380` as `IvpPairScheduler` and the min-list as
+   `IvpMinList` — also not on the running path. **The far branch's filing is not**: past its threshold, a pair asked
+   to be removed goes to IVP's hull manager (`FUN_180098dd0`, then `FUN_180097bd0`/`FUN_180097c40` into each object's own
+   min-list), and the port refuses it by name. **The hull manager is read and ported, 2026-09-13** (`docs/findings/51`,
+   *The hull manager, and how a far pair is told to look again*) as `IvpHullManager`: the per-step gradients
+   (`FUN_180099a00`), the pass and its budget of 250 checks (`FUN_18009a690`), the rebase, the settle and the three
+   filings — also not on the running path. **The far branch's filing is ported too**, replacing the refusal: the
+   unfiling `FUN_180098dd0` and the exact linking of `FUN_1800977f0` as `IvpMindistManager`, and the split by speed and
+   the filing as `IvpMindistHull`. **The hull-passed handler `FUN_180097f00` and the rest of the exact handoff
+   `FUN_1800977f0` are ported too**, with the invalidation `FUN_180097440`, the minimize and the scheduler handed in; a
+   recursive mindist and a phantom's pair are refused by name. **An exact plain pair goes back to far only through the
+   PSI's phase 4, `FUN_1800985a0`**, which hands every exact mindist to the scheduler with `removeFar` set; phase 3
+   (`FUN_1800983e0`) and the rechecked array (`FUN_180098710`) only minimize and invalidate a plain pair, and
+   `FUN_180097d60` is the phantom path's, not a plain pair's — *the plan had it the other way*. The three phases are
+   being ported; the phantom path `FUN_180097940` and the resting-contact routine `FUN_180096460` are not. **The event loop
+   `FUN_18008a110` and the fire routine `FUN_1800992e0` are ported too**, as `IvpTimeManager` and `IvpMindistFire`, the
+   collision handed in: **the collision's own path — `FUN_18008ecb0` and `FUN_18008ef60` — is read to its first callees
+   and is a subsystem** (friction-system creation and merging, the listeners, a solve loop bounded at 5000, core
+   revival), recorded in `docs/findings/51` and unported; `IvpContact` covers only the solver at its centre.
+   Still unread or unported beneath the
+   fire routine: the impact itself (`FUN_18008ef60`), the
+   mindist's virtual `+0x28` target (`FUN_1800947e0` reports to the environment's `+0x40` object), friction, and
+   the far branch's travel allowances; and the cache object's slerp (`FUN_180071060`) that fills each side's
+   current matrix, which the minimize takes from its caller.
+   **The contact point and its record are read and ported, 2026-09-13** (`docs/findings/51`, *The contact point and
+   its record*): `FUN_180082ed0`, `FUN_18008d0c0`, the four measures and their helpers as `IvpContactPoint`,
+   `IvpContactGeometry` and `IvpContactRecord`, with synthetic conformance tests and sabotage rounds — also not on the
+   running path. **D172 makes the rest of the collision path this step's scope**, in the owner's words *"ok well fix it
+   all … lets get it done, thats your goal"*. Read since and recorded in `docs/findings/51` (*The impact solver and the
+   friction system's bookkeeping*): the record's estimate `FUN_18008db40`, contact removal `FUN_180083e40` and
+   `FUN_180083b30`, the per-core friction record, the union-find `FUN_1800877b0`, the impact solver `FUN_18008e290` with
+   `FUN_18008f570`, `FUN_18008dd00`, `FUN_18008deb0` and `FUN_1800904a0`, and the runtime library's `asinf`, `expf` and
+   `exp`. **Two divergences found on the way are fixed**: `IvpTransform.InchesPerMetre` carried `39.37f` where the
+   dword is `0x421d7af6`, `1f / 0.0254f`; and the tolerance block's `2·d` and `2.3·d`, which a contact point starts
+   with and a parallel edge pair measures, had been read as zero. **A third is fixed too: `IvpDamping` diverged from
+   `FUN_180077a20` on four counts**, the widest being one `MathF.Exp` factor for three lanes where the engine calls `expf`
+   for one and `exp` for two. `IvpMath` now carries the library's own `expf`, `exp`, `asinf` and `atan`, and both are
+   pinned to the shipped `vphysics.dll` called in process by the `vphysics-math` probe — a sweep of millions of
+   arguments on both runtime paths finds no difference. **Not carried: damping's calm branch** — a core in movement state
+   2 or more damps with every factor plus `0.1f`, and this project holds no IVP movement states, so every body damps as
+   a moving one. **What sets the state is now read** (`docs/findings/51`, *A unit's PSI*): every 15 to 19 PSIs the
+   simulation unit's rest test `FUN_180077220` writes each core's byte `+0x1` — `1` moved, `2` still but not for long
+   enough, `3` at rest — so a settling corpse's limbs damp harder once they hold still, before the unit freezes. It stays
+   uncarried until the simulation units are on the running path.
+   **The impact solver is ported and pinned to the binary, 2026-09-13** (`docs/findings/51`, *The anomaly manager, and the
+   limits a client environment runs*): `FUN_18008e290` and every routine under it as `IvpImpactSolver`, the anomaly manager
+   vphysics gives IVP as `VphysicsAnomalyManager`, and `SetPerformanceSettings` as `IvpAnomalyLimits`. The `vphysics-impact`
+   probe calls the binary's own solver on fabricated cores: 20,000 random impacts and 200,000 calls to each helper agree on
+   every lane, and `IvpImpactSolverConformanceTests` replays 96 of them plus four targeted cases (the push cap, the
+   hold-back band, the stiffness term, a NaN), each proved by sabotage. A NaN approach took the wrong branch; fixed. Not
+   on the running path yet.
+   **It runs in IVP's units — metres, Y-up — as the binary does, and the wiring must keep it there.** vphysics converts at
+   its interface (`SetGravity`, `SetPerformanceSettings` and the constructor's tolerance multiply by `0.0254f`; a `.phy`
+   stores its hulls in metres), while this project's older ported routines ran on Source units with the metre thresholds
+   scaled. That was a divergence: the conversion belongs where vphysics makes it, between the object layer and the core,
+   with Hammer units everywhere above it — not in scaled constants inside the core. **Since D173 (2026-09-14) those routines —
+   the tolerance block, the pair scheduler, the hull filing, the time-of-impact searches and the root finder — run in
+   metres with the binary's constants**; only the running path (`IvpEnvironment`, `IvpContact`, `RagdollSimulation`) is still
+   in Source units, and it is replaced rather than converted.
+   **A fourth divergence is fixed: a corpse's environment allows 6 collisions per object, not 10.** The client never calls
+   `SetPerformanceSettings` (`game/client/physics.cpp:163-187`), so the constructor's `Defaults()` stand; the 10 is the
+   server's (`game/server/physics.cpp:225`). And the engine freezes a core once its count EXCEEDS the limit.
+   **The collision entry above the solver is ported and pinned, 2026-09-13** (`docs/findings/51`, *The impact solver's
+   entry, and the push-out estimate*): `FUN_1800908d0` as `IvpContactPoint.SetMaterials`, `FUN_18008db40` as `Estimate`,
+   `FUN_18008fca0` as `PushOut` (through vphysics' own `cos`, `FUN_1800d33b0`, now `IvpMath.Cos`), and `FUN_18008ed60`
+   with `FUN_18008fe70` as `IvpImpactSolver.Enter`. The probe's `entry` mode runs all four in order on fabricated
+   structs: 20,000 entries agree on every lane, and `IvpImpactEntryConformanceTests` replays 101 cases the binary wrote,
+   13 sabotages each reddening it (one only after four targeted cone cases were added).
+   **vphysics' material manager and surface lookups are ported and pinned** (`docs/findings/51`, *vphysics' material
+   manager and its materials*): a pair's friction is `clamp(f₀·f₁, 0, 1)` and its elasticity `clamp(e₀·e₁, 0, 1)` over the
+   two surfaces' `surfacephysicsparams_t`, with a friction override that needs a core's `+0x58`, which a ragdoll never has;
+   200,000 drawn cases agree with the binary, and **vphysics' parser is ported and agrees on every surface of the game's
+   three manifest files and eight edge texts**, read back from the loaded library's own props object. **A fifth divergence
+   is fixed: the running path read `SurfaceTable`**, which ignored `base`, started an entry at `1.0` where the engine copies
+   the same-named surface or `default`, added no shadow surface, and parsed in archive order, not the manifest's. It is
+   deleted; `GameContent` parses the manifest through the port, and a body's friction resolves its `surfaceprop` or
+   `default`. **Visible**: TF2's `flesh` names no friction, so a player corpse's elements went from `1.0` to the engine's
+   `0.8`. Its `1.0` had been cited as `g_PhysDefaultObjectParams`' friction, a struct whose `1.0` is mass. Not read: what increments a record's impact count at `+0x72`, what
+   sets a contact point's `+0x64`, or the writer of a core's radius at `+0x4` (`FUN_180078b90`). **The entry compares a
+   contact point's gap against metre fields of the block; the contact point ported before it started its gap at
+   `IvpCollisionTolerance.ContactGap` in Source units until D173 put the whole tolerance block in metres**, so the two now
+   agree.
+   **The many-contact solve's linear algebra is ported and pinned, 2026-09-13** (`docs/findings/51`, *The constraint
+   solver's loop* and its port): `FUN_1800aa2c0`, `FUN_1800a4d40`, `FUN_1800a80a0` and `FUN_1800a7270` as
+   `IvpLinearSystem`, the active block's inverse at the solver's `+0xa8` as `IvpActiveInverse`, and `FUN_1800a5e60` with
+   everything under it as `IvpComplementaritySolver`. The `vphysics-contact-solve` probe runs them in `FUN_1800aa5c0`'s
+   order: 20,000 random systems agree on every lane — pushes, residuals, the permutation and nine counters of state — and
+   `IvpComplementaritySolverConformanceTests` replays the cases the binary wrote. **A NaN's sign bit differed once and is
+   fixed**: when two NaNs meet, SSE keeps the destination operand's, and the JIT picks the destination of a C# `+` or `*`;
+   every addition and multiplication now goes through `IvpLinearSystem.Addsd`/`Mulsd` with the binary's destination first,
+   mapped per instruction, and 30,000 NaN-seeded systems agree bit for bit. Five rules the first 160 random cases could not
+   fail on — the vanished pivot's `1000·eps`, `(double)1e-5f`, the tie margin, the restart's sort and its near-zero push — are
+   now pinned by targeted cases and cases found by sweeping the binary against a port broken on each rule; fifteen
+   sabotages, the two path-dependent NaN destinations included, all redden the 210-case fixture except the one the binary
+   itself makes dead (`FUN_1800a9010`'s `2` at `+0xa4`, zeroed on the next line).
+   **Open, and wider than the solver: every IVP port written before 2026-09-13 leaves NaN-meets-NaN to the JIT.**
+   `IvpContactRecord`, `IvpImpactSolver`, `IvpDamping`, the integrator, the evaluators and the rest write plain C# `+` and
+   `*`, and their probes' sweeps seed no NaNs, so a 0-differing sweep there says nothing about which NaN survives two. The
+   fix is the solver's: seed each probe's sweep with NaNs of both signs to find the routines that differ, map their
+   destinations per instruction, and route those operations through `IvpMath.Addsd`/`Mulsd`/`Addss`/`Mulss`. New ports
+   use the helpers from the start. **Scope, measured 2026-09-14:** only five probes call `vphysics.dll` in process —
+   `vphysics-math`, `vphysics-materials`, `vphysics-impact`, `vphysics-contact-solve` and `vphysics-heap-core` — and of those
+   only the last two put NaNs of different payload on both operands of one operation. `vphysics-impact` seeds one
+   `float.NaN` lane at a time, always the same sign, so two NaNs never meet there. Every other IVP port — the evaluators, the
+   mindist searches, the integrator, the damping, the constraints, the contact record's build — was pinned without calling the
+   binary, so the audit needs an in-process oracle for each before its destinations can be read off, not just NaN seeding. **The heap solve's core-level routines are ported and pinned, 2026-09-14** — the record
+   push `FUN_1800a9280`, the limits `FUN_180076710`, the flush and drop, and the kinetic energy `FUN_180077e80`: 20,000
+   NaN-seeded cases agree with the binary (`IvpHeapCoreConformanceTests`), and all six NaN operand-order sabotages redden
+   the 286-case fixture (`docs/findings/51`). **The heap solve above them is ported and pinned, 2026-09-14** —
+   `FUN_1800a9bf0`'s sort and solve with everything under it as `IvpFrictionSystem`: 30,000 random friction systems agree with
+   the binary, and `IvpHeapSolveConformanceTests` replays the cases it wrote, sabotage-checked (`docs/findings/51`). The lone contact (`FUN_180084490`, `FUN_180083420`)
+   and the priority-0 routine over both (`FUN_180084320`) are ported beside it and pinned through the same probe. Not
+   ported yet: `FUN_1800a9bf0`'s filing pass (a contact dropped by `FUN_180083e40`, one moved to the head), the lone
+   contact's drop, the empty system's deletion and the split — read in `docs/findings/51` — which land with the filing
+   routines and the simulation units. **The running path solves in the wrong phase**: `FUN_180082560` runs every unit's
+   controllers — damping, gravity, friction, the constraints, the normal pushes — in phase 2, then integrates every core, then
+   walks the collisions; `IvpEnvironment.Simulate` walks the collisions and rubs its contacts after. Replacing it with the
+   engine's phases is part of wiring these ports in.
+   **The rotation pipeline's seven divergences, found 2026-09-14, are fixed** (`docs/findings/51`, *A core's rotation,
+   instruction by instruction*, and its *Ported and pinned*): the orientations are doubles, and `FUN_180070d60`,
+   `FUN_180070c60`, `FUN_180071680`, `FUN_180070f50`, `FUN_180071060` and `FUN_180099fc0` — the sub-step order and precision,
+   vphysics' own `acos` and `sin`, and the second route — are ported instruction for instruction and pinned by the
+   `vphysics-rotation` probe, 50,000 cases on both `sin` paths with none differing. **Not established**: what sets a core's
+   bit `0x8` or writes `core+0x58`; and `IvpEnvironment.Simulate` still passes phase 0, which is right for the integrate
+   section but is the wrong-phase running path above.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 

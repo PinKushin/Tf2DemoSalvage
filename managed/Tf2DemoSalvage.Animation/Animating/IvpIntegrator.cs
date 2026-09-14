@@ -49,23 +49,50 @@ public sealed class IvpRigidBody
     /// <summary>How fast it is turning — <c>core+0x130/0x134/0x138</c>, radians per second.</summary>
     public (float X, float Y, float Z) AngularVelocity { get; set; }
 
-    /// <summary>The orientation everything outside the solver reads — <c>core+0x180</c>.</summary>
+    /// <summary>The orientation everything outside the solver reads — <c>core+0x180</c>, in doubles.</summary>
     /// <remarks>**One step behind <see cref="WorkingOrientation"/>, deliberately.**</remarks>
-    public (float X, float Y, float Z, float W) Orientation { get; set; } = (0f, 0f, 0f, 1f);
+    public (double X, double Y, double Z, double W) Orientation { get; set; } = (0d, 0d, 0d, 1d);
 
-    /// <summary>The orientation the integrator advances — <c>core+0x1a0</c>.</summary>
-    public (float X, float Y, float Z, float W) WorkingOrientation { get; set; } = (0f, 0f, 0f, 1f);
+    /// <summary>The orientation the integrator advances — <c>core+0x1a0</c>, in doubles.</summary>
+    public (double X, double Y, double Z, double W) WorkingOrientation { get; set; } = (0d, 0d, 0d, 1d);
 
     /// <summary>Rotational inertia about each axis — <c>core+0x20/0x24/0x28</c>.</summary>
     public (float X, float Y, float Z) Inertia { get; set; } = (1f, 1f, 1f);
 
     /// <summary>Its reciprocal — <c>core+0x40/0x44/0x48</c>.</summary>
     /// <remarks>
-    /// **That these hold reciprocals is INFERRED**, not read: it is what makes the free-rotation
-    /// expression equal Euler's torque-free equations, and it matches the inverse mass living at
-    /// `+0x4c` in the same block — but the division that produces them was not found in the binary.
+    /// **Reciprocals, read**: `FUN_180074530`, which moves a core between movable and not, writes `+0x40..0x4c` as
+    /// `1f / +0x20..0x2c` — four `DIVSS` from `DAT_1800ea988` (`1f`), the inverse mass at `+0x4c` among them — before it runs the
+    /// broad phase (`docs/findings/51`).
     /// </remarks>
     public (float X, float Y, float Z) InverseInertia { get; set; } = (1f, 1f, 1f);
+
+    /// <summary>This body's mass — <c>core+0x2c</c>.</summary>
+    /// <remarks>
+    /// **Written by the core's construction, `FUN_180073df0`** — <see cref="IvpObjectTemplate.CoreInertia"/> — and read as
+    /// mass by the heap's kinetic energy `FUN_180077e80`, which multiplies the squared speed by it, and by the pair damping
+    /// `FUN_180086670`, which takes it beside <see cref="InverseMass"/> (`docs/findings/51`). The default of one matches
+    /// <see cref="InverseMass"/>'s.
+    /// </remarks>
+    public float Mass { get; set; } = 1f;
+
+    /// <summary>This body's kinetic energy at a velocity and a spin — <c>FUN_180077e80(core, v, ω)</c>.</summary>
+    /// <param name="velocity">The velocity, in metres per second.</param>
+    /// <param name="spin">The angular velocity.</param>
+    /// <returns><c>((d)(f)((ω.y²·I.y + ω.x²·I.x) + ω.z²·I.z) + (d)(f)((v.x² + v.y²) + v.z²)·(d)m)·0.5</c>.</returns>
+    /// <remarks>
+    /// The heap solve sums it over a friction system's cores before and after its pushes (`FUN_1800aa1a0`), with each core's
+    /// staged changes added in. Every product and sum names the binary's destination first (<see cref="IvpMath.Mulss"/>).
+    /// </remarks>
+    internal double KineticEnergy((float X, float Y, float Z) velocity, (float X, float Y, float Z) spin)
+    {
+        float turning = IvpMath.Addss(
+            IvpMath.Addss(IvpMath.Mulss(spin.Y * spin.Y, Inertia.Y), IvpMath.Mulss(spin.X * spin.X, Inertia.X)),
+            IvpMath.Mulss(spin.Z * spin.Z, Inertia.Z));
+        float moving = IvpMath.Addss(IvpMath.Addss(velocity.X * velocity.X, velocity.Y * velocity.Y), velocity.Z * velocity.Z);
+
+        return IvpMath.Mulsd(IvpMath.Addsd(turning, IvpMath.Mulsd(moving, Mass)), 0.5d);
+    }
 
     /// <summary>The reciprocal of this body's mass — <c>core+0x4c</c>.</summary>
     /// <remarks>
@@ -132,18 +159,18 @@ public sealed class IvpRigidBody
     /// turning.
     public float RotationDamping { get; set; } = 0.1f;
 
-    /// <summary>How many collisions this body has taken in the current step.</summary>
+    /// <summary>How many impacts this core has taken — the signed word at <c>core+0x2</c>.</summary>
     /// <remarks>
-    /// **`maxCollisionsPerObjectPerTimestep`, whose own comment says what happens at the limit** —
-    /// *"object will be frozen after this many collisions (visual hitching vs. CPU cost)"*
-    /// (`performance.h:21`). TF2 sets it to 10, raising Valve's default of 6 immediately after
-    /// `Defaults()` (`physics.cpp:224`).
+    /// **Compared against `maxCollisionsPerObjectPerTimestep`, whose own comment says what happens at the limit** —
+    /// *"object will be frozen after this many collisions (visual hitching vs. CPU cost)"* (`performance.h:21`). The impact
+    /// solver's commit adds one for a movable core (`FUN_18008deb0`), takes it back from a core it holds back, and asks the
+    /// anomaly manager once the word exceeds the limit (`FUN_18008ddf0`) — see <see cref="IvpImpactSolver"/>.
     ///
-    /// **It is the engine's safety net for exactly the body this project could not hold**: one
-    /// thrown hard enough to collide again and again inside a single step, which without a limit
-    /// grinds its way through the surface it is hitting.
+    /// **The client runs 6, not 10**: the server raises Valve's default before `SetPerformanceSettings`
+    /// (`game/server/physics.cpp:222-226`), and the client's `PhysicsLevelInit` never calls it
+    /// (`game/client/physics.cpp:163-187`) — see <see cref="IvpPerformanceSettings"/>. *What resets the word is unread.*
     /// </remarks>
-    public int Collisions { get; set; }
+    public short Collisions { get; set; }
 
 
     /// <summary>Whether this body has been frozen for the rest of the step.</summary>
@@ -154,15 +181,19 @@ public sealed class IvpRigidBody
     /// </remarks>
     public bool Frozen { get; set; }
 
-    /// <summary>This body's coefficient of friction — its surface's, from the game's own table.</summary>
+    /// <summary>The friction a body keeps when no surface file was parsed — a viewer with no install (D83).</summary>
     /// <remarks>
-    /// **`surfacephysicsparams_t::friction`**, looked up by the `surfaceprop` its `.phy` solid
-    /// names (`ragdoll_shared.cpp:194`). One rather than zero by default, which is
-    /// `g_PhysDefaultObjectParams` — a zero default would make every body frictionless the moment
-    /// somebody forgot to set one, and that failure looks like working physics until a corpse
-    /// slides off the map.
+    /// **This project's own number**, which the engine never runs with. It was once cited as `g_PhysDefaultObjectParams`'
+    /// friction, a struct with no friction whose `1.0` is mass (`physics_shared.cpp:46`, `docs/findings/51`).
     /// </remarks>
-    public float Friction { get; set; } = 1f;
+    public const float NoSurfaceFriction = 1f;
+
+    /// <summary>This body's coefficient of friction — its surface's, from the game's own surface files.</summary>
+    /// <remarks>
+    /// **`surfacephysicsparams_t::friction` of the surface its `.phy` solid names**, resolved as the game resolves it: the
+    /// `surfaceprop`, else `default` (<see cref="VphysicsSurfaceProps.ObjectMaterial"/>).
+    /// </remarks>
+    public float Friction { get; set; } = NoSurfaceFriction;
 
     /// <summary>The hull this body collides with, in its own space and in SOURCE units.</summary>
     /// <remarks>
@@ -305,7 +336,7 @@ public sealed class IvpRigidBody
     /// matrix. This remark used to say the offset was skipped "because in this project a body and its core
     /// are one thing" — which was never true of the engine and stopped being true here with B403.
     /// </remarks>
-    public ((double X, double Y, double Z) Position, (float X, float Y, float Z, float W) Orientation)
+    public ((double X, double Y, double Z) Position, (double X, double Y, double Z, double W) Orientation)
         TransformAt(double time)
     {
         float elapsed = (float)(time - LastStepped);
@@ -315,8 +346,9 @@ public sealed class IvpRigidBody
             Position.Y + ((double)PreviousVelocity.Y * elapsed),
             Position.Z + ((double)PreviousVelocity.Z * elapsed));
 
-        (float X, float Y, float Z, float W) orientation =
-            IvpQuaternion.Interpolate(Orientation, WorkingOrientation, elapsed * InverseStep);
+        // MULSS with the elapsed time the destination, widened for FUN_180071060's double fraction.
+        (double X, double Y, double Z, double W) orientation =
+            IvpQuaternion.Interpolate(Orientation, WorkingOrientation, IvpMath.Mulss(elapsed, InverseStep));
 
         return (position, orientation);
     }
@@ -379,6 +411,286 @@ public sealed class IvpRigidBody
     /// variant, so there is no separate world path at the API boundary either.
     /// </remarks>
     public bool Immovable { get; set; }
+
+    /// <summary>Bit <c>0x1</c> of <c>core+0x0</c>.</summary>
+    /// <remarks>
+    /// *Named by its bit because what IVP calls it is unread.* The friction system sets it on every movable core when it freezes a
+    /// heap of more than 150 contacts (`FUN_1800a9bf0`), and the same routine moves a contact to the head of its list only when
+    /// both its objects' friction cores carry it.
+    /// </remarks>
+    public bool FlagBit0 { get; set; }
+
+    /// <summary>Bit <c>0x8</c> of <c>core+0x0</c>.</summary>
+    /// <remarks>
+    /// *Named by its bit because what IVP calls it, and what sets it, are unread.* The rotation step `FUN_180099fc0` takes its
+    /// second route for a core carrying it — real sines, no sub-steps and no Euler update
+    /// (<see cref="IvpIntegrator.Rotate(IvpRigidBody, float, int, bool)"/>).
+    /// </remarks>
+    public bool FlagBit3 { get; set; }
+
+    /// <summary>A movable core's share of the one friction system it is in — <c>core+0x60</c>.</summary>
+    public IvpFrictionInfo? FrictionInfo { get; set; }
+
+    /// <summary>An immovable core's share of each friction system it is in — the hash at <c>core+0x60</c>, keyed by system.</summary>
+    public Dictionary<IvpFrictionSystem, IvpFrictionInfo> FrictionInfos { get; } = [];
+
+    /// <summary>This core's share of a friction system, or none — <c>FUN_180077f00(core, system)</c>.</summary>
+    /// <param name="system">The system.</param>
+    /// <returns>The share, or null when this core is not in the system.</returns>
+    /// <remarks>
+    /// **An immovable core looks the system up in its hash (`FUN_180072350`); a movable one answers its one share when that share's
+    /// system is this one.**
+    /// </remarks>
+    public IvpFrictionInfo? FrictionInfoIn(IvpFrictionSystem system)
+    {
+        if (Immovable)
+        {
+            return FrictionInfos.GetValueOrDefault(system);
+        }
+
+        return FrictionInfo is { } info && ReferenceEquals(info.System, system) ? info : null;
+    }
+
+    /// <summary>What a collision's freeze check left in bits 6–7 of <c>core+0x0</c>, zero to three (B369).</summary>
+    /// <remarks>
+    /// **Two writers are read.** Committing an impact, `FUN_18008ddf0` sets the bits from the anomaly manager's answer once
+    /// <see cref="Collisions"/> exceeds the limit; and the impact solver `FUN_18008e290`, finding either core's bits set, sets
+    /// both cores' to one — zero for an immovable core — and moves each core's velocities into its pending ones. *What
+    /// reads the bits after the solve, and what clears them, is unread.*
+    /// </remarks>
+    public int CollisionFreeze { get; set; }
+
+    /// <summary>The core's transform at <c>core+0x90</c>, in doubles — what a contact's arm and normal are measured in.</summary>
+    /// <remarks>
+    /// **The frame every contact routine turns through**: the contact record's arms (`FUN_18008d0c0`), a point's velocity
+    /// (`FUN_180077fa0`) and the impact solver's pushes (`FUN_180070620`). A core brought to an event's time has it rebuilt
+    /// from its working orientation and extrapolated position (`FUN_180078d60`). The identity by default.
+    /// </remarks>
+    public IvpMatrix CoreMatrix { get; set; } = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d));
+
+    /// <summary>The float at <c>core+0x8</c>, which the anomaly check reads beside <see cref="HasOffset58"/>.</summary>
+    /// <remarks>*Named by its offset because nothing read so far says what it is; no ragdoll element sets it.*</remarks>
+    public float Offset08 { get; set; }
+
+    /// <summary>The core's radius — the float at <c>core+0x4</c>, which the push-out estimate turns a spin into a distance with.</summary>
+    /// <remarks>
+    /// Set once by `FUN_180078b90`: the surface manager's upper radius, how far the surface's mass centre sits from the centre
+    /// asked about, and the object's extra radius (`docs/findings/51`, beside `core+0x54 = 0.5f / core+0x4`). *That writer is
+    /// not ported; no ragdoll element sets this yet.*
+    /// </remarks>
+    public float Radius { get; set; }
+
+    /// <summary>The core's linear speed, <c>core+0x1dc</c> — what the range manager and a hull's gradient read.</summary>
+    public float LinearSpeed { get; set; }
+
+    /// <summary>How fast a point on the core's surface can move because of its spin, <c>core+0x254</c>.</summary>
+    public float SurfaceSpeedBound { get; set; }
+
+    /// <summary>Whether the pointer at <c>core+0x58</c> is set.</summary>
+    /// <remarks>
+    /// *Named by its offset because its writer is unread.* Two readers are read: the anomaly check skips a core's spin limit
+    /// when this is set and <see cref="Offset08"/> is zero or NaN (`FUN_18008dd00`), and the impact solver's entry gives a
+    /// pair with either core's set a cone of `(1, 0)` (`FUN_18008ed60`). The rotation step's second route turns such a core
+    /// about <see cref="Offset58Axis"/> by a sine of its own (`FUN_180099fc0`). No ragdoll element sets it.
+    /// </remarks>
+    public bool HasOffset58 { get; set; }
+
+    /// <summary>The axis the object at <c>core+0x58</c> names — the int at <c>+0x48</c> of that object's <c>+0x8</c>.</summary>
+    /// <remarks>
+    /// *Named by its offset because its writer is unread.* `FUN_180099fc0`'s second route, for a core with
+    /// <see cref="HasOffset58"/> set and <see cref="Offset08"/> zero or NaN, turns the other two axes through `FUN_180070f50`
+    /// and this one by `sin((ω·0.5)·dt)` of its own, and composes the two. Read as `0`, `1` or `2`.
+    /// </remarks>
+    public int Offset58Axis { get; set; }
+
+    /// <summary>The velocity of a point fixed to this core — <c>FUN_180077fa0</c>.</summary>
+    /// <param name="arm">The point, in the core's frame.</param>
+    /// <param name="velocity">The core's velocity, as the caller holds it.</param>
+    /// <param name="spin">The core's angular velocity, as the caller holds it.</param>
+    /// <returns>The point's velocity in the world.</returns>
+    /// <remarks>
+    /// **`spin × arm` in float, turned into the world by <see cref="CoreMatrix"/> in double and narrowed, then the velocity added
+    /// in float.** The callers pass their own velocities rather than the core's, which is why they are arguments.
+    /// </remarks>
+    public (float X, float Y, float Z) PointVelocity(
+        (float X, float Y, float Z) arm, (float X, float Y, float Z) velocity, (float X, float Y, float Z) spin)
+    {
+        (float X, float Y, float Z) swept = (
+            (spin.Y * arm.Z) - (spin.Z * arm.Y),
+            (arm.X * spin.Z) - (spin.X * arm.Z),
+            (spin.X * arm.Y) - (arm.X * spin.Y));
+
+        (double X, double Y, double Z) turned = CoreMatrix.Rotate((swept.X, swept.Y, swept.Z));
+
+        return ((float)turned.X + velocity.X, (float)turned.Y + velocity.Y, (float)turned.Z + velocity.Z);
+    }
+
+    /// <summary>What a push of one unit at a point does to this core — <c>FUN_180078f50</c>.</summary>
+    /// <param name="arm">The point, in the core's frame.</param>
+    /// <param name="local">The push's direction in the core's frame.</param>
+    /// <param name="world">The same direction in the world.</param>
+    /// <returns>The change in velocity and in angular velocity.</returns>
+    /// <remarks>
+    /// **`(arm × local) ⊙ inverse inertia` in float for the spin, and `world · inverse mass` in double, narrowed, for the
+    /// velocity** — the cross product taken `(local.z·arm.y − local.y·arm.z, local.x·arm.z − arm.x·local.z, arm.x·local.y −
+    /// local.x·arm.y)`.
+    /// </remarks>
+    public ((float X, float Y, float Z) Velocity, (float X, float Y, float Z) Spin) UnitPush(
+        (float X, float Y, float Z) arm, (float X, float Y, float Z) local, (float X, float Y, float Z) world)
+    {
+        (float X, float Y, float Z) spin = (
+            ((local.Z * arm.Y) - (local.Y * arm.Z)) * InverseInertia.X,
+            ((local.X * arm.Z) - (arm.X * local.Z)) * InverseInertia.Y,
+            ((arm.X * local.Y) - (local.X * arm.Y)) * InverseInertia.Z);
+
+        double mass = InverseMass;
+
+        return (((float)(world.X * mass), (float)(world.Y * mass), (float)(world.Z * mass)), spin);
+    }
+
+    /// <summary>The mass this core presents to a push at a point — <c>FUN_1800770f0</c>.</summary>
+    /// <param name="arm">The point, in the core's frame.</param>
+    /// <param name="local">The push's direction in the core's frame.</param>
+    /// <param name="world">The same direction in the world.</param>
+    /// <returns><c>1</c> for a core flagged <c>0x10</c>; otherwise the reciprocal of the point's whole response.</returns>
+    /// <remarks>
+    /// **The reciprocal of the response's LENGTH, not of its component along the push**: <see cref="UnitPush"/>'s changes become
+    /// a point velocity through <see cref="PointVelocity"/>, and the answer is `1.0 / FUN_18006e120` of that.
+    /// </remarks>
+    public double VirtualMass(
+        (float X, float Y, float Z) arm, (float X, float Y, float Z) local, (float X, float Y, float Z) world)
+    {
+        if (SkipsGravity)
+        {
+            return 1d;
+        }
+
+        ((float X, float Y, float Z) velocity, (float X, float Y, float Z) spin) = UnitPush(arm, local, world);
+
+        return 1d / IvpVector.Length(PointVelocity(arm, velocity, spin));
+    }
+
+    /// <summary><c>DAT_1800fcfd8</c>: how far, squared, a core may drift from its anchor.</summary>
+    private static readonly double NearAnchor = BitConverter.Int64BitsToDouble(0x3f1a36e2d7731900);
+
+    /// <summary><c>DAT_1800fcfd0</c>: how far a core may turn from its anchor, as <c>2·(1 − dot²)·r²</c>.</summary>
+    private static readonly double TurnedFromAnchor = BitConverter.Int64BitsToDouble(0x3efa36e2d7731900);
+
+    /// <summary><c>DAT_1800fcfe0</c>: the settle anchor's drift, squared.</summary>
+    private static readonly double NearSettleAnchor = BitConverter.Int64BitsToDouble(0x3f847ae151eb8520);
+
+    /// <summary><c>DAT_1800fcfe8</c>: the settle anchor's turn.</summary>
+    private static readonly double TurnedFromSettleAnchor = BitConverter.Int64BitsToDouble(0x3fa47ae151eb8520);
+
+    /// <summary><c>DAT_1800fcff0</c>: <c>3π/4</c>, the turn a resting core may make over the rest delay.</summary>
+    private static readonly double SpinAllowance = BitConverter.Int64BitsToDouble(0x4002d97c7f3321d2);
+
+    /// <summary><c>DAT_1800ed2f8</c>: how long, in seconds, a core must hold its settle anchor to count as resting after re-anchoring.</summary>
+    private const float SettleTime = 4f;
+
+    /// <summary>The position the rest test last anchored this core at — the floats at <c>core+0x230</c>.</summary>
+    public (float X, float Y, float Z) RestAnchorPosition { get; set; }
+
+    /// <summary>The working orientation at that moment — <c>core+0x210</c>.</summary>
+    public (float X, float Y, float Z, float W) RestAnchorOrientation { get; set; }
+
+    /// <summary>When that was — <c>core+0x200</c>.</summary>
+    public double RestAnchorTime { get; set; }
+
+    /// <summary>The wider anchor, moved only past its own bounds — <c>core+0x240</c>.</summary>
+    public (float X, float Y, float Z) SettleAnchorPosition { get; set; }
+
+    /// <summary>The committed orientation when the wider anchor moved — <c>core+0x220</c>.</summary>
+    public (float X, float Y, float Z, float W) SettleAnchorOrientation { get; set; }
+
+    /// <summary>When that was — <c>core+0x208</c>.</summary>
+    public double SettleAnchorTime { get; set; }
+
+    /// <summary>Whether this core is moving, still, or at rest — <c>FUN_180077220</c>.</summary>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <param name="restDelay">How long a core must stay by its anchor — the environment's float at <c>+0xc8</c>.</param>
+    /// <returns>What the unit's PSI keeps in the core's byte <c>+0x1</c>.</returns>
+    /// <remarks>
+    /// <code>
+    /// |P − A|² > DAT_1800fcfd8, or 2·(1 − (q·Q)²)·r·r > DAT_1800fcfd0      (A, q the anchor; Q working; r core+0x4) → re-anchor
+    /// (float)(now − core+0x200) ≤ delay, a NaN too → Still
+    /// (ωx² + ωy²) + ωz² ≤ ((float)(3π/4 / delay))², or the turn of (float)Q′ against Q ≤ DAT_1800fcfd0 → Resting
+    /// re-anchor:  q = (float)Q;  A = (float)P;  core+0x200 = now
+    ///     |P − B|² > DAT_1800fcfe0, or the turn of q₂ against Q′ > DAT_1800fcfe8 → q₂ = (float)Q′;  B = (float)P;  core+0x208 = now → Moving
+    ///     (float)(now − core+0x208) > 4 → Resting, else Moving
+    /// </code>
+    /// Every dot is `(a.w·Q.w + a.z·Q.z) + (a.y·Q.y + a.x·Q.x)` with the float anchor widened and the destination, every
+    /// distance `((P.y − B.y)² + (P.x − B.x)²) + (P.z − B.z)²`; each comparison falls the way `COMISD`/`JA` or `JBE` does on a
+    /// NaN. Pinned by the `vphysics-rest` probe (`IvpRestConformanceTests`). **The operand destinations in those sums and
+    /// products are carried but no output can see them**: every one feeds a comparison, and a NaN compares false whatever its
+    /// payload.
+    /// </remarks>
+    public IvpCoreMotion TestRest(double now, float restDelay)
+    {
+        if (SquaredDistance(RestAnchorPosition) > NearAnchor || Turn(RestAnchorOrientation, WorkingOrientation) > TurnedFromAnchor)
+        {
+            return Reanchor(now);
+        }
+
+        if ((float)(now - RestAnchorTime) > restDelay)
+        {
+            float limit = (float)(SpinAllowance / restDelay);
+            float spin = IvpMath.Addss(
+                IvpMath.Addss(IvpMath.Mulss(AngularVelocity.X, AngularVelocity.X), IvpMath.Mulss(AngularVelocity.Y, AngularVelocity.Y)),
+                IvpMath.Mulss(AngularVelocity.Z, AngularVelocity.Z));
+
+            if (spin > IvpMath.Mulss(limit, limit) && Turn(Narrow(Orientation), WorkingOrientation) > TurnedFromAnchor)
+            {
+                return Reanchor(now);
+            }
+
+            return IvpCoreMotion.Resting;
+        }
+
+        return IvpCoreMotion.Still;
+    }
+
+    private static (float X, float Y, float Z, float W) Narrow((double X, double Y, double Z, double W) rotation) =>
+        ((float)rotation.X, (float)rotation.Y, (float)rotation.Z, (float)rotation.W);
+
+    /// <summary>The rest test's re-anchoring tail: the near anchor always, the wider one past its bounds.</summary>
+    private IvpCoreMotion Reanchor(double now)
+    {
+        RestAnchorOrientation = Narrow(WorkingOrientation);
+        RestAnchorPosition = ((float)Position.X, (float)Position.Y, (float)Position.Z);
+        RestAnchorTime = now;
+
+        if (SquaredDistance(SettleAnchorPosition) > NearSettleAnchor || Turn(SettleAnchorOrientation, Orientation) > TurnedFromSettleAnchor)
+        {
+            SettleAnchorOrientation = Narrow(Orientation);
+            SettleAnchorPosition = ((float)Position.X, (float)Position.Y, (float)Position.Z);
+            SettleAnchorTime = now;
+
+            return IvpCoreMotion.Moving;
+        }
+
+        return (float)(now - SettleAnchorTime) > SettleTime ? IvpCoreMotion.Resting : IvpCoreMotion.Moving;
+    }
+
+    private double SquaredDistance((float X, float Y, float Z) anchor)
+    {
+        double x = Position.X - anchor.X;
+        double y = Position.Y - anchor.Y;
+        double z = Position.Z - anchor.Z;
+
+        return IvpMath.Addsd(IvpMath.Addsd(IvpMath.Mulsd(y, y), IvpMath.Mulsd(x, x)), IvpMath.Mulsd(z, z));
+    }
+
+    /// <summary>The rest test's turn: <c>2·(1 − dot²)·r·r</c>, the float anchor widened.</summary>
+    private double Turn((float X, float Y, float Z, float W) anchor, (double X, double Y, double Z, double W) rotation)
+    {
+        double dot = IvpMath.Addsd(
+            IvpMath.Addsd(IvpMath.Mulsd(anchor.W, rotation.W), IvpMath.Mulsd(anchor.Z, rotation.Z)),
+            IvpMath.Addsd(IvpMath.Mulsd(anchor.Y, rotation.Y), IvpMath.Mulsd(anchor.X, rotation.X)));
+        double gap = 1d - IvpMath.Mulsd(dot, dot);
+
+        return IvpMath.Mulsd(IvpMath.Mulsd(IvpMath.Addsd(gap, gap), Radius), Radius);
+    }
 }
 
 /// <summary>
@@ -408,6 +720,7 @@ public static class IvpIntegrator
     /// <param name="orientationDelta">
     /// The island's nominal step — <c>env+0x190 − env+0x188</c>, shared by every core in it.
     /// </param>
+    /// <param name="phase">The environment's phase, <c>env+0x1ac</c> — see <see cref="Rotate(IvpRigidBody, float, int, bool)"/>.</param>
     /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
     /// <remarks>
     /// **The order is the finding.** Verbatim, and every line of it matters:
@@ -433,7 +746,7 @@ public static class IvpIntegrator
     /// - **The per-core dt is narrowed to `float` before use** — `(double)(float)(dVar9 - dVar2)` —
     ///   so the arithmetic runs at single precision even though both operands are doubles.
     /// </remarks>
-    public static void Step(IvpRigidBody body, double positionDelta, float orientationDelta)
+    public static void Step(IvpRigidBody body, double positionDelta, float orientationDelta, int phase)
     {
         ArgumentNullException.ThrowIfNull(body);
 
@@ -450,6 +763,9 @@ public static class IvpIntegrator
             ? 1e10f
             : (float)(1.0 / orientationDelta);
 
+        // FUN_180099fc0 runs before the stamp, the move and the commit, as FUN_180099a00 calls it.
+        (double X, double Y, double Z, double W) turn = Rotate(body, orientationDelta, phase);
+
         body.Position = (
             body.Position.X + (body.PreviousVelocity.X * delta),
             body.Position.Y + (body.PreviousVelocity.Y * delta),
@@ -459,44 +775,72 @@ public static class IvpIntegrator
 
         // **Commit first.** What the rest of the engine reads is last step's working orientation.
         body.Orientation = body.WorkingOrientation;
-
-        (float X, float Y, float Z, float W) turn = Rotate(body, orientationDelta);
-
-        body.WorkingOrientation =
-            IvpQuaternion.Normalise(IvpQuaternion.Product(body.WorkingOrientation, turn));
+        body.WorkingOrientation = IvpQuaternion.Normalise(IvpQuaternion.Product(body.WorkingOrientation, turn));
     }
 
-    /// <summary>Builds a step's rotation and advances the angular velocity — <c>FUN_180099fc0</c>.</summary>
+    /// <summary>Builds a step's rotation and advances the angular velocity — <c>FUN_180099fc0</c>, on the path the runtime chose.</summary>
     /// <param name="body">The body, whose angular velocity this updates.</param>
     /// <param name="delta">The step, in seconds.</param>
+    /// <param name="phase">The environment's phase, <c>env+0x1ac</c>.</param>
     /// <returns>The rotation to apply to the orientation.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    public static (double X, double Y, double Z, double W) Rotate(IvpRigidBody body, float delta, int phase) =>
+        Rotate(body, delta, phase, IvpMath.FusedPath);
+
+    /// <summary><c>FUN_180099fc0</c>, with vphysics' <c>sin</c> on a given path.</summary>
+    /// <param name="body">The body, whose angular velocity this updates.</param>
+    /// <param name="delta">The step, in seconds.</param>
+    /// <param name="phase">The environment's phase, <c>env+0x1ac</c>.</param>
+    /// <param name="fused">Whether <c>sin</c> takes its fused-multiply-add path.</param>
+    /// <returns>The rotation to apply to the orientation.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">The second route's axis is not 0, 1 or 2.</exception>
     /// <remarks>
-    /// **Sub-steps when the turn is large**, then applies Euler's torque-free equations between each
-    /// one. The sub-step count and the free rotation are separate enough to test on their own — see
-    /// <see cref="SubSteps"/> and <see cref="FreeRotation"/>.
+    /// <code>
+    /// bit 0x8 of core+0x0, or env+0x1ac == 5 → the second route below
+    /// h = (double)dt;  k = SubSteps;  k ≠ 1 → h = h / (double)(float)k
+    /// out = FUN_180071680(ω, h);  ω = FreeRotation(ω, h)
+    /// k − 1 times:  d = FUN_180071680(ω, h);  out = d ⊗ out, FUN_180070d60 inlined with the NEW delta on the left;  ω = FreeRotation
+    /// core+0x130 = ω
+    ///
+    /// second route:  core+0x58 set and core+0x8 zero or NaN (UCOMISS/JNZ) →
+    ///                    a = FUN_180070f50(ω with the axis lane zeroed, dt);  s = sin(((double)ω[axis]·0.5)·dt)
+    ///                    out = FUN_180070d60(a, (the axis lane (double)(float)s, the others 0, √(1 − s·s)))
+    ///                otherwise out = FUN_180070f50(ω, dt);   neither updates ω
+    /// </code>
+    /// **Phase 5 is set after the PSI's last section** (`FUN_180082560`), so the second route is what a core integrated between
+    /// PSIs takes; the integrate section itself runs in phase 0. **The inlined product is not `FUN_180070d60` with its operands
+    /// swapped**: four of its multiplications take the other operand as the destination, which only a pair of NaNs can see.
     /// </remarks>
-    public static (float X, float Y, float Z, float W) Rotate(IvpRigidBody body, float delta)
+    public static (double X, double Y, double Z, double W) Rotate(IvpRigidBody body, float delta, int phase, bool fused)
     {
         ArgumentNullException.ThrowIfNull(body);
 
+        if (body.FlagBit3 || phase == FinishedPhase)
+        {
+            return Unstepped(body, delta, fused);
+        }
+
         int steps = SubSteps(body.AngularVelocity, delta);
+        double step = delta;
 
-        float step = (float)((double)delta / steps);
+        if (steps != 1)
+        {
+            step /= (float)steps;
+        }
 
-        (float X, float Y, float Z, float W) turn = IvpQuaternion.Delta(body.AngularVelocity, step);
+        (float X, float Y, float Z) spin = body.AngularVelocity;
+        (double X, double Y, double Z, double W) turn = IvpQuaternion.Delta(spin, step);
 
-        body.AngularVelocity =
-            FreeRotation(body.AngularVelocity, body.Inertia, body.InverseInertia, step);
+        spin = FreeRotation(spin, body.Inertia, body.InverseInertia, step);
 
         for (int index = 1; index < steps; index++)
         {
-            turn = IvpQuaternion.Product(
-                turn, IvpQuaternion.Delta(body.AngularVelocity, step));
-
-            body.AngularVelocity =
-                FreeRotation(body.AngularVelocity, body.Inertia, body.InverseInertia, step);
+            turn = Accumulate(IvpQuaternion.Delta(spin, step), turn);
+            spin = FreeRotation(spin, body.Inertia, body.InverseInertia, step);
         }
+
+        body.AngularVelocity = spin;
 
         return turn;
     }
@@ -522,19 +866,21 @@ public static class IvpIntegrator
     ///
     /// **The comparison is strictly less-than**, so a turn of exactly 1/6 radian does not sub-step.
     ///
+    /// **The squared spin is summed in FLOAT, `(ωy² + ωx²) + ωz²`**, then widened and multiplied by the double step twice.
+    /// **The count is `CVTTSD2SI` plus one**, so a turn too large for an int truncates to `int.MinValue` and the count comes out
+    /// negative: one delta over a negative step, and no further sub-steps.
+    ///
     /// **A transcription that stepped rotation once per PSI is right for a settling corpse and wrong
     /// for a limb that is whipping** — which is the frame anyone watching a demo is looking at.
     /// </remarks>
     public static int SubSteps((float X, float Y, float Z) angularVelocity, float delta)
     {
-        double square =
-            ((double)angularVelocity.X * angularVelocity.X) +
-            ((double)angularVelocity.Y * angularVelocity.Y) +
-            ((double)angularVelocity.Z * angularVelocity.Z);
+        float square = IvpMath.Addss(
+            IvpMath.Addss(IvpMath.Mulss(angularVelocity.Y, angularVelocity.Y), IvpMath.Mulss(angularVelocity.X, angularVelocity.X)),
+            IvpMath.Mulss(angularVelocity.Z, angularVelocity.Z));
+        double turn = IvpMath.Mulsd(IvpMath.Mulsd(square, delta), delta);
 
-        double turn = square * delta * delta;
-
-        return SubStepThreshold < turn ? (int)Math.Sqrt(turn * SubStepScale) + 1 : 1;
+        return turn > SubStepThreshold ? unchecked(Truncate(Math.Sqrt(IvpMath.Mulsd(turn, SubStepScale))) + 1) : 1;
     }
 
     /// <summary>Euler's torque-free equations for one step.</summary>
@@ -559,28 +905,91 @@ public static class IvpIntegrator
     /// do — feeds the new `ωx` into `ωy` and both into `ωz`, and the error grows with the timestep.
     ///
     /// **The coefficients pair each difference with the reciprocal of the axis being written:**
-    /// `(Iy − Iz)·(1/Ix)`, `(Iz − Ix)·(1/Iy)`, `(Ix − Iy)·(1/Iz)`.
+    /// `(Iy − Iz)·(1/Ix)`, `(Iz − Ix)·(1/Iy)`, `(Ix − Iy)·(1/Iz)`, each in float.
+    ///
+    /// **The spin products are float and the rest is double**, read from the disassembly:
+    /// `ωx′ = (float)((double)(float)((double)(ωz·ωy)·(double)about) · h + (double)ωx)`. The coefficient's product is taken in
+    /// double and narrowed, which is carried as the binary's instructions but equals the float product for every input: two
+    /// floats' mantissas multiply exactly in 48 bits, so the narrowing is the only rounding either way.
     /// </remarks>
     public static (float X, float Y, float Z) FreeRotation(
         (float X, float Y, float Z) angularVelocity,
         (float X, float Y, float Z) inertia,
         (float X, float Y, float Z) inverseInertia,
-        float delta)
+        double delta)
     {
-        float aboutX = (inertia.Y - inertia.Z) * inverseInertia.X;
-        float aboutY = (inertia.Z - inertia.X) * inverseInertia.Y;
-        float aboutZ = (inertia.X - inertia.Y) * inverseInertia.Z;
+        double aboutX = IvpMath.Mulss(inertia.Y - inertia.Z, inverseInertia.X);
+        double aboutY = IvpMath.Mulss(inertia.Z - inertia.X, inverseInertia.Y);
+        double aboutZ = IvpMath.Mulss(inertia.X - inertia.Y, inverseInertia.Z);
 
         // Every product is taken from the values passed in, never from a partly updated triple.
-        float yz = angularVelocity.Z * angularVelocity.Y;
-        float zx = angularVelocity.Z * angularVelocity.X;
-        float yx = angularVelocity.Y * angularVelocity.X;
+        float zy = IvpMath.Mulss(angularVelocity.Z, angularVelocity.Y);
+        float zx = IvpMath.Mulss(angularVelocity.Z, angularVelocity.X);
+        float yx = IvpMath.Mulss(angularVelocity.Y, angularVelocity.X);
 
         return (
-            (float)(((double)(yz * aboutX) * delta) + angularVelocity.X),
-            (float)(((double)(zx * aboutY) * delta) + angularVelocity.Y),
-            (float)(((double)(yx * aboutZ) * delta) + angularVelocity.Z));
+            Advance(zy, aboutX, delta, angularVelocity.X),
+            Advance(zx, aboutY, delta, angularVelocity.Y),
+            Advance(yx, aboutZ, delta, angularVelocity.Z));
     }
+
+    /// <summary>One lane of <see cref="FreeRotation"/>: <c>(float)((double)(float)(product·about)·h + rate)</c>.</summary>
+    private static float Advance(float product, double about, double delta, float rate) =>
+        (float)IvpMath.Addsd(IvpMath.Mulsd((float)IvpMath.Mulsd(product, about), delta), rate);
+
+    /// <summary><c>CVTTSD2SI</c>: truncation toward zero, and <c>int.MinValue</c> for anything an int cannot hold.</summary>
+    /// <remarks>
+    /// .NET's own cast saturates instead, since .NET 9 — which no output can see: a count past an int's range comes out
+    /// negative either way, and <c>(float)</c> rounds both negative counts to <c>−2³¹</c>. Carried as the binary's instruction.
+    /// </remarks>
+    private static int Truncate(double value) =>
+        value is >= -2147483648d and < 2147483648d ? (int)value : int.MinValue;
+
+    /// <summary><c>FUN_180099fc0</c>'s inlined product for a later sub-step: the new delta on the left, the turn so far on the right.</summary>
+    private static (double X, double Y, double Z, double W) Accumulate(
+        (double X, double Y, double Z, double W) delta, (double X, double Y, double Z, double W) turn)
+    {
+        (double d0, double d1, double d2, double d3) = delta;
+        (double t0, double t1, double t2, double t3) = turn;
+
+        return (
+            IvpMath.Addsd(IvpMath.Addsd(IvpMath.Mulsd(t0, d3), IvpMath.Mulsd(t3, d0)), IvpMath.Mulsd(t2, d1)) - IvpMath.Mulsd(t1, d2),
+            IvpMath.Addsd(IvpMath.Addsd(IvpMath.Mulsd(t1, d3), IvpMath.Mulsd(t3, d1)), IvpMath.Mulsd(d2, t0)) - IvpMath.Mulsd(t2, d0),
+            IvpMath.Addsd(IvpMath.Addsd(IvpMath.Mulsd(t2, d3), IvpMath.Mulsd(t3, d2)), IvpMath.Mulsd(t1, d0)) - IvpMath.Mulsd(d1, t0),
+            ((IvpMath.Mulsd(t3, d3) - IvpMath.Mulsd(t0, d0)) - IvpMath.Mulsd(t1, d1)) - IvpMath.Mulsd(t2, d2));
+    }
+
+    /// <summary><c>FUN_180099fc0</c>'s second route: real sines, and no sub-steps or Euler update.</summary>
+    private static (double X, double Y, double Z, double W) Unstepped(IvpRigidBody body, float delta, bool fused)
+    {
+        (float X, float Y, float Z) spin = body.AngularVelocity;
+
+        if (!body.HasOffset58 || body.Offset08 < 0f || body.Offset08 > 0f)
+        {
+            return IvpQuaternion.SineDelta(spin, delta, fused);
+        }
+
+        int axis = body.Offset58Axis;
+        double rate = axis switch
+        {
+            0 => spin.X,
+            1 => spin.Y,
+            2 => spin.Z,
+            _ => throw new InvalidOperationException($"core+0x58's axis must be 0, 1 or 2, not {axis}."),
+        };
+
+        (double X, double Y, double Z, double W) others =
+            IvpQuaternion.SineDelta((axis == 0 ? 0f : spin.X, axis == 1 ? 0f : spin.Y, axis == 2 ? 0f : spin.Z), delta, fused);
+        double sine = IvpMath.Sin(IvpMath.Mulsd(IvpMath.Mulsd(rate, 0.5d), delta), fused);
+        double lane = (float)sine;
+        (double X, double Y, double Z, double W) about = (
+            axis == 0 ? lane : 0d, axis == 1 ? lane : 0d, axis == 2 ? lane : 0d, Math.Sqrt(1d - IvpMath.Mulsd(sine, sine)));
+
+        return IvpQuaternion.Product(others, about);
+    }
+
+    /// <summary><c>env+0x1ac</c> once <c>FUN_180082560</c> has run its last section.</summary>
+    private const int FinishedPhase = 5;
 
     /// <summary><c>DAT_1800fdf90</c>, dumped — 1/36, so the test is on 1/6 radian.</summary>
     private const double SubStepThreshold = 0.027777777777777776d;
