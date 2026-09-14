@@ -215,6 +215,37 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      it now from inference, without reading those functions and without a `vphysics-*` probe verifying it against the
      shipped binary, would risk exactly the kind of subtly-wrong physics this project's own history (documented at
      length in `IvpEnvironment.cs`) has repeatedly paid for.
+   - **Contact identity, read further, 2026-09-14 — `IvpMindist.ContactPoint` (`+0x70`) is a memo, not the canonical
+     store.** `IvpContactPoint::Allocate` (`18008c4b0`) is the real lookup: only for an exact mindist (flags
+     `& 0x3c0000 == 0xc0000`), it walks the SECOND object's own `ContactPoints` list (already a real field,
+     `IvpCollisionObject.ContactPoints`) for an existing point whose `FirstObject`/`SecondObject` matches the other
+     side AND passes a feature-match test, `FUN_1800869a0` (unread) — reusing it if found (persistence, warm-starting
+     `Slide`/`PushStreak`), else allocating fresh via the already-ported `IvpContactPoint` constructor. The `+0x70`
+     field added this session is a per-mindist fast-path memo the engine also keeps, checked before this search — its
+     exact relationship to the canonical object-list search (which takes priority, when the memo is trusted) is not
+     yet confirmed and needs its own read before `LinkContactByCore` can use it correctly.
+   - **`IvpFrictionPair::Build` (`180086670`) — read, and confirmed genuinely skippable for now.** It computes an
+     inter-body relative-velocity direction and per-core response coefficients (rotated into each core's local frame
+     via `IvpMatrix::RotateInverseNarrowed`, unread) that `IvpFrictionSystem.cs`'s own existing doc comment already
+     says are deliberately not carried (*"only the fields the heap solve reads are carried"*) — and confirmed here:
+     `LinkContactByCore`'s own pair-allocation path (`FUN_180088090`→`FUN_1800830d0`) never calls `Build` at all; it
+     only zero-inits a bare shell with two sentinel constants, matching the existing plain `IvpFrictionPair`
+     constructor exactly. No new work needed here.
+   - **The system-merge branch (`FUN_180086240`, read in full) is its own substantial function** — migrates every
+     contact and every core from a losing system into a surviving one when a new contact bridges two objects that
+     were each already in separate systems, merging per-core friction-info shares along the way. Confirmed separable
+     from the common "new pair, no pre-existing systems" path — the next port should implement the common path first
+     and throw a named `NotSupportedException` for this branch, matching this codebase's own established convention
+     (e.g. `IvpMindistManager.RecheckEveryPsi`'s ball-vs-triangle exception) rather than guessing at a merge this
+     deep without its own oracle.
+   - **Ordering note for whoever ports this**: `LinkContactByCore` swaps which object is treated as the FIRST
+     friction core based on ONE bit of the object's own `core+0x0` byte (bit `0x2` alone) — but `IvpRigidBody`'s
+     existing `Immovable` bool already collapsed TWO engine bits (`0x2` and `0x10`) into one, per that property's own
+     doc comment, because no prior caller needed to tell them apart. **This is a real divergence risk, not
+     approximated away lightly**: for every real ragdoll-vs-static-world case the two bits coincide, so `Immovable`
+     is a safe stand-in in practice, but the port should say so explicitly in a comment rather than silently reuse
+     `Immovable`, and should not touch `Immovable`'s representation to fix this without re-testing every existing
+     caller.
    - **Not attempted this session, and it should not be rushed without its own oracle.** Every other subsystem in this
      port — down to the larger mindist's own 5-stage, oracle-backed process — earned trust through a dedicated
      `vphysics-*` probe calling the shipped binary in process before being wired in. `collide`'s friction-system
