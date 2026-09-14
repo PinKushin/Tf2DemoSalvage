@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using System.Runtime.Intrinsics.X86;
 
 namespace Tf2DemoSalvage.Animation.Animating;
@@ -509,28 +510,45 @@ public static class IvpMath
     private static readonly double CosineSeventwentieth = BitConverter.Int64BitsToDouble(unchecked((long)0xbf56c16c16c16967));
     private static readonly double CosineFortieth = BitConverter.Int64BitsToDouble(0x3efa01a019f4ec91);
     private static readonly double CosineTenth = BitConverter.Int64BitsToDouble(unchecked((long)0xbe927e4fa17f667b));
-    private static readonly double CosineTwelfth = BitConverter.Int64BitsToDouble(0x3e21eeb69037ec2e);
+    private static readonly double CosineTwelfth = BitConverter.Int64BitsToDouble(0x3e21eeb690382eec);
     private static readonly double CosineFourteenth = BitConverter.Int64BitsToDouble(unchecked((long)0xbda907db47258aa7));
 
     /// <summary><c>FUN_1800d33b0</c>: <c>cos</c>, on the path the runtime chose.</summary>
-    /// <param name="x">The argument, under π/4 in magnitude.</param>
+    /// <param name="x">The argument.</param>
     /// <returns>The image's bits.</returns>
     public static double Cos(double x) => Cos(x, FusedPath);
 
-    /// <summary><c>FUN_1800d33b0</c> on a given path — the series `180105f20..f70` in `z = x²`, under π/4.</summary>
+    /// <summary><c>FUN_1800d33b0</c> on a given path.</summary>
     /// <param name="x">The argument.</param>
     /// <param name="fused">Whether to take the fused-multiply-add path.</param>
     /// <returns>The image's bits.</returns>
-    /// <exception cref="NotSupportedException">|x| is π/4 or more, or NaN: the reduction through <c>FUN_1800daa70</c> is not ported.</exception>
-    /// <remarks>Plain π/4 itself goes to the reduction (<c>JC</c>); fused π/4 stays on the series (<c>JG</c>).</remarks>
+    /// <remarks>
+    /// <code>
+    /// |x| under 2^−27: 1;  under 2^−13: 1 − (x·x)·0.5 (fused: 1 − (x·0.5)·x);  under π/4: the series `180105f20..f70` in z = x²
+    /// otherwise, infinity or NaN → the handler (infinity: the default NaN; NaN: quieted)
+    ///     y = x reduced by π/2 (plain: inline under 500000, else FUN_1800daa70;  fused: FUN_1800dafb0 under 2·10⁷, else
+    ///     FUN_1800dadc0), n its quadrant;  n even → the cosine kernel, odd → the sine kernel;  (n + 1) &amp; 2 → negated
+    /// </code>
+    /// Plain π/4 itself goes to the reduction (<c>JC</c>); fused π/4 stays on the series (<c>JG</c>). **The plain path negates by
+    /// subtracting from zero, the fused by flipping the sign bit**, so the two answer a zero's sign differently.
+    /// </remarks>
     public static double Cos(double x, bool fused)
     {
-        long magnitude = BitConverter.DoubleToInt64Bits(x) & long.MaxValue;
+        long bits = BitConverter.DoubleToInt64Bits(x);
+        long magnitude = bits & long.MaxValue;
         bool reduced = fused ? magnitude > QuarterPiBits : magnitude >= QuarterPiBits;
 
         if (reduced)
         {
-            throw new NotSupportedException("IvpMath.Cos ports FUN_1800d33b0 under pi/4 only; its reduction, FUN_1800daa70, is not ported.");
+            if (magnitude >= InfinityBits)
+            {
+                return NotFinite(bits);
+            }
+
+            (int quadrant, double high, double low) = Reduce(Math.Abs(x), magnitude, fused);
+            double value = (quadrant & 1) == 0 ? CosineKernel(high, low, fused) : SineKernel(high, low, fused);
+
+            return ((quadrant + 1) & 2) == 0 ? value : Negate(value, fused);
         }
 
         if (magnitude < CosineTinyBits)
@@ -567,6 +585,486 @@ public static class IvpMath
 
         return (e + series) + w;
     }
+
+    /// <summary><c>FUN_1800c8020</c>: <c>sin</c>, on the path the runtime chose.</summary>
+    /// <param name="x">The argument.</param>
+    /// <returns>The image's bits.</returns>
+    public static double Sin(double x) => Sin(x, FusedPath);
+
+    /// <summary><c>FUN_1800c8020</c> on a given path.</summary>
+    /// <param name="x">The argument.</param>
+    /// <param name="fused">Whether to take the fused-multiply-add path.</param>
+    /// <returns>The image's bits.</returns>
+    /// <remarks>
+    /// <code>
+    /// plain:  |x| under π/4:  at most 2^−27 → x;  else x + (x·z)·A,  A = ((c₅z + c₄)z + c₃)·z³ + ((c₂z + c₁)z + c₀)
+    /// fused:  |x| under π/4:  under 2^−27 → x;  under 2^−13 → x − (x·x·x)·⅙;  else the same series in fused steps
+    /// otherwise, infinity or NaN → the handler;  y = |x| reduced, n its quadrant;  n even → the sine kernel, odd → the cosine
+    ///     kernel;  negated when bit 1 of n differs from x's sign (plain: from zero; fused: the sign bit)
+    /// </code>
+    /// **The plain path compares its tiny bound with `JG` and its π/4 with `JC`, the fused path both with `JGE`/`JNC`**, so each
+    /// bound belongs to a different side on each path.
+    /// </remarks>
+    public static double Sin(double x, bool fused)
+    {
+        long bits = BitConverter.DoubleToInt64Bits(x);
+        long magnitude = bits & long.MaxValue;
+
+        if (magnitude < QuarterPiBits)
+        {
+            if (fused)
+            {
+                if (magnitude >= CosineSmallBits)
+                {
+                    double z = x * x;
+                    double p = Math.FusedMultiplyAdd(z, SineCoefficient(5), SineCoefficient(4));
+                    p = Math.FusedMultiplyAdd(z, p, SineCoefficient(3));
+                    p = Math.FusedMultiplyAdd(z, p, SineCoefficient(2));
+                    p = Math.FusedMultiplyAdd(z, p, SineCoefficient(1));
+                    double t = x * z;
+                    p = Math.FusedMultiplyAdd(z, p, SineCoefficient(0));
+
+                    return Math.FusedMultiplyAdd(t, p, x);
+                }
+
+                if (magnitude >= CosineTinyBits)
+                {
+                    double cube = x * x * x;
+
+                    return Math.FusedMultiplyAdd(-cube, Sixth, x);
+                }
+
+                return x;
+            }
+
+            if (magnitude <= CosineTinyBits)
+            {
+                return x;
+            }
+
+            double square = x * x;
+
+            return x + ((x * square) * SineSeries(square));
+        }
+
+        if (magnitude >= InfinityBits)
+        {
+            return NotFinite(bits);
+        }
+
+        (int quadrant, double high, double low) = Reduce(Math.Abs(x), magnitude, fused);
+        double value = (quadrant & 1) == 0 ? SineKernel(high, low, fused) : CosineKernel(high, low, fused);
+        bool flip = ((quadrant >> 1) & 1) != (bits < 0 ? 1 : 0);
+
+        return flip ? Negate(value, fused) : value;
+    }
+
+    /// <summary><c>FUN_1800cce64</c>: <c>acos</c>, which has one path.</summary>
+    /// <param name="x">The argument.</param>
+    /// <returns>The image's bits.</returns>
+    /// <remarks>
+    /// <code>
+    /// NaN: quieted;  |x| under 2^−56: π/2;  1: +0;  −1: π;  otherwise at or over one: the domain handler's default NaN
+    /// z = x² under one half, else z = (1 − |x|)·0.5 and s = √z;   r = (p(z)·z) / q(z), `180102bf8..c48`
+    /// under one half:  π/2 − (x − (π/2ˡ − r·x))
+    /// negative:        π − 2·((r·s − π/2ˡ) + s)
+    /// positive:        f = s with its low 32 bits cleared, c = (z − f²)/(f + s):  ((2s·r) + 2c) + f·2
+    /// </code>
+    /// </remarks>
+    public static double Acos(double x)
+    {
+        long bits = BitConverter.DoubleToInt64Bits(x);
+        long magnitude = bits & long.MaxValue;
+        int exponent = (int)((bits >> 52) & 0x7ff);
+
+        if (magnitude > InfinityBits)
+        {
+            return BitConverter.Int64BitsToDouble(bits | QuietBit);
+        }
+
+        if (exponent < 0x3c7)
+        {
+            return HalfPi;
+        }
+
+        if (exponent >= 0x3ff)
+        {
+            // UCOMISD against 1.0 and −1.0: for an argument this large, equal means the same bits.
+            if (bits == 0x3ff0000000000000)
+            {
+                return 0d;
+            }
+
+            return bits == unchecked((long)0xbff0000000000000) ? Pi : BitConverter.Int64BitsToDouble(DefaultNaNBits);
+        }
+
+        double absolute = bits < 0 ? -x : x;
+        double root = 0d;
+        double z;
+
+        if (exponent >= 0x3fe)
+        {
+            z = (1d - absolute) * 0.5d;
+            root = Math.Sqrt(z);
+            absolute = root;
+        }
+        else
+        {
+            z = absolute * absolute;
+        }
+
+        ReadOnlySpan<long> top = AcosNumeratorBits;
+        ReadOnlySpan<long> bottom = AcosDenominatorBits;
+        double numerator = ((((((((((z * Bits(top[0])) + Bits(top[1])) * z) - Bits(top[2])) * z) + Bits(top[3])) * z) - Bits(top[4])) * z) + Bits(top[5])) * z;
+        double denominator = ((((((z * Bits(bottom[0])) - Bits(bottom[1])) * z) + Bits(bottom[2])) * z) - Bits(bottom[3])) * z + Bits(bottom[4]);
+        double ratio = numerator / denominator;
+
+        if (exponent < 0x3fe)
+        {
+            return HalfPi - (x - (AcosHalfPiLow - (ratio * x)));
+        }
+
+        if (bits < 0)
+        {
+            double twice = ((ratio * absolute) - AcosHalfPiLow) + root;
+
+            return Pi - (twice + twice);
+        }
+
+        double truncated = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(root) & unchecked((long)0xffffffff00000000));
+        double correction = (z - (truncated * truncated)) / (truncated + root);
+
+        return (((root + root) * ratio) + (correction + correction)) + (truncated * 2d);
+    }
+
+    /// <summary><c>FUN_1800db050</c> and <c>FUN_1800db028</c>: an infinity's answer is the default NaN, a NaN's is itself quieted.</summary>
+    private static double NotFinite(long bits) =>
+        BitConverter.Int64BitsToDouble((bits & 0xfffffffffffff) == 0 ? DefaultNaNBits : bits | QuietBit);
+
+    /// <summary>A reduced result's sign flipped: the plain paths subtract from zero, the fused flip the sign bit.</summary>
+    private static double Negate(double value, bool fused) =>
+        fused ? BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(value) ^ long.MinValue) : 0d - value;
+
+    /// <summary>The sine's <c>A</c>: <c>((c₅z + c₄)z + c₃)·z³ + ((c₂z + c₁)z + c₀)</c>, as both plain routines add it.</summary>
+    private static double SineSeries(double z)
+    {
+        double cube = z * z * z;
+        double upper = (((SineCoefficient(5) * z) + SineCoefficient(4)) * z) + SineCoefficient(3);
+        double lower = (((SineCoefficient(2) * z) + SineCoefficient(1)) * z) + SineCoefficient(0);
+
+        return (upper * cube) + lower;
+    }
+
+    /// <summary>The sine of a reduced argument <c>y₀ + y₁</c>.</summary>
+    private static double SineKernel(double high, double low, bool fused)
+    {
+        double z = high * high;
+
+        if (fused)
+        {
+            double p = Math.FusedMultiplyAdd(z, SineCoefficient(5), SineCoefficient(4));
+            p = Math.FusedMultiplyAdd(z, p, SineCoefficient(3));
+            p = Math.FusedMultiplyAdd(z, p, SineCoefficient(2));
+            p = Math.FusedMultiplyAdd(z, p, SineCoefficient(1));
+            double t = high * z;
+            double u = (low * 0.5d) - (t * p);
+            u = (z * u) - low;
+            u = Math.FusedMultiplyAdd(-t, SineCoefficient(0), u);
+
+            return high - u;
+        }
+
+        double scaled = (high * z) * SineSeries(z);
+
+        return (low + (scaled - ((z * 0.5d) * low))) + high;
+    }
+
+    /// <summary>The cosine of a reduced argument <c>y₀ + y₁</c>.</summary>
+    private static double CosineKernel(double high, double low, bool fused)
+    {
+        double z = high * high;
+
+        if (fused)
+        {
+            double half = z * 0.5d;
+            double w = 1d - half;
+            double e = Math.FusedMultiplyAdd(-high, low, (1d - w) - half);
+            double squared = z * z;
+            double p = Math.FusedMultiplyAdd(z, CosineFourteenth, CosineTwelfth);
+            p = Math.FusedMultiplyAdd(z, p, CosineTenth);
+            p = Math.FusedMultiplyAdd(z, p, CosineFortieth);
+            p = Math.FusedMultiplyAdd(z, p, CosineSeventwentieth);
+            p = Math.FusedMultiplyAdd(z, p, TwentyFourthInverse);
+
+            return Math.FusedMultiplyAdd(squared, p, e) + w;
+        }
+
+        double product = low * high;
+        double upper = (((CosineFourteenth * z) + CosineTwelfth) * z) + CosineTenth;
+        double lower = (((CosineFortieth * z) + CosineSeventwentieth) * z) + TwentyFourthInverse;
+        double cube = z * z * z;
+        double halfZ = z * 0.5d;
+        double carried = ((((0.5d * z) - 1d) + 1d) - halfZ) - product;
+        double series = (lower + (upper * cube)) * (z * z);
+
+        return (series + carried) - (halfZ - 1d);
+    }
+
+    /// <summary><c>|x|</c> reduced by π/2 on a path: its quadrant and the two halves of the remainder.</summary>
+    private static (int Quadrant, double High, double Low) Reduce(double magnitude, long magnitudeBits, bool fused)
+    {
+        if (fused)
+        {
+            return magnitudeBits >= FusedReductionLimitBits ? ReduceLarge(magnitude, fused: true) : ReduceFused(magnitude);
+        }
+
+        return magnitudeBits >= PlainReductionLimitBits ? ReduceLarge(magnitude, fused: false) : ReducePlain(magnitude, magnitudeBits);
+    }
+
+    /// <summary>
+    /// The plain routines' inline reduction under 500000: <c>n = (int)(|x|·2/π + 0.5)</c>, the remainder taken against a
+    /// 33-bit <c>π/2</c> and its tail, and against the next 33 bits when the first leaves more than 15 bits of cancellation.
+    /// </summary>
+    private static (int Quadrant, double High, double Low) ReducePlain(double magnitude, long magnitudeBits)
+    {
+        int n = (int)((magnitude * TwoOverPi) + 0.5d);
+        double count = n;
+        double remainder = magnitude - (PiOverTwoFirst * count);
+        double tail = PiOverTwoFirstTail * count;
+        double high = remainder - tail;
+        long gap = (magnitudeBits >>> 52) - (long)(((ulong)BitConverter.DoubleToInt64Bits(high) << 1) >> 53);
+
+        if (gap > 15)
+        {
+            double previous = remainder;
+            double second = PiOverTwoSecond * count;
+
+            tail = PiOverTwoSecondTail * count;
+            remainder = previous - second;
+            tail -= (previous - remainder) - second;
+            high = remainder - tail;
+        }
+
+        return (n, high, (remainder - high) - tail);
+    }
+
+    /// <summary><c>FUN_1800dafb0</c>: the fused reduction under 2·10⁷, <c>n</c> rounded by adding and taking away 2⁵².</summary>
+    private static (int Quadrant, double High, double Low) ReduceFused(double magnitude)
+    {
+        double count = Math.FusedMultiplyAdd(magnitude, TwoOverPi, TwoToThe52) - TwoToThe52;
+        int n = (int)count;
+        double remainder = Math.FusedMultiplyAdd(-count, HalfPi, magnitude);
+        double product = count * FusedHalfPiLow;
+        double error = Math.FusedMultiplyAdd(FusedHalfPiLow, count, -product);
+        double difference = remainder - product;
+        double lost = (remainder - difference) - product;
+        double high = Math.FusedMultiplyAdd(-count, FusedHalfPiLow, remainder);
+        double rest = ((difference - high) + lost) - error;
+
+        return (n & 3, high, Math.FusedMultiplyAdd(-count, FusedHalfPiLowest, rest));
+    }
+
+    /// <summary>
+    /// <c>FUN_1800daa70</c> (plain) and <c>FUN_1800dadc0</c> (fused): the mantissa multiplied by 2/π's bits from
+    /// <c>180106100</c>, the quadrant rounded out of the top, the fraction normalised into two doubles and multiplied back by π/2.
+    /// </summary>
+    private static (int Quadrant, double High, double Low) ReduceLarge(double magnitude, bool fused)
+    {
+        ulong bits = (ulong)BitConverter.DoubleToInt64Bits(magnitude);
+        long exponent = (long)(bits >> 52) - 0x3ff;
+        int at = (int)(0x86 - (exponent >> 3));
+        ulong mantissa = ((bits << 12) >> 12) | (1UL << 52);
+        ReadOnlySpan<byte> table = TwoOverPiBytes;
+
+        ulong carryHigh = Math.BigMul(ReadUInt64(table, at), mantissa, out ulong lowest);
+        ulong middleHigh = Math.BigMul(ReadUInt64(table, at + 8), mantissa, out ulong middleLow);
+        ulong middle = middleLow + carryHigh;
+        ulong top = middleHigh + (middle < carryHigh ? 1UL : 0UL) + (ReadUInt64(table, at + 16) * mantissa);
+
+        int fraction = (int)(exponent & 7);
+        int shift = 54 - fraction;
+        bool roundUp = ((top >> (shift - 1)) & 1) != 0;
+        ulong sign = 0;
+
+        int quadrant = (int)(((top >> shift) + (roundUp ? 1UL : 0UL)) & 3);
+
+        if (roundUp)
+        {
+            top = ~top;
+            middle = ~middle;
+            lowest = ~lowest;
+            sign = 1UL << 63;
+        }
+
+        int keep = fraction + 10;
+        top = (top << keep) >> keep;
+        long scale = keep - 64;
+        long leading = scale;
+
+        if (top != 0)
+        {
+            leading = 63 - BitOperations.LeadingZeroCount(top);
+        }
+        else
+        {
+            top = middle;
+            middle = lowest;
+            lowest = 0;
+
+            if (top != 0)
+            {
+                leading = 63 - BitOperations.LeadingZeroCount(top);
+            }
+
+            scale -= 64;
+        }
+
+        scale += leading;
+        long move = leading - 52;
+
+        if (move < 0)
+        {
+            int left = (int)-move;
+            ulong carried = middle;
+
+            top <<= left;
+            middle <<= left;
+            carried >>= 64 - left;
+            top |= carried;
+            lowest >>= 64 - left;
+            middle |= lowest;
+        }
+        else if (move > 0)
+        {
+            int right = (int)move;
+            ulong carried = top;
+
+            top >>= right;
+            middle >>= right;
+            carried <<= 64 - right;
+            middle |= carried;
+        }
+
+        scale += 0x3ff;
+
+        ulong fractionBits = (top & ~(1UL << 52)) | sign | ((ulong)scale << 52);
+        double first = BitConverter.Int64BitsToDouble((long)fractionBits);
+        long nextLeading = middle != 0 ? 63 - BitOperations.LeadingZeroCount(middle) : 0;
+        long nextShift = 64 - nextLeading;
+
+        middle <<= (int)nextShift;
+        middle >>= 12;
+        nextShift += 52;
+
+        ulong nextBits = middle | sign | ((ulong)(scale - nextShift) << 52);
+        double second = BitConverter.Int64BitsToDouble((long)nextBits);
+        double firstHigh = BitConverter.Int64BitsToDouble((long)((fractionBits >> 27) << 27));
+        double firstLow = first - firstHigh;
+
+        if (fused)
+        {
+            double product = first * HalfPi;
+            double sum = (firstHigh * ReductionHalfPiHigh) - product;
+            sum = Math.FusedMultiplyAdd(firstLow, ReductionHalfPiHigh, sum);
+            sum = Math.FusedMultiplyAdd(firstHigh, ReductionHalfPiMiddle, sum);
+            sum = Math.FusedMultiplyAdd(firstLow, ReductionHalfPiMiddle, sum);
+            double tail = Math.FusedMultiplyAdd(first, ReductionHalfPiLow, second * HalfPi);
+            sum += tail;
+            double fusedHigh = product + sum;
+
+            return (quadrant, fusedHigh, (product - fusedHigh) + sum);
+        }
+
+        double scaled = first * HalfPi;
+        double scaledLow = first * ReductionHalfPiLow;
+        double next = second * HalfPi;
+        double total = (ReductionHalfPiHigh * firstHigh) - scaled;
+        total += ReductionHalfPiHigh * firstLow;
+        double carriedTail = scaledLow + next;
+        total += ReductionHalfPiMiddle * firstHigh;
+        total += ReductionHalfPiMiddle * firstLow;
+        total += carriedTail;
+        double high = scaled + total;
+
+        return (quadrant, high, total + (scaled - high));
+    }
+
+    private static ulong ReadUInt64(ReadOnlySpan<byte> table, int at) => BitConverter.ToUInt64(table.Slice(at, 8));
+
+    private static double Bits(long bits) => BitConverter.Int64BitsToDouble(bits);
+
+    private static double SineCoefficient(int index) => Bits(SineCoefficientBits[index]);
+
+    private const long InfinityBits = 0x7ff0000000000000;
+    private const long QuietBit = 0x0008000000000000;
+    private const long DefaultNaNBits = unchecked((long)0xfff8000000000000);
+    private const long PlainReductionLimitBits = 0x411e848000000000;
+    private const long FusedReductionLimitBits = 0x417312d000000000;
+    private const double TwoToThe52 = 4503599627370496d;
+
+    /// <summary><c>180102030</c>: <c>2/π</c>.</summary>
+    private static readonly double TwoOverPi = BitConverter.Int64BitsToDouble(0x3fe45f306dc9c883);
+
+    /// <summary><c>180101fa0</c>: <c>π/2</c>'s first 33 bits.</summary>
+    private static readonly double PiOverTwoFirst = BitConverter.Int64BitsToDouble(0x3ff921fb54400000);
+
+    /// <summary><c>180101fb0</c>: what is left of <c>π/2</c> after them.</summary>
+    private static readonly double PiOverTwoFirstTail = BitConverter.Int64BitsToDouble(0x3dd0b4611a626331);
+
+    /// <summary><c>180101fc0</c>: the next 33 bits.</summary>
+    private static readonly double PiOverTwoSecond = BitConverter.Int64BitsToDouble(0x3dd0b4611a600000);
+
+    /// <summary><c>180101fd0</c>: what is left after those.</summary>
+    private static readonly double PiOverTwoSecondTail = BitConverter.Int64BitsToDouble(0x3ba3198a2e037073);
+
+    /// <summary><c>180105fe8</c> and <c>1801061e0</c>: <c>π/2</c>'s low part.</summary>
+    private static readonly double ReductionHalfPiLow = BitConverter.Int64BitsToDouble(0x3c91a62633145c06);
+
+    /// <summary><c>180105ff0</c> and <c>1801061c0</c>: <c>π/2</c> to 30 bits.</summary>
+    private static readonly double ReductionHalfPiHigh = BitConverter.Int64BitsToDouble(0x3ff921fb50000000);
+
+    /// <summary><c>180106000</c> and <c>1801061d0</c>: the bits after those.</summary>
+    private static readonly double ReductionHalfPiMiddle = BitConverter.Int64BitsToDouble(0x3e5110b460000000);
+
+    /// <summary><c>1801062d0</c>: the fused reduction's low <c>π/2</c>.</summary>
+    private static readonly double FusedHalfPiLow = BitConverter.Int64BitsToDouble(0x3c91a62633145c00);
+
+    /// <summary><c>1801062e0</c>: and its lowest.</summary>
+    private static readonly double FusedHalfPiLowest = BitConverter.Int64BitsToDouble(0x397b839a252049c0);
+
+    /// <summary><c>1800ed7a0</c>: <c>π</c>.</summary>
+    private static readonly double Pi = BitConverter.Int64BitsToDouble(0x400921fb54442d18);
+
+    /// <summary><c>180101538</c>: <c>acos</c>'s low <c>π/2</c>, one above the reductions'.</summary>
+    private static readonly double AcosHalfPiLow = BitConverter.Int64BitsToDouble(0x3c91a62633145c07);
+
+    /// <summary><c>180105f80..fd0</c>: the sine series.</summary>
+    private static ReadOnlySpan<long> SineCoefficientBits =>
+        [unchecked((long)0xbfc5555555555555), 0x3f81111111110bb3, unchecked((long)0xbf2a01a019e83e5c), 0x3ec71de3796cde01, unchecked((long)0xbe5ae600b42fdfa7), 0x3de5e0b2f9a43bb8];
+
+    /// <summary><c>180102bf8</c>, <c>c00</c>, <c>c08</c>, <c>c20</c>, <c>c28</c>, <c>c18</c>: <c>acos</c>'s numerator, in the order it takes them.</summary>
+    private static ReadOnlySpan<long> AcosNumeratorBits =>
+        [0x3f0951665d321061, 0x3f51e5f887a62135, 0x3fac28d390c29690, 0x3fd1a2bec1b7ef59, 0x3fdc7b297e269eac, 0x3fcd1e4180029834];
+
+    /// <summary><c>180102c10</c>, <c>c30</c>, <c>c40</c>, <c>c48</c>, <c>c38</c>: its denominator.</summary>
+    private static ReadOnlySpan<long> AcosDenominatorBits =>
+        [0x3fbb1a422982ce76, 0x3fee324ab418f78d, 0x40062021571dccfc, 0x400a4646f903cdea, 0x3ff5d6b12001f228];
+
+    /// <summary><c>180106100</c> (and its copy at <c>180107fd0</c>): 2/π's bits, read by byte offset.</summary>
+    private static ReadOnlySpan<byte> TwoOverPiBytes =>
+    [
+        0xe0, 0xf1, 0x1b, 0xc1, 0x0c, 0x58, 0x21, 0x74, 0x35, 0x7e, 0xc4, 0x7e, 0xed, 0xaf, 0xa9, 0x4b,
+        0x4a, 0x29, 0xde, 0xe7, 0x1c, 0xf4, 0xec, 0xc5, 0x97, 0xaf, 0x1f, 0xeb, 0x9e, 0xd4, 0xb5, 0xa8,
+        0x7f, 0x79, 0x9a, 0xfd, 0x18, 0x3d, 0xdd, 0x26, 0x2c, 0x9f, 0x3c, 0xfb, 0xd9, 0xb4, 0x7d, 0xb4,
+        0x29, 0x68, 0x2d, 0x46, 0xbc, 0xbc, 0x3f, 0x60, 0x16, 0x78, 0xff, 0x5f, 0xe2, 0x7f, 0xec, 0xa0,
+        0xe4, 0xf7, 0x2e, 0x7e, 0x11, 0x72, 0xd2, 0xe7, 0x4c, 0x0d, 0xe6, 0x58, 0x47, 0xe6, 0x04, 0xf9,
+        0x7d, 0xd1, 0x9a, 0xc0, 0x71, 0xa6, 0x13, 0x12, 0xed, 0xba, 0xd4, 0xd7, 0x08, 0xa2, 0xfb, 0x9c,
+        0xa6, 0xc4, 0x72, 0xac, 0x77, 0xf8, 0x73, 0x48, 0x46, 0x27, 0xa8, 0xbb, 0x24, 0x19, 0x80, 0x4b,
+        0x37, 0x09, 0xe9, 0xb8, 0x91, 0xdc, 0x86, 0x15, 0xef, 0x7a, 0xaf, 0x8e, 0x45, 0xf9, 0x07, 0x41,
+        0x0e, 0xf1, 0x64, 0x56, 0x8a, 0x6d, 0x03, 0x77, 0xd3, 0xd4, 0x47, 0x5f, 0x9d, 0xf0, 0xa7, 0x54,
+        0x10, 0x39, 0xb9, 0x0d, 0xe6, 0x8b, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x18, 0x2d, 0x44, 0x54, 0xfb, 0x21, 0xf9, 0x3f, 0x18, 0x2d, 0x44, 0x54, 0xfb, 0x21, 0xf9, 0x3f,
+    ];
 
     /// <summary><c>((((z·c₀ + c₁)·z + c₂)·z + c₃)·z + c₄)</c>, each step a multiply then an add.</summary>
     private static double Nested(ReadOnlySpan<long> coefficients, double z)

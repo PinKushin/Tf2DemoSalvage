@@ -15,6 +15,10 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// **`exp`'s two paths are told apart by arguments the sweep found**: the binary's paths disagree on 3,641 of its three
 /// million, `−2.997306` among them. **`expf`'s never disagreed**, over 1.43 million arguments, so no test here can tell its
 /// paths apart; both are run, and they must agree.
+///
+/// **`cos`, `sin` and `acos` followed on 2026-09-14** — `FUN_1800d33b0`, `FUN_1800c8020` and `FUN_1800cce64` — over six
+/// million `cos` and `sin` arguments and four million `acos` arguments on each path, none differing; the binary's own paths
+/// disagree on 44,881 of the `cos` arguments and 44,510 of the `sin`.
 /// </remarks>
 public sealed class IvpMathConformanceTests
 {
@@ -117,12 +121,91 @@ public sealed class IvpMathConformanceTests
     public void Cos_AnArgumentTheBinaryWasAsked_AnswersItsBitsOnThatPath(long argument, long expected, bool fused) =>
         Bits(IvpMath.Cos(System.BitConverter.Int64BitsToDouble(argument), fused)).ShouldBe(expected);
 
-    /// <remarks>The reduction past `π/4` is not ported, so an argument that would need it refuses.</remarks>
-    [TestCase(0x3ff0000000000000, false)]
-    [TestCase(0x3ff0000000000000, true)]
-    [TestCase(0x7ff8000000000000, false)]
-    public void Cos_AnArgumentPastQuarterPi_Refuses(long argument, bool fused) =>
-        Should.Throw<System.NotSupportedException>(() => IvpMath.Cos(System.BitConverter.Int64BitsToDouble(argument), fused));
+    /// <remarks>
+    /// FUN_1800d33b0 past `π/4`: the inline reduction on each path, the plain path's large reduction from 500000 and the fused
+    /// path's from 2·10^7, a huge argument, an infinity's default NaN and a NaN passed through. **`3.9219045125656624` is the
+    /// plain kernel's twelfth coefficient**: a port carrying `…69037ec2e` for the binary's `…690382eec` answers `…b6b9` there,
+    /// one ulp from the binary, and agreed with every replica written from the same wrong literal. The pairs that differ by
+    /// path were found by the sweep.
+    /// </remarks>
+    [TestCase(0x3ff0000000000000, 0x3fe14a280fb5068b, false)]
+    [TestCase(0x3ff0000000000000, 0x3fe14a280fb5068c, true)]
+    [TestCase(unchecked((long)0xc004000000000000), unchecked((long)0xbfe9a2f7ef858b7d), false)]
+    [TestCase(unchecked((long)0xc004000000000000), unchecked((long)0xbfe9a2f7ef858b7d), true)]
+    [TestCase(0x400f600f791c08e4, unchecked((long)0xbfe6be01b845b6ba), false)]
+    [TestCase(0x400f600f791c08e4, unchecked((long)0xbfe6be01b845b6b9), true)]
+    [TestCase(0x401be6b5eb61fda4, 0x3fe8a2fd19644ac4, false)]
+    [TestCase(0x401be6b5eb61fda4, 0x3fe8a2fd19644ac3, true)]
+    [TestCase(unchecked((long)0xbfe2d19ecdb328b0), 0x3fea9fc41abd3874, false)]
+    [TestCase(unchecked((long)0xbfe2d19ecdb328b0), 0x3fea9fc41abd3875, true)]
+    [TestCase(0x412e848100000000, 0x3fefad0a779be88d, false)]
+    [TestCase(0x412e848100000000, 0x3fefad0a779be88d, true)]
+    [TestCase(0x41349280c43fce3c, unchecked((long)0xbfe502a17c3d41e2), false)]
+    [TestCase(0x41349280c43fce3c, unchecked((long)0xbfe502a17c3d41e3), true)]
+    [TestCase(0x417c9c3804000000, unchecked((long)0xbfdfb9abf312eecc), false)]
+    [TestCase(0x417c9c3804000000, unchecked((long)0xbfdfb9abf312eecc), true)]
+    [TestCase(0x7e37e43c8800759c, unchecked((long)0xbfe2699022adc4c1), false)]
+    [TestCase(0x7e37e43c8800759c, unchecked((long)0xbfe2699022adc4c1), true)]
+    [TestCase(0x7ff0000000000000, unchecked((long)0xfff8000000000000), false)]
+    [TestCase(0x7ff0000000000000, unchecked((long)0xfff8000000000000), true)]
+    [TestCase(unchecked((long)0xfff8000000000000), unchecked((long)0xfff8000000000000), false)]
+    [TestCase(unchecked((long)0xfff8000000000000), unchecked((long)0xfff8000000000000), true)]
+    public void Cos_AnArgumentPastQuarterPi_AnswersItsBitsOnThatPath(long argument, long expected, bool fused) =>
+        Bits(IvpMath.Cos(System.BitConverter.Int64BitsToDouble(argument), fused)).ShouldBe(expected);
+
+    /// <remarks>
+    /// FUN_1800c8020: the pass-through under `2^−27`, the fused path's cube under `2^−13`, the series, `π/4` itself, a negative
+    /// argument, the reductions as for the cosine, and the two ways a non-finite argument ends. The pairs that differ by path
+    /// were found by the sweep.
+    /// </remarks>
+    [TestCase(0x3bc79ca10c924223, 0x3bc79ca10c924223, false)]
+    [TestCase(0x3bc79ca10c924223, 0x3bc79ca10c924223, true)]
+    [TestCase(0x3e112e0be826d695, 0x3e112e0be826d695, false)]
+    [TestCase(0x3e112e0be826d695, 0x3e112e0be826d695, true)]
+    [TestCase(0x3ee4f8b588e368f1, 0x3ee4f8b588e1e8a2, false)]
+    [TestCase(0x3ee4f8b588e368f1, 0x3ee4f8b588e1e8a2, true)]
+    [TestCase(0x3fd3333333333333, 0x3fd2e9cd95baba33, false)]
+    [TestCase(0x3fd3333333333333, 0x3fd2e9cd95baba33, true)]
+    [TestCase(0x3fe0b012ca010180, 0x3fdfe21b9b92aa74, false)]
+    [TestCase(0x3fe0b012ca010180, 0x3fdfe21b9b92aa75, true)]
+    [TestCase(0x3fe921fb54442d18, 0x3fe6a09e667f3bcd, false)]
+    [TestCase(0x3fe921fb54442d18, 0x3fe6a09e667f3bcd, true)]
+    [TestCase(unchecked((long)0xbfe6666666666666), unchecked((long)0xbfe49d6e694619b8), false)]
+    [TestCase(unchecked((long)0xbfe6666666666666), unchecked((long)0xbfe49d6e694619b8), true)]
+    [TestCase(unchecked((long)0xc004000000000000), unchecked((long)0xbfe326af0dcfcab1), false)]
+    [TestCase(unchecked((long)0xc004000000000000), unchecked((long)0xbfe326af0dcfcab0), true)]
+    [TestCase(0x411de9547f6e5d71, unchecked((long)0xbfdd8d341675be40), false)]
+    [TestCase(0x411de9547f6e5d71, unchecked((long)0xbfdd8d341675be3f), true)]
+    [TestCase(0x4159fa8425c3604f, unchecked((long)0xbfe713d4e239a0d0), false)]
+    [TestCase(0x4159fa8425c3604f, unchecked((long)0xbfe713d4e239a0cf), true)]
+    [TestCase(unchecked((long)0xc19d6f34547df3b6), unchecked((long)0xbfeffeb69ed066b7), false)]
+    [TestCase(unchecked((long)0xc19d6f34547df3b6), unchecked((long)0xbfeffeb69ed066b7), true)]
+    [TestCase(0x7e37e43c8800759c, unchecked((long)0xbfea2c16b010e385), false)]
+    [TestCase(0x7e37e43c8800759c, unchecked((long)0xbfea2c16b010e385), true)]
+    [TestCase(0x7ff0000000000000, unchecked((long)0xfff8000000000000), false)]
+    [TestCase(unchecked((long)0xfff8000000000000), unchecked((long)0xfff8000000000000), true)]
+    public void Sin_AnArgumentTheBinaryWasAsked_AnswersItsBitsOnThatPath(long argument, long expected, bool fused) =>
+        Bits(IvpMath.Sin(System.BitConverter.Int64BitsToDouble(argument), fused)).ShouldBe(expected);
+
+    /// <remarks>
+    /// FUN_1800cce64 on each of its branches: a tiny argument's `π/2`, under one half, both signs over it, ±1 exactly, and the
+    /// domain's default NaN beyond one and for an infinity.
+    /// </remarks>
+    [TestCase(0x3bc79ca10c924223, 0x3ff921fb54442d18)]
+    [TestCase(0x3e112e0be826d695, 0x3ff921fb53ff74e9)]
+    [TestCase(0x3fd3333333333333, 0x3ff441f5ecbeef59)]
+    [TestCase(0x3fe0000000000000, 0x3ff0c152382d7366)]
+    [TestCase(unchecked((long)0xbfe0000000000000), 0x4000c152382d7366)]
+    [TestCase(0x3fe6666666666666, 0x3fe973e83f5d5c9b)]
+    [TestCase(unchecked((long)0xbfe6666666666666), 0x4002c501446cd5f2)]
+    [TestCase(0x3fe921fb54442d18, 0x3fe55bcf3c4a4694)]
+    [TestCase(0x3ff0000000000000, 0x0000000000000000)]
+    [TestCase(unchecked((long)0xbff0000000000000), 0x400921fb54442d18)]
+    [TestCase(0x3ff8000000000000, unchecked((long)0xfff8000000000000))]
+    [TestCase(0x7ff0000000000000, unchecked((long)0xfff8000000000000))]
+    [TestCase(unchecked((long)0xfff8000000000000), unchecked((long)0xfff8000000000000))]
+    public void Acos_AnArgumentTheBinaryWasAsked_AnswersItsBits(long argument, long expected) =>
+        Bits(IvpMath.Acos(System.BitConverter.Int64BitsToDouble(argument))).ShouldBe(expected);
 
     private static int Bits(float value) => System.BitConverter.SingleToInt32Bits(value);
 

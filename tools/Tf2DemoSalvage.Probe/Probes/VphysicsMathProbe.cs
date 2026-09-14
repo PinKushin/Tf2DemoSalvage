@@ -41,6 +41,12 @@ public sealed class VphysicsMathProbe : IProbe
     /// <summary><c>FUN_1800d33b0</c>, <c>cos</c>.</summary>
     private const long CosAddress = 0x1800d33b0;
 
+    /// <summary><c>FUN_1800c8020</c>, <c>sin</c>.</summary>
+    private const long SinAddress = 0x1800c8020;
+
+    /// <summary><c>FUN_1800cce64</c>, <c>acos</c>.</summary>
+    private const long AcosAddress = 0x1800cce64;
+
     /// <summary><c>DAT_180136418</c>, the fused-path flag <c>__acrt_initialize_fma3</c> writes.</summary>
     private const long FusedFlagAddress = 0x180136418;
 
@@ -86,7 +92,7 @@ public sealed class VphysicsMathProbe : IProbe
 
     /// <inheritdoc />
     public string Summary =>
-        "vphysics.dll's own expf, exp, asinf and atan, called in process on both runtime paths, as bits; " +
+        "vphysics.dll's own expf, exp, asinf, atan, cos, sin and acos, called in process on both runtime paths, as bits; " +
         "'sweep' compares IvpMath with them: vphysics-math [sweep | x ...]";
 
     /// <inheritdoc />
@@ -106,6 +112,8 @@ public sealed class VphysicsMathProbe : IProbe
             VphysicsLibrary.Function<SingleFunction>(module, AsinfAddress),
             VphysicsLibrary.Function<DoubleFunction>(module, AtanAddress),
             VphysicsLibrary.Function<DoubleFunction>(module, CosAddress),
+            VphysicsLibrary.Function<DoubleFunction>(module, SinAddress),
+            VphysicsLibrary.Function<DoubleFunction>(module, AcosAddress),
             VphysicsLibrary.Address(module, FusedFlagAddress));
 
         int loaded = Marshal.ReadInt32(math.Flag);
@@ -227,6 +235,8 @@ public sealed class VphysicsMathProbe : IProbe
             {
                 output.WriteLine($"exp   {label}  {Bits(x)}  ->  {Bits(math.Exp(x))}");
                 output.WriteLine($"cos   {label}  {Bits(x)}  ->  {Bits(math.Cos(x))}");
+                output.WriteLine($"sin   {label}  {Bits(x)}  ->  {Bits(math.Sin(x))}");
+                output.WriteLine($"acos  {label}  {Bits(x)}  ->  {Bits(math.Acos(x))}");
             }
         }
 
@@ -248,9 +258,13 @@ public sealed class VphysicsMathProbe : IProbe
         float[] sines = SineArguments();
         double[] tangents = TangentArguments();
         double[] cosines = CosineArguments();
+        double[] circular = CircularArguments();
+        double[] arcs = ArcArguments();
 
         int[][] singleAnswers = new int[paths.Length][];
         long[][] doubleAnswers = new long[paths.Length][];
+        long[][] cosineAnswers = new long[paths.Length][];
+        long[][] sineAnswers = new long[paths.Length][];
 
         foreach (int path in paths)
         {
@@ -281,6 +295,31 @@ public sealed class VphysicsMathProbe : IProbe
                 long port = BitConverter.DoubleToInt64Bits(IvpMath.Cos(cosines[index], fused));
                 return (engine == port, $"{Bits(cosines[index])}: engine 0x{engine:x16}, port 0x{port:x16}");
             });
+
+            cosineAnswers[path] = new long[circular.Length];
+            Compare(output, $"cos, reduced too, {Label(path)}", circular.Length, index =>
+            {
+                long engine = BitConverter.DoubleToInt64Bits(math.Cos(circular[index]));
+                cosineAnswers[path][index] = engine;
+                long port = BitConverter.DoubleToInt64Bits(IvpMath.Cos(circular[index], fused));
+                return (engine == port, $"{Bits(circular[index])}: engine 0x{engine:x16}, port 0x{port:x16}");
+            });
+
+            sineAnswers[path] = new long[circular.Length];
+            Compare(output, $"sin {Label(path)}", circular.Length, index =>
+            {
+                long engine = BitConverter.DoubleToInt64Bits(math.Sin(circular[index]));
+                sineAnswers[path][index] = engine;
+                long port = BitConverter.DoubleToInt64Bits(IvpMath.Sin(circular[index], fused));
+                return (engine == port, $"{Bits(circular[index])}: engine 0x{engine:x16}, port 0x{port:x16}");
+            });
+
+            Compare(output, $"acos {Label(path)}", arcs.Length, index =>
+            {
+                long engine = BitConverter.DoubleToInt64Bits(math.Acos(arcs[index]));
+                long port = BitConverter.DoubleToInt64Bits(IvpMath.Acos(arcs[index]));
+                return (engine == port, $"{Bits(arcs[index])}: engine 0x{engine:x16}, port 0x{port:x16}");
+            });
         }
 
         if (paths.Length == 2)
@@ -289,6 +328,10 @@ public sealed class VphysicsMathProbe : IProbe
                 index => $"{Bits(singles[index])}: plain 0x{singleAnswers[0][index]:x8}, fused 0x{singleAnswers[1][index]:x8}");
             Divergent(output, "exp", doubles.Length, index => doubleAnswers[0][index] != doubleAnswers[1][index],
                 index => $"{Bits(doubles[index])}: plain 0x{doubleAnswers[0][index]:x16}, fused 0x{doubleAnswers[1][index]:x16}");
+            Divergent(output, "cos", circular.Length, index => cosineAnswers[0][index] != cosineAnswers[1][index],
+                index => $"{Bits(circular[index])}: plain 0x{cosineAnswers[0][index]:x16}, fused 0x{cosineAnswers[1][index]:x16}");
+            Divergent(output, "sin", circular.Length, index => sineAnswers[0][index] != sineAnswers[1][index],
+                index => $"{Bits(circular[index])}: plain 0x{sineAnswers[0][index]:x16}, fused 0x{sineAnswers[1][index]:x16}");
         }
 
         Compare(output, "asinf", sines.Length, index =>
@@ -438,16 +481,72 @@ public sealed class VphysicsMathProbe : IProbe
         return [.. arguments];
     }
 
+    /// <summary>
+    /// Every range <c>sin</c> and <c>cos</c> branch on: the series, both inline reductions, both large reductions, near every
+    /// multiple of π/2, random bits (infinities and NaNs among them), and each bound itself.
+    /// </summary>
+    private static double[] CircularArguments()
+    {
+        ulong state = 2718;
+        List<double> arguments = [0d, -0d, double.PositiveInfinity, double.NegativeInfinity, double.NaN];
+
+        foreach (long bound in new long[] { 0x3e40000000000000, 0x3f20000000000000, 0x3fe921fb54442d18, 0x411e848000000000, 0x417312d000000000 })
+        {
+            for (long step = -2; step <= 2; step++)
+            {
+                arguments.Add(BitConverter.Int64BitsToDouble(bound + step));
+                arguments.Add(-BitConverter.Int64BitsToDouble(bound + step));
+            }
+        }
+
+        for (int index = 0; index < SweepCount; index++)
+        {
+            double unit = VphysicsLibrary.Unit(VphysicsLibrary.SplitMix(ref state)) - 0.5;
+
+            arguments.Add(unit * 16d);
+            arguments.Add(unit * 2e6);
+            arguments.Add(unit * 6e7);
+            arguments.Add(Math.ScaleB(unit, (index % 1000) - 30));
+            arguments.Add((Math.PI / 2d * ((index % 4001) - 2000)) + Math.ScaleB(unit, -(index % 60)));
+            arguments.Add(BitConverter.Int64BitsToDouble(unchecked((long)VphysicsLibrary.SplitMix(ref state))));
+        }
+
+        return [.. arguments];
+    }
+
+    /// <summary>Every range <c>acos</c> branches on: tiny, under and over one half, ±1 and their neighbours, beyond one, and random bits.</summary>
+    private static double[] ArcArguments()
+    {
+        ulong state = 1414;
+        List<double> arguments = [0d, -0d, 1d, -1d, 0.5, -0.5, double.PositiveInfinity, double.NegativeInfinity, double.NaN];
+
+        for (int index = 0; index < SweepCount; index++)
+        {
+            double unit = VphysicsLibrary.Unit(VphysicsLibrary.SplitMix(ref state));
+
+            arguments.Add((unit * 2.4) - 1.2);
+            arguments.Add(BitConverter.Int64BitsToDouble(unchecked((long)VphysicsLibrary.SplitMix(ref state))));
+            arguments.Add(Math.ScaleB(unit - 0.5, -(index % 70)));
+            arguments.Add(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(index % 2 == 0 ? 1d : 0.5) + ((index % 64) - 32)) * (index % 3 == 0 ? -1d : 1d));
+        }
+
+        return [.. arguments];
+    }
+
     private static bool Controls(TextWriter output, Library math)
     {
         bool expfOne = BitConverter.SingleToInt32Bits(math.Expf(0f)) == BitConverter.SingleToInt32Bits(1f);
         bool expOne = BitConverter.DoubleToInt64Bits(math.Exp(0d)) == BitConverter.DoubleToInt64Bits(1d);
         bool halfPi = BitConverter.SingleToInt32Bits(math.Asinf(1f)) == HalfPiBits;
         bool quarterPi = BitConverter.DoubleToInt64Bits(math.Atan(1d)) == QuarterPiBits;
+        bool sineZero = BitConverter.DoubleToInt64Bits(math.Sin(0d)) == 0;
+        bool arcOne = BitConverter.DoubleToInt64Bits(math.Acos(1d)) == 0;
 
-        output.WriteLine($"controls: expf(0) = 1 {expfOne}; exp(0) = 1 {expOne}; asinf(1) = pi/2 {halfPi}; atan(1) = pi/4 {quarterPi}");
+        output.WriteLine(
+            $"controls: expf(0) = 1 {expfOne}; exp(0) = 1 {expOne}; asinf(1) = pi/2 {halfPi}; atan(1) = pi/4 {quarterPi}; " +
+            $"sin(0) = 0 {sineZero}; acos(1) = 0 {arcOne}");
 
-        if (expfOne && expOne && halfPi && quarterPi)
+        if (expfOne && expOne && halfPi && quarterPi && sineZero && arcOne)
         {
             return true;
         }
@@ -466,5 +565,12 @@ public sealed class VphysicsMathProbe : IProbe
 
     /// <summary>The four routines and the path flag, as one loaded image holds them.</summary>
     private sealed record Library(
-        SingleFunction Expf, DoubleFunction Exp, SingleFunction Asinf, DoubleFunction Atan, DoubleFunction Cos, nint Flag);
+        SingleFunction Expf,
+        DoubleFunction Exp,
+        SingleFunction Asinf,
+        DoubleFunction Atan,
+        DoubleFunction Cos,
+        DoubleFunction Sin,
+        DoubleFunction Acos,
+        nint Flag);
 }

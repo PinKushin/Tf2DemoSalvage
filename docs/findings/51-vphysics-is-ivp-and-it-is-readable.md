@@ -3976,8 +3976,8 @@ return (float)((double)(q + q) + p)
 ```
 
 *`2.5e-5` is `DAT_1800fd860`, a double.* ~~`FUN_1800d33b0` is another runtime-library routine, unidentified; `core+0x4` is
-unread~~ — **both settled since**: `FUN_1800d33b0` is `cos`, identified by calling it in process and ported under `π/4` as
-`IvpMath.Cos` (two million arguments on each runtime path, none differ; the push-out's argument never exceeds `√0.25`), and
+unread~~ — **both settled since**: `FUN_1800d33b0` is `cos`, identified by calling it in process and ported as `IvpMath.Cos` —
+under `π/4` first, whole since (*vphysics' own `sin`, `cos` and `acos`*, below; the push-out's argument never exceeds `√0.25`), and
 `core+0x4` is the core's radius `FUN_180078b90` sets (*core+0x54 = 0.5f / core+0x4* above).
 
 #### The entry, ported and pinned (2026-09-13)
@@ -4586,7 +4586,27 @@ position moved by the last velocity through `(double)(float)(now − +0x1d0)`, `
 unless the core has `+0x58` with a zero `+0x8`, the anomaly manager's slot 1 when `(ωx² + ωy²) + ωz²` exceeds
 `((float)env+0x110 · limits+0x14)²` and slot 0 when `|v|²` exceeds `limits+0xc²`.
 
-*Not read: vphysics' `sin` `FUN_1800c8020` and `acos` `FUN_1800cce64`, and what sets a core's bit `0x8`.*
+*Not read: what sets a core's bit `0x8`.* vphysics' `sin` and `acos` are read and ported since, in the next section.
+
+#### vphysics' own `sin`, `cos` and `acos`, ported whole (2026-09-14)
+
+**`FUN_1800c8020` `sin`, `FUN_1800d33b0` `cos` past `π/4`, and `FUN_1800cce64` `acos` are ported as `IvpMath.Sin`, `Cos` and
+`Acos`**, with the reductions a large argument is handed to: the plain routines reduce inline under 500000 and through
+`FUN_1800daa70` above it, the fused ones through `FUN_1800dafb0` under `2·10⁷` and `FUN_1800dadc0` above, both large routines
+taking `2/π` from a byte table. The `vphysics-math` probe's sweep compared them with the binary over six million `sin` and
+`cos` arguments on each path — every branch's range, near every multiple of `π/2`, random bits with the infinities and NaNs
+among them — and four million `acos` arguments, and found no difference. **The binary's own two paths disagree on 44,881 of
+those `cos` arguments and 44,510 of the `sin`**; `IvpMathConformanceTests` carries pairs of both. *Evidence: differential.*
+
+**A wrong conclusion, kept: "the same instruction bytes give a different answer."** Three arguments came back one ulp from the
+binary, on the plain path only. The binary's kernel entered directly at `d3495` with the port's reduced pair answered the
+binary's bits, so the reduction was right and the kernel was the suspect — and yet the C# kernel, a replica in SSE2
+intrinsics one instruction per call, and an exact dyadic simulation of the decoded thirty steps all answered the port's
+bits. Three instruments agreed with one another and not with the binary. What settled it was copying the loaded kernel
+beside the module, its RIP-relative operands rebased, and cutting it after each step: the carried term agreed and the series
+already differed. **The twelfth coefficient at `180105f60` is `0x3e21eeb690382eec`; the port carried `0x3e21eeb69037ec2e`**,
+and every replica had been written from the port's literal. The loaded bytes had been printed beside Ghidra's and matched —
+a check of the image against the listing, never of the port against the image.
 
 **A frozen core, `FUN_180088930`**: `FUN_180078c90(core)`; then every object, last first — every listener the environment's hash at
 `env+0x18` holds for it, last first, slot 3 with `{env, object}`, stopping once the object's entry is gone after a call — and

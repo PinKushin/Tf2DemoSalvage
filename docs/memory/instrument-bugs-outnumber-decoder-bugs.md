@@ -617,6 +617,14 @@ The eight `[Explicit]` tests are in one and not the other, and `build/assert-tes
 Related: [[read-the-trx-total-not-the-console]], which says to read the trx and did not say that the
 console's number is a different quantity rather than a truncation of the same one.
 
+**Three replicas can share one literal, 2026-09-14 (B369).** A port of vphysics' plain `cos` came back one ulp from the
+binary on three arguments. The C# kernel, a replica in SSE2 intrinsics and an exact dyadic simulation all agreed with each
+other and not with the binary, which read as "the same bytes answer differently". All three had taken their coefficients from
+the port's source, and one of them was mistyped (`…69037ec2e` for `…690382eec`). The loaded constants had been checked, but
+against Ghidra's listing, never against the port. **A replica is a second route only if it takes its inputs from the subject**:
+read constants out of the loaded image, and when replicas agree with each other against the oracle, cut the oracle itself
+into steps — a copy of the loaded code run to each instruction found the first differing term in one run.
+
 ---
 
 ## How to apply, across all of it
