@@ -1,3 +1,4 @@
+using System;
 using Tf2DemoSalvage.Animation.Animating;
 
 namespace Tf2DemoSalvage.Animation.Tests;
@@ -326,5 +327,85 @@ public sealed class IvpTangentialSolveConformanceTests
 
         clipped.Span.ShouldBe(0.6f, 1e-4f);
         clipped.CrossSpan.ShouldBe(0.8f, 1e-4f);
+    }
+
+    /// <remarks>A contact with no slide and no relative velocity solves to zero and applies nothing.</remarks>
+    [Test]
+    public void SolveContact_NoSlideAndNoRelativeVelocity_AppliesNoImpulse()
+    {
+        IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, budget: 10f, inverseStep: 100d);
+
+        impulse.ShouldNotBeNull();
+        impulse.Value.ShouldBe((0f, 0f));
+        core.PendingVelocity.ShouldBe((0f, 0f, 0f));
+        core.PendingAngularVelocity.ShouldBe((0f, 0f, 0f));
+    }
+
+    /// <remarks>A sliding body's own velocity produces a nonzero impulse, applied onto its pending push.</remarks>
+    [Test]
+    public void SolveContact_ASlidingBody_AppliesAnOpposingImpulseToItsPendingVelocity()
+    {
+        IvpRigidBody core = new() { Velocity = (1f, 0f, 0f), InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, budget: 10f, inverseStep: 100d);
+
+        impulse.ShouldNotBeNull();
+        impulse.Value.Span.ShouldBeLessThan(0f, "the impulse opposes the core's own positive slide velocity");
+        core.PendingVelocity.X.ShouldNotBe(0f, "SolveContact must apply the found impulse, not just return it");
+    }
+
+    /// <remarks>An impulse the raw solve would place over budget comes back clipped to it.</remarks>
+    [Test]
+    public void SolveContact_AnImpulseOverTheBudget_IsClippedBeforeItIsApplied()
+    {
+        IvpRigidBody core = new() { Velocity = (1000f, 0f, 0f), InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, budget: 1f, inverseStep: 100d);
+
+        impulse.ShouldNotBeNull();
+        double magnitude = Math.Sqrt((impulse.Value.Span * impulse.Value.Span) + (impulse.Value.CrossSpan * impulse.Value.CrossSpan));
+        magnitude.ShouldBe(1d, 1e-3d);
+    }
+
+    /// <remarks>
+    /// A contact whose cone is shaped along the materials' own axes has no confirmed factor to read yet —
+    /// <see cref="IvpContactPoint.UsesMaterialAxes"/>'s writer is unread, so this project refuses to guess one.
+    /// </remarks>
+    [Test]
+    public void SolveContact_AContactUsingMaterialAxes_ThrowsRatherThanGuessTheFactor()
+    {
+        IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+        point.UsesMaterialAxes = true;
+
+        Should.Throw<NotSupportedException>(() => IvpTangentialSolve.SolveContact(point, budget: 10f, inverseStep: 100d));
+    }
+
+    private static IvpContactPoint ContactPoint(IvpContactRecord record)
+    {
+        IvpCollisionObject first = new();
+        IvpCollisionObject second = new();
+        IvpMindist mindist = new(
+            new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
+            new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Triangle),
+            extraRadius: 0f)
+        {
+            Flags = 0xc0000,
+        };
+
+        new IvpMindistManager().LinkExact(mindist, first, second);
+
+        IvpLedgeSide side = IvpContactGeometryConformanceTests.Anywhere();
+
+        return new IvpContactPoint(mindist, first, side, second, side, now: 0d) { Record = record };
     }
 }

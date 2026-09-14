@@ -331,6 +331,79 @@ public static class IvpTangentialSolve
         return (impulseSpan, impulseCrossSpan);
     }
 
+    /// <summary>
+    /// The material axis-friction factors for one core's jacobian rows — <c>IvpContactPoint.UsesMaterialAxes</c>'s own
+    /// scaling, read at <c>SolveTangentialPair</c>'s call site rather than inside <c>BuildJacobian</c> itself.
+    /// </summary>
+    /// <param name="usesMaterialAxes">Whether the contact's cone is shaped along the materials' own axes.</param>
+    /// <returns>Identity — <c>(1, 1, 1, 1)</c> — for the ordinary isotropic case.</returns>
+    /// <exception cref="NotSupportedException">
+    /// <paramref name="usesMaterialAxes"/> is set. **Confirmed, 2026-09-14: nothing in this project's read of the
+    /// disassembly writes <see cref="IvpContactPoint.UsesMaterialAxes"/> true** — its own doc comment already flags
+    /// the writer as unread — so the anisotropic case has never been exercised and porting a guessed factor for it
+    /// would be exactly the kind of invented structure this project refuses. Isotropic materials (factor 1 on every
+    /// axis) are the only case this method — and so <see cref="SolveContact"/> — supports.
+    /// </exception>
+    private static (float X, float Y, float Z, float W) MaterialAxisFactors(bool usesMaterialAxes) =>
+        !usesMaterialAxes
+            ? (1f, 1f, 1f, 1f)
+            : throw new NotSupportedException(
+                "A contact using material-shaped friction axes was solved; the anisotropic factor is not yet read from the disassembly.");
+
+    /// <summary>
+    /// One contact's tangential (Coulomb friction) solve for a PSI, start to finish — <c>SolveTangentialPair</c>'s
+    /// non-sticking branch, assembled from the contact's own <see cref="IvpContactRecord"/> and
+    /// <see cref="IvpContactPoint"/> fields rather than caller-supplied axes.
+    /// </summary>
+    /// <param name="point">The contact, already clamped this PSI by <see cref="ClampSlide"/> if the caller runs that first.</param>
+    /// <param name="budget">The pair's own friction-cone budget for this PSI, from <c>SolveOncePerPsi</c>.</param>
+    /// <param name="inverseStep">The environment's reciprocal PSI step.</param>
+    /// <returns>The clipped impulse applied to both cores, or null when the 2×2 system was singular.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="point"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">The contact has no record.</exception>
+    /// <remarks>
+    /// **Confirmed, 2026-09-14: `IvpContactRecord::Build` (<c>18008d0c0</c>) — already ported as
+    /// <see cref="IvpContactRecord.Build"/> — is the SAME function that computes the tangent axes
+    /// (<see cref="IvpContactRecord.Span"/>/<see cref="IvpContactRecord.CrossSpan"/>) and both arm vectors
+    /// (<see cref="IvpContactRecord.FirstArm"/>/<see cref="IvpContactRecord.SecondArm"/>) that `SolveTangentialPair`
+    /// reads — there is no separate axis/arm builder to find.** The friction-cone budget itself (the pair's own
+    /// summed value from `SolveOncePerPsi`) is still the caller's job, not this method's; this only clips against
+    /// whatever budget it is given.
+    /// </remarks>
+    public static (float Span, float CrossSpan)? SolveContact(IvpContactPoint point, float budget, double inverseStep)
+    {
+        ArgumentNullException.ThrowIfNull(point);
+
+        IvpContactRecord record = point.Record ?? throw new InvalidOperationException("A contact with no record was solved.");
+        (float X, float Y, float Z, float W) factors = MaterialAxisFactors(point.UsesMaterialAxes);
+
+        (float Span, float CrossSpan)? impulse = Solve(
+            record.FirstCore, record.FirstArm, record.SecondCore, record.SecondArm,
+            record.Span, record.CrossSpan, factors, factors, point.Slide, inverseStep);
+
+        if (impulse is not { } found)
+        {
+            return null;
+        }
+
+        (float Span, float CrossSpan) clipped = ClipImpulse(found, budget);
+
+        (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? firstRows = BuildJacobian(record.FirstCore, record.FirstArm, record.Span, record.CrossSpan, factors);
+        (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? secondRows = BuildJacobian(record.SecondCore, record.SecondArm, record.Span, record.CrossSpan, factors);
+
+        if (firstRows is { } first)
+        {
+            ApplyImpulse(record.FirstCore, record.Span, record.CrossSpan, first, clipped, 1f);
+        }
+
+        if (secondRows is { } second)
+        {
+            ApplyImpulse(record.SecondCore, record.Span, record.CrossSpan, second, clipped, -1f);
+        }
+
+        return clipped;
+    }
+
     /// <summary>Clips an impulse to a magnitude budget — the same shape <see cref="ClampSlide"/> uses, without a carry term.</summary>
     /// <param name="impulse">The impulse.</param>
     /// <param name="budget">The pair's own friction-cone budget.</param>
