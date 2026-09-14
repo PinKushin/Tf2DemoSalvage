@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+
+using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
@@ -34,6 +37,23 @@ public sealed record IvpLedgeSide(
     /// <returns>The normal, in the object's frame.</returns>
     public (double X, double Y, double Z) FaceNormal(IvpLedgeEdge edge) =>
         IvpVector.FaceNormal(StartOf(edge), EndOf(edge), StartOf(Topology.Previous(edge)));
+
+    /// <summary>Builds a side from a decoded ledge and an object's current placement — what a live PSI needs each collision.</summary>
+    /// <param name="ledge">The ledge, decoded from the <c>.phy</c>'s compact surface — <see cref="PhysicsLedgeTreeNode.Ledge"/>.</param>
+    /// <param name="current">The object's matrix now.</param>
+    /// <param name="corePosition">The core's position now.</param>
+    /// <returns>The side.</returns>
+    /// <remarks>
+    /// **Not read from the disassembly — this project's own assembly of already-decoded pieces.** The native builds this
+    /// structure per synapse inside `FUN_180094c70`'s caller, which nothing in this port has needed until a live running
+    /// path does; <see cref="PhysicsLedge"/> already carries everything <see cref="IvpLedgeTopology"/> needs.
+    /// </remarks>
+    public static IvpLedgeSide FromLedge(PhysicsLedge ledge, IvpMatrix current, (double X, double Y, double Z) corePosition) =>
+        new(
+            ledge.Points.Select(point => (point.X, point.Y, point.Z)).ToList(),
+            new IvpLedgeTopology(ledge.Triangles, ledge.EdgeOffsets, ledge.PierceTriangles, ledge.MaterialIndices),
+            current,
+            corePosition);
 }
 
 /// <summary>An edge's two weights for a point — <c>FUN_18007d070</c>'s output.</summary>

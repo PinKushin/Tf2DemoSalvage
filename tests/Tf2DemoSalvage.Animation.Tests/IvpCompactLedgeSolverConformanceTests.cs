@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
 using Tf2DemoSalvage.Animation.Animating;
+using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Animation.Tests;
 
@@ -240,6 +242,23 @@ public sealed class IvpCompactLedgeSolverConformanceTests
 
     /// <summary><c>L</c> for the edge-edge tests: along <c>y</c> from <c>−1</c> to <c>3</c> at the given <c>x</c>, a unit up.</summary>
     private static IvpLedgeSide Across(float x) => Side([(x, -1f, 1f), (x, 3f, 1f), (9f, 9f, 9f)], (0d, 0d, 0d));
+
+    /// <remarks>A live PSI has only a decoded ledge and a placement — <see cref="IvpLedgeSide.FromLedge"/> is what turns those into a side.</remarks>
+    [Test]
+    public void FromLedge_ADecodedLedgeAndAPlacement_CarriesItsPointsAndTopology()
+    {
+        Vector3[] points = [new(0f, 0f, 0f), new(2f, 0f, 0f), new(0f, 2f, 0f)];
+        PhysicsLedge ledge = new(points, [(0, 1, 2)], [(0, 0, 0)], [0], [0], Vector3.Zero, 1f);
+        IvpMatrix current = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (5d, 6d, 7d));
+
+        IvpLedgeSide side = IvpLedgeSide.FromLedge(ledge, current, (5d, 6d, 7d));
+
+        side.Points.ShouldBe([(0f, 0f, 0f), (2f, 0f, 0f), (0f, 2f, 0f)]);
+        side.Current.ShouldBe(current);
+        side.CorePosition.ShouldBe((5d, 6d, 7d));
+        side.StartOf(new IvpLedgeEdge(0, 0)).ShouldBe((0f, 0f, 0f));
+        side.EndOf(new IvpLedgeEdge(0, 0)).ShouldBe((2f, 0f, 0f));
+    }
 
     /// <summary>One triangle whose edges hop to themselves, on a body at a position and rotation.</summary>
     private static IvpLedgeSide Side(
