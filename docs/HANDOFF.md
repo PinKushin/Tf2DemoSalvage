@@ -333,12 +333,17 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      live PSI driver means giving ragdoll bodies a real ledge-tree hull too (from `PhysicsHull.Tree`, the same
      decoder `IvpWorldCollision` already uses for the world) — not just reusing the existing flat point list. This is
      a real, necessary piece of replacing `IvpContact`, not an incidental wiring detail.
+   - **Done, same session: `RagdollElement.Ledges`/`IvpRigidBody.Ledges`** carry the un-flattened `PhysicsLedge` list
+     through — `HullInBoneSpace` already had it and was discarding it into `Hull`/`Faces`. Not yet consumed; this is
+     the raw material the next step below needs. 1 test, both `RagdollBody.Build`/`BuildProp` call sites updated.
    - **Next, in order**: (1) as its own dedicated port: read `FUN_180085a80`, `IvpContact::TangentialSlipVelocity`,
      `IvpContact::TryInvertSymmetric`, `FUN_18009c620` in full, design `IvpFrictionSystem`'s per-pair contact list and
      the tangential solve's own state, port both `SolveOncePerPsi` dispatch branches, build a `vphysics-friction-solve`
-     probe and oracle fixture, sabotage-verify; (2) give `IvpRigidBody` a real ledge-tree hull (from `PhysicsHull.Tree`)
-     alongside its current flat `Hull`/`Faces`, so `IvpLedgeSide.FromLedge` can build sides for a moving body, not
-     only the world; (3) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — `FUN_180090700`'s mini-island
+     probe and oracle fixture, sabotage-verify; (2) turn `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
+     tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
+     so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet
+     enough, since a mindist needs a *node* (matching `PhysicsLedgeTreeNode`) to name which ledge a synapse feature
+     came from; (3) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — `FUN_180090700`'s mini-island
      construction, the retry loop, `collide`'s generation bump (`env+0x1a4`); (4) a
      `vphysics-friction-link`/`vphysics-collide` oracle probe for everything built this session — still synthetic
      conformance testing, not a replay against the shipped binary; (5) only then replace `IvpEnvironment`/`IvpContact`.
