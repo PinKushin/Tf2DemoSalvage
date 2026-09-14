@@ -177,6 +177,32 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      already models** — a port that recomputes the aged margin at the point of use (rather than deferring it into an
      accumulator that's periodically flushed) is equivalent, since the accumulator's only purpose is to avoid
      touching every pair's cache every step. This closes the biggest open question from `FUN_180099a00`.
+   - **The `collide` callback (`FUN_18008ecb0`→`FUN_18008ef60`) is far more built than assumed — traced 2026-09-14.**
+     `IvpMindistFire.Handle` already exists and takes `collide` as a plain `Action<IvpMindist>` hand-in — deliberately
+     unported, per its own doc comment. Tracing what it must do: `FUN_18008ecb0` rebuilds each core's matrix at event
+     time (`IvpRigidBody::RebuildMatrixAtEventTime` — check whether ported) when not resting/immovable, bumps the
+     environment's generation counter (`+0x1a4`, the same one `RevalidateTouching` reads), then calls `FUN_18008ef60`.
+     That function: finds/creates the pair's friction system (`IvpFrictionSystem::LinkContactByCore` — **named in
+     Ghidra, not yet ported**), looks up the existing `IvpFrictionPair` for the two cores via `FUN_1800850b0` — **read
+     in full, and it is trivial**: a plain linear search of the system's own `Pairs` list (already a real class,
+     `IvpFrictionPair`) for a `(core1, core2)` match in either order, no dispatch logic at all — stamps the contact's
+     last-measured time to `Now`, calls `IvpContactPoint.PushOut` (already ported) and `IvpImpactSolver.Enter`
+     (already ported), flips the pushed-vector sign for one orientation convention, then a still-unidentified
+     `FUN_180090700` call (name collision with the unrelated island-assembly function of the same address in an
+     unrelated file — **needs its own read**, almost certainly `IvpImpactSolver.Solve`'s real call site or an
+     override-list construction I have not resolved).
+   - **The one confirmed real gap: `IvpMindist` has no persistent contact cache.** `IvpEnvironment.cs`'s own existing
+     comments already flag this as a departure (*"Not persistent, and the engine's ARE — `FUN_18008d0c0` caches its
+     record at `mindist+0x70`"*) — `IvpMindist` needs a `ContactPoint` property (nullable `IvpContactPoint`) before
+     `collide` can be written at all, since a contact point's whole design is to outlive one collision and warm-start
+     from the last one.
+   - **Not attempted this session, and it should not be rushed**: writing `collide` for real. Every other subsystem in
+     this port — down to the larger mindist's own 5-stage, oracle-backed process — earned trust through a dedicated
+     `vphysics-*` probe calling the shipped binary in process before being wired in. `collide` is the one piece left
+     that would ship without one if written now. **Next session's concrete steps**: read
+     `IvpFrictionSystem::LinkContactByCore` and the true `FUN_180090700` (this call site, not the island-assembly one)
+     in full, add `IvpMindist.ContactPoint`, write `collide` as its own class with its own oracle probe
+     (`vphysics-collide` or similar) before wiring it into any running loop.
    - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
      when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
      transform (`+0x1a0/+0x1b0`), then clears the pointer. `IvpMindistMinimize::Minimize` (`180095cb0`) was already
