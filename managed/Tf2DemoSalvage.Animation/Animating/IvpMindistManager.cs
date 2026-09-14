@@ -29,6 +29,16 @@ public sealed class IvpCollisionObject
     /// </summary>
     public LinkedList<IvpContactPoint> ContactPoints { get; } = new();
 
+    /// <summary>The object's own material, <c>+0xd0</c> — what a triangle whose material index is zero takes.</summary>
+    public IIvpMaterial? Material { get; set; }
+
+    /// <summary>The object's core, <c>+0xe8</c>.</summary>
+    public IvpRigidBody? Core { get; set; }
+
+    /// <summary>The core at <c>+0xf0</c>, whose matrix's first column a material's axis friction runs along (<c>FUN_18008fe70</c>).</summary>
+    /// <remarks>*Named by its one read use; its writer is not read.*</remarks>
+    public IvpRigidBody? FrameCore { get; set; }
+
     /// <summary>Whether <see cref="MovementState"/>'s low three bits are clear — <c>TEST byte ptr [obj + 0x78], 0x7</c>.</summary>
     internal bool StateBitsClear => (MovementState & 7) == 0;
 }

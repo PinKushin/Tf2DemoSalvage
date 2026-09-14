@@ -27,7 +27,8 @@ internal static class IvpSearchFixtures
         new(
             [(0, 1, 2), (0, 3, 1), (0, 2, 3), (1, 3, 2)],
             [(6, 13, 6), (6, 7, -6), (-6, 4, -6), (-7, -4, -13)],
-            [3, 3, 1, 0]);
+            [3, 3, 1, 0],
+            [0, 0, 0, 0]);
 
     /// <summary>A tetrahedron side on a body at a position, falling along −Z, resting when it does not fall.</summary>
     /// <param name="points">The tetrahedron's four points.</param>

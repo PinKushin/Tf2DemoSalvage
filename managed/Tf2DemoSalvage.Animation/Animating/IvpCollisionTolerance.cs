@@ -48,6 +48,9 @@ public static class IvpCollisionTolerance
     /// <summary><c>DAT_1800fd580</c>: <c>0.3f</c> widened, added to <c>block[0x43]</c> for <c>block[0x44]</c>.</summary>
     private const double ParallelEdgeShare = 0.3f;
 
+    /// <summary><c>DAT_1800fcfb0</c>: <c>20.0</c>, <c>block[0x48]</c>'s share of <c>d</c> over <c>block[0x43]</c>.</summary>
+    private const double EstimateShare = 20d;
+
     /// <summary><c>DAT_1800ea968</c>: <c>0.1f</c>, a float, <c>block[0x49]</c>'s share of <c>block[1]</c>.</summary>
     private const float EdgeTargetShare = 0.1f;
 
@@ -95,6 +98,14 @@ public static class IvpCollisionTolerance
     /// a speed in IVP's own units — `(p5 + block[0x4a]) · 1.2f` — and <see cref="IvpImpactSolver"/> runs in those units.
     /// </remarks>
     public static readonly float TwiceToleranceMetres = Settled.DoubledToleranceMetres;
+
+    /// <summary><c>block[1]</c>, <c>DAT_18012d544</c>, in METRES: the margin the push-out estimate measures a gap against.</summary>
+    /// <remarks>Carried in metres for <see cref="IvpContactPoint.PushOut"/>, which runs in IVP's own units.</remarks>
+    public static readonly float CollisionMarginMetres = Settled.MarginMetres;
+
+    /// <summary><c>block[0x48]</c>, <c>DAT_18012d660</c>, in METRES: <c>(float)(d·20 + (double)block[0x43])</c>, which is <c>22·d</c>.</summary>
+    /// <remarks>The gap past which <see cref="IvpContactPoint.Estimate"/> gives a record no estimate.</remarks>
+    public static readonly float EstimateGapMetres = Settled.EstimateLimitMetres;
 
     /// <summary>The margin for a class — <c>DAT_18012d548[class]</c>, which is <c>block[2 + class]</c>.</summary>
     /// <param name="marginClass">The mindist's byte at bits 22–29 of its <c>+0x20</c>.</param>
@@ -144,7 +155,8 @@ public static class IvpCollisionTolerance
         float ContactGapMetres,
         float ParallelEdgeGapMetres,
         float EdgeTargetScaleMetres,
-        float DoubledToleranceMetres)
+        float DoubledToleranceMetres,
+        float EstimateLimitMetres)
     {
         /// <summary>One run of <c>FUN_180098fd0</c> on a tolerance.</summary>
         /// <param name="tolerance">The tolerance <c>d</c>, in metres, as the double the routine takes.</param>
@@ -160,7 +172,14 @@ public static class IvpCollisionTolerance
             float parallelEdgeGap = (float)((tolerance * ParallelEdgeShare) + contactGap);
 
             return new Block(
-                epsilon, margin, margin, contactGap, parallelEdgeGap, margin * EdgeTargetShare, (float)(tolerance + tolerance));
+                epsilon,
+                margin,
+                margin,
+                contactGap,
+                parallelEdgeGap,
+                margin * EdgeTargetShare,
+                (float)(tolerance + tolerance),
+                (float)((tolerance * EstimateShare) + contactGap));
         }
     }
 }

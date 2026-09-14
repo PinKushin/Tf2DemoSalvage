@@ -17,9 +17,10 @@ public sealed record IvpContactBody(IvpLedgeSide Side, IvpRigidBody Core, float 
 /// point with <see cref="IvpContactGeometry"/> and then, for each core not flagged `2`, puts the position and the normal into
 /// the core's own frame for the arm and the turn the impact and friction solves push through.
 ///
-/// **Not ported yet**: the materials at `+0x60`/`+0x68`, the objects and edges at `+0x40..0x58`, the friction factor the
-/// contact point takes at `+0x78` and the float at `+0x80`, all of which `FUN_1800908d0` writes after the builder returns, and
-/// the count at `+0x72` that the impact solver is handed. The allocation zeroes `+0x20..0x2b`, `+0x72..0x75` and `+0x76`.
+/// **What `FUN_1800908d0` writes after the builder returns** — the objects, features and materials at `+0x40..0x68`, the
+/// elasticity at `+0x80` and the contact point's friction — is <see cref="IvpContactPoint.SetMaterials"/>; the estimate at
+/// `+0x74..0x7c` is <see cref="IvpContactPoint.Estimate"/>. *What increments the impact count at `+0x72` is not read yet.* The
+/// allocation zeroes `+0x20..0x2b`, `+0x72..0x75` and `+0x76`.
 /// </remarks>
 public sealed class IvpContactRecord
 {
@@ -39,10 +40,10 @@ public sealed class IvpContactRecord
     public float InverseMass { get; private set; }
 
     /// <summary>The first feature's core, when it is movable — <c>+0x98</c>.</summary>
-    public IvpRigidBody? FirstCore { get; private set; }
+    public IvpRigidBody? FirstCore { get; internal set; }
 
     /// <summary>The second feature's core, when it is movable — <c>+0xa0</c>.</summary>
-    public IvpRigidBody? SecondCore { get; private set; }
+    public IvpRigidBody? SecondCore { get; internal set; }
 
     /// <summary>A unit direction across the normal — <c>+0xb0</c>.</summary>
     public (float X, float Y, float Z) Span { get; internal set; }
@@ -51,16 +52,53 @@ public sealed class IvpContactRecord
     public (float X, float Y, float Z) CrossSpan { get; private set; }
 
     /// <summary>The position in the first core's frame — <c>+0xd0</c>; zero for a static core.</summary>
-    public (float X, float Y, float Z) FirstArm { get; private set; }
+    public (float X, float Y, float Z) FirstArm { get; internal set; }
 
     /// <summary>The position in the second core's frame — <c>+0xe0</c>; zero for a static core.</summary>
-    public (float X, float Y, float Z) SecondArm { get; private set; }
+    public (float X, float Y, float Z) SecondArm { get; internal set; }
 
     /// <summary><c>arm × normal</c> in the first core's frame — <c>+0xf0</c>; zero for a static core.</summary>
-    public (float X, float Y, float Z) FirstTurn { get; private set; }
+    public (float X, float Y, float Z) FirstTurn { get; internal set; }
 
     /// <summary><c>arm × normal</c> in the second core's frame — <c>+0x100</c>; zero for a static core.</summary>
-    public (float X, float Y, float Z) SecondTurn { get; private set; }
+    public (float X, float Y, float Z) SecondTurn { get; internal set; }
+
+    /// <summary>The relative velocity the impact solver began with — <c>+0x30</c>, written through the solver's <c>+0x148</c>.</summary>
+    public (float X, float Y, float Z) RelativeVelocity { get; internal set; }
+
+    /// <summary>The first synapse's object — <c>+0x40</c>, written by <see cref="IvpContactPoint.SetMaterials"/>.</summary>
+    public IvpCollisionObject? FirstObject { get; internal set; }
+
+    /// <summary>The second synapse's object — <c>+0x48</c>.</summary>
+    public IvpCollisionObject? SecondObject { get; internal set; }
+
+    /// <summary>The first synapse's feature — its edge at <c>+0x50</c>.</summary>
+    public IvpSynapse? FirstFeature { get; internal set; }
+
+    /// <summary>The second synapse's feature — its edge at <c>+0x58</c>.</summary>
+    public IvpSynapse? SecondFeature { get; internal set; }
+
+    /// <summary>The first synapse's material — <c>+0x60</c>.</summary>
+    public IIvpMaterial? FirstMaterial { get; internal set; }
+
+    /// <summary>The second synapse's material — <c>+0x68</c>.</summary>
+    public IIvpMaterial? SecondMaterial { get; internal set; }
+
+    /// <summary>The impacts this contact has counted — the signed word at <c>+0x72</c>, which the impact solver is handed.</summary>
+    /// <remarks>The allocation zeroes it; *its incrementer is not read yet.*</remarks>
+    public short Impacts { get; internal set; }
+
+    /// <summary>Whether <see cref="IvpContactPoint.Estimate"/> has run — the word at <c>+0x74</c> set to one.</summary>
+    public bool Estimated { get; internal set; }
+
+    /// <summary>The push-out estimate — <c>+0x78</c>, from <see cref="IvpContactPoint.PushOut"/>.</summary>
+    public float PushOut { get; internal set; }
+
+    /// <summary>The gap estimated one step on — <c>+0x7c</c>, from <see cref="IvpContactPoint.Estimate"/>.</summary>
+    public float PredictedGap { get; internal set; }
+
+    /// <summary>The pair's elasticity — <c>+0x80</c>, narrowed from the material manager's slot 3.</summary>
+    public float Elasticity { get; internal set; }
 
     /// <summary>Builds a contact point's record, as <c>FUN_18008d0c0</c> does.</summary>
     /// <param name="point">The contact point, whose gap, slide, last measure and record are written.</param>

@@ -40,21 +40,30 @@ public sealed class IvpLedgeTopology
     private readonly IReadOnlyList<(int A, int B, int C)> _triangles;
     private readonly IReadOnlyList<(int A, int B, int C)> _edgeOffsets;
     private readonly IReadOnlyList<int> _pierceTriangles;
+    private readonly IReadOnlyList<int> _materialIndices;
 
-    /// <summary>Wraps a ledge's triangles, the offset field of each of their edge words, and their headers' pierce fields.</summary>
+    /// <summary>Wraps a ledge's triangles, the offset field of each of their edge words, and their headers' pierce and material fields.</summary>
     /// <param name="triangles">Each triangle's three start points, slot by slot.</param>
     /// <param name="edgeOffsets">Each triangle's three edge offsets, slot by slot, as the file stores them.</param>
     /// <param name="pierceTriangles">Each triangle's header bits 12–23, as the file stores them.</param>
+    /// <param name="materialIndices">Each triangle's header bits 24–30, as the file stores them.</param>
     /// <exception cref="ArgumentNullException">A list is null.</exception>
     /// <exception cref="ArgumentException">The lists are not the same length.</exception>
     public IvpLedgeTopology(
         IReadOnlyList<(int A, int B, int C)> triangles,
         IReadOnlyList<(int A, int B, int C)> edgeOffsets,
-        IReadOnlyList<int> pierceTriangles)
+        IReadOnlyList<int> pierceTriangles,
+        IReadOnlyList<int> materialIndices)
     {
         ArgumentNullException.ThrowIfNull(triangles);
         ArgumentNullException.ThrowIfNull(edgeOffsets);
         ArgumentNullException.ThrowIfNull(pierceTriangles);
+        ArgumentNullException.ThrowIfNull(materialIndices);
+
+        if (triangles.Count != materialIndices.Count)
+        {
+            throw new ArgumentException("A ledge has one material index per triangle.", nameof(materialIndices));
+        }
 
         if (triangles.Count != edgeOffsets.Count)
         {
@@ -69,10 +78,16 @@ public sealed class IvpLedgeTopology
         _triangles = triangles;
         _edgeOffsets = edgeOffsets;
         _pierceTriangles = pierceTriangles;
+        _materialIndices = materialIndices;
     }
 
     /// <summary>How many triangles the ledge has — the count <c>FUN_180094e30</c> sizes its visited array by.</summary>
     public int TriangleCount => _triangles.Count;
+
+    /// <summary>The material index of an edge's triangle — <c>FUN_1800863d0</c>: the header's byte 3, less its top bit.</summary>
+    /// <param name="edge">The edge.</param>
+    /// <returns>Zero for the object's own material, otherwise the index the material manager is asked for.</returns>
+    public int MaterialIndex(IvpLedgeEdge edge) => _materialIndices[edge.Triangle];
 
     /// <summary>The point an edge starts at — its word's low sixteen bits.</summary>
     /// <param name="edge">The edge.</param>

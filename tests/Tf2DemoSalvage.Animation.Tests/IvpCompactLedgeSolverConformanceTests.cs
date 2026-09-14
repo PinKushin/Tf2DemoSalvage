@@ -248,7 +248,7 @@ public sealed class IvpCompactLedgeSolverConformanceTests
         (float X, float Y, float Z, float W)? rotation = null) =>
         new(
             points,
-            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)], [0]),
+            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)], [0], [0]),
             IvpMatrix.FromRotation(rotation ?? (0f, 0f, 0f, 1f), position),
             position);
 }

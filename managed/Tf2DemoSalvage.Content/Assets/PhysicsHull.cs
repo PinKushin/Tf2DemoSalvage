@@ -16,6 +16,10 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// **Each triangle's header word, bits 12–23: the index of a triangle across the ledge** (B369), where the minimize's
 /// backside walk `FUN_180094e30` starts. Kept as the file stores it; the walk refuses one past the ledge.
 /// </param>
+/// <param name="MaterialIndices">
+/// **Each triangle's header word, bits 24–30: its material index** (B369) — `FUN_1800863d0` reads byte 3 less its top bit;
+/// zero means the object's own material, anything else is asked of the environment's material manager.
+/// </param>
 /// <remarks>
 /// **A ledge is the convex unit the engine's narrow phase works on**, not the whole solid: a
 /// concave shape is a TREE of them, and the point array can be SHARED between siblings — every one
@@ -29,6 +33,7 @@ public readonly record struct PhysicsLedge(
     IReadOnlyList<(int A, int B, int C)> Triangles,
     IReadOnlyList<(int A, int B, int C)> EdgeOffsets,
     IReadOnlyList<int> PierceTriangles,
+    IReadOnlyList<int> MaterialIndices,
     Vector3 Center,
     float Radius);
 
@@ -469,6 +474,7 @@ public static class PhysicsHull
         List<(int A, int B, int C)> triangles = new(count);
         List<(int A, int B, int C)> offsets = new(count);
         List<int> pierces = new(count);
+        List<int> materials = new(count);
 
         for (int index = 0; index < count; index++)
         {
@@ -493,10 +499,14 @@ public static class PhysicsHull
             triangles.Add((a, b, c));
             offsets.Add((EdgeOffset(first), EdgeOffset(second), EdgeOffset(third)));
             pierces.Add(PierceTriangle(header));
+            materials.Add(MaterialIndex(header));
         }
 
-        return new PhysicsLedge(kept, triangles, offsets, pierces, centre, radius);
+        return new PhysicsLedge(kept, triangles, offsets, pierces, materials, centre, radius);
     }
+
+    /// <summary>A header word's bits 24–30: byte 3 less its top bit, as <c>FUN_1800863d0</c> reads it.</summary>
+    private static int MaterialIndex(int header) => (header >> 24) & 0x7F;
 
     /// <summary>An edge word's bits 16–30, sign-extended: <c>(int)(word &lt;&lt; 1) &gt;&gt; 17</c>, as <c>FUN_1800a1b50</c> reads it.</summary>
     private static int EdgeOffset(int word) => (word << 1) >> 17;

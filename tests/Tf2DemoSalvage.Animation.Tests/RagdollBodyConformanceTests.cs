@@ -68,6 +68,7 @@ public sealed class RagdollBodyConformanceTests
             [(0, 1, 2)],
             [(0, 0, 0)],
             [0],
+            [0],
             Vector3.Zero,
             0.1f);
 
@@ -179,6 +180,7 @@ public sealed class RagdollBodyConformanceTests
             [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
             [(0, 1, 2)],
             [(0, 0, 0)],
+            [0],
             [0],
             Vector3.Zero,
             0.1f);
@@ -501,6 +503,7 @@ public sealed class RagdollBodyConformanceTests
             [(0, 1, 2)],
             [(0, 0, 0)],
             [0],
+            [0],
             Vector3.Zero,
             0.1f);
 
@@ -536,6 +539,7 @@ public sealed class RagdollBodyConformanceTests
             [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
             [(0, 1, 2)],
             [(0, 0, 0)],
+            [0],
             [0],
             Vector3.Zero,
             0.1f);

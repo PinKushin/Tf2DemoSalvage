@@ -401,6 +401,14 @@ public sealed class IvpRigidBody
     /// <remarks>*Named by its offset because nothing read so far says what it is; no ragdoll element sets it.*</remarks>
     public float Offset08 { get; set; }
 
+    /// <summary>The core's radius — the float at <c>core+0x4</c>, which the push-out estimate turns a spin into a distance with.</summary>
+    /// <remarks>
+    /// Set once by `FUN_180078b90`: the surface manager's upper radius, how far the surface's mass centre sits from the centre
+    /// asked about, and the object's extra radius (`docs/findings/51`, beside `core+0x54 = 0.5f / core+0x4`). *That writer is
+    /// not ported; no ragdoll element sets this yet.*
+    /// </remarks>
+    public float Radius { get; set; }
+
     /// <summary>Whether the pointer at <c>core+0x58</c> is set.</summary>
     /// <remarks>
     /// *Named by its offset because its writer is unread.* Two readers are read: the anomaly check skips a core's spin limit

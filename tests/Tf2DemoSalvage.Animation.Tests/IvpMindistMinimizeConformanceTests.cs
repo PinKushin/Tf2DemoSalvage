@@ -313,7 +313,8 @@ public sealed class IvpMindistMinimizeConformanceTests
             new IvpLedgeTopology(
                 [(0, 1, 2), (0, 3, 1), (0, 2, 3), (1, 3, 2)],
                 [(6, 13, 6), (6, 7, -6), (-6, 4, -6), (-7, -4, -13)],
-                [3, 3, 1, 0]),
+                [3, 3, 1, 0],
+                [0, 0, 0, 0]),
             IvpMatrix.FromRotation((0f, 0f, 0f, 1f), at),
             at);
 
@@ -325,7 +326,7 @@ public sealed class IvpMindistMinimizeConformanceTests
     private static IvpLedgeSide Face((double X, double Y, double Z) at) =>
         new(
             [(-2f, -2f, 0f), (2f, -2f, 0f), (0f, 2f, 0f)],
-            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)], [0]),
+            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)], [0], [0]),
             IvpMatrix.FromRotation((0f, 0f, 0f, 1f), at),
             at);
 }

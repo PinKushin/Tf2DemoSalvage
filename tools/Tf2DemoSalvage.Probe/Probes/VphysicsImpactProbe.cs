@@ -25,6 +25,11 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// **Modes.** With no mode it compares the four helpers the solver calls and then sweeps whole impacts; `sweep n` sweeps `n`;
 /// `fixture path` writes the replay cases `IvpImpactSolverConformanceTests` reads, drawn from a fixed seed.
+///
+/// **The entry modes** run a contact point through `FUN_1800908d0`, `FUN_18008db40`, `FUN_18008fca0` and `FUN_18008ed60` on a
+/// fabricated contact point, record, two objects, their triangles and frames, and the environment: `entry [n]` sweeps and
+/// `entry-fixture path` writes the cases `IvpImpactEntryConformanceTests` reads. The material manager's slots 1–3 and each
+/// material's slots 1–2 are callbacks answering the case's fixed values, as <see cref="IvpEntryReplay"/> answers them.
 /// </remarks>
 public sealed class VphysicsImpactProbe : IProbe
 {
@@ -38,6 +43,10 @@ public sealed class VphysicsImpactProbe : IProbe
     private const long DeriveBlockAddress = 0x180098fd0;
     private const long ToleranceBlockAddress = 0x18012d540;
     private const int TwiceToleranceOffset = 0x128;
+    private const long SetMaterialsAddress = 0x1800908d0;
+    private const long EstimateAddress = 0x18008db40;
+    private const long PushOutAddress = 0x18008fca0;
+    private const long EnterAddress = 0x18008ed60;
 
     private const int DefaultSweep = 20_000;
     private const int HelperSweep = 200_000;
@@ -75,13 +84,35 @@ public sealed class VphysicsImpactProbe : IProbe
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint TrapFunction(nint self);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SetMaterialsFunction(nint point, nint record);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void EstimateFunction(nint point);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate float PushOutFunction(nint point, nint environment);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void EnterFunction(nint record, nint cores, float pushOut, nint point);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate nint MaterialAtFunction(nint self, nint collisionObject, nint position, int index);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate double PairFunction(nint self, nint record);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate double MaterialValueFunction(nint self);
+
     /// <inheritdoc />
     public string Name => "vphysics-impact";
 
     /// <inheritdoc />
     public string Summary =>
         "vphysics.dll's impact solver FUN_18008e290 called in process on fabricated cores and compared with IvpImpactSolver " +
-        "lane by lane; 'fixture' writes the conformance suite's cases: vphysics-impact [sweep n | fixture path]";
+        "lane by lane, and the collision entry above it; 'fixture' and 'entry-fixture' write the conformance suites' cases: " +
+        "vphysics-impact [sweep n | fixture path | entry [n] | entry-fixture path]";
 
     /// <inheritdoc />
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -100,6 +131,18 @@ public sealed class VphysicsImpactProbe : IProbe
 
         if (!Controls(output, module, native))
         {
+            return;
+        }
+
+        if (arguments.Count >= 1 && arguments[0] == "entry")
+        {
+            EntrySweep(output, native, arguments.Count >= 2 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : DefaultSweep);
+            return;
+        }
+
+        if (arguments.Count >= 2 && arguments[0] == "entry-fixture")
+        {
+            EntryFixture(output, native, arguments[1]);
             return;
         }
 
@@ -244,12 +287,7 @@ public sealed class VphysicsImpactProbe : IProbe
 
             if (differing <= 4)
             {
-                output.WriteLine($"case {index} differs on {differences.Count} lanes:");
-
-                for (int line = 0; line < Math.Min(differences.Count, 12); line++)
-                {
-                    output.WriteLine($"  {differences[line]}");
-                }
+                Print(output, index, differences);
             }
         }
 
@@ -391,6 +429,138 @@ public sealed class VphysicsImpactProbe : IProbe
         output.WriteLine($"wrote {cases.Count} cases to {path}; the port differs on {differing}; {native.Traps} calls reached a trap");
     }
 
+    private static void Print(TextWriter output, int index, IReadOnlyList<string> differences)
+    {
+        output.WriteLine($"case {index} differs on {differences.Count} lanes:");
+
+        for (int line = 0; line < Math.Min(differences.Count, 12); line++)
+        {
+            output.WriteLine($"  {differences[line]}");
+        }
+    }
+
+    private static void EntrySweep(TextWriter output, NativeImpact native, int count)
+    {
+        Draws draws = new(SweepSeed);
+        long noEstimate = IvpImpactReplay.Lane(1e20f);
+        int differing = 0;
+        int estimated = 0;
+        int staticSecond = 0;
+        int axes = 0;
+
+        for (int index = 0; index < count; index++)
+        {
+            Dictionary<string, long[]> inputs = RandomEntry(draws);
+            Dictionary<string, long[]> binary = native.Entry(inputs);
+            IReadOnlyList<string> differences = IvpEntryReplay.Differences(binary, IvpEntryReplay.Run(inputs));
+
+            estimated += binary["estimate"][1] != noEstimate ? 1 : 0;
+            staticSecond += inputs["movable"][1] == 0 ? 1 : 0;
+            axes += inputs["uses-material-axes"][0] != 0 ? 1 : 0;
+
+            if (differences.Count == 0)
+            {
+                continue;
+            }
+
+            differing++;
+
+            if (differing <= 4)
+            {
+                Print(output, index, differences);
+            }
+        }
+
+        output.WriteLine(
+            $"entries: {count} compared, {differing} differ; {estimated} estimated, {staticSecond} with a static second core, " +
+            $"{axes} asking for the materials' axes; {native.Traps} calls reached a trap");
+    }
+
+    private static void EntryFixture(TextWriter output, NativeImpact native, string path)
+    {
+        Draws draws = new(FixtureSeed);
+        List<(string Label, Dictionary<string, long[]> Inputs)> drawn = [];
+
+        for (int index = 0; index < FixtureCases; index++)
+        {
+            drawn.Add((index.ToString("d3", CultureInfo.InvariantCulture), RandomEntry(draws)));
+        }
+
+        // A material axis along the normal: the axis is exactly zero, so both blocks skip on their length.
+        Dictionary<string, long[]> along = RandomEntry(draws);
+
+        along["uses-material-axes"] = [1];
+        along["material-has-second"] = [1, 1, 1];
+        along["first-offset58"] = [0];
+        along["second-offset58"] = [0];
+        along["normal"] = Lanes((0f, 0f, 1f));
+
+        foreach (string side in Sides)
+        {
+            along[side + "frame"] = MatrixLanes(new IvpMatrix(0d, 1d, 0d, 0d, 0d, 1d, 1d, 0d, 0d, (0d, 0d, 0d)));
+        }
+
+        drawn.Add(("axis-along-normal", along));
+
+        List<IvpReplayCase> cases = [];
+        int differing = 0;
+
+        foreach ((string label, Dictionary<string, long[]> inputs) in drawn)
+        {
+            Dictionary<string, long[]> binary = native.Entry(inputs);
+
+            differing += IvpEntryReplay.Differences(binary, IvpEntryReplay.Run(inputs)).Count > 0 ? 1 : 0;
+            cases.Add(new IvpReplayCase(label, inputs, binary));
+        }
+
+        using (StreamWriter writer = File.CreateText(path))
+        {
+            writer.WriteLine(
+                "# FUN_1800908d0, FUN_18008db40, FUN_18008fca0 and FUN_18008ed60 in the game's x64 vphysics.dll, called in process by the vphysics-impact probe.");
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"# {cases.Count} cases, {FixtureCases} drawn from seed {FixtureSeed} and the rest targeted, written {DateTime.UtcNow:yyyy-MM-dd}; every output lane is the bits the binary left."));
+
+            foreach (IvpReplayCase replay in cases)
+            {
+                IvpEntryReplay.Write(writer, replay);
+            }
+        }
+
+        output.WriteLine($"wrote {cases.Count} cases to {path}; the port differs on {differing}; {native.Traps} calls reached a trap");
+    }
+
+    /// <summary>An impact's lanes plus a contact point, its record, three materials and each object's radius and frame.</summary>
+    private static Dictionary<string, long[]> RandomEntry(Draws draws)
+    {
+        Dictionary<string, long[]> inputs = RandomCase(draws);
+        bool firstMovable = !draws.Chance(0.2);
+        bool secondMovable = !firstMovable || !draws.Chance(0.25);
+
+        inputs["step"] = [IvpImpactReplay.Lane(draws.Chance(0.5) ? 0.015d : 1d / 66d)];
+        inputs["gap"] = [IvpImpactReplay.Lane(draws.Chance(0.05) ? float.NaN : draws.Between(0f, 0.2f))];
+        inputs["kinds"] = [draws.Below(4), draws.Below(4)];
+        inputs["uses-material-axes"] = [draws.Chance(0.5) ? 1 : 0];
+        inputs["material-indices"] = [draws.Chance(0.7) ? 0 : 1 + draws.Below(127), draws.Chance(0.7) ? 0 : 1 + draws.Below(127)];
+        inputs["turns"] = [.. Lanes(Cube(draws, 0.6f)), .. Lanes(Cube(draws, 0.6f))];
+        inputs["movable"] = [firstMovable ? 1 : 0, secondMovable ? 1 : 0];
+        inputs["impacts"] = [draws.Below(16)];
+        inputs["material-friction"] = [Factor(draws, 1.5f), Factor(draws, 1.5f), Factor(draws, 1.5f)];
+        inputs["material-second-friction"] = [Factor(draws, 1.5f), Factor(draws, 1.5f), Factor(draws, 1.5f)];
+        inputs["material-has-second"] = [draws.Chance(0.5) ? 1 : 0, draws.Chance(0.5) ? 1 : 0, draws.Chance(0.5) ? 1 : 0];
+        inputs["manager"] = [Factor(draws, 1.5f), Factor(draws, 1f)];
+
+        foreach (string side in Sides)
+        {
+            inputs[side + "radius"] = [IvpImpactReplay.Lane(draws.Between(0.01f, 1f))];
+            inputs[side + "frame"] = MatrixLanes(IvpMatrix.FromRotation(draws.Rotation(), (0d, 0d, 0d)));
+        }
+
+        return inputs;
+    }
+
+    private static long Factor(Draws draws, float most) => IvpImpactReplay.Lane((double)draws.Between(0f, most));
+
     private static bool Approaching(Dictionary<string, long[]> inputs, Dictionary<string, long[]> outputs)
     {
         long[] normal = inputs["normal"];
@@ -462,15 +632,15 @@ public sealed class VphysicsImpactProbe : IProbe
         inputs[side + "pending-velocity"] = Lanes(draws.Chance(0.3) ? Cube(draws, 2f) : default);
         inputs[side + "pending-spin"] = Lanes(draws.Chance(0.3) ? Cube(draws, 2f) : default);
 
-        IvpMatrix matrix = IvpMatrix.FromRotation(draws.Rotation(), (0d, 0d, 0d));
-
-        inputs[side + "matrix"] =
-        [
-            IvpImpactReplay.Lane(matrix.M0), IvpImpactReplay.Lane(matrix.M1), IvpImpactReplay.Lane(matrix.M2),
-            IvpImpactReplay.Lane(matrix.M4), IvpImpactReplay.Lane(matrix.M5), IvpImpactReplay.Lane(matrix.M6),
-            IvpImpactReplay.Lane(matrix.M8), IvpImpactReplay.Lane(matrix.M9), IvpImpactReplay.Lane(matrix.M10),
-        ];
+        inputs[side + "matrix"] = MatrixLanes(IvpMatrix.FromRotation(draws.Rotation(), (0d, 0d, 0d)));
     }
+
+    private static long[] MatrixLanes(IvpMatrix matrix) =>
+    [
+        IvpImpactReplay.Lane(matrix.M0), IvpImpactReplay.Lane(matrix.M1), IvpImpactReplay.Lane(matrix.M2),
+        IvpImpactReplay.Lane(matrix.M4), IvpImpactReplay.Lane(matrix.M5), IvpImpactReplay.Lane(matrix.M6),
+        IvpImpactReplay.Lane(matrix.M8), IvpImpactReplay.Lane(matrix.M9), IvpImpactReplay.Lane(matrix.M10),
+    ];
 
     private static (float X, float Y, float Z) Arm(Draws draws) =>
         (draws.Between(-0.6f, 0.6f), draws.Between(-0.6f, 0.6f), draws.Between(-0.6f, 0.6f));
@@ -530,6 +700,12 @@ public sealed class VphysicsImpactProbe : IProbe
         private const int GameSlots = 5;
         private const int ShadowControllerSlot = 70;
         private const int ShouldFreezeObjectSlot = 2;
+        private const int PointSize = 0xd0;
+        private const int RecordSize = 0x110;
+        private const int ObjectSize = 0x100;
+        private const int MaterialSize = 0x10;
+        private const int TriangleSize = 16;
+        private const int SynapseSize = 0x28;
 
         private readonly List<nint> _blocks = [];
         private readonly ShadowControllerFunction _shadow;
@@ -557,7 +733,29 @@ public sealed class VphysicsImpactProbe : IProbe
         private readonly nint _scratchD;
         private readonly nint _scratchE;
 
+        private readonly SetMaterialsFunction _setMaterials;
+        private readonly EstimateFunction _estimate;
+        private readonly PushOutFunction _pushOut;
+        private readonly EnterFunction _enter;
+        private readonly MaterialAtFunction _materialAt;
+        private readonly PairFunction _pairFriction;
+        private readonly PairFunction _pairElasticity;
+        private readonly MaterialValueFunction _materialFriction;
+        private readonly MaterialValueFunction _materialSecondFriction;
+
+        private readonly nint _point;
+        private readonly nint _record;
+        private readonly nint _materialManager;
+        private readonly nint[] _objects = new nint[2];
+        private readonly nint[] _frames = new nint[2];
+        private readonly nint[] _triangles = new nint[2];
+        private readonly nint[] _materials = new nint[3];
+        private readonly double[] _materialFrictions = new double[3];
+        private readonly double[] _materialSecondFrictions = new double[3];
+
         private bool _freezes;
+        private double _managerFriction;
+        private double _managerElasticity;
 
         public NativeImpact(nint module)
         {
@@ -623,6 +821,45 @@ public sealed class VphysicsImpactProbe : IProbe
 
             Manager = manager;
             Objects = objects;
+
+            _setMaterials = VphysicsLibrary.Function<SetMaterialsFunction>(module, SetMaterialsAddress);
+            _estimate = VphysicsLibrary.Function<EstimateFunction>(module, EstimateAddress);
+            _pushOut = VphysicsLibrary.Function<PushOutFunction>(module, PushOutAddress);
+            _enter = VphysicsLibrary.Function<EnterFunction>(module, EnterAddress);
+            _materialAt = (_, _, _, _) => _materials[2];
+            _pairFriction = (_, _) => _managerFriction;
+            _pairElasticity = (_, _) => _managerElasticity;
+            _materialFriction = self => _materialFrictions[Array.IndexOf(_materials, self)];
+            _materialSecondFriction = self => _materialSecondFrictions[Array.IndexOf(_materials, self)];
+
+            _point = Allocate(PointSize);
+            _record = Allocate(RecordSize);
+            _materialManager = Allocate(8);
+
+            nint managerTable = Allocate(4 * 8);
+            nint materialTable = Allocate(3 * 8);
+
+            Marshal.WriteIntPtr(_materialManager, 0, managerTable);
+            Marshal.WriteIntPtr(managerTable, 0, trap);
+            Marshal.WriteIntPtr(managerTable, 0x8, Marshal.GetFunctionPointerForDelegate(_materialAt));
+            Marshal.WriteIntPtr(managerTable, 0x10, Marshal.GetFunctionPointerForDelegate(_pairFriction));
+            Marshal.WriteIntPtr(managerTable, 0x18, Marshal.GetFunctionPointerForDelegate(_pairElasticity));
+            Marshal.WriteIntPtr(materialTable, 0, trap);
+            Marshal.WriteIntPtr(materialTable, 0x8, Marshal.GetFunctionPointerForDelegate(_materialFriction));
+            Marshal.WriteIntPtr(materialTable, 0x10, Marshal.GetFunctionPointerForDelegate(_materialSecondFriction));
+
+            for (int index = 0; index < _materials.Length; index++)
+            {
+                _materials[index] = Allocate(MaterialSize);
+                Marshal.WriteIntPtr(_materials[index], 0, materialTable);
+            }
+
+            for (int side = 0; side < _objects.Length; side++)
+            {
+                _objects[side] = Allocate(ObjectSize);
+                _frames[side] = Allocate(CoreSize);
+                _triangles[side] = Allocate(TriangleSize);
+            }
         }
 
         public int Traps { get; private set; }
@@ -642,13 +879,7 @@ public sealed class VphysicsImpactProbe : IProbe
             WriteCore(_first, inputs, "first-");
             WriteCore(_second, inputs, "second-");
 
-            Marshal.WriteIntPtr(_environment, 0x40, Manager);
-            Marshal.WriteIntPtr(_environment, 0x48, _limits);
-            Marshal.WriteInt64(_environment, 0x110, inputs["inverse-step"][0]);
-            Marshal.WriteInt32(_limits, 0xc, (int)inputs["max-velocity"][0]);
-            Marshal.WriteInt32(_limits, 0x10, (int)inputs["max-collisions"][0]);
-            Marshal.WriteInt32(_limits, 0x14, (int)inputs["max-spin"][0]);
-            _freezes = inputs["freezes"][0] != 0;
+            WriteEnvironment(inputs);
 
             WriteLanes(_normal, 0, inputs["normal"]);
             WriteLanes(_firstArm, 0, inputs["first-arm"]);
@@ -695,6 +926,99 @@ public sealed class VphysicsImpactProbe : IProbe
 
             ReadCore(outputs, _first, "first-");
             ReadCore(outputs, _second, "second-");
+
+            return outputs;
+        }
+
+        public Dictionary<string, long[]> Entry(Dictionary<string, long[]> inputs)
+        {
+            Zero(_cores, 16);
+            Zero(_environment, EnvironmentSize);
+            Zero(_limits, LimitsSize);
+            Zero(_point, PointSize);
+            Zero(_record, RecordSize);
+
+            nint[] cores = [_first, _second];
+
+            WriteCore(_first, inputs, Sides[0]);
+            WriteCore(_second, inputs, Sides[1]);
+            WriteEnvironment(inputs);
+            Marshal.WriteIntPtr(_environment, 0xe8, _materialManager);
+            Marshal.WriteInt64(_environment, 0x108, inputs["step"][0]);
+
+            for (int index = 0; index < _materials.Length; index++)
+            {
+                _materialFrictions[index] = BitConverter.Int64BitsToDouble(inputs["material-friction"][index]);
+                _materialSecondFrictions[index] = BitConverter.Int64BitsToDouble(inputs["material-second-friction"][index]);
+                Marshal.WriteInt32(_materials[index], 0xc, (int)inputs["material-has-second"][index]);
+            }
+
+            _managerFriction = BitConverter.Int64BitsToDouble(inputs["manager"][0]);
+            _managerElasticity = BitConverter.Int64BitsToDouble(inputs["manager"][1]);
+
+            for (int side = 0; side < _objects.Length; side++)
+            {
+                int synapse = 0x10 + (side * SynapseSize);
+
+                Marshal.WriteInt32(cores[side], 4, (int)inputs[Sides[side] + "radius"][0]);
+                Zero(_objects[side], ObjectSize);
+                Marshal.WriteIntPtr(_objects[side], 0x30, _environment);
+                Marshal.WriteIntPtr(_objects[side], 0xd0, _materials[side]);
+                Marshal.WriteIntPtr(_objects[side], 0xe8, cores[side]);
+                Marshal.WriteIntPtr(_objects[side], 0xf0, _frames[side]);
+                WriteMatrix(_frames[side], inputs[Sides[side] + "frame"]);
+                Marshal.WriteInt32(_triangles[side], 0, (int)inputs["material-indices"][side] << 24);
+
+                Marshal.WriteIntPtr(_point, synapse + 0x10, _objects[side]);
+                Marshal.WriteInt16(_point, synapse + 0x1a, (short)inputs["kinds"][side]);
+                Marshal.WriteIntPtr(_point, synapse + 0x20, _triangles[side] + 4);
+            }
+
+            Marshal.WriteByte(_point, 0x64, (byte)inputs["uses-material-axes"][0]);
+            Marshal.WriteIntPtr(_point, 0x70, _record);
+            Marshal.WriteInt32(_point, 0x8c, (int)inputs["gap"][0]);
+
+            long[] movable = inputs["movable"];
+            long[] turns = inputs["turns"];
+
+            WriteLanes(_record, 0x20, inputs["normal"]);
+            Marshal.WriteInt16(_record, 0x72, (short)inputs["impacts"][0]);
+            Marshal.WriteIntPtr(_record, 0x98, movable[0] != 0 ? _first : 0);
+            Marshal.WriteIntPtr(_record, 0xa0, movable[1] != 0 ? _second : 0);
+            WriteLanes(_record, 0xd0, inputs["first-arm"]);
+            WriteLanes(_record, 0xe0, inputs["second-arm"]);
+            WriteLanes(_record, 0xf0, turns[..3]);
+            WriteLanes(_record, 0x100, turns[3..]);
+
+            _setMaterials(_point, _record);
+            _estimate(_point);
+
+            long estimated = (ushort)Marshal.ReadInt16(_record, 0x74);
+            long[] estimate = [ReadSingle(_record, 0x78), ReadSingle(_record, 0x7c)];
+            float pushOut = _pushOut(_point, _environment);
+            long[] pushed = [IvpImpactReplay.Lane(pushOut), ReadSingle(_record, 0x78)];
+
+            _enter(_record, _cores, pushOut, _point);
+
+            Dictionary<string, long[]> outputs = new(StringComparer.Ordinal)
+            {
+                ["objects"] = [ObjectSlot(Marshal.ReadIntPtr(_record, 0x40)), ObjectSlot(Marshal.ReadIntPtr(_record, 0x48))],
+                ["materials"] = [MaterialSlot(Marshal.ReadIntPtr(_record, 0x60)), MaterialSlot(Marshal.ReadIntPtr(_record, 0x68))],
+                ["elasticity"] = [ReadSingle(_record, 0x80)],
+                ["friction"] = [ReadSingle(_point, 0x78)],
+                ["estimated"] = [estimated],
+                ["estimate"] = estimate,
+                ["push-out"] = pushed,
+                ["record-relative"] = ReadVector(_record, 0x30),
+                ["counters"] =
+                [
+                    Marshal.ReadInt32(_environment, 0x94), Marshal.ReadInt32(_environment, 0xa4), Marshal.ReadInt32(_environment, 0xac),
+                ],
+                ["cores"] = [Slot(Marshal.ReadIntPtr(_cores, 0)), Slot(Marshal.ReadIntPtr(_cores, 8))],
+            };
+
+            ReadCore(outputs, _first, Sides[0]);
+            ReadCore(outputs, _second, Sides[1]);
 
             return outputs;
         }
@@ -761,6 +1085,11 @@ public sealed class VphysicsImpactProbe : IProbe
             GC.KeepAlive(_shadow);
             GC.KeepAlive(_freeze);
             GC.KeepAlive(_trap);
+            GC.KeepAlive(_materialAt);
+            GC.KeepAlive(_pairFriction);
+            GC.KeepAlive(_pairElasticity);
+            GC.KeepAlive(_materialFriction);
+            GC.KeepAlive(_materialSecondFriction);
 
             foreach (nint block in _blocks)
             {
@@ -783,15 +1112,7 @@ public sealed class VphysicsImpactProbe : IProbe
             Marshal.WriteIntPtr(core, 0x58, inputs[side + "offset58"][0] != 0 ? core : 0);
             Marshal.WriteIntPtr(core, 0x70, Objects);
 
-            long[] matrix = inputs[side + "matrix"];
-
-            for (int row = 0; row < 3; row++)
-            {
-                for (int column = 0; column < 3; column++)
-                {
-                    Marshal.WriteInt64(core, 0x90 + (row * 0x20) + (column * 8), matrix[(row * 3) + column]);
-                }
-            }
+            WriteMatrix(core, inputs[side + "matrix"]);
 
             WriteLanes(core, 0x110, inputs[side + "pending-spin"]);
             WriteLanes(core, 0x120, inputs[side + "pending-velocity"]);
@@ -808,6 +1129,32 @@ public sealed class VphysicsImpactProbe : IProbe
             outputs[side + "pending-velocity-after"] = ReadVector(core, 0x120);
             outputs[side + "pending-spin-after"] = ReadVector(core, 0x110);
         }
+
+        private static void WriteMatrix(nint core, long[] matrix)
+        {
+            for (int row = 0; row < 3; row++)
+            {
+                for (int column = 0; column < 3; column++)
+                {
+                    Marshal.WriteInt64(core, 0x90 + (row * 0x20) + (column * 8), matrix[(row * 3) + column]);
+                }
+            }
+        }
+
+        private void WriteEnvironment(Dictionary<string, long[]> inputs)
+        {
+            Marshal.WriteIntPtr(_environment, 0x40, Manager);
+            Marshal.WriteIntPtr(_environment, 0x48, _limits);
+            Marshal.WriteInt64(_environment, 0x110, inputs["inverse-step"][0]);
+            Marshal.WriteInt32(_limits, 0xc, (int)inputs["max-velocity"][0]);
+            Marshal.WriteInt32(_limits, 0x10, (int)inputs["max-collisions"][0]);
+            Marshal.WriteInt32(_limits, 0x14, (int)inputs["max-spin"][0]);
+            _freezes = inputs["freezes"][0] != 0;
+        }
+
+        private int ObjectSlot(nint candidate) => Array.IndexOf(_objects, candidate) + 1;
+
+        private int MaterialSlot(nint candidate) => Array.IndexOf(_materials, candidate) + 1;
 
         private int Slot(nint core)
         {

@@ -589,7 +589,7 @@ public sealed class RagdollSimulationConformanceTests
         ];
 
         List<PhysicsLedge> hull =
-            [new PhysicsLedge(points, triangles, new (int, int, int)[triangles.Count], new int[triangles.Count], Vector3.Zero, Half * 2f)];
+            [new PhysicsLedge(points, triangles, new (int, int, int)[triangles.Count], new int[triangles.Count], new int[triangles.Count], Vector3.Zero, Half * 2f)];
 
         return PhysicsModel.From(
             [

@@ -184,6 +184,13 @@ public static class IvpVector
         return Math.Sqrt(squared);
     }
 
+    /// <summary>A float dot product, <c>(x·x' + y·y') + z·z'</c> in float.</summary>
+    /// <param name="first">The left operand.</param>
+    /// <param name="second">The right operand.</param>
+    /// <returns>The product.</returns>
+    internal static float Dot((float X, float Y, float Z) first, (float X, float Y, float Z) second) =>
+        (first.X * second.X) + (first.Y * second.Y) + (first.Z * second.Z);
+
     /// <summary>A double vector's length — <c>FUN_18006fc60</c>.</summary>
     /// <param name="vector">The vector.</param>
     /// <returns><c>√((x² + y²) + z²)</c>, an exact root (<c>SQRTPD</c>).</returns>

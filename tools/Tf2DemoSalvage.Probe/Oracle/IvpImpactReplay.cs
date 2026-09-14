@@ -72,13 +72,9 @@ public static class IvpImpactReplay
         IvpRigidBody first = Core(inputs, Sides[0]);
         IvpRigidBody second = Core(inputs, Sides[1]);
 
-        IvpImpactEnvironment environment = new()
-        {
-            InverseStep = Real64(inputs, "inverse-step", 0),
-            Limits = new IvpAnomalyLimits(
-                Real32(inputs, "max-velocity", 0), Whole32(inputs, "max-collisions", 0), Real32(inputs, "max-spin", 0), 0, 0f, 0f),
-            Anomalies = new VphysicsAnomalyManager(new FixedAnswer(Whole32(inputs, "freezes", 0) != 0)),
-        };
+        // The solver reads neither the step nor a material, so its cases carry neither; the entry replay's cases carry both.
+        IvpImpactEnvironment environment = Environment(
+            inputs, 1d / Real64(inputs, "inverse-step", 0), new IvpReplayMaterials(new IvpReplayMaterial(0d, 0d, false), 0d, 0d));
 
         IvpImpactSolver solver = new()
         {
@@ -129,14 +125,19 @@ public static class IvpImpactReplay
     /// <returns>One line per differing lane; empty when the two agree.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static IReadOnlyList<string> Differences(
-        IReadOnlyDictionary<string, long[]> expected, IReadOnlyDictionary<string, long[]> actual)
+        IReadOnlyDictionary<string, long[]> expected, IReadOnlyDictionary<string, long[]> actual) =>
+        Differences(Outputs, expected, actual);
+
+    /// <summary>Every differing lane over another replay's output fields.</summary>
+    internal static IReadOnlyList<string> Differences(
+        IReadOnlyList<IvpReplayField> outputs, IReadOnlyDictionary<string, long[]> expected, IReadOnlyDictionary<string, long[]> actual)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ArgumentNullException.ThrowIfNull(actual);
 
         List<string> differences = [];
 
-        foreach (IvpReplayField field in Outputs)
+        foreach (IvpReplayField field in outputs)
         {
             long[] engine = expected[field.Name];
             long[] port = actual[field.Name];
@@ -159,19 +160,23 @@ public static class IvpImpactReplay
     /// <param name="writer">Where to write.</param>
     /// <param name="replay">The case.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public static void Write(TextWriter writer, IvpReplayCase replay)
+    public static void Write(TextWriter writer, IvpReplayCase replay) => Write(Inputs, Outputs, writer, replay);
+
+    /// <summary>Writes one case of another replay's fields.</summary>
+    internal static void Write(
+        IReadOnlyList<IvpReplayField> inputs, IReadOnlyList<IvpReplayField> outputs, TextWriter writer, IvpReplayCase replay)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(replay);
 
         writer.WriteLine($"case {replay.Label}");
 
-        foreach (IvpReplayField field in Inputs)
+        foreach (IvpReplayField field in inputs)
         {
             WriteField(writer, field, replay.Inputs[field.Name]);
         }
 
-        foreach (IvpReplayField field in Outputs)
+        foreach (IvpReplayField field in outputs)
         {
             WriteField(writer, field, replay.Outputs[field.Name]);
         }
@@ -183,11 +188,16 @@ public static class IvpImpactReplay
     /// <exception cref="ArgumentNullException"><paramref name="reader"/> is null.</exception>
     /// <exception cref="InvalidDataException">A line names no known field, holds the wrong number of lanes, or a case is incomplete.</exception>
     /// <remarks>Blank lines and lines starting with <c>#</c> are ignored.</remarks>
-    public static IReadOnlyList<IvpReplayCase> Parse(TextReader reader)
+    public static IReadOnlyList<IvpReplayCase> Parse(TextReader reader) => Parse(Inputs, Outputs, reader);
+
+    /// <summary>Reads every case of another replay's fields.</summary>
+    internal static IReadOnlyList<IvpReplayCase> Parse(
+        IReadOnlyList<IvpReplayField> inputs, IReadOnlyList<IvpReplayField> outputs, TextReader reader)
     {
         ArgumentNullException.ThrowIfNull(reader);
 
-        Dictionary<string, IvpReplayField> known = Inputs.Concat(Outputs).ToDictionary(field => field.Name, StringComparer.Ordinal);
+        List<IvpReplayField> fields = [.. inputs, .. outputs];
+        Dictionary<string, IvpReplayField> known = fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
         List<IvpReplayCase> cases = [];
         string? label = null;
         Dictionary<string, long[]> lanes = new(StringComparer.Ordinal);
@@ -203,7 +213,7 @@ public static class IvpImpactReplay
 
             if (tokens[0] == "case")
             {
-                Finish(cases, label, lanes);
+                Finish(fields, cases, label, lanes);
                 label = tokens[1];
                 lanes = new Dictionary<string, long[]>(StringComparer.Ordinal);
                 continue;
@@ -224,7 +234,7 @@ public static class IvpImpactReplay
             lanes.Add(named.Name, values);
         }
 
-        Finish(cases, label, lanes);
+        Finish(fields, cases, label, lanes);
 
         return cases;
     }
@@ -262,7 +272,6 @@ public static class IvpImpactReplay
         ArgumentNullException.ThrowIfNull(side);
 
         int flags = Whole32(inputs, side + "flags", 0);
-        long[] matrix = inputs[side + "matrix"];
 
         return new IvpRigidBody
         {
@@ -279,12 +288,56 @@ public static class IvpImpactReplay
             AngularVelocity = Vector(inputs, side + "spin", 0),
             PendingVelocity = Vector(inputs, side + "pending-velocity", 0),
             PendingAngularVelocity = Vector(inputs, side + "pending-spin", 0),
-            CoreMatrix = new IvpMatrix(
-                BitConverter.Int64BitsToDouble(matrix[0]), BitConverter.Int64BitsToDouble(matrix[1]), BitConverter.Int64BitsToDouble(matrix[2]),
-                BitConverter.Int64BitsToDouble(matrix[3]), BitConverter.Int64BitsToDouble(matrix[4]), BitConverter.Int64BitsToDouble(matrix[5]),
-                BitConverter.Int64BitsToDouble(matrix[6]), BitConverter.Int64BitsToDouble(matrix[7]), BitConverter.Int64BitsToDouble(matrix[8]),
-                (0d, 0d, 0d)),
+            CoreMatrix = Matrix(inputs, side + "matrix"),
         };
+    }
+
+    /// <summary>The environment a case's lanes describe.</summary>
+    internal static IvpImpactEnvironment Environment(
+        IReadOnlyDictionary<string, long[]> inputs, double step, IIvpMaterialManager materials) =>
+        new()
+        {
+            InverseStep = Real64(inputs, "inverse-step", 0),
+            Step = step,
+            Limits = new IvpAnomalyLimits(
+                Real32(inputs, "max-velocity", 0), Whole32(inputs, "max-collisions", 0), Real32(inputs, "max-spin", 0), 0, 0f, 0f),
+            Anomalies = new VphysicsAnomalyManager(new FixedAnswer(Whole32(inputs, "freezes", 0) != 0)),
+            Materials = materials,
+        };
+
+    /// <summary>A matrix's nine rotation lanes, row by row, with no translation.</summary>
+    internal static IvpMatrix Matrix(IReadOnlyDictionary<string, long[]> inputs, string name) =>
+        new(
+            Real64(inputs, name, 0), Real64(inputs, name, 1), Real64(inputs, name, 2),
+            Real64(inputs, name, 3), Real64(inputs, name, 4), Real64(inputs, name, 5),
+            Real64(inputs, name, 6), Real64(inputs, name, 7), Real64(inputs, name, 8),
+            (0d, 0d, 0d));
+
+    /// <summary>One core's input lanes, as <see cref="Core"/> reads them.</summary>
+    internal static void AddCoreInputs(List<IvpReplayField> fields, string side)
+    {
+        fields.Add(new(side + "flags", IvpReplayKind.Whole32, 1));
+        fields.Add(new(side + "collisions", IvpReplayKind.Whole32, 1));
+        fields.Add(new(side + "offset08", IvpReplayKind.Real32, 1));
+        fields.Add(new(side + "offset58", IvpReplayKind.Whole32, 1));
+        fields.Add(new(side + "inverse-inertia", IvpReplayKind.Real32, 3));
+        fields.Add(new(side + "inverse-mass", IvpReplayKind.Real32, 1));
+        fields.Add(new(side + "velocity", IvpReplayKind.Real32, 3));
+        fields.Add(new(side + "spin", IvpReplayKind.Real32, 3));
+        fields.Add(new(side + "pending-velocity", IvpReplayKind.Real32, 3));
+        fields.Add(new(side + "pending-spin", IvpReplayKind.Real32, 3));
+        fields.Add(new(side + "matrix", IvpReplayKind.Real64, 9));
+    }
+
+    /// <summary>One core's output lanes, as <see cref="AddCore"/> writes them.</summary>
+    internal static void AddCoreOutputs(List<IvpReplayField> fields, string side)
+    {
+        fields.Add(new(side + "flags-after", IvpReplayKind.Whole32, 1));
+        fields.Add(new(side + "collisions-after", IvpReplayKind.Whole32, 1));
+        fields.Add(new(side + "velocity-after", IvpReplayKind.Real32, 3));
+        fields.Add(new(side + "spin-after", IvpReplayKind.Real32, 3));
+        fields.Add(new(side + "pending-velocity-after", IvpReplayKind.Real32, 3));
+        fields.Add(new(side + "pending-spin-after", IvpReplayKind.Real32, 3));
     }
 
     private static List<IvpReplayField> BuildInputs()
@@ -311,17 +364,7 @@ public static class IvpImpactReplay
 
         foreach (string side in Sides)
         {
-            fields.Add(new(side + "flags", IvpReplayKind.Whole32, 1));
-            fields.Add(new(side + "collisions", IvpReplayKind.Whole32, 1));
-            fields.Add(new(side + "offset08", IvpReplayKind.Real32, 1));
-            fields.Add(new(side + "offset58", IvpReplayKind.Whole32, 1));
-            fields.Add(new(side + "inverse-inertia", IvpReplayKind.Real32, 3));
-            fields.Add(new(side + "inverse-mass", IvpReplayKind.Real32, 1));
-            fields.Add(new(side + "velocity", IvpReplayKind.Real32, 3));
-            fields.Add(new(side + "spin", IvpReplayKind.Real32, 3));
-            fields.Add(new(side + "pending-velocity", IvpReplayKind.Real32, 3));
-            fields.Add(new(side + "pending-spin", IvpReplayKind.Real32, 3));
-            fields.Add(new(side + "matrix", IvpReplayKind.Real64, 9));
+            AddCoreInputs(fields, side);
         }
 
         return fields;
@@ -348,18 +391,13 @@ public static class IvpImpactReplay
 
         foreach (string side in Sides)
         {
-            fields.Add(new(side + "flags-after", IvpReplayKind.Whole32, 1));
-            fields.Add(new(side + "collisions-after", IvpReplayKind.Whole32, 1));
-            fields.Add(new(side + "velocity-after", IvpReplayKind.Real32, 3));
-            fields.Add(new(side + "spin-after", IvpReplayKind.Real32, 3));
-            fields.Add(new(side + "pending-velocity-after", IvpReplayKind.Real32, 3));
-            fields.Add(new(side + "pending-spin-after", IvpReplayKind.Real32, 3));
+            AddCoreOutputs(fields, side);
         }
 
         return fields;
     }
 
-    private static void AddCore(Dictionary<string, long[]> outputs, string side, IvpRigidBody core)
+    internal static void AddCore(Dictionary<string, long[]> outputs, string side, IvpRigidBody core)
     {
         outputs[side + "flags-after"] = [Flags(core)];
         outputs[side + "collisions-after"] = [core.Collisions];
@@ -370,7 +408,7 @@ public static class IvpImpactReplay
     }
 
     /// <summary>Which core a slot holds: zero for none, one for the first, two for the second.</summary>
-    private static int Slot(IvpRigidBody? core, IvpRigidBody first, IvpRigidBody second)
+    internal static int Slot(IvpRigidBody? core, IvpRigidBody first, IvpRigidBody second)
     {
         if (core is null)
         {
@@ -385,21 +423,21 @@ public static class IvpImpactReplay
         return ReferenceEquals(core, second) ? 2 : 9;
     }
 
-    private static long[] Lanes((float X, float Y, float Z) vector) => [Lane(vector.X), Lane(vector.Y), Lane(vector.Z)];
+    internal static long[] Lanes((float X, float Y, float Z) vector) => [Lane(vector.X), Lane(vector.Y), Lane(vector.Z)];
 
     private static long[] Lanes((float X, float Y, float Z) first, (float X, float Y, float Z) second) =>
         [Lane(first.X), Lane(first.Y), Lane(first.Z), Lane(second.X), Lane(second.Y), Lane(second.Z)];
 
-    private static float Real32(IReadOnlyDictionary<string, long[]> inputs, string name, int lane) =>
+    internal static float Real32(IReadOnlyDictionary<string, long[]> inputs, string name, int lane) =>
         BitConverter.Int32BitsToSingle(unchecked((int)(uint)inputs[name][lane]));
 
-    private static double Real64(IReadOnlyDictionary<string, long[]> inputs, string name, int lane) =>
+    internal static double Real64(IReadOnlyDictionary<string, long[]> inputs, string name, int lane) =>
         BitConverter.Int64BitsToDouble(inputs[name][lane]);
 
-    private static int Whole32(IReadOnlyDictionary<string, long[]> inputs, string name, int lane) =>
+    internal static int Whole32(IReadOnlyDictionary<string, long[]> inputs, string name, int lane) =>
         unchecked((int)inputs[name][lane]);
 
-    private static (float X, float Y, float Z) Vector(IReadOnlyDictionary<string, long[]> inputs, string name, int lane) =>
+    internal static (float X, float Y, float Z) Vector(IReadOnlyDictionary<string, long[]> inputs, string name, int lane) =>
         (Real32(inputs, name, lane), Real32(inputs, name, lane + 1), Real32(inputs, name, lane + 2));
 
     private static void WriteField(TextWriter writer, IvpReplayField field, long[] values)
@@ -437,14 +475,15 @@ public static class IvpImpactReplay
             _ => value.ToString(CultureInfo.InvariantCulture),
         };
 
-    private static void Finish(List<IvpReplayCase> cases, string? label, Dictionary<string, long[]> lanes)
+    private static void Finish(
+        List<IvpReplayField> fields, List<IvpReplayCase> cases, string? label, Dictionary<string, long[]> lanes)
     {
         if (label is null)
         {
             return;
         }
 
-        IvpReplayField? missing = Inputs.Concat(Outputs).FirstOrDefault(field => !lanes.ContainsKey(field.Name));
+        IvpReplayField? missing = fields.Find(field => !lanes.ContainsKey(field.Name));
 
         if (missing is not null)
         {

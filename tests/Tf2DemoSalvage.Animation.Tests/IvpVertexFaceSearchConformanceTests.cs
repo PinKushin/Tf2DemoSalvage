@@ -216,7 +216,7 @@ public sealed class IvpVertexFaceSearchConformanceTests
     private static IvpSearchSide Face(float inverseDiameter) =>
         IvpSearchFixtures.Side(
             [(-100f, -100f, 0f), (100f, -100f, 0f), (0f, 100f, 0f)],
-            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)], [0]),
+            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)], [0], [0]),
             (0d, 0d, 0d),
             fallingAt: 0f,
             resting: true,

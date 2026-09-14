@@ -75,7 +75,7 @@ public sealed class IvpLedgeTopologyConformanceTests
     [Test]
     public void Hop_OntoATrianglesHeader_IsRefused()
     {
-        IvpLedgeTopology topology = new([(0, 1, 2), (0, 3, 1)], [(0, 0, 0), (0, -2, 0)], [1, 0]);
+        IvpLedgeTopology topology = new([(0, 1, 2), (0, 3, 1)], [(0, 0, 0), (0, -2, 0)], [1, 0], [0, 0]);
 
         Should.Throw<InvalidDataException>(() => topology.Hop(new IvpLedgeEdge(1, 1)));
     }
@@ -84,7 +84,7 @@ public sealed class IvpLedgeTopologyConformanceTests
     [Test]
     public void Hop_PastTheLedge_IsRefused()
     {
-        IvpLedgeTopology topology = new([(0, 1, 2)], [(4, 0, 0)], [0]);
+        IvpLedgeTopology topology = new([(0, 1, 2)], [(4, 0, 0)], [0], [0]);
 
         Should.Throw<InvalidDataException>(() => topology.Hop(new IvpLedgeEdge(0, 0)));
     }
@@ -107,7 +107,7 @@ public sealed class IvpLedgeTopologyConformanceTests
     [Test]
     public void Pierce_PastTheLedge_IsRefused()
     {
-        IvpLedgeTopology topology = new([(0, 1, 2)], [(0, 0, 0)], [1]);
+        IvpLedgeTopology topology = new([(0, 1, 2)], [(0, 0, 0)], [1], [0]);
 
         Should.Throw<InvalidDataException>(() => topology.Pierce(new IvpLedgeEdge(0, 0)));
     }
@@ -120,7 +120,7 @@ public sealed class IvpLedgeTopologyConformanceTests
     [Test]
     public void Ring_ThatNeverReturnsToItsStart_IsRefused()
     {
-        IvpLedgeTopology topology = new([(0, 1, 2), (0, 3, 1)], [(0, 0, 2), (0, 0, 0)], [1, 0]);
+        IvpLedgeTopology topology = new([(0, 1, 2), (0, 3, 1)], [(0, 0, 2), (0, 0, 0)], [1, 0], [0, 0]);
 
         Should.Throw<InvalidDataException>(() => topology.Ring(new IvpLedgeEdge(0, 0)).ToList());
     }
@@ -136,5 +136,6 @@ public sealed class IvpLedgeTopologyConformanceTests
         new(
             [(0, 1, 2), (0, 3, 1), (0, 2, 3), (1, 3, 2)],
             [(6, 13, 6), (6, 7, -6), (-6, 4, -6), (-7, -4, -13)],
-            [3, 3, 1, 0]);
+            [3, 3, 1, 0],
+            [0, 0, 0, 0]);
 }

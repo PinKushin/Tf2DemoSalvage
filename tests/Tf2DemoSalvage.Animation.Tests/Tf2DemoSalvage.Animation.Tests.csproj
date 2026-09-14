@@ -48,7 +48,11 @@
        brings the renderer's projects with it. -->
   <ItemGroup>
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpImpactReplay.cs" Link="Oracle\IvpImpactReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpEntryReplay.cs" Link="Oracle\IvpEntryReplay.cs" />
     <None Update="Data\ivp-impact-solver.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\ivp-impact-entry.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

@@ -8,6 +8,12 @@ public sealed class IvpImpactEnvironment
     /// <summary>The reciprocal of the PSI step, <c>env+0x110</c>, which the spin limit narrows to float.</summary>
     public required double InverseStep { get; init; }
 
+    /// <summary>The PSI step, <c>env+0x108</c>, which a record's estimate narrows to float.</summary>
+    public required double Step { get; init; }
+
+    /// <summary>The material manager, <c>env+0xe8</c>.</summary>
+    public required IIvpMaterialManager Materials { get; init; }
+
     /// <summary>The anomaly limits, <c>env+0x48</c>.</summary>
     public required IvpAnomalyLimits Limits { get; init; }
 
@@ -81,6 +87,9 @@ public sealed class IvpImpactSolver
 
     /// <summary><c>DAT_1800fd850</c>: <c>1e-15f</c> widened, added to the response before the separating push divides by it.</summary>
     private const double Stiffness = 1e-15f;
+
+    /// <summary><c>DAT_1800f4f20</c>: <c>1e-19</c>, below which a material's axis has no direction.</summary>
+    private const double AxisLengthFloor = 1e-19;
 
     private (float X, float Y, float Z) _firstSpin;
     private (float X, float Y, float Z) _secondSpin;
@@ -181,6 +190,142 @@ public sealed class IvpImpactSolver
     /// <summary>The relative velocity as the solve began, written through <c>+0x148</c> to the record's <c>+0x30</c>.</summary>
     public (float X, float Y, float Z) RecordRelative { get; private set; }
 
+    /// <summary>Builds the solver for a contact point's record and solves its impact — <c>FUN_18008ed60(record, cores, p5, cp)</c>.</summary>
+    /// <param name="environment">The environment both cores are in.</param>
+    /// <param name="point">The contact point, whose record <see cref="IvpContactPoint.SetMaterials"/> has written.</param>
+    /// <param name="cores">Two slots, as <see cref="Solve"/> takes them.</param>
+    /// <param name="pushOut"><c>p5</c>: the contact point's <see cref="IvpContactPoint.PushOut"/>.</param>
+    /// <returns>The solver, after its solve.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">The point has no record, or a core the entry reads is absent — where the engine reads through a null pointer.</exception>
+    /// <remarks>
+    /// <code>
+    /// if record+0xa0 is null:  A = record+0x48's core;  B = record+0x98;  arms = (+0xe0, +0xd0);  n = −record+0x20
+    /// else:                    A = record+0x98, or record+0x40's core;  B = record+0xa0;  arms = (+0xd0, +0xe0);  n = record+0x20
+    /// A+0x58 or B+0x58 set:  cone (1f, 0f)
+    /// else:  t = (√(double)record+0x80 + 1.0)·(double)cp+0x78;  x = (float)atan(t);  c = (1f − x²·0.5f) + (x²·(1/24f))·x²
+    ///        cone (c, (float)((double)c·t));  cp+0x64 set → FUN_18008fe70
+    /// FUN_18008e290(solver, cores, 1, record+0x72, p5)
+    /// </code>
+    /// **The static body is always the solver's first**, the normal turned to match.
+    /// </remarks>
+    public static IvpImpactSolver Enter(IvpImpactEnvironment environment, IvpContactPoint point, IvpRigidBody?[] cores, float pushOut)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(point);
+        ArgumentNullException.ThrowIfNull(cores);
+
+        IvpContactRecord record = point.Record ?? throw new InvalidOperationException("The contact point has no record to solve.");
+        bool staticSecond = record.SecondCore is null;
+        IvpRigidBody first = staticSecond ? CoreOf(record.SecondObject) : record.FirstCore ?? CoreOf(record.FirstObject);
+        IvpRigidBody second = record.SecondCore ?? record.FirstCore ??
+            throw new InvalidOperationException("Neither of the record's cores is movable; the engine would read through a null core.");
+
+        float cosine = One;
+        float tangent = 0f;
+        (bool Uses, float Tangent, (float X, float Y, float Z) Axis) axis = default;
+
+        if (!first.HasOffset58 && !second.HasOffset58)
+        {
+            (cosine, tangent) = Cone((Math.Sqrt(record.Elasticity) + 1d) * point.Friction);
+
+            if (point.UsesMaterialAxes)
+            {
+                axis = MaterialAxes(environment, point, record);
+            }
+        }
+
+        IvpImpactSolver solver = new()
+        {
+            First = first,
+            Second = second,
+            FirstArm = staticSecond ? record.SecondArm : record.FirstArm,
+            SecondArm = staticSecond ? record.FirstArm : record.SecondArm,
+            Normal = staticSecond ? Negate(record.Normal) : record.Normal,
+            Elasticity = record.Elasticity,
+            ConeCosine = cosine,
+            ConeTangent = tangent,
+            UsesAxis = axis.Uses,
+            AxisTangent = axis.Tangent,
+            Axis = axis.Axis,
+        };
+
+        solver.Solve(environment, cores, mayHoldBack: true, record.Impacts, pushOut);
+        record.RelativeVelocity = solver.RecordRelative;
+
+        return solver;
+    }
+
+    /// <summary>The cone along the materials' axes — <c>FUN_18008fe70(solver, cp)</c>.</summary>
+    /// <remarks>
+    /// <code>
+    /// per synapse, first then second, when its material's +0xc is set:
+    ///     axis = its object's +0xf0 core's matrix's first column, less its part along the record's normal (FUN_180070130)
+    ///     ℓ = FUN_18006e120(axis);  p = the other material's slot 1 · this one's slot 2
+    ///     if ℓ ≥ 1e-19:  axis scaled (FUN_18006dff0);  t = (√(double)e + 1.0)·(double)(float)((double)f − ((double)f − p)·ℓ)
+    ///                   +0x100 = axis;  +0xf4 = the cone of t's tangent;  +0xf0 = 1          -- COMISD/JC: a NaN ℓ skips
+    /// </code>
+    /// **The second synapse's block overwrites the first's.** `e` is the record's elasticity and `f` the contact point's friction.
+    /// </remarks>
+    private static (bool Uses, float Tangent, (float X, float Y, float Z) Axis) MaterialAxes(
+        IvpImpactEnvironment environment, IvpContactPoint point, IvpContactRecord record)
+    {
+        IIvpMaterial first = point.FirstMaterial(environment.Materials);
+        IIvpMaterial second = point.SecondMaterial(environment.Materials);
+        (bool Uses, float Tangent, (float X, float Y, float Z) Axis) result = default;
+
+        AlongAxis(ref result, point, record, point.FirstObject, first, second);
+        AlongAxis(ref result, point, record, point.SecondObject, second, first);
+
+        return result;
+    }
+
+    private static void AlongAxis(
+        ref (bool Uses, float Tangent, (float X, float Y, float Z) Axis) result,
+        IvpContactPoint point,
+        IvpContactRecord record,
+        IvpCollisionObject owner,
+        IIvpMaterial own,
+        IIvpMaterial other)
+    {
+        if (!own.HasSecondFriction)
+        {
+            return;
+        }
+
+        IvpRigidBody frame = owner.FrameCore ??
+            throw new InvalidOperationException("A material with an axis friction belongs to an object with no frame core.");
+        IvpMatrix matrix = frame.CoreMatrix;
+        (float X, float Y, float Z) axis = Across(((float)matrix.M0, (float)matrix.M4, (float)matrix.M8), record.Normal);
+        double length = IvpVector.Length(axis);
+        double friction = other.FrictionFactor * own.SecondFrictionFactor;
+
+        if (!(length >= AxisLengthFloor))
+        {
+            return;
+        }
+
+        _ = IvpVector.TryScaleToUnitLength(ref axis);
+
+        double pairFriction = point.Friction;
+        double along = (Math.Sqrt(record.Elasticity) + 1d) * (float)(pairFriction - ((pairFriction - friction) * length));
+
+        result = (true, Cone(along).Tangent, axis);
+    }
+
+    /// <summary>A friction cone from its tangent: the fourth-order cosine of <c>x = (float)atan(t)</c>, and that cosine times <c>t</c>.</summary>
+    private static (float Cosine, float Tangent) Cone(double tangent)
+    {
+        float angle = (float)IvpMath.Atan(tangent);
+        float squared = angle * angle;
+        float cosine = (One - (squared * Half)) + (squared * TwentyFourth * squared);
+
+        return (cosine, (float)(cosine * tangent));
+    }
+
+    private static IvpRigidBody CoreOf(IvpCollisionObject? owner) =>
+        owner?.Core ?? throw new InvalidOperationException("The record's object has no core; the engine would read through a null one.");
+
     /// <summary>Solves one impact — <c>FUN_18008e290(solver, cores, p3, p4, p5)</c>.</summary>
     /// <param name="environment">The environment both cores are in.</param>
     /// <param name="cores">Two slots: the cores that took the impact, the heavier one nulled when it is held back.</param>
@@ -237,7 +382,7 @@ public sealed class IvpImpactSolver
         MeasureVirtualMasses();
 
         (float X, float Y, float Z) normal = Normal;
-        float approach = Dot(normal, _relative);
+        float approach = IvpVector.Dot(normal, _relative);
         double first = FirstVirtualMass;
         double second = SecondVirtualMass;
         double share = ((Share / (first + second)) * first) * ((second + second) * approach);
@@ -304,7 +449,7 @@ public sealed class IvpImpactSolver
         ChoosePush();
         _fallback = default;
 
-        double speed = -Dot(normal, _relative);
+        double speed = -IvpVector.Dot(normal, _relative);
         double allowance = (Math.Sqrt(impacts) * ImpactAllowance) + (Math.Sqrt(restitution) * speed);
         int pushes = 0;
 
@@ -313,7 +458,7 @@ public sealed class IvpImpactSolver
             pushes++;
             PushAlong(share);
             MeasureRelative();
-            speed = -Dot(normal, _relative);
+            speed = -IvpVector.Dot(normal, _relative);
             ChoosePush();
         }
 
@@ -328,7 +473,7 @@ public sealed class IvpImpactSolver
             PushAlong(1d);
             MeasureRelative();
 
-            double change = (double)Dot(_relative, normal) + speed;
+            double change = (double)IvpVector.Dot(_relative, normal) + speed;
             double scale = Math.Abs(change) > Negligible ? target / change : 0d;
 
             if (!First.Immovable)
@@ -373,7 +518,7 @@ public sealed class IvpImpactSolver
         _push = _relative;
         _ = IvpVector.TryScaleToUnitLength(ref _push);
 
-        double along = Dot(_push, normal);
+        double along = IvpVector.Dot(_push, normal);
 
         if (along > 0d)
         {
@@ -393,7 +538,7 @@ public sealed class IvpImpactSolver
             return;
         }
 
-        (float X, float Y, float Z) slide = Slide(normal, along);
+        (float X, float Y, float Z) slide = Across(_push, normal, along);
         _ = IvpVector.TryScaleToUnitLength(ref slide);
 
         double tangent = ConeTangent;
@@ -418,10 +563,10 @@ public sealed class IvpImpactSolver
     private void HoldInCone(double along)
     {
         (float X, float Y, float Z) normal = Normal;
-        (float X, float Y, float Z) slide = Slide(normal, along);
+        (float X, float Y, float Z) slide = Across(_push, normal, along);
 
         float length = (float)IvpVector.ScaleToUnitLength(ref slide);
-        float across = MathF.Abs(Dot(slide, Axis));
+        float across = MathF.Abs(IvpVector.Dot(slide, Axis));
         float angle = IvpMath.Asinf(across);
         float angleSquared = angle * angle;
         float cosine = (One - (angleSquared * Half)) + (angleSquared * TwentyFourth * angleSquared);
@@ -444,15 +589,20 @@ public sealed class IvpImpactSolver
             (float)((slide.Z * scale) + (float)(normal.Z * lift)));
     }
 
-    /// <summary>The push's part off the normal: each lane <c>(float)((double)n·−k + (double)d)</c>.</summary>
-    private (float X, float Y, float Z) Slide((float X, float Y, float Z) normal, double along)
+    /// <summary>A vector's part off a normal — <c>FUN_180070130</c>: each lane <c>(float)((double)n·−k + (double)v)</c>, <c>k = n·v</c> in float.</summary>
+    private static (float X, float Y, float Z) Across((float X, float Y, float Z) vector, (float X, float Y, float Z) normal) =>
+        Across(vector, normal, IvpVector.Dot(normal, vector));
+
+    /// <summary>The same with <c>k</c> given — how the solver takes the push's part off the normal.</summary>
+    private static (float X, float Y, float Z) Across(
+        (float X, float Y, float Z) vector, (float X, float Y, float Z) normal, double along)
     {
         double reversed = -along;
 
         return (
-            (float)((normal.X * reversed) + _push.X),
-            (float)((normal.Y * reversed) + _push.Y),
-            (float)((normal.Z * reversed) + _push.Z));
+            (float)((normal.X * reversed) + vector.X),
+            (float)((normal.Y * reversed) + vector.Y),
+            (float)((normal.Z * reversed) + vector.Z));
     }
 
     /// <summary>Pushes the pair along the push direction — <c>FUN_18008f1c0(solver, j)</c>.</summary>
@@ -502,7 +652,7 @@ public sealed class IvpImpactSolver
         (float X, float Y, float Z) second = Second.PointVelocity(SecondArm, _secondVelocity, _secondSpin);
 
         (float X, float Y, float Z) closing = (second.X - first.X, second.Y - first.Y, second.Z - first.Z);
-        double apart = -Dot(closing, direction);
+        double apart = -IvpVector.Dot(closing, direction);
 
         if (clamp)
         {
@@ -568,7 +718,7 @@ public sealed class IvpImpactSolver
         ((float X, float Y, float Z) velocity, (float X, float Y, float Z) spin) =
             core.UnitPush(arm, core.CoreMatrix.RotateInverseNarrowed(direction), direction);
 
-        return Dot(core.PointVelocity(arm, velocity, spin), direction);
+        return IvpVector.Dot(core.PointVelocity(arm, velocity, spin), direction);
     }
 
     /// <summary>The anomaly limits for one core's working velocity and spin — <c>FUN_18008dd00(core, v, ω)</c>.</summary>
@@ -669,7 +819,7 @@ public sealed class IvpImpactSolver
             : Moving(other, otherArm, _secondVelocity, _secondSpin);
 
         (float X, float Y, float Z) closing = (heldPoint.X - otherPoint.X, heldPoint.Y - otherPoint.Y, heldPoint.Z - otherPoint.Z);
-        double along = Dot(closing, Normal);
+        double along = IvpVector.Dot(closing, Normal);
 
         if (second)
         {
@@ -753,9 +903,6 @@ public sealed class IvpImpactSolver
         core.AngularVelocity = default;
         core.Velocity = default;
     }
-
-    private static float Dot((float X, float Y, float Z) first, (float X, float Y, float Z) second) =>
-        (first.X * second.X) + (first.Y * second.Y) + (first.Z * second.Z);
 
     private static (float X, float Y, float Z) Sum((float X, float Y, float Z) first, (float X, float Y, float Z) second) =>
         (first.X + second.X, first.Y + second.Y, first.Z + second.Z);
