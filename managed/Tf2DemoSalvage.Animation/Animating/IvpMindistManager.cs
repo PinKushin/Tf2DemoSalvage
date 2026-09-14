@@ -35,6 +35,12 @@ public sealed class IvpCollisionObject
     /// <summary>The object's core, <c>+0xe8</c>.</summary>
     public IvpRigidBody? Core { get; set; }
 
+    /// <summary>The object's environment, <c>+0x30</c>.</summary>
+    public IvpCollisionEnvironment? Environment { get; set; }
+
+    /// <summary>The object's OV node, <c>+0xd8</c>, or null while its collisions are off.</summary>
+    public IvpOvNode? Node { get; set; }
+
     /// <summary>The object's friction core, <c>+0xf0</c>: the core the friction system files it under.</summary>
     /// <remarks>
     /// **Named by both read uses**: `FUN_180090e50` files a contact's two objects into a friction system by these cores, and
@@ -159,6 +165,12 @@ public sealed class IvpMindistManager
     private const int InvalidClears = 0x340000;
 
     private readonly List<IvpMindist> _rechecked = [];
+
+    /// <summary>
+    /// The flag at <c>+0x0</c>: set while a pair creation runs, so a broad phase run inside it only files its node
+    /// (<c>FUN_180098880</c>).
+    /// </summary>
+    public bool CreatingPairs { get; set; }
 
     /// <summary>The exact mindists, the latest first.</summary>
     public LinkedList<IvpMindist> Exact { get; } = new();

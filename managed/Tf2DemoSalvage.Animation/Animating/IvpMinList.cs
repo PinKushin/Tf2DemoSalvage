@@ -188,6 +188,15 @@ public sealed class IvpMinList<T>
         return false;
     }
 
+    /// <summary>The value an element was queued with — the float at <c>+0x8</c> of its entry.</summary>
+    /// <param name="slot">The slot <see cref="Add"/> returned.</param>
+    /// <returns>Its value.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The slot holds nothing.</exception>
+    public float ValueOf(int slot) =>
+        slot >= 0 && slot < _entries.Count && _entries[slot].Element is not null
+            ? _entries[slot].Value
+            : throw new ArgumentOutOfRangeException(nameof(slot), slot, "The slot holds no queued element.");
+
     private int Take()
     {
         if (_free != None)

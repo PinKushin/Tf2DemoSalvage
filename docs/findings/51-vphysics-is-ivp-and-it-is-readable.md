@@ -4723,6 +4723,42 @@ cell while the root has children, and radii `1f` and `2^−24`, whose float sum 
 **The tangent spheres were predicted to be pruned by the strict box test and are not** — the binary finds both, and so does
 the port — so the walk's boxes are wider than the prediction assumed; *not established: which reading of the box was wrong.*
 
+**The OV node's own table, its destructor, and what turns an object's collisions on and off** (read from the disassembly,
+2026-09-14). The broad phase's first argument is the environment's mindist manager (`env+0x20`): its `+0x0` is the
+creation-running flag and its `+0x8` the environment.
+
+```
+the node, table 1800fe030 — a hull listener:  slot 0 its type, 3;  slot 1 FUN_18009ec70, the hull passed:
+    FUN_180098880(node+0x38's env+0x20, node+0x38) — the broad phase run again for its object;  slot 2 FUN_18009ec90, the
+    manager going away: the node's slot 4 with 1;  slot 3 nothing;  slot 4 FUN_18009dda0, the deleting destructor
+FUN_18009dae0(node):  filed in a hull manager (+0x18) → out of its min-list by +0x8, +0x18 cleared;
+    FUN_1800821d0(env, object) — every creator (env+0x1ca, +0x1d0), last first, its slot 4(object): each deletes the
+    object's watchers;  then the node out of its cell and every emptied cell after it, as FUN_18009efc0 does, inline;
+    the watcher vector freed unless inline
+FUN_180096eb0(manager, object):  the object's old node deleted through its slot 4;  a new 0x50-byte node (FUN_18009d7b0)
+    stored at +0xd8;  then FUN_180098880's body over it, inline
+FUN_180073970(object, enable) — bit 8 (0x100) of object+0x78 marks collisions on:
+    enable and the bit clear → FUN_180096eb0(env+0x20, object), the bit set
+    disable and the bit set → the node deleted (slot 4 with 1), the bit cleared, +0xd8 null;  then while the object has a
+        friction synapse (+0x50), its contact point (the synapse's +0xc0 through its +0x18 word) out of its friction system
+        (FUN_180083e40), deleted through its slot 7 when its +0x7a word is zero
+```
+
+The broad phase runs for an object at: collisions turned on (`FUN_180073970`, called from `FUN_1800057e0`,
+`FUN_180010ee0`, `FUN_18001b910`, `FUN_18001f260`, `FUN_180074530`), its hull passing its node, a core coming to rest
+(`FUN_180078c90`, `FUN_1800791a0`), a teleport (`FUN_18009a870`), and `FUN_180073700`, `FUN_180073a90`, `FUN_180073b00`,
+`FUN_1800742c0`, `FUN_18008a320`.
+
+**The broad phase is ported and pinned (2026-09-14)** as `IvpBroadPhase` — `Refile` for `FUN_180098880`, `Rebuild` for
+`FUN_180096eb0`, `Delete` for the node's destructor — with the node's filing (`FUN_18009de80`), its watcher list
+(`FUN_18009de20`, `FUN_18009ef40`) and the partner table's keep-and-swap (`FUN_1800962c0`). The `vphysics-broad-phase` probe
+runs the binary's own two routines over eight fabricated objects with its own OV tree, range manager, hull min-lists and nodes,
+and gives it a filter, two creators and their watchers as managed callbacks behind fabricated tables — each call out logged,
+and each doing what the port's twin does. **5,000 cases of sixteen steps agree on every lane, the calls out included**, and
+`IvpBroadPhaseConformanceTests` replays 200. *Not established: the range callback `env+0x58` (null in vphysics, so never
+fabricated), duplicate watchers for one pair (the table's probe order would decide which is kept), and turning collisions off
+(`FUN_180073970`'s friction clean-up, not ported).*
+
 **The watcher's three tables and the creator's**, read from the disassembly (2026-09-14) — what keeps a broad-phase pair alive
 and what ends it:
 
@@ -4893,7 +4929,12 @@ fifth with a rotation — and **100,000 cases agree on every lane** on the first
 and sum as `IvpMatrix.FromRotation` writes them, which C#'s operators leave to the JIT, so the fill now goes through
 `Addsd`/`Mulsd`, and a twentieth of the probe's cases carry a NaN of one of two payloads in the core's or the object's fields
 — **100,000 cases with them agree too**. *Not established: the ring's size and eviction order, which decide only when a cache
-is rebuilt.*
+is rebuilt.* A sabotage round over the cache and the fill left eight survivors. Three are equivalent — the interpolation's
+position product and fraction never see a NaN time, which copies instead, and `x·2x` carries `x`'s payload whichever factor
+leads. Five needed inputs the random cases never drew, and the fixture now carries twenty searched cases: a NaN time; two
+NaNs of different payloads in one position lane's velocity and position, in the object rotation's `w` and the orientation's
+`y`, and in its `x` and the orientation's `z`; and sixteen offsets on cores at the origin, **where the offset's three terms are
+not swallowed by a translation a hundred times their size** — the reason a regrouping of them reddened only NaN cases.
 
 **The OV tree is ported and pinned (2026-09-14)** as `IvpOvTree`: the insert, its key, growth, descent, path, both overlap
 walks and the removal. The `vphysics-ov-tree` probe builds a real tree with `FUN_18009d820` and sixteen nodes with

@@ -480,6 +480,12 @@ public sealed class IvpRigidBody
     /// </remarks>
     public float Radius { get; set; }
 
+    /// <summary>The core's linear speed, <c>core+0x1dc</c> — what the range manager and a hull's gradient read.</summary>
+    public float LinearSpeed { get; set; }
+
+    /// <summary>How fast a point on the core's surface can move because of its spin, <c>core+0x254</c>.</summary>
+    public float SurfaceSpeedBound { get; set; }
+
     /// <summary>Whether the pointer at <c>core+0x58</c> is set.</summary>
     /// <remarks>
     /// *Named by its offset because its writer is unread.* Two readers are read: the anomaly check skips a core's spin limit

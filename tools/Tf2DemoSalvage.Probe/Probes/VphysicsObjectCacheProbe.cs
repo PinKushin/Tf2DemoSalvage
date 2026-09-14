@@ -65,12 +65,20 @@ public sealed class VphysicsObjectCacheProbe : IProbe
 
             for (int index = 0; index < FixtureCases; index++)
             {
-                Dictionary<string, long[]> inputs = RandomCase(draws);
+                Dictionary<string, long[]> inputs = RandomCase(draws, poison: true);
 
                 IvpObjectCacheReplay.Write(writer, new IvpReplayCase(index.ToString(CultureInfo.InvariantCulture), inputs, native.Run(inputs)));
             }
 
-            output.WriteLine($"{FixtureCases} cases written to {arguments[1]}");
+            int searched = 0;
+
+            foreach ((string label, Dictionary<string, long[]> inputs) in Killers(draws))
+            {
+                IvpObjectCacheReplay.Write(writer, new IvpReplayCase(label, inputs, native.Run(inputs)));
+                searched++;
+            }
+
+            output.WriteLine($"{FixtureCases} cases and {searched} searched cases written to {arguments[1]}");
             return;
         }
 
@@ -80,7 +88,7 @@ public sealed class VphysicsObjectCacheProbe : IProbe
 
         for (int index = 0; index < count; index++)
         {
-            Dictionary<string, long[]> inputs = RandomCase(sweep);
+            Dictionary<string, long[]> inputs = RandomCase(sweep, poison: true);
             IReadOnlyList<string> differences = IvpObjectCacheReplay.Differences(native.Run(inputs), IvpObjectCacheReplay.Run(inputs));
 
             if (differences.Count > 0 && ++differing <= 5)
@@ -92,7 +100,62 @@ public sealed class VphysicsObjectCacheProbe : IProbe
         output.WriteLine($"{count} object cache cases, {differing} differing");
     }
 
-    private static Dictionary<string, long[]> RandomCase(Draws draws)
+    /// <summary>Cases searched for the orders a sabotage round found random cases could not see.</summary>
+    /// <remarks>
+    /// **A NaN time**, which copies the core rather than interpolating it; **two NaNs of different payloads** in one position lane's
+    /// velocity and position, in the object rotation's `w` and the orientation's `y`, and in its `x` and the orientation's `z` —
+    /// the operand pairs whose destinations the lanes would otherwise never show; and **offsets on cores at the origin**, where no
+    /// translation swallows the rounding of the offset's three terms.
+    /// </remarks>
+    private static IEnumerable<(string Label, Dictionary<string, long[]> Inputs)> Killers(Draws draws)
+    {
+        const long FirstNan = unchecked((long)0xfff8000000000001UL);
+        const long SecondNan = 0x7ff8000000000002L;
+
+        Dictionary<string, long[]> elapsed = RandomCase(draws, poison: false);
+        elapsed["now"][0] = FirstNan;
+        yield return ("elapsed-nan", elapsed);
+
+        Dictionary<string, long[]> sum = Still(draws);
+        sum["now"][0] = IvpImpactReplay.Lane(BitConverter.Int64BitsToDouble(sum["stepped"][0]) + (1d / 132d));
+        sum["velocity"][0] = 0xffc00001L;
+        sum["position"][0] = SecondNan;
+        yield return ("position-sum-payloads", sum);
+
+        Dictionary<string, long[]> product = Still(draws);
+        product["has-rotation"][0] = 1;
+        product["rotation"][3] = FirstNan;
+        product["orientation"][1] = SecondNan;
+        yield return ("compose-product-payloads", product);
+
+        Dictionary<string, long[]> order = Still(draws);
+        order["has-rotation"][0] = 1;
+        order["rotation"][0] = FirstNan;
+        order["orientation"][2] = SecondNan;
+        yield return ("compose-order-payloads", order);
+
+        for (int index = 0; index < 16; index++)
+        {
+            Dictionary<string, long[]> origin = Still(draws);
+
+            origin["has-offset"][0] = 1;
+            Array.Fill(origin["position"], IvpImpactReplay.Lane(0d));
+            yield return ($"offset-at-origin-{index}", origin);
+        }
+    }
+
+    /// <summary>A case with no NaN, no time elapsed, and neither an offset nor a rotation.</summary>
+    private static Dictionary<string, long[]> Still(Draws draws)
+    {
+        Dictionary<string, long[]> inputs = RandomCase(draws, poison: false);
+
+        inputs["now"][0] = inputs["stepped"][0];
+        inputs["has-offset"][0] = 0;
+        inputs["has-rotation"][0] = 0;
+        return inputs;
+    }
+
+    private static Dictionary<string, long[]> RandomCase(Draws draws, bool poison)
     {
         Dictionary<string, long[]> inputs = new(StringComparer.Ordinal);
 
@@ -122,7 +185,11 @@ public sealed class VphysicsObjectCacheProbe : IProbe
         Store(inputs["orientation"], orientation);
         Store(inputs["working"], working);
         Store(inputs["rotation"], draws.Rotation());
-        draws.Poison(inputs);
+
+        if (poison)
+        {
+            draws.Poison(inputs);
+        }
         inputs["stepped"][0] = IvpImpactReplay.Lane(stepped);
         inputs["inverse-step"][0] = IvpImpactReplay.Lane(draws.Unit() < 0.7 ? 66f : (float)(1d / (0.001d + (draws.Unit() * 0.1d))));
         inputs["now"][0] = IvpImpactReplay.Lane(stepped + elapsed);

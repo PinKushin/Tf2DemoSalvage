@@ -4,8 +4,27 @@ using System.Collections.Generic;
 namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>An object's sphere in the OV tree — the 0x50-byte node <c>FUN_18009d7b0</c> builds at <c>object+0xd8</c> (B369).</summary>
-public sealed class IvpOvNode
+/// <remarks>
+/// **A hull listener too** (table <c>1800fe030</c>): filed in its object's hull manager by <see cref="File"/>, and told when the hull
+/// passes it, which runs the broad phase for its object again (slot 1, <c>FUN_18009ec70</c>). Its watcher list at <c>+0x40</c> holds
+/// the collisions the broad phase keeps for its object.
+/// </remarks>
+public sealed class IvpOvNode : IIvpHullSynapse
 {
+    private readonly List<IvpCollision> _watchers = [];
+
+    /// <summary>A node with no object, as the tree's own tests use.</summary>
+    public IvpOvNode()
+    {
+    }
+
+    /// <summary>A node for an object — <c>FUN_18009d7b0(node, object)</c>.</summary>
+    /// <param name="owner">The object, <c>+0x38</c>.</param>
+    public IvpOvNode(IvpCollisionObject owner) => Owner = owner;
+
+    /// <summary>The node's object, <c>+0x38</c>.</summary>
+    public IvpCollisionObject? Owner { get; }
+
     /// <summary>The sphere's centre, <c>+0x20</c> — the broad phase writes the core's extrapolated position narrowed.</summary>
     public (float X, float Y, float Z) Center { get; set; }
 
@@ -14,6 +33,122 @@ public sealed class IvpOvNode
 
     /// <summary>The cell holding it, <c>+0x10</c>, or null.</summary>
     public IvpOvCell? Cell { get; internal set; }
+
+    /// <summary>The collisions registered on it, <c>+0x40</c>, in the order the list keeps them.</summary>
+    public IReadOnlyList<IvpCollision> Watchers => _watchers;
+
+    /// <summary>The hull manager it is filed in, <c>+0x18</c>, or null.</summary>
+    public IvpHullManager? HullManager { get; private set; }
+
+    /// <inheritdoc/>
+    public int? HullSlot { get; set; }
+
+    internal IList<IvpCollision> WatcherList => _watchers;
+
+    /// <summary>Slot 1, <c>FUN_18009ec70</c>: the broad phase run again for the node's object.</summary>
+    /// <param name="manager">The manager telling it.</param>
+    /// <param name="overshoot">The list's minimum less the next PSI's value.</param>
+    /// <exception cref="InvalidOperationException">The node has no object, or its object no environment.</exception>
+    public void HullPassed(IvpHullManager manager, float overshoot)
+    {
+        IvpCollisionObject owner = Owner ?? throw new InvalidOperationException("An OV node without an object was told its hull passed.");
+
+        IvpBroadPhase.Refile(owner.Environment ?? throw new InvalidOperationException("An object without an environment was refiled."), owner);
+    }
+
+    /// <summary>Slot 3: nothing.</summary>
+    /// <param name="valueShift">Unread.</param>
+    /// <param name="centerShift">Unread.</param>
+    public void Rebased(float valueShift, float centerShift)
+    {
+    }
+
+    /// <summary>Registers a collision — <c>FUN_18009de20</c>: appended, its first index taken when free, else its second.</summary>
+    /// <param name="collision">The collision.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="collision"/> is null.</exception>
+    public void Register(IvpCollision collision)
+    {
+        ArgumentNullException.ThrowIfNull(collision);
+
+        _watchers.Add(collision);
+
+        if (collision.FirstIndex == -1)
+        {
+            collision.FirstIndex = _watchers.Count - 1;
+        }
+        else
+        {
+            collision.SecondIndex = _watchers.Count - 1;
+        }
+    }
+
+    /// <summary>Unregisters a collision — <c>FUN_18009ef40</c>.</summary>
+    /// <param name="collision">The collision.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="collision"/> is null.</exception>
+    /// <remarks>
+    /// Its place is its first index when that is in range and names it here, else its second; the last entry moves into the place,
+    /// rewriting whichever of its indices named the last place; then the collision's index that names the place becomes −1, the
+    /// second when the first does not.
+    /// </remarks>
+    public void Unregister(IvpCollision collision)
+    {
+        ArgumentNullException.ThrowIfNull(collision);
+
+        int place = collision.FirstIndex >= 0 && collision.FirstIndex < _watchers.Count && ReferenceEquals(_watchers[collision.FirstIndex], collision)
+            ? collision.FirstIndex
+            : collision.SecondIndex;
+        int last = _watchers.Count - 1;
+
+        if (last > place)
+        {
+            IvpCollision moved = _watchers[last];
+
+            _watchers[place] = moved;
+            IvpBroadPhase.SetIndex(moved, last, place);
+        }
+
+        _watchers.RemoveAt(last);
+
+        if (collision.FirstIndex == place)
+        {
+            collision.FirstIndex = -1;
+        }
+        else
+        {
+            collision.SecondIndex = -1;
+        }
+    }
+
+    /// <summary>Files the node in a hull manager — <c>FUN_18009de80(node, hull, gap)</c>.</summary>
+    /// <param name="hull">The object's hull manager, taken only when the node is filed nowhere.</param>
+    /// <param name="now">The environment's time.</param>
+    /// <param name="gap">How far past the hull's value it is filed.</param>
+    /// <remarks>Filed already → out of its manager and back into the same one.</remarks>
+    internal void File(IvpHullManager hull, double now, double gap)
+    {
+        if (HullManager is { } filed)
+        {
+            filed.Remove(this);
+        }
+        else
+        {
+            HullManager = hull;
+        }
+
+        HullManager.Install(this, now, gap);
+    }
+
+    /// <summary>Out of its hull manager, as the destructor does first.</summary>
+    internal void Unfile()
+    {
+        if (HullManager is { } filed)
+        {
+            filed.Remove(this);
+            HullManager = null;
+        }
+    }
+
+    internal void ClearWatchers() => _watchers.Clear();
 }
 
 /// <summary>A cell of the OV tree: an integer key at a level, its parent, its child cells and its nodes (B369).</summary>
