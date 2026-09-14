@@ -305,13 +305,21 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      detail — likely similarly sized to `SolveHeap`). **This needs its own dedicated read-design-port-oracle pass**,
      matching how `SolveHeap`/`SolveOne` earned `IvpHeapSolveConformanceTests` and the `vphysics-heap-solve` probe —
      not something to guess into the PSI driver.
-   - **Next, in order**: (1) read `FUN_180085100` and `IvpFrictionSystem::SolveTangentialPair` in full, extend
-     `IvpFrictionPair` with whatever per-pair contact list it turns out to need, port `SolveOncePerPsi` with its own
-     `vphysics-friction-solve` oracle probe; (2) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — this is
-     where `FUN_180090700`'s mini-island construction, the retry loop, and `collide`'s generation bump (`env+0x1a4`)
-     all land together, since they're one mechanism, PLUS the now-ready `IvpLedgeSide.FromLedge` and the
-     just-scoped tangential solve; (3) a `vphysics-friction-link`/`vphysics-collide` oracle probe before trusting any
-     of this in a real running loop — everything so far is synthetic conformance testing, not a replay against the
+   - **`FUN_180085100` (the "sticking" fast path) read in full, 2026-09-14 — as substantial as `IvpImpactSolver.Enter`
+     itself, not a quick add.** Built from already-ported primitives (`IvpRigidBody.UnitPush`, `.PointVelocity`,
+     `IvpMatrix.RotateInverseNarrowed`), but a full push-along-a-slide-direction solve in its own right: computes a
+     combined slide direction from the pair's two spans, projects each core's relative velocity onto it, solves for
+     the push that cancels it (clamped by the per-pair friction budget from `SolveOncePerPsi`), and stages it into
+     each core's pending push (`+0x98../0xa0..`, matching `IvpRigidBody.PendingVelocity`/`PendingAngularVelocity`
+     shape). `IvpFrictionSystem::SolveTangentialPair` (`1800857c0`) is the other dispatch branch, not yet read, likely
+     similarly sized. **Confirms the tangential solve is genuinely its own dedicated port+oracle stage**, not
+     something to fold into the PSI driver pass — same conclusion as the previous entry, now with more precision.
+   - **Next, in order**: (1) read `IvpFrictionSystem::SolveTangentialPair` in full, extend `IvpFrictionPair` with
+     whatever per-pair contact list it needs, port both dispatch branches with their own `vphysics-friction-solve`
+     oracle probe; (2) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — `FUN_180090700`'s mini-island
+     construction, the retry loop, `collide`'s generation bump (`env+0x1a4`), using the now-ready
+     `IvpLedgeSide.FromLedge`; (3) a `vphysics-friction-link`/`vphysics-collide` oracle probe before trusting any of
+     this in a real running loop — everything so far is synthetic conformance testing, not a replay against the
      shipped binary; (4) only then replace `IvpEnvironment`/`IvpContact`.
    - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
      when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
