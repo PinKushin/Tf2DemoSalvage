@@ -4920,6 +4920,15 @@ staged to the real in `y` and `z`**, and **the push's first core multiplies the 
 the turn in `y` and `z`**, while its second core takes the turn first in all three. `FUN_18006e120` — the float length the
 limits measure with — sums onto the running total, and `IvpVector.Length` now says so.
 
+**The first fixture reddened on five of ten sabotages, and the NaN seeding was why.** Two of the five that stayed green are
+equivalent mutants — a NaN limit and a length exactly equal to the limit both leave the vectors unchanged either way the test
+is written. The other three swapped the operands of an add or multiply, and a quarter of cases seeded with NaNs never put two
+NaNs of different payload on one operation, so no case could tell which survived. **45 NaN-pair cases** — one per add and
+multiply these routines meet two inputs at, each with a different-payload NaN on both sides — took the fixture to 285 cases.
+An independent run then swapped six operand orders (the push's first-core `y` and second-core `x` multiply, its first-core
+spin add, the flush's velocity `x` and spin `y` adds, and the energy's mass multiply): **all six reddened**, each by one or two
+NaN-pair cases whose diagnostic showed the two payloads exchanged, and none by any other case.
+
 **So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
 entry's port keeps it because the routine has it. The merge, the controller bases and the simulation units are read below and
 above. **Nothing here is ported.**

@@ -26183,8 +26183,9 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    mindist searches, the integrator, the damping, the constraints, the contact record's build — was pinned without calling the
    binary, so the audit needs an in-process oracle for each before its destinations can be read off, not just NaN seeding. **The heap solve's core-level routines are ported and pinned, 2026-09-14** — the record
    push `FUN_1800a9280`, the limits `FUN_180076710`, the flush and drop, and the kinetic energy `FUN_180077e80`: 20,000
-   NaN-seeded cases agree with the binary (`IvpHeapCoreConformanceTests`). Not ported yet: the solve above it (`FUN_1800aa5c0`,
-   `FUN_1800a9520`, `FUN_1800aa9f0`, `FUN_1800a9280`), which needs the friction system's records and cores.
+   NaN-seeded cases agree with the binary (`IvpHeapCoreConformanceTests`), and all six NaN operand-order sabotages redden
+   the 286-case fixture (`docs/findings/51`). Not ported yet: the solve above it (`FUN_1800aa5c0`, `FUN_1800a9520`,
+   `FUN_1800aa9f0`, `FUN_1800aa1a0`, `FUN_1800aa010`, `FUN_1800a9bf0`), which needs the friction system's records and cores.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 
