@@ -16,7 +16,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 ///
 /// **Nothing here reaches a velocity directly.** Everything stages into
 /// <see cref="IvpRigidBody.PendingVelocity"/>, which `FUN_180077950` drains at the start of the
-/// next step — see <see cref="Flush"/>. That is the engine's arrangement rather than a buffer
+/// next step — see <see cref="Flush(IvpRigidBody)"/>. That is the engine's arrangement rather than a buffer
 /// invented here, and it is why a corpse's creation force shows up one step after it is applied.
 /// </remarks>
 public static class IvpPush
@@ -34,21 +34,44 @@ public static class IvpPush
 
         for (int index = 0; index < bodies.Count; index++)
         {
-            IvpRigidBody body = bodies[index];
-
-            body.AngularVelocity = (
-                body.AngularVelocity.X + body.PendingAngularVelocity.X,
-                body.AngularVelocity.Y + body.PendingAngularVelocity.Y,
-                body.AngularVelocity.Z + body.PendingAngularVelocity.Z);
-
-            body.Velocity = (
-                body.Velocity.X + body.PendingVelocity.X,
-                body.Velocity.Y + body.PendingVelocity.Y,
-                body.Velocity.Z + body.PendingVelocity.Z);
-
-            body.PendingAngularVelocity = (0f, 0f, 0f);
-            body.PendingVelocity = (0f, 0f, 0f);
+            Flush(bodies[index]);
         }
+    }
+
+    /// <summary>One body's staged velocity drained into its real one — <c>FUN_180077950(core)</c>.</summary>
+    /// <param name="body">The body to flush.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    /// <remarks>
+    /// **Its `x` lanes add the real velocity to the staged one, its `y` and `z` lanes the staged to the real** —
+    /// `MOVSS XMM1,[+0x110]; ADDSS XMM1,[+0x130]` against `MOVSS XMM0,[+0x134]; ADDSS XMM0,[+0x114]` — which decides
+    /// which NaN survives two, so each lane names the binary's destination first (`docs/findings/51`).
+    /// </remarks>
+    public static void Flush(IvpRigidBody body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        body.AngularVelocity = (
+            IvpMath.Addss(body.PendingAngularVelocity.X, body.AngularVelocity.X),
+            IvpMath.Addss(body.AngularVelocity.Y, body.PendingAngularVelocity.Y),
+            IvpMath.Addss(body.AngularVelocity.Z, body.PendingAngularVelocity.Z));
+
+        body.Velocity = (
+            IvpMath.Addss(body.PendingVelocity.X, body.Velocity.X),
+            IvpMath.Addss(body.Velocity.Y, body.PendingVelocity.Y),
+            IvpMath.Addss(body.Velocity.Z, body.PendingVelocity.Z));
+
+        Drop(body);
+    }
+
+    /// <summary>A body's staged velocity discarded — <c>FUN_180076670(core)</c>.</summary>
+    /// <param name="body">The body whose staged changes are dropped.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    public static void Drop(IvpRigidBody body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        body.PendingAngularVelocity = (0f, 0f, 0f);
+        body.PendingVelocity = (0f, 0f, 0f);
     }
 
     /// <summary>Stages a velocity change directly — <c>AddVelocity</c>.</summary>

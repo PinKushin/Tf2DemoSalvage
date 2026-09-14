@@ -67,6 +67,15 @@ public sealed class IvpRigidBody
     /// </remarks>
     public (float X, float Y, float Z) InverseInertia { get; set; } = (1f, 1f, 1f);
 
+    /// <summary>This body's mass — <c>core+0x2c</c>.</summary>
+    /// <remarks>
+    /// **Written by the core's construction, `FUN_180073df0`** — <see cref="IvpObjectTemplate.CoreInertia"/> — and read as
+    /// mass by the heap's kinetic energy `FUN_180077e80`, which multiplies the squared speed by it, and by the pair damping
+    /// `FUN_180086670`, which takes it beside <see cref="InverseMass"/> (`docs/findings/51`). The default of one matches
+    /// <see cref="InverseMass"/>'s.
+    /// </remarks>
+    public float Mass { get; set; } = 1f;
+
     /// <summary>The reciprocal of this body's mass — <c>core+0x4c</c>.</summary>
     /// <remarks>
     /// **Named by the contact builder, which is the only traced site that reads it.**

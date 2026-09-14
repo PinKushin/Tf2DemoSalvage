@@ -4537,6 +4537,34 @@ FUN_1800a9520(solver, system, active) → how many are active:
     the list's records must carry their indices in order, else an assert at line 0x3a6
 ```
 
+**`FUN_1800a9520` read again for porting, every grouping and destination** (floats `f`, doubles `d`; `a·b` names `a` as the
+destination):
+
+```
+matrix zeroed (rows·columns)
+every record i of the solver's vector (+0x42 count, +0x48 elements), i ascending:
+    s = 0.0
+    A = record+0x98:  s = (d)((t.y·A.ω.y + t.x·A.ω.x) + t.z·A.ω.z) + (d)((n.y·A.v.y + n.x·A.v.x) + n.z·A.v.z)
+                      -- t = record+0xf0, n = +0x20, ω = core+0x130, v = +0x140; each product the record's lane first, in float
+    B = record+0xa0:  s = s + ((d)(−((n.y·B.v.y + n.x·B.v.x) + n.z·B.v.z)) − (d)((t′.y·B.ω.y + t′.x·B.ω.x) + t′.z·B.ω.z))
+                      -- t′ = record+0x100; the linear dot is negated in float, then the turn's subtracted in double
+    g = (d)(f)(block[0x43] − record+0x8c);  k = g ≥ 0 ? 1.0 : 20.0 (NaN: 20.0);  rhs[i] = k·g + s
+    record+0x88 (dword) != 0 → active gains i
+    A:  q = (d)(−A+0x4c);  u = (t.x·A+0x40, t.y·A+0x44, t.z·A+0x48) in float;  n′ = (f)((d)n·q) per lane
+        every contact of record+0x78's vector (+0x2 count, +0x8 elements), ascending:
+            j = (short)(contact+0x70)+0x70;  j < 0 → next;  R = the solver's record j
+            σ = R+0x98 == A ? −1.0 : 1.0;  that side's core pointer (R+0x98 or R+0xa0) null → next;  τ = R+0xf0 or R+0x100
+            dn = (n′.y·R.n.y + n′.x·R.n.x) + n′.z·R.n.z;  dt = (u.y·τ.y + u.x·τ.x) + u.z·τ.z      -- float, n′ and u first
+            matrix[j·columns + i] = (((d)dn − (d)dt)·σ) + matrix[j·columns + i]
+    B:  q = (d)B+0x4c;  u = (t′.x·B+0x40, …);  n′ = (f)((d)n·q);  the same over record+0x80's vector, but ((d)dn + (d)dt)
+then every contact of system+0x40, in list order, counted from 0:  its record's index non-negative and not its position → assert 0x3a6
+return how many are active
+```
+
+`FUN_180077f00(core, system)` — a core's record in a system: an unmovable core (byte `+0x0` bit `2`) looks the system up in the
+hash at `+0x60` (`FUN_180072350`, none when `+0x60` is null); a movable core answers `+0x60` itself when its `+0x10` is the system,
+else null.
+
 **So the matrix is each contact's response to a unit push at every other contact that shares a moving core**, built from the
 same arms and turns the impact solver pushes through, and the right-hand side is the same stiffness-and-closing-speed target a
 lone contact meets. *Not read: `FUN_180085a80`, which only a core with `+0x58` reaches.*

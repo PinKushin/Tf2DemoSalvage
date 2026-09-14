@@ -102,16 +102,16 @@ internal sealed class IvpActiveInverse
             {
                 for (int block = ((k - row - 4) >> 2) + 1; block > 0; block--, k -= 4)
                 {
-                    sum = IvpLinearSystem.Addsd(IvpLinearSystem.Mulsd(Intermediate[k], Working[start + k]), sum);
-                    sum = IvpLinearSystem.Addsd(IvpLinearSystem.Mulsd(Intermediate[k - 1], Working[start + k - 1]), sum);
-                    sum = IvpLinearSystem.Addsd(sum, IvpLinearSystem.Mulsd(Working[start + k - 2], Intermediate[k - 2]));
-                    sum = IvpLinearSystem.Addsd(sum, IvpLinearSystem.Mulsd(Working[start + k - 3], Intermediate[k - 3]));
+                    sum = IvpMath.Addsd(IvpMath.Mulsd(Intermediate[k], Working[start + k]), sum);
+                    sum = IvpMath.Addsd(IvpMath.Mulsd(Intermediate[k - 1], Working[start + k - 1]), sum);
+                    sum = IvpMath.Addsd(sum, IvpMath.Mulsd(Working[start + k - 2], Intermediate[k - 2]));
+                    sum = IvpMath.Addsd(sum, IvpMath.Mulsd(Working[start + k - 3], Intermediate[k - 3]));
                 }
             }
 
             for (; k > row; k--)
             {
-                sum = IvpLinearSystem.Addsd(sum, IvpLinearSystem.Mulsd(Working[start + k], Intermediate[k]));
+                sum = IvpMath.Addsd(sum, IvpMath.Mulsd(Working[start + k], Intermediate[k]));
             }
 
             Intermediate[row] -= sum;
@@ -236,7 +236,7 @@ internal sealed class IvpActiveInverse
 
             for (int k = Size - 1; k >= 0; k--)
             {
-                sum = IvpLinearSystem.Addsd(sum, IvpLinearSystem.Mulsd(Inverse[row * Stride + k], Scratch[k]));
+                sum = IvpMath.Addsd(sum, IvpMath.Mulsd(Inverse[row * Stride + k], Scratch[k]));
             }
 
             Intermediate[row] = sum;

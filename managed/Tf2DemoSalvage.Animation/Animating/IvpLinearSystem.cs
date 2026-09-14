@@ -11,7 +11,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// the arrays from the environment's arena; here they are owned, and <see cref="RightHandSide"/> and <see cref="Result"/> can be
 /// pointed at other arrays, as the constraint solver points its views. Every loop keeps the binary's order and grouping, SSE
 /// pairs included, because the sums are not associative — and every addition and multiplication goes through
-/// <see cref="Addsd"/> or <see cref="Mulsd"/> with the binary's destination first, because which NaN survives two NaNs is the
+/// <see cref="IvpMath.Addsd"/> or <see cref="IvpMath.Mulsd"/> with the binary's destination first, because which NaN survives two NaNs is the
 /// destination's, and the JIT would otherwise choose it.
 /// </remarks>
 internal sealed class IvpLinearSystem
@@ -54,27 +54,12 @@ internal sealed class IvpLinearSystem
 
     internal double[] Result { get; set; }
 
-    /// <summary>
-    /// <c>ADDSD destination, source</c>: the sum, and when both are NaN the destination's NaN, quieted — the one thing a C#
-    /// <c>+</c> leaves to the JIT, which picks which operand of a commutative operation is the destination.
-    /// </summary>
-    /// <remarks>
-    /// A NaN destination is added to itself, which quiets it and keeps its payload whatever order the JIT emits; otherwise at most
-    /// one operand is NaN and the sum carries that one either way.
-    /// </remarks>
-    internal static double Addsd(double destination, double source) =>
-        double.IsNaN(destination) ? destination + destination : destination + source;
-
-    /// <summary><c>MULSD destination, source</c>: the product, with <see cref="Addsd"/>'s NaN rule.</summary>
-    internal static double Mulsd(double destination, double source) =>
-        double.IsNaN(destination) ? destination * destination : destination * source;
-
     /// <summary><c>d[k] = f·s[k] + d[k]</c> — <c>FUN_1800a5150</c> with its alignment argument zero.</summary>
     internal static void AddScaled(double[] target, int targetStart, double[] source, int sourceStart, double factor, int count)
     {
         for (int k = 0; k < count; k++)
         {
-            target[targetStart + k] = Addsd(Mulsd(factor, source[sourceStart + k]), target[targetStart + k]);
+            target[targetStart + k] = IvpMath.Addsd(IvpMath.Mulsd(factor, source[sourceStart + k]), target[targetStart + k]);
         }
     }
 
@@ -89,12 +74,12 @@ internal sealed class IvpLinearSystem
 
         for (; k < whole; k++)
         {
-            values[start + k] = Mulsd(values[start + k], factor);
+            values[start + k] = IvpMath.Mulsd(values[start + k], factor);
         }
 
         for (; k < count; k++)
         {
-            values[start + k] = Mulsd(factor, values[start + k]);
+            values[start + k] = IvpMath.Mulsd(factor, values[start + k]);
         }
     }
 
@@ -165,16 +150,16 @@ internal sealed class IvpLinearSystem
         {
             for (int column = 0; column < Columns; column++)
             {
-                Values[row * Columns + column] = Mulsd(scale, Values[row * Columns + column]);
+                Values[row * Columns + column] = IvpMath.Mulsd(scale, Values[row * Columns + column]);
             }
         }
 
         for (int row = Rows - 1; row >= 0; row--)
         {
-            RightHandSide[row] = Mulsd(shrink, RightHandSide[row]);
+            RightHandSide[row] = IvpMath.Mulsd(shrink, RightHandSide[row]);
         }
 
-        return Mulsd(scale, peak);
+        return IvpMath.Mulsd(scale, peak);
     }
 
     /// <summary>
@@ -237,9 +222,9 @@ internal sealed class IvpLinearSystem
 
                 if (Math.Abs(factor) > Epsilon)
                 {
-                    factor = Mulsd(factor, scale);
+                    factor = IvpMath.Mulsd(factor, scale);
                     AddScaled(Values, at, Values, (Columns + 1) * column, factor, Rows - column);
-                    RightHandSide[row] = Addsd(Mulsd(factor, RightHandSide[column]), RightHandSide[row]);
+                    RightHandSide[row] = IvpMath.Addsd(IvpMath.Mulsd(factor, RightHandSide[column]), RightHandSide[row]);
                 }
             }
         }
@@ -253,7 +238,7 @@ internal sealed class IvpLinearSystem
         double sum = Sum(Values, row * Columns, Result, Rows);
         double right = RightHandSide[row];
 
-        return Addsd(Math.Abs(Mulsd(right, Slack)), sum) >= right;
+        return IvpMath.Addsd(Math.Abs(IvpMath.Mulsd(right, Slack)), sum) >= right;
     }
 
     /// <summary><c>FUN_1800a76c0</c>: the result becomes the values times the right-hand side, each row as long as the row count.</summary>
@@ -285,18 +270,18 @@ internal sealed class IvpLinearSystem
 
             for (; k < blocks; k += 4)
             {
-                zero = Addsd(zero, Mulsd(factors[k], values[start + k]));
-                one = Addsd(one, Mulsd(factors[k + 1], values[start + k + 1]));
-                two = Addsd(two, Mulsd(factors[k + 2], values[start + k + 2]));
-                three = Addsd(three, Mulsd(factors[k + 3], values[start + k + 3]));
+                zero = IvpMath.Addsd(zero, IvpMath.Mulsd(factors[k], values[start + k]));
+                one = IvpMath.Addsd(one, IvpMath.Mulsd(factors[k + 1], values[start + k + 1]));
+                two = IvpMath.Addsd(two, IvpMath.Mulsd(factors[k + 2], values[start + k + 2]));
+                three = IvpMath.Addsd(three, IvpMath.Mulsd(factors[k + 3], values[start + k + 3]));
             }
 
-            sum = Addsd(Addsd(zero, two), Addsd(one, three));
+            sum = IvpMath.Addsd(IvpMath.Addsd(zero, two), IvpMath.Addsd(one, three));
         }
 
         for (; k < count; k++)
         {
-            sum = Addsd(sum, Mulsd(factors[k], values[start + k]));
+            sum = IvpMath.Addsd(sum, IvpMath.Mulsd(factors[k], values[start + k]));
         }
 
         return sum;
@@ -345,16 +330,16 @@ internal sealed class IvpLinearSystem
             {
                 for (int block = ((k - row - 4) >> 2) + 1; block > 0; block--, k -= 4)
                 {
-                    sum -= Mulsd(RightHandSide[k], Values[start + k]);
-                    sum -= Mulsd(RightHandSide[k - 1], Values[start + k - 1]);
-                    sum -= Mulsd(Values[start + k - 2], RightHandSide[k - 2]);
-                    sum -= Mulsd(RightHandSide[k - 3], Values[start + k - 3]);
+                    sum -= IvpMath.Mulsd(RightHandSide[k], Values[start + k]);
+                    sum -= IvpMath.Mulsd(RightHandSide[k - 1], Values[start + k - 1]);
+                    sum -= IvpMath.Mulsd(Values[start + k - 2], RightHandSide[k - 2]);
+                    sum -= IvpMath.Mulsd(RightHandSide[k - 3], Values[start + k - 3]);
                 }
             }
 
             for (; k > row; k--)
             {
-                sum -= Mulsd(RightHandSide[k], Values[start + k]);
+                sum -= IvpMath.Mulsd(RightHandSide[k], Values[start + k]);
             }
 
             double diagonal = Values[start + row];
@@ -364,7 +349,7 @@ internal sealed class IvpLinearSystem
             {
                 solved = sum / diagonal;
             }
-            else if (Math.Abs(sum) >= Mulsd(Epsilon, Leftover))
+            else if (Math.Abs(sum) >= IvpMath.Mulsd(Epsilon, Leftover))
             {
                 Array.Clear(Result, 0, Rows);
 

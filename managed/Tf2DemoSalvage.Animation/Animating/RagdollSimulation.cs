@@ -112,7 +112,7 @@ public sealed class RagdollSimulation
             RagdollElement element = ragdoll.Elements[index];
             (Vector3 position, Quaternion orientation) = start[index];
 
-            (float inverseMass, (float X, float Y, float Z) inertia) = MassAndInertia(element);
+            (float mass, float inverseMass, (float X, float Y, float Z) inertia) = MassAndInertia(element);
             (float X, float Y, float Z) offset = ObjectOffset(element.MassCenter);
 
             // **The CORE goes to the hull's mass center and the bone stays inside it** (B403), so the
@@ -130,6 +130,7 @@ public sealed class RagdollSimulation
                 WorkingOrientation = (orientation.X, orientation.Y, orientation.Z, orientation.W),
                 Inertia = inertia,
                 InverseInertia = (1f / inertia.X, 1f / inertia.Y, 1f / inertia.Z),
+                Mass = mass,
                 InverseMass = inverseMass,
 
                 Hull = Points(element.Hull),
@@ -439,7 +440,7 @@ public sealed class RagdollSimulation
     /// hull's inertia, since the engine has no object without one; the single `mass × scale` this project gave
     /// every body before B403 is gone.
     /// </remarks>
-    private static (float InverseMass, (float X, float Y, float Z) Inertia) MassAndInertia(RagdollElement element)
+    private static (float Mass, float InverseMass, (float X, float Y, float Z) Inertia) MassAndInertia(RagdollElement element)
     {
         IvpObjectTemplate template = IvpObjectTemplate.FromParameters(
             element.Mass, element.Inertia, element.Damping, element.RotationDamping, element.RotationInertiaLimit);
@@ -447,7 +448,7 @@ public sealed class RagdollSimulation
         Vector3 hull = element.HullInertia;
         (float mass, (float X, float Y, float Z) inertia) = template.CoreInertia((hull.X, hull.Y, hull.Z));
 
-        return (1f / mass, inertia);
+        return (mass, 1f / mass, inertia);
     }
 
     /// <summary>Where a bone sits inside its core: <c>−massCenter</c>, as <c>FUN_180074380</c> stores it.</summary>

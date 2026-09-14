@@ -28,6 +28,30 @@ public static class IvpMath
     /// <summary>Whether this processor takes the fused-multiply-add paths, as <c>__acrt_initialize_fma3</c> decides.</summary>
     public static bool FusedPath { get; } = Fma.IsSupported;
 
+    /// <summary>
+    /// <c>ADDSD destination, source</c>: the sum, and when both are NaN the destination's NaN, quieted — the one thing a C#
+    /// <c>+</c> leaves to the JIT, which picks which operand of a commutative operation is the destination (B369).
+    /// </summary>
+    /// <remarks>
+    /// A NaN destination is added to itself, which quiets it and keeps its payload whatever order the JIT emits; otherwise at most
+    /// one operand is NaN and the sum carries that one either way. Every IVP port names the binary's destination first, read per
+    /// instruction from the disassembly (`docs/findings/51`, *Ported and pinned*).
+    /// </remarks>
+    internal static double Addsd(double destination, double source) =>
+        double.IsNaN(destination) ? destination + destination : destination + source;
+
+    /// <summary><c>MULSD destination, source</c>: the product, with <see cref="Addsd"/>'s NaN rule.</summary>
+    internal static double Mulsd(double destination, double source) =>
+        double.IsNaN(destination) ? destination * destination : destination * source;
+
+    /// <summary><c>ADDSS destination, source</c>: <see cref="Addsd"/>'s rule in float.</summary>
+    internal static float Addss(float destination, float source) =>
+        float.IsNaN(destination) ? destination + destination : destination + source;
+
+    /// <summary><c>MULSS destination, source</c>: <see cref="Addsd"/>'s rule in float.</summary>
+    internal static float Mulss(float destination, float source) =>
+        float.IsNaN(destination) ? destination * destination : destination * source;
+
     /// <summary><c>1801045a0</c> and <c>180104508</c>: <c>64/ln 2</c>.</summary>
     private static readonly double InverseStep = BitConverter.Int64BitsToDouble(0x40571547652b82fe);
 

@@ -337,9 +337,9 @@ internal sealed class IvpComplementaritySolver
         double step;
         int best;
 
-        if (!(-residual >= IvpLinearSystem.Mulsd(change, Longest)))
+        if (!(-residual >= IvpMath.Mulsd(change, Longest)))
         {
-            step = IvpLinearSystem.Mulsd(-1d / change, residual);
+            step = IvpMath.Mulsd(-1d / change, residual);
             best = next;
         }
         else
@@ -362,7 +362,7 @@ internal sealed class IvpComplementaritySolver
             }
 
             double pushed = _result[index];
-            double ratio = IvpLinearSystem.Mulsd(-1d / along, pushed);
+            double ratio = IvpMath.Mulsd(-1d / along, pushed);
 
             if (!(Math.Abs(ratio) >= Epsilon) && !(pushed >= Epsilon))
             {
@@ -373,7 +373,7 @@ internal sealed class IvpComplementaritySolver
                 break;
             }
 
-            if (!(ratio >= IvpLinearSystem.Addsd(step, Epsilon)))
+            if (!(ratio >= IvpMath.Addsd(step, Epsilon)))
             {
                 step = ratio;
                 best = i;
@@ -392,7 +392,7 @@ internal sealed class IvpComplementaritySolver
                     continue;
                 }
 
-                double ratio = IvpLinearSystem.Mulsd(-1d / along, Residual[index]);
+                double ratio = IvpMath.Mulsd(-1d / along, Residual[index]);
 
                 if (!(ratio >= step - Epsilon))
                 {
@@ -463,8 +463,8 @@ internal sealed class IvpComplementaritySolver
     {
         for (int i = 0; i < _size; i++)
         {
-            Residual[i] = IvpLinearSystem.Addsd(IvpLinearSystem.Mulsd(shortest, _directionW[i]), Residual[i]);
-            _result[i] = IvpLinearSystem.Addsd(IvpLinearSystem.Mulsd(shortest, _directionX[i]), _result[i]);
+            Residual[i] = IvpMath.Addsd(IvpMath.Mulsd(shortest, _directionW[i]), Residual[i]);
+            _result[i] = IvpMath.Addsd(IvpMath.Mulsd(shortest, _directionX[i]), _result[i]);
         }
 
         for (int i = ActiveCount; i < Settled; i++)
@@ -686,10 +686,10 @@ internal sealed class IvpComplementaritySolver
             {
                 int column = Order[j];
 
-                sum = IvpLinearSystem.Addsd(sum, IvpLinearSystem.Mulsd(_directionX[column], _values[row + column]));
+                sum = IvpMath.Addsd(sum, IvpMath.Mulsd(_directionX[column], _values[row + column]));
             }
 
-            _directionW[index] = IvpLinearSystem.Addsd(sum, _values[row + entering]);
+            _directionW[index] = IvpMath.Addsd(sum, _values[row + entering]);
         }
     }
 
@@ -727,7 +727,7 @@ internal sealed class IvpComplementaritySolver
 
             for (int k = _size - 1; k >= 0; k--)
             {
-                sum = IvpLinearSystem.Addsd(sum, IvpLinearSystem.Mulsd(_values[row + k], _result[k]));
+                sum = IvpMath.Addsd(sum, IvpMath.Mulsd(_values[row + k], _result[k]));
             }
 
             measured[i] = sum - _rightHandSide[i];
