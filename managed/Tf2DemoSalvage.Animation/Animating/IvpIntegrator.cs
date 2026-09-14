@@ -61,9 +61,9 @@ public sealed class IvpRigidBody
 
     /// <summary>Its reciprocal — <c>core+0x40/0x44/0x48</c>.</summary>
     /// <remarks>
-    /// **That these hold reciprocals is INFERRED**, not read: it is what makes the free-rotation
-    /// expression equal Euler's torque-free equations, and it matches the inverse mass living at
-    /// `+0x4c` in the same block — but the division that produces them was not found in the binary.
+    /// **Reciprocals, read**: `FUN_180074530`, which moves a core between movable and not, writes `+0x40..0x4c` as
+    /// `1f / +0x20..0x2c` — four `DIVSS` from `DAT_1800ea988` (`1f`), the inverse mass at `+0x4c` among them — before it runs the
+    /// broad phase (`docs/findings/51`).
     /// </remarks>
     public (float X, float Y, float Z) InverseInertia { get; set; } = (1f, 1f, 1f);
 

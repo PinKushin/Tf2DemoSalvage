@@ -4572,8 +4572,46 @@ FUN_1800962c0(table, other, object):  probe by (other >> 8)·0x3ff + other;  eac
 FUN_180071f90 / FUN_180072570:  Robin-Hood insert and delete in the cell hash (16-byte slots, the hash's low bits the home)
 ```
 
-**The level tables at `18012d680` and `18012d7c8` are zeros in the file** — they are written when `vphysics.dll` loads, so they
-must be read from the loaded image, as the minimize's dispatch table is.
+**The level tables at `18012d680` and `18012d7c8` are zeros in the file, and still zeros once the library is loaded** — the
+`vphysics-data` probe read 82 zero doubles there from the game's own `vphysics.dll`. They are written by `FUN_18009d820`, the OV
+tree's constructor, which the environment's construction `FUN_180080d90` calls: 80 doubles copied from `.rdata` `1800fe120`
+into `18012d680`, and `1800fe118` into `18012d900`. **Every entry is a power of two, `18012d680[i] = 2^(i − 40)`** for `i` from 0
+to 80 (`0x3d70…` to `0x4270…`, read from `.rdata`), so the key's scale `18012d7c8 − 8e` is `2^(1 − e)`, a cell `2^(e − 1)` wide,
+and `FUN_18009ebf0` turns a key back into the world as `lo·2^level` with radius `2^e`. *Evidence: read from `.rdata`; the
+copy read from the disassembly.*
+
+**What the environment's construction `FUN_180080d90(env, manager list, template)` installs** — the classes the broad phase
+calls through, read from the disassembly (2026-09-14):
+
+```
++0xc8 = 0.3f (0x3e99999a)                      -- the rest test's delay, written outright, not from the template
++0x1ac = 5;  +0x80 = env;  +0x13c = 0
++0x108 = 1/66 (0x3f8f07c1f07c1f08);  +0x110 = 66.0;  +0x1b0 = 0x3feff2eed61b4202   -- the step until vphysics sets its own
++0x0   a 0x30-byte gravity controller (table 1800ea728), its +0x10..0x18 from FUN_1800824e0 and 1800fd4f0
++0x8   FUN_180089dc0 (0x30)          +0x10  the unit manager FUN_180074750 (0x340)     +0x18  FUN_180087900 (0x30)
++0x20  the mindist manager FUN_180095f90 (0x30)      +0x28  the OV tree FUN_18009d820 (0x60)    +0xd0  FUN_1800a4560 (0x40)
+template's +0x18 or FUN_1800911f0 → +0xe8;   +0x50 or FUN_18009f490 → +0xe0;   +0x20 → +0x30 (the pair filter, no default)
+template's +0x38 or FUN_180089590 → +0x40 (the anomaly manager);   +0x40 or FUN_180089550 → +0x48 (its limits)
+template's +0x48 or FUN_1800a0650 (8 bytes, table 1800fe6e8) appended to the creators at +0x1c8/+0x1ca/+0x1d0 — slot 5 is
+    FUN_1800a06f0, the object-pair watcher's maker
+template's +0x28 → +0x58 (no default);   +0x58 or FUN_1800a0420 (0x68) → +0x38;   +0x30 or FUN_1800a4220 (0xa8) → +0x50
+```
+
+*Not established: whether vphysics writes `+0xc8` after construction.*
+
+Three more from the same reading. **The cell hash compares a key's level (`+0xc`) and then `x`, `y`, `z`, and never `+0x10`**
+(slot 0 of table `1800fe058`, `1800b5be0`, which Ghidra has no function for — read from its bytes); its hash is the reflected
+CRC-32 (table `180127000`, `0x77073096` second) of the 20-byte key with bit 31 set. **`FUN_180096eb0` is the broad phase
+that makes the node**: the object's old node (`+0xd8`) deleted through its slot 4, a 0x50-byte node built by
+`FUN_18009d7b0(node, object)` and stored, and then everything `FUN_180098880` does — `FUN_180073970`, adding an object to
+the simulation, calls it. **And a core's inverse inertia is written as a reciprocal**: `FUN_180074530`, which moves a core
+between movable and not, sets `+0x40..0x4c = 1f / +0x20..0x2c` with four `DIVSS` before running the broad phase — the
+division the port had filed as not found.
+
+**The tolerance block's loaded values**, before vphysics sets its own: `18012d540` `0.001`, the margin table from `18012d544`
+`0.01` throughout, and past it `18012d640`–`18012d648` `0.01`, **`DAT_18012d64c` `0.02`** (the gap a contact point starts with,
+`block[0x43]`, and the recursive mindist's length threshold), `0.023`, `0.505`, `0.0001`, `0.045`, `0.22`, `0.001`, `0.02`, and
+**`DAT_18012d66c` the int `1000`**, the most ledge pairs a recursive mindist refreshes. *Evidence: read from the loaded image.*
 
 **Where a pair's mindists come from** — `FUN_180096680(objectA, objectB, gap, pair vector, ledgeA, ledgeB, …)`, called by
 `FUN_1800b29b0` and `FUN_1800b6080`, and the constructor it ends in:
@@ -4627,8 +4665,81 @@ FUN_180098ef0(manager, m):  both records out of their objects' hull managers (+0
 FUN_1800b23a0(m):  every mindist of its vector (+0xea, +0xf0), last first, slot 0(it, 1);  +0xe0's slot 2(−count);  the vector freed
 ```
 
-*Not read yet: `FUN_18009de80`'s filing in full, the rounding helpers' exact negative-floor sequence, the classes at env+0x30,
-+0x38 and +0x58, a surface manager's slots 4 and 7, and `FUN_1800b21f0`'s larger mindist.*
+**The node's filing and its watchers**, read from the disassembly (2026-09-14). The node's first 0x20 bytes are a hull
+listener — `+0x8` its slot in a hull manager, `+0x18` the manager — so the broad phase files the sphere in the object's own
+hull manager (`object+0x80`: `+0x0` a time base, `+0x8` and `+0x10` floats, `+0x20` the min-list), the one a mindist's
+records are filed in:
+
+```
+FUN_18009de80(node, hull, double gap):  now = node+0x38 (the object) → +0x30 (the environment) → +0x188, read first
+    node+0x18 set → FUN_1800ab1b0(its +0x20, node+0x8), out of it;  else node+0x18 = hull
+    t = (float)(now − manager+0x0) · manager+0x8 + manager+0x10     -- float, the product first, the manager node+0x18
+    node+0x8 = FUN_1800aaed0(manager+0x20, node, (float)((double)t + gap))
+FUN_18009de20(node, watcher):  the watcher appended to node+0x40 (grown through FUN_180072ba0 when full);  its +0x18 still −1 →
+    +0x18 = the index, else +0x1c = the index                   -- a watcher sits on two nodes and keeps both slots
+```
+
+**What vphysics hands the construction, and the two classes the broad phase asks** (read from the disassembly, 2026-09-14).
+`FUN_1800114f0`, vphysics' own environment constructor, fills a template on its stack through `FUN_180080d30` — every field
+zero but `+0x0 = 0x100` — and sets only three: `+0x18` from `[180120b30]`'s slot 12, and `+0x20` and `+0x38` from one 0x40-byte
+object of vphysics' own (tables `1800ebf78` and, at its `+0x8`, `1800ebf90` over the anomaly manager `FUN_180089590`). **So
+`env+0x58` is null and the broad phase's `env+0x58` branch never runs in vphysics, and `env+0x38` is always IVP's default
+range manager**, `FUN_1800a0420(rm, env, 1)`:
+
+```
++0x8 = 1 (the policy, read by neither slot below);  +0x10 = env
++0x18 0.5  +0x20 (double)0.9f  +0x28 (double)0.8f  +0x30 10.0  +0x38 (double)0.06f
++0x40 1.0  +0x48 5.0  +0x50 0.5  +0x58 15.0  +0x60 (double)0.06f
+slot 2(rm, object) — the broad phase's range:  core = object+0xe8
+    s = (double)(core+0x254 + core+0x1dc) + 1e-20 (DAT_1800f4f20);  r = (double)core+0x4;  dt = (double)(float)env+0x108
+    a = min(s·+0x40, r·+0x48);  a = max(a, +0x50);  a = min(a, +0x58);  a −= dt·s  (dt the destination)
+    result max(a, s·+0x60 + r)
+slot 1(rm, A, B, &rA, &rB) — a pair's range:  sA, sB as s above;  m = (double)MINSS(coreA+0x4, coreB+0x4);  sum = sB + sA
+    g = min(m·+0x20, sum·+0x18);  g = max(g, +0x28);  g = min(g, +0x30);  g −= dt·sum;  g = max(g, sum·+0x38)
+    wA = sA + sB·(double)0.2f (DAT_1800f4f40);  wB = sB + wA·(double)0.18f (DAT_1800fe6c0)
+    rA = g·wA · 1/(wB + wA);  rB = g·wB · 1/(wB + wA)      -- every product and sum with the left operand the destination
+```
+
+**`env+0x30`, the pair filter, is vphysics' bridge to the game** — slot 0 `FUN_1800161e0(filter, A, B)`: no game solver at
+`filter+0x18`, or either object without its `IPhysicsObject` at `+0x100` → collide. Otherwise the two objects' callback flags
+(`IPhysicsObject+0x48`): one with `CALLBACK_ENABLING_COLLISION` (`0x800`) and the other with `CALLBACK_MARKED_FOR_DELETE`
+(`0x400`), in either order → no pair. Else the game's `IPhysicsCollisionSolver::ShouldCollide(A, B, A's game data, B's game
+data)`, B's game data fetched first, non-zero → collide. On the client that is `CCollisionEvent::ShouldCollide`, which
+`source-sdk-2013` publishes (`game/client/physics.cpp`). *Evidence: read from the disassembly; the flag names from
+`vphysics_interface.h`.*
+
+**The range manager is ported and pinned (2026-09-14)** as `IvpRangeManager`. The `vphysics-range` probe builds one with
+`FUN_1800a0420(rm, env, 1)` and calls both slots on fabricated cores, a tenth of the fields NaNs of two payloads, infinities,
+negative zero and the largest float: **100,000 cases agree on every lane**, and `IvpRangeConformanceTests` replays 400. The
+first sweep differed in 81% of cases by one unit in the last place, and the second in 1.4%: **the constants had been typed as
+decimals** — `0.0599999986588955` for `(double)0.06f`, and `1e-20` for `DAT_1800f4f20` — and neither decimal names the
+binary's bits. Written as `0.06f` widened, and the floor by its bits `0x3bfd83c94fb6d2ac`, both sweeps went to zero.
+
+**The OV tree's sabotage round**, run by a subagent over 22 mutants: 17 reddened most of the suite, two hung it (a containment
+margin and a root never cleared, each leaving `Grow`'s loop without an end), and three survived — the collect walk's
+level-equal boundary, the strictness of one axis of the box test, and the radius sum added in double instead of float. The
+fixture now carries eight searched cases: two unit spheres tangent on each axis in each order, a node filed into the root's own
+cell while the root has children, and radii `1f` and `2^−24`, whose float sum is `1f`, with centres between the two squares.
+**The tangent spheres were predicted to be pruned by the strict box test and are not** — the binary finds both, and so does
+the port — so the walk's boxes are wider than the prediction assumed; *not established: which reading of the box was wrong.*
+
+*Not read yet: a surface manager's slots 4 and 7, and `FUN_1800b21f0`'s larger mindist.*
+
+**The OV tree is ported and pinned (2026-09-14)** as `IvpOvTree`: the insert, its key, growth, descent, path, both overlap
+walks and the removal. The `vphysics-ov-tree` probe builds a real tree with `FUN_18009d820` and sixteen nodes with
+`FUN_18009d7b0`, runs cases of 24 drawn inserts and removals through `FUN_18009ecb0` and `FUN_18009efc0`, and compares each
+step's returned radius, the node's `+0x30` and cell key, the nodes found in order, and a digest of the whole tree walked from
+`+0x58`: **50,000 cases, the binary finding 1,601,646 nodes, agree on every lane**, and `IvpOvTreeConformanceTests` replays
+300. The rounding helpers' negative-floor sequence is settled by that agreement: `CVTTSS2SI` of the narrowed product, one
+taken off (floor) or added (ceiling) when the truncation differs from the value, and the result truncated again. Three
+things the sweep showed on the way. **The found list includes the node itself** — the probe's control, two unit spheres a
+quarter apart, finds two nodes — so the broad phase's skip of an overlapping node on the same friction core is what keeps an
+object from pairing with itself. **The node constructor allocates its watcher vector** (`0x80` bytes through
+`FUN_180072b90`, capacity `0x10` at `+0x40`), so the probe resets the fields it writes rather than calling it per case.
+**And removal leaves `+0x30` as it was**: a node taken out still carries the radius it was filed with, which the first
+sweep reported as 190 differing cases before the probe stopped carrying one case's nodes into the next. *Evidence:
+differential against the shipped binary. Not established: what the binary does with a non-finite centre or radii far enough
+apart to read past the 81-entry level table — the draws keep out of both, and the port throws there.*
 
 **The rest test depends on a generator shared by the whole process.** The countdown between tests is 15 to 19 PSIs drawn from
 `seed·75`, and every draw anywhere in the process advances it, so which PSI a corpse's heap is tested on depends on how many
