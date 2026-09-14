@@ -503,6 +503,77 @@ public sealed class IvpRigidBody
     /// </remarks>
     public int Offset58Axis { get; set; }
 
+    /// <summary>
+    /// The core's state saved before <see cref="RebuildMatrixAtEventTime"/> refines it for a collision, or null before the
+    /// first — <c>core+0x260</c>'s arena block, restored by <see cref="RestoreFromSnapshot"/> (<c>FUN_180079120</c>).
+    /// </summary>
+    public IvpCoreSnapshot? PendingSnapshot { get; set; }
+
+    /// <summary>
+    /// The core's position at the exact collision event time, extrapolated by its committed velocity —
+    /// <c>core+0xf0/0xf8/0x100</c>, written by <see cref="RebuildMatrixAtEventTime"/>.
+    /// </summary>
+    public (double X, double Y, double Z) EventPosition { get; set; }
+
+    /// <summary>Restores a queued snapshot into this core's bounds and transform, then clears it — <c>FUN_180079120</c>.</summary>
+    /// <remarks>Called at the top of a PSI, once, for a core that named a snapshot whose <see cref="IvpCoreBounds"/> agree.</remarks>
+    public void RestoreFromSnapshot(IvpCoreSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        AngularVelocity = snapshot.AngularVelocity;
+        Orientation = snapshot.Orientation;
+        WorkingOrientation = snapshot.WorkingOrientation;
+        PendingSnapshot = null;
+    }
+
+    /// <summary>
+    /// Refines this core's transform to the exact collision event time — <c>IvpRigidBody::RebuildMatrixAtEventTime</c>
+    /// (<c>180078d60</c>).
+    /// </summary>
+    /// <param name="now">The environment's time — the collision event's own.</param>
+    /// <remarks>
+    /// **Saves the current state first** (<see cref="PendingSnapshot"/>), so a later PSI's own integration is not left
+    /// working from a value this refinement already consumed. Computes the full step's rotation delta
+    /// (<c>conjugate(Orientation) ⊗ WorkingOrientation</c>) BEFORE narrowing <see cref="WorkingOrientation"/> to the
+    /// event-time interpolation, then rebuilds <see cref="CoreMatrix"/> and <see cref="EventPosition"/> at that instant.
+    /// **Unless <see cref="FlagBit3"/>**, recovers the exact instantaneous angular velocity the discrete step implied —
+    /// `asin` of each delta axis, scaled by twice the inverse step — rather than trusting whatever Euler approximation is
+    /// already stored.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Never; kept for parity with other transform methods.</exception>
+    public void RebuildMatrixAtEventTime(double now)
+    {
+        PendingSnapshot = new IvpCoreSnapshot(AngularVelocity, Orientation, WorkingOrientation);
+
+        (double X, double Y, double Z, double W) delta = IvpQuaternion.Product(Conjugate(Orientation), WorkingOrientation);
+
+        float elapsed = (float)(now - LastStepped);
+
+        WorkingOrientation = IvpQuaternion.Interpolate(Orientation, WorkingOrientation, IvpMath.Mulss(elapsed, InverseStep));
+
+        EventPosition = (
+            Position.X + ((double)PreviousVelocity.X * elapsed),
+            Position.Y + ((double)PreviousVelocity.Y * elapsed),
+            Position.Z + ((double)PreviousVelocity.Z * elapsed));
+
+        CoreMatrix = IvpMatrix.FromRotation(WorkingOrientation, EventPosition);
+
+        if (!FlagBit3)
+        {
+            double scale = (double)InverseStep + InverseStep;
+
+            AngularVelocity = (
+                (float)(Math.Asin(delta.X) * scale),
+                (float)(Math.Asin(delta.Y) * scale),
+                (float)(Math.Asin(delta.Z) * scale));
+        }
+    }
+
+    /// <summary>The conjugate of a rotation: its imaginary components negated.</summary>
+    private static (double X, double Y, double Z, double W) Conjugate((double X, double Y, double Z, double W) rotation) =>
+        (-rotation.X, -rotation.Y, -rotation.Z, rotation.W);
+
     /// <summary>The velocity of a point fixed to this core — <c>FUN_180077fa0</c>.</summary>
     /// <param name="arm">The point, in the core's frame.</param>
     /// <param name="velocity">The core's velocity, as the caller holds it.</param>
@@ -692,6 +763,15 @@ public sealed class IvpRigidBody
         return IvpMath.Mulsd(IvpMath.Mulsd(IvpMath.Addsd(gap, gap), Radius), Radius);
     }
 }
+
+/// <summary>A core's state saved before a collision refines it — <c>core+0x260</c>'s arena block (B369, D172).</summary>
+/// <param name="AngularVelocity">The angular velocity before the refinement.</param>
+/// <param name="Orientation">The committed orientation before it.</param>
+/// <param name="WorkingOrientation">The working orientation before it.</param>
+public sealed record IvpCoreSnapshot(
+    (float X, float Y, float Z) AngularVelocity,
+    (double X, double Y, double Z, double W) Orientation,
+    (double X, double Y, double Z, double W) WorkingOrientation);
 
 /// <summary>
 /// IVP's per-core integration step — <c>FUN_180099a00</c> (B58, D142, D146).

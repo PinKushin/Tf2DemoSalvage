@@ -270,4 +270,110 @@ public sealed class IvpIntegratorConformanceTests
         body.WorkingOrientation.X.ShouldBe(
             0.049979167f, Close, "while the working one has already turned");
     }
+
+    /// <remarks>
+    /// **The snapshot carries exactly what was live before the refinement touches it** —
+    /// <c>IvpRigidBody::RebuildMatrixAtEventTime</c> (<c>180078d60</c>) saves the core's state to its arena block first,
+    /// unconditionally, so a later PSI can restore it (<see cref="IvpRigidBody.RestoreFromSnapshot"/>).
+    /// </remarks>
+    [Test]
+    public void RebuildMatrixAtEventTime_AnyCore_SavesItsStateBeforeRefiningIt()
+    {
+        IvpRigidBody body = new()
+        {
+            AngularVelocity = (1f, 2f, 3f),
+            Orientation = (0d, 0d, 0d, 1d),
+            WorkingOrientation = (0d, 0d, 0d, 1d),
+            InverseStep = 100f,
+        };
+
+        body.RebuildMatrixAtEventTime(now: 0d);
+
+        body.PendingSnapshot.ShouldNotBeNull();
+        body.PendingSnapshot.AngularVelocity.ShouldBe((1f, 2f, 3f));
+        body.PendingSnapshot.Orientation.ShouldBe((0d, 0d, 0d, 1d));
+        body.PendingSnapshot.WorkingOrientation.ShouldBe((0d, 0d, 0d, 1d));
+    }
+
+    /// <remarks>
+    /// **A step whose committed and working orientations are already equal has no rotation delta to interpolate or to
+    /// recover an angular velocity from** — the interpolation between two equal quaternions is that quaternion, and
+    /// `asin(0) = 0`, so this is the case a wrong sign or a wrong operand order cannot hide behind.
+    /// </remarks>
+    [Test]
+    public void RebuildMatrixAtEventTime_NoRotationThisStep_LeavesTheOrientationAndZeroesTheAngularVelocity()
+    {
+        IvpRigidBody body = new()
+        {
+            AngularVelocity = (1f, 2f, 3f),
+            Orientation = (0d, 0d, 0d, 1d),
+            WorkingOrientation = (0d, 0d, 0d, 1d),
+            InverseStep = 100f,
+            LastStepped = 0d,
+        };
+
+        body.RebuildMatrixAtEventTime(now: 0.005d);
+
+        body.WorkingOrientation.ShouldBe((0d, 0d, 0d, 1d));
+        body.AngularVelocity.ShouldBe((0f, 0f, 0f));
+    }
+
+    /// <remarks><see cref="IvpRigidBody.FlagBit3"/> takes the second route, which never updates <see cref="IvpRigidBody.AngularVelocity"/>.</remarks>
+    [Test]
+    public void RebuildMatrixAtEventTime_FlagBit3Set_LeavesTheAngularVelocityAlone()
+    {
+        IvpRigidBody body = new()
+        {
+            AngularVelocity = (1f, 2f, 3f),
+            Orientation = (0d, 0d, 0d, 1d),
+            WorkingOrientation = (0d, 0d, 0d, 1d),
+            InverseStep = 100f,
+            FlagBit3 = true,
+        };
+
+        body.RebuildMatrixAtEventTime(now: 0d);
+
+        body.AngularVelocity.ShouldBe((1f, 2f, 3f));
+    }
+
+    /// <remarks>
+    /// **The event position extrapolates by the COMMITTED velocity**, <see cref="IvpRigidBody.PreviousVelocity"/>, not the
+    /// current one — the same one-step lag <see cref="IvpIntegrator.Step"/> already has.
+    /// </remarks>
+    [Test]
+    public void RebuildMatrixAtEventTime_AnyElapsedTime_ExtrapolatesByThePreviousVelocity()
+    {
+        IvpRigidBody body = new()
+        {
+            Position = (10d, 20d, 30d),
+            PreviousVelocity = (1f, 2f, 3f),
+            InverseStep = 100f,
+            LastStepped = 0d,
+        };
+
+        body.RebuildMatrixAtEventTime(now: 2d);
+
+        body.EventPosition.ShouldBe((12d, 24d, 36d));
+    }
+
+    /// <remarks>A restored core is exactly the snapshot, and the snapshot is gone.</remarks>
+    [Test]
+    public void RestoreFromSnapshot_ASavedCore_PutsItBackAndClearsThePending()
+    {
+        IvpCoreSnapshot snapshot = new((1f, 2f, 3f), (0.1d, 0.2d, 0.3d, 0.9d), (0.4d, 0.5d, 0.6d, 0.7d));
+        IvpRigidBody body = new()
+        {
+            AngularVelocity = (9f, 9f, 9f),
+            Orientation = (0d, 0d, 0d, 1d),
+            WorkingOrientation = (0d, 0d, 0d, 1d),
+            PendingSnapshot = snapshot,
+        };
+
+        body.RestoreFromSnapshot(snapshot);
+
+        body.AngularVelocity.ShouldBe((1f, 2f, 3f));
+        body.Orientation.ShouldBe((0.1d, 0.2d, 0.3d, 0.9d));
+        body.WorkingOrientation.ShouldBe((0.4d, 0.5d, 0.6d, 0.7d));
+        body.PendingSnapshot.ShouldBeNull();
+    }
 }
