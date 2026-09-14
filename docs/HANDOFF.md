@@ -128,12 +128,19 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
        extra-radius/margin fields over elapsed time using the pair's cached bound values, and appends the pair into
        the caller's local candidate list (`FUN_180072ba0` — read in full, trivial capacity-doubling array grow, no
        port gap) when the aged margin goes negative.
-   - **Still unread, needed before a rewrite can be written**: `FUN_180071680`, `FUN_180070f50`, `FUN_1800c8020` (the
-     quaternion integrator's own pieces), `FUN_180070d60`/`FUN_180070c60` (normalize/matrix rebuild),
-     `FUN_180094460`/`FUN_180094540` (the heap comparator/swap pair in `NotifyAll`), `FUN_18009a4f0` and
-     `FUN_180094490` (event firing and tick stamping), `FUN_180079120` and `FUN_180095cb0` (both small, called
-     conditionally). **The rotation integrator alone is a big enough piece that it may be worth its own oracle/port
-     pass before the rest of the running path**, given how self-contained it looks.
+   - **The rotation integrator is now fully resolved, read in full 2026-09-14 — no port gap, standard math throughout.**
+     `FUN_180071680` (the normal, non-`0x1ac==5` path): a shared small-angle quaternion delta from angular velocity ×
+     half-dt, cubic sine approximation (`sin(x)≈x−x³/6`), `w=√(1−x²−y²−z²)` — portable directly.
+     `FUN_180070f50` (the exact/axis-locked path): the same construction but with a REAL `sin` call per axis
+     (`FUN_1800c8020`) instead of the cubic approximation, then renormalizes if the xyz magnitude exceeds 1.
+     `FUN_1800c8020` **is plain CRT `sin(double)`** — a range-reduced minimax polynomial with an AVX/FMA-detected
+     variant and NaN/inf special-casing, not IVP code at all. **`Math.Sin`/`Math.Sqrt` are the correct C# equivalents
+     for both paths**; no oracle or dedicated port pass needed for this piece — it was a false alarm raised by its
+     size, not by any actual engine-specific behaviour.
+   - **Still unread, needed before a rewrite can be written**: `FUN_180070d60`/`FUN_180070c60` (normalize/matrix
+     rebuild after the quaternion update), `FUN_180094460`/`FUN_180094540` (the heap comparator/swap pair in
+     `NotifyAll`), `FUN_18009a4f0` and `FUN_180094490` (event firing and tick stamping), `FUN_180079120` and
+     `FUN_180095cb0` (both small, called conditionally).
    - Replacing `IvpContact`/`IvpEnvironment` means reproducing this exact two-pass shape — build each controller's local
      candidate list, drain it as a heap firing real events, then a second full pass revalidating every pair's cache
      generation — not a single merged loop, and not `Advance`'s ad hoc per-collision subdivision. **A full rewrite, not a
