@@ -5042,6 +5042,26 @@ reddened once rewritten to keep their operands used. One cut was foreseen as a s
 first: `IvpRecursiveMindist::RefreshChildren`'s own count check, unobservable while every caller past the limit returned before
 reaching it, is pinned by a refresh past the limit that files the records again but refreshes nothing beneath.
 
+**The binary agrees with the port (2026-09-14).** The `vphysics-recursive-mindist` probe builds each case's pair through the
+binary's own `IvpPairMindists::Refresh` over trees holding hull ledges, then freezes, collides or passes the hull of a larger
+mindist the pair holds, and deletes the pair; `IvpRecursiveMindistReplay` runs the same steps on the port. Five thousand random
+cases, twelve thousand actions on larger mindists, and no lane differs. Three hundred of them are the conformance suite's fixture,
+and a side choice sabotaged to open the wrong ledge reddens it. Four things had to be learned before the two agreed, none of them a
+fault in the port:
+
+- **The tolerance block at load is not a running environment's.** `IvpCollisionTolerance::FillAtLoad` fills it with a tolerance
+  of 0.01, so a probe that builds no environment reads a contact gap of 0.02 and closes pairs the port refreshes. The probe runs
+  `IvpCollisionTolerance::Block::Derive` twice, as the environment constructor and `SetGravity` do, and checks the gap it leaves
+  against the port's before any case runs.
+- **A mindist's flag bits 30 and 31 are whatever its allocation held.** `IvpMindist::IvpMindist` ANDs the flags with `0xcfc000ff`
+  and never clears those two, and they came back set in the probe where the port has them clear, so the flags lane carries the
+  other thirty. *Whether anything reads them is not established.*
+- **Only a hull's words may carry bit 31.** A virtual leaf lets slot 8 open a ledge with no node beneath it, where the binary's
+  radius query reads past a terminal node and the port refuses; the cases mark only hull ledges virtual. *That compiled hulls never
+  mark a leaf's words is interpolated from what the bit means, not measured on shipped `.phy` files.*
+- **A min-list reused across cases hands out its freed slots last freed first**, where the port's is new each case; the probe
+  builds a fresh one per case.
+
 So **a larger mindist opens its ledge only when the pair would otherwise freeze or collide on a hull's virtual face**, and
 then waits on the hull managers like a far pair; `FUN_180097f00`, told its hull passed, sends it to `FUN_1800b28a0`, which
 closes it back into a plain exact pair once the length is past `DAT_18012d64c` and otherwise refreshes its children.
