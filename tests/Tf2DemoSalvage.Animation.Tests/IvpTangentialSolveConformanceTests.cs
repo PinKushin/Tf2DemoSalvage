@@ -264,4 +264,67 @@ public sealed class IvpTangentialSolveConformanceTests
         result.Slide.CrossSpan.ShouldBe(0.8f, 1e-4f);
         result.Carry.ShouldBe(25f, 1e-2f);
     }
+
+    /// <remarks>
+    /// **A resting body pressed straight into a static floor, with no slide and no relative velocity, needs no
+    /// friction impulse at all.** Both axes solve to zero.
+    /// </remarks>
+    [Test]
+    public void Solve_NoSlideAndNoRelativeVelocity_SolvesToZero()
+    {
+        IvpRigidBody first = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.Solve(
+            first, (0f, 0f, 1f), null, default,
+            (1f, 0f, 0f), (0f, 1f, 0f),
+            (1f, 1f, 1f, 1f), (1f, 1f, 1f, 1f),
+            slide: (0f, 0f), inverseStep: 100d);
+
+        impulse.ShouldNotBeNull();
+        impulse.Value.Span.ShouldBe(0f, 1e-6f);
+        impulse.Value.CrossSpan.ShouldBe(0f, 1e-6f);
+    }
+
+    /// <remarks>
+    /// **A body sliding at <c>1</c> along axis0 with no stored slide** needs an impulse that opposes exactly that —
+    /// the right-hand side is <c>0 − 1 = −1</c>, and with the diagonal alone (a static second side, no cross term)
+    /// the impulse is <c>−1 / diagonal</c>.
+    /// </remarks>
+    [Test]
+    public void Solve_ASlidingBodyWithNoStoredSlide_OpposesTheCurrentVelocity()
+    {
+        IvpRigidBody first = new() { Velocity = (1f, 0f, 0f), InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.Solve(
+            first, (0f, 0f, 1f), null, default,
+            (1f, 0f, 0f), (0f, 1f, 0f),
+            (1f, 1f, 1f, 1f), (1f, 1f, 1f, 1f),
+            slide: (0f, 0f), inverseStep: 100d);
+
+        impulse.ShouldNotBeNull();
+        impulse.Value.Span.ShouldBeLessThan(0f, "an impulse opposing a positive slide velocity is negative");
+    }
+
+    [Test]
+    public void Solve_BothSidesStatic_TheSystemIsSingularAndSolveReturnsNull() =>
+        IvpTangentialSolve.Solve(
+            null, default, null, default,
+            (1f, 0f, 0f), (0f, 1f, 0f),
+            default, default,
+            slide: (0f, 0f), inverseStep: 100d).ShouldBeNull();
+
+    /// <remarks>An impulse already inside the budget is left exactly as it was.</remarks>
+    [Test]
+    public void ClipImpulse_AnImpulseInsideTheBudget_IsUnchanged() =>
+        IvpTangentialSolve.ClipImpulse((0.3f, 0.4f), budget: 1f).ShouldBe((0.3f, 0.4f));
+
+    /// <remarks><c>(3, 4)</c> has magnitude 5; clipped to a budget of 1 it becomes <c>(0.6, 0.8)</c>.</remarks>
+    [Test]
+    public void ClipImpulse_AnImpulseOverTheBudget_ScalesItDown()
+    {
+        (float Span, float CrossSpan) clipped = IvpTangentialSolve.ClipImpulse((3f, 4f), budget: 1f);
+
+        clipped.Span.ShouldBe(0.6f, 1e-4f);
+        clipped.CrossSpan.ShouldBe(0.8f, 1e-4f);
+    }
 }

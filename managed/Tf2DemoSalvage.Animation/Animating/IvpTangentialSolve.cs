@@ -267,4 +267,78 @@ public static class IvpTangentialSolve
 
         return ((slide.Span * scale, slide.CrossSpan * scale), ((magnitude - budget) * friction * pushOut) + carry);
     }
+
+    /// <summary>
+    /// Solves for the two-axis friction impulse that would cancel a contact's slip — <c>IvpFrictionSystem::SolveTangentialPair</c>
+    /// (<c>1800857c0</c>), the non-sticking branch.
+    /// </summary>
+    /// <param name="first">The first core, or null for a static side.</param>
+    /// <param name="firstArm">The contact point relative to the first core's position, in world space.</param>
+    /// <param name="second">The second core, or null for a static side.</param>
+    /// <param name="secondArm">The contact point relative to the second core's position, in world space.</param>
+    /// <param name="axis0">The slide's first tangent axis, in world space.</param>
+    /// <param name="axis1">The slide's second tangent axis, in world space.</param>
+    /// <param name="firstAxisFactors">The material axis factors for the first core's rows.</param>
+    /// <param name="secondAxisFactors">The material axis factors for the second core's rows.</param>
+    /// <param name="slide">The contact's stored slide, already clamped by <see cref="ClampSlide"/> this PSI.</param>
+    /// <param name="inverseStep">The environment's reciprocal PSI step.</param>
+    /// <returns>The impulse, or null when the 2×2 system is singular — <see cref="TryInvertSymmetric"/> refused it.</returns>
+    /// <remarks>
+    /// **The target is the stored slide converted from a position error to a corrective velocity** —
+    /// <c>slide × inverseStep</c> — matching a position error divided by time. The right-hand side is that target
+    /// less the contact's actual current relative velocity (<see cref="RelativeVelocity"/>); the impulse solves the
+    /// 2×2 system for the push that would close the gap between them. **The cone clip against the pair's own
+    /// friction budget is a separate step**, applied by the caller once this returns — matching the native, where
+    /// the clip happens after this call, not inside it.
+    /// </remarks>
+    public static (float Span, float CrossSpan)? Solve(
+        IvpRigidBody? first,
+        (float X, float Y, float Z) firstArm,
+        IvpRigidBody? second,
+        (float X, float Y, float Z) secondArm,
+        (float X, float Y, float Z) axis0,
+        (float X, float Y, float Z) axis1,
+        (float X, float Y, float Z, float W) firstAxisFactors,
+        (float X, float Y, float Z, float W) secondAxisFactors,
+        (float Span, float CrossSpan) slide,
+        double inverseStep)
+    {
+        (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? firstRows = BuildJacobian(first, firstArm, axis0, axis1, firstAxisFactors);
+        (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? secondRows = BuildJacobian(second, secondArm, axis0, axis1, secondAxisFactors);
+
+        (double A, double B, double D) system = System(firstRows, secondRows);
+
+        if (TryInvertSymmetric(system.A, system.B, system.D) is not { } inverse)
+        {
+            return null;
+        }
+
+        (double Axis0, double Axis1) relative = RelativeVelocity(first, firstArm, second, secondArm, axis0, axis1);
+
+        double rhs0 = (slide.Span * inverseStep) - relative.Axis0;
+        double rhs1 = (slide.CrossSpan * inverseStep) - relative.Axis1;
+
+        float impulseSpan = (float)((inverse.Row0.A * rhs0) + (inverse.Row0.B * rhs1));
+        float impulseCrossSpan = (float)((inverse.Row1.A * rhs0) + (inverse.Row1.B * rhs1));
+
+        return (impulseSpan, impulseCrossSpan);
+    }
+
+    /// <summary>Clips an impulse to a magnitude budget — the same shape <see cref="ClampSlide"/> uses, without a carry term.</summary>
+    /// <param name="impulse">The impulse.</param>
+    /// <param name="budget">The pair's own friction-cone budget.</param>
+    /// <returns>The impulse, unchanged when its magnitude is already within the budget.</returns>
+    public static (float Span, float CrossSpan) ClipImpulse((float Span, float CrossSpan) impulse, float budget)
+    {
+        float magnitudeSquared = (impulse.Span * impulse.Span) + (impulse.CrossSpan * impulse.CrossSpan);
+
+        if (!(budget * budget < magnitudeSquared))
+        {
+            return impulse;
+        }
+
+        float scale = budget * IvpVector.ReciprocalSquareRoot(magnitudeSquared);
+
+        return (impulse.Span * scale, impulse.CrossSpan * scale);
+    }
 }
