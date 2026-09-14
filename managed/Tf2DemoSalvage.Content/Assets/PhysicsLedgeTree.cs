@@ -58,8 +58,17 @@ public sealed class PhysicsLedgeTreeNode
     /// <summary>The ledge's offset in the surface, <c>node + +0x4</c>, when <see cref="HasLedge"/>.</summary>
     public int LedgeOffset { get; internal set; }
 
-    /// <summary>The node the ledge names in its own <c>+0x4</c>, <c>ledge + ledge+0x4</c>, when <see cref="HasLedge"/>.</summary>
-    public int LedgeNodeOffset { get; internal set; }
+    /// <summary>
+    /// The node the ledge names in its own <c>+0x4</c>, <c>ledge + ledge+0x4</c>, when <see cref="HasLedge"/>; null when that word is
+    /// zero, which <c>FUN_1800b2700</c> and <c>FUN_1800b2460</c> take as naming no node.
+    /// </summary>
+    public int? LedgeNodeOffset { get; internal set; }
+
+    /// <summary>
+    /// The ledge, decoded as <see cref="PhysicsHull.Read(System.ReadOnlySpan{byte})"/> decodes a leaf's, when <see cref="HasLedge"/> and
+    /// its bytes read as one — an inner node's hull as much as a leaf's ledge.
+    /// </summary>
+    public PhysicsLedge? Ledge { get; internal set; }
 
     /// <summary>The ledge's <c>+0x8 &amp; 3</c>, IVP's <c>has_chilren_flag</c>, when <see cref="HasLedge"/>.</summary>
     public int LedgeChildren { get; internal set; }

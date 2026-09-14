@@ -28,6 +28,14 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// </remarks>
 /// <param name="Center">The centre of the bounding sphere its tree node carries.</param>
 /// <param name="Radius">That sphere's radius, in the same IVP metres as the points.</param>
+/// <param name="VirtualTriangles">
+/// **Each triangle's header word, bit 31** (B369) — what the larger mindist's slot 8, `FUN_1800b2460`, reads as the header's sign
+/// when it decides whether a contact on a hull ledge opens it (`docs/findings/51`, *The larger mindist in full*). Null for a ledge
+/// built by hand without it; <see cref="PhysicsHull"/> always reads it.
+/// </param>
+/// <param name="VirtualEdges">
+/// **Each edge word's bit 31, per triangle and slot** (B369), read the same way by `FUN_1800b2460` for an edge feature. Null likewise.
+/// </param>
 public readonly record struct PhysicsLedge(
     IReadOnlyList<Vector3> Points,
     IReadOnlyList<(int A, int B, int C)> Triangles,
@@ -35,7 +43,9 @@ public readonly record struct PhysicsLedge(
     IReadOnlyList<int> PierceTriangles,
     IReadOnlyList<int> MaterialIndices,
     Vector3 Center,
-    float Radius);
+    float Radius,
+    IReadOnlyList<bool>? VirtualTriangles = null,
+    IReadOnlyList<(bool A, bool B, bool C)>? VirtualEdges = null);
 
 /// <summary>The mass center and rotational inertia a hull's compact surface carries in its header (B403).</summary>
 /// <param name="MassCenter">Where the hull's mass center is, in IVP metres in the solid's own frame.</param>
@@ -350,10 +360,13 @@ public static class PhysicsHull
                 return null;
             }
 
+            int nodeWord = BitConverter.ToInt32(surface[(at + 4)..]);
+
             read.HasLedge = true;
             read.LedgeOffset = at;
-            read.LedgeNodeOffset = at + BitConverter.ToInt32(surface[(at + 4)..]);
+            read.LedgeNodeOffset = nodeWord == 0 ? null : at + nodeWord;
             read.LedgeChildren = BitConverter.ToInt32(surface[(at + 8)..]) & 3;
+            read.Ledge = ReadLedge(surface, at, read.Center, read.Radius);
         }
 
         nodes[node] = read;
@@ -549,6 +562,8 @@ public static class PhysicsHull
         List<(int A, int B, int C)> offsets = new(count);
         List<int> pierces = new(count);
         List<int> materials = new(count);
+        List<bool> virtualTriangles = new(count);
+        List<(bool A, bool B, bool C)> virtualEdges = new(count);
 
         for (int index = 0; index < count; index++)
         {
@@ -574,9 +589,13 @@ public static class PhysicsHull
             offsets.Add((EdgeOffset(first), EdgeOffset(second), EdgeOffset(third)));
             pierces.Add(PierceTriangle(header));
             materials.Add(MaterialIndex(header));
+
+            // Bit 31 of the header and of each edge word, which FUN_1800b2460 reads as the word's sign.
+            virtualTriangles.Add(header < 0);
+            virtualEdges.Add((first < 0, second < 0, third < 0));
         }
 
-        return new PhysicsLedge(kept, triangles, offsets, pierces, materials, centre, radius);
+        return new PhysicsLedge(kept, triangles, offsets, pierces, materials, centre, radius, virtualTriangles, virtualEdges);
     }
 
     /// <summary>A header word's bits 24–30: byte 3 less its top bit, as <c>FUN_1800863d0</c> reads it.</summary>

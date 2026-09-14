@@ -343,6 +343,115 @@ public sealed class PhysicsHullConformanceTests
         PhysicsHull.Read(solid)[0].PierceTriangles.ShouldBe([1, 0xFFF]);
     }
 
+    /// <remarks>
+    /// **A triangle's header word carries bit 31 on its own, and the larger mindist's slot 8 reads it as the word's sign**
+    /// (B369): `FUN_1800b2460` compares the header at `feature &amp; ~0xf` with zero, and a negative header marks the triangle as
+    /// part of a hull enclosing child ledges (`docs/findings/51`, *The larger mindist in full*). The second triangle sets
+    /// every other upper bit — the material index in bits 24–30 — so a read of the whole top byte, or of the material, gives
+    /// a different answer.
+    /// </remarks>
+    [Test]
+    public void Read_ATrianglesHeaderBit31_IsCarriedAsVirtual()
+    {
+        byte[] solid = Solid(
+            Triangle,
+            [(0, 1, 2), (0, 2, 1)],
+            headers: [0x8000_0000u, 0x7F00_0001u]);
+
+        PhysicsHull.Read(solid)[0].VirtualTriangles.ShouldBe([true, false]);
+    }
+
+    /// <remarks>
+    /// **An edge word's bit 31 is carried per slot, apart from the offset in bits 16–30** (B369): `FUN_1800b2460` compares an
+    /// edge feature's own word with zero. The outer edges set every offset bit (`−1`) with bit 31 clear, and the middle edge
+    /// sets bit 31, so a sign read of the offset, or a flag taken from the wrong slot, gives a different answer.
+    /// </remarks>
+    [Test]
+    public void Read_AnEdgeWordsBit31_IsCarriedAsVirtualPerSlot()
+    {
+        byte[] solid = Solid(
+            Triangle,
+            [(0, 1, 2)],
+            edgeOffsets: [(-1, 2, -1)],
+            highBit: true);
+
+        PhysicsLedge ledge = PhysicsHull.Read(solid)[0];
+
+        ledge.VirtualEdges.ShouldBe([(false, true, false)]);
+        ledge.EdgeOffsets[0].ShouldBe((-1, 2, -1), "the offsets are unchanged by the flag");
+    }
+
+    /// <remarks>
+    /// **Every tree node with a ledge carries it decoded, an inner node's hull as much as a leaf's ledge** (B369). The larger
+    /// mindist opens a hull ledge and reads its triangles' and edges' bit 31 (`FUN_1800b2460`), so a hull must be read by the
+    /// same reader as a leaf — here all three nodes name one ledge, and each must decode it exactly as `Read` does.
+    /// </remarks>
+    [Test]
+    public void Tree_AnInnerNodesHull_IsDecodedLikeALeafsLedge()
+    {
+        byte[] surface = InnerTree();
+
+        PhysicsLedgeTree tree = PhysicsHull.Tree(surface).ShouldNotBeNull();
+        PhysicsLedgeTreeNode[] nodes = [tree.Root, tree.Root.Left.ShouldNotBeNull(), tree.Root.Right.ShouldNotBeNull()];
+
+        foreach (PhysicsLedgeTreeNode node in nodes)
+        {
+            PhysicsLedge ledge = node.Ledge.ShouldNotBeNull();
+
+            ledge.Triangles.ShouldBe([(0, 1, 2)]);
+            ledge.Points[2].ShouldBe(new Vector3(7f, 8f, 9f));
+            ledge.VirtualTriangles.ShouldBe([true]);
+            ledge.VirtualEdges.ShouldBe([(false, true, false)]);
+        }
+    }
+
+    /// <remarks>
+    /// **A ledge whose `+0x4` word is zero names no node** (B369): `FUN_1800b2700` and `FUN_1800b2460` find a ledge's node as
+    /// `ledge + ledge+0x4` and take a zero word as none, whose radius they read as `1e15f` (`docs/findings/51`, *The larger
+    /// mindist in full*). Read as an offset, a zero would name the ledge's own address, which is no node at all.
+    /// </remarks>
+    [Test]
+    public void Tree_ALedgeWhoseNodeWordIsZero_NamesNoNode()
+    {
+        byte[] surface = Solid(Triangle, [(0, 1, 2)], tagged: false);
+
+        PhysicsHull.Tree(surface).ShouldNotBeNull().Root.LedgeNodeOffset.ShouldBeNull();
+    }
+
+    /// <remarks>The control on the one above: a ledge whose word names its node carries that node's offset.</remarks>
+    [Test]
+    public void Tree_ALedgeNamingItsNode_CarriesTheNodesOffset()
+    {
+        byte[] surface = Solid(Triangle, [(0, 1, 2)], tagged: false);
+        int treeAt = surface.Length - 0x1C;
+
+        Write(surface, 0x30 + 4, treeAt - 0x30);
+
+        PhysicsHull.Tree(surface).ShouldNotBeNull().Root.LedgeNodeOffset.ShouldBe(treeAt);
+    }
+
+    /// <summary>
+    /// An untagged surface whose root is an inner node with a hull ledge and two leaf children, every node naming the one
+    /// ledge — triangle header bit 31 set, and bit 31 on the middle edge.
+    /// </summary>
+    private static byte[] InnerTree()
+    {
+        byte[] single = Solid(Triangle, [(0, 1, 2)], headers: [0x8000_0000u], highBit: true, tagged: false);
+        byte[] surface = new byte[single.Length + (2 * 0x1C)];
+        int root = single.Length - 0x1C;
+        const int ledge = 0x30;
+
+        single.CopyTo(surface, 0);
+        Write(surface, root, 2 * 0x1C);
+        Write(surface, root + 0x1C + 4, ledge - (root + 0x1C));
+        Write(surface, root + 0x38 + 4, ledge - (root + 0x38));
+
+        return surface;
+    }
+
+    /// <summary>Writes a little-endian int.</summary>
+    private static void Write(byte[] bytes, int at, int value) => BitConverter.GetBytes(value).CopyTo(bytes, at);
+
     /// <summary>Where the ledge is written in a tagged solid, from its <c>VPHY</c> tag.</summary>
     private const int LedgeAt = 0x1C + 0x30;
 

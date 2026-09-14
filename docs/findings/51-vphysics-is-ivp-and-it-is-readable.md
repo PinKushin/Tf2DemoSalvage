@@ -5001,6 +5001,13 @@ every claim above stands. Two were challenged and held — `DAT_18012d66c` is ze
 to it at `180002570`, and `FUN_180097d60`'s clear side gets `1e-10f`, never zero, so it is not `IvpMindistHull.FileFar`'s branch
 shape — and one order was corrected: `FUN_1800b28a0` counts `env+0xbc` after the range call.
 
+**What the reader had to learn first (2026-09-14).** `PhysicsHull` dropped bit 31 of every header and edge word — the material
+index masks it off, and the edge offset shifts it out — and decoded no inner node's hull at all, so slot 8's test had nothing to
+read. It now carries both bits per triangle and per slot (`PhysicsLedge.VirtualTriangles`, `VirtualEdges`), every tree node with a
+ledge carries it decoded through the one `ReadLedge` (`PhysicsLedgeTreeNode.Ledge`), and a ledge whose `+0x4` is zero names no node
+(`LedgeNodeOffset` null) instead of its own address. Five synthetic cases pin them, and two sabotages — the edge flags taken from
+the wrong slots, the zero word read as an offset — reddened exactly the three cases predicted.
+
 So **a larger mindist opens its ledge only when the pair would otherwise freeze or collide on a hull's virtual face**, and
 then waits on the hull managers like a far pair; `FUN_180097f00`, told its hull passed, sends it to `FUN_1800b28a0`, which
 closes it back into a plain exact pair once the length is past `DAT_18012d64c` and otherwise refreshes its children.
