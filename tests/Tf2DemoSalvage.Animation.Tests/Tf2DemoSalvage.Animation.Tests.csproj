@@ -56,6 +56,10 @@
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpRestReplay.cs" Link="Oracle\IvpRestReplay.cs" />
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpOvTreeReplay.cs" Link="Oracle\IvpOvTreeReplay.cs" />
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpRangeReplay.cs" Link="Oracle\IvpRangeReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpLedgeTreeReplay.cs" Link="Oracle\IvpLedgeTreeReplay.cs" />
+    <None Update="Data\ivp-ledge-tree.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="Data\ivp-range.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

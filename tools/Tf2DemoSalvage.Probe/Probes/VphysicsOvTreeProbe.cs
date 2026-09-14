@@ -167,16 +167,19 @@ public sealed class VphysicsOvTreeProbe : IProbe
 
         writer.WriteLine("# Written by the vphysics-ov-tree probe from the shipped vphysics.dll. Do not edit by hand.");
 
+        List<Dictionary<string, long[]>> random = [];
+
         for (int index = 0; index < FixtureCases; index++)
         {
             Dictionary<string, long[]> inputs = RandomCase(draws);
 
+            random.Add(inputs);
             IvpOvTreeReplay.Write(writer, new IvpReplayCase(index.ToString(CultureInfo.InvariantCulture), inputs, native.Run(inputs)));
         }
 
         int killers = 0;
 
-        foreach ((string label, Dictionary<string, long[]> inputs) in Killers())
+        foreach ((string label, Dictionary<string, long[]> inputs) in Killers(random))
         {
             Dictionary<string, long[]> outputs = native.Run(inputs);
 
@@ -193,10 +196,20 @@ public sealed class VphysicsOvTreeProbe : IProbe
     /// **Cells that only touch**: two unit spheres tangent on an axis file in cells sharing a face there, and only the box test's
     /// strictness decides whether the other cell is walked — each axis, each order. **The root as the target**: a node filed
     /// into the root's own cell while the root has children walks them with the shift for a target at the cell's level. **A
-    /// radius sum that rounds**: `1f + 2^−24` is `1f`, and the centres lie between the two squares.
+    /// radius sum that rounds**: `1f + 2^−24` is `1f`, and the centres lie between the two squares. **Boxes that meet at a
+    /// lower edge**: random case 218 is the one whose walk turns on a box's upper edge along x, so it is mirrored onto the lower
+    /// edge of each axis — its x negated, or moved to y or z and negated there.
     /// </remarks>
-    private static IEnumerable<(string Label, Dictionary<string, long[]> Inputs)> Killers()
+    private static IEnumerable<(string Label, Dictionary<string, long[]> Inputs)> Killers(List<Dictionary<string, long[]>> random)
     {
+        const int UpperEdgeCase = 218;
+        string[] names = ["x", "y", "z"];
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            yield return ($"lower-edge-{names[axis]}", Mirrored(random[UpperEdgeCase], axis));
+        }
+
         string[] axes = ["x", "y", "z"];
 
         for (int axis = 0; axis < 3; axis++)
@@ -212,6 +225,28 @@ public sealed class VphysicsOvTreeProbe : IProbe
 
         yield return ("root-target", Steps(([0f, 0f, 0f], 1d), ([-0.5f, -0.5f, -0.5f], 0.01d), ([0f, 0f, 0f], 1d)));
         yield return ("radius-sum-rounds", Steps(([0f, 0f, 0f], 1d), ([1f, MathF.ScaleB(1f, -12), 0f], Math.ScaleB(1d, -24))));
+    }
+
+    /// <summary>A case with every centre's x moved to <paramref name="axis"/> and that axis's value to x, negated.</summary>
+    private static Dictionary<string, long[]> Mirrored(Dictionary<string, long[]> source, int axis)
+    {
+        Dictionary<string, long[]> inputs = new(StringComparer.Ordinal);
+
+        foreach (KeyValuePair<string, long[]> field in source)
+        {
+            inputs[field.Key] = (long[])field.Value.Clone();
+        }
+
+        for (int step = 0; step < IvpOvTreeReplay.StepCount; step++)
+        {
+            float x = BitConverter.Int32BitsToSingle(unchecked((int)source["center"][step * 3]));
+            float moved = BitConverter.Int32BitsToSingle(unchecked((int)source["center"][(step * 3) + axis]));
+
+            inputs["center"][step * 3] = IvpImpactReplay.Lane(moved);
+            inputs["center"][(step * 3) + axis] = IvpImpactReplay.Lane(-x);
+        }
+
+        return inputs;
     }
 
     /// <summary>A case filing each sphere into its own node in order, the rest of its steps removing a node never filed.</summary>

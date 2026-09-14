@@ -4723,7 +4723,100 @@ cell while the root has children, and radii `1f` and `2^−24`, whose float sum 
 **The tangent spheres were predicted to be pruned by the strict box test and are not** — the binary finds both, and so does
 the port — so the walk's boxes are wider than the prediction assumed; *not established: which reading of the box was wrong.*
 
-*Not read yet: a surface manager's slots 4 and 7, and `FUN_1800b21f0`'s larger mindist.*
+**The watcher's three tables and the creator's**, read from the disassembly (2026-09-14) — what keeps a broad-phase pair alive
+and what ends it:
+
+```
+creator FUN_1800a0650, table 1800fe6e8:
+    slot 0 FUN_1800a0690(creator, watcher) — a watcher going away:  its slot 2 names its objects;  FUN_18009ef40 takes the watcher
+        off each object's OV node (+0xd8), first then second
+    slot 1 the destructor (8 bytes);  slot 2 nothing;  slot 3 answers −1;  slot 5 FUN_1800a06f0, the maker;  slot 6 deletes itself
+    slot 4 FUN_1800a07a0(creator, object) — an object leaving:  every watcher on its node (+0x42, +0x48), last first, its slot 4
+        (FUN_180017b40: slot 0 with 1, the deleting destructor)
+watcher, table 1800feb28:
+    slot 0 FUN_1800b5e80 — the destructor:  every mindist of its pair vector (+0x6a, +0x70), last first, slot 0 with 1;  the
+        creator's slot 0 (off both nodes);  the vector freed unless inline;  the second record out of its object's min-list
+        (object+0xa0, by +0x50), then the first (by +0x30);  0x78 bytes freed
+    slot 1 a pure virtual (FUN_180082760 asserts);  slot 2 its objects (+0x38, +0x58);  slot 3 no ledges (two nulls);
+    slot 4 FUN_180017b40
+watcher+0x20, table 1800feb50 — the delegator a pair's mindists hold:
+    slot 0 FUN_1800b5fd0(delegator, mindist) — a mindist going away:  out of the pair vector by its back-index (+0x18, or +0x1c
+        when +0x18 does not name it), the last element moved into its place and that element's index rewritten
+    slot 1 the destructor through the outer object
+each hull record, table 1800feb00 — IVP's hull listener:
+    slot 0 its type, 2;  slot 1 FUN_1800b6170, the hull passed:  the watcher's FUN_1800b6080 — ranges asked again, the pair's
+    mindists refreshed, both records filed again;  slot 2 FUN_1800b6180, the manager going away:  the watcher deleted;
+    slot 3 nothing;  slot 4 FUN_1800b5f80, the record's destructor, out of its object's min-list
+```
+
+So **a broad-phase pair is re-examined only when one object's hull passes its record**, at a time the range manager's pair
+range set — never on a schedule — and it ends when either object leaves or its hull manager does.
+
+**The ledges a pair is built from: the surface managers' slot 4** (read from the disassembly, 2026-09-14). A `.phy` solid and the
+world's brushes use vphysics' 16-byte polygon manager (table `1800eae60`, `+0x8` the `IVP_Compact_Surface`); a displacement
+uses the virtual-mesh manager (table `1800ee220`). Slot 7 is nothing for the polygon manager, and for the mesh manager
+`FUN_180025330`, the cache entry's reference.
+
+```
+slot 4(sm, &centre (doubles), double r, ledge, a5, a6, list) — FUN_180096680 passes a5 and a6 (0 or a pointer, and an object);
+    neither manager below reads them, and the list is the seventh argument
+FUN_18007ada0 — the polygon manager:
+    no ledge → FUN_18007afb0(…, the root node (surface + surface+0x20), centre, r, list)
+    a ledge → its node (ledge + ledge+0x4):  FUN_18007afb0 on the node's left child (node+0x1c), then on its right (node + node+0x0)
+FUN_18007afb0(…, node, centre, r, list):
+    d = (double)node+0x8..0x10 − centre per axis;  ((d.y² + d.x²) + d.z²) > ((double)node+0x14 + r)² (COMISD/JA) → return
+    loop:  s = (float)((double)node+0x14 · 0.004);  any axis |d| ≥ (double)((float)box byte (+0x18..0x1a) · s) + r → return
+                                                                 -- COMISD/JNC: a NaN returns
+        the node has a ledge (+0x4 non-zero) → that ledge appended (FUN_18007ad60, a big vector: +0x0 capacity, +0x4 count);  return
+        no ledge and terminal (+0x0 zero) → the node read as a ledge: two triangles (+0xc) and FUN_18007bea0's squared distance to
+            them > r² → return;  else appended;  return               -- only a malformed tree reaches it
+        FUN_18007afb0 on the left child (node+0x1c);  node = node + node+0x0;  the sphere test again, passed → loop, else return
+FUN_1800261a0 — the mesh manager:
+    no ledge → the cache entry (FUN_180025330):  its first MIN(entry+0x12, 2) hull ledges, from entry+0x8 + entry+0x10 stepping
+        0x10 + 16·(+0xc) each, appended in order;  the entry released (FUN_1800259e0)
+    a ledge → FUN_180025bc0(mesh, centre, r, ledge, list), the triangles within r
+```
+
+**A node's ledge stops the walk**: an inner node's hull is returned in place of everything beneath it, which is the ledge whose
+`+0x8 & 3` (IVP's `has_chilren_flag`) sends `FUN_180096680` to the larger mindist `FUN_1800b21f0` — a mindist that opens its
+ledge up when the pair comes close. *Not read yet: `FUN_18007bea0` and `FUN_180025bc0`.*
+
+**The polygon manager's query is ported and pinned (2026-09-14)** as `IvpLedgeTree`, over a tree `PhysicsHull.Tree` now reads
+whole — the flat reader kept only terminal ledges, and the query answers an inner node's hull in their place. The
+`vphysics-ledge-tree` probe lays random trees out as the compiler does (surface header, a stub per ledge, nodes in preorder),
+hands them to a manager built on the binary's own table, and asks slot 4 from the root and from beneath a hull: **20,000 cases
+of four queries, the binary finding 96,952 ledges, agree on every lane**, and `IvpLedgeTreeConformanceTests` replays 300. The
+first sweep's queries found under one ledge in eight — the box bytes were drawn anywhere in 0–255 and pruned nearly every walk
+— and were redrawn before any case was kept.
+
+**A second sabotage round**, over the survivors' killers and the range manager: the OV tree's level-equal boundary is
+**equivalent** — at the tie both shifts are zero and the box test is symmetric at shift zero; three of the range manager's
+operand orders are **equivalent** too — a NaN speed reaches both outputs through the other operand whichever way the first
+`MINSD`, the step's product or the weights' sum is written. One order was not: which speed `ADDSS` keeps, seen when both are
+NaNs with different payloads, and the fixture now carries that case. The box test's strict lower edges survived the tangent
+spheres, which were predicted wrong — two tangent spheres at one level always land in adjacent keys, since `2r·scale` is under
+one at the first level that fits — so the fixture carries random case 218, the one that caught the upper edge, mirrored onto
+each axis's lower edge.
+
+**The larger mindist's tables beside the plain one's** (read from the disassembly, 2026-09-14). Both start from the base
+constructor `FUN_180095f20(m, env, delegator)`: `+0x10` the delegator, `+0x18 = −1`, both records' listener table `1800fdea0`,
+flags byte 0 cleared then `& 0xcfc000ff | 0x0fc00000`, `+0x8 = 0xffff`, `+0xa0`, `+0xc0` and `+0xd8` zeroed, `env+0xb0` and
+`+0xb4` counted. `FUN_1800b21f0` adds table `1800fe960`, a delegator of its own at `+0xe0` (table `1800fe9a8`), and an empty
+mindist vector at `+0xe8`.
+
+```
+slot   plain 1800fdec8      larger 1800fe960
+0      FUN_180096250        FUN_1800b2250 — its mindists deleted (FUN_1800b23a0), the vector freed, the base destructor
+1–4    shared: FUN_1800992e0, FUN_180097550, FUN_180097510, FUN_180017b40
+5      FUN_1800947e0        nothing
+6      FUN_18000a6f0        FUN_180028aa0
+7      FUN_180097440        FUN_1800b2700 — its own delegator's count above DAT_18012d66c (1000) → FUN_180098dd0, FUN_180097ce0
+8      FUN_18008ecb0        FUN_1800b2460 — the count against 1000, then a switch on record 0's kind word (+0x5a)
++0xe0 delegator:  slot 0 FUN_1800b2320, a child mindist out of the vector by its back-index;  slot 2 FUN_1800b2300, the count
+    (+0xfc) moved and the outer delegator's slot 2 told;  slot 3 FUN_1800b2860, the outer delegator's slot 3
+```
+
+*Not read yet: the larger mindist's slots 6 and 8 in full.*
 
 **The OV tree is ported and pinned (2026-09-14)** as `IvpOvTree`: the insert, its key, growth, descent, path, both overlap
 walks and the removal. The `vphysics-ov-tree` probe builds a real tree with `FUN_18009d820` and sixteen nodes with

@@ -2799,3 +2799,10 @@ second 40ea4017 7f7fffff 80000000
 object-first 40037cede0000000
 object-second 47aeb851c147ae20
 pair 4783e22ca53065ce 47a9bfc697fb94ac
+case speed-payloads
+step 3f8f07c1f07c1f08
+first 3f800000 ffc00002 ffc00001
+second 3f800000 ffc00001 ffc00002
+object-first fff8000020000000
+object-second fff8000040000000
+pair fff8000040000000 fff8000040000000

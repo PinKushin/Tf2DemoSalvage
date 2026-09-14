@@ -80,7 +80,13 @@ public sealed class VphysicsRangeProbe : IProbe
                 IvpRangeReplay.Write(writer, new IvpReplayCase(index.ToString(CultureInfo.InvariantCulture), inputs, native.Run(inputs)));
             }
 
-            output.WriteLine($"{FixtureCases} cases written to {arguments[1]}");
+            // A sabotage round's survivor: which speed ADDSS keeps is seen only when both are NaNs with different payloads.
+            float surfaceNan = BitConverter.Int32BitsToSingle(unchecked((int)0xffc00001));
+            float linearNan = BitConverter.Int32BitsToSingle(unchecked((int)0xffc00002));
+            Dictionary<string, long[]> payloads = Case(1d / 66d, (1f, linearNan, surfaceNan), (1f, surfaceNan, linearNan));
+
+            IvpRangeReplay.Write(writer, new IvpReplayCase("speed-payloads", payloads, native.Run(payloads)));
+            output.WriteLine($"{FixtureCases} cases and 1 searched case written to {arguments[1]}");
             return;
         }
 

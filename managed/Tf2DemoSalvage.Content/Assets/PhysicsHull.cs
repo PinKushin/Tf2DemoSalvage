@@ -284,17 +284,91 @@ public static class PhysicsHull
     }
 
     /// <summary>The bytes the loader builds a collide from, or empty when it builds none.</summary>
+    /// <param name="solid">The solid's bytes, after its size prefix.</param>
+    /// <returns>The <c>IVP_Compact_Surface</c> and the bytes the loader copies with it.</returns>
     /// <remarks>
     /// **Empty too when those bytes cannot hold a surface** — a tagged data size under 0x30. The loader copies
     /// that many and reads the surface anyway, which past the copy is uninitialised memory; this reads nothing (D32).
     /// </remarks>
-    private static ReadOnlySpan<byte> Surface(ReadOnlySpan<byte> solid)
+    public static ReadOnlySpan<byte> Surface(ReadOnlySpan<byte> solid)
     {
         (PhysicsSolidLoad load, int surface, int length) = Locate(solid);
 
         return load == PhysicsSolidLoad.Collide && length >= SurfaceSize
             ? solid.Slice(surface, length)
             : ReadOnlySpan<byte>.Empty;
+    }
+
+    /// <summary>Reads one surface's ledge tree as a tree.</summary>
+    /// <param name="surface">The <c>IVP_Compact_Surface</c> and the bytes after it — <see cref="Surface"/> of a solid.</param>
+    /// <returns>
+    /// The tree, or null when the root or any node or ledge it names lies outside the bytes, or the tree is deeper than a compiler
+    /// writes (D32).
+    /// </returns>
+    /// <remarks>
+    /// **Every node the engine's walk can reach is read, the inner nodes' hulls included** — <see cref="Read(ReadOnlySpan{byte})"/>
+    /// keeps only the terminal ledges, and the radius query `FUN_18007afb0` returns a hull in place of everything beneath it.
+    /// </remarks>
+    public static PhysicsLedgeTree? Tree(ReadOnlySpan<byte> surface)
+    {
+        if (surface.Length < SurfaceSize)
+        {
+            return null;
+        }
+
+        Dictionary<int, PhysicsLedgeTreeNode> nodes = [];
+        PhysicsLedgeTreeNode? root = TreeNode(surface, BitConverter.ToInt32(surface[LedgeTreeOffset..]), nodes, MaximumDepth);
+
+        return root is null ? null : new PhysicsLedgeTree(root, nodes);
+    }
+
+    /// <summary>One node of <see cref="Tree"/> and everything beneath it, or null when any of it lies outside the bytes.</summary>
+    private static PhysicsLedgeTreeNode? TreeNode(
+        ReadOnlySpan<byte> surface, int node, Dictionary<int, PhysicsLedgeTreeNode> nodes, int budget)
+    {
+        if (budget <= 0 || node < 0 || node > surface.Length - NodeHeaderSize)
+        {
+            return null;
+        }
+
+        PhysicsLedgeTreeNode read = new(
+            node,
+            new Vector3(
+                BitConverter.ToSingle(surface[(node + 0x08)..]),
+                BitConverter.ToSingle(surface[(node + 0x0C)..]),
+                BitConverter.ToSingle(surface[(node + 0x10)..])),
+            BitConverter.ToSingle(surface[(node + 0x14)..]),
+            (surface[node + 0x18], surface[node + 0x19], surface[node + 0x1A]));
+        int ledge = BitConverter.ToInt32(surface[(node + 4)..]);
+
+        if (ledge != 0)
+        {
+            int at = node + ledge;
+
+            if (at < 0 || at > surface.Length - LedgeHeaderSize)
+            {
+                return null;
+            }
+
+            read.HasLedge = true;
+            read.LedgeOffset = at;
+            read.LedgeNodeOffset = at + BitConverter.ToInt32(surface[(at + 4)..]);
+            read.LedgeChildren = BitConverter.ToInt32(surface[(at + 8)..]) & 3;
+        }
+
+        nodes[node] = read;
+
+        int right = BitConverter.ToInt32(surface[node..]);
+
+        if (right == 0)
+        {
+            return read;
+        }
+
+        read.Left = TreeNode(surface, node + NodeHeaderSize, nodes, budget - 1);
+        read.Right = TreeNode(surface, node + right, nodes, budget - 1);
+
+        return read.Left is null || read.Right is null ? null : read;
     }
 
     /// <summary>Which of the loader's branches a solid takes, and where the surface it builds from lies.</summary>
