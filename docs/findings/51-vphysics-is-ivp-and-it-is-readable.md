@@ -4445,6 +4445,54 @@ FUN_180075130(vector, item):  the last match removed, the rest moved down — a 
 FUN_180079180(core, system):  core flagged 2 → FUN_1800726e0(core+0x60, system+0x10), else core+0x60 = null
 ```
 
+**A unit's PSI, `FUN_180075c80(unit, event, list)`** — what `FUN_180075a90` calls for every awake unit:
+
+```
+env+0xf8's +0x20 += 1;  k = unit+0x3a (the entry count, taken now);  now = env+0x188;  bits = 0
+every core, last first (the first core last):
+    dt = (double)(float)(now − core+0x1d0)
+    FUN_180071330(core+0x1a0, core+0x90)                                   -- the rotation from the quaternion
+    core+0xf0/+0xf8/+0x100 = (double)core+0x170/+0x174/+0x178·dt + core+0x150/+0x158/+0x160
+    FUN_180077950(core)                                                    -- the pending changes committed
+    core word +0x0 &= 0xff3f;  core word +0x2 = 0
+    bits |= the bits of 1f − ((v.x² + v.y²) + v.z²)                      -- float, v = +0x140
+bits' sign set (some core faster than 1 m/s) → unit dword: bit 11 cleared, bit 10 set
+otherwise → bits 12–13 = bits 10–11;  bits 12–13 now set → every core, last first: FUN_180078820(core);  bits 10–11 cleared
+env word +0x1a8 −= 1;  reaching 0 → +0x1a8 = 15 − (int)(FUN_18007d5c0()·−5f), and the rest test runs this PSI
+every entry, LAST FIRST (so highest priority first):  entry's controller, slot 4 (controller, event, &entry+0x8)
+every core appended to list, last first
+the rest test:  s = 3;  every core, last first: core byte +0x1 = FUN_180077220(core, now), s &= it
+    s == 3 → every core, last first: FUN_180088930(core);  the unit leaves its manager list, unit+0x0 = 8, and goes to the head of
+             the manager's +0x338 list
+every core, every object of it (+0x70, count +0x6a), last first:  FUN_180074240(object)
+unit dword & 0x300 → FUN_180074ba0(unit);  FUN_180075470(unit);  FUN_180074e80(unit);  bits 8–9 cleared
+env+0xf8's +0x20 −= 1;  reaching 0 → FUN_180072970
+```
+
+```
+FUN_18007d5c0() — the process-wide generator:  seed (0x180124fe8, starting at 1) = seed·75;  → (float)(seed & 0xffff)·(1/65536f)
+FUN_180077220(core, now) → 1 moved, 2 still but not for long enough, 3 at rest     (r = (double)core+0x4, the radius)
+    P = the position (+0x150, doubles);  Q = the quaternion (+0x1a0);  Q′ = the one before (+0x180)
+    |P − A|² > 0x3f1a36e2d7731900 (≈1e-4), A the float anchor at +0x230 → goto re-anchor
+    2·(1 − ((q.w·Q.w + q.z·Q.z) + (q.y·Q.y + q.x·Q.x))²)·r·r > 0x3efa36e2d7731900 (≈1e-5), q the float anchor at +0x210 → goto re-anchor
+    t = (float)(now − core+0x200);  t ≤ env+0xc8 (NaN too) → 2
+    (ω.x² + ω.y²) + ω.z² ≤ ((float)(3π/4 / (double)env+0xc8))² → 3
+    the same angle test with Q′ narrowed to float in place of q ≤ 1e-5 → 3
+re-anchor:  q = (float)Q;  A = (float)P;  core+0x200 = now
+    |P − B|² > 0x3f847ae151eb8520 (≈0.01), B at +0x240, or the angle test of q₂ (+0x220) against Q′ > 0x3fa47ae151eb8520 (≈0.04)
+        → q₂ = (float)Q′;  B = (float)P;  core+0x208 = now;  → 1
+    (float)(now − core+0x208) > 4f → 3,  else → 1
+FUN_180088930(core) — frozen:  FUN_180078c90(core);  every object, last first: every listener the environment's hash holds for it,
+    last first, slot 3 ({env, object}), stopping when the object's entry is gone;  then FUN_180082070({env, object})
+FUN_180074240(object):  every synapse of the object's list (+0x48, linked by +0x10):  m = the synapse's mindist (its +0x30 offset);
+    FUN_180095ad0(m);  unless (m+0x20 & 0xc000) == 0x4000:  FUN_180098f30(mgr, m), FUN_180097ae0(mgr, m)   -- mgr = (object+0x30)+0x20
+```
+
+**The rest test depends on a generator shared by the whole process.** The countdown between tests is 15 to 19 PSIs drawn from
+`seed·75`, and every draw anywhere in the process advances it, so which PSI a corpse's heap is tested on depends on how many
+tests ran before it since the game started. *A replay can match the rule but not the phase; not established: whether anything
+else draws from the same seed.*
+
 **`FUN_1800a9bf0(system, event)`, the many-contact priority-0 routine, first half:**
 
 ```
@@ -4757,8 +4805,8 @@ default from `FUN_180089550`: `10.0f` (`0x41200000`; `+0x20` is `2500.0f`), the 
 `physics_performanceparams_t::Defaults()`.
 
 **So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
-entry's port keeps it because the routine has it. *Not read: `FUN_180086240` (merging systems), the controller bases, and the
-simulation units `FUN_180074e40`/`FUN_1800747a0` merge.* **Nothing here is ported.**
+entry's port keeps it because the routine has it. The merge, the controller bases and the simulation units are read below and
+above. **Nothing here is ported.**
 
 **A wrong citation found on the way, kept here because it was repeated in four places:** `SurfaceTable`, `GameContent`,
 `CorpsePhysics` and `IvpRigidBody.Friction` all call their friction of `1` `g_PhysDefaultObjectParams`' friction. That struct has
