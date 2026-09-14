@@ -177,10 +177,16 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      already models** — a port that recomputes the aged margin at the point of use (rather than deferring it into an
      accumulator that's periodically flushed) is equivalent, since the accumulator's only purpose is to avoid
      touching every pair's cache every step. This closes the biggest open question from `FUN_180099a00`.
-   - **Still unread, lower priority**: `FUN_180079120`, `FUN_180095cb0` (both small, called conditionally), and the
-     concrete vtable behind `FUN_180094540`'s slot `+0x20` (to confirm or refute the `Examine`-dispatch hypothesis).
-     **`IntegrateAwakeCores`'s full call graph is now closed** except these three — the running-path rewrite can be
-     designed once they're read, or a decision is made that they're not load-bearing enough to block starting.
+   - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
+     when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
+     transform (`+0x1a0/+0x1b0`), then clears the pointer. `IvpMindistMinimize::Minimize` (`180095cb0`) was already
+     read and named earlier this session (the generation-cache-hit check ahead of the actual minimize dispatch) — it
+     was never actually unread, just mislabeled in an earlier pass of this list. **The only remaining open item is
+     confirming the concrete vtable behind `FUN_180094540`'s slot `+0x20`** (the `Examine`-dispatch hypothesis) — a
+     nice-to-have verification, not a blocker: nothing about the rewrite's design depends on which concrete type
+     implements it, since either way the port already has `Examine` ported and callable. **The running-path rewrite
+     can now be designed** from this scoping without further disassembly, unless implementation turns up a new
+     question.
    - Replacing `IvpContact`/`IvpEnvironment` means reproducing this exact two-pass shape — build each controller's local
      candidate list, drain it as a heap firing real events, then a second full pass revalidating every pair's cache
      generation — not a single merged loop, and not `Advance`'s ad hoc per-collision subdivision. **A full rewrite, not a
