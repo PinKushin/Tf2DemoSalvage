@@ -49,6 +49,45 @@ public sealed class IvpCollisionObject
 
     /// <summary>Whether <see cref="MovementState"/>'s low three bits are clear — <c>TEST byte ptr [obj + 0x78], 0x7</c>.</summary>
     internal bool StateBitsClear => (MovementState & 7) == 0;
+
+    /// <summary>Every invalid pair of this object minimized again, and those no longer invalid made exact — <c>FUN_180074240</c>.</summary>
+    /// <param name="manager">The environment's mindist manager, <c>(object+0x30)+0x20</c>.</param>
+    /// <param name="minimize">The minimize with no step budget, <c>FUN_180095ad0</c>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">A record was never linked to an object, where the engine reads its <c>+0x20</c>.</exception>
+    /// <remarks>
+    /// <code>
+    /// every record of +0x48, head first, its +0x10 next read first:  m = the record's mindist (its +0x30 word)
+    ///     FUN_180095ad0(m);  (m+0x20 &amp; 0xc000) != 0x4000 → FUN_180098f30(manager, m), FUN_180097ae0(manager, m)
+    /// </code>
+    /// The unit PSI runs it for every object of every core it simulated (`FUN_180075c80`).
+    /// </remarks>
+    public void RecheckInvalid(IvpMindistManager manager, Action<IvpMindist> minimize)
+    {
+        ArgumentNullException.ThrowIfNull(manager);
+        ArgumentNullException.ThrowIfNull(minimize);
+
+        LinkedListNode<IvpMindistHullRecord>? node = InvalidSynapses.First;
+
+        while (node is not null)
+        {
+            LinkedListNode<IvpMindistHullRecord>? next = node.Next;
+            IvpMindist mindist = node.Value.Mindist;
+
+            minimize(mindist);
+
+            if ((mindist.Flags & 0xC000) != 0x4000)
+            {
+                manager.UnlinkInvalid(mindist);
+                manager.Revalidate(mindist, Linked(mindist.HullRecord(0)), Linked(mindist.HullRecord(1)));
+            }
+
+            node = next;
+        }
+    }
+
+    private static IvpCollisionObject Linked(IvpMindistHullRecord record) =>
+        record.CollisionObject ?? throw new InvalidOperationException("A synapse record that was never linked to an object is made exact.");
 }
 
 /// <summary>One of a mindist's two synapse records, as its object's lists and hull manager see it (B369).</summary>
@@ -66,6 +105,13 @@ public sealed class IvpMindistHullRecord : IIvpHullSynapse
 
     /// <summary>0 or 1.</summary>
     public int Index { get; }
+
+    /// <summary>The record's object, <c>+0x20</c>; set when the pair is first linked exact or invalid.</summary>
+    /// <remarks>
+    /// The engine writes it when it builds the mindist (`FUN_1800975d0`); this project's mindists are built from features alone,
+    /// so it is written by the first link onto an object's list, which every pair passes through before any walk can find it.
+    /// </remarks>
+    public IvpCollisionObject? CollisionObject { get; internal set; }
 
     /// <inheritdoc/>
     public int? HullSlot { get; set; }
@@ -140,7 +186,7 @@ public sealed class IvpMindistManager
 
         mindist.Flags = (mindist.Flags & ~ExactClears) | IvpMindistHull.ExactState;
         mindist.ListNode = Exact.AddFirst(mindist);
-        LinkRecords(mindist, first.Synapses, second.Synapses);
+        LinkRecords(mindist, first, first.Synapses, second, second.Synapses);
     }
 
     /// <summary>Appends a mindist to the rechecked array, as <c>FUN_1800977f0</c> does when either core's <c>+0x58</c> is set.</summary>
@@ -218,8 +264,62 @@ public sealed class IvpMindistManager
         Unlink(mindist, queue);
         mindist.Flags = (mindist.Flags & ~InvalidClears) | IvpMindistHull.InvalidState;
         mindist.ListNode = Invalid.AddFirst(mindist);
-        LinkRecords(mindist, first.InvalidSynapses, second.InvalidSynapses);
+        LinkRecords(mindist, first, first.InvalidSynapses, second, second.InvalidSynapses);
     }
+
+    /// <summary>Takes an invalid mindist off the invalid lists — <c>FUN_180098f30</c>.</summary>
+    /// <param name="mindist">The mindist.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="mindist"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The mindist or a record is not on its invalid list, where the engine would write a null next into the list's head.
+    /// </exception>
+    /// <remarks>
+    /// Off the manager's list at <c>+0x28</c> (links <c>+0xc8</c> next, <c>+0xd0</c> previous), then record 0 and record 1 off
+    /// their objects' lists at <c>+0x48</c> (links <c>+0x10</c>, <c>+0x18</c>). The flags are left alone.
+    /// </remarks>
+    public void UnlinkInvalid(IvpMindist mindist)
+    {
+        ArgumentNullException.ThrowIfNull(mindist);
+
+        IvpMindistHullRecord firstRecord = mindist.HullRecord(0);
+        IvpMindistHullRecord secondRecord = mindist.HullRecord(1);
+
+        if (mindist.ListNode is not { } node || node.List != Invalid || firstRecord.ObjectNode is null || secondRecord.ObjectNode is null)
+        {
+            throw new InvalidOperationException("A mindist that is not invalid is taken off the invalid list.");
+        }
+
+        Invalid.Remove(node);
+        mindist.ListNode = null;
+        UnlinkRecord(firstRecord);
+        UnlinkRecord(secondRecord);
+    }
+
+    /// <summary>Links a mindist exact without minimizing it — <c>FUN_180097ae0</c>.</summary>
+    /// <param name="mindist">The mindist; its state bits are written.</param>
+    /// <param name="first">Synapse record 0's object.</param>
+    /// <param name="second">Synapse record 1's object.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">An object the engine reads has no core.</exception>
+    /// <remarks>
+    /// <see cref="LinkExact"/>'s flags and links, then appended to the rechecked array when the first object's core has
+    /// <c>+0x58</c> — or, only when it has not, the second's — and <c>flags &amp; 0x3000</c> is not the phantom's <c>0x1000</c>.
+    /// </remarks>
+    public void Revalidate(IvpMindist mindist, IvpCollisionObject first, IvpCollisionObject second)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        ArgumentNullException.ThrowIfNull(second);
+
+        LinkExact(mindist, first, second);
+
+        if ((CoreOf(first).HasOffset58 || CoreOf(second).HasOffset58) && (mindist.Flags & 0x3000) != 0x1000)
+        {
+            _rechecked.Add(mindist);
+        }
+    }
+
+    private static IvpRigidBody CoreOf(IvpCollisionObject collisionObject) =>
+        collisionObject.Core ?? throw new InvalidOperationException("An object with no core is read for its core's +0x58.");
 
     /// <summary>Minimizes every exact mindist — the PSI's phase 3, <c>FUN_1800983e0</c>, run right after the hull pass.</summary>
     /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>.</param>
@@ -334,12 +434,18 @@ public sealed class IvpMindistManager
     }
 
     private static void LinkRecords(
-        IvpMindist mindist, LinkedList<IvpMindistHullRecord> firstList, LinkedList<IvpMindistHullRecord> secondList)
+        IvpMindist mindist,
+        IvpCollisionObject first,
+        LinkedList<IvpMindistHullRecord> firstList,
+        IvpCollisionObject second,
+        LinkedList<IvpMindistHullRecord> secondList)
     {
         IvpMindistHullRecord firstRecord = mindist.HullRecord(0);
+        firstRecord.CollisionObject = first;
         firstRecord.ObjectNode = firstList.AddFirst(firstRecord);
 
         IvpMindistHullRecord secondRecord = mindist.HullRecord(1);
+        secondRecord.CollisionObject = second;
         secondRecord.ObjectNode = secondList.AddFirst(secondRecord);
     }
 

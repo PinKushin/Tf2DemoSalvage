@@ -4508,6 +4508,22 @@ FUN_180074240(object):  every synapse of the object's list (+0x48, linked by +0x
     FUN_180095ad0(m);  unless (m+0x20 & 0xc000) == 0x4000:  FUN_180098f30(mgr, m), FUN_180097ae0(mgr, m)   -- mgr = (object+0x30)+0x20
 ```
 
+**What `FUN_180074240` calls, read from the disassembly (2026-09-14)** — ported as `IvpCollisionObject.RecheckInvalid`,
+`IvpMindistManager.UnlinkInvalid` and `Revalidate`, and `IvpMindistMinimize.Minimize` with a budget:
+
+```
+FUN_180095ad0(m):  FUN_180095cb0 instruction for instruction but for MOV [RSP+0x28], 0 — a step budget of zero where the
+    minimize has 0x14, so its loop check (FUN_180094600) is consulted from the first step
+FUN_180098f30(manager, m):  m off the invalid list (+0xc8 next, +0xd0 previous, head manager+0x28);  record 0 (+0x28) and
+    record 1 (+0x60) off their objects' +0x48 lists (+0x10 next, +0x18 previous, the object at the record's +0x20);  flags untouched
+FUN_180097ae0(manager, m):  flags & ~0x300000 | 0xc0000;  m at the head of the exact list (+0x10);  each record at the head of its
+    object's +0x40 list;  appended to the rechecked array (+0x18) when record 0's object's core (+0xe8) has +0x58 — the second's
+    read only when it has not — and flags & 0x3000 is not 0x1000.  No minimize, unlike FUN_1800977f0
+```
+
+*Not established: a case that tells the zero budget from twenty — it needs a minimize that revisits a pair of features — and
+`FUN_180098880`, the broad phase a freezing core's objects run.*
+
 **The rest test depends on a generator shared by the whole process.** The countdown between tests is 15 to 19 PSIs drawn from
 `seed·75`, and every draw anywhere in the process advances it, so which PSI a corpse's heap is tested on depends on how many
 tests ran before it since the game started. *A replay can match the rule but not the phase; not established: whether anything

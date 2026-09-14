@@ -171,6 +171,136 @@ public sealed class IvpMindistManagerConformanceTests
         invalid.Flags.ShouldBe(0x80000);
     }
 
+    /// <remarks>
+    /// **`FUN_180098f30` takes an invalid mindist off the manager's invalid list (`+0x28`, links `+0xc8`/`+0xd0`) and each record
+    /// off its object's invalid list (`+0x48`, links `+0x10`/`+0x18`)**, leaving the other pair and the flags alone.
+    /// </remarks>
+    [Test]
+    public void UnlinkInvalid_OneOfTwoInvalidMindists_LeavesOnlyTheOtherOnTheInvalidLists()
+    {
+        IvpMindistManager manager = new();
+        IvpCollisionObject first = new();
+        IvpCollisionObject second = new();
+        IvpMinList<IvpMindist> queue = new();
+        IvpMindist other = NewMindist();
+        IvpMindist mindist = NewMindist();
+        manager.LinkExact(other, first, second);
+        manager.LinkExact(mindist, first, second);
+        manager.Invalidate(other, first, second, queue);
+        manager.Invalidate(mindist, first, second, queue);
+
+        manager.UnlinkInvalid(mindist);
+
+        manager.Invalid.ShouldBe([other]);
+        first.InvalidSynapses.ShouldBe([other.HullRecord(0)]);
+        second.InvalidSynapses.ShouldBe([other.HullRecord(1)]);
+        mindist.Flags.ShouldBe(0x80000);
+    }
+
+    /// <remarks>The engine would write the mindist's null next into the invalid list's head; every caller unlinks an invalid pair.</remarks>
+    [Test]
+    public void UnlinkInvalid_AMindistNotOnTheInvalidList_IsRefused() =>
+        Should.Throw<InvalidOperationException>(() => new IvpMindistManager().UnlinkInvalid(NewMindist()));
+
+    /// <remarks>
+    /// **`FUN_180097ae0` links a mindist exact without minimizing it**: flags `&amp; ~0x300000 | 0xc0000`, so `0x2481ff` becomes
+    /// `0x0c81ff`; the mindist at the head of the exact list and each record at the head of its object's exact list; and not
+    /// rechecked when neither object's core has `+0x58`.
+    /// </remarks>
+    [Test]
+    public void Revalidate_AnUnlinkedMindist_HeadsTheExactListsWithTheExactState()
+    {
+        IvpMindistManager manager = new();
+        IvpCollisionObject first = new() { Core = new IvpRigidBody() };
+        IvpCollisionObject second = new() { Core = new IvpRigidBody() };
+        IvpMindist exact = NewMindist();
+        IvpMindist mindist = NewMindist(flags: 0x2481FF);
+        manager.LinkExact(exact, first, second);
+
+        manager.Revalidate(mindist, first, second);
+
+        manager.Exact.ShouldBe([mindist, exact]);
+        first.Synapses.ShouldBe([mindist.HullRecord(0), exact.HullRecord(0)]);
+        second.Synapses.ShouldBe([mindist.HullRecord(1), exact.HullRecord(1)]);
+        mindist.Flags.ShouldBe(0x0C81FF);
+        manager.Rechecked.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Appended to the rechecked array when either object's core has `+0x58`** — the first core read first, the second only when
+    /// the first's is clear — **unless `flags &amp; 0x3000` is the phantom's `0x1000`**.
+    /// </remarks>
+    [TestCase(true, false, 0, true)]
+    [TestCase(false, true, 0, true)]
+    [TestCase(true, true, 0x2000, true)]
+    [TestCase(true, true, 0x1000, false)]
+    [TestCase(false, false, 0, false)]
+    public void Revalidate_WithAnObjectsCoreFlagged58_IsRecheckedUnlessAPhantom(bool firstFlagged, bool secondFlagged, int flags, bool rechecked)
+    {
+        IvpMindistManager manager = new();
+        IvpCollisionObject first = new() { Core = new IvpRigidBody { HasOffset58 = firstFlagged } };
+        IvpCollisionObject second = new() { Core = new IvpRigidBody { HasOffset58 = secondFlagged } };
+        IvpMindist mindist = NewMindist(flags);
+
+        manager.Revalidate(mindist, first, second);
+
+        manager.Rechecked.Count.ShouldBe(rechecked ? 1 : 0);
+    }
+
+    /// <remarks>
+    /// **The first object's core is read unconditionally and the second's only when the first's `+0x58` is clear**, so a missing
+    /// first core is refused where the engine dereferences the null, and a missing second core is not read past a flagged first.
+    /// </remarks>
+    [Test]
+    public void Revalidate_AMissingCore_IsRefusedOnlyWhereTheEngineReadsIt()
+    {
+        Should.Throw<InvalidOperationException>(() =>
+            new IvpMindistManager().Revalidate(NewMindist(), new IvpCollisionObject(), new IvpCollisionObject { Core = new IvpRigidBody() }));
+
+        IvpMindistManager manager = new();
+        manager.Revalidate(NewMindist(), new IvpCollisionObject { Core = new IvpRigidBody { HasOffset58 = true } }, new IvpCollisionObject());
+        manager.Rechecked.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **`FUN_180074240` walks the object's invalid records head first, the next read before anything is called**: each pair
+    /// minimized with no budget, and every one whose bits of `0xc000` are not exactly `0x4000` unlinked from the invalid lists and
+    /// made exact — a pair that settled, and one left with both bits set — while a pair left at `0x4000` stays invalid.
+    /// </remarks>
+    [Test]
+    public void RecheckInvalid_ThreeInvalidPairs_MakesExactEveryOneNotLeftAtBit14Alone()
+    {
+        IvpMindistManager manager = new();
+        IvpCollisionObject first = new() { Core = new IvpRigidBody() };
+        IvpCollisionObject second = new() { Core = new IvpRigidBody() };
+        IvpMinList<IvpMindist> queue = new();
+        IvpMindist stays = NewMindist();
+        IvpMindist settles = NewMindist();
+        IvpMindist both = NewMindist();
+        Dictionary<IvpMindist, int> answers = new() { [stays] = 0x4000, [settles] = 0, [both] = 0xC000 };
+        List<IvpMindist> minimized = [];
+
+        foreach (IvpMindist mindist in new[] { stays, settles, both })
+        {
+            manager.LinkExact(mindist, first, second);
+            manager.Invalidate(mindist, first, second, queue);
+        }
+
+        first.RecheckInvalid(manager, mindist =>
+        {
+            minimized.Add(mindist);
+            mindist.Flags = (mindist.Flags & ~0xC000) | answers[mindist];
+        });
+
+        minimized.ShouldBe([both, settles, stays]);
+        manager.Invalid.ShouldBe([stays]);
+        manager.Exact.ShouldBe([settles, both]);
+        first.InvalidSynapses.ShouldBe([stays.HullRecord(0)]);
+        second.InvalidSynapses.ShouldBe([stays.HullRecord(1)]);
+        second.Synapses.ShouldBe([settles.HullRecord(1), both.HullRecord(1)]);
+        both.Flags.ShouldBe(0xCC000);
+    }
+
     private static IvpMindist NewMindist(int flags = 0) =>
         new(
             new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),

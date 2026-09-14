@@ -175,6 +175,9 @@ public static class IvpMindistMinimize
     /// <summary>The minimize already ran in this step.</summary>
     public const int AlreadyMinimized = 4;
 
+    /// <summary><c>FUN_180095cb0</c>'s <c>MOV [RSP+0x28], 0x14</c>: the steps taken before the loop check is consulted.</summary>
+    public const int StepBudget = 20;
+
     /// <summary>Minimizes a mindist's features at the current time, as <c>FUN_180095cb0</c> does.</summary>
     /// <param name="mindist">The mindist, updated in place.</param>
     /// <param name="first">The side synapse record 0 belongs to.</param>
@@ -188,7 +191,23 @@ public static class IvpMindistMinimize
     /// to a triangle and the dispatch retried, at most twice; and unless `flags &amp; 0x3000` is `0x1000` or
     /// `flags &amp; 0x3C0000` is `0x100000`, the mindist's virtual `+0x28` runs.
     /// </remarks>
-    public static IvpMinimizeOutcome Minimize(IvpMindist mindist, IvpLedgeSide first, IvpLedgeSide second, int step)
+    public static IvpMinimizeOutcome Minimize(IvpMindist mindist, IvpLedgeSide first, IvpLedgeSide second, int step) =>
+        Minimize(mindist, first, second, step, StepBudget);
+
+    /// <summary>
+    /// The minimize with a given step budget: <c>FUN_180095cb0</c>'s is <see cref="StepBudget"/>, and <c>FUN_180095ad0</c> — the
+    /// same routine instruction for instruction but for <c>MOV [RSP+0x28], 0</c> — has none, so its loop check runs from the first
+    /// step.
+    /// </summary>
+    /// <param name="mindist">The mindist, updated in place.</param>
+    /// <param name="first">The side synapse record 0 belongs to.</param>
+    /// <param name="second">The side synapse record 1 belongs to.</param>
+    /// <param name="step">The environment's step counter, <c>env+0x1a0</c>.</param>
+    /// <param name="budget">The steps taken before the loop check is consulted.</param>
+    /// <returns>The result, and whether the environment was notified.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">The engine would assert: an unrouted pair of kinds, or an unknown result.</exception>
+    public static IvpMinimizeOutcome Minimize(IvpMindist mindist, IvpLedgeSide first, IvpLedgeSide second, int step, int budget)
     {
         ArgumentNullException.ThrowIfNull(mindist);
         ArgumentNullException.ThrowIfNull(first);
@@ -201,7 +220,7 @@ public static class IvpMindistMinimize
 
         mindist.MinimizedAt = step;
 
-        Solver solver = new(mindist, first, second);
+        Solver solver = new(mindist, first, second, budget);
         int retries = 0;
         int result;
 
@@ -297,9 +316,6 @@ public static class IvpMindistMinimize
     /// <summary>The solver structure <c>FUN_180095cb0</c> keeps on its stack, and the routines that share it.</summary>
     private sealed class Solver
     {
-        /// <summary>The step budget at <c>solver+0x08</c>.</summary>
-        private const int Budget = 20;
-
         /// <summary><c>DAT_1800f4f28</c>: the point-point routine's squared-distance floor, and the edge ring's scale.</summary>
         private const double Coincident = 1e-12d;
 
@@ -324,12 +340,14 @@ public static class IvpMindistMinimize
         private readonly IvpMindist _mindist;
         private readonly IvpLedgeSide[] _sides;
         private readonly IvpMinimizeLoopCheck _loop = new();
-        private int _budget = Budget;
+        private int _budget;
 
-        public Solver(IvpMindist mindist, IvpLedgeSide first, IvpLedgeSide second)
+        // budget: the step budget at solver+0x08.
+        public Solver(IvpMindist mindist, IvpLedgeSide first, IvpLedgeSide second, int budget)
         {
             _mindist = mindist;
             _sides = [first, second];
+            _budget = budget;
         }
 
         /// <summary>The point at <c>solver+0x10</c>, written with a backside.</summary>
