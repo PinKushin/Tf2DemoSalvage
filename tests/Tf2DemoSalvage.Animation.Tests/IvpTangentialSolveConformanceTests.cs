@@ -56,4 +56,60 @@ public sealed class IvpTangentialSolveConformanceTests
         // [[1,1],[1,1]] has determinant 1*1 - 1*1 = 0.
         IvpTangentialSolve.TryInvertSymmetric(1d, 1d, 1d).ShouldBeNull();
     }
+
+    [Test]
+    public void BuildJacobian_ANullCore_ReturnsNull() =>
+        IvpTangentialSolve.BuildJacobian(null, default, (1f, 0f, 0f), (0f, 1f, 0f), (1f, 1f, 1f, 1f)).ShouldBeNull();
+
+    /// <remarks>
+    /// **A body at the identity orientation with unit inverse inertia and unit axis factors**: the world rotation is
+    /// the identity, so the row IS the local `arm × axis` cross product, the mass row equals the row, and the
+    /// diagonal is the row's own squared length.
+    /// </remarks>
+    [Test]
+    public void BuildJacobian_TheIdentityOrientationAndUnitInverseInertia_TheRowIsTheLocalCrossProduct()
+    {
+        IvpRigidBody core = new()
+        {
+            InverseInertia = (1f, 1f, 1f),
+            CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)),
+        };
+
+        (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? rows =
+            IvpTangentialSolve.BuildJacobian(core, (0f, 0f, 1f), (1f, 0f, 0f), (0f, 1f, 0f), (1f, 1f, 1f, 1f));
+
+        rows.ShouldNotBeNull();
+
+        // arm (0,0,1) x axis0 (1,0,0) = (0*0-1*0, 1*1-0*0, 0*0-0*1) = (0, 1, 0).
+        rows.Value.Axis0.Row.ShouldBe((0f, 1f, 0f, 1f));
+        rows.Value.Axis0.MassRow.ShouldBe((0f, 1f, 0f, 1f));
+        rows.Value.Axis0.Diagonal.ShouldBe(2f);
+
+        // arm (0,0,1) x axis1 (0,1,0) = (0*0-1*1, 1*0-0*0, 0*1-0*0) = (-1, 0, 0).
+        rows.Value.Axis1.Row.ShouldBe((-1f, 0f, 0f, 1f));
+        rows.Value.Axis1.MassRow.ShouldBe((-1f, 0f, 0f, 1f));
+        rows.Value.Axis1.Diagonal.ShouldBe(2f);
+    }
+
+    /// <remarks>
+    /// Halving the inverse inertia halves the mass row's x/y/z, since the row itself is unchanged — but the diagonal is
+    /// `dot(Row, MassRow)`, and the `w = 1` lane is untouched by inverse inertia on either side, so it still contributes
+    /// `1×1 = 1` on top of the halved `y×y` term (`1 × 0.5 = 0.5`), for `1.5`, not a plain half of the unscaled `2`.
+    /// </remarks>
+    [Test]
+    public void BuildJacobian_AHalvedInverseInertia_HalvesTheXyzTermButNotTheWLane()
+    {
+        IvpRigidBody core = new()
+        {
+            InverseInertia = (0.5f, 0.5f, 0.5f),
+            CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)),
+        };
+
+        (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? rows =
+            IvpTangentialSolve.BuildJacobian(core, (0f, 0f, 1f), (1f, 0f, 0f), (0f, 1f, 0f), (1f, 1f, 1f, 1f));
+
+        rows.ShouldNotBeNull();
+        rows.Value.Axis0.MassRow.ShouldBe((0f, 0.5f, 0f, 1f));
+        rows.Value.Axis0.Diagonal.ShouldBe(1.5f);
+    }
 }
