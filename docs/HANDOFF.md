@@ -345,10 +345,22 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      solve's scope beyond doubt: it is a full subsystem, not a handful of small functions.** Only `FUN_18009c620`
      (apply the impulse) and `FUN_180085a80` (an early-out branch) remain unread, but the shape is now completely
      clear and does not need more reading to be believed.
-   - **Next, in order**: (1) as its own dedicated port, in a fresh session: read the last two functions
-     (`FUN_18009c620`, `FUN_180085a80`), design `IvpFrictionSystem`'s per-pair contact list, a jacobian-row type
-     matching `BuildJacobian`'s output, and the tangential solve's own state, port both `SolveOncePerPsi` dispatch
-     branches, build a `vphysics-friction-solve` probe and oracle fixture, sabotage-verify; (2) turn
+   - **The last two functions read in full, 2026-09-14 — the tangential subsystem's disassembly is now completely
+     closed.** `FUN_18009c620` (apply the two-axis impulse) is straightforward given `BuildJacobian`'s jacobian rows —
+     a plain matrix-vector accumulation into each core's pending velocity/spin. `FUN_180085a80` (the sticking
+     branch's real work) is **the most complex function read this entire session**: computes a slide direction,
+     builds jacobians for both sides via `IvpContact::TangentialSlipVelocity`, inverts the 2×2 system, and then
+     branches on an "anchor" state (`+0xb0`) between a sliding-friction-limited response and an anchored one, each
+     scaling by a material sliding-friction factor and a damping term (`IvpDamping::Damp`, already ported). Surfaces
+     **three more unread functions** (`FUN_18008fb60`, `FUN_180070950`, `FUN_18006dcb0`) that a full port would still
+     need — not chased further this session. **The scope is now unambiguous and needs no more reading to be
+     believed**: this is a subsystem at or beyond `IvpImpactSolver`'s own complexity, and belongs in its own
+     dedicated, multi-session, oracle-backed port, exactly like every other subsystem of this size in this project.
+   - **Next, in order**: (1) as its own dedicated port, in a fresh session: read the three newly-surfaced functions
+     (`FUN_18008fb60`, `FUN_180070950`, `FUN_18006dcb0`), design `IvpFrictionSystem`'s per-pair contact list, a
+     jacobian-row type matching `BuildJacobian`'s output, and the tangential solve's own state (the anchor/`+0xb0`
+     mechanism especially), port both `SolveOncePerPsi` dispatch branches, build a `vphysics-friction-solve` probe
+     and oracle fixture, sabotage-verify; (2) turn
      `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
      tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
      so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet
