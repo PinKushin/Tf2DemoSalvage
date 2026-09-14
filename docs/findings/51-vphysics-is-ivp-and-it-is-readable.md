@@ -4247,6 +4247,117 @@ priority 2000,  FUN_180084240(system+0x20, event):
 **So the pair counter at `+0x20` fires every fifth PSI** (it starts at one, so the first fires at once), and a lone contact takes a
 different, cheaper path at every priority. *Not read yet: the routines each branch calls.*
 
+#### One resting contact, instruction by instruction (2026-09-13)
+
+**`FUN_1800857c0(cp, event)`** — `event[0]` is scaled into a limit and `event[1]` multiplies a distance into a velocity, so they
+read as the step and its inverse (*INFERRED from use*):
+
+```
+L = (double)((cp+0x88 · cp+0x78) · event[0])                          -- float products
+L < (double)1e-6f → 0f                                                -- COMISD/JC: NaN too
+record = cp+0x70;  A = record+0x98;  B = record+0xa0
+A with +0x58 set, no B, and cp's next contact (cp+0x0) absent or with +0x88 zero → FUN_180085a80(cp, A, record, event, &out); true → out
+frame = FUN_18009ca70(A, B, record, &record+0xb0, &record+0xc0)       -- the two tangents: span and cross span
+t = ((double)(float)(event[1]·cp+0x68 − frame v₀), (double)(float)(event[1]·cp+0x6c − frame v₁))
+M⁻¹ = FUN_1800868d0(frame+0xf0, frame+0xf8, frame+0xf8, frame+0x118);  singular → 0f
+p = ((float)(M⁻¹₁·t₁ + M⁻¹₀·t₀), (float)(M⁻¹₃·t₁ + M⁻¹₂·t₀))
+|p|² in float, widened, > L² → p ·= (double)FUN_18006edb0(|p|²)·L, each lane narrowed
+FUN_18009c620(frame, A, B, p)
+e = (float)(√(double)((x² + y²)·(float)(((double)event[0]·(double)|p|²)·(double)event[0]))·0.5)   -- x, y the slide pair
+return e − cp+0x84;  cp+0x84 = e
+```
+
+**`+0x68` and `+0x6c` are the slide distances** `FUN_18008d0c0` advances along the record's two spans — *Friction is a
+WARM-STARTED 2×2 SOLVE* below read them from the decompiler as a stored impulse. **So static friction is a spring back to where
+the contact began**: the target velocity is the slide times the inverse step, less what the pair already moves at.
+
+- **`FUN_18009ca70(frame, A, B, record, s, c, third)`** keeps the directions, zeroes the matrix `+0xf0..0x14f` and the velocities
+  `+0x150`/`+0x154`, and runs `FUN_18009d010` for A with sign `1f` into rows `+0x20` and masses `+0x90`, and for B with
+  `DAT_1800ea9f8` = `−1f` into `+0x50` and `+0xc0`.
+- **`FUN_18009d010(frame, record, core, rows, masses, sign)`**, per direction `d`: `r = (float)(record position − core+0xf0)` in
+  double; `w = r × d` in float, turned into the core's frame by the transpose of its matrix at `+0x90` (each lane
+  `((w.x·m₀ᵢ + w.y·m₂ᵢ) + w.z·m₄ᵢ)` in double, narrowed); `rows = (w′, 1f)`; `masses = (w′ ⊙ I⁻¹, m⁻¹)`, each narrowed. The diagonal
+  term `+0xf0` (or `+0x118`) gains `(double)((m₀r₀ + m₁r₁) + (m₃r₃ + m₂r₂))`; the off-diagonal `+0xf8` gains the second direction's
+  masses against the first's rotational rows only; the velocity `+0x150` (or `+0x154`) gains `sign·((d·v) + (ω·w′))` in float.
+- **`FUN_1800868d0(a, b, c, d)`**: `det = a·d − b·c`; `det² < DAT_1800fd3e8` (about `1e-38`, NaN too) → refuse; else
+  `(d, −c, −b, a)/det`, each a double product.
+- **`FUN_18009c620(frame, A, B, p)`** writes straight into velocity and spin: A's `v += (float)((double)(float)(s·(p₀·m⁻¹)) +
+  c·(p₁·m⁻¹))` per lane, `ω += (float)((double)(float)(masses₀·p₀) + masses₁·p₁)`; B the same with `p` negated.
+- **`FUN_180083970(cp, budget)`**, the lone contact's first call: when `|slide|²` (float, widened) exceeds `(double)(budget² +
+  1e-6f)`, `k = FUN_18006edb0(|slide|²)`; `cp+0x91 = 1`; `cp+0x7c += (float)(((k·|slide|² − budget)·cp+0x78)·cp+0x88)`; the slide
+  pair `·= budget·k` — **it lets the contact slip**, pulling the spring's anchor to the friction limit and keeping the work done.
+
+**`FUN_1800836b0(system, event)`, the many-contact driver, read from the disassembly — and the budget is per PAIR**, not per
+system as *There are TWO contact solvers* read it:
+
+```
+every pair of the system (+0x6a, +0x70), last first:
+    sum = Σ over the pair's contacts, last first, of (cp+0x88 · cp+0x78) · cp+0x60        -- float, from +0.0
+    budget = (sum · event[0]) · event[0];  limit² = (double)(budget² + 1e-6f)
+    every contact, last first:  the slip of FUN_180083970 inlined with this budget
+                                cp+0x64 → FUN_180085100(cp, event)  else  energy += FUN_1800857c0(cp, event)
+    energy > 0 → pair+0x30 += energy                                                          -- COMISS/JBE: NaN skips
+```
+
+**The lone contact forms its budget in another grouping** — `(event[0]² · cp+0x60) · (cp+0x88 · cp+0x78)` against the driver's
+`((cp+0x88 · cp+0x78) · cp+0x60) · event[0] · event[0]` — and float products round apart, so the two paths are two ports.
+
+**`FUN_180084490(system+0x10, event)`, the lone contact at priority 0, is the writer of `cp+0x88`:**
+
+```
+s = the closing speed FUN_18008db40 forms (n·v and t·ω per movable core, the second negated)
+g = (double)(float)(block[0x43] − cp+0x8c);  k = g ≥ 0 ? 1.0 : 20.0 (DAT_1800fcfb0)          -- COMISD/JNC: NaN takes 20
+f = ((k · g) + s) · (double)record+0x90
+f > 0 → cp+0x88 = (float)((double)event[1] · f);  FUN_180083420(cp)      else  cp+0x88 = 0
+!(block[0x47] > cp+0x8c) or record+0x76 == 1 → FUN_180083e40(system, cp)                   -- COMISS/JBE: NaN removes
+```
+
+**So `cp+0x88` is the normal push a resting contact needs this step** — the gap's shortfall below `block[0x43]` (twenty times as
+stiff once it penetrates) plus the closing speed, through the record's virtual mass, per unit time — and the friction limit is
+that push times the friction factor. A contact is dropped once its gap reaches `block[0x47]`.
+
+`block[0x47]` is `(float)(d·DAT_1800fdf80 + (double)block[0x43])` with `DAT_1800fdf80` = `2.5` — `4.5·d`, read from
+`FUN_180098fd0`'s tail.
+
+**`FUN_180083420(record, f)` applies that push at once, into velocity and spin** — `f` the double before `event[1]`:
+
+```
+first core (+0x98):   ω += (float)((double)(float)(t·I⁻¹) · −f) per lane;   k = −((double)m⁻¹ · f);   v += (float)((double)n·k) per lane
+second core (+0xa0):  ω += (float)((double)(float)(t′·I⁻¹) · f);            k = (double)m⁻¹ · f;       v += (float)((double)n·k)
+```
+
+**`FUN_180084680(pair, arena)`, every fifth PSI, shares the slides of parallel contacts**: the pair's contacts go into an arena
+array and a zeroed stack vector per contact; for each `i < j` whose normals satisfy `||nᵢ·nⱼ| − 1| < DAT_1800f5100` (the dot
+in float, its absolute value widened), `FUN_180084c70(cpⱼ, cpᵢ, …, 1/(count + 1e-19))`; then each contact's slide gains its
+vector turned onto the record's spans — `+0x68 += (s·u)` and `+0x6c += (c·u)` in float. *Read in part: `FUN_180084c70` and the
+tail are not.*
+
+**`FUN_1800a9bf0(system, event)`, the many-contact priority-0 routine, first half:**
+
+```
+(env+0xf0)+0x20 += 1
+the contact list sorted by (cp+0x90 & 0xffff0000), by adjacent swaps in the linked list, keeping +0x40 the head
+every contact:  !(gap < block[0x47]) or record+0x76 == 1 → FUN_180083e40(system, cp)          -- COMISS/JNC: NaN removes
+                gap > block[0x46] + block[0x43] and both friction cores' flag bit 0 set → unlinked and linked again at the head
+system+0x7c = 0
+more than 150 contacts (0x96) and the anomaly manager's slot 5 (env+0x40, +0x28) answers for the cores (+0x50, +0x4a):
+    every movable core's word gains bit 0;  a core in more than one pair with a mover (neither core flagged 2) has its
+    velocity and spin zeroed (+0x130..0x13b, +0x140..0x14b);  the arena's +0x20 −= 1, reset at zero (FUN_180072970);  return
+otherwise:  a solver on the stack (FUN_180083100(solver, system, event))
+    every contact in the sorted order, index i:  i < system+0x7c → record+0x70 = 0xffff
+        else  record+0x78 = FUN_180077f00(object0's +0xe8, system);  record+0x80 = the same for object1   -- qwords
+              record+0x8c = cp+0x8c;  record+0x88 = (int)(short)cp+0x92;  record onto the solver's vector;  record+0x70 = i
+    an arena array of 4 bytes per contact;  n = FUN_1800a9520(solver, system, array);  FUN_1800aa5c0(solver, system, array, n, arena)
+    the arena's +0x20 −= 1, reset at zero;  the solver's vector freed unless inline
+```
+
+**A record's memory is the many-contact solve's scratch every PSI**: `+0x78` and `+0x80` become 8-byte pointers over the push-out,
+the estimate and the elasticity the collision entry left, and `+0x88`/`+0x8c` two dwords — so what the impact loop reads there is
+only what it wrote since the last PSI. **Past 150 contacts the anomaly manager may freeze a heap outright**, zeroing its movers.
+
+*Not read: the solve itself, `FUN_180083100`, `FUN_1800a9520` and `FUN_1800aa5c0`; `FUN_180085a80`, which only a core with
+`+0x58` reaches.*
+
 **So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
 entry's port keeps it because the routine has it. *Not read: `FUN_180086240` (merging systems), the controller bases, and the
 simulation units `FUN_180074e40`/`FUN_1800747a0` merge.* **Nothing here is ported.**
