@@ -246,14 +246,23 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      is a safe stand-in in practice, but the port should say so explicitly in a comment rather than silently reuse
      `Immovable`, and should not touch `Immovable`'s representation to fix this without re-testing every existing
      caller.
-   - **Not attempted this session, and it should not be rushed without its own oracle.** Every other subsystem in this
-     port — down to the larger mindist's own 5-stage, oracle-backed process — earned trust through a dedicated
-     `vphysics-*` probe calling the shipped binary in process before being wired in. `collide`'s friction-system
-     merge is the one piece that would ship without one if written now. **Next session's concrete steps, in order**:
-     (1) add `IvpMindist.ContactPoint` (small, safe, no dependencies); (2) read the dozen `LinkContactByCore`
-     dependency functions; (3) port `LinkContactByCore` with its own `vphysics-friction-link` probe and fixture,
-     following the exact stage pattern the larger mindist used; (4) only then wire `collide` and the top-level PSI
-     loop together.
+   - **Done, same session: contact identity and friction-system linking for a body-vs-world collision.**
+     `IvpFrictionLinking.FindOrAllocate` (`IvpContactPoint::Allocate`) and `.LinkContactByCore`
+     (`IvpFrictionSystem::LinkContactByCore`) are ported and tested (`IvpFrictionLinkingConformanceTests.cs`, 9 cases,
+     TDD caught two real bugs — `AddCore` not wiring a core's own `FrictionInfo` back, and the ordering-swap
+     approximation — before either touched running code). Explicitly `NotSupportedException`s the system-merge branch
+     (`FUN_180086240`), which only body-against-body contact would reach and this project does not implement.
+     **Still not pinned by an oracle probe against the shipped binary** — these are synthetic conformance tests, not a
+     replay, so treat them as "internally consistent with the read behaviour," not "proven bit-identical to
+     vphysics.dll" until a `vphysics-friction-link` probe exists.
+   - **Next, in order**: (1) wire the actual `collide` callback (`FUN_18008ecb0`/`FUN_18008ef60`) using
+     `IvpFrictionLinking` plus `IvpContactRecord.Build`/`IvpContactPoint.SetMaterials`/`IvpImpactSolver.Enter` (all
+     already ported) — needs fresh `IvpLedgeSide`s built at collision time, which nothing currently exposes publicly
+     (`IvpMindistMinimize.Solver.Route` builds them but is private; check whether to expose it or write an
+     equivalent); (2) port the impact-retry loop (`FUN_180090700`/`FUN_180090bd0`, read in full, close to pure
+     orchestration since `Estimate`/`Enter`/`Solve` already exist); (3) the top-level `IntegrateAwakeCores`-shaped PSI
+     driver; (4) a `vphysics-friction-link` and/or `vphysics-collide` oracle probe before trusting any of this in a
+     real running loop; (5) only then replace `IvpEnvironment`/`IvpContact`.
    - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
      when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
      transform (`+0x1a0/+0x1b0`), then clears the pointer. `IvpMindistMinimize::Minimize` (`180095cb0`) was already
