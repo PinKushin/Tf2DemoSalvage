@@ -4660,7 +4660,8 @@ FUN_1800b6080(watcher):  env+0xbc counted;  env+0x38's slot 1(A, B, &rA, &rB);  
 FUN_1800b28a0(m) — what FUN_180097f00 tails into for state 0x100000, a mindist standing for its objects' ledges:
     FUN_180095ad0(m);  no bits of 0xc000 and DAT_18012d64c < +0xa8 (COMISS/JNC: a NaN takes the other branch) →
         FUN_1800b23a0(m), FUN_180098ef0(manager, m), FUN_180097ae0(manager, m), flags &= ~0x3000
-    otherwise → env+0xbc counted;  env+0x38's slot 1(A, B, &rA, &rB);  FUN_1800b29b0(m, rA + rB);  both records filed again
+    otherwise → env+0x38's slot 1(A, B, &rA, &rB);  env+0xbc counted (after the call, unlike FUN_1800b6080's);
+        FUN_1800b29b0(m, rA + rB);  both records filed again
 FUN_1800b29b0(m, gap):  its object pair's count against DAT_18012d66c (over → nothing);  the features of synapse A and B each
     handed back to their ledges (pointer with its low bits cleared, less (header & 0xfff + 1)·16);  FUN_180096680(A, B, gap,
     m+0xe8's vector, ledgeA, ledgeB);  m+0xe0's slot 2(count added)
@@ -4994,6 +4995,11 @@ FUN_180097d60(m, float gap):  A's object state (+0x78) & 7 clear → FUN_180097e
 FUN_180097e20(m, float a, float b):  flags & 0xffd7ffff | 0x140000 (filed);  record 0 into A's min-list at A+0x98 + a
     (ADDSS, the next PSI's value the destination), its slot +0x30;  record 1 into B's at B+0x98 + b, its slot +0x68
 ```
+
+**Re-verified instruction by instruction (2026-09-14)** by independent re-readers with a refuter for each claimed discrepancy:
+every claim above stands. Two were challenged and held — `DAT_18012d66c` is zero in the image but `FUN_180002540` writes `0x3e8`
+to it at `180002570`, and `FUN_180097d60`'s clear side gets `1e-10f`, never zero, so it is not `IvpMindistHull.FileFar`'s branch
+shape — and one order was corrected: `FUN_1800b28a0` counts `env+0xbc` after the range call.
 
 So **a larger mindist opens its ledge only when the pair would otherwise freeze or collide on a hull's virtual face**, and
 then waits on the hull managers like a far pair; `FUN_180097f00`, told its hull passed, sends it to `FUN_1800b28a0`, which
