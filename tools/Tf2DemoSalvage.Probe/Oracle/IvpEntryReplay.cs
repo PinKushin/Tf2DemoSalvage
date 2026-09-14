@@ -233,7 +233,11 @@ public static class IvpEntryReplay
 /// <param name="FrictionFactor">Slot 1.</param>
 /// <param name="SecondFrictionFactor">Slot 2.</param>
 /// <param name="HasSecondFriction">The dword at <c>+0xc</c>.</param>
-internal sealed record IvpReplayMaterial(double FrictionFactor, double SecondFrictionFactor, bool HasSecondFriction) : IIvpMaterial;
+internal sealed record IvpReplayMaterial(double FrictionFactor, double SecondFrictionFactor, bool HasSecondFriction) : IIvpMaterial
+{
+    /// <summary>Slot 3, which the entry never calls: its manager answers the pair's elasticity itself.</summary>
+    public double Elasticity => 0d;
+}
 
 /// <summary>A material manager whose slots give fixed answers: one material for any index, one friction, one elasticity.</summary>
 internal sealed class IvpReplayMaterials(IIvpMaterial indexed, double friction, double elasticity) : IIvpMaterialManager

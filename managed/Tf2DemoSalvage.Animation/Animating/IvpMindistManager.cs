@@ -39,6 +39,10 @@ public sealed class IvpCollisionObject
     /// <remarks>*Named by its one read use; its writer is not read.*</remarks>
     public IvpRigidBody? FrameCore { get; set; }
 
+    /// <summary>Bit 6 of the byte at <c>+0x48</c> of the object's physics object (<c>+0x100</c>); false when it has none.</summary>
+    /// <remarks>*Named by its offset: its one read use is vphysics' friction override `FUN_180024080`, and what sets it is not read.*</remarks>
+    public bool PhysicsFlag48Bit6 { get; set; }
+
     /// <summary>Whether <see cref="MovementState"/>'s low three bits are clear — <c>TEST byte ptr [obj + 0x78], 0x7</c>.</summary>
     internal bool StateBitsClear => (MovementState & 7) == 0;
 }

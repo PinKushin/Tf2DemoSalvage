@@ -26141,10 +26141,11 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    with `FUN_18008fe70` as `IvpImpactSolver.Enter`. The probe's `entry` mode runs all four in order on fabricated
    structs: 20,000 entries agree on every lane, and `IvpImpactEntryConformanceTests` replays 101 cases the binary wrote,
    13 sabotages each reddening it (one only after four targeted cone cases were added).
-   **vphysics' material manager and materials are read but not ported** (`docs/findings/51`, *vphysics' material manager
-   and its materials*): a pair's friction is `clamp(f₀·f₁, 0, 1)` and its elasticity `clamp(e₀·e₁, 0, 1)` over the two
-   surfaces' `surfacephysicsparams_t`, with a friction override that needs a core's `+0x58`, which a ragdoll never has.
-   Until that port lands, the entry's port and its oracle answer the slots with fixed values. Not read: what increments a record's impact count at `+0x72`, what
+   **vphysics' material manager and surface lookups are ported and pinned** (`docs/findings/51`, *vphysics' material
+   manager and its materials*): a pair's friction is `clamp(f₀·f₁, 0, 1)` and its elasticity `clamp(e₀·e₁, 0, 1)` over the
+   two surfaces' `surfacephysicsparams_t`, with a friction override that needs a core's `+0x58`, which a ragdoll never has;
+   200,000 drawn cases agree with the binary. **A divergence is open: `SurfaceTable` is not vphysics' parser** — it ignores
+   `base`, starts an entry at `1.0` where the engine copies the same-named surface or `default`, and adds no shadow surface. Not read: what increments a record's impact count at `+0x72`, what
    sets a contact point's `+0x64`, or the writer of a core's radius at `+0x4` (`FUN_180078b90`). **The entry compares a
    contact point's gap against metre fields of the block, while the contact point ported before it starts its gap at
    `IvpCollisionTolerance.ContactGap` in Source units** — one more place the units move to vphysics' interface when this

@@ -4046,6 +4046,50 @@ its key strings.* So **a corpse on the world rubs at `clamp(f₀·f₁, 0, 1)` a
 surfaces' `surfaceproperties` values, and with slot 2 answering zero the axis friction of `FUN_18008fe70` has nothing to
 multiply. *Whether any entry's `+0xc` is set, so that its blocks run at all, is not read.*
 
+**The surface-props object is `180120b38`** (vtable `1800ec598`; the manager is its `+0xb0`, so the manager's table at `+0x18` is
+the props' `+0xc8`). Its entries are a vector at `+0x70` with the count at `+0x80`, and **each 0x78-byte entry is itself the
+material** — slot 10 (`FUN_1800181d0`, `GetIVPMaterial`) answers `&entries[index]`:
+
+```
+index > 0x7f:  index = (index == 0xf000) ? props+0x1cc : 0          -- 0xf000 is GetSurfaceIndex("$MATERIAL_INDEX_SHADOW")
+index < 0 or index > count − 1:  null;  else  entries + index·0x78
+```
+
+Slot 11 (`FUN_180018210`) is its inverse, `−1` off the vector; slot 9 (`GetPhysicsParameters`) copies the 20 bytes at `+0x14`;
+slot 8 (`FUN_180019220`, `SetWorldMaterialIndexTable`) writes `min(size, 128)` words of the caller's ints into that shared
+table; and slot 3 (`FUN_180018500`, `GetSurfaceIndex`) answers `0xf000` for `$MATERIAL_INDEX_SHADOW`, otherwise finds the name's
+symbol and walks the entries for the one whose word `+0x10` holds it. The symbol table is built case-insensitive
+(`FUN_180001840` passes `1` as the fourth argument to its constructor `FUN_1800b9b40`).
+
+**An object's own material — `object+0xd0` — is the surface its creator names**: `FUN_18001c9d0` fills the IVP template's
+`+0x18` with `GetIVPMaterial(index)` for a non-negative surface index, else with `GetIVPMaterial(GetSurfaceIndex("default"))`
+(`18001ca0c..18001ca39`). vphysics reaches props through the pointer at `180120b30`. And the world's table is
+`game/shared/physics_shared.cpp:674-680`: a map's `materialtable` block becomes 128 surface indices, zero where unnamed.
+
+**How `ParseSurfaceData` (`FUN_180018740`, props slot 1) builds an entry** — read by a delegated pass over the whole routine
+and checked here at the three places that decide values:
+
+- **A block starts from the surface of the same name, else from `default`, else from zeros** (`18001883a..1800188cc`: slot 3 on
+  the block's name, then on `"default"`, through `GetIVPMaterial`'s index rules, copying `+0x14..+0x73` into the staging entry).
+- **Keys apply in file order, and `base` is one of them** (`180018901`): it copies the named surface's whole `+0x14..+0x73` at the
+  point it appears, so keys before it are overwritten and keys after it win. Float keys go through `atof` and are narrowed
+  (`CVTSD2SS`): `friction` `+0x14`, `elasticity` `+0x18`, `density` `+0x1c`, `thickness` `+0x20`, `dampening` `+0x24`.
+- **The closing brace writes the staging entry back over an existing surface of that name, or appends a new one** — a later
+  file redefines in place, keeping every field it does not name.
+- **Once, at the end of the first parse** (`18001907c`: the byte `props+0x1c8`), it appends a shadow surface named by slot 14 —
+  `$MATERIAL_INDEX_SHADOW` for `0xf000` — copied from `default` with friction `0.8f` and elasticity `0x3a83126f` (`0.001f`), and
+  stores its index at `props+0x1cc`: the writer `GetIVPMaterial`'s shadow index reads.
+- A new entry's `+0xc` is zero (`180018781`), so **no vphysics surface has an axis friction** and `FUN_18008fe70`'s blocks never
+  run for a surface's material.
+
+**Ported: the manager and the lookups** — `VphysicsSurfaceProps` and `VphysicsSurface`, with the object's physics-object flag as
+`IvpCollisionObject.PhysicsFlag48Bit6`. The `vphysics-materials` probe calls `FUN_1800181d0`, `FUN_180019220`, `FUN_180019370`,
+`FUN_1800192e0` and `FUN_1800192b0` on fabricated props, surfaces, records and objects with the image's own manager and material
+tables: **200,000 drawn cases agree on every answer**, after one fix the sweep itself found — the override's threshold written
+as the float literal `0.25881904f` rather than the dumped bits differed on 2. `VphysicsSurfacePropsConformanceTests` pins 23
+rows the probe's `list` printed. **Not ported yet: the parser**, which `SurfaceTable` diverges from on every count above — no
+`base`, no copy from `default`, `1.0` where the engine starts from `default` or zero, no shadow surface.
+
 *Evidence class: read from the disassembly; the props slot 10 and the parameter layout INFERRED as marked. Not ported yet.*
 
 #### The collision's own path, instruction by instruction (`impact_entry.log`)

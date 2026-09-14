@@ -13,6 +13,9 @@ public interface IIvpMaterial
     /// <summary>Slot 2, a double: this material's factor along its object's first axis.</summary>
     public double SecondFrictionFactor { get; }
 
+    /// <summary>Slot 3, a double: the elasticity the manager's slot 3 multiplies (<c>FUN_1800912f0</c>).</summary>
+    public double Elasticity { get; }
+
     /// <summary>Whether the dword at <c>+0xc</c> is nonzero — whether this material has a friction along its object's first axis.</summary>
     public bool HasSecondFriction { get; }
 }
