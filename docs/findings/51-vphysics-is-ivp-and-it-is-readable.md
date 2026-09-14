@@ -4552,6 +4552,42 @@ FUN_180076350(unit, other):  other's cores appended, each +0x1f8 = unit;  other 
     when its state is 8 or more)
 ```
 
+#### A core's rotation, instruction by instruction (2026-09-14)
+
+**Read because the rest test reads the quaternions as doubles** — `FUN_180077220`'s `MOVSD [core+0x1a0..0x1b8]` — while this
+project stores them as floats. Every routine below takes and writes doubles:
+
+```
+FUN_180070d60(out, a, b):  out0 = ((b0·a3 + a0·b3) + b2·a1) − a2·b1      out1 = ((b1·a3 + b3·a1) + a2·b0) − a0·b2
+                           out2 = ((a2·b3 + a3·b2) + b1·a0) − a1·b0      out3 = ((a3·b3 − a0·b0) − b1·a1) − b2·a2
+FUN_180070c60(q):  n = (w·w + z·z) + (x·x + y·y);  !(|1 − n| > 1e-12) → unchanged   (COMISD/JBE: a NaN leaves q)
+                   s = 1.5 − n·0.5;  repeat s = s + (1 − (s·s)·n)·0.5  while |1 − (s·s)·n| > 1e-12;  q = q·s
+FUN_180071680(out, &ω float, dt double):  h = dt·0.5;  θ = (f)((d)ω.l·h);  l = (d)(θ − (θ·θ)·(θ·0.16666667f))   per lane
+                   out3 = √(1 − ((y·y + x·x) + z·z))                   -- double, no clamp: a negative gives NaN
+FUN_180070f50(out, &ω, dt):  l = sin((d)ω.l·(dt·0.5)) per lane;  s = (y·y + x·x) + z·z;  s > 1 →
+                   each l ·= 0x3feffffffaa19c47/√s and s summed again;  out3 = √(1 − s)
+FUN_180071330(q, M):  the terms FUN_180071330's port already carries, from the double quaternion
+FUN_180071060(out, a, b, t):  dot = (a3·b3 + a2·b2) + (a1·b1 + a0·b0);  dot > 0 → σ = 1f  else dot = −dot, σ = −1f
+                   dot ≥ (double)0.999f → out = (σ·b − a)·t + a, then n = (w² + z²) + (x² + y²), h = n·0.5,
+                       s = 1.5 − h;  s = s + (0.5 − (s·s)·h), twice;  out ·= s
+                   else θ = acos(dot) (FUN_1800cce64);  k = 1/√(1 − dot²);  out = b·(σ·(sin(tθ)·k)) + a·(sin((1 − t)θ)·k)
+FUN_180099fc0(core, dt float, out):  bit 0x8, or env+0x1ac == 5 → the second route below
+    I′ = ((Iy − Iz)·I⁻¹x, (Iz − Ix)·I⁻¹y, (Ix − Iy)·I⁻¹z) in float;  s = (ωy² + ωx²) + ωz² in float
+    h = (double)dt;  (d)s·h·h > 1/36 → k = (int)√(that·144) + 1,  h = h / (double)(float)k
+    out = FUN_180071680(ω, h);  ωx = (f)((d)(f)((d)(ωz·ωy)·(d)I′x)·h + (d)ωx), and ωy, ωz the same with ωz·ωx and ωy·ωx
+    each further sub-step:  d = FUN_180071680(ω, h);  out = FUN_180070d60(d, out) inlined — the NEW delta on the left;  ω again
+second route:  core+0x58 set and +0x8 zero → one axis (the +0x58 object's +0x48) through FUN_180070f50 and sin, composed
+    with FUN_180070d60;  otherwise out = FUN_180070f50(ω, (double)dt)
+```
+
+**`FUN_180099a00`, the integrator, calls it and then**: `+0x1d8 = event[1]`, `+0x1dc = (float)|v|` (`FUN_18006e120`), the
+position moved by the last velocity through `(double)(float)(now − +0x1d0)`, `+0x170 = v`, `+0x180 = +0x1a0`,
+`FUN_180070d60(+0x1a0, +0x1a0, delta)` — the working orientation on the left — and `FUN_180070c60(+0x1a0)`; before any of it,
+unless the core has `+0x58` with a zero `+0x8`, the anomaly manager's slot 1 when `(ωx² + ωy²) + ωz²` exceeds
+`((float)env+0x110 · limits+0x14)²` and slot 0 when `|v|²` exceeds `limits+0xc²`.
+
+*Not read: vphysics' `sin` `FUN_1800c8020` and `acos` `FUN_1800cce64`, and what sets a core's bit `0x8`.*
+
 **A frozen core, `FUN_180088930`**: `FUN_180078c90(core)`; then every object, last first — every listener the environment's hash at
 `env+0x18` holds for it, last first, slot 3 with `{env, object}`, stopping once the object's entry is gone after a call — and
 `FUN_180082070(env, {env, object})`, the environment's own listeners at `+0x1c0` (count `+0x1ba`), last first, slot 3.

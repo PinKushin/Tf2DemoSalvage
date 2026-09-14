@@ -26194,6 +26194,19 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    controllers — damping, gravity, friction, the constraints, the normal pushes — in phase 2, then integrates every core, then
    walks the collisions; `IvpEnvironment.Simulate` walks the collisions and rubs its contacts after. Replacing it with the
    engine's phases is part of wiring these ports in.
+   **The rotation pipeline diverges from the binary in seven places, found 2026-09-14 reading it for the unit PSI**
+   (`docs/findings/51`, *A core's rotation, instruction by instruction*): (1) `core+0x180` and `+0x1a0` are doubles and the port
+   stores floats; (2) `FUN_180070c60` normalises by a Newton loop to `1e-12`, summing `(w² + z²) + (x² + y²)` and leaving a NaN
+   residual alone, where the port divides by `√n`, sums `x` first and lets a NaN through; (3) `FUN_180071680`'s series is
+   `θ − (θ·θ)·(θ·⅙)` and its real part `√(1 − ((x² + y²) + z²))` in double with no clamp, where the port groups `((θ·θ)·θ)·⅙`,
+   clamps and narrows; (4) `FUN_180099fc0` composes each later sub-step as `Product(delta, turn)`, the port as
+   `Product(turn, delta)` — the cross terms' signs flipped for every sub-step after the first; (5) it keeps `dt/steps` in double,
+   sums the spin's squares `(y² + x²) + z²` in float, and takes each Euler product `(z·y)·about` in double, where the port narrows
+   the step, sums in double and multiplies in float; (6) `FUN_180071060` sums its dot and its renormalisation `(w + z) + (y + x)`
+   where the port sums `x` first, and calls vphysics' own `acos` and `sin`, where the port calls .NET's; (7) `FUN_180099fc0`
+   takes a second route — `FUN_180070f50`'s real-sine delta, or a one-axis variant for a core with `+0x58` — when the core has
+   bit `0x8` or the environment is in phase 5, which the port does not carry. Fixing them needs an in-process oracle for the
+   quaternion routines, which none of the five math probes calls.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 
