@@ -366,17 +366,29 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      — the `w=1` lane isn't scaled by inverse inertia — not a code error). The three small newly-surfaced functions
      (`FUN_18008fb60`, `FUN_180070950`, `FUN_18006dcb0`) turned out to all be trivial and already covered by existing
      ported equivalents (material lookup, matrix rotate, cross product) — no further reading needed for them.
-   - **What's left before `SolveTangentialPair` itself is complete**: mixing the pair's own stored, scaled slip
-     target (`IvpContactPoint.Slide`) into the right-hand side ahead of `RelativeVelocity` — the native's exact
-     cross-axis terms for this (converting a slip stored in a possibly-stale axis basis into the current one) need
-     one more careful read of `SolveOncePerPsi`'s own stack locals before porting, to avoid guessing a formula this
-     session couldn't fully pin down from a single read; then the cone-clip/anchor-state dispatch
-     (`FUN_180085a80`'s two branches) and `IvpFrictionSystem`'s per-pair contact list `SolveOncePerPsi` walks.
-   - **Next, in order**: (1) as its own dedicated port, in a fresh session: re-read `SolveOncePerPsi`'s stack locals
-     around its `TangentialSlipVelocity` call to pin down the slip-target cross-axis mixing, design
-     `IvpFrictionSystem`'s per-pair contact list and the tangential solve's own state (the anchor/`+0xb0`
-     mechanism especially), port `SolveTangentialPair` and both `SolveOncePerPsi` dispatch branches, build a
-     `vphysics-friction-solve` probe and oracle fixture, sabotage-verify; (2) turn
+   - **`SolveTangentialPair`'s non-sticking branch is now fully ported and tested** (`IvpTangentialSolve.Solve`,
+     `ClipImpulse`) — 5096/5097 passing, zero regressions. The slip-target mixing question above is now **resolved,
+     not merely designed around**: a fresh 2026-09-14 read of `SolveOncePerPsi` (`1800836b0`) and `SolveTangentialPair`
+     (`1800857c0`) confirms the stored slide is used AS-IS — `rhs = inverseStep × Slide − RelativeVelocity`, no basis
+     rotation from a stale axis pair, because this project recomputes both tangent axes fresh every PSI
+     (`IvpMindistCollide`) rather than caching them across PSIs the way the native's axis-reuse case would need one.
+     `ClampSlide`'s pre-clamp formula is likewise confirmed byte-for-byte against `SolveOncePerPsi`'s own instructions.
+   - **Two gaps this same read surfaced, still open**: (1) the native sets a flag byte at contact `+0x91` whenever
+     `ClampSlide`'s clamp fires — this collides with `IvpContactPoint.FirstMeasure`'s already-documented offset
+     (`+0x91`, "whether the next measure is the first"), so either that field is reused for two purposes across the
+     contact's lifetime or one of the two offset readings is wrong; needs a targeted re-read before porting the flag.
+     (2) the per-pair friction-cone budget's third multiplicand — `Σ contact[+0x88] × contact[+0x78] × contact[+0x60]`,
+     scaled by `inverseStep²` — has `+0x88` (`NormalPush`) and `+0x78` (`Friction`) identified, but `+0x60`'s owning
+     field is still unnamed; the decompile shows the read but not what wrote it. **Confirmed, not a struct
+     `SolveOncePerPsi` builds itself**: the per-pair contact list is `IvpFrictionPair`'s own array (matching this
+     project's `IvpFrictionPair.Contacts`, not yet filed into by anything), and the two tangent axes/arm
+     vectors/material axis factors `BuildJacobian` needs are NOT built inside `SolveOncePerPsi` — they come from
+     whatever calls `SolveTangentialPair`, a caller not yet located in this session's reads.
+   - **Next, in order**: (1) as its own dedicated port, in a fresh session: locate `SolveTangentialPair`'s actual
+     caller to find where the tangent axes/arms/material axis factors are built and where `IvpFrictionPair.Contacts`
+     is filed, resolve the `+0x91`/`FirstMeasure` collision and the `+0x60` budget field, port both `SolveOncePerPsi`
+     dispatch branches and `FUN_180085a80`'s anchor state, build a `vphysics-friction-solve` probe and oracle fixture,
+     sabotage-verify; (2) turn
      `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
      tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
      so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet

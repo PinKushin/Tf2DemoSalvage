@@ -247,9 +247,12 @@ public static class IvpTangentialSolve
     /// magnitude), and the carry, updated only when it was clamped.
     /// </returns>
     /// <remarks>
-    /// **The excess is the SLIDE'S OWN magnitude past the budget, weighted by friction and push-out** — not the
-    /// clamped fraction, the raw distance clamping removed — matching the native's
-    /// <c>(|slide| − budget) × friction × pushOut</c>, added to whatever was already carried.
+    /// **Confirmed against <c>SolveOncePerPsi</c>'s own pre-clamp, read in full 2026-09-14** — the excess is the
+    /// SLIDE'S OWN magnitude past the budget, weighted by friction and push-out, not the clamped fraction the raw
+    /// distance clamping removed: <c>(|slide| − budget) × friction × pushOut</c>, added to whatever was already
+    /// carried. **Not yet carried: the native also sets a flag byte on the contact (<c>+0x91</c>) whenever this
+    /// clamp fires** — a candidate collision with <see cref="IvpContactPoint.FirstMeasure"/>'s own documented
+    /// offset that needs resolving before the flag is ported; see `docs/HANDOFF.md`, item 3.
     /// </remarks>
     public static ((float Span, float CrossSpan) Slide, float Carry) ClampSlide(
         (float Span, float CrossSpan) slide, float budget, float friction, float pushOut, float carry)
@@ -289,7 +292,11 @@ public static class IvpTangentialSolve
     /// less the contact's actual current relative velocity (<see cref="RelativeVelocity"/>); the impulse solves the
     /// 2×2 system for the push that would close the gap between them. **The cone clip against the pair's own
     /// friction budget is a separate step**, applied by the caller once this returns — matching the native, where
-    /// the clip happens after this call, not inside it.
+    /// the clip happens after this call, not inside it. **Confirmed against <c>SolveTangentialPair</c>'s own
+    /// instructions, read in full 2026-09-14: the stored slide is used AS-IS, in whatever axes the current call's
+    /// <see cref="RelativeVelocity"/> uses — no basis rotation from an older axis pair is applied.** This project's
+    /// two tangent axes are recomputed fresh every PSI (see `IvpMindistCollide`), so there is no stale-basis case
+    /// for a rotation to correct in the first place.
     /// </remarks>
     public static (float Span, float CrossSpan)? Solve(
         IvpRigidBody? first,
