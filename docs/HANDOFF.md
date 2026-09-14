@@ -1,13 +1,12 @@
 # Handoff — IVP's collision path, ported function by function against vphysics.dll (B369, D172)
 
-Written 2026-09-14, superseding the handoff of 2026-09-07 (the ragdoll constraint solve; read it in git history before
-`290052f7` if needed — its items 1, 3 and 5 are what D172 now covers).
+Written 2026-09-14, superseding the handoff at `e47dc3f1` (same direction, earlier state).
 
-**Branch `fix/b369-ivp-narrow-phase`, pushed, tree clean at the commit that adds this file.** Nothing is mid-edit. The
-last full Animation run: 4057 total, 4056 passed, 1 skipped (the medic medigun bone test, skipped before this work too).
+**Branch `fix/b369-ivp-narrow-phase`, pushed.** The last full Animation run: 4682 total, 4681 passed, 1 skipped (the medic
+medigun bone test, skipped before this work too). Solution build: zero warnings.
 
-**Read `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` first** — every port cites it by address, and the sections
-from *The broad phase* on are this session's reading.
+**Read `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` first** — every port cites it by address. This session's
+reading starts at *The broad phase* and runs to the end of the file.
 
 ## The direction, unchanged
 
@@ -15,61 +14,58 @@ D172: port ALL of IVP's collision path to parity and put it on the running path,
 `IvpContact`/`IvpEnvironment` structure; then step 7 — delete TerrainDepth/TerrainReach and the compensators, run the
 corpse-drop measurement, gate (`TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh`), merge. Valve's way, always (D89/D129/D131).
 
-## Done this session — each pinned to the shipped binary called in process
+## Done — each pinned to the shipped binary called in process
 
 | port | engine | probe | cases agreeing | fixture |
 |---|---|---|---|---|
 | `IvpOvTree` | `FUN_18009ecb0` insert, `FUN_18009efc0` removal and helpers | `vphysics-ov-tree` | 50,000 | 300 + 11 searched |
 | `IvpRangeManager` | `FUN_1800a0420` policy 1, slots 1–2 | `vphysics-range` | 100,000 | 400 + 1 searched |
 | `IvpLedgeTree` + `PhysicsHull.Tree` | polygon manager slot 4, `FUN_18007ada0`/`FUN_18007afb0` | `vphysics-ledge-tree` | 20,000 | 300 + 7 searched |
-| `IvpObjectCache` | `FUN_180080a60` | `vphysics-object-cache` | 100,000, NaNs included | 400 |
-| `IvpMatrix.FromRotation` | `FUN_180071330`'s NaN destinations, via `Addsd`/`Mulsd` | (through the object cache) | — | — |
+| `IvpObjectCache` | `FUN_180080a60` | `vphysics-object-cache` | 100,000, NaNs included | 400 + 20 searched |
+| `IvpBroadPhase` | `FUN_180098880`, `FUN_180096eb0`, node filing and destructor | `vphysics-broad-phase` | 5,000 × 16 steps | 200 + 1 searched |
+| `IvpPairMindists` | `FUN_180096680`, `FUN_1800975d0`, `FUN_180095fb0` | `vphysics-pair-mindists` | 5,000 × 6 steps | 200 + 1 searched |
+| `IvpPairWatcher`, `IvpPairCreator` | `FUN_1800b5dd0`/`b6080`/`b5e80`/`b5fd0`, `FUN_1800a06f0`/`a07a0`/`a0690` | `vphysics-pair-watcher` | 5,000 × 6 steps | 200 |
 
-Sabotage rounds (sonnet `sabotage-verifier`) killed every non-equivalent mutant of the first three, each survivor by a
-searched case; the equivalences are argued in findings 51.
+Sabotage rounds (sonnet `sabotage-verifier`) have killed every non-equivalent mutant of every row, each survivor by a searched
+case or a new lane; the equivalences are argued in findings 51. **One ordering is untested**: the watcher's destructor deleting its
+mindists last first, which no lane can see while the mindist constructor's tails are detoured.
 
-## In flight when the session stopped
-
-**The object cache and matrix fill's sabotage round was stopped mid-run and its mutant restored** (verified: no diff under
-`managed/`). Re-run it before building on the cache. The mutants: in `IvpObjectCache` — a NaN elapsed time interpolating
-instead of copying; each position lane's sum and product operand order; the `Mulss` fraction's order; the offset
-translation's operand order and grouping; one `Compose` product's order; `Compose` replaced by `IvpQuaternion.Product`; the
-matrix refill after the object rotation deleted; `RefreshedAt = psi + 1`. In `IvpMatrix.FromRotation` — `M2`'s addends
-swapped, `xTwoX` and `wTwoX`'s factors swapped, `M0`'s addends swapped, `M6`'s factors swapped. Run the WHOLE Animation
-suite per mutant, since the matrix fill is shared.
+The two pair probes share `tools/Tf2DemoSalvage.Probe/Probes/VphysicsPairObjects.cs` (the fabricated objects, the detoured
+constructor tails, the random draws). **A watcher probe must file each OV node before making a watcher**: a record keyed at
+`1e20` in an empty min-list walks from slot `0xffff` and faults, a state the broad phase never reaches.
 
 ## Next, in order
 
-1. **The broad phase and its pair watcher.** `FUN_180098880` is read in full (findings 51, *The broad phase* — with the
-   range sum's destination corrected at `290052f7`), with `FUN_1800962c0`'s partner table, the creator `FUN_1800a0650`
-   (slots `FUN_1800a0690`, `FUN_1800a06f0`, `FUN_1800a07a0`), the watcher `FUN_1800b5dd0`/`FUN_1800b6080`, its records
-   (`FUN_1800b61a0`, table `1800feb00`), and the node's filing `FUN_18009de80`/`FUN_18009de20`/`FUN_18009ef40`. The pair
-   filter `FUN_1800161e0` calls the game's `ShouldCollide`, which `source-sdk-2013` publishes (`game/client/physics.cpp`).
-   `IvpHullManager` already files records; check its key formula against `FUN_18009de80`'s before reusing it.
-2. **A pair's mindists.** `FUN_180096680` (nine arguments), `FUN_1800975d0`, `FUN_1800977f0` (exact at birth; reuse
-   `IvpMindistManager.LinkExact`/`AddRechecked`, `IvpMindistMinimize`, `IvpPairScheduler.Examine`), and the phantom
-   `FUN_180097940` (its other path unread). The point goes into the object's frame through `IvpObjectCache.Matrix`
-   (`FUN_180070800` — `IvpMatrix.ToObject`'s values, first two addends swapped).
-3. **The larger mindist** `FUN_1800b21f0` and its slots (tables `1800fe960`, `1800fe9a8`; slots 6 and 8 unread), which a
-   hull ledge (`+0x8 & 3`) gets instead of a plain one.
-4. **Displacements**: the mesh manager's `FUN_180025bc0` calls the engine's virtual-mesh query, which is not in vphysics;
+1. **The larger mindist** — `FUN_1800b21f0` and everything it reaches is read (findings 51, *The larger mindist in full*):
+   slot 7 `FUN_1800b2700` (a frozen minimize opens the ledge), slot 8 `FUN_1800b2460` (a collision on a hull's virtual face
+   opens it), `FUN_1800b29b0` (the children refreshed beneath the opened side's ledge), `FUN_1800b28a0` (told its hull passed:
+   collapse to plain exact past `DAT_18012d64c`, else refresh), `FUN_1800b23a0`, `FUN_1800b2250`, the delegator
+   `FUN_1800b2320`/`b2300`/`b2860`, and `FUN_180097ce0`, `FUN_180097d60`, `FUN_180097e20`, `FUN_180098ef0`. **The port needs
+   slots 7 and 8 as dispatch on the mindist**: today callers hand `invalidate` and `collide` in as delegates
+   (`IvpMindistManager.MinimizeExact`/`RecheckEveryPsi`, `IvpMindistHull.BecomeExact`, `IvpMindistFire`), and
+   `IvpMindistHull.HullPassed` throws for the recursive state. An oracle sketch: trees whose root is a hull ledge
+   (`IvpLedgeTreeReplay.InnerWithLedge`) so `FUN_180096680` makes one; the exact tail detoured to a recorder that only links
+   (flags and the lists `FUN_180098dd0` unlinks); `FUN_180095ad0` and `FUN_18008ecb0` detoured to recorders driven by lanes;
+   then slot 7, slot 8 and `FUN_180097f00` called on it.
+2. **Units.** vphysics runs IVP in metres and converts once at `CPhysicsEnvironment`'s boundary. The new ports are metres (their
+   constants are the binary's), but `IvpMindistHull`, `IvpPairScheduler` and `IvpEnvironment` still carry metre constants
+   converted to inches (`* IvpTransform.InchesPerMetre`). Convert them to metres before anything is wired together — mixing the
+   two is a defect, not a style choice.
+3. **Displacements**: the mesh manager's `FUN_180025bc0` calls the engine's virtual-mesh query, which is not in vphysics;
    `FUN_18007bea0` is unread.
-5. The unit/scheduler layer, the filing layer, then the running path and step 7.
+4. **The running path**: the unit/scheduler layer and the filing layer, then replace `IvpContact`/`IvpEnvironment`, then step 7.
+   `vphysics.dll` exports `CreateInterface` with `VPhysics031` and `VPhysicsCollision007` (`src/public/vphysics_interface.h`), so a
+   real corpse drop can likely be simulated in process and compared end to end. Not tried.
 
-## Two things to decide by reading, not by asking
-
-- **Units.** vphysics converts once at `CPhysicsEnvironment`'s boundary and runs IVP in metres; the new ports run in metres
-  (their constants are the binary's), while older ones (`IvpPairScheduler`, `IvpEnvironment`) carry Source units converted.
-  Valve's way is metres inside, conversion at the seam.
-- **Step 7's instrument.** `vphysics.dll` exports `CreateInterface` with `VPhysics031` and `VPhysicsCollision007`
-  (`src/public/vphysics_interface.h`), so a real corpse drop can likely be simulated in process and compared against the port
-  end to end. Not tried.
+**Phantoms stay unported** (`FUN_180097940`'s far path is read, `FUN_18008ae50`/`FUN_18008b0a0` are the phantom controller's
+listeners); whether a TF2 client corpse ever meets one is not established — the port throws where one would be told.
 
 ## How the ports are built, so the next one matches
 
 A port in `managed/Tf2DemoSalvage.Animation/Animating/`; its lanes in `tools/Tf2DemoSalvage.Probe/Oracle/Ivp*Replay.cs`
 (linked into `Tf2DemoSalvage.Animation.Tests.csproj` with its `Data/*.txt`); a probe in `tools/.../Probes/Vphysics*Probe.cs`
-with a control, `sweep n` and `fixture path` modes; a `*ConformanceTests` class with a fixture control. Constants by their bits
-or as widened floats — a decimal literal cost an ulp twice this session. Every product and sum through `IvpMath` with the
-disassembly's destination. GhidraMCP answers at `127.0.0.1:8089` (`disassemble_function`, `read_memory`, `get_xrefs_to`,
-`list_exports`, and `POST /disassemble_bytes` for code Ghidra has no function for).
+with `sweep n` and `fixture path` modes; a `*ConformanceTests` class with a fixture control. **Isolate a routine by detouring its
+callees** (`VphysicsDetour`, twelve bytes, restored on dispose) rather than fabricating their state. Constants by their bits or as
+widened floats — a decimal literal cost an ulp twice. Every product and sum through `IvpMath` with the disassembly's destination.
+Use the MCP servers: `mcp__ghidra__*` (`disassemble_function`, `disassemble_bytes` for code Ghidra has no function for,
+`read_memory`, `get_xrefs_to`) and `mcp__agent-lsp__*` for the C# side.

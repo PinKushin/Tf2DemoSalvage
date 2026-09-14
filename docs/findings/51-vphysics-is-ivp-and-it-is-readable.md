@@ -4798,6 +4798,17 @@ keyed at 1e20 takes the ordered walk from the list's first entry, which is 0xfff
 because it files the object's node before any creator runs, and the probe now does the same. *Not established: a record's slot 2
 (its hull manager going away), the larger mindist, and a refresh while the objects' caches are refreshing.*
 
+**The watcher's sabotage round** (14 mutants) reddened nine, the pair mindists' `float-elapsed` killer among them. Three survivors
+are **equivalent**: a new record's initial key — the constant, the value addend, the time subtracted — is replaced by the
+refresh's refiling before anything reads it, and the other records' order and slots in the min-list depend only on their own keys
+and the free list, never on it. **Two were not**, and the fixture was blind to them because each node held only the watcher: the
+creator registering the watcher on the second node first, and the removal notice walking the node first to last. Each node now
+holds up to three of the probe's own collisions ahead of the watcher, so the watcher's two indices differ, and the ending records
+the order they are deleted in; the regenerated fixture (5,000 swept cases agreeing, 101,447 mindists) reddens both, the first on the
+watcher's indices and the second on the ending's events. **One ordering stays untested**: the watcher's destructor deleting its mindists last first. With the
+constructor's tails detoured, a mindist is on no list, so the order changes nothing a lane reads; it becomes visible — in the
+rechecked array and the event queue's free slots — only once the tails run.
+
 **The watcher's three tables and the creator's**, read from the disassembly (2026-09-14) — what keeps a broad-phase pair alive
 and what ends it:
 

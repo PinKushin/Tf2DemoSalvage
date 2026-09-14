@@ -37,7 +37,8 @@ public sealed class IvpPairWatcherConformanceTests
 
     /// <remarks>
     /// **The control on the fixture itself**: the binary must have made mindists and deleted some across refreshes, counted every refresh,
-    /// and ended cases each of the three ways — so creation, a refresh's deletions, and every ending were reached.
+    /// registered the watcher behind other collisions on both nodes at once, deleted two or more other collisions in one removal notice,
+    /// and ended cases each of the three ways — so creation, a refresh's deletions, the watcher's two indices and every ending were reached.
     /// </remarks>
     [Test]
     public void Fixture_TheCasesTheBinaryWasGiven_MakeDeleteAndEndEveryWay()
@@ -48,6 +49,8 @@ public sealed class IvpPairWatcherConformanceTests
         replays.Count(replay => replay.Outputs["created"][last] > 0).ShouldBeGreaterThan(0);
         replays.Count(replay => replay.Outputs["deleted"][last] > 0).ShouldBeGreaterThan(0);
         replays.ShouldAllBe(replay => replay.Outputs["refreshes"][last] == IvpPairWatcherReplay.StepCount);
+        replays.Count(replay => replay.Outputs["watcher-index"][0] != replay.Outputs["watcher-index"][1]).ShouldBeGreaterThan(0);
+        replays.Count(replay => replay.Outputs["end-event-count"][0] >= 2).ShouldBeGreaterThan(0);
 
         foreach (int ending in new[] { IvpPairWatcherReplay.EndDeleted, IvpPairWatcherReplay.EndFirstRemoved, IvpPairWatcherReplay.EndSecondRemoved })
         {

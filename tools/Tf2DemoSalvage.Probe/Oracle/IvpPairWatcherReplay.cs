@@ -16,13 +16,19 @@ namespace Tf2DemoSalvage.Probe.Oracle;
 /// **The form is <see cref="IvpImpactReplay"/>'s**, written by the `vphysics-pair-watcher` probe from the shipped `vphysics.dll` and
 /// replayed by `IvpPairWatcherConformanceTests`. The two objects are <see cref="IvpPairMindistsReplay"/>'s — resting, synthesized
 /// surfaces, the mindist constructor's tails recorded rather than run — with a hull manager, an OV node and the binary's own range
-/// manager added. Step 0 files each node in its object's hull manager, as the broad phase does before any creator runs, and makes the
-/// watcher; each later step tells one of its records that its hull passed; the case ends one of three ways. **The pair's delegator is the binary's own** (`FUN_1800b5fd0`), so a mindist's removal shows only in the pair and the counters.
+/// manager added. Step 0 files each node in its object's hull manager, as the broad phase does before any creator runs, registers the
+/// case's other collisions on each node, and makes the watcher; each later step tells one of its records that its hull passed; the
+/// case ends one of three ways. **The other collisions are the probe's**: each, told to go by the creator's removal notice, names
+/// itself into the ending's events and takes itself off its node through `FUN_18009ef40`. **The pair's delegator is the binary's own**
+/// (`FUN_1800b5fd0`), so a mindist's removal shows only in the pair and the counters.
 /// </remarks>
 public static class IvpPairWatcherReplay
 {
     /// <summary>How many steps a case runs: the watcher made, then refreshed five times.</summary>
     public const int StepCount = 6;
+
+    /// <summary>The most other collisions a node holds before the watcher.</summary>
+    public const int MostOthers = 3;
 
     /// <summary>An ending: the watcher's own slot 0 with 1.</summary>
     public const int EndDeleted = 0;
@@ -32,6 +38,9 @@ public static class IvpPairWatcherReplay
 
     /// <summary>An ending: the creator told the second object is leaving.</summary>
     public const int EndSecondRemoved = 2;
+
+    /// <summary>An event: one of a node's other collisions was deleted — <c>(4 &lt;&lt; 16) | (side &lt;&lt; 8) | index</c>.</summary>
+    public const int OtherDeleted = 4;
 
     /// <summary>What a case is given.</summary>
     public static IReadOnlyList<IvpReplayField> Inputs { get; } = BuildInputs();
@@ -53,6 +62,9 @@ public static class IvpPairWatcherReplay
         new("record-key", IvpReplayKind.Real32, StepCount * 2),
         new("node-watchers", IvpReplayKind.Whole32, StepCount * 2),
         new("watcher-index", IvpReplayKind.Whole32, StepCount * 2),
+        new("end-events", IvpReplayKind.Whole32, IvpPairMindistsReplay.Carried),
+        new("end-event-count", IvpReplayKind.Whole32, 1),
+        new("end-event-digest", IvpReplayKind.Real64, 1),
         new("end-live", IvpReplayKind.Whole32, 1),
         new("end-deleted", IvpReplayKind.Whole32, 1),
         new("end-watchers", IvpReplayKind.Whole32, 2),
@@ -105,7 +117,14 @@ public static class IvpPairWatcherReplay
             {
                 for (int side = 0; side < 2; side++)
                 {
-                    objects[side].Node!.File(objects[side].Hull, environment.Now, IvpImpactReplay.Real64(inputs, "node-gap", side));
+                    IvpOvNode node = objects[side].Node!;
+
+                    node.File(objects[side].Hull, environment.Now, IvpImpactReplay.Real64(inputs, "node-gap", side));
+
+                    for (int index = 0; index < IvpImpactReplay.Whole32(inputs, "others", side); index++)
+                    {
+                        node.Register(new Other(objects[side], side, index, events));
+                    }
                 }
 
                 watcher = creator.Create(objects[0], objects[1]) as IvpPairWatcher ?? throw new InvalidDataException("The creator made no watcher.");
@@ -145,6 +164,8 @@ public static class IvpPairWatcherReplay
 
         int ending = IvpImpactReplay.Whole32(inputs, "ending", 0);
 
+        events.Clear();
+
         if (ending == EndDeleted)
         {
             watcher!.Delete();
@@ -154,6 +175,7 @@ public static class IvpPairWatcherReplay
             creator.ObjectRemoved(objects[ending - EndFirstRemoved]);
         }
 
+        IvpPairMindistsReplay.Record(outputs, "end-event", 0, events);
         outputs["end-live"][0] = environment.LiveMindists;
         outputs["end-deleted"][0] = environment.DeletedMindists;
 
@@ -210,6 +232,7 @@ public static class IvpPairWatcherReplay
             new("hull-gradient", IvpReplayKind.Real32, 2),
             new("hull-value", IvpReplayKind.Real32, 2),
             new("node-gap", IvpReplayKind.Real64, 2),
+            new("others", IvpReplayKind.Whole32, 2),
         ]);
         IvpPairMindistsReplay.AddPlacementFields(fields, StepCount);
         fields.AddRange(
@@ -221,5 +244,17 @@ public static class IvpPairWatcherReplay
         ]);
 
         return fields;
+    }
+
+    /// <summary>The probe's other collision on a node: when deleted, it names itself and takes itself off the node.</summary>
+    private sealed class Other(IvpCollisionObject owner, int side, int index, List<int> events) : IvpCollision
+    {
+        public override (IvpCollisionObject First, IvpCollisionObject Second) Objects => (owner, owner);
+
+        public override void Delete()
+        {
+            events.Add(IvpPairMindistsReplay.Name(OtherDeleted, side, index));
+            owner.Node!.Unregister(this);
+        }
     }
 }

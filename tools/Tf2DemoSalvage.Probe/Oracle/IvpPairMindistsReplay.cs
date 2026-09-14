@@ -117,13 +117,13 @@ public static class IvpPairMindistsReplay
 
     /// <summary>A step's list into its lanes: the first <see cref="Carried"/>, the count and an FNV-1a digest.</summary>
     /// <param name="outputs">The outputs.</param>
-    /// <param name="name">The list's lane prefix: <c>pair</c> or <c>event</c>.</param>
+    /// <param name="name">The list's lane prefix — <c>pair</c>, whose carried lane is <c>pair</c>, or an event list, whose is its plural.</param>
     /// <param name="step">The step.</param>
     /// <param name="values">The list.</param>
     internal static void Record(Dictionary<string, long[]> outputs, string name, int step, List<int> values)
     {
         ulong hash = 14695981039346656037UL;
-        long[] carried = outputs[name == "pair" ? "pair" : "events"];
+        long[] carried = outputs[name == "pair" ? "pair" : name + "s"];
 
         for (int index = 0; index < values.Count; index++)
         {

@@ -16,11 +16,12 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <remarks>
 /// **The binary builds and frees the watcher, its pair vector and every mindist itself**, and its range manager (`FUN_1800a0420` with
 /// policy 1) and each object's hull min-list (`FUN_1800aae10`). **What the probe fabricates** beside <see cref="VphysicsPairObjects"/>: the
-/// creator (8 bytes on table `1800fe6e8`), each object's hull manager fields and an OV node holding its object and a watcher list.
-/// **Each node is filed in its object's hull manager first** (`FUN_18009de80`), as the broad phase files it before any creator runs: a
-/// watcher's record keyed at 1e20 walks the list from its first entry, and on an empty list — whose minimum the constructor leaves at
-/// 1e10 — that entry is 0xffff and the walk faults. Every case must leave both nodes without watchers and both min-lists holding only
-/// the node, or the probe stops.
+/// creator (8 bytes on table `1800fe6e8`), each object's hull manager fields, an OV node holding its object and a watcher list, and up to
+/// three other collisions per node, registered through `FUN_18009de20` before the watcher, whose slot 4 names each into the ending's
+/// events and takes it off its node through `FUN_18009ef40`. **Each node is filed in its object's hull manager first**
+/// (`FUN_18009de80`), as the broad phase files it before any creator runs: a watcher's record keyed at 1e20 walks the list from its
+/// first entry, and on an empty list — whose minimum the constructor leaves at 1e10 — that entry is 0xffff and the walk faults. Every
+/// case must leave both nodes empty and both min-lists holding only the node once the probe has cleared them, or the probe stops.
 ///
 /// **Modes.** With no mode, or `sweep n`, random cases are compared lane by lane; `fixture path` writes the cases
 /// `IvpPairWatcherConformanceTests` reads.
@@ -32,6 +33,8 @@ public sealed class VphysicsPairWatcherProbe : IProbe
     private const long MinListAddress = 0x1800aae10;
     private const long MinListRemoveAddress = 0x1800ab1b0;
     private const long FileNodeAddress = 0x18009de80;
+    private const long RegisterAddress = 0x18009de20;
+    private const long UnregisterAddress = 0x18009ef40;
 
     private const int DefaultSweep = 5_000;
     private const int FixtureCases = 200;
@@ -49,6 +52,9 @@ public sealed class VphysicsPairWatcherProbe : IProbe
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void FileNodeCall(nint node, nint hull, double gap);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void NodeCollision(nint node, nint collision);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint CreateCall(nint creator, nint first, nint second);
@@ -142,6 +148,7 @@ public sealed class VphysicsPairWatcherProbe : IProbe
             inputs["hull-gradient"][side] = IvpImpactReplay.Lane((float)(draws.Unit() * 2d));
             inputs["hull-value"][side] = IvpImpactReplay.Lane((float)(draws.Unit() * 0.5d));
             inputs["node-gap"][side] = IvpImpactReplay.Lane(draws.Unit() * 2d);
+            inputs["others"][side] = (int)(draws.Unit() * (IvpPairWatcherReplay.MostOthers + 1));
         }
 
         for (int step = 0; step < IvpPairWatcherReplay.StepCount; step++)
@@ -163,23 +170,29 @@ public sealed class VphysicsPairWatcherProbe : IProbe
         return inputs;
     }
 
-    /// <summary>The two objects, their hull min-lists and nodes, the range manager and the creator, in unmanaged memory.</summary>
+    /// <summary>The two objects, their hull min-lists and nodes, the other collisions, the range manager and the creator, in unmanaged memory.</summary>
     private sealed class Native : IDisposable
     {
-        private const int NodeCapacity = 4;
+        private const int NodeCapacity = 8;
         private const int MinListCapacity = 16;
 
         private readonly VphysicsPairObjects _objects;
         private readonly FileNodeCall _fileNode;
         private readonly RemoveCall _remove;
+        private readonly NodeCollision _register;
+        private readonly NodeCollision _unregister;
         private readonly nint _creator;
         private readonly nint[] _nodes = new nint[2];
+        private readonly nint[][] _others = [new nint[IvpPairWatcherReplay.MostOthers], new nint[IvpPairWatcherReplay.MostOthers]];
+        private readonly Dictionary<nint, (int Side, int Index)> _otherNames = [];
 
         public Native(nint module)
         {
             _objects = new VphysicsPairObjects(module);
             _fileNode = VphysicsLibrary.Function<FileNodeCall>(module, FileNodeAddress);
             _remove = VphysicsLibrary.Function<RemoveCall>(module, MinListRemoveAddress);
+            _register = VphysicsLibrary.Function<NodeCollision>(module, RegisterAddress);
+            _unregister = VphysicsLibrary.Function<NodeCollision>(module, UnregisterAddress);
 
             nint range = _objects.Block(0x68);
 
@@ -187,6 +200,10 @@ public sealed class VphysicsPairWatcherProbe : IProbe
             Marshal.WriteIntPtr(_objects.Environment, 0x38, range);
             _creator = _objects.Block(0x10);
             Marshal.WriteIntPtr(_creator, 0, VphysicsLibrary.Address(module, CreatorTable));
+
+            nint otherTable = _objects.Block(8 * 8);
+
+            Marshal.WriteIntPtr(otherTable, 4 * 8, Marshal.GetFunctionPointerForDelegate(_objects.Keep(new RemovedCall(OtherRemoved))));
 
             ConstructMinList minList = VphysicsLibrary.Function<ConstructMinList>(module, MinListAddress);
 
@@ -198,6 +215,13 @@ public sealed class VphysicsPairWatcherProbe : IProbe
                 Marshal.WriteInt16(_nodes[side], 0x40, NodeCapacity);
                 Marshal.WriteIntPtr(_nodes[side], 0x48, _objects.Block(NodeCapacity * 8));
                 Marshal.WriteIntPtr(_objects.Object(side), 0xd8, _nodes[side]);
+
+                for (int index = 0; index < IvpPairWatcherReplay.MostOthers; index++)
+                {
+                    _others[side][index] = _objects.Block(0x20);
+                    Marshal.WriteIntPtr(_others[side][index], 0, otherTable);
+                    _otherNames[_others[side][index]] = (side, index);
+                }
             }
         }
 
@@ -236,6 +260,13 @@ public sealed class VphysicsPairWatcherProbe : IProbe
                     for (int side = 0; side < 2; side++)
                     {
                         _fileNode(_nodes[side], _objects.Object(side) + 0x80, BitConverter.Int64BitsToDouble(inputs["node-gap"][side]));
+
+                        for (int index = 0; index < (int)inputs["others"][side]; index++)
+                        {
+                            Marshal.WriteInt32(_others[side][index], 0x18, -1);
+                            Marshal.WriteInt32(_others[side][index], 0x1c, -1);
+                            _register(_nodes[side], _others[side][index]);
+                        }
                     }
 
                     watcher = Slot<CreateCall>(_creator, 5)(_creator, _objects.Object(0), _objects.Object(1));
@@ -278,6 +309,8 @@ public sealed class VphysicsPairWatcherProbe : IProbe
 
             int ending = (int)inputs["ending"][0];
 
+            _objects.Events.Clear();
+
             if (ending == IvpPairWatcherReplay.EndDeleted)
             {
                 Slot<DeletingDestructor>(watcher, 0)(watcher, 1);
@@ -287,21 +320,36 @@ public sealed class VphysicsPairWatcherProbe : IProbe
                 Slot<RemovedCall>(_creator, 4)(_creator, _objects.Object(ending - IvpPairWatcherReplay.EndFirstRemoved));
             }
 
+            IvpPairMindistsReplay.Record(outputs, "end-event", 0, _objects.Events);
             outputs["end-live"][0] = Marshal.ReadInt32(environment, 0xb0);
             outputs["end-deleted"][0] = Marshal.ReadInt32(environment, 0xb8);
 
             for (int side = 0; side < 2; side++)
             {
                 nint collisionObject = _objects.Object(side);
+                nint node = _nodes[side];
 
-                outputs["end-watchers"][side] = (ushort)Marshal.ReadInt16(_nodes[side], 0x42);
+                outputs["end-watchers"][side] = (ushort)Marshal.ReadInt16(node, 0x42);
                 outputs["end-hull-count"][side] = Marshal.ReadInt32(collisionObject, 0xa0 + 0x1c);
-                _remove(collisionObject + 0xa0, (ushort)Marshal.ReadInt16(_nodes[side], 0x8));
-                Marshal.WriteIntPtr(_nodes[side], 0x18, 0);
 
-                if (outputs["end-watchers"][side] != 0 || Marshal.ReadInt32(collisionObject, 0xa0 + 0x1c) != 0)
+                for (int place = (ushort)Marshal.ReadInt16(node, 0x42) - 1; place >= 0; place--)
                 {
-                    throw new InvalidOperationException("A pair watcher case left a watcher on a node or a record in a min-list.");
+                    nint other = Marshal.ReadIntPtr(Marshal.ReadIntPtr(node, 0x48), place * 8);
+
+                    if (!_otherNames.ContainsKey(other))
+                    {
+                        throw new InvalidOperationException("A pair watcher case left a watcher on a node.");
+                    }
+
+                    _unregister(node, other);
+                }
+
+                _remove(collisionObject + 0xa0, (ushort)Marshal.ReadInt16(node, 0x8));
+                Marshal.WriteIntPtr(node, 0x18, 0);
+
+                if (Marshal.ReadInt32(collisionObject, 0xa0 + 0x1c) != 0)
+                {
+                    throw new InvalidOperationException("A pair watcher case left a record in a min-list.");
                 }
             }
 
@@ -314,5 +362,13 @@ public sealed class VphysicsPairWatcherProbe : IProbe
         private static T Slot<T>(nint instance, int slot)
             where T : Delegate =>
             Marshal.GetDelegateForFunctionPointer<T>(Marshal.ReadIntPtr(Marshal.ReadIntPtr(instance), slot * 8));
+
+        private void OtherRemoved(nint other, nint creator)
+        {
+            (int side, int index) = _otherNames[other];
+
+            _objects.Events.Add(IvpPairMindistsReplay.Name(IvpPairWatcherReplay.OtherDeleted, side, index));
+            _unregister(_nodes[side], other);
+        }
     }
 }
