@@ -28,13 +28,14 @@ public sealed class IvpFrictionPair(IvpRigidBody firstCore, IvpRigidBody secondC
 
     /// <summary>
     /// The contacts touching this pair — the array <c>SolveOncePerPsi</c> walks per pair (its own <c>+8</c>/count
-    /// <c>+2</c>), summing each contact's <c>PushOut × Friction × &lt;an as-yet-unnamed +0x60 factor&gt;</c> into the
-    /// pair's own friction-cone budget before clamping and solving each one.
+    /// <c>+2</c>), summing each contact's <c>NormalPush × Friction × &lt;an as-yet-unnamed +0x60 factor&gt;</c> into
+    /// the pair's own friction-cone budget before clamping and solving each one — see
+    /// <see cref="IvpTangentialSolve.SolveOncePerPair"/>.
     /// </summary>
     /// <remarks>
-    /// **Not yet populated by anything** — filing a contact here belongs with whatever eventually links a pair's
-    /// contacts as they're created/dropped (`FUN_180088090`'s own bookkeeping, read earlier this session for
-    /// `IvpFrictionLinking.LinkContactByCore` but not carried this far). See `docs/HANDOFF.md`, item 3.
+    /// **Filed by <see cref="IvpFrictionLinking.LinkContactByCore"/>**, once per contact, the first time it links
+    /// into this pair. **Never removed** — the native's own drop (`FUN_180088090`'s bookkeeping when a mindist
+    /// stops colliding) is not ported; see `docs/HANDOFF.md`, item 3.
     /// </remarks>
     public IList<IvpContactPoint> Contacts { get; } = [];
 }
