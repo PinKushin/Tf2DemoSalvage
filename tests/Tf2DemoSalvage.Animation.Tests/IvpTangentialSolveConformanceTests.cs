@@ -112,4 +112,54 @@ public sealed class IvpTangentialSolveConformanceTests
         rows.Value.Axis0.MassRow.ShouldBe((0f, 0.5f, 0f, 1f));
         rows.Value.Axis0.Diagonal.ShouldBe(1.5f);
     }
+
+    [Test]
+    public void ApplyImpulse_ANullCore_DoesNothing() =>
+        Should.NotThrow(() => IvpTangentialSolve.ApplyImpulse(
+            null, (1f, 0f, 0f), (0f, 1f, 0f), default, (1f, 1f), sign: 1f));
+
+    /// <remarks>
+    /// **Linear push uses the raw axis scaled by inverse mass; angular push uses the mass row directly**, with no
+    /// second inverse-inertia scaling. Unit inverse mass and a unit axis-0 impulse of <c>2</c> along <c>(1,0,0)</c>
+    /// give a linear push of exactly <c>(2,0,0)</c>.
+    /// </remarks>
+    [Test]
+    public void ApplyImpulse_AnAxis0Impulse_PushesAlongAxis0ScaledByInverseMass()
+    {
+        IvpRigidBody core = new() { InverseMass = 1f };
+        IvpJacobianRow axis0Row = new((1f, 0f, 0f, 1f), (3f, 0f, 0f, 1f), 4f);
+        IvpJacobianRow axis1Row = new((0f, 1f, 0f, 1f), (0f, 3f, 0f, 1f), 4f);
+
+        IvpTangentialSolve.ApplyImpulse(core, (1f, 0f, 0f), (0f, 1f, 0f), (axis0Row, axis1Row), (2f, 0f), sign: 1f);
+
+        core.PendingVelocity.ShouldBe((2f, 0f, 0f));
+        core.PendingAngularVelocity.ShouldBe((6f, 0f, 0f));
+    }
+
+    /// <remarks>The second core takes the negated sign, flipping both the linear and angular push.</remarks>
+    [Test]
+    public void ApplyImpulse_TheSecondCore_TakesTheNegatedSign()
+    {
+        IvpRigidBody core = new() { InverseMass = 1f };
+        IvpJacobianRow axis0Row = new((1f, 0f, 0f, 1f), (3f, 0f, 0f, 1f), 4f);
+        IvpJacobianRow axis1Row = new((0f, 1f, 0f, 1f), (0f, 3f, 0f, 1f), 4f);
+
+        IvpTangentialSolve.ApplyImpulse(core, (1f, 0f, 0f), (0f, 1f, 0f), (axis0Row, axis1Row), (2f, 0f), sign: -1f);
+
+        core.PendingVelocity.ShouldBe((-2f, 0f, 0f));
+        core.PendingAngularVelocity.ShouldBe((-6f, 0f, 0f));
+    }
+
+    /// <remarks>Applying twice accumulates onto whatever was already pending, rather than replacing it.</remarks>
+    [Test]
+    public void ApplyImpulse_APendingPushAlreadyStaged_Accumulates()
+    {
+        IvpRigidBody core = new() { InverseMass = 1f, PendingVelocity = (1f, 0f, 0f) };
+        IvpJacobianRow axis0Row = new((1f, 0f, 0f, 1f), (0f, 0f, 0f, 1f), 1f);
+        IvpJacobianRow axis1Row = default;
+
+        IvpTangentialSolve.ApplyImpulse(core, (1f, 0f, 0f), (0f, 0f, 0f), (axis0Row, axis1Row), (1f, 0f), sign: 1f);
+
+        core.PendingVelocity.ShouldBe((2f, 0f, 0f));
+    }
 }
