@@ -139,3 +139,4 @@
 - [No task cards](no-task-cards.md) — D169/D171; the main session is the first mate: reviewed sonnet subagents, never cards or sibling sessions, and it works every merge.
 - [Spend fewer tokens](spend-fewer-tokens.md) — ponytail ultra; LSP/MCP over raw reads, one-line remarks, no reflexive agents.
 - [Push when work piles up](push-when-work-piles-up.md) — crash safety outranks "push sparingly"; commit a green state first, never mid-sabotage.
+- [The JIT picks the NaN destination](the-jit-picks-the-nan-destination.md) — C# `+`/`*` leave two-NaN results to operand order; Addsd/Mulsd pin it, never license it.

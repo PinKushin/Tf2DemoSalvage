@@ -4821,6 +4821,20 @@ they raised were then checked by hand, and both were wrong (the sums are in orde
 **Checked by a sweep built to make NaNs meet**: 30,000 systems with one to four values replaced by quiet or signalling NaNs of
 either sign, a payload, or an infinity agree with the binary on every lane, NaN bits included, alongside 30,000 random and
 30,000 near-singular ones.
+
+**The first fixture could not fail on five rules, and random draws do not reach them.** Sabotage showed 160 random systems
+blind to the vanished pivot's `1000·eps`, the row test's `(double)1e-5f`, the step's tie margin, the restart's sort and the
+restart's near-zero push; 200,000 heaps of near-identical contacts reached the restart's fallback once. **The instrument that
+found the inputs was the oracle itself, pointed at a port broken on purpose**: `sweep n generator path` writes every case whose
+lanes differ from the binary, so with one rule sabotaged the file holds exactly the inputs that rule decides. Two rules were
+settled by hand-built cases (a singular `2×2` whose residual lands either side of `1000·eps`; a row `r − r·9.9999999e-6` that
+holds under `(double)1e-5f` and not under `1e-5`), and the other three by generators aimed at them — a tie-heavy heap
+`a·I + b·11ᵀ` with grouped right-hand sides (1,062 of 30,000 told the tie margin apart), and NaN-seeded systems. Swapping one
+NaN destination in the step separated 934 of 30,000 NaN-seeded systems from the binary and one random one — the case that first
+showed the difference. The sabotage-found cases are listed in the probe by generator and index, so the fixture regenerates
+them. **One sabotage cannot redden at its site in the binary either**: `FUN_1800a9010` writes `2` to `+0xa4` and then zeroes
+the state whenever it is positive, so `1` and `2` are indistinguishable there. On the restored port, 120,000 systems across the
+four generators agree on every lane.
 FUN_1800a59e0(lcs) — the full system's residual at the current x:
     the view at lcs+0x120 (M, +0x128 rows, +0x12c columns) pointed at +0x58 → +0x60:  FUN_1800a76c0(view);  pointed back at +0x40 → +0x50
     +0x60[i] −= b[i] every i < +0x78;  +0x60[+0x68[j]] = 0 every active j
