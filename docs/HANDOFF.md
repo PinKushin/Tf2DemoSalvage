@@ -280,13 +280,23 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      running the tests, not by inspection**: `LinkContactByCore` was relinking an already-filed contact into
      `IvpFrictionSystem`'s list unconditionally, setting the point's own `Next` to itself — a one-node cycle. Fixed by
      skipping the link when the contact already belongs to the system.
-   - **Next, in order**: (1) port the impact-retry loop (`FUN_180090700`/`FUN_180090bd0`, read in full, close to pure
-     orchestration since `Estimate`/`Enter` already exist and `Enter` does its own solve — this should now be small);
-     (2) the top-level `IntegrateAwakeCores`-shaped PSI driver, including the still-missing "build fresh ledge sides
-     from live objects each PSI" piece and `collide`'s generation bump (`env+0x1a4`); (3) a `vphysics-friction-link`
-     and/or `vphysics-collide` oracle probe before trusting any of this in a real running loop — everything so far is
-     synthetic conformance testing, not a replay against the shipped binary; (4) only then replace
-     `IvpEnvironment`/`IvpContact`.
+   - **Correction, same session: the "retry loop" is not separate scope from the top-level PSI driver — it's the same
+     mechanism, reused recursively.** Re-read `FUN_180090700` mapping its real parameters (out-scratch, mindist,
+     system, pair, contact — corrected from an earlier wrong guess at this same call): it builds a temporary
+     mini-island of just the pair's two touched objects, runs the worst-approaching-contact retry
+     (`FUN_180090bd0`, up to 5,000 times) against it, then calls `IvpEnvironment::IntegrateAwakeCores` **on that same
+     scratch structure** to re-integrate just those two cores. This confirms `IvpIntegrator.cs`'s original doc
+     comment — *"the pipeline `FUN_180082560` assembles islands in `FUN_180090700`"* — was right; an earlier read in
+     this session had doubted it. **`collide` (`IvpMindistCollide.Collide`) is correctly complete as written**: it
+     ends at `IvpImpactSolver.Enter`, which is the real, whole physics response for one collision. What comes after —
+     building a real island/environment substructure and driving `IntegrateAwakeCores` on it — was always going to be
+     the top-level PSI driver's job; this reading just confirms there is one remaining big task here, not two.
+   - **Next, in order**: (1) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — this is where
+     `FUN_180090700`'s mini-island construction, the retry loop, "build fresh ledge sides from live objects each PSI",
+     and `collide`'s generation bump (`env+0x1a4`) all land together, since they're one mechanism; (2) a
+     `vphysics-friction-link` and/or `vphysics-collide` oracle probe before trusting any of this in a real running
+     loop — everything so far is synthetic conformance testing, not a replay against the shipped binary; (3) only
+     then replace `IvpEnvironment`/`IvpContact`.
    - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
      when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
      transform (`+0x1a0/+0x1b0`), then clears the pointer. `IvpMindistMinimize::Minimize` (`180095cb0`) was already
