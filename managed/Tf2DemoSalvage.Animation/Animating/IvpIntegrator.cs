@@ -411,6 +411,37 @@ public sealed class IvpRigidBody
     /// </remarks>
     public bool Immovable { get; set; }
 
+    /// <summary>Bit <c>0x1</c> of <c>core+0x0</c>.</summary>
+    /// <remarks>
+    /// *Named by its bit because what IVP calls it is unread.* The friction system sets it on every movable core when it freezes a
+    /// heap of more than 150 contacts (`FUN_1800a9bf0`), and the same routine moves a contact to the head of its list only when
+    /// both its objects' friction cores carry it.
+    /// </remarks>
+    public bool FlagBit0 { get; set; }
+
+    /// <summary>A movable core's share of the one friction system it is in — <c>core+0x60</c>.</summary>
+    public IvpFrictionInfo? FrictionInfo { get; set; }
+
+    /// <summary>An immovable core's share of each friction system it is in — the hash at <c>core+0x60</c>, keyed by system.</summary>
+    public Dictionary<IvpFrictionSystem, IvpFrictionInfo> FrictionInfos { get; } = [];
+
+    /// <summary>This core's share of a friction system, or none — <c>FUN_180077f00(core, system)</c>.</summary>
+    /// <param name="system">The system.</param>
+    /// <returns>The share, or null when this core is not in the system.</returns>
+    /// <remarks>
+    /// **An immovable core looks the system up in its hash (`FUN_180072350`); a movable one answers its one share when that share's
+    /// system is this one.**
+    /// </remarks>
+    public IvpFrictionInfo? FrictionInfoIn(IvpFrictionSystem system)
+    {
+        if (Immovable)
+        {
+            return FrictionInfos.GetValueOrDefault(system);
+        }
+
+        return FrictionInfo is { } info && ReferenceEquals(info.System, system) ? info : null;
+    }
+
     /// <summary>What a collision's freeze check left in bits 6–7 of <c>core+0x0</c>, zero to three (B369).</summary>
     /// <remarks>
     /// **Two writers are read.** Committing an impact, `FUN_18008ddf0` sets the bits from the anomaly manager's answer once

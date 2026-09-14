@@ -145,6 +145,28 @@ public sealed class IvpContactPoint
     /// <summary>The pair's friction factor — <c>+0x78</c>, narrowed from the material manager's slot 2 by <see cref="SetMaterials"/>.</summary>
     public float Friction { get; internal set; }
 
+    /// <summary>The next contact in its friction system's list — <c>+0x0</c>.</summary>
+    public IvpContactPoint? Next { get; internal set; }
+
+    /// <summary>The previous contact in its friction system's list — <c>+0x8</c>.</summary>
+    public IvpContactPoint? Previous { get; internal set; }
+
+    /// <summary>The friction system this contact is filed in — <c>+0xc0</c>, written by <see cref="IvpFrictionSystem.Link"/>.</summary>
+    public IvpFrictionSystem? FrictionSystem { get; internal set; }
+
+    /// <summary>The push the heap solve last gave this contact, times the PSI event's <c>+0x4</c> — the float at <c>+0x88</c>.</summary>
+    public float NormalPush { get; internal set; }
+
+    /// <summary>
+    /// How many solves in a row have pushed this contact, negative, or left it unpushed, positive — the signed word at <c>+0x92</c>.
+    /// </summary>
+    /// <remarks>
+    /// **The heap solve sorts its list by it and warm-starts on the pushed ones at the head.** A push takes it to `−1`, or one
+    /// further below; no push to `0`; a pull from a negative streak to `1`, or one further up, and past `9` back to `0`
+    /// (`FUN_1800aa5c0`). The constructor zeroes it.
+    /// </remarks>
+    public short PushStreak { get; internal set; }
+
     /// <summary>Writes the record's objects, features and materials, its elasticity and this point's friction — <c>FUN_1800908d0(cp, record)</c>.</summary>
     /// <param name="manager">The environment's material manager, <c>env+0xe8</c>.</param>
     /// <exception cref="ArgumentNullException"><paramref name="manager"/> is null.</exception>

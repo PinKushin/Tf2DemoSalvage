@@ -37,7 +37,7 @@ public sealed class IvpContactRecord
     public float VirtualMass { get; private set; }
 
     /// <summary>Both movable cores' inverse masses along the normal, summed — <c>+0x94</c>.</summary>
-    public float InverseMass { get; private set; }
+    public float InverseMass { get; internal set; }
 
     /// <summary>The first feature's core, when it is movable — <c>+0x98</c>.</summary>
     public IvpRigidBody? FirstCore { get; internal set; }
@@ -99,6 +99,26 @@ public sealed class IvpContactRecord
 
     /// <summary>The pair's elasticity — <c>+0x80</c>, narrowed from the material manager's slot 3.</summary>
     public float Elasticity { get; internal set; }
+
+    /// <summary>This record's row in the heap solve — the signed word at <c>+0x70</c>; <c>−1</c> for a contact left out.</summary>
+    public short Index { get; internal set; }
+
+    /// <summary>The first object's core's share of the system being solved — the pointer the heap solve writes at <c>+0x78</c>.</summary>
+    /// <remarks>
+    /// **The engine writes it over <see cref="PushOut"/> and <see cref="PredictedGap"/>**, and the second share over
+    /// <see cref="Elasticity"/>, so after a heap solve those bytes hold pointers. Here they are separate fields; the two agree
+    /// while everything that reads the estimate rebuilds the record first. *That no reader crosses a heap solve is not established.*
+    /// </remarks>
+    public IvpFrictionInfo? FirstFrictionInfo { get; internal set; }
+
+    /// <summary>The second object's core's share — the pointer at <c>+0x80</c>.</summary>
+    public IvpFrictionInfo? SecondFrictionInfo { get; internal set; }
+
+    /// <summary>The contact's <see cref="IvpContactPoint.PushStreak"/> as the heap solve found it — the dword at <c>+0x88</c>.</summary>
+    public int SolvePushStreak { get; internal set; }
+
+    /// <summary>The contact's <see cref="IvpContactPoint.Gap"/> as the heap solve found it — the float at <c>+0x8c</c>.</summary>
+    public float SolveGap { get; internal set; }
 
     /// <summary>Builds a contact point's record, as <c>FUN_18008d0c0</c> does.</summary>
     /// <param name="point">The contact point, whose gap, slide, last measure and record are written.</param>

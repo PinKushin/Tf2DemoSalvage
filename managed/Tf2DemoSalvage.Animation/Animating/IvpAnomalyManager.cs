@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
@@ -111,6 +112,12 @@ public interface IPhysicsCollisionSolver
     /// <returns>Whether to freeze it.</returns>
     /// <remarks>*"pObject has already done the max number of collisions this tick, should we freeze it to save CPU?"*</remarks>
     public bool ShouldFreezeObject(IvpRigidBody body);
+
+    /// <summary>Whether a heap of objects with too many contacts should be frozen — <c>ShouldFreezeContacts</c>.</summary>
+    /// <param name="objects">Each core's first object, named by its core.</param>
+    /// <returns>Whether to freeze them.</returns>
+    /// <remarks>*"The system has determined that these objects have too many contacts, should we freeze them?"* (`vphysics_interface.h:514`).</remarks>
+    public bool ShouldFreezeContacts(IReadOnlyList<IvpRigidBody> objects);
 }
 
 /// <summary>The client's collision solver — <c>CCollisionEvent</c>, which <c>PhysicsLevelInit</c> hands the environment (B369).</summary>
@@ -120,6 +127,10 @@ public sealed class ClientCollisionEvent : IPhysicsCollisionSolver
     /// <inheritdoc />
     /// <remarks>`bool ShouldFreezeObject( IPhysicsObject *pObject ) { return true; }` (`game/client/physics.cpp:76`).</remarks>
     public bool ShouldFreezeObject(IvpRigidBody body) => true;
+
+    /// <inheritdoc />
+    /// <remarks>`bool ShouldFreezeContacts( IPhysicsObject **pObjectList, int objectCount ) { return true; }` (`game/client/physics.cpp:78`).</remarks>
+    public bool ShouldFreezeContacts(IReadOnlyList<IvpRigidBody> objects) => true;
 }
 
 /// <summary>The three anomaly checks the impact solver makes — the slots of <c>IVP_Anomaly_Manager</c> it calls (B369).</summary>
@@ -144,6 +155,11 @@ public interface IIvpAnomalyManager
     /// <param name="core">The core.</param>
     /// <returns>Whether to freeze it.</returns>
     public bool MaximumCollisionsExceededCheckFreezing(IvpAnomalyLimits limits, IvpRigidBody core);
+
+    /// <summary>Slot 5: a friction system holds more contacts than it solves — should its cores freeze.</summary>
+    /// <param name="cores">The system's cores, <c>system+0x50</c>.</param>
+    /// <returns>Whether to freeze them.</returns>
+    public bool MaximumContactsExceeded(IReadOnlyList<IvpRigidBody> cores);
 }
 
 /// <summary>
@@ -208,4 +224,15 @@ public sealed class VphysicsAnomalyManager(IPhysicsCollisionSolver? collisionSol
     /// <remarks>`FUN_180016e80`: `SETNZ` of the game's answer, or `1` when the manager's `+0x10` is null.</remarks>
     public bool MaximumCollisionsExceededCheckFreezing(IvpAnomalyLimits limits, IvpRigidBody core) =>
         collisionSolver?.ShouldFreezeObject(core) ?? true;
+
+    /// <inheritdoc />
+    /// <exception cref="InvalidOperationException">No game solver was handed over, where the binary dereferences the null.</exception>
+    /// <remarks>
+    /// `FUN_180016ec0`: each core's first object's `CPhysicsObject` (`[core+0x70]` → `+0x100`) appended to a list, in order, and the
+    /// list handed to `ShouldFreezeContacts` (`IPhysicsCollisionSolver` slot 4) — `SETNZ` of the answer. **Unlike slot 3 it does not
+    /// check for a solver**: `MOV RCX,[RCX+0x10]; MOV RAX,[RCX]` with nothing between.
+    /// </remarks>
+    public bool MaximumContactsExceeded(IReadOnlyList<IvpRigidBody> cores) =>
+        (collisionSolver ?? throw new InvalidOperationException("vphysics asks a game solver that was never handed over."))
+            .ShouldFreezeContacts(cores);
 }

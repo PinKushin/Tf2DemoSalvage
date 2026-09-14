@@ -107,6 +107,10 @@ public static class IvpCollisionTolerance
     /// <remarks>The gap past which <see cref="IvpContactPoint.Estimate"/> gives a record no estimate.</remarks>
     public static readonly float EstimateGapMetres = Settled.EstimateLimitMetres;
 
+    /// <summary><c>block[0x43]</c>, <c>DAT_18012d64c</c>, in METRES — <see cref="ContactGap"/> as IVP's own routines read it.</summary>
+    /// <remarks>Carried in metres for <see cref="IvpFrictionSystem"/>, whose matrix build takes each record's gap off it.</remarks>
+    public static readonly float ContactGapInMetres = Settled.ContactGapMetres;
+
     /// <summary>The margin for a class — <c>DAT_18012d548[class]</c>, which is <c>block[2 + class]</c>.</summary>
     /// <param name="marginClass">The mindist's byte at bits 22–29 of its <c>+0x20</c>.</param>
     /// <returns>The margin, in Source units.</returns>

@@ -494,8 +494,10 @@ public static class IvpImpactReplay
     }
 
     /// <summary>A game solver that gives one answer, as the replay's <c>freezes</c> lane says.</summary>
-    private sealed class FixedAnswer(bool answer) : IPhysicsCollisionSolver
+    internal sealed class FixedAnswer(bool answer) : IPhysicsCollisionSolver
     {
         public bool ShouldFreezeObject(IvpRigidBody body) => answer;
+
+        public bool ShouldFreezeContacts(IReadOnlyList<IvpRigidBody> objects) => answer;
     }
 }

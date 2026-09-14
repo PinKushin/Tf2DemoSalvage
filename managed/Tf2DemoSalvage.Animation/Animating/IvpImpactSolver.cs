@@ -20,6 +20,10 @@ public sealed class IvpImpactEnvironment
     /// <summary>The anomaly manager, <c>env+0x40</c>.</summary>
     public required IIvpAnomalyManager Anomalies { get; init; }
 
+    /// <summary>The length of the environment's gravity, <c>env+0x138</c> — <c>m_gravityLength</c>, in metres per second squared.</summary>
+    /// <remarks>The friction system's firmness test and energy allowance read it (<see cref="IvpFrictionSystem"/>).</remarks>
+    public float GravityLength { get; init; }
+
     /// <summary>The impacts solved, <c>env+0x94</c>, counted through the first core's environment.</summary>
     public int Impacts { get; set; }
 

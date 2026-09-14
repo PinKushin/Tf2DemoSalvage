@@ -4929,6 +4929,59 @@ An independent run then swapped six operand orders (the push's first-core `y` an
 spin add, the flush's velocity `x` and spin `y` adds, and the energy's mass multiply): **all six reddened**, each by one or two
 NaN-pair cases whose diagnostic showed the two payloads exchanged, and none by any other case.
 
+**The heap solve itself is ported and pinned, 2026-09-14**: `FUN_1800a9bf0`'s sort and its solve from `+0x7c = 0` on — the
+freeze past 150 contacts, `FUN_180083100`'s records, `FUN_1800a9520`, `FUN_1800aa5c0`, `FUN_1800aa9f0`, `FUN_1800aa1a0` and
+`FUN_1800aa010` — as `IvpFrictionSystem`, beside `IvpFrictionInfo` (a core's `0x18`-byte share), `IvpFrictionPair`, the contact
+point's list links, streak and push, and the record's row, shares and copies. The `vphysics-heap-solve` probe writes a whole
+friction system at the offsets above — cores, objects, contact points, records, shares, pairs, the environment with its limits,
+an eight-megabyte arena and an anomaly manager whose slot 5 is a managed callback — settles the tolerance block with the binary's
+own `FUN_180098fd0` run as `IvpCollisionTolerance` runs it (`block[0x43]` comes out `0x3c4ffe5a` both ways), and calls
+`FUN_1800a9bf0`: **30,000 random systems of up to eight contacts among up to four cores, a quarter NaN-seeded, agree on every
+lane**, and `IvpHeapSolveConformanceTests` replays 208 the binary wrote: 200 random, three 152-contact heaps (each answer from slot 5,
+and a frozen one whose mover pairs with an immovable core named second) and five sweep cases found against sabotaged ports.
+
+**Twenty-four sabotages, then more inputs.** The first 202-case fixture reddened on thirteen; three sabotages were malformed and
+broke the build. Of the eight that stayed green, four are dead by construction: `k·0` is `+0` whichever stiffness takes a zero
+gap, and a NaN's payload never reaches an output from the closing-speed sum or the energy sums — the energies meet only a
+comparison, and a NaN push is treated as no push. The other four named missing inputs: **no case had a pull** (a sub-system answer
+below zero survives `FUN_1800aa9f0` only when gravity's `0.01` share is not above it, so the generator now draws negative gravity
+too), none started a pull streak at 8, none changed the active rows enough to round differently from the constraint solver, and
+none froze a heap where the pair test's second immovable check mattered. Sweeping the binary against a port broken on each found
+the cases the probe now lists as `Killers`. **An independent run of those four and the three rewritten well-formed reddened all
+seven** against the 208-case fixture, each by its own subset.
+
+What reading it for porting settled, beyond the decode above:
+
+- **A contact is active when its streak copy is nonzero as a dword** — `CMP [R8+0x88],0` is `41 83 B8`, not the byte form `41 80
+  B8` — so a contact pushed 256 PSIs running, whose low byte is zero, still starts active. The fixture's streaks include `−256`.
+- **The heap's energy sums each core's velocity with its `x` lane staged first and `y`, `z` real first, and its spin real first
+  in every lane** (`FUN_1800aa1a0`), which is not the order the flush adds them in.
+- **A zero or NaN push leaves `+0.0` behind whatever its sign** — `MOVAPS XMM6,XMM7` before the `MAXSD` — so the contact's
+  `+0x88` is the event's float times positive zero.
+- **Slot 5 does not check for a game solver** (`FUN_180016ec0`): each core's first object's `CPhysicsObject` goes into a list
+  handed straight to `ShouldFreezeContacts`, where slot 3 answers yes when there is none. The client's answers yes
+  (`game/client/physics.cpp:78`).
+- **The record's `+0x78` and `+0x80` shares are written over its push-out, estimate and elasticity.** The port keeps them as
+  separate fields; the two readings agree while every reader of those bytes rebuilds the record first, *which is not established.*
+
+**The filing pass between the sort and the solve is read but not ported.** `FUN_180083e40(system, cp)`, which drops a contact:
+
+```
+FUN_180078820 on both objects' physical cores:  core+0x200 = core+0x208 = env+0x188 (the time)
+FUN_180088ce0: unlinked, +0x7a − 1 (the head moved when it was first)
+FUN_180088130: its pair found (FUN_1800863f0; none → assert, line 0x299); FUN_180083da0 takes the contact off the pair;
+    FUN_180086b30 answers whether any remain; none → FUN_180083db0 takes the pair off the system, destructor, 0x50 freed, answer 1
+    answer 1 → system+0x80 = 1
+each object's share (FUN_180077f00):  FUN_180075130 takes the contact off it (last match, the rest moved down)
+    a share left empty → FUN_180077c10 takes it off its core (an immovable core's hash, FUN_1800726e0; a movable core's +0x60 zeroed),
+        FUN_180088c80 takes the core off the system (a movable one off +0x58 and three more of the system's vectors at +0x20, +0x0
+        and +0x10 by FUN_180074fb0; every core off +0x48; +0x78 − 1), and the core's unit (+0x1f8) has bit 9 cleared and bit 8 set
+FUN_180083210: the contact point's destructor;  0xd0 freed
+```
+
+`FUN_180088ce0` then `FUN_180087c90` is the move to the head: unlinked with the count taken down, then linked at the head with
+`cp+0xc0` pointed at the system and the count put back.
+
 **So vphysics' surfaces never set `cp+0x64`** (a surface entry's `+0xc` is zero), and the axis friction is dead for them — the
 entry's port keeps it because the routine has it. The merge, the controller bases and the simulation units are read below and
 above. **Nothing here is ported.**
