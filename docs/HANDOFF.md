@@ -336,10 +336,20 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    - **Done, same session: `RagdollElement.Ledges`/`IvpRigidBody.Ledges`** carry the un-flattened `PhysicsLedge` list
      through — `HullInBoneSpace` already had it and was discarding it into `Hull`/`Faces`. Not yet consumed; this is
      the raw material the next step below needs. 1 test, both `RagdollBody.Build`/`BuildProp` call sites updated.
-   - **Next, in order**: (1) as its own dedicated port: read `FUN_180085a80`, `IvpContact::TangentialSlipVelocity`,
-     `IvpContact::TryInvertSymmetric`, `FUN_18009c620` in full, design `IvpFrictionSystem`'s per-pair contact list and
-     the tangential solve's own state, port both `SolveOncePerPsi` dispatch branches, build a `vphysics-friction-solve`
-     probe and oracle fixture, sabotage-verify; (2) turn `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
+   - **Three of the four tangential-solve dependencies read in full, 2026-09-14 — confirms the subsystem's true
+     scale.** `IvpContact::TryInvertSymmetric` is trivial (a plain 2×2 matrix inverse, determinant-guarded). But
+     `IvpContact::TangentialSlipVelocity` turned out to be misnamed by Ghidra's heuristics — it builds a jacobian
+     solver scratch structure and calls the real work, `IvpRigidBody::BuildJacobian`, which is **large and dense**:
+     up to three tangent-axis rows, each a cross product, a matrix rotation, and an inverse-inertia-weighted
+     mass-matrix/RHS accumulation — the same scale as anything in `IvpImpactSolver`. **This puts the tangential
+     solve's scope beyond doubt: it is a full subsystem, not a handful of small functions.** Only `FUN_18009c620`
+     (apply the impulse) and `FUN_180085a80` (an early-out branch) remain unread, but the shape is now completely
+     clear and does not need more reading to be believed.
+   - **Next, in order**: (1) as its own dedicated port, in a fresh session: read the last two functions
+     (`FUN_18009c620`, `FUN_180085a80`), design `IvpFrictionSystem`'s per-pair contact list, a jacobian-row type
+     matching `BuildJacobian`'s output, and the tangential solve's own state, port both `SolveOncePerPsi` dispatch
+     branches, build a `vphysics-friction-solve` probe and oracle fixture, sabotage-verify; (2) turn
+     `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
      tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
      so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet
      enough, since a mindist needs a *node* (matching `PhysicsLedgeTreeNode`) to name which ledge a synapse feature
