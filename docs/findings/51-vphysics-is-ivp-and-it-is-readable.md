@@ -5035,7 +5035,12 @@ closes the pair, and `FUN_180097ae0` reads the phantom bits for the rechecked ar
 choice needs the node a ledge names, not the node it was found at: `PhysicsLedgeTreeNode.LedgeNode` now carries it, and a ledge
 naming an offset where no node lies is refused rather than read as a radius. A record's slot 1 reaches `FUN_180097f00` through the
 environment's handler, which sends the recursive state to the larger mindist on the flags alone, as the binary does; a plain
-mindist in that state is refused.
+mindist in that state is refused. Sixty synthetic cases pin it. An independent reader went through all thirteen functions in the
+disassembly against the port and found no divergence. Thirty-six sabotages each reddened a case: one cut per branch, comparison,
+constant, operand and call order. Four of them first failed to compile, because deleting a call left Sonar an unused local, and
+reddened once rewritten to keep their operands used. One cut was foreseen as a survivor before the round ran and got its case
+first: `IvpRecursiveMindist::RefreshChildren`'s own count check, unobservable while every caller past the limit returned before
+reaching it, is pinned by a refresh past the limit that files the records again but refreshes nothing beneath.
 
 So **a larger mindist opens its ledge only when the pair would otherwise freeze or collide on a hull's virtual face**, and
 then waits on the hull managers like a far pair; `FUN_180097f00`, told its hull passed, sends it to `FUN_1800b28a0`, which

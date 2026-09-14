@@ -8822,4 +8822,18 @@ project answers that at every call site the decompiler shows, and in every docum
   block, an instruction address. Existing `FUN_` references convert when their file is next edited, not in one scripted pass.
 - Data labels (`DAT_`) follow the same rule once read.
 
+**The owner, clarifying:** *"i really didnt mean you needed to redo the names on what youve already done, but its fine that you
+are, the big thing was to have any new ones be done like a human normally does, just so i can follow along better, and maybe even
+actually help if i knoww what a function is suppose to do."* Then, told how professionals work — names kept in the disassembler's
+database rather than find-and-replaced into exported text; variables, parameters, struct fields, globals and vtables named as
+understanding grows; recoverable names (library signatures, RTTI class names, assertion source paths) preferred to invented ones —
+*"yea lets do it that way from here on out then, i want the reverseing to look like it was done by a pro."*
+
+**So, for every function read from here on, in the Ghidra project:** the function named; its parameters named and typed, with a
+struct declared for the object it works on once its fields are read; the globals and vtables it touches named and typed; and a
+plate comment saying what it does and which port member it became. `vphysics.dll` carries no RTTI class names, but its assertion
+paths name IVP's source files (`ivp_collision\ivp_mindist_recursive.cxx`), which place a function in its IVP module. The Ghidra MCP
+plugin's own naming check demands a Hungarian `g_` prefix on globals; that check is switched off per call (`strict_mode: false`) so
+vtables keep Ghidra's `Class::vftable` form.
+
 Related: D89, D172, B369.
