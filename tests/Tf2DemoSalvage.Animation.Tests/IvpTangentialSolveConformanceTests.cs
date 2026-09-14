@@ -162,4 +162,47 @@ public sealed class IvpTangentialSolveConformanceTests
 
         core.PendingVelocity.ShouldBe((2f, 0f, 0f));
     }
+
+    [Test]
+    public void CrossTerm_NoRows_IsZero() => IvpTangentialSolve.CrossTerm(null).ShouldBe(0f);
+
+    /// <remarks><c>dot(Axis0.MassRow, Axis1.Row)</c>, read straight off <c>BuildJacobian</c>'s own accumulation.</remarks>
+    [Test]
+    public void CrossTerm_TwoRows_IsTheDotOfTheFirstMassRowAndTheSecondRow()
+    {
+        IvpJacobianRow axis0 = new((0f, 0f, 0f, 0f), (1f, 2f, 3f, 4f), 0f);
+        IvpJacobianRow axis1 = new((5f, 6f, 7f, 8f), (0f, 0f, 0f, 0f), 0f);
+
+        // 1*5 + 2*6 + 3*7 + 4*8 = 5 + 12 + 21 + 32 = 70.
+        IvpTangentialSolve.CrossTerm((axis0, axis1)).ShouldBe(70f);
+    }
+
+    /// <remarks>With only one side movable, the system is exactly that side's own diagonals and cross term.</remarks>
+    [Test]
+    public void System_OneStaticSide_IsExactlyTheMovableSidesOwnTerms()
+    {
+        IvpJacobianRow axis0 = new(default, default, 2f);
+        IvpJacobianRow axis1 = new(default, default, 3f);
+
+        (double A, double B, double D) system = IvpTangentialSolve.System((axis0, axis1), null);
+
+        system.A.ShouldBe(2d);
+        system.D.ShouldBe(3d);
+        system.B.ShouldBe(0d);
+    }
+
+    /// <remarks>Both sides movable: the diagonals and cross terms sum across both cores.</remarks>
+    [Test]
+    public void System_BothSidesMovable_SumsBothCoresContributions()
+    {
+        IvpJacobianRow firstAxis0 = new(default, default, 2f);
+        IvpJacobianRow firstAxis1 = new(default, default, 3f);
+        IvpJacobianRow secondAxis0 = new(default, default, 5f);
+        IvpJacobianRow secondAxis1 = new(default, default, 7f);
+
+        (double A, double B, double D) system = IvpTangentialSolve.System((firstAxis0, firstAxis1), (secondAxis0, secondAxis1));
+
+        system.A.ShouldBe(7d);
+        system.D.ShouldBe(10d);
+    }
 }

@@ -145,4 +145,42 @@ public static class IvpTangentialSolve
             core.PendingAngularVelocity.Y + (rows.Axis0.MassRow.Y * scaled0) + (rows.Axis1.MassRow.Y * scaled1),
             core.PendingAngularVelocity.Z + (rows.Axis0.MassRow.Z * scaled0) + (rows.Axis1.MassRow.Z * scaled1));
     }
+
+    /// <summary>One core's off-diagonal contribution to the 2×2 tangential system — <c>dot(Axis0.MassRow, Axis1.Row)</c>.</summary>
+    /// <param name="rows">The core's own rows from <see cref="BuildJacobian"/>, or null for a static side.</param>
+    /// <returns>The contribution, zero for a static side.</returns>
+    /// <remarks>
+    /// **The native's `+0x1f`/`+0x24` accumulation, read from `BuildJacobian`'s own body.** Two cores each contribute
+    /// their own cross term to the SAME 2×2 system, summed exactly as the diagonals are — the axes are shared between
+    /// both sides of a contact, but each core's mass response to them is its own.
+    /// </remarks>
+    public static float CrossTerm((IvpJacobianRow Axis0, IvpJacobianRow Axis1)? rows)
+    {
+        if (rows is not { } value)
+        {
+            return 0f;
+        }
+
+        return (value.Axis0.MassRow.X * value.Axis1.Row.X) +
+            (value.Axis0.MassRow.Y * value.Axis1.Row.Y) +
+            (value.Axis0.MassRow.Z * value.Axis1.Row.Z) +
+            (value.Axis0.MassRow.W * value.Axis1.Row.W);
+    }
+
+    /// <summary>The 2×2 tangential system for a contact — both cores' diagonals and cross terms, summed.</summary>
+    /// <param name="first">The first core's rows, or null for a static side.</param>
+    /// <param name="second">The second core's rows, or null for a static side.</param>
+    /// <returns>
+    /// The system <c>[[a, b], [b, d]]</c>, ready for <see cref="TryInvertSymmetric"/> — <c>a</c> is the summed axis-0
+    /// diagonal, <c>d</c> the summed axis-1 diagonal, and <c>b</c> the summed cross term.
+    /// </returns>
+    public static (double A, double B, double D) System(
+        (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? first, (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? second)
+    {
+        double a = (first?.Axis0.Diagonal ?? 0f) + (second?.Axis0.Diagonal ?? 0f);
+        double d = (first?.Axis1.Diagonal ?? 0f) + (second?.Axis1.Diagonal ?? 0f);
+        double b = CrossTerm(first) + CrossTerm(second);
+
+        return (a, b, d);
+    }
 }
