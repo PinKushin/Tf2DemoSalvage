@@ -78,11 +78,25 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    `IvpRootFinder` were converted from inches with their tests. The running path (`IvpEnvironment`, `IvpContact`,
    `RagdollSimulation`) stays in Source units until it is replaced; the conversion belongs at the `CPhysicsEnvironment` and
    `CPhysicsObject` seam, nowhere inside the core.
-3. **Displacements**: the mesh manager's `FUN_180025bc0` calls the engine's virtual-mesh query, which is not in vphysics;
-   `FUN_18007bea0` is unread.
-4. **The running path**: the unit/scheduler layer and the filing layer, then replace `IvpContact`/`IvpEnvironment`, then step 7.
-   `vphysics.dll` exports `CreateInterface` with `VPhysics031` and `VPhysicsCollision007` (`src/public/vphysics_interface.h`), so a
-   real corpse drop can likely be simulated in process and compared end to end. Not tried.
+3. **The running path — scoped 2026-09-14, not started.** `IvpEnvironment.Simulate()` (897 lines) is a fully independent,
+   invented solver: damping → push flush → gravity → `Constraints.Solve()` → an event-walk subdivided per collision
+   (`Advance`, bounded by `MaximumCollisionChecks`) → once-per-PSI friction (`Rub`), built on its own `IvpContact`/manifold
+   types (1765 lines). **None of it is wired to the ported core** — `IvpBroadPhase`, `IvpPairCreator`/`IvpPairWatcher`,
+   `IvpPairScheduler.Examine` (item 1's scheduler, already fully ported per-pair), `IvpMindistManager`'s queue, or
+   `IvpRecursiveMindist`. Replacing it means: each `IvpRigidBody` pair gets a real mindist via the broad phase/pair
+   creator instead of the invented per-step manifold search; each PSI walks the event queue calling `Examine` per pair
+   (as `FUN_180074c80`'s own PSI loop does — read next, not yet read) instead of `Advance`'s ad hoc subdivision; a
+   time-of-impact event becomes the contact the joint/friction solve reads, replacing `IvpContact` outright rather than
+   feeding it. **Read `FUN_180074c80` in full next** (the PSI driver `Simulate()`'s own comment already cites for
+   ordering) to find the real loop shape before writing any C#. This is a multi-session rewrite; do not attempt it in one
+   sitting.
+4. **Displacements — deferred 2026-09-14, pick up after item 3 (or later).** `FUN_180025bc0` calls the engine's
+   virtual-mesh query, which is outside vphysics.dll, so this subsystem can never be corpse-drop tested standalone even
+   fully ported — and most TF2 maps don't use physics displacements. `FUN_18007bea0` (closest-point-on-triangle distance,
+   vertex/edge/face region test) is read: built on `FUN_18007cdf0` (triangle edge+normal setup, axis-permutation table at
+   `0x180124fe0`) and two more dense SIMD helpers, `FUN_18007d070` (edge-projection, read — computes an edge parameter
+   pair) and `FUN_18007d300` (unread). Low information density per token spent reading it by hand; stopped here on the
+   owner's call to conserve budget, not because it's blocked.
 
 **Phantoms stay unported** (`FUN_180097940`'s far path is read, `FUN_18008ae50`/`FUN_18008b0a0` are the phantom controller's
 listeners); whether a TF2 client corpse ever meets one is not established — the port throws where one would be told.

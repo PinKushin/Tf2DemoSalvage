@@ -80,7 +80,8 @@ public enum IvpScheduleOutcome
 /// **Read from the disassembly, instruction by instruction** (`docs/findings/51`, *The scheduler's near branch and the
 /// dispatch into the search*, *The event queue, and where the far branch hands a pair off* and *The hull manager, and how a
 /// far pair is told to look again*). **A far pair asked to be removed is unfiled and filed with its objects' hull
-/// managers**; the handler that takes it back when a hull passes it, `FUN_180097f00`, is not ported. Units are metres and
+/// managers**; the handler that takes it back when a hull passes it, `FUN_180097f00`, is ported as
+/// <see cref="IvpMindistHull.HullPassed"/>. Units are metres and
 /// seconds — the `1e-12` gap floor and the `1e-19` closing-speed floor are the engine's own, carried directly.
 /// </remarks>
 public static class IvpPairScheduler
