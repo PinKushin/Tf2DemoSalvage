@@ -325,14 +325,23 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      `vphysics-impact`/`vphysics-heap-solve` oracle-backed ports. Treat the tangential solve as its own
      multi-session port, following the exact same precedent (OV tree, larger mindist, recursive mindist, impact
      solver), not a step folded into finishing the running path.
+   - **Found trying to wire the PSI driver's live `Minimize` call, 2026-09-14 — a real architectural prerequisite, not
+     a detail.** `IvpMindistMinimize.Minimize`/`IvpMindist`/`PhysicsLedgeTreeNode` all need a real `PhysicsLedge`
+     (points, triangles, edge topology) for each side. **`IvpRigidBody.Hull` — the running path's current
+     representation, read by the old GJK-based `IvpContact.Find` — is a flat point cloud plus a separate `Faces` list,
+     not a `PhysicsLedge`/ledge tree.** Only `IvpWorldCollision` carries real ledge-tree data today. Building the
+     live PSI driver means giving ragdoll bodies a real ledge-tree hull too (from `PhysicsHull.Tree`, the same
+     decoder `IvpWorldCollision` already uses for the world) — not just reusing the existing flat point list. This is
+     a real, necessary piece of replacing `IvpContact`, not an incidental wiring detail.
    - **Next, in order**: (1) as its own dedicated port: read `FUN_180085a80`, `IvpContact::TangentialSlipVelocity`,
      `IvpContact::TryInvertSymmetric`, `FUN_18009c620` in full, design `IvpFrictionSystem`'s per-pair contact list and
      the tangential solve's own state, port both `SolveOncePerPsi` dispatch branches, build a `vphysics-friction-solve`
-     probe and oracle fixture, sabotage-verify; (2) the top-level `IntegrateAwakeCores`-shaped PSI/island driver —
-     `FUN_180090700`'s mini-island construction, the retry loop, `collide`'s generation bump (`env+0x1a4`), using the
-     now-ready `IvpLedgeSide.FromLedge`; (3) a `vphysics-friction-link`/`vphysics-collide` oracle probe for
-     everything built this session — still synthetic conformance testing, not a replay against the shipped binary;
-     (4) only then replace `IvpEnvironment`/`IvpContact`.
+     probe and oracle fixture, sabotage-verify; (2) give `IvpRigidBody` a real ledge-tree hull (from `PhysicsHull.Tree`)
+     alongside its current flat `Hull`/`Faces`, so `IvpLedgeSide.FromLedge` can build sides for a moving body, not
+     only the world; (3) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — `FUN_180090700`'s mini-island
+     construction, the retry loop, `collide`'s generation bump (`env+0x1a4`); (4) a
+     `vphysics-friction-link`/`vphysics-collide` oracle probe for everything built this session — still synthetic
+     conformance testing, not a replay against the shipped binary; (5) only then replace `IvpEnvironment`/`IvpContact`.
    - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
      when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
      transform (`+0x1a0/+0x1b0`), then clears the pointer. `IvpMindistMinimize::Minimize` (`180095cb0`) was already
