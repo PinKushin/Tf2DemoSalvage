@@ -356,11 +356,27 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      need — not chased further this session. **The scope is now unambiguous and needs no more reading to be
      believed**: this is a subsystem at or beyond `IvpImpactSolver`'s own complexity, and belongs in its own
      dedicated, multi-session, oracle-backed port, exactly like every other subsystem of this size in this project.
-   - **Next, in order**: (1) as its own dedicated port, in a fresh session: read the three newly-surfaced functions
-     (`FUN_18008fb60`, `FUN_180070950`, `FUN_18006dcb0`), design `IvpFrictionSystem`'s per-pair contact list, a
-     jacobian-row type matching `BuildJacobian`'s output, and the tangential solve's own state (the anchor/`+0xb0`
-     mechanism especially), port both `SolveOncePerPsi` dispatch branches, build a `vphysics-friction-solve` probe
-     and oracle fixture, sabotage-verify; (2) turn
+   - **Real progress landed, 2026-09-14: six pieces of the tangential solve are ported and tested in
+     `IvpTangentialSolve.cs`.** `TryInvertSymmetric` (the 2×2 inverse), `BuildJacobian`/`IvpJacobianRow` (one core's
+     row and mass response, simplified to exactly two axes since the native's third-axis capacity is dead in every
+     call site this project reaches), `ApplyImpulse` (stages the found impulse into a core's pending push),
+     `CrossTerm`/`System` (assembles the 2×2 system from both cores' diagonals and off-diagonal contributions), and
+     `RelativeVelocity` (the current-slip half of the solve's right-hand side, via the already-ported
+     `IvpRigidBody.PointVelocity`). 26 tests, all with hand-computed exact values (one caught a real test-math error
+     — the `w=1` lane isn't scaled by inverse inertia — not a code error). The three small newly-surfaced functions
+     (`FUN_18008fb60`, `FUN_180070950`, `FUN_18006dcb0`) turned out to all be trivial and already covered by existing
+     ported equivalents (material lookup, matrix rotate, cross product) — no further reading needed for them.
+   - **What's left before `SolveTangentialPair` itself is complete**: mixing the pair's own stored, scaled slip
+     target (`IvpContactPoint.Slide`) into the right-hand side ahead of `RelativeVelocity` — the native's exact
+     cross-axis terms for this (converting a slip stored in a possibly-stale axis basis into the current one) need
+     one more careful read of `SolveOncePerPsi`'s own stack locals before porting, to avoid guessing a formula this
+     session couldn't fully pin down from a single read; then the cone-clip/anchor-state dispatch
+     (`FUN_180085a80`'s two branches) and `IvpFrictionSystem`'s per-pair contact list `SolveOncePerPsi` walks.
+   - **Next, in order**: (1) as its own dedicated port, in a fresh session: re-read `SolveOncePerPsi`'s stack locals
+     around its `TangentialSlipVelocity` call to pin down the slip-target cross-axis mixing, design
+     `IvpFrictionSystem`'s per-pair contact list and the tangential solve's own state (the anchor/`+0xb0`
+     mechanism especially), port `SolveTangentialPair` and both `SolveOncePerPsi` dispatch branches, build a
+     `vphysics-friction-solve` probe and oracle fixture, sabotage-verify; (2) turn
      `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
      tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
      so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet
