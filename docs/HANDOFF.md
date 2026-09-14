@@ -196,13 +196,33 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      record at `mindist+0x70`"*) — `IvpMindist` needs a `ContactPoint` property (nullable `IvpContactPoint`) before
      `collide` can be written at all, since a contact point's whole design is to outlive one collision and warm-start
      from the last one.
-   - **Not attempted this session, and it should not be rushed**: writing `collide` for real. Every other subsystem in
-     this port — down to the larger mindist's own 5-stage, oracle-backed process — earned trust through a dedicated
-     `vphysics-*` probe calling the shipped binary in process before being wired in. `collide` is the one piece left
-     that would ship without one if written now. **Next session's concrete steps**: read
-     `IvpFrictionSystem::LinkContactByCore` and the true `FUN_180090700` (this call site, not the island-assembly one)
-     in full, add `IvpMindist.ContactPoint`, write `collide` as its own class with its own oracle probe
-     (`vphysics-collide` or similar) before wiring it into any running loop.
+   - **Correction, same session: this is NOT mostly orchestration.** `FUN_180090700` (`collide`'s tail call) is the
+     PSI's impact-retry loop, read in full: it rebuilds each collided pair's contact records, then loops
+     `FUN_180090bd0` (also read in full) — which scans every touched friction pair for the WORST approaching contact
+     (`IvpContactPoint.Estimate`, already ported), calls `IvpImpactSolver.Enter`/`.Solve` on it (already ported), and
+     repeats up to 5,000 times — before finally re-entering `IvpEnvironment::IntegrateAwakeCores` itself. **This
+     confirms the PSI is not a clean linear phase sequence**: a single collision can recursively re-run the whole
+     per-core integration loop. This part IS close to pure orchestration (`Estimate`/`Enter`/`Solve` already exist) and
+     is safely portable once read once more carefully for the exact loop-exit condition (this session's read is close
+     but the `FUN_18008da40`/`FUN_180090240`-style helpers inside it are still unread).
+     **`IvpFrictionSystem::LinkContactByCore` (`180090e50`) is a different story — read in full, and it is a genuine,
+     substantial subsystem**: per-object friction-info hash allocation, placement-new contact allocation
+     (`IvpContactPoint::Allocate`), and MERGING two previously-separate friction systems when a new contact bridges
+     objects that were each already in their own system. It pulls in roughly a dozen more unread functions
+     (`FUN_180078460`, `FUN_180081e50`, `FUN_1800879e0`, `FUN_180076690`, `FUN_180088090`, `FUN_180087bf0`,
+     `FUN_180086240`, `FUN_180083a60`, `FUN_180074e40`, `FUN_1800747a0`, `FUN_180088310`) — the same scale as the
+     OV-tree or larger-mindist ports, each of which got its own dedicated multi-stage, oracle-backed session. Writing
+     it now from inference, without reading those functions and without a `vphysics-*` probe verifying it against the
+     shipped binary, would risk exactly the kind of subtly-wrong physics this project's own history (documented at
+     length in `IvpEnvironment.cs`) has repeatedly paid for.
+   - **Not attempted this session, and it should not be rushed without its own oracle.** Every other subsystem in this
+     port — down to the larger mindist's own 5-stage, oracle-backed process — earned trust through a dedicated
+     `vphysics-*` probe calling the shipped binary in process before being wired in. `collide`'s friction-system
+     merge is the one piece that would ship without one if written now. **Next session's concrete steps, in order**:
+     (1) add `IvpMindist.ContactPoint` (small, safe, no dependencies); (2) read the dozen `LinkContactByCore`
+     dependency functions; (3) port `LinkContactByCore` with its own `vphysics-friction-link` probe and fixture,
+     following the exact stage pattern the larger mindist used; (4) only then wire `collide` and the top-level PSI
+     loop together.
    - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
      when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
      transform (`+0x1a0/+0x1b0`), then clears the pointer. `IvpMindistMinimize::Minimize` (`180095cb0`) was already
