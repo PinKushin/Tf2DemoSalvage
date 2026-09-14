@@ -281,11 +281,19 @@ public static class IvpBroadPhaseReplay
 
             events.Add(Event(Created, index, indices[first], indices[second]));
 
-            Watcher watcher = new(first, second, events, indices);
+            Watcher watcher = new(this, first, second, events, indices);
 
             first.Node!.Register(watcher);
             second.Node!.Register(watcher);
             return watcher;
+        }
+
+        public void CollisionRemoved(IvpCollision collision)
+        {
+            (IvpCollisionObject first, IvpCollisionObject second) = collision.Objects;
+
+            first.Node!.Unregister(collision);
+            second.Node!.Unregister(collision);
         }
 
         public void ObjectRemoved(IvpCollisionObject removed)
@@ -304,17 +312,16 @@ public static class IvpBroadPhaseReplay
         }
     }
 
-    /// <summary>The probe's watcher: off both nodes when deleted, the first object's first.</summary>
+    /// <summary>The probe's watcher: off both nodes through its creator when deleted, the first object's first.</summary>
     private sealed class Watcher(
-        IvpCollisionObject first, IvpCollisionObject second, List<int> events, Dictionary<IvpCollisionObject, int> indices) : IvpCollision
+        Creator creator, IvpCollisionObject first, IvpCollisionObject second, List<int> events, Dictionary<IvpCollisionObject, int> indices) : IvpCollision
     {
         public override (IvpCollisionObject First, IvpCollisionObject Second) Objects => (first, second);
 
         public override void Delete()
         {
             events.Add(Event(Deleted, 0, indices[first], indices[second]));
-            first.Node!.Unregister(this);
-            second.Node!.Unregister(this);
+            creator.CollisionRemoved(this);
         }
     }
 }

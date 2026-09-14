@@ -4774,6 +4774,30 @@ over six steps. **5,000 cases agree on every lane** — the pair after each step
 environment's three mindist counters — and `IvpPairMindistsConformanceTests` replays 200. *Not established: the larger mindist a
 hull ledge makes (the trees hold none), phantoms, and the object cache ring's eviction.*
 
+**The pair mindists' sabotage round** (24 mutants, the sonnet `sabotage-verifier`, the whole Animation suite each) reddened
+nineteen, the broad phase's two searched killers among them. Four survivors are **equivalent**: `Keep`'s scan direction and its
+swap guard's `>` against `>=` — a pair never holds two mindists of one ledge pair, since a refresh makes one only when none is
+found, and swapping an entry with itself rewrites nothing — and the collision list's preference of the first index over the
+second with its move guard's `>` against `>=`, for the same two reasons: a collision sits in a list once, and moving the last
+entry onto itself is a no-op. **One was not**: the extrapolation's elapsed time taken in double rather than narrowed, which only
+a ledge at the edge of its reach can show. The searched case `float-elapsed` puts both cores at 64 m/s over 10.5 − 10.4 s against
+a lone ledge of radius 1 whose reach is 6.40000005: the double's 6.39999999999999773 is inside it and the float's 6.40000009536743
+outside, and the binary, as predicted, paired nothing.
+
+**The pair watcher is ported and pinned (2026-09-14)** as `IvpPairWatcher` — the construction `FUN_1800b5dd0`, the refresh
+`FUN_1800b6080`, the destructor `FUN_1800b5e80` and the delegator's `FUN_1800b5fd0`, its records (`IvpPairWatcherRecord`, table
+`1800feb00`) filed through `IvpHullManager.InstallInFloat` and refiled through `Reinstall` — with the default creator as
+`IvpPairCreator` (`FUN_1800a06f0`, `FUN_1800a07a0`, and `FUN_1800a0690`, now slot 0 of `IIvpCollisionCreator`). The
+`vphysics-pair-watcher` probe shares the pair mindists probe's objects and detoured tails, adds the binary's own range manager and
+min-lists, files each fabricated OV node first, makes the watcher through the creator's own table, tells one of its records that
+its hull passed five times, and ends the case through the watcher's destructor or the creator's removal notice. **5,000 cases
+agree on every lane** — the pair, the tails, the four counters, both records' slots and keys, the nodes' watcher counts and the
+watcher's indices, and what each ending leaves — the binary making 95,627 mindists; `IvpPairWatcherConformanceTests` replays 200.
+**The first run faulted inside `FUN_1800b61a0`**: a min-list its constructor leaves empty holds a minimum of 1e10, so a record
+keyed at 1e20 takes the ordered walk from the list's first entry, which is 0xffff. The broad phase never reaches that state,
+because it files the object's node before any creator runs, and the probe now does the same. *Not established: a record's slot 2
+(its hull manager going away), the larger mindist, and a refresh while the objects' caches are refreshing.*
+
 **The watcher's three tables and the creator's**, read from the disassembly (2026-09-14) — what keeps a broad-phase pair alive
 and what ends it:
 
@@ -4815,6 +4839,27 @@ FUN_1800b6080(watcher):  A = +0x38, B = +0x58;  A's env+0xbc += 1;  env+0x38's s
 
 So **a broad-phase pair is re-examined only when one object's hull passes its record**, at a time the range manager's pair
 range set — never on a schedule — and it ends when either object leaves or its hull manager does.
+
+**The rest of the watcher's life, instruction by instruction** (read from the disassembly, 2026-09-14):
+
+```
+FUN_1800a06f0(creator, A, B) — the maker:  0x78 bytes;  FUN_1800b5dd0(w, creator, A, B) — so the first refresh runs BEFORE the
+    watcher is on either node;  both nodes (A+0xd8, B+0xd8) read, then FUN_18009de20(A's node, w), FUN_18009de20(B's node, w)
+FUN_1800b61a0's key is float throughout:  (float)(now − hull+0x0) MULSS hull+0x8, ADDSS hull+0x10, ADDSS 1e20f (60ad78ec) —
+    unlike FUN_180097c40's, which adds its allowance in double
+FUN_1800b6080's range call:  slot 1(rm, A, B, &rA, &rB);  gap = rA ADDSD rB, rA the destination;  now (env+0x188) is read after
+    the refresh;  FUN_180099970(hull, record, now, r) removes the record by its slot (FUN_1800ab1b0) and adds it at
+    (float)((double)((float)(now − hull+0x0)·hull+0x8 + hull+0x10) + r) — IvpHullManager.Reinstall's key
+record slot 1 FUN_1800b6170:  RCX = record+0x18 (the watcher), JMP FUN_1800b6080
+record slot 2 FUN_1800b6180:  the watcher, when not null, its slot 0 with 1
+record slot 4 FUN_1800b5f80:  out of its object's (record+0x10) min-list by its slot;  0x20 bytes freed when asked
+FUN_1800b5e80(w, flags) — the destructor:  the pair count (+0x6a) read once;  every mindist, last first, slot 0 with 1 when not null
+    (each takes itself out through the delegator, and is the last);  the creator's slot 0 — FUN_1800a0690: slot 2 names the
+    objects, both nodes read, then FUN_18009ef40 off A's node and off B's;  the vector freed unless inline, capacity and count
+    zeroed;  record 1 out of B's min-list (B+0xa0, by +0x50), then record 0 out of A's (by +0x30);  0x78 bytes freed on flag 1
+FUN_1800a07a0(creator, object) — an object leaving:  its node's watcher count (+0x42) read once;  every watcher, last first,
+    slot 4 (FUN_180017b40, slot 0 with 1)
+```
 
 **The ledges a pair is built from: the surface managers' slot 4** (read from the disassembly, 2026-09-14). A `.phy` solid and the
 world's brushes use vphysics' 16-byte polygon manager (table `1800eae60`, `+0x8` the `IVP_Compact_Surface`); a displacement
@@ -4886,7 +4931,52 @@ slot   plain 1800fdec8      larger 1800fe960
     (+0xfc) moved and the outer delegator's slot 2 told;  slot 3 FUN_1800b2860, the outer delegator's slot 3
 ```
 
-*Not read yet: the larger mindist's slots 6 and 8 in full.*
+**The larger mindist in full** (read from the disassembly, 2026-09-14). Its tables' bytes: `1800fe960` is `b2250, 992e0,
+97550, 97510, 17b40, 073e0 (RET), 28aa0, b2700, b2460`; its delegator `1800fe9a8` is `b2320, b2240, b2300, b2860`; the watcher's
+delegator `1800feb50` is `b5fd0, b5e74, 073e0 (RET), a0790`. `FUN_180028aa0`, slot 6, answers 1.
+
+```
+FUN_1800b21f0(m, …):  the base constructor;  table 1800fe960;  +0xe0 table 1800fe9a8;  +0xe8 dword 0 (capacity and count),
+    +0xf0 null;  +0xfc = 0, the mindists beneath it;  +0xf8 = −1, which side it opens
+delegator slot 0 FUN_1800b2320(d, child):  out of the vector (+0xea count, +0xf0) by its back-index — FUN_18009ef40's rule
+delegator slot 2 FUN_1800b2300(d, n):  +0xfc += n;  tail into the outer delegator's (m+0x10) slot 2 with n
+delegator slot 3 FUN_1800b2860(d):  the outer delegator's slot 3;  above zero → that again (tail);  else +0xfc
+    -- the watcher's slot 3 FUN_1800a0790 answers −1 and its slot 2 is RET, so the count stops at the outermost larger mindist
+slot 7 FUN_1800b2700(m, manager) — what a frozen minimize makes of it, where a plain one goes invalid:
+    count (slot 3) > DAT_18012d66c (1000, an int) → FUN_180098dd0(manager, m), FUN_180097ce0(manager, m);  return
+    ledge A = feature +0x50, ledge B = feature +0x88 (each & ~0xf, less header & 0xfff times 16, so +0x10 past the ledge)
+    A without children (ledge+0x8 & 3) → +0xf8 = 1;  else B without → 0;  else each ledge's node (ledge + ledge+0x4, null when
+        +0x4 is zero) radius +0x14, a null node 1e15f (DAT_1800fea24, 58635fa9):  +0xf8 = rA ≤ rB (COMISS/SETBE, so a NaN too)
+    FUN_180098dd0(manager, m);  env+0x38's slot 1(A, B, &rA, &rB);  FUN_180097d60(m, (float)(rA + rB))
+    flags & 0xffd3ffff | 0x100000 (recursive);  FUN_1800b29b0(m, rA + rB)
+slot 8 FUN_1800b2460(m) — the collision event, where a plain one runs FUN_18008ecb0:
+    count > 1000 → FUN_18008ecb0(m) (tail)
+    a feature's triangle word (& ~0xf) negative marks it on a hull, not real geometry;  by record kinds (+0x5a A, +0x92 B):
+        A point or ball:  B point or ball → FUN_18008ecb0;  B edge (its +0x88 word) or triangle (& ~0xf) negative → open B
+            (+0xf8 = 1), else FUN_18008ecb0
+        A edge:  B point or ball → A's triangle negative → open A (0), else FUN_18008ecb0;  B edge → B negative and A not → 1,
+            both negative → rA ≤ rB as slot 7, B not and A negative → 0, neither → FUN_18008ecb0;  B triangle → assertion
+        A triangle:  A's triangle negative → open A (0), else FUN_18008ecb0
+    opening:  +0xf8 written;  FUN_180098dd0(env+0x20, m);  slot 1 ranges;  FUN_180097d60(m, (float)(rA + rB));  flags
+        & 0xffd3ffff | 0x100000;  FUN_1800b29b0(m, rA + rB)
+FUN_1800b29b0(m, double gap):  count > 1000 → return;  the child count (+0xea) saved;  s = +0xf8:  the other side's feature
+    handed back to its ledge as that side's LEDGE, side s's as its ROOT, the rest null — FUN_180096680(A, B, gap, +0xe8,
+    ledgeA, ledgeB, rootA, rootB, m+0xe0);  the delegator's slot 2(new count − saved)
+FUN_1800b2250(m, flags) — slot 0:  FUN_1800b23a0(m);  the vector freed unless inline;  the base destructor FUN_180095fb0;
+    0x100 bytes freed on flag 1
+FUN_180097ce0(manager, m):  flags & 0xffcbffff | 0x80000 (invalid);  m at the head of the manager's +0x28 list;  record 0,
+    then record 1, at the head of its object's +0x48 list — FUN_180097440 without its unlinking
+FUN_180097d60(m, float gap):  A's object state (+0x78) & 7 clear → FUN_180097e20(m, 1e-10f, gap);  else B's clear →
+    FUN_180097e20(m, gap, 1e-10f);  else sA = (A core +0x254 ADDSS +0x1dc) ADDSS 1e-10f, sB likewise (DAT_1800ea938, 2edbe6ff);
+    wA = sB·0.1f + sA, wB = sA·0.1f + sB (DAT_1800ea968, the product the destination);  g = gap / (wB + wA);
+    FUN_180097e20(m, g·wA, g·wB)
+FUN_180097e20(m, float a, float b):  flags & 0xffd7ffff | 0x140000 (filed);  record 0 into A's min-list at A+0x98 + a
+    (ADDSS, the next PSI's value the destination), its slot +0x30;  record 1 into B's at B+0x98 + b, its slot +0x68
+```
+
+So **a larger mindist opens its ledge only when the pair would otherwise freeze or collide on a hull's virtual face**, and
+then waits on the hull managers like a far pair; `FUN_180097f00`, told its hull passed, sends it to `FUN_1800b28a0`, which
+closes it back into a plain exact pair once the length is past `DAT_18012d64c` and otherwise refreshes its children.
 
 **The pair's mindists, instruction by instruction** (read from the disassembly, 2026-09-14) — `FUN_180096680` takes nine
 arguments, where the first reading named six:
@@ -4928,7 +5018,9 @@ FUN_1800977f0(manager, m) — becoming exact at birth:  flags & 0xffcfffff | 0xc
     (+0x10, through m+0xc8/+0xd0);  record 0 at the head of its object's +0x40 list, then record 1;  FUN_180095cb0(m);
     either object's core has +0x58 set → m appended to the manager's rechecked vector (+0x18);  flags & 0xc000 clear →
     FUN_180099380(m, (coreA+0x1 | coreB+0x1) < 0x21, 0);  else m's slot 7(manager)
-FUN_180097940(manager, m) — the phantom:  FUN_180095ad0(m);  flags & 0xc000 set, or +0xa8 ≤ 0 → another path (not read);
+FUN_180097940(manager, m) — the phantom:  FUN_180095ad0(m);  flags & 0xc000 set, or +0xa8 ≤ 0 → filed far instead: the gap
+    +0x98 when frozen, else −(+0xa8) (XORPS with the sign mask);  without bits of 0xc00 FUN_180097ea0(m);  the first object's
+    phantom (+0x38), else the second's, adds its float +0x10;  tail into FUN_180097d60(m, gap) — read 2026-09-14;
     else flags & 0xc00 → FUN_180098380(m);  then linked exact as above, appended to the rechecked vector unless
     flags & 0x3000 is 0x1000, and tailed into FUN_180099380(m, 1, 2)
 FUN_180025bc0(mesh manager, &centre, double r, root, list) — a displacement's triangles:  the point scaled into Source's

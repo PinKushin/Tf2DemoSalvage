@@ -27,6 +27,10 @@ public abstract class IvpCollision
 /// <summary>A collision creator — an entry of <c>env+0x1d0</c>, the default one <c>FUN_1800a0650</c> (B369).</summary>
 public interface IIvpCollisionCreator
 {
+    /// <summary>Slot 0: a collision it made is going away.</summary>
+    /// <param name="collision">The collision.</param>
+    public void CollisionRemoved(IvpCollision collision);
+
     /// <summary>Slot 5: a collision for a pair the broad phase found new, or null to leave it to the next creator.</summary>
     /// <param name="first">The object the broad phase ran for.</param>
     /// <param name="second">The object it found.</param>
@@ -59,6 +63,9 @@ public sealed class IvpCollisionEnvironment
 
     /// <summary>The collision creators, <c>+0x1d0</c> (count <c>+0x1ca</c>), asked last first.</summary>
     public IList<IIvpCollisionCreator> Creators { get; } = [];
+
+    /// <summary>How many times a pair watcher or an opened mindist has asked its pair's ranges again, <c>+0xbc</c>.</summary>
+    public int WatcherRefreshes { get; set; }
 
     /// <summary>How many times the broad phase has run, <c>+0xc0</c>.</summary>
     public int BroadPhaseRuns { get; set; }
@@ -152,7 +159,7 @@ public static class IvpBroadPhase
         }
 
         double range = IvpMath.Addsd(
-            radius, IvpRangeManager.ObjectRange(new IvpCoreBounds(core.Radius, 0f, 0f, core.LinearSpeed, core.SurfaceSpeedBound), environment.Step));
+            radius, IvpRangeManager.ObjectRange(IvpRangeManager.Bounds(core), environment.Step));
 
         if (environment.RangeCallback is { } callback && (collisionObject.MovementState & StateBits) != 0)
         {

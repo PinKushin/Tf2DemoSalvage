@@ -77,73 +77,22 @@ public static class IvpPairMindistsReplay
 
         List<int> events = [];
         Dictionary<PhysicsLedgeTreeNode, int>[] lanes = [[], []];
-        PhysicsLedgeTree[] trees = new PhysicsLedgeTree[2];
-        IvpCollisionObject[] objects = new IvpCollisionObject[2];
         List<IvpCollision> pair = [];
-        IvpCollisionEnvironment environment = new()
-        {
-            Filter = (_, _) => true,
-            BecomeExact = mindist => events.Add(Name(Exact, lanes[0][mindist.Ledge(0)!], lanes[1][mindist.Ledge(1)!])),
-            BecomePhantom = mindist => events.Add(Name(Phantom, lanes[0][mindist.Ledge(0)!], lanes[1][mindist.Ledge(1)!])),
-        };
+        IvpCollisionEnvironment environment = NewEnvironment(events, lanes);
+        IvpCollisionObject[] objects = NewObjects(inputs, environment, lanes);
         Delegator delegator = new(pair, events, lanes);
-
-        for (int side = 0; side < 2; side++)
-        {
-            (byte[] surface, int[] nodes, _) = IvpLedgeTreeReplay.Surface(inputs, Suffix(side), StubSize);
-
-            trees[side] = PhysicsHull.Tree(surface) ?? throw new InvalidDataException("A synthesized surface read as no tree.");
-
-            for (int index = 0; index < NodeCount; index++)
-            {
-                if (nodes[index] >= 0)
-                {
-                    lanes[side][trees[side].Node(nodes[index])] = index;
-                }
-            }
-
-            IvpRigidBody placement = new()
-            {
-                Orientation = Quaternion(inputs, "cache-rotation", side * 4),
-                Position = Triple(inputs, "cache-translation", side * 3),
-            };
-            IvpObjectCache cache = new();
-
-            cache.Refresh(placement, 0d, 0, null, null);
-            objects[side] = new IvpCollisionObject
-            {
-                Core = new IvpRigidBody { Radius = IvpImpactReplay.Real32(inputs, "core-radius", side) },
-                Environment = environment,
-                Surface = new IvpPolygonSurfaceManager(trees[side]),
-                ExtraRadius = IvpImpactReplay.Real32(inputs, "extra", side),
-                MovementState = 8,
-                Cache = cache,
-            };
-        }
-
         Dictionary<string, long[]> outputs = NewOutputs();
 
         for (int step = 0; step < StepCount; step++)
         {
             events.Clear();
-            environment.Now = IvpImpactReplay.Real64(inputs, "now", step);
-
-            for (int side = 0; side < 2; side++)
-            {
-                IvpRigidBody core = objects[side].Core!;
-
-                core.LastStepped = IvpImpactReplay.Real64(inputs, "stepped", (step * 2) + side);
-                core.Position = Triple(inputs, "position", (step * 2 + side) * 3);
-                core.PreviousVelocity = IvpImpactReplay.Vector(inputs, "velocity", (step * 2 + side) * 3);
-            }
+            Place(inputs, environment, objects, step);
 
             IvpPairMindists.Refresh(
                 objects[0], objects[1], IvpImpactReplay.Real64(inputs, "gap", step), pair,
-                Given(inputs, "given-first", step, trees[0]), Given(inputs, "given-second", step, trees[1]), null, null, delegator);
+                Given(inputs, "given-first", step, objects[0]), Given(inputs, "given-second", step, objects[1]), null, null, delegator);
 
-            List<int> names = pair.ConvertAll(collision => Name(0, lanes[0][((IvpMindist)collision).Ledge(0)!], lanes[1][((IvpMindist)collision).Ledge(1)!]));
-
-            Record(outputs, "pair", step, names);
+            Record(outputs, "pair", step, pair.ConvertAll(collision => NameOf(0, (IvpMindist)collision, lanes)));
             Record(outputs, "event", step, events);
             outputs["live"][step] = environment.LiveMindists;
             outputs["created"][step] = environment.CreatedMindists;
@@ -195,6 +144,123 @@ public static class IvpPairMindistsReplay
     /// <returns>The suffix.</returns>
     internal static string Suffix(int side) => side == 0 ? "-first" : "-second";
 
+    /// <summary>The port's environment for a case: every pair passes, and each constructor tail names the mindist into the events.</summary>
+    /// <param name="events">Where the tails' names go.</param>
+    /// <param name="lanes">Each tree's node lanes by node, filled by <see cref="NewObjects"/>.</param>
+    /// <returns>The environment.</returns>
+    internal static IvpCollisionEnvironment NewEnvironment(List<int> events, Dictionary<PhysicsLedgeTreeNode, int>[] lanes) => new()
+    {
+        Filter = (_, _) => true,
+        BecomeExact = mindist => events.Add(NameOf(Exact, mindist, lanes)),
+        BecomePhantom = mindist => events.Add(NameOf(Phantom, mindist, lanes)),
+    };
+
+    /// <summary>The port's two resting objects for a case: each tree behind a polygon manager, its cache, core radius and extra radius.</summary>
+    /// <param name="inputs">The case's inputs.</param>
+    /// <param name="environment">The environment they belong to.</param>
+    /// <param name="lanes">Filled with each tree's node lanes by node.</param>
+    /// <returns>The objects.</returns>
+    /// <exception cref="InvalidDataException">A synthesized surface does not read as a tree.</exception>
+    internal static IvpCollisionObject[] NewObjects(
+        IReadOnlyDictionary<string, long[]> inputs, IvpCollisionEnvironment environment, Dictionary<PhysicsLedgeTreeNode, int>[] lanes)
+    {
+        IvpCollisionObject[] objects = new IvpCollisionObject[2];
+
+        for (int side = 0; side < 2; side++)
+        {
+            (byte[] surface, int[] nodes, _) = IvpLedgeTreeReplay.Surface(inputs, Suffix(side), StubSize);
+            PhysicsLedgeTree tree = PhysicsHull.Tree(surface) ?? throw new InvalidDataException("A synthesized surface read as no tree.");
+
+            for (int index = 0; index < NodeCount; index++)
+            {
+                if (nodes[index] >= 0)
+                {
+                    lanes[side][tree.Node(nodes[index])] = index;
+                }
+            }
+
+            IvpRigidBody placement = new()
+            {
+                Orientation = Quaternion(inputs, "cache-rotation", side * 4),
+                Position = Triple(inputs, "cache-translation", side * 3),
+            };
+            IvpObjectCache cache = new();
+
+            cache.Refresh(placement, 0d, 0, null, null);
+            objects[side] = new IvpCollisionObject
+            {
+                Core = new IvpRigidBody { Radius = IvpImpactReplay.Real32(inputs, "core-radius", side) },
+                Environment = environment,
+                Surface = new IvpPolygonSurfaceManager(tree),
+                ExtraRadius = IvpImpactReplay.Real32(inputs, "extra", side),
+                MovementState = 8,
+                Cache = cache,
+            };
+        }
+
+        return objects;
+    }
+
+    /// <summary>A step's time into the environment, and each core's stepped time, position and previous velocity.</summary>
+    /// <param name="inputs">The case's inputs.</param>
+    /// <param name="environment">The environment.</param>
+    /// <param name="objects">The two objects.</param>
+    /// <param name="step">The step.</param>
+    internal static void Place(IReadOnlyDictionary<string, long[]> inputs, IvpCollisionEnvironment environment, IvpCollisionObject[] objects, int step)
+    {
+        environment.Now = IvpImpactReplay.Real64(inputs, "now", step);
+
+        for (int side = 0; side < 2; side++)
+        {
+            IvpRigidBody core = objects[side].Core!;
+
+            core.LastStepped = IvpImpactReplay.Real64(inputs, "stepped", (step * 2) + side);
+            core.Position = Triple(inputs, "position", ((step * 2) + side) * 3);
+            core.PreviousVelocity = IvpImpactReplay.Vector(inputs, "velocity", ((step * 2) + side) * 3);
+        }
+    }
+
+    /// <summary>A mindist's name, or an event's lane, from its two ledges.</summary>
+    /// <param name="kind">The event's kind, or zero for a name.</param>
+    /// <param name="mindist">The mindist.</param>
+    /// <param name="lanes">Each tree's node lanes by node.</param>
+    /// <returns>The lane.</returns>
+    internal static int NameOf(int kind, IvpMindist mindist, Dictionary<PhysicsLedgeTreeNode, int>[] lanes) =>
+        Name(kind, lanes[0][mindist.Ledge(0)!], lanes[1][mindist.Ledge(1)!]);
+
+    /// <summary>The two objects' input fields: each tree, then the extra radii, core radii and cache placements.</summary>
+    /// <param name="fields">Where the fields go.</param>
+    internal static void AddObjectFields(List<IvpReplayField> fields)
+    {
+        for (int side = 0; side < 2; side++)
+        {
+            fields.Add(new("kind" + Suffix(side), IvpReplayKind.Whole32, NodeCount));
+            fields.Add(new("center" + Suffix(side), IvpReplayKind.Real32, NodeCount * 3));
+            fields.Add(new("radius" + Suffix(side), IvpReplayKind.Real32, NodeCount));
+            fields.Add(new("box" + Suffix(side), IvpReplayKind.Whole32, NodeCount));
+        }
+
+        fields.AddRange(
+        [
+            new("extra", IvpReplayKind.Real32, 2),
+            new("core-radius", IvpReplayKind.Real32, 2),
+            new("cache-rotation", IvpReplayKind.Real64, 8),
+            new("cache-translation", IvpReplayKind.Real64, 6),
+        ]);
+    }
+
+    /// <summary>Each step's placement fields: the time, and each core's stepped time, position and previous velocity.</summary>
+    /// <param name="fields">Where the fields go.</param>
+    /// <param name="stepCount">How many steps.</param>
+    internal static void AddPlacementFields(List<IvpReplayField> fields, int stepCount) =>
+        fields.AddRange(
+        [
+            new("now", IvpReplayKind.Real64, stepCount),
+            new("stepped", IvpReplayKind.Real64, stepCount * 2),
+            new("position", IvpReplayKind.Real64, stepCount * 6),
+            new("velocity", IvpReplayKind.Real32, stepCount * 6),
+        ]);
+
     /// <summary>Every lane where two readings of the same case differ, named.</summary>
     /// <param name="expected">What the binary left.</param>
     /// <param name="actual">What the port left.</param>
@@ -217,24 +283,10 @@ public static class IvpPairMindistsReplay
     {
         List<IvpReplayField> fields = [];
 
-        for (int side = 0; side < 2; side++)
-        {
-            fields.Add(new("kind" + Suffix(side), IvpReplayKind.Whole32, NodeCount));
-            fields.Add(new("center" + Suffix(side), IvpReplayKind.Real32, NodeCount * 3));
-            fields.Add(new("radius" + Suffix(side), IvpReplayKind.Real32, NodeCount));
-            fields.Add(new("box" + Suffix(side), IvpReplayKind.Whole32, NodeCount));
-        }
-
+        AddObjectFields(fields);
+        AddPlacementFields(fields, StepCount);
         fields.AddRange(
         [
-            new("extra", IvpReplayKind.Real32, 2),
-            new("core-radius", IvpReplayKind.Real32, 2),
-            new("cache-rotation", IvpReplayKind.Real64, 8),
-            new("cache-translation", IvpReplayKind.Real64, 6),
-            new("now", IvpReplayKind.Real64, StepCount),
-            new("stepped", IvpReplayKind.Real64, StepCount * 2),
-            new("position", IvpReplayKind.Real64, StepCount * 6),
-            new("velocity", IvpReplayKind.Real32, StepCount * 6),
             new("gap", IvpReplayKind.Real64, StepCount),
             new("given-first", IvpReplayKind.Whole32, StepCount),
             new("given-second", IvpReplayKind.Whole32, StepCount),
@@ -243,7 +295,7 @@ public static class IvpPairMindistsReplay
         return fields;
     }
 
-    private static PhysicsLedgeTreeNode? Given(IReadOnlyDictionary<string, long[]> inputs, string name, int step, PhysicsLedgeTree tree)
+    private static PhysicsLedgeTreeNode? Given(IReadOnlyDictionary<string, long[]> inputs, string name, int step, IvpCollisionObject collisionObject)
     {
         int lane = IvpImpactReplay.Whole32(inputs, name, step);
 
@@ -254,7 +306,7 @@ public static class IvpPairMindistsReplay
 
         (_, int[] nodes, _) = IvpLedgeTreeReplay.Surface(inputs, name == "given-first" ? Suffix(0) : Suffix(1), StubSize);
 
-        return tree.Node(nodes[lane]);
+        return ((IvpPolygonSurfaceManager)collisionObject.Surface!).Tree.Node(nodes[lane]);
     }
 
     private static (double X, double Y, double Z) Triple(IReadOnlyDictionary<string, long[]> inputs, string name, int lane) =>
@@ -269,9 +321,7 @@ public static class IvpPairMindistsReplay
     {
         public void CollisionRemoved(IvpCollision collision)
         {
-            IvpMindist mindist = (IvpMindist)collision;
-
-            events.Add(Name(Removed, lanes[0][mindist.Ledge(0)!], lanes[1][mindist.Ledge(1)!]));
+            events.Add(NameOf(Removed, (IvpMindist)collision, lanes));
             IvpCollisionList.Remove(pair, collision);
         }
     }

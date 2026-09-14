@@ -60,6 +60,10 @@
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpObjectCacheReplay.cs" Link="Oracle\IvpObjectCacheReplay.cs" />
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpBroadPhaseReplay.cs" Link="Oracle\IvpBroadPhaseReplay.cs" />
     <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpPairMindistsReplay.cs" Link="Oracle\IvpPairMindistsReplay.cs" />
+    <Compile Include="..\..\tools\Tf2DemoSalvage.Probe\Oracle\IvpPairWatcherReplay.cs" Link="Oracle\IvpPairWatcherReplay.cs" />
+    <None Update="Data\ivp-pair-watcher.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="Data\ivp-pair-mindists.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

@@ -103,6 +103,17 @@ public static class IvpRangeManager
         return (IvpMath.Mulsd(IvpMath.Mulsd(range, firstWeight), inverse), IvpMath.Mulsd(IvpMath.Mulsd(range, secondWeight), inverse));
     }
 
+    /// <summary>What both slots read of a core: its radius <c>+0x4</c>, linear speed <c>+0x1dc</c> and surface speed bound <c>+0x254</c>.</summary>
+    /// <param name="core">The core, an object's <c>+0xe8</c>.</param>
+    /// <returns>The bounds, the fields no slot reads zero.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="core"/> is null.</exception>
+    public static IvpCoreBounds Bounds(IvpRigidBody core)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+
+        return new IvpCoreBounds(core.Radius, 0f, 0f, core.LinearSpeed, core.SurfaceSpeedBound);
+    }
+
     /// <summary><c>MINSD</c>: the first operand only when strictly less, so a NaN on either side answers the second.</summary>
     private static double Minsd(double x, double y) => x < y ? x : y;
 
