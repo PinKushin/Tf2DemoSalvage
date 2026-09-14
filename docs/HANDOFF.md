@@ -291,12 +291,28 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      ends at `IvpImpactSolver.Enter`, which is the real, whole physics response for one collision. What comes after —
      building a real island/environment substructure and driving `IntegrateAwakeCores` on it — was always going to be
      the top-level PSI driver's job; this reading just confirms there is one remaining big task here, not two.
-   - **Next, in order**: (1) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — this is where
-     `FUN_180090700`'s mini-island construction, the retry loop, "build fresh ledge sides from live objects each PSI",
-     and `collide`'s generation bump (`env+0x1a4`) all land together, since they're one mechanism; (2) a
-     `vphysics-friction-link` and/or `vphysics-collide` oracle probe before trusting any of this in a real running
-     loop — everything so far is synthetic conformance testing, not a replay against the shipped binary; (3) only
-     then replace `IvpEnvironment`/`IvpContact`.
+   - **Done, same session: `IvpLedgeSide.FromLedge`** closes the "build fresh sides from a live object" gap — not
+     read from the disassembly, this project's own assembly of already-decoded pieces (`PhysicsLedge`'s fields map
+     directly onto `IvpLedgeTopology`'s constructor). 1 test, no port gap left here.
+   - **Found, same session, reading toward the per-PSI friction solve: the TANGENTIAL solve is a whole separate
+     unported subsystem, roughly the size of the already-oracle-backed normal-push heap solve.**
+     `IvpFrictionSystem::SolveOncePerPsi` (`1800836b0`, read in full) walks every `Pairs` entry, and each pair
+     apparently keeps its OWN array of contact records touching it (a field `IvpFrictionPair` does not yet carry —
+     `IvpFrictionPair::Build`'s deferred extra fields, revisited: they may not be as skippable as the normal-push path
+     made them look), computes a per-pair friction cone budget from summed `PushOut × Friction × <a `+0x60` field not
+     yet named>`, clamps each contact's `Slide` against it, then dispatches per contact to `FUN_180085100` (unread, a
+     fast "sticking" path) or `IvpFrictionSystem::SolveTangentialPair` (`1800857c0`, named in Ghidra, not yet read in
+     detail — likely similarly sized to `SolveHeap`). **This needs its own dedicated read-design-port-oracle pass**,
+     matching how `SolveHeap`/`SolveOne` earned `IvpHeapSolveConformanceTests` and the `vphysics-heap-solve` probe —
+     not something to guess into the PSI driver.
+   - **Next, in order**: (1) read `FUN_180085100` and `IvpFrictionSystem::SolveTangentialPair` in full, extend
+     `IvpFrictionPair` with whatever per-pair contact list it turns out to need, port `SolveOncePerPsi` with its own
+     `vphysics-friction-solve` oracle probe; (2) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — this is
+     where `FUN_180090700`'s mini-island construction, the retry loop, and `collide`'s generation bump (`env+0x1a4`)
+     all land together, since they're one mechanism, PLUS the now-ready `IvpLedgeSide.FromLedge` and the
+     just-scoped tangential solve; (3) a `vphysics-friction-link`/`vphysics-collide` oracle probe before trusting any
+     of this in a real running loop — everything so far is synthetic conformance testing, not a replay against the
+     shipped binary; (4) only then replace `IvpEnvironment`/`IvpContact`.
    - **`IntegrateAwakeCores`'s full call graph is now closed, 2026-09-14.** `FUN_180079120` (read in full): trivial —
      when `core+0x260` names a queued snapshot, restores it into the core's bound extents (`+0x130..0x138`) and
      transform (`+0x1a0/+0x1b0`), then clears the pointer. `IvpMindistMinimize::Minimize` (`180095cb0`) was already
