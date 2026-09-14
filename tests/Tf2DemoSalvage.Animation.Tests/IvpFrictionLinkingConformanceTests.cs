@@ -118,6 +118,7 @@ public sealed class IvpFrictionLinkingConformanceTests
         movable.FrictionInfo.System.ShouldBeSameAs(system);
         world.FrictionInfoIn(system).ShouldNotBeNull();
         system.FirstContact.ShouldBeSameAs(point);
+        system.PairFor(movable, world)!.Contacts.ShouldContain(point);
     }
 
     [Test]

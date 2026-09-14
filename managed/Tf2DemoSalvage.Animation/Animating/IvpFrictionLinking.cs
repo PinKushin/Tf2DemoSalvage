@@ -155,9 +155,15 @@ public static class IvpFrictionLinking
             system.AddCore(other);
         }
 
-        if (system.PairFor(movable, other) is null)
+        if (system.PairFor(movable, other) is not { } pair)
         {
-            system.AddPair(new IvpFrictionPair(movable, other));
+            pair = new IvpFrictionPair(movable, other);
+            system.AddPair(pair);
+        }
+
+        if (!pair.Contacts.Contains(contact))
+        {
+            pair.Contacts.Add(contact);
         }
 
         if (!ReferenceEquals(contact.FrictionSystem, system))
