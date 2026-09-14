@@ -4818,6 +4818,51 @@ slot   plain 1800fdec8      larger 1800fe960
 
 *Not read yet: the larger mindist's slots 6 and 8 in full.*
 
+**The pair's mindists, instruction by instruction** (read from the disassembly, 2026-09-14) — `FUN_180096680` takes nine
+arguments, where the first reading named six:
+
+```
+FUN_180096680(A, B, double gap, pair vector, ledgeA, ledgeB, rootA, rootB, delegator):
+    side A:  a ledge → it alone;  else B's core (+0xe8) moved to now (env+0x188) over dt = (float)(now − core+0x1d0), each lane
+        (double)core+0x170..0x178 · dt then + core+0x150..0x160;  r = (double)(A+0xe0 + coreB+0x4) + gap (the float sum A's
+        first);  FUN_18008c420(A) — A's motion cache, made through env+0xd8 when absent (FUN_1800805a0) and refreshed
+        (FUN_180080a60) when A+0x78 < 8 and env+0x1a0 is past the cache's +0xc0;  FUN_180070800(cache+0x40, the point) — the
+        point less the matrix's +0x60..0x70, then ((d.y·m[1][c] + d.x·m[0][c]) + d.z·m[2][c]) per column c, rows 0x20 apart;
+        A's surface manager slot 4(the point, r, rootA, 0, ledgeB, list A)
+    side B:  the same with the objects swapped, slot 4(…, rootB, 0, ledgeA, list B)
+    the table:  size 0x400 halved while it exceeds 2·(|A|·|B| + existing) + 2, then doubled until over twice the existing count
+        (from the heap when it had to grow, else the stack);  every existing mindist, last first, indexed by its slot 3's
+        two ledge pointers, (ledgeB·75 ^ ledgeA) + ((…) >> 8)·0x3ff, linear probing over shorts, −1 empty
+    every ledge of A, last first, against every ledge of B, last first:
+        found (its slot 3 names both) → swapped with the entry at the kept count, both back-indices (+0x18 or +0x1c, whichever
+            named the old place) rewritten, the table's two shorts swapped, the count raised
+        not found → either ledge's +0x8 & 3 → FUN_1800b21f0 (0x100);  else 0xe0 bytes inline — the base constructor's writes with
+            the delegator at +0x10;  FUN_1800975d0(m, env? — its +0x30 and +0x38 saved arguments, ledgeA+0x14, ledgeB+0x14)
+            — then listed as new (a vector of capacity 0x80 on the stack)
+    every mindist past the kept count, last first:  slot 0 with 1, deleted
+    every new mindist, last first:  appended to the pair vector, its back-index +0x18 when −1, else +0x1c
+FUN_1800975d0(m, A, B, featureA, featureB):  the two records +0x28 and +0x60 — for two balls ordered by their +0x100 pointers
+    kind 2 (polygon):  record +0x80.. = A, +0x88 the feature, +0x90 the back-word, +0x92 = 0; the feature's ledge
+        (pointer with its low four bits cleared, less (header & 0xfff + 1)·16) handed to A's surface manager slot 7
+    kind 3 (ball):  record +0x20 = A, +0x28 the feature, +0x30 the back-word, +0x32 = 3
+    +0x98 = B+0xe0 + A+0xe0 (float, B's first);  neither object's +0x38 set → FUN_1800977f0(env+0x20, m);  else flags bit 13
+    cleared and bit 12 set, FUN_180097940(env+0x20, m)
+FUN_1800977f0(manager, m) — becoming exact at birth:  flags & 0xffcfffff | 0xc0000;  m at the head of the manager's exact list
+    (+0x10, through m+0xc8/+0xd0);  record 0 at the head of its object's +0x40 list, then record 1;  FUN_180095cb0(m);
+    either object's core has +0x58 set → m appended to the manager's rechecked vector (+0x18);  flags & 0xc000 clear →
+    FUN_180099380(m, (coreA+0x1 | coreB+0x1) < 0x21, 0);  else m's slot 7(manager)
+FUN_180097940(manager, m) — the phantom:  FUN_180095ad0(m);  flags & 0xc000 set, or +0xa8 ≤ 0 → another path (not read);
+    else flags & 0xc00 → FUN_180098380(m);  then linked exact as above, appended to the rechecked vector unless
+    flags & 0x3000 is 0x1000, and tailed into FUN_180099380(m, 1, 2)
+FUN_180025bc0(mesh manager, &centre, double r, root, list) — a displacement's triangles:  the point scaled into Source's
+    units by DAT_18011f004 (float) with its axes turned (x, z, −y), the radius (float)r times the same scale;  the game's
+    virtual-mesh query (mesh+0x8, slot 2) fills up to a stack's worth of triangle indices;  when the entry holds two hulls,
+    the triangles are split in half by index and the root names which half;  each triangle (0x30-byte records from the entry's
+    +0x8) whose FUN_18007bea0 squared distance is not above r² (COMISD/JA) appended
+```
+
+*Not read yet: `FUN_18007bea0`, the phantom's other path, and the game's virtual-mesh query, which lives in the engine.*
+
 **The OV tree is ported and pinned (2026-09-14)** as `IvpOvTree`: the insert, its key, growth, descent, path, both overlap
 walks and the removal. The `vphysics-ov-tree` probe builds a real tree with `FUN_18009d820` and sixteen nodes with
 `FUN_18009d7b0`, runs cases of 24 drawn inserts and removals through `FUN_18009ecb0` and `FUN_18009efc0`, and compares each

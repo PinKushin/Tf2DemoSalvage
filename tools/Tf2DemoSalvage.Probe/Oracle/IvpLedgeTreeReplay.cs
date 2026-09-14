@@ -17,7 +17,8 @@ namespace Tf2DemoSalvage.Probe.Oracle;
 /// header, a 0x10-byte stub for each ledge, then the nodes in preorder, a left child inline at `+0x1c` — by <see cref="Surface"/>,
 /// which both the probe and the port read: the probe hands those bytes to the binary, and the port reads them through
 /// <see cref="PhysicsHull.Tree"/>, so the reader is pinned with the walk. The walk never reads a ledge's triangles, so a stub
-/// carries only the back-offset to its node and the children bits.
+/// carries only the back-offset to its node and the children bits; a `ledge-back` lane other than −1 points a stub at another
+/// node, which a compiler never writes but which settles which of the two a query beneath the ledge starts from.
 /// </remarks>
 public static class IvpLedgeTreeReplay
 {
@@ -54,6 +55,7 @@ public static class IvpLedgeTreeReplay
         new("center", IvpReplayKind.Real32, NodeCount * 3),
         new("radius", IvpReplayKind.Real32, NodeCount),
         new("box", IvpReplayKind.Whole32, NodeCount),
+        new("ledge-back", IvpReplayKind.Whole32, NodeCount),
         new("query-center", IvpReplayKind.Real64, QueryCount * 3),
         new("query-radius", IvpReplayKind.Real64, QueryCount),
         new("query-ledge", IvpReplayKind.Whole32, QueryCount),
@@ -115,9 +117,11 @@ public static class IvpLedgeTreeReplay
 
             if (kind != Inner)
             {
+                int back = IvpImpactReplay.Whole32(inputs, "ledge-back", index);
+
                 ledgeOffsets[index] = ledge;
                 BitConverter.TryWriteBytes(surface.AsSpan(at + 4), ledge - at);
-                BitConverter.TryWriteBytes(surface.AsSpan(ledge + 4), at - ledge);
+                BitConverter.TryWriteBytes(surface.AsSpan(ledge + 4), (back == Unused ? at : nodeOffsets[back]) - ledge);
                 BitConverter.TryWriteBytes(surface.AsSpan(ledge + 8), kind == InnerWithLedge ? 1 : 0);
                 ledge += LedgeStub;
             }
