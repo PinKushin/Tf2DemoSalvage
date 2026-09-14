@@ -145,6 +145,7 @@ public static class IvpHeapSolveReplay
                     FirstCore = first.Immovable ? null : first,
                     SecondCore = second.Immovable ? null : second,
                     InverseMass = IvpImpactReplay.Real32(inputs, "record-inverse-mass", k),
+                    VirtualMass = IvpImpactReplay.Real32(inputs, "record-virtual-mass", k),
                 },
             };
 
@@ -165,8 +166,7 @@ public static class IvpHeapSolveReplay
             system.Link(points[place]);
         }
 
-        system.SortContacts();
-        system.Solve(IvpImpactReplay.Real32(inputs, "event", 0));
+        system.SolveNormalPushes(IvpImpactReplay.Real32(inputs, "event", 0));
 
         Dictionary<string, long[]> full = NewContactLanes(listed);
         int position = 0;
@@ -341,6 +341,7 @@ public static class IvpHeapSolveReplay
         fields.Add(new("record-first-turn", IvpReplayKind.Real32, 3 * MostContacts));
         fields.Add(new("record-second-turn", IvpReplayKind.Real32, 3 * MostContacts));
         fields.Add(new("record-inverse-mass", IvpReplayKind.Real32, MostContacts));
+        fields.Add(new("record-virtual-mass", IvpReplayKind.Real32, MostContacts));
 
         return fields;
     }

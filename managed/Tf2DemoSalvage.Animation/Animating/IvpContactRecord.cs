@@ -34,7 +34,7 @@ public sealed class IvpContactRecord
     public bool Outside { get; internal set; }
 
     /// <summary>The reciprocal of <see cref="InverseMass"/> — <c>+0x90</c>.</summary>
-    public float VirtualMass { get; private set; }
+    public float VirtualMass { get; internal set; }
 
     /// <summary>Both movable cores' inverse masses along the normal, summed — <c>+0x94</c>.</summary>
     public float InverseMass { get; internal set; }
@@ -240,48 +240,71 @@ public sealed class IvpContactRecord
 
         if (FirstCore is { } first)
         {
-            double against = -push;
-            (float X, float Y, float Z) turn = FirstTurn;
-            (float X, float Y, float Z) inertia = first.InverseInertia;
-            (float X, float Y, float Z) spin = first.PendingAngularVelocity;
-
-            first.PendingAngularVelocity = (
-                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.X, inertia.X), against), spin.X),
-                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(inertia.Y, turn.Y), against), spin.Y),
-                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(inertia.Z, turn.Z), against), spin.Z));
-
-            double share = -IvpMath.Mulsd(first.InverseMass, push);
-            (float X, float Y, float Z) velocity = first.PendingVelocity;
-
-            first.PendingVelocity = (
-                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.X, share), velocity.X),
-                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Y, share), velocity.Y),
-                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Z, share), velocity.Z));
-
+            (first.PendingAngularVelocity, first.PendingVelocity) =
+                FirstPushed(first, push, first.PendingAngularVelocity, first.PendingVelocity);
             IvpPush.Limit(first, limits, inverseStep);
         }
 
         if (SecondCore is { } second)
         {
-            (float X, float Y, float Z) turn = SecondTurn;
-            (float X, float Y, float Z) inertia = second.InverseInertia;
-            (float X, float Y, float Z) spin = second.PendingAngularVelocity;
-
-            second.PendingAngularVelocity = (
-                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.X, inertia.X), push), spin.X),
-                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.Y, inertia.Y), push), spin.Y),
-                (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.Z, inertia.Z), push), spin.Z));
-
-            double share = IvpMath.Mulsd(second.InverseMass, push);
-            (float X, float Y, float Z) velocity = second.PendingVelocity;
-
-            second.PendingVelocity = (
-                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.X, share), velocity.X),
-                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Y, share), velocity.Y),
-                (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Z, share), velocity.Z));
-
+            (second.PendingAngularVelocity, second.PendingVelocity) =
+                SecondPushed(second, push, second.PendingAngularVelocity, second.PendingVelocity);
             IvpPush.Limit(second, limits, inverseStep);
         }
+    }
+
+    /// <summary>One push along this record's normal applied to both movable cores at once — <c>FUN_180083420(record, x)</c>.</summary>
+    /// <param name="push">The push, <c>x</c>: the first core is pushed by <c>−x</c>, the second by <c>+x</c>.</param>
+    /// <remarks>
+    /// **<see cref="Push"/>'s arithmetic, instruction for instruction, into the velocity and spin themselves** (`+0x130`, `+0x140`)
+    /// rather than the staged ones, and with no limits after — what the friction system's lone contact does with its push.
+    /// </remarks>
+    internal void Apply(double push)
+    {
+        if (FirstCore is { } first)
+        {
+            (first.AngularVelocity, first.Velocity) = FirstPushed(first, push, first.AngularVelocity, first.Velocity);
+        }
+
+        if (SecondCore is { } second)
+        {
+            (second.AngularVelocity, second.Velocity) = SecondPushed(second, push, second.AngularVelocity, second.Velocity);
+        }
+    }
+
+    /// <summary>The first core's spin and velocity after a push of <c>−x</c> from the given ones: <c>x</c> turn-first, <c>y</c> and <c>z</c> inertia-first.</summary>
+    private ((float X, float Y, float Z) Spin, (float X, float Y, float Z) Velocity) FirstPushed(
+        IvpRigidBody core, double push, (float X, float Y, float Z) spin, (float X, float Y, float Z) velocity)
+    {
+        double against = -push;
+        (float X, float Y, float Z) turn = FirstTurn;
+        (float X, float Y, float Z) inertia = core.InverseInertia;
+        double share = -IvpMath.Mulsd(core.InverseMass, push);
+
+        return (
+            ((float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.X, inertia.X), against), spin.X),
+             (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(inertia.Y, turn.Y), against), spin.Y),
+             (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(inertia.Z, turn.Z), against), spin.Z)),
+            ((float)IvpMath.Addsd(IvpMath.Mulsd(Normal.X, share), velocity.X),
+             (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Y, share), velocity.Y),
+             (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Z, share), velocity.Z)));
+    }
+
+    /// <summary>The second core's spin and velocity after a push of <c>+x</c> from the given ones, every turn product turn-first.</summary>
+    private ((float X, float Y, float Z) Spin, (float X, float Y, float Z) Velocity) SecondPushed(
+        IvpRigidBody core, double push, (float X, float Y, float Z) spin, (float X, float Y, float Z) velocity)
+    {
+        (float X, float Y, float Z) turn = SecondTurn;
+        (float X, float Y, float Z) inertia = core.InverseInertia;
+        double share = IvpMath.Mulsd(core.InverseMass, push);
+
+        return (
+            ((float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.X, inertia.X), push), spin.X),
+             (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.Y, inertia.Y), push), spin.Y),
+             (float)IvpMath.Addsd(IvpMath.Mulsd(IvpMath.Mulss(turn.Z, inertia.Z), push), spin.Z)),
+            ((float)IvpMath.Addsd(IvpMath.Mulsd(Normal.X, share), velocity.X),
+             (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Y, share), velocity.Y),
+             (float)IvpMath.Addsd(IvpMath.Mulsd(Normal.Z, share), velocity.Z)));
     }
 
     /// <summary>Picks and runs the measure the contact point's two kinds call for.</summary>

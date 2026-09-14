@@ -4244,13 +4244,33 @@ priority 2000,  FUN_180084240(system+0x20, event):
     else  FUN_180088ae0(system);  unit dword & 0x3000 → every pair's +0x30 = 0;  unless & 0xc00 → FUN_180086b40(system)
 ```
 
+**The other controllers a corpse's unit holds, and the order a PSI runs them** (slot 5 read as bytes, 2026-09-14):
+
+| controller | table | slot 4 (the PSI's work) | slot 5 | priority |
+|---|---|---|---|---|
+| friction, base `+0x20` | `1800fd5a8` | `180084240` | `180088bd0`: `B8 D0 07 00 00 C3` | 2000 |
+| gravity, the environment's `+0x0` | `1800ea728` | `180074c80` | `180007e90`: `B8 E8 03 00 00 C3` | 1000 |
+| friction, base `+0x0` | `1800fd638` | `1800843c0` | `180088be0`: `B8 58 02 00 00 C3` | 600 |
+| vphysics' constraints (`FUN_18003c780`'s table, from `1800eeb10`) | `1800eeb10` | `18003cdf0` | `18003cf80`: `B8 95 01 00 00 C3` | 405 |
+| friction, base `+0x10` | `1800fd5f8` | `180084320` | `18000a6f0`: `33 C0 C3` | 0 |
+
+`FUN_180075990` sorts a unit's entries ascending and `FUN_180075c80` walks them last first, so **one PSI is: the records rebuilt and
+the pushes' work banked, gravity, friction, the constraints, then the normal pushes** — top to bottom as the table reads. A core
+gets the gravity controller from its constructor (`FUN_1800782d0`, when its third argument is set: `[[core+0x10]]`, the
+environment's first field), a unit of its own (`FUN_180074770`, state `8`), and `core+0x1` = 8. *The constraint table's start is
+inferred from the slots every controller table above shares — `180007ea0` at slot 1 and `1800073e0` at slot 3.* Its slot 4 is
+`48 8B 01 48 FF 60 40` — `MOV RAX,[RCX]; JMP [RAX+0x40]`, a tail call into its own slot 8, which is `FUN_18003c780`, the solve
+`IvpConstraintGroup` ports, held at `1800eeb50`. *The routine's three other data references (`18011306c`, `1801130e0`,
+`18013a5a0`) are not read.*
+
 **So the pair counter at `+0x20` fires every fifth PSI** (it starts at one, so the first fires at once), and a lone contact takes a
 different, cheaper path at every priority. *Not read yet: the routines each branch calls.*
 
 #### One resting contact, instruction by instruction (2026-09-13)
 
 **`FUN_1800857c0(cp, event)`** — `event[0]` is scaled into a limit and `event[1]` multiplies a distance into a velocity, so they
-read as the step and its inverse (*INFERRED from use*):
+read as the step and its inverse, **and they are**: the unit manager's PSI `FUN_180075a90` builds the event on its stack as
+`(float)env+0x108`, `(float)env+0x110` and the environment, then hands it to `FUN_180075c80` for each unit in its list:
 
 ```
 L = (double)((cp+0x88 · cp+0x78) · event[0])                          -- float products
@@ -4949,6 +4969,24 @@ too), none started a pull streak at 8, none changed the active rows enough to ro
 none froze a heap where the pair test's second immovable check mattered. Sweeping the binary against a port broken on each found
 the cases the probe now lists as `Killers`. **An independent run of those four and the three rewritten well-formed reddened all
 seven** against the 208-case fixture, each by its own subset.
+
+**The lone contact and the controller routine over both paths are ported too, 2026-09-14**: `FUN_180084320`'s dispatch as
+`IvpFrictionSystem.SolveNormalPushes`, `FUN_180084490` as its lone-contact branch, and `FUN_180083420` as
+`IvpContactRecord.Apply` — `FUN_1800a9280`'s arithmetic instruction for instruction, into the velocity and spin themselves and
+with no limits after, so the two now share one body. The probe calls `FUN_180084320` on the controller base at `system+0x10`
+(whose `+0x8` is the system) with the event's unit at `+0x10`: 30,000 random systems, an eighth of them one contact, agree.
+
+- **The lone contact's closing speed adds the first core's normal term to its turn term** (`ADDSD XMM6,XMM0` with the normal
+  dot in `XMM6`), the other way round from the heap's matrix build, and it reads the contact's own gap rather than a record copy.
+- **A lone contact's NaN gap drops it** (`COMISS block[0x47], gap; JBE`), where the heap's filing pass keeps one. The sweep
+  found that first as a crash: a poisoned gap sent the binary into `FUN_180083e40` on fabricated objects. The fixture keeps a
+  lone contact's gap finite or `−∞` until the drop is ported.
+
+Eight sabotages of the lone path and the shared push body — the dispatch's `≤ 1`, the gap, the virtual mass, the push's sign on
+either core, the zero written for no push, the base spin, and one turn product's operand order — each redden the heap-solve and
+heap-core fixtures; the operand order only through the heap-core NaN pair built for it.
+
+*Not carried yet: the drop, the empty system's deletion, and the split `FUN_180084320` runs when `+0x80` is set.*
 
 What reading it for porting settled, beyond the decode above:
 

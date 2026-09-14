@@ -26186,9 +26186,11 @@ recorded in `docs/findings/51` before this list was written, so the list is a ta
    NaN-seeded cases agree with the binary (`IvpHeapCoreConformanceTests`), and all six NaN operand-order sabotages redden
    the 286-case fixture (`docs/findings/51`). **The heap solve above them is ported and pinned, 2026-09-14** —
    `FUN_1800a9bf0`'s sort and solve with everything under it as `IvpFrictionSystem`: 30,000 random friction systems agree with
-   the binary, and `IvpHeapSolveConformanceTests` replays 208 it wrote, sabotage-checked (`docs/findings/51`). Not ported yet: `FUN_1800a9bf0`'s filing pass between
-   the two (a contact dropped by `FUN_180083e40`, one moved to the head), read in `docs/findings/51`, which lands with the
-   filing routines.
+   the binary, and `IvpHeapSolveConformanceTests` replays the cases it wrote, sabotage-checked (`docs/findings/51`). The lone contact (`FUN_180084490`, `FUN_180083420`)
+   and the priority-0 routine over both (`FUN_180084320`) are ported beside it and pinned through the same probe. Not
+   ported yet: `FUN_1800a9bf0`'s filing pass (a contact dropped by `FUN_180083e40`, one moved to the head), the lone
+   contact's drop, the empty system's deletion and the split — read in `docs/findings/51` — which land with the filing
+   routines and the simulation units.
 7. **Delete `TerrainDepth`, `TerrainReach` and the push-after-penetration compensators**, then
    measure with `corpse-drop` by limb depth.
 

@@ -133,10 +133,32 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         }
     }
 
-    /// <summary>The heap solved — <c>FUN_1800a9bf0</c> from its zeroing of <c>+0x7c</c> on.</summary>
+    /// <summary>The normal pushes, every PSI at priority 0 — <c>FUN_180084320</c>, slot 4 of the controller base at <c>+0x10</c>.</summary>
+    /// <param name="inverseStep">The PSI event's float at <c>+0x4</c>; see <see cref="SolveHeap"/>.</param>
+    /// <exception cref="InvalidOperationException">The list is empty, or a contact has no record, where the binary dereferences the null.</exception>
+    /// <remarks>
+    /// <code>
+    /// +0x7a ≤ 1 → FUN_180084490 (the lone contact)   else FUN_1800a9bf0 (the heap)
+    /// +0x7a == 0 → the controller forgets the system, which deletes itself (slot 7);  the event's unit: bit 9 cleared, bit 8 set
+    /// else +0x80 set → cleared;  r = FUN_1800877b0;  r → FUN_180086e80 (the split), and r's unit: bit 9 cleared, bit 8 set
+    /// </code>
+    /// *Not carried yet: the deletion and the split, which land with the filing routines and the simulation units.*
+    /// </remarks>
+    internal void SolveNormalPushes(float inverseStep)
+    {
+        if (ContactCount <= 1)
+        {
+            SolveOne(inverseStep);
+            return;
+        }
+
+        SolveHeap(inverseStep);
+    }
+
+    /// <summary>The heap solved — <c>FUN_1800a9bf0</c>: the sort, then everything from its zeroing of <c>+0x7c</c> on.</summary>
     /// <param name="inverseStep">
-    /// The PSI event's float at <c>+0x4</c>, which each contact's push is multiplied by. *That it is the event's inverse step is
-    /// INTERPOLATED — a push times it is a force — and the event's writer is unread.*
+    /// The PSI event's float at <c>+0x4</c>, which each contact's push is multiplied by: the environment's inverse step narrowed,
+    /// <c>(float)env+0x110</c>, as the unit manager's PSI <c>FUN_180075a90</c> builds the event.
     /// </param>
     /// <exception cref="InvalidOperationException">A contact has no record, or an object no core, where the binary dereferences the null.</exception>
     /// <remarks>
@@ -150,8 +172,9 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// </code>
     /// **The shares are looked up on the objects' PHYSICAL cores (`+0xe8`)**, where the filing pass reads their friction cores.
     /// </remarks>
-    internal void Solve(float inverseStep)
+    internal void SolveHeap(float inverseStep)
     {
+        SortContacts();
         LeftOut = 0;
 
         if (ContactCount > MostContacts && Environment.Anomalies.MaximumContactsExceeded(Cores))
@@ -188,6 +211,56 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         int activeCount = Build(system, records, active);
 
         SolveNormals(system, records, active, activeCount, inverseStep);
+    }
+
+    /// <summary>The lone contact's push — <c>FUN_180084490(system+0x10, event)</c>, the writer of <c>cp+0x88</c> when a system has one.</summary>
+    /// <remarks>
+    /// <code>
+    /// s = (d)((n.y·v.y + n.x·v.x) + n.z·v.z) + (d)((t.y·ω.y + t.x·ω.x) + t.z·ω.z)             first core, the normal term first
+    /// s = s + ((d)−((n.y·v.y + n.x·v.x) + n.z·v.z) − (d)((t′.y·ω.y + t′.x·ω.x) + t′.z·ω.z))    second core
+    /// g = (d)(block[0x43] − cp+0x8c);  f = (((g ≥ 0 ? 1.0 : 20.0)·g) + s)·(d)record+0x90
+    /// f > 0 → cp+0x88 = (f)((d)event+0x4 · f);  FUN_180083420(record, f)      else cp+0x88 = 0
+    /// !(block[0x47] > cp+0x8c) or record+0x76 == 1 → FUN_180083e40(system, cp)                  COMISS/JBE: a NaN gap drops
+    /// </code>
+    /// **Its closing speed adds the first core's normal term to its turn term, where the heap's matrix build adds the turn term
+    /// to the normal term**, and it reads the contact's own gap, not a record copy. *Not carried yet: the drop, which lands with
+    /// the filing routines.*
+    /// </remarks>
+    private void SolveOne(float inverseStep)
+    {
+        IvpContactPoint point = FirstContact ?? throw new InvalidOperationException("A friction system with no contacts was solved.");
+        IvpContactRecord record = point.Record ?? throw new InvalidOperationException("A filed contact has no record.");
+        (float X, float Y, float Z) n = record.Normal;
+        double closing = 0d;
+
+        if (record.FirstCore is { } first)
+        {
+            float moving = Dot(n, first.Velocity);
+            float turning = Dot(record.FirstTurn, first.AngularVelocity);
+
+            closing = IvpMath.Addsd(moving, turning);
+        }
+
+        if (record.SecondCore is { } second)
+        {
+            float moving = Dot(n, second.Velocity);
+            float turning = Dot(record.SecondTurn, second.AngularVelocity);
+
+            closing = IvpMath.Addsd(closing, (double)(-moving) - turning);
+        }
+
+        double gap = IvpCollisionTolerance.ContactGapInMetres - point.Gap;
+        double stiffness = gap >= 0d ? 1d : Penetrating;
+        double push = IvpMath.Mulsd(IvpMath.Addsd(IvpMath.Mulsd(stiffness, gap), closing), record.VirtualMass);
+
+        if (push > 0d)
+        {
+            point.NormalPush = (float)IvpMath.Mulsd(inverseStep, push);
+            record.Apply(push);
+            return;
+        }
+
+        point.NormalPush = 0f;
     }
 
     /// <summary>Two neighbours exchanged, <paramref name="after"/> moving ahead of <paramref name="before"/>.</summary>
@@ -253,7 +326,7 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     ///     M[R, i] = (((d)((n′.y·Rn.y + n′.x·Rn.x) + n′.z·Rn.z) ∓ (d)((u.y·τ.y + u.x·τ.x) + u.z·τ.z))·σ) + M[R, i]
     /// </code>
     /// The first core takes the turn term away, the second adds it. *The binary then asserts that every row matches its contact's
-    /// place in the list (line `0x3a6`), which the loop in <see cref="Solve"/> guarantees; it is not carried.*
+    /// place in the list (line `0x3a6`), which the loop in <see cref="SolveHeap"/> guarantees; it is not carried.*
     /// </remarks>
     private static int Build(IvpLinearSystem system, List<IvpContactRecord> records, int[] active)
     {

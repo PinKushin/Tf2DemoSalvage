@@ -46,6 +46,8 @@ public sealed class IvpHeapSolveConformanceTests
         IReadOnlyList<IvpReplayCase> replays = Replays.Value;
 
         replays.Count(replay => replay.Outputs["streak"].Contains(-1)).ShouldBeGreaterThan(0);
+        replays.Count(replay => replay.Inputs["contacts"][0] == 1 && replay.Outputs["normal-push"][0] != 0).ShouldBeGreaterThan(0);
+        replays.Count(replay => replay.Inputs["contacts"][0] == 1 && replay.Outputs["normal-push"][0] == 0).ShouldBeGreaterThan(0);
         replays.Count(replay => replay.Outputs["normal-push"].Contains(0)).ShouldBeGreaterThan(0);
         replays.Count(replay => replay.Outputs["order"].Select((place, position) => place != position).Any(moved => moved))
             .ShouldBeGreaterThan(0);

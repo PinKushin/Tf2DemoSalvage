@@ -25,14 +25,15 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// core is a zeroed core with bit 0 clear — so `FUN_1800a9bf0` neither drops nor moves a contact, which `IvpFrictionSystem` does
 /// not carry yet.
 ///
-/// **The control first**: a core closing on an immovable one at five metres a second must be pushed, its streak going to `−1`.
+/// **The control first**: a lone contact whose core closes on an immovable one at five metres a second must be pushed — by
+/// `FUN_180084490`, which leaves the streak alone.
 ///
 /// **Modes.** With no mode, or `sweep n`, random systems — a quarter of them seeded with NaNs of both signs, signalling NaNs and
 /// infinities — are compared lane by lane; `fixture path` writes the cases `IvpHeapSolveConformanceTests` reads.
 /// </remarks>
 public sealed class VphysicsHeapSolveProbe : IProbe
 {
-    private const long SolveAddress = 0x1800a9bf0;
+    private const long PriorityZeroAddress = 0x180084320;
     private const long SettleAddress = 0x180098fd0;
     private const long BlockAddress = 0x18012d540;
 
@@ -65,7 +66,7 @@ public sealed class VphysicsHeapSolveProbe : IProbe
     private static readonly int[] Killers = [67, 179, 326, 5768, 8571];
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void SolveFunction(nint system, nint simulationEvent);
+    private delegate void SolveFunction(nint controller, nint simulationEvent);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void SettleFunction(nint block, double tolerance, double gravity);
@@ -135,7 +136,7 @@ public sealed class VphysicsHeapSolveProbe : IProbe
 
         Dictionary<string, long[]> binary = native.Run(inputs);
         float push = BitConverter.Int32BitsToSingle(unchecked((int)binary["normal-push"][0]));
-        bool pushed = push > 0f && binary["streak"][0] == -1;
+        bool pushed = push > 0f && binary["streak"][0] == 0;
         IReadOnlyList<string> differences = IvpHeapSolveReplay.Differences(binary, IvpHeapSolveReplay.Run(inputs));
 
         output.WriteLine(
@@ -332,7 +333,10 @@ public sealed class VphysicsHeapSolveProbe : IProbe
             Floats(inputs["record-normal"], 3 * c, Direction(ref state));
             FillFloats(ref state, inputs["record-first-turn"], 3 * c, 3);
             FillFloats(ref state, inputs["record-second-turn"], 3 * c, 3);
-            inputs["record-inverse-mass"][c] = IvpImpactReplay.Lane(0.01f + ((float)Unit(ref state) * 10f));
+            float inverseMass = 0.01f + ((float)Unit(ref state) * 10f);
+
+            inputs["record-inverse-mass"][c] = IvpImpactReplay.Lane(inverseMass);
+            inputs["record-virtual-mass"][c] = IvpImpactReplay.Lane(1f / inverseMass);
         }
     }
 
@@ -343,7 +347,7 @@ public sealed class VphysicsHeapSolveProbe : IProbe
 
         foreach (IvpReplayField field in IvpHeapSolveReplay.Inputs)
         {
-            for (int lane = 0; field.Kind == IvpReplayKind.Real32 && lane < field.Count; lane++)
+            for (int lane = 0; field.Kind == IvpReplayKind.Real32 && field.Name != "record-virtual-mass" && lane < field.Count; lane++)
             {
                 floats.Add((field.Name, lane));
             }
@@ -356,13 +360,31 @@ public sealed class VphysicsHeapSolveProbe : IProbe
             (string name, int lane) = floats[Below(ref state, floats.Count)];
             long bits = FloatPoisons[Below(ref state, FloatPoisons.Length)];
 
-            inputs[name][lane] = name == "contact-gap" && bits == 0x7f800000 ? 0x7fc00000 : bits;
+            inputs[name][lane] = name == "contact-gap" ? GapPoison(bits, IvpImpactReplay.Whole32(inputs, "contacts", 0) == 1) : bits;
         }
 
         if (Chance(ref state, 0.1))
         {
             inputs["inverse-step"][0] = DoublePoisons[Below(ref state, DoublePoisons.Length)];
         }
+
+        for (int c = 0; c < IvpHeapSolveReplay.MostContacts; c++)
+        {
+            inputs["record-virtual-mass"][c] = IvpImpactReplay.Lane(1f / IvpImpactReplay.Real32(inputs, "record-inverse-mass", c));
+        }
+    }
+
+    /// <summary>
+    /// A poison fit for a gap: never infinite, which a heap's filing pass drops, and for a lone contact never a NaN either, which
+    /// <c>FUN_180084490</c>'s <c>!(block[0x47] &gt; gap)</c> drops — the drop is not carried by the port yet.
+    /// </summary>
+    private static long GapPoison(long bits, bool lone)
+    {
+        long finite = bits == 0x7f800000 ? 0x7fc00000 : bits;
+
+        return lone && float.IsNaN(BitConverter.Int32BitsToSingle(unchecked((int)finite)))
+            ? IvpImpactReplay.Lane(float.NegativeInfinity)
+            : finite;
     }
 
     private static float Limit(ref ulong state, float typical)
@@ -433,7 +455,8 @@ public sealed class VphysicsHeapSolveProbe : IProbe
         private const int LimitsSize = 0x40;
         private const int ArenaSize = 0x28;
         private const int ArenaBytes = 8 << 20;
-        private const int EventSize = 0x10;
+        private const int EventSize = 0x18;
+        private const int UnitSize = 0x48;
         private const int VtableSlots = 8;
         private const int Listed = IvpHeapSolveReplay.MostContacts * IvpHeapSolveReplay.MostCopies;
         private const int Cores = IvpHeapSolveReplay.MostCores;
@@ -463,11 +486,12 @@ public sealed class VphysicsHeapSolveProbe : IProbe
         private readonly nint _arenaBuffer;
         private readonly nint _manager;
         private readonly nint _event;
+        private readonly nint _unit;
         private int _freezes;
 
         public Native(nint module)
         {
-            _solve = VphysicsLibrary.Function<SolveFunction>(module, SolveAddress);
+            _solve = VphysicsLibrary.Function<SolveFunction>(module, PriorityZeroAddress);
             _contactsExceeded = ContactsExceeded;
 
             SettleFunction settle = VphysicsLibrary.Function<SettleFunction>(module, SettleAddress);
@@ -507,6 +531,7 @@ public sealed class VphysicsHeapSolveProbe : IProbe
             _blocks.Add(_arenaBuffer);
             _manager = Allocate(0x20);
             _event = Allocate(EventSize);
+            _unit = Allocate(UnitSize);
 
             nint vtable = Allocate(VtableSlots * 8);
 
@@ -594,7 +619,8 @@ public sealed class VphysicsHeapSolveProbe : IProbe
             Marshal.WriteInt16(_system, 0x78, (short)coreCount);
             Marshal.WriteInt16(_system, 0x7a, (short)listed);
 
-            _solve(_system, _event);
+            Marshal.WriteIntPtr(_system, 0x18, _system);
+            _solve(_system + 0x10, _event);
 
             return Read(places, listed, coreCount);
         }
@@ -620,6 +646,8 @@ public sealed class VphysicsHeapSolveProbe : IProbe
             Zero(_limits, LimitsSize);
             Zero(_arena, ArenaSize);
             Zero(_event, EventSize);
+            Zero(_unit, UnitSize);
+            Marshal.WriteIntPtr(_event, 0x10, _unit);
 
             Marshal.WriteIntPtr(_environment, 0x40, _manager);
             Marshal.WriteIntPtr(_environment, 0x48, _limits);
@@ -690,6 +718,7 @@ public sealed class VphysicsHeapSolveProbe : IProbe
             Marshal.WriteIntPtr(contact, 0xc0, _system);
 
             WriteLanes(record, 0x20, inputs["record-normal"], 3 * k, 3);
+            WriteLanes(record, 0x90, inputs["record-virtual-mass"], k, 1);
             WriteLanes(record, 0x94, inputs["record-inverse-mass"], k, 1);
             Marshal.WriteIntPtr(record, 0x98, (Marshal.ReadByte(_cores[first]) & 2) == 0 ? _cores[first] : 0);
             Marshal.WriteIntPtr(record, 0xa0, (Marshal.ReadByte(_cores[second]) & 2) == 0 ? _cores[second] : 0);
