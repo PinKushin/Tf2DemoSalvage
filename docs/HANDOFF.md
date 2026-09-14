@@ -152,12 +152,26 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      slot most likely resolves to the same `IvpPairScheduler.Examine` path, reached virtually here instead of
      directly. **Needs the concrete vtable read to confirm before relying on it** — not yet located which type
      implements this manager interface at runtime for a live environment.
-   - **Still unread, needed before a rewrite can be written**: the concrete vtable behind `FUN_180094540`'s slot
-     `+0x20` (to confirm or refute the `Examine` hypothesis above), `FUN_18009a4f0` and `FUN_180094490` (event firing
-     and tick stamping in `NotifyAll`'s tail), `FUN_180079120` and `FUN_180095cb0` (both small, called
-     conditionally). **Everything else read in this item is either already-ported (`IvpCoreSpeedBound::From`) or
-     ordinary portable math (rotation/position/quaternion integration)** — narrowing what remains to the four items
-     just named.
+   - **`FUN_18009a4f0` read in full 2026-09-14 — a repeat, not new.** It is the same drain-loop body already seen
+     inline in `NotifyAll` (fire ready events — `pair.time(+0x30) < pair.gate(+0x18)` — via a vtable `+0x8` call on
+     the pair's indexed array entry, re-sift via `FUN_180094540`, repeat). No new mechanism; confirms the loop shape
+     rather than adding to it.
+   - **`FUN_180094490` read in full 2026-09-14 — a genuinely different mechanism, and a real port-model gap, not
+     solved math like the rest of this item.** Walks a per-pair offset-accumulation list (an index chain at the
+     pair's `+0x38`/`+0x28`, entries carrying a next-index at `+4`, an accumulator at `+8`, an object at `+0x10`),
+     redistributing the pair's own accumulated position delta (`-pair+0x10/+0x14`) into every linked entry's
+     accumulator and firing that entry's vtable `+0x18` on each, then flattens the pair's `+0x10` delta into its own
+     `+0x18`/`+0x30` (gate/time) fields and clears it. **The current C# port has no equivalent field or mechanism for
+     this offset accumulation/flattening** — `IvpMindist`/`IvpMindistState` track length/normal/flags but nothing
+     shaped like a per-pair accumulated delta redistributed across a linked side-list. This needs its own dedicated
+     investigation (what writes `+0x10` in the first place, and under what condition) before the running-path
+     rewrite can model it — flag as the biggest open question, not `FUN_180079120`/`FUN_180095cb0` (both still
+     genuinely unread, but small and conditional, lower priority).
+   - **Still unread**: `FUN_180079120`, `FUN_180095cb0` (both small, called conditionally — lower priority), and the
+     concrete vtable behind `FUN_180094540`'s slot `+0x20` (to confirm or refute the `Examine`-dispatch hypothesis).
+     **Priority for the next session: `FUN_180094490`'s offset-accumulation mechanism** — find every writer of a
+     mindist's `+0x10`/`+0x14` delta fields to understand what it represents before designing how the port carries
+     it.
    - Replacing `IvpContact`/`IvpEnvironment` means reproducing this exact two-pass shape — build each controller's local
      candidate list, drain it as a heap firing real events, then a second full pass revalidating every pair's cache
      generation — not a single merged loop, and not `Advance`'s ad hoc per-collision subdivision. **A full rewrite, not a
