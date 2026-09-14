@@ -4795,8 +4795,14 @@ operand orders are **equivalent** too — a NaN speed reaches both outputs throu
 `MINSD`, the step's product or the weights' sum is written. One order was not: which speed `ADDSS` keeps, seen when both are
 NaNs with different payloads, and the fixture now carries that case. The box test's strict lower edges survived the tangent
 spheres, which were predicted wrong — two tangent spheres at one level always land in adjacent keys, since `2r·scale` is under
-one at the first level that fits — so the fixture carries random case 218, the one that caught the upper edge, mirrored onto
-each axis's lower edge.
+one at the first level that fits. Random case 218 mirrored onto the lower edges survived too, because floor and ceiling do
+not mirror. **What reaches a box edge is a node filed at its outer radius**, which spans two key units: two spheres of radius
+`0.5`, outer `2`, centred at `∓2` on an axis, fill boxes meeting at `0`, and the second walk tests the first's cell with its
+lower edge — each axis a searched case. The ledge tree's round left ten more, and each now has a case the binary answered as
+predicted: both tests at equality (`d = r_node + r`, `|d| = box reach`), the reach summed in double (`1 + 0.3` above
+`1f + 0.3f`, a tie that rounds to even), the box unit narrowed after its product, a box byte's product kept in float, a
+point whose squared distance straddles the reach between the two groupings, and a hull whose `+0x4` names another node.
+**A third round killed all ten, each by its own case.**
 
 **The larger mindist's tables beside the plain one's** (read from the disassembly, 2026-09-14). Both start from the base
 constructor `FUN_180095f20(m, env, delegator)`: `+0x10` the delegator, `+0x18 = −1`, both records' listener table `1800fdea0`,
