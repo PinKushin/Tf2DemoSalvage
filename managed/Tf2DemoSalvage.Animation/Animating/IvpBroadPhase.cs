@@ -68,6 +68,27 @@ public sealed class IvpCollisionEnvironment
 
     /// <summary>The environment's time, <c>+0x188</c>.</summary>
     public double Now { get; set; }
+
+    /// <summary>The PSI count, <c>+0x1a0</c>, which an object cache is refreshed against.</summary>
+    public int Psi { get; set; }
+
+    /// <summary>How many mindists are alive, <c>+0xb0</c>.</summary>
+    public int LiveMindists { get; set; }
+
+    /// <summary>How many mindists have been made, <c>+0xb4</c>.</summary>
+    public int CreatedMindists { get; set; }
+
+    /// <summary>How many mindists have been deleted, <c>+0xb8</c>.</summary>
+    public int DeletedMindists { get; set; }
+
+    /// <summary>The time manager's queue, which an exact mindist leaves when it is unlinked.</summary>
+    public IvpMinList<IvpMindist> EventQueue { get; } = new();
+
+    /// <summary>What a new mindist of two objects without phantoms becomes — <c>FUN_1800977f0(env+0x20, m)</c>.</summary>
+    public Action<IvpMindist>? BecomeExact { get; init; }
+
+    /// <summary>What a new mindist with a phantom object becomes — <c>FUN_180097940(env+0x20, m)</c>.</summary>
+    public Action<IvpMindist>? BecomePhantom { get; init; }
 }
 
 /// <summary>IVP's broad phase: an object's sphere refiled in the OV tree, and its collisions kept, dropped and made (B369).</summary>

@@ -106,7 +106,20 @@ public sealed class VphysicsBroadPhaseProbe : IProbe
                 IvpBroadPhaseReplay.Write(writer, new IvpReplayCase(index.ToString(CultureInfo.InvariantCulture), inputs, native.Run(inputs)));
             }
 
-            output.WriteLine($"{FixtureCases} cases written to {arguments[1]}");
+            // A sabotage round's survivor: the gap a node is filed with while a pair creation runs, 1e-20, shows only in a key
+            // that is otherwise zero — a hull with no gradient and no value.
+            Dictionary<string, long[]> zero = RandomCase(draws);
+
+            Array.Fill(zero["hull-gradient"], 0L);
+            Array.Fill(zero["hull-value"], 0L);
+
+            for (int step = IvpBroadPhaseReplay.ObjectCount; step < IvpBroadPhaseReplay.StepCount; step++)
+            {
+                zero["kind"][step] = IvpBroadPhaseReplay.RefileCreating;
+            }
+
+            IvpBroadPhaseReplay.Write(writer, new IvpReplayCase("zero-hull-creating", zero, native.Run(zero)));
+            output.WriteLine($"{FixtureCases} cases and 1 searched case written to {arguments[1]}");
             return;
         }
 
@@ -407,6 +420,7 @@ public sealed class VphysicsBroadPhaseProbe : IProbe
                     nint otherNode = Marshal.ReadIntPtr(_objects[other], 0xd8);
 
                     outputs["watchers"][(step * IvpBroadPhaseReplay.ObjectCount) + other] = otherNode == 0 ? 0 : (ushort)Marshal.ReadInt16(otherNode, 0x42);
+                    outputs["hull-counts"][(step * IvpBroadPhaseReplay.ObjectCount) + other] = Marshal.ReadInt32(_objects[other], 0xa0 + 0x1c);
                 }
             }
 

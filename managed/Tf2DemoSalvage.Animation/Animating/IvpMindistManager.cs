@@ -41,6 +41,55 @@ public sealed class IvpCollisionObject
     /// <summary>The object's OV node, <c>+0xd8</c>, or null while its collisions are off.</summary>
     public IvpOvNode? Node { get; set; }
 
+    /// <summary>The object's surface manager, <c>+0xc8</c>.</summary>
+    public IIvpSurfaceManager? Surface { get; set; }
+
+    /// <summary>The object's extra radius, <c>+0xe0</c>, which a mindist's own and the pair creation's reach add.</summary>
+    public float ExtraRadius { get; set; }
+
+    /// <summary>Whether the object has a phantom, <c>+0x38</c>.</summary>
+    public bool HasPhantom { get; set; }
+
+    /// <summary>The object's cache, <c>+0x70</c>, or null before it is first asked for.</summary>
+    public IvpObjectCache? Cache { get; set; }
+
+    /// <summary>The object's cache, made and refreshed as asked — <c>FUN_18008c420</c>.</summary>
+    /// <param name="environment">The object's environment.</param>
+    /// <returns>The cache.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="environment"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">The cache must be refreshed and the object has no core.</exception>
+    /// <remarks>
+    /// <code>
+    /// none → a new one (FUN_1800805a0), refreshed at once when (signed byte)+0x78 ≥ 8
+    /// (signed byte)+0x78 &lt; 8 and env+0x1a0 past the cache's +0xc0 → FUN_180080a60
+    /// </code>
+    /// **The ring the engine takes a cache from is not carried**: a slot another object last used still holds that object's matrix
+    /// until it is refreshed, where a new cache here is zero.
+    /// </remarks>
+    public IvpObjectCache CacheFor(IvpCollisionEnvironment environment)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+
+        bool resting = unchecked((sbyte)MovementState) >= 8;
+
+        if (Cache is null)
+        {
+            Cache = new IvpObjectCache();
+
+            if (resting)
+            {
+                RefreshCache(environment);
+            }
+        }
+
+        if (!resting && environment.Psi > Cache.RefreshedAt)
+        {
+            RefreshCache(environment);
+        }
+
+        return Cache;
+    }
+
     /// <summary>The object's friction core, <c>+0xf0</c>: the core the friction system files it under.</summary>
     /// <remarks>
     /// **Named by both read uses**: `FUN_180090e50` files a contact's two objects into a friction system by these cores, and
@@ -90,6 +139,13 @@ public sealed class IvpCollisionObject
 
             node = next;
         }
+    }
+
+    private void RefreshCache(IvpCollisionEnvironment environment)
+    {
+        IvpRigidBody core = Core ?? throw new InvalidOperationException("An object without a core has its cache refreshed.");
+
+        Cache!.Refresh(core, environment.Now, environment.Psi, (MovementState & 0x800) != 0 ? null : core.ObjectOffset, null);
     }
 
     private static IvpCollisionObject Linked(IvpMindistHullRecord record) =>

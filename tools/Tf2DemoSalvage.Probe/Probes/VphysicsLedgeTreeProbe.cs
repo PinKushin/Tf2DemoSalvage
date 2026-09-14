@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// </summary>
 /// <remarks>
 /// **The manager is the binary's own 16 bytes**: its table, then the surface pointer, as `FUN_18000b750` allocates it. The surface
-/// is <see cref="IvpLedgeTreeReplay.Surface"/>'s layout of random trees — inner nodes with and without a hull, children placed
+/// is <see cref="IvpLedgeTreeReplay.Surface(IReadOnlyDictionary{string, long[]})"/>'s layout of random trees — inner nodes with and without a hull, children placed
 /// inside their parent's sphere, a few NaN spheres — and each case asks four queries around the root, some starting beneath a
 /// hull, a few with a NaN, infinite, zero or negative radius.
 ///

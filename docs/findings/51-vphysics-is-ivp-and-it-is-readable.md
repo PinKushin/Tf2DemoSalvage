@@ -4757,7 +4757,22 @@ and gives it a filter, two creators and their watchers as managed callbacks behi
 and each doing what the port's twin does. **5,000 cases of sixteen steps agree on every lane, the calls out included**, and
 `IvpBroadPhaseConformanceTests` replays 200. *Not established: the range callback `env+0x58` (null in vphysics, so never
 fabricated), duplicate watchers for one pair (the table's probe order would decide which is kept), and turning collisions off
-(`FUN_180073970`'s friction clean-up, not ported).*
+(`FUN_180073970`'s friction clean-up, not ported).* Its sabotage round left four survivors. Two are equivalent: an object with
+bit 9 skips an other with bit 9 before the filter test is reached, so the guard on bit 10 is never the deciding term; and one
+watcher per pair leaves the table's lookup order nothing to choose between. Two needed lanes the fixture lacked — the gap a
+node is filed with during a pair creation, `1e-20`, which only a hull with no gradient and no value shows, now a searched case;
+and a deleted node left in its hull manager, which no lane read until each object's min-list count became one.
+
+**A pair's mindists are ported and pinned (2026-09-14)** as `IvpPairMindists.Refresh` — `FUN_180096680` with the constructor
+`FUN_1800975d0` and the destructor `FUN_180095fb0` (`IvpMindist.Delete`), an object's cache as `FUN_18008c420` asks it
+(`IvpCollisionObject.CacheFor`), and the polygon manager's query behind `IIvpSurfaceManager`. **The oracle detours the binary**:
+the `vphysics-pair-mindists` probe patches the first twelve bytes of `FUN_1800977f0` and `FUN_180097940`, the constructor's
+exact and phantom tails, into jumps to managed recorders, so `FUN_180096680` runs whole — its own allocations, its own table,
+its own constructor and destructor — without the minimize and scheduler behind the tails. Two resting objects with synthesized
+surfaces (each ledge stub `0x20` bytes, so a feature's first triangle header reads zero, as `FUN_180097510` needs) are refreshed
+over six steps. **5,000 cases agree on every lane** — the pair after each step, every tail and every removal in order, and the
+environment's three mindist counters — and `IvpPairMindistsConformanceTests` replays 200. *Not established: the larger mindist a
+hull ledge makes (the trees hold none), phantoms, and the object cache ring's eviction.*
 
 **The watcher's three tables and the creator's**, read from the disassembly (2026-09-14) — what keeps a broad-phase pair alive
 and what ends it:
@@ -4783,6 +4798,19 @@ each hull record, table 1800feb00 — IVP's hull listener:
     slot 0 its type, 2;  slot 1 FUN_1800b6170, the hull passed:  the watcher's FUN_1800b6080 — ranges asked again, the pair's
     mindists refreshed, both records filed again;  slot 2 FUN_1800b6180, the manager going away:  the watcher deleted;
     slot 3 nothing;  slot 4 FUN_1800b5f80, the record's destructor, out of its object's min-list
+```
+
+**The watcher's construction and refresh**, instruction by instruction (2026-09-14):
+
+```
+FUN_1800b5dd0(watcher, creator, A, B):  +0x10 creator;  table 1800feb28;  +0x18 and +0x1c = −1;  +0x20 table 1800feb50;
+    the records +0x28 and +0x48 table 1800feb00;  the pair vector +0x68 capacity 8, count 0, 0x40 bytes from the IVP heap
+    FUN_1800b61a0(+0x28, watcher, A);  FUN_1800b61a0(+0x48, watcher, B);  FUN_1800b6080(watcher)
+FUN_1800b61a0(record, owner, object):  +0x10 object;  key = (float)(env+0x188 − object+0x80)·object+0x88 + object+0x90
+    + DAT_1800eb920, every step in float;  +0x8 = FUN_1800aaed0(object+0xa0, record, key);  +0x18 owner
+FUN_1800b6080(watcher):  A = +0x38, B = +0x58;  A's env+0xbc += 1;  env+0x38's slot 1(A, B, &rA, &rB)
+    FUN_180096680(A, B, rA + rB, +0x68, 0, 0, 0, 0, watcher+0x20)
+    FUN_180099970(A+0x80, +0x28, env+0x188, rA);  FUN_180099970(B+0x80, +0x48, env+0x188, rB)       -- now read again
 ```
 
 So **a broad-phase pair is re-examined only when one object's hull passes its record**, at a time the range manager's pair
@@ -4887,8 +4915,15 @@ FUN_1800975d0(m, A, B, featureA, featureB):  the two records +0x28 and +0x60 —
     kind 2 (polygon):  record +0x80.. = A, +0x88 the feature, +0x90 the back-word, +0x92 = 0; the feature's ledge
         (pointer with its low four bits cleared, less (header & 0xfff + 1)·16) handed to A's surface manager slot 7
     kind 3 (ball):  record +0x20 = A, +0x28 the feature, +0x30 the back-word, +0x32 = 3
-    +0x98 = B+0xe0 + A+0xe0 (float, B's first);  neither object's +0x38 set → FUN_1800977f0(env+0x20, m);  else flags bit 13
-    cleared and bit 12 set, FUN_180097940(env+0x20, m)
+    +0x98 = A+0xe0 + B+0xe0 (float, A's the destination — MOVSS from A, ADDSS B);  neither object's +0x38 set →
+    FUN_1800977f0(env+0x20, m);  else flags bit 13 cleared and bit 12 set, FUN_180097940(env+0x20, m)
+    -- two polygons: record 0 (+0x28) takes A and featureA, record 1 (+0x60) B and featureB; the feature is ledge+0x14
+FUN_180095fb0(m) — a plain mindist's destructor:  env (record 0's object's +0x30) +0xb0 −= 1, +0xb8 += 1
+    flags & 0xc00 → flags & 0xfffcf3ff, and each object's phantom (+0x38) told through FUN_18008b0a0
+    by the state (flags bits 18–21, signed):  2, invalid → off the manager's invalid list (+0x28) and each record off its
+        object's invalid list (+0x48);  3, exact → FUN_180098dd0(manager, m);  4 or 5, filed → each record out of its object's
+        min-list by its slot (+0x30, +0x68)
+    each record's ledge released through its object's surface manager slot 8;  the delegator's (+0x10) slot 0(m)
 FUN_1800977f0(manager, m) — becoming exact at birth:  flags & 0xffcfffff | 0xc0000;  m at the head of the manager's exact list
     (+0x10, through m+0xc8/+0xd0);  record 0 at the head of its object's +0x40 list, then record 1;  FUN_180095cb0(m);
     either object's core has +0x58 set → m appended to the manager's rechecked vector (+0x18);  flags & 0xc000 clear →

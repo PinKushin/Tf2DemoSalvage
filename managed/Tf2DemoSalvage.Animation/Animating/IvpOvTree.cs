@@ -66,21 +66,7 @@ public sealed class IvpOvNode : IIvpHullSynapse
     /// <summary>Registers a collision — <c>FUN_18009de20</c>: appended, its first index taken when free, else its second.</summary>
     /// <param name="collision">The collision.</param>
     /// <exception cref="ArgumentNullException"><paramref name="collision"/> is null.</exception>
-    public void Register(IvpCollision collision)
-    {
-        ArgumentNullException.ThrowIfNull(collision);
-
-        _watchers.Add(collision);
-
-        if (collision.FirstIndex == -1)
-        {
-            collision.FirstIndex = _watchers.Count - 1;
-        }
-        else
-        {
-            collision.SecondIndex = _watchers.Count - 1;
-        }
-    }
+    public void Register(IvpCollision collision) => IvpCollisionList.Add(_watchers, collision);
 
     /// <summary>Unregisters a collision — <c>FUN_18009ef40</c>.</summary>
     /// <param name="collision">The collision.</param>
@@ -90,34 +76,7 @@ public sealed class IvpOvNode : IIvpHullSynapse
     /// rewriting whichever of its indices named the last place; then the collision's index that names the place becomes −1, the
     /// second when the first does not.
     /// </remarks>
-    public void Unregister(IvpCollision collision)
-    {
-        ArgumentNullException.ThrowIfNull(collision);
-
-        int place = collision.FirstIndex >= 0 && collision.FirstIndex < _watchers.Count && ReferenceEquals(_watchers[collision.FirstIndex], collision)
-            ? collision.FirstIndex
-            : collision.SecondIndex;
-        int last = _watchers.Count - 1;
-
-        if (last > place)
-        {
-            IvpCollision moved = _watchers[last];
-
-            _watchers[place] = moved;
-            IvpBroadPhase.SetIndex(moved, last, place);
-        }
-
-        _watchers.RemoveAt(last);
-
-        if (collision.FirstIndex == place)
-        {
-            collision.FirstIndex = -1;
-        }
-        else
-        {
-            collision.SecondIndex = -1;
-        }
-    }
+    public void Unregister(IvpCollision collision) => IvpCollisionList.Remove(_watchers, collision);
 
     /// <summary>Files the node in a hull manager — <c>FUN_18009de80(node, hull, gap)</c>.</summary>
     /// <param name="hull">The object's hull manager, taken only when the node is filed nowhere.</param>

@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Probe.Oracle;
 /// <remarks>
 /// **The form is <see cref="IvpImpactReplay"/>'s**, written by the `vphysics-ledge-tree` probe from the shipped `vphysics.dll` and
 /// replayed by `IvpLedgeTreeConformanceTests`. **The tree is laid out as the compiler lays one out** — the 0x30-byte surface
-/// header, a 0x10-byte stub for each ledge, then the nodes in preorder, a left child inline at `+0x1c` — by <see cref="Surface"/>,
+/// header, a 0x10-byte stub for each ledge, then the nodes in preorder, a left child inline at `+0x1c` — by <see cref="Surface(IReadOnlyDictionary{string, long[]})"/>,
 /// which both the probe and the port read: the probe hands those bytes to the binary, and the port reads them through
 /// <see cref="PhysicsHull.Tree"/>, so the reader is pinned with the walk. The walk never reads a ledge's triangles, so a stub
 /// carries only the back-offset to its node and the children bits; a `ledge-back` lane other than −1 points a stub at another
@@ -74,30 +74,44 @@ public static class IvpLedgeTreeReplay
     /// <returns>The <c>IVP_Compact_Surface</c> and everything after it, and each node's offset within it (−1 for an unused lane).</returns>
     /// <exception cref="ArgumentNullException"><paramref name="inputs"/> is null.</exception>
     /// <exception cref="InvalidDataException">The kinds do not describe a tree in preorder.</exception>
-    public static (byte[] Surface, int[] Nodes, int[] Ledges) Surface(IReadOnlyDictionary<string, long[]> inputs)
+    public static (byte[] Surface, int[] Nodes, int[] Ledges) Surface(IReadOnlyDictionary<string, long[]> inputs) =>
+        Surface(inputs, string.Empty, LedgeStub);
+
+    /// <summary>The surface bytes lanes named with a suffix describe, each ledge stub a given size.</summary>
+    /// <param name="inputs">The case's inputs.</param>
+    /// <param name="suffix">What follows each node lane's name — empty here, the object's in the pair replay.</param>
+    /// <param name="stubSize">Bytes per ledge stub: 0x10 here, and 0x20 where a stub must hold its first triangle's header.</param>
+    /// <returns>The surface, and each node's and each ledge's offset within it (−1 for an unused lane).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="inputs"/> is null.</exception>
+    /// <exception cref="InvalidDataException">The kinds do not describe a tree in preorder.</exception>
+    public static (byte[] Surface, int[] Nodes, int[] Ledges) Surface(IReadOnlyDictionary<string, long[]> inputs, string suffix, int stubSize)
     {
         ArgumentNullException.ThrowIfNull(inputs);
+        ArgumentNullException.ThrowIfNull(suffix);
 
+        long[] kinds = inputs["kind" + suffix];
+        int count = kinds.Length;
         int nodes = 0;
         int ledges = 0;
 
-        while (nodes < NodeCount && IvpImpactReplay.Whole32(inputs, "kind", nodes) != Unused)
+        while (nodes < count && (int)kinds[nodes] != Unused)
         {
-            ledges += IvpImpactReplay.Whole32(inputs, "kind", nodes) == Inner ? 0 : 1;
+            ledges += (int)kinds[nodes] == Inner ? 0 : 1;
             nodes++;
         }
 
-        int tree = SurfaceHeader + (ledges * LedgeStub);
+        int tree = SurfaceHeader + (ledges * stubSize);
         byte[] surface = new byte[tree + (nodes * NodeSize)];
-        int[] nodeOffsets = new int[NodeCount];
-        int[] ledgeOffsets = new int[NodeCount];
+        int[] nodeOffsets = new int[count];
+        int[] ledgeOffsets = new int[count];
         int ledge = SurfaceHeader;
+        long[]? backs = inputs.TryGetValue("ledge-back" + suffix, out long[]? found) ? found : null;
 
         Array.Fill(nodeOffsets, -1);
         Array.Fill(ledgeOffsets, -1);
         BitConverter.TryWriteBytes(surface.AsSpan(LedgeTreeOffset), tree);
 
-        if (nodes == 0 || Place(inputs, surface, 0, tree, nodeOffsets) != nodes)
+        if (nodes == 0 || Place(kinds, surface, 0, tree, nodeOffsets) != nodes)
         {
             throw new InvalidDataException("A ledge tree case's kinds do not describe a tree in preorder.");
         }
@@ -105,25 +119,25 @@ public static class IvpLedgeTreeReplay
         for (int index = 0; index < nodes; index++)
         {
             int at = nodeOffsets[index];
-            int kind = IvpImpactReplay.Whole32(inputs, "kind", index);
+            int kind = (int)kinds[index];
 
             for (int lane = 0; lane < 3; lane++)
             {
-                BitConverter.TryWriteBytes(surface.AsSpan(at + 8 + (lane * 4)), IvpImpactReplay.Whole32(inputs, "center", (index * 3) + lane));
+                BitConverter.TryWriteBytes(surface.AsSpan(at + 8 + (lane * 4)), IvpImpactReplay.Whole32(inputs, "center" + suffix, (index * 3) + lane));
             }
 
-            BitConverter.TryWriteBytes(surface.AsSpan(at + 0x14), IvpImpactReplay.Whole32(inputs, "radius", index));
-            BitConverter.TryWriteBytes(surface.AsSpan(at + 0x18), IvpImpactReplay.Whole32(inputs, "box", index) & 0xffffff);
+            BitConverter.TryWriteBytes(surface.AsSpan(at + 0x14), IvpImpactReplay.Whole32(inputs, "radius" + suffix, index));
+            BitConverter.TryWriteBytes(surface.AsSpan(at + 0x18), IvpImpactReplay.Whole32(inputs, "box" + suffix, index) & 0xffffff);
 
             if (kind != Inner)
             {
-                int back = IvpImpactReplay.Whole32(inputs, "ledge-back", index);
+                int back = backs is null ? Unused : (int)backs[index];
 
                 ledgeOffsets[index] = ledge;
                 BitConverter.TryWriteBytes(surface.AsSpan(at + 4), ledge - at);
                 BitConverter.TryWriteBytes(surface.AsSpan(ledge + 4), (back == Unused ? at : nodeOffsets[back]) - ledge);
                 BitConverter.TryWriteBytes(surface.AsSpan(ledge + 8), kind == InnerWithLedge ? 1 : 0);
-                ledge += LedgeStub;
+                ledge += stubSize;
             }
         }
 
@@ -212,21 +226,21 @@ public static class IvpLedgeTreeReplay
     public static IReadOnlyList<IvpReplayCase> Parse(TextReader reader) => IvpImpactReplay.Parse(Inputs, Outputs, reader);
 
     /// <summary>Lays out the subtree whose root is lane <paramref name="index"/> at <paramref name="at"/>; returns the lane after it.</summary>
-    private static int Place(IReadOnlyDictionary<string, long[]> inputs, byte[] surface, int index, int at, int[] offsets)
+    private static int Place(long[] kinds, byte[] surface, int index, int at, int[] offsets)
     {
-        if (index >= NodeCount || IvpImpactReplay.Whole32(inputs, "kind", index) == Unused)
+        if (index >= kinds.Length || (int)kinds[index] == Unused)
         {
             return -1;
         }
 
         offsets[index] = at;
 
-        if (IvpImpactReplay.Whole32(inputs, "kind", index) == Terminal)
+        if ((int)kinds[index] == Terminal)
         {
             return index + 1;
         }
 
-        int right = Place(inputs, surface, index + 1, at + NodeSize, offsets);
+        int right = Place(kinds, surface, index + 1, at + NodeSize, offsets);
 
         if (right < 0)
         {
@@ -235,6 +249,6 @@ public static class IvpLedgeTreeReplay
 
         BitConverter.TryWriteBytes(surface.AsSpan(at), (right - index) * NodeSize);
 
-        return Place(inputs, surface, right, at + ((right - index) * NodeSize), offsets);
+        return Place(kinds, surface, right, at + ((right - index) * NodeSize), offsets);
     }
 }

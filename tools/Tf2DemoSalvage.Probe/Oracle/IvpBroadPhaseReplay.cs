@@ -85,6 +85,7 @@ public static class IvpBroadPhaseReplay
         new("hull-key", IvpReplayKind.Real32, StepCount),
         new("runs", IvpReplayKind.Whole32, StepCount),
         new("watchers", IvpReplayKind.Whole32, StepCount * ObjectCount),
+        new("hull-counts", IvpReplayKind.Whole32, StepCount * ObjectCount),
     ];
 
     /// <summary>An event's lane.</summary>
@@ -210,6 +211,7 @@ public static class IvpBroadPhaseReplay
             for (int index = 0; index < ObjectCount; index++)
             {
                 outputs["watchers"][(step * ObjectCount) + index] = objects[index].Node?.Watchers.Count ?? 0;
+                outputs["hull-counts"][(step * ObjectCount) + index] = objects[index].Hull.Synapses.Count;
             }
         }
 

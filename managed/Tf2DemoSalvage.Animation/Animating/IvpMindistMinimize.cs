@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>What a synapse's feature is — the word at a synapse record's <c>+0x32</c>.</summary>
@@ -33,10 +35,18 @@ public readonly record struct IvpSynapse(IvpLedgeEdge Feature, IvpFeatureKind Ki
 /// `+0x20`, whose bits 8–9 name synapse A; the two synapse records from `+0x28`; the extra radius at `+0x98`; `+0x9c`;
 /// the length at `+0xa8`; the normal at `+0xb0`; and the step the minimize last ran in, at `+0xc0`.
 /// </remarks>
-public sealed class IvpMindist : IIvpTimeEvent
+public sealed class IvpMindist : IvpCollision, IIvpTimeEvent
 {
+    private const int PhantomBits = 0xc00;
+    private const int PhantomKeeps = unchecked((int)0xfffcf3ff);
+    private const int InvalidState = 2;
+    private const int ExactState = 3;
+    private const int RecursiveState = 4;
+    private const int FiledState = 5;
+
     private readonly IvpSynapse[] _synapses;
     private readonly IvpMindistHullRecord[] _hullRecords;
+    private readonly PhysicsLedgeTreeNode?[] _ledges = new PhysicsLedgeTreeNode?[2];
 
     /// <summary>A mindist between two features, synapse A being the first.</summary>
     /// <param name="first">Synapse record 0.</param>
@@ -103,6 +113,87 @@ public sealed class IvpMindist : IIvpTimeEvent
     /// <param name="index">0 or 1.</param>
     /// <param name="synapse">The new record.</param>
     public void SetSynapse(int index, IvpSynapse synapse) => _synapses[index] = synapse;
+
+    /// <summary>What the mindist tells when it goes, <c>+0x10</c>, or null.</summary>
+    public IIvpCollisionDelegator? Delegator { get; set; }
+
+    /// <inheritdoc/>
+    /// <exception cref="InvalidOperationException">A record was never given its object.</exception>
+    public override (IvpCollisionObject First, IvpCollisionObject Second) Objects =>
+        (_hullRecords[0].CollisionObject ?? throw new InvalidOperationException("A mindist's first record has no object."),
+         _hullRecords[1].CollisionObject ?? throw new InvalidOperationException("A mindist's second record has no object."));
+
+    /// <summary>A synapse record's ledge — what slot 3, <c>FUN_180097510</c>, finds from the record's feature.</summary>
+    /// <param name="index">0 or 1.</param>
+    /// <returns>The ledge's node, or null for a mindist built from features alone.</returns>
+    public PhysicsLedgeTreeNode? Ledge(int index) => _ledges[index];
+
+    /// <summary>Gives the two records their objects and ledges — what <c>FUN_1800975d0</c> writes for two polygons.</summary>
+    /// <param name="first">Record 0's object.</param>
+    /// <param name="firstLedge">Record 0's ledge.</param>
+    /// <param name="second">Record 1's object.</param>
+    /// <param name="secondLedge">Record 1's ledge.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void Attach(IvpCollisionObject first, PhysicsLedgeTreeNode firstLedge, IvpCollisionObject second, PhysicsLedgeTreeNode secondLedge)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        ArgumentNullException.ThrowIfNull(firstLedge);
+        ArgumentNullException.ThrowIfNull(second);
+        ArgumentNullException.ThrowIfNull(secondLedge);
+
+        _hullRecords[0].CollisionObject = first;
+        _hullRecords[1].CollisionObject = second;
+        _ledges[0] = firstLedge;
+        _ledges[1] = secondLedge;
+    }
+
+    /// <summary>Deletes the mindist — its slot 0, <c>FUN_180096250</c>, over the destructor <c>FUN_180095fb0</c>.</summary>
+    /// <exception cref="InvalidOperationException">
+    /// A record has no object, the objects no environment, or a phantom must be told, which is not ported.
+    /// </exception>
+    /// <remarks>
+    /// <code>
+    /// env+0xb0 −= 1, +0xb8 += 1;  flags &amp; 0xc00 → flags &amp; 0xfffcf3ff, each object's phantom told (FUN_18008b0a0)
+    /// by the state, flags bits 18–21:  2 → off the invalid lists (FUN_180098f30);  3 → unfiled (FUN_180098dd0);
+    ///     4 or 5 → each record out of its object's hull manager
+    /// each record's ledge released through slot 8 (nothing for polygons);  the delegator's slot 0
+    /// </code>
+    /// </remarks>
+    public override void Delete()
+    {
+        (IvpCollisionObject first, IvpCollisionObject second) = Objects;
+        IvpCollisionEnvironment environment = first.Environment ?? throw new InvalidOperationException("A mindist's object has no environment.");
+
+        environment.LiveMindists--;
+        environment.DeletedMindists++;
+
+        if ((Flags & PhantomBits) != 0)
+        {
+            Flags &= PhantomKeeps;
+
+            if (first.HasPhantom || second.HasPhantom)
+            {
+                throw new InvalidOperationException("A deleted mindist tells its objects' phantoms through FUN_18008b0a0, which is not ported.");
+            }
+        }
+
+        switch ((Flags << 10) >> 28)
+        {
+            case InvalidState:
+                environment.MindistManager.UnlinkInvalid(this);
+                break;
+            case ExactState:
+                environment.MindistManager.Unlink(this, environment.EventQueue);
+                break;
+            case RecursiveState:
+            case FiledState:
+                first.Hull.Remove(_hullRecords[0]);
+                second.Hull.Remove(_hullRecords[1]);
+                break;
+        }
+
+        Delegator?.CollisionRemoved(this);
+    }
 }
 
 /// <summary>What <c>FUN_180095cb0</c> returns, and whether it called the mindist's virtual <c>+0x28</c>.</summary>
