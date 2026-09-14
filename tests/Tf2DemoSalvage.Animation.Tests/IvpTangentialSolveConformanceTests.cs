@@ -422,6 +422,43 @@ public sealed class IvpTangentialSolveConformanceTests
         point.Slide.Span.ShouldBe(1f, 1e-3f);
     }
 
+    /// <remarks>
+    /// A clamped contact has its slide/position history re-armed as fresh — the native's own <c>+0x91</c> write,
+    /// the same byte <see cref="IvpContactPoint.FirstMeasure"/> already names for a different writer.
+    /// </remarks>
+    [Test]
+    public void SolveOncePerPair_AContactOverTheBudget_SetsFirstMeasureTrue()
+    {
+        IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+        point.Slide = (100f, 0f);
+        point.FirstMeasure = false;
+        IvpFrictionPair pair = new(core, core);
+        pair.Contacts.Add(point);
+
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, inverseStep: 100d);
+
+        point.FirstMeasure.ShouldBeTrue();
+    }
+
+    /// <remarks>A contact already inside budget is not re-armed — nothing was clamped.</remarks>
+    [Test]
+    public void SolveOncePerPair_AContactAlreadyInsideBudget_LeavesFirstMeasureUnchanged()
+    {
+        IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+        point.Slide = (0.1f, 0f);
+        point.FirstMeasure = false;
+        IvpFrictionPair pair = new(core, core);
+        pair.Contacts.Add(point);
+
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 10f, inverseStep: 100d);
+
+        point.FirstMeasure.ShouldBeFalse();
+    }
+
     [Test]
     public void SolveOncePerPair_ANullPair_ThrowsArgumentNullException() =>
         Should.Throw<ArgumentNullException>(() => IvpTangentialSolve.SolveOncePerPair(null!, budget: 1f, inverseStep: 100d));

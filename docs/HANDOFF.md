@@ -381,34 +381,28 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      (`BuildJacobian`'s `+0x40/44/48/4c`) is identity for the ordinary isotropic case; a contact using
      `IvpContactPoint.UsesMaterialAxes` throws rather than guess a factor nothing has confirmed. 4 new tests,
      5100/5101 total. **What `SolveContact` still does NOT do**: compute or receive the pair's own friction-cone
-     budget — its caller must still pass one in, and that caller (the `SolveOncePerPsi`/pair-walk orchestration) is
-     not yet written.
-   - **Two gaps this same read surfaced, still open**: (1) the native sets a flag byte at contact `+0x91` whenever
-     `ClampSlide`'s clamp fires — this collides with `IvpContactPoint.FirstMeasure`'s already-documented offset
-     (`+0x91`, "whether the next measure is the first"), so either that field is reused for two purposes across the
-     contact's lifetime or one of the two offset readings is wrong; needs a targeted re-read before porting the flag.
-     (2) the per-pair friction-cone budget's third multiplicand — `Σ contact[+0x88] × contact[+0x78] × contact[+0x60]`,
+     budget — its caller must still pass one in.
+   - **`SolveOncePerPair` landed, same day: the per-pair walk itself is ported and tested** (`IvpTangentialSolve.SolveOncePerPair`)
+     — for each of `IvpFrictionPair.Contacts` (confirmed already filed by `IvpFrictionLinking.LinkContactByCore`, a
+     stale doc comment on the property said otherwise and was corrected), clamps the slide against a caller-supplied
+     budget (carrying the excess across contacts) and solves it via `SolveContact`. **The `+0x91`/`FirstMeasure`
+     question is resolved, not a collision**: one writer (`IvpContactGeometry`'s measures) clears it, the other
+     (this clamp, now ported) sets it — an ordinary flip-flop, read as a re-arm: a contact whose slide was just
+     clipped has its slide/position history treated as fresh again next PSI. 3 new tests, 5103/5104 total.
+   - **Still open**: (1) the per-pair friction-cone budget's third multiplicand — `Σ contact[+0x88] × contact[+0x78] × contact[+0x60]`,
      scaled by `inverseStep²` — has `+0x88` (`NormalPush`) and `+0x78` (`Friction`) identified, but `+0x60`'s owning
-     field is still unnamed. **Searched again, 2026-09-14, specifically for its writer: none found.** Neither the
-     contact's constructor (`180082ed0`) nor its allocator zero or write it, unlike every neighbouring field — the
-     constructor explicitly zeroes `+0x64`, `+0x68`, `+0x7c`, `+0x84..0x8b`, `+0x92`, `+0xc0` and leaves `+0x60`
-     conspicuously untouched, and `SetMaterials` (`1800908d0`)'s own `+0x60`/`+0x68` writes are on the MATERIALS
-     PAIR OUTPUT struct it builds, a different object entirely, not the contact. Read-only in every function found
-     this session. **This means whatever writes it is either the arena/pool allocator zero-initializing raw memory
-     (in which case it is always zero and the whole third multiplicand is a no-op — plausible, since a genuinely
-     unset per-contact field defaulting to zero would just make the "cone budget" collapse to zero contribution per
-     contact, which is a real and legitimate constant-folding possibility, not a hole in the reading) or a caller
-     not yet located.** Not safe to port until one of those is confirmed; `SolveOncePerPsi`'s orchestration should
-     take the budget as a parameter from its caller rather than compute it, until this is resolved. **Confirmed, not a struct
-     `SolveOncePerPsi` builds itself**: the per-pair contact list is `IvpFrictionPair`'s own array (matching this
-     project's `IvpFrictionPair.Contacts`, not yet filed into by anything), and the two tangent axes/arm
-     vectors/material axis factors `BuildJacobian` needs are NOT built inside `SolveOncePerPsi` — they come from
-     whatever calls `SolveTangentialPair`, a caller not yet located in this session's reads.
-   - **Next, in order**: (1) as its own dedicated port, in a fresh session: locate `SolveTangentialPair`'s actual
-     caller to find where the tangent axes/arms/material axis factors are built and where `IvpFrictionPair.Contacts`
-     is filed, resolve the `+0x91`/`FirstMeasure` collision and the `+0x60` budget field, port both `SolveOncePerPsi`
-     dispatch branches and `FUN_180085a80`'s anchor state, build a `vphysics-friction-solve` probe and oracle fixture,
-     sabotage-verify; (2) turn
+     field has no writer anywhere found this session (searched specifically, 2026-09-14): the constructor zeroes
+     every neighbouring field but conspicuously skips it, and `SetMaterials`'s own `+0x60`/`+0x68` writes are on a
+     different struct entirely (the materials-pair output, not the contact). Either arena-zeroed (making the whole
+     multiplicand a no-op) or a caller not yet located — `SolveOncePerPair` takes the budget as a parameter rather
+     than guess. (2) `SolveTangentialPair`'s tangent axes/arms/material factors come from `IvpContactRecord.Build`
+     (confirmed the SAME function as the already-ported `IvpContactRecord.Build`, not a separate builder) — resolved,
+     not open. (3) the sticking dispatch (`FUN_180085a80`, contact `+0x64`) is not carried; `SolveOncePerPair` always
+     takes the non-sticking branch.
+   - **Next, in order**: (1) as its own dedicated pass: resolve the `+0x60` budget field (likely needs a caller of
+     `SolveOncePerPsi` itself, not yet located, or confirmation the arena zero-inits it), port `FUN_180085a80`'s
+     anchor state and both `SolveOncePerPsi` dispatch branches, build a `vphysics-friction-solve` probe and oracle
+     fixture, sabotage-verify; (2) turn
      `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
      tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
      so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet

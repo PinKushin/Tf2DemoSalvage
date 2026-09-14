@@ -250,9 +250,12 @@ public static class IvpTangentialSolve
     /// **Confirmed against <c>SolveOncePerPsi</c>'s own pre-clamp, read in full 2026-09-14** — the excess is the
     /// SLIDE'S OWN magnitude past the budget, weighted by friction and push-out, not the clamped fraction the raw
     /// distance clamping removed: <c>(|slide| − budget) × friction × pushOut</c>, added to whatever was already
-    /// carried. **Not yet carried: the native also sets a flag byte on the contact (<c>+0x91</c>) whenever this
-    /// clamp fires** — a candidate collision with <see cref="IvpContactPoint.FirstMeasure"/>'s own documented
-    /// offset that needs resolving before the flag is ported; see `docs/HANDOFF.md`, item 3.
+    /// carried. **Not a collision after all**: the native sets contact <c>+0x91</c> — <see cref="IvpContactPoint.FirstMeasure"/> —
+    /// TRUE whenever this clamp fires, and <see cref="IvpContactGeometry"/>'s own measures already clear it FALSE once
+    /// they use it; one writer setting it and another clearing it is an ordinary flip-flop, not two fields sharing an
+    /// offset. Read as a re-arm: a contact whose slide was just clipped has its position/slide history treated as
+    /// fresh again next PSI. **This method itself stays pure** — see <see cref="SolveOncePerPair"/>, its only caller,
+    /// for where the flag is actually set.
     /// </remarks>
     public static ((float Span, float CrossSpan) Slide, float Carry) ClampSlide(
         (float Span, float CrossSpan) slide, float budget, float friction, float pushOut, float carry)
@@ -419,7 +422,10 @@ public static class IvpTangentialSolve
     /// <exception cref="InvalidOperationException">A contact in the pair has no record.</exception>
     /// <remarks>
     /// **The sticking dispatch (<c>FUN_180085a80</c>, the byte at contact <c>+0x64</c>) is not carried** — every
-    /// contact here is solved by <see cref="SolveContact"/>, the non-sticking branch only.
+    /// contact here is solved by <see cref="SolveContact"/>, the non-sticking branch only. **A clamped contact's
+    /// <see cref="IvpContactPoint.FirstMeasure"/> is set true**, matching the native's own <c>+0x91</c> write inside
+    /// this same loop — see <see cref="ClampSlide"/>'s own remarks for why this is a re-arm rather than a field
+    /// collision with the byte's other, documented, writer.
     /// </remarks>
     public static void SolveOncePerPair(IvpFrictionPair pair, float budget, double inverseStep)
     {
@@ -430,8 +436,14 @@ public static class IvpTangentialSolve
         foreach (IvpContactPoint contact in pair.Contacts)
         {
             IvpContactRecord record = contact.Record ?? throw new InvalidOperationException("A pair's contact has no record.");
+            (float Span, float CrossSpan) before = contact.Slide;
 
-            (contact.Slide, carry) = ClampSlide(contact.Slide, budget, contact.Friction, record.PushOut, carry);
+            (contact.Slide, carry) = ClampSlide(before, budget, contact.Friction, record.PushOut, carry);
+
+            if (contact.Slide != before)
+            {
+                contact.FirstMeasure = true;
+            }
 
             SolveContact(contact, budget, inverseStep);
         }
