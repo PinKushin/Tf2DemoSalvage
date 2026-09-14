@@ -84,6 +84,67 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// <summary>How many contacts at the head the solve leaves out — the signed word at <c>+0x7c</c>, which the solve zeroes first.</summary>
     public short LeftOut { get; private set; }
 
+    /// <summary>
+    /// Gives a core its share of the system, and adds it to <see cref="MovableCores"/> when it is not immovable —
+    /// <c>FUN_180087bf0</c> plus the share it links in, <c>FUN_180076690</c>.
+    /// </summary>
+    /// <param name="core">The core; must not already have a share of this system.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="core"/> is null.</exception>
+    /// <remarks>
+    /// **The native's gravity-list registration is not carried**: this project's <see cref="IvpDamping"/>,
+    /// <see cref="IvpPush"/> and <see cref="IvpGravity"/> already walk every body directly rather than a dynamically
+    /// registered subset, so a core joining a friction system needs no separate registration for them to keep reaching it.
+    /// **A movable core's share replaces <see cref="IvpRigidBody.FrictionInfo"/> outright** — the native writes
+    /// <c>core+0x60</c> directly rather than merging — because a movable core belongs to exactly one system at a time.
+    /// </remarks>
+    internal void AddCore(IvpRigidBody core)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+
+        IvpFrictionInfo share = new(this);
+
+        Cores.Add(core);
+
+        if (core.Immovable)
+        {
+            core.FrictionInfos[this] = share;
+        }
+        else
+        {
+            core.FrictionInfo = share;
+            MovableCores.Add(core);
+        }
+    }
+
+    /// <summary>Adds a pair to the system — <c>FUN_1800833d0</c>'s call site inside <c>FUN_180088090</c>.</summary>
+    /// <param name="pair">The pair.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="pair"/> is null.</exception>
+    internal void AddPair(IvpFrictionPair pair)
+    {
+        ArgumentNullException.ThrowIfNull(pair);
+        Pairs.Add(pair);
+    }
+
+    /// <summary>The system's existing pair for two cores, in either order, or null — <c>FUN_1800850b0</c>.</summary>
+    /// <param name="first">A core.</param>
+    /// <param name="second">The other core.</param>
+    /// <returns>The pair, or null when the two have none yet.</returns>
+    internal IvpFrictionPair? PairFor(IvpRigidBody first, IvpRigidBody second)
+    {
+        for (int index = Pairs.Count - 1; index >= 0; index--)
+        {
+            IvpFrictionPair candidate = Pairs[index];
+
+            if ((ReferenceEquals(candidate.FirstCore, first) && ReferenceEquals(candidate.SecondCore, second)) ||
+                (ReferenceEquals(candidate.FirstCore, second) && ReferenceEquals(candidate.SecondCore, first)))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>A contact filed at the head of the list — <c>FUN_180087c90(system, cp)</c>.</summary>
     /// <param name="point">The contact.</param>
     /// <exception cref="ArgumentNullException"><paramref name="point"/> is null.</exception>
