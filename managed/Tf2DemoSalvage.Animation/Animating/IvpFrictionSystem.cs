@@ -158,6 +158,47 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         return null;
     }
 
+    /// <summary>
+    /// Takes a contact off its pair and deletes the pair when it empties — <c>FUN_180088130(system, cp)</c>.
+    /// </summary>
+    /// <param name="contact">The contact being removed.</param>
+    /// <param name="firstCore">One of the contact's two physical cores.</param>
+    /// <param name="secondCore">The other.</param>
+    /// <returns><c>true</c> when the pair emptied and was removed, <c>false</c> when contacts remain on it.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">The two cores have no pair — the native asserts here (line <c>0x299</c>).</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (`docs/findings/51`, *Removing a contact point*): the pair of the two cores is
+    /// found in either order (<see cref="PairFor"/>, <c>FUN_1800863f0</c>), the contact is taken off its contact vector
+    /// (<c>FUN_180083da0</c>, an ordered removal), and when none remain — <c>FUN_180086b30</c> is that vector's count —
+    /// the pair leaves the system (<c>FUN_180083db0</c>) and is freed.
+    ///
+    /// **The environment listeners `FUN_180083db0` tells (`FUN_180081f70`) are not carried**, for the same reason none of
+    /// this port's listeners are: nothing in a corpse's own simulation subscribes. Cores are passed in rather than read
+    /// off the contact's objects, matching <see cref="IvpFrictionLinking.LinkContactByCore"/> — this project models the
+    /// object-to-core link nowhere else.
+    /// </remarks>
+    internal bool RemoveFromPair(IvpContactPoint contact, IvpRigidBody firstCore, IvpRigidBody secondCore)
+    {
+        ArgumentNullException.ThrowIfNull(contact);
+        ArgumentNullException.ThrowIfNull(firstCore);
+        ArgumentNullException.ThrowIfNull(secondCore);
+
+        IvpFrictionPair pair = PairFor(firstCore, secondCore)
+            ?? throw new InvalidOperationException(
+                "The two cores have no pair in this system; the native asserts (FUN_1800863f0, line 0x299).");
+
+        pair.Contacts.Remove(contact);
+
+        if (pair.Contacts.Count == 0)
+        {
+            Pairs.Remove(pair);
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>A contact filed at the head of the list — <c>FUN_180087c90(system, cp)</c>.</summary>
     /// <param name="point">The contact.</param>
     /// <exception cref="ArgumentNullException"><paramref name="point"/> is null.</exception>
