@@ -399,10 +399,39 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      (confirmed the SAME function as the already-ported `IvpContactRecord.Build`, not a separate builder) — resolved,
      not open. (3) the sticking dispatch (`FUN_180085a80`, contact `+0x64`) is not carried; `SolveOncePerPair` always
      takes the non-sticking branch.
-   - **Next, in order**: (1) as its own dedicated pass: resolve the `+0x60` budget field (likely needs a caller of
-     `SolveOncePerPsi` itself, not yet located, or confirmation the arena zero-inits it), port `FUN_180085a80`'s
-     anchor state and both `SolveOncePerPsi` dispatch branches, build a `vphysics-friction-solve` probe and oracle
-     fixture, sabotage-verify; (2) turn
+   - **`FUN_180085a80`'s complete, exact decompile obtained 2026-09-14** — three prior reads this session came back
+     garbled or truncated (marked `...` mid-arithmetic); the fourth, demanding the raw untruncated Ghidra output
+     verbatim, succeeded. Confirms/adds to what was already known:
+     - `IvpContact::TangentialSlipVelocity` (already identified as `IvpRigidBody::BuildJacobian` under Ghidra's own
+       naming) is called TWICE, once per side of the contact (`param_2`'s core, and the core reached through
+       `*(longlong*)(**(longlong**)(lVar2+8)+0xe8)`), each writing into its own 30-qword output block; a value
+       adjacent to the SECOND block's tail (`local_138`) is read as a divisor with no visible assignment in this
+       function's own body — almost certainly written by the callee the same way the first block's `local_270`
+       (read as `dVar4`) is, i.e. `BuildJacobian`'s own accumulation into a caller-provided struct, not a bug or a
+       missing read.
+     - `IvpContact::TryInvertSymmetric` is called with `(a, b, b, d)` — the SAME `(A, B, D)` shape this project's
+       own `IvpTangentialSolve.System` already produces by summing both cores' diagonals/cross terms — confirming
+       the sticking branch's 2×2 system is built the identical way the non-sticking branch's is, just via the
+       native's combined jacobian-builder rather than this project's own decomposed `BuildJacobian`/`System` calls.
+     - Two magic constants read exactly: `0.8999999761581421` (a friction-coefficient reduction factor, sliding
+       branch) and `0.30000001192092896` (used twice: a base friction-limit scale, and inside `dVar5`'s own
+       computation alongside an as-yet-unidentified `local_138` divisor).
+     - **The one remaining blocker, after a dedicated fourth AND fifth read specifically hunting for it: no
+       allocator/constructor for the per-pair "sticking anchor" object (`param_2+0x58`, ≥`0xb8` bytes, fields at
+       `+0x90/0x94/0x98/0xa0/0xa8/0xb0`) has been found anywhere in this session's reads.** Confirmed PER-PAIR
+       (keyed by "this core" + "the other core at its own `+8`"), not per-contact, and confirmed persistent across
+       PSIs (the `+0xb0` sticking flag survives between calls) — but where it is first allocated, and what zeroes
+       or default-initializes it, is genuinely unresolved. **Do not port a guessed struct for this** — the object's
+       lifecycle (lazily allocated on first stick? part of the core's own fixed layout, silently unread until now?)
+       changes what "not yet stuck" even means, and guessing it would be exactly the invented structure this
+       project refuses to write. Needs either a much broader xref sweep (constraint/joint code this session never
+       reached) or accepting this branch stays unported until a future session finds the allocator.
+   - **Next, in order**: (1) as its own dedicated pass: find `param_2+0x58`'s allocator (the sticking branch's one
+     remaining blocker) or accept the non-sticking branch (`SolveContact`/`SolveOncePerPair`, already landed) as
+     this project's complete tangential solve and file the sticking branch as a stated, permanent divergence;
+     resolve the `+0x60` budget field (likely needs a caller of `SolveOncePerPsi` itself, not yet located, or
+     confirmation the arena zero-inits it); build a `vphysics-friction-solve` probe and oracle fixture for what IS
+     ported, sabotage-verify; (2) turn
      `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
      tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
      so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet
