@@ -107,12 +107,14 @@ public sealed class MomentCostLogTests
 
         MomentPhases phases = Posing(50) with
         {
-            Counters = new EntityModelSet.PoseCounters(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Corpses: 40 * Millisecond),
+            Counters = new EntityModelSet.PoseCounters(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Corpses: 40 * Millisecond, CorpseSteps: 8),
         };
 
         string? line = log.Report(phases, sampleTicks: 0);
 
-        Assert.That(line, Does.Contain("corpses 40"));
+        // 40 ms over 8 steps is 5 ms a step, the number that separates many corpses from a slow one.
+        Assert.That(line, Does.Contain("corpses 40 over 8 steps"));
         Assert.That(line, Does.Contain("rest 10"));
     }
 }

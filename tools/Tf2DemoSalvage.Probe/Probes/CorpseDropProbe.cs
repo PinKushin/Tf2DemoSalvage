@@ -1116,8 +1116,15 @@ public sealed class CorpseDropProbe : IProbe
         float lowest = float.MaxValue;
         int settled = -1;
 
+        long find = IvpEnvironment.FindTicks, arrive = IvpEnvironment.ArriveTicks, move = IvpEnvironment.MoveTicks;
+        long joints = IvpEnvironment.JointTicks, rubbed = IvpEnvironment.RubTicks;
+        long steppedFrom = System.Diagnostics.Stopwatch.GetTimestamp();
+        int awakeSteps = 0;
+
         for (int tick = 0; tick < Ticks; tick++)
         {
+            awakeSteps += simulation.Asleep ? 0 : 1;
+
             simulation.Step();
 
             float speed = Fastest(simulation);
@@ -1188,6 +1195,19 @@ public sealed class CorpseDropProbe : IProbe
 
         IvpRigidBody root = simulation.Environment.Bodies[0];
 
+        // **Cost per AWAKE step, split by phase**: a sleeping corpse costs nothing, so dividing by
+        // every tick would hide the number that decides how many corpses a frame can afford.
+        double perStep = Ms(System.Diagnostics.Stopwatch.GetTimestamp() - steppedFrom) / Math.Max(awakeSteps, 1);
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  cost {perStep:0.###} ms per awake step over {awakeSteps} of {Ticks} ({simulation.Environment.Bodies.Count} bodies): " +
+            $"find {Ms(IvpEnvironment.FindTicks - find) / Math.Max(awakeSteps, 1):0.###}, " +
+            $"arrive {Ms(IvpEnvironment.ArriveTicks - arrive) / Math.Max(awakeSteps, 1):0.###}, " +
+            $"move {Ms(IvpEnvironment.MoveTicks - move) / Math.Max(awakeSteps, 1):0.###}, " +
+            $"joints {Ms(IvpEnvironment.JointTicks - joints) / Math.Max(awakeSteps, 1):0.###}, " +
+            $"rub {Ms(IvpEnvironment.RubTicks - rubbed) / Math.Max(awakeSteps, 1):0.###}"));
+
         output.WriteLine(
             $"  from ({at.X:0.#}, {at.Y:0.#}, {at.Z:0.#}) -> " +
             $"({root.Position.X:0.#}, {root.Position.Y:0.#}, {root.Position.Z:0.#}) " +
@@ -1236,6 +1256,8 @@ public sealed class CorpseDropProbe : IProbe
     /// </remarks>
     private static float Away((float X, float Y, float Z) vertex, Vector3 to) =>
         new Vector3(vertex.X - to.X, vertex.Y - to.Y, vertex.Z - to.Z).Length();
+
+    private static double Ms(long ticks) => ticks * 1000d / System.Diagnostics.Stopwatch.Frequency;
 
     private static float Fastest(RagdollSimulation simulation) =>
         simulation.Environment.Bodies.Max(

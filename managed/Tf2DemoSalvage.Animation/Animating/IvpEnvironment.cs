@@ -312,7 +312,11 @@ public sealed class IvpEnvironment
         // exist before the solve, and the integrator reads whatever the solve left. Finding them
         // after integration instead would resolve last step's penetration one step late, and a
         // corpse would sink a little further into the floor every step before being pushed back.
+        long jointsAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         Constraints.Solve();
+
+        JointTicks += System.Diagnostics.Stopwatch.GetTimestamp() - jointsAt;
 
         float afterJoints = Energy();
 
@@ -391,10 +395,34 @@ public sealed class IvpEnvironment
             _resting[index].Rubbed = false;
         }
 
+        long rubAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         Rub();
+
+        RubTicks += System.Diagnostics.Stopwatch.GetTimestamp() - rubAt;
 
         Gained = (Gained.Gravity, Gained.Joints, Energy() - Gained.Contacts);
     }
+
+    /// <summary>Stopwatch ticks every environment in the process has spent in each phase of a step.</summary>
+    /// <remarks>
+    /// **Process-wide on purpose**: a corpse is one environment, a match is dozens, and the question
+    /// these answer — which phase of a step is the cost — is the same for all of them. Measured on
+    /// `cp_process_f12`, corpse stepping was 34 ms of a 41 ms rebuild with no breakdown beneath it.
+    /// </remarks>
+    public static long FindTicks { get; private set; }
+
+    /// <inheritdoc cref="FindTicks"/>
+    public static long ArriveTicks { get; private set; }
+
+    /// <inheritdoc cref="FindTicks"/>
+    public static long MoveTicks { get; private set; }
+
+    /// <inheritdoc cref="FindTicks"/>
+    public static long JointTicks { get; private set; }
+
+    /// <inheritdoc cref="FindTicks"/>
+    public static long RubTicks { get; private set; }
 
     /// <summary>Kinetic energy added by each stage of the last step — gravity, joints, contacts.</summary>
     /// <remarks>
@@ -487,6 +515,8 @@ public sealed class IvpEnvironment
 
         float soonest = remaining;
 
+        long findAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         for (int index = 0; index < _bodies.Count; index++)
         {
             IvpRigidBody body = _bodies[index];
@@ -529,9 +559,15 @@ public sealed class IvpEnvironment
         // every slice gave it several bites at the same tick, and the state it carries forward went
         // stale between them: the stored slip a warm start reads back was several corrections
         // behind the live one, which measured as friction acting as a motor.
+        long arriveAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        FindTicks += arriveAt - findAt;
+
         _slice = remaining;
 
         Arrive();
+
+        ArriveTicks += System.Diagnostics.Stopwatch.GetTimestamp() - arriveAt;
 
         // **Two ways a slice must become the WHOLE remainder, and both were escapes before.**
         //
@@ -549,7 +585,11 @@ public sealed class IvpEnvironment
 
         float slice = soonest <= TimeEpsilon || exhausted ? remaining : soonest;
 
+        long moveAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         Move(slice);
+
+        MoveTicks += System.Diagnostics.Stopwatch.GetTimestamp() - moveAt;
 
         return slice;
     }
