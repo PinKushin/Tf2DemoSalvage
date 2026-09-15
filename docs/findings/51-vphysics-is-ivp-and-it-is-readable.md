@@ -4173,6 +4173,50 @@ every core of +0x10, last to first, unless flags & 2:  FUN_1800792b0(core)
 actually moved are stepped — each over the environment's whole remaining PSI span, through the same integrator a PSI uses — then
 re-checked by the scheduler and stamped with the impact counter. `FUN_180077f00(core, system)` is the per-system record: through
 the hash at `core+0x60` for an unmovable core, else `core+0x60` itself when its `+0x10` is the system.
+#### The core constructor — `FUN_1800782d0(core, object, gravity)` (2026-09-15)
+
+**Read from the decompiler** (headless `DecompAt`, the MCP bridge being down):
+
+```
+core+0x0..0x67 = 0;  +0x68 = an inline vector of one (capacity word 1, pointer +0x78)
+push object on +0x68;  core+0x10 = object+0x30        -- the environment, taken from the first object
+core+0x1f8 = FUN_180074770(new 0x48);  FUN_1800749b0(unit, core);  unit's state = 8
+gravity → FUN_1800748b0(core, [core+0x10])            -- the gravity controller
+core+0x1 = 8
+```
+
+**A core is born from its first object**, so the object vector the tail's recheck (`FUN_1800792b0`) walks is never empty, and
+`core+0x1` starts at `8` — the value the impact loop's drain reads as "not yet through a PSI". *What adds a second object is
+not read.*
+
+#### The collision around the impact loop — `FUN_18008ecb0(mindist)` and `FUN_18008ef60(mindist, A, B)` (2026-09-15)
+
+**Read from the decompiler** (headless `DecompAt`):
+
+```
+FUN_18008ecb0(mindist):  A, B = mindist+0x48, +0x80 (the objects);  env = A+0x30
+    FUN_180074360(A);  FUN_180074360(B)          -- object+0x78 == 8 → FUN_1800758e0(core's unit, core+0x10)
+    env+0xf8's +0x20 += 1                         -- a deferral count
+    each object's core (+0xe8):  +0x1 < 8 and not flags & 0x10 → FUN_180078d60 (brought to the event)
+    env+0x1a4 += 1                                -- the impact generation the tail's recheck stamps
+    FUN_18008ef60(mindist, A, B)
+    env+0xf8's +0x20 −= 1;  zero → FUN_180072970(env+0xf8)
+
+FUN_18008ef60(mindist, A, B):
+    unit = A+0x78 < 8 ? B's core's +0x1f8 : A's core's +0x1f8
+    cp = FUN_180090e50(mindist, &system, &built, unit, 1);  record = cp+0x70
+    pair = FUN_1800850b0(system, A's core, B's core);  dt = (float)(env+0x188 − pair+0x28);  pair+0x28 = env+0x188
+    FUN_180082170(env, event);  each object flagged 0x2000 → FUN_180088800
+    FUN_18008ed60(record, cores, (float)FUN_18008fca0(cp), cp)       -- the impact solve
+    v = record+0x30..0x38, each word XOR DAT_1800ea5e0 (0x80000000, dumped: a negation) when B's core has flags & 2
+    FUN_180090700(block, mindist, system, pair, cp)                  -- the impact loop
+    record+0x30..0x38 = v
+    FUN_180082110(env, event);  each object flagged 0x2000 → FUN_1800886c0
+```
+
+**The island is built after the first solve, not instead of it**, and the record's relative velocity is put back afterwards —
+negated when the second core is immovable — so the listeners hear the first impact's velocity, not the loop's last. *What
+`FUN_1800758e0` does for an object in state 8, and the listeners' events, are not read.*
 
 #### Filing a contact into a friction system — `FUN_180090e50(mindist, &system, &built, unit, rebuild)` (2026-09-13)
 

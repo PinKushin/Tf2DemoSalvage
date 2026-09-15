@@ -496,6 +496,80 @@ public sealed class IvpRigidBody
     /// </remarks>
     public int UnitState { get; set; } = 8;
 
+    /// <summary>A core with no objects yet, as the ports that predate the constructor build one.</summary>
+    public IvpRigidBody()
+    {
+    }
+
+    /// <summary>A core made for its first object — <c>FUN_1800782d0(core, object, gravity)</c>.</summary>
+    /// <param name="firstObject">The object, pushed first on the core's object vector.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="firstObject"/> is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// core+0x0..0x67 = 0;  +0x68 = an inline vector of one;  push object;  core+0x10 = object+0x30 (its environment)
+    /// core+0x1f8 = a new unit (FUN_180074770), linked to the core (FUN_1800749b0), its state 8
+    /// gravity set → FUN_1800748b0(core, [core+0x10])  (the gravity controller)
+    /// core+0x1 = 8
+    /// </code>
+    /// *The unit and the gravity controller are not carried*: <see cref="IvpGravity"/> walks every body already.
+    /// </remarks>
+    public IvpRigidBody(IvpCollisionObject firstObject)
+    {
+        ArgumentNullException.ThrowIfNull(firstObject);
+
+        Objects.Add(firstObject);
+    }
+
+    /// <summary>The core's objects — the vector at <c>+0x68</c>, count <c>+0x6a</c>, elements <c>+0x70</c>.</summary>
+    internal List<IvpCollisionObject> Objects { get; } = [];
+
+    /// <summary>The impact generation the core was last rechecked at — <c>core+0x250</c>, from <c>env+0x1a4</c>.</summary>
+    public int ImpactStamp { get; set; }
+
+    /// <summary>Rechecks every pair of this core's objects after an impact moved it — <c>FUN_1800792b0(core)</c>.</summary>
+    /// <param name="generation">The environment's impact counter, <c>env+0x1a4</c>.</param>
+    /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>.</param>
+    /// <param name="reschedule">The scheduler in mode 2, <c>FUN_180099380(mindist, 0, 2)</c>.</param>
+    /// <exception cref="ArgumentNullException">A delegate is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// core+0x250 = env+0x1a4
+    /// every object (+0x70, count +0x6a), last first:  FUN_1800746c0(object):
+    ///     every mindist on the object's +0x40 list:  both records' objects' cores carry the same +0x250 → skip
+    ///         FUN_180095cb0(mindist);  flags &amp; 0xc000 == 0 → FUN_180099380(mindist, 0, 2)
+    /// </code>
+    /// **A pair whose two cores were both stamped this impact is looked at once, not twice.**
+    /// </remarks>
+    public void Recheck(int generation, Action<IvpMindist> minimize, Action<IvpMindist> reschedule)
+    {
+        ArgumentNullException.ThrowIfNull(minimize);
+        ArgumentNullException.ThrowIfNull(reschedule);
+
+        ImpactStamp = generation;
+
+        for (int index = Objects.Count - 1; index >= 0; index--)
+        {
+            for (LinkedListNode<IvpMindistHullRecord>? node = Objects[index].Synapses.First; node is not null; node = node.Next)
+            {
+                IvpMindist mindist = node.Value.Mindist;
+
+                if (mindist.HullRecord(0).CollisionObject?.Core is { } first &&
+                    mindist.HullRecord(1).CollisionObject?.Core is { } second &&
+                    first.ImpactStamp == second.ImpactStamp)
+                {
+                    continue;
+                }
+
+                minimize(mindist);
+
+                if ((mindist.Flags & 0xc000) == 0)
+                {
+                    reschedule(mindist);
+                }
+            }
+        }
+    }
+
     /// <summary>The core's transform at <c>core+0x90</c>, in doubles — what a contact's arm and normal are measured in.</summary>
     /// <remarks>
     /// **The frame every contact routine turns through**: the contact record's arms (`FUN_18008d0c0`), a point's velocity
