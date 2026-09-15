@@ -218,6 +218,59 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     }
 
     /// <summary>
+    /// Measures a pair's contacts again and removes the ones now outside their features — <c>FUN_180083b30(pair, system)</c>.
+    /// </summary>
+    /// <param name="pair">The pair, in this system.</param>
+    /// <param name="sides">Each contact's two ledge sides where their objects are now — the cache objects the builder refreshes.</param>
+    /// <param name="materials">The material manager <see cref="IvpContactPoint.SetMaterials"/> reads.</param>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <returns>How many contacts the pair has left.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// for i = pair+0x2 − 1 down to 0:  cp = pair+0x8[i]
+    ///     FUN_18008d0c0(cp, pair+0x38 core+0x10);  FUN_1800908d0(cp)
+    ///     if record+0x76 == 1:  FUN_180083e40 inline
+    /// return pair+0x2
+    /// </code>
+    /// **Last to first**, so a removal never shifts a contact not yet visited. *The side lookup is a parameter because the
+    /// cache objects (`core+0x10`) are not carried yet*; the collision path hands the builder its sides the same way.
+    /// </remarks>
+    internal short RevalidatePair(
+        IvpFrictionPair pair,
+        Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)> sides,
+        IIvpMaterialManager materials,
+        double now)
+    {
+        ArgumentNullException.ThrowIfNull(pair);
+        ArgumentNullException.ThrowIfNull(sides);
+        ArgumentNullException.ThrowIfNull(materials);
+
+        for (int index = pair.Contacts.Count - 1; index >= 0; index--)
+        {
+            IvpContactPoint contact = pair.Contacts[index];
+            (IvpLedgeSide first, IvpLedgeSide second) = sides(contact);
+
+            IvpContactRecord record = IvpContactRecord.Build(
+                contact,
+                new IvpContactBody(first, CoreOf(contact.FirstObject), contact.FirstObject.ExtraRadius),
+                new IvpContactBody(second, CoreOf(contact.SecondObject), contact.SecondObject.ExtraRadius),
+                now);
+            contact.SetMaterials(materials);
+
+            if (record.Outside)
+            {
+                RemoveContact(contact, pair.FirstCore, pair.SecondCore, now);
+            }
+        }
+
+        return (short)pair.Contacts.Count;
+
+        static IvpRigidBody CoreOf(IvpCollisionObject collisionObject) =>
+            collisionObject.Core ?? throw new InvalidOperationException("A friction contact's object has no core.");
+    }
+
+    /// <summary>
     /// Takes a contact off its pair and deletes the pair when it empties — <c>FUN_180088130(system, cp)</c>.
     /// </summary>
     /// <param name="contact">The contact being removed.</param>
