@@ -97,6 +97,16 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// <summary>How many contacts at the head the solve leaves out — the signed word at <c>+0x7c</c>, which the solve zeroes first.</summary>
     public short LeftOut { get; private set; }
 
+    /// <summary>Whether a pair has been deleted since the last solve, so the system may have split — the byte at <c>+0x80</c>.</summary>
+    /// <remarks>
+    /// **Set by <see cref="RemoveContact"/> when a pair empties** (<c>FUN_180083e40</c>: `if FUN_180088130(system, cp) == 1:
+    /// system+0x80 = 1`), and read by the priority-0 controller, which clears it and runs the union-find
+    /// (<c>FUN_1800877b0</c>) to see whether the system now falls into two — *that split is not carried yet*, so nothing
+    /// clears this yet either. Named for what it means rather than for the offset: losing a pair is the only thing that can
+    /// disconnect a system.
+    /// </remarks>
+    public bool SplitCheckDue { get; internal set; }
+
     /// <summary>
     /// Gives a core its share of the system, and adds it to <see cref="MovableCores"/> when it is not immovable —
     /// <c>FUN_180087bf0</c> plus the share it links in, <c>FUN_180076690</c>.
@@ -156,6 +166,55 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         }
 
         return null;
+    }
+
+    /// <summary>Removes a contact from this system entirely — <c>FUN_180083e40(system, cp)</c>.</summary>
+    /// <param name="contact">The contact to remove.</param>
+    /// <param name="firstCore">The contact's first physical core.</param>
+    /// <param name="secondCore">Its second.</param>
+    /// <param name="now">The environment's time, <c>env+0x188</c>, which both cores' anchors are reset to.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">The cores have no pair, or a core no share of this system.</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (`docs/findings/51`, *Removing a contact point*), in this order and no other:
+    ///
+    /// <code>
+    /// FUN_180078820(core0); FUN_180078820(core1)   -- core+0x200 = core+0x208 = env+0x188
+    /// FUN_180088ce0(system, cp)                    -- off the system's list
+    /// if FUN_180088130(system, cp) == 1:  system+0x80 = 1   -- the pair emptied and was deleted
+    /// info0, info1 = FUN_180077f00(core, system);  each loses cp, and an emptied share takes its core out
+    /// FUN_180083210(cp);  free(cp, 0xd0)
+    /// </code>
+    ///
+    /// **The anchor reset comes first and it is not incidental**: both cores are told they moved now, so the rest test
+    /// (<see cref="IvpRigidBody.TestRest"/>) cannot call a core settled on the strength of an anchor older than the
+    /// contact that has just gone.
+    ///
+    /// **The destructor is not carried.** `FUN_180083210` releases each synapse's ledge through its surface manager and
+    /// tells the environment's listeners; this port holds neither, and the contact is simply dropped for collection.
+    /// </remarks>
+    internal void RemoveContact(
+        IvpContactPoint contact, IvpRigidBody firstCore, IvpRigidBody secondCore, double now)
+    {
+        ArgumentNullException.ThrowIfNull(contact);
+        ArgumentNullException.ThrowIfNull(firstCore);
+        ArgumentNullException.ThrowIfNull(secondCore);
+
+        // `FUN_180078820(core)` on each, before anything is unlinked.
+        firstCore.RestAnchorTime = now;
+        firstCore.SettleAnchorTime = now;
+        secondCore.RestAnchorTime = now;
+        secondCore.SettleAnchorTime = now;
+
+        Unlink(contact);
+
+        if (RemoveFromPair(contact, firstCore, secondCore))
+        {
+            SplitCheckDue = true;
+        }
+
+        RemoveCoreContact(contact, firstCore);
+        RemoveCoreContact(contact, secondCore);
     }
 
     /// <summary>
