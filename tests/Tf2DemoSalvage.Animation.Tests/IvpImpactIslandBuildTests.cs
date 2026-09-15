@@ -17,7 +17,7 @@ public sealed class IvpImpactIslandBuildTests
         (IvpImpactIsland island, IvpImpactEnvironment environment, IvpFrictionPair pair, IvpContactPoint collided) = Collided();
         IvpRigidBody movable = collided.FirstObject.Core!;
 
-        island.Build(environment, pair, collided, Revalidate.Sides, Revalidate.Materials.Instance, now: 1d);
+        island.Build(environment, pair, collided, Revalidate.Sides, Revalidate.Materials.Instance, _ => { }, _ => { }, now: 1d);
 
         island.CoresIntegrated.ShouldBe([movable]);
         island.CoresAtEvent.ShouldBe([movable], "the world is immovable and is never pushed");
@@ -32,7 +32,7 @@ public sealed class IvpImpactIslandBuildTests
         IvpContactPoint fresh = Revalidate.Contact(pair.FirstCore, pair.SecondCore);
         IvpFrictionLinking.LinkContactByCore(fresh, pair.FirstCore, pair.SecondCore, environment);
 
-        island.Build(environment, pair, collided, Revalidate.Sides, Revalidate.Materials.Instance, now: 1d);
+        island.Build(environment, pair, collided, Revalidate.Sides, Revalidate.Materials.Instance, _ => { }, _ => { }, now: 1d);
 
         pair.Contacts.ShouldNotContain(fresh, "a fresh contact before the edge is outside and removed");
         collided.Record.ShouldBeSameAs(kept, "the collided contact is never rebuilt");
@@ -44,7 +44,7 @@ public sealed class IvpImpactIslandBuildTests
         (IvpImpactIsland island, IvpImpactEnvironment environment, IvpFrictionPair pair, IvpContactPoint collided) = Collided();
         environment.LoopPasses = 5;
 
-        island.Build(environment, pair, collided, Revalidate.Sides, Revalidate.Materials.Instance, now: 1d);
+        island.Build(environment, pair, collided, Revalidate.Sides, Revalidate.Materials.Instance, _ => { }, _ => { }, now: 1d);
 
         island.Passes.ShouldBe(0);
         environment.LoopPasses.ShouldBe(6);

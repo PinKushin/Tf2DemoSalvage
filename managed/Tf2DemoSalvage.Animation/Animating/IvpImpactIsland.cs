@@ -158,6 +158,8 @@ public sealed class IvpImpactIsland
     /// <param name="collided">The contact that collided.</param>
     /// <param name="sides">Each contact's two ledge sides now.</param>
     /// <param name="materials">The material manager.</param>
+    /// <param name="minimize">The minimize, for the tail's recheck.</param>
+    /// <param name="reschedule">The scheduler in mode 2, for the tail's recheck.</param>
     /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -171,8 +173,7 @@ public sealed class IvpImpactIsland
     /// while FUN_180090bd0(block) == 1:  block+0x8 += 1;  n += 1;  block+0x8 > 0x1388 → mindist slot 0(mindist, 1), stop
     /// env+0x98 += n + 1;  tail into FUN_1800909d0(block)
     /// </code>
-    /// *Not carried yet*: the mindist's slot 0 at the cap, whose body is unread, and the tail (<c>FUN_1800909d0</c>), which needs
-    /// the impact counter stamp and the hull pass.
+    /// *Not carried yet*: the mindist's slot 0 at the cap, whose body is unread.
     /// </remarks>
     internal void Build(
         IvpImpactEnvironment environment,
@@ -180,6 +181,8 @@ public sealed class IvpImpactIsland
         IvpContactPoint collided,
         Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)> sides,
         IIvpMaterialManager materials,
+        Action<IvpMindist> minimize,
+        Action<IvpMindist> reschedule,
         double now)
     {
         ArgumentNullException.ThrowIfNull(environment);
@@ -210,7 +213,7 @@ public sealed class IvpImpactIsland
 
         environment.LoopPasses += drained + 1;
 
-        Tail(environment, now);
+        Tail(environment, minimize, reschedule, now);
 
         void Enter(IvpRigidBody? objectCore, IvpRigidBody pairCore)
         {
@@ -227,7 +230,9 @@ public sealed class IvpImpactIsland
     }
 
     /// <summary>Puts back what the loop only brought to the event, and steps what it moved — <c>FUN_1800909d0(block)</c>.</summary>
-    /// <param name="environment">The environment: its PSI end, phase, limits and anomaly manager.</param>
+    /// <param name="environment">The environment: its PSI end, phase, limits, anomaly manager and impact generation.</param>
+    /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>, for the recheck.</param>
+    /// <param name="reschedule">The scheduler in mode 2, <c>FUN_180099380(mindist, 0, 2)</c>, for the recheck.</param>
     /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
     /// <exception cref="ArgumentNullException"><paramref name="environment"/> is null.</exception>
     /// <remarks>
@@ -240,12 +245,13 @@ public sealed class IvpImpactIsland
     /// FUN_18009a690(env, &amp;local)
     /// every core of +0x10, last to first, unless flags &amp; 2:  FUN_1800792b0(core)
     /// </code>
-    /// *Not carried yet*: the per-core recheck (<see cref="IvpRigidBody.Recheck"/>), which needs the minimize and the scheduler
-    /// the environment does not hold yet.
     /// </remarks>
-    internal void Tail(IvpImpactEnvironment environment, double now)
+    internal void Tail(
+        IvpImpactEnvironment environment, Action<IvpMindist> minimize, Action<IvpMindist> reschedule, double now)
     {
         ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(minimize);
+        ArgumentNullException.ThrowIfNull(reschedule);
 
         for (int index = _coresAtEvent.Count - 1; index >= 0; index--)
         {
@@ -285,6 +291,16 @@ public sealed class IvpImpactIsland
 
         // FUN_18009a690(env, &local): TF2's client budget is maxCollisionChecksPerTimestep and its extension zero (findings 51).
         IvpHullManager.NotifyAll(pushed, environment.Limits.MaximumCollisionChecks, _ => 0);
+
+        for (int index = _coresIntegrated.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = _coresIntegrated[index];
+
+            if (!core.Immovable)
+            {
+                core.Recheck(environment.ImpactGeneration, minimize, reschedule);
+            }
+        }
     }
 
     /// <summary>Solves the contact predicted to close first, and grows the island around what it moved — <c>FUN_180090bd0(block)</c>.</summary>

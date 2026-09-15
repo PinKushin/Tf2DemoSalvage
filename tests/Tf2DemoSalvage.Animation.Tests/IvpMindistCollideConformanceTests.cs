@@ -33,7 +33,7 @@ public sealed class IvpMindistCollideConformanceTests
         body.PreviousVelocity = (0f, 0f, -1f);
 
         IvpImpactSolver solver = IvpMindistCollide.Collide(
-            mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, _ => (bodySide, worldSide), now: 1d);
+            mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, _ => (bodySide, worldSide), _ => { }, _ => { }, now: 1d);
 
         solver.ShouldNotBeNull();
         solver.RecordRelative.ShouldNotBe((0f, 0f, 0f), "the control: a zero velocity reads the same negated");
@@ -72,8 +72,8 @@ public sealed class IvpMindistCollideConformanceTests
         IvpLedgeSide worldSide = IvpContactGeometryConformanceTests.Flat();
         IvpImpactEnvironment environment = NewEnvironment();
 
-        IvpMindistCollide.Collide(mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, _ => (bodySide, worldSide), now: 1d);
-        IvpMindistCollide.Collide(mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, _ => (bodySide, worldSide), now: 2d);
+        IvpMindistCollide.Collide(mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, _ => (bodySide, worldSide), _ => { }, _ => { }, now: 1d);
+        IvpMindistCollide.Collide(mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, _ => (bodySide, worldSide), _ => { }, _ => { }, now: 2d);
 
         IvpFrictionSystem system = body.FrictionInfo!.System;
         int contacts = 0;
@@ -106,7 +106,7 @@ public sealed class IvpMindistCollideConformanceTests
         IvpLedgeSide bodySide = IvpContactGeometryConformanceTests.Flat();
 
         IvpImpactSolver solver = IvpMindistCollide.Collide(
-            mindist, worldObject, worldSide, bodyObject, bodySide, NewEnvironment(), FixedMaterials.Instance, _ => (worldSide, bodySide), now: 1d);
+            mindist, worldObject, worldSide, bodyObject, bodySide, NewEnvironment(), FixedMaterials.Instance, _ => (worldSide, bodySide), _ => { }, _ => { }, now: 1d);
 
         solver.RecordRelative.ShouldNotBe((0f, 0f, 0f));
         body.FrictionInfo!.System.FirstContact!.Record!.RelativeVelocity.ShouldBe(solver.RecordRelative);

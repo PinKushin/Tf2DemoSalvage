@@ -20,7 +20,7 @@ public sealed class IvpImpactIslandTailTests
         core.AngularVelocity = (9f, 9f, 9f);
         island.AddAtEvent(core);
 
-        island.Tail(Environment(psiEnd: 1.5d), now: 1d);
+        island.Tail(Environment(psiEnd: 1.5d), _ => { }, _ => { }, now: 1d);
 
         core.AngularVelocity.ShouldBe((1f, 2f, 3f));
         core.PendingSnapshot.ShouldBeNull();
@@ -34,7 +34,7 @@ public sealed class IvpImpactIslandTailTests
         core.AngularVelocity = (9f, 9f, 9f);
         island.AddAtEvent(core);
 
-        island.Tail(Environment(psiEnd: 1.5d), now: 1d);
+        island.Tail(Environment(psiEnd: 1.5d), _ => { }, _ => { }, now: 1d);
 
         core.AngularVelocity.ShouldBe((9f, 9f, 9f));
         core.PendingSnapshot.ShouldBeNull();
@@ -50,7 +50,7 @@ public sealed class IvpImpactIslandTailTests
         contact.Record!.Estimated = true;
         island.AddIntegrated(core);
 
-        island.Tail(Environment(psiEnd: 1.5d), now: 1d);
+        island.Tail(Environment(psiEnd: 1.5d), _ => { }, _ => { }, now: 1d);
 
         core.Position.X.ShouldBe(1.5d, "position moves by the last velocity over now less the last step");
         core.LastStepped.ShouldBe(1d);
@@ -71,9 +71,33 @@ public sealed class IvpImpactIslandTailTests
         body.Hull.Install(listener, now: 0d, allowance: 0d);
         island.AddIntegrated(core);
 
-        island.Tail(Environment(psiEnd: 1.5d), now: 1d);
+        island.Tail(Environment(psiEnd: 1.5d), _ => { }, _ => { }, now: 1d);
 
         listener.Told.ShouldBeGreaterThan(0, "the hull pass tells what the step pushed");
+    }
+
+    [Test]
+    public void Tail_AMovedCoreWithAPair_StampsItAndRechecksThePair()
+    {
+        (IvpImpactIsland island, IvpRigidBody core, _) = Island();
+        core.PendingSnapshot = new IvpCoreSnapshot(default, (0d, 0d, 0d, 1d), (0d, 0d, 0d, 1d)) { Moved = true };
+        IvpCollisionObject body = new() { Core = core };
+        IvpCollisionObject other = new() { Core = new IvpRigidBody() };
+        core.Objects.Add(body);
+        IvpMindist mindist = new(
+            new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
+            new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Triangle),
+            extraRadius: 0f);
+        new IvpMindistManager().LinkExact(mindist, body, other);
+        island.AddIntegrated(core);
+        IvpImpactEnvironment environment = Environment(psiEnd: 1.5d);
+        environment.ImpactGeneration = 7;
+        System.Collections.Generic.List<IvpMindist> minimized = [];
+
+        island.Tail(environment, minimized.Add, _ => { }, now: 1d);
+
+        core.ImpactStamp.ShouldBe(7);
+        minimized.ShouldBe([mindist]);
     }
 
     private sealed class Listener : IIvpHullSynapse

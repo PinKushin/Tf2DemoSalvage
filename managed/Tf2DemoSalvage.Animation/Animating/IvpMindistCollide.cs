@@ -22,6 +22,8 @@ public static class IvpMindistCollide
     /// <param name="environment">The impact environment.</param>
     /// <param name="materials">The material manager <see cref="IvpContactPoint.SetMaterials"/> reads.</param>
     /// <param name="sides">Every other contact's two ledge sides now, for the impact loop's revalidations.</param>
+    /// <param name="minimize">The minimize, for the tail's recheck.</param>
+    /// <param name="reschedule">The scheduler in mode 2, for the tail's recheck.</param>
     /// <param name="now">The environment's time — this collision's own event time.</param>
     /// <returns>The first impact's solver, after its solve.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -46,6 +48,8 @@ public static class IvpMindistCollide
         IvpImpactEnvironment environment,
         IIvpMaterialManager materials,
         Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)> sides,
+        Action<IvpMindist> minimize,
+        Action<IvpMindist> reschedule,
         double now)
     {
         ArgumentNullException.ThrowIfNull(mindist);
@@ -88,7 +92,7 @@ public static class IvpMindistCollide
             relative = (-relative.X, -relative.Y, -relative.Z);
         }
 
-        new IvpImpactIsland(system).Build(environment, pair, contact, sides, materials, now);
+        new IvpImpactIsland(system).Build(environment, pair, contact, sides, materials, minimize, reschedule, now);
 
         record.RelativeVelocity = relative;
 
