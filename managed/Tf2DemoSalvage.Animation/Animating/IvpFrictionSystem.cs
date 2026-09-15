@@ -178,6 +178,38 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         ContactCount++;
     }
 
+    /// <summary>A contact taken out of the list — <c>FUN_180088ce0(system, cp)</c>, the inverse of <see cref="Link"/>.</summary>
+    /// <param name="point">The contact; must be filed in this system's list.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="point"/> is null.</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (`docs/findings/51`, *Removing a contact point*): `cp+0x0` is the next link,
+    /// `cp+0x8` the previous, the head is `system+0x40`, and `system+0x7a` (the contact count) drops by one. The
+    /// removed contact's own links are cleared so a freed record cannot be walked back into.
+    /// </remarks>
+    internal void Unlink(IvpContactPoint point)
+    {
+        ArgumentNullException.ThrowIfNull(point);
+
+        if (point.Previous is { } before)
+        {
+            before.Next = point.Next;
+        }
+        else
+        {
+            FirstContact = point.Next;
+        }
+
+        if (point.Next is { } after)
+        {
+            after.Previous = point.Previous;
+        }
+
+        point.Next = null;
+        point.Previous = null;
+        point.FrictionSystem = null;
+        ContactCount--;
+    }
+
     /// <summary>The list insertion-sorted by push streak, most pushed first — <c>FUN_1800a9bf0</c>'s first loop.</summary>
     /// <remarks>
     /// **Keyed on `cp+0x90 &amp; 0xffff0000` compared signed, which is the streak word alone**, and a contact moves back only past
