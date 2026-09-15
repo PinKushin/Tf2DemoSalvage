@@ -235,10 +235,36 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      `FUN_18008da40` (called twice before the loop, once per side of the pair) only populates the touched-cores and
      queued-contacts arrays the loop's own body reads; `FUN_180090240` (`IvpImpactSolver::ChoosePush`) is two levels
      removed, called only from inside `IvpImpactSolver::Solve`, and picks/normalizes a push direction — unrelated to
-     the retry count. **The one remaining piece before this loop can be safely ported is `FUN_180090bd0`'s own exact
-     body** — summarized above from an earlier read but never quoted verbatim in this document, so its precise
-     "worst approaching contact" selection and its own `1`-vs-other return convention are not yet pinned the way the
-     loop-exit condition now is.
+     the retry count. **`FUN_180090bd0` now read and quoted verbatim, 2026-09-15 — it is NOT close to pure
+     orchestration; it is a genuine new state object, matching the scale every other subsystem this size in this
+     project has earned its own dedicated build.** Confirmed:
+     - **The worst contact is a MINIMUM search** over each pair's contacts' `record.PredictedGap` (the `Estimate`
+       output already ported), seeded from a native float constant (`DAT_18012d648`, not yet pinned), skipping a
+       pair entirely when a bitmask over two flag bytes at pair `+0x38`/`+0x40` is nonzero (a "both bodies
+       frozen/disabled" gate, not yet named) and skipping `Estimate` itself for a contact whose own cache-valid flag
+       (a short at record `+0x74`) already reads `1` this pass.
+     - **Return convention: `0` means nothing to solve** (empty pairs list, or every contact filtered out) — retry
+       loop stops; `1` means a worst contact was found, `IvpImpactSolver.Enter` ran on it, and a body-list/
+       friction-info bookkeeping pass ran — retry loop continues. No third value.
+     - **It needs a NEW, multi-field growable state object**, not just a method call: a pairs-to-scan list
+       (`param_1[7]`, count at `+0x32`), a "bodies changed this call" list (`param_1[5]`, count at `+0x22`, grown via
+       the unread `FUN_180072ba0`), and the per-contact cache-valid flag (record `+0x74`) that this same function
+       both reads (skip re-`Estimate`) and, after a successful `Enter`, RESETS TO ZERO for every contact of every
+       body `Enter` returned as touched — via `IvpRigidBody.FrictionInfoIn` (already ported) walking that body's own
+       `IvpFrictionInfo.Contacts`. A touched body is also passed to `RebuildMatrixAtEventTime` (already ported) when
+       its own flags say it needs one (`byte[1] < 8 && (byte[0] & 0x10) == 0`, neither offset named yet), and to
+       `FUN_18008da40` (read in full above) when it has no active friction-system link.
+     - **`IvpImpactSolver.Solve` is not called anywhere in this function** — only `.Enter`. Whatever calls `.Solve`
+       for this path is still unlocated (possibly inside `Enter` itself, already ported — needs checking against
+       the existing port rather than assumed).
+     - **Not yet named**: `DAT_18012d648` (the search's seed constant), the pair-flag bitmask's real meaning, the
+       `param_1` retry-context struct's own full layout beyond the fields this function touches, and
+       `FUN_180072ba0` (the grow-list helper, called from both this function and `FUN_18008da40`).
+     - **This closes the reading for `FUN_180090700`'s retry loop itself** — the exit condition (above) and this
+       function's own mechanics are both now pinned to the source instructions, not summarized. **What remains is a
+       genuinely new build**: a retry-context type carrying these growable lists, matching the scale of every other
+       subsystem this project has given its own dedicated multi-session port (heap solve, impact solver, tangential
+       solve) — not something to add in the same pass as reading it.
      **`IvpFrictionSystem::LinkContactByCore` (`180090e50`) is a different story — read in full, and it is a genuine,
      substantial subsystem**: per-object friction-info hash allocation, placement-new contact allocation
      (`IvpContactPoint::Allocate`), and MERGING two previously-separate friction systems when a new contact bridges
