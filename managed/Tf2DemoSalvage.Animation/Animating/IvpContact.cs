@@ -1257,6 +1257,9 @@ public sealed class IvpContact
     /// <summary>The sphere query's reused buffer — this runs per body per slice.</summary>
     private static readonly List<(IvpWorldTriangle Shape, int Index)> _nearby = [];
 
+    /// <summary>The brush ledges near the body being searched, reused across calls.</summary>
+    private static readonly List<int> _ledgeCandidates = [];
+
 
     private void Push((float X, float Y, float Z) impulse, (float X, float Y, float Z) arm)
     {
@@ -1344,7 +1347,13 @@ public sealed class IvpContact
         // **Terrain the engine's way: the hull against each nearby triangle** (B306). When this
         // produces contacts they REPLACE the per-vertex terrain sampling below, which is the
         // substitution being removed rather than a second opinion beside it.
+        long terrainAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         bool terrain = AgainstTerrain(body, world, centre, orientation, into, _nearby) > 0;
+
+        long ledgesAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        TerrainTicks += ledgesAt - terrainAt;
 
         if (body.Hull.Count > 0)
         {
@@ -1364,9 +1373,12 @@ public sealed class IvpContact
                 hullPoints[index] = centre + Vector3.Transform(new Vector3(x, y, z), orientation);
             }
 
+            // Hoisted: the same inverse was recomputed on every support query of every GJK iteration.
+            Quaternion inverse = Quaternion.Inverse(orientation);
+
             Vector3 BodySupport(Vector3 direction)
             {
-                Vector3 local = Vector3.Transform(direction, Quaternion.Inverse(orientation));
+                Vector3 local = Vector3.Transform(direction, inverse);
 
                 Vector3 best = default;
                 float bestDot = float.NegativeInfinity;
@@ -1387,8 +1399,15 @@ public sealed class IvpContact
                 return centre + Vector3.Transform(best, orientation);
             }
 
-            for (int ledgeIndex = 0; ledgeIndex < world.Ledges.Count; ledgeIndex++)
+            // **Only the ledges the grid files near this body, in the same ascending order the full
+            // walk visited them** — the sphere test below still decides, so the contacts raised are
+            // identical; the walk no longer pays for the thousands of ledges it rejects. Padded by a
+            // unit so float rounding at a cell boundary cannot drop a ledge the test would accept.
+            world.LedgesInSphere(centre, bodyRadius + committedLength + Slop + 1f, _ledgeCandidates);
+
+            for (int candidate = 0; candidate < _ledgeCandidates.Count; candidate++)
             {
+                int ledgeIndex = _ledgeCandidates[candidate];
                 IvpWorldLedge ledge = world.Ledges[ledgeIndex];
 
                 if ((ledge.Contents & world.Mask) == 0)
@@ -1467,6 +1486,10 @@ public sealed class IvpContact
         // **A flag and three fields rather than a nullable tuple**, per
         // `docs/memory/nullable-pattern-on-a-struct-is-dead-code.md` — CA1508 rejects the nullable
         // form here outright, reporting the null test as always true.
+
+        long pointsAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        LedgeTicks += pointsAt - ledgesAt;
 
         for (int index = 0; index < body.Hull.Count; index++)
         {
@@ -1619,8 +1642,24 @@ public sealed class IvpContact
             });
         }
 
+        PointTicks += System.Diagnostics.Stopwatch.GetTimestamp() - pointsAt;
+
         return impact;
     }
+
+    /// <summary>Stopwatch ticks <see cref="Find"/> has spent in each of its three passes, process-wide.</summary>
+    /// <remarks>
+    /// **The terrain pass, the brush-ledge GJK pass, and the per-hull-point touch-and-sweep pass**,
+    /// because `find` measured 92-97% of a corpse step and a cost split no finer than that names
+    /// nothing to change.
+    /// </remarks>
+    public static long TerrainTicks { get; private set; }
+
+    /// <inheritdoc cref="TerrainTicks"/>
+    public static long LedgeTicks { get; private set; }
+
+    /// <inheritdoc cref="TerrainTicks"/>
+    public static long PointTicks { get; private set; }
 
     /// <summary>When this body's hull first meets the world within an interval, or the interval.</summary>
     /// <param name="body">The body to sweep.</param>

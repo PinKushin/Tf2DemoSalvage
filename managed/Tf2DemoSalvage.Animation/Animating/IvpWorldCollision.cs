@@ -239,6 +239,48 @@ public sealed class IvpWorldCollision
 
     private readonly HashSet<int> _sphereSeen = [];
 
+    /// <summary>
+    /// Every ledge filed in a grid cell the sphere's box reaches, each once and in ascending index order.
+    /// </summary>
+    /// <param name="centre">The sphere's centre, in Source units.</param>
+    /// <param name="radius">Its radius.</param>
+    /// <param name="into">Cleared, then filled.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
+    /// <remarks>
+    /// **A superset of the ledges whose bounding sphere meets this one, never a subset.** A ledge is
+    /// filed under every cell its own sphere's box covers (<see cref="Index"/>), and two spheres that
+    /// meet have boxes that overlap on every axis — so they share a cell. The caller keeps its own
+    /// sphere test; this only removes the ledges that test would reject anyway.
+    ///
+    /// **Ascending, because order is behaviour.** Contacts are raised in the order ledges are visited
+    /// and the impulse solve is sequential, so a caller that used to walk every ledge by index must
+    /// see the survivors in that same order or it settles a corpse differently.
+    /// </remarks>
+    internal void LedgesInSphere(Vector3 centre, float radius, List<int> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        Vector3 extent = new(radius);
+
+        Gather(_grid, centre - extent, centre + extent, CellSize, into);
+        Gather(_coarse, centre - extent, centre + extent, CoarseCellSize, _coarseCandidates);
+
+        into.AddRange(_coarseCandidates);
+        into.Sort();
+
+        int kept = 0;
+
+        for (int index = 0; index < into.Count; index++)
+        {
+            if (kept == 0 || into[index] != into[kept - 1])
+            {
+                into[kept++] = into[index];
+            }
+        }
+
+        into.RemoveRange(kept, into.Count - kept);
+    }
+
     /// <summary>How many terrain triangles this world holds.</summary>
     /// <remarks>
     /// **A control, and the reason it exists is that its absence cost a wrong conclusion.** "The

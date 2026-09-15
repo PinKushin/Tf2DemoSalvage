@@ -1118,6 +1118,7 @@ public sealed class CorpseDropProbe : IProbe
 
         long find = IvpEnvironment.FindTicks, arrive = IvpEnvironment.ArriveTicks, move = IvpEnvironment.MoveTicks;
         long joints = IvpEnvironment.JointTicks, rubbed = IvpEnvironment.RubTicks;
+        long terrainPass = IvpContact.TerrainTicks, ledgePass = IvpContact.LedgeTicks, pointPass = IvpContact.PointTicks;
         long steppedFrom = System.Diagnostics.Stopwatch.GetTimestamp();
         int awakeSteps = 0;
 
@@ -1202,7 +1203,10 @@ public sealed class CorpseDropProbe : IProbe
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"  cost {perStep:0.###} ms per awake step over {awakeSteps} of {Ticks} ({simulation.Environment.Bodies.Count} bodies): " +
-            $"find {Ms(IvpEnvironment.FindTicks - find) / Math.Max(awakeSteps, 1):0.###}, " +
+            $"find {Ms(IvpEnvironment.FindTicks - find) / Math.Max(awakeSteps, 1):0.###} " +
+            $"(terrain {Ms(IvpContact.TerrainTicks - terrainPass) / Math.Max(awakeSteps, 1):0.###}, " +
+            $"ledges {Ms(IvpContact.LedgeTicks - ledgePass) / Math.Max(awakeSteps, 1):0.###}, " +
+            $"points {Ms(IvpContact.PointTicks - pointPass) / Math.Max(awakeSteps, 1):0.###}), " +
             $"arrive {Ms(IvpEnvironment.ArriveTicks - arrive) / Math.Max(awakeSteps, 1):0.###}, " +
             $"move {Ms(IvpEnvironment.MoveTicks - move) / Math.Max(awakeSteps, 1):0.###}, " +
             $"joints {Ms(IvpEnvironment.JointTicks - joints) / Math.Max(awakeSteps, 1):0.###}, " +
