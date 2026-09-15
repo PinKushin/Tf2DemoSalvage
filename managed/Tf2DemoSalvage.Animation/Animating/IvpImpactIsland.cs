@@ -224,6 +224,62 @@ public sealed class IvpImpactIsland
         }
     }
 
+    /// <summary>Puts back what the loop only brought to the event, and steps what it moved — <c>FUN_1800909d0(block)</c>.</summary>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <param name="target">The PSI's end, <c>env+0x190</c>.</param>
+    /// <param name="phase">The environment's phase, <c>env+0x1ac</c>.</param>
+    /// <remarks>
+    /// <code>
+    /// every core of +0x20, last to first:  +0x260 set and its +0x30 zero → FUN_180079120(core);  core+0x260 = null
+    /// dt = (double)(float)(env+0x190 − env+0x188);  a local vector of 256 inline entries
+    /// every core of +0x10, last to first, unless flags &amp; 2:
+    ///     FUN_180099a00(core, {(float)dt, dt > 1e-10 ? (float)(1.0/dt) : 1e10f}, &amp;local)
+    ///     core+0x260 = null;  every contact of FUN_180077f00(core, system):  record+0x74 = 0
+    /// FUN_18009a690(env, &amp;local)
+    /// every core of +0x10, last to first, unless flags &amp; 2:  FUN_1800792b0(core)
+    /// </code>
+    /// *Not carried yet*: the hull pass over the managers the steps pushed (`FUN_18009a690`) and the per-core recheck
+    /// (`FUN_1800792b0`), both of which walk a core's objects, which a core does not list yet.
+    /// </remarks>
+    internal void Tail(double now, double target, int phase)
+    {
+        for (int index = _coresAtEvent.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = _coresAtEvent[index];
+
+            if (core.PendingSnapshot is { Moved: false } snapshot)
+            {
+                core.RestoreFromSnapshot(snapshot);
+            }
+
+            core.PendingSnapshot = null;
+        }
+
+        float step = (float)(target - now);
+
+        for (int index = _coresIntegrated.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = _coresIntegrated[index];
+
+            if (core.Immovable)
+            {
+                continue;
+            }
+
+            IvpIntegrator.Step(core, now - core.LastStepped, step, phase);
+            core.LastStepped = now;
+            core.PendingSnapshot = null;
+
+            if (core.FrictionInfoIn(System) is { } share)
+            {
+                foreach (IvpContactPoint contact in share.Contacts)
+                {
+                    contact.Record?.Estimated = false;
+                }
+            }
+        }
+    }
+
     /// <summary>Solves the contact predicted to close first, and grows the island around what it moved — <c>FUN_180090bd0(block)</c>.</summary>
     /// <param name="environment">The environment, <c>block+0x0</c>.</param>
     /// <param name="sides">Each contact's two ledge sides now, for <see cref="Grow"/>.</param>
