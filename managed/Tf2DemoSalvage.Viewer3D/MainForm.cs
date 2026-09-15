@@ -4599,11 +4599,13 @@ internal class MainForm : Form, IFrameSteps
         // **The ORDER of those phases moved to `FrameSequence`** (B188, B203, D90). It is the
         // engine's frame order, it was wrong here for months, and it was wrong because a window
         // cannot be asked what order it does things in.
+        GarbageReading frameBegan = GarbageReading.FromRuntime();
+
         FramePhases phases = FrameSequence.Run(this);
 
         _frames.Drawing(phases.Draw);
 
-        StallReport.Frame(phases, _renderLog);
+        StallReport.Frame(phases, _renderLog, frameBegan, GarbageReading.FromRuntime());
 
         // **Every frame, averaged over the second — not sampled once a second.** `StallReport.Frame`
         // above fires only past 30 ms, so at the 90 fps this actually runs at it never fires and

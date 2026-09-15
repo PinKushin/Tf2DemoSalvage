@@ -97,13 +97,40 @@ public static class StallReport
     /// <param name="phases">What the frame measured.</param>
     /// <param name="log">Where the line goes.</param>
     /// <exception cref="ArgumentNullException"><paramref name="log"/> is null.</exception>
-    public static void Frame(in FramePhases phases, ILogger log)
+    public static void Frame(in FramePhases phases, ILogger log) => Frame(phases, log, null, null);
+
+    /// <summary>The same report, with what the collector did during this one frame.</summary>
+    /// <param name="phases">What the frame measured.</param>
+    /// <param name="log">Where the line goes.</param>
+    /// <param name="before">The runtime's counters as the frame began, or null.</param>
+    /// <param name="after">The same as it ended, or null.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="log"/> is null.</exception>
+    /// <remarks>
+    /// **Per frame, because the per-second line cannot attribute a stall.** The stalls left on f12
+    /// land in a different column every time — bone setup, lighting, camera, sound, draw — which is
+    /// the signature of a pause from outside the code, and a second's total cannot say whether a
+    /// collection fell inside the 400 ms frame or beside it.
+    /// </remarks>
+    public static void Frame(
+        in FramePhases phases, ILogger log, GarbageReading? before, GarbageReading? after)
     {
         ArgumentNullException.ThrowIfNull(log);
 
         if (Ms(phases.Total) <= StallSeconds * 1000d)
         {
             return;
+        }
+
+        string garbage = string.Empty;
+
+        if (before is { } start && after is { } end)
+        {
+            garbage = end.Gen0 == start.Gen0 && end.Gen1 == start.Gen1 && end.Gen2 == start.Gen2
+                ? "; no gc"
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"; gc {end.Gen0 - start.Gen0}/{end.Gen1 - start.Gen1}/{end.Gen2 - start.Gen2}" +
+                    $" paused {(end.Paused - start.Paused).TotalMilliseconds:0} ms");
         }
 
         log.LogWarning(
@@ -117,7 +144,7 @@ public static class StallReport
                 $", capture {Ms(phases.Capture):0.#}" +
                 $", hud {Ms(phases.Hud):0.#}" +
                 $", draw {Ms(phases.Draw):0.#}" +
-                $"; unaccounted {Ms(phases.Unaccounted):0.#} ms"));
+                $"; unaccounted {Ms(phases.Unaccounted):0.#} ms{garbage}"));
     }
 
     /// <summary>Reports a scene rebuild that took too long, naming each phase and sub-phase.</summary>

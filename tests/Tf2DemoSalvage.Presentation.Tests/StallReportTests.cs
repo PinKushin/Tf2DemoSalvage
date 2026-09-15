@@ -95,6 +95,36 @@ public sealed class StallReportTests
     // which is strictly stronger — it walks every stage rather than checking one arithmetic chain.
 
     [Test]
+    public void Frame_WithACollectionDuringIt_NamesTheCollectionAndItsPause()
+    {
+        // **The per-second GC line cannot attribute a stall to one frame**, and the stalls left on
+        // f12 land in a different column every time — which is what a pause from outside the code
+        // looks like. Distinct generation counts so a swapped pair reads wrong.
+        RecordingLogger log = new();
+
+        GarbageReading before = new(10, 4, 1, TimeSpan.FromMilliseconds(100), 0);
+        GarbageReading after = new(12, 5, 1, TimeSpan.FromMilliseconds(350), 0);
+
+        StallReport.Frame(Phases(SlowMs / 7d), log, before, after);
+
+        log.Lines[0].Message.ShouldContain("gc 2/1/0 paused 250 ms");
+    }
+
+    [Test]
+    public void Frame_WithNoCollectionDuringIt_SaysSo()
+    {
+        // The control: "no gc" printed is a measurement, and its absence from a line that was never
+        // given readings is a different thing — so the two cases must read differently.
+        RecordingLogger log = new();
+
+        GarbageReading same = new(10, 4, 1, TimeSpan.FromMilliseconds(100), 0);
+
+        StallReport.Frame(Phases(SlowMs / 7d), log, same, same);
+
+        log.Lines[0].Message.ShouldContain("no gc");
+    }
+
+    [Test]
     public void Frame_WithNoLogger_Refuses()
     {
         Should.Throw<ArgumentNullException>(() => StallReport.Frame(Phases(SlowMs), log: null!));
