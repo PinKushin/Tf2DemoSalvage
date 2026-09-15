@@ -224,6 +224,7 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// <param name="sides">Each contact's two ledge sides where their objects are now — the cache objects the builder refreshes.</param>
     /// <param name="materials">The material manager <see cref="IvpContactPoint.SetMaterials"/> reads.</param>
     /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <param name="skip">A contact left alone — the collided one, when the island build runs this inline.</param>
     /// <returns>How many contacts the pair has left.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -240,7 +241,8 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         IvpFrictionPair pair,
         Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)> sides,
         IIvpMaterialManager materials,
-        double now)
+        double now,
+        IvpContactPoint? skip = null)
     {
         ArgumentNullException.ThrowIfNull(pair);
         ArgumentNullException.ThrowIfNull(sides);
@@ -249,6 +251,13 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         for (int index = pair.Contacts.Count - 1; index >= 0; index--)
         {
             IvpContactPoint contact = pair.Contacts[index];
+
+            // The island build's inline copy (`FUN_180090700`) walks every contact of the pair but the one that collided.
+            if (ReferenceEquals(contact, skip))
+            {
+                continue;
+            }
+
             (IvpLedgeSide first, IvpLedgeSide second) = sides(contact);
 
             IvpContactRecord record = IvpContactRecord.Build(

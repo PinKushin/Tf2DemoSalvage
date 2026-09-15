@@ -152,6 +152,78 @@ public sealed class IvpImpactIsland
         }
     }
 
+    /// <summary>Assembles the island around a collided contact and drains it — <c>FUN_180090700(block, mindist, system, pair, cp)</c>.</summary>
+    /// <param name="environment">The environment, <c>block+0x0</c>.</param>
+    /// <param name="pair">The pair the contact is in.</param>
+    /// <param name="collided">The contact that collided.</param>
+    /// <param name="sides">Each contact's two ledge sides now.</param>
+    /// <param name="materials">The material manager.</param>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// block+0x8 = 0;  block+0x40 = system;  block+0x0 = pair+0x38's core's +0x10
+    /// core of cp's first object, unless flags &amp; 0x12:  FUN_18008da40(block, core, pair)
+    /// pair+0x38, unless flags &amp; 0x12:  push on +0x20
+    /// the same for cp's second object's core and pair+0x40
+    /// push pair on +0x30
+    /// every contact of the pair but cp, last to first:  FUN_18008d0c0;  FUN_1800908d0;  record+0x76 == 1 → FUN_180083e40
+    /// while FUN_180090bd0(block) == 1:  block+0x8 += 1;  n += 1;  block+0x8 > 0x1388 → mindist slot 0(mindist, 1), stop
+    /// env+0x98 += n + 1;  tail into FUN_1800909d0(block)
+    /// </code>
+    /// *Not carried yet*: the mindist's slot 0 at the cap, whose body is unread, and the tail (<c>FUN_1800909d0</c>), which needs
+    /// the impact counter stamp and the hull pass.
+    /// </remarks>
+    internal void Build(
+        IvpImpactEnvironment environment,
+        IvpFrictionPair pair,
+        IvpContactPoint collided,
+        Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)> sides,
+        IIvpMaterialManager materials,
+        double now)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(pair);
+        ArgumentNullException.ThrowIfNull(collided);
+
+        Passes = 0;
+
+        Enter(collided.FirstObject.Core, pair.FirstCore);
+        Enter(collided.SecondObject.Core, pair.SecondCore);
+
+        _pairs.Add(pair);
+
+        System.RevalidatePair(pair, sides, materials, now, skip: collided);
+
+        int drained = 0;
+
+        while (Drain(environment, sides, materials, now))
+        {
+            Passes++;
+            drained++;
+
+            if (Passes > PassCap)
+            {
+                break;
+            }
+        }
+
+        environment.LoopPasses += drained + 1;
+
+        void Enter(IvpRigidBody? objectCore, IvpRigidBody pairCore)
+        {
+            if (objectCore is { Immovable: false })
+            {
+                Grow(objectCore, pair, sides, materials, now);
+            }
+
+            if (!pairCore.Immovable)
+            {
+                AddAtEvent(pairCore);
+            }
+        }
+    }
+
     /// <summary>Solves the contact predicted to close first, and grows the island around what it moved — <c>FUN_180090bd0(block)</c>.</summary>
     /// <param name="environment">The environment, <c>block+0x0</c>.</param>
     /// <param name="sides">Each contact's two ledge sides now, for <see cref="Grow"/>.</param>

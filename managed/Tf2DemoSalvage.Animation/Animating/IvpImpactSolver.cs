@@ -35,6 +35,9 @@ public sealed class IvpImpactEnvironment
 
     /// <summary>The contacts the impact loop estimated again, <c>env+0xa8</c>.</summary>
     public int Estimates { get; set; }
+
+    /// <summary>The impact loop's passes, one more per island than it drained, <c>env+0x98</c>.</summary>
+    public int LoopPasses { get; set; }
 }
 
 /// <summary>
