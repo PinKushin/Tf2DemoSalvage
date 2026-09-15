@@ -94,4 +94,25 @@ public sealed class MomentCostLogTests
             Does.Contain("sample 5"),
             "mean of 2 and 8");
     }
+
+    /// <remarks>
+    /// **Ragdoll stepping runs inside `pose` with no column of its own**, so on `cp_process_f12` it
+    /// read as `rest 44` of a 50 ms pose. Named, a 50 ms pose with 40 ms of stepping must read
+    /// `corpses 40` and leave `rest 10`.
+    /// </remarks>
+    [Test]
+    public void Report_WithCorpseStepping_NamesItAndTakesItOutOfRest()
+    {
+        MomentCostLog log = new(every: 1);
+
+        MomentPhases phases = Posing(50) with
+        {
+            Counters = new EntityModelSet.PoseCounters(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Corpses: 40 * Millisecond),
+        };
+
+        string? line = log.Report(phases, sampleTicks: 0);
+
+        Assert.That(line, Does.Contain("corpses 40"));
+        Assert.That(line, Does.Contain("rest 10"));
+    }
 }

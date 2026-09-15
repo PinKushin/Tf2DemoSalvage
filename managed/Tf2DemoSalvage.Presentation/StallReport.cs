@@ -159,9 +159,10 @@ public static class StallReport
         double reports = Ms(pose.Report);
         double setup = Ms(pose.Setup);
         double skin = Ms(pose.Skin);
+        double corpses = Ms(pose.Corpses);
 
         double rest =
-            Ms(phases.Pose) - lighting - viewmodel - simulate - wornLight - reports - setup - skin;
+            Ms(phases.Pose) - lighting - viewmodel - simulate - wornLight - reports - setup - skin - corpses;
 
         log.LogWarning(
             "{Message}",
@@ -178,6 +179,7 @@ public static class StallReport
                 $" (sink {Ms(pose.ReportLog):0.#})" +
                 $", setup {setup:0.#}" +
                 $", skin {skin:0.#}" +
+                $", corpses {corpses:0.#}" +
                 $", rest {rest:0.#}" +
                 $", built {pose.Built.ToString(CultureInfo.InvariantCulture)}" +
                 $" of {phases.Drawn.ToString(CultureInfo.InvariantCulture)}" +

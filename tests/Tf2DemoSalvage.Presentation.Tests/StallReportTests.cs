@@ -151,6 +151,28 @@ public sealed class StallReportTests
     }
 
     [Test]
+    public void Moment_WithCorpseStepping_NamesItAndTakesItOutOfRest()
+    {
+        // A 100 ms pose of which 70 is ragdoll stepping must name the 70 and leave rest at 30.
+        RecordingLogger log = new();
+
+        MomentPhases phases = new(
+            Total: Ticks(SlowMs),
+            DrawList: 0,
+            Models: 0,
+            Pose: Ticks(SlowMs),
+            Weapons: 0,
+            Viewmodel: 0,
+            Counters: new EntityModelSet.PoseCounters(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Corpses: Ticks(70d)),
+            Drawn: 0);
+
+        StallReport.Moment(phases, sampleTicks: 0, playerTicks: 0, log);
+
+        log.Lines[0].Message.ShouldContain("corpses 70");
+        log.Lines[0].Message.ShouldContain("rest 30");
+    }
+
+    [Test]
     public void Moment_WithNoLogger_Refuses()
     {
         Should.Throw<ArgumentNullException>(() =>
