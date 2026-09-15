@@ -491,12 +491,11 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      emulator's memory model actually maps the loaded module's own image (not just synthetic scratch), before
      re-attempting; once the friction-solve probe's control case matches, resolve the `+0x60` budget field
      (likely needs a caller of `SolveOncePerPsi` itself, not yet located, or confirmation the arena zero-inits it),
-     and turn the probe into a proper fixture/oracle test; (2) turn
-     `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
-     tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
-     so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet
-     enough, since a mindist needs a *node* (matching `PhysicsLedgeTreeNode`) to name which ledge a synapse feature
-     came from; (3) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — `FUN_180090700`'s mini-island
+     and turn the probe into a proper fixture/oracle test; (2) **DONE, 2026-09-15**: `IvpRigidBody.LedgeTreeRoot`
+     closes the "moving body needs a node" gap for the ordinary case — `PhysicsLedgeTree.SingleLedge` builds a
+     terminal node directly from a body's one `PhysicsLedge`, and `LedgeTreeRoot` throws `NotSupportedException`
+     for a genuinely compound body (more than one ledge) rather than guess a split heuristic nothing has confirmed;
+     (3) the top-level `IntegrateAwakeCores`-shaped PSI/island driver — `FUN_180090700`'s mini-island
      construction, the retry loop, `collide`'s generation bump (`env+0x1a4`); (4) a
      `vphysics-friction-link`/`vphysics-collide` oracle probe for everything built this session — still synthetic
      conformance testing, not a replay against the shipped binary; (5) only then replace `IvpEnvironment`/`IvpContact`.
