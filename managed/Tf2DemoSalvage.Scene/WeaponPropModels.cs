@@ -137,12 +137,13 @@ public sealed class WeaponPropModels
 
         // A linear walk over at most a couple of dozen players, called only for the props that have
         // no model — which in a real match is a handful. A dictionary here would allocate every
-        // frame to answer a question asked three times.
-        foreach (ScenePlayer player in players)
+        // frame to answer a question asked three times. Indexed, because a `foreach` over the
+        // interface boxes an enumerator on every call.
+        for (int at = 0; at < players.Count; at++)
         {
-            if (player.EntityIndex == owner)
+            if (players[at].EntityIndex == owner)
             {
-                return player.PlayerClass;
+                return players[at].PlayerClass;
             }
         }
 

@@ -1870,6 +1870,37 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private readonly List<IReadOnlyDictionary<string, (float Red, float Green, float Blue)>?>
         _variables = [];
 
+    /// <summary>The variable table one proxy chain runs against, reused across binds.</summary>
+    private readonly Dictionary<string, (float Red, float Green, float Blue)> _proxyVariables =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A writable copy of a material's constants, reused across binds.</summary>
+    private float[] _contentsScratch = [];
+
+    /// <summary>Copies a material's constants into the reused buffer, unless they are already there.</summary>
+    /// <remarks>
+    /// **The stored array is the material's resting state and must never be written**, which is
+    /// why every writer copies first; the copy lived only until the buffer was mapped, so one reused
+    /// array serves every bind. Copying the scratch onto itself is skipped, so the second writer in
+    /// one bind keeps what the first wrote — as the second copy of a copy did.
+    /// </remarks>
+    private float[] Scratch(float[] contents)
+    {
+        if (ReferenceEquals(contents, _contentsScratch))
+        {
+            return contents;
+        }
+
+        if (_contentsScratch.Length != contents.Length)
+        {
+            _contentsScratch = new float[contents.Length];
+        }
+
+        contents.CopyTo(_contentsScratch, 0);
+
+        return _contentsScratch;
+    }
+
     /// <summary>Each material's base-texture animation frames, empty where it has none (B341).</summary>
     /// <remarks>
     /// **Uploaded per material rather than per texture path, and that is a deliberate limit.** The
@@ -4179,11 +4210,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // the worked example: it multiplies `$saturatedTint` by `$tintMulti`, and `$tintMulti` is
         // the declared constant `"10"`. With no seed the source is absent, the refusal below fires,
         // and the item's phong and envmap tints never get their multiplier.
-        Dictionary<string, (float Red, float Green, float Blue)> variables =
-            materialIndex >= 0 && materialIndex < _variables.Count &&
-            _variables[materialIndex] is { } declared
-                ? new(declared, StringComparer.OrdinalIgnoreCase)
-                : new(StringComparer.OrdinalIgnoreCase);
+        // **One table, cleared and reseeded per bind** rather than a new dictionary per bind, which
+        // measured 7 MB a second of garbage. Only lookups read it, so reuse changes nothing else.
+        Dictionary<string, (float Red, float Green, float Blue)> variables = _proxyVariables;
+
+        variables.Clear();
+
+        if (materialIndex >= 0 && materialIndex < _variables.Count &&
+            _variables[materialIndex] is { } declared)
+        {
+            foreach ((string name, (float Red, float Green, float Blue) value) in declared)
+            {
+                variables[name] = value;
+            }
+        }
 
         if (Tintable(materialIndex) is { } tintBase)
         {
@@ -4927,7 +4967,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             // Copied rather than mutated: the stored array is the material's, and turning a switch
             // off for one frame must not edit it for every frame after.
-            contents = [.. contents];
+            contents = Scratch(contents);
 
             if (!DrawDetail)
             {
@@ -4947,7 +4987,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             // Copied before writing, for the same reason as the switches above: the stored array is
             // the material's resting state, and a proxy must not bake this frame's value into it.
-            contents = [.. contents];
+            contents = Scratch(contents);
 
             ApplyProxies(
                 contents,

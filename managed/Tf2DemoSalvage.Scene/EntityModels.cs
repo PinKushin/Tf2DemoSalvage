@@ -1607,7 +1607,7 @@ public sealed class EntityModelSet : IModelBodygroups
 
         ReadOnlyMemory<byte> model = skinned.Models[group];
 
-        IReadOnlyList<StudioIkRule> rules = StudioIkRules.Read(model, blend[0].Animation);
+        IReadOnlyList<StudioIkRule> rules = skinned.IkRules(group, blend[0].Animation);
 
         if (rules.Count == 0)
         {
@@ -1624,9 +1624,11 @@ public sealed class EntityModelSet : IModelBodygroups
             float first = float.NaN;
             bool matched = true;
 
-            foreach ((int animation, float weight) in blend)
+            for (int corner = 0; corner < blend.Count; corner++)
             {
-                IReadOnlyList<StudioIkRule> theirs = StudioIkRules.Read(model, animation);
+                (int animation, float weight) = blend[corner];
+
+                IReadOnlyList<StudioIkRule> theirs = skinned.IkRules(group, animation);
 
                 if (rule >= theirs.Count || theirs.Count != rules.Count)
                 {
@@ -1699,8 +1701,10 @@ public sealed class EntityModelSet : IModelBodygroups
             // it once before the corner loop.
             float envelope = 0f;
 
-            foreach ((int animation, float weight) in blend)
+            for (int blended = 0; blended < blend.Count; blended++)
             {
+                (int animation, float weight) = blend[blended];
+
                 float influence = StudioIkRules.Weight(
                     shared,
                     skinned.FramesOfAnimation(group, animation),

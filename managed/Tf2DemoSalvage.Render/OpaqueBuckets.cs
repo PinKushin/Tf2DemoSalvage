@@ -100,12 +100,42 @@ public static class OpaqueBuckets
     {
         ArgumentNullException.ThrowIfNull(instances);
 
+        List<ModelInstance> ordered = new(instances.Count);
+
+        InDrawOrder(instances, frustum, new List<(int, int, ModelInstance)>(instances.Count), ordered);
+
+        return ordered;
+    }
+
+    /// <summary>The same order, written into buffers the caller keeps across frames.</summary>
+    /// <param name="instances">What is to be drawn.</param>
+    /// <param name="frustum">The view volume; an unbuilt one culls nothing.</param>
+    /// <param name="keyed">Scratch for the sort keys; cleared here.</param>
+    /// <param name="into">Receives the survivors in draw order; cleared here.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Buffers rather than a returned array because this runs every frame**: the allocating form
+    /// built a keyed list, an array copy of it and a result array per frame, measured at 28 MB a
+    /// second of garbage on f12. The key is unique per instance, so sorting in place gives the same
+    /// order as sorting the copy did.
+    /// </remarks>
+    internal static void InDrawOrder(
+        IReadOnlyList<ModelInstance> instances,
+        ViewFrustum frustum,
+        List<(int Bucket, int Order, ModelInstance Instance)> keyed,
+        List<ModelInstance> into)
+    {
+        ArgumentNullException.ThrowIfNull(instances);
+        ArgumentNullException.ThrowIfNull(keyed);
+        ArgumentNullException.ThrowIfNull(into);
+
         // **Keyed once rather than inside the comparison.** A comparison sort calls its key
         // function O(n log n) times, and each call here transforms a box by a matrix; computing it
         // per instance first is the difference between hundreds of transforms a frame and
         // thousands. Valve pays none of this — its buckets are filled as renderables are collated,
         // so the sort is a bucket append rather than a comparison at all.
-        List<(int Bucket, int Order, ModelInstance Instance)> keyed = new(instances.Count);
+        keyed.Clear();
+        into.Clear();
 
         for (int at = 0; at < instances.Count; at++)
         {
@@ -133,21 +163,14 @@ public static class OpaqueBuckets
                 instance));
         }
 
-        (int Bucket, int Order, ModelInstance Instance)[] survivors = [.. keyed];
-
-        Array.Sort(
-            survivors,
+        keyed.Sort(
             static (left, right) => left.Bucket != right.Bucket
                 ? left.Bucket.CompareTo(right.Bucket)
                 : left.Order.CompareTo(right.Order));
 
-        ModelInstance[] ordered = new ModelInstance[survivors.Length];
-
-        for (int at = 0; at < survivors.Length; at++)
+        for (int at = 0; at < keyed.Count; at++)
         {
-            ordered[at] = survivors[at].Instance;
+            into.Add(keyed[at].Instance);
         }
-
-        return ordered;
     }
 }
