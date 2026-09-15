@@ -4173,6 +4173,28 @@ every core of +0x10, last to first, unless flags & 2:  FUN_1800792b0(core)
 actually moved are stepped — each over the environment's whole remaining PSI span, through the same integrator a PSI uses — then
 re-checked by the scheduler and stamped with the impact counter. `FUN_180077f00(core, system)` is the per-system record: through
 the hash at `core+0x60` for an unmovable core, else `core+0x60` itself when its `+0x10` is the system.
+#### The per-core step whole — `FUN_180099a00(core, {step, 1/step}, &pushed)` (2026-09-15)
+
+**Read from the decompiler** (headless `DecompAt`), filling in what precedes and follows the integration already quoted above:
+
+```
+core+0x58 null or core+0x8 != 0:
+    ((float)env+0x110 · limits+0x14)² < |ω|²  → anomaly manager slot 1(limits, core)
+    limits+0xc² < |v|²                        → anomaly manager slot 0(limits, core, &v)
+core+0x1dc = |v| (FUN_18006e120 of +0x140);  core+0x1d8 = 1/step;  q = FUN_180099fc0(core, step)
+position, velocity cache, commit, advance  (the integration quoted above)
+s = FUN_180099d60(core, q);  g = (s + core+0x1dc) · DAT_1800fdf8c
+every object (+0x70, count +0x6a), last first:  manager = object+0x80
+    t = (float)(env+0x188 − manager+0x0);  manager+0x94 += t·manager+0x8c;  manager+0x8c = core+0x1dc
+    manager+0x0 = env+0x188;  manager+0x90 += t·manager+0x88;  manager+0x88 = g;  manager+0x98 = g·step + manager+0x90
+    manager+0xb0 − manager+0x98 < 0 → push the manager
+```
+
+**The limits are asked at the start of every step, before the linear speed is taken**, and both are skipped for a core with
+`+0x58` set and `+0x8` zero — the same exemption the impact solver's check reads, *though the decompiler shows `!= 0.0` and
+whether a NaN `+0x8` is checked is not settled in the disassembly.* The linear speed the hull gradient and the range manager
+read is the speed after that check.
+
 #### The core constructor — `FUN_1800782d0(core, object, gravity)` (2026-09-15)
 
 **Read from the decompiler** (headless `DecompAt`, the MCP bridge being down):

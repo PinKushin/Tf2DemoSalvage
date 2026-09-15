@@ -210,7 +210,7 @@ public sealed class IvpImpactIsland
 
         environment.LoopPasses += drained + 1;
 
-        Tail(now, environment.PsiEnd, environment.Phase);
+        Tail(environment, now);
 
         void Enter(IvpRigidBody? objectCore, IvpRigidBody pairCore)
         {
@@ -227,9 +227,9 @@ public sealed class IvpImpactIsland
     }
 
     /// <summary>Puts back what the loop only brought to the event, and steps what it moved — <c>FUN_1800909d0(block)</c>.</summary>
+    /// <param name="environment">The environment: its PSI end, phase, limits and anomaly manager.</param>
     /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
-    /// <param name="target">The PSI's end, <c>env+0x190</c>.</param>
-    /// <param name="phase">The environment's phase, <c>env+0x1ac</c>.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="environment"/> is null.</exception>
     /// <remarks>
     /// <code>
     /// every core of +0x20, last to first:  +0x260 set and its +0x30 zero → FUN_180079120(core);  core+0x260 = null
@@ -240,11 +240,13 @@ public sealed class IvpImpactIsland
     /// FUN_18009a690(env, &amp;local)
     /// every core of +0x10, last to first, unless flags &amp; 2:  FUN_1800792b0(core)
     /// </code>
-    /// *Not carried yet*: the hull pass over the managers the steps pushed (`FUN_18009a690`) and the per-core recheck
-    /// (`FUN_1800792b0`), both of which walk a core's objects, which a core does not list yet.
+    /// *Not carried yet*: the per-core recheck (<see cref="IvpRigidBody.Recheck"/>), which needs the minimize and the scheduler
+    /// the environment does not hold yet.
     /// </remarks>
-    internal void Tail(double now, double target, int phase)
+    internal void Tail(IvpImpactEnvironment environment, double now)
     {
+        ArgumentNullException.ThrowIfNull(environment);
+
         for (int index = _coresAtEvent.Count - 1; index >= 0; index--)
         {
             IvpRigidBody core = _coresAtEvent[index];
@@ -257,7 +259,8 @@ public sealed class IvpImpactIsland
             core.PendingSnapshot = null;
         }
 
-        float step = (float)(target - now);
+        float step = (float)(environment.PsiEnd - now);
+        List<IvpHullManager> pushed = [];
 
         for (int index = _coresIntegrated.Count - 1; index >= 0; index--)
         {
@@ -268,8 +271,7 @@ public sealed class IvpImpactIsland
                 continue;
             }
 
-            IvpIntegrator.Step(core, now - core.LastStepped, step, phase);
-            core.LastStepped = now;
+            IvpIntegrator.StepCore(core, environment, now, step, pushed);
             core.PendingSnapshot = null;
 
             if (core.FrictionInfoIn(System) is { } share)
@@ -280,6 +282,9 @@ public sealed class IvpImpactIsland
                 }
             }
         }
+
+        // FUN_18009a690(env, &local): TF2's client budget is maxCollisionChecksPerTimestep and its extension zero (findings 51).
+        IvpHullManager.NotifyAll(pushed, environment.Limits.MaximumCollisionChecks, _ => 0);
     }
 
     /// <summary>Solves the contact predicted to close first, and grows the island around what it moved — <c>FUN_180090bd0(block)</c>.</summary>

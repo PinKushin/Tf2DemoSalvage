@@ -940,7 +940,8 @@ public static class IvpIntegrator
     /// - **The per-core dt is narrowed to `float` before use** — `(double)(float)(dVar9 - dVar2)` —
     ///   so the arithmetic runs at single precision even though both operands are doubles.
     /// </remarks>
-    public static void Step(IvpRigidBody body, double positionDelta, float orientationDelta, int phase)
+    /// <returns>The step's rotation quaternion, which <see cref="StepCore"/> bounds.</returns>
+    public static (double X, double Y, double Z, double W) Step(IvpRigidBody body, double positionDelta, float orientationDelta, int phase)
     {
         ArgumentNullException.ThrowIfNull(body);
 
@@ -970,6 +971,78 @@ public static class IvpIntegrator
         // **Commit first.** What the rest of the engine reads is last step's working orientation.
         body.Orientation = body.WorkingOrientation;
         body.WorkingOrientation = IvpQuaternion.Normalise(IvpQuaternion.Product(body.WorkingOrientation, turn));
+
+        return turn;
+    }
+
+    /// <summary>One core's whole step as the island tail runs it — <c>FUN_180099a00(core, {step, 1/step}, &amp;pushed)</c>.</summary>
+    /// <param name="core">The core.</param>
+    /// <param name="environment">The environment, whose limits and anomaly manager are asked.</param>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <param name="step">The step, <c>(float)(env+0x190 − env+0x188)</c>.</param>
+    /// <param name="pushed">The hull managers found due, pushed in object order.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Read from the decompiler** (headless `DecompAt` of <c>180099a00</c>, 2026-09-15):
+    /// <code>
+    /// core+0x58 null or core+0x8 != 0:
+    ///     ((float)env+0x110 · limits+0x14)² &lt; |ω|² → anomaly slot 1(limits, core)
+    ///     limits+0xc² &lt; |v|² → anomaly slot 0(limits, core, &amp;v)
+    /// core+0x1dc = |v|;  core+0x1d8 = 1/step;  q = FUN_180099fc0;  position, velocity cache, commit, advance   (see Step)
+    /// s = FUN_180099d60(core, q)                   -- the surface bound, core+0x254
+    /// g = (s + core+0x1dc) · 1.00001f
+    /// every object (+0x70, count +0x6a), last first:  its manager (+0x80) advanced to now with g and |v|;
+    ///     minimum − next &lt; 0 → push the manager
+    /// </code>
+    /// *The `!= 0` test is the decompiler's*; whether a NaN `core+0x8` checks the limits is not settled in the disassembly.
+    /// </remarks>
+    internal static void StepCore(IvpRigidBody core, IvpImpactEnvironment environment, double now, float step, List<IvpHullManager> pushed)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+        ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(pushed);
+
+        if (!core.HasOffset58 || core.Offset08 != 0f)
+        {
+            IvpAnomalyLimits limits = environment.Limits;
+            float reach = (float)environment.InverseStep * limits.MaximumAngularVelocityPerPsi;
+            (float X, float Y, float Z) spin = core.AngularVelocity;
+
+            if (reach * reach < (spin.X * spin.X) + (spin.Y * spin.Y) + (spin.Z * spin.Z))
+            {
+                environment.Anomalies.MaximumAngularVelocityExceeded(limits, core, environment.InverseStep, ref spin);
+                core.AngularVelocity = spin;
+            }
+
+            (float X, float Y, float Z) velocity = core.Velocity;
+
+            if (limits.MaximumVelocity * limits.MaximumVelocity < (velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z))
+            {
+                environment.Anomalies.MaximumVelocityExceeded(limits, core, ref velocity);
+                core.Velocity = velocity;
+            }
+        }
+
+        (float X, float Y, float Z) moving = core.Velocity;
+        core.LinearSpeed = (float)Math.Sqrt((moving.X * moving.X) + (moving.Y * moving.Y) + (moving.Z * moving.Z));
+
+        (double X, double Y, double Z, double W) turn = Step(core, now - core.LastStepped, step, environment.Phase);
+        core.LastStepped = now;
+
+        IvpCoreSpeedBound bound = IvpCoreSpeedBound.From((turn.X, turn.Y, turn.Z), core.CoreMatrix, core.InverseStep, core.Offset08);
+        core.SurfaceSpeedBound = bound.Surface;
+
+        float gradient = IvpHullManager.GradientFor(bound.Surface, core.LinearSpeed);
+
+        for (int index = core.Objects.Count - 1; index >= 0; index--)
+        {
+            IvpHullManager manager = core.Objects[index].Hull;
+
+            if (manager.Advance(now, step, gradient, core.LinearSpeed))
+            {
+                pushed.Add(manager);
+            }
+        }
     }
 
     /// <summary>Builds a step's rotation and advances the angular velocity — <c>FUN_180099fc0</c>, on the path the runtime chose.</summary>

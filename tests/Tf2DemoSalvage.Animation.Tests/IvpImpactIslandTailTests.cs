@@ -1,4 +1,5 @@
 using Tf2DemoSalvage.Animation.Animating;
+using Tf2DemoSalvage.Probe.Oracle;
 
 using Revalidate = Tf2DemoSalvage.Animation.Tests.IvpFrictionSystemRevalidatePairTests;
 
@@ -19,7 +20,7 @@ public sealed class IvpImpactIslandTailTests
         core.AngularVelocity = (9f, 9f, 9f);
         island.AddAtEvent(core);
 
-        island.Tail(now: 1d, target: 1.5d, phase: 0);
+        island.Tail(Environment(psiEnd: 1.5d), now: 1d);
 
         core.AngularVelocity.ShouldBe((1f, 2f, 3f));
         core.PendingSnapshot.ShouldBeNull();
@@ -33,7 +34,7 @@ public sealed class IvpImpactIslandTailTests
         core.AngularVelocity = (9f, 9f, 9f);
         island.AddAtEvent(core);
 
-        island.Tail(now: 1d, target: 1.5d, phase: 0);
+        island.Tail(Environment(psiEnd: 1.5d), now: 1d);
 
         core.AngularVelocity.ShouldBe((9f, 9f, 9f));
         core.PendingSnapshot.ShouldBeNull();
@@ -49,13 +50,43 @@ public sealed class IvpImpactIslandTailTests
         contact.Record!.Estimated = true;
         island.AddIntegrated(core);
 
-        island.Tail(now: 1d, target: 1.5d, phase: 0);
+        island.Tail(Environment(psiEnd: 1.5d), now: 1d);
 
         core.Position.X.ShouldBe(1.5d, "position moves by the last velocity over now less the last step");
         core.LastStepped.ShouldBe(1d);
         core.InverseStep.ShouldBe(2f, "the orientation step is the PSI's remainder");
         core.PendingSnapshot.ShouldBeNull();
         contact.Record.Estimated.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Tail_AMovedCoreWhoseHullIsPassed_TellsTheFiledSynapse()
+    {
+        (IvpImpactIsland island, IvpRigidBody core, _) = Island();
+        core.PendingSnapshot = new IvpCoreSnapshot(default, (0d, 0d, 0d, 1d), (0d, 0d, 0d, 1d)) { Moved = true };
+        core.Velocity = (3f, 4f, 0f);
+        IvpCollisionObject body = new();
+        core.Objects.Add(body);
+        Listener listener = new();
+        body.Hull.Install(listener, now: 0d, allowance: 0d);
+        island.AddIntegrated(core);
+
+        island.Tail(Environment(psiEnd: 1.5d), now: 1d);
+
+        listener.Told.ShouldBeGreaterThan(0, "the hull pass tells what the step pushed");
+    }
+
+    private sealed class Listener : IIvpHullSynapse
+    {
+        public int Told { get; private set; }
+
+        public int? HullSlot { get; set; }
+
+        public void HullPassed(IvpHullManager manager, float overshoot) => Told++;
+
+        public void Rebased(float valueShift, float centerShift)
+        {
+        }
     }
 
     private static (IvpImpactIsland, IvpRigidBody, IvpContactPoint) Island()
@@ -68,4 +99,15 @@ public sealed class IvpImpactIslandTailTests
 
         return (new IvpImpactIsland(system), core, contact);
     }
+
+    private static IvpImpactEnvironment Environment(double psiEnd) =>
+        new()
+        {
+            InverseStep = 0d,
+            Step = 0d,
+            Limits = new IvpAnomalyLimits(1000f, 0, 1000f, 250, 0f, 0f),
+            Anomalies = new VphysicsAnomalyManager(new IvpImpactReplay.FixedAnswer(answer: false)),
+            Materials = new IvpReplayMaterials(new IvpReplayMaterial(0d, 0d, HasSecondFriction: false), 0d, 0d),
+            PsiEnd = psiEnd,
+        };
 }
