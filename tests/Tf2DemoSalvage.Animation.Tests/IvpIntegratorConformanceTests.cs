@@ -1,6 +1,8 @@
 using System;
+using System.Numerics;
 
 using Tf2DemoSalvage.Animation.Animating;
+using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Animation.Tests;
 
@@ -375,5 +377,41 @@ public sealed class IvpIntegratorConformanceTests
         body.Orientation.ShouldBe((0.1d, 0.2d, 0.3d, 0.9d));
         body.WorkingOrientation.ShouldBe((0.4d, 0.5d, 0.6d, 0.7d));
         body.PendingSnapshot.ShouldBeNull();
+    }
+
+    private static PhysicsLedge OneTriangle() => new(
+        Points: [new Vector3(0f, 0f, 0f), new Vector3(1f, 0f, 0f), new Vector3(0f, 1f, 0f)],
+        Triangles: [(0, 1, 2)],
+        EdgeOffsets: [(0, 0, 0)],
+        PierceTriangles: [0],
+        MaterialIndices: [0],
+        Center: new Vector3(1f, 2f, 3f),
+        Radius: 4f);
+
+    /// <remarks>The ordinary ragdoll-bone case: one ledge names a terminal node directly.</remarks>
+    [Test]
+    public void LedgeTreeRoot_OneLedge_BuildsATerminalNodeNamingIt()
+    {
+        PhysicsLedge ledge = OneTriangle();
+        IvpRigidBody body = new() { Ledges = [ledge] };
+
+        body.LedgeTreeRoot.Ledge.ShouldBe(ledge);
+    }
+
+    [Test]
+    public void LedgeTreeRoot_NoLedges_ThrowsInvalidOperationException()
+    {
+        IvpRigidBody body = new();
+
+        Should.Throw<InvalidOperationException>(() => body.LedgeTreeRoot);
+    }
+
+    /// <remarks>A compound body needs the real ledge tree, not a guessed one — this project refuses to fabricate it.</remarks>
+    [Test]
+    public void LedgeTreeRoot_MoreThanOneLedge_ThrowsNotSupportedException()
+    {
+        IvpRigidBody body = new() { Ledges = [OneTriangle(), OneTriangle()] };
+
+        Should.Throw<NotSupportedException>(() => body.LedgeTreeRoot);
     }
 }

@@ -270,13 +270,30 @@ public sealed class IvpRigidBody
 
     /// <summary>The body's undiscarded ledges — what a real mindist needs, kept beside the GJK path's flat <see cref="Hull"/>/<see cref="Faces"/> (B369).</summary>
     /// <remarks>
-    /// **Carried, not yet consumed.** `IvpMindist` and <see cref="IvpLedgeSide.FromLedge"/> both need a
-    /// <see cref="PhysicsLedge"/>'s triangles, edge offsets and material indices, which flattening into
-    /// <see cref="Hull"/>/<see cref="Faces"/> already discards. A real ledge-tree hull for a moving body — matching
-    /// what <see cref="IvpWorldCollision"/> already builds for the world — is not yet built from this; see
-    /// `docs/HANDOFF.md`, item 3.
+    /// `IvpMindist` and <see cref="IvpLedgeSide.FromLedge"/> both need a <see cref="PhysicsLedge"/>'s triangles, edge
+    /// offsets and material indices, which flattening into <see cref="Hull"/>/<see cref="Faces"/> already discards.
+    /// See <see cref="LedgeTreeRoot"/> for what a full mindist search over this list still needs.
     /// </remarks>
     public IReadOnlyList<PhysicsLedge> Ledges { get; set; } = [];
+
+    /// <summary>
+    /// This body's one ledge, as the terminal node a mindist search needs to name it — <see cref="PhysicsLedgeTree.SingleLedge"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><see cref="Ledges"/> is empty.</exception>
+    /// <exception cref="NotSupportedException">
+    /// <see cref="Ledges"/> has more than one entry. A genuinely compound body needs the real ledge tree
+    /// `IvpWorldCollision` already builds for the world — matching a body against a REAL multi-ledge `.phy` solid is
+    /// not yet ported; see `docs/HANDOFF.md`, item 3. Every TF2 ragdoll bone this project has read has exactly one.
+    /// </exception>
+    public PhysicsLedgeTreeNode LedgeTreeRoot => Ledges.Count switch
+    {
+        0 => throw new InvalidOperationException("A core with no ledges was asked for its ledge tree."),
+        1 => PhysicsLedgeTree.SingleLedge(Ledges[0]),
+        _ => throw new NotSupportedException(
+            "LedgeTreeRoot is ported for exactly one ledge - a ragdoll bone's ordinary single-convex .phy solid. "
+            + "A genuinely compound body (more than one ledge) needs the real ledge tree IvpWorldCollision already "
+            + "builds for the world, which is not ported for a moving body."),
+    };
 
     /// <summary>Each contact FEATURE's tangential slip, carried between steps, keyed by normal.</summary>
     /// <remarks>

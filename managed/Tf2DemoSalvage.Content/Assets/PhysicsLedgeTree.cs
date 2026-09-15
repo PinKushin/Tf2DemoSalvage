@@ -27,6 +27,32 @@ public sealed class PhysicsLedgeTree
     /// <returns>The node.</returns>
     /// <exception cref="KeyNotFoundException">No node of the tree is there — where the engine would read whatever bytes are.</exception>
     public PhysicsLedgeTreeNode Node(int offset) => _nodes[offset];
+
+    /// <summary>
+    /// A one-node "tree" for a body whose collision is exactly one convex ledge — the common case for a ragdoll
+    /// bone, which carries one <see cref="PhysicsLedge"/> per solid rather than a real ledge tree (B369).
+    /// </summary>
+    /// <param name="ledge">The body's one ledge.</param>
+    /// <returns>A terminal node naming it, with no children.</returns>
+    /// <remarks>
+    /// **Not read from any file — a flat shortcut, not a tree**, matching the ordinary shape of a ragdoll's own
+    /// `.phy` data: each bone's solid is one convex hull, so there is no real inner-node structure to decode in the
+    /// first place. A genuinely compound body (more than one ledge) needs the real tree this method does not
+    /// attempt — see `docs/HANDOFF.md`, item 3.
+    ///
+    /// **<see cref="PhysicsLedgeTreeNode.Box"/> is maxed out (`255, 255, 255`) rather than measured**, since no real
+    /// per-node box byte exists for a synthetic node — the radius query's own box test (`IvpLedgeTree.Walk` in the
+    /// animation project) against a maxed box is a no-op (it can only ever pass), so this never wrongly excludes the
+    /// one ledge it names; it costs nothing beyond a query that would have matched on the sphere test alone anyway.
+    /// </remarks>
+    public static PhysicsLedgeTreeNode SingleLedge(PhysicsLedge ledge) =>
+        new(0, ledge.Center, ledge.Radius, (255, 255, 255))
+        {
+            HasLedge = true,
+            LedgeOffset = 0,
+            Ledge = ledge,
+            LedgeChildren = 0,
+        };
 }
 
 /// <summary>One <c>IVP_Compact_Ledgetree_Node</c>, 0x1c bytes (B369).</summary>
