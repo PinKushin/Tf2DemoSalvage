@@ -62,6 +62,48 @@ public sealed class CorpsePhysicsWiringTests
     }
 
     /// <remarks>
+    /// **The engine simulates a ragdoll whether or not the view can see it** (B58) — it belongs to
+    /// `physenv`, and visibility governs drawing alone. Advancing only DRAWN corpses made one that
+    /// came back into view replay every tick it missed in a single frame: measured on f12 as 135, 151
+    /// and 551 ms frames with `corpses` holding all of it.
+    ///
+    /// **`Culled` is the control.** A corpse the frustum did not actually reject would pass this
+    /// against the old wiring too, so the test first proves it was outside the view.
+    /// </remarks>
+    [Test]
+    public void Instances_ForACorpseOutsideTheView_StillSimulatesTheTicksBetween()
+    {
+        SceneProp corpse = Corpse();
+
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn = [corpse];
+
+        models.Add(drawn, _ => Frames());
+
+        models.CurrentTick = 66d;
+        models.Instances(drawn, [], seconds: 1d, frustum: LookingAwayFromTheOrigin());
+
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d, frustum: LookingAwayFromTheOrigin());
+
+        models.Culled.ShouldBe(1, "the control: the corpse really was outside the view");
+        models.Corpses.Steps.ShouldBe(66, "one second at the demo's tick rate, seen or not");
+    }
+
+    /// <summary>A camera 200 units along +X looking further along it, so the origin is behind.</summary>
+    private static ViewFrustum LookingAwayFromTheOrigin() =>
+        ViewFrustum.PerspectiveFromAspect(
+            origin: (200f, 0f, 0f),
+            forward: (1f, 0f, 0f),
+            right: (0f, -1f, 0f),
+            up: (0f, 0f, 1f),
+            nearZ: 7f,
+            farZ: 1000f,
+            fovX: 90f,
+            aspect: 1f);
+
+    /// <remarks>
     /// **The control, and it is the one that matters.** Without it, "simulates corpses" and
     /// "simulates everything it draws" are the same observation — and the second would put every
     /// living player under physics. A prop of any other class must be left alone even though its
@@ -171,6 +213,11 @@ public sealed class CorpsePhysicsWiringTests
             [0],
             [true],
             Skinned: model,
+
+            // **A real box, so the frustum can judge it.** An empty one is never culled
+            // (`WorldSpaceBounds.IsPlaced`), which would make the out-of-view test pass for the
+            // wrong reason. Thirty units about the origin, clear of a camera 200 units away.
+            HeaderBounds: new StudioBox(-30f, -30f, -30f, 30f, 30f, 30f),
             Ragdoll: ragdoll);
     }
 }

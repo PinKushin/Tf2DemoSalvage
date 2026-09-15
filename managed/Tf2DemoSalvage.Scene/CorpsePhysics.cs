@@ -74,25 +74,13 @@ public sealed class CorpsePhysics
     /// <summary>How many sub-intervals the last corpse's steps were walked in.</summary>
     public long Slices { get; private set; }
 
-    /// <summary>
-    /// **A corpse is only simulated while it is DRAWN, and that is a divergence** (B58).
-    /// </summary>
-    /// <remarks>
-    /// **The engine keeps a ragdoll in the physics environment whether or not the view can see
-    /// it.** `cl_ragdoll_physics_enable` decides whether one exists at all; after that it is
-    /// `physenv`'s, and visibility governs drawing alone. Here the advance happens inside the loop
-    /// over DRAWN props, so a corpse behind the camera stops dead and resumes when it comes back
-    /// into view.
-    ///
-    /// **It was found by the instrument disagreeing with itself.** The same tick, from two
-    /// cameras: from one, three corpses reported leaving the world; from a wider one that did not
-    /// draw them, none did — because none of them had been stepped at all.
-    ///
-    /// **Fixing it is not a line.** This project's animation is draw-driven end to end — an
-    /// `AnimatingEntity` exists because something posed it — so simulating an unseen corpse means
-    /// giving it an entity nothing is drawing. Written down here rather than left as a surprise.
-    /// </remarks>
-    public static bool SimulatesOnlyWhatIsDrawn => true;
+    // **`SimulatesOnlyWhatIsDrawn` was here and said `true`, filing a divergence** (B58): the engine
+    // keeps a ragdoll in `physenv` whether or not the view can see it, and this project advanced
+    // corpses inside the loop over DRAWN props. It was found by the instrument disagreeing with
+    // itself — three corpses left the world from one camera and none from a wider one that did not
+    // draw them. Its cost was a stall: a corpse back in view replayed every missed tick in one frame.
+    // `EntityModelSet.AdvanceCorpses` now runs before the cull, over every prop the moment carries;
+    // the entity it needs already exists, because `Simulate` makes one for every prop.
 
     /// <summary>For each corpse that left the world, when, where, and its contacts then.</summary>
     /// <remarks>
