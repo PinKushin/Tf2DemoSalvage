@@ -223,6 +223,40 @@ public static class StallReport
                 $", starting {Ms(phases.Starting):0.#}"));
     }
 
+    /// <summary>Reports a camera step that took too long, naming each piece of it.</summary>
+    /// <param name="flyTicks">Reading the clock and flying the free camera.</param>
+    /// <param name="viewTicks">Choosing and building this frame's view camera.</param>
+    /// <param name="deviceTicks">Handing it to the device: the world cull and the detail sprites.</param>
+    /// <param name="particleTicks">Stepping the particle effects and building their quads.</param>
+    /// <param name="log">Where the line goes.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="log"/> is null.</exception>
+    /// <remarks>
+    /// **The frame's `camera` column held 102 and 410 ms stalls on f12 in seconds with no
+    /// collection**, and that column is four unrelated pieces of work. Named apart so the next one
+    /// says which.
+    /// </remarks>
+    public static void Camera(
+        long flyTicks, long viewTicks, long deviceTicks, long particleTicks, ILogger log)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+
+        double total = Ms(flyTicks + viewTicks + deviceTicks + particleTicks);
+
+        if (total <= StallSeconds * 1000d)
+        {
+            return;
+        }
+
+        log.LogWarning(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SLOW CAMERA {total:0} ms: fly {Ms(flyTicks):0.#}" +
+                $", view {Ms(viewTicks):0.#}" +
+                $", device {Ms(deviceTicks):0.#}" +
+                $", particles {Ms(particleTicks):0.#}"));
+    }
+
     /// <summary>Stopwatch ticks as milliseconds.</summary>
     private static double Ms(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
 }

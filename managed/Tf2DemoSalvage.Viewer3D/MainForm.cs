@@ -3923,12 +3923,14 @@ internal class MainForm : Form, IFrameSteps
     /// they are empty in any modern demo and are projected through the top-down camera anyway. The
     /// map view still rebuilds, because there everything IS projected to screen space.
     /// </remarks>
-    private void UploadCamera()
+    private void UploadCamera(long flyTicks = 0)
     {
         if (_device is null || !_device.HasWorld)
         {
             return;
         }
+
+        long viewAt = Stopwatch.GetTimestamp();
 
         // **The camera itself rather than its matrix**, so the projection and the cull volume are
         // derived from one thing. `SetCamera(float[])` still exists for the viewmodel pass, which
@@ -3937,9 +3939,22 @@ internal class MainForm : Form, IFrameSteps
         // `CViewRender::SetUpView` computes the view once and everything downstream reads it.
         FreeCamera viewing = ViewCameraNow(_demoFrameSeconds);
 
+        long deviceAt = Stopwatch.GetTimestamp();
+
         _device.SetCamera(viewing, _menu.SurfaceColours.Checked);
 
+        long particlesAt = Stopwatch.GetTimestamp();
+
         DrawParticles(viewing);
+
+        // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
+        // in seconds with no collection, and it is four unrelated pieces of work.
+        StallReport.Camera(
+            flyTicks,
+            deviceAt - viewAt,
+            particlesAt - deviceAt,
+            Stopwatch.GetTimestamp() - particlesAt,
+            _renderLog);
     }
 
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
@@ -4672,8 +4687,11 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public void PlaceCamera()
     {
+        long flyAt = Stopwatch.GetTimestamp();
+
         FlyCamera();
-        UploadCamera();
+
+        UploadCamera(Stopwatch.GetTimestamp() - flyAt);
     }
 
     /// <summary>Put the ears where the eye is, and play what is due.</summary>

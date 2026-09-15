@@ -233,6 +233,44 @@ public sealed class StallReportTests
         log.Lines.ShouldBeEmpty();
     }
 
+    [Test]
+    public void Camera_UnderTheThreshold_IsNotReported()
+    {
+        RecordingLogger log = new();
+
+        StallReport.Camera(Ticks(1d), Ticks(1d), Ticks(1d), Ticks(1d), log);
+
+        log.Lines.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Camera_OverTheThreshold_NamesEveryStep()
+    {
+        // **The camera column held 102 and 410 ms stalls on f12 with no collection in that second**,
+        // and the column is four different pieces of work. Distinct values per step, so a report
+        // that swapped two columns reads wrong rather than coincidentally right.
+        RecordingLogger log = new();
+
+        StallReport.Camera(Ticks(10d), Ticks(20d), Ticks(30d), Ticks(40d), log);
+
+        log.Lines.Count.ShouldBe(1);
+
+        string line = log.Lines[0].Message;
+
+        line.ShouldStartWith("SLOW CAMERA 100");
+        line.ShouldContain("fly 10");
+        line.ShouldContain("view 20");
+        line.ShouldContain("device 30");
+        line.ShouldContain("particles 40");
+    }
+
+    [Test]
+    public void Camera_WithNoLogger_Refuses()
+    {
+        Should.Throw<ArgumentNullException>(() =>
+            StallReport.Camera(Ticks(SlowMs), 0, 0, 0, log: null!));
+    }
+
     /// <summary>Seven equal phases, each of the given duration.</summary>
     private static FramePhases Phases(double eachMs)
     {
