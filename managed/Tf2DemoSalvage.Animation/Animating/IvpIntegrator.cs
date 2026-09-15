@@ -800,7 +800,11 @@ public sealed class IvpRigidBody
 public sealed record IvpCoreSnapshot(
     (float X, float Y, float Z) AngularVelocity,
     (double X, double Y, double Z, double W) Orientation,
-    (double X, double Y, double Z, double W) WorkingOrientation);
+    (double X, double Y, double Z, double W) WorkingOrientation)
+{
+    /// <summary>Whether an impact has moved the core, so the tail integrates it rather than putting it back — the byte at <c>+0x30</c>.</summary>
+    public bool Moved { get; set; }
+}
 
 /// <summary>
 /// IVP's per-core integration step — <c>FUN_180099a00</c> (B58, D142, D146).

@@ -82,13 +82,13 @@ public sealed class IvpFrictionSystemRevalidatePairTests
 
     private static readonly IvpLedgeSide Flat = IvpContactGeometryConformanceTests.Flat();
 
-    private static (IvpLedgeSide First, IvpLedgeSide Second) Sides(IvpContactPoint contact) => (Vertex, Flat);
+    internal static (IvpLedgeSide First, IvpLedgeSide Second) Sides(IvpContactPoint contact) => (Vertex, Flat);
 
-    private static IvpContactBody First(IvpContactPoint contact) => new(Vertex, contact.FirstObject.Core!, 0f);
+    internal static IvpContactBody First(IvpContactPoint contact) => new(Vertex, contact.FirstObject.Core!, 0f);
 
-    private static IvpContactBody Second(IvpContactPoint contact) => new(Flat, contact.SecondObject.Core!, 0f);
+    internal static IvpContactBody Second(IvpContactPoint contact) => new(Flat, contact.SecondObject.Core!, 0f);
 
-    private static (IvpFrictionSystem, IvpFrictionPair, IvpContactPoint) Linked(out IvpRigidBody world)
+    internal static (IvpFrictionSystem, IvpFrictionPair, IvpContactPoint) Linked(out IvpRigidBody world)
     {
         IvpRigidBody movable = new();
         world = new IvpRigidBody { Immovable = true };
@@ -98,7 +98,7 @@ public sealed class IvpFrictionSystemRevalidatePairTests
         return (system, system.Pairs[0], contact);
     }
 
-    private static IvpContactPoint Contact(IvpRigidBody movable, IvpRigidBody world)
+    internal static IvpContactPoint Contact(IvpRigidBody movable, IvpRigidBody world)
     {
         IvpContactPoint contact = IvpContactGeometryConformanceTests.Contact(IvpFeatureKind.Point, Vertex, IvpFeatureKind.Edge, Flat);
         contact.FirstObject.Core = movable;
@@ -120,7 +120,7 @@ public sealed class IvpFrictionSystemRevalidatePairTests
             GravityLength = 0f,
         };
 
-    private sealed class Materials : IIvpMaterialManager
+    internal sealed class Materials : IIvpMaterialManager
     {
         public static readonly Materials Instance = new();
 

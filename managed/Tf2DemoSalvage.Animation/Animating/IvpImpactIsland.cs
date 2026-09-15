@@ -106,6 +106,52 @@ public sealed class IvpImpactIsland
         _coresAtEvent.Add(core);
     }
 
+    /// <summary>Grows the island around a core an impact moved — <c>FUN_18008da40(block, core, pair)</c>.</summary>
+    /// <param name="core">The moved core, whose snapshot the collision saved.</param>
+    /// <param name="pair">The pair the impact came through, never scanned.</param>
+    /// <param name="sides">Each contact's two ledge sides now, for <see cref="IvpFrictionSystem.RevalidatePair"/>.</param>
+    /// <param name="materials">The material manager.</param>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">The core has no snapshot; the engine dereferences <c>core+0x260</c>.</exception>
+    /// <remarks>
+    /// <code>
+    /// push core on +0x10;  core+0x260's +0x30 = 1
+    /// every pair of the system, last to first, touching core, not pair, not already on +0x30:
+    ///     FUN_180083b30(that pair, system) > 0 → push it on +0x30
+    /// </code>
+    /// </remarks>
+    internal void Grow(
+        IvpRigidBody core,
+        IvpFrictionPair pair,
+        Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)> sides,
+        IIvpMaterialManager materials,
+        double now)
+    {
+        ArgumentNullException.ThrowIfNull(pair);
+
+        AddIntegrated(core);
+        (core.PendingSnapshot ?? throw new InvalidOperationException("A core the impact moved has no snapshot.")).Moved = true;
+
+        List<IvpFrictionPair> pairs = System.Pairs;
+
+        for (int index = pairs.Count - 1; index >= 0; index--)
+        {
+            IvpFrictionPair candidate = pairs[index];
+
+            if (ReferenceEquals(candidate, pair) || _pairs.Contains(candidate) ||
+                !(ReferenceEquals(candidate.FirstCore, core) || ReferenceEquals(candidate.SecondCore, core)))
+            {
+                continue;
+            }
+
+            if (System.RevalidatePair(candidate, sides, materials, now) > 0)
+            {
+                _pairs.Add(candidate);
+            }
+        }
+    }
+
     /// <summary>The pairs in the order the loop drains them — <c>last to first</c>.</summary>
     /// <returns>The pairs, newest first.</returns>
     public IReadOnlyList<IvpFrictionPair> PairsLastToFirst()
