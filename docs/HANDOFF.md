@@ -416,21 +416,19 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      - Two magic constants read exactly: `0.8999999761581421` (a friction-coefficient reduction factor, sliding
        branch) and `0.30000001192092896` (used twice: a base friction-limit scale, and inside `dVar5`'s own
        computation alongside an as-yet-unidentified `local_138` divisor).
-     - **The one remaining blocker, after a dedicated fourth AND fifth read specifically hunting for it: no
-       allocator/constructor for the per-pair "sticking anchor" object (`param_2+0x58`, ≥`0xb8` bytes, fields at
-       `+0x90/0x94/0x98/0xa0/0xa8/0xb0`) has been found anywhere in this session's reads.** Confirmed PER-PAIR
-       (keyed by "this core" + "the other core at its own `+8`"), not per-contact, and confirmed persistent across
-       PSIs (the `+0xb0` sticking flag survives between calls) — but where it is first allocated, and what zeroes
-       or default-initializes it, is genuinely unresolved. **Do not port a guessed struct for this** — the object's
-       lifecycle (lazily allocated on first stick? part of the core's own fixed layout, silently unread until now?)
-       changes what "not yet stuck" even means, and guessing it would be exactly the invented structure this
-       project refuses to write. Needs either a much broader xref sweep (constraint/joint code this session never
-       reached) or accepting this branch stays unported until a future session finds the allocator.
-   - **Next, in order**: (1) as its own dedicated pass: find `param_2+0x58`'s allocator (the sticking branch's one
-     remaining blocker) or accept the non-sticking branch (`SolveContact`/`SolveOncePerPair`, already landed) as
-     this project's complete tangential solve and file the sticking branch as a stated, permanent divergence;
-     resolve the `+0x60` budget field (likely needs a caller of `SolveOncePerPsi` itself, not yet located, or
-     confirmation the arena zero-inits it); build a `vphysics-friction-solve` probe and oracle fixture for what IS
+     - **CLOSED, 2026-09-14, as D175: the sticking branch is a stated, permanent divergence, not an open port
+       item.** Five dedicated reads across this session found only readers/null-checks of the field that gates it
+       (`core+0x58`, a per-pair "sticking anchor" pointer) — in `SolveTangentialPair`, `FUN_180085a80`, and
+       `IvpMindistManager::Revalidate` — and no write anywhere reached. Its likely owner is `vphysics.dll`'s
+       joint/constraint code, never opened this session. **This project ports no joint/constraint system and
+       implements only body-against-world contact**, so nothing in this codebase, ever, writes that field — the
+       sticking branch's dispatch condition is therefore provably always false here, not merely unported.
+       `SolveContact`/`SolveOncePerPair` taking only the non-sticking branch is the COMPLETE, correct behaviour for
+       this project's object model, not an approximation. See D175 for the full reasoning; re-open only if a
+       body-against-body port is ever undertaken.
+   - **Next, in order**: (1) as its own dedicated pass — D175 closed the sticking branch as a stated divergence, so
+     this is now just the `+0x60` budget field (likely needs a caller of `SolveOncePerPsi` itself, not yet located,
+     or confirmation the arena zero-inits it) and a `vphysics-friction-solve` probe/oracle fixture for what IS
      ported, sabotage-verify; (2) turn
      `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
      tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)

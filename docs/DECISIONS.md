@@ -8850,3 +8850,34 @@ it's about to be cited a lot, the address is actively confusing) can still be re
 anymore.
 
 Related: D89, D172, B369.
+
+## D175 — the sticking-friction branch is a stated divergence: its gate is unreachable in this project's own object model (2026-09-14)
+
+**The blocker, after five dedicated reads:** `IvpFrictionSystem::SolveTangentialPair`'s sticking dispatch
+(`FUN_180085a80`) is gated on a per-core pointer field (informally `core+0x58`) naming a persistent, per-pair
+"sticking anchor" object. Every read this session found only readers and null-checks of this field — in
+`SolveTangentialPair` itself, in `FUN_180085a80`, and in `IvpMindistManager::Revalidate` — and, after a targeted
+fifth pass specifically hunting for its allocator (tracing `AddCore`'s own join path, `search_instructions` for the
+write pattern), no instruction anywhere reached this session stores a pointer into it. The most likely owner —
+constraint/joint code (`Ivp*Joint*`/`Ivp*Constraint*`) — was never opened this session or any prior one.
+
+**The decision: stop searching, and recognise the search itself is the answer for THIS project.** This project
+implements exactly one collision shape — a movable ragdoll body against the immovable world
+(`IvpFrictionLinking.LinkContactByCore` throws `NotSupportedException` for any other pairing) — and ports no joint
+or constraint system at all (`IvpFrictionPair::Build`'s own constraint-adjacent fields were already found and
+left unported, D172's running notes). **Nothing in this codebase, and nothing this project intends to build, ever
+writes the field that gates the sticking branch.** Whatever native code owns it is entirely on the joint/constraint
+side of `vphysics.dll`, which is out of scope by the project's own stated boundary, not by an oversight.
+
+**So the sticking branch's dispatch condition is provably always false here** — not assumed, not defaulted, but a
+direct consequence of this project's own object model never populating the field it tests. `SolveContact`/
+`SolveOncePerPair` (already landed, B369) taking only the non-sticking branch is therefore not an approximation
+pending a future port: it is the complete, correct behaviour for every contact this project's simulation can ever
+produce. A body-against-body port, if one is ever undertaken, would need to open the joint/constraint side of the
+binary first and re-open this decision.
+
+**What follows:** `docs/HANDOFF.md`'s tangential-solve tracking is updated to close this out as a stated divergence
+rather than an open port item. The exact decompile obtained this session (`FUN_180085a80`, in full, four attempts
+to get an untruncated read) stays recorded there as a citation, in case a future joint/constraint port needs it.
+
+Related: D89, D129, D172, B369.
