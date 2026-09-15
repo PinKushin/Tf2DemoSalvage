@@ -469,11 +469,27 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      feeds which output slot, is not a reliable way to recover ground truth here — a wrong-by-construction hand trace
      that still "looks nonzero" is exactly the kind of confident-but-wrong reading this project's own instrument
      discipline warns about. **Stopped rather than keep guessing.**
-   - **Next, in order**: (1) as its own dedicated pass, with the RIGHT tool this time: use Ghidra's `emulate_function`
-     or `debugger_*` tools to actually RUN `SolveTangentialPair`/`BuildJacobian` against the probe's exact fabricated
-     memory and read back the real `local_c8`/`local_c0`/`local_a0` values before they reach `TryInvertSymmetric` —
-     not another hand-traced decompile read, which this session's own experience shows is unreliable past this depth
-     of nested dot products. Once the friction-solve probe's control case matches, resolve the `+0x60` budget field
+   - **Tried the emulator, same session: `emulate_function` on `BuildJacobian` (`18009d010`) with the probe's exact
+     fabricated buffers, mapped fresh at `0x20000000`+.** Faulted after 148 steps — `RDX` (the record pointer) read
+     as `0` mid-execution, then a computed jump to `PC=0x10` decoded as invalid. The decompile shows `param_2`
+     (RDX) is only ever dereferenced as three doubles (`*param_2`, `param_2[1]`, `param_2[2]`) — nothing in the
+     visible code reassigns it — so either the emulated entry point drifted from the real function start, Ghidra's
+     own function boundary for `18009d010` includes something not shown in the decompile view, or the emulator's
+     synthetic memory (valid only from `0x20000000` up) doesn't cover a RIP-relative read the real code makes into
+     the loaded image, and unmapped-memory-reads-as-zero cascaded into a bad jump. **Not resolved.** No `(a, b, d)`
+     values were recovered.
+   - **Decision: stop chasing this specific probe's numeric match.** Two independent tools (hand-traced decompile,
+     the emulator) have both failed to produce a trustworthy `(a, b, d)`, and continuing to alternate between them
+     is now costing more than the remaining gap is worth relative to what this session already banked: D175 closed
+     with a direct empirical measurement, and two real, confirmed, FIXED divergences (`SolveContact`'s wrong clip
+     budget source, `BuildJacobian`'s frame-mismatched cross product) — both landed in the port with tests, both
+     independent of whether this one probe's control case ever numerically matches. The friction-solve probe itself
+     stays in the tree as a real, working harness that already proved its worth twice; it is not yet a fixture/oracle
+     test, and should not be treated as one until it matches.
+   - **Next, in order**: (1) as its own dedicated pass, in a FRESH session with a clear run of tokens: retry the
+     emulator, first confirming `18009d010` is genuinely `BuildJacobian`'s entry (not an offset into it) and that the
+     emulator's memory model actually maps the loaded module's own image (not just synthetic scratch), before
+     re-attempting; once the friction-solve probe's control case matches, resolve the `+0x60` budget field
      (likely needs a caller of `SolveOncePerPsi` itself, not yet located, or confirmation the arena zero-inits it),
      and turn the probe into a proper fixture/oracle test; (2) turn
      `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
