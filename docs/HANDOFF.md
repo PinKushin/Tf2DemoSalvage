@@ -439,19 +439,37 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      parameter at all — it computes its own clip budget internally, and its entry gate (refusing a contact below
      roughly `1e-6`, matching a contact the heap solve never pushed having no friction to give) is now ported too.
      5 tests updated/added, 5106/5107 total, zero regressions.
-   - **What the probe does NOT yet prove**: the applied impulse's exact numeric value. The control case's binary side
-     reports an untouched (zero) pending velocity/spin after the call, while the port computes and applies a nonzero
-     one — meaning either `TryInvertSymmetric` returns false on the native side for reasons not yet found, or a
-     native input this session's reads haven't identified is still missing (a live core rotation matrix at `core+0x90`
-     and an inverse mass at `core+0x4c` were both found missing and fixed during this same session without changing
-     the zero result, so the remaining gap is not one of those two). **Not chased further this session** — real
-     progress (the divergence fix, D175's empirical confirmation) was banked rather than risking more blind native
-     memory-layout guessing. A future session should start by finding what native input still differs, not by
-     re-deriving what is already confirmed above.
-   - **Next, in order**: (1) as its own dedicated pass: find why the friction-solve probe's control case does not yet
-     match numerically (see above), resolve the `+0x60` budget field (likely needs a caller of `SolveOncePerPsi`
+   - **Chased further, same session: two real fields found missing, one real bug found and fixed, the exact remaining
+     blocker now narrowed to one specific unread function.** `IvpContact::TangentialSlipVelocity` (`18009ca70`) and
+     `IvpRigidBody::BuildJacobian` (`18009d010`) were both read in full to find what the probe was missing. Found:
+     **`BuildJacobian` computes its arm as `recordPosition − corePosition`, both WORLD-space doubles at record`+0x0`
+     and core `+0xf0`** — never from `FirstArm`/`SecondArm` at all, which the probe was wrongly supplying. Fixed the
+     probe (writes `record.Position`/`core.Position` now) — the arm is no longer degenerate. **Also found and fixed
+     a real port bug, independent of the probe's own remaining gap**: `BuildJacobian`'s native computation crosses
+     the WORLD arm against the WORLD axis, then rotates the cross product by `RotateInverse` into the core's frame;
+     since rotation commutes with the cross product, this equals crossing the already-local `FirstArm`/`SecondArm`
+     against the axis rotated into local space FIRST — the fix `IvpTangentialSolve.Row` now applies. The previous
+     version crossed the local arm against the WORLD axis directly (a frame mismatch) then rotated FORWARD (the
+     wrong direction) — silently correct only under an identity `CoreMatrix`, which is why no existing test caught
+     it. 35/35 tangential tests unaffected (all use identity rotation), confirming the bug never showed up in a
+     synthetic fixture — only a rotated-core case, which nothing has built yet, would have caught it.
+   - **With both those fixes applied, the probe's control case STILL returns an untouched core** — a diagnostic read
+     (raw packed return `0x00000000`, the running-average field at contact `+0x84` unwritten) confirms
+     `IvpContact::TryInvertSymmetric` is the one returning false, not an earlier gate (the entry gate reads back as
+     `0.005`, correctly computed and well above its `~1e-6` threshold). **Hand-computing the expected 2×2 system by
+     the same formula `BuildJacobian`'s own read gives `a=2, b=−1, d=2`** (determinant 3, should invert cleanly) — so
+     either the hand-computation itself is wrong in some detail this session didn't catch, or `TryInvertSymmetric`'s
+     own body (assumed since an EARLIER session's read, never re-confirmed THIS session, and never actually
+     re-verified against a fresh decompile the way every other piece here was) reads its four inputs differently
+     than assumed. **This is the single, precisely-narrowed next step** — not chased further this session, since it
+     would be the eleventh-plus dedicated decompile in one sitting and the two real, valuable divergences already
+     found (the arm and the frame-mismatch bug) are worth banking rather than risking on more blind reading.
+   - **Next, in order**: (1) as its own dedicated pass: read `IvpContact::TryInvertSymmetric`'s own body fresh (never
+     actually decompiled this session — every reference to it assumed an earlier session's characterization) to find
+     why it returns false on a system this session's hand-computation says should invert; once the friction-solve
+     probe's control case matches, resolve the `+0x60` budget field (likely needs a caller of `SolveOncePerPsi`
      itself, not yet located, or confirmation the arena zero-inits it), and turn the probe into a proper
-     fixture/oracle test once it matches; (2) turn
+     fixture/oracle test; (2) turn
      `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
      tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
      so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet

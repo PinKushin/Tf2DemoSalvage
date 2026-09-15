@@ -48,7 +48,10 @@ public static class IvpTangentialSolve
     /// Builds one core's jacobian rows for the tangential solve's two axes — <c>IvpRigidBody::BuildJacobian</c>.
     /// </summary>
     /// <param name="core">The core; null for a static side, which contributes no row.</param>
-    /// <param name="arm">The contact point, relative to the core's position, in world space.</param>
+    /// <param name="arm">
+    /// The contact point relative to the core's position, in the CORE'S OWN LOCAL FRAME — the same value
+    /// <see cref="IvpContactRecord.FirstArm"/>/<see cref="IvpContactRecord.SecondArm"/> already hold.
+    /// </param>
     /// <param name="axis0">The slide's first tangent axis, in world space.</param>
     /// <param name="axis1">The slide's second tangent axis, in world space.</param>
     /// <param name="axisFactors">
@@ -60,9 +63,21 @@ public static class IvpTangentialSolve
     /// **Only two axes: the native's third row capacity is always passed a null pointer at every call site this
     /// project reaches**, so it never runs — this project's tangential solve is a plain 2×2 system, matching
     /// <see cref="TryInvertSymmetric"/>'s own shape, and this method mirrors that rather than carrying dead capacity.
-    /// **Not yet pinned by an oracle probe** — read from the disassembly's exact operations and offsets, but the
-    /// off-diagonal cross-term this needs when both axes come from the SAME core (the native's <c>+0x1f</c>/<c>+0x24</c>
-    /// accumulation) is not yet carried by this method; see `docs/HANDOFF.md`, item 3.
+    ///
+    /// **A frame-mismatch bug, found and fixed 2026-09-14 via a `vphysics-friction-solve` probe against the real
+    /// binary.** The native (`IvpRigidBody::BuildJacobian`, read in full) computes the arm as
+    /// <c>recordPosition − corePosition</c>, both WORLD-space doubles, crosses it against the WORLD-space axis, then
+    /// rotates the cross product by <see cref="IvpMatrix.RotateInverse"/> into the core's own frame before scaling by
+    /// the (axis-aligned) inverse inertia. Since rotation commutes with the cross product for an orthonormal matrix,
+    /// <c>RotateInverse(worldArm × worldAxis) = RotateInverse(worldArm) × RotateInverse(worldAxis)</c> — and
+    /// <c>RotateInverse(worldArm)</c> is exactly what <see cref="IvpContactRecord.Lever"/> already computes as
+    /// <see cref="IvpContactRecord.FirstArm"/>/<see cref="IvpContactRecord.SecondArm"/>. So the equivalent, simpler
+    /// computation this method uses is: rotate the axis into local space first, then cross it with the already-local
+    /// arm — no further rotation needed, matching <see cref="IvpContactRecord.Lever"/>'s own pattern for the normal
+    /// solve's turn. **The previous version of this method crossed the local-frame arm against the WORLD-frame axis
+    /// directly (a frame mismatch) and then rotated the result FORWARD** (<see cref="IvpMatrix.Rotate"/>, the wrong
+    /// direction) — silently correct only when the core's own orientation is identity, which is why no existing test
+    /// caught it: every hand-built fixture used an identity <see cref="IvpRigidBody.CoreMatrix"/>.
     /// </remarks>
     public static (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? BuildJacobian(
         IvpRigidBody? core,
@@ -85,13 +100,15 @@ public static class IvpTangentialSolve
     private static IvpJacobianRow Row(
         IvpRigidBody core, (float X, float Y, float Z) arm, (float X, float Y, float Z) axis, (float X, float Y, float Z, float W) axisFactors)
     {
-        (float X, float Y, float Z) cross = (
-            (arm.Y * axis.Z) - (arm.Z * axis.Y),
-            (arm.Z * axis.X) - (arm.X * axis.Z),
-            (arm.X * axis.Y) - (arm.Y * axis.X));
+        (double X, double Y, double Z) local = core.CoreMatrix.RotateInverse(((double)axis.X, (double)axis.Y, (double)axis.Z));
+        (float X, float Y, float Z) localAxis = ((float)local.X, (float)local.Y, (float)local.Z);
 
-        (double X, double Y, double Z) world = core.CoreMatrix.Rotate(((double)cross.X, (double)cross.Y, (double)cross.Z));
-        (float X, float Y, float Z, float W) row = ((float)world.X, (float)world.Y, (float)world.Z, 1f);
+        (float X, float Y, float Z) cross = (
+            (arm.Y * localAxis.Z) - (arm.Z * localAxis.Y),
+            (arm.Z * localAxis.X) - (arm.X * localAxis.Z),
+            (arm.X * localAxis.Y) - (arm.Y * localAxis.X));
+
+        (float X, float Y, float Z, float W) row = (cross.X, cross.Y, cross.Z, 1f);
 
         (float X, float Y, float Z, float W) massRow = (
             row.X * core.InverseInertia.X * axisFactors.X,

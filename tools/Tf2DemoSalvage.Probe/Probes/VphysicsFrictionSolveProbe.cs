@@ -119,6 +119,9 @@ public sealed class VphysicsFrictionSolveProbe : IProbe
         (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, inverseStep: inverseStep);
 
         output.WriteLine($"binary: sticking dispatch taken = {fabricated.Sticking} (false confirms D175 on this core)");
+        output.WriteLine($"binary: entry gate value (friction*normalPush*event[0]) = {fabricated.Gate:g9}");
+        output.WriteLine($"binary: raw packed return = 0x{BitConverter.SingleToInt32Bits(fabricated.RawReturn):x8}");
+        output.WriteLine($"binary: running-average magnitude (contact+0x84) changed = {fabricated.RunningAverageChanged}");
         output.WriteLine(
             $"binary pending velocity: ({fabricated.PendingVelocity.X:g9}, {fabricated.PendingVelocity.Y:g9}, {fabricated.PendingVelocity.Z:g9})");
         output.WriteLine(
@@ -147,7 +150,13 @@ public sealed class VphysicsFrictionSolveProbe : IProbe
     private static bool Close((float X, float Y, float Z) a, (float X, float Y, float Z) b) =>
         MathF.Abs(a.X - b.X) < 1e-3f && MathF.Abs(a.Y - b.Y) < 1e-3f && MathF.Abs(a.Z - b.Z) < 1e-3f;
 
-    private readonly record struct NativeCase(bool Sticking, (float X, float Y, float Z) PendingVelocity, (float X, float Y, float Z) PendingSpin);
+    private readonly record struct NativeCase(
+        bool Sticking,
+        (float X, float Y, float Z) PendingVelocity,
+        (float X, float Y, float Z) PendingSpin,
+        float RawReturn,
+        bool RunningAverageChanged,
+        float Gate);
 
     private sealed class Native : IDisposable
     {
@@ -216,6 +225,7 @@ public sealed class VphysicsFrictionSolveProbe : IProbe
             Marshal.WriteInt32(_core, 0x4c, BitConverter.SingleToInt32Bits(1f));
             WriteVector3(_core, 0x140, core.Velocity);
             WriteMatrix(_core, core.CoreMatrix);
+            WriteDouble3(_core, 0xf0, (0d, 0d, 0d));
             Marshal.WriteIntPtr(_object, 0xe8, _core);
 
             Zero(_contact, ContactSize);
@@ -227,6 +237,7 @@ public sealed class VphysicsFrictionSolveProbe : IProbe
             Marshal.WriteInt32(_contact, 0x78, BitConverter.SingleToInt32Bits(friction));
             Marshal.WriteInt32(_contact, 0x88, BitConverter.SingleToInt32Bits(1f));
 
+            WriteDouble3(_record, 0x0, ((double)record.FirstArm.X, record.FirstArm.Y, record.FirstArm.Z));
             WriteVector3(_record, 0x20, record.Normal);
             WriteVector3(_record, 0xb0, record.Span);
             WriteVector3(_record, 0xc0, record.CrossSpan);
@@ -237,13 +248,22 @@ public sealed class VphysicsFrictionSolveProbe : IProbe
             Marshal.WriteInt32(_record, 0x78, BitConverter.SingleToInt32Bits(0.02f));
 
             bool stickingBefore = Marshal.ReadInt64(_core, 0x58) != 0;
+            float runningAverageBefore = BitConverter.Int32BitsToSingle(Marshal.ReadInt32(_contact, 0x84));
 
-            _solve(_contact, _event);
+            float raw = _solve(_contact, _event);
+
+            float runningAverageAfter = BitConverter.Int32BitsToSingle(Marshal.ReadInt32(_contact, 0x84));
+            float gateFriction = BitConverter.Int32BitsToSingle(Marshal.ReadInt32(_contact, 0x78));
+            float gateNormalPush = BitConverter.Int32BitsToSingle(Marshal.ReadInt32(_contact, 0x88));
+            float gateEvent0 = BitConverter.Int32BitsToSingle(Marshal.ReadInt32(_event, 0x0));
 
             return new NativeCase(
                 stickingBefore,
                 ReadVector3(_core, 0x120),
-                ReadVector3(_core, 0x110));
+                ReadVector3(_core, 0x110),
+                raw,
+                BitConverter.SingleToInt32Bits(runningAverageBefore) != BitConverter.SingleToInt32Bits(runningAverageAfter),
+                gateFriction * gateNormalPush * gateEvent0);
         }
 
         public void Dispose()
@@ -254,6 +274,13 @@ public sealed class VphysicsFrictionSolveProbe : IProbe
             }
 
             _blocks.Clear();
+        }
+
+        private static void WriteDouble3(nint block, int offset, (double X, double Y, double Z) vector)
+        {
+            Marshal.WriteInt64(block, offset, BitConverter.DoubleToInt64Bits(vector.X));
+            Marshal.WriteInt64(block, offset + 8, BitConverter.DoubleToInt64Bits(vector.Y));
+            Marshal.WriteInt64(block, offset + 16, BitConverter.DoubleToInt64Bits(vector.Z));
         }
 
         private static void WriteVector3(nint block, int offset, (float X, float Y, float Z) vector)
