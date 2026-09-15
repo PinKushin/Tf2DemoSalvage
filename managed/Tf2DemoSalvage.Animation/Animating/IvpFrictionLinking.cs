@@ -166,11 +166,27 @@ public static class IvpFrictionLinking
             pair.Contacts.Add(contact);
         }
 
+        // **Onto each core's own share too** — `FUN_180054640`, "cp onto both records' contact vectors" (findings 51,
+        // *Filing a contact into a friction system*). This is what `FUN_180083e40`'s per-core removal (`FUN_180075130`)
+        // is the inverse of; without it a core's share never held the contacts the removal walks. Guarded like the pair,
+        // for a reused contact re-filed on a later collision.
+        FileOnCore(movable.FrictionInfoIn(system), contact);
+        FileOnCore(other.FrictionInfoIn(system), contact);
+
         if (!ReferenceEquals(contact.FrictionSystem, system))
         {
             system.Link(contact);
         }
 
         return system;
+    }
+
+    /// <summary>Files a contact onto one core's share of the system, once — half of <c>FUN_180054640</c>.</summary>
+    private static void FileOnCore(IvpFrictionInfo? share, IvpContactPoint contact)
+    {
+        if (share is { } info && !info.Contacts.Contains(contact))
+        {
+            info.Contacts.Add(contact);
+        }
     }
 }

@@ -199,6 +199,57 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         return false;
     }
 
+    /// <summary>
+    /// Takes a contact out of one core's share of this system, dropping the share and the core when it empties —
+    /// <c>FUN_180075130</c> then <c>FUN_180077c10</c>/<c>FUN_180088c80</c> inside <c>FUN_180083e40</c>.
+    /// </summary>
+    /// <param name="contact">The contact being removed.</param>
+    /// <param name="core">One of the contact's two physical cores.</param>
+    /// <returns><c>true</c> when the core's share emptied and the core left the system, <c>false</c> when contacts remain.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">The core has no share of this system — <c>FUN_180077f00</c> returned null.</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (`docs/findings/51`, *Removing a contact point* and *What a core keeps per system*): the
+    /// core's share is found (<see cref="IvpRigidBody.FrictionInfoIn"/>, <c>FUN_180077f00</c>), the contact leaves its ordered
+    /// contact vector (<c>FUN_180075130</c>), and an emptied share is detached from the core (<c>FUN_180077c10</c>) as the core
+    /// leaves the system (<c>FUN_180088c80</c>).
+    ///
+    /// **The inverse of <see cref="AddCore"/>, and no more.** `FUN_180088c80` also unlinks the system's three controller bases
+    /// from the core's simulation unit and clears bit 9 / sets bit 8 of that unit's dword; <see cref="AddCore"/> models none of
+    /// that — this project reaches gravity, damping and push by walking every body, not through a registered unit — so the
+    /// removal has nothing to undo there either.
+    /// </remarks>
+    internal bool RemoveCoreContact(IvpContactPoint contact, IvpRigidBody core)
+    {
+        ArgumentNullException.ThrowIfNull(contact);
+        ArgumentNullException.ThrowIfNull(core);
+
+        IvpFrictionInfo info = core.FrictionInfoIn(this)
+            ?? throw new InvalidOperationException(
+                "The core has no share of this system; FUN_180077f00 returned null where the removal dereferences it.");
+
+        info.Contacts.Remove(contact);
+
+        if (info.Contacts.Count != 0)
+        {
+            return false;
+        }
+
+        Cores.Remove(core);
+
+        if (core.Immovable)
+        {
+            core.FrictionInfos.Remove(this);
+        }
+        else
+        {
+            core.FrictionInfo = null;
+            MovableCores.Remove(core);
+        }
+
+        return true;
+    }
+
     /// <summary>A contact filed at the head of the list — <c>FUN_180087c90(system, cp)</c>.</summary>
     /// <param name="point">The contact.</param>
     /// <exception cref="ArgumentNullException"><paramref name="point"/> is null.</exception>
