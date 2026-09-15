@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Numerics;
 
 namespace Tf2DemoSalvage.Animation.Animating;
@@ -51,10 +50,29 @@ public static class Gjk
         ArgumentNullException.ThrowIfNull(supportA);
         ArgumentNullException.ThrowIfNull(supportB);
 
-        List<(Vector3 P, Vector3 A, Vector3 B)> simplex =
-        [
-            Support(supportA, supportB, Vector3.UnitZ),
-        ];
+        return Distance(new FuncSupport(supportA), new FuncSupport(supportB));
+    }
+
+    /// <summary>The same search over support functions held by value, so a query allocates nothing.</summary>
+    /// <typeparam name="TA">The first shape's support.</typeparam>
+    /// <typeparam name="TB">The second shape's support.</typeparam>
+    /// <param name="supportA">Direction ↦ the first shape's extreme point that way.</param>
+    /// <param name="supportB">Direction ↦ the second shape's extreme point that way.</param>
+    /// <returns>The closest pair, or null if it did not converge inside the iteration budget.</returns>
+    /// <remarks>
+    /// **Why this overload exists: the delegate form was a garbage source on the hottest path in the
+    /// viewer.** `IvpContact.Find` runs one query per nearby ledge per body per slice, and every query
+    /// built a closure, two delegates, a list per simplex reduction and an iterator — measured as
+    /// 45% of a Debug corpse step spent waiting on the collector. The arithmetic and the order the
+    /// simplex is held in are unchanged, so the answer is the same bit for bit.
+    /// </remarks>
+    internal static GjkResult? Distance<TA, TB>(TA supportA, TB supportB)
+        where TA : struct, ISupport
+        where TB : struct, ISupport
+    {
+        Simplex simplex = default;
+
+        simplex.Add(Support(ref supportA, ref supportB, Vector3.UnitZ));
 
         Vector3 closestP = simplex[0].P;
         Vector3 closestA = simplex[0].A;
@@ -71,7 +89,7 @@ public static class Gjk
                 return new GjkResult(closestA, closestB, Vector3.Zero, 0f);
             }
 
-            (Vector3 P, Vector3 A, Vector3 B) candidate = Support(supportA, supportB, direction);
+            (Vector3 P, Vector3 A, Vector3 B) candidate = Support(ref supportA, ref supportB, direction);
 
             // **Termination is "no further progress toward the origin", not a fixed point count —
             // OR the candidate is a support point the simplex already holds.** The second half is
@@ -85,9 +103,9 @@ public static class Gjk
             // disagreed forever; measured hanging at the iteration cap on a real box every time.
             bool alreadyHeld = false;
 
-            foreach ((Vector3 P, Vector3 A, Vector3 B) held in simplex)
+            for (int index = 0; index < simplex.Count; index++)
             {
-                if ((held.P - candidate.P).LengthSquared() < DuplicateEpsilon * DuplicateEpsilon)
+                if ((simplex[index].P - candidate.P).LengthSquared() < DuplicateEpsilon * DuplicateEpsilon)
                 {
                     alreadyHeld = true;
                     break;
@@ -112,13 +130,92 @@ public static class Gjk
         return null;
     }
 
-    private static (Vector3 P, Vector3 A, Vector3 B) Support(
-        Func<Vector3, Vector3> supportA, Func<Vector3, Vector3> supportB, Vector3 direction)
+    private static (Vector3 P, Vector3 A, Vector3 B) Support<TA, TB>(
+        ref TA supportA, ref TB supportB, Vector3 direction)
+        where TA : struct, ISupport
+        where TB : struct, ISupport
     {
-        Vector3 a = supportA(direction);
-        Vector3 b = supportB(-direction);
+        Vector3 a = supportA.Extreme(direction);
+        Vector3 b = supportB.Extreme(-direction);
 
         return (a - b, a, b);
+    }
+
+    /// <summary>A shape described by its support function, held by value.</summary>
+    internal interface ISupport
+    {
+        /// <summary>The shape's extreme point along a direction.</summary>
+        /// <param name="direction">The direction to search.</param>
+        /// <returns>The extreme point.</returns>
+        public Vector3 Extreme(Vector3 direction);
+    }
+
+    /// <summary>The public delegate form, adapted.</summary>
+    private readonly struct FuncSupport(Func<Vector3, Vector3> support) : ISupport
+    {
+        public Vector3 Extreme(Vector3 direction) => support(direction);
+    }
+
+    /// <summary>Up to four support points, in the order they were added.</summary>
+    /// <remarks>
+    /// **Order is part of the answer**, because `Reduce` keeps the first of several equally near
+    /// features — so this holds them exactly as the list it replaces did.
+    /// </remarks>
+    private struct Simplex
+    {
+        private (Vector3 P, Vector3 A, Vector3 B) _0;
+        private (Vector3 P, Vector3 A, Vector3 B) _1;
+        private (Vector3 P, Vector3 A, Vector3 B) _2;
+        private (Vector3 P, Vector3 A, Vector3 B) _3;
+
+        public int Count { get; private set; }
+
+        public readonly (Vector3 P, Vector3 A, Vector3 B) this[int index] => index switch
+        {
+            0 => _0,
+            1 => _1,
+            2 => _2,
+            3 => _3,
+            _ => throw new ArgumentOutOfRangeException(nameof(index)),
+        };
+
+        public void Add((Vector3 P, Vector3 A, Vector3 B) point)
+        {
+            switch (Count)
+            {
+                case 0: _0 = point; break;
+                case 1: _1 = point; break;
+                case 2: _2 = point; break;
+                case 3: _3 = point; break;
+                default: throw new InvalidOperationException("A simplex holds at most four points.");
+            }
+
+            Count++;
+        }
+
+        public static Simplex Of((Vector3 P, Vector3 A, Vector3 B) first)
+        {
+            Simplex simplex = default;
+            simplex.Add(first);
+            return simplex;
+        }
+
+        public static Simplex Of((Vector3 P, Vector3 A, Vector3 B) first, (Vector3 P, Vector3 A, Vector3 B) second)
+        {
+            Simplex simplex = Of(first);
+            simplex.Add(second);
+            return simplex;
+        }
+
+        public static Simplex Of(
+            (Vector3 P, Vector3 A, Vector3 B) first,
+            (Vector3 P, Vector3 A, Vector3 B) second,
+            (Vector3 P, Vector3 A, Vector3 B) third)
+        {
+            Simplex simplex = Of(first, second);
+            simplex.Add(third);
+            return simplex;
+        }
     }
 
     /// <summary>Collapses the working simplex to whichever feature is nearest the origin.</summary>
@@ -129,8 +226,7 @@ public static class Gjk
     /// is tried instead and the nearest wins, which finds the same answer for every SEPARATED case
     /// without the containment test a penetrating case would need.
     /// </remarks>
-    private static (Vector3 P, Vector3 A, Vector3 B, List<(Vector3 P, Vector3 A, Vector3 B)> Simplex) Reduce(
-        List<(Vector3 P, Vector3 A, Vector3 B)> simplex)
+    private static (Vector3 P, Vector3 A, Vector3 B, Simplex Simplex) Reduce(in Simplex simplex)
     {
         if (simplex.Count == 1)
         {
@@ -142,13 +238,29 @@ public static class Gjk
             return ReduceSegment(simplex[0], simplex[1]);
         }
 
-        (Vector3 P, Vector3 A, Vector3 B, List<(Vector3 P, Vector3 A, Vector3 B)> Simplex) best = default;
+        if (simplex.Count == 3)
+        {
+            (Vector3 P, Vector3 A, Vector3 B, Simplex Simplex) only =
+                ReduceTriangle(simplex[0], simplex[1], simplex[2]);
+
+            // The same acceptance test the loop below applies, so a non-finite answer is refused
+            // here exactly as it was when three points were one pass of that loop.
+            return only.P.LengthSquared() < float.MaxValue ? only : default;
+        }
+
+        (Vector3 P, Vector3 A, Vector3 B, Simplex Simplex) best = default;
         float bestDistanceSquared = float.MaxValue;
 
-        foreach (List<(Vector3 P, Vector3 A, Vector3 B)> subset in Triangles(simplex))
+        // **Every leave-one-out triple of the four, skipping in index order and keeping the rest in
+        // theirs** — the order the list-building iterator this replaces produced them in.
+        for (int skip = 0; skip < simplex.Count; skip++)
         {
-            (Vector3 P, Vector3 A, Vector3 B, List<(Vector3 P, Vector3 A, Vector3 B)> Simplex) found =
-                ReduceTriangle(subset[0], subset[1], subset[2]);
+            int first = skip == 0 ? 1 : 0;
+            int second = skip <= 1 ? 2 : 1;
+            int third = skip <= 2 ? 3 : 2;
+
+            (Vector3 P, Vector3 A, Vector3 B, Simplex Simplex) found =
+                ReduceTriangle(simplex[first], simplex[second], simplex[third]);
 
             float distanceSquared = found.P.LengthSquared();
 
@@ -162,33 +274,7 @@ public static class Gjk
         return best;
     }
 
-    /// <summary>Every 3-point subset of a 3- or 4-point simplex — itself, or each leave-one-out triple.</summary>
-    private static IEnumerable<List<(Vector3 P, Vector3 A, Vector3 B)>> Triangles(
-        List<(Vector3 P, Vector3 A, Vector3 B)> simplex)
-    {
-        if (simplex.Count == 3)
-        {
-            yield return simplex;
-            yield break;
-        }
-
-        for (int skip = 0; skip < simplex.Count; skip++)
-        {
-            List<(Vector3 P, Vector3 A, Vector3 B)> subset = [];
-
-            for (int index = 0; index < simplex.Count; index++)
-            {
-                if (index != skip)
-                {
-                    subset.Add(simplex[index]);
-                }
-            }
-
-            yield return subset;
-        }
-    }
-
-    private static (Vector3, Vector3, Vector3, List<(Vector3 P, Vector3 A, Vector3 B)>) ReduceSegment(
+    private static (Vector3, Vector3, Vector3, Simplex) ReduceSegment(
         (Vector3 P, Vector3 A, Vector3 B) start, (Vector3 P, Vector3 A, Vector3 B) end)
     {
         Vector3 segment = end.P - start.P;
@@ -196,7 +282,7 @@ public static class Gjk
 
         if (lengthSquared < DegenerateLength)
         {
-            return (start.P, start.A, start.B, [start]);
+            return (start.P, start.A, start.B, Simplex.Of(start));
         }
 
         float t = Math.Clamp(-Vector3.Dot(start.P, segment) / lengthSquared, 0f, 1f);
@@ -205,11 +291,11 @@ public static class Gjk
         Vector3 closestA = start.A + ((end.A - start.A) * t);
         Vector3 closestB = start.B + ((end.B - start.B) * t);
 
-        List<(Vector3 P, Vector3 A, Vector3 B)> kept = t switch
+        Simplex kept = t switch
         {
-            <= 0f => [start],
-            >= 1f => [end],
-            _ => [start, end],
+            <= 0f => Simplex.Of(start),
+            >= 1f => Simplex.Of(end),
+            _ => Simplex.Of(start, end),
         };
 
         return (closest, closestA, closestB, kept);
@@ -220,7 +306,7 @@ public static class Gjk
     /// Ericson, *Real-Time Collision Detection* §5.1.5 — published, general-purpose computational
     /// geometry, the same status as the rest of this file.
     /// </remarks>
-    private static (Vector3, Vector3, Vector3, List<(Vector3 P, Vector3 A, Vector3 B)>) ReduceTriangle(
+    private static (Vector3, Vector3, Vector3, Simplex) ReduceTriangle(
         (Vector3 P, Vector3 A, Vector3 B) first,
         (Vector3 P, Vector3 A, Vector3 B) second,
         (Vector3 P, Vector3 A, Vector3 B) third)
@@ -238,7 +324,7 @@ public static class Gjk
 
         if (d1 <= 0f && d2 <= 0f)
         {
-            return (a, first.A, first.B, [first]);
+            return (a, first.A, first.B, Simplex.Of(first));
         }
 
         Vector3 bp = -b;
@@ -247,7 +333,7 @@ public static class Gjk
 
         if (d3 >= 0f && d4 <= d3)
         {
-            return (b, second.A, second.B, [second]);
+            return (b, second.A, second.B, Simplex.Of(second));
         }
 
         float vc = (d1 * d4) - (d3 * d2);
@@ -260,7 +346,7 @@ public static class Gjk
                 a + (ab * v),
                 first.A + ((second.A - first.A) * v),
                 first.B + ((second.B - first.B) * v),
-                [first, second]);
+                Simplex.Of(first, second));
         }
 
         Vector3 cp = -c;
@@ -269,7 +355,7 @@ public static class Gjk
 
         if (d6 >= 0f && d5 <= d6)
         {
-            return (c, third.A, third.B, [third]);
+            return (c, third.A, third.B, Simplex.Of(third));
         }
 
         float vb = (d5 * d2) - (d1 * d6);
@@ -282,7 +368,7 @@ public static class Gjk
                 a + (ac * w),
                 first.A + ((third.A - first.A) * w),
                 first.B + ((third.B - first.B) * w),
-                [first, third]);
+                Simplex.Of(first, third));
         }
 
         float va = (d3 * d6) - (d5 * d4);
@@ -295,7 +381,7 @@ public static class Gjk
                 b + ((c - b) * w),
                 second.A + ((third.A - second.A) * w),
                 second.B + ((third.B - second.B) * w),
-                [second, third]);
+                Simplex.Of(second, third));
         }
 
         float denom = 1f / (va + vb + vc);
@@ -306,7 +392,7 @@ public static class Gjk
             a + (ab * vv) + (ac * ww),
             first.A + ((second.A - first.A) * vv) + ((third.A - first.A) * ww),
             first.B + ((second.B - first.B) * vv) + ((third.B - first.B) * ww),
-            [first, second, third]);
+            Simplex.Of(first, second, third));
     }
 
     /// <summary>How many support-point additions to try before giving up.</summary>

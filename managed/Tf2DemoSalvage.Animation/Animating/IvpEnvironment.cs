@@ -723,7 +723,10 @@ public sealed class IvpEnvironment
             // forcing representative continuity is not the fix, a third confirmation that patching
             // around this symptom without the actual stable multi-point manifold makes things worse
             // rather than better.
-            List<IvpContact> members = [contact];
+            List<IvpContact> members = _members;
+
+            members.Clear();
+            members.Add(contact);
 
             // **Weighted by DEPTH, not averaged by count.** A simple mean treats a corner barely
             // touching the same as one genuinely pressed in, so the applied point jumps toward
@@ -849,6 +852,9 @@ public sealed class IvpEnvironment
                 Split.Rub + (Energy() - separated));
         }
     }
+
+    /// <summary>One manifold's contacts, reused — this ran a list allocation per manifold per slice.</summary>
+    private readonly List<IvpContact> _members = [];
 
     private static float Facing(
         (float X, float Y, float Z) left, (float X, float Y, float Z) right) =>

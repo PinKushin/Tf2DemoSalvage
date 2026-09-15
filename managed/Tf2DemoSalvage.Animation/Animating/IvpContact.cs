@@ -919,7 +919,7 @@ public sealed class IvpContact
 
         float reach = 0f;
 
-        Vector3[] points = new Vector3[body.Hull.Count];
+        Span<Vector3> points = Scratch(ref _terrainHull, body.Hull.Count);
 
         for (int index = 0; index < body.Hull.Count; index++)
         {
@@ -992,10 +992,12 @@ public sealed class IvpContact
 
             (int first, int second, int third) = body.Faces[incident];
 
-            List<Vector3> polygon =
-                [points[first], points[second], points[third]];
+            _polygon.Clear();
+            _polygon.Add(points[first]);
+            _polygon.Add(points[second]);
+            _polygon.Add(points[third]);
 
-            polygon = Clip(polygon, shape);
+            List<Vector3> polygon = Clip(_polygon, shape);
 
             bool any = false;
 
@@ -1065,7 +1067,7 @@ public sealed class IvpContact
     /// </remarks>
     private static int LedgeManifold(
         IvpRigidBody body,
-        Vector3[] points,
+        ReadOnlySpan<Vector3> points,
         Vector3 centre,
         IvpWorldLedge ledge,
         int ledgeIndex,
@@ -1136,7 +1138,13 @@ public sealed class IvpContact
 
         (int first, int second, int third) = body.Faces[incident];
 
-        List<Vector3> polygon = [points[first], points[second], points[third]];
+        List<Vector3> polygon = _polygon;
+        List<Vector3> kept = _clipped;
+
+        polygon.Clear();
+        polygon.Add(points[first]);
+        polygon.Add(points[second]);
+        polygon.Add(points[third]);
 
         // Sutherland-Hodgman against the ledge's SIDE planes — every plane but the reference, which
         // is the surface being measured against rather than a boundary of it. A ledge's planes face
@@ -1150,7 +1158,7 @@ public sealed class IvpContact
 
             (Vector3 normal, float distance) = ledge.Planes[plane];
 
-            List<Vector3> kept = [];
+            kept.Clear();
 
             for (int index = 0; index < polygon.Count; index++)
             {
@@ -1171,7 +1179,7 @@ public sealed class IvpContact
                 }
             }
 
-            polygon = kept;
+            (polygon, kept) = (kept, polygon);
         }
 
         int raised = 0;
@@ -1205,12 +1213,14 @@ public sealed class IvpContact
 
     private static List<Vector3> Clip(List<Vector3> polygon, IvpWorldTriangle triangle)
     {
-        Vector3[] corners = [triangle.A, triangle.B, triangle.C];
+        // **The other scratch list, so the two alternate** — the result of one edge is the input of
+        // the next, and neither is allocated.
+        List<Vector3> kept = ReferenceEquals(polygon, _polygon) ? _clipped : _polygon;
 
         for (int edge = 0; edge < 3 && polygon.Count > 0; edge++)
         {
-            Vector3 from = corners[edge];
-            Vector3 along = corners[(edge + 1) % 3] - from;
+            Vector3 from = edge switch { 0 => triangle.A, 1 => triangle.B, _ => triangle.C };
+            Vector3 along = (edge switch { 0 => triangle.B, 1 => triangle.C, _ => triangle.A }) - from;
 
             Vector3 inward = Vector3.Cross(triangle.Normal, along);
 
@@ -1223,7 +1233,7 @@ public sealed class IvpContact
 
             float offset = Vector3.Dot(inward, from);
 
-            List<Vector3> kept = [];
+            kept.Clear();
 
             for (int index = 0; index < polygon.Count; index++)
             {
@@ -1244,7 +1254,7 @@ public sealed class IvpContact
                 }
             }
 
-            polygon = kept;
+            (polygon, kept) = (kept, polygon);
         }
 
         return polygon;
@@ -1256,6 +1266,75 @@ public sealed class IvpContact
 
     /// <summary>The sphere query's reused buffer — this runs per body per slice.</summary>
     private static readonly List<(IvpWorldTriangle Shape, int Index)> _nearby = [];
+
+    /// <summary>The ledges one body's GJK pass has already covered, reused across calls.</summary>
+    private static readonly HashSet<int> _covered = [];
+
+    /// <summary>A body's hull in world space for the ledge pass, grown to the largest hull seen.</summary>
+    private static Vector3[] _hull = [];
+
+    /// <summary>The same for the terrain pass, which computes its own copy first.</summary>
+    private static Vector3[] _terrainHull = [];
+
+    /// <summary>The two polygons a clip alternates between, so no pass builds a list per plane.</summary>
+    private static readonly List<Vector3> _polygon = [];
+
+    /// <inheritdoc cref="_polygon"/>
+    private static readonly List<Vector3> _clipped = [];
+
+    /// <summary>A buffer of exactly <paramref name="count"/> points, grown when it is too small.</summary>
+    /// <remarks>
+    /// **Sliced to the exact count, never handed over whole**, because the manifold passes bound their
+    /// face indices by the length they are given — a longer buffer would admit a stale point.
+    /// </remarks>
+    private static Span<Vector3> Scratch(ref Vector3[] buffer, int count)
+    {
+        if (buffer.Length < count)
+        {
+            buffer = new Vector3[count];
+        }
+
+        return buffer.AsSpan(0, count);
+    }
+
+    /// <summary>A body's hull as a GJK support function, held by value.</summary>
+    /// <remarks>
+    /// **It was a local function captured by a delegate**, which allocated a closure per call and a
+    /// delegate per ledge — on the pass the Debug profile found spending most of its time in the
+    /// collector. The search is the same line for line.
+    /// </remarks>
+    private readonly struct BodySupport(
+        IvpRigidBody body, Vector3 centre, Quaternion orientation, Quaternion inverse) : Gjk.ISupport
+    {
+        public Vector3 Extreme(Vector3 direction)
+        {
+            Vector3 local = Vector3.Transform(direction, inverse);
+
+            Vector3 best = default;
+            float bestDot = float.NegativeInfinity;
+
+            for (int index = 0; index < body.Hull.Count; index++)
+            {
+                (float x, float y, float z) = body.CoreHullPoint(index);
+                Vector3 candidate = new(x, y, z);
+                float dot = Vector3.Dot(candidate, local);
+
+                if (dot > bestDot)
+                {
+                    bestDot = dot;
+                    best = candidate;
+                }
+            }
+
+            return centre + Vector3.Transform(best, orientation);
+        }
+    }
+
+    /// <summary>A world ledge as a GJK support function, held by value.</summary>
+    private readonly struct LedgeSupport(IvpWorldLedge ledge) : Gjk.ISupport
+    {
+        public Vector3 Extreme(Vector3 direction) => ledge.Support(direction);
+    }
 
     /// <summary>The brush ledges near the body being searched, reused across calls.</summary>
     private static readonly List<int> _ledgeCandidates = [];
@@ -1342,7 +1421,9 @@ public sealed class IvpContact
         // both name measuring this rather than assuming it, so it is ADDITIVE: terrain and the
         // speculative/tunnel-prevention path below are untouched, and a ledge a manifold already
         // covers is skipped in the per-point walk purely by feature id, not by removing that walk.
-        HashSet<int> covered = [];
+        HashSet<int> covered = _covered;
+
+        covered.Clear();
 
         // **Terrain the engine's way: the hull against each nearby triangle** (B306). When this
         // produces contacts they REPLACE the per-vertex terrain sampling below, which is the
@@ -1361,7 +1442,7 @@ public sealed class IvpContact
 
             // The hull in world space, kept because the manifold below needs the actual points and
             // not just a support direction — computing it per ledge would repeat this per ledge.
-            Vector3[] hullPoints = new Vector3[body.Hull.Count];
+            Span<Vector3> hullPoints = Scratch(ref _hull, body.Hull.Count);
 
             for (int index = 0; index < body.Hull.Count; index++)
             {
@@ -1374,30 +1455,7 @@ public sealed class IvpContact
             }
 
             // Hoisted: the same inverse was recomputed on every support query of every GJK iteration.
-            Quaternion inverse = Quaternion.Inverse(orientation);
-
-            Vector3 BodySupport(Vector3 direction)
-            {
-                Vector3 local = Vector3.Transform(direction, inverse);
-
-                Vector3 best = default;
-                float bestDot = float.NegativeInfinity;
-
-                for (int index = 0; index < body.Hull.Count; index++)
-                {
-                    (float x, float y, float z) = body.CoreHullPoint(index);
-                    Vector3 candidate = new(x, y, z);
-                    float dot = Vector3.Dot(candidate, local);
-
-                    if (dot > bestDot)
-                    {
-                        bestDot = dot;
-                        best = candidate;
-                    }
-                }
-
-                return centre + Vector3.Transform(best, orientation);
-            }
+            BodySupport bodySupport = new(body, centre, orientation, Quaternion.Inverse(orientation));
 
             // **Only the ledges the grid files near this body, in the same ascending order the full
             // walk visited them** — the sphere test below still decides, so the contacts raised are
@@ -1425,7 +1483,7 @@ public sealed class IvpContact
                     continue;
                 }
 
-                if (Gjk.Distance(BodySupport, ledge.Support) is not { Distance: <= Slop } manifold)
+                if (Gjk.Distance(bodySupport, new LedgeSupport(ledge)) is not { Distance: <= Slop } manifold)
                 {
                     continue;
                 }

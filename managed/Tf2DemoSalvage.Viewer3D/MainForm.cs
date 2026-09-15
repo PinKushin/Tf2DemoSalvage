@@ -318,6 +318,13 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private GameContent? _game;
 
+    /// <summary>Each class model's gib list, read once per install — see where <c>Gibs</c> is set.</summary>
+    private readonly Dictionary<string, IReadOnlyList<PhysicsBreakPiece>> _breakPieces =
+        new(StringComparer.Ordinal);
+
+    /// <summary>The install <see cref="_breakPieces"/> was read from, so a new one starts empty.</summary>
+    private GameContent? _breakPiecesFor;
+
     // **`_weaponRoles` was here until 2026-08-25** (B188, D90). It is inside the appearance that
     // `DemoAppearance.Ensure` builds, and `_moment.Appearance` is now the only cache — where there
     // used to be two things to keep in step, a nullable field and a record built from it.
@@ -1104,9 +1111,31 @@ internal class MainForm : Form, IFrameSteps
         //
         // The engine reads it at precache time, from the collide data, before anything spawns:
         // `PrecachePropsForModel` (`props_shared.cpp:1239`). So does this.
-        _demoSystems.Gibs = model => _game is { } install
-            ? DemoModels.BreakPiecesOf(model, install)
-            : [];
+        //
+        // **Read ONCE per model per install, as precache is once.** This called `BreakPiecesOf` on
+        // every frame for every gibbed corpse, which reopened the archive and reparsed the `.phy`
+        // each time — measured at 3.5% of a Debug frame, and most of the 3 ms `sample` column.
+        _demoSystems.Gibs = model =>
+        {
+            if (_game is not { } install)
+            {
+                return [];
+            }
+
+            if (!ReferenceEquals(_breakPiecesFor, install))
+            {
+                _breakPieces.Clear();
+                _breakPiecesFor = install;
+            }
+
+            if (!_breakPieces.TryGetValue(model, out IReadOnlyList<PhysicsBreakPiece>? pieces))
+            {
+                pieces = DemoModels.BreakPiecesOf(model, install);
+                _breakPieces[model] = pieces;
+            }
+
+            return pieces;
+        };
 
         // **The same owner, for the same reason** (B395). A corpse's `m_nBody` is the player's,
         // copied at death (`c_tf_player.cpp:790-793`), and turning a cosmetic's declared part name
