@@ -32,6 +32,9 @@ public sealed class IvpImpactEnvironment
 
     /// <summary>The impacts that found either core's freeze bits set, <c>env+0xac</c>.</summary>
     public int Frozen { get; set; }
+
+    /// <summary>The contacts the impact loop estimated again, <c>env+0xa8</c>.</summary>
+    public int Estimates { get; set; }
 }
 
 /// <summary>

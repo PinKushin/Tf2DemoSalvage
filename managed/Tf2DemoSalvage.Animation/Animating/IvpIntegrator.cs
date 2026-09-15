@@ -489,6 +489,13 @@ public sealed class IvpRigidBody
     /// </remarks>
     public int CollisionFreeze { get; set; }
 
+    /// <summary>The byte at <c>core+0x1</c>: <c>8</c> when the core's unit is made, then what the unit's PSI keeps from <see cref="TestRest"/>.</summary>
+    /// <remarks>
+    /// *The PSI that writes the rest answer here is not ported yet*, so only a caller sets it. The impact loop brings a core to the
+    /// event (<see cref="RebuildMatrixAtEventTime"/>) only below <c>8</c>.
+    /// </remarks>
+    public int UnitState { get; set; } = 8;
+
     /// <summary>The core's transform at <c>core+0x90</c>, in doubles — what a contact's arm and normal are measured in.</summary>
     /// <remarks>
     /// **The frame every contact routine turns through**: the contact record's arms (`FUN_18008d0c0`), a point's velocity

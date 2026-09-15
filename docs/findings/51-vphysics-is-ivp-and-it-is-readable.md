@@ -4153,8 +4153,9 @@ FUN_18008da40(block, core, pair):  push core on +0x10;  core+0x260's +0x30 = 1
 
 **So the loop is event-ordered by estimate, not by contact order**: every pass re-estimates what the last solve invalidated,
 solves the one contact predicted to close first below the margin, and pulls in each newly moved core's other pairs. **A NaN
-estimate ends the search for that pass** — `MINSD` answers its second operand, so the best becomes NaN and no later compare can
-beat it. The cap of 5,000 passes asks the mindist's slot 0 with one; *what that slot does is not read.* **Not ported.**
+estimate hides only the contact after it** — `MINSD` answers its second operand whenever either is NaN, so the best becomes NaN,
+the next compare fails, and that next estimate becomes the best again. *First written (2026-09-13) as "ends the search for that
+pass… no later compare can beat it"; that ignored the second half of `MINSD`, and a three-contact test (2026-09-15) settles it.* The cap of 5,000 passes asks the mindist's slot 0 with one; *what that slot does is not read.* **Not ported.**
 
 **`FUN_1800909d0(block)`, the tail, read whole:**
 

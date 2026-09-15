@@ -64,6 +64,9 @@ public static class IvpCollisionTolerance
     /// <summary><c>block[1]</c>, <c>DAT_18012d544</c>, in metres: the margin the push-out estimate measures a gap against.</summary>
     public static readonly float Margin = Settled.MarginMetres;
 
+    /// <summary><c>block[0x42]</c>, in metres: the margin ramp's far end, where the impact loop's search for the closest contact starts.</summary>
+    public static readonly float RampEnd = Settled.RampEndMetres;
+
     /// <summary>
     /// <c>block[0]</c>, in metres: taken off a pair's distance before the recheck divides it by the speed bound.
     /// </summary>

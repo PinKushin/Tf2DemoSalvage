@@ -152,6 +152,128 @@ public sealed class IvpImpactIsland
         }
     }
 
+    /// <summary>Solves the contact predicted to close first, and grows the island around what it moved — <c>FUN_180090bd0(block)</c>.</summary>
+    /// <param name="environment">The environment, <c>block+0x0</c>.</param>
+    /// <param name="sides">Each contact's two ledge sides now, for <see cref="Grow"/>.</param>
+    /// <param name="materials">The material manager.</param>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <returns><c>true</c> when a contact was solved; <c>false</c> when none was below the ramp's end.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// best = (double)block[0x42];  none
+    /// every pair of +0x30, last to first, unless BOTH cores' (flags >> 5 | flags &amp; 2) &amp; 6:
+    ///     every contact, last to first:  record+0x74 != 1 → env+0xa8 += 1, FUN_18008db40(contact)
+    ///         e = (double)record+0x7c;  best > e → this contact and pair;  best = MINSD(best, e)    -- NaN either side answers e
+    /// none → 0
+    /// record+0xa0's core, then +0x98's:  unless +0x260 is set:  push on +0x20;  state +0x1 &lt; 8 and not flags &amp; 0x10 → FUN_180078d60
+    /// record+0x72 += 1;  FUN_18008ed60(record, cores, record+0x78, contact)
+    /// each core the solve left, second then first, unless flags &amp; 0x12:
+    ///     +0x260 set and its +0x30 zero → FUN_18008da40(block, core, pair)
+    ///     else every contact of FUN_180077f00(core, system):  record+0x74 = 0
+    /// → 1
+    /// </code>
+    /// **`MINSD` answers its second operand when either is NaN**, written out so the order is the instruction's.
+    /// </remarks>
+    internal bool Drain(
+        IvpImpactEnvironment environment,
+        Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)> sides,
+        IIvpMaterialManager materials,
+        double now)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+
+        double best = IvpCollisionTolerance.RampEnd;
+        IvpContactPoint? found = null;
+        IvpFrictionPair? foundPair = null;
+
+        for (int pairIndex = _pairs.Count - 1; pairIndex >= 0; pairIndex--)
+        {
+            IvpFrictionPair pair = _pairs[pairIndex];
+
+            if (Frozen(pair.FirstCore) && Frozen(pair.SecondCore))
+            {
+                continue;
+            }
+
+            for (int index = pair.Contacts.Count - 1; index >= 0; index--)
+            {
+                IvpContactPoint contact = pair.Contacts[index];
+                IvpContactRecord record = contact.Record ?? throw new InvalidOperationException("A contact on the island has no record.");
+
+                if (!record.Estimated)
+                {
+                    environment.Estimates++;
+                    contact.Estimate(environment);
+                }
+
+                double estimate = record.PredictedGap;
+
+                if (best > estimate)
+                {
+                    found = contact;
+                    foundPair = pair;
+                }
+
+                best = best < estimate ? best : estimate;
+            }
+        }
+
+        if (found is null || foundPair is null)
+        {
+            return false;
+        }
+
+        IvpContactRecord solved = found.Record!;
+
+        BringToEvent(solved.SecondCore, now);
+        BringToEvent(solved.FirstCore, now);
+
+        solved.Impacts++;
+
+        IvpRigidBody?[] cores = [solved.FirstCore, solved.SecondCore];
+        IvpImpactSolver.Enter(environment, found, cores, solved.PushOut);
+
+        for (int slot = 1; slot >= 0; slot--)
+        {
+            if (cores[slot] is not { Immovable: false } core)
+            {
+                continue;
+            }
+
+            if (core.PendingSnapshot is { Moved: false })
+            {
+                Grow(core, foundPair, sides, materials, now);
+            }
+            else if (core.FrictionInfoIn(System) is { } share)
+            {
+                foreach (IvpContactPoint contact in share.Contacts)
+                {
+                    contact.Record?.Estimated = false;
+                }
+            }
+        }
+
+        return true;
+
+        static bool Frozen(IvpRigidBody core) => core.Immovable || core.CollisionFreeze != 0;
+
+        void BringToEvent(IvpRigidBody? core, double time)
+        {
+            if (core is null || core.PendingSnapshot is not null)
+            {
+                return;
+            }
+
+            AddAtEvent(core);
+
+            if (core.UnitState < 8 && !core.SkipsGravity)
+            {
+                core.RebuildMatrixAtEventTime(time);
+            }
+        }
+    }
+
     /// <summary>The pairs in the order the loop drains them — <c>last to first</c>.</summary>
     /// <returns>The pairs, newest first.</returns>
     public IReadOnlyList<IvpFrictionPair> PairsLastToFirst()
