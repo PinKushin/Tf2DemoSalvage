@@ -136,6 +136,9 @@ public sealed class MomentScene : IGameSystemPerFrame
     private readonly ViewmodelScene _viewmodels;
     private readonly ILogger _render;
 
+    /// <summary>The corpse falls already reported, so each is logged once rather than every rebuild.</summary>
+    private readonly HashSet<(int Entity, int Tick)> _reportedFalls = [];
+
     /// <summary>Names weapons whose model the wire never carried, and remembers the answers.</summary>
     /// <remarks>
     /// An instance rather than a static call, because the cache inside it is the whole point: the
@@ -499,10 +502,21 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         // **Where the SOLVER put each corpse, which is the only thing that can aim a camera at
         // one** (B58). A corpse's wire position is where it died; after physics it is somewhere
-        // else, and that is the feature. Debug level, so it costs nothing when nobody is looking.
+        // else, and that is the feature.
+        //
+        // **Once per fall, not once per rebuild.** `Fell` keeps every fall for the life of the
+        // simulation, and this walked all of it on every rebuild: two corpses on f12 wrote the same
+        // two warnings hundreds of times a second, and the log's per-line flush (`FileLogWriter`,
+        // B191) then held the render thread for 131-396 ms at a time — the mid-playback hitches,
+        // measured as pose "rest" landing exactly in the gap between two of these lines.
         foreach ((int entity, (int tick, int contacts, (double X, double Y, double Z) at))
             in _models.Corpses.Fell)
         {
+            if (!_reportedFalls.Add((entity, tick)))
+            {
+                continue;
+            }
+
             _render.LogWarning(
                 "corpse {Entity} left the world at tick {Tick} with {Contacts} contacts, last " +
                 "touching at {X:0.#} {Y:0.#} {Z:0.#}",
