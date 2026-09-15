@@ -205,6 +205,40 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      per-core integration loop. This part IS close to pure orchestration (`Estimate`/`Enter`/`Solve` already exist) and
      is safely portable once read once more carefully for the exact loop-exit condition (this session's read is close
      but the `FUN_18008da40`/`FUN_180090240`-style helpers inside it are still unread).
+   - **`FUN_18008da40` and `FUN_180090240` read in full, 2026-09-15 — neither gates the loop, and the exact exit
+     condition is now pinned exactly, quoted:**
+     ```c
+     uVar7 = FUN_180090bd0(param_1);
+     iVar6 = (int)uVar7;
+     do {
+         if (iVar6 != 1) {
+     LAB_180090891:
+             *(int *)(*param_1 + 0x98) = *(int *)(*param_1 + 0x98) + iVar9 + 1;
+             IvpEnvironment__IntegrateAwakeCores(param_1);
+             return;
+         }
+         *(int *)(param_1 + 1) = (int)param_1[1] + 1;
+         iVar9 = iVar9 + 1;
+         if (5000 < (int)param_1[1]) {
+             if (param_2 != (undefined8 *)0x0) {
+                 (**(code **)*param_2)(param_2,1);
+             }
+             goto LAB_180090891;
+         }
+         uVar7 = FUN_180090bd0(param_1);
+         iVar6 = (int)uVar7;
+     } while( true );
+     ```
+     Continues only while `FUN_180090bd0` returns exactly `1` AND the retry counter stays `≤ 5000`; on any other
+     return, or past 5000, fires an anomaly callback (if one is registered) then re-enters `IntegrateAwakeCores` and
+     returns — confirming there is no separate "give up" branch, both exits converge on the same tail call.
+     `FUN_18008da40` (called twice before the loop, once per side of the pair) only populates the touched-cores and
+     queued-contacts arrays the loop's own body reads; `FUN_180090240` (`IvpImpactSolver::ChoosePush`) is two levels
+     removed, called only from inside `IvpImpactSolver::Solve`, and picks/normalizes a push direction — unrelated to
+     the retry count. **The one remaining piece before this loop can be safely ported is `FUN_180090bd0`'s own exact
+     body** — summarized above from an earlier read but never quoted verbatim in this document, so its precise
+     "worst approaching contact" selection and its own `1`-vs-other return convention are not yet pinned the way the
+     loop-exit condition now is.
      **`IvpFrictionSystem::LinkContactByCore` (`180090e50`) is a different story — read in full, and it is a genuine,
      substantial subsystem**: per-object friction-info hash allocation, placement-new contact allocation
      (`IvpContactPoint::Allocate`), and MERGING two previously-separate friction systems when a new contact bridges
