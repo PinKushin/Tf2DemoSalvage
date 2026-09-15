@@ -16,7 +16,7 @@ public sealed class IvpMindistCollideConformanceTests
     {
         IvpCollisionObject bodyObject = new() { Material = FixedMaterial.Instance };
         IvpCollisionObject worldObject = new() { Material = FixedMaterial.Instance };
-        IvpRigidBody body = new() { Immovable = false };
+        IvpRigidBody body = new() { Immovable = false, UnitState = 0 };
         IvpRigidBody world = new() { Immovable = true };
         bodyObject.Core = body;
         worldObject.Core = world;
@@ -29,10 +29,20 @@ public sealed class IvpMindistCollideConformanceTests
 
         IvpImpactEnvironment environment = NewEnvironment();
 
+        body.Velocity = (0f, 0f, -1f);
+        body.PreviousVelocity = (0f, 0f, -1f);
+
         IvpImpactSolver solver = IvpMindistCollide.Collide(
-            mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, now: 1d);
+            mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, _ => (bodySide, worldSide), now: 1d);
 
         solver.ShouldNotBeNull();
+        solver.RecordRelative.ShouldNotBe((0f, 0f, 0f), "the control: a zero velocity reads the same negated");
+        environment.ImpactGeneration.ShouldBe(1);
+        environment.LoopPasses.ShouldBeGreaterThan(0, "the impact loop ran");
+        body.FrictionInfo!.System.PairFor(body, world)!.LastImpact.ShouldBe(1d);
+        body.FrictionInfo.System.FirstContact!.Record!.RelativeVelocity.ShouldBe(
+            (-solver.RecordRelative.X, -solver.RecordRelative.Y, -solver.RecordRelative.Z),
+            "the first impact's velocity is put back after the loop, negated against an immovable second core");
         body.FrictionInfo.ShouldNotBeNull();
         body.FrictionInfo.System.PairFor(body, world).ShouldNotBeNull();
         body.FrictionInfo.System.FirstContact.ShouldNotBeNull();
@@ -50,7 +60,7 @@ public sealed class IvpMindistCollideConformanceTests
     {
         IvpCollisionObject bodyObject = new() { Material = FixedMaterial.Instance };
         IvpCollisionObject worldObject = new() { Material = FixedMaterial.Instance };
-        IvpRigidBody body = new() { Immovable = false };
+        IvpRigidBody body = new() { Immovable = false, UnitState = 0 };
         IvpRigidBody world = new() { Immovable = true };
         bodyObject.Core = body;
         worldObject.Core = world;
@@ -62,8 +72,8 @@ public sealed class IvpMindistCollideConformanceTests
         IvpLedgeSide worldSide = IvpContactGeometryConformanceTests.Flat();
         IvpImpactEnvironment environment = NewEnvironment();
 
-        IvpMindistCollide.Collide(mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, now: 1d);
-        IvpMindistCollide.Collide(mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, now: 2d);
+        IvpMindistCollide.Collide(mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, _ => (bodySide, worldSide), now: 1d);
+        IvpMindistCollide.Collide(mindist, bodyObject, bodySide, worldObject, worldSide, environment, FixedMaterials.Instance, _ => (bodySide, worldSide), now: 2d);
 
         IvpFrictionSystem system = body.FrictionInfo!.System;
         int contacts = 0;
@@ -76,6 +86,30 @@ public sealed class IvpMindistCollideConformanceTests
         contacts.ShouldBe(1, "the second collision reused the same contact rather than allocating another");
         system.FirstContact.ShouldNotBeNull();
         system.FirstContact.LastMeasured.ShouldBe(2d, "the reused contact's last-measured time moved to the later collision");
+    }
+
+    /// <remarks>**The negation is on the SECOND core's immovable bit**: with the world first, the velocity is put back as solved.</remarks>
+    [Test]
+    public void Collide_TheWorldFirst_PutsTheVelocityBackUnnegated()
+    {
+        IvpCollisionObject bodyObject = new() { Material = FixedMaterial.Instance };
+        IvpCollisionObject worldObject = new() { Material = FixedMaterial.Instance };
+        IvpRigidBody body = new() { Immovable = false, UnitState = 0, Velocity = (0f, 0f, -1f), PreviousVelocity = (0f, 0f, -1f) };
+        IvpRigidBody world = new() { Immovable = true };
+        bodyObject.Core = body;
+        worldObject.Core = world;
+
+        IvpMindist mindist = NewMindist();
+        new IvpMindistManager().LinkExact(mindist, worldObject, bodyObject);
+
+        IvpLedgeSide worldSide = IvpContactGeometryConformanceTests.Face((0d, 0d, 0.5d));
+        IvpLedgeSide bodySide = IvpContactGeometryConformanceTests.Flat();
+
+        IvpImpactSolver solver = IvpMindistCollide.Collide(
+            mindist, worldObject, worldSide, bodyObject, bodySide, NewEnvironment(), FixedMaterials.Instance, _ => (worldSide, bodySide), now: 1d);
+
+        solver.RecordRelative.ShouldNotBe((0f, 0f, 0f));
+        body.FrictionInfo!.System.FirstContact!.Record!.RelativeVelocity.ShouldBe(solver.RecordRelative);
     }
 
     private static IvpMindist NewMindist() =>

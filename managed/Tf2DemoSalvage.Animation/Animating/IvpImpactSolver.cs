@@ -38,6 +38,15 @@ public sealed class IvpImpactEnvironment
 
     /// <summary>The impact loop's passes, one more per island than it drained, <c>env+0x98</c>.</summary>
     public int LoopPasses { get; set; }
+
+    /// <summary>The impact generation, <c>env+0x1a4</c>: advanced once per collision by <c>FUN_18008ecb0</c>, stamped by the recheck.</summary>
+    public int ImpactGeneration { get; set; }
+
+    /// <summary>The PSI's end, <c>env+0x190</c>, which the impact loop's tail steps moved cores to.</summary>
+    public double PsiEnd { get; init; }
+
+    /// <summary>The environment's phase, <c>env+0x1ac</c>, handed to the step.</summary>
+    public int Phase { get; init; }
 }
 
 /// <summary>

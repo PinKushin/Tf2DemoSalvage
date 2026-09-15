@@ -347,10 +347,11 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      (`FUN_180090bd0`, up to 5,000 times) against it, then calls `IvpEnvironment::IntegrateAwakeCores` **on that same
      scratch structure** to re-integrate just those two cores. This confirms `IvpIntegrator.cs`'s original doc
      comment — *"the pipeline `FUN_180082560` assembles islands in `FUN_180090700`"* — was right; an earlier read in
-     this session had doubted it. **`collide` (`IvpMindistCollide.Collide`) is correctly complete as written**: it
-     ends at `IvpImpactSolver.Enter`, which is the real, whole physics response for one collision. What comes after —
-     building a real island/environment substructure and driving `IntegrateAwakeCores` on it — was always going to be
-     the top-level PSI driver's job; this reading just confirms there is one remaining big task here, not two.
+     this session had doubted it. *It then claimed `IvpMindistCollide.Collide` was "correctly complete as written",
+     ending at `IvpImpactSolver.Enter`, with the island left to the PSI driver.* **Wrong, corrected 2026-09-15**: reading
+     `FUN_18008ef60` whole (`docs/findings/51`, *The collision around the impact loop*) shows the collision itself calls
+     `FUN_180090700` after the first solve, saving and restoring the record's relative velocity around it. `Collide` now
+     runs `IvpImpactIsland.Build`, which tails into `IvpImpactIsland.Tail`.
    - **Done, same session: `IvpLedgeSide.FromLedge`** closes the "build fresh sides from a live object" gap — not
      read from the disassembly, this project's own assembly of already-decoded pieces (`PhysicsLedge`'s fields map
      directly onto `IvpLedgeTopology`'s constructor). 1 test, no port gap left here.

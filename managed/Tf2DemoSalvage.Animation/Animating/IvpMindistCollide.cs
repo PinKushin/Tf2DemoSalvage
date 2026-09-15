@@ -7,14 +7,13 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// (B369, D172).
 /// </summary>
 /// <remarks>
-/// **Read from the disassembly, both functions in full.** This is the `collide` argument
-/// <see cref="IvpMindistFire.Handle"/> takes and does not itself port. Not yet pinned by an oracle probe against the
-/// shipped binary; the retry loop above a mindist's own collision (<c>FUN_180090700</c>/<c>FUN_180090bd0</c>) and the
-/// top-level PSI driver that would call this in a real running loop are not yet built — see `docs/HANDOFF.md`, item 3.
+/// **Read from the decompiler, both functions in full** (`docs/findings/51`, *The collision around the impact loop*). This is the
+/// `collide` argument <see cref="IvpMindistFire.Handle"/> takes and does not itself port. Not yet pinned by an oracle probe
+/// against the shipped binary.
 /// </remarks>
 public static class IvpMindistCollide
 {
-    /// <summary>Resolves one mindist's collision into a linked contact, its record, and a solved impact.</summary>
+    /// <summary>Resolves one mindist's collision: a linked contact, its solved impact, and the impact loop around it.</summary>
     /// <param name="mindist">The mindist; its flags name synapse A.</param>
     /// <param name="firstObject">Synapse record 0's object.</param>
     /// <param name="firstSide">Synapse record 0's ledge side, freshly built for this collision.</param>
@@ -22,24 +21,21 @@ public static class IvpMindistCollide
     /// <param name="secondSide">Synapse record 1's ledge side, freshly built for this collision.</param>
     /// <param name="environment">The impact environment.</param>
     /// <param name="materials">The material manager <see cref="IvpContactPoint.SetMaterials"/> reads.</param>
+    /// <param name="sides">Every other contact's two ledge sides now, for the impact loop's revalidations.</param>
     /// <param name="now">The environment's time — this collision's own event time.</param>
-    /// <returns>The solver, after its solve.</returns>
+    /// <returns>The first impact's solver, after its solve.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidOperationException">An object has no core.</exception>
     /// <remarks>
     /// <code>
-    /// each core not resting and not immovable: RebuildMatrixAtEventTime
-    /// FindOrAllocate;  LinkContactByCore;  contact's last-measured time = now
-    /// IvpContactRecord.Build;  SetMaterials;  PushOut;  IvpImpactSolver.Enter (runs the solve itself)
+    /// each core: +0x1 &lt; 8 and not flags &amp; 0x10 → FUN_180078d60;  env+0x1a4 += 1
+    /// cp = FUN_180090e50 (find or allocate, link, record, materials);  pair+0x28 = env+0x188
+    /// FUN_18008ed60(record, cores, FUN_18008fca0(cp), cp)
+    /// v = record+0x30, negated when B's core has flags &amp; 2;  FUN_180090700(block, mindist, system, pair, cp);  record+0x30 = v
     /// </code>
-    /// **The native's resting/immovable guard on the refinement is simplified to "movable"**: `core+1 &lt; 8 &amp;&amp;
-    /// core+0x0 &amp; 0x10 == 0` reads a resting counter this port does not carry and one bit of the two
-    /// <see cref="IvpRigidBody.Immovable"/> already collapses (documented there and in
-    /// <see cref="IvpFrictionLinking.LinkContactByCore"/>). Refining a resting core's transform anyway costs a little
-    /// extra work for the same geometry, never a different answer — the guard is a performance skip, not a branch in
-    /// the physics. **The retry loop above this (`FUN_180090700`/`FUN_180090bd0`) and the environment's generation
-    /// bump (`env+0x1a4`) are not included here** — they belong to the top-level PSI driver this call sits inside,
-    /// not yet built.
+    /// *Not carried*: `FUN_180074360` on each object (state 8), the deferral count at `env+0xf8`, and the listeners. **Because
+    /// the wake is not carried, a core at state 8 cannot collide here yet** — the engine wakes its unit first — so the `&lt; 8`
+    /// bound has no reachable input until that lands.
     /// </remarks>
     public static IvpImpactSolver Collide(
         IvpMindist mindist,
@@ -49,6 +45,7 @@ public static class IvpMindistCollide
         IvpLedgeSide secondSide,
         IvpImpactEnvironment environment,
         IIvpMaterialManager materials,
+        Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)> sides,
         double now)
     {
         ArgumentNullException.ThrowIfNull(mindist);
@@ -58,36 +55,51 @@ public static class IvpMindistCollide
         ArgumentNullException.ThrowIfNull(secondSide);
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(materials);
+        ArgumentNullException.ThrowIfNull(sides);
 
         IvpRigidBody firstCore = firstObject.Core ?? throw new InvalidOperationException("A collided mindist's first object has no core.");
         IvpRigidBody secondCore = secondObject.Core ?? throw new InvalidOperationException("A collided mindist's second object has no core.");
 
-        if (!firstCore.Immovable)
-        {
-            firstCore.RebuildMatrixAtEventTime(now);
-        }
-
-        if (!secondCore.Immovable)
-        {
-            secondCore.RebuildMatrixAtEventTime(now);
-        }
+        BringToEvent(firstCore, now);
+        BringToEvent(secondCore, now);
+        environment.ImpactGeneration++;
 
         IvpContactPoint contact = IvpFrictionLinking.FindOrAllocate(mindist, firstObject, firstSide, secondObject, secondSide, now);
-
-        IvpFrictionLinking.LinkContactByCore(contact, firstCore, secondCore, environment);
-
+        IvpFrictionSystem system = IvpFrictionLinking.LinkContactByCore(contact, firstCore, secondCore, environment);
         contact.LastMeasured = now;
 
-        contact.Record = IvpContactRecord.Build(
+        IvpContactRecord record = IvpContactRecord.Build(
             contact,
             new IvpContactBody(firstSide, firstCore, firstObject.ExtraRadius),
             new IvpContactBody(secondSide, secondCore, secondObject.ExtraRadius),
             now);
-
         contact.SetMaterials(materials);
 
-        float pushOut = contact.PushOut(environment);
+        IvpFrictionPair pair = system.PairFor(firstCore, secondCore)
+            ?? throw new InvalidOperationException("A contact linked by core has no pair for its cores.");
+        pair.LastImpact = now;
 
-        return IvpImpactSolver.Enter(environment, contact, [firstCore, secondCore], pushOut);
+        IvpImpactSolver solver = IvpImpactSolver.Enter(environment, contact, [firstCore, secondCore], contact.PushOut(environment));
+
+        (float X, float Y, float Z) relative = record.RelativeVelocity;
+
+        if (secondCore.Immovable)
+        {
+            relative = (-relative.X, -relative.Y, -relative.Z);
+        }
+
+        new IvpImpactIsland(system).Build(environment, pair, contact, sides, materials, now);
+
+        record.RelativeVelocity = relative;
+
+        return solver;
+
+        static void BringToEvent(IvpRigidBody core, double time)
+        {
+            if (core.UnitState < 8 && !core.SkipsGravity)
+            {
+                core.RebuildMatrixAtEventTime(time);
+            }
+        }
     }
 }

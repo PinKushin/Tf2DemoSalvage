@@ -4186,7 +4186,7 @@ core+0x1 = 8
 ```
 
 **A core is born from its first object**, so the object vector the tail's recheck (`FUN_1800792b0`) walks is never empty, and
-`core+0x1` starts at `8` — the value the impact loop's drain reads as "not yet through a PSI". *What adds a second object is
+`core+0x1` starts at `8` — the value the impact loop's drain reads as asleep (see `FUN_1800758e0` below). *What adds a second object is
 not read.*
 
 #### The collision around the impact loop — `FUN_18008ecb0(mindist)` and `FUN_18008ef60(mindist, A, B)` (2026-09-15)
@@ -4215,8 +4215,19 @@ FUN_18008ef60(mindist, A, B):
 ```
 
 **The island is built after the first solve, not instead of it**, and the record's relative velocity is put back afterwards —
-negated when the second core is immovable — so the listeners hear the first impact's velocity, not the loop's last. *What
-`FUN_1800758e0` does for an object in state 8, and the listeners' events, are not read.*
+negated when the second core is immovable — so the listeners hear the first impact's velocity, not the loop's last. *The
+listeners' events are not read.*
+
+`FUN_1800758e0(unit, env)`, reached for an object in state `8`, **wakes a sleeping unit**:
+
+```
+every core of the unit (+0x20, count +0x1a), last first:  core+0x1 ≥ 8 and FUN_1800892b0(core) == 1 → start the walk again
+unit state == 8:  unlink it from the sleeping list (head env+0x10's +0x338, links +0x8/+0x10)
+                  state = 1;  push it on the active list (env+0x10's +0x18);  its +0x8 = 0
+```
+
+So state `8` is **asleep**, not "never simulated": a core born at `8` starts in a sleeping unit, and a collision wakes it.
+*What `FUN_1800892b0` answers is not read.*
 
 #### Filing a contact into a friction system — `FUN_180090e50(mindist, &system, &built, unit, rebuild)` (2026-09-13)
 

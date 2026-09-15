@@ -26,6 +26,9 @@ public sealed class IvpFrictionPair(IvpRigidBody firstCore, IvpRigidBody secondC
     /// <summary>The second core — <c>+0x40</c>.</summary>
     public IvpRigidBody SecondCore { get; } = secondCore;
 
+    /// <summary>When the pair last collided — <c>+0x28</c>, written by <c>FUN_18008ef60</c> with <c>env+0x188</c>.</summary>
+    public double LastImpact { get; internal set; }
+
     /// <summary>
     /// The contacts touching this pair — the array <c>SolveOncePerPsi</c> walks per pair (its own <c>+8</c>/count
     /// <c>+2</c>), summing each contact's <c>NormalPush × Friction × &lt;an as-yet-unnamed +0x60 factor&gt;</c> into

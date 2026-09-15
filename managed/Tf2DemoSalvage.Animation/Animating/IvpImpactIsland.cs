@@ -210,6 +210,8 @@ public sealed class IvpImpactIsland
 
         environment.LoopPasses += drained + 1;
 
+        Tail(now, environment.PsiEnd, environment.Phase);
+
         void Enter(IvpRigidBody? objectCore, IvpRigidBody pairCore)
         {
             if (objectCore is { Immovable: false })
