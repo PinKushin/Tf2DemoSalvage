@@ -142,3 +142,4 @@
 - [The JIT picks the NaN destination](the-jit-picks-the-nan-destination.md) — C# `+`/`*` leave two-NaN results to operand order; Addsd/Mulsd pin it, never license it; an order nothing can redden may be dead — trace it to an output first.
 - [Rename decompiled functions](rename-decompiled-functions.md) — D174; a read function is renamed in Ghidra for its port member, `Type::Member`; cite names, not `FUN_` addresses.
 - [Sticking friction is out of scope](sticking-friction-is-out-of-scope.md) — D175; its gate's field has no writer this project ever creates.
+- [Debug is what the owner runs](debug-is-what-the-owner-runs.md) — D176; Debug is optimized, measure the build the owner looks at, dotnet-trace for a profile.

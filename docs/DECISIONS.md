@@ -8881,3 +8881,29 @@ rather than an open port item. The exact decompile obtained this session (`FUN_1
 to get an untruncated read) stays recorded there as a citation, in case a future joint/constraint port needs it.
 
 Related: D89, D129, D172, B369.
+
+## D176 — Debug builds are optimized; the Debug viewer is what the owner runs (2026-09-15)
+
+**The owner, verbatim:** *"debug needs to be fast too ya know, its what i see more often than not, and shouldnt be
+at like 40fps like it is"* — said while fps work was being measured in Release only.
+
+**What the measurement showed.** On `demostf-cp_process_f12-2026-08-07.dem`, first person, `+fps_max 0`,
+`--measure 20`, the Debug viewer at `75f08a99` ran 3-5 fps once the first corpses fell, with `project` at 230-270 ms
+a frame. A `dotnet-trace` sampled-thread-time profile of that build put 81% of the frame in
+`IvpContact.Find` and 45% of Find in `Thread.PollGC`. The cause is two things compounding: the unoptimized JIT
+leaves every `Vector3` operation and property getter as a call, so a corpse step costs an order of magnitude
+more; and corpse physics steps by TICK, so a slow frame owes more steps next frame and never recovers.
+
+**The same code with `Optimize=true` in the Debug configuration**, after the allocation fixes in `35a7a4fa`, ran
+50/91/116/132 fps across the warm-up and 300-425 fps after it — faster than the Release build measured earlier
+the same day, because the gib-list cache removed most of the 3 ms `sample` column.
+
+**The decision: `<Optimize>true</Optimize>` for every configuration, in `Directory.Build.props`.** Symbols are
+still produced, so a debugger attaches and breakpoints bind; the cost is that some locals read as optimized away
+while stepping. The owner's reason is that Debug is the build they look at, and a Debug that is a different
+program from Release hides every performance question behind the JIT.
+
+**What would reopen it:** a debugging session that needs unoptimized locals can pass `-p:Optimize=false` on the
+command line for that build; no project should set it back.
+
+Related: B58 (corpse physics), D172.
