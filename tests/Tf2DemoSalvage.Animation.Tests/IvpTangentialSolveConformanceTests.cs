@@ -336,8 +336,10 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
         IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
         IvpContactPoint point = ContactPoint(record);
+        point.NormalPush = 1000f;
+        point.Friction = 1f;
 
-        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, budget: 10f, inverseStep: 100d);
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, inverseStep: 100d);
 
         impulse.ShouldNotBeNull();
         impulse.Value.ShouldBe((0f, 0f));
@@ -352,27 +354,46 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpRigidBody core = new() { Velocity = (1f, 0f, 0f), InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
         IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
         IvpContactPoint point = ContactPoint(record);
+        point.NormalPush = 1000f;
+        point.Friction = 1f;
 
-        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, budget: 10f, inverseStep: 100d);
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, inverseStep: 100d);
 
         impulse.ShouldNotBeNull();
         impulse.Value.Span.ShouldBeLessThan(0f, "the impulse opposes the core's own positive slide velocity");
         core.PendingVelocity.X.ShouldNotBe(0f, "SolveContact must apply the found impulse, not just return it");
     }
 
-    /// <remarks>An impulse the raw solve would place over budget comes back clipped to it.</remarks>
+    /// <remarks>An impulse the raw solve would place over the contact's own clip budget comes back clipped to it.</remarks>
     [Test]
-    public void SolveContact_AnImpulseOverTheBudget_IsClippedBeforeItIsApplied()
+    public void SolveContact_AnImpulseOverItsOwnClipBudget_IsClippedBeforeItIsApplied()
     {
         IvpRigidBody core = new() { Velocity = (1000f, 0f, 0f), InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
         IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
         IvpContactPoint point = ContactPoint(record);
+        point.NormalPush = 100f;
+        point.Friction = 1f;
 
-        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, budget: 1f, inverseStep: 100d);
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, inverseStep: 100d);
 
         impulse.ShouldNotBeNull();
         double magnitude = Math.Sqrt((impulse.Value.Span * impulse.Value.Span) + (impulse.Value.CrossSpan * impulse.Value.CrossSpan));
         magnitude.ShouldBe(1d, 1e-3d);
+    }
+
+    /// <remarks>
+    /// Confirmed against <c>SolveTangentialPair</c>'s own instructions, read in full 2026-09-14: its entry gate refuses a
+    /// contact whose own clip budget (<c>NormalPush × Friction × Step</c>) is below roughly <c>1e-6</c> — a contact the
+    /// heap solve never pushed has no friction to give.
+    /// </remarks>
+    [Test]
+    public void SolveContact_AContactWithNoNormalPush_RefusesRatherThanSolve()
+    {
+        IvpRigidBody core = new() { Velocity = (1f, 0f, 0f), InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+
+        IvpTangentialSolve.SolveContact(point, inverseStep: 100d).ShouldBeNull();
     }
 
     /// <remarks>
@@ -385,9 +406,11 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
         IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
         IvpContactPoint point = ContactPoint(record);
+        point.NormalPush = 1000f;
+        point.Friction = 1f;
         point.UsesMaterialAxes = true;
 
-        Should.Throw<NotSupportedException>(() => IvpTangentialSolve.SolveContact(point, budget: 10f, inverseStep: 100d));
+        Should.Throw<NotSupportedException>(() => IvpTangentialSolve.SolveContact(point, inverseStep: 100d));
     }
 
     /// <remarks>A slide already inside the budget is untouched by the pair walk, and the contact is still solved.</remarks>

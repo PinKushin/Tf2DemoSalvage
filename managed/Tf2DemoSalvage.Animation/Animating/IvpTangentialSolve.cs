@@ -359,9 +359,8 @@ public static class IvpTangentialSolve
     /// <see cref="IvpContactPoint"/> fields rather than caller-supplied axes.
     /// </summary>
     /// <param name="point">The contact, already clamped this PSI by <see cref="ClampSlide"/> if the caller runs that first.</param>
-    /// <param name="budget">The pair's own friction-cone budget for this PSI, from <c>SolveOncePerPsi</c>.</param>
     /// <param name="inverseStep">The environment's reciprocal PSI step.</param>
-    /// <returns>The clipped impulse applied to both cores, or null when the 2×2 system was singular.</returns>
+    /// <returns>The clipped impulse applied to both cores, or null when the entry gate refused it or the 2×2 system was singular.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="point"/> is null.</exception>
     /// <exception cref="InvalidOperationException">The contact has no record.</exception>
     /// <remarks>
@@ -369,15 +368,31 @@ public static class IvpTangentialSolve
     /// <see cref="IvpContactRecord.Build"/> — is the SAME function that computes the tangent axes
     /// (<see cref="IvpContactRecord.Span"/>/<see cref="IvpContactRecord.CrossSpan"/>) and both arm vectors
     /// (<see cref="IvpContactRecord.FirstArm"/>/<see cref="IvpContactRecord.SecondArm"/>) that `SolveTangentialPair`
-    /// reads — there is no separate axis/arm builder to find.** The friction-cone budget itself (the pair's own
-    /// summed value from `SolveOncePerPsi`) is still the caller's job, not this method's; this only clips against
-    /// whatever budget it is given.
+    /// reads — there is no separate axis/arm builder to find.**
+    ///
+    /// **The impulse's own clip budget is NOT the pair's `SolveOncePerPsi` budget — confirmed against
+    /// `SolveTangentialPair`'s own instructions, read in full 2026-09-14 as a `vphysics-friction-solve` probe control.**
+    /// `SolveTangentialPair` computes an entirely separate, per-contact value —
+    /// <c>NormalPush × Friction × Step</c> (the forward step, the reciprocal of <paramref name="inverseStep"/>) — used
+    /// BOTH as an entry gate (refusing the solve outright below roughly <c>1e-6</c>, matching a genuinely-unpushed
+    /// contact having no friction to give) and as the clip on the solved impulse. A prior version of this method took
+    /// a caller-supplied `budget` and used it for this clip — the SAME value <see cref="ClampSlide"/> uses for the
+    /// STORED SLIDE's own, separate, pair-level pre-clamp — which was wrong: the two clips are unrelated in the
+    /// native, one position-domain and pair-summed, the other force-domain and per-contact.
     /// </remarks>
-    public static (float Span, float CrossSpan)? SolveContact(IvpContactPoint point, float budget, double inverseStep)
+    public static (float Span, float CrossSpan)? SolveContact(IvpContactPoint point, double inverseStep)
     {
         ArgumentNullException.ThrowIfNull(point);
 
         IvpContactRecord record = point.Record ?? throw new InvalidOperationException("A contact with no record was solved.");
+        float step = (float)(1d / inverseStep);
+        float clipBudget = point.NormalPush * point.Friction * step;
+
+        if (clipBudget < 9.999999974752427e-07f)
+        {
+            return null;
+        }
+
         (float X, float Y, float Z, float W) factors = MaterialAxisFactors(point.UsesMaterialAxes);
 
         (float Span, float CrossSpan)? impulse = Solve(
@@ -389,7 +404,7 @@ public static class IvpTangentialSolve
             return null;
         }
 
-        (float Span, float CrossSpan) clipped = ClipImpulse(found, budget);
+        (float Span, float CrossSpan) clipped = ClipImpulse(found, clipBudget);
 
         (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? firstRows = BuildJacobian(record.FirstCore, record.FirstArm, record.Span, record.CrossSpan, factors);
         (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? secondRows = BuildJacobian(record.SecondCore, record.SecondArm, record.Span, record.CrossSpan, factors);
@@ -445,7 +460,7 @@ public static class IvpTangentialSolve
                 contact.FirstMeasure = true;
             }
 
-            SolveContact(contact, budget, inverseStep);
+            SolveContact(contact, inverseStep);
         }
     }
 

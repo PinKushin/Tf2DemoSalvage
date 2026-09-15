@@ -426,10 +426,32 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
        `SolveContact`/`SolveOncePerPair` taking only the non-sticking branch is the COMPLETE, correct behaviour for
        this project's object model, not an approximation. See D175 for the full reasoning; re-open only if a
        body-against-body port is ever undertaken.
-   - **Next, in order**: (1) as its own dedicated pass — D175 closed the sticking branch as a stated divergence, so
-     this is now just the `+0x60` budget field (likely needs a caller of `SolveOncePerPsi` itself, not yet located,
-     or confirmation the arena zero-inits it) and a `vphysics-friction-solve` probe/oracle fixture for what IS
-     ported, sabotage-verify; (2) turn
+   - **`vphysics-friction-solve` probe built, 2026-09-14 — a real, working native-interop harness, one genuine
+     divergence found and fixed, full numeric parity not yet reached.** Calls `SolveTangentialPair` (`1800857c0`)
+     directly in process against a fabricated body-against-world contact, reusing `VphysicsHeapSolveProbe`'s own
+     confirmed struct offsets. **Confirmed D175 empirically, not just from static reading**: the control case's own
+     core, freshly allocated with `+0x58` never written (exactly as this project's own cores are), takes the binary's
+     non-sticking dispatch every time. **Found and fixed a real divergence**: `SolveTangentialPair`'s own instructions
+     (read in full, untruncated, after this was chased) compute the impulse's clip budget ENTIRELY from the contact's
+     own fields — `NormalPush × Friction × Step` — with no reference to any pair-level aggregate; `SolveContact` was
+     wrongly reusing `SolveOncePerPair`'s caller-supplied pair budget for this clip, the same value `ClampSlide` uses
+     for the STORED SLIDE's own separate, position-domain pre-clamp. Fixed: `SolveContact` no longer takes a `budget`
+     parameter at all — it computes its own clip budget internally, and its entry gate (refusing a contact below
+     roughly `1e-6`, matching a contact the heap solve never pushed having no friction to give) is now ported too.
+     5 tests updated/added, 5106/5107 total, zero regressions.
+   - **What the probe does NOT yet prove**: the applied impulse's exact numeric value. The control case's binary side
+     reports an untouched (zero) pending velocity/spin after the call, while the port computes and applies a nonzero
+     one — meaning either `TryInvertSymmetric` returns false on the native side for reasons not yet found, or a
+     native input this session's reads haven't identified is still missing (a live core rotation matrix at `core+0x90`
+     and an inverse mass at `core+0x4c` were both found missing and fixed during this same session without changing
+     the zero result, so the remaining gap is not one of those two). **Not chased further this session** — real
+     progress (the divergence fix, D175's empirical confirmation) was banked rather than risking more blind native
+     memory-layout guessing. A future session should start by finding what native input still differs, not by
+     re-deriving what is already confirmed above.
+   - **Next, in order**: (1) as its own dedicated pass: find why the friction-solve probe's control case does not yet
+     match numerically (see above), resolve the `+0x60` budget field (likely needs a caller of `SolveOncePerPsi`
+     itself, not yet located, or confirmation the arena zero-inits it), and turn the probe into a proper
+     fixture/oracle test once it matches; (2) turn
      `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
      tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
      so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet
