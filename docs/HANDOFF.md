@@ -456,20 +456,26 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    - **With both those fixes applied, the probe's control case STILL returns an untouched core** — a diagnostic read
      (raw packed return `0x00000000`, the running-average field at contact `+0x84` unwritten) confirms
      `IvpContact::TryInvertSymmetric` is the one returning false, not an earlier gate (the entry gate reads back as
-     `0.005`, correctly computed and well above its `~1e-6` threshold). **Hand-computing the expected 2×2 system by
-     the same formula `BuildJacobian`'s own read gives `a=2, b=−1, d=2`** (determinant 3, should invert cleanly) — so
-     either the hand-computation itself is wrong in some detail this session didn't catch, or `TryInvertSymmetric`'s
-     own body (assumed since an EARLIER session's read, never re-confirmed THIS session, and never actually
-     re-verified against a fresh decompile the way every other piece here was) reads its four inputs differently
-     than assumed. **This is the single, precisely-narrowed next step** — not chased further this session, since it
-     would be the eleventh-plus dedicated decompile in one sitting and the two real, valuable divergences already
-     found (the arm and the frame-mismatch bug) are worth banking rather than risking on more blind reading.
-   - **Next, in order**: (1) as its own dedicated pass: read `IvpContact::TryInvertSymmetric`'s own body fresh (never
-     actually decompiled this session — every reference to it assumed an earlier session's characterization) to find
-     why it returns false on a system this session's hand-computation says should invert; once the friction-solve
-     probe's control case matches, resolve the `+0x60` budget field (likely needs a caller of `SolveOncePerPsi`
-     itself, not yet located, or confirmation the arena zero-inits it), and turn the probe into a proper
-     fixture/oracle test; (2) turn
+     `0.005`, correctly computed and well above its `~1e-6` threshold).
+   - **`IvpContact::TryInvertSymmetric` read fresh, confirmed byte-for-byte correct — it is NOT the bug.** `det = a·d
+     − b·c` (the call site passes the same `b` twice), guard is `det² ≥ 1e-38` exactly as ported, return convention
+     is `true = inverted, outputs written`, and the function is pure — 4 doubles in, 4 output pointers, nothing else
+     read. This exonerates `TryInvertSymmetric` entirely; whatever is wrong is in what reaches it.
+   - **Hand-tracing `BuildJacobian`'s dot products by hand to recover the exact `(a, b, d)` it passes turned out to be
+     unreliable** — a second, more careful pass through the same decompiled lines this session produced a DIFFERENT
+     `(a, b, d)` (`2, −1, 3`, determinant 5) than the first pass's `(2, −1, 2)` (determinant 3), both still clearly
+     non-singular, and still not matching the binary's own false verdict. **This is the actual lesson**: hand-tracing
+     five and six layers of scrambled dot-product decompile, each pass one keystroke from mislabeling which `dVarN`
+     feeds which output slot, is not a reliable way to recover ground truth here — a wrong-by-construction hand trace
+     that still "looks nonzero" is exactly the kind of confident-but-wrong reading this project's own instrument
+     discipline warns about. **Stopped rather than keep guessing.**
+   - **Next, in order**: (1) as its own dedicated pass, with the RIGHT tool this time: use Ghidra's `emulate_function`
+     or `debugger_*` tools to actually RUN `SolveTangentialPair`/`BuildJacobian` against the probe's exact fabricated
+     memory and read back the real `local_c8`/`local_c0`/`local_a0` values before they reach `TryInvertSymmetric` —
+     not another hand-traced decompile read, which this session's own experience shows is unreliable past this depth
+     of nested dot products. Once the friction-solve probe's control case matches, resolve the `+0x60` budget field
+     (likely needs a caller of `SolveOncePerPsi` itself, not yet located, or confirmation the arena zero-inits it),
+     and turn the probe into a proper fixture/oracle test; (2) turn
      `IvpRigidBody.Ledges` into a real ledge-tree hull (an actual
      tree structure, from `PhysicsHull.Tree`-shaped logic, or a flat single-ledge shortcut for a body with only one)
      so `IvpLedgeSide.FromLedge` can build sides for a moving body, not only the world — `Ledges` alone is not yet
