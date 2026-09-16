@@ -4173,6 +4173,49 @@ every core of +0x10, last to first, unless flags & 2:  FUN_1800792b0(core)
 actually moved are stepped — each over the environment's whole remaining PSI span, through the same integrator a PSI uses — then
 re-checked by the scheduler and stamped with the impact counter. `FUN_180077f00(core, system)` is the per-system record: through
 the hash at `core+0x60` for an unmovable core, else `core+0x60` itself when its `+0x10` is the system.
+#### The PSI per unit — `FUN_180075c80(unit, frame, &pushed)` (2026-09-15)
+
+**Read from the decompiler** (headless `DecompAt`). `frame` is the stack record phases 2 and 3 share: `{float step, float
+1/step, env, unit}` at `+0x0`, `+0x4`, `+0x8`, `+0x10`. **`FUN_180075a90(timeManager, env, &pushed)` walks the active unit list
+(head `manager+0x18`, next `+0x10`) and calls this per unit; `FUN_18009a590(env, pushed, &due)` then steps every core it
+collected** through `FUN_180099a00`, last first, with `{step, step ≤ 1e-10 ? 1e10 : 1/step}`.
+
+```
+frame+0x10 = unit;  env+0xf8's +0x20 += 1                     -- the deferral count, as the collision takes it
+every core of the unit (+0x8, count +0x1a), last first:
+    dt = (float)(env+0x188 − core+0x1d0)
+    FUN_180071330(core+0x1a0, core+0x90)                       -- the matrix rebuilt from the working orientation
+    core+0xf0/0xf8/0x100 = core+0x150/0x158/0x160 + core+0x170/0x174/0x178 · dt    -- the event position
+    FUN_180077950(core)                                        -- staged velocities flushed: +0x130 += +0x110, +0x140 += +0x120, both cleared
+    core+0x0 &= 0xff3f;  core+0x2 = 0                          -- the freeze bits and the collision count cleared
+    any (1.0 − |ω|²) < 0 remembered
+that sign, or the same for the last core:  unit+0x0 = (flags & ~0x800) | 0x400
+else the flags' 0x3000 pair is recomputed from flags·4, and when set every core's anchors are reset (FUN_180078820)
+env+0x1a8 −= 1;  zero → env+0x1a8 = 0xf − (short)(FUN_18007d5c0() · DAT_1800ee1c8)     -- the rest check's own cadence
+every controller of the unit (+0x10, count +0x3a), last first:  its slot +0x20 (frame, entry+0x8)
+every core, last first:  pushed
+env+0x1a8 was zero:
+    every core: core+0x1 = FUN_180077220(core, env+0x188);  AND the answers with 3
+    all 3 → every core FUN_180088930(core);  the unit unlinked from the active list, its state 8, pushed on env+0x10's +0x338
+every core, every object (+0x70, count +0x6a):  FUN_180074240(object)
+unit flags &amp; 0x300:  FUN_180074ba0, FUN_180075470, FUN_180074e80, then the bits cleared
+env+0xf8's +0x20 −= 1;  zero → FUN_180072970
+```
+
+**So the rest check is not run every PSI** — a counter at `env+0x1a8` fires it roughly every fifteen, jittered by
+`FUN_18007d5c0` (a random), and a unit sleeps only when EVERY core answers `3` (at rest). **The event position and the matrix
+are rebuilt for every awake core at the top of each PSI**, which is the same pair of writes the collision's refinement makes.
+
+- **`FUN_180077950(core)`** flushes the staged velocities into the live ones and zeroes them — this project's
+  <see cref="IvpPush"/> arithmetic.
+- **`FUN_180074240(object)`** walks the object's `+0x48` mindist list: `FUN_180095ad0(mindist)` (unread), then unless the
+  flags' `0xc000` reads exactly `0x4000`, `FUN_180098f30` and `FUN_180097ae0` on the manager at `object+0x30`'s `+0x20`
+  (both unread — an unfile and a refile).
+- **`FUN_180088930(core)`** settles the hull (`FUN_180078c90`) and then, per object, tells the environment's listeners for
+  that object (the hash at `env+0x18`, slot `+0x18` per listener) and finally `FUN_180082070` — the sleep notification.
+- *Unread*: `FUN_180074ba0`, `FUN_180075470`, `FUN_180074e80` behind the unit's `0x300` bits, and what the `0x400`/`0x3000`
+  bits mean beyond "recomputed from the spin test".
+
 #### The per-core step whole — `FUN_180099a00(core, {step, 1/step}, &pushed)` (2026-09-15)
 
 **Read from the decompiler** (headless `DecompAt`), filling in what precedes and follows the integration already quoted above:

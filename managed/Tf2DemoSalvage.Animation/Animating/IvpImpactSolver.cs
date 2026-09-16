@@ -47,6 +47,12 @@ public sealed class IvpImpactEnvironment
 
     /// <summary>The environment's phase, <c>env+0x1ac</c>, handed to the step.</summary>
     public int Phase { get; init; }
+
+    /// <summary>How long a core must stay by its anchor to be called at rest — <c>env+0xc8</c>.</summary>
+    public float RestDelay { get; init; }
+
+    /// <summary>The PSIs left before the next rest check — <c>env+0x1a8</c>, reset with a jitter when it reaches zero.</summary>
+    public short RestCheckCountdown { get; set; }
 }
 
 /// <summary>
