@@ -251,8 +251,27 @@ public sealed class IvpSimulation
     public void Watch(IvpMindist mindist, IvpCollisionObject first, IvpCollisionObject second)
     {
         ArgumentNullException.ThrowIfNull(mindist);
+        ArgumentNullException.ThrowIfNull(first);
+        ArgumentNullException.ThrowIfNull(second);
+
+        // **A core carries its objects** (`core+0x68`, filled by `FUN_1800782d0`), and the per-core step advances each object's own
+        // hull manager. An object not on its core's list would never have its hull advanced, so a pair filed at a hull value would
+        // never be told.
+        Register(first);
+        Register(second);
 
         _mindists.LinkExact(mindist, first, second);
+    }
+
+    private static void Register(IvpCollisionObject collisionObject)
+    {
+        IvpRigidBody core = collisionObject.Core
+            ?? throw new InvalidOperationException("A watched object has no core.");
+
+        if (!core.Objects.Contains(collisionObject))
+        {
+            core.Objects.Add(collisionObject);
+        }
     }
 
     /// <summary>The two ledge sides a mindist's synapses stand on, at the cores' current transforms.</summary>
@@ -334,7 +353,7 @@ public sealed class IvpSimulation
             Scheduled(firstCore),
             Scheduled(secondCore),
             scheduler,
-            removeFar: null,
+            Filing(mindist),
             recheck,
             (context, state) => IvpImpactDispatch.Search(
                 context,
@@ -357,6 +376,46 @@ public sealed class IvpSimulation
             side.Topology,
             new IvpMotionCache(core, core.CoreMatrix, resting: core.Immovable),
             IvpRangeManager.Bounds(core));
+
+    /// <summary>
+    /// What a far pair is filed with — the objects' own hull managers, and what their slot 1 hands the pair back to
+    /// (<c>FUN_180097bd0</c> to file, <c>FUN_180097570</c> to tell).
+    /// </summary>
+    /// <param name="mindist">The pair.</param>
+    /// <returns>The filing.</returns>
+    /// <remarks>
+    /// **This closes the near/far cycle**: a pair past its threshold leaves the exact list and is filed at a hull value, the tail's
+    /// hull pass tells it when its object's hull reaches that value, and <see cref="IvpMindistHull.HullPassed"/> makes it exact
+    /// again.
+    /// </remarks>
+    private IvpFarFiling Filing(IvpMindist mindist) =>
+        new(_mindists, ObjectOf(mindist.HullRecord(0)), ObjectOf(mindist.HullRecord(1)), HullPassed);
+
+    /// <summary>A filed pair told its object's hull has passed — <c>FUN_180097570</c> into <c>FUN_180097f00</c>.</summary>
+    private void HullPassed(IvpMindist mindist, float overshoot)
+    {
+        IvpCollisionObject first = ObjectOf(mindist.HullRecord(0));
+        IvpCollisionObject second = ObjectOf(mindist.HullRecord(1));
+        IvpRigidBody firstCore = CoreOf(mindist.HullRecord(0));
+        IvpRigidBody secondCore = CoreOf(mindist.HullRecord(1));
+
+        _ = IvpMindistHull.HullPassed(
+            mindist,
+            overshoot,
+            new IvpHullPass
+            {
+                Now = Environment.Now,
+                Step = Environment.Step,
+                First = first,
+                Second = second,
+                FirstBody = firstCore,
+                SecondBody = secondCore,
+                FirstBounds = IvpRangeManager.Bounds(firstCore),
+                SecondBounds = IvpRangeManager.Bounds(secondCore),
+                HandOff = Minimize,
+                Recheck = pair => Examine(pair, IvpRecheck.AfterMiss),
+            });
+    }
 
     /// <summary>A core as the scheduler reads it.</summary>
     /// <remarks>

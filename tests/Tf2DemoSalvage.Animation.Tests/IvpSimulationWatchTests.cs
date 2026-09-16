@@ -57,18 +57,47 @@ public sealed class IvpSimulationWatchTests
     }
 
     /// <remarks>
-    /// **Phase 6 is the re-examine** (<c>FUN_180099380(mindist, 1, 1)</c>): two bodies far apart and not closing are past the far
-    /// threshold, which is what the scheduler answers.
+    /// **Phase 6 is the re-examine** (<c>FUN_180099380(mindist, 1, 1)</c>): two bodies past the far threshold are FILED with their
+    /// objects' hull managers and leave the exact list, which is what closes the near/far cycle.
     /// </remarks>
     [Test]
-    public void Advance_TwoBodiesFarApartAndStill_AreScheduledAsFar()
+    public void Advance_TwoBodiesFarApart_AreFiledWithTheirHullManagers()
     {
-        (IvpSimulation simulation, _, _, _) = Watched(apart: 400d);
+        (IvpSimulation simulation, IvpMindist mindist, IvpRigidBody first, IvpRigidBody second) = Watched(apart: 400d);
         simulation.Start();
 
         simulation.Advance(0.05d);
 
-        simulation.LastOutcome.ShouldBe(IvpScheduleOutcome.Far);
+        simulation.LastOutcome.ShouldBe(IvpScheduleOutcome.Filed);
+        mindist.HullRecord(0).HullSlot.ShouldNotBeNull("record 0 is filed at a hull value");
+        mindist.HullRecord(1).HullSlot.ShouldNotBeNull();
+        first.Unit.ShouldNotBeNull("the control: the fixture's bodies are really in the simulation");
+        second.Unit.ShouldNotBeNull();
+    }
+
+    /// <remarks>
+    /// **The cycle's other half**: a filed pair whose body then moves far enough for its hull to pass is told, and comes back to
+    /// the exact list — the tail's hull pass (<c>FUN_18009a690</c>) into <c>FUN_180097570</c>.
+    /// </remarks>
+    [Test]
+    public void Advance_AFiledPairWhoseBodyMoves_ComesBackToTheExactList()
+    {
+        (IvpSimulation simulation, IvpMindist mindist, IvpRigidBody first, _) = Watched(apart: 400d);
+        simulation.Start();
+        simulation.Advance(0.05d);
+        simulation.LastOutcome.ShouldBe(IvpScheduleOutcome.Filed, "the control: it really was filed first");
+
+        // Fast enough that the hull it was filed at is passed within a few PSIs.
+        first.Velocity = (0f, 0f, 3000f);
+        first.PreviousVelocity = (0f, 0f, 3000f);
+
+        for (double until = 0.1d; until <= 0.6d; until += 0.05d)
+        {
+            simulation.Advance(until);
+        }
+
+        mindist.HullRecord(0).HullSlot.ShouldBeNull("it left the hull managers when it was told");
+        mindist.HullRecord(1).HullSlot.ShouldBeNull();
     }
 
     /// <remarks>
