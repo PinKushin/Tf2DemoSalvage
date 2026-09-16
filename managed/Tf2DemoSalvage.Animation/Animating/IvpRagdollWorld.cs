@@ -28,7 +28,22 @@ public sealed class IvpRagdollWorld
     /// <summary><c>env+0xc8 = 0.3f</c>, written by <c>FUN_180080d90</c>.</summary>
     private const float RestDelay = 0.3f;
 
+    /// <summary><c>DAT_1800ec278</c>: <c>1e-4</c>, the delta a frame must exceed to simulate at all.</summary>
+    private const double MinimumDelta = 1e-4d;
+
+    /// <summary><c>DAT_1800ec280</c>: <c>0.1</c>, the delta past which a frame is cut.</summary>
+    private const double MaximumDelta = 0.1d;
+
+    /// <summary><c>DAT_1800ea968</c>: <c>0.1f</c>, what such a frame is cut to.</summary>
+    private const float MaximumStep = 0.1f;
+
+    /// <summary><c>DAT_1800ec288</c>: <c>0x3fffffac</c>, the steps the fixed-step path simulates past the last PSI.</summary>
+    private const float FixedStepCount = 1.9999895f;
+
     private readonly IvpRandom _random = new();
+
+    /// <summary>The fixed-step byte <c>+0xcf</c>, set by the constructor and cleared by the first frame of another length.</summary>
+    private bool _fixedStep = true;
     private readonly Dictionary<IvpRigidBody, (IvpRagdoll Ragdoll, int Element)> _owners = [];
     private readonly Dictionary<IvpCollisionObject, int> _contents = [];
 
@@ -316,9 +331,45 @@ public sealed class IvpRagdollWorld
         }
     }
 
-    /// <summary>Runs the environment forward by some seconds.</summary>
-    /// <param name="seconds">How long.</param>
-    public void Simulate(double seconds) => Simulation.Advance(Simulation.Now + seconds);
+    /// <summary>Runs the environment forward by one frame — <c>CPhysicsEnvironment::Simulate</c>, <c>FUN_180015310</c>.</summary>
+    /// <param name="deltaTime">The frame's time, in seconds.</param>
+    /// <remarks>
+    /// **Read from the disassembly** (2026-09-16):
+    /// <code>
+    /// dt > 1f (COMISS/JA, a NaN goes on)  or  !((double)dt > 1e-4) (COMISD/JBE):  nothing is simulated
+    /// (double)dt > 0.1 → dt = 0.1f
+    /// +0xcf set and dt == (float)env+0x108 (UCOMISS/JNZ):  SimulateTo(env+0x198 + (double)((float)env+0x108 · 1.9999895f))
+    /// else:  +0xcf = 0;  SimulateTo(env+0x188 + (double)dt)
+    /// </code>
+    /// The constructor leaves `+0xcf` set (`0x1000000` at `+0xcc`). *Not carried*: the delete list flushed either side
+    /// (`FUN_1800128f0`), `FUN_180016090`, the stale-entry sweep of `+0xa8`, the friction-scrape reports after it and the
+    /// `FUN_180026180`/slot `0x140` tail — none moves a body.
+    /// </remarks>
+    public void Simulate(float deltaTime)
+    {
+        if (deltaTime > 1f || !((double)deltaTime > MinimumDelta))
+        {
+            return;
+        }
+
+        if ((double)deltaTime > MaximumDelta)
+        {
+            deltaTime = MaximumStep;
+        }
+
+        IvpImpactEnvironment environment = Simulation.Environment;
+
+#pragma warning disable S1244 // Valve's own exact comparison: UCOMISS against the step, the frame is the step or it is not.
+        if (_fixedStep && deltaTime == (float)environment.Step)
+#pragma warning restore S1244
+        {
+            Simulation.Advance(environment.RebaseBase + (double)((float)environment.Step * FixedStepCount));
+            return;
+        }
+
+        _fixedStep = false;
+        Simulation.Advance(Simulation.Now + (double)deltaTime);
+    }
 
     /// <summary>Files a core as one ragdoll's element, for the rules — the object's game data and game index.</summary>
     internal void Own(IvpRigidBody core, IvpRagdoll ragdoll, int element) =>
@@ -614,6 +665,12 @@ public sealed class IvpRagdoll
 
     /// <summary>Every element's position and orientation, back in Source space — vphysics' <c>GetPosition</c>.</summary>
     /// <returns>One entry per element, ready for <see cref="RagdollBody.Pose"/>.</returns>
+    /// <remarks>
+    /// **The object at the environment's clock, not at its core's last step** — `GetPosition` (`FUN_18001c030`) reads
+    /// `FUN_180073b80`: the core interpolated to `env+0x188` (<see cref="IvpRigidBody.TransformAt"/>), turned into a matrix, and
+    /// the object's offset put into the world through it. A frame on the fixed-step path leaves the clock almost a step past the
+    /// last PSI, so what is reported is nearly where the next PSI will put the body.
+    /// </remarks>
     public (Vector3 Position, Quaternion Orientation)[] State()
     {
         (Vector3 Position, Quaternion Orientation)[] state = new (Vector3, Quaternion)[_bodies.Length];
@@ -621,9 +678,12 @@ public sealed class IvpRagdoll
         for (int index = 0; index < _bodies.Length; index++)
         {
             IvpRigidBody body = _bodies[index];
-            (double X, double Y, double Z) origin = body.ObjectOrigin();
+            ((double X, double Y, double Z) position, (double X, double Y, double Z, double W) rotation) =
+                body.TransformAt(_world.Simulation.Now);
+            (double X, double Y, double Z) origin =
+                IvpMatrix.FromRotation(rotation, position).ToWorld(body.ObjectOffset);
             (float x, float y, float z) = IvpTransform.SourcePosition((float)origin.X, (float)origin.Y, (float)origin.Z);
-            (double qx, double qy, double qz, double qw) = body.Orientation;
+            (double qx, double qy, double qz, double qw) = rotation;
 
             // The inverse of `Rotation`: an IVP axis `(x, y, z)` is the Source axis `(x, z, −y)`.
             state[index] = (new Vector3(x, y, z), new Quaternion((float)qx, (float)qz, (float)-qy, (float)qw));

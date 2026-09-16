@@ -47,13 +47,33 @@ public sealed class IvpRagdollTests
         Quaternion.Dot(child.Orientation, start[1].Item2).ShouldBe(1f, 1e-5f);
     }
 
+    /// <remarks>
+    /// **The bone is reported at the environment's clock** (`GetPosition` reads `FUN_180073b80`): the first frame runs two PSIs,
+    /// the second at the step, and leaves the clock `0.9999895` of a step past it, so the root has moved on by its committed
+    /// velocity for that long — not where its core was last stepped.
+    /// </remarks>
+    [Test]
+    public void State_AfterAFrame_IsTheBoneAtTheClock()
+    {
+        IvpRagdoll ragdoll = Ragdoll(out IvpRagdollWorld world, out IvpSimulation simulation, Straight());
+        IvpRigidBody root = ragdoll.Bodies[0];
+
+        world.Simulate(IvpRagdollWorldFrames.Step);
+
+        float elapsed = (float)(simulation.Now - root.LastStepped);
+        elapsed.ShouldBeGreaterThan(0.9f * IvpRagdollWorldFrames.Step, "the control: the clock is well past the last PSI");
+        root.PreviousVelocity.Y.ShouldNotBe(0f, "the control: the root is falling");
+        (_, _, float z) = IvpTransform.SourcePosition(0f, (float)(root.ObjectOrigin().Y + ((double)root.PreviousVelocity.Y * elapsed)), 0f);
+        ragdoll.State()[0].Position.Z.ShouldBe(z, 1e-4f);
+    }
+
     /// <remarks>**Source gravity is IVP +Y**, so a corpse falls along Source −Z and nowhere else.</remarks>
     [Test]
     public void Simulate_UnderGravity_TheRootFallsAlongSourceMinusZ()
     {
         IvpRagdoll ragdoll = Ragdoll(out IvpRagdollWorld world, out _, Straight());
 
-        world.Simulate(0.5d);
+        world.SimulateFrames(0.5d);
 
         Vector3 root = ragdoll.State()[0].Position;
         root.Z.ShouldBeLessThan(-50f, "half a second at 800 in/s² is about a hundred inches");
@@ -68,7 +88,7 @@ public sealed class IvpRagdollTests
         IvpRagdoll ragdoll = Ragdoll(out IvpRagdollWorld world, out _, Straight());
 
         ragdoll.Kill(new Vector3(2000f, 0f, 0f), forceBone: 0);
-        world.Simulate(0.2d);
+        world.SimulateFrames(0.2d);
 
         ragdoll.State()[0].Position.X.ShouldBeGreaterThan(5f);
     }
@@ -84,7 +104,7 @@ public sealed class IvpRagdollTests
         IvpRagdoll ragdoll = Ragdoll(out IvpRagdollWorld world, out IvpSimulation simulation, start);
         float before = Separation(ragdoll);
 
-        world.Simulate(1d);
+        world.SimulateFrames(1d);
 
         Separation(ragdoll).ShouldBeLessThan(
             before * 0.5f,

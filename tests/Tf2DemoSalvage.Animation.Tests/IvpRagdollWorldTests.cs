@@ -181,7 +181,7 @@ public sealed class IvpRagdollWorldTests
         IvpRagdoll ragdoll = IvpRagdoll.Create(
             world, body, [(Vector3.Zero, Quaternion.Identity), (new Vector3(0f, 0f, 12f), Quaternion.Identity)]);
         ragdoll.Kill(new Vector3(0f, 0f, -20000f), forceBone: 1);
-        world.Simulate(0.3d);
+        world.SimulateFrames(0.3d);
 
         world.Simulation.Environment.Impacts.ShouldBe(0);
     }
@@ -271,6 +271,72 @@ public sealed class IvpRagdollWorldTests
 
         world.Simulation.ShouldCollide!(part, clip).ShouldBeFalse();
         world.Simulation.ShouldCollide(part, brush).ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **`CPhysicsEnvironment::Simulate` (`FUN_180015310`), read from the disassembly 2026-09-16**: the constructor leaves the
+    /// fixed-step byte `+0xcf` set, and a delta equal to the step (`UCOMISS` against `(float)env+0x108`) simulates to
+    /// `env+0x198 + (double)((float)step · 1.9999895f)` (`FUN_180082780`, `DAT_1800ec288`). The first PSI is queued at zero and the
+    /// rebase base is zero, so the first frame runs two PSIs — the second at `(float)step` — and the clock ends just short of a
+    /// third.
+    /// </remarks>
+    [Test]
+    public void Simulate_TheStepFromTheStart_RunsTwoPsisOnTheFixedPath()
+    {
+        IvpRagdollWorld world = World();
+        float step = 1f / 66f;
+
+        world.Simulate(step);
+
+        world.Simulation.Environment.RebaseBase.ShouldBe((double)step);
+        world.Simulation.Now.ShouldBe((double)(step * 1.9999895f));
+    }
+
+    /// <remarks>**Each later frame runs one PSI**: the target moves from the last PSI's own time, not from the clock.</remarks>
+    [Test]
+    public void Simulate_TheStepAgain_RunsOnePsiFromTheLastOne()
+    {
+        IvpRagdollWorld world = World();
+        float step = 1f / 66f;
+        world.Simulate(step);
+
+        world.Simulate(step);
+
+        // The target is read before the frame runs: from the first frame's last PSI, at the step.
+        world.Simulation.Environment.RebaseBase.ShouldBe((double)step + step);
+        world.Simulation.Now.ShouldBe((double)step + (double)(step * 1.9999895f));
+    }
+
+    /// <remarks>
+    /// **Any other delta clears the byte and simulates to the clock plus the delta** (`FUN_180082540`), and the byte stays clear,
+    /// so the step itself then takes the same path.
+    /// </remarks>
+    [Test]
+    public void Simulate_AnotherDelta_AdvancesTheClockByItFromThenOn()
+    {
+        IvpRagdollWorld world = World();
+        float step = 1f / 66f;
+
+        world.Simulate(0.02f);
+        world.Simulate(step);
+
+        world.Simulation.Now.ShouldBe((double)0.02f + step);
+    }
+
+    /// <remarks>
+    /// **A delta over one second, or not over `1e-4`, simulates nothing** (`COMISS`/`JA` against `1f`, `COMISD`/`JBE` against
+    /// `DAT_1800ec278`), and **one over a tenth is cut to `0.1f`** (`COMISD` against `DAT_1800ec280`, `DAT_1800ea968` stored).
+    /// </remarks>
+    [TestCase(1.5f, 0d)]
+    [TestCase(0.00005f, 0d)]
+    [TestCase(0.5f, (double)0.1f)]
+    public void Simulate_ADeltaOutsideTheClamp_IsSkippedOrCut(float delta, double now)
+    {
+        IvpRagdollWorld world = World();
+
+        world.Simulate(delta);
+
+        world.Simulation.Now.ShouldBe(now);
     }
 
     private static IvpRagdollWorld World() =>
