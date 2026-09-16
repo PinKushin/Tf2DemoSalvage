@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
@@ -29,6 +30,7 @@ public sealed class IvpRagdollWorld
 
     private readonly IvpRandom _random = new();
     private readonly Dictionary<IvpCollisionObject, (IvpRagdoll Ragdoll, int Element)> _owners = [];
+    private readonly Dictionary<IvpCollisionObject, int> _contents = [];
 
     /// <summary>Makes the environment.</summary>
     /// <param name="step">The simulation timestep — <c>SetSimulationTimestep</c>, the demo's tick interval.</param>
@@ -73,7 +75,17 @@ public sealed class IvpRagdollWorld
     /// <param name="material">The solid's material.</param>
     /// <returns>Its object.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public IvpCollisionObject AddStatic(PhysicsLedgeTree surface, Vector3 origin, IIvpMaterial material)
+    public IvpCollisionObject AddStatic(PhysicsLedgeTree surface, Vector3 origin, IIvpMaterial material) =>
+        AddStatic(surface, origin, material, IvpWorldCollision.ContentsSolid);
+
+    /// <summary>Adds a static solid made of some contents — <c>CreatePolyObjectStatic</c> then <c>SetContents</c>.</summary>
+    /// <param name="surface">The solid's compact surface.</param>
+    /// <param name="origin">Where the brush model stands, in Source units.</param>
+    /// <param name="material">The solid's material.</param>
+    /// <param name="contents">Its <c>CONTENTS_*</c> mask — <c>physics_shared.cpp:648</c>; a new object's is <c>CONTENTS_SOLID</c>.</param>
+    /// <returns>Its object.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public IvpCollisionObject AddStatic(PhysicsLedgeTree surface, Vector3 origin, IIvpMaterial material, int contents)
     {
         ArgumentNullException.ThrowIfNull(surface);
 
@@ -90,7 +102,98 @@ public sealed class IvpRagdollWorld
             InverseInertia = (0f, 0f, 0f),
         };
 
-        return Simulation.Collide(core, surface, material);
+        IvpCollisionObject made = Simulation.Collide(core, surface, material);
+
+        _contents[made] = contents;
+
+        return made;
+    }
+
+    /// <summary>Adds the map's collide — <c>PhysCreateWorld_Shared</c> for the world, each brush entity's model at its origin.</summary>
+    /// <param name="models">The brush models of <c>LUMP_PHYSCOLLIDE</c>.</param>
+    /// <param name="origins">Each brush model's entity origin, in Source units, by model index.</param>
+    /// <returns>The static objects made, in order.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **The world is solid 0, then every `solid`/`staticsolid` block but index 0** (`game/shared/physics_shared.cpp:588-667`),
+    /// each with its block's contents and the surface `default`. A solid no such block names — a `fluid`'s — is not a solid.
+    /// *Fluid controllers and virtual terrain are not carried.* **A brush entity's model** is every solid at the entity's origin,
+    /// with the contents its text declares or `CONTENTS_SOLID` — the rule the drawn map's collision already follows, carried rather
+    /// than read: *which client entities put a brush model into the client's environment is not read*.
+    /// </remarks>
+    public IReadOnlyList<IvpCollisionObject> AddMap(IReadOnlyList<MapPhysicsModel> models, IReadOnlyDictionary<int, Vector3> origins)
+    {
+        ArgumentNullException.ThrowIfNull(models);
+        ArgumentNullException.ThrowIfNull(origins);
+
+        List<IvpCollisionObject> made = [];
+
+        if (Surfaces.ObjectMaterial("default") is not { } material)
+        {
+            return made;
+        }
+
+        foreach (MapPhysicsModel model in models)
+        {
+            MapSurfaceTable table = MapSurfaceTable.Parse(model.Text);
+
+            if (model.ModelIndex == 0)
+            {
+                // `materialtable` (`physics_shared.cpp:669-676`): `FUN_18002eeb0` writes `table[atoi(value)] = GetSurfaceIndex(key)`
+                // for an unsigned index under 0x80 into a zeroed 128. *An empty block is not told apart from none*.
+                if (table.Materials.Count > 0)
+                {
+                    int[] world = new int[128];
+
+                    foreach ((int slot, string name) in table.Materials)
+                    {
+                        if ((uint)slot < 0x80)
+                        {
+                            world[slot] = Surfaces.GetSurfaceIndex(name);
+                        }
+                    }
+
+                    Surfaces.SetWorldMaterialIndexTable(world);
+                }
+
+                AddSolid(made, model, 0, Vector3.Zero, material, IvpWorldCollision.ContentsSolid);
+
+                foreach ((int index, int contents) in table.StaticSolids)
+                {
+                    if (index != 0)
+                    {
+                        AddSolid(made, model, index, Vector3.Zero, material, contents);
+                    }
+                }
+
+                continue;
+            }
+
+            Vector3 origin = origins.TryGetValue(model.ModelIndex, out Vector3 placed) ? placed : Vector3.Zero;
+            Dictionary<int, int> declared = [];
+
+            foreach ((int index, int contents) in table.StaticSolids)
+            {
+                declared[index] = contents;
+            }
+
+            for (int solid = 0; solid < model.Surfaces.Count; solid++)
+            {
+                AddSolid(
+                    made, model, solid, origin, material,
+                    declared.TryGetValue(solid, out int contents) ? contents : IvpWorldCollision.ContentsSolid);
+            }
+        }
+
+        return made;
+    }
+
+    private void AddSolid(List<IvpCollisionObject> made, MapPhysicsModel model, int solid, Vector3 origin, IIvpMaterial material, int contents)
+    {
+        if (solid >= 0 && solid < model.Surfaces.Count && model.Surfaces[solid] is { } surface)
+        {
+            made.Add(AddStatic(surface, origin, material, contents));
+        }
     }
 
     /// <summary>Runs the environment forward by some seconds.</summary>
@@ -101,15 +204,28 @@ public sealed class IvpRagdollWorld
     internal void Own(IvpCollisionObject collisionObject, IvpRagdoll ragdoll, int element) =>
         _owners[collisionObject] = (ragdoll, element);
 
-    /// <summary>
-    /// The game's rules for a pair — a ragdoll's own <c>collisionrules</c> between two of its elements; any other pair collides.
-    /// </summary>
-    /// <remarks>*The collision groups the game checks between different entities are not carried*: two corpses collide here.</remarks>
-    private bool ShouldCollide(IvpCollisionObject first, IvpCollisionObject second) =>
-        !(_owners.TryGetValue(first, out (IvpRagdoll Ragdoll, int Element) a)
-          && _owners.TryGetValue(second, out (IvpRagdoll Ragdoll, int Element) b)
-          && ReferenceEquals(a.Ragdoll, b.Ragdoll))
-        || a.Ragdoll.Body.ShouldCollide(a.Element, b.Element);
+    /// <summary>The game's rules for a pair — <c>CCollisionEvent::ShouldCollide</c>, <c>game/client/physics.cpp:200-258</c>.</summary>
+    /// <remarks>
+    /// **In the engine's order, for what this world holds**: one corpse's own parts answer its <c>collisionrules</c>; two corpses'
+    /// parts never collide, <c>cl_ragdoll_collide</c> being <c>"0"</c>; a static solid collides with a corpse only if its contents
+    /// meet the corpse's <c>MASK_SOLID</c> (a corpse's own objects are <c>CONTENTS_SOLID</c>, inside the world's mask). *The game
+    /// rules' collision groups between a corpse and the world are not carried*: debris against the world collides.
+    /// </remarks>
+    private bool ShouldCollide(IvpCollisionObject first, IvpCollisionObject second)
+    {
+        bool firstPart = _owners.TryGetValue(first, out (IvpRagdoll Ragdoll, int Element) a);
+        bool secondPart = _owners.TryGetValue(second, out (IvpRagdoll Ragdoll, int Element) b);
+
+        if (firstPart && secondPart)
+        {
+            return ReferenceEquals(a.Ragdoll, b.Ragdoll) && a.Ragdoll.Body.ShouldCollide(a.Element, b.Element);
+        }
+
+        IvpCollisionObject other = firstPart ? second : first;
+        int contents = _contents.TryGetValue(other, out int declared) ? declared : IvpWorldCollision.ContentsSolid;
+
+        return (contents & IvpWorldCollision.MaskSolid) != 0;
+    }
 }
 
 /// <summary>A model's ragdoll on the ported driver, in IVP space — <c>RagdollCreate</c> through <c>CPhysicsObject</c> (B369, D172).</summary>
