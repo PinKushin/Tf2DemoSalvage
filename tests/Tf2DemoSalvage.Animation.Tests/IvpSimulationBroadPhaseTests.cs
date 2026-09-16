@@ -185,6 +185,34 @@ public sealed class IvpSimulationBroadPhaseTests
         body.Position.Z.ShouldBeLessThan(5.5d, "and it came down to it");
     }
 
+    /// <remarks>
+    /// **The work the normal pushes did is paid back as damping** (<c>FUN_180088ae0</c> banks it per pair, <c>FUN_180086b40</c>
+    /// takes it out of the pair's relative motion). A cube resting on two contacts with the bank unported crept up at 0.012 a
+    /// second on a constant push.
+    /// </remarks>
+    [Test]
+    public void Advance_ABodyRestingOnAStaticSlab_DoesNotCreep()
+    {
+        IvpSimulation simulation = new(Environment(), (0f, 0f, -10f), () => 0f);
+        IvpRigidBody body = Body((1d, 2d, 10d));
+        IvpRigidBody slab = Body((0d, 0d, 0d));
+        slab.Immovable = true;
+        slab.InverseMass = 0f;
+        slab.InverseInertia = (0f, 0f, 0f);
+        slab.Ledges = IvpTestCube.Box(40f, 40f, 1f);
+        simulation.Add(body);
+        simulation.Collide(body, Material);
+        simulation.Collide(slab, Material);
+        simulation.Start();
+
+        for (double at = 0.02d; at <= 3d; at += 0.01d)
+        {
+            simulation.Advance(at);
+        }
+
+        System.Math.Abs(body.Velocity.Z).ShouldBeLessThan(1e-3f, $"at {body.Position.Z}");
+    }
+
     /// <summary>Two cubes of half four, faces one apart, the first driven at the second at 6 — advanced in 0.01 slices.</summary>
     private static (IvpSimulation, IvpRigidBody Moving, IvpRigidBody Still, IvpCollisionObject MovingObject) DrivenTogether(double until)
     {

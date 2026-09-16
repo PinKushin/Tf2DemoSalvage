@@ -4261,9 +4261,18 @@ second)`, the mindist's record-order sides, for EVERY contact, where the island 
 first. With A on record 1 the triangle was looked up on the other body — the cube's face, 64 long, over the slab's reciprocal
 determinant, 1/6400. With each contact's own sides it lands and rests.
 
-*Still not right at rest*: with two contacts the record controller does not rebuild the records (its many-contact branch,
-`FUN_180088ae0` and `FUN_180086b40`, is unread), so the gap stays where the impact left it and the cube creeps up at 0.012 a
-second on a constant push.
+**A ninth, at rest — the many-contact branch.** With two contacts the priority-2000 controller did nothing (its many-contact
+branch was marked unread, though *The priority-2000 routines* below had read it), so the gaps stayed where the impact left them
+and the cube crept up at 0.012 a second on a constant push. Ported as `IvpPairDamping`: every record rebuilt with the pushes'
+work banked in `pair+0x30`, zeroed under the unit's `0x3000` bits, and paid back out of the pair's relative motion unless its
+`0xc00` bits are set. It rests still (`Advance_ABodyRestingOnAStaticSlab_DoesNotCreep`, under 1e-3).
+
+**`env+0x1b0` settled** (2026-09-16): `FUN_180082470` writes `FUN_1800d3cf0(step · DAT_1800fd4e0)`; `FUN_1800d3cf0` is the
+CRT's `exp` (already ported as `IvpMath.Exp`) and `DAT_1800fd4e0` is `0xbfbaf8e892d15de8`, NEAR ln 0.9 but not its closest
+double. *`Math.Pow(0.9, 1/66)` was the first oracle and it was wrong by 4e-10*; the right control is the constructor's own
+`+0x1b0 = 0x3feff2eed61b4202` for its default 1/66, which the port reproduces bit for bit.
+
+*Not carried*: `FUN_1800836b0`'s share of `pair+0x30` — what each tangential solve returns against `cp+0x84`.
 
 #### The friction controller at priority 600, and the clamp's own weights — `FUN_1800836b0` and `FUN_180083970` (2026-09-15)
 

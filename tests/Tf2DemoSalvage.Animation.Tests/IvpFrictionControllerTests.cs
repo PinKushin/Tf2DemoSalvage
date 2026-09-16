@@ -241,23 +241,84 @@ public sealed class IvpFrictionControllerTests
         contact.LastMeasured.ShouldBe(3d, "rebuilt at the environment's own clock");
     }
 
-    /// <remarks>**The many-contact branch is not carried**, so a second contact leaves the records alone.</remarks>
+    /// <remarks>
+    /// **With more than one contact every record is rebuilt and the pushes' work banked** (<c>FUN_180088ae0</c>): the pair gains
+    /// <c>Σ (gap before − gap after)·push</c>, in float, last contact first. The unit's <c>0xc00</c> bits hold the payback off, so
+    /// the bank is read as it was left.
+    /// </remarks>
     [Test]
-    public void Advance_TheRecordPassWithTwoContacts_LeavesThemAlone()
+    public void Advance_TheRecordPassWithTwoContacts_RebuildsEveryRecordAndBanksThePushesWork()
+    {
+        (IvpFrictionSystem system, IvpContactPoint contact, IvpContactPoint second) = Banked();
+        IvpContactRecord old = contact.Record!;
+        IvpSimulationUnit unit = new() { Flags = 0x400 };
+
+        new IvpRecordFrictionController(system, system.Environment, Revalidate.Sides).Advance(unit, [], psiStep: 0.5f);
+
+        contact.Record.ShouldNotBeSameAs(old);
+        second.Record.ShouldNotBeNull();
+
+        // `Pairs[0].Contacts` in filing order: the first linked, then the second, walked last first.
+        float expected = ((5f - second.Gap) * 0.5f) + ((3f - contact.Gap) * 2f);
+        system.Pairs[0].StoredEnergy.ShouldBe(expected > 0f ? expected : 0f);
+        system.Pairs[0].StoredEnergy.ShouldBeGreaterThan(0f, "the control: the gaps this fixture measures are under the ones set");
+    }
+
+    /// <remarks>
+    /// **The unit's <c>0x3000</c> bits zero every pair's bank** before the payback — the same fixture banks work without them, so
+    /// a zero here is the bits' doing.
+    /// </remarks>
+    [TestCase(0x1400, true)]
+    [TestCase(0x400, false)]
+    public void Advance_TheRecordPassAndTheCarryBits_ZeroTheBankOnlyWhenSet(int flags, bool zeroed)
+    {
+        (IvpFrictionSystem system, _, _) = Banked();
+        IvpSimulationUnit unit = new() { Flags = flags };
+
+        new IvpRecordFrictionController(system, system.Environment, Revalidate.Sides).Advance(unit, [], psiStep: 0.5f);
+
+        (system.Pairs[0].StoredEnergy == 0f).ShouldBe(zeroed);
+    }
+
+    /// <remarks>
+    /// **The payback runs only while the unit's <c>0xc00</c> bits are clear**: with them clear the bank is decayed and spent, so it
+    /// no longer holds what the work alone put there.
+    /// </remarks>
+    [Test]
+    public void Advance_TheRecordPassWithTheFastSpinBitsClear_PaysTheBankBack()
+    {
+        (IvpFrictionSystem held, _, _) = Banked();
+        new IvpRecordFrictionController(held, held.Environment, Revalidate.Sides).Advance(new IvpSimulationUnit { Flags = 0x400 }, [], 0.5f);
+        (IvpFrictionSystem paid, _, _) = Banked();
+
+        new IvpRecordFrictionController(paid, paid.Environment, Revalidate.Sides).Advance(new IvpSimulationUnit(), [], 0.5f);
+
+        paid.Pairs[0].StoredEnergy.ShouldBeLessThan(held.Pairs[0].StoredEnergy);
+    }
+
+    /// <summary>Two contacts whose rebuild measures gaps under the ones set, so the pushes did work.</summary>
+    private static (IvpFrictionSystem, IvpContactPoint, IvpContactPoint) Banked()
+    {
+        (IvpFrictionSystem system, IvpContactPoint contact, IvpContactPoint second) = TwoContacts();
+        contact.Gap = 3f;
+        contact.NormalPush = 2f;
+        second.Gap = 5f;
+        second.NormalPush = 0.5f;
+
+        // A closing speed, so a payback has relative motion to take the bank out of.
+        system.Pairs[0].FirstCore.Velocity = (0f, 0f, 3f);
+
+        return (system, contact, second);
+    }
+
+    private static (IvpFrictionSystem, IvpContactPoint, IvpContactPoint) TwoContacts()
     {
         (IvpFrictionSystem system, IvpContactPoint contact) = Linked();
         IvpContactPoint second = Revalidate.Contact(system.Pairs[0].FirstCore, system.Pairs[0].SecondCore);
         IvpFrictionLinking.LinkContactByCore(second, system.Pairs[0].FirstCore, system.Pairs[0].SecondCore, system.Environment);
-        IvpContactRecord old = contact.Record!;
         system.ContactCount.ShouldBe((short)2, "the control: the fixture really does hold two contacts");
 
-        new IvpRecordFrictionController(system, system.Environment, Revalidate.Sides)
-            .Advance(new IvpSimulationUnit(), [], psiStep: 0.5f);
-
-        contact.Record.ShouldBeSameAs(old);
-
-        // The list is head-inserted, so the pass would rebuild THIS contact's record if it ran at all — and it has none yet.
-        second.Record.ShouldBeNull();
+        return (system, contact, second);
     }
 
     private static IvpContactPoint Contact(float normalPush, float friction, float inverseMass)

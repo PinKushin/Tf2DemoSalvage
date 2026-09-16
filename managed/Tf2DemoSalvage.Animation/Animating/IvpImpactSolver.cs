@@ -57,6 +57,9 @@ public sealed class IvpImpactEnvironment
     /// <summary>How long a core must stay by its anchor to be called at rest — <c>env+0xc8</c>.</summary>
     public float RestDelay { get; init; }
 
+    /// <summary>The energy friction systems have damped out of their pairs' relative motion — the double at <c>env+0x78</c>.</summary>
+    public double DampedEnergy { get; set; }
+
     /// <summary>The PSIs left before the next rest check — <c>env+0x1a8</c>, reset with a jitter when it reaches zero.</summary>
     public short RestCheckCountdown { get; set; }
 

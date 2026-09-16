@@ -222,9 +222,8 @@ public sealed class IvpNormalFrictionController(IvpFrictionSystem system) : IIvp
 /// else  FUN_180088ae0(system);  unit dword &amp; 0x3000 → every pair's +0x30 = 0;  unless &amp; 0xc00 → FUN_180086b40(system)
 /// </code>
 ///
-/// *Not carried*: the many-contact branch entirely — `FUN_180088ae0` and `FUN_180086b40` are unread, and the pairs' <c>+0x30</c>
-/// this project does not hold (see <see cref="IvpFrictionPair"/>). A system with more than one contact therefore has its records
-/// rebuilt by the collision path alone until those are read.
+/// The many-contact branch is <see cref="IvpPairDamping"/>: every record rebuilt with the pushes' work banked per pair, then paid
+/// back as damping.
 /// </remarks>
 public sealed class IvpRecordFrictionController(
     IvpFrictionSystem system,
@@ -246,11 +245,37 @@ public sealed class IvpRecordFrictionController(
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(sides);
 
-        if (System.ContactCount > 1 || System.FirstContact is not { } contact)
+        ArgumentNullException.ThrowIfNull(unit);
+
+        if (System.ContactCount < 2)
         {
+            if (System.FirstContact is { } contact)
+            {
+                Rebuild(contact);
+            }
+
             return;
         }
 
+        IvpPairDamping.Bank(System, Rebuild);
+
+        if ((unit.Flags & 0x3000) != 0)
+        {
+            foreach (IvpFrictionPair pair in System.Pairs)
+            {
+                pair.StoredEnergy = 0f;
+            }
+        }
+
+        if ((unit.Flags & 0xc00) == 0)
+        {
+            IvpPairDamping.PayBack(System);
+        }
+    }
+
+    /// <summary>A contact's record rebuilt at now — <c>FUN_18008d0c0(cp, env)</c>.</summary>
+    private void Rebuild(IvpContactPoint contact)
+    {
         (IvpLedgeSide first, IvpLedgeSide second) = sides(contact);
 
         contact.Record = IvpContactRecord.Build(
