@@ -4,12 +4,20 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
+using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
+
 namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>
 /// Drives the shipped <c>vphysics.dll</c> through its own public interfaces — <c>CreateInterface</c>, <c>IPhysics</c>,
 /// <c>IPhysicsCollision</c>, <c>IPhysicsSurfaceProps</c>, <c>IPhysicsEnvironment</c>, <c>IPhysicsObject</c> — exactly as the
-/// engine calls them, to drop an 8×8×8 box onto a static slab and print its trajectory (milestone 1).
+/// engine calls them, to drop an 8×8×8 box onto a static slab and print its trajectory (milestone 1), or — <c>phy</c> mode —
+/// a real model's own <c>.phy</c> collide on a real static model's, for the B369 differential against <see
+/// cref="global::Tf2DemoSalvage.Animation.Animating.IvpSimulation"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -31,6 +39,29 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// IPhysicsCollision (static image address 1800eaa40):
 ///   slot 29 BBoxToCollide      - FUN_180009ec0(this, mins*, maxs*) checks a 0x20-byte-per-entry mins/maxs/pointer cache before
 ///                                building a new one - the exact shape of the documented "bbox cache" in vphysics_interface.h.
+///                                **Read at runtime from this build and matched against 1800eaa40+29*8 as a cross-check on the
+///                                slot-counting method itself** (B369): the vtable word at that offset IS 180009ec0.
+///   slot 36 VCollideLoad       - FUN_18000a100, read at 1800eaa40+36*8=1800eab20 (=0x18000a100 in this build): zeroes a
+///                                24-byte <c>vcollide_t</c> (<c>public/vcollide.h</c>: <c>ushort solidCount:15/isPacked:1</c>,
+///                                <c>ushort descSize</c>, <c>CPhysCollide **solids</c> at +8, <c>char *pKeyValues</c> at +16),
+///                                then for <c>solidCount</c> length-prefixed blobs: a blob under 0x30 bytes with no <c>VPHY</c>
+///                                tag calls <c>Error("Corrupt physics model")</c> (the exact string `docs/findings` already
+///                                cites for <see cref="global::Tf2DemoSalvage.Content.Assets.PhysicsModel"/>'s own B404 note on
+///                                this same function address); otherwise <c>FUN_18000bcf0</c> allocates its OWN buffer and
+///                                <c>memcpy</c>s the solid's bytes in (so the caller's buffer need not outlive the call), builds
+///                                the <c>CPhysCollide</c> vtable (<c>PTR_FUN_1800eaf70</c>) into it, and files the pointer into
+///                                <c>solids[i]</c>; the bytes left over after all solids are likewise copied into a fresh
+///                                allocation as <c>pKeyValues</c>. **Matches the header's declared signature exactly**
+///                                (<c>VCollideLoad( vcollide_t *pOutput, int solidCount, const char *pBuffer, int size, bool
+///                                swap = false )</c>) and every published caller (<c>studiobyteswap.cpp:514</c>,
+///                                <c>bsplib.cpp:1681</c>) passes <c>pBuffer</c> starting AFTER the file's own header and
+///                                <c>size</c> as the remaining byte count — exactly <see cref="global::Tf2DemoSalvage.Content.Assets.PhysicsModel"/>'s
+///                                own <c>HeaderSize</c> (16, <c>phyheader_t</c>) skip.
+///   slot 37 VCollideUnload     - FUN_18000a330, read at 1800eab28 (=0x18000a330): walks <c>solidCount</c> solids, calls each
+///                                non-null one's own vtable slot 0 (<c>(*collide->vtbl)(collide, 1)</c> - a virtual destructor
+///                                taking the "free memory" flag `sub_matter` conventions give it slot 0 for the same reason
+///                                <c>IPhysicsCollision</c>'s own destructor is slot 0), frees the solids array and the
+///                                <c>pKeyValues</c> buffer, and zeroes the struct - the exact inverse of <c>VCollideLoad</c>.
 /// IPhysicsSurfaceProps (static image address 1800ec598, singleton 180120b38):
 ///   slot 1  ParseSurfaceData   - FUN_180018740; docs/findings/51 already names this exact address independently (D172 port).
 ///   slot 3  GetSurfaceIndex    - FUN_180018500; also independently named in docs/findings/51.
@@ -65,7 +96,14 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <para>
 /// **No collision solver, event handler or debug overlay is installed.** <c>Simulate</c>'s one call into an external callback
 /// is null-guarded (see the slot 34 note above), and nothing else in this scene needs one for milestone 1 - a static slab and
-/// one falling box never touch a constraint, a fluid, or a vehicle.
+/// one falling box never touch a constraint, a fluid, or a vehicle. The same is true of <c>phy</c> mode's two poly objects.
+/// </para>
+/// <para>
+/// **`phy` mode's surfaces come from the game's own manifest, not the synthetic single-entry text below.** A real `.phy`
+/// names a real surface (`wood`, `default`, …) that the synthetic text below does not define, so <c>GetSurfaceIndex</c> would
+/// answer −1 for it; this mode instead replays <c>scripts/surfaceproperties_manifest.txt</c> through the shipped
+/// <c>ParseSurfaceData</c> exactly as <see cref="global::Tf2DemoSalvage.Scene.GameContent"/>'s own <c>ReadSurfaces</c> replays it
+/// through the ported one, so both sides of the B369 differential resolve the same name against the same numbers.
 /// </para>
 /// </remarks>
 public sealed class VphysicsDropProbe : IProbe
@@ -76,6 +114,8 @@ public sealed class VphysicsDropProbe : IProbe
 
     private const int PhysicsCreateEnvironmentSlot = 5;
     private const int CollisionBBoxToCollideSlot = 29;
+    private const int CollisionVCollideLoadSlot = 36;
+    private const int CollisionVCollideUnloadSlot = 37;
     private const int SurfacePropsParseSurfaceDataSlot = 1;
     private const int SurfacePropsGetSurfaceIndexSlot = 3;
     private const int EnvironmentSetGravitySlot = 3;
@@ -93,6 +133,15 @@ public sealed class VphysicsDropProbe : IProbe
     private const int TotalTicks = 660;
     private const int PrintEveryTicks = 33;
     private const float Timestep = 1f / 66f;
+
+    /// <summary>Where the box scene drops from, and <c>phy</c> mode's own default when no <c>z</c> is given.</summary>
+    private const float DefaultDropHeight = 64f;
+
+    /// <summary><c>phyheader_t</c>'s size (<c>phyfile.h:14-21</c>) — <see cref="global::Tf2DemoSalvage.Content.Assets.PhysicsModel"/>'s own skip, and every published <c>VCollideLoad</c> caller's.</summary>
+    private const int PhyHeaderSize = 16;
+
+    /// <summary>The mass a solid's own <c>.phy</c> did not state — matched to <see cref="global::Tf2DemoSalvage.Content.Assets.PhysicsModel"/>'s "no mass key" reading of zero.</summary>
+    private const float FallbackMass = 10f;
 
     /// <summary>A minimal <c>surfaceproperties.txt</c>-shaped text defining exactly one surface, <c>default</c>.</summary>
     /// <remarks>
@@ -157,6 +206,19 @@ public sealed class VphysicsDropProbe : IProbe
         };
     }
 
+    /// <summary><c>vcollide_t</c>, <c>public/vcollide.h</c> — 24 bytes, the pointer fields 8-byte aligned exactly as the disassembly reads them.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct VCollide
+    {
+        /// <summary>Bits 0-14 are <c>solidCount</c>, bit 15 is <c>isPacked</c> — read together as the disassembly's <c>&amp; 0x7fff</c> does.</summary>
+        public ushort SolidCountAndPacked;
+        public ushort DescSize;
+        public nint Solids;
+        public nint KeyValues;
+
+        public readonly int SolidCount => SolidCountAndPacked & 0x7fff;
+    }
+
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint CreateInterfaceDelegate([MarshalAs(UnmanagedType.LPStr)] string name, out int returnCode);
 
@@ -165,6 +227,13 @@ public sealed class VphysicsDropProbe : IProbe
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint BBoxToCollideDelegate(nint collision, in Vec3 mins, in Vec3 maxs);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void VCollideLoadDelegate(
+        nint collision, nint output, int solidCount, nint buffer, int size, [MarshalAs(UnmanagedType.I1)] bool swap);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void VCollideUnloadDelegate(nint collision, nint vcollide);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int ParseSurfaceDataDelegate(
@@ -210,7 +279,8 @@ public sealed class VphysicsDropProbe : IProbe
     /// <inheritdoc />
     public string Summary =>
         "drives the shipped vphysics.dll through CreateInterface/IPhysics/IPhysicsCollision/IPhysicsSurfaceProps as the " +
-        "engine does, drops an 8x8x8 box on a static slab and prints its trajectory: vphysics-drop";
+        "engine does, drops an 8x8x8 box on a static slab and prints its trajectory: vphysics-drop " +
+        "| vphysics-drop phy <dynamicModel.mdl> <staticModel.mdl> [z]  -- the same rig, using each model's own .phy solid 0";
 
     /// <inheritdoc />
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -218,6 +288,18 @@ public sealed class VphysicsDropProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
+        if (arguments.Count > 0 && string.Equals(arguments[0], "phy", StringComparison.OrdinalIgnoreCase))
+        {
+            RunPhy(output, arguments);
+        }
+        else
+        {
+            RunBox(output);
+        }
+    }
+
+    private static void RunBox(TextWriter output)
+    {
         if (!VphysicsLibrary.TryLoad(output, out nint module))
         {
             return;
@@ -255,15 +337,7 @@ public sealed class VphysicsDropProbe : IProbe
         output.WriteLine($"IPhysicsEnvironment={environment:x}");
         output.Flush();
 
-        Vec3 gravity = new(0f, 0f, -800f);
-        VCall<SetGravityDelegate>(environment, EnvironmentSetGravitySlot)(environment, gravity);
-        VCall<GetGravityDelegate>(environment, EnvironmentGetGravitySlot)(environment, out Vec3 readGravity);
-        output.WriteLine($"control: GetGravity -> {readGravity} (set {gravity})");
-
-        VCall<SetSimulationTimestepDelegate>(environment, EnvironmentSetSimulationTimestepSlot)(environment, Timestep);
-        float readTimestep = VCall<GetSimulationTimestepDelegate>(environment, EnvironmentGetSimulationTimestepSlot)(environment);
-        output.WriteLine($"control: GetSimulationTimestep -> {readTimestep:F6} (set {Timestep:F6})");
-        output.Flush();
+        SetGravityAndTimestep(output, environment);
 
         nint staticCollide = VCall<BBoxToCollideDelegate>(collision, CollisionBBoxToCollideSlot)(
             collision, new Vec3(-500f, -500f, -10f), new Vec3(500f, 500f, 0f));
@@ -279,45 +353,321 @@ public sealed class VphysicsDropProbe : IProbe
             nint staticObject = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectStaticSlot)(
                 environment, staticCollide, materialIndex, new Vec3(0f, 0f, 0f), new Vec3(0f, 0f, 0f), ref staticParams);
 
-            VCall<GetPositionDelegate>(staticObject, ObjectGetPositionSlot)(staticObject, out Vec3 staticPosition, out _);
-            output.WriteLine($"control: static slab GetPosition -> {staticPosition} (expected (0.00, 0.00, 0.00))");
-
             ObjectParams dynamicParams = ObjectParams.Default(mass: 10.0f, dynamicName);
             nint dynamicObject = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectSlot)(
-                environment, dynamicCollide, materialIndex, new Vec3(0f, 0f, 64f), new Vec3(0f, 0f, 0f), ref dynamicParams);
+                environment, dynamicCollide, materialIndex, new Vec3(0f, 0f, DefaultDropHeight), new Vec3(0f, 0f, 0f), ref dynamicParams);
 
-            VCall<GetPositionDelegate>(dynamicObject, ObjectGetPositionSlot)(dynamicObject, out Vec3 dynamicPosition, out _);
-            output.WriteLine($"control: dropped box GetPosition -> {dynamicPosition} (expected (0.00, 0.00, 64.00))");
-            output.Flush();
-
-            VCall<EnableMotionDelegate>(dynamicObject, ObjectEnableMotionSlot)(dynamicObject, true);
-            VCall<WakeDelegate>(dynamicObject, ObjectWakeSlot)(dynamicObject);
-
-            SimulateDelegate simulate = VCall<SimulateDelegate>(environment, EnvironmentSimulateSlot);
-            GetPositionDelegate getPosition = VCall<GetPositionDelegate>(dynamicObject, ObjectGetPositionSlot);
-            GetVelocityDelegate getVelocity = VCall<GetVelocityDelegate>(dynamicObject, ObjectGetVelocitySlot);
-
-            for (int tick = 1; tick <= TotalTicks; tick++)
-            {
-                simulate(environment, Timestep);
-
-                if (tick % PrintEveryTicks != 0)
-                {
-                    continue;
-                }
-
-                getPosition(dynamicObject, out Vec3 position, out Vec3 angles);
-                getVelocity(dynamicObject, out Vec3 velocity, out Vec3 angularVelocity);
-                output.WriteLine(
-                    $"tick {tick,4} t={tick * Timestep,6:F3}  pos={position}  angles={angles}  vel={velocity}  spin={angularVelocity}");
-                output.Flush();
-            }
+            Drop(
+                output, environment, staticObject, dynamicObject,
+                "static slab", new Vec3(0f, 0f, 0f), "dropped box", new Vec3(0f, 0f, DefaultDropHeight));
         }
         finally
         {
             Marshal.FreeHGlobal(staticName);
             Marshal.FreeHGlobal(dynamicName);
         }
+    }
+
+    /// <summary>
+    /// The same rig as <see cref="RunBox"/>, but each object's collide is solid 0 of a real model's own <c>.phy</c>, read
+    /// through the game's own content path and loaded by the shipped <c>VCollideLoad</c> — never through this project's
+    /// own <see cref="global::Tf2DemoSalvage.Content.Assets.PhysicsModel"/> reader, so the two readings cannot agree by
+    /// sharing a bug.
+    /// </summary>
+    private static void RunPhy(TextWriter output, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count < 3)
+        {
+            output.WriteLine("vphysics-drop phy <dynamicModel.mdl> <staticModel.mdl> [z]");
+            return;
+        }
+
+        string dynamicModel = arguments[1];
+        string staticModel = arguments[2];
+        float z = arguments.Count > 3
+            ? float.Parse(arguments[3], NumberStyles.Float, CultureInfo.InvariantCulture)
+            : DefaultDropHeight;
+
+        if (!VphysicsLibrary.TryLoad(output, out nint module))
+        {
+            return;
+        }
+
+        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder)
+        {
+            output.WriteLine("The game is not installed.");
+            return;
+        }
+
+        nint createInterfaceExport = NativeLibrary.GetExport(module, "CreateInterface");
+        CreateInterfaceDelegate createInterface =
+            Marshal.GetDelegateForFunctionPointer<CreateInterfaceDelegate>(createInterfaceExport);
+
+        if (!TryCreate(output, createInterface, PhysicsVersion, out nint physics) ||
+            !TryCreate(output, createInterface, CollisionVersion, out nint collision) ||
+            !TryCreate(output, createInterface, SurfacePropsVersion, out nint surfaceProps))
+        {
+            return;
+        }
+
+        output.WriteLine(
+            $"IPhysics={physics:x} IPhysicsCollision={collision:x} IPhysicsSurfaceProps={surfaceProps:x}");
+        output.Flush();
+
+        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        int surfaceFiles = ParseRealSurfaces(game, surfaceProps);
+        output.WriteLine($"ParseSurfaceData -> {surfaceFiles} manifest file(s) parsed from scripts/surfaceproperties_manifest.txt");
+        output.Flush();
+
+        nint environment = VCall<CreateEnvironmentDelegate>(physics, PhysicsCreateEnvironmentSlot)(physics);
+        output.WriteLine($"IPhysicsEnvironment={environment:x}");
+        output.Flush();
+
+        SetGravityAndTimestep(output, environment);
+
+        LoadedPhy? staticPhy = LoadCollide(output, game, collision, surfaceProps, staticModel);
+        LoadedPhy? dynamicPhy = staticPhy is null ? null : LoadCollide(output, game, collision, surfaceProps, dynamicModel);
+
+        if (staticPhy is not { } staticLoaded || dynamicPhy is not { } dynamicLoaded)
+        {
+            if (staticPhy is { } toFree)
+            {
+                FreeCollide(collision, toFree);
+            }
+
+            return;
+        }
+
+        nint staticName = Marshal.StringToHGlobalAnsi(staticModel);
+        nint dynamicName = Marshal.StringToHGlobalAnsi(dynamicModel);
+
+        try
+        {
+            output.WriteLine(
+                $"static  '{staticModel}': solid 0 surfaceprop '{staticLoaded.SurfaceProp}' -> material {staticLoaded.MaterialIndex}, " +
+                $"mass {staticLoaded.Mass:F2}{(staticLoaded.MassFromFile ? string.Empty : " (fallback, .phy had none)")}");
+            output.WriteLine(
+                $"dynamic '{dynamicModel}': solid 0 surfaceprop '{dynamicLoaded.SurfaceProp}' -> material {dynamicLoaded.MaterialIndex}, " +
+                $"mass {dynamicLoaded.Mass:F2}{(dynamicLoaded.MassFromFile ? string.Empty : " (fallback, .phy had none)")}");
+            output.Flush();
+
+            ObjectParams staticParams = ObjectParams.Default(staticLoaded.Mass, staticName);
+            nint staticObject = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectStaticSlot)(
+                environment, staticLoaded.Collide, staticLoaded.MaterialIndex, new Vec3(0f, 0f, 0f), new Vec3(0f, 0f, 0f),
+                ref staticParams);
+
+            ObjectParams dynamicParams = ObjectParams.Default(dynamicLoaded.Mass, dynamicName);
+            nint dynamicObject = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectSlot)(
+                environment, dynamicLoaded.Collide, dynamicLoaded.MaterialIndex, new Vec3(0f, 0f, z), new Vec3(0f, 0f, 0f),
+                ref dynamicParams);
+
+            Drop(
+                output, environment, staticObject, dynamicObject,
+                staticModel, new Vec3(0f, 0f, 0f), dynamicModel, new Vec3(0f, 0f, z));
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(staticName);
+            Marshal.FreeHGlobal(dynamicName);
+            FreeCollide(collision, staticLoaded);
+            FreeCollide(collision, dynamicLoaded);
+        }
+    }
+
+    /// <summary>Sets gravity and the timestep, printing the control read-back of each — shared by both modes.</summary>
+    private static void SetGravityAndTimestep(TextWriter output, nint environment)
+    {
+        Vec3 gravity = new(0f, 0f, -800f);
+        VCall<SetGravityDelegate>(environment, EnvironmentSetGravitySlot)(environment, gravity);
+        VCall<GetGravityDelegate>(environment, EnvironmentGetGravitySlot)(environment, out Vec3 readGravity);
+        output.WriteLine($"control: GetGravity -> {readGravity} (set {gravity})");
+
+        VCall<SetSimulationTimestepDelegate>(environment, EnvironmentSetSimulationTimestepSlot)(environment, Timestep);
+        float readTimestep = VCall<GetSimulationTimestepDelegate>(environment, EnvironmentGetSimulationTimestepSlot)(environment);
+        output.WriteLine($"control: GetSimulationTimestep -> {readTimestep:F6} (set {Timestep:F6})");
+        output.Flush();
+    }
+
+    /// <summary>The creation-frame control read-backs, the wake, and the stepped trajectory — shared by both modes.</summary>
+    private static void Drop(
+        TextWriter output,
+        nint environment,
+        nint staticObject,
+        nint dynamicObject,
+        string staticLabel,
+        Vec3 staticExpected,
+        string dynamicLabel,
+        Vec3 dynamicExpected)
+    {
+        VCall<GetPositionDelegate>(staticObject, ObjectGetPositionSlot)(staticObject, out Vec3 staticPosition, out _);
+        output.WriteLine($"control: {staticLabel} GetPosition -> {staticPosition} (expected {staticExpected})");
+
+        VCall<GetPositionDelegate>(dynamicObject, ObjectGetPositionSlot)(dynamicObject, out Vec3 dynamicPosition, out _);
+        output.WriteLine($"control: {dynamicLabel} GetPosition -> {dynamicPosition} (expected {dynamicExpected})");
+        output.Flush();
+
+        VCall<EnableMotionDelegate>(dynamicObject, ObjectEnableMotionSlot)(dynamicObject, true);
+        VCall<WakeDelegate>(dynamicObject, ObjectWakeSlot)(dynamicObject);
+
+        SimulateDelegate simulate = VCall<SimulateDelegate>(environment, EnvironmentSimulateSlot);
+        GetPositionDelegate getPosition = VCall<GetPositionDelegate>(dynamicObject, ObjectGetPositionSlot);
+        GetVelocityDelegate getVelocity = VCall<GetVelocityDelegate>(dynamicObject, ObjectGetVelocitySlot);
+
+        for (int tick = 1; tick <= TotalTicks; tick++)
+        {
+            simulate(environment, Timestep);
+
+            if (tick % PrintEveryTicks != 0)
+            {
+                continue;
+            }
+
+            getPosition(dynamicObject, out Vec3 position, out Vec3 angles);
+            getVelocity(dynamicObject, out Vec3 velocity, out Vec3 angularVelocity);
+            output.WriteLine(
+                $"tick {tick,4} t={tick * Timestep,6:F3}  pos={position}  angles={angles}  vel={velocity}  spin={angularVelocity}");
+            output.Flush();
+        }
+    }
+
+    /// <summary>Replays the game's own surface-properties manifest through the shipped <c>ParseSurfaceData</c> — <c>GameContent.ReadSurfaces</c>'s route, for the DLL instead of the port.</summary>
+    /// <returns>How many manifest <c>file</c> entries were parsed.</returns>
+    private static int ParseRealSurfaces(GameContent game, nint surfaceProps)
+    {
+        const string Manifest = "scripts/surfaceproperties_manifest.txt";
+
+        if (game.Archives.Read(Manifest) is not { Length: > 0 } manifest)
+        {
+            return 0;
+        }
+
+        int files = 0;
+
+        KeyValuesReader.Read(manifest, (key, value, depth) =>
+        {
+            if (depth != 1 || value is null || !string.Equals(key, "file", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (game.Archives.Read(value) is { } text)
+            {
+                VCall<ParseSurfaceDataDelegate>(surfaceProps, SurfacePropsParseSurfaceDataSlot)(
+                    surfaceProps, value, System.Text.Encoding.Latin1.GetString(text));
+                files++;
+            }
+
+            return true;
+        });
+
+        return files;
+    }
+
+    /// <summary>One model's solid 0, loaded by the shipped <c>VCollideLoad</c> and resolved to a material — <c>phy</c> mode's per-model state.</summary>
+    /// <param name="Collide">Solid 0's <c>CPhysCollide*</c>, ready for <c>CreatePolyObject(Static)</c>.</param>
+    /// <param name="VCollide">The unmanaged <c>vcollide_t</c> this solid's collide lives in — kept to free with <see cref="FreeCollide"/>.</param>
+    /// <param name="MaterialIndex">The resolved surface index — the solid's own name, else <c>default</c>.</param>
+    /// <param name="Mass">The solid's own mass, or <see cref="FallbackMass"/> when the <c>.phy</c> named none.</param>
+    /// <param name="MassFromFile">Whether <see cref="Mass"/> came from the file rather than the fallback.</param>
+    /// <param name="SurfaceProp">The name actually resolved against, for the printed line.</param>
+    private sealed record LoadedPhy(nint Collide, nint VCollide, int MaterialIndex, float Mass, bool MassFromFile, string SurfaceProp);
+
+    /// <summary>Reads a model's <c>.phy</c>, loads it through the shipped <c>VCollideLoad</c>, and resolves solid 0's material.</summary>
+    private static LoadedPhy? LoadCollide(TextWriter output, GameContent game, nint collision, nint surfaceProps, string model)
+    {
+        string physicsPath = Path.ChangeExtension(model, ".phy");
+
+        if (game.Archives.Read(model) is null)
+        {
+            output.WriteLine($"{model}: not in the game's content");
+            return null;
+        }
+
+        if (game.Archives.Read(physicsPath) is not { } bytes)
+        {
+            output.WriteLine($"{physicsPath}: not in the game's content");
+            return null;
+        }
+
+        PhysicsModel parsed;
+
+        try
+        {
+            parsed = PhysicsModel.Read(bytes);
+        }
+        catch (InvalidDataException failure)
+        {
+            output.WriteLine($"{physicsPath}: {failure.Message}");
+            return null;
+        }
+
+        if (parsed.Solids.Count == 0)
+        {
+            output.WriteLine($"{physicsPath}: no solids");
+            return null;
+        }
+
+        PhysicsSolid solid = parsed.Solids[0];
+        bool massFromFile = solid.Mass > 0f;
+        float mass = massFromFile ? solid.Mass : FallbackMass;
+
+        string surfaceProp = string.IsNullOrEmpty(solid.SurfaceProperty) ? "default" : solid.SurfaceProperty;
+        int materialIndex = VCall<GetSurfaceIndexDelegate>(surfaceProps, SurfacePropsGetSurfaceIndexSlot)(surfaceProps, surfaceProp);
+
+        if (materialIndex < 0)
+        {
+            surfaceProp = "default";
+            materialIndex = VCall<GetSurfaceIndexDelegate>(surfaceProps, SurfacePropsGetSurfaceIndexSlot)(surfaceProps, surfaceProp);
+        }
+
+        nint vcollide = Marshal.AllocHGlobal(Marshal.SizeOf<VCollide>());
+
+        // VCollideLoad zeroes its own output, but a probe that crashes before the call should not free garbage.
+        Marshal.StructureToPtr(default(VCollide), vcollide, false);
+
+        nint buffer = Marshal.AllocHGlobal(bytes.Length - PhyHeaderSize);
+        Marshal.Copy(bytes, PhyHeaderSize, buffer, bytes.Length - PhyHeaderSize);
+
+        try
+        {
+            VCall<VCollideLoadDelegate>(collision, CollisionVCollideLoadSlot)(
+                collision, vcollide, parsed.DeclaredSolidCount, buffer, bytes.Length - PhyHeaderSize, false);
+        }
+        finally
+        {
+            // FUN_18000bcf0 memcpy's each solid's own bytes into a fresh allocation before returning, so the buffer
+            // handed to VCollideLoad does not need to outlive the call (docs/findings, this file's own remarks).
+            Marshal.FreeHGlobal(buffer);
+        }
+
+        VCollide loaded = Marshal.PtrToStructure<VCollide>(vcollide);
+
+        if (loaded.SolidCount == 0 || loaded.Solids == 0)
+        {
+            output.WriteLine($"{physicsPath}: VCollideLoad produced no solids");
+            VCall<VCollideUnloadDelegate>(collision, CollisionVCollideUnloadSlot)(collision, vcollide);
+            Marshal.FreeHGlobal(vcollide);
+            return null;
+        }
+
+        nint solidZero = Marshal.ReadIntPtr(loaded.Solids, 0);
+
+        if (solidZero == 0)
+        {
+            output.WriteLine($"{physicsPath}: solid 0 did not load (see 'Corrupt physics model' above, or a MOPP/unknown tag)");
+            VCall<VCollideUnloadDelegate>(collision, CollisionVCollideUnloadSlot)(collision, vcollide);
+            Marshal.FreeHGlobal(vcollide);
+            return null;
+        }
+
+        return new LoadedPhy(solidZero, vcollide, materialIndex, mass, massFromFile, surfaceProp);
+    }
+
+    /// <summary>Frees what <see cref="LoadCollide"/> allocated — <c>VCollideUnload</c>, verified to exist at slot 37, then the block itself.</summary>
+    private static void FreeCollide(nint collision, LoadedPhy loaded)
+    {
+        VCall<VCollideUnloadDelegate>(collision, CollisionVCollideUnloadSlot)(collision, loaded.VCollide);
+        Marshal.FreeHGlobal(loaded.VCollide);
     }
 
     private static bool TryCreate(TextWriter output, CreateInterfaceDelegate createInterface, string version, out nint result)
