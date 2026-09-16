@@ -129,6 +129,21 @@ models/player/medic.mdl: 24 bodies, 23 joints, 92 bones, 9 gibs
 solid, 1 hull**, builds no ragdoll body and does build a prop body — its solid is
 `medicgib001_reference` against a single bone named `polymsh`.
 
+### The ported engine step agrees with the invented environment, to the bit
+
+**2026-09-16**, `… -- ivp-step-compare 6`, one body at `1/66 s` with gravity `−600`, three cases: a free fall, a fall with TF2's
+own damping (`0.1` linear, `4` rotational), and the same spinning at `(3, 0, 1)`.
+
+**Every step of all three agrees exactly** — position, velocity and the visible orientation, `dz`, `dvz` and `d|orientation|` all
+zero after six steps. The control is in the same table: the ported body's `qx` climbs `0.021 → 0.041 → 0.060`, so the bodies are
+really turning rather than both sitting still.
+
+**What that settles, and it narrows B369 usefully**: `IvpEnvironment.Simulate()`'s per-body STEP was never the divergence. What
+differs is everything around it — the self-rescheduling PSI event, the unit list and its sleep, the controller priorities, the
+impact loop and the contact bookkeeping — which is what `IvpSimulation` now carries (`docs/HANDOFF.md`, item 3).
+
+*It does not compare a collision*: neither side collides in this probe, because the new simulation has no narrow phase wired in.
+
 ### Deaths on the reference demo
 
 **2026-09-09**, `… -- corpses z1800`: **407** `CTFRagdoll` entities, **231 gibbed**, 37 burning,
