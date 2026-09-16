@@ -4,6 +4,7 @@ using System.Numerics;
 
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Probe.Oracle;
 
 namespace Tf2DemoSalvage.Animation.Tests;
@@ -220,6 +221,64 @@ public sealed class IvpSimulationBroadPhaseTests
     }
 
     /// <remarks>
+    /// **A displacement is a static object over the virtual-mesh manager** (<c>PhysCreateVirtualTerrain</c>): its hull ledge is the
+    /// root, every face virtual, opened into the triangles near the body. A 2000-inch power-2 basin — the border ring raised 100
+    /// inches, the middle flat at Source z 0 — puts IVP's y 0 plane under x and z 12.7..38.1; a cube of half 4 dropped along IVP +Y,
+    /// Source −Z, comes to rest in the middle with its centre at y −4.
+    /// </remarks>
+    [Test]
+    public void Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt()
+    {
+        IvpSimulation simulation = new(Environment(), (0f, 10f, 0f), () => 0f);
+        IvpRigidBody body = Body((25.4d, -10d, 25.4d));
+        IvpRigidBody ground = Body((0d, 0d, 0d));
+        ground.Immovable = true;
+        ground.InverseMass = 0f;
+        ground.InverseInertia = (0f, 0f, 0f);
+
+        (Vector3, float)[] field = new (Vector3, float)[25];
+
+        for (int index = 0; index < 25; index++)
+        {
+            if (index / 5 is 0 or 4 || index % 5 is 0 or 4)
+            {
+                field[index] = (Vector3.UnitZ, 100f);
+            }
+        }
+
+        DisplacementCollisionTree tree = DisplacementCollisionTree.Build(
+            [Vector3.Zero, new Vector3(0f, 2000f, 0f), new Vector3(2000f, 2000f, 0f), new Vector3(2000f, 0f, 0f)], 2, field);
+
+        // The convex hull: the raised corners 0, 4, 24, 20 over the flat middle's corners 6, 8, 18, 16, each face wound outward.
+        byte[] hull = HullBlob(
+            tree.Vertices,
+            [
+                (0, 4, 24), (0, 24, 20),
+                (6, 16, 18), (6, 18, 8),
+                (0, 6, 8), (0, 8, 4),
+                (4, 8, 18), (4, 18, 24),
+                (24, 18, 16), (24, 16, 20),
+                (20, 16, 6), (20, 6, 0),
+            ]);
+
+        simulation.Add(body);
+        simulation.Collide(body, Material);
+        IvpVirtualMeshSurfaceManager manager = new(PhysicsVirtualMesh.Build(tree.Vertices, tree.Triangles, hull), tree);
+        simulation.Collide(ground, manager, Material);
+        simulation.Start();
+
+        for (double at = 0.02d; at <= 3d; at += 0.01d)
+        {
+            simulation.Advance(at);
+        }
+
+        body.Position.Y.ShouldBe(
+            -4d,
+            0.5d,
+            $"the middle is at y 0 and the cube's half is 4; impacts {simulation.Environment.Impacts}, last hull pass {simulation.LastHullPass}");
+    }
+
+    /// <remarks>
     /// **The work the normal pushes did is paid back as damping** (<c>FUN_180088ae0</c> banks it per pair, <c>FUN_180086b40</c>
     /// takes it out of the pair's relative motion). A cube resting on two contacts with the bank unported crept up at 0.012 a
     /// second on a constant push.
@@ -246,6 +305,47 @@ public sealed class IvpSimulationBroadPhaseTests
 
         System.Math.Abs(body.Velocity.Z).ShouldBeLessThan(1e-3f, $"at {body.Position.Z}");
     }
+
+    /// <summary>
+    /// A <c>LUMP_PHYSDISP</c> blob of one hull over a displacement's vertices, every face and edge virtual: edges numbered as first
+    /// met, each triangle's pierce the face turned most against it.
+    /// </summary>
+    private static byte[] HullBlob(IReadOnlyList<Vector3> vertices, (int A, int B, int C)[] triangles)
+    {
+        List<(int From, int To)> edges = [];
+        List<byte> body = [];
+
+        foreach ((int a, int b, int c) in triangles)
+        {
+            foreach ((int from, int to) in ((int, int)[])[(a, b), (b, c), (c, a)])
+            {
+                int id = edges.FindIndex(edge => edge == (to, from));
+
+                if (id < 0)
+                {
+                    id = edges.Count;
+                    edges.Add((from, to));
+                }
+
+                body.Add((byte)id);
+            }
+
+            Vector3 normal = Normal(vertices, (a, b, c));
+            int pierce = Enumerable.Range(0, triangles.Length).MinBy(other => Vector3.Dot(Normal(vertices, triangles[other]), normal));
+            body.Add((byte)pierce);
+        }
+
+        foreach ((int from, int to) in edges)
+        {
+            body.Add((byte)from);
+            body.Add((byte)to);
+        }
+
+        return [1, 0, 0, 0, (byte)triangles.Length, (byte)triangles.Length, (byte)edges.Count, (byte)edges.Count, 0, .. body];
+    }
+
+    private static Vector3 Normal(IReadOnlyList<Vector3> vertices, (int A, int B, int C) triangle) =>
+        Vector3.Normalize(Vector3.Cross(vertices[triangle.B] - vertices[triangle.A], vertices[triangle.C] - vertices[triangle.A]));
 
     /// <summary>Two cubes of half four, faces one apart, the first driven at the second at 6 — advanced in 0.01 slices.</summary>
     private static (IvpSimulation, IvpRigidBody Moving, IvpRigidBody Still, IvpCollisionObject MovingObject) DrivenTogether(double until)

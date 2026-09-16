@@ -58,6 +58,10 @@ public sealed class IvpSimulation
             // when either core asks for it. **Without this the pair creation makes a mindist nothing ever looks at.**
             BecomeExact = BecomeExact,
 
+            // `FUN_180097570` into `FUN_180097f00`: what a larger mindist files its records with when it opens a hull ledge. **Without
+            // it a compound surface — a displacement's hull, a brush tree's inner node — cannot open.**
+            HullPassed = HullPassed,
+
             // vphysics has no phantom objects in a demo's ragdolls; a pair with one would need `FUN_180097940`, unported.
             BecomePhantom = mindist => throw new NotSupportedException(
                 "A phantom object's pair needs FUN_180097940, which is not ported; nothing in this project creates one."),
@@ -145,11 +149,43 @@ public sealed class IvpSimulation
             core.Offset08 = (float)((double)(surface.Deviation * 0.004f * surface.Radius) + distance);
         }
 
+        return File(core, new IvpPolygonSurfaceManager(surface), material);
+    }
+
+    /// <summary>Gives a static core a collision object over a displacement's virtual mesh — <c>PhysCreateVirtualTerrain</c>.</summary>
+    /// <param name="core">The core.</param>
+    /// <param name="mesh">The virtual-mesh manager.</param>
+    /// <param name="material">The object's material, <c>default</c> for terrain.</param>
+    /// <returns>The object.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// `FUN_180078b90` through the mesh manager's slots 1 and 2: the radius and the deviation are both the mesh's radius
+    /// (`FUN_180026330`), each widened past the mesh centre's distance from the core, as for a polygon surface.
+    /// </remarks>
+    public IvpCollisionObject Collide(IvpRigidBody core, IvpVirtualMeshSurfaceManager mesh, IIvpMaterial material)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+        ArgumentNullException.ThrowIfNull(mesh);
+        ArgumentNullException.ThrowIfNull(material);
+
+        (float X, float Y, float Z) center = mesh.MassCenter;
+        (float X, float Y, float Z) offset = core.ObjectOffset;
+        double distance = IvpVector.Length((center.X + offset.X, center.Y + offset.Y, center.Z + offset.Z));
+        float radius = mesh.Radius;
+
+        core.Radius = (float)((double)radius + distance);
+        core.Offset08 = (float)((double)radius + distance);
+
+        return File(core, mesh, material);
+    }
+
+    private IvpCollisionObject File(IvpRigidBody core, IIvpSurfaceManager surface, IIvpMaterial material)
+    {
         IvpCollisionObject collisionObject = new()
         {
             Core = core,
             Environment = Collisions,
-            Surface = new IvpPolygonSurfaceManager(surface),
+            Surface = surface,
             MovementState = 1,
             Material = material,
 
@@ -593,6 +629,12 @@ public sealed class IvpSimulation
             MarginDecayCounter = _marginDecay,
         };
 
+        // **Synapse A's side is ITS record's**, which is record 1 when the flags' bit 8 says so. *This passed record 0's side for synapse A
+        // always*; two cubes of twelve triangles each could not tell, and a two-triangle virtual ledge indexed past its end.
+        bool recordOneIsA = mindist.SynapseA != 0;
+        IvpSearchSide sideA = recordOneIsA ? Searchable(second, secondCore) : Searchable(first, firstCore);
+        IvpSearchSide sideB = recordOneIsA ? Searchable(first, firstCore) : Searchable(second, secondCore);
+
         LastOutcome = IvpPairScheduler.Examine(
             mindist,
             Scheduled(firstCore),
@@ -604,9 +646,9 @@ public sealed class IvpSimulation
                 context,
                 state,
                 mindist.Synapse(mindist.SynapseA),
-                Searchable(first, firstCore),
+                sideA,
                 mindist.Synapse(mindist.SynapseA ^ 1),
-                Searchable(second, secondCore)));
+                sideB));
 
         _marginDecay = scheduler.MarginDecayCounter;
     }
@@ -658,8 +700,20 @@ public sealed class IvpSimulation
                 FirstBounds = IvpRangeManager.Bounds(firstCore),
                 SecondBounds = IvpRangeManager.Bounds(secondCore),
                 HandOff = BecomeExact,
-                Recheck = pair => Examine(pair, IvpRecheck.AfterMiss),
+
+                // `FUN_180095ad0`, the minimize with no step budget, which a larger mindist runs first when its hull passes.
+                // *This was a scheduler examine*, which unlinks the pair from an exact list a larger mindist is never on.
+                Recheck = MinimizeWithoutBudget,
             });
+    }
+
+    /// <summary>The minimize with no step budget — <c>FUN_180095ad0</c>.</summary>
+    private void MinimizeWithoutBudget(IvpMindist mindist)
+    {
+        (IvpLedgeSide first, IvpLedgeSide second) = SidesOf(mindist);
+
+        _ = IvpMindistMinimize.Minimize(mindist, first, second, _timeCode, budget: 0);
+        LastLength = mindist.Length;
     }
 
     /// <summary>What the last hull pass did with a filed pair — an instrument, not a field the engine keeps.</summary>
