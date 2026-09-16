@@ -4274,6 +4274,16 @@ double. *`Math.Pow(0.9, 1/66)` was the first oracle and it was wrong by 4e-10*; 
 
 *Not carried*: `FUN_1800836b0`'s share of `pair+0x30` — what each tangential solve returns against `cp+0x84`.
 
+**A tenth and eleventh, on a surface of many ledges** (2026-09-16), with a compact surface written byte for byte in the test
+and read through `PhysicsHull.Tree`: two boxes, a cube dropped over the higher. **Every side stood on the core's first ledge**,
+where the pair creation names each record's ledge (`FUN_1800975d0`, `IvpMindist.Ledge`) and the contact's edges lie in those
+ledges — so the sides now take the record's ledge, and a contact carries both. **And a static core had whatever radius its
+caller gave it**, where `core+0x4` is the surface's: `FUN_180078b90` through `18007aeb0` reads `surface+0x18`, widened past the
+mass centre's distance (and `+0x8` the deviation byte · `0.004f` · radius, widened the same way). The broad phase files a node by
+that radius, so a world core with a cube's radius was only ever found near its origin — *the earlier slab test passed only
+because its cube fell near the origin*. `PhysicsLedgeTree` now carries the header's mass centre, radius and deviation.
+*Which centre the distance is measured from is INFERRED*: the core's, at minus the object's offset.
+
 #### The friction controller at priority 600, and the clamp's own weights — `FUN_1800836b0` and `FUN_180083970` (2026-09-15)
 
 **Read from the decompiler**, and it settles two things this project had recorded differently:

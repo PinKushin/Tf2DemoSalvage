@@ -621,7 +621,11 @@ public sealed class IvpRigidBody
     public IvpMatrix CoreMatrix { get; set; } = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d));
 
     /// <summary>The float at <c>core+0x8</c>, which the anomaly check reads beside <see cref="HasOffset58"/>.</summary>
-    /// <remarks>*Named by its offset because nothing read so far says what it is; no ragdoll element sets it.*</remarks>
+    /// <remarks>
+    /// Written once by <c>FUN_180078b90</c>: the surface's deviation, <c>(float)((double)(byte·0.004f·radius) + dist)</c> — see
+    /// <see cref="IvpSimulation.Collide(IvpRigidBody, Content.Assets.PhysicsLedgeTree, IIvpMaterial)"/>. *Still named by its
+    /// offset: what the anomaly check means by it is not read.*
+    /// </remarks>
     public float Offset08 { get; set; }
 
     /// <summary>The core's radius — the float at <c>core+0x4</c>, which the push-out estimate turns a spin into a distance with.</summary>

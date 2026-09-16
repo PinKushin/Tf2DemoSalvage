@@ -186,6 +186,40 @@ public sealed class IvpSimulationBroadPhaseTests
     }
 
     /// <remarks>
+    /// **A static surface of many ledges measures each pair on its own ledge.** A map's collide is one surface over many convexes;
+    /// the pair creation names which ledge each synapse stands on (<c>FUN_1800975d0</c>), and a side stood on the object's first
+    /// ledge would measure a cube over the higher step against the lower one.
+    /// </remarks>
+    [Test]
+    public void Advance_ABodyDroppedOnTheHigherOfTwoLedges_RestsOnThatLedge()
+    {
+        IvpSimulation simulation = new(Environment(), (0f, 0f, -10f), () => 0f);
+        IvpRigidBody body = Body((20d, 1d, 14d));
+        IvpRigidBody world = Body((0d, 0d, 0d));
+        world.Immovable = true;
+        world.InverseMass = 0f;
+        world.InverseInertia = (0f, 0f, 0f);
+        PhysicsLedgeTree surface = IvpTestSurface.Boxes(
+            (new Vector3(-20f, 0f, 0f), new Vector3(20f, 40f, 1f)),
+            (new Vector3(20f, 0f, 2f), new Vector3(20f, 40f, 1f)));
+
+        // The core's own ledge list names the LOWER ledge, so a side that ignored the synapse's ledge would measure the wrong step.
+        PhysicsLedge lower = surface.Root.Left?.Ledge ?? throw new System.InvalidOperationException("The surface has no lower ledge.");
+        world.Ledges = [lower];
+        simulation.Add(body);
+        simulation.Collide(body, Material);
+        simulation.Collide(world, surface, Material);
+        simulation.Start();
+
+        for (double at = 0.02d; at <= 3d; at += 0.01d)
+        {
+            simulation.Advance(at);
+        }
+
+        body.Position.Z.ShouldBe(7d, 0.5d, "the higher ledge's top is at 3 and the cube's half is 4");
+    }
+
+    /// <remarks>
     /// **The work the normal pushes did is paid back as damping** (<c>FUN_180088ae0</c> banks it per pair, <c>FUN_180086b40</c>
     /// takes it out of the pair's relative motion). A cube resting on two contacts with the bank unported crept up at 0.012 a
     /// second on a constant push.

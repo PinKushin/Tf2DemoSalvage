@@ -1,5 +1,7 @@
 using System;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>
@@ -73,6 +75,8 @@ public sealed class IvpContactPoint
         Second = mindist.Synapse(second);
         FirstObject = first == 0 ? recordZeroObject : recordOneObject;
         SecondObject = second == 0 ? recordZeroObject : recordOneObject;
+        FirstLedge = mindist.Ledge(first)?.Ledge;
+        SecondLedge = mindist.Ledge(second)?.Ledge;
         _firstTopology = (first == 0 ? recordZeroSide : recordOneSide).Topology;
         _secondTopology = (second == 0 ? recordZeroSide : recordOneSide).Topology;
 
@@ -100,6 +104,13 @@ public sealed class IvpContactPoint
 
     /// <summary>The object <see cref="Second"/> belongs to — <c>+0x48</c>.</summary>
     public IvpCollisionObject SecondObject { get; }
+
+    /// <summary>The ledge <see cref="First"/>'s edge lies in — named by the mindist it was made from; null for a pair of features alone.</summary>
+    /// <remarks>The engine's friction synapse holds the edge's address, which lies inside its ledge; this carries the ledge beside it.</remarks>
+    public PhysicsLedge? FirstLedge { get; }
+
+    /// <summary>The ledge <see cref="Second"/>'s edge lies in.</summary>
+    public PhysicsLedge? SecondLedge { get; }
 
     /// <summary>The record the last measure built — <c>+0x70</c>; null before the first.</summary>
     public IvpContactRecord? Record { get; internal set; }

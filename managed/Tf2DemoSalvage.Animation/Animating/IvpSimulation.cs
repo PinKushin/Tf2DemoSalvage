@@ -103,18 +103,51 @@ public sealed class IvpSimulation
     public IvpCollisionObject Collide(IvpRigidBody core, IIvpMaterial material)
     {
         ArgumentNullException.ThrowIfNull(core);
-        ArgumentNullException.ThrowIfNull(material);
 
         if (core.Ledges.Count == 0)
         {
             throw new InvalidOperationException("A body with no ledge has no surface for the broad phase to query.");
         }
 
+        return Collide(core, PhysicsLedgeTree.ForLedge(core.Ledges[0]), material);
+    }
+
+    /// <summary>Gives a body a collision object over a whole surface — a map's collide, whose tree holds many ledges.</summary>
+    /// <param name="core">The core.</param>
+    /// <param name="surface">The surface's ledge tree, as <see cref="PhysicsHull.Tree"/> reads it.</param>
+    /// <param name="material">The object's own material, <c>object+0xd0</c>.</param>
+    /// <returns>The object.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// *<see cref="IvpCollisionObject.MovementState"/> is 1 for a static object too*: what vphysics writes for one is not read, and
+    /// a clear low three bits would give it the whole of a far pair's allowance where the moving side should take it.
+    /// </remarks>
+    public IvpCollisionObject Collide(IvpRigidBody core, PhysicsLedgeTree surface, IIvpMaterial material)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(material);
+
+        // `FUN_180078b90` through the surface manager's slot `+0x10` (`18007aeb0`): the core's radius and deviation from the
+        // surface's own header, each widened past the mass centre's distance from the core. *Which centre `dist` measures from is
+        // INFERRED* — the core's, which sits at minus the object's offset in the object's frame; for a body whose object is placed
+        // at its mass centre that distance is zero. The object's extra radius (`+0xe0`) is zero here.
+        (float X, float Y, float Z) offset = core.ObjectOffset;
+        double distance = IvpVector.Length(
+            (surface.MassCenter.X + offset.X, surface.MassCenter.Y + offset.Y, surface.MassCenter.Z + offset.Z));
+
+        // *A tree built for one ledge (`PhysicsLedgeTree.ForLedge`) has no surface header*, so it keeps the radius its body was given.
+        if (surface.Radius > 0f)
+        {
+            core.Radius = (float)((double)surface.Radius + distance);
+            core.Offset08 = (float)((double)(surface.Deviation * 0.004f * surface.Radius) + distance);
+        }
+
         IvpCollisionObject collisionObject = new()
         {
             Core = core,
             Environment = Collisions,
-            Surface = new IvpPolygonSurfaceManager(PhysicsLedgeTree.ForLedge(core.Ledges[0])),
+            Surface = new IvpPolygonSurfaceManager(surface),
             MovementState = 1,
             Material = material,
 
@@ -459,36 +492,38 @@ public sealed class IvpSimulation
     /// <remarks>
     /// **Each side stands on its object's cache** (<see cref="IvpCollisionObject.CacheFor"/>), refreshed once per time code at the
     /// clock's own time — so a pair event between two PSIs measures the bodies where they are at the event. *The core's
-    /// PSI-start matrix stood in for it and measured every pair event a PSI late.* A body with more than one ledge takes its
-    /// first: the ledge tree walk that would pick the right one is not carried here.
+    /// PSI-start matrix stood in for it and measured every pair event a PSI late.* **Each stands on its record's own ledge**, the one
+    /// the pair creation named (<see cref="IvpMindist.Ledge"/>); a surface of many ledges measured on its first was a different body.
     /// </remarks>
     public (IvpLedgeSide First, IvpLedgeSide Second) SidesOf(IvpMindist mindist)
     {
         ArgumentNullException.ThrowIfNull(mindist);
 
-        return (SideOf(mindist.HullRecord(0)), SideOf(mindist.HullRecord(1)));
+        return (SideOf(mindist, 0), SideOf(mindist, 1));
     }
 
-    /// <summary>A contact's two sides in its own order, synapse A first — what the record build reaches through its objects.</summary>
+    /// <summary>A contact's two sides in its own order, synapse A first, each on its own ledge.</summary>
     private (IvpLedgeSide First, IvpLedgeSide Second) ContactSides(IvpContactPoint contact) =>
-        (SideOf(contact.FirstObject), SideOf(contact.SecondObject));
+        (SideOf(contact.FirstObject, contact.FirstLedge), SideOf(contact.SecondObject, contact.SecondLedge));
 
-    private IvpLedgeSide SideOf(IvpMindistHullRecord record) =>
-        SideOf(record.CollisionObject ?? throw new InvalidOperationException("A synapse record was never linked to an object."));
+    private IvpLedgeSide SideOf(IvpMindist mindist, int record) =>
+        SideOf(
+            mindist.HullRecord(record).CollisionObject ?? throw new InvalidOperationException("A synapse record was never linked to an object."),
+            mindist.Ledge(record)?.Ledge);
 
-    private IvpLedgeSide SideOf(IvpCollisionObject collisionObject)
+    /// <summary>A side on the ledge its synapse stands on — the one the pair creation named, else the core's own first.</summary>
+    /// <remarks>*A mindist made from features alone (a test's hand-built pair) names no ledge, and takes the core's first.*</remarks>
+    private IvpLedgeSide SideOf(IvpCollisionObject collisionObject, PhysicsLedge? ledge)
     {
         IvpRigidBody core = collisionObject.Core
             ?? throw new InvalidOperationException("A watched object has no core.");
 
-        if (core.Ledges.Count == 0)
-        {
-            throw new InvalidOperationException("A watched object's core has no ledge to stand a synapse on.");
-        }
+        PhysicsLedge standing = ledge
+            ?? (core.Ledges.Count > 0 ? core.Ledges[0] : throw new InvalidOperationException("A watched object's core has no ledge to stand a synapse on."));
 
         IvpObjectCache cache = collisionObject.CacheFor(Collisions);
 
-        return IvpLedgeSide.FromLedge(core.Ledges[0], cache.Matrix, cache.CorePosition);
+        return IvpLedgeSide.FromLedge(standing, cache.Matrix, cache.CorePosition);
     }
 
     /// <summary>The minimize the pipeline's two mindist walks take — <c>FUN_180095cb0</c>.</summary>

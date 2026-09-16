@@ -22,6 +22,15 @@ public sealed class PhysicsLedgeTree
     /// <summary>The root, at <c>surface + surface+0x20</c>.</summary>
     public PhysicsLedgeTreeNode Root { get; }
 
+    /// <summary>The surface's mass centre, <c>surface+0x0</c>; zero for a tree not read from a surface.</summary>
+    public Vector3 MassCenter { get; init; }
+
+    /// <summary>The surface's radius, <c>surface+0x18</c>, which a core's radius is taken from (<c>18007aeb0</c>).</summary>
+    public float Radius { get; init; }
+
+    /// <summary>The byte at <c>surface+0x1C</c>: the surface's deviation, in 250ths of <see cref="Radius"/>.</summary>
+    public byte Deviation { get; init; }
+
     /// <summary>A tree of one terminal node, for a solid whose whole hull is a single ledge.</summary>
     /// <param name="ledge">The ledge.</param>
     /// <returns>The tree, which a surface manager can be built over.</returns>

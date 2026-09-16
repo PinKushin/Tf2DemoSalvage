@@ -160,6 +160,12 @@ public static class PhysicsHull
     /// <summary>Offset within the surface of the ledge tree's root offset.</summary>
     private const int LedgeTreeOffset = 0x20;
 
+    /// <summary>The surface's radius, <c>+0x18</c> — what <c>18007aeb0</c> reads a core's radius from.</summary>
+    private const int SurfaceRadiusOffset = 0x18;
+
+    /// <summary>The surface's deviation byte, <c>+0x1C</c>, scaled by <c>0.004f</c> and the radius.</summary>
+    private const int SurfaceDeviationOffset = 0x1C;
+
     /// <summary>Offset within the surface of the format magic.</summary>
     private const int MagicOffset = 0x2C;
 
@@ -342,7 +348,12 @@ public static class PhysicsHull
             }
         }
 
-        return new PhysicsLedgeTree(root, nodes);
+        return new PhysicsLedgeTree(root, nodes)
+        {
+            MassCenter = Triple(surface, MassCenterOffset),
+            Radius = BitConverter.ToSingle(surface[SurfaceRadiusOffset..]),
+            Deviation = surface[SurfaceDeviationOffset],
+        };
     }
 
     /// <summary>One node of <see cref="Tree"/> and everything beneath it, or null when any of it lies outside the bytes.</summary>
