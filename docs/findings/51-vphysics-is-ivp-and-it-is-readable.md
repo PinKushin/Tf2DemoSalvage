@@ -4240,10 +4240,18 @@ FUN_180088930(core) → FUN_180078c90:  FUN_180078bd0 — +0x1 = 8;  velocity, s
 
 `IvpSimulation.Add` now makes the unit asleep and wakes it, which is vphysics' own order for a body not created asleep.
 
-**Where it stands**: the impact fires once, one friction system holds the contact, the two bodies share a unit, and momentum is
-conserved (0.795 of 6 passed across a corner contact with a solid cube's inertia). **What is still wrong is after the impact**:
-the pair's minimize reads penetration, the pair leaves the exact list, and the normal push of the friction system's lone contact
-stays zero — so the bodies still sink into each other at 5.2. That is the next thing to read.
+**Then a seventh, which the fixture had been hiding.** The collision built the contact's record with the mindist's record-0 side
+first, where `FUN_18008d0c0(cp, env)` builds it from the contact's own objects, synapse A first. The two agree only while A is
+record 0. With the cubes exactly aligned it was, and they met corner to corner — a point–point contact at zero distance, whose
+normal has no direction — so the impact spent itself on spin (0.795 of 6 passed across), the pair went invalid, and they sank
+through each other. Offsetting one cube put a corner inside the other's face, synapse A on record 1, and the wrong order showed:
+`Advance_TwoBodiesDrivenTogether_DoNotPassThroughEachOther` is red with record-0 order and green with the contact's.
+
+*What the aligned case would do in the engine is not established*: the minimize port is read from the disassembly, so it very
+likely ends point–point there too, but nothing has measured the binary on it.
+
+**Where it stands**: two bodies driven together collide repeatedly (five impacts in 0.2 s), share one friction system and one
+unit, conserve momentum, and do not pass through each other.
 
 #### The friction controller at priority 600, and the clamp's own weights — `FUN_1800836b0` and `FUN_180083970` (2026-09-15)
 

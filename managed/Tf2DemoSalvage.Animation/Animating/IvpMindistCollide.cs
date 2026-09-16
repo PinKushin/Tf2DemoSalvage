@@ -35,9 +35,8 @@ public static class IvpMindistCollide
     /// FUN_18008ed60(record, cores, FUN_18008fca0(cp), cp)
     /// v = record+0x30, negated when B's core has flags &amp; 2;  FUN_180090700(block, mindist, system, pair, cp);  record+0x30 = v
     /// </code>
-    /// *Not carried*: `FUN_180074360` on each object (state 8), the deferral count at `env+0xf8`, and the listeners. **Because
-    /// the wake is not carried, a core at state 8 cannot collide here yet** — the engine wakes its unit first — so the `&lt; 8`
-    /// bound has no reachable input until that lands.
+    /// *Not carried here*: `FUN_180074360` on each object (state 8) — the caller wakes the units first
+    /// (<see cref="IvpSimulation"/>) — the deferral count at `env+0xf8`, and the listeners.
     /// </remarks>
     public static IvpImpactSolver Collide(
         IvpMindist mindist,
@@ -69,25 +68,36 @@ public static class IvpMindistCollide
         environment.ImpactGeneration++;
 
         IvpContactPoint contact = IvpFrictionLinking.FindOrAllocate(mindist, firstObject, firstSide, secondObject, secondSide, now);
-        IvpFrictionSystem system = IvpFrictionLinking.LinkContactByCore(contact, firstCore, secondCore, environment);
+
+        // **From here on everything is in the contact's own order, synapse A first** — `FUN_180090e50` takes A and B from the flags
+        // and `FUN_18008d0c0(cp, env)` builds the record from the contact's own objects. *Record 0's order stood here and was right
+        // only while A was record 0*: with A on record 1 the record measured the pair from the wrong side, its gap grew as the
+        // bodies sank together, and they drove through each other.
+        bool recordZeroIsA = ReferenceEquals(contact.FirstObject, firstObject);
+        IvpLedgeSide sideA = recordZeroIsA ? firstSide : secondSide;
+        IvpLedgeSide sideB = recordZeroIsA ? secondSide : firstSide;
+        IvpRigidBody coreA = recordZeroIsA ? firstCore : secondCore;
+        IvpRigidBody coreB = recordZeroIsA ? secondCore : firstCore;
+
+        IvpFrictionSystem system = IvpFrictionLinking.LinkContactByCore(contact, coreA, coreB, environment);
         contact.LastMeasured = now;
 
         IvpContactRecord record = IvpContactRecord.Build(
             contact,
-            new IvpContactBody(firstSide, firstCore, firstObject.ExtraRadius),
-            new IvpContactBody(secondSide, secondCore, secondObject.ExtraRadius),
+            new IvpContactBody(sideA, coreA, contact.FirstObject.ExtraRadius),
+            new IvpContactBody(sideB, coreB, contact.SecondObject.ExtraRadius),
             now);
         contact.SetMaterials(materials);
 
-        IvpFrictionPair pair = system.PairFor(firstCore, secondCore)
+        IvpFrictionPair pair = system.PairFor(coreA, coreB)
             ?? throw new InvalidOperationException("A contact linked by core has no pair for its cores.");
         pair.LastImpact = now;
 
-        IvpImpactSolver solver = IvpImpactSolver.Enter(environment, contact, [firstCore, secondCore], contact.PushOut(environment));
+        IvpImpactSolver solver = IvpImpactSolver.Enter(environment, contact, [coreA, coreB], contact.PushOut(environment));
 
         (float X, float Y, float Z) relative = record.RelativeVelocity;
 
-        if (secondCore.Immovable)
+        if (coreB.Immovable)
         {
             relative = (-relative.X, -relative.Y, -relative.Z);
         }

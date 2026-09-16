@@ -126,8 +126,45 @@ public sealed class IvpSimulationBroadPhaseTests
     [Test]
     public void Advance_TwoBodiesDrivenTogether_CollideAndShareTheirMomentum()
     {
+        (IvpSimulation simulation, IvpRigidBody moving, IvpRigidBody still, IvpCollisionObject movingObject) = DrivenTogether(until: 0.2d);
+
+        simulation.Environment.Impacts.ShouldBeGreaterThan(
+            0,
+            $"{simulation.PairEvents} pair events, {simulation.Mindists} mindists, {simulation.ExactPairs} exact, last outcome " +
+            $"{simulation.LastOutcome}, z {moving.Position.Z}, hull value {movingObject.Hull.Value}, next " +
+            $"{movingObject.Hull.NextPsiValue}, minimum {movingObject.Hull.Synapses.Minimum}, last length {simulation.LastLength}, " +
+            $"last hull pass {simulation.LastHullPass}");
+        moving.FrictionInfo!.System.ShouldBeSameAs(still.FrictionInfo!.System, "one system holds the contact between two movers");
+        moving.Unit.ShouldBeSameAs(still.Unit, "and they are simulated as one unit");
+        still.Velocity.Z.ShouldBeGreaterThan(0f, "the push reached the body that was still");
+        (moving.Velocity.Z + still.Velocity.Z).ShouldBe(6f, 1e-3f, "and what one gained the other lost");
+    }
+
+    /// <remarks>
+    /// **After the impact the contact holds them apart.** A cube hit on a corner turns, so the centers may come a little inside 8,
+    /// but not through: the contact's record has to measure the same penetration the pair's minimize does.
+    /// </remarks>
+    [Test]
+    public void Advance_TwoBodiesDrivenTogether_DoNotPassThroughEachOther()
+    {
+        (_, IvpRigidBody moving, IvpRigidBody still, _) = DrivenTogether(until: 1d);
+
+        IvpContactPoint? contact = moving.FrictionInfo?.System.FirstContact;
+        (still.Position.Z - moving.Position.Z).ShouldBeGreaterThan(
+            7d,
+            $"moving at {moving.Position.Z}, still at {still.Position.Z}; contact {contact?.First.Kind} {contact?.First.Feature} of " +
+            $"{(ReferenceEquals(contact?.FirstObject.Core, moving) ? "moving" : "still")} against {contact?.Second.Kind} " +
+            $"{contact?.Second.Feature}, gap {contact?.Gap}, spin {moving.AngularVelocity}/{still.AngularVelocity}");
+    }
+
+    /// <summary>Two cubes of half four, faces one apart, the first driven at the second at 6 — advanced in 0.01 slices.</summary>
+    private static (IvpSimulation, IvpRigidBody Moving, IvpRigidBody Still, IvpCollisionObject MovingObject) DrivenTogether(double until)
+    {
         IvpSimulation simulation = Simulation();
-        IvpRigidBody moving = Body((0d, 0d, 0d));
+
+        // **Offset, so a corner of one lands inside the other's face.** Exactly aligned cubes meet corner to corner — a point–point
+        // contact at zero distance, whose normal has no direction — and the impact spends itself on spin.
+        IvpRigidBody moving = Body((2d, 1d, 0d));
         IvpRigidBody still = Body((0d, 0d, 9d));
 
         // Slow enough that the pair is filed, told, minimized and scheduled before the surfaces meet — a body crossing the whole gap
@@ -140,21 +177,12 @@ public sealed class IvpSimulationBroadPhaseTests
         simulation.Collide(still, Material);
         simulation.Start();
 
-        for (double until = 0.02d; until <= 0.2d; until += 0.01d)
+        for (double at = 0.02d; at <= until; at += 0.01d)
         {
-            simulation.Advance(until);
+            simulation.Advance(at);
         }
 
-        simulation.Environment.Impacts.ShouldBe(
-            1,
-            $"{simulation.PairEvents} pair events, {simulation.Mindists} mindists, {simulation.ExactPairs} exact, last outcome " +
-            $"{simulation.LastOutcome}, z {moving.Position.Z}, hull value {movingObject.Hull.Value}, next " +
-            $"{movingObject.Hull.NextPsiValue}, minimum {movingObject.Hull.Synapses.Minimum}, last length {simulation.LastLength}, " +
-            $"last hull pass {simulation.LastHullPass}");
-        moving.FrictionInfo!.System.ShouldBeSameAs(still.FrictionInfo!.System, "one system holds the contact between two movers");
-        moving.Unit.ShouldBeSameAs(still.Unit, "and they are simulated as one unit");
-        still.Velocity.Z.ShouldBeGreaterThan(0f, "the push reached the body that was still");
-        (moving.Velocity.Z + still.Velocity.Z).ShouldBe(6f, 1e-3f, "and what one gained the other lost");
+        return (simulation, moving, still, movingObject);
     }
 
     private static IvpSimulation Simulation() => new(Environment(), (0f, 0f, 0f), () => 0f);
