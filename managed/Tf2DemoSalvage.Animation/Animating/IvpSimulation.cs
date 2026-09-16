@@ -25,6 +25,7 @@ public sealed class IvpSimulation
     private readonly PhysicsTimeManager _time = new();
     private readonly IvpGravityController _gravity;
     private readonly Func<float> _random;
+    private int _step;
 
     /// <summary>Starts a simulation with one gravity controller, as an environment's <c>+0x0</c> holds one.</summary>
     /// <param name="environment">The environment: its step, limits, anomaly manager and materials.</param>
@@ -139,17 +140,68 @@ public sealed class IvpSimulation
     /// <returns>How many PSIs fired.</returns>
     public int Advance(double target) => _time.DrainUntil(target, now => Environment.Now = now);
 
-    /// <summary>The minimize the pipeline's two mindist walks take — <c>FUN_180095cb0</c>.</summary>
-    /// <remarks>*Nothing to minimize until the narrow phase is wired in*, so this is where that arrives.</remarks>
-    private static void Minimize(IvpMindist mindist)
+    /// <summary>Files a pair of objects as an exact mindist, so the pipeline's walks reach it.</summary>
+    /// <param name="mindist">The pair.</param>
+    /// <param name="first">Synapse record 0's object; its core must already have been added.</param>
+    /// <param name="second">Synapse record 1's object.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **The broad phase that would find these pairs is not carried here yet**, so a caller names them. Everything after this —
+    /// the minimize each PSI, the re-examine, and the collision itself — is the engine's own path.
+    /// </remarks>
+    public void Watch(IvpMindist mindist, IvpCollisionObject first, IvpCollisionObject second)
     {
-        // Nothing is filed to minimize: the narrow phase that would create exact mindists is not wired in here yet.
+        ArgumentNullException.ThrowIfNull(mindist);
+
+        _mindists.LinkExact(mindist, first, second);
+    }
+
+    /// <summary>The two ledge sides a mindist's synapses stand on, at the cores' current transforms.</summary>
+    /// <param name="mindist">The pair.</param>
+    /// <returns>Record 0's side and record 1's.</returns>
+    /// <exception cref="InvalidOperationException">A synapse's object has no core, or its core no ledge.</exception>
+    /// <remarks>
+    /// **Built fresh from each core's own transform**, which is what the engine's cache objects hold — see
+    /// <see cref="IvpLedgeSide.FromLedge"/>. *A body with more than one ledge takes its first*: the ledge tree walk that would
+    /// pick the right one belongs to the broad phase, which is not carried here.
+    /// </remarks>
+    public static (IvpLedgeSide First, IvpLedgeSide Second) SidesOf(IvpMindist mindist)
+    {
+        ArgumentNullException.ThrowIfNull(mindist);
+
+        return (SideOf(mindist.HullRecord(0)), SideOf(mindist.HullRecord(1)));
+    }
+
+    private static IvpLedgeSide SideOf(IvpMindistHullRecord record)
+    {
+        IvpCollisionObject collisionObject = record.CollisionObject
+            ?? throw new InvalidOperationException("A synapse record was never linked to an object.");
+
+        IvpRigidBody core = collisionObject.Core
+            ?? throw new InvalidOperationException("A watched object has no core.");
+
+        if (core.Ledges.Count == 0)
+        {
+            throw new InvalidOperationException("A watched object's core has no ledge to stand a synapse on.");
+        }
+
+        return IvpLedgeSide.FromLedge(core.Ledges[0], core.CoreMatrix, core.Position);
+    }
+
+    /// <summary>The minimize the pipeline's two mindist walks take — <c>FUN_180095cb0</c>.</summary>
+    private void Minimize(IvpMindist mindist)
+    {
+        (IvpLedgeSide first, IvpLedgeSide second) = SidesOf(mindist);
+
+        _ = IvpMindistMinimize.Minimize(mindist, first, second, _step);
+        _step++;
     }
 
     /// <summary>The scheduler in mode 1 the pipeline's last phase takes — <c>FUN_180099380(mindist, 1, 1)</c>.</summary>
-    /// <remarks>*Nothing to examine until the narrow phase is wired in*, so this is where that arrives.</remarks>
+    /// <remarks>*The scheduler itself is ported (<see cref="IvpPairScheduler.Examine"/>) and is not wired in yet*: it files a
+    /// pair far and queues its event, which needs the hull managers this simulation does not yet fill.</remarks>
     private static void Examine(IvpMindist mindist)
     {
-        // Nothing is filed to examine, for the same reason as Minimize above.
+        // The re-examine is where a pair goes back to far; until the hull filing is wired in, a watched pair stays exact.
     }
 }
