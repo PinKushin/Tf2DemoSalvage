@@ -473,7 +473,125 @@ public sealed class IvpSimulation
     /// <param name="unit">The unit.</param>
     /// <returns><c>true</c> when it had been asleep.</returns>
     internal bool Wake(IvpSimulationUnit unit) =>
-        _units.Wake(unit, core => IvpUnitManager.Revive(core, Environment));
+        _units.Wake(unit, core =>
+        {
+            IvpUnitManager.Revive(core, Environment);
+            return RebuildRestingContacts(core);
+        });
+
+    /// <summary>A revived core's resting contacts rebuilt — <c>FUN_180086500(core)</c>, <c>FUN_1800892b0</c>'s answer.</summary>
+    /// <param name="core">The core.</param>
+    /// <returns>Whether a new contact point was made.</returns>
+    /// <remarks>
+    /// **Read from the decompiler and the call sites in the disassembly** (2026-09-16):
+    /// <code>
+    /// every object of the core, last first;  every exact synapse record on it, the latest first — its mindist m:
+    ///     m's flags &amp; 0x3000 → skipped
+    ///     the other core — record 0's, else record 1's when that is this core
+    ///     the other movable (flags &amp; 2 clear):
+    ///         its core+0x60 (friction info) null →  FUN_180095cb0(m);  flags &amp; 0xc000 clear and length &lt; DAT_18012d65c
+    ///             (strictly) →  FUN_180090e50(m, …, 1):  a NEW contact point → its record built, materials, linked into a system,
+    ///             answered 1;  FUN_180078820(other): other+0x200 = +0x208 = now
+    ///     the other not movable, and this core not movable either → m's slot 0 with 1 (deleted)
+    /// </code>
+    /// *The deferral count at `env+0xf8` and its arena reset (`FUN_180072970`) are not carried*; they manage memory.
+    /// </remarks>
+    private bool RebuildRestingContacts(IvpRigidBody core)
+    {
+        bool built = false;
+
+        for (int index = core.Objects.Count - 1; index >= 0; index--)
+        {
+            LinkedListNode<IvpMindistHullRecord>? node = core.Objects[index].Synapses.First;
+
+            while (node is not null)
+            {
+                LinkedListNode<IvpMindistHullRecord>? next = node.Next;
+                IvpMindist mindist = node.Value.Mindist;
+                node = next;
+
+                if ((mindist.Flags & 0x3000) != 0)
+                {
+                    continue;
+                }
+
+                IvpRigidBody other = CoreOf(mindist.HullRecord(0));
+
+                if (ReferenceEquals(other, core))
+                {
+                    other = CoreOf(mindist.HullRecord(1));
+                }
+
+                if (other.Immovable)
+                {
+                    if (core.Immovable)
+                    {
+                        mindist.Delete();
+                    }
+
+                    continue;
+                }
+
+                if (other.FrictionInfo is not null)
+                {
+                    continue;
+                }
+
+                Minimize(mindist);
+
+                if ((mindist.Flags & 0xc000) != 0 || !(mindist.Length < IvpCollisionTolerance.RestingContactGap))
+                {
+                    continue;
+                }
+
+                if (LinkRestingContact(mindist))
+                {
+                    built = true;
+                    other.RestAnchorTime = Environment.Now;
+                    other.SettleAnchorTime = Environment.Now;
+                }
+            }
+        }
+
+        return built;
+    }
+
+    /// <summary>
+    /// <c>FUN_180090e50(mindist, …, build: 1)</c>: a contact point found or allocated; a new one has its record built, its materials
+    /// set and is linked into a friction system.
+    /// </summary>
+    /// <returns>Whether the contact point was new.</returns>
+    private bool LinkRestingContact(IvpMindist mindist)
+    {
+        (IvpLedgeSide first, IvpLedgeSide second) = SidesOf(mindist);
+        IvpCollisionObject firstObject = ObjectOf(mindist.HullRecord(0));
+        IvpCollisionObject secondObject = ObjectOf(mindist.HullRecord(1));
+        double now = Environment.Now;
+
+        IvpContactPoint contact = IvpFrictionLinking.FindOrAllocate(mindist, firstObject, first, secondObject, second, now);
+        bool recordZeroIsA = ReferenceEquals(contact.FirstObject, firstObject);
+        IvpLedgeSide sideA = recordZeroIsA ? first : second;
+        IvpLedgeSide sideB = recordZeroIsA ? second : first;
+        IvpRigidBody coreA = CoreOf(mindist.HullRecord(recordZeroIsA ? 0 : 1));
+        IvpRigidBody coreB = CoreOf(mindist.HullRecord(recordZeroIsA ? 1 : 0));
+
+        bool isNew = contact.FrictionSystem is null;
+
+        _ = IvpContactRecord.Build(
+            contact,
+            new IvpContactBody(sideA, coreA, contact.FirstObject.ExtraRadius),
+            new IvpContactBody(sideB, coreB, contact.SecondObject.ExtraRadius),
+            now);
+        contact.SetMaterials(Environment.Materials);
+
+        if (!isNew)
+        {
+            return false;
+        }
+
+        _ = IvpFrictionLinking.LinkContactByCore(contact, coreA, coreB, Environment);
+        return true;
+    }
 
     /// <summary>How many sleeping units a collision has woken — an instrument, not a field the engine keeps.</summary>
     public int Wakes { get; private set; }

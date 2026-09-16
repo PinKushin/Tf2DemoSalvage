@@ -80,9 +80,9 @@ public sealed class IvpUnitManager
     /// </code>
     /// `FUN_1800783c0` also writes `+0x1d0` once from `now − (float)step` before overwriting it with now — a dead store.
     ///
-    /// *Not carried*: `FUN_180086500`, which builds a friction contact to every nearby movable core without a system of its own
-    /// and answers whether it built one, and the listeners (`FUN_1800820c0`). So a woken core never rebuilds its resting contacts
-    /// here, and the walk never restarts.
+    /// `FUN_180086500`, which builds a friction contact to every nearby movable core without a system of its own and answers whether
+    /// it built one, needs the simulation's minimize and sides, so <c>IvpSimulation.Wake</c> runs it straight after this and hands its
+    /// answer to the walk. *Not carried*: the listeners (`FUN_1800820c0`).
     /// </remarks>
     internal static bool Revive(IvpRigidBody core, IvpImpactEnvironment environment)
     {

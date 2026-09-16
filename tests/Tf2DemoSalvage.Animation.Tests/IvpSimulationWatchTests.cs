@@ -241,6 +241,32 @@ public sealed class IvpSimulationWatchTests
         core.LinearSpeed.ShouldBe(0f);
     }
 
+    /// <remarks>
+    /// **A revived core rebuilds its resting contacts** (<c>FUN_180086500</c>): each of its pairs with a movable core that has no
+    /// friction system of its own is minimized, and one closer than <see cref="IvpCollisionTolerance.RestingContactGap"/> becomes a
+    /// contact point in a friction system, with no impact. Two still cubes whose faces are 0.005 apart: inside the margin, so the
+    /// pair stays exact rather than filed far (a filed pair is on no exact list for the walk to find), and under the 0.0286 gap.
+    /// </remarks>
+    [Test]
+    public void Wake_ASleepingCoreBesideAnotherWithinTheRestingGap_BuildsAContactWithoutAnImpact()
+    {
+        (IvpSimulation simulation, IvpMindist pair, IvpRigidBody first, IvpRigidBody second) = Watched(apart: 8.005d, restCheckCountdown: 4);
+        simulation.Start();
+        simulation.Advance(0.05d);
+        simulation.Units.Sleeping.Count.ShouldBe(1, "the control: exactly one unit is asleep to wake");
+        IvpRigidBody asleep = simulation.Units.Sleeping[0].Cores[0];
+        IvpRigidBody awake = ReferenceEquals(asleep, first) ? second : first;
+        awake.FrictionInfo.ShouldBeNull("the control: the other core has no system before the wake");
+        System.Linq.Enumerable.Sum(asleep.Objects, o => o.Synapses.Count).ShouldBe(1, "the control: the pair is still exact");
+
+        simulation.Wake(simulation.Units.Sleeping[0]);
+
+        awake.FrictionInfo.ShouldNotBeNull(
+            $"objects {asleep.Objects.Count}, synapses {System.Linq.Enumerable.Sum(asleep.Objects, o => o.Synapses.Count)}, flags 0x{pair.Flags:x}, length {pair.Length}");
+        asleep.FrictionInfo.ShouldNotBeNull();
+        simulation.Environment.Impacts.ShouldBe(0);
+    }
+
     /// <remarks>**A core never stepped keeps the velocity it was made with** — the save and restore around <c>FUN_180077670</c>.</remarks>
     [Test]
     public void Add_ABodyMadeMoving_IsRevivedWithItsVelocity()

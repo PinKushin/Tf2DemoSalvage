@@ -48,6 +48,9 @@ public static class IvpCollisionTolerance
     /// <summary><c>DAT_1800fd580</c>: <c>0.3f</c> widened, added to <c>block[0x43]</c> for <c>block[0x44]</c>.</summary>
     private const double ParallelEdgeShare = 0.3f;
 
+    /// <summary><c>DAT_1800fdf80</c>: <c>2.5</c>, <c>block[0x47]</c>'s share of <c>d</c> over <c>block[0x43]</c>.</summary>
+    private const double RestingContactShare = 2.5d;
+
     /// <summary><c>DAT_1800fcfb0</c>: <c>20.0</c>, <c>block[0x48]</c>'s share of <c>d</c> over <c>block[0x43]</c>.</summary>
     private const double EstimateShare = 20d;
 
@@ -99,6 +102,13 @@ public static class IvpCollisionTolerance
     /// <remarks>Its one reader so far is the impact solver `FUN_18008e290`, which adds it to a speed in IVP's own units —
     /// `(p5 + block[0x4a]) · 1.2f` — and <see cref="IvpImpactSolver"/> runs in those units.</remarks>
     public static readonly float TwiceTolerance = Settled.DoubledToleranceMetres;
+
+    /// <summary><c>block[0x47]</c>, <c>DAT_18012d65c</c>, in metres: <c>(float)(d·2.5 + (double)block[0x43])</c>.</summary>
+    /// <remarks>
+    /// The length under which a revived core's pair becomes a resting contact (`FUN_180086500`); `FUN_180098610`, `FUN_180084490`
+    /// and `FUN_1800a9bf0` read it too.
+    /// </remarks>
+    public static readonly float RestingContactGap = Settled.RestingContactGapMetres;
 
     /// <summary><c>block[0x48]</c>, <c>DAT_18012d660</c>, in metres: <c>(float)(d·20 + (double)block[0x43])</c>, which is <c>22·d</c>.</summary>
     /// <remarks>The gap past which <see cref="IvpContactPoint.Estimate"/> gives a record no estimate.</remarks>
@@ -153,7 +163,8 @@ public static class IvpCollisionTolerance
         float ParallelEdgeGapMetres,
         float EdgeTargetScaleMetres,
         float DoubledToleranceMetres,
-        float EstimateLimitMetres)
+        float EstimateLimitMetres,
+        float RestingContactGapMetres)
     {
         /// <summary>One run of <c>FUN_180098fd0</c> on a tolerance.</summary>
         /// <param name="tolerance">The tolerance <c>d</c>, in metres, as the double the routine takes.</param>
@@ -176,7 +187,8 @@ public static class IvpCollisionTolerance
                 parallelEdgeGap,
                 margin * EdgeTargetShare,
                 (float)(tolerance + tolerance),
-                (float)((tolerance * EstimateShare) + contactGap));
+                (float)((tolerance * EstimateShare) + contactGap),
+                (float)((tolerance * RestingContactShare) + contactGap));
         }
     }
 }
