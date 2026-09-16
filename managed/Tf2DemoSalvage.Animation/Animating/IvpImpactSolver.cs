@@ -45,8 +45,8 @@ public sealed class IvpImpactEnvironment
     /// <summary>The PSI's end, <c>env+0x190</c>, which the impact loop's tail steps moved cores to.</summary>
     public double PsiEnd { get; init; }
 
-    /// <summary>The environment's phase, <c>env+0x1ac</c>, handed to the step.</summary>
-    public int Phase { get; init; }
+    /// <summary>The environment's phase, <c>env+0x1ac</c>, handed to the step and walked 0, 2, 3, 4, 5 by the pipeline.</summary>
+    public int Phase { get; set; }
 
     /// <summary>How long a core must stay by its anchor to be called at rest — <c>env+0xc8</c>.</summary>
     public float RestDelay { get; init; }
