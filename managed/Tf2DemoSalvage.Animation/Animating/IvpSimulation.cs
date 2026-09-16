@@ -427,8 +427,12 @@ public sealed class IvpSimulation
         PairEvents++;
         SetClock(due);
 
-        IvpMindistFire.Handle(mindist, Minimize, recheck => Examine(mindist, recheck), Collide);
+        IvpFireOutcome outcome = IvpMindistFire.Handle(mindist, Minimize, recheck => Examine(mindist, recheck), Collide);
+        PairFired?.Invoke(mindist, due, outcome);
     }
+
+    /// <summary>Told each pair event as it fires — its time and outcome; an instrument, not a callback the engine has.</summary>
+    public Action<IvpMindist, double, IvpFireOutcome>? PairFired { get; set; }
 
     /// <summary>A collided pair's real response — <c>FUN_18008ecb0</c>, through <see cref="IvpMindistCollide.Collide"/>.</summary>
     /// <remarks>**A sleeping unit is woken first**, as `FUN_180074360` does for an object whose own state is <c>8</c>.</remarks>
@@ -802,7 +806,11 @@ public sealed class IvpSimulation
                 sideB));
 
         _marginDecay = scheduler.MarginDecayCounter;
+        Examined?.Invoke(mindist, LastOutcome.Value);
     }
+
+    /// <summary>Told each pair the scheduler looks at, after it decides; an instrument, not a callback the engine has.</summary>
+    public Action<IvpMindist, IvpScheduleOutcome>? Examined { get; set; }
 
     /// <summary>What the scheduler last decided about a watched pair — an instrument, not a field the engine keeps.</summary>
     public IvpScheduleOutcome? LastOutcome { get; private set; }

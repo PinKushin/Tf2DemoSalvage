@@ -139,6 +139,20 @@ public sealed class IvpPhyDropProbe : IProbe
             $"inverse mass {built.InverseMass:g9}"));
         output.Flush();
 
+        if (every == 1)
+        {
+            world.Simulation.PairFired = (mindist, due, outcome) => output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  pair at {due:R}: length {mindist.Length:R} flags 0x{mindist.Flags:x} {outcome}"));
+            world.Simulation.Examined = (mindist, outcome) => output.WriteLine(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  examined at {world.Simulation.Now:R} (psi end {world.Simulation.Environment.PsiEnd:R}): length {mindist.Length:R} flags 0x{mindist.Flags:x} {outcome}") +
+                (mindist.QueueSlot is int slot
+                    ? ", queued " + world.Simulation.Collisions.EventQueue.ValueOf(slot).ToString("R", CultureInfo.InvariantCulture)
+                    : string.Empty));
+        }
+
         for (int tick = 1; tick <= Ticks; tick++)
         {
             world.Simulate(Step);
@@ -167,6 +181,13 @@ public sealed class IvpPhyDropProbe : IProbe
                 $"orient=({state.Orientation.X:F2}, {state.Orientation.Y:F2}, {state.Orientation.Z:F2}, {state.Orientation.W:F2})  " +
                 $"vel=({svx:F2}, {svy:F2}, {svz:F2})  spin=({wx:F2}, {wy:F2}, {wz:F2})" +
                 (dynamicRagdoll.Asleep ? " asleep" : string.Empty));
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  core now={world.Simulation.Now:R} stepped={core.LastStepped:R}  " +
+                $"p=({core.Position.X:R}, {core.Position.Y:R}, {core.Position.Z:R})  " +
+                $"v=({core.Velocity.X:R}, {core.Velocity.Y:R}, {core.Velocity.Z:R})  " +
+                $"v0=({core.PreviousVelocity.X:R}, {core.PreviousVelocity.Y:R}, {core.PreviousVelocity.Z:R})  " +
+                $"w=({core.AngularVelocity.X:R}, {core.AngularVelocity.Y:R}, {core.AngularVelocity.Z:R})"));
             output.Flush();
         }
     }

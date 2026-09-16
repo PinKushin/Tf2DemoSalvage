@@ -328,7 +328,10 @@ public sealed class IvpSimulationBroadPhaseTests
         simulation.Collide(slab, Material);
         simulation.Start();
 
-        for (double at = 0.02d; at <= 3d; at += 0.01d)
+        // *Eight seconds, not three*: with the slab's inverse diameter read (the edge target's factor), the cube is left about a
+        // centimetre inside the slab and pushed out at 0.0064 a second, still climbing at three and at rest by eight. The claim is
+        // that it stops, not how soon.
+        for (double at = 0.02d; at <= 8d; at += 0.01d)
         {
             simulation.Advance(at);
         }

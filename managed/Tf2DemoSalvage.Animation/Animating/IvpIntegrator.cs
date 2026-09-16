@@ -652,6 +652,9 @@ public sealed class IvpRigidBody
     /// </remarks>
     public float Radius { get; set; }
 
+    /// <summary><c>core+0x54</c>, <c>0.5f / +0x4</c> — <c>FUN_180076f80</c>'s last store, after <c>ConstructCore</c> sets the radius.</summary>
+    public float InverseDiameter => 0.5f / Radius;
+
     /// <summary>The core's linear speed, <c>core+0x1dc</c> — what the range manager and a hull's gradient read.</summary>
     public float LinearSpeed { get; set; }
 

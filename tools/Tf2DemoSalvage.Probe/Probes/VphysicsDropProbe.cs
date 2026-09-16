@@ -540,6 +540,17 @@ public sealed class VphysicsDropProbe : IProbe
             getVelocity(dynamicObject, out Vec3 velocity, out Vec3 angularVelocity);
             output.WriteLine(
                 $"tick {tick,4} t={tick * Timestep,6:F3}  pos={position}  angles={angles}  vel={velocity}  spin={angularVelocity}");
+
+            // The IVP core itself, in IVP units: `+0x150` position (doubles), `+0x1d0` when last stepped, `+0x140` velocity,
+            // `+0x170` the committed one, `+0x130` spin — beside the environment's clock, `ivpEnv+0x188`.
+            nint ivpEnvironment = Marshal.ReadIntPtr(environment + 0x8);
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  core now={CoreDouble(ivpEnvironment, 0x188):R} stepped={CoreDouble(core, 0x1d0):R}  " +
+                $"p=({CoreDouble(core, 0x150):R}, {CoreDouble(core, 0x158):R}, {CoreDouble(core, 0x160):R})  " +
+                $"v=({CoreFloat(core, 0x140):R}, {CoreFloat(core, 0x144):R}, {CoreFloat(core, 0x148):R})  " +
+                $"v0=({CoreFloat(core, 0x170):R}, {CoreFloat(core, 0x174):R}, {CoreFloat(core, 0x178):R})  " +
+                $"w=({CoreFloat(core, 0x130):R}, {CoreFloat(core, 0x134):R}, {CoreFloat(core, 0x138):R})"));
             output.Flush();
         }
     }
@@ -697,6 +708,8 @@ public sealed class VphysicsDropProbe : IProbe
         VCall<VCollideUnloadDelegate>(collision, CollisionVCollideUnloadSlot)(collision, loaded.VCollide);
         Marshal.FreeHGlobal(loaded.VCollide);
     }
+
+    private static double CoreDouble(nint core, int offset) => BitConverter.Int64BitsToDouble(Marshal.ReadInt64(core + offset));
 
     private static float CoreFloat(nint core, int offset) => BitConverter.Int32BitsToSingle(Marshal.ReadInt32(core + offset));
 
