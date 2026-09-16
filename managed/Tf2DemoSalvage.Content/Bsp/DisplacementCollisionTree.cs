@@ -81,10 +81,20 @@ public sealed class DisplacementCollisionTree
         }
 
         DisplacementCollisionTree tree = new(vertices, triangles, nodes, leaves);
-        tree.Boxes(0, out _, out _);
+        tree.Boxes(0, out Vector3 mins, out Vector3 maxs);
+
+        // AABBTree_CalcBounds: "Bloat a little."
+        tree.Mins = mins - Vector3.One;
+        tree.Maxs = maxs + Vector3.One;
 
         return tree;
     }
+
+    /// <summary>The whole tree's lower bound, bloated by one unit — <c>m_mins</c>, the handler's world bounds.</summary>
+    public Vector3 Mins { get; private set; }
+
+    /// <summary>Its upper bound, likewise — <c>m_maxs</c>.</summary>
+    public Vector3 Maxs { get; private set; }
 
     /// <summary>The triangles whose leaf boxes a sphere reaches — <c>AABBTree_BuildTreeTrisInSphere_r</c>.</summary>
     /// <param name="center">The sphere's centre, in the map's units.</param>
