@@ -128,9 +128,55 @@ public sealed class IvpSimulationWatchTests
         mindist.MinimizedAt.ShouldNotBeNull("the control: the pipeline reached the pair at all");
     }
 
-    private static (IvpSimulation, IvpMindist, IvpRigidBody, IvpRigidBody) Watched(double apart = 40d)
+    /// <remarks>
+    /// **A collision wakes a sleeping unit** (<c>FUN_180074360</c> into <c>FUN_1800758e0</c>): the unit sleeps at the rest check,
+    /// and the pair's own event puts it back on the active list.
+    /// </remarks>
+    [Test]
+    public void Advance_AStillUnit_SleepsAtItsOwnRestCheck()
     {
-        IvpSimulation simulation = new(Environment(), (0f, 0f, 0f), () => 0f);
+        // Two things decide when a unit can sleep, and both are the engine's: the check has to land on a PSI where time has passed
+        // (at the first event, now IS the anchor time, so a body reads Still), and the countdown at `env+0x1a8` is decremented once
+        // per UNIT, so with two units one check reaches one of them.
+        (IvpSimulation simulation, _, IvpRigidBody first, _) = Watched(apart: 0.6d, restCheckCountdown: 4);
+        simulation.Start();
+
+        simulation.Advance(0.05d);
+
+        simulation.AwakeUnits.ShouldBe(1, $"one of the two units slept; core state {first.UnitState}");
+    }
+
+    /// <remarks>**The list move a collision asks for** — <c>FUN_1800758e0</c>'s tail, which <c>FUN_180074360</c> reaches for an
+    /// object whose own state is <c>8</c>.</remarks>
+    [Test]
+    public void Wake_ASleepingUnit_GoesBackOnTheActiveList()
+    {
+        (IvpSimulation simulation, _, _, _) = Watched(apart: 0.6d, restCheckCountdown: 4);
+        simulation.Start();
+        simulation.Advance(0.05d);
+        simulation.Units.Sleeping.Count.ShouldBe(1, "the control: exactly one unit is asleep to wake");
+        IvpSimulationUnit asleep = simulation.Units.Sleeping[0];
+
+        simulation.Units.Wake(asleep).ShouldBeTrue();
+
+        asleep.State.ShouldBe(1);
+        simulation.AwakeUnits.ShouldBe(2);
+        simulation.Units.Sleeping.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Wake_AnAwakeUnit_IsLeftAlone()
+    {
+        (IvpSimulation simulation, _, IvpRigidBody first, _) = Watched();
+
+        simulation.Units.Wake(first.Unit!).ShouldBeFalse();
+
+        simulation.AwakeUnits.ShouldBe(2, "it was already on the active list, and is not there twice");
+    }
+
+    private static (IvpSimulation, IvpMindist, IvpRigidBody, IvpRigidBody) Watched(double apart = 40d, short restCheckCountdown = 15)
+    {
+        IvpSimulation simulation = new(Environment(restCheckCountdown), (0f, 0f, 0f), () => 0f);
 
         // Both bodies sit OFF the origin, so a side built at the origin instead of at its own core is a different side.
         IvpRigidBody first = Body((7d, -3d, 0d));
@@ -162,8 +208,12 @@ public sealed class IvpSimulationWatchTests
             InverseInertia = (1f, 1f, 1f),
             Damping = 0f,
             RotationDamping = 0f,
+            // The anchors a body that has been sitting where it is would hold — position as well as orientation, or the rest test
+            // reads it as having moved from the origin.
             RestAnchorOrientation = (0f, 0f, 0f, 1f),
             SettleAnchorOrientation = (0f, 0f, 0f, 1f),
+            RestAnchorPosition = ((float)at.X, (float)at.Y, (float)at.Z),
+            SettleAnchorPosition = ((float)at.X, (float)at.Y, (float)at.Z),
             Ledges = Cube(),
         };
 
@@ -197,7 +247,7 @@ public sealed class IvpSimulationWatchTests
         ];
     }
 
-    private static IvpImpactEnvironment Environment() =>
+    private static IvpImpactEnvironment Environment(short restCheckCountdown = 15) =>
         new()
         {
             InverseStep = 66d,
@@ -205,7 +255,9 @@ public sealed class IvpSimulationWatchTests
             Limits = new IvpAnomalyLimits(2000f, 6, 3600f, 250, 1f, 1e30f),
             Anomalies = new VphysicsAnomalyManager(new IvpImpactReplay.FixedAnswer(answer: false)),
             Materials = new IvpReplayMaterials(new IvpReplayMaterial(0d, 0d, HasSecondFriction: false), 0d, 0d),
-            RestDelay = 5f,
-            RestCheckCountdown = 15,
+
+            // A rest delay of zero lets a still body be called resting on its first check rather than after five seconds.
+            RestDelay = 0f,
+            RestCheckCountdown = restCheckCountdown,
         };
 }

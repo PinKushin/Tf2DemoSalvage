@@ -47,6 +47,9 @@ public sealed class IvpSimulationUnit
     /// <summary>The state byte, <c>unit+0x0</c>'s low byte: <c>8</c> once the unit is asleep.</summary>
     public int State { get; private set; }
 
+    /// <summary>Puts the state back to awake — <c>FUN_1800758e0</c>'s <c>*param_1 = 1</c> as it moves the unit's list.</summary>
+    internal void Woken() => State = 1;
+
     /// <summary>The flags word, <c>unit+0x0</c>, whose <c>0x400</c>/<c>0x3000</c> bits carry a fast spin into the next PSI.</summary>
     /// <remarks>*What sets the <c>0x300</c> pair is not read yet* — the PSI only clears it once it has rebuilt.</remarks>
     public int Flags { get; internal set; }

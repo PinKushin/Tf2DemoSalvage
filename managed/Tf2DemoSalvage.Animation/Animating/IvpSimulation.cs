@@ -45,6 +45,9 @@ public sealed class IvpSimulation
     /// <summary>The environment every stage reads.</summary>
     public IvpImpactEnvironment Environment { get; }
 
+    /// <summary>The unit lists — the time manager's active and sleeping chains.</summary>
+    internal IvpUnitManager Units => _units;
+
     /// <summary>The time manager's own clock, in absolute seconds.</summary>
     public double Now => Environment.Now;
 
@@ -192,12 +195,16 @@ public sealed class IvpSimulation
     }
 
     /// <summary>A collided pair's real response — <c>FUN_18008ecb0</c>, through <see cref="IvpMindistCollide.Collide"/>.</summary>
+    /// <remarks>**A sleeping unit is woken first**, as `FUN_180074360` does for an object whose own state is <c>8</c>.</remarks>
     private void Collide(IvpMindist mindist)
     {
         (IvpLedgeSide first, IvpLedgeSide second) = SidesOf(mindist);
 
         IvpCollisionObject firstObject = ObjectOf(mindist.HullRecord(0));
         IvpCollisionObject secondObject = ObjectOf(mindist.HullRecord(1));
+
+        Wake(firstObject);
+        Wake(secondObject);
 
         _ = IvpMindistCollide.Collide(
             mindist,
@@ -212,6 +219,22 @@ public sealed class IvpSimulation
             mindist => Examine(mindist, IvpRecheck.AfterMiss),
             Environment.Now);
     }
+
+    /// <summary>Wakes the unit of an object about to collide, and counts it — <c>FUN_180074360</c>'s own gate.</summary>
+    /// <remarks>
+    /// *No test stages a collision against a unit that is ALREADY asleep*: a sleeping unit is not stepped, so its own speed stops
+    /// reaching the scheduler and the pair reads far. <see cref="IvpUnitManager.Wake"/> is tested on its own; this call site is not.
+    /// </remarks>
+    private void Wake(IvpCollisionObject collisionObject)
+    {
+        if (collisionObject.Core?.Unit is { } unit && _units.Wake(unit))
+        {
+            Wakes++;
+        }
+    }
+
+    /// <summary>How many sleeping units a collision has woken — an instrument, not a field the engine keeps.</summary>
+    public int Wakes { get; private set; }
 
     private static IvpCollisionObject ObjectOf(IvpMindistHullRecord record) =>
         record.CollisionObject ?? throw new InvalidOperationException("A synapse record was never linked to an object.");

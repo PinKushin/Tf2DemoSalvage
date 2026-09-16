@@ -18,6 +18,36 @@ public sealed class IvpUnitManager
 
     /// <summary>The sleeping ones — <c>manager+0x338</c>.</summary>
     internal List<IvpSimulationUnit> Sleeping { get; } = [];
+
+    /// <summary>Moves a sleeping unit back onto the active list — <c>FUN_1800758e0(unit, env)</c>'s own tail.</summary>
+    /// <param name="unit">The unit; one already awake is left alone.</param>
+    /// <returns><c>true</c> when it had been asleep.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="unit"/> is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// unit state == 8:  unlinked from the sleeping list (head env+0x10's +0x338, links +0x8/+0x10)
+    ///                   state = 1;  pushed on the active list (env+0x10's +0x18);  its +0x8 = 0
+    /// </code>
+    /// *The per-core revive that precedes it is NOT carried*: `FUN_1800892b0` sets each object's state, re-integrates the core
+    /// over the PSI's remainder around a saved velocity (`FUN_1800783c0`, `FUN_180077670`, `FUN_180086500` — all unread) and tells
+    /// the environment's listeners. So a woken unit here resumes stepping at the next PSI rather than being caught up inside the
+    /// wake.
+    /// </remarks>
+    internal bool Wake(IvpSimulationUnit unit)
+    {
+        ArgumentNullException.ThrowIfNull(unit);
+
+        if (unit.State != 8)
+        {
+            return false;
+        }
+
+        Sleeping.Remove(unit);
+        unit.Woken();
+        Active.Add(unit);
+
+        return true;
+    }
 }
 
 /// <summary>
