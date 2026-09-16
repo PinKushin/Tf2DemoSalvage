@@ -414,6 +414,7 @@ public sealed class IvpSimulation
         IvpCollisionObject firstObject = ObjectOf(mindist.HullRecord(0));
         IvpCollisionObject secondObject = ObjectOf(mindist.HullRecord(1));
 
+        Collided?.Invoke(firstObject, secondObject);
         Wake(firstObject);
         Wake(secondObject);
 
@@ -433,6 +434,9 @@ public sealed class IvpSimulation
             mindist => Examine(mindist, IvpRecheck.AfterMiss),
             Environment.Now);
     }
+
+    /// <summary>Told the two objects of every pair about to collide — an instrument, not a callback the engine has.</summary>
+    public Action<IvpCollisionObject, IvpCollisionObject>? Collided { get; set; }
 
     /// <summary>Wakes the unit of an object about to collide, and counts it — <c>FUN_180074360</c>'s own gate.</summary>
     /// <remarks>

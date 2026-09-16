@@ -59,6 +59,12 @@ public sealed class IvpDropCompareProbe : IProbe
         string mapName = arguments.Count > 0 ? arguments[0] : "cp_process_f12";
         string model = arguments.Count > 1 ? arguments[1] : "models/player/scout.mdl";
 
+        if (mapName == "void")
+        {
+            Void(output, folder, model);
+            return;
+        }
+
         if (locator.Find(mapName) is not { } mapPath)
         {
             output.WriteLine($"No map named '{mapName}'.");
@@ -106,6 +112,19 @@ public sealed class IvpDropCompareProbe : IProbe
         float oldLowest = float.MaxValue;
         float portedLowest = float.MaxValue;
 
+        // Impacts after two seconds, by pair — a corpse at rest should be held by its contacts' pushes, not by impacts.
+        Dictionary<string, int> lateImpacts = [];
+        bool late = false;
+
+        world.Simulation.Collided = (first, second) =>
+        {
+            if (late)
+            {
+                string key = $"{Describe(ported, loaded, first)} x {Describe(ported, loaded, second)}";
+                lateImpacts[key] = lateImpacts.TryGetValue(key, out int count) ? count + 1 : 1;
+            }
+        };
+
         for (int tick = 1; tick <= Ticks; tick++)
         {
             old.Step();
@@ -114,10 +133,17 @@ public sealed class IvpDropCompareProbe : IProbe
             // The client's own settle check, which the old solver's step runs inside itself.
             ported.CheckSettle(Step);
 
+            late = tick >= 132;
+
             // Four seconds in, still awake: what each body is doing, and what it stands on.
             if (tick == 264)
             {
                 Contacts(output, ported, loaded);
+
+                foreach ((string pair, int count) in lateImpacts.OrderByDescending(entry => entry.Value).Take(12))
+                {
+                    output.WriteLine($"  impacts 2-4 s: {count,4}  {pair}");
+                }
             }
 
             Vector3 oldRoot = Root(old);
@@ -138,6 +164,72 @@ public sealed class IvpDropCompareProbe : IProbe
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"  lowest root z: old {oldLowest:0.0}, ported {portedLowest:0.0}; the old solver {(old.Asleep ? "asleep" : "awake")}, the ported corpse {ported.State().Length} bodies"));
+    }
+
+    /// <summary>
+    /// The joints alone: the corpse in its bind pose, no gravity, no map, both solvers. **Nothing should move**, so any speed that
+    /// appears or grows is the joint solve's own.
+    /// </summary>
+    private static void Void(TextWriter output, string folder, string model)
+    {
+        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+
+        if (game.Archives.Read(model) is not { } modelBytes || game.Archives.Read(Path.ChangeExtension(model, ".phy")) is not { } physicsBytes ||
+            RagdollBody.Build(PhysicsModel.Read(physicsBytes), StudioBones.Read(modelBytes)) is not { } ragdoll)
+        {
+            output.WriteLine($"{model}: no ragdoll.");
+            return;
+        }
+
+        (Vector3, Quaternion)[] start = Pose(ragdoll, Vector3.Zero);
+        IvpRagdollWorld world = new(Step, Vector3.Zero, game.Surfaces);
+        IvpRagdoll ported = IvpRagdoll.Create(world, ragdoll, start);
+
+        for (int tick = 1; tick <= Ticks; tick++)
+        {
+            world.Simulate(Step);
+
+            if (tick % 66 == 0)
+            {
+                float speed = 0f;
+                int fastest = 0;
+
+                for (int index = 0; index < ported.Bodies.Count; index++)
+                {
+                    (float x, float y, float z) = ported.Bodies[index].Velocity;
+                    float body = MathF.Sqrt((x * x) + (y * y) + (z * z)) / IvpTransform.MetresPerInch;
+
+                    if (body > speed)
+                    {
+                        speed = body;
+                        fastest = index;
+                    }
+                }
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  {tick * Step,5:0.0}s  fastest body {fastest} at {speed:0.000} in/s, root {ported.State()[0].Position}"));
+            }
+        }
+    }
+
+    /// <summary>An object named for a trace: the corpse's body index, or the kind of static object.</summary>
+    private static string Describe(IvpRagdoll ragdoll, IvpMapWorld.Objects loaded, IvpCollisionObject collisionObject)
+    {
+        for (int index = 0; index < ragdoll.Bodies.Count; index++)
+        {
+            if (ReferenceEquals(ragdoll.Bodies[index], collisionObject.Core))
+            {
+                return $"body {index}";
+            }
+        }
+
+        if (loaded.World.Contains(collisionObject))
+        {
+            return "world";
+        }
+
+        return loaded.Terrain.Contains(collisionObject) ? "terrain" : "prop or brush entity";
     }
 
     /// <summary>The fastest body's linear speed, back in Source inches per second.</summary>
