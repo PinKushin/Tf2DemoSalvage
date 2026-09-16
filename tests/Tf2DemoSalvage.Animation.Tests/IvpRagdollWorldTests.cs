@@ -61,6 +61,57 @@ public sealed class IvpRagdollWorldTests
     }
 
     /// <remarks>
+    /// **`CStaticPropMgr::CreateVPhysicsRepresentations` walks the props LAST to first** (`FUN_180203280`), and each
+    /// `SOLID_VPHYSICS` prop is one object over its model's first solid (`FUN_180203060`); a prop of another solid type, or one
+    /// whose model has no collide, makes none.
+    /// </remarks>
+    [Test]
+    public void AddStaticProps_SolidVphysicsProps_AreMadeLastFirstFromTheirFirstSolid()
+    {
+        IvpRagdollWorld world = World();
+        PhysicsLedgeTree near = Box();
+        PhysicsLedgeTree far = IvpTestSurface.Boxes((Vector3.Zero, new Vector3(2f)));
+
+        IReadOnlyList<IvpCollisionObject> objects = world.AddStaticProps(
+            [
+                new BspStaticProp("models/near.mdl", 0f, 0f, 0f, 0f, 0f, 0f, 1f, Solid: 6),
+                new BspStaticProp("models/none.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f, Solid: 0),
+                new BspStaticProp("models/far.mdl", 0f, 0f, 200f, 0f, 0f, 0f, 1f, Solid: 6),
+                new BspStaticProp("models/nophy.mdl", 0f, 0f, 300f, 0f, 0f, 0f, 1f, Solid: 6),
+            ],
+            model => model switch
+            {
+                "models/near.mdl" => new IvpStaticPropCollide(near, "metal"),
+                "models/far.mdl" or "models/none.mdl" => new IvpStaticPropCollide(far, null),
+                _ => null,
+            });
+
+        objects.Count.ShouldBe(2);
+        objects[0].Core.ShouldNotBeNull().Position.Y.ShouldBe(-200d * IvpTransform.MetresPerInch, 1e-5d, "the last prop first");
+        objects[1].Core.ShouldNotBeNull().Position.Y.ShouldBe(0d, 1e-5d);
+    }
+
+    /// <remarks>
+    /// **The angles turn the object as `AngleQuaternion` does** (`mathlib_base.cpp:2063`), carried into IVP's axes: a yaw of 90°
+    /// about Source Z is a turn about IVP −Y.
+    /// </remarks>
+    [Test]
+    public void AddStaticProps_AYawedProp_IsTurnedAboutIvpMinusY()
+    {
+        IvpRagdollWorld world = World();
+
+        IReadOnlyList<IvpCollisionObject> objects = world.AddStaticProps(
+            [new BspStaticProp("models/near.mdl", 0f, 0f, 0f, 0f, 90f, 0f, 1f, Solid: 6)],
+            _ => new IvpStaticPropCollide(Box(), null));
+
+        (double X, double Y, double Z, double W) turn = objects[0].Core.ShouldNotBeNull().Orientation;
+        turn.X.ShouldBe(0d, 1e-6d);
+        turn.Y.ShouldBe(-System.Math.Sqrt(0.5d), 1e-6d);
+        turn.Z.ShouldBe(0d, 1e-6d);
+        turn.W.ShouldBe(System.Math.Sqrt(0.5d), 1e-6d);
+    }
+
+    /// <remarks>
     /// **`cl_ragdoll_collide` defaults to 0** (`physics.cpp:198`), so two corpses' parts pass through each other; a corpse's own
     /// parts answer its collision rules instead.
     /// </remarks>

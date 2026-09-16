@@ -85,19 +85,86 @@ public sealed class IvpRagdollWorld
     /// <param name="contents">Its <c>CONTENTS_*</c> mask — <c>physics_shared.cpp:648</c>; a new object's is <c>CONTENTS_SOLID</c>.</param>
     /// <returns>Its object.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public IvpCollisionObject AddStatic(PhysicsLedgeTree surface, Vector3 origin, IIvpMaterial material, int contents)
+    public IvpCollisionObject AddStatic(PhysicsLedgeTree surface, Vector3 origin, IIvpMaterial material, int contents) =>
+        AddStatic(surface, origin, Quaternion.Identity, material, contents);
+
+    /// <summary>Adds every solid static prop — <c>CStaticPropMgr::CreateVPhysicsRepresentations</c>.</summary>
+    /// <param name="props">The map's static props, in lump order.</param>
+    /// <param name="collide">A model's first solid and that solid's surface property, or null when it has no collide.</param>
+    /// <returns>The objects made, in the order they were made.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Read from `engine.dll`** (GhidraMCP): `FUN_180203280` walks the props from the LAST down, and `FUN_180203060` makes one
+    /// `CreatePolyObjectStatic(vcollide->solids[0], GetSurfaceIndex(first "solid" block's surfaceprop), origin, angles)` for a
+    /// `SOLID_VPHYSICS` (6) prop — the first solid only, however many the model has. A `SOLID_VPHYSICS` prop whose model has no
+    /// collide was cleared to `SOLID_NONE` at load (`FUN_180206590`). *`SOLID_BBOX` (2) — `BBoxToCollide` of the model's bounds — is
+    /// not carried yet*; any other type is refused with "bogus solid type". The angles go through <c>AngleQuaternion</c>
+    /// (`mathlib_base.cpp:2063`); vphysics' own conversion goes by way of a matrix, which differs in rounding only.
+    /// </remarks>
+    public IReadOnlyList<IvpCollisionObject> AddStaticProps(
+        IReadOnlyList<BspStaticProp> props, Func<string, IvpStaticPropCollide?> collide)
+    {
+        ArgumentNullException.ThrowIfNull(props);
+        ArgumentNullException.ThrowIfNull(collide);
+
+        List<IvpCollisionObject> made = [];
+
+        for (int index = props.Count - 1; index >= 0; index--)
+        {
+            BspStaticProp prop = props[index];
+
+            if (prop.Solid != SolidVphysics || collide(prop.Model) is not { } found ||
+                Surfaces.ObjectMaterial(found.SurfaceProp) is not { } material)
+            {
+                continue;
+            }
+
+            made.Add(AddStatic(
+                found.Surface,
+                new Vector3(prop.X, prop.Y, prop.Z),
+                AngleQuaternion(prop.Pitch, prop.Yaw, prop.Roll),
+                material,
+                IvpWorldCollision.ContentsSolid));
+        }
+
+        return made;
+    }
+
+    /// <summary><c>SOLID_VPHYSICS</c>, <c>public/const.h</c>.</summary>
+    private const int SolidVphysics = 6;
+
+    /// <summary><c>AngleQuaternion( const QAngle &amp;, Quaternion &amp; )</c>, <c>mathlib_base.cpp:2063-2096</c>.</summary>
+    private static Quaternion AngleQuaternion(float pitch, float yaw, float roll)
+    {
+        const float HalfRadians = MathF.PI / 180f * 0.5f;
+
+        float sy = MathF.Sin(yaw * HalfRadians), cy = MathF.Cos(yaw * HalfRadians);
+        float sp = MathF.Sin(pitch * HalfRadians), cp = MathF.Cos(pitch * HalfRadians);
+        float sr = MathF.Sin(roll * HalfRadians), cr = MathF.Cos(roll * HalfRadians);
+
+        float srXcp = sr * cp, crXsp = cr * sp, crXcp = cr * cp, srXsp = sr * sp;
+
+        return new Quaternion(
+            (srXcp * cy) - (crXsp * sy),
+            (crXsp * cy) + (srXcp * sy),
+            (crXcp * sy) - (srXsp * cy),
+            (crXcp * cy) + (srXsp * sy));
+    }
+
+    private IvpCollisionObject AddStatic(PhysicsLedgeTree surface, Vector3 origin, Quaternion angles, IIvpMaterial material, int contents)
     {
         ArgumentNullException.ThrowIfNull(surface);
 
         (float x, float y, float z) = IvpTransform.Position(origin.X, origin.Y, origin.Z);
+        (double X, double Y, double Z, double W) rotation = IvpRagdoll.Rotation(angles);
 
         IvpRigidBody core = new()
         {
             Immovable = true,
             Position = (x, y, z),
-            Orientation = (0d, 0d, 0d, 1d),
-            WorkingOrientation = (0d, 0d, 0d, 1d),
-            CoreMatrix = IvpMatrix.FromRotation((0d, 0d, 0d, 1d), (x, y, z)),
+            Orientation = rotation,
+            WorkingOrientation = rotation,
+            CoreMatrix = IvpMatrix.FromRotation(rotation, (x, y, z)),
             InverseMass = 0f,
             InverseInertia = (0f, 0f, 0f),
         };
@@ -227,6 +294,11 @@ public sealed class IvpRagdollWorld
         return (contents & IvpWorldCollision.MaskSolid) != 0;
     }
 }
+
+/// <summary>What a static prop's model gives <c>CreatePolyObjectStatic</c>: its first solid and that solid's surface property.</summary>
+/// <param name="Surface">The first solid's compact surface.</param>
+/// <param name="SurfaceProp">The first <c>solid</c> block's <c>surfaceprop</c>; null reads as unnamed, which falls to <c>default</c>.</param>
+public sealed record IvpStaticPropCollide(PhysicsLedgeTree Surface, string? SurfaceProp);
 
 /// <summary>A model's ragdoll on the ported driver, in IVP space — <c>RagdollCreate</c> through <c>CPhysicsObject</c> (B369, D172).</summary>
 /// <remarks>
@@ -488,7 +560,7 @@ public sealed class IvpRagdoll
     }
 
     /// <summary>A Source rotation in IVP's axes — <c>P·R·Pᵀ</c>, which for a quaternion turns its axis by <c>P</c>.</summary>
-    private static (double X, double Y, double Z, double W) Rotation(Quaternion source) =>
+    internal static (double X, double Y, double Z, double W) Rotation(Quaternion source) =>
         (source.X, -source.Z, source.Y, source.W);
 
     /// <summary>A bone-to-bone frame in IVP's axes: <c>P·A·Pᵀ</c>, whose columns are <c>P·X</c>, <c>−P·Z</c> and <c>P·Y</c>.</summary>
