@@ -30,17 +30,21 @@ public static class IvpMapWorld
     /// <param name="Terrain">The displacements'.</param>
     /// <param name="Props">The static props'.</param>
     /// <param name="BrushEntities">The brush entities' models'.</param>
-    public sealed record Counts(int World, int Terrain, int Props, int BrushEntities);
+    public sealed record Objects(
+        IReadOnlyList<IvpCollisionObject> World,
+        IReadOnlyList<IvpCollisionObject> Terrain,
+        IReadOnlyList<IvpCollisionObject> Props,
+        IReadOnlyList<IvpCollisionObject> BrushEntities);
 
     /// <summary>Loads a map into a world.</summary>
     /// <param name="world">The world.</param>
     /// <param name="map">The map's bytes.</param>
     /// <param name="read">Reads a game file, the map's pakfile first; null when absent.</param>
     /// <param name="log">Where a lump or model that will not read is reported.</param>
-    /// <returns>How many objects of each kind.</returns>
+    /// <returns>The objects of each kind.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's headers or displacement lumps are malformed.</exception>
-    public static Counts Load(IvpRagdollWorld world, ReadOnlyMemory<byte> map, Func<string, byte[]?> read, ILogger log)
+    public static Objects Load(IvpRagdollWorld world, ReadOnlyMemory<byte> map, Func<string, byte[]?> read, ILogger log)
     {
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(read);
@@ -51,19 +55,19 @@ public static class IvpMapWorld
         Dictionary<int, System.Numerics.Vector3> origins = MapLevel.BrushModelOrigins(BspEntities.ReadFrom(map));
 
         MapPhysicsModel[] worldModel = [.. models.Where(model => model.ModelIndex == 0)];
-        int worldObjects = world.AddMap(worldModel, origins).Count;
-        int terrain = 0;
+        IReadOnlyList<IvpCollisionObject> worldObjects = world.AddMap(worldModel, origins);
+        IReadOnlyList<IvpCollisionObject> terrain = [];
 
         if (worldModel.Length > 0 && MapSurfaceTable.Parse(worldModel[0].Text).HasVirtualTerrain)
         {
             terrain = world.AddVirtualTerrain(Displacements(map), BspPhysicsDisplacements.Read(
-                BspLumpData.Read(map, header.Lump(PhysDispLump)), BspTerrain.Create(map).Count)).Count;
+                BspLumpData.Read(map, header.Lump(PhysDispLump)), BspTerrain.Create(map).Count));
         }
 
-        int props = world.AddStaticProps(BspStaticProps.Read(map), model => FirstSolid(model, read, log)).Count;
-        int brushEntities = world.AddMap([.. models.Where(model => model.ModelIndex != 0)], origins).Count;
+        IReadOnlyList<IvpCollisionObject> props = world.AddStaticProps(BspStaticProps.Read(map), model => FirstSolid(model, read, log));
+        IReadOnlyList<IvpCollisionObject> brushEntities = world.AddMap([.. models.Where(model => model.ModelIndex != 0)], origins);
 
-        return new Counts(worldObjects, terrain, props, brushEntities);
+        return new Objects(worldObjects, terrain, props, brushEntities);
     }
 
     /// <summary>Each displacement's tree and flag, by displacement index — through the face that names it.</summary>

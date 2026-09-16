@@ -29,7 +29,7 @@ public sealed class IvpRagdollWorld
     private const float RestDelay = 0.3f;
 
     private readonly IvpRandom _random = new();
-    private readonly Dictionary<IvpCollisionObject, (IvpRagdoll Ragdoll, int Element)> _owners = [];
+    private readonly Dictionary<IvpRigidBody, (IvpRagdoll Ragdoll, int Element)> _owners = [];
     private readonly Dictionary<IvpCollisionObject, int> _contents = [];
 
     /// <summary>Makes the environment.</summary>
@@ -320,9 +320,9 @@ public sealed class IvpRagdollWorld
     /// <param name="seconds">How long.</param>
     public void Simulate(double seconds) => Simulation.Advance(Simulation.Now + seconds);
 
-    /// <summary>Files an object as one ragdoll's element, for the rules.</summary>
-    internal void Own(IvpCollisionObject collisionObject, IvpRagdoll ragdoll, int element) =>
-        _owners[collisionObject] = (ragdoll, element);
+    /// <summary>Files a core as one ragdoll's element, for the rules — the object's game data and game index.</summary>
+    internal void Own(IvpRigidBody core, IvpRagdoll ragdoll, int element) =>
+        _owners[core] = (ragdoll, element);
 
     /// <summary>The game's rules for a pair — <c>CCollisionEvent::ShouldCollide</c>, <c>game/client/physics.cpp:200-258</c>.</summary>
     /// <remarks>
@@ -333,12 +333,15 @@ public sealed class IvpRagdollWorld
     /// </remarks>
     private bool ShouldCollide(IvpCollisionObject first, IvpCollisionObject second)
     {
-        bool firstPart = _owners.TryGetValue(first, out (IvpRagdoll Ragdoll, int Element) a);
-        bool secondPart = _owners.TryGetValue(second, out (IvpRagdoll Ragdoll, int Element) b);
+        (IvpRagdoll Ragdoll, int Element)? a =
+            first.Core is { } firstCore && _owners.TryGetValue(firstCore, out (IvpRagdoll, int) aOwner) ? aOwner : null;
+        (IvpRagdoll Ragdoll, int Element)? b =
+            second.Core is { } secondCore && _owners.TryGetValue(secondCore, out (IvpRagdoll, int) bOwner) ? bOwner : null;
+        bool firstPart = a is not null;
 
-        if (firstPart && secondPart)
+        if (a is { } mine && b is { } theirs)
         {
-            return ReferenceEquals(a.Ragdoll, b.Ragdoll) && a.Ragdoll.Body.ShouldCollide(a.Element, b.Element);
+            return ReferenceEquals(mine.Ragdoll, theirs.Ragdoll) && mine.Ragdoll.Body.ShouldCollide(mine.Element, theirs.Element);
         }
 
         IvpCollisionObject other = firstPart ? second : first;
@@ -389,6 +392,12 @@ public sealed class IvpRagdoll
 
     /// <summary>The ragdoll's bodies and joints, as the <c>.phy</c> declares them.</summary>
     public RagdollBody Body { get; }
+
+    /// <summary>The cores, one per element — for instruments.</summary>
+    internal IReadOnlyList<IvpRigidBody> Bodies => _bodies;
+
+    /// <summary>The world the corpse is in — for instruments.</summary>
+    internal IvpRagdollWorld World => _world;
 
     /// <summary>Whether the game has forced it to sleep.</summary>
     public bool Asleep { get; private set; }
@@ -452,10 +461,8 @@ public sealed class IvpRagdoll
             bodies[index] = body;
             world.Simulation.Add(body);
 
-            if (element.Surface is { } surface && world.Surfaces.ObjectMaterial(element.SurfaceProp) is { } material)
-            {
-                world.Own(world.Simulation.Collide(body, surface, material), made, index);
-            }
+            // The game data rides in with the object (`solid.params.pGameData`, `ragdoll_shared.cpp:193`), before any pair is asked about.
+            world.Own(body, made, index);
         }
 
         IvpConstraintGroup group = new();
@@ -490,6 +497,19 @@ public sealed class IvpRagdoll
         if (group.Joints.Count > 0)
         {
             world.Simulation.Add(group);
+        }
+
+        // `RagdollActivate` (`ragdoll_shared.cpp:375-382`): "now that the relationships are set, activate the collision system", each
+        // element in index order. *Filing each element as it was made asked the rules about objects not yet owned, and made pairs they
+        // forbid.*
+        for (int index = 0; index < bodies.Length; index++)
+        {
+            RagdollElement element = ragdoll.Elements[index];
+
+            if (element.Surface is { } surface && world.Surfaces.ObjectMaterial(element.SurfaceProp) is { } material)
+            {
+                world.Simulation.Collide(bodies[index], surface, material);
+            }
         }
 
         return made;

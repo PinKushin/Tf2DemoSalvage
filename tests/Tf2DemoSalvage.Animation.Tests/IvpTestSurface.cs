@@ -18,7 +18,13 @@ internal static class IvpTestSurface
     /// <summary>One or two boxes, each at its centre, as one surface's tree.</summary>
     /// <param name="boxes">Each box's centre and half extents.</param>
     /// <returns>The tree.</returns>
-    public static PhysicsLedgeTree Boxes(params (Vector3 Centre, Vector3 Half)[] boxes)
+    public static PhysicsLedgeTree Boxes(params (Vector3 Centre, Vector3 Half)[] boxes) =>
+        PhysicsHull.Tree(Bytes(boxes)) ?? throw new InvalidOperationException("The written surface did not read as a tree.");
+
+    /// <summary>The surface's bytes, as a <c>.phy</c> or a map's collide would carry them untagged.</summary>
+    /// <param name="boxes">Each box's centre and half extents.</param>
+    /// <returns>The bytes.</returns>
+    public static byte[] Bytes(params (Vector3 Centre, Vector3 Half)[] boxes)
     {
         if (boxes.Length is < 1 or > 2)
         {
@@ -54,12 +60,15 @@ internal static class IvpTestSurface
             radius = MathF.Max(radius, centre.Length() + half.Length());
         }
 
-        // The mass centre at the origin; the radius a sphere about it that holds every box.
+        // The mass centre at the origin, a unit rotation inertia per kilogram; the radius a sphere about it that holds every box.
+        BitConverter.TryWriteBytes(surface.AsSpan(0x0C), 1f);
+        BitConverter.TryWriteBytes(surface.AsSpan(0x10), 1f);
+        BitConverter.TryWriteBytes(surface.AsSpan(0x14), 1f);
         BitConverter.TryWriteBytes(surface.AsSpan(0x18), radius);
         BitConverter.TryWriteBytes(surface.AsSpan(0x20), root);
         "IVPS"u8.CopyTo(surface.AsSpan(0x2C));
 
-        return PhysicsHull.Tree(surface) ?? throw new InvalidOperationException("The written surface did not read as a tree.");
+        return surface;
     }
 
     /// <summary>Appends one ledge — header, triangles, points — and answers where it starts.</summary>

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 
 using Microsoft.Extensions.Logging.Abstractions;
@@ -87,13 +88,14 @@ public sealed class IvpDropCompareProbe : IProbe
         old.Environment.World = level.Physics;
 
         IvpRagdollWorld world = new(Step, new Vector3(0f, 0f, -800f), game.Surfaces);
-        IvpMapWorld.Counts counts = IvpMapWorld.Load(world, map, Read, NullLogger.Instance);
+        IvpMapWorld.Objects loaded = IvpMapWorld.Load(world, map, Read, NullLogger.Instance);
         IvpRagdoll ported = IvpRagdoll.Create(world, ragdoll, start);
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{mapName}, {model} ({ragdoll.Elements.Count} bodies) from ({at.X:0.#}, {at.Y:0.#}, {at.Z:0.#}); ported world: " +
-            $"{counts.World} world objects, {counts.Terrain} displacements, {counts.Props} props, {counts.BrushEntities} brush entity objects"));
+            $"{loaded.World.Count} world objects, {loaded.Terrain.Count} displacements, {loaded.Props.Count} props, " +
+            $"{loaded.BrushEntities.Count} brush entity objects"));
 
         if (blow.LengthSquared() > 0f)
         {
@@ -109,6 +111,15 @@ public sealed class IvpDropCompareProbe : IProbe
             old.Step();
             world.Simulate(Step);
 
+            // The client's own settle check, which the old solver's step runs inside itself.
+            ported.CheckSettle(Step);
+
+            // Four seconds in, still awake: what each body is doing, and what it stands on.
+            if (tick == 264)
+            {
+                Contacts(output, ported, loaded);
+            }
+
             Vector3 oldRoot = Root(old);
             Vector3 portedRoot = ported.State()[0].Position;
             oldLowest = MathF.Min(oldLowest, oldRoot.Z);
@@ -120,13 +131,108 @@ public sealed class IvpDropCompareProbe : IProbe
                     CultureInfo.InvariantCulture,
                     $"  {tick * Step,5:0.0}s  old ({oldRoot.X,8:0.0}, {oldRoot.Y,8:0.0}, {oldRoot.Z,8:0.0})  " +
                     $"ported ({portedRoot.X,8:0.0}, {portedRoot.Y,8:0.0}, {portedRoot.Z,8:0.0})  apart {Vector3.Distance(oldRoot, portedRoot),7:0.0}  " +
-                    $"impacts {world.Simulation.Environment.Impacts}"));
+                    $"impacts {world.Simulation.Environment.Impacts}  fastest {Fastest(ported),6:0.00} in/s{(ported.Asleep ? " asleep" : string.Empty)}"));
             }
         }
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"  lowest root z: old {oldLowest:0.0}, ported {portedLowest:0.0}; the old solver {(old.Asleep ? "asleep" : "awake")}, the ported corpse {ported.State().Length} bodies"));
+    }
+
+    /// <summary>The fastest body's linear speed, back in Source inches per second.</summary>
+    private static float Fastest(IvpRagdoll ragdoll)
+    {
+        float fastest = 0f;
+
+        foreach (IvpRigidBody body in ragdoll.Bodies)
+        {
+            (float x, float y, float z) = body.Velocity;
+            fastest = MathF.Max(fastest, MathF.Sqrt((x * x) + (y * y) + (z * z)) / IvpTransform.MetresPerInch);
+        }
+
+        return fastest;
+    }
+
+    /// <summary>Every contact each body stands in, with the kind of object across it.</summary>
+    private static void Contacts(TextWriter output, IvpRagdoll ragdoll, IvpMapWorld.Objects loaded)
+    {
+        HashSet<IvpCollisionObject> world = [.. loaded.World];
+        HashSet<IvpCollisionObject> terrain = [.. loaded.Terrain];
+        HashSet<IvpCollisionObject> props = [.. loaded.Props];
+
+        string Kind(IvpCollisionObject other)
+        {
+            if (world.Contains(other))
+            {
+                return "world";
+            }
+
+            if (terrain.Contains(other))
+            {
+                return "terrain";
+            }
+
+            return props.Contains(other) ? "prop" : "other";
+        }
+
+        for (int index = 0; index < ragdoll.Bodies.Count; index++)
+        {
+            IvpRigidBody body = ragdoll.Bodies[index];
+            (float vx, float vy, float vz) = body.Velocity;
+            (float wx, float wy, float wz) = body.AngularVelocity;
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  body {index,2}: speed {MathF.Sqrt((vx * vx) + (vy * vy) + (vz * vz)) / IvpTransform.MetresPerInch,7:0.00} in/s, " +
+                $"spin {MathF.Sqrt((wx * wx) + (wy * wy) + (wz * wz)),6:0.00} rad/s, unit {(body.Unit is null ? "none" : "yes")}"));
+
+            IEnumerable<IvpFrictionSystem> systems = body.FrictionInfos.Keys;
+
+            if (body.FrictionInfo?.System is { } own && !body.FrictionInfos.ContainsKey(own))
+            {
+                systems = systems.Append(own);
+            }
+
+            output.WriteLine($"    {body.FrictionInfos.Count} friction infos, own system {(body.FrictionInfo is null ? "none" : "yes")}");
+
+            foreach (IvpContactPoint? first in systems.Select(system => system.FirstContact))
+            {
+                for (IvpContactPoint? contact = first; contact is not null; contact = contact.Next)
+                {
+                    bool firstIsThis = ReferenceEquals(contact.FirstObject.Core, body);
+                    bool secondIsThis = ReferenceEquals(contact.SecondObject.Core, body);
+
+                    if (!firstIsThis && !secondIsThis)
+                    {
+                        continue;
+                    }
+
+                    IvpCollisionObject other = firstIsThis ? contact.SecondObject : contact.FirstObject;
+                    int otherIndex = Array.FindIndex([.. ragdoll.Bodies], candidate => ReferenceEquals(candidate, other.Core));
+
+                    if (otherIndex >= 0)
+                    {
+                        RagdollElement mine = ragdoll.Body.Elements[index];
+                        RagdollElement theirs = ragdoll.Body.Elements[otherIndex];
+
+                        IvpCollisionObject self = firstIsThis ? contact.FirstObject : contact.SecondObject;
+
+                        output.WriteLine(
+                            $"    self contact {index}-{otherIndex}: parents {mine.ParentIndex}/{theirs.ParentIndex}, " +
+                            $"rules collide {ragdoll.Body.ShouldCollide(index, otherIndex)}, " +
+                            $"filter {ragdoll.World.Simulation.ShouldCollide?.Invoke(self, other)}, " +
+                            $"friction cores {(ReferenceEquals(self.FrictionCore, body) ? "own" : "shared")}");
+                    }
+                    (float nx, float ny, float nz) = contact.LastNormal;
+
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"  body {index,2} touches {Kind(other)}: gap {contact.Gap:0.0000} " +
+                        $"normal IVP ({nx:0.00}, {ny:0.00}, {nz:0.00}) slide {contact.Slide} push {contact.NormalPush:0.000}"));
+                }
+            }
+        }
     }
 
     private static Vector3 Root(RagdollSimulation simulation)

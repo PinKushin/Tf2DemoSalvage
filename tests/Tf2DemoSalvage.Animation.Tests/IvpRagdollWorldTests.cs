@@ -134,6 +134,110 @@ public sealed class IvpRagdollWorldTests
     }
 
     /// <remarks>
+    /// **A corpse's own rules apply to its first pairs too.** `RagdollCreate` hands every object its game data when it is made, and
+    /// `RagdollActivate` enables collisions only once the joints and rules are set (`ragdoll_shared.cpp:193`, `:375-382`). Two joined
+    /// elements driven into each other — a pair the default rules disable — must never make an impact. *The control*: the same two
+    /// with the joint's block renamed, so the rules let them collide, make one.
+    /// </remarks>
+    [Test]
+    public void Create_TwoJoinedElementsOverlapping_NeverCollide()
+    {
+        IvpRagdollWorld world = World();
+        byte[] surface = IvpTestSurface.Bytes((Vector3.Zero, new Vector3(0.1f)));
+        byte[] file =
+        [
+            .. System.BitConverter.GetBytes(16),
+            .. System.BitConverter.GetBytes(0x59485056),
+            .. System.BitConverter.GetBytes(2),
+            .. System.BitConverter.GetBytes(0),
+            .. System.BitConverter.GetBytes(surface.Length), .. surface,
+            .. System.BitConverter.GetBytes(surface.Length), .. surface,
+            .. System.Text.Encoding.ASCII.GetBytes("""
+                solid {
+                  "index" "0"
+                  "name" "bip_root"
+                  "mass" "10.0"
+                  "surfaceprop" "default"
+                }
+                solid {
+                  "index" "1"
+                  "name" "bip_child"
+                  "parent" "bip_root"
+                  "mass" "2.0"
+                  "surfaceprop" "default"
+                }
+                ragdollconstraint {
+                  "parent" "0"
+                  "child" "1"
+                  "xmin" "-30" "xmax" "30" "ymin" "-30" "ymax" "30" "zmin" "-30" "zmax" "30"
+                }
+                """),
+        ];
+
+        RagdollBody body = RagdollBody.Build(PhysicsModel.Read(file), RagdollSkeletons.Straight()).ShouldNotBeNull();
+        body.Elements[1].Surface.ShouldNotBeNull("the control: the elements carry surfaces, so they are collided at all");
+
+        // A child a foot above its root, both 8 inches across, driven down through it.
+        IvpRagdoll ragdoll = IvpRagdoll.Create(
+            world, body, [(Vector3.Zero, Quaternion.Identity), (new Vector3(0f, 0f, 12f), Quaternion.Identity)]);
+        ragdoll.Kill(new Vector3(0f, 0f, -20000f), forceBone: 1);
+        world.Simulate(0.3d);
+
+        world.Simulation.Environment.Impacts.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **And filing makes no pair of them either**: two joined elements created on top of each other are in each other's range the
+    /// moment the second is filed, and the rules must already be asked about both. *The port filed each element before registering
+    /// its owner, so that pair was made — and on `cp_process_f12` a scout's two forbidden forearm bones held a contact.*
+    /// </remarks>
+    [Test]
+    public void Create_TwoJoinedElementsOnTopOfEachOther_FileNoPairBetweenThem()
+    {
+        IvpRagdollWorld world = World();
+        RagdollBody body = RagdollBody.Build(PhysicsModel.Read(JoinedPhy()), RagdollSkeletons.Straight()).ShouldNotBeNull();
+
+        IvpRagdoll ragdoll = IvpRagdoll.Create(world, body, [(Vector3.Zero, Quaternion.Identity), (Vector3.Zero, Quaternion.Identity)]);
+
+        ragdoll.Bodies[1].Objects[0].Node.ShouldNotBeNull().Watchers.ShouldBeEmpty();
+    }
+
+    private static byte[] JoinedPhy()
+    {
+        byte[] surface = IvpTestSurface.Bytes((Vector3.Zero, new Vector3(0.1f)));
+
+        return
+        [
+            .. System.BitConverter.GetBytes(16),
+            .. System.BitConverter.GetBytes(0x59485056),
+            .. System.BitConverter.GetBytes(2),
+            .. System.BitConverter.GetBytes(0),
+            .. System.BitConverter.GetBytes(surface.Length), .. surface,
+            .. System.BitConverter.GetBytes(surface.Length), .. surface,
+            .. System.Text.Encoding.ASCII.GetBytes("""
+                solid {
+                  "index" "0"
+                  "name" "bip_root"
+                  "mass" "10.0"
+                  "surfaceprop" "default"
+                }
+                solid {
+                  "index" "1"
+                  "name" "bip_child"
+                  "parent" "bip_root"
+                  "mass" "2.0"
+                  "surfaceprop" "default"
+                }
+                ragdollconstraint {
+                  "parent" "0"
+                  "child" "1"
+                  "xmin" "-30" "xmax" "30" "ymin" "-30" "ymax" "30" "zmin" "-30" "zmax" "30"
+                }
+                """),
+        ];
+    }
+
+    /// <remarks>
     /// **`cl_ragdoll_collide` defaults to 0** (`physics.cpp:198`), so two corpses' parts pass through each other; a corpse's own
     /// parts answer its collision rules instead.
     /// </remarks>
@@ -145,8 +249,8 @@ public sealed class IvpRagdollWorldTests
         IvpRagdoll one = Ragdoll(world);
         IvpRagdoll two = Ragdoll(world);
 
-        world.Own(first, one, 0);
-        world.Own(second, two, 0);
+        world.Own(first.Core.ShouldNotBeNull(), one, 0);
+        world.Own(second.Core.ShouldNotBeNull(), two, 0);
 
         world.Simulation.ShouldCollide!(first, second).ShouldBeFalse();
     }
@@ -163,7 +267,7 @@ public sealed class IvpRagdollWorldTests
         IvpCollisionObject brush = world.AddStatic(Box(), new Vector3(0f, 0f, 200f), material, contents: 0x1);
         IvpCollisionObject part = world.AddStatic(Box(), new Vector3(0f, 0f, 400f), material, contents: 0x1);
 
-        world.Own(part, Ragdoll(world), 0);
+        world.Own(part.Core.ShouldNotBeNull(), Ragdoll(world), 0);
 
         world.Simulation.ShouldCollide!(part, clip).ShouldBeFalse();
         world.Simulation.ShouldCollide(part, brush).ShouldBeTrue();
