@@ -149,6 +149,42 @@ public sealed class IvpNormalFrictionController(IvpFrictionSystem system) : IIvp
     /// <inheritdoc/>
     public int Priority => NormalPriority;
 
+    /// <summary>
+    /// Takes every one of this system's controllers off the cores that carry them — <c>FUN_180084320</c>'s <c>no contacts left:
+    /// the controller forgets the system, which deletes itself (slot 7)</c>.
+    /// </summary>
+    /// <param name="unit">The unit whose cores carry them.</param>
+    /// <remarks>
+    /// **A system with no contacts left is gone**, and what makes it gone in this port is that nothing names it any more: its
+    /// three controller faces leave the cores' own lists, so the next rebuild has no entry for them. *The native frees the object
+    /// through its slot 7; this port lets it be collected.*
+    /// </remarks>
+    private void Forget(IvpSimulationUnit unit)
+    {
+        for (int index = unit.Cores.Count - 1; index >= 0; index--)
+        {
+            List<IIvpUnitController> controllers = unit.Cores[index].Controllers;
+
+            for (int at = controllers.Count - 1; at >= 0; at--)
+            {
+                if (Drives(controllers[at]))
+                {
+                    controllers.RemoveAt(at);
+                }
+            }
+        }
+    }
+
+    /// <summary>Whether a controller is one of this system's own three faces.</summary>
+    private bool Drives(IIvpUnitController controller) =>
+        controller switch
+        {
+            IvpNormalFrictionController normal => ReferenceEquals(normal.System, System),
+            IvpFrictionController tangential => ReferenceEquals(tangential.System, System),
+            IvpRecordFrictionController record => ReferenceEquals(record.System, System),
+            _ => false,
+        };
+
     /// <inheritdoc/>
     public void Advance(IvpSimulationUnit unit, IReadOnlyList<IvpRigidBody> cores, float psiStep)
     {
@@ -160,6 +196,10 @@ public sealed class IvpNormalFrictionController(IvpFrictionSystem system) : IIvp
 
             // `+0x80 set → cleared`, then the union-find the split needs, which is not carried.
             System.SplitCheckDue = false;
+        }
+        else
+        {
+            Forget(unit);
         }
 
         unit.Flags = (unit.Flags & ~0x200) | 0x100;

@@ -162,6 +162,63 @@ public sealed class IvpFrictionControllerTests
         (unit.Flags & 0x300).ShouldBe(0x100);
     }
 
+    /// <remarks>
+    /// **A system with no contacts left is forgotten**: its three controller faces leave the cores that carried them, so the next
+    /// rebuild has no entry for it — which is how <c>FUN_180084320</c>'s "the controller forgets the system, which deletes itself"
+    /// lands in a port with no slot 7.
+    /// </remarks>
+    [Test]
+    public void Advance_TheNormalPassWithNoContacts_TakesTheSystemOffItsCores()
+    {
+        (IvpFrictionSystem system, IvpContactPoint contact) = Linked();
+        IvpSimulationUnit unit = new();
+        IvpRigidBody core = contact.FirstObject.Core!;
+        unit.Cores.Add(core);
+        core.Controllers.Add(new IvpNormalFrictionController(system));
+        core.Controllers.Add(new IvpFrictionController(system));
+        core.Controllers.Add(new IvpRecordFrictionController(system, system.Environment, Revalidate.Sides));
+        core.Controllers.Add(new IvpGravityController((0f, 0f, -600f)));
+        system.Unlink(contact);
+
+        new IvpNormalFrictionController(system).Advance(unit, [], psiStep: 0.5f);
+
+        core.Controllers.Count.ShouldBe(1, "only gravity is left");
+        core.Controllers[0].Priority.ShouldBe(1000);
+    }
+
+    [Test]
+    public void Advance_TheNormalPassWithContactsLeft_KeepsTheSystemOnItsCores()
+    {
+        (IvpFrictionSystem system, IvpContactPoint contact) = Linked();
+        IvpSimulationUnit unit = new();
+        IvpRigidBody core = contact.FirstObject.Core!;
+        unit.Cores.Add(core);
+        core.Controllers.Add(new IvpNormalFrictionController(system));
+
+        new IvpNormalFrictionController(system).Advance(unit, [], psiStep: 0.5f);
+
+        core.Controllers.Count.ShouldBe(1, "the system still holds a contact, so it stays");
+    }
+
+    /// <remarks>**Another system's controllers are left alone**, which a match on the controller type alone would get wrong.</remarks>
+    [Test]
+    public void Advance_TheNormalPassWithNoContacts_LeavesAnotherSystemsControllers()
+    {
+        (IvpFrictionSystem empty, IvpContactPoint contact) = Linked();
+        (IvpFrictionSystem other, _) = Linked();
+        IvpSimulationUnit unit = new();
+        IvpRigidBody core = contact.FirstObject.Core!;
+        unit.Cores.Add(core);
+        core.Controllers.Add(new IvpNormalFrictionController(empty));
+        core.Controllers.Add(new IvpNormalFrictionController(other));
+        empty.Unlink(contact);
+
+        new IvpNormalFrictionController(empty).Advance(unit, [], psiStep: 0.5f);
+
+        core.Controllers.Count.ShouldBe(1);
+        ((IvpNormalFrictionController)core.Controllers[0]).System.ShouldBeSameAs(other);
+    }
+
     [Test]
     public void Priority_TheRecordPass_Is2000()
     {
