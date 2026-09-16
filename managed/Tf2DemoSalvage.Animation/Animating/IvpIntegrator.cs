@@ -460,6 +460,18 @@ public sealed class IvpRigidBody
     /// <summary>A movable core's share of the one friction system it is in — <c>core+0x60</c>.</summary>
     public IvpFrictionInfo? FrictionInfo { get; set; }
 
+    /// <summary>The linear drag basis — <c>CPhysicsObject+0x28</c>, per core axis.</summary>
+    public (float X, float Y, float Z) DragBasis { get; set; }
+
+    /// <summary>The angular drag basis — <c>CPhysicsObject+0x34</c>, per core axis.</summary>
+    public (float X, float Y, float Z) AngularDragBasis { get; set; }
+
+    /// <summary>The linear drag coefficient — <c>CPhysicsObject+0x58</c>, the object's <c>dragCoefficient</c>.</summary>
+    public float DragCoefficient { get; set; }
+
+    /// <summary>The angular drag coefficient — <c>CPhysicsObject+0x5c</c>, the same parameter.</summary>
+    public float AngularDragCoefficient { get; set; }
+
     /// <summary>The union-find link a friction system's split check writes — <c>core+0x258</c>, null at a set's root.</summary>
     /// <remarks>Scratch for <see cref="IvpFrictionSystem.DetachedRoot"/> only: cleared for every core of the system on each call.</remarks>
     internal IvpRigidBody? UnionParent { get; set; }
