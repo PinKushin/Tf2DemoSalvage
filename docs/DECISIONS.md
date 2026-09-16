@@ -8929,3 +8929,24 @@ in the test count. Both are read here, so a cheap model's failure mode is visibl
 the repo's backup copy is updated in the same commit.
 
 Related: D145, D168, D172.
+
+## D178 — a C# symbol lookup goes to the LSP, enforced by a hook (2026-09-16)
+
+**The owner, watching a session port IVP on grep and sed:** *"Remember the lsp and mcp servers. Idk if you have been
+using them but I just saw grep"*, then *"Yea you've wasted so many tokens not using that today. There needs to be a
+hook that reminds you."*
+
+**Why a hook and not another memory line.** `docs/memory/spend-fewer-tokens.md` already said code reads go through
+`agent-lsp`, in the owner's words from 2026-09-13; a whole session ignored it. Every "where is X", "who calls X" and
+"show me X" was a grep printing dozens of lines and a sed printing a hundred, where `find_symbol`,
+`find_references` and `get_symbol_source` return the one answer.
+
+**What it does.** `~/.claude/hooks/prefer-lsp-for-symbols.ps1` (on `Grep`, `Bash`, `PowerShell`) refuses a search over
+C# whose pattern is symbol-shaped — a PascalCase identifier, a member access, a declaration or a call, alone or
+alternated — and names the tools. It leaves text questions alone: `FUN_`/`DAT_` addresses, offsets, prose, docs,
+test output. **Deny rather than a note**, because a note arrives after the search has printed and the tokens are
+spent. Thirteen cases in its `.tests.json`, controls included; the backup is in `.claude/hooks/global/`.
+
+**What would reopen it:** a class of legitimate text search it refuses, which goes in the tests as a control.
+
+Related: D168, D177.
