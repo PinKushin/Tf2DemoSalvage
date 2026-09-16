@@ -136,10 +136,85 @@ public sealed class IvpSimulation
     public void Start() =>
         IvpPsiEvent.Start(Environment, _time, _units, _mindists, _queue, Minimize, Examine, _random);
 
-    /// <summary>Runs every PSI due before an absolute time.</summary>
+    /// <summary>Runs every PSI due before an absolute time, and every pair event those PSIs queued.</summary>
     /// <param name="target">The absolute time to simulate to.</param>
     /// <returns>How many PSIs fired.</returns>
-    public int Advance(double target) => _time.DrainUntil(target, now => Environment.Now = now);
+    /// <remarks>
+    /// **The engine keeps ONE queue** — the PSI event and every pair's event sit in the time manager's own min-list together, in
+    /// time order. This port has two: <see cref="PhysicsTimeManager"/> for the PSI event and the mindist min-list the scheduler
+    /// writes. So the pair events of a PSI are fired after it rather than interleaved with the next one by time. *A stated
+    /// divergence, and the one to close when the two queues become one.*
+    /// </remarks>
+    public int Advance(double target)
+    {
+        int fired = 0;
+
+        // **One PSI at a time, with the pair events drained after each** — the engine fires both from one queue in time order, so
+        // a pair event due before the next PSI must fire before it. Draining once at the end of a long slice would instead find
+        // only the last PSI's requeue, always in the future.
+        while (Environment.Now < target)
+        {
+            double next = Environment.PsiEnd > Environment.Now && Environment.PsiEnd < target ? Environment.PsiEnd : target;
+
+            // **The loop must always move the clock forward.** A slice that does not is how this spun forever once: the clock is
+            // snapped to `next` by the drain, so a `next` at or behind now leaves the condition unchanged and nothing progresses.
+            if (!(next > Environment.Now))
+            {
+                break;
+            }
+
+            fired += _time.DrainUntil(next, now => Environment.Now = now);
+            FireDuePairs();
+        }
+
+        return fired;
+    }
+
+    /// <summary>How many pair events have fired — an instrument, not a field the engine keeps.</summary>
+    public int PairEvents { get; private set; }
+
+    /// <summary>Fires every queued pair event whose time has passed — the loop the time manager runs over its own queue.</summary>
+    private void FireDuePairs()
+    {
+        while (_queue.TryFirst(out IvpMindist? mindist, out int slot))
+        {
+            if (_queue.ValueOf(slot) > Environment.Now)
+            {
+                return;
+            }
+
+            _queue.Remove(slot);
+            mindist.QueueSlot = null;
+            PairEvents++;
+
+            IvpMindistFire.Handle(mindist, Minimize, recheck => Examine(mindist, recheck), Collide);
+        }
+    }
+
+    /// <summary>A collided pair's real response — <c>FUN_18008ecb0</c>, through <see cref="IvpMindistCollide.Collide"/>.</summary>
+    private void Collide(IvpMindist mindist)
+    {
+        (IvpLedgeSide first, IvpLedgeSide second) = SidesOf(mindist);
+
+        IvpCollisionObject firstObject = ObjectOf(mindist.HullRecord(0));
+        IvpCollisionObject secondObject = ObjectOf(mindist.HullRecord(1));
+
+        _ = IvpMindistCollide.Collide(
+            mindist,
+            firstObject,
+            first,
+            secondObject,
+            second,
+            Environment,
+            Environment.Materials,
+            _ => (first, second),
+            Minimize,
+            mindist => Examine(mindist, IvpRecheck.AfterMiss),
+            Environment.Now);
+    }
+
+    private static IvpCollisionObject ObjectOf(IvpMindistHullRecord record) =>
+        record.CollisionObject ?? throw new InvalidOperationException("A synapse record was never linked to an object.");
 
     /// <summary>Files a pair of objects as an exact mindist, so the pipeline's walks reach it.</summary>
     /// <param name="mindist">The pair.</param>
@@ -205,7 +280,9 @@ public sealed class IvpSimulation
     /// its far threshold is left exact rather than filed with the objects' hull managers, because that filing is the broad
     /// phase's and is not carried here.
     /// </remarks>
-    private void Examine(IvpMindist mindist)
+    private void Examine(IvpMindist mindist) => Examine(mindist, IvpRecheck.AfterFeatureChange);
+
+    private void Examine(IvpMindist mindist, IvpRecheck recheck)
     {
         (IvpLedgeSide first, IvpLedgeSide second) = SidesOf(mindist);
 
@@ -220,7 +297,12 @@ public sealed class IvpSimulation
             // `DAT_18012d654` for the gravity in force — the environment's own length, as `SetGravity` leaves it.
             ClosingSpeedThreshold = IvpCollisionTolerance.ClosingSpeedThreshold(Environment.GravityLength),
             Queue = _queue,
-            QueueBase = _time.Base,
+
+            // **Zero, so this queue holds ABSOLUTE times.** The engine's pair events live in the time manager's own queue and are
+            // rebased with everything else each PSI (`FUN_18008a020`); this port's mindist queue is separate and is not, so a
+            // relative time would be measured from a base that had moved. *The cost is the precision the rebase exists to protect:
+            // a float time far from zero. It goes away when the two queues become one.*
+            QueueBase = 0d,
             MarginDecayCounter = _marginDecay,
         };
 
@@ -230,7 +312,7 @@ public sealed class IvpSimulation
             Scheduled(secondCore),
             scheduler,
             removeFar: null,
-            IvpRecheck.AfterFeatureChange,
+            recheck,
             (context, state) => IvpImpactDispatch.Search(
                 context,
                 state,

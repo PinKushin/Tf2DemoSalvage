@@ -105,6 +105,29 @@ public sealed class IvpSimulationWatchTests
         first.RotationAxis.ShouldNotBe((1f, 0f, 0f), "the fallback axis is replaced by the step's own");
     }
 
+    /// <remarks>
+    /// **A queued pair event fires and collides**: the scheduler queues it in phase 6, the drain hands it to
+    /// <c>FUN_1800992e0</c>, and a collision links a contact into a friction system — which is the whole chain, end to end, in the
+    /// ported driver.
+    /// </remarks>
+    [Test]
+    public void Advance_TwoBodiesTouching_FireTheirPairEvent()
+    {
+        // The synapses are one corner of each cube, so the gap the scheduler sees is the separation itself. The far threshold is
+        // the step times the closing bound plus the margin, which at this speed is about a unit.
+        (IvpSimulation simulation, IvpMindist mindist, IvpRigidBody first, _) = Watched(apart: 0.6d);
+        first.Velocity = (0f, 0f, 60f);
+        first.PreviousVelocity = (0f, 0f, 60f);
+        simulation.Start();
+
+        // Two slices: the scheduler queues the pair's event a fraction past the end of the first, and the second reaches it.
+        simulation.Advance(0.1d);
+        simulation.Advance(0.2d);
+
+        simulation.PairEvents.ShouldBeGreaterThan(0, "the pair's own event fired");
+        mindist.MinimizedAt.ShouldNotBeNull("the control: the pipeline reached the pair at all");
+    }
+
     private static (IvpSimulation, IvpMindist, IvpRigidBody, IvpRigidBody) Watched(double apart = 40d)
     {
         IvpSimulation simulation = new(Environment(), (0f, 0f, 0f), () => 0f);

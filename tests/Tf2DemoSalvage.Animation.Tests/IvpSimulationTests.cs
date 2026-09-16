@@ -118,6 +118,23 @@ public sealed class IvpSimulationTests
         second.Controllers.Count(controller => controller.Priority == 405).ShouldBe(1, "the controller is filed once per core");
     }
 
+    /// <remarks>
+    /// **A slice that cannot move the clock must end, not spin.** The interleaving loop snaps the clock to each slice's end, so a
+    /// target at or behind the clock leaves its condition unchanged — which hung a sabotage run for two minutes before this guard
+    /// existed.
+    /// </remarks>
+    [Test]
+    [CancelAfter(5000)]
+    public void Advance_ATargetAtTheClock_Returns()
+    {
+        IvpSimulation simulation = Simulation(out _);
+        simulation.Start();
+        simulation.Advance(1d);
+
+        simulation.Advance(simulation.Now).ShouldBe(0, "nothing is due at a target the clock already stands on");
+        simulation.Advance(simulation.Now - 1d).ShouldBe(0, "nor behind it");
+    }
+
     private static IvpConstraintGroup Group(IvpRigidBody first, IvpRigidBody second)
     {
         IvpConstraintGroup group = new();

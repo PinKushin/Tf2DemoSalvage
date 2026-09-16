@@ -4173,6 +4173,24 @@ every core of +0x10, last to first, unless flags & 2:  FUN_1800792b0(core)
 actually moved are stepped — each over the environment's whole remaining PSI span, through the same integrator a PSI uses — then
 re-checked by the scheduler and stamped with the impact counter. `FUN_180077f00(core, system)` is the per-system record: through
 the hash at `core+0x60` for an unmovable core, else `core+0x60` itself when its `+0x10` is the system.
+#### One queue, and what having two costs — the PSI event beside the pair events (2026-09-16)
+
+**The engine keeps ONE queue.** The time manager's min-list at `tm+0x10` holds the PSI event (`FUN_18008a020`, which requeues
+itself) and every pair's event side by side, and `FUN_18008a020` rebases every entry in it each step:
+`for (each queued entry) entry.time -= (float)now`. The loop fires whatever is due next, so a pair event due before the next PSI
+fires before it.
+
+**This port has two**: `PhysicsTimeManager` for the PSI event, and the `IvpMinList<IvpMindist>` the pair scheduler writes
+(`FUN_180099380`'s own `environment.Queue`). Two consequences, both measured while wiring `IvpSimulation`:
+
+- **The pair drain has to sit between PSIs.** Draining once after a long slice only ever finds the last PSI's requeue, which is
+  always in the future — every pair event is missed. `IvpSimulation.Advance` therefore runs one PSI, drains, and repeats.
+- **The pair queue holds ABSOLUTE times.** Its entries are not rebased with the other queue, so a time relative to a base that
+  has since moved is wrong. That gives up exactly the float precision the engine's rebase exists to protect.
+
+**Neither is a reading of the engine — they are this port's shape**, and both go away when the two queues become one. Recorded
+here so the next reader does not take the interleaving loop for something the binary does.
+
 #### The friction controller at priority 600, and the clamp's own weights — `FUN_1800836b0` and `FUN_180083970` (2026-09-15)
 
 **Read from the decompiler**, and it settles two things this project had recorded differently:
