@@ -279,7 +279,7 @@ public sealed class IvpTangentialSolveConformanceTests
             first, (0f, 0f, 1f), null, default,
             (1f, 0f, 0f), (0f, 1f, 0f),
             (1f, 1f, 1f, 1f), (1f, 1f, 1f, 1f),
-            slide: (0f, 0f), inverseStep: 100d);
+            slide: (0f, 0f), inverseStep: 100f);
 
         impulse.ShouldNotBeNull();
         impulse.Value.Span.ShouldBe(0f, 1e-6f);
@@ -300,7 +300,7 @@ public sealed class IvpTangentialSolveConformanceTests
             first, (0f, 0f, 1f), null, default,
             (1f, 0f, 0f), (0f, 1f, 0f),
             (1f, 1f, 1f, 1f), (1f, 1f, 1f, 1f),
-            slide: (0f, 0f), inverseStep: 100d);
+            slide: (0f, 0f), inverseStep: 100f);
 
         impulse.ShouldNotBeNull();
         impulse.Value.Span.ShouldBeLessThan(0f, "an impulse opposing a positive slide velocity is negative");
@@ -312,7 +312,7 @@ public sealed class IvpTangentialSolveConformanceTests
             null, default, null, default,
             (1f, 0f, 0f), (0f, 1f, 0f),
             default, default,
-            slide: (0f, 0f), inverseStep: 100d).ShouldBeNull();
+            slide: (0f, 0f), inverseStep: 100f).ShouldBeNull();
 
     /// <remarks>An impulse already inside the budget is left exactly as it was.</remarks>
     [Test]
@@ -339,7 +339,7 @@ public sealed class IvpTangentialSolveConformanceTests
         point.NormalPush = 1000f;
         point.Friction = 1f;
 
-        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, inverseStep: 100d);
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, step: 0.01f, inverseStep: 100f).Impulse;
 
         impulse.ShouldNotBeNull();
         impulse.Value.ShouldBe((0f, 0f));
@@ -357,7 +357,7 @@ public sealed class IvpTangentialSolveConformanceTests
         point.NormalPush = 1000f;
         point.Friction = 1f;
 
-        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, inverseStep: 100d);
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, step: 0.01f, inverseStep: 100f).Impulse;
 
         impulse.ShouldNotBeNull();
         impulse.Value.Span.ShouldBeLessThan(0f, "the impulse opposes the core's own positive slide velocity");
@@ -374,7 +374,7 @@ public sealed class IvpTangentialSolveConformanceTests
         point.NormalPush = 100f;
         point.Friction = 1f;
 
-        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, inverseStep: 100d);
+        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, step: 0.01f, inverseStep: 100f).Impulse;
 
         impulse.ShouldNotBeNull();
         double magnitude = Math.Sqrt((impulse.Value.Span * impulse.Value.Span) + (impulse.Value.CrossSpan * impulse.Value.CrossSpan));
@@ -393,7 +393,7 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
         IvpContactPoint point = ContactPoint(record);
 
-        IvpTangentialSolve.SolveContact(point, inverseStep: 100d).ShouldBeNull();
+        IvpTangentialSolve.SolveContact(point, step: 0.01f, inverseStep: 100f).Impulse.ShouldBeNull();
     }
 
     /// <remarks>
@@ -410,7 +410,7 @@ public sealed class IvpTangentialSolveConformanceTests
         point.Friction = 1f;
         point.UsesMaterialAxes = true;
 
-        Should.Throw<NotSupportedException>(() => IvpTangentialSolve.SolveContact(point, inverseStep: 100d));
+        Should.Throw<NotSupportedException>(() => IvpTangentialSolve.SolveContact(point, step: 0.01f, inverseStep: 100f).Impulse);
     }
 
     /// <remarks>A slide already inside the budget is untouched by the pair walk, and the contact is still solved.</remarks>
@@ -424,7 +424,7 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpFrictionPair pair = new(core, core);
         pair.Contacts.Add(point);
 
-        IvpTangentialSolve.SolveOncePerPair(pair, budget: 10f, inverseStep: 100d);
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 10f, step: 0.01f, inverseStep: 100f);
 
         point.Slide.ShouldBe((0.1f, 0f));
     }
@@ -440,7 +440,7 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpFrictionPair pair = new(core, core);
         pair.Contacts.Add(point);
 
-        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, inverseStep: 100d);
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, step: 0.01f, inverseStep: 100f);
 
         point.Slide.Span.ShouldBe(1f, 1e-3f);
     }
@@ -468,7 +468,7 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpFrictionPair pair = new(core, core);
         pair.Contacts.Add(point);
 
-        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, inverseStep: 100d);
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, step: 0.01f, inverseStep: 100f);
 
         // (|slide| − budget) × friction × normal push = (5 − 1) × 2 × 3. The record's own 1000 is not read.
         point.SlideExcess.ShouldBe(24f, 1e-3f);
@@ -488,7 +488,7 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpFrictionPair pair = new(core, core);
         pair.Contacts.Add(point);
 
-        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, inverseStep: 100d);
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, step: 0.01f, inverseStep: 100f);
 
         point.SlideExcess.ShouldBe(34f, 1e-3f);
     }
@@ -508,7 +508,7 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpFrictionPair pair = new(core, core);
         pair.Contacts.Add(point);
 
-        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, inverseStep: 100d);
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, step: 0.01f, inverseStep: 100f);
 
         point.FirstMeasure.ShouldBeTrue();
     }
@@ -525,14 +525,67 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpFrictionPair pair = new(core, core);
         pair.Contacts.Add(point);
 
-        IvpTangentialSolve.SolveOncePerPair(pair, budget: 10f, inverseStep: 100d);
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 10f, step: 0.01f, inverseStep: 100f);
 
         point.FirstMeasure.ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **The solve answers the change in its contact's slide work** (<c>FUN_1800857c0</c>, read from the disassembly 2026-09-16):
+    /// <c>w = (float)(√(double)((slide₀² + slide₁²) · (float)(step · |impulse|² · step)) · 0.5)</c>, the unclipped impulse, and it
+    /// returns <c>w − cp+0x84</c> after storing <c>w</c> there. The same state solved twice answers <c>w</c>, then nothing.
+    /// </remarks>
+    [Test]
+    public void SolveContact_TheSameStateTwice_AnswersTheWorkThenNoChange()
+    {
+        IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+        point.NormalPush = 1000f;
+        point.Friction = 1f;
+        point.Slide = (0.01f, 0f);
+
+        (float work, (float Span, float CrossSpan)? impulse) = IvpTangentialSolve.SolveContact(point, step: 0.01f, inverseStep: 100f);
+
+        // Unclipped (the budget 1000 · 1 · 0.01 = 10 is far above it), so |impulse|² is the returned impulse's own.
+        float squared = (impulse!.Value.CrossSpan * impulse.Value.CrossSpan) + (impulse.Value.Span * impulse.Value.Span);
+        float expected = (float)(Math.Sqrt((0.01f * 0.01f + 0f) * (float)((double)0.01f * squared * (double)0.01f)) * 0.5d);
+        work.ShouldBeGreaterThan(0f, "the control: a slide and an impulse do work");
+        work.ShouldBe(expected);
+        point.SlideWork.ShouldBe(expected);
+
+        IvpTangentialSolve.SolveContact(point, step: 0.01f, inverseStep: 100f).Work.ShouldBe(0f);
+    }
+
+    /// <remarks>
+    /// **A pair banks its contacts' summed work when it comes out positive** (<c>FUN_1800836b0</c>: <c>energy &gt; 0 → pair+0x30 +=
+    /// energy</c>), so a first solve grows the bank and an unchanged second one leaves it.
+    /// </remarks>
+    [Test]
+    public void SolveOncePerPair_AContactDoingWork_BanksItOnThePair()
+    {
+        IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+        point.NormalPush = 1000f;
+        point.Friction = 1f;
+        point.Slide = (0.01f, 0f);
+        IvpFrictionPair pair = new(core, core) { StoredEnergy = 2f };
+        pair.Contacts.Add(point);
+
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 10f, step: 0.01f, inverseStep: 100f);
+
+        point.SlideWork.ShouldBeGreaterThan(0f, "the control");
+        pair.StoredEnergy.ShouldBe(2f + point.SlideWork);
+
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 10f, step: 0.01f, inverseStep: 100f);
+
+        pair.StoredEnergy.ShouldBe(2f + point.SlideWork);
+    }
+
     [Test]
     public void SolveOncePerPair_ANullPair_ThrowsArgumentNullException() =>
-        Should.Throw<ArgumentNullException>(() => IvpTangentialSolve.SolveOncePerPair(null!, budget: 1f, inverseStep: 100d));
+        Should.Throw<ArgumentNullException>(() => IvpTangentialSolve.SolveOncePerPair(null!, budget: 1f, step: 0.01f, inverseStep: 100f));
 
     private static IvpContactPoint ContactPoint(IvpContactRecord record)
     {

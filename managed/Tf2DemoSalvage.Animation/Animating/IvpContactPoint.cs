@@ -163,6 +163,13 @@ public sealed class IvpContactPoint
     /// </remarks>
     public float SlideExcess { get; internal set; }
 
+    /// <summary>The work the last tangential solve did along the slide — the float at <c>+0x84</c>.</summary>
+    /// <remarks>
+    /// **Written by <see cref="IvpTangentialSolve.SolveContact"/>** (<c>FUN_1800857c0</c>), which answers the change against the
+    /// value it replaces; the many-contact driver banks a positive sum of those changes on the pair.
+    /// </remarks>
+    public float SlideWork { get; internal set; }
+
     /// <summary>The mass a unit push along this contact's normal has to move, inverted — the float at <c>+0x60</c>.</summary>
     /// <remarks>
     /// **Written by <see cref="Weigh"/>** (<c>FUN_180083a60</c>), and read by the friction controller as the third factor of a

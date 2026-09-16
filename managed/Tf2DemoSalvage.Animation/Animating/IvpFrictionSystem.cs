@@ -32,8 +32,8 @@ public sealed class IvpFrictionPair(IvpRigidBody firstCore, IvpRigidBody secondC
     /// <summary>The work banked against this pair and paid back as damping — the float at <c>+0x30</c>, zero when made.</summary>
     /// <remarks>
     /// Grown by the normal pushes' work (<see cref="IvpPairDamping.Bank"/>), decayed and spent by <see cref="IvpPairDamping.PayBack"/>,
-    /// and zeroed while the unit's <c>0x3000</c> bits are set. *Not carried: `FUN_1800836b0` also grows it by what each tangential
-    /// solve returns — a delta against the per-contact accumulator at `cp+0x84`, scaled by `DAT_1800ee388` — which is unported.*
+    /// and zeroed while the unit's <c>0x3000</c> bits are set. `FUN_1800836b0` also grows it by the positive sum of each tangential
+    /// solve's change in <see cref="IvpContactPoint.SlideWork"/> (<see cref="IvpTangentialSolve.SolveOncePerPair"/>).
     /// </remarks>
     public float StoredEnergy { get; internal set; }
 

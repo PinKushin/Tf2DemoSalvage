@@ -24,6 +24,12 @@ public readonly record struct IvpJacobianRow(
 /// </remarks>
 public static class IvpTangentialSolve
 {
+    /// <summary><c>DAT_1800eeda8</c>: the clip budget below which a contact is not solved.</summary>
+    private const double MinimumClipBudget = 9.999999974752427e-07d;
+
+    /// <summary><c>DAT_1800ee388</c>: <c>0.5</c>, the share of the root the slide work keeps.</summary>
+    private const double WorkShare = 0.5d;
+
     /// <summary>Inverts a symmetric 2×2 matrix — <c>IvpContact::TryInvertSymmetric</c>.</summary>
     /// <param name="a">Row 0, column 0.</param>
     /// <param name="b">Row 0, column 1 (equal to row 1, column 0 — the matrix is symmetric).</param>
@@ -330,7 +336,7 @@ public static class IvpTangentialSolve
         (float X, float Y, float Z, float W) firstAxisFactors,
         (float X, float Y, float Z, float W) secondAxisFactors,
         (float Span, float CrossSpan) slide,
-        double inverseStep)
+        float inverseStep)
     {
         (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? firstRows = BuildJacobian(first, firstArm, axis0, axis1, firstAxisFactors);
         (IvpJacobianRow Axis0, IvpJacobianRow Axis1)? secondRows = BuildJacobian(second, secondArm, axis0, axis1, secondAxisFactors);
@@ -344,8 +350,9 @@ public static class IvpTangentialSolve
 
         (double Axis0, double Axis1) relative = RelativeVelocity(first, firstArm, second, secondArm, axis0, axis1);
 
-        double rhs0 = (slide.Span * inverseStep) - relative.Axis0;
-        double rhs1 = (slide.CrossSpan * inverseStep) - relative.Axis1;
+        // `MULSS` then `SUBSS` against the float relative velocity, widened after.
+        double rhs0 = (inverseStep * slide.Span) - (float)relative.Axis0;
+        double rhs1 = (inverseStep * slide.CrossSpan) - (float)relative.Axis1;
 
         float impulseSpan = (float)((inverse.Row0.A * rhs0) + (inverse.Row0.B * rhs1));
         float impulseCrossSpan = (float)((inverse.Row1.A * rhs0) + (inverse.Row1.B * rhs1));
@@ -378,8 +385,12 @@ public static class IvpTangentialSolve
     /// <see cref="IvpContactPoint"/> fields rather than caller-supplied axes.
     /// </summary>
     /// <param name="point">The contact, already clamped this PSI by <see cref="ClampSlide"/> if the caller runs that first.</param>
-    /// <param name="inverseStep">The environment's reciprocal PSI step.</param>
-    /// <returns>The clipped impulse applied to both cores, or null when the entry gate refused it or the 2×2 system was singular.</returns>
+    /// <param name="step">The PSI event's step, <c>event[0]</c>.</param>
+    /// <param name="inverseStep">The PSI event's reciprocal step, <c>event[1]</c>.</param>
+    /// <returns>
+    /// The change in the contact's <see cref="IvpContactPoint.SlideWork"/> — the native's own answer, zero when refused — and the
+    /// clipped impulse applied to both cores, or null when the entry gate refused it or the 2×2 system was singular.
+    /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="point"/> is null.</exception>
     /// <exception cref="InvalidOperationException">The contact has no record.</exception>
     /// <remarks>
@@ -399,17 +410,17 @@ public static class IvpTangentialSolve
     /// STORED SLIDE's own, separate, pair-level pre-clamp — which was wrong: the two clips are unrelated in the
     /// native, one position-domain and pair-summed, the other force-domain and per-contact.
     /// </remarks>
-    public static (float Span, float CrossSpan)? SolveContact(IvpContactPoint point, double inverseStep)
+    public static (float Work, (float Span, float CrossSpan)? Impulse) SolveContact(IvpContactPoint point, float step, float inverseStep)
     {
         ArgumentNullException.ThrowIfNull(point);
 
         IvpContactRecord record = point.Record ?? throw new InvalidOperationException("A contact with no record was solved.");
-        float step = (float)(1d / inverseStep);
-        float clipBudget = point.NormalPush * point.Friction * step;
+        double clipBudget = point.NormalPush * point.Friction * step;
 
-        if (clipBudget < 9.999999974752427e-07f)
+        // `COMISD`/`JC` against `DAT_1800eeda8`: below it, or a NaN, answers nothing and leaves `cp+0x84` alone.
+        if (!(clipBudget >= MinimumClipBudget))
         {
-            return null;
+            return (0f, null);
         }
 
         (float X, float Y, float Z, float W) factors = MaterialAxisFactors(point.UsesMaterialAxes);
@@ -420,7 +431,7 @@ public static class IvpTangentialSolve
 
         if (impulse is not { } found)
         {
-            return null;
+            return (0f, null);
         }
 
         (float Span, float CrossSpan) clipped = ClipImpulse(found, clipBudget);
@@ -438,7 +449,15 @@ public static class IvpTangentialSolve
             ApplyImpulse(record.SecondCore, record.Span, record.CrossSpan, second, clipped, -1f);
         }
 
-        return clipped;
+        // The work, from the UNCLIPPED impulse's squared length:  (float)(√(double)(|slide|² · (float)(step·s·step)) · 0.5).
+        double squared = (found.CrossSpan * found.CrossSpan) + (found.Span * found.Span);
+        float slideSquared = (point.Slide.CrossSpan * point.Slide.CrossSpan) + (point.Slide.Span * point.Slide.Span);
+        float scaled = (float)((double)step * squared * step);
+        float work = (float)(Math.Sqrt(slideSquared * scaled) * WorkShare);
+        float change = work - point.SlideWork;
+        point.SlideWork = work;
+
+        return (change, clipped);
     }
 
     /// <summary>
@@ -452,7 +471,8 @@ public static class IvpTangentialSolve
     /// the step squared — the third factor's writer was read on 2026-09-15 (`docs/findings/51`, *The cone budget's third factor,
     /// found*), so the friction controller computes this rather than guessing it.
     /// </param>
-    /// <param name="inverseStep">The environment's reciprocal PSI step.</param>
+    /// <param name="step">The PSI event's step, <c>event[0]</c>.</param>
+    /// <param name="inverseStep">The PSI event's reciprocal step, <c>event[1]</c>.</param>
     /// <exception cref="ArgumentNullException"><paramref name="pair"/> is null.</exception>
     /// <exception cref="InvalidOperationException">A contact in the pair has no record.</exception>
     /// <remarks>
@@ -462,12 +482,16 @@ public static class IvpTangentialSolve
     /// this same loop — see <see cref="ClampSlide"/>'s own remarks for why this is a re-arm rather than a field
     /// collision with the byte's other, documented, writer.
     /// </remarks>
-    public static void SolveOncePerPair(IvpFrictionPair pair, float budget, double inverseStep)
+    public static void SolveOncePerPair(IvpFrictionPair pair, float budget, float step, float inverseStep)
     {
         ArgumentNullException.ThrowIfNull(pair);
 
-        foreach (IvpContactPoint contact in pair.Contacts)
+        float work = 0f;
+
+        for (int index = pair.Contacts.Count - 1; index >= 0; index--)
         {
+            IvpContactPoint contact = pair.Contacts[index];
+
             // The record is read by SolveContact below; its absence is the same failure, raised here where it is cheap to name.
             _ = contact.Record ?? throw new InvalidOperationException("A pair's contact has no record.");
 
@@ -481,25 +505,36 @@ public static class IvpTangentialSolve
                 contact.FirstMeasure = true;
             }
 
-            SolveContact(contact, inverseStep);
+            work += SolveContact(contact, step, inverseStep).Work;
+        }
+
+        // `0.0 < energy → pair+0x30 += energy`, COMISS/JBE: a NaN banks nothing.
+        if (work > 0f)
+        {
+            pair.StoredEnergy += work;
         }
     }
 
-    /// <summary>Clips an impulse to a magnitude budget — the same shape <see cref="ClampSlide"/> uses, without a carry term.</summary>
+    /// <summary>Clips an impulse to a magnitude budget — <c>FUN_1800857c0</c>'s own clip, in its grouping.</summary>
     /// <param name="impulse">The impulse.</param>
-    /// <param name="budget">The pair's own friction-cone budget.</param>
+    /// <param name="budget">The contact's clip budget, widened.</param>
     /// <returns>The impulse, unchanged when its magnitude is already within the budget.</returns>
-    public static (float Span, float CrossSpan) ClipImpulse((float Span, float CrossSpan) impulse, float budget)
+    /// <remarks>
+    /// <code>
+    /// s = (float)(i₁² + i₀²) widened;  s > b·b (COMISD/JBE, a NaN keeps it):  k = (double)rsqrt((float)s)·b;  iₙ = (float)((double)iₙ·k)
+    /// </code>
+    /// </remarks>
+    public static (float Span, float CrossSpan) ClipImpulse((float Span, float CrossSpan) impulse, double budget)
     {
-        float magnitudeSquared = (impulse.Span * impulse.Span) + (impulse.CrossSpan * impulse.CrossSpan);
+        double squared = (impulse.CrossSpan * impulse.CrossSpan) + (impulse.Span * impulse.Span);
 
-        if (!(budget * budget < magnitudeSquared))
+        if (!(squared > budget * budget))
         {
             return impulse;
         }
 
-        float scale = budget * IvpVector.ReciprocalSquareRoot(magnitudeSquared);
+        double scale = IvpVector.ReciprocalSquareRoot((float)squared) * budget;
 
-        return (impulse.Span * scale, impulse.CrossSpan * scale);
+        return ((float)(impulse.Span * scale), (float)(impulse.CrossSpan * scale));
     }
 }

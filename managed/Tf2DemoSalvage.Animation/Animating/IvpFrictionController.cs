@@ -64,7 +64,7 @@ public sealed class IvpFrictionController(IvpFrictionSystem system) : IIvpUnitCo
                 continue;
             }
 
-            IvpTangentialSolve.SolveOncePerPair(pair, BudgetFor(pair, psiStep), inverseStep);
+            IvpTangentialSolve.SolveOncePerPair(pair, BudgetFor(pair, psiStep), psiStep, (float)inverseStep);
         }
     }
 
@@ -112,7 +112,7 @@ public sealed class IvpFrictionController(IvpFrictionSystem system) : IIvpUnitCo
             contact.FirstMeasure = true;
         }
 
-        _ = IvpTangentialSolve.SolveContact(contact, inverseStep);
+        _ = IvpTangentialSolve.SolveContact(contact, psiStep, (float)inverseStep);
     }
 }
 

@@ -116,7 +116,9 @@ public sealed class VphysicsFrictionSolveProbe : IProbe
             NormalPush = 1f,
         };
 
-        (float Span, float CrossSpan)? impulse = IvpTangentialSolve.SolveContact(point, inverseStep: inverseStep);
+        (float work, (float Span, float CrossSpan)? impulse) =
+            IvpTangentialSolve.SolveContact(point, step: 1f / inverseStep, inverseStep: inverseStep);
+        output.WriteLine($"port: work change = 0x{BitConverter.SingleToInt32Bits(work):x8}");
 
         output.WriteLine($"binary: sticking dispatch taken = {fabricated.Sticking} (false confirms D175 on this core)");
         output.WriteLine($"binary: entry gate value (friction*normalPush*event[0]) = {fabricated.Gate:g9}");

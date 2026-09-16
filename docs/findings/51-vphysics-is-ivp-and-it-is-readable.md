@@ -4272,7 +4272,8 @@ CRT's `exp` (already ported as `IvpMath.Exp`) and `DAT_1800fd4e0` is `0xbfbaf8e8
 double. *`Math.Pow(0.9, 1/66)` was the first oracle and it was wrong by 4e-10*; the right control is the constructor's own
 `+0x1b0 = 0x3feff2eed61b4202` for its default 1/66, which the port reproduces bit for bit.
 
-*Not carried*: `FUN_1800836b0`'s share of `pair+0x30` — what each tangential solve returns against `cp+0x84`.
+`FUN_1800836b0`'s share of `pair+0x30` — what each tangential solve returns against `cp+0x84` — was carried on 2026-09-16; see
+*The friction controller at priority 600*.
 
 **A tenth and eleventh, on a surface of many ledges** (2026-09-16), with a compact surface written byte for byte in the test
 and read through `PhysicsHull.Tree`: two boxes, a cube dropped over the higher. **Every side stood on the core's first ledge**,
@@ -4358,8 +4359,12 @@ FUN_180083970(cp, b):  the same clamp for one contact, the lone-contact path's o
   weight, and the field carried as `IvpContactPoint.SlideExcess`, so the weight is now observable.
 - **`pair+0x30` is a different quantity**: `FUN_1800857c0` RETURNS `fVar12 − cp+0x84` after writing `cp+0x84 = fVar12`, where
   `fVar12 = √(step² · |slide|² · (cp+0x68² + cp+0x6c²)) · DAT_1800ee388`, and the pair grows by the sum of those deltas when it
-  comes out positive. *Neither `cp+0x84` nor that return is ported*, so `pair+0x30` is deliberately absent rather than left at
-  zero.
+  comes out positive. **The decompiler's formula names the wrong squared length; the disassembly (2026-09-16) settles it**: the
+  squared length is the solved impulse's, BEFORE its clip (`XMM7`, kept across the call), and the grouping is
+  `(float)(√(double)((s₆ᶜ² + s₆₈²) · (float)((double)step · |i|² · step)) · 0.5)`. The same read found the rest of the routine
+  in mixed precision the port had in one: the target `(float)(event[1]·slide − v)` in float, the gate `(double)(float)(push ·
+  friction · step) ≥ 1e-6` (a NaN refuses), and the clip `|i|² > b·b` in double with `iₙ = (float)((double)iₙ · (double)rsqrt·b)`.
+  All carried as `IvpTangentialSolve.SolveContact`, `cp+0x84` as `IvpContactPoint.SlideWork`, and the pair walk made last first.
 - **The budget is per pair and per PSI**: the sum above times the step squared, with the contacts walked four at a time and the
   remainder after, which changes nothing but the float summation order.
 
