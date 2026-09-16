@@ -233,3 +233,29 @@ public sealed class IvpConstraintGroup
     private static readonly float[] Weights =
         [0.4f, 0.4f, 0.4f, 0.4f, 1f, 1f, 0.8f, 0.6f, 0.8f, 0.8f, 0.8f, 0.8f];
 }
+
+/// <summary>
+/// A constraint group as a unit's controller — the entry at priority <c>405</c> whose slot 4 tail-calls its own slot 8,
+/// <c>FUN_18003c780</c> (B369, D172).
+/// </summary>
+/// <param name="group">The group this controller solves.</param>
+/// <remarks>
+/// **Read from the disassembly** (`docs/findings/51`): vphysics' constraint table sits at <c>1800eeb10</c>, its slot 4 is
+/// `MOV RAX,[RCX]; JMP [RAX+0x40]` — a tail call into its own slot 8 — and slot 5 answers <c>0x195</c>. So a PSI runs the
+/// constraints after gravity and the friction system's <c>600</c> pass, and before its normal pushes at <c>0</c>.
+/// </remarks>
+public sealed class IvpConstraintController(IvpConstraintGroup group) : IIvpUnitController
+{
+    /// <summary>The priority its slot 5 returns — <c>0x195</c>.</summary>
+    public const int ConstraintPriority = 405;
+
+    /// <summary>The group this controller solves.</summary>
+    public IvpConstraintGroup Group { get; } = group ?? throw new ArgumentNullException(nameof(group));
+
+    /// <inheritdoc/>
+    public int Priority => ConstraintPriority;
+
+    /// <inheritdoc/>
+    /// <remarks>**The entry's cores are not read**: the group already names the bodies each of its joints holds.</remarks>
+    public void Advance(IvpSimulationUnit unit, IReadOnlyList<IvpRigidBody> cores, float psiStep) => Group.Solve();
+}
