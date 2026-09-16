@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Probe.Oracle;
@@ -102,15 +103,74 @@ public sealed class IvpSimulationUnitTests
     }
 
     [Test]
-    public void Psi_AUnitWithAController_RunsIt()
+    public void Psi_AUnitWithAController_RunsItOverItsEntrysCores()
     {
-        (IvpSimulationUnit unit, _) = Unit();
-        Counting controller = new();
-        unit.Controllers.Add(controller);
+        (IvpSimulationUnit unit, IvpRigidBody core) = Unit();
+        Counting controller = new(priority: 1000);
+        unit.AddController(controller).Cores.Add(core);
 
         unit.Psi(Environment(countdown: 5), now: 1d, step: 0.25f, [], () => 0f);
 
         controller.Steps.ShouldBe([0.25f]);
+        controller.Cores.ShouldBe([core]);
+    }
+
+    /// <remarks>**Sorted ascending, walked last first**, so the PSI runs the highest priority first.</remarks>
+    [Test]
+    public void Psi_ControllersOfDifferentPriorities_RunHighestFirst()
+    {
+        (IvpSimulationUnit unit, _) = Unit();
+        List<int> order = [];
+        unit.AddController(new Ordering(600, order));
+        unit.AddController(new Ordering(2000, order));
+        unit.AddController(new Ordering(1000, order));
+
+        unit.Psi(Environment(countdown: 5), now: 1d, step: 0.25f, [], () => 0f);
+
+        order.ShouldBe([2000, 1000, 600]);
+    }
+
+    [Test]
+    public void RebuildEntries_TwoCoresSharingAController_GiveItOneEntryWithBoth()
+    {
+        (IvpSimulationUnit unit, IvpRigidBody first) = Unit();
+        IvpRigidBody second = new();
+        unit.Cores.Add(second);
+        Counting shared = new(priority: 1000);
+        first.Controllers.Add(shared);
+        second.Controllers.Add(shared);
+
+        unit.RebuildEntries();
+
+        unit.Entries.Count.ShouldBe(1);
+        unit.Entries[0].Cores.ShouldBe([second, first], "the cores are walked last first");
+    }
+
+    [Test]
+    public void RebuildEntries_ControllersOutOfOrder_LeavesThemSortedAscending()
+    {
+        (IvpSimulationUnit unit, IvpRigidBody core) = Unit();
+        core.Controllers.Add(new Counting(priority: 2000));
+        core.Controllers.Add(new Counting(priority: 600));
+        core.Controllers.Add(new Counting(priority: 1000));
+
+        unit.RebuildEntries();
+
+        unit.Entries.Select(entry => entry.Controller.Priority).ShouldBe([600, 1000, 2000]);
+    }
+
+    [Test]
+    public void Psi_AUnitWhoseEntriesAreStale_RebuildsThemAndClearsTheBits()
+    {
+        (IvpSimulationUnit unit, IvpRigidBody core) = Unit();
+        Counting controller = new(priority: 1000);
+        core.Controllers.Add(controller);
+        unit.Flags |= 0x100;
+
+        unit.Psi(Environment(countdown: 5), now: 1d, step: 0.25f, [], () => 0f);
+
+        controller.Steps.ShouldBe([0.25f], "the rebuilt entry ran");
+        (unit.Flags & 0x300).ShouldBe(0);
     }
 
     private static (IvpSimulationUnit, IvpRigidBody) Unit()
@@ -143,10 +203,25 @@ public sealed class IvpSimulationUnitTests
             RestCheckCountdown = countdown,
         };
 
-    private sealed class Counting : IIvpUnitController
+    private sealed class Counting(int priority) : IIvpUnitController
     {
+        public int Priority { get; } = priority;
+
         public List<float> Steps { get; } = [];
 
-        public void Advance(IvpSimulationUnit unit, float psiStep) => Steps.Add(psiStep);
+        public List<IvpRigidBody> Cores { get; } = [];
+
+        public void Advance(IReadOnlyList<IvpRigidBody> cores, float psiStep)
+        {
+            Steps.Add(psiStep);
+            Cores.AddRange(cores);
+        }
+    }
+
+    private sealed class Ordering(int priority, List<int> order) : IIvpUnitController
+    {
+        public int Priority { get; } = priority;
+
+        public void Advance(IReadOnlyList<IvpRigidBody> cores, float psiStep) => order.Add(Priority);
     }
 }

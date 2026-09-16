@@ -523,6 +523,10 @@ public sealed class IvpRigidBody
     /// <summary>The core's objects — the vector at <c>+0x68</c>, count <c>+0x6a</c>, elements <c>+0x70</c>.</summary>
     internal List<IvpCollisionObject> Objects { get; } = [];
 
+    /// <summary>The controllers this core is driven by — the vector at <c>+0x1e8</c>, count <c>+0x1e2</c>.</summary>
+    /// <remarks>**What a unit's entries are rebuilt from** (<see cref="IvpSimulationUnit.RebuildEntries"/>).</remarks>
+    internal List<IIvpUnitController> Controllers { get; } = [];
+
     /// <summary>The impact generation the core was last rechecked at — <c>core+0x250</c>, from <c>env+0x1a4</c>.</summary>
     public int ImpactStamp { get; set; }
 

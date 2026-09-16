@@ -3,13 +3,31 @@ using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
-/// <summary>One controller of a unit — the slot <c>+0x20</c> the PSI calls per entry of <c>unit+0x10</c>.</summary>
+/// <summary>One controller of a unit — its slot <c>+0x20</c> is the PSI's work and its slot <c>+0x28</c> the priority.</summary>
+/// <remarks>
+/// **The priorities are read** (`docs/findings/51`): friction `2000`, gravity `1000`, friction `600`, the constraints `405`,
+/// friction `0`. A unit's entries are sorted ascending and walked last first, so the PSI runs them highest priority first.
+/// </remarks>
 public interface IIvpUnitController
 {
-    /// <summary>Runs this controller over its unit for one PSI.</summary>
-    /// <param name="unit">The unit, <c>frame+0x10</c>.</param>
+    /// <summary>The controller's priority — its slot <c>+0x28</c>, which sorts the unit's entries.</summary>
+    public int Priority { get; }
+
+    /// <summary>Runs this controller over the cores of its entry for one PSI — the slot <c>+0x20</c>.</summary>
+    /// <param name="cores">The entry's cores, <c>entry+0x8</c>.</param>
     /// <param name="psiStep">The PSI's step, <c>frame+0x0</c>.</param>
-    public void Advance(IvpSimulationUnit unit, float psiStep);
+    public void Advance(IReadOnlyList<IvpRigidBody> cores, float psiStep);
+}
+
+/// <summary>One controller and the cores of this unit it drives — the <c>0x28</c> bytes of an entry at <c>unit+0x10</c>.</summary>
+/// <param name="controller">The controller, <c>+0x0</c>.</param>
+public sealed class IvpUnitControllerEntry(IIvpUnitController controller)
+{
+    /// <summary>The controller — <c>+0x0</c>.</summary>
+    public IIvpUnitController Controller { get; } = controller ?? throw new ArgumentNullException(nameof(controller));
+
+    /// <summary>Its cores in this unit — the vector at <c>+0x8</c>, count <c>+0xa</c>, elements <c>+0x10</c>.</summary>
+    internal List<IvpRigidBody> Cores { get; } = [];
 }
 
 /// <summary>
@@ -29,13 +47,94 @@ public sealed class IvpSimulationUnit
     public int State { get; private set; }
 
     /// <summary>The flags word, <c>unit+0x0</c>, whose <c>0x400</c>/<c>0x3000</c> bits carry a fast spin into the next PSI.</summary>
-    public int Flags { get; private set; }
+    /// <remarks>*What sets the <c>0x300</c> pair is not read yet* — the PSI only clears it once it has rebuilt.</remarks>
+    public int Flags { get; internal set; }
 
     /// <summary>The cores — <c>+0x8</c>, count <c>+0x1a</c>.</summary>
     internal List<IvpRigidBody> Cores { get; } = [];
 
-    /// <summary>The controllers — <c>+0x10</c>, count <c>+0x3a</c>.</summary>
-    internal List<IIvpUnitController> Controllers { get; } = [];
+    /// <summary>The controller entries — <c>+0x10</c>, count <c>+0x3a</c>, sorted ascending by priority.</summary>
+    internal List<IvpUnitControllerEntry> Entries { get; } = [];
+
+    /// <summary>
+    /// Appends an entry for a controller and sorts the entries again — <c>FUN_180074820</c> then <c>FUN_180075990</c>.
+    /// </summary>
+    /// <param name="controller">The controller.</param>
+    /// <returns>The entry, whose cores the caller fills.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="controller"/> is null.</exception>
+    /// <remarks>
+    /// **The sort is an insertion sort that moves a later entry down while its neighbour's priority is strictly greater**, so
+    /// entries of equal priority keep the order they were added — which decides which friction controller runs first.
+    /// </remarks>
+    internal IvpUnitControllerEntry AddController(IIvpUnitController controller)
+    {
+        ArgumentNullException.ThrowIfNull(controller);
+
+        IvpUnitControllerEntry entry = new(controller);
+        Entries.Add(entry);
+        Sort();
+
+        return entry;
+    }
+
+    /// <summary>Rebuilds every entry from the cores' own controllers — <c>FUN_180074ba0</c> then <c>FUN_180075470</c>.</summary>
+    /// <remarks>
+    /// **Every core, last first, and every controller of that core, last first**: the controller's entry is searched for from
+    /// the last, made when missing, and gains the core. The entries are sorted once at the end. *The third routine the unit's
+    /// <c>0x300</c> bits also call, `FUN_180074e80`, is unread.*
+    /// </remarks>
+    internal void RebuildEntries()
+    {
+        Entries.Clear();
+
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = Cores[index];
+
+            for (int at = core.Controllers.Count - 1; at >= 0; at--)
+            {
+                IIvpUnitController controller = core.Controllers[at];
+                IvpUnitControllerEntry? found = null;
+
+                for (int scan = Entries.Count - 1; scan >= 0; scan--)
+                {
+                    if (ReferenceEquals(Entries[scan].Controller, controller))
+                    {
+                        found = Entries[scan];
+                        break;
+                    }
+                }
+
+                if (found is null)
+                {
+                    found = new IvpUnitControllerEntry(controller);
+                    Entries.Add(found);
+                }
+
+                found.Cores.Add(core);
+            }
+        }
+
+        Sort();
+    }
+
+    /// <summary>The entries insertion-sorted ascending by priority — <c>FUN_180075990</c>.</summary>
+    private void Sort()
+    {
+        for (int index = 1; index < Entries.Count; index++)
+        {
+            IvpUnitControllerEntry moving = Entries[index];
+            int at = index;
+
+            while (at > 0 && Entries[at - 1].Controller.Priority > moving.Controller.Priority)
+            {
+                Entries[at] = Entries[at - 1];
+                at--;
+            }
+
+            Entries[at] = moving;
+        }
+    }
 
     /// <summary>Runs one PSI for this unit — <c>FUN_180075c80</c>.</summary>
     /// <param name="environment">The environment: its time, rest delay and rest-check countdown.</param>
@@ -56,7 +155,7 @@ public sealed class IvpSimulationUnit
     /// every controller, last first:  its slot +0x20;  every core, last first:  pushed
     /// the countdown was zero:  every core's +0x1 = FUN_180077220, ANDed with 3;  all 3 → the cores settle and the unit sleeps
     /// </code>
-    /// *Not carried*: the unit's own <c>0x300</c> bits and the three routines behind them, and the sleep listeners
+    /// *Not carried*: `FUN_180074e80`, the third routine the <c>0x300</c> bits call, and the sleep listeners
     /// (<c>FUN_180088930</c> keeps only its hull settle here).
     /// </remarks>
     internal bool Psi(
@@ -117,9 +216,16 @@ public sealed class IvpSimulationUnit
             environment.RestCheckCountdown = (short)(0xf - (short)(random() * RestCheckJitter));
         }
 
-        for (int index = Controllers.Count - 1; index >= 0; index--)
+        if ((Flags & 0x300) != 0)
         {
-            Controllers[index].Advance(this, step);
+            RebuildEntries();
+            Flags &= ~0x300;
+        }
+
+        for (int index = Entries.Count - 1; index >= 0; index--)
+        {
+            IvpUnitControllerEntry entry = Entries[index];
+            entry.Controller.Advance(entry.Cores, step);
         }
 
         for (int index = Cores.Count - 1; index >= 0; index--)

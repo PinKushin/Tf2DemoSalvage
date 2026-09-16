@@ -67,10 +67,10 @@ public static class IvpGravity
     ///   global vector would be right for TF2 and wrong for the engine.
     /// - **It accumulates**, so gravity and a constraint impulse in the same step both land.
     ///
-    /// **What is NOT transcribed, and is named rather than skipped silently:** the two calls the
-    /// engine makes before the add — `FUN_180078250(core, dt)` and `FUN_180077950(core)` — have not
-    /// been read. They take the core and the step, so they are per-body per-step work that happens
-    /// under the same `0x10` gate, and whatever they do is missing here.
+    /// **What is NOT transcribed, and is named rather than skipped silently:** `FUN_180078250(core, dt)`, which takes the core
+    /// and the step under the same `0x10` gate, has not been read. **`FUN_180077950(core)` has** (2026-09-15): it flushes the
+    /// staged velocities into the live ones and clears them, and the unit's own PSI already runs it for every core before any
+    /// controller — see <see cref="IvpSimulationUnit.Psi"/> and <see cref="IvpPush.Flush(IvpRigidBody)"/>.
     /// </remarks>
     public static void Apply(
         IReadOnlyList<IvpRigidBody> bodies,
