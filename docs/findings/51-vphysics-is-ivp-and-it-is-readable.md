@@ -8126,6 +8126,52 @@ the handler's three slots and the unload; read from published SDK source for vbs
 interface declarations; arithmetic for slot 46 and for `pHull`'s offset, each agreeing with an
 independent reading; measured for the lump counts and sizes. **The blob format is NOT established.***
 
+### The virtual mesh's cache entry, and the query that answers from it (2026-09-16)
+
+**Read from the decompiled `vphysics.dll`** through the GhidraMCP server, and it settles the blob format and the query.
+
+**The entry `FUN_180025f10` builds** is three runs of bytes: every triangle as a 48-byte ledge, then every vertex as 16 bytes
+`(x·0.0254f, −(z·0.0254f), y·0.0254f, 0)` (`DAT_18011f000` is `0x3cd013a9`), then the hull ledges unpacked. `+0x10` holds the hulls'
+start and `+0x12` the blob's count byte. **A triangle is a two-triangle ledge** (`FUN_180003f70`): the front `(i0, i1, i2)` with
+pierce 1 and edge hops `6, 4, 2`, the back `(i0, i2, i1)` with pierce 0 and hops `−2, −4, −6`, flags `0x304`, no child flag. **A
+hull** (`FUN_1800048d0`) is five header bytes — triangles, virtual triangles, edges, virtual edges, base vertex — and a body of
+four bytes per triangle (three edge ids, then the pierce triangle) and two per edge (its two vertex bytes). A triangle takes an
+edge's first byte the first time the edge is met and its second byte the next, and the two edge words are then set to hop to each
+other. An id under the virtual counts sets bit 31. The ledge carries the child flag, which is what makes a mindist on it a larger
+mindist that opens.
+
+**The radius query** (`FUN_1800261a0`, slot 4 of `1800ee220`):
+
+- **At the root** it returns the first `MIN(count, 2)` hull ledges.
+- **Beneath a hull** (`FUN_180025bc0`) it asks the engine's handler for the triangles in the sphere. The centre goes back to inches
+  as `(x, z, −y)·39.37008f`, and so does the radius.
+- **Hull choice:** with two hulls, the triangle range is halved, and the first hull takes the first half.
+- **Filter:** each candidate is kept when `FUN_18007bea0`'s squared distance from the centre to its ledge is within `r²`.
+
+**Slot 0** returns the hull when the count is exactly 1. **Slot 1** is the mesh's mass centre and **slot 2** its radius (for both
+radius and deviation), each through the mesh object's own table and converted.
+
+**The engine's half, from published source** (`dispcoll_common.cpp:1472-1488`, `:718-780`):
+
+- `GetVirtualMeshList` hands every grid vertex of the displacement's `CDispCollTree` and a shared index buffer in `m_aTris` order.
+- `GetTrianglesInSphere` walks the tree's four-child nodes box-against-sphere and emits BOTH triangles of every leaf whose box
+  passes.
+- `PhysCreateVirtualTerrain` makes each displacement a static object at the origin with surface `default`
+  (`physics_shared.cpp:563-582`).
+
+**This project's `DisplacementCollision` tessellates the same triangles** (`DisplacementTesselation` ports
+`TesselateDisplacementNode`). **It keeps neither the shared vertex array nor the tree**: it expands every corner and tests every
+triangle of any displacement whose single box passes.
+
+**`PhysicsVirtualMesh` builds the entry byte for byte** and decodes its ledges with the ledge reader every other surface uses.
+*Not yet ported: the per-displacement AABB tree and its sphere walk, the runtime handler's own reading of `GetVirtualMeshList`
+(`engine.dll` `FUN_18016f190`, to check the index order against the SDK's), the mesh object's mass centre and radius, and the
+surface manager in the driver.*
+
+*Evidence class: read from the decompiled `vphysics.dll` for the entry, the ledge writers and the query; read from published SDK
+source for the engine's list and walk; the entry's layout pinned by `PhysicsVirtualMeshConformanceTests`, with sabotages of the
+back triangle's hop and the hull's second-meeting byte each reddening its test.*
+
 ### And the faces are already parsed — they are discarded one line before the physics (B306)
 
 **`PhysicsLedge` carries `Points` AND `Triangles`** — the real faces out of the `IVPS` compact-ledge

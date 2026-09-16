@@ -563,7 +563,7 @@ public static class PhysicsHull
     /// is shared between siblings, so carrying it whole would hand every ledge of `ladder001` the
     /// same several hundred points and make a convex test over one of them wrong as well as slow.
     /// </remarks>
-    private static PhysicsLedge? ReadLedge(
+    internal static PhysicsLedge? ReadLedge(
         ReadOnlySpan<byte> solid, int ledge, Vector3 centre, float radius)
     {
         if (ledge < 0 || ledge + LedgeHeaderSize > solid.Length)
