@@ -360,8 +360,9 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      `IvpFrictionSystem::SolveOncePerPsi` (`1800836b0`, read in full) walks every `Pairs` entry, and each pair
      apparently keeps its OWN array of contact records touching it (a field `IvpFrictionPair` does not yet carry —
      `IvpFrictionPair::Build`'s deferred extra fields, revisited: they may not be as skippable as the normal-push path
-     made them look), computes a per-pair friction cone budget from summed `PushOut × Friction × <a `+0x60` field not
-     yet named>`, clamps each contact's `Slide` against it, then dispatches per contact to `FUN_180085100` (unread, a
+     made them look), computes a per-pair friction cone budget from summed `NormalPush × Friction ×
+     IvpContactPoint.InverseContactMass` (`+0x60`, its writer read 2026-09-15 — see the CLOSED note further down),
+     clamps each contact's `Slide` against it, then dispatches per contact to `FUN_180085100` (unread, a
      fast "sticking" path) or `IvpFrictionSystem::SolveTangentialPair` (`1800857c0`, named in Ghidra, not yet read in
      detail — likely similarly sized to `SolveHeap`). **This needs its own dedicated read-design-port-oracle pass**,
      matching how `SolveHeap`/`SolveOne` earned `IvpHeapSolveConformanceTests` and the `vphysics-heap-solve` probe —
@@ -450,9 +451,13 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
      question is resolved, not a collision**: one writer (`IvpContactGeometry`'s measures) clears it, the other
      (this clamp, now ported) sets it — an ordinary flip-flop, read as a re-arm: a contact whose slide was just
      clipped has its slide/position history treated as fresh again next PSI. 3 new tests, 5103/5104 total.
-   - **Still open**: (1) the per-pair friction-cone budget's third multiplicand — `Σ contact[+0x88] × contact[+0x78] × contact[+0x60]`,
-     scaled by `inverseStep²` — has `+0x88` (`NormalPush`) and `+0x78` (`Friction`) identified, but `+0x60`'s owning
-     field has no writer anywhere found this session (searched specifically, 2026-09-14): the constructor zeroes
+   - **CLOSED 2026-09-15**: the per-pair friction-cone budget's third multiplicand —
+     `Σ contact[+0x88] × contact[+0x78] × contact[+0x60]`, scaled by the step squared. `+0x60` is the contact's inverse
+     effective mass, written by `IvpContactPoint::Weigh` (`FUN_180083a60`) from `FUN_180077840(core, arm)` per core;
+     `docs/findings/51`, *The cone budget's third factor, found*, has both quoted. **The search that found it was over the
+     DISASSEMBLY for stores to `+ 0x60],XMM`** — the decompiled C never shows the write, which is why a 2026-09-14 search
+     "specifically" for the writer came back empty and concluded, wrongly, that it might be arena-zeroed. *The stale reading
+     below is kept for that lesson.* It read: the constructor zeroes
      every neighbouring field but conspicuously skips it, and `SetMaterials`'s own `+0x60`/`+0x68` writes are on a
      different struct entirely (the materials-pair output, not the contact). Either arena-zeroed (making the whole
      multiplicand a no-op) or a caller not yet located — `SolveOncePerPair` takes the budget as a parameter rather

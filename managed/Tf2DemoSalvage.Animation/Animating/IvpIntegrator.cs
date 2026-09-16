@@ -520,6 +520,41 @@ public sealed class IvpRigidBody
         Objects.Add(firstObject);
     }
 
+    /// <summary>The mass a push along an arm has to move — <c>FUN_180077840(core, arm)</c>.</summary>
+    /// <param name="arm">The contact's arm in this core's frame, <c>record+0xd0</c> or <c>+0xe0</c>.</param>
+    /// <returns>The effective mass, the reciprocal of the inverse terms below.</returns>
+    /// <remarks>
+    /// <code>
+    /// s = MAX of (y²+z²)·core+0x40, (x²+z²)·core+0x44, (x²+y²)·core+0x48     -- each compared with COMISD/JBE
+    /// core+0x0 &amp; 0x10 == 0 → 1.0 / (s + core+0x4c)    else    1.0 / (s + 1.0)
+    /// </code>
+    /// **It is the MAXIMUM of the three inertia terms, not their sum**, which is what makes it a bound rather than the exact
+    /// effective mass; and a core flagged <c>0x10</c> contributes a unit mass instead of its own.
+    /// </remarks>
+    public double EffectiveMassAlong((float X, float Y, float Z) arm)
+    {
+        float x = arm.X * arm.X;
+        float y = arm.Y * arm.Y;
+        float z = arm.Z * arm.Z;
+
+        double most = (x + z) * InverseInertia.Y;
+        double aboutX = (y + z) * InverseInertia.X;
+
+        if (most <= aboutX)
+        {
+            most = aboutX;
+        }
+
+        double aboutZ = (x + y) * InverseInertia.Z;
+
+        if (most <= aboutZ)
+        {
+            most = aboutZ;
+        }
+
+        return 1d / (most + (SkipsGravity ? 1d : InverseMass));
+    }
+
     /// <summary>The core's objects — the vector at <c>+0x68</c>, count <c>+0x6a</c>, elements <c>+0x70</c>.</summary>
     internal List<IvpCollisionObject> Objects { get; } = [];
 

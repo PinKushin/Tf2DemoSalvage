@@ -139,8 +139,63 @@ public sealed class IvpContactPoint
     public (float X, float Y, float Z) LastNormal { get; internal set; }
 
     /// <summary>Whether the byte at <c>+0x64</c> is set — whether the impact's entry shapes its cone along the materials' axes.</summary>
-    /// <remarks>The constructor zeroes it; *its writer is not read.*</remarks>
+    /// <remarks>**Written by <see cref="Weigh"/>** (<c>FUN_180083a60</c>), when either side's material has a second friction.</remarks>
     public bool UsesMaterialAxes { get; set; }
+
+    /// <summary>The mass a unit push along this contact's normal has to move, inverted — the float at <c>+0x60</c>.</summary>
+    /// <remarks>
+    /// **Written by <see cref="Weigh"/>** (<c>FUN_180083a60</c>), and read by the friction controller as the third factor of a
+    /// pair's cone budget — `NormalPush × Friction × this`. *Recorded in `docs/HANDOFF.md` and `IvpTangentialSolve` as a field
+    /// with no writer found; the writer was read on 2026-09-15.*
+    /// </remarks>
+    public float InverseContactMass { get; internal set; }
+
+    /// <summary>Weighs the contact and sets its material-axis gate — <c>FUN_180083a60(cp)</c>.</summary>
+    /// <exception cref="InvalidOperationException">The point has no record, or neither object has a core.</exception>
+    /// <remarks>
+    /// <code>
+    /// each side's material (FUN_18008fb60): its +0xc nonzero → cp+0x64 = 1
+    /// A = cp+0x20's object's core, B = cp+0x48's;  arms record+0xd0 and +0xe0
+    /// neither flagged 0x12:  m = (mB·mA) / (mB + mA)      -- FUN_180077840 per core, its own arm
+    /// A flagged:             m = FUN_180077840(B, record+0xe0)
+    /// otherwise:             m = FUN_180077840(A, record+0xd0)
+    /// cp+0x60 = (float)(1.0 / m)
+    /// </code>
+    /// **A flagged core is left out entirely rather than given an infinite mass**, so a body against the world is weighed by
+    /// itself alone.
+    /// </remarks>
+    public void Weigh()
+    {
+        IvpContactRecord record = RecordOrThrow();
+
+        if (record.FirstMaterial is { HasSecondFriction: true } || record.SecondMaterial is { HasSecondFriction: true })
+        {
+            UsesMaterialAxes = true;
+        }
+
+        IvpRigidBody first = FirstObject.Core ?? throw new InvalidOperationException("A weighed contact's first object has no core.");
+        IvpRigidBody second = SecondObject.Core ?? throw new InvalidOperationException("A weighed contact's second object has no core.");
+
+        double mass;
+
+        if (!first.Immovable && !second.Immovable)
+        {
+            double a = first.EffectiveMassAlong(record.FirstArm);
+            double b = second.EffectiveMassAlong(record.SecondArm);
+
+            mass = (b * a) / (b + a);
+        }
+        else if (first.Immovable)
+        {
+            mass = second.EffectiveMassAlong(record.SecondArm);
+        }
+        else
+        {
+            mass = first.EffectiveMassAlong(record.FirstArm);
+        }
+
+        InverseContactMass = (float)(1d / mass);
+    }
 
     /// <summary>The pair's friction factor — <c>+0x78</c>, narrowed from the material manager's slot 2 by <see cref="SetMaterials"/>.</summary>
     public float Friction { get; internal set; }

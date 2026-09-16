@@ -445,9 +445,10 @@ public static class IvpTangentialSolve
     /// </summary>
     /// <param name="pair">The pair; its own <see cref="IvpFrictionPair.Contacts"/> is what is walked.</param>
     /// <param name="budget">
-    /// The pair's own friction-cone budget for this PSI. **Not computed here** — the native derives it from a
-    /// summed <c>NormalPush × Friction × &lt;an unnamed field, no writer found in this project's reads&gt;</c>; see
-    /// `docs/HANDOFF.md`, item 3, for why porting that sum would mean guessing a value nothing has confirmed.
+    /// The pair's own friction-cone budget for this PSI. **Not computed here, but no longer unknown**: the native sums
+    /// <c>NormalPush × Friction × </c><see cref="IvpContactPoint.InverseContactMass"/> over the pair's contacts and scales it by
+    /// the step squared — the third factor's writer was read on 2026-09-15 (`docs/findings/51`, *The cone budget's third factor,
+    /// found*), so the friction controller computes this rather than guessing it.
     /// </param>
     /// <param name="inverseStep">The environment's reciprocal PSI step.</param>
     /// <exception cref="ArgumentNullException"><paramref name="pair"/> is null.</exception>

@@ -4173,6 +4173,34 @@ every core of +0x10, last to first, unless flags & 2:  FUN_1800792b0(core)
 actually moved are stepped — each over the environment's whole remaining PSI span, through the same integrator a PSI uses — then
 re-checked by the scheduler and stamped with the impact counter. `FUN_180077f00(core, system)` is the per-system record: through
 the hash at `core+0x60` for an unmovable core, else `core+0x60` itself when its `+0x10` is the system.
+#### The cone budget's third factor, found — `FUN_180083a60(cp)` and `FUN_180077840(core, arm)` (2026-09-15)
+
+**`cp+0x60` had been filed here, in `IvpTangentialSolve` and in `docs/HANDOFF.md` as a field with no writer found**, which is why
+`SolveOncePerPair` takes its budget as a parameter. The writer is `FUN_180083a60`, located by grepping the disassembly for stores
+to `+ 0x60],XMM` rather than by reading the C:
+
+```
+FUN_180083a60(cp):
+    m0, m1 = each side's material (FUN_18008fb60: object+0xd0, or the surface manager's slot 1 for a triangle index)
+    either material's +0xc nonzero → cp+0x64 = 1                       -- the sticking/material-axis gate
+    A = cp+0x20's object's core (+0xe8), B = cp+0x48's;  arms record+0xd0 (A) and +0xe0 (B)
+    neither A nor B flagged 0x12:  m = (mB·mA) / (mB + mA),  each FUN_180077840(core, its own arm)
+    A flagged:                     m = FUN_180077840(B, record+0xe0)
+    else:                          m = FUN_180077840(A, record+0xd0)
+    cp+0x60 = (float)(1.0 / m)
+
+FUN_180077840(core, arm):
+    s = MAX of (y²+z²)·core+0x40, (x²+z²)·core+0x44, (x²+y²)·core+0x48
+    core+0x0 & 0x10 == 0 → 1.0 / (s + core+0x4c)     else    1.0 / (s + 1.0)
+```
+
+**So `cp+0x60` is the contact's own inverse effective mass**, and the pair budget the friction controller sums is
+`Σ (cp+0x88 · cp+0x78 · cp+0x60) · step²` — no guessed value anywhere in it.
+
+**Two details worth keeping.** `FUN_180077840` takes the **maximum** of the three inertia terms rather than their sum, so it is a
+bound rather than the exact mass along the arm; and a core flagged `0x10` contributes a unit mass instead of its own, so a body
+against the world is weighed by itself alone.
+
 #### The PSI per unit — `FUN_180075c80(unit, frame, &pushed)` (2026-09-15)
 
 **Read from the decompiler** (headless `DecompAt`). `frame` is the stack record phases 2 and 3 share: `{float step, float
