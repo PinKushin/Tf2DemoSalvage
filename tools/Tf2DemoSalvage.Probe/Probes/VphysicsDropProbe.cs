@@ -280,7 +280,7 @@ public sealed class VphysicsDropProbe : IProbe
     public string Summary =>
         "drives the shipped vphysics.dll through CreateInterface/IPhysics/IPhysicsCollision/IPhysicsSurfaceProps as the " +
         "engine does, drops an 8x8x8 box on a static slab and prints its trajectory: vphysics-drop " +
-        "| vphysics-drop phy <dynamicModel.mdl> <staticModel.mdl> [z]  -- the same rig, using each model's own .phy solid 0";
+        "| vphysics-drop phy <dynamicModel.mdl> <staticModel.mdl> [z] [every]  -- the same rig, using each model's own .phy solid 0";
 
     /// <inheritdoc />
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -359,7 +359,7 @@ public sealed class VphysicsDropProbe : IProbe
 
             Drop(
                 output, environment, staticObject, dynamicObject,
-                "static slab", new Vec3(0f, 0f, 0f), "dropped box", new Vec3(0f, 0f, DefaultDropHeight));
+                "static slab", new Vec3(0f, 0f, 0f), "dropped box", new Vec3(0f, 0f, DefaultDropHeight), PrintEveryTicks);
         }
         finally
         {
@@ -378,7 +378,7 @@ public sealed class VphysicsDropProbe : IProbe
     {
         if (arguments.Count < 3)
         {
-            output.WriteLine("vphysics-drop phy <dynamicModel.mdl> <staticModel.mdl> [z]");
+            output.WriteLine("vphysics-drop phy <dynamicModel.mdl> <staticModel.mdl> [z] [every]");
             return;
         }
 
@@ -387,6 +387,7 @@ public sealed class VphysicsDropProbe : IProbe
         float z = arguments.Count > 3
             ? float.Parse(arguments[3], NumberStyles.Float, CultureInfo.InvariantCulture)
             : DefaultDropHeight;
+        int every = arguments.Count > 4 ? int.Parse(arguments[4], CultureInfo.InvariantCulture) : PrintEveryTicks;
 
         if (!VphysicsLibrary.TryLoad(output, out nint module))
         {
@@ -451,19 +452,22 @@ public sealed class VphysicsDropProbe : IProbe
                 $"mass {dynamicLoaded.Mass:F2}{(dynamicLoaded.MassFromFile ? string.Empty : " (fallback, .phy had none)")}");
             output.Flush();
 
-            ObjectParams staticParams = ObjectParams.Default(staticLoaded.Mass, staticName);
+            ObjectParams staticParams = staticLoaded.Parameters(staticName);
             nint staticObject = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectStaticSlot)(
                 environment, staticLoaded.Collide, staticLoaded.MaterialIndex, new Vec3(0f, 0f, 0f), new Vec3(0f, 0f, 0f),
                 ref staticParams);
 
-            ObjectParams dynamicParams = ObjectParams.Default(dynamicLoaded.Mass, dynamicName);
+            ObjectParams dynamicParams = dynamicLoaded.Parameters(dynamicName);
+            output.WriteLine(
+                $"params: inertia {dynamicParams.Inertia:F2} damping {dynamicParams.Damping:F2} rotdamping {dynamicParams.RotDamping:F2} " +
+                $"volume {dynamicParams.Volume:F2} drag {dynamicParams.DragCoefficient:F2}");
             nint dynamicObject = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectSlot)(
                 environment, dynamicLoaded.Collide, dynamicLoaded.MaterialIndex, new Vec3(0f, 0f, z), new Vec3(0f, 0f, 0f),
                 ref dynamicParams);
 
             Drop(
                 output, environment, staticObject, dynamicObject,
-                staticModel, new Vec3(0f, 0f, 0f), dynamicModel, new Vec3(0f, 0f, z));
+                staticModel, new Vec3(0f, 0f, 0f), dynamicModel, new Vec3(0f, 0f, z), every);
         }
         finally
         {
@@ -497,7 +501,8 @@ public sealed class VphysicsDropProbe : IProbe
         string staticLabel,
         Vec3 staticExpected,
         string dynamicLabel,
-        Vec3 dynamicExpected)
+        Vec3 dynamicExpected,
+        int every)
     {
         VCall<GetPositionDelegate>(staticObject, ObjectGetPositionSlot)(staticObject, out Vec3 staticPosition, out _);
         output.WriteLine($"control: {staticLabel} GetPosition -> {staticPosition} (expected {staticExpected})");
@@ -517,7 +522,7 @@ public sealed class VphysicsDropProbe : IProbe
         {
             simulate(environment, Timestep);
 
-            if (tick % PrintEveryTicks != 0)
+            if (tick % every != 0)
             {
                 continue;
             }
@@ -570,7 +575,21 @@ public sealed class VphysicsDropProbe : IProbe
     /// <param name="Mass">The solid's own mass, or <see cref="FallbackMass"/> when the <c>.phy</c> named none.</param>
     /// <param name="MassFromFile">Whether <see cref="Mass"/> came from the file rather than the fallback.</param>
     /// <param name="SurfaceProp">The name actually resolved against, for the printed line.</param>
-    private sealed record LoadedPhy(nint Collide, nint VCollide, int MaterialIndex, float Mass, bool MassFromFile, string SurfaceProp);
+    /// <param name="Solid">The solid's own text block, whose inertia and damping the object is created with.</param>
+    private sealed record LoadedPhy(
+        nint Collide, nint VCollide, int MaterialIndex, float Mass, bool MassFromFile, string SurfaceProp, PhysicsSolid Solid)
+    {
+        /// <summary>The solid's own parameters over <c>g_PhysDefaultObjectParams</c>, as the prop path's key parser fills them.</summary>
+        public ObjectParams Parameters(nint name) =>
+            ObjectParams.Default(Mass, name) with
+            {
+                Inertia = Solid.Inertia,
+                Damping = Solid.Damping,
+                RotDamping = Solid.RotationDamping,
+                Volume = Solid.Volume,
+                DragCoefficient = Solid.DragCoefficient,
+            };
+    }
 
     /// <summary>Reads a model's <c>.phy</c>, loads it through the shipped <c>VCollideLoad</c>, and resolves solid 0's material.</summary>
     private static LoadedPhy? LoadCollide(TextWriter output, GameContent game, nint collision, nint surfaceProps, string model)
@@ -660,7 +679,7 @@ public sealed class VphysicsDropProbe : IProbe
             return null;
         }
 
-        return new LoadedPhy(solidZero, vcollide, materialIndex, mass, massFromFile, surfaceProp);
+        return new LoadedPhy(solidZero, vcollide, materialIndex, mass, massFromFile, surfaceProp, solid);
     }
 
     /// <summary>Frees what <see cref="LoadCollide"/> allocated — <c>VCollideUnload</c>, verified to exist at slot 37, then the block itself.</summary>

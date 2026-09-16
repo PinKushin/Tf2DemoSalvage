@@ -52,7 +52,7 @@ public sealed class IvpPhyDropProbe : IProbe
     /// <inheritdoc/>
     public string Summary =>
         "the ported driver's own equivalent of 'vphysics-drop phy', for a diff against it: " +
-        "ivp-phy-drop <dynamicModel.mdl> <staticModel.mdl> [z]";
+        "ivp-phy-drop <dynamicModel.mdl> <staticModel.mdl> [z] [every]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -62,7 +62,7 @@ public sealed class IvpPhyDropProbe : IProbe
 
         if (arguments.Count < 2)
         {
-            output.WriteLine("ivp-phy-drop <dynamicModel.mdl> <staticModel.mdl> [z]");
+            output.WriteLine("ivp-phy-drop <dynamicModel.mdl> <staticModel.mdl> [z] [every]");
             return;
         }
 
@@ -71,6 +71,7 @@ public sealed class IvpPhyDropProbe : IProbe
         float z = arguments.Count > 2
             ? float.Parse(arguments[2], NumberStyles.Float, CultureInfo.InvariantCulture)
             : DefaultDropHeight;
+        int every = arguments.Count > 3 ? int.Parse(arguments[3], CultureInfo.InvariantCulture) : PrintEveryTicks;
 
         if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder)
         {
@@ -137,7 +138,7 @@ public sealed class IvpPhyDropProbe : IProbe
             world.Simulate(Step);
             dynamicRagdoll.CheckSettle(Step);
 
-            if (tick % PrintEveryTicks != 0)
+            if (tick % every != 0)
             {
                 continue;
             }
