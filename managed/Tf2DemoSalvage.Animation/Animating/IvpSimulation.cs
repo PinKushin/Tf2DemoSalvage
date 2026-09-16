@@ -15,9 +15,11 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// <see cref="IvpPhysicsPipeline"/> (<c>FUN_180082560</c>), <see cref="IvpSimulationUnit"/> (<c>FUN_180075c80</c>),
 /// <see cref="IvpIntegrator.StepCore"/> (<c>FUN_180099a00</c>) and the five controllers by priority.
 ///
-/// **What it does NOT do yet**: collide. The narrow phase that would create contacts, and the constraint controller at priority
-/// 405, are not wired in here — so a body added to this simulation falls, damps and spins as the engine's own step says, and
-/// nothing stops it. That is deliberate: the drop is the measurement that has to match before anything else is switched over.
+/// **It collides.** The pair creation, the mindist events, the impact and the friction linking of resting contacts are wired in,
+/// as are the constraint groups (<see cref="Add(IvpConstraintGroup)"/>), static surfaces and a map's virtual terrain. What it
+/// does, what is still missing, and how it compares against both <see cref="IvpEnvironment"/> and <c>vphysics.dll</c> itself
+/// are not restated here: <c>docs/findings/51-vphysics-is-ivp-and-it-is-readable.md</c> (from *Two bodies driven together, end
+/// to end*, through *One prop dropped through vphysics.dll and through the port*) and <c>docs/HANDOFF.md</c> item 3.
 /// </remarks>
 public sealed class IvpSimulation
 {
