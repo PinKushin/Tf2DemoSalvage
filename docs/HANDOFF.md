@@ -85,10 +85,12 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    (`IvpIntegrator.StepCore`, `FUN_180099a00`), the hull pass, the per-core recheck, and all five controllers by their read
    priorities — friction `2000`, gravity `1000`, friction `600`, the constraints `405`, friction `0`. The impact loop
    (`IvpImpactIsland`: build, drain, grow, tail) runs inside the collision, as `FUN_18008ef60` does.
-   **What it still lacks before it can replace the invented solver: the narrow phase that would create contacts**, the unit
-   MERGE that puts two constrained bodies in one unit (`FUN_180074e40`), the wake of a sleeping unit (`FUN_1800758e0`), and
-   the friction system's self-deletion and union-find split. So a body added to it falls, damps, spins and sleeps like the
-   engine's, and nothing stops it yet.
+   **2026-09-16: two bodies collide in it end to end** — broad phase, near/far cycle, one-event-at-a-time queues, time-coded
+   object caches, contact filing for two movers with the system merge, unit merge, wake with the core revive, sleep with the
+   core freeze (findings 51, *Two bodies driven together, end to end*). **What it still lacks before it can replace the invented
+   solver:** the world as a static object in it (the map's collide as an immovable core's surface), the friction system's
+   union-find split (`FUN_1800877b0`, `FUN_180086e80`), the revive's resting-contact rebuild (`FUN_180086500`, read, not ported),
+   the mindist slot-0 call at the 5,000-pass cap, and phase 1's guarded calls and `env+0x158` list.
    **The measurement that has to come next** is a ragdoll drop through `IvpSimulation` against `IvpEnvironment.Simulate()` on
    the f12 demo; nothing switches over before that.
    *The account below is the 2026-09-14 reading that got this far, kept because it names what was unread at the time; where it
