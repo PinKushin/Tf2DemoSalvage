@@ -27,14 +27,21 @@ internal static class IvpTestCube
     /// <summary>The cube as a ledge list, a body's <see cref="Animating.IvpRigidBody.Ledges"/>.</summary>
     /// <param name="half">The half extent.</param>
     /// <returns>One ledge.</returns>
-    public static List<PhysicsLedge> Ledges(float half)
+    public static List<PhysicsLedge> Ledges(float half) => Box(half, half, half);
+
+    /// <summary>An axis-aligned box as a ledge list.</summary>
+    /// <param name="x">The half extent along x.</param>
+    /// <param name="y">The half extent along y.</param>
+    /// <param name="z">The half extent along z.</param>
+    /// <returns>One ledge.</returns>
+    public static List<PhysicsLedge> Box(float x, float y, float z)
     {
         List<Vector3> points =
         [
-            new(-half, -half, -half), new(half, -half, -half),
-            new(half, half, -half), new(-half, half, -half),
-            new(-half, -half, half), new(half, -half, half),
-            new(half, half, half), new(-half, half, half),
+            new(-x, -y, -z), new(x, -y, -z),
+            new(x, y, -z), new(-x, y, -z),
+            new(-x, -y, z), new(x, -y, z),
+            new(x, y, z), new(-x, y, z),
         ];
 
         (int, int, int)[] offsets = new (int, int, int)[Triangles.Count];
@@ -44,7 +51,7 @@ internal static class IvpTestCube
             offsets[triangle] = (Twin(triangle, 0), Twin(triangle, 1), Twin(triangle, 2));
         }
 
-        return [new PhysicsLedge(points, Triangles, offsets, Across, new int[Triangles.Count], Vector3.Zero, half * 2f)];
+        return [new PhysicsLedge(points, Triangles, offsets, Across, new int[Triangles.Count], Vector3.Zero, MathF.Sqrt((x * x) + (y * y) + (z * z)))];
     }
 
     /// <summary>The words from an edge to the edge running the other way — <c>16·t + 4 + 4·s</c> addresses, over four.</summary>

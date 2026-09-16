@@ -4253,6 +4253,18 @@ likely ends point–point there too, but nothing has measured the binary on it.
 **Where it stands**: two bodies driven together collide repeatedly (five impacts in 0.2 s), share one friction system and one
 unit, conserve momentum, and do not pass through each other.
 
+**An eighth, on a static slab — energy from nowhere.** A cube dropped flat on an immovable slab (a core in no unit, filed in the
+broad phase like any other) left at +13.6 having arrived at −10, after twelve impacts in one event. Traced inside the island's
+drain: one contact's record normal was `(−1.6e−7, −1.6e−7, −0.01)` — a hundredth long — so each push on it made spin and little
+lift, and the corner beside it kept re-solving. **The port's own wiring**: `IvpSimulation` handed the island `_ => (first,
+second)`, the mindist's record-order sides, for EVERY contact, where the island reads each contact's own sides, synapse A
+first. With A on record 1 the triangle was looked up on the other body — the cube's face, 64 long, over the slab's reciprocal
+determinant, 1/6400. With each contact's own sides it lands and rests.
+
+*Still not right at rest*: with two contacts the record controller does not rebuild the records (its many-contact branch,
+`FUN_180088ae0` and `FUN_180086b40`, is unread), so the gap stays where the impact left it and the cube creeps up at 0.012 a
+second on a constant push.
+
 #### The friction controller at priority 600, and the clamp's own weights — `FUN_1800836b0` and `FUN_180083970` (2026-09-15)
 
 **Read from the decompiler**, and it settles two things this project had recorded differently:

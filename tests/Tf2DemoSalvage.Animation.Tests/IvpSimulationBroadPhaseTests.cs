@@ -157,6 +157,34 @@ public sealed class IvpSimulationBroadPhaseTests
             $"{contact?.Second.Feature}, gap {contact?.Gap}, spin {moving.AngularVelocity}/{still.AngularVelocity}");
     }
 
+    /// <remarks>
+    /// **The world is a static object** — an immovable core in no unit, its surface filed in the broad phase like any other — and a
+    /// body dropped on it comes to rest on its face.
+    /// </remarks>
+    [Test]
+    public void Advance_ABodyDroppedOnAStaticSlab_ComesToRestOnIt()
+    {
+        IvpSimulation simulation = new(Environment(), (0f, 0f, -10f), () => 0f);
+        IvpRigidBody body = Body((1d, 2d, 10d));
+        IvpRigidBody slab = Body((0d, 0d, 0d));
+        slab.Immovable = true;
+        slab.InverseMass = 0f;
+        slab.InverseInertia = (0f, 0f, 0f);
+        slab.Ledges = IvpTestCube.Box(40f, 40f, 1f);
+        simulation.Add(body);
+        simulation.Collide(body, Material);
+        simulation.Collide(slab, Material);
+        simulation.Start();
+
+        for (double at = 0.02d; at <= 3d; at += 0.01d)
+        {
+            simulation.Advance(at);
+        }
+
+        body.Position.Z.ShouldBeGreaterThan(4.5d, $"the slab's top is at 1 and the cube's half is 4; impacts {simulation.Environment.Impacts}");
+        body.Position.Z.ShouldBeLessThan(5.5d, "and it came down to it");
+    }
+
     /// <summary>Two cubes of half four, faces one apart, the first driven at the second at 6 — advanced in 0.01 slices.</summary>
     private static (IvpSimulation, IvpRigidBody Moving, IvpRigidBody Still, IvpCollisionObject MovingObject) DrivenTogether(double until)
     {

@@ -69,7 +69,7 @@ public sealed class IvpSimulation
         Collisions.Creators.Add(new IvpPairCreator());
 
         // What the impact environment reaches through a core's `+0x10`: the objects' caches, the unit merge and the broad phase.
-        environment.ContactSides = contact => (SideOf(contact.FirstObject), SideOf(contact.SecondObject));
+        environment.ContactSides = ContactSides;
         environment.MergeUnits = MergeUnits;
         IvpCollisionEnvironment collisions = Collisions;
         environment.Refile = collisionObject => IvpBroadPhase.Refile(collisions, collisionObject);
@@ -350,7 +350,10 @@ public sealed class IvpSimulation
             second,
             Environment,
             Environment.Materials,
-            _ => (first, second),
+            // Each contact's own sides, synapse A first. *The mindist's record-order pair stood here for every contact, and swapped a
+            // contact whose synapse A is record 1: its triangle was looked up on the other body and the record's normal came out
+            // a hundredth long, so a cube landing flat on a slab gained speed on every push.*
+            ContactSides,
             Minimize,
             mindist => Examine(mindist, IvpRecheck.AfterMiss),
             Environment.Now);
@@ -465,6 +468,10 @@ public sealed class IvpSimulation
 
         return (SideOf(mindist.HullRecord(0)), SideOf(mindist.HullRecord(1)));
     }
+
+    /// <summary>A contact's two sides in its own order, synapse A first — what the record build reaches through its objects.</summary>
+    private (IvpLedgeSide First, IvpLedgeSide Second) ContactSides(IvpContactPoint contact) =>
+        (SideOf(contact.FirstObject), SideOf(contact.SecondObject));
 
     private IvpLedgeSide SideOf(IvpMindistHullRecord record) =>
         SideOf(record.CollisionObject ?? throw new InvalidOperationException("A synapse record was never linked to an object."));
