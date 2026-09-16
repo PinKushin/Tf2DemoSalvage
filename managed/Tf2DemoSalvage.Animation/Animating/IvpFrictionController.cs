@@ -165,3 +165,61 @@ public sealed class IvpNormalFrictionController(IvpFrictionSystem system) : IIvp
         unit.Flags = (unit.Flags & ~0x200) | 0x100;
     }
 }
+
+/// <summary>
+/// The friction system's record pass — the controller it is filed as at priority <c>2000</c>, whose slot 4 is
+/// <c>FUN_180084240</c> (B369, D172).
+/// </summary>
+/// <param name="system">The friction system this controller is a face of — its base <c>+0x20</c>.</param>
+/// <param name="environment">The environment, for its clock.</param>
+/// <param name="sides">The contact's two ledge sides now, as the record build needs them.</param>
+/// <remarks>
+/// **Read from the disassembly** (`docs/findings/51`): the FIRST controller a PSI runs, and for a lone contact all it does is
+/// rebuild the record.
+///
+/// <code>
+/// one contact or none → FUN_18008d0c0(list head, env)      -- the record rebuilt, nothing else
+/// else  FUN_180088ae0(system);  unit dword &amp; 0x3000 → every pair's +0x30 = 0;  unless &amp; 0xc00 → FUN_180086b40(system)
+/// </code>
+///
+/// *Not carried*: the many-contact branch entirely — `FUN_180088ae0` and `FUN_180086b40` are unread, and the pairs' <c>+0x30</c>
+/// this project does not hold (see <see cref="IvpFrictionPair"/>). A system with more than one contact therefore has its records
+/// rebuilt by the collision path alone until those are read.
+/// </remarks>
+public sealed class IvpRecordFrictionController(
+    IvpFrictionSystem system,
+    IvpImpactEnvironment environment,
+    Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)> sides) : IIvpUnitController
+{
+    /// <summary>The priority its slot 5 returns — <c>0x7d0</c>, the highest of the three.</summary>
+    public const int RecordPriority = 2000;
+
+    /// <summary>The system this controller drives.</summary>
+    public IvpFrictionSystem System { get; } = system ?? throw new ArgumentNullException(nameof(system));
+
+    /// <inheritdoc/>
+    public int Priority => RecordPriority;
+
+    /// <inheritdoc/>
+    public void Advance(IvpSimulationUnit unit, IReadOnlyList<IvpRigidBody> cores, float psiStep)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(sides);
+
+        if (System.ContactCount > 1 || System.FirstContact is not { } contact)
+        {
+            return;
+        }
+
+        (IvpLedgeSide first, IvpLedgeSide second) = sides(contact);
+
+        contact.Record = IvpContactRecord.Build(
+            contact,
+            new IvpContactBody(first, CoreOf(contact.FirstObject), contact.FirstObject.ExtraRadius),
+            new IvpContactBody(second, CoreOf(contact.SecondObject), contact.SecondObject.ExtraRadius),
+            environment.Now);
+    }
+
+    private static IvpRigidBody CoreOf(IvpCollisionObject collisionObject) =>
+        collisionObject.Core ?? throw new InvalidOperationException("A friction contact's object has no core.");
+}

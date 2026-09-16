@@ -162,6 +162,47 @@ public sealed class IvpFrictionControllerTests
         (unit.Flags & 0x300).ShouldBe(0x100);
     }
 
+    [Test]
+    public void Priority_TheRecordPass_Is2000()
+    {
+        (IvpFrictionSystem system, _) = Linked();
+
+        new IvpRecordFrictionController(system, system.Environment, Revalidate.Sides).Priority.ShouldBe(2000);
+    }
+
+    [Test]
+    public void Advance_TheRecordPassOnALoneContact_RebuildsItsRecord()
+    {
+        (IvpFrictionSystem system, IvpContactPoint contact) = Linked();
+        IvpContactRecord old = contact.Record!;
+        system.Environment.Now = 3d;
+
+        new IvpRecordFrictionController(system, system.Environment, Revalidate.Sides)
+            .Advance(new IvpSimulationUnit(), [], psiStep: 0.5f);
+
+        contact.Record.ShouldNotBeSameAs(old);
+        contact.LastMeasured.ShouldBe(3d, "rebuilt at the environment's own clock");
+    }
+
+    /// <remarks>**The many-contact branch is not carried**, so a second contact leaves the records alone.</remarks>
+    [Test]
+    public void Advance_TheRecordPassWithTwoContacts_LeavesThemAlone()
+    {
+        (IvpFrictionSystem system, IvpContactPoint contact) = Linked();
+        IvpContactPoint second = Revalidate.Contact(system.Pairs[0].FirstCore, system.Pairs[0].SecondCore);
+        IvpFrictionLinking.LinkContactByCore(second, system.Pairs[0].FirstCore, system.Pairs[0].SecondCore, system.Environment);
+        IvpContactRecord old = contact.Record!;
+        system.ContactCount.ShouldBe((short)2, "the control: the fixture really does hold two contacts");
+
+        new IvpRecordFrictionController(system, system.Environment, Revalidate.Sides)
+            .Advance(new IvpSimulationUnit(), [], psiStep: 0.5f);
+
+        contact.Record.ShouldBeSameAs(old);
+
+        // The list is head-inserted, so the pass would rebuild THIS contact's record if it ran at all — and it has none yet.
+        second.Record.ShouldBeNull();
+    }
+
     private static IvpContactPoint Contact(float normalPush, float friction, float inverseMass)
     {
         (_, IvpContactPoint contact) = Linked();

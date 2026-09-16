@@ -74,6 +74,7 @@ public static class IvpPsiEvent
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(time);
 
+        environment.Now = now;
         environment.RebaseBase = now;
         environment.PsiEnd = (float)environment.Step + now;
 

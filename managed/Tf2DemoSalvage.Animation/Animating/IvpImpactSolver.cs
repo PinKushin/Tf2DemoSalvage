@@ -48,6 +48,9 @@ public sealed class IvpImpactEnvironment
     /// <summary>The time every queued event's float is measured from — <c>env+0x198</c>, set to now by each PSI event.</summary>
     public double RebaseBase { get; set; }
 
+    /// <summary>The environment's own clock — <c>env+0x188</c>, which every routine that needs "now" reads from here.</summary>
+    public double Now { get; set; }
+
     /// <summary>The environment's phase, <c>env+0x1ac</c>, handed to the step and walked 0, 2, 3, 4, 5 by the pipeline.</summary>
     public int Phase { get; set; }
 
