@@ -40,8 +40,15 @@ public sealed class IvpConstraintControllerTests
     {
         IvpRigidBody first = new();
 
-        // 40 degrees about the narrower swing axis, against a limit of 25 — the same fixture the group's own tests use.
-        IvpRigidBody second = new() { Orientation = (0f, 0.34202015f, 0f, 0.9396926f) };
+        // 40 degrees about the narrower swing axis, against a limit of 25 — the same fixture the group's own tests use. The solve
+        // reads the rotation a PSI stands at, `+0x1a0` and the matrix built from it, not `+0x180`.
+        (double X, double Y, double Z, double W) turned = (0d, 0.34202015d, 0d, 0.9396926d);
+        IvpRigidBody second = new()
+        {
+            Orientation = turned,
+            WorkingOrientation = turned,
+            CoreMatrix = IvpMatrix.FromRotation(turned, (0d, 0d, 0d)),
+        };
         IvpConstraintGroup group = new();
         group.Joints.Add(new IvpRagdollJoint
         {

@@ -93,10 +93,31 @@ public sealed class IvpRagdollConstraint
         ArgumentNullException.ThrowIfNull(a);
         ArgumentNullException.ThrowIfNull(b);
 
-        (float X, float Y, float Z) primaryA = IvpQuaternion.Rotate(a.Orientation, FrameA.Primary);
-        (float X, float Y, float Z) widerA = IvpQuaternion.Rotate(a.Orientation, FrameA.Wider);
-        (float X, float Y, float Z) primaryB = IvpQuaternion.Rotate(b.Orientation, FrameB.Primary);
-        (float X, float Y, float Z) widerB = IvpQuaternion.Rotate(b.Orientation, FrameB.Wider);
+        Measure(a.Orientation, b.Orientation);
+    }
+
+    /// <summary>Reads the three deflections off the rotation the PSI stands at — each core's working orientation.</summary>
+    /// <param name="a">The reference body.</param>
+    /// <param name="b">The attached body.</param>
+    /// <exception cref="ArgumentNullException">Either body is null.</exception>
+    /// <remarks>
+    /// **The engine turns the frames through the matrix at <c>core+0x90</c>** (`FUN_180037620`), which a PSI rebuilds from
+    /// <c>+0x1a0</c>. *<see cref="Measure(IvpRigidBody, IvpRigidBody)"/> reads <c>+0x180</c>, a step behind.*
+    /// </remarks>
+    public void MeasureWorking(IvpRigidBody a, IvpRigidBody b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+
+        Measure(a.WorkingOrientation, b.WorkingOrientation);
+    }
+
+    private void Measure((double X, double Y, double Z, double W) a, (double X, double Y, double Z, double W) b)
+    {
+        (float X, float Y, float Z) primaryA = IvpQuaternion.Rotate(a, FrameA.Primary);
+        (float X, float Y, float Z) widerA = IvpQuaternion.Rotate(a, FrameA.Wider);
+        (float X, float Y, float Z) primaryB = IvpQuaternion.Rotate(b, FrameB.Primary);
+        (float X, float Y, float Z) widerB = IvpQuaternion.Rotate(b, FrameB.Wider);
 
         Cone.Angle = Dot(primaryB, primaryA);
         Swing.Angle = Dot(primaryB, widerA);

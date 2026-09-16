@@ -4284,6 +4284,52 @@ that radius, so a world core with a cube's radius was only ever found near its o
 because its cube fell near the origin*. `PhysicsLedgeTree` now carries the header's mass centre, radius and deviation.
 *Which centre the distance is measured from is INFERRED*: the core's, at minus the object's offset.
 
+#### A ragdoll in IVP space, and the constraint solve that was written for Source units (2026-09-16)
+
+**`IvpRagdoll` builds a corpse on the ported driver from the `.phy`'s raw numbers** — surface mass centre, per-kilogram
+inertia, the compact surface tree — in IVP axes and metres, converting only the start pose, the killing force, the inherited
+velocity and the pose read back. Gravity along Source −Z, the conversions and the killing force pass their tests at once. **The
+joint did not hold**: pulled an inch apart, the child drifted to 18 inches.
+
+**The reason is that the ported constraint solve was built for the invented Source-unit solver**, and three things it took on
+trust are now read (GhidraMCP, disassembly):
+
+- **The driver `FUN_18003c780` runs slot 3 — rebuild AND solve — once per constraint with `x = y = 1f`, then per iteration slot
+  4 descending and ascending with `x = A[i]`, `y = B[i]`, stopping on `x == 0`.** The two tables are laid on its stack from four
+  dumped blocks: `A = {1, 1, 0.8, 0.6, 0.4, 0.4, 0.4, 0.4, 0.4, 0}` (`eeb80`, `eeb70`, then `0.4f`, `0`) and `B = {1, 1, 0.8,
+  0.8, 0.8…, 0}` (`eeba0`, `eeb90`, `0.8f`, `0`). *The port read `eeb70` as the table and gave both stock iterations 0.4, and
+  skipped slot 3's solve.*
+- **`param_2` of every solve routine is the PSI event**: `+0x0` the step, `+0x4` its inverse. The angle is predicted
+  `rate·step` ahead, and the correction scale is `+0xc·(x·w or x)·invStep·(1/K)`; the ball-and-socket's error gain is
+  `+0x150·x·invStep`, its velocity gain `+0x14c·y`. *The port took a rate gain of zero, no inverse step anywhere, and the weight
+  as the error gain* — which a solver in inches happened to tolerate.
+- **Lane `w` of `+0x2d0` is half the bisector's length**, `(3 − r²d)·r·0.5·0.5·d` over `r = RSQRTPS(|primaryA + primaryB|²)`,
+  the mask at `1800ff130` being `(0, 0, 0, ~0)`; the twist's scale takes it, the swings' do not.
+
+**Fixing the gains alone made the joint diverge**, ball-and-socket included, because the rest of the port's conventions are
+the invented solver's too: its angular velocity is crossed with world arms where the driver keeps `+0x130` in the core's frame,
+and its positions are `+0x150` where the solve reads the event position `+0xf0`. **So the whole solve was transcribed from
+the disassembly** (`FUN_180038620`, `FUN_180038d10`, `FUN_180036e10`, `FUN_180036f80`, `FUN_1800372c0`, `FUN_180037620`,
+`FUN_180037bd0`, `FUN_180038070`) rather than patched further, and it settled four things:
+
+- **Every axis goes world→core.** `FUN_180037bd0` forms lane `k` as `(V.y·m[1,k] + V.z·m[2,k]) + V.x·m[0,k]` over the matrix
+  at `core+0x90` narrowed to float — the transpose — and body B's from `−V`. The spin at `+0x130` is the core's own. *The port
+  turned the axis core→world through the quaternion*, which only a world-frame spin could carry.
+- **The ball-and-socket's rows are per core axis.** `FUN_180038070` builds `c_k × armA` and `armB × c_k` from the matrix's
+  columns (the arm is the anchor's world point less `+0xf0`), their inverse-inertia-weighted copies, and `K` from their sum
+  with the inverse masses on the diagonal; its inverse is the adjugate `(r1×r2, r2×r0, r0×r1)` over `r2·(r0×r1)`, reciprocated
+  by `rcpps` with no guard. The impulse `T` then turns each core's spin through those rows.
+- **Slot 4 measures nothing.** `FUN_180038d10` rewrites `+0x2d0` and re-enters `FUN_180036e10`, whose type-1 path reuses the
+  cached axes; the deflections at `+0x100` and the position error at `+0x0` are slot 3's. Only the velocities are re-read.
+- **A swing's cross is lengthened to at least 0.1** — `max(rsqrt(|c|²)·0.1, 1)·c` — and retired below `FLT_EPSILON` squared,
+  where `FUN_1800372c0` writes type 2 into its own dispatch field.
+
+**The transcription itself lied twice, and the disassembly caught both**: it dropped a `MULPS XMM3,XMM12` (the step on the
+twist's rate) and decoded `SHUFPS` immediates `0x09`/`0x52` as `{y,x,x,x}`, which would make the adjugate's crosses
+nonsense; they are `{y,z,x,x}` and `{z,x,y,y}`. **With the port in the core's frame, the joint pulled an inch apart closes**,
+and the angular controller's own fixture needed the working orientation and matrix it had never set. *Rounding still differs
+from the engine in two places, stated*: the anchors carry the object offset pre-added, and the reciprocals are divides.
+
 #### The friction controller at priority 600, and the clamp's own weights — `FUN_1800836b0` and `FUN_180083970` (2026-09-15)
 
 **Read from the decompiler**, and it settles two things this project had recorded differently:
