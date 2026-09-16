@@ -87,12 +87,15 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    (`IvpImpactIsland`: build, drain, grow, tail) runs inside the collision, as `FUN_18008ef60` does.
    **2026-09-16: two bodies collide in it end to end** — broad phase, near/far cycle, one-event-at-a-time queues, time-coded
    object caches, contact filing for two movers with the system merge, unit merge, wake with the core revive, sleep with the
-   core freeze (findings 51, *Two bodies driven together, end to end*). **What it still lacks before it can replace the invented
-   solver:** the world as a static object in it (the map's collide as an immovable core's surface), the friction system's
-   union-find split (`FUN_1800877b0`, `FUN_180086e80`), the revive's resting-contact rebuild (`FUN_180086500`, read, not ported),
+   core freeze (findings 51, *Two bodies driven together, end to end*). Since ported, each in findings 51: the map as static
+   objects and virtual terrain, the friction split, the revive's resting-contact rebuild, the tangential work bank,
+   `CPhysicsEnvironment::Simulate`'s frame dispatch with `GetPosition` read at the clock, and air drag. **What it still lacks:**
    the mindist slot-0 call at the 5,000-pass cap, and phase 1's guarded calls and `env+0x158` list.
-   **The measurement that has to come next** is a ragdoll drop through `IvpSimulation` against `IvpEnvironment.Simulate()` on
-   the f12 demo; nothing switches over before that.
+   **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
+   dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
+   tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
+   the port keeps sliding at 4–7 units/s until the settle check sleeps it, so resting at the same height is not a match. Nothing
+   switches over from `IvpEnvironment.Simulate()` before that differential is closed and the f12 ragdoll drop is compared.
    *The account below is the 2026-09-14 reading that got this far, kept because it names what was unread at the time; where it
    says a routine is unported, check the list above first.* `IvpEnvironment.Simulate()` (897 lines,
    `managed/.../IvpEnvironment.cs`) is a fully independent,
