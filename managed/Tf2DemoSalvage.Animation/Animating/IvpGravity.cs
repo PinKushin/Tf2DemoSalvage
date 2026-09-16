@@ -99,3 +99,49 @@ public static class IvpGravity
         }
     }
 }
+
+/// <summary>
+/// Gravity as a unit's controller — the entry at priority <c>1000</c> whose slot 4 is <c>FUN_180074c80</c> (B369, D172).
+/// </summary>
+/// <param name="gravity">The controller's own copy of the acceleration, <c>+0x10..0x18</c>.</param>
+/// <param name="alternate">The second acceleration, <c>+0x20..0x28</c>, for a core flagged <c>0x20</c>.</param>
+/// <remarks>
+/// **Read from the disassembly** (`docs/findings/51`): slot 4 walks the cores of its own entry, last first, skipping a core
+/// flagged <c>0x10</c>, and for each runs the damping (<c>FUN_180078250</c>), the staged-velocity flush
+/// (<c>FUN_180077950</c>) and then the acceleration.
+///
+/// **The three passes here are per core and read nothing of any other core**, so damping every core, then flushing every core,
+/// then adding to every core gives the same result as the engine's one-core-at-a-time order. That equivalence is what licenses
+/// reusing <see cref="IvpDamping"/>, <see cref="IvpPush"/> and <see cref="IvpGravity"/> as they stand; a term that mixed two
+/// cores would not allow it.
+/// </remarks>
+public sealed class IvpGravityController(
+    (float X, float Y, float Z) gravity, (float X, float Y, float Z)? alternate = null) : IIvpUnitController
+{
+    /// <summary>Gravity's own priority, read as <c>1000</c> from its slot 5.</summary>
+    public const int GravityPriority = 1000;
+
+    /// <inheritdoc/>
+    public int Priority => GravityPriority;
+
+    /// <inheritdoc/>
+    public void Advance(IReadOnlyList<IvpRigidBody> cores, float psiStep)
+    {
+        ArgumentNullException.ThrowIfNull(cores);
+
+        for (int index = cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = cores[index];
+
+            if (core.SkipsGravity)
+            {
+                continue;
+            }
+
+            IvpDamping.Damp(core, psiStep, (core.RotationDamping, core.RotationDamping, core.RotationDamping), core.Damping);
+            IvpPush.Flush(core);
+        }
+
+        IvpGravity.Apply(cores, gravity, psiStep, alternate);
+    }
+}
