@@ -202,6 +202,9 @@ internal static class BspStructLayout
     /// <summary>Byte offset of <c>power</c> inside a <c>ddispinfo_t</c>.</summary>
     public const int DispPowerOffset = 20;
 
+    /// <summary>Byte offset of <c>minTess</c> inside a <c>ddispinfo_t</c> — its high bit set, the displacement's surface flags.</summary>
+    public const int DispMinTessOffset = 24;
+
     /// <summary>How many <c>uint32</c> of <c>m_AllowedVerts</c> a <c>ddispinfo_t</c> carries.</summary>
     /// <remarks>
     /// <c>ALLOWEDVERTS_SIZE = PAD_NUMBER( MAX_DISPVERTS, 32 ) / 32</c> (<c>bspfile.h:665</c>), and
