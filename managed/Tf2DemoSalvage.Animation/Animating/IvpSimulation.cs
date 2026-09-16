@@ -235,6 +235,29 @@ public sealed class IvpSimulation
         SyncCollisionClock();
     }
 
+    /// <summary>The environment's air drag — <c>env+0x10</c>.</summary>
+    public IvpDragController Drag { get; } = new();
+
+    /// <summary>Files a core under the air drag — <c>EnableDrag(true)</c>, <c>FUN_18001b9c0</c>.</summary>
+    /// <param name="core">The core.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="core"/> is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// !IsStatic():  IsDragEnabled() != enable →  the drag controller added to the core, or removed
+    /// </code>
+    /// </remarks>
+    public void EnableDrag(IvpRigidBody core)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+
+        if (core.Immovable || core.Controllers.Contains(Drag))
+        {
+            return;
+        }
+
+        IvpSimulationUnit.Register(core, Drag);
+    }
+
     /// <summary>The time manager's own clock, in absolute seconds.</summary>
     public double Now => Environment.Now;
 

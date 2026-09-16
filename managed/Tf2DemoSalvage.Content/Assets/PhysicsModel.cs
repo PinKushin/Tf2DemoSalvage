@@ -377,7 +377,14 @@ public sealed class PhysicsModel
 
             hulls.Add(PhysicsHull.Read(blob));
             masses.Add(PhysicsHull.MassProperties(blob));
-            surfaces.Add(PhysicsHull.Tree(PhysicsHull.Surface(blob)));
+            PhysicsLedgeTree? tree = PhysicsHull.Tree(PhysicsHull.Surface(blob));
+
+            if (tree is not null && PhysicsHull.DragAxisAreas(blob) is { } areas)
+            {
+                tree.DragAxisAreas = areas;
+            }
+
+            surfaces.Add(tree);
 
             at += 4 + size;
         }

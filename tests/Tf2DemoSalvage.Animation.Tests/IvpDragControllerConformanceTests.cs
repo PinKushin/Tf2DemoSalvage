@@ -1,4 +1,8 @@
+using System;
+using System.Numerics;
+
 using Tf2DemoSalvage.Animation.Animating;
+using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Animation.Tests;
 
@@ -114,6 +118,82 @@ public sealed class IvpDragControllerConformanceTests
 
     [Test]
     public void Priority_TheDragController_Is500() => new IvpDragController().Priority.ShouldBe(500);
+
+    /// <remarks>
+    /// **`FUN_18001d4e0`, the linear basis**: the box's extents `e = |(max − min)·0.0254f|` (Source axes, float), then
+    /// `+0x28 = (e.y·e.z)·a.x`, `+0x2c = (e.x·e.y)·a.y`, `+0x30 = (e.z·e.x)·a.z`, each then `invMass·b`. The second and third pair
+    /// the extents as the core's axes pair them — IVP's Y is Source's Z.
+    /// </remarks>
+    [Test]
+    public void ComputeBasis_ABox_PairsTheExtentsPerAxisAndScalesByTheInverseMass()
+    {
+        IvpRigidBody core = Core();
+        core.InverseMass = 0.25f;
+        core.InverseInertia = (1f, 1f, 1f);
+        (float X, float Y, float Z) min = (-10f, -20f, -30f);
+        (float X, float Y, float Z) max = (30f, 60f, 10f);
+        (float X, float Y, float Z) areas = (2f, 3f, 5f);
+
+        IvpDrag.ComputeBasis(core, min, max, areas);
+
+        float ex = MathF.Abs((max.X - min.X) * 0.0254f);
+        float ey = MathF.Abs((max.Y - min.Y) * 0.0254f);
+        float ez = MathF.Abs((max.Z - min.Z) * 0.0254f);
+        core.DragBasis.ShouldBe((0.25f * ((ey * ez) * 2f), 0.25f * ((ex * ey) * 3f), 0.25f * ((ez * ex) * 5f)));
+    }
+
+    /// <remarks>
+    /// **The angular basis**, carried register by register from `18001d66d` on: half extents `h = e·0.5f`, quarter squares
+    /// `q = (e·e)·0.25f`, a third `t = 0.33333334f`, and each lane two terms over the areas and one inverse inertia.
+    /// </remarks>
+    [Test]
+    public void ComputeBasis_ABox_BuildsTheAngularBasisInTheBinarysGrouping()
+    {
+        IvpRigidBody core = Core();
+        core.InverseMass = 1f;
+
+        // Uneven values, so that a product regrouped rounds apart from the binary's.
+        core.InverseInertia = (0.53f, 0.77f, 1.37f);
+        (float X, float Y, float Z) min = (-10.3f, -21.7f, -33.1f);
+        (float X, float Y, float Z) max = (29.9f, 61.3f, 12.7f);
+        (float X, float Y, float Z) a = (2.3f, 3.1f, 5.7f);
+
+        IvpDrag.ComputeBasis(core, min, max, a);
+
+        float ex = MathF.Abs((max.X - min.X) * 0.0254f);
+        float ey = MathF.Abs((max.Y - min.Y) * 0.0254f);
+        float ez = MathF.Abs((max.Z - min.Z) * 0.0254f);
+        const float t = 0.33333334f;
+        float hx = ex * 0.5f, hy = ey * 0.5f, hz = ez * 0.5f;
+        float qx = (ex * ex) * 0.25f, qy = (ey * ey) * 0.25f, qz = (ez * ez) * 0.25f;
+        (float ix, float iy, float iz) = core.InverseInertia;
+
+        float x = (((((qy * t) * hx) * qx) + (((qy * 0.5f) * qy) * hx)) + ((hx * qy) * qz)) * ix * a.Y
+            + (((((qz * t) * hx) * qx) + (((qz * 0.5f) * qz) * hx)) + ((hx * qz) * qy)) * ix * a.Z;
+        float y = (((((qx * t) * hz) * qz) + (((qx * 0.5f) * qx) * hz)) + ((hz * qx) * qy)) * iy * a.Z
+            + (((((qy * t) * hz) * qz) + (((qy * 0.5f) * qy) * hz)) + ((hz * qy) * qx)) * iy * a.X;
+        float z = (((((qx * t) * hy) * qy) + (((qx * 0.5f) * qx) * hy)) + ((qx * hy) * qz)) * iz * a.Y
+            + (((((qz * t) * hy) * qy) + (((qz * 0.5f) * qz) * hy)) + ((hy * qz) * qx)) * iz * a.X;
+        core.AngularDragBasis.ShouldBe((x, y, z));
+    }
+
+    /// <remarks>
+    /// **The collide's box is each Source axis's extreme point, out of IVP metres** (`CollideGetAABB` at no turn): Source
+    /// `(39.3701f·x, 39.3701f·z, −39.3701f·y)`. The points are chosen so every axis's extreme comes from a different point.
+    /// </remarks>
+    [Test]
+    public void CollideBox_ALedge_IsEachSourceAxissExtremeInInches()
+    {
+        PhysicsLedgeTree surface = PhysicsLedgeTree.ForLedge(new PhysicsLedge(
+            [new Vector3(0.1f, 0.2f, -0.6f), new Vector3(-0.4f, -0.5f, 0.3f), new Vector3(0f, 0.7f, 0f)],
+            [], [], [], [], Vector3.Zero, 1f));
+        const float s = 39.3701f;
+
+        ((float X, float Y, float Z) min, (float X, float Y, float Z) max) = IvpDrag.CollideBox(surface);
+
+        min.ShouldBe((s * -0.4f, s * -0.6f, -s * 0.7f));
+        max.ShouldBe((s * 0.1f, s * 0.3f, -s * -0.5f));
+    }
 
     private static IvpRigidBody Core() =>
         new() { CoreMatrix = IvpMatrix.FromRotation((0d, 0d, 0d, 1d), (0d, 0d, 0d)) };

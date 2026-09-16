@@ -114,6 +114,9 @@ public readonly record struct RagdollElement(
     /// </remarks>
     public required Vector3 MassCenter { get; init; }
 
+    /// <summary>The solid's <c>objectparams_t::dragCoefficient</c> — the <c>.phy</c>'s own, or the engine's default when it omits it.</summary>
+    public float DragCoefficient { get; init; }
+
     /// <summary>The hull's rotational inertia per kilogram about this element's own axes, in Source units squared (B403).</summary>
     /// <remarks>
     /// **The core's inertia is this times the inertia scale times the mass**, per axis, floored at
@@ -373,6 +376,7 @@ public sealed class RagdollBody
                 IvpMassCenter = physics.MassProperties[index]!.Value.MassCenter,
                 IvpHullInertia = physics.MassProperties[index]!.Value.RotationInertia,
                 Surface = index < physics.Surfaces.Count ? physics.Surfaces[index] : null,
+                DragCoefficient = solid.DragCoefficient,
 
                 // `solid.params.rotInertiaLimit = 0.1;` — `ragdoll_shared.cpp:192`, for every element.
                 RotationInertiaLimit = RagdollRotationInertiaLimit,
@@ -659,6 +663,7 @@ public sealed class RagdollBody
                     IvpMassCenter = physics.MassProperties[0]!.Value.MassCenter,
                     IvpHullInertia = physics.MassProperties[0]!.Value.RotationInertia,
                     Surface = physics.Surfaces.Count > 0 ? physics.Surfaces[0] : null,
+                    DragCoefficient = solid.DragCoefficient,
                 },
             ],
             [],

@@ -8227,6 +8227,37 @@ not the new one floating. The ported corpse never stops creeping and never sleep
 whether a brush or a displacement, and whether the creep is friction on a virtual ledge, the rest check, or the joints. It is the
 next thing to measure, and the switchover waits on it.
 
+#### One prop dropped through `vphysics.dll` and through the port, tick by tick (2026-09-16)
+
+**A same-input differential replaced guessing at the corpse.** `vphysics-drop phy` loads `wood_crate001a` and
+`wood_pallet001a` through `VCollideLoad` and drives the shipped environment through its own vtable; `ivp-phy-drop` builds the same
+scene through the port and prints the same line (both take `[z] [every]`). *Measured, 2026-09-16, gravity 800, step 1/66, drop from
+z 64.* Both rest at z 24.12–24.15. vphysics is still by 1.5 s at (−0.77, 0.77); the port walks at 4–7 in/s until the ragdoll settle
+check sleeps it far away. Read per tick, **three differences came before any contact, and each was a missing engine mechanism**:
+
+| tick 1 | vphysics | port before |
+|---|---|---|
+| z | 63.45 | 64.00 |
+| v.z | −24.23 | −12.12 |
+
+- **The probe's own parameters.** It passed `g_PhysDefaultObjectParams` with only the mass replaced, damping 0.1; the prop path
+  fills inertia, damping, rotdamping, volume and drag from the solid's text. Fixed in the probe.
+- **`CPhysicsEnvironment::Simulate` (`FUN_180015310`) runs two PSIs on the first frame.** Its fixed-step byte `+0xcf` starts set,
+  and a frame equal to the step simulates to `env+0x198 + (float)step · 1.9999895f`, from the last PSI rather than the clock. The
+  port simulated to the clock plus the frame. And `GetPosition` (`FUN_18001c030` → `FUN_180073b80`) reports the core
+  interpolated to the clock, which the port's `State()` did not.
+- **Air drag.** The environment constructor keeps a drag controller at `env+0x10` (priority 500, density `2.0f`), and the object
+  builder files every movable object with a non-zero `dragCoefficient` under it. Its bases come from the collide's box
+  (`CollideGetAABB`, the extreme ledge points) and the `.phy` header's `dragAxisAreas` (`(1,1,1)` for an untagged solid), and
+  **both drag scalars apply the coefficient to the X term alone** — `(|v.x·b.x|·c + |v.y·b.y|) + |v.z·b.z|`. The basis pairs Source
+  extents in IVP axis order: the Y lane uses `e.x·e.y` and the Z lane `e.z·e.x`, because IVP's Y is Source's Z. *A reading
+  delegated to a subagent called that pairing an engine quirk; the decompile's axis order settled it as the conversion.*
+
+With all three carried, **free fall matches to the hundredth through tick 19**: 63.45, 62.90, 62.16 … 25.90, velocity −237.01 on
+both. The first divergence is now the impact at tick 20: z 24.21 against 23.96, v.z 39.50 against 38.53, v.xy (−7.64, 7.59)
+against (−7.92, 7.87). *Not established*: which of the impact's inputs differs. vphysics' spin is read in degrees about the
+object's axes and the port's in radians about the core's, so that column does not compare yet.
+
 
 ### And the faces are already parsed — they are discarded one line before the physics (B306)
 

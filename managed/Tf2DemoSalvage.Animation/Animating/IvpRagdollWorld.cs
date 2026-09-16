@@ -512,6 +512,21 @@ public sealed class IvpRagdoll
             bodies[index] = body;
             world.Simulation.Add(body);
 
+            // The object builder `FUN_18001b340`: bases seeded zero (`FUN_18001c4c0`), computed for a movable object with a collide
+            // (`FUN_18001d4e0`) with both coefficients the parameter, else both zero; then `EnableDrag` for a non-zero parameter.
+            if (element.Surface is { } collide)
+            {
+                ((float X, float Y, float Z) min, (float X, float Y, float Z) max) = IvpDrag.CollideBox(collide);
+                IvpDrag.ComputeBasis(body, min, max, (collide.DragAxisAreas.X, collide.DragAxisAreas.Y, collide.DragAxisAreas.Z));
+                body.DragCoefficient = element.DragCoefficient;
+                body.AngularDragCoefficient = element.DragCoefficient;
+            }
+
+            if (element.DragCoefficient != 0f)
+            {
+                world.Simulation.EnableDrag(body);
+            }
+
             // The game data rides in with the object (`solid.params.pGameData`, `ragdoll_shared.cpp:193`), before any pair is asked about.
             world.Own(body, made, index);
         }

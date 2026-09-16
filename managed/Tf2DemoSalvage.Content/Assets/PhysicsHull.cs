@@ -145,6 +145,9 @@ public static class PhysicsHull
     /// <summary>Offset of a tagged solid's data size — the length the loader copies from <see cref="SurfaceOffset"/>.</summary>
     private const int DataSizeOffset = 0x08;
 
+    /// <summary>Offset of a tagged solid's three drag areas, <c>dragAxisAreas</c>.</summary>
+    private const int DragAxisAreasOffset = 0x0C;
+
     /// <summary>Where a TAGGED solid's <c>IVP_Compact_Surface</c> begins; an untagged solid's begins at its first byte.</summary>
     private const int SurfaceOffset = 0x1C;
 
@@ -297,6 +300,27 @@ public static class PhysicsHull
         return surface.IsEmpty
             ? null
             : new PhysicsMassProperties(Triple(surface, MassCenterOffset), Triple(surface, RotationInertiaOffset));
+    }
+
+    /// <summary>A solid's drag areas — what <c>CollideGetOrthographicAreas</c> answers for its collide.</summary>
+    /// <param name="solid">The solid's bytes, after its size prefix.</param>
+    /// <returns>The three areas, as the file stores them; null when the loader builds no collide.</returns>
+    /// <remarks>
+    /// **Read from the disassembly, 2026-09-16**: every compact-surface collide is constructed with `(1, 1, 1)` at `+0x10..0x18`
+    /// (`FUN_18000bcf0`), and `FUN_18000a100` overwrites them from a tagged solid's `+0x0C..0x14` — `dragAxisAreas` in
+    /// `swapcompactsurfaceheader_t` (`common/studiobyteswap.cpp:433-443`). The collide's slot `+0x40` (`FUN_18000bb80`) copies them
+    /// out untouched.
+    /// </remarks>
+    public static Vector3? DragAxisAreas(ReadOnlySpan<byte> solid)
+    {
+        (PhysicsSolidLoad load, int surface, _) = Locate(solid);
+
+        if (load != PhysicsSolidLoad.Collide)
+        {
+            return null;
+        }
+
+        return surface == SurfaceOffset ? Triple(solid, DragAxisAreasOffset) : Vector3.One;
     }
 
     /// <summary>The bytes the loader builds a collide from, or empty when it builds none.</summary>

@@ -28,6 +28,10 @@ public sealed class PhysicsLedgeTree
     /// <summary>The surface's radius, <c>surface+0x18</c>, which a core's radius is taken from (<c>18007aeb0</c>).</summary>
     public float Radius { get; init; }
 
+    /// <summary>The collide's drag areas, <c>CollideGetOrthographicAreas</c> — see <see cref="PhysicsHull.DragAxisAreas"/>.</summary>
+    /// <remarks>`(1, 1, 1)`, the collide constructor's own default, until a tagged solid's header replaces it.</remarks>
+    public Vector3 DragAxisAreas { get; internal set; } = Vector3.One;
+
     /// <summary>The byte at <c>surface+0x1C</c>: the surface's deviation, in 250ths of <see cref="Radius"/>.</summary>
     public byte Deviation { get; init; }
 

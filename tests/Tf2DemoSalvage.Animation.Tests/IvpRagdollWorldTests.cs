@@ -274,6 +274,26 @@ public sealed class IvpRagdollWorldTests
     }
 
     /// <remarks>
+    /// **An element built with a drag coefficient is under the environment's drag, with its bases computed** — the object builder's
+    /// `EnableDrag` for a non-zero parameter (`FUN_18001b340`). The `.phy` names no drag, so the parameter is the engine's `1`; a
+    /// 0.2-metre box of mass 1 has every basis lane above zero.
+    /// </remarks>
+    [Test]
+    public void Create_AnElementWithTheDefaultDrag_IsFiledUnderTheDragWithItsBases()
+    {
+        IvpRagdollWorld world = World();
+        RagdollBody body = RagdollBody.Build(PhysicsModel.Read(JoinedPhy()), RagdollSkeletons.Straight()).ShouldNotBeNull();
+
+        IvpRagdoll ragdoll = IvpRagdoll.Create(world, body, [(Vector3.Zero, Quaternion.Identity), (new Vector3(0f, 0f, 50f), Quaternion.Identity)]);
+
+        IvpRigidBody core = ragdoll.Bodies[0];
+        core.Controllers.ShouldContain(world.Simulation.Drag);
+        core.DragCoefficient.ShouldBe(1f);
+        core.DragBasis.X.ShouldBeGreaterThan(0f);
+        core.AngularDragBasis.Z.ShouldBeGreaterThan(0f);
+    }
+
+    /// <remarks>
     /// **`CPhysicsEnvironment::Simulate` (`FUN_180015310`), read from the disassembly 2026-09-16**: the constructor leaves the
     /// fixed-step byte `+0xcf` set, and a delta equal to the step (`UCOMISS` against `(float)env+0x108`) simulates to
     /// `env+0x198 + (double)((float)step · 1.9999895f)` (`FUN_180082780`, `DAT_1800ec288`). The first PSI is queued at zero and the

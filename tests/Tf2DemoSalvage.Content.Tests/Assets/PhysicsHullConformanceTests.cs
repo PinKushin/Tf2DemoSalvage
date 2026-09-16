@@ -91,6 +91,40 @@ public sealed class PhysicsHullConformanceTests
     }
 
     /// <remarks>
+    /// **A tagged solid's drag areas are the header's three floats at `+0x0C`** — `FUN_18000a100` copies them over the collide's
+    /// `+0x10..0x18` after building it, as `swapcompactsurfaceheader_t::dragAxisAreas` (`common/studiobyteswap.cpp:433-443`), with
+    /// no turn and no scale.
+    /// </remarks>
+    [Test]
+    public void DragAxisAreas_ATaggedSolid_AreTheHeadersThreeFloats()
+    {
+        byte[] solid = Solid(Triangle, [(0, 1, 2)], dragAxisAreas: new Vector3(2f, 3f, 5f));
+
+        PhysicsHull.DragAxisAreas(solid).ShouldBe(new Vector3(2f, 3f, 5f));
+    }
+
+    /// <remarks>
+    /// **An untagged solid keeps the collide constructor's default, one on each axis** — `FUN_18000bcf0` writes `1.0f` to all three
+    /// and the untagged branch never overwrites them.
+    /// </remarks>
+    [Test]
+    public void DragAxisAreas_AnUntaggedSolid_AreOneOnEachAxis()
+    {
+        byte[] solid = Solid(Triangle, [(0, 1, 2)], tagged: false);
+
+        PhysicsHull.DragAxisAreas(solid).ShouldBe(Vector3.One);
+    }
+
+    /// <remarks>**A solid the loader builds no collide from has none** — `CollideGetOrthographicAreas` answers zero for it.</remarks>
+    [Test]
+    public void DragAxisAreas_ANullPhysicsModel_AreNone()
+    {
+        byte[] solid = Solid(Triangle, [(0, 1, 2)], version: 0, type: 1, dragAxisAreas: new Vector3(2f, 3f, 5f));
+
+        PhysicsHull.DragAxisAreas(solid).ShouldBeNull();
+    }
+
+    /// <remarks>
     /// **Type 1 is `DevMsg(2, "Null physics model")` and a NULL collide** (B404): no hull, and no surface for the
     /// mass properties to come from. The word at `+4` is left zero so a reader taking the type from there builds it.
     /// </remarks>
@@ -504,7 +538,8 @@ public sealed class PhysicsHullConformanceTests
         bool tagged = true,
         short version = 0x100,
         short type = 0,
-        int? dataSize = null)
+        int? dataSize = null,
+        Vector3 dragAxisAreas = default)
     {
         int surfaceAt = tagged ? 0x1C : 0;
         int ledgeAt = surfaceAt + 0x30;
@@ -520,6 +555,9 @@ public sealed class PhysicsHullConformanceTests
             BitConverter.GetBytes(version).CopyTo(solid, 0x04);
             BitConverter.GetBytes(type).CopyTo(solid, 0x06);
             BitConverter.GetBytes(dataSize ?? solid.Length - 0x1C).CopyTo(solid, 0x08);
+            BitConverter.GetBytes(dragAxisAreas.X).CopyTo(solid, 0x0C);
+            BitConverter.GetBytes(dragAxisAreas.Y).CopyTo(solid, 0x10);
+            BitConverter.GetBytes(dragAxisAreas.Z).CopyTo(solid, 0x14);
         }
 
         // IVP_Compact_Surface: the mass center and rotation inertia lead it, then the tree offset and the
