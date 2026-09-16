@@ -79,7 +79,22 @@ if ([string]::IsNullOrWhiteSpace($tool)) { exit 0 }
 # does just suck doesnt it lol". That is the 2026-09-06 measure - tokens per GOOD outcome - winning on
 # evidence: an answer that has to be redone costs its tokens twice. Review is still required (D145);
 # the model change does not remove it. Recorded as Tf2DemoSalvage D168.
+#
+# HAIKU IS BACK FOR THE SABOTAGE VERIFIER ONLY, 2026-09-15. The owner: "btw sabatages can be haiku
+# for subagent, that doesnt really need an agent that can reason or do anything but follow your
+# directions exactly", and then, on this hook: "the hooks going to block because i didnt think about
+# sabatages when i told the ai to write it".
+#
+# WHY THE SPLIT HOLDS RATHER THAN REOPENING D168. What sank haiku was a subagent asked to ESTABLISH
+# something - it read the wrong struct and reported a conclusion, which had to be redone. The
+# sabotage verifier establishes nothing: the main loop hands it the exact edit, the exact filter and
+# the exact restore, and it reports which test reddened. There is no question for it to get wrong,
+# and a mangled restore or a misreported count is checkable from the caller (the file's diff, the
+# test count). So the allowed set is per agent type, not global. Recorded as Tf2DemoSalvage D177.
 $allowed = @('sonnet')
+if ($tool -eq 'Agent' -and $toolInput.subagent_type -eq 'sabotage-verifier') {
+    $allowed = @('sonnet', 'haiku')
+}
 
 function Deny([string]$reason) {
     @{ hookSpecificOutput = @{
@@ -100,9 +115,10 @@ if ($tool -eq 'Agent') {
     }
 
     if ($allowed -notcontains $model.ToLowerInvariant()) {
-        Deny(("Blocked: subagent model '$model' is not allowed - subagents run on sonnet. 'haiku' " +
-              "is refused too, since 2026-09-12: its answers had to be redone, which costs more than " +
-              "sonnet. If a task genuinely needs a bigger model, say so and the owner will run it."))
+        Deny(("Blocked: subagent model '$model' is not allowed - subagents run on sonnet, and only " +
+              "the sabotage-verifier may also run on haiku (2026-09-15). 'haiku' elsewhere is refused " +
+              "since 2026-09-12: its answers had to be redone, which costs more than sonnet. If a task " +
+              "genuinely needs a bigger model, say so and the owner will run it."))
     }
 
     exit 0

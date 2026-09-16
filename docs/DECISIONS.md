@@ -8907,3 +8907,25 @@ program from Release hides every performance question behind the JIT.
 command line for that build; no project should set it back.
 
 Related: B58 (corpse physics), D172.
+
+## D177 — the sabotage verifier runs on haiku (2026-09-15)
+
+**Reverses D168 for one agent type, in the owner's words:** *"btw sabatages can be haiku for subagent, that
+doesnt really need an agent that can reason or do anything but follow your directions exactly"* — and, on the
+guard that would have refused it: *"the hooks going to block because i didnt think about sabatages when i told
+the ai to write it"*.
+
+**Why the split holds rather than reopening D168.** What sank haiku was a subagent asked to ESTABLISH
+something: it took its central evidence from the wrong struct and reported a conclusion, which had to be
+redone. The sabotage verifier establishes nothing. The main loop hands it the exact edit, the exact filter and
+the exact inverse restore; it reports which test reddened. The judgement stays in the main loop — choosing
+which sabotages are worth running, and reading what survives.
+
+**What checks it.** A mangled restore shows in the file's diff after the run, and a misreported result shows
+in the test count. Both are read here, so a cheap model's failure mode is visible rather than silent.
+
+**The hook changed with it**: `~/.claude/hooks/block-expensive-subagents.ps1` now allows `haiku` when
+`subagent_type` is `sabotage-verifier`, and refuses it everywhere else; its header carries this reasoning and
+the repo's backup copy is updated in the same commit.
+
+Related: D145, D168, D172.

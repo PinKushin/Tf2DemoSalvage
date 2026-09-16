@@ -103,6 +103,15 @@ runs, write only outside the projects its test run compiles — docs, Ghidra rea
 
 See D145.
 
+**The sabotage verifier runs on haiku again, 2026-09-15 (D177), and nothing else does.** The owner: *"btw
+sabatages can be haiku for subagent, that doesnt really need an agent that can reason or do anything but
+follow your directions exactly"*, then *"the hooks going to block because i didnt think about sabatages when i
+told the ai to write it"* — so `block-expensive-subagents.ps1` now allows `haiku` when `subagent_type` is
+`sabotage-verifier` and refuses it everywhere else. **Pass `model: 'haiku'` for a sabotage run and
+`model: 'sonnet'` for every other agent.** D168's reasoning still holds for anything that ESTABLISHES
+something; a verifier follows an exact script and its failure modes (a mangled restore, a misreported count)
+are both readable from the caller.
+
 **haiku was ruled OUT on 2026-09-06:** *"i dont really trust haiku, it just seemed horrible compared
 to sonnet and sonnet 4.6 used less tokens than haiku it seemed like, while giving me better code"*.
 

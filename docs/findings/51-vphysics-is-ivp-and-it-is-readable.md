@@ -4217,7 +4217,9 @@ are rebuilt for every awake core at the top of each PSI**, which is the same pai
   frees every entry, `FUN_180075470` rebuilds them from each core's own controller list (`core+0x1e8`, count `+0x1e2`) and
   re-sorts, and the PSI then clears the bits. *`FUN_180074e80` is still unread, and so is what SETS the pair.* The entry shape and
   the sort are quoted under *One resting contact* below: `0x28` bytes of controller plus its own cores, sorted ascending by the
-  controller's priority slot and walked last first.
+  controller's priority slot and walked last first. **What SETS the pair is the friction system's priority-0 controller**
+  (`FUN_180084320`, quoted further down: *"the unit's dword loses bit 9 and gains bit 8"*), so a unit holding a friction system
+  rebuilds its entries on every PSI, not occasionally.
 - *Unread*: what the `0x400`/`0x3000` bits mean beyond "recomputed from the spin test".
 
 #### The per-core step whole — `FUN_180099a00(core, {step, 1/step}, &pushed)` (2026-09-15)
