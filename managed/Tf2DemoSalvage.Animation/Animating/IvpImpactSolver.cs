@@ -43,7 +43,10 @@ public sealed class IvpImpactEnvironment
     public int ImpactGeneration { get; set; }
 
     /// <summary>The PSI's end, <c>env+0x190</c>, which the impact loop's tail steps moved cores to.</summary>
-    public double PsiEnd { get; init; }
+    public double PsiEnd { get; set; }
+
+    /// <summary>The time every queued event's float is measured from — <c>env+0x198</c>, set to now by each PSI event.</summary>
+    public double RebaseBase { get; set; }
 
     /// <summary>The environment's phase, <c>env+0x1ac</c>, handed to the step and walked 0, 2, 3, 4, 5 by the pipeline.</summary>
     public int Phase { get; set; }

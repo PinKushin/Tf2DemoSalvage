@@ -182,6 +182,10 @@ public sealed class PhysicsTimeManager
         Base = now;
     }
 
+    /// <summary>Puts the manager's own clock back to the base — the PSI event's <c>tm+0x20 = 0</c>.</summary>
+    /// <remarks>**Part of <c>FUN_18008a020</c>, not of the rebase**, which is why it is its own call.</remarks>
+    internal void ZeroClock() => Now = 0d;
+
     /// <summary>The next event due, or null when nothing is queued.</summary>
     private PhysicsEvent? Earliest()
     {
