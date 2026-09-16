@@ -131,6 +131,12 @@ public sealed class IvpPhyDropProbe : IProbe
         Vector3 dynamicStartPosition = dynamicRagdoll.State()[0].Position;
         output.WriteLine(
             $"control: {dynamicModel} GetPosition -> {Format(dynamicStartPosition)} (expected (0.00, 0.00, {z:F2}))");
+        IvpRigidBody built = dynamicRagdoll.Bodies[0];
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"core: inertia ({built.Inertia.X:g9}, {built.Inertia.Y:g9}, {built.Inertia.Z:g9})  " +
+            $"inverse ({built.InverseInertia.X:g9}, {built.InverseInertia.Y:g9}, {built.InverseInertia.Z:g9})  " +
+            $"inverse mass {built.InverseMass:g9}"));
         output.Flush();
 
         for (int tick = 1; tick <= Ticks; tick++)
@@ -144,8 +150,16 @@ public sealed class IvpPhyDropProbe : IProbe
             }
 
             (Vector3 Position, Quaternion Orientation) state = dynamicRagdoll.State()[0];
-            (float vx, float vy, float vz) = dynamicRagdoll.Bodies[0].Velocity;
-            (float wx, float wy, float wz) = dynamicRagdoll.Bodies[0].AngularVelocity;
+            // As `GetVelocity` (`FUN_18001c1f0`) reads them: each with its pending change, the linear one to Source inches and the
+            // spin in the core's axes as `(x, z, −y)` degrees.
+            IvpRigidBody core = dynamicRagdoll.Bodies[0];
+            (float vx, float vy, float vz) = (
+                core.Velocity.X + core.PendingVelocity.X, core.Velocity.Y + core.PendingVelocity.Y, core.Velocity.Z + core.PendingVelocity.Z);
+            (float ax, float ay, float az) = (
+                core.AngularVelocity.X + core.PendingAngularVelocity.X,
+                core.PendingAngularVelocity.Z + core.AngularVelocity.Z,
+                core.AngularVelocity.Y + core.PendingAngularVelocity.Y);
+            (float wx, float wy, float wz) = (ax * 57.29578f, ay * 57.29578f, az * -57.29578f);
             (float svx, float svy, float svz) = IvpTransform.SourcePosition(vx, vy, vz);
 
             output.WriteLine(

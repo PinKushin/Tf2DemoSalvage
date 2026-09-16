@@ -511,6 +511,15 @@ public sealed class VphysicsDropProbe : IProbe
         output.WriteLine($"control: {dynamicLabel} GetPosition -> {dynamicPosition} (expected {dynamicExpected})");
         output.Flush();
 
+        // The IVP core behind the object (`object+0x10` → `+0xe8`): inertia `+0x20..0x28`, its reciprocals `+0x40..0x48`,
+        // inverse mass `+0x4c`, mass `+0x2c`? — printed as raw floats so the port's own core can be set beside them.
+        nint core = Marshal.ReadIntPtr(Marshal.ReadIntPtr(dynamicObject + 0x10) + 0xe8);
+        output.WriteLine(
+            string.Create(CultureInfo.InvariantCulture,
+                $"core: inertia ({CoreFloat(core, 0x20):g9}, {CoreFloat(core, 0x24):g9}, {CoreFloat(core, 0x28):g9})  " +
+                $"inverse ({CoreFloat(core, 0x40):g9}, {CoreFloat(core, 0x44):g9}, {CoreFloat(core, 0x48):g9})  " +
+                $"inverse mass {CoreFloat(core, 0x4c):g9}"));
+
         VCall<EnableMotionDelegate>(dynamicObject, ObjectEnableMotionSlot)(dynamicObject, true);
         VCall<WakeDelegate>(dynamicObject, ObjectWakeSlot)(dynamicObject);
 
@@ -688,6 +697,8 @@ public sealed class VphysicsDropProbe : IProbe
         VCall<VCollideUnloadDelegate>(collision, CollisionVCollideUnloadSlot)(collision, loaded.VCollide);
         Marshal.FreeHGlobal(loaded.VCollide);
     }
+
+    private static float CoreFloat(nint core, int offset) => BitConverter.Int32BitsToSingle(Marshal.ReadInt32(core + offset));
 
     private static bool TryCreate(TextWriter output, CreateInterfaceDelegate createInterface, string version, out nint result)
     {
