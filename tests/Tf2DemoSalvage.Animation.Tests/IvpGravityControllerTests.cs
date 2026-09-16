@@ -14,7 +14,7 @@ public sealed class IvpGravityControllerTests
     {
         IvpRigidBody core = new() { PendingVelocity = (1f, 0f, 0f) };
 
-        new IvpGravityController((0f, 0f, -10f)).Advance([core], psiStep: 0.5f);
+        new IvpGravityController((0f, 0f, -10f)).Advance(new IvpSimulationUnit(), [core], psiStep: 0.5f);
 
         core.Velocity.ShouldBe((1f, 0f, -5f), "the staged velocity is live before gravity is added to it");
         core.PendingVelocity.ShouldBe((0f, 0f, 0f));
@@ -25,7 +25,7 @@ public sealed class IvpGravityControllerTests
     {
         IvpRigidBody core = new() { SkipsGravity = true, PendingVelocity = (1f, 0f, 0f) };
 
-        new IvpGravityController((0f, 0f, -10f)).Advance([core], psiStep: 0.5f);
+        new IvpGravityController((0f, 0f, -10f)).Advance(new IvpSimulationUnit(), [core], psiStep: 0.5f);
 
         core.Velocity.ShouldBe((0f, 0f, 0f));
         core.PendingVelocity.ShouldBe((1f, 0f, 0f), "not even its staged velocity is flushed");
@@ -36,7 +36,7 @@ public sealed class IvpGravityControllerTests
     {
         IvpRigidBody core = new() { UsesAlternateGravity = true };
 
-        new IvpGravityController((0f, 0f, -10f), (0f, 4f, 0f)).Advance([core], psiStep: 0.5f);
+        new IvpGravityController((0f, 0f, -10f), (0f, 4f, 0f)).Advance(new IvpSimulationUnit(), [core], psiStep: 0.5f);
 
         core.Velocity.ShouldBe((0f, 2f, 0f));
     }

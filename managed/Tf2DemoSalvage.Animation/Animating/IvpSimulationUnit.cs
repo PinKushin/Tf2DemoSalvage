@@ -14,9 +14,10 @@ public interface IIvpUnitController
     public int Priority { get; }
 
     /// <summary>Runs this controller over the cores of its entry for one PSI — the slot <c>+0x20</c>.</summary>
+    /// <param name="unit">The unit the entry belongs to, <c>frame+0x10</c>.</param>
     /// <param name="cores">The entry's cores, <c>entry+0x8</c>.</param>
     /// <param name="psiStep">The PSI's step, <c>frame+0x0</c>.</param>
-    public void Advance(IReadOnlyList<IvpRigidBody> cores, float psiStep);
+    public void Advance(IvpSimulationUnit unit, IReadOnlyList<IvpRigidBody> cores, float psiStep);
 }
 
 /// <summary>One controller and the cores of this unit it drives — the <c>0x28</c> bytes of an entry at <c>unit+0x10</c>.</summary>
@@ -225,7 +226,7 @@ public sealed class IvpSimulationUnit
         for (int index = Entries.Count - 1; index >= 0; index--)
         {
             IvpUnitControllerEntry entry = Entries[index];
-            entry.Controller.Advance(entry.Cores, step);
+            entry.Controller.Advance(this, entry.Cores, step);
         }
 
         for (int index = Cores.Count - 1; index >= 0; index--)

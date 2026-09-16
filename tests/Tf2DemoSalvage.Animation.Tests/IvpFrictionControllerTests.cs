@@ -45,7 +45,7 @@ public sealed class IvpFrictionControllerTests
         contact.InverseContactMass = 4f;
         contact.Slide = (5f, 0f);
 
-        new IvpFrictionController(system).Advance([], psiStep: 0.5f);
+        new IvpFrictionController(system).Advance(new IvpSimulationUnit(), [], psiStep: 0.5f);
 
         // The budget is 0.5² × 4 × (1 × 1) = 1, so the slide is clamped to it and the excess is (5 − 1) × 1 × 1.
         contact.Slide.Span.ShouldBe(1f, 1e-3f);
@@ -62,7 +62,7 @@ public sealed class IvpFrictionControllerTests
         contact.InverseContactMass = 4f;
         contact.Slide = (0.1f, 0f);
 
-        new IvpFrictionController(system).Advance([], psiStep: 0.5f);
+        new IvpFrictionController(system).Advance(new IvpSimulationUnit(), [], psiStep: 0.5f);
 
         contact.Slide.ShouldBe((0.1f, 0f));
         contact.SlideExcess.ShouldBe(0f);
@@ -82,7 +82,7 @@ public sealed class IvpFrictionControllerTests
         contact.InverseContactMass = 4f;
         contact.Slide = (5f, 0f);
 
-        new IvpFrictionController(system).Advance([], psiStep: 0.5f);
+        new IvpFrictionController(system).Advance(new IvpSimulationUnit(), [], psiStep: 0.5f);
 
         contact.Slide.Span.ShouldBe(1f, 1e-3f);
     }
@@ -103,11 +103,63 @@ public sealed class IvpFrictionControllerTests
             contact.Slide = (5f, 0f);
         }
 
-        new IvpFrictionController(system).Advance([], psiStep: 0.5f);
+        new IvpFrictionController(system).Advance(new IvpSimulationUnit(), [], psiStep: 0.5f);
 
         // Two contacts summing 1·1·2 each, times 0.5², gives a shared budget of one.
         first.Slide.Span.ShouldBe(1f, 1e-3f);
         second.Slide.Span.ShouldBe(1f, 1e-3f);
+    }
+
+    [Test]
+    public void Priority_TheNormalPass_IsZero()
+    {
+        new IvpNormalFrictionController(System()).Priority.ShouldBe(0);
+    }
+
+    /// <remarks>**The stale-entries bits every PSI**: bit 9 cleared, bit 8 set, which is what rebuilds a unit's entries.</remarks>
+    [Test]
+    public void Advance_TheNormalPass_ClearsBitNineAndSetsBitEight()
+    {
+        (IvpFrictionSystem system, _) = Linked();
+        IvpSimulationUnit unit = new() { Flags = 0x200 };
+
+        new IvpNormalFrictionController(system).Advance(unit, [], psiStep: 0.5f);
+
+        (unit.Flags & 0x300).ShouldBe(0x100);
+    }
+
+    [Test]
+    public void Advance_TheNormalPassWithASplitDue_ClearsTheFlag()
+    {
+        (IvpFrictionSystem system, _) = Linked();
+        system.SplitCheckDue = true;
+
+        new IvpNormalFrictionController(system).Advance(new IvpSimulationUnit(), [], psiStep: 0.5f);
+
+        system.SplitCheckDue.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Advance_TheNormalPassOnALoneContact_GivesItANormalPush()
+    {
+        (IvpFrictionSystem system, IvpContactPoint contact) = Linked();
+        contact.Gap = 0f;
+
+        new IvpNormalFrictionController(system).Advance(new IvpSimulationUnit(), [], psiStep: 0.5f);
+
+        contact.NormalPush.ShouldBeGreaterThan(0f, "a contact inside its gap is pushed out");
+    }
+
+    [Test]
+    public void Advance_TheNormalPassWithNoContacts_StillSetsTheUnitsBits()
+    {
+        (IvpFrictionSystem system, IvpContactPoint contact) = Linked();
+        system.Unlink(contact);
+        IvpSimulationUnit unit = new() { Flags = 0x200 };
+
+        new IvpNormalFrictionController(system).Advance(unit, [], psiStep: 0.5f);
+
+        (unit.Flags & 0x300).ShouldBe(0x100);
     }
 
     private static IvpContactPoint Contact(float normalPush, float friction, float inverseMass)

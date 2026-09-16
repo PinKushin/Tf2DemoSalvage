@@ -211,7 +211,7 @@ public sealed class IvpSimulationUnitTests
 
         public List<IvpRigidBody> Cores { get; } = [];
 
-        public void Advance(IReadOnlyList<IvpRigidBody> cores, float psiStep)
+        public void Advance(IvpSimulationUnit unit, IReadOnlyList<IvpRigidBody> cores, float psiStep)
         {
             Steps.Add(psiStep);
             Cores.AddRange(cores);
@@ -222,6 +222,6 @@ public sealed class IvpSimulationUnitTests
     {
         public int Priority { get; } = priority;
 
-        public void Advance(IReadOnlyList<IvpRigidBody> cores, float psiStep) => order.Add(Priority);
+        public void Advance(IvpSimulationUnit unit, IReadOnlyList<IvpRigidBody> cores, float psiStep) => order.Add(Priority);
     }
 }

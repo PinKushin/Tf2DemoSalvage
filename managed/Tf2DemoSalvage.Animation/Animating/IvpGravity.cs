@@ -125,7 +125,7 @@ public sealed class IvpGravityController(
     public int Priority => GravityPriority;
 
     /// <inheritdoc/>
-    public void Advance(IReadOnlyList<IvpRigidBody> cores, float psiStep)
+    public void Advance(IvpSimulationUnit unit, IReadOnlyList<IvpRigidBody> cores, float psiStep)
     {
         ArgumentNullException.ThrowIfNull(cores);
 
