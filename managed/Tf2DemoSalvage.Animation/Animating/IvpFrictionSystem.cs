@@ -130,8 +130,8 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// <remarks>
     /// **Set by <see cref="RemoveContact"/> when a pair empties** (<c>FUN_180083e40</c>: `if FUN_180088130(system, cp) == 1:
     /// system+0x80 = 1`), and read by the priority-0 controller, which clears it and runs the union-find
-    /// (<c>FUN_1800877b0</c>) to see whether the system now falls into two — *that split is not carried yet*, so nothing
-    /// clears this yet either. Named for what it means rather than for the offset: losing a pair is the only thing that can
+    /// (<see cref="DetachedRoot"/>) to see whether the system now falls into two, splitting it when it does (<see cref="Split"/>).
+    /// Named for what it means rather than for the offset: losing a pair is the only thing that can
     /// disconnect a system.
     /// </remarks>
     public bool SplitCheckDue { get; internal set; }
@@ -250,10 +250,246 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
                 continue;
             }
 
-            IvpFrictionInfo share = new(this);
-            share.Contacts.AddRange(moving.Contacts);
-            Join(core, share);
+            Adopt(core, moving);
         }
+    }
+
+    /// <summary>A core joins with the contacts of the share it brings — its share retargeted at this system.</summary>
+    private void Adopt(IvpRigidBody core, IvpFrictionInfo moving)
+    {
+        IvpFrictionInfo share = new(this);
+        share.Contacts.AddRange(moving.Contacts);
+        Join(core, share);
+    }
+
+    /// <summary>
+    /// The root of a set of movable cores that no longer touches the rest, or null — <c>FUN_1800877b0(system)</c>.
+    /// </summary>
+    /// <returns>The detached set's root, or null when every movable core is joined to the first.</returns>
+    /// <remarks>
+    /// **Read from the decompiler** (`docs/findings/51`, *The union-find*):
+    /// <code>
+    /// every core:  +0x258 = null
+    /// every pair, last first, neither core unmovable:  ra = A's root, rb = B's root;  ra != rb → rb+0x258 = ra   -- no path compression
+    /// R = the root of the lowest-index movable core
+    /// return the root of the lowest-index movable core whose root is not R, or null
+    /// </code>
+    /// **A pair with an immovable core joins nothing**, so two bodies resting on the same world are separate sets.
+    /// </remarks>
+    internal IvpRigidBody? DetachedRoot()
+    {
+        foreach (IvpRigidBody core in Cores)
+        {
+            core.UnionParent = null;
+        }
+
+        for (int index = Pairs.Count - 1; index >= 0; index--)
+        {
+            IvpFrictionPair pair = Pairs[index];
+
+            if (pair.FirstCore.Immovable || pair.SecondCore.Immovable)
+            {
+                continue;
+            }
+
+            IvpRigidBody first = RootOf(pair.FirstCore);
+            IvpRigidBody second = RootOf(pair.SecondCore);
+
+            if (!ReferenceEquals(first, second))
+            {
+                second.UnionParent = first;
+            }
+        }
+
+        IvpRigidBody? kept = null;
+
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            if (!Cores[index].Immovable)
+            {
+                kept = RootOf(Cores[index]);
+            }
+        }
+
+        IvpRigidBody? detached = null;
+
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            if (!Cores[index].Immovable && RootOf(Cores[index]) is var root && !ReferenceEquals(root, kept))
+            {
+                detached = root;
+            }
+        }
+
+        return detached;
+    }
+
+    /// <summary>Moves every detached set into a system of its own — <c>FUN_180086e80(system, root)</c>.</summary>
+    /// <param name="root">The detached set's root, as <see cref="DetachedRoot"/> answered it.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="root"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A moving pair's contact is not in this system's list, where the native asserts.</exception>
+    /// <remarks>
+    /// **Read from the decompiler** (`docs/findings/51`, *The split*):
+    /// <code>
+    /// do:
+    ///     T = a new system on the same environment
+    ///     every core, last first:  immovable → a new empty share of T, joins T
+    ///                              root is r → leaves S (FUN_180088c80), joins T (FUN_180087bf0), its share retargeted at T
+    ///     every pair, last first:  s = its immovable core if any, m = the other (else m = A)
+    ///         m's root is r → out of S's pairs (the last match), appended to T's
+    ///         every contact, last first:  must be in S's list (line 0x5ef);  off S's list, onto T's;  s's S share loses it, its T share gains it
+    ///     every immovable core, last first:  its T share empty → leaves T;  its S share empty → leaves S
+    ///     T under two cores → its first core's share detached, T deleted;  return
+    ///     S under two cores → the same for S;  return
+    ///     r = FUN_1800877b0(S)
+    /// while r
+    /// </code>
+    /// **The deletion (slot 7, `FUN_180087b20`) frees the system's vectors and nothing else** — it touches no core — so the lone
+    /// core only loses its share here. *Every movable core of a system holds a contact, whose other core lands in the same system,
+    /// so neither branch is reachable from the port's own filing.* The environment listeners told of each moving pair
+    /// (`FUN_180081f70`, `FUN_180081f10`) are not carried.
+    /// </remarks>
+    internal void Split(IvpRigidBody root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+
+        IvpRigidBody? detached = root;
+
+        while (detached is not null)
+        {
+            IvpFrictionSystem target = new(Environment);
+
+            for (int index = Cores.Count - 1; index >= 0; index--)
+            {
+                IvpRigidBody core = Cores[index];
+
+                if (core.Immovable)
+                {
+                    target.Join(core, new IvpFrictionInfo(target));
+                }
+                else if (ReferenceEquals(RootOf(core), detached))
+                {
+                    IvpFrictionInfo moving = core.FrictionInfoIn(this)
+                        ?? throw new InvalidOperationException("A core of a friction system has no share of it.");
+
+                    Leave(core);
+                    target.Adopt(core, moving);
+                }
+            }
+
+            for (int index = Pairs.Count - 1; index >= 0; index--)
+            {
+                MovePair(Pairs[index], detached, target);
+            }
+
+            for (int index = Cores.Count - 1; index >= 0; index--)
+            {
+                IvpRigidBody core = Cores[index];
+
+                if (!core.Immovable)
+                {
+                    continue;
+                }
+
+                if (core.FrictionInfoIn(target) is { Contacts.Count: 0 })
+                {
+                    target.Leave(core);
+                }
+
+                if (core.FrictionInfoIn(this) is { Contacts.Count: 0 })
+                {
+                    Leave(core);
+                }
+            }
+
+            if (target.Cores.Count < 2)
+            {
+                target.DetachLoneCore();
+                return;
+            }
+
+            if (Cores.Count < 2)
+            {
+                DetachLoneCore();
+                return;
+            }
+
+            detached = DetachedRoot();
+        }
+    }
+
+    /// <summary>One pair of <see cref="Split"/>'s walk: moved into the target with its contacts when its movable core is detached.</summary>
+    private void MovePair(IvpFrictionPair pair, IvpRigidBody detached, IvpFrictionSystem target)
+    {
+        IvpRigidBody moved = pair.FirstCore;
+        IvpRigidBody? world = null;
+
+        if (pair.FirstCore.Immovable)
+        {
+            world = pair.FirstCore;
+            moved = pair.SecondCore;
+        }
+        else if (pair.SecondCore.Immovable)
+        {
+            world = pair.SecondCore;
+        }
+
+        IvpFrictionInfo? left = world?.FrictionInfoIn(this);
+        IvpFrictionInfo? joined = world?.FrictionInfoIn(target);
+
+        if (!ReferenceEquals(RootOf(moved), detached))
+        {
+            return;
+        }
+
+        Pairs.RemoveAt(Pairs.LastIndexOf(pair));
+        target.Pairs.Add(pair);
+
+        for (int at = pair.Contacts.Count - 1; at >= 0; at--)
+        {
+            IvpContactPoint contact = pair.Contacts[at];
+
+            if (!ReferenceEquals(contact.FrictionSystem, this))
+            {
+                throw new InvalidOperationException(
+                    "A moving pair's contact is not in the system's list; the native asserts (ivp_friction.cxx, line 0x5ef).");
+            }
+
+            Unlink(contact);
+            target.Link(contact);
+
+            if (left is not null)
+            {
+                left.Contacts.RemoveAt(left.Contacts.LastIndexOf(contact));
+                joined!.Contacts.Add(contact);
+            }
+        }
+    }
+
+    /// <summary>A system left with one core lets go of it — <c>FUN_180077c10</c> on its first core's share, before the deletion.</summary>
+    private void DetachLoneCore()
+    {
+        IvpRigidBody core = Cores[0];
+
+        if (core.Immovable)
+        {
+            core.FrictionInfos.Remove(this);
+        }
+        else
+        {
+            core.FrictionInfo = null;
+        }
+    }
+
+    /// <summary>A core's set root along <see cref="IvpRigidBody.UnionParent"/>.</summary>
+    private static IvpRigidBody RootOf(IvpRigidBody core)
+    {
+        while (core.UnionParent is { } parent)
+        {
+            core = parent;
+        }
+
+        return core;
     }
 
     /// <summary>A contact onto its physical cores' pair, found in either order or made — <c>FUN_180088090(system, cp)</c>.</summary>
@@ -583,7 +819,7 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// +0x7a == 0 → the controller forgets the system, which deletes itself (slot 7);  the event's unit: bit 9 cleared, bit 8 set
     /// else +0x80 set → cleared;  r = FUN_1800877b0;  r → FUN_180086e80 (the split), and r's unit: bit 9 cleared, bit 8 set
     /// </code>
-    /// *Not carried yet: the deletion and the split, which land with the filing routines and the simulation units.*
+    /// The deletion and the split are the normal controller's (<see cref="IvpNormalFrictionController"/>).
     /// </remarks>
     internal void SolveNormalPushes(float inverseStep)
     {

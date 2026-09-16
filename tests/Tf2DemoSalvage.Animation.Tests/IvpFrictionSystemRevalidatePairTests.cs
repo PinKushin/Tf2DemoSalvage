@@ -109,7 +109,7 @@ public sealed class IvpFrictionSystemRevalidatePairTests
         return contact;
     }
 
-    private static IvpImpactEnvironment Environment() =>
+    internal static IvpImpactEnvironment Environment() =>
         new()
         {
             InverseStep = 0d,

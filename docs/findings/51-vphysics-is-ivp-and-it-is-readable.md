@@ -4798,6 +4798,16 @@ FUN_1800877b0(S) → the root of a part that no longer touches the rest, or null
     return the root of the lowest-index movable core whose root is not R (walked the same way), or null
 ```
 
+**Checked again in the decompiler when the split was ported (2026-09-16), with three readings added.** "Fewer than two cores" is
+the short at `system+0x78`, which `FUN_180087bf0` (now `IvpFrictionSystem__Join`) increments and `FUN_180088c80`
+(`IvpFrictionSystem__Leave`) decrements alongside the `+0x48` vector — the core count, not a second counter. The deletion, slot 7
+of the vtable at `1800fd638` (`FUN_180087b20`, `IvpFrictionSystem__DeletingDestructor`), frees the pair, movable-core and core
+vectors and **touches no core**, so the lone core of a system too small to keep loses only its share. And both "too small" branches
+are unreachable from filing alone (arithmetic over the invariants, not measured): a movable core in a system always holds a
+contact, whose other core has the same root or is immovable and keeps a non-empty share, so each side of a split keeps at least
+two cores. The port is `IvpFrictionSystem.DetachedRoot` and `IvpFrictionSystem.Split`, run by the normal pass; the environment
+listeners each moving pair is shown to (`FUN_180081f70`, `FUN_180081f10`) are not carried.
+
 *Not read: `FUN_180085a80`, which a contact reaches only when its first core has `+0x58` set and there is no second core. Nothing
 read so far writes `core+0x58`; that it is IVP's car-wheel pointer is a guess from the shape (a one-sided special friction), not
 a reading, and until the writer is found the routine counts as reachable.*

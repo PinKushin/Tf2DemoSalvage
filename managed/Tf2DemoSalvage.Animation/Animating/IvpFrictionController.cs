@@ -134,9 +134,8 @@ public sealed class IvpFrictionController(IvpFrictionSystem system) : IIvpUnitCo
 /// **The bits it sets are the stale-entries pair** (<see cref="IvpSimulationUnit.Flags"/>'s <c>0x300</c>), which is why a unit
 /// holding a friction system rebuilds its controller entries on every PSI.
 ///
-/// *Not carried*: the system's own deletion when its last contact goes, and the union-find split (<c>FUN_1800877b0</c> and
-/// <c>FUN_180086e80</c>) — <see cref="IvpFrictionSystem.SplitCheckDue"/> is cleared here so the flag does not accumulate, and
-/// the split it asks for lands with those two functions.
+/// The split is <see cref="IvpFrictionSystem.DetachedRoot"/> and <see cref="IvpFrictionSystem.Split"/>. *The system's own
+/// deletion (slot 7) is carried only as forgetting its faces.*
 /// </remarks>
 public sealed class IvpNormalFrictionController(IvpFrictionSystem system) : IIvpUnitController
 {
@@ -194,8 +193,16 @@ public sealed class IvpNormalFrictionController(IvpFrictionSystem system) : IIvp
         {
             System.SolveNormalPushes((float)IvpFrictionController.InverseOf(psiStep));
 
-            // `+0x80 set → cleared`, then the union-find the split needs, which is not carried.
-            System.SplitCheckDue = false;
+            // `+0x80 set → cleared;  r = FUN_1800877b0;  r → FUN_180086e80`.
+            if (System.SplitCheckDue)
+            {
+                System.SplitCheckDue = false;
+
+                if (System.DetachedRoot() is { } root)
+                {
+                    System.Split(root);
+                }
+            }
         }
         else
         {

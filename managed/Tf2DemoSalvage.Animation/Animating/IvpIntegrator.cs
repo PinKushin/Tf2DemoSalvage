@@ -460,6 +460,10 @@ public sealed class IvpRigidBody
     /// <summary>A movable core's share of the one friction system it is in — <c>core+0x60</c>.</summary>
     public IvpFrictionInfo? FrictionInfo { get; set; }
 
+    /// <summary>The union-find link a friction system's split check writes — <c>core+0x258</c>, null at a set's root.</summary>
+    /// <remarks>Scratch for <see cref="IvpFrictionSystem.DetachedRoot"/> only: cleared for every core of the system on each call.</remarks>
+    internal IvpRigidBody? UnionParent { get; set; }
+
     /// <summary>An immovable core's share of each friction system it is in — the hash at <c>core+0x60</c>, keyed by system.</summary>
     public Dictionary<IvpFrictionSystem, IvpFrictionInfo> FrictionInfos { get; } = [];
 
