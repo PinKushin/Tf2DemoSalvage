@@ -48,9 +48,8 @@ public sealed class IvpSimulation
         _gravity = new IvpGravityController(gravity);
         Collisions = new IvpCollisionEnvironment
         {
-            // vphysics' own filter asks the game's collision rules (`env+0x30`'s slot 0), which this project does not carry: a
-            // demo's ragdolls are all one another's business. *Every pair is allowed here.*
-            Filter = (_, _) => true,
+            // vphysics' own filter asks the game's collision rules (`env+0x30`'s slot 0); a pair the rules do not name collides.
+            Filter = (first, second) => ShouldCollide?.Invoke(first, second) ?? true,
             Step = environment.Step,
             Now = environment.Now,
             Psi = 1,
@@ -74,6 +73,9 @@ public sealed class IvpSimulation
         IvpCollisionEnvironment collisions = Collisions;
         environment.Refile = collisionObject => IvpBroadPhase.Refile(collisions, collisionObject);
     }
+
+    /// <summary>The game's collision rules for a pair of objects — what vphysics' filter asks; null lets every pair collide.</summary>
+    public Func<IvpCollisionObject, IvpCollisionObject, bool>? ShouldCollide { get; set; }
 
     /// <summary>The environment every stage reads.</summary>
     public IvpImpactEnvironment Environment { get; }
@@ -403,6 +405,24 @@ public sealed class IvpSimulation
         {
             Wakes++;
         }
+    }
+
+    /// <summary>Puts a unit to sleep at once — the game's forced sleep of a settled ragdoll, <c>IPhysicsObject::Sleep</c>.</summary>
+    /// <param name="unit">The unit; one already asleep is left alone.</param>
+    /// <remarks>
+    /// *vphysics' `Sleep` → IVP's `disable_simulation` is not read*; this takes the unit down the same freeze its own rest check
+    /// runs (<see cref="IvpSimulationUnit.Freeze"/>) and onto the sleeping list.
+    /// </remarks>
+    internal void Sleep(IvpSimulationUnit unit)
+    {
+        if (unit.State == 8)
+        {
+            return;
+        }
+
+        unit.Freeze(Environment, Environment.Now);
+        _units.Active.Remove(unit);
+        _units.Sleeping.Add(unit);
     }
 
     /// <summary>Wakes a unit, reviving its sleeping cores — <c>FUN_1800758e0(unit, env)</c>.</summary>

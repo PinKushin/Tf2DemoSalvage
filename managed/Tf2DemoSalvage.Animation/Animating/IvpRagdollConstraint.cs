@@ -162,6 +162,32 @@ public sealed class IvpRagdollConstraint
         return joint;
     }
 
+    /// <summary>Builds a joint from limits already converted into IVP's slots and radians (<see cref="RagdollJointLimits.Convert"/>).</summary>
+    /// <param name="primary">The primary axis's limit.</param>
+    /// <param name="narrower">The narrower swing's.</param>
+    /// <param name="wider">The wider swing's.</param>
+    /// <param name="reference">The reference body's frame, in IVP axes, in the same permutation.</param>
+    /// <param name="attached">The attached body's frame.</param>
+    /// <returns>The joint, each block bounded as <see cref="FromDegrees"/> describes, the cone's half-range taken in radians.</returns>
+    public static IvpRagdollConstraint FromLimits(
+        IvpAxisLimit primary, IvpAxisLimit narrower, IvpAxisLimit wider, IvpConstraintFrame reference, IvpConstraintFrame attached)
+    {
+        IvpRagdollConstraint joint = new()
+        {
+            FrameA = reference,
+            FrameB = attached,
+        };
+
+        Bound(joint.Twist, -primary.Maximum, -primary.Minimum);
+        Bound(joint.Swing, narrower.Minimum, narrower.Maximum);
+
+        float half = (wider.Maximum - wider.Minimum) * Half;
+
+        Bound(joint.Cone, -half, half);
+
+        return joint;
+    }
+
     /// <summary>Sets one block's bounds, disabling it when the range covers a full turn.</summary>
     /// <remarks>
     /// **The 2π test is on the range the AXIS declares, not on the bounds after redistribution.**

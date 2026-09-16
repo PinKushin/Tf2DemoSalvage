@@ -343,11 +343,12 @@ public sealed class PhysicsModel
     /// the opposite case — it keeps its slot, with no hull and no mass properties, and the walk goes on.
     /// </remarks>
     /// <exception cref="InvalidDataException">A solid is one vphysics refuses.</exception>
-    private static (List<IReadOnlyList<PhysicsLedge>> Hulls, List<PhysicsMassProperties?> Masses) Hull(
+    private static (List<IReadOnlyList<PhysicsLedge>> Hulls, List<PhysicsMassProperties?> Masses, List<PhysicsLedgeTree?> Surfaces) Hull(
         ReadOnlySpan<byte> bytes, int solidCount)
     {
         List<IReadOnlyList<PhysicsLedge>> hulls = [];
         List<PhysicsMassProperties?> masses = [];
+        List<PhysicsLedgeTree?> surfaces = [];
 
         int at = HeaderSize;
 
@@ -376,11 +377,12 @@ public sealed class PhysicsModel
 
             hulls.Add(PhysicsHull.Read(blob));
             masses.Add(PhysicsHull.MassProperties(blob));
+            surfaces.Add(PhysicsHull.Tree(PhysicsHull.Surface(blob)));
 
             at += 4 + size;
         }
 
-        return (hulls, masses);
+        return (hulls, masses, surfaces);
     }
 
     /// <summary>Reads a <c>.phy</c>.</summary>
@@ -425,15 +427,24 @@ public sealed class PhysicsModel
 
         int text = FindText(bytes);
 
-        (List<IReadOnlyList<PhysicsLedge>> hulls, List<PhysicsMassProperties?> masses) = Hull(bytes, solidCount);
+        (List<IReadOnlyList<PhysicsLedge>> hulls, List<PhysicsMassProperties?> masses, List<PhysicsLedgeTree?> surfaces) =
+            Hull(bytes, solidCount);
 
-        if (text < 0)
-        {
-            return new PhysicsModel([], [], solidCount, checksum, null, hulls, null, masses);
-        }
+        PhysicsModel model = text < 0
+            ? new PhysicsModel([], [], solidCount, checksum, null, hulls, null, masses)
+            : Parse(file[text..], solidCount, checksum, hulls, masses);
 
-        return Parse(file[text..], solidCount, checksum, hulls, masses);
+        model.Surfaces = surfaces;
+
+        return model;
     }
+
+    /// <summary>Each solid's compact surface as a ledge tree, in file order — null for a solid whose surface will not read.</summary>
+    /// <remarks>
+    /// **What vphysics builds the object from**: the tree its surface manager walks and the header its radius comes from
+    /// (<see cref="PhysicsLedgeTree.Radius"/>). Indexed like <see cref="Hulls"/>; empty for a model built by hand.
+    /// </remarks>
+    public IReadOnlyList<PhysicsLedgeTree?> Surfaces { get; private set; } = [];
 
     /// <summary>Where the KeyValues section starts, or -1.</summary>
     /// <remarks>

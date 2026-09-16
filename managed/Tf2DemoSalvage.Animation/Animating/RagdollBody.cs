@@ -137,6 +137,16 @@ public readonly record struct RagdollElement(
     /// </remarks>
     public IReadOnlyList<PhysicsLedge> Ledges { get; init; } = [];
 
+    /// <summary>The surface's mass centre as the file stores it — IVP metres and axes, in the solid's frame.</summary>
+    /// <remarks>What the engine reads (<c>FUN_180073df0</c>); <see cref="MassCenter"/> is this carried into Source.</remarks>
+    public Vector3 IvpMassCenter { get; init; }
+
+    /// <summary>The surface's rotation inertia per kilogram as the file stores it — IVP axes, square metres.</summary>
+    public Vector3 IvpHullInertia { get; init; }
+
+    /// <summary>The solid's compact surface as a ledge tree, or null when it did not read as one.</summary>
+    public PhysicsLedgeTree? Surface { get; init; }
+
     /// <summary>The inertia floor, as a fraction of the inertia's length — <c>objectparams_t::rotInertiaLimit</c>.</summary>
     /// <remarks>
     /// **`0.05` is `g_PhysDefaultObjectParams`'** (`physics_shared.cpp:50`), and a ragdoll element overrides it
@@ -360,6 +370,9 @@ public sealed class RagdollBody
                 MassCenter = massCenter,
                 HullInertia = hullInertia,
                 Ledges = shape.Ledges,
+                IvpMassCenter = physics.MassProperties[index]!.Value.MassCenter,
+                IvpHullInertia = physics.MassProperties[index]!.Value.RotationInertia,
+                Surface = index < physics.Surfaces.Count ? physics.Surfaces[index] : null,
 
                 // `solid.params.rotInertiaLimit = 0.1;` — `ragdoll_shared.cpp:192`, for every element.
                 RotationInertiaLimit = RagdollRotationInertiaLimit,
@@ -643,6 +656,9 @@ public sealed class RagdollBody
                     MassCenter = massCenter,
                     HullInertia = hullInertia,
                     Ledges = ledges,
+                    IvpMassCenter = physics.MassProperties[0]!.Value.MassCenter,
+                    IvpHullInertia = physics.MassProperties[0]!.Value.RotationInertia,
+                    Surface = physics.Surfaces.Count > 0 ? physics.Surfaces[0] : null,
                 },
             ],
             [],

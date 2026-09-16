@@ -356,9 +356,20 @@ public sealed class IvpSimulationUnit
             return false;
         }
 
-        // `FUN_180088930` per core: `FUN_180078c90` — the core frozen (`FUN_180078bd0`), then per object, last first, its state 8,
-        // the broad phase refiling it, its hull settled and rebased, and its cache given back (`FUN_180080650`); then the listeners,
-        // which are not carried.
+        Freeze(environment, now);
+        return true;
+    }
+
+    /// <summary>Every core put to rest and the unit marked asleep — <c>FUN_180088930</c> per core, then state 8.</summary>
+    /// <param name="environment">The environment.</param>
+    /// <param name="now">The environment's time.</param>
+    /// <remarks>
+    /// `FUN_180088930` per core: `FUN_180078c90` — the core frozen (`FUN_180078bd0`), then per object, last first, its state 8, the
+    /// broad phase refiling it, its hull settled and rebased, and its cache given back (`FUN_180080650`); then the listeners, which
+    /// are not carried. Taking the unit off the active list is the caller's.
+    /// </remarks>
+    internal void Freeze(IvpImpactEnvironment environment, double now)
+    {
         for (int index = Cores.Count - 1; index >= 0; index--)
         {
             IvpRigidBody core = Cores[index];
@@ -375,7 +386,6 @@ public sealed class IvpSimulationUnit
         }
 
         State = 8;
-        return true;
     }
 
     /// <summary><c>_DAT_1800ee1c8</c>, dumped as <c>-5.0f</c>: the jitter the rest check's countdown is scaled by, so it lands in 15..20.</summary>

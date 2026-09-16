@@ -566,7 +566,7 @@ public sealed class RagdollSimulation
     /// at the bind pose; permuting one side and not the other breaks it silently, and a corpse
     /// built that way looks like a joint with the wrong limits rather than like a wiring error.
     /// </remarks>
-    private static IvpConstraintFrame Frame(
+    internal static IvpConstraintFrame Frame(
         RagdollAxes axes, int primary, int narrower, int wider) =>
         new(Axis(axes[primary]), Axis(axes[narrower]), Axis(axes[wider]));
 
@@ -601,7 +601,7 @@ public sealed class RagdollSimulation
     /// changes neither the length of a cross product nor a vector's components in its own frame, so this
     /// scores in each body's frame and can differ only in the last bits that round trip adds.
     /// </remarks>
-    private static int Turning(
+    internal static int Turning(
         RagdollAxes attached,
         IvpRigidBody reference,
         IvpRigidBody attachedBody,
@@ -646,7 +646,7 @@ public sealed class RagdollSimulation
         + (axis.Y * (axis.Y * inverseInertia.Y))
         + (axis.Z * (axis.Z * inverseInertia.Z));
 
-    private static int Widest((float Minimum, float Maximum)[] axes, int first, int second)
+    internal static int Widest((float Minimum, float Maximum)[] axes, int first, int second)
     {
         int widest = -1;
 
