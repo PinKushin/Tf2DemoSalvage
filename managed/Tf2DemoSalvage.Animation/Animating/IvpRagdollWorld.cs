@@ -130,6 +130,59 @@ public sealed class IvpRagdollWorld
         return made;
     }
 
+    /// <summary>Adds the displacements' virtual terrain — <c>PhysCreateVirtualTerrain</c>.</summary>
+    /// <param name="displacements">Each displacement's collision tree and <c>SURF_NOPHYSICS_COLL</c> flag, by displacement index; null for an index no face names.</param>
+    /// <param name="hulls">Each displacement's <c>LUMP_PHYSDISP</c> blob, by index; empty or null entries for none.</param>
+    /// <returns>The objects made, in index order.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Read from published source and `engine.dll`**: the engine's loader makes a mesh per displacement unless flagged
+    /// (`FUN_18016f6d0`), and the game makes each a static object at the origin with surface `default`, in index order
+    /// (`physics_shared.cpp:563-582`), when the world's collide carries a `virtualterrain` block — the caller's test. A displacement with
+    /// no hull blob has no root ledge, so nothing collides with it, as the engine's does. *Contents are left <c>CONTENTS_SOLID</c>*:
+    /// nothing calls <c>SetContents</c> on terrain.
+    /// </remarks>
+    public IReadOnlyList<IvpCollisionObject> AddVirtualTerrain(
+        IReadOnlyList<(DisplacementCollisionTree Tree, bool NoPhysics)?> displacements, IReadOnlyList<byte[]?> hulls)
+    {
+        ArgumentNullException.ThrowIfNull(displacements);
+        ArgumentNullException.ThrowIfNull(hulls);
+
+        List<IvpCollisionObject> made = [];
+
+        if (Surfaces.ObjectMaterial("default") is not { } material)
+        {
+            return made;
+        }
+
+        for (int index = 0; index < displacements.Count; index++)
+        {
+            if (displacements[index] is not (DisplacementCollisionTree tree, false))
+            {
+                continue;
+            }
+
+            byte[] hull = index < hulls.Count ? hulls[index] ?? [] : [];
+            IvpVirtualMeshSurfaceManager mesh = new(PhysicsVirtualMesh.Build(tree.Vertices, tree.Triangles, hull), tree);
+
+            IvpRigidBody core = new()
+            {
+                Immovable = true,
+                Orientation = (0d, 0d, 0d, 1d),
+                WorkingOrientation = (0d, 0d, 0d, 1d),
+                CoreMatrix = IvpMatrix.FromRotation((0d, 0d, 0d, 1d), (0d, 0d, 0d)),
+                InverseMass = 0f,
+                InverseInertia = (0f, 0f, 0f),
+            };
+
+            IvpCollisionObject collisionObject = Simulation.Collide(core, mesh, material);
+            _contents[collisionObject] = IvpWorldCollision.ContentsSolid;
+            made.Add(collisionObject);
+        }
+
+        return made;
+    }
+
     /// <summary><c>SOLID_VPHYSICS</c>, <c>public/const.h</c>.</summary>
     private const int SolidVphysics = 6;
 

@@ -112,6 +112,28 @@ public sealed class IvpRagdollWorldTests
     }
 
     /// <remarks>
+    /// **`PhysCreateVirtualTerrain` makes one static object per displacement, in index order** (`physics_shared.cpp:563-582`), except
+    /// where the engine's loader made no mesh — a displacement flagged <c>SURF_NOPHYSICS_COLL</c> (`engine.dll` `FUN_18016f6d0`).
+    /// </remarks>
+    [Test]
+    public void AddVirtualTerrain_ThreeDisplacementsOneWithoutPhysics_MakesTheOtherTwoInOrder()
+    {
+        IvpRagdollWorld world = World();
+        DisplacementCollisionTree Flat(float x) => DisplacementCollisionTree.Build(
+            [new Vector3(x, 0f, 0f), new Vector3(x, 16f, 0f), new Vector3(x + 16f, 16f, 0f), new Vector3(x + 16f, 0f, 0f)],
+            2,
+            new (Vector3, float)[25]);
+
+        IReadOnlyList<IvpCollisionObject> objects = world.AddVirtualTerrain(
+            [(Flat(0f), false), (Flat(100f), true), (Flat(200f), false)],
+            [null, null, null]);
+
+        objects.Count.ShouldBe(2);
+        IvpVirtualMeshSurfaceManager second = objects[1].Surface.ShouldBeOfType<IvpVirtualMeshSurfaceManager>();
+        second.Tree.Vertices[0].X.ShouldBe(200f);
+    }
+
+    /// <remarks>
     /// **`cl_ragdoll_collide` defaults to 0** (`physics.cpp:198`), so two corpses' parts pass through each other; a corpse's own
     /// parts answer its collision rules instead.
     /// </remarks>
