@@ -22,6 +22,15 @@ public sealed class PhysicsLedgeTree
     /// <summary>The root, at <c>surface + surface+0x20</c>.</summary>
     public PhysicsLedgeTreeNode Root { get; }
 
+    /// <summary>A tree of one terminal node, for a solid whose whole hull is a single ledge.</summary>
+    /// <param name="ledge">The ledge.</param>
+    /// <returns>The tree, which a surface manager can be built over.</returns>
+    /// <remarks>
+    /// **Every TF2 ragdoll element is one ledge** (`docs/verification`), and a surface manager is what the pair creation queries —
+    /// so a single-ledge body needs a tree rather than a bare node. A genuinely compound solid needs the real tree instead.
+    /// </remarks>
+    public static PhysicsLedgeTree ForLedge(PhysicsLedge ledge) => new(SingleLedge(ledge), []);
+
     /// <summary>The node at an offset in the surface.</summary>
     /// <param name="offset">The node's offset.</param>
     /// <returns>The node.</returns>

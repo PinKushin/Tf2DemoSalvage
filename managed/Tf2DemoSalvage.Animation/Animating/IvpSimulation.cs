@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>
@@ -20,7 +22,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 public sealed class IvpSimulation
 {
     private readonly IvpUnitManager _units = new();
-    private readonly IvpMindistManager _mindists = new();
+    private readonly IvpMindistManager _mindists;
     private readonly IvpMinList<IvpMindist> _queue = new();
     private readonly PhysicsTimeManager _time = new();
     private readonly IvpGravityController _gravity;
@@ -40,6 +42,19 @@ public sealed class IvpSimulation
         Environment = environment ?? throw new ArgumentNullException(nameof(environment));
         _random = random ?? throw new ArgumentNullException(nameof(random));
         _gravity = new IvpGravityController(gravity);
+
+        Collisions = new IvpCollisionEnvironment
+        {
+            // vphysics' own filter asks the game's collision rules (`env+0x30`'s slot 0), which this project does not carry: a
+            // demo's ragdolls are all one another's business. *Every pair is allowed here.*
+            Filter = (_, _) => true,
+            Step = environment.Step,
+            Now = environment.Now,
+        };
+
+        // **One manager**, the environment's own `+0x20`: the broad phase files pairs into it and the pipeline walks the same list.
+        _mindists = Collisions.MindistManager;
+        Collisions.Creators.Add(new IvpPairCreator());
     }
 
     /// <summary>The environment every stage reads.</summary>
@@ -47,6 +62,72 @@ public sealed class IvpSimulation
 
     /// <summary>The unit lists — the time manager's active and sleeping chains.</summary>
     internal IvpUnitManager Units => _units;
+
+    /// <summary>The fields the broad phase reads and writes — an <c>IVP_Environment</c>'s own.</summary>
+    internal IvpCollisionEnvironment Collisions { get; }
+
+    /// <summary>The objects the broad phase files, one per body that has a ledge.</summary>
+    internal List<IvpCollisionObject> Objects { get; } = [];
+
+    /// <summary>
+    /// Gives a body a collision object the broad phase can file — a node, a surface over its own ledge, and the environment.
+    /// </summary>
+    /// <param name="core">The core; it must already have been added and must carry a ledge.</param>
+    /// <returns>The object.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="core"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">The core has no ledge to stand a surface on.</exception>
+    /// <remarks>
+    /// **The surface is a single-ledge tree** (<see cref="PhysicsLedgeTree.SingleLedge"/>): a body with one ledge is what every TF2
+    /// ragdoll element is, and a genuinely compound solid needs the real tree the world already builds.
+    /// **<see cref="IvpCollisionObject.MovementState"/> is 1**, the moving state the broad phase's own filters read.
+    /// </remarks>
+    public IvpCollisionObject Collide(IvpRigidBody core)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+
+        if (core.Ledges.Count == 0)
+        {
+            throw new InvalidOperationException("A body with no ledge has no surface for the broad phase to query.");
+        }
+
+        IvpCollisionObject collisionObject = new()
+        {
+            Core = core,
+            Environment = Collisions,
+            Surface = new IvpPolygonSurfaceManager(PhysicsLedgeTree.ForLedge(core.Ledges[0])),
+            MovementState = 1,
+
+            // **The friction core, `object+0xf0`.** The broad phase skips a pair whose two objects share one — two objects of the
+            // same body — so leaving it unset makes every pair look like one body against itself.
+            FrictionCore = core,
+        };
+
+        collisionObject.Node = new IvpOvNode(collisionObject);
+        core.Objects.Add(collisionObject);
+        Objects.Add(collisionObject);
+
+        IvpBroadPhase.Refile(Collisions, collisionObject);
+
+        return collisionObject;
+    }
+
+    /// <summary>Refiles every object, so the broad phase finds the pairs a step has brought together.</summary>
+    /// <remarks>
+    /// *The engine refiles an object when its own range says it has moved far enough* — the range manager's slot, from the object's
+    /// hull. This port refiles every object once per PSI instead, which finds the same pairs and does more work than the engine
+    /// does. **A stated divergence**, and the one to close when the range manager drives it.
+    /// </remarks>
+    private void RefileObjects()
+    {
+        Collisions.Now = Environment.Now;
+        Collisions.Step = Environment.Step;
+        Collisions.Psi = _step;
+
+        for (int index = 0; index < Objects.Count; index++)
+        {
+            IvpBroadPhase.Refile(Collisions, Objects[index]);
+        }
+    }
 
     /// <summary>The time manager's own clock, in absolute seconds.</summary>
     public double Now => Environment.Now;
@@ -167,6 +248,7 @@ public sealed class IvpSimulation
             }
 
             fired += _time.DrainUntil(next, now => Environment.Now = now);
+            RefileObjects();
             FireDuePairs();
         }
 
@@ -235,6 +317,9 @@ public sealed class IvpSimulation
 
     /// <summary>How many sleeping units a collision has woken — an instrument, not a field the engine keeps.</summary>
     public int Wakes { get; private set; }
+
+    /// <summary>How many mindists the environment holds alive — <c>env+0xb0</c>, which the pair creation keeps.</summary>
+    public int Mindists => Collisions.LiveMindists;
 
     private static IvpCollisionObject ObjectOf(IvpMindistHullRecord record) =>
         record.CollisionObject ?? throw new InvalidOperationException("A synapse record was never linked to an object.");
