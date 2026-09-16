@@ -635,6 +635,12 @@ public sealed class IvpRigidBody
     /// <summary>The core's linear speed, <c>core+0x1dc</c> — what the range manager and a hull's gradient read.</summary>
     public float LinearSpeed { get; set; }
 
+    /// <summary>How fast the core can be turning, per second — <c>core+0x80</c>, written every step beside the surface bound.</summary>
+    public float AngularSpeedBound { get; set; }
+
+    /// <summary>The step's rotation axis through the core's matrix — <c>core+0x1c0..0x1c8</c>, which the pair scheduler reads.</summary>
+    public (float X, float Y, float Z) RotationAxis { get; set; } = (1f, 0f, 0f);
+
     /// <summary>How fast a point on the core's surface can move because of its spin, <c>core+0x254</c>.</summary>
     public float SurfaceSpeedBound { get; set; }
 
@@ -1072,7 +1078,9 @@ public static class IvpIntegrator
         core.LastStepped = now;
 
         IvpCoreSpeedBound bound = IvpCoreSpeedBound.From((turn.X, turn.Y, turn.Z), core.CoreMatrix, core.InverseStep, core.Offset08);
+        core.AngularSpeedBound = bound.Angular;
         core.SurfaceSpeedBound = bound.Surface;
+        core.RotationAxis = bound.Axis;
 
         float gradient = IvpHullManager.GradientFor(bound.Surface, core.LinearSpeed);
 

@@ -56,6 +56,55 @@ public sealed class IvpSimulationWatchTests
         second.Position.Z.ShouldBe(40d, 1e-9d, "the control: the far body really is where the fixture put it");
     }
 
+    /// <remarks>
+    /// **Phase 6 is the re-examine** (<c>FUN_180099380(mindist, 1, 1)</c>): two bodies far apart and not closing are past the far
+    /// threshold, which is what the scheduler answers.
+    /// </remarks>
+    [Test]
+    public void Advance_TwoBodiesFarApartAndStill_AreScheduledAsFar()
+    {
+        (IvpSimulation simulation, _, _, _) = Watched(apart: 400d);
+        simulation.Start();
+
+        simulation.Advance(0.05d);
+
+        simulation.LastOutcome.ShouldBe(IvpScheduleOutcome.Far);
+    }
+
+    /// <remarks>
+    /// **A near pair is the case that reads the velocity**: the far branch answers on distance alone, so only a pair close enough
+    /// to close within a PSI shows that the scheduler was handed the bodies' own motion.
+    /// </remarks>
+    [Test]
+    public void Advance_TwoBodiesCloseAndClosing_AreNotScheduledAsFar()
+    {
+        (IvpSimulation simulation, _, IvpRigidBody first, _) = Watched(apart: 9d);
+        first.Velocity = (0f, 0f, 400f);
+        first.PreviousVelocity = (0f, 0f, 400f);
+        simulation.Start();
+
+        simulation.Advance(0.05d);
+
+        simulation.LastOutcome.ShouldNotBe(IvpScheduleOutcome.Far, "a body a unit away and closing fast is not far");
+    }
+
+    /// <remarks>**The bounds the scheduler reads are written by the step**, so a moving body's own speed reaches it.</remarks>
+    [Test]
+    public void Advance_AMovingBody_HasItsSpeedBoundsWrittenEveryStep()
+    {
+        (IvpSimulation simulation, _, IvpRigidBody first, _) = Watched();
+        first.Velocity = (0f, 0f, -120f);
+        // Off the x axis, so the axis written is not the same vector the no-turn fallback uses.
+        first.AngularVelocity = (0f, 2f, 1f);
+        simulation.Start();
+
+        simulation.Advance(0.05d);
+
+        first.LinearSpeed.ShouldBe(120f, 1e-3f);
+        first.AngularSpeedBound.ShouldBeGreaterThan(0f, "a turning body bounds its own spin");
+        first.RotationAxis.ShouldNotBe((1f, 0f, 0f), "the fallback axis is replaced by the step's own");
+    }
+
     private static (IvpSimulation, IvpMindist, IvpRigidBody, IvpRigidBody) Watched(double apart = 40d)
     {
         IvpSimulation simulation = new(Environment(), (0f, 0f, 0f), () => 0f);

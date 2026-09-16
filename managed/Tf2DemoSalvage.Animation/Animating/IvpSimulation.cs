@@ -26,6 +26,7 @@ public sealed class IvpSimulation
     private readonly IvpGravityController _gravity;
     private readonly Func<float> _random;
     private int _step;
+    private int _marginDecay;
 
     /// <summary>Starts a simulation with one gravity controller, as an environment's <c>+0x0</c> holds one.</summary>
     /// <param name="environment">The environment: its step, limits, anomaly manager and materials.</param>
@@ -198,10 +199,70 @@ public sealed class IvpSimulation
     }
 
     /// <summary>The scheduler in mode 1 the pipeline's last phase takes — <c>FUN_180099380(mindist, 1, 1)</c>.</summary>
-    /// <remarks>*The scheduler itself is ported (<see cref="IvpPairScheduler.Examine"/>) and is not wired in yet*: it files a
-    /// pair far and queues its event, which needs the hull managers this simulation does not yet fill.</remarks>
-    private static void Examine(IvpMindist mindist)
+    /// <remarks>
+    /// **The pair's time of impact is searched over its own sides** (<see cref="IvpImpactDispatch.Search"/>), and the outcome is
+    /// remembered as <see cref="LastOutcome"/> so a caller can see what the scheduler decided. *`removeFar` is null*: a pair past
+    /// its far threshold is left exact rather than filed with the objects' hull managers, because that filing is the broad
+    /// phase's and is not carried here.
+    /// </remarks>
+    private void Examine(IvpMindist mindist)
     {
-        // The re-examine is where a pair goes back to far; until the hull filing is wired in, a watched pair stays exact.
+        (IvpLedgeSide first, IvpLedgeSide second) = SidesOf(mindist);
+
+        IvpRigidBody firstCore = CoreOf(mindist.HullRecord(0));
+        IvpRigidBody secondCore = CoreOf(mindist.HullRecord(1));
+
+        IvpSchedulerEnvironment scheduler = new()
+        {
+            Step = Environment.Step,
+            Now = Environment.Now,
+            NextPsi = Environment.PsiEnd,
+            // `DAT_18012d654` for the gravity in force — the environment's own length, as `SetGravity` leaves it.
+            ClosingSpeedThreshold = IvpCollisionTolerance.ClosingSpeedThreshold(Environment.GravityLength),
+            Queue = _queue,
+            QueueBase = _time.Base,
+            MarginDecayCounter = _marginDecay,
+        };
+
+        LastOutcome = IvpPairScheduler.Examine(
+            mindist,
+            Scheduled(firstCore),
+            Scheduled(secondCore),
+            scheduler,
+            removeFar: null,
+            IvpRecheck.AfterFeatureChange,
+            (context, state) => IvpImpactDispatch.Search(
+                context,
+                state,
+                mindist.Synapse(mindist.SynapseA),
+                Searchable(first, firstCore),
+                mindist.Synapse(mindist.SynapseA ^ 1),
+                Searchable(second, secondCore)));
+
+        _marginDecay = scheduler.MarginDecayCounter;
     }
+
+    /// <summary>What the scheduler last decided about a watched pair — an instrument, not a field the engine keeps.</summary>
+    public IvpScheduleOutcome? LastOutcome { get; private set; }
+
+    /// <summary>One side as the time-of-impact searches read it — the ledge, the body's motion over the interval, its bounds.</summary>
+    private static IvpSearchSide Searchable(IvpLedgeSide side, IvpRigidBody core) =>
+        new(
+            side.Points,
+            side.Topology,
+            new IvpMotionCache(core, core.CoreMatrix, resting: core.Immovable),
+            IvpRangeManager.Bounds(core));
+
+    /// <summary>A core as the scheduler reads it.</summary>
+    /// <remarks>
+    /// *Nothing here yet reaches the branch that reads <see cref="IvpRigidBody.Velocity"/> itself*: the far test answers on the
+    /// bounds, which carry the speed already, and the near branch's own use of the raw vector arrives with the collision. A
+    /// sabotage zeroing it therefore survives, deliberately recorded rather than papered over.
+    /// </remarks>
+    private static IvpSchedulerCore Scheduled(IvpRigidBody core) =>
+        new(IvpRangeManager.Bounds(core), core.Velocity, core.RotationAxis);
+
+    private static IvpRigidBody CoreOf(IvpMindistHullRecord record) =>
+        (record.CollisionObject ?? throw new InvalidOperationException("A synapse record was never linked to an object."))
+            .Core ?? throw new InvalidOperationException("A watched object has no core.");
 }
