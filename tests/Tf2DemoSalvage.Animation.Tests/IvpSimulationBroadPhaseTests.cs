@@ -221,6 +221,36 @@ public sealed class IvpSimulationBroadPhaseTests
     }
 
     /// <remarks>
+    /// **The pair events and the queue a deleted pair leaves are ONE queue**, the time manager's: a pair the scheduler queues is on
+    /// <see cref="IvpCollisionEnvironment.EventQueue"/>, which <c>FUN_180098dd0</c> takes it out of. *With two queues, a queued pair
+    /// deleted by a refile named a slot in the other one, and a ragdoll's first contact on `cp_process_f12` threw.*
+    /// </remarks>
+    [Test]
+    public void Advance_APairTheSchedulerQueues_IsOnTheCollisionEnvironmentsEventQueue()
+    {
+        IvpSimulation simulation = Simulation();
+        IvpRigidBody moving = Body((2d, 1d, 0d));
+        IvpRigidBody still = Body((0d, 0d, 9d));
+        moving.Velocity = (0f, 0f, 6f);
+        moving.PreviousVelocity = (0f, 0f, 6f);
+        simulation.Add(moving);
+        simulation.Add(still);
+        simulation.Collide(moving, Material);
+        simulation.Collide(still, Material);
+        simulation.Start();
+
+        bool queued = false;
+
+        for (double at = 0.02d; at <= 1d && !queued; at += 0.01d)
+        {
+            simulation.Advance(at);
+            queued = simulation.LastOutcome == IvpScheduleOutcome.Queued && simulation.Collisions.EventQueue.Count > 0;
+        }
+
+        queued.ShouldBeTrue("a queued pair is on the environment's own queue");
+    }
+
+    /// <remarks>
     /// **A displacement is a static object over the virtual-mesh manager** (<c>PhysCreateVirtualTerrain</c>): its hull ledge is the
     /// root, every face virtual, opened into the triangles near the body. A 2000-inch power-2 basin — the border ring raised 100
     /// inches, the middle flat at Source z 0 — puts IVP's y 0 plane under x and z 12.7..38.1; a cube of half 4 dropped along IVP +Y,

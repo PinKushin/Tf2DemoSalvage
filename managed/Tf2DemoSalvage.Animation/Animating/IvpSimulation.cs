@@ -23,7 +23,7 @@ public sealed class IvpSimulation
 {
     private readonly IvpUnitManager _units = new();
     private readonly IvpMindistManager _mindists;
-    private readonly IvpMinList<IvpMindist> _queue = new();
+    private readonly IvpMinList<IvpMindist> _queue;
     private readonly PhysicsTimeManager _time = new();
     private readonly IvpGravityController _gravity;
     private readonly Func<float> _random;
@@ -69,6 +69,10 @@ public sealed class IvpSimulation
 
         // **One manager**, the environment's own `+0x20`: the broad phase files pairs into it and the pipeline walks the same list.
         _mindists = Collisions.MindistManager;
+
+        // **One queue**, likewise: the pairs the scheduler queues are the ones a deleted pair's unlink takes out (`FUN_180098dd0`).
+        // *This kept a queue of its own*, so a queued pair deleted by a refile named a slot in the environment's empty one.
+        _queue = Collisions.EventQueue;
         Collisions.Creators.Add(new IvpPairCreator());
 
         // What the impact environment reaches through a core's `+0x10`: the objects' caches, the unit merge and the broad phase.

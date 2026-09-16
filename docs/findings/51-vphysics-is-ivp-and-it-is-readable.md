@@ -8172,6 +8172,47 @@ surface manager in the driver.*
 source for the engine's list and walk; the entry's layout pinned by `PhysicsVirtualMeshConformanceTests`, with sabotages of the
 back triangle's hop and the hull's second-meeting byte each reddening its test.*
 
+#### The whole map in the ported driver, and the first drop compared on `cp_process_f12` (2026-09-16)
+
+**Everything the italic list above named is now ported**, and each piece has a test:
+
+- `DisplacementCollisionTree` is `CDispCollTree`: the full-grid triangles of `GenerateCollisionSurface`, the 4-ary tree and the
+  breadth-first sphere walk. The runtime handler reads that exact list (`engine.dll` `FUN_18017cb00`).
+- `IvpVirtualMeshSurfaceManager` is table `1800ee220`'s query, centre and radius.
+- `IvpMapWorld.Load` builds the client's environment in the engine's order:
+  - the world model's solids (`PhysCreateWorld_Shared`) and its `materialtable` (`FUN_18002eeb0`);
+  - the virtual terrain (`PhysCreateVirtualTerrain`, per displacement unless `SURF_NOPHYSICS_COLL`, hull from `LUMP_PHYSDISP`);
+  - the static props, walked last to first, each the model's FIRST solid (`engine.dll` `FUN_180203280`/`FUN_180203060`);
+  - then the brush entities.
+
+**On `cp_process_f12` that is 2 world objects, 922 displacements, 337 props and 200 brush-entity objects.** No `SOLID_BBOX` prop
+exists on f12 or harvest (`static-prop-solids`), so `BBoxToCollide` is left unported.
+
+**Loading a real map found four driver defects that the synthetic suite could not:**
+
+- The collision environment had no `HullPassed`, so a larger mindist could not open.
+- A larger mindist's hull pass ran the scheduler's examine where the engine runs the unbudgeted minimize, `FUN_180095ad0`.
+- The time-of-impact search gave synapse A record 0's side even when A is record 1. Two cubes of twelve triangles each cannot
+  tell; a two-triangle virtual ledge can.
+- **The simulation kept a pair-event queue of its own** beside the environment's. A queued pair deleted by a refile named a slot in
+  the other, empty queue, and the corpse's first contact threw.
+
+**The first comparison** (`ivp-drop-compare`, scout, dropped from 64 units above the floor at the map's middle, no force, ten
+seconds, *measured*):
+
+| | old solver (`IvpEnvironment`) | ported driver (`IvpSimulation`) |
+|---|---|---|
+| root at rest, z | 727.3 | 741.6 |
+| after 10 s | asleep | awake, the root still sliding ~0.9 units/s along +y |
+| impacts | — | 293 |
+
+**The two agree on the floor to within the root's own size and disagree on everything after the landing.** The old corpse's root
+sits about 9 units lower. That is the depth its thickness compensators allow, so it is interpolated to be the old solver sinking,
+not the new one floating. The ported corpse never stops creeping and never sleeps. *Not established*: what lies under that spot,
+whether a brush or a displacement, and whether the creep is friction on a virtual ledge, the rest check, or the joints. It is the
+next thing to measure, and the switchover waits on it.
+
+
 ### And the faces are already parsed — they are discarded one line before the physics (B306)
 
 **`PhysicsLedge` carries `Points` AND `Triangles`** — the real faces out of the `IVPS` compact-ledge

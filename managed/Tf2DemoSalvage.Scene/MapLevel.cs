@@ -420,7 +420,7 @@ public sealed record MapLevel(
     /// entity's geometry is compiled in world coordinates unless the mapper gave it an `origin`
     /// brush, so most `func_` entities correctly offset by nothing at all.
     /// </remarks>
-    private static Dictionary<int, Vector3> BrushModelOrigins(IReadOnlyList<BspEntity> entities)
+    internal static Dictionary<int, Vector3> BrushModelOrigins(IReadOnlyList<BspEntity> entities)
     {
         Dictionary<int, Vector3> origins = [];
 
