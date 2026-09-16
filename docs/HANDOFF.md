@@ -78,8 +78,22 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    `IvpRootFinder` were converted from inches with their tests. The running path (`IvpEnvironment`, `IvpContact`,
    `RagdollSimulation`) stays in Source units until it is replaced; the conversion belongs at the `CPhysicsEnvironment` and
    `CPhysicsObject` seam, nowhere inside the core.
-3. **The running path — the real driver is found: `IvpEnvironment::IntegrateAwakeCores` (`180090bac`/`1800909d0`), read in
-   full 2026-09-14.** `IvpEnvironment.Simulate()` (897 lines, `managed/.../IvpEnvironment.cs`) is a fully independent,
+3. **The running path. THE DRIVER IS NOW PORTED AND RUNNABLE, 2026-09-15 — `IvpSimulation`** (`managed/.../IvpSimulation.cs`)
+   holds the environment, the time manager, the unit lists and the mindist manager, and runs the engine's own step: the
+   self-rescheduling PSI event (`IvpPsiEvent`, `FUN_18008a020`), its six-phase pipeline (`IvpPhysicsPipeline`,
+   `FUN_180082560`), each awake unit's PSI (`IvpSimulationUnit`, `FUN_180075c80`), the whole per-core step
+   (`IvpIntegrator.StepCore`, `FUN_180099a00`), the hull pass, the per-core recheck, and all five controllers by their read
+   priorities — friction `2000`, gravity `1000`, friction `600`, the constraints `405`, friction `0`. The impact loop
+   (`IvpImpactIsland`: build, drain, grow, tail) runs inside the collision, as `FUN_18008ef60` does.
+   **What it still lacks before it can replace the invented solver: the narrow phase that would create contacts**, the unit
+   MERGE that puts two constrained bodies in one unit (`FUN_180074e40`), the wake of a sleeping unit (`FUN_1800758e0`), and
+   the friction system's self-deletion and union-find split. So a body added to it falls, damps, spins and sleeps like the
+   engine's, and nothing stops it yet.
+   **The measurement that has to come next** is a ragdoll drop through `IvpSimulation` against `IvpEnvironment.Simulate()` on
+   the f12 demo; nothing switches over before that.
+   *The account below is the 2026-09-14 reading that got this far, kept because it names what was unread at the time; where it
+   says a routine is unported, check the list above first.* `IvpEnvironment.Simulate()` (897 lines,
+   `managed/.../IvpEnvironment.cs`) is a fully independent,
    invented solver — damping → push flush → gravity → `Constraints.Solve()` → an event-walk subdivided per collision
    (`Advance`) → once-per-PSI friction (`Rub`), on its own `IvpContact`/manifold types (1765 lines) — **wired to none of
    the ported core.** The engine's actual shape, read this session, call by call:

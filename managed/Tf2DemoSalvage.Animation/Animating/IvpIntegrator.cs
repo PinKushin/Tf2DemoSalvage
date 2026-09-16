@@ -562,6 +562,9 @@ public sealed class IvpRigidBody
     /// <remarks>**What a unit's entries are rebuilt from** (<see cref="IvpSimulationUnit.RebuildEntries"/>).</remarks>
     internal List<IIvpUnitController> Controllers { get; } = [];
 
+    /// <summary>The unit this core is simulated in — <c>core+0x1f8</c>, which the merge rewrites.</summary>
+    internal IvpSimulationUnit? Unit { get; set; }
+
     /// <summary>The impact generation the core was last rechecked at — <c>core+0x250</c>, from <c>env+0x1a4</c>.</summary>
     public int ImpactStamp { get; set; }
 

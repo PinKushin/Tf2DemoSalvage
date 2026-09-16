@@ -119,6 +119,40 @@ public sealed class IvpSimulationUnit
         Sort();
     }
 
+    /// <summary>Takes every core of another unit into this one — <c>FUN_180074e40(unit, other)</c>, the merge.</summary>
+    /// <param name="other">The unit being absorbed; it is left empty.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="other"/> is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// FUN_180074ba0(unit)                    -- every entry freed
+    /// FUN_180076350(unit, other):  other's cores appended, each core's +0x1f8 = unit;  other unlinked from its manager list
+    /// FUN_180075470(unit)                    -- the entries rebuilt from the cores' own controllers
+    /// </code>
+    /// **This is what puts two constrained bodies in one unit**, so a controller they share runs once per PSI rather than once
+    /// per body. *Taking the absorbed unit off the manager's active list is the caller's, since the list lives there.*
+    /// </remarks>
+    internal void Absorb(IvpSimulationUnit other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        if (ReferenceEquals(other, this))
+        {
+            return;
+        }
+
+        // `FUN_180074ba0`'s free of every entry is what `RebuildEntries` below already does, so it is not a second clear here.
+        for (int index = 0; index < other.Cores.Count; index++)
+        {
+            IvpRigidBody core = other.Cores[index];
+
+            Cores.Add(core);
+            core.Unit = this;
+        }
+
+        other.Cores.Clear();
+        RebuildEntries();
+    }
+
     /// <summary>The entries insertion-sorted ascending by priority — <c>FUN_180075990</c>.</summary>
     private void Sort()
     {

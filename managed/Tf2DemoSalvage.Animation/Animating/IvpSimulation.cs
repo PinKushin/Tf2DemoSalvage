@@ -64,11 +64,70 @@ public sealed class IvpSimulation
 
         IvpSimulationUnit unit = new();
         unit.Cores.Add(core);
+        core.Unit = unit;
         core.Controllers.Add(_gravity);
         unit.RebuildEntries();
         _units.Active.Add(unit);
 
         return unit;
+    }
+
+    /// <summary>
+    /// Files a constraint group on the bodies it joins, merging their units — the controller's own registration
+    /// (<c>FUN_1800748b0</c>) plus the merge (<c>FUN_180074e40</c>).
+    /// </summary>
+    /// <param name="group">The group; every body its joints name must already have been added.</param>
+    /// <returns>The unit that now holds every one of those bodies.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="group"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A joint names a body this simulation does not hold.</exception>
+    /// <remarks>
+    /// **Joined bodies share one unit**, so the group is solved once per PSI however many joints it holds — which is what the
+    /// engine's merge is for, and what a per-body controller would get wrong by solving it twice.
+    /// </remarks>
+    public IvpSimulationUnit Add(IvpConstraintGroup group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        IvpConstraintController controller = new(group);
+        IvpSimulationUnit? into = null;
+
+        foreach (IvpRagdollJoint joint in group.Joints)
+        {
+            into = Join(joint.BodyA, controller, into);
+            into = Join(joint.BodyB, controller, into);
+        }
+
+        return into ?? throw new InvalidOperationException("A constraint group with no joints has no unit to file on.");
+    }
+
+    private IvpSimulationUnit Join(IvpRigidBody core, IvpConstraintController controller, IvpSimulationUnit? into)
+    {
+        IvpSimulationUnit unit = core.Unit
+            ?? throw new InvalidOperationException("A joint names a body this simulation does not hold.");
+
+        // `FUN_1800748b0` appends without checking, and the rebuild finds the controller's entry rather than making a second, so
+        // a body named by two joints of one group carries the controller twice and the entry holds it twice. That is the
+        // engine's own shape; a de-duplicating guard here was this port's invention and is gone.
+        core.Controllers.Add(controller);
+
+        if (into is null)
+        {
+            unit.RebuildEntries();
+            return unit;
+        }
+
+        if (!ReferenceEquals(unit, into))
+        {
+            into.Absorb(unit);
+            _units.Active.Remove(unit);
+            _units.Sleeping.Remove(unit);
+        }
+        else
+        {
+            into.RebuildEntries();
+        }
+
+        return into;
     }
 
     /// <summary>Queues the first PSI event, due at once — the time manager's own constructor does this for the engine.</summary>

@@ -1,3 +1,5 @@
+using System.Linq;
+
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Probe.Oracle;
 
@@ -62,6 +64,77 @@ public sealed class IvpSimulationTests
 
         simulation.AwakeUnits.ShouldBe(0, "a body that never moves sleeps at the first rest check");
         core.UnitState.ShouldBe((int)IvpCoreMotion.Resting);
+    }
+
+    /// <remarks>**Joined bodies share one unit** (<c>FUN_180074e40</c>), so their group is solved once per PSI, not twice.</remarks>
+    [Test]
+    public void Add_AConstraintGroup_MergesTheJoinedBodiesIntoOneUnit()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody first);
+        IvpRigidBody second = new() { Orientation = (0d, 0d, 0d, 1d), WorkingOrientation = (0d, 0d, 0d, 1d) };
+        simulation.Add(second);
+
+        IvpSimulationUnit unit = simulation.Add(Group(first, second));
+
+        simulation.AwakeUnits.ShouldBe(1, "the second body's unit was absorbed");
+        unit.Cores.ShouldBe([first, second]);
+        unit.Entries.Select(entry => entry.Controller.Priority).ShouldBe([405, 1000], "the constraints and gravity, sorted");
+    }
+
+    [Test]
+    public void Add_AConstraintGroup_SolvesItOncePerPsi()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody first, gravity: (0f, 0f, 0f));
+
+        // 40 degrees about the narrower swing axis, against a limit of 25 — the group's own fixture.
+        IvpRigidBody second = new() { Orientation = (0f, 0.34202015f, 0f, 0.9396926f), WorkingOrientation = (0d, 0d, 0d, 1d) };
+        simulation.Add(second);
+        IvpSimulationUnit unit = simulation.Add(Group(first, second));
+        unit.Entries.Count(entry => entry.Controller.Priority == 405).ShouldBe(1, "one entry for the group, not one per body");
+        simulation.Start();
+
+        simulation.Advance(0.25d);
+
+        first.AngularVelocity.ShouldNotBe((0f, 0f, 0f), "the swing past its limit was corrected");
+    }
+
+    /// <remarks>
+    /// **The merge's own bookkeeping**: the absorbed unit is left empty, every core it held names the absorbing unit, and the
+    /// absorbing unit's old entries are thrown away before the rebuild rather than kept beside the new ones.
+    /// </remarks>
+    [Test]
+    public void Add_AConstraintGroup_LeavesTheAbsorbedUnitEmptyAndItsCoresRehomed()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody first);
+        IvpRigidBody second = new() { Orientation = (0d, 0d, 0d, 1d), WorkingOrientation = (0d, 0d, 0d, 1d) };
+        IvpSimulationUnit absorbed = simulation.Add(second);
+
+        IvpSimulationUnit unit = simulation.Add(Group(first, second));
+
+        absorbed.Cores.ShouldBeEmpty();
+        first.Unit.ShouldBeSameAs(unit);
+        second.Unit.ShouldBeSameAs(unit, "the absorbed core names its new unit");
+        unit.Entries.Count.ShouldBe(2, "gravity and the constraints, once each — the old entries were cleared first");
+        second.Controllers.Count(controller => controller.Priority == 405).ShouldBe(1, "the controller is filed once per core");
+    }
+
+    private static IvpConstraintGroup Group(IvpRigidBody first, IvpRigidBody second)
+    {
+        IvpConstraintGroup group = new();
+
+        group.Joints.Add(new IvpRagdollJoint
+        {
+            BodyA = first,
+            BodyB = second,
+            Constraint = IvpRagdollConstraint.FromDegrees(
+                primary: (-30f, 15f),
+                narrower: (-25f, 25f),
+                wider: (-79f, 57f),
+                reference: IvpConstraintFrame.Identity,
+                attached: IvpConstraintFrame.Identity),
+        });
+
+        return group;
     }
 
     private static IvpSimulation Simulation(out IvpRigidBody core, (float X, float Y, float Z)? gravity = null)
