@@ -19,23 +19,34 @@ public sealed class IvpUnitManager
     /// <summary>The sleeping ones — <c>manager+0x338</c>.</summary>
     internal List<IvpSimulationUnit> Sleeping { get; } = [];
 
-    /// <summary>Moves a sleeping unit back onto the active list — <c>FUN_1800758e0(unit, env)</c>'s own tail.</summary>
-    /// <param name="unit">The unit; one already awake is left alone.</param>
-    /// <returns><c>true</c> when it had been asleep.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="unit"/> is null.</exception>
+    /// <summary>Wakes a unit — <c>FUN_1800758e0(unit, env)</c>.</summary>
+    /// <param name="unit">The unit.</param>
+    /// <param name="revive">
+    /// A sleeping core's revive, <c>FUN_1800892b0</c> — see <see cref="Revive"/> — answering whether its contacts were rebuilt, which
+    /// starts the walk again.
+    /// </param>
+    /// <returns><c>true</c> when the unit had been asleep.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// <code>
+    /// every core of the unit, last first:  core+0x1 ≥ 8 and FUN_1800892b0(core) == 1 → start the walk again
     /// unit state == 8:  unlinked from the sleeping list (head env+0x10's +0x338, links +0x8/+0x10)
     ///                   state = 1;  pushed on the active list (env+0x10's +0x18);  its +0x8 = 0
     /// </code>
-    /// *The per-core revive that precedes it is NOT carried*: `FUN_1800892b0` sets each object's state, re-integrates the core
-    /// over the PSI's remainder around a saved velocity (`FUN_1800783c0`, `FUN_180077670`, `FUN_180086500` — all unread) and tells
-    /// the environment's listeners. So a woken unit here resumes stepping at the next PSI rather than being caught up inside the
-    /// wake.
     /// </remarks>
-    internal bool Wake(IvpSimulationUnit unit)
+    internal bool Wake(IvpSimulationUnit unit, Func<IvpRigidBody, bool> revive)
     {
         ArgumentNullException.ThrowIfNull(unit);
+        ArgumentNullException.ThrowIfNull(revive);
+
+        int index = unit.Cores.Count - 1;
+
+        while (index >= 0)
+        {
+            IvpRigidBody core = unit.Cores[index];
+
+            index = core.UnitState >= 8 && revive(core) ? unit.Cores.Count - 1 : index - 1;
+        }
 
         if (unit.State != 8)
         {
@@ -47,6 +58,82 @@ public sealed class IvpUnitManager
         Active.Add(unit);
 
         return true;
+    }
+
+    /// <summary>A sleeping core brought back into the simulation — <c>FUN_1800892b0(core)</c>.</summary>
+    /// <param name="core">The core.</param>
+    /// <param name="environment">The clock, the PSI's end and the broad phase's refile.</param>
+    /// <returns>Whether its contacts were rebuilt — always <c>false</c> here, see the remarks.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Read from the decompiler and settled in the disassembly** (2026-09-16):
+    /// <code>
+    /// every object, last first:  +0x78 = 1
+    /// a core stepped before (+0x1d0 != 0):  nothing kept;  else its velocity +0x140 and spin +0x130 are kept
+    /// FUN_1800783c0:  +0x1 = 1;  +0x1d0 = now;  +0x200 = +0x208 = now
+    ///                 every object, last first:  +0x78 = 1;  FUN_180073b00 — the core's +0x1 and the object's +0x78 held at 0x21
+    ///                 while FUN_180098880 refiles it, then restored
+    /// r = (float)(env+0x190 − now);  (double)r ≤ (double)1e-10f (COMISD, JBE — a NaN too) → 1e10f, else (float)(1.0 / r)
+    /// FUN_180077670(core, {r, that}):  +0x1d8 = that;  +0x80 = 0;  +0x1a0 = +0x180;  +0x140 = 0;  +0x170 = 0;  +0x1dc = 0;
+    ///                                  +0x254 = 0;  +0x1c0 = (1, 0, 0)
+    /// the kept velocity and spin written back;  FUN_180086500(core) answered;  every object's listeners told
+    /// </code>
+    /// `FUN_1800783c0` also writes `+0x1d0` once from `now − (float)step` before overwriting it with now — a dead store.
+    ///
+    /// *Not carried*: `FUN_180086500`, which builds a friction contact to every nearby movable core without a system of its own
+    /// and answers whether it built one, and the listeners (`FUN_1800820c0`). So a woken core never rebuilds its resting contacts
+    /// here, and the walk never restarts.
+    /// </remarks>
+    internal static bool Revive(IvpRigidBody core, IvpImpactEnvironment environment)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+        ArgumentNullException.ThrowIfNull(environment);
+
+        for (int index = core.Objects.Count - 1; index >= 0; index--)
+        {
+            core.Objects[index].MovementState = 1;
+        }
+
+        bool neverStepped = core.LastStepped == 0d;
+        (float X, float Y, float Z) velocity = core.Velocity;
+        (float X, float Y, float Z) spin = core.AngularVelocity;
+
+        double now = environment.Now;
+        core.UnitState = 1;
+        core.LastStepped = now;
+        core.RestAnchorTime = now;
+        core.SettleAnchorTime = now;
+
+        for (int index = core.Objects.Count - 1; index >= 0; index--)
+        {
+            IvpCollisionObject collisionObject = core.Objects[index];
+            collisionObject.MovementState = 1;
+
+            int coreState = core.UnitState;
+            core.UnitState = 0x21;
+            collisionObject.MovementState = 0x21;
+            environment.Refile?.Invoke(collisionObject);
+            core.UnitState = coreState;
+            collisionObject.MovementState = 1;
+        }
+
+        float remaining = (float)(environment.PsiEnd - now);
+        core.InverseStep = !((double)remaining > (double)1e-10f) ? 1e10f : (float)(1d / remaining);
+        core.AngularSpeedBound = 0f;
+        core.WorkingOrientation = core.Orientation;
+        core.Velocity = (0f, 0f, 0f);
+        core.PreviousVelocity = (0f, 0f, 0f);
+        core.LinearSpeed = 0f;
+        core.SurfaceSpeedBound = 0f;
+        core.RotationAxis = (1f, 0f, 0f);
+
+        if (neverStepped)
+        {
+            core.Velocity = velocity;
+            core.AngularVelocity = spin;
+        }
+
+        return false;
     }
 }
 
@@ -120,7 +207,7 @@ public static class IvpPhysicsPipeline
         {
             IvpSimulationUnit unit = units.Active[at];
 
-            if (unit.Psi(environment, now, step, pushed, random))
+            if (unit.Psi(environment, now, step, pushed, random, RecheckInvalid))
             {
                 units.Active.RemoveAt(at);
                 units.Sleeping.Add(unit);
@@ -145,5 +232,8 @@ public static class IvpPhysicsPipeline
         mindists.ExamineExact(examine);
 
         environment.Phase = 5;
+
+        // `FUN_180074240(object)`, which the unit PSI runs for every object of every core it simulated.
+        void RecheckInvalid(IvpCollisionObject collisionObject) => collisionObject.RecheckInvalid(mindists, minimize);
     }
 }

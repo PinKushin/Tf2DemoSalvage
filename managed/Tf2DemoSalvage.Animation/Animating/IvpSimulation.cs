@@ -27,7 +27,11 @@ public sealed class IvpSimulation
     private readonly PhysicsTimeManager _time = new();
     private readonly IvpGravityController _gravity;
     private readonly Func<float> _random;
-    private int _step;
+    /// <summary>
+    /// <c>env+0x1a0</c>. *Its starting value is NOT read*: one is interpolated, because a fresh cache holds zero and a pair made
+    /// before the first clock set would otherwise be measured from a cache that was never placed.
+    /// </summary>
+    private int _timeCode = 1;
     private int _marginDecay;
 
     /// <summary>Starts a simulation with one gravity controller, as an environment's <c>+0x0</c> holds one.</summary>
@@ -42,7 +46,6 @@ public sealed class IvpSimulation
         Environment = environment ?? throw new ArgumentNullException(nameof(environment));
         _random = random ?? throw new ArgumentNullException(nameof(random));
         _gravity = new IvpGravityController(gravity);
-
         Collisions = new IvpCollisionEnvironment
         {
             // vphysics' own filter asks the game's collision rules (`env+0x30`'s slot 0), which this project does not carry: a
@@ -50,11 +53,26 @@ public sealed class IvpSimulation
             Filter = (_, _) => true,
             Step = environment.Step,
             Now = environment.Now,
+            Psi = 1,
+
+            // `FUN_1800977f0(env+0x20, m)`: a new pair of two ordinary objects is linked exact, and appended to the rechecked array
+            // when either core asks for it. **Without this the pair creation makes a mindist nothing ever looks at.**
+            BecomeExact = BecomeExact,
+
+            // vphysics has no phantom objects in a demo's ragdolls; a pair with one would need `FUN_180097940`, unported.
+            BecomePhantom = mindist => throw new NotSupportedException(
+                "A phantom object's pair needs FUN_180097940, which is not ported; nothing in this project creates one."),
         };
 
         // **One manager**, the environment's own `+0x20`: the broad phase files pairs into it and the pipeline walks the same list.
         _mindists = Collisions.MindistManager;
         Collisions.Creators.Add(new IvpPairCreator());
+
+        // What the impact environment reaches through a core's `+0x10`: the objects' caches, the unit merge and the broad phase.
+        environment.ContactSides = contact => (SideOf(contact.FirstObject), SideOf(contact.SecondObject));
+        environment.MergeUnits = MergeUnits;
+        IvpCollisionEnvironment collisions = Collisions;
+        environment.Refile = collisionObject => IvpBroadPhase.Refile(collisions, collisionObject);
     }
 
     /// <summary>The environment every stage reads.</summary>
@@ -73,17 +91,19 @@ public sealed class IvpSimulation
     /// Gives a body a collision object the broad phase can file — a node, a surface over its own ledge, and the environment.
     /// </summary>
     /// <param name="core">The core; it must already have been added and must carry a ledge.</param>
+    /// <param name="material">The object's own material, <c>object+0xd0</c>, which a triangle of material index zero reads.</param>
     /// <returns>The object.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="core"/> is null.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="core"/> or <paramref name="material"/> is null.</exception>
     /// <exception cref="InvalidOperationException">The core has no ledge to stand a surface on.</exception>
     /// <remarks>
     /// **The surface is a single-ledge tree** (<see cref="PhysicsLedgeTree.SingleLedge"/>): a body with one ledge is what every TF2
     /// ragdoll element is, and a genuinely compound solid needs the real tree the world already builds.
     /// **<see cref="IvpCollisionObject.MovementState"/> is 1**, the moving state the broad phase's own filters read.
     /// </remarks>
-    public IvpCollisionObject Collide(IvpRigidBody core)
+    public IvpCollisionObject Collide(IvpRigidBody core, IIvpMaterial material)
     {
         ArgumentNullException.ThrowIfNull(core);
+        ArgumentNullException.ThrowIfNull(material);
 
         if (core.Ledges.Count == 0)
         {
@@ -96,6 +116,7 @@ public sealed class IvpSimulation
             Environment = Collisions,
             Surface = new IvpPolygonSurfaceManager(PhysicsLedgeTree.ForLedge(core.Ledges[0])),
             MovementState = 1,
+            Material = material,
 
             // **The friction core, `object+0xf0`.** The broad phase skips a pair whose two objects share one — two objects of the
             // same body — so leaving it unset makes every pair look like one body against itself.
@@ -111,22 +132,32 @@ public sealed class IvpSimulation
         return collisionObject;
     }
 
-    /// <summary>Refiles every object, so the broad phase finds the pairs a step has brought together.</summary>
+    /// <summary>Keeps the broad phase's own clock with the environment's.</summary>
     /// <remarks>
-    /// *The engine refiles an object when its own range says it has moved far enough* — the range manager's slot, from the object's
-    /// hull. This port refiles every object once per PSI instead, which finds the same pairs and does more work than the engine
-    /// does. **A stated divergence**, and the one to close when the range manager drives it.
+    /// **An object asks to be refiled itself**: its OV node is filed in its object's hull manager at the range it has left, and the
+    /// node's slot 1 (<see cref="IvpOvNode.HullPassed"/>) runs the broad phase again when that range is spent. *A per-PSI refile
+    /// looked harmless and was not — it reinstalled every filed pair's hull allowance each step, so no pair was ever told its hull
+    /// had passed and two bodies drove through each other.*
     /// </remarks>
-    private void RefileObjects()
+    private void SyncCollisionClock()
     {
         Collisions.Now = Environment.Now;
         Collisions.Step = Environment.Step;
-        Collisions.Psi = _step;
+        Collisions.Psi = _timeCode;
+    }
 
-        for (int index = 0; index < Objects.Count; index++)
-        {
-            IvpBroadPhase.Refile(Collisions, Objects[index]);
-        }
+    /// <summary>Sets the clock — <c>FUN_180082460</c>: <c>env+0x1a0 += 1; env+0x188 = time</c>.</summary>
+    /// <remarks>
+    /// **Every clock set is counted, the drain's final snap included**, and that count is the time code the minimize's
+    /// once-per check and every object cache key on. *A private counter bumped per minimize stood in for it and was wrong both
+    /// ways*: a cache keyed on it was not refreshed across PSIs that minimized nothing, and a pair minimized twice in one event
+    /// was measured twice.
+    /// </remarks>
+    private void SetClock(double now)
+    {
+        Environment.Now = now;
+        _timeCode++;
+        SyncCollisionClock();
     }
 
     /// <summary>The time manager's own clock, in absolute seconds.</summary>
@@ -141,8 +172,7 @@ public sealed class IvpSimulation
     /// <exception cref="ArgumentNullException"><paramref name="core"/> is null.</exception>
     /// <remarks>
     /// **A core gets its unit from its own constructor** (<c>FUN_1800782d0</c>) and its gravity controller from the same call,
-    /// which is why this is one method rather than two. *Two bodies joined by a constraint share a unit in the engine
-    /// (<c>FUN_180074e40</c>, the merge); that merge is not carried, so each body here is its own unit.*
+    /// which is why this is one method rather than two. Bodies joined later share a unit through the merge (<c>FUN_180074e40</c>).
     /// </remarks>
     public IvpSimulationUnit Add(IvpRigidBody core)
     {
@@ -153,7 +183,12 @@ public sealed class IvpSimulation
         core.Unit = unit;
         core.Controllers.Add(_gravity);
         unit.RebuildEntries();
-        _units.Active.Add(unit);
+
+        // **A core is born asleep** — state 8, in a sleeping unit — and vphysics wakes a body it does not create asleep, which is
+        // what revives the core (`FUN_1800892b0`) and gives it the state a collision reads.
+        unit.Asleep();
+        _units.Sleeping.Add(unit);
+        Wake(unit);
 
         return unit;
     }
@@ -204,9 +239,7 @@ public sealed class IvpSimulation
 
         if (!ReferenceEquals(unit, into))
         {
-            into.Absorb(unit);
-            _units.Active.Remove(unit);
-            _units.Sleeping.Remove(unit);
+            Merge(into, unit);
         }
         else
         {
@@ -214,6 +247,23 @@ public sealed class IvpSimulation
         }
 
         return into;
+    }
+
+    /// <summary>One unit absorbs another, which leaves the time manager's lists — <c>FUN_180074e40</c>.</summary>
+    private void Merge(IvpSimulationUnit into, IvpSimulationUnit other)
+    {
+        into.Absorb(other);
+        _units.Active.Remove(other);
+        _units.Sleeping.Remove(other);
+    }
+
+    /// <summary>A contact's filing merging its two movable cores' units — the tail of <c>FUN_180090e50</c>.</summary>
+    private void MergeUnits(IvpRigidBody first, IvpRigidBody second)
+    {
+        if (first.Unit is { } into && second.Unit is { } other && !ReferenceEquals(into, other))
+        {
+            Merge(into, other);
+        }
     }
 
     /// <summary>Queues the first PSI event, due at once — the time manager's own constructor does this for the engine.</summary>
@@ -224,33 +274,38 @@ public sealed class IvpSimulation
     /// <param name="target">The absolute time to simulate to.</param>
     /// <returns>How many PSIs fired.</returns>
     /// <remarks>
-    /// **The engine keeps ONE queue** — the PSI event and every pair's event sit in the time manager's own min-list together, in
-    /// time order. This port has two: <see cref="PhysicsTimeManager"/> for the PSI event and the mindist min-list the scheduler
-    /// writes. So the pair events of a PSI are fired after it rather than interleaved with the next one by time. *A stated
-    /// divergence, and the one to close when the two queues become one.*
+    /// **The engine keeps ONE queue** — the PSI event and every pair's event sit in the time manager's own min-list together, and
+    /// each fires with the clock set to its own time. This port has two: <see cref="PhysicsTimeManager"/> for the PSI event and
+    /// the mindist min-list the scheduler writes. **They are fired as one, one event at a time by time**: a PSI event only when it
+    /// is due strictly before the earliest pair event, then that pair event at its own time, and the clock snapped to the target
+    /// at the end. *Two wrong shapes came first*: firing a PSI's pair events after the next PSI, and draining every PSI up to the
+    /// earliest pair event already queued — both left a pair event queued by one PSI waiting behind later ones, with the bodies
+    /// stepped past the contact it was queued for. What remains different is a tie: a pair event at exactly a PSI's time fires
+    /// first here, where the engine's min-list order decides.
     /// </remarks>
     public int Advance(double target)
     {
         int fired = 0;
 
-        // **One PSI at a time, with the pair events drained after each** — the engine fires both from one queue in time order, so
-        // a pair event due before the next PSI must fire before it. Draining once at the end of a long slice would instead find
-        // only the last PSI's requeue, always in the future.
-        while (Environment.Now < target)
+        while (true)
         {
-            double next = Environment.PsiEnd > Environment.Now && Environment.PsiEnd < target ? Environment.PsiEnd : target;
+            bool pairDue = _queue.TryFirst(out _, out int slot) && _queue.ValueOf(slot) < target;
 
-            // **The loop must always move the clock forward.** A slice that does not is how this spun forever once: the clock is
-            // snapped to `next` by the drain, so a `next` at or behind now leaves the condition unchanged and nothing progresses.
-            if (!(next > Environment.Now))
+            if (_time.RunEarliest(pairDue ? _queue.ValueOf(slot) : target, SetClock))
+            {
+                fired++;
+                continue;
+            }
+
+            if (!pairDue)
             {
                 break;
             }
 
-            fired += _time.DrainUntil(next, now => Environment.Now = now);
-            RefileObjects();
-            FireDuePairs();
+            FirePair();
         }
+
+        SetClock(target);
 
         return fired;
     }
@@ -258,22 +313,21 @@ public sealed class IvpSimulation
     /// <summary>How many pair events have fired — an instrument, not a field the engine keeps.</summary>
     public int PairEvents { get; private set; }
 
-    /// <summary>Fires every queued pair event whose time has passed — the loop the time manager runs over its own queue.</summary>
-    private void FireDuePairs()
+    /// <summary>Fires the earliest queued pair event — one turn of the time manager's loop over its own queue.</summary>
+    private void FirePair()
     {
-        while (_queue.TryFirst(out IvpMindist? mindist, out int slot))
+        if (!_queue.TryFirst(out IvpMindist? mindist, out int slot))
         {
-            if (_queue.ValueOf(slot) > Environment.Now)
-            {
-                return;
-            }
-
-            _queue.Remove(slot);
-            mindist.QueueSlot = null;
-            PairEvents++;
-
-            IvpMindistFire.Handle(mindist, Minimize, recheck => Examine(mindist, recheck), Collide);
+            return;
         }
+
+        double due = _queue.ValueOf(slot);
+        _queue.Remove(slot);
+        mindist.QueueSlot = null;
+        PairEvents++;
+        SetClock(due);
+
+        IvpMindistFire.Handle(mindist, Minimize, recheck => Examine(mindist, recheck), Collide);
     }
 
     /// <summary>A collided pair's real response — <c>FUN_18008ecb0</c>, through <see cref="IvpMindistCollide.Collide"/>.</summary>
@@ -309,17 +363,26 @@ public sealed class IvpSimulation
     /// </remarks>
     private void Wake(IvpCollisionObject collisionObject)
     {
-        if (collisionObject.Core?.Unit is { } unit && _units.Wake(unit))
+        if (collisionObject.Core?.Unit is { } unit && Wake(unit))
         {
             Wakes++;
         }
     }
+
+    /// <summary>Wakes a unit, reviving its sleeping cores — <c>FUN_1800758e0(unit, env)</c>.</summary>
+    /// <param name="unit">The unit.</param>
+    /// <returns><c>true</c> when it had been asleep.</returns>
+    internal bool Wake(IvpSimulationUnit unit) =>
+        _units.Wake(unit, core => IvpUnitManager.Revive(core, Environment));
 
     /// <summary>How many sleeping units a collision has woken — an instrument, not a field the engine keeps.</summary>
     public int Wakes { get; private set; }
 
     /// <summary>How many mindists the environment holds alive — <c>env+0xb0</c>, which the pair creation keeps.</summary>
     public int Mindists => Collisions.LiveMindists;
+
+    /// <summary>How many pairs are on the manager's exact list — the ones a PSI minimizes and can collide.</summary>
+    public int ExactPairs => _mindists.Exact.Count;
 
     private static IvpCollisionObject ObjectOf(IvpMindistHullRecord record) =>
         record.CollisionObject ?? throw new InvalidOperationException("A synapse record was never linked to an object.");
@@ -348,6 +411,33 @@ public sealed class IvpSimulation
         _mindists.LinkExact(mindist, first, second);
     }
 
+    /// <summary>A pair becoming exact — <c>FUN_1800977f0</c>, for a new pair and for a far one whose hull passed.</summary>
+    /// <remarks>
+    /// *Linking it exact alone was tried first and was wrong twice over*: a far pair told its hull had passed was never
+    /// minimized or examined again, so two bodies drove through each other with the pair still off every list.
+    /// </remarks>
+    private void BecomeExact(IvpMindist mindist)
+    {
+        IvpRigidBody firstCore = CoreOf(mindist.HullRecord(0));
+        IvpRigidBody secondCore = CoreOf(mindist.HullRecord(1));
+
+        _ = IvpMindistHull.BecomeExact(
+            mindist,
+            new IvpExactHandoff
+            {
+                Manager = _mindists,
+                First = ObjectOf(mindist.HullRecord(0)),
+                Second = ObjectOf(mindist.HullRecord(1)),
+                Queue = _queue,
+                FirstRechecked = firstCore.HasOffset58,
+                SecondRechecked = secondCore.HasOffset58,
+                FirstCoreState = firstCore.UnitState,
+                SecondCoreState = secondCore.UnitState,
+                Minimize = Minimize,
+                Examine = removeFar => Examine(mindist, IvpRecheck.AtNow, removeFar),
+            });
+    }
+
     private static void Register(IvpCollisionObject collisionObject)
     {
         IvpRigidBody core = collisionObject.Core
@@ -359,27 +449,28 @@ public sealed class IvpSimulation
         }
     }
 
-    /// <summary>The two ledge sides a mindist's synapses stand on, at the cores' current transforms.</summary>
+    /// <summary>The two ledge sides a mindist's synapses stand on, at the clock's time.</summary>
     /// <param name="mindist">The pair.</param>
     /// <returns>Record 0's side and record 1's.</returns>
     /// <exception cref="InvalidOperationException">A synapse's object has no core, or its core no ledge.</exception>
     /// <remarks>
-    /// **Built fresh from each core's own transform**, which is what the engine's cache objects hold — see
-    /// <see cref="IvpLedgeSide.FromLedge"/>. *A body with more than one ledge takes its first*: the ledge tree walk that would
-    /// pick the right one belongs to the broad phase, which is not carried here.
+    /// **Each side stands on its object's cache** (<see cref="IvpCollisionObject.CacheFor"/>), refreshed once per time code at the
+    /// clock's own time — so a pair event between two PSIs measures the bodies where they are at the event. *The core's
+    /// PSI-start matrix stood in for it and measured every pair event a PSI late.* A body with more than one ledge takes its
+    /// first: the ledge tree walk that would pick the right one is not carried here.
     /// </remarks>
-    public static (IvpLedgeSide First, IvpLedgeSide Second) SidesOf(IvpMindist mindist)
+    public (IvpLedgeSide First, IvpLedgeSide Second) SidesOf(IvpMindist mindist)
     {
         ArgumentNullException.ThrowIfNull(mindist);
 
         return (SideOf(mindist.HullRecord(0)), SideOf(mindist.HullRecord(1)));
     }
 
-    private static IvpLedgeSide SideOf(IvpMindistHullRecord record)
-    {
-        IvpCollisionObject collisionObject = record.CollisionObject
-            ?? throw new InvalidOperationException("A synapse record was never linked to an object.");
+    private IvpLedgeSide SideOf(IvpMindistHullRecord record) =>
+        SideOf(record.CollisionObject ?? throw new InvalidOperationException("A synapse record was never linked to an object."));
 
+    private IvpLedgeSide SideOf(IvpCollisionObject collisionObject)
+    {
         IvpRigidBody core = collisionObject.Core
             ?? throw new InvalidOperationException("A watched object has no core.");
 
@@ -388,7 +479,9 @@ public sealed class IvpSimulation
             throw new InvalidOperationException("A watched object's core has no ledge to stand a synapse on.");
         }
 
-        return IvpLedgeSide.FromLedge(core.Ledges[0], core.CoreMatrix, core.Position);
+        IvpObjectCache cache = collisionObject.CacheFor(Collisions);
+
+        return IvpLedgeSide.FromLedge(core.Ledges[0], cache.Matrix, cache.CorePosition);
     }
 
     /// <summary>The minimize the pipeline's two mindist walks take — <c>FUN_180095cb0</c>.</summary>
@@ -396,9 +489,12 @@ public sealed class IvpSimulation
     {
         (IvpLedgeSide first, IvpLedgeSide second) = SidesOf(mindist);
 
-        _ = IvpMindistMinimize.Minimize(mindist, first, second, _step);
-        _step++;
+        _ = IvpMindistMinimize.Minimize(mindist, first, second, _timeCode);
+        LastLength = mindist.Length;
     }
+
+    /// <summary>The distance the last minimize measured for a pair — an instrument, not a field the engine keeps.</summary>
+    public float LastLength { get; private set; }
 
     /// <summary>The scheduler in mode 1 the pipeline's last phase takes — <c>FUN_180099380(mindist, 1, 1)</c>.</summary>
     /// <remarks>
@@ -409,7 +505,9 @@ public sealed class IvpSimulation
     /// </remarks>
     private void Examine(IvpMindist mindist) => Examine(mindist, IvpRecheck.AfterFeatureChange);
 
-    private void Examine(IvpMindist mindist, IvpRecheck recheck)
+    private void Examine(IvpMindist mindist, IvpRecheck recheck) => Examine(mindist, recheck, removeFar: true);
+
+    private void Examine(IvpMindist mindist, IvpRecheck recheck, bool removeFar)
     {
         (IvpLedgeSide first, IvpLedgeSide second) = SidesOf(mindist);
 
@@ -438,7 +536,7 @@ public sealed class IvpSimulation
             Scheduled(firstCore),
             Scheduled(secondCore),
             scheduler,
-            Filing(mindist),
+            removeFar ? Filing(mindist) : null,
             recheck,
             (context, state) => IvpImpactDispatch.Search(
                 context,
@@ -484,7 +582,7 @@ public sealed class IvpSimulation
         IvpRigidBody firstCore = CoreOf(mindist.HullRecord(0));
         IvpRigidBody secondCore = CoreOf(mindist.HullRecord(1));
 
-        _ = IvpMindistHull.HullPassed(
+        LastHullPass = IvpMindistHull.HullPassed(
             mindist,
             overshoot,
             new IvpHullPass
@@ -497,10 +595,13 @@ public sealed class IvpSimulation
                 SecondBody = secondCore,
                 FirstBounds = IvpRangeManager.Bounds(firstCore),
                 SecondBounds = IvpRangeManager.Bounds(secondCore),
-                HandOff = Minimize,
+                HandOff = BecomeExact,
                 Recheck = pair => Examine(pair, IvpRecheck.AfterMiss),
             });
     }
+
+    /// <summary>What the last hull pass did with a filed pair — an instrument, not a field the engine keeps.</summary>
+    public IvpHullPassOutcome? LastHullPass { get; private set; }
 
     /// <summary>A core as the scheduler reads it.</summary>
     /// <remarks>

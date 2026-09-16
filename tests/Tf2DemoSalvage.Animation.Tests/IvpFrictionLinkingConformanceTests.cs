@@ -83,15 +83,57 @@ public sealed class IvpFrictionLinkingConformanceTests
         found.ShouldBeSameAs(built);
     }
 
+    /// <remarks>
+    /// **Two movable cores with no system build one and are simulated as one unit** — <c>FUN_180090e50</c>'s "a new system, M joins,
+    /// S joins", then the unit merge it ends with.
+    /// </remarks>
     [Test]
-    public void LinkContactByCore_BothCoresAreMovable_ThrowsForTheUnportedMerge()
+    public void LinkContactByCore_TwoMovableCoresWithNoSystem_BuildOneAndMergeTheirUnits()
     {
-        IvpContactPoint point = AnyContactPoint();
-        IvpRigidBody first = new() { Immovable = false };
-        IvpRigidBody second = new() { Immovable = false };
+        IvpRigidBody first = new() { Unit = new IvpSimulationUnit() };
+        IvpRigidBody second = new() { Unit = new IvpSimulationUnit() };
+        IvpImpactEnvironment environment = NewEnvironment();
+        (IvpRigidBody, IvpRigidBody)? merged = null;
+        environment.MergeUnits = (a, b) => merged = (a, b);
 
-        Should.Throw<NotSupportedException>(() =>
-            IvpFrictionLinking.LinkContactByCore(point, first, second, ThrowingEnvironment()));
+        IvpFrictionSystem system = IvpFrictionLinking.LinkContactByCore(ContactBetween(first, second), first, second, environment);
+
+        first.FrictionInfo!.System.ShouldBeSameAs(system);
+        second.FrictionInfo!.System.ShouldBeSameAs(system);
+        system.MovableCores.ShouldBe([first, second]);
+        first.Controllers.ShouldBe(system.Faces, "a movable core files the system's three faces");
+        merged.ShouldBe((first, second));
+    }
+
+    /// <remarks>
+    /// **A movable core in a system of its own is merged in** (<c>FUN_180086240</c>): its contacts, its world core and itself move
+    /// to the first core's system, and its old system is left empty with its faces gone from the core.
+    /// </remarks>
+    [Test]
+    public void LinkContactByCore_TwoMovableCoresInTwoSystems_MergesTheSecondSystemIntoTheFirst()
+    {
+        IvpRigidBody first = new();
+        IvpRigidBody second = new();
+        IvpRigidBody firstWorld = new() { Immovable = true };
+        IvpRigidBody secondWorld = new() { Immovable = true };
+        IvpImpactEnvironment environment = NewEnvironment();
+        IvpFrictionSystem kept = IvpFrictionLinking.LinkContactByCore(ContactBetween(first, firstWorld), first, firstWorld, environment);
+        IvpContactPoint moved = ContactBetween(second, secondWorld);
+        IvpFrictionSystem gone = IvpFrictionLinking.LinkContactByCore(moved, second, secondWorld, environment);
+
+        IvpFrictionSystem system = IvpFrictionLinking.LinkContactByCore(ContactBetween(first, second), first, second, environment);
+
+        system.ShouldBeSameAs(kept);
+        second.FrictionInfo!.System.ShouldBeSameAs(kept);
+        second.FrictionInfo.Contacts.ShouldContain(moved);
+        secondWorld.FrictionInfoIn(kept).ShouldNotBeNull();
+        secondWorld.FrictionInfoIn(gone).ShouldBeNull();
+        moved.FrictionSystem.ShouldBeSameAs(kept);
+        kept.ContactCount.ShouldBe((short)3);
+        kept.PairFor(second, secondWorld)!.Contacts.ShouldBe([moved]);
+        gone.ContactCount.ShouldBe((short)0);
+        gone.Cores.ShouldBeEmpty();
+        second.Controllers.ShouldBe(kept.Faces, "the old system's faces left the core and the new one's were filed");
     }
 
     [Test]
@@ -166,6 +208,18 @@ public sealed class IvpFrictionLinkingConformanceTests
         IvpLedgeSide side = IvpContactGeometryConformanceTests.Anywhere();
 
         return new IvpContactPoint(mindist, first, side, second, side, now: 0d);
+    }
+
+    private static IvpContactPoint ContactBetween(IvpRigidBody first, IvpRigidBody second)
+    {
+        IvpCollisionObject firstObject = new() { Core = first };
+        IvpCollisionObject secondObject = new() { Core = second };
+        IvpMindist mindist = NewMindist(flags: 0xC0000);
+        Attach(mindist, firstObject, secondObject);
+
+        IvpLedgeSide side = IvpContactGeometryConformanceTests.Anywhere();
+
+        return new IvpContactPoint(mindist, firstObject, side, secondObject, side, now: 0d);
     }
 
     private static void Attach(IvpMindist mindist, IvpCollisionObject first, IvpCollisionObject second) =>

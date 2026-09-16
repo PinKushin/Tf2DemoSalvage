@@ -50,6 +50,9 @@ public sealed class IvpSimulationUnit
     /// <summary>Puts the state back to awake — <c>FUN_1800758e0</c>'s <c>*param_1 = 1</c> as it moves the unit's list.</summary>
     internal void Woken() => State = 1;
 
+    /// <summary>The state a new unit is made in — <c>8</c>, on the sleeping list.</summary>
+    internal void Asleep() => State = 8;
+
     /// <summary>The flags word, <c>unit+0x0</c>, whose <c>0x400</c>/<c>0x3000</c> bits carry a fast spin into the next PSI.</summary>
     /// <remarks>*What sets the <c>0x300</c> pair is not read yet* — the PSI only clears it once it has rebuilt.</remarks>
     public int Flags { get; internal set; }
@@ -79,6 +82,42 @@ public sealed class IvpSimulationUnit
         Sort();
 
         return entry;
+    }
+
+    /// <summary>Files a controller on a core of this unit — <c>FUN_1800748b0(core, controller)</c>.</summary>
+    /// <param name="core">The core; its controller list gains the controller.</param>
+    /// <param name="controller">The controller.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// the core's controllers (+0x1e0, +0x1e2, +0x1e8) gain it
+    /// its entry in the core's unit found from the last, or made (FUN_180074820);  the entry's cores gain the core
+    /// FUN_180075990(unit)                     -- the entries sorted
+    /// </code>
+    /// </remarks>
+    internal static void Register(IvpRigidBody core, IIvpUnitController controller)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+        ArgumentNullException.ThrowIfNull(controller);
+
+        core.Controllers.Add(controller);
+
+        if (core.Unit is not { } unit)
+        {
+            return;
+        }
+
+        for (int scan = unit.Entries.Count - 1; scan >= 0; scan--)
+        {
+            if (ReferenceEquals(unit.Entries[scan].Controller, controller))
+            {
+                unit.Entries[scan].Cores.Add(core);
+                unit.Sort();
+                return;
+            }
+        }
+
+        unit.AddController(controller).Cores.Add(core);
     }
 
     /// <summary>Rebuilds every entry from the cores' own controllers — <c>FUN_180074ba0</c> then <c>FUN_180075470</c>.</summary>
@@ -180,6 +219,9 @@ public sealed class IvpSimulationUnit
     /// <param name="step">The PSI's step, <c>env+0x108</c> narrowed.</param>
     /// <param name="pushed">The cores to step, pushed last to first.</param>
     /// <param name="random">The jitter the rest check's cadence takes, <c>FUN_18007d5c0</c>.</param>
+    /// <param name="recheck">
+    /// <c>FUN_180074240(object)</c>: an object's invalid pairs minimized again, and those no longer invalid made exact.
+    /// </param>
     /// <returns><c>true</c> when the unit fell asleep, so the driver takes it off the active list.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -197,11 +239,17 @@ public sealed class IvpSimulationUnit
     /// (<c>FUN_180088930</c> keeps only its hull settle here).
     /// </remarks>
     internal bool Psi(
-        IvpImpactEnvironment environment, double now, float step, List<IvpRigidBody> pushed, Func<float> random)
+        IvpImpactEnvironment environment,
+        double now,
+        float step,
+        List<IvpRigidBody> pushed,
+        Func<float> random,
+        Action<IvpCollisionObject> recheck)
     {
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(pushed);
         ArgumentNullException.ThrowIfNull(random);
+        ArgumentNullException.ThrowIfNull(recheck);
 
         bool fast = false;
 
@@ -210,11 +258,15 @@ public sealed class IvpSimulationUnit
             IvpRigidBody core = Cores[index];
             float elapsed = (float)(now - core.LastStepped);
 
-            core.CoreMatrix = IvpMatrix.FromRotation(core.WorkingOrientation, core.CoreMatrix.Translation);
             core.EventPosition = (
                 core.Position.X + ((double)core.PreviousVelocity.X * elapsed),
                 core.Position.Y + ((double)core.PreviousVelocity.Y * elapsed),
                 core.Position.Z + ((double)core.PreviousVelocity.Z * elapsed));
+
+            // The matrix at `+0x90` is three 32-byte rows and its translation, so the event position at `+0xf0` IS the matrix's
+            // translation: `FUN_180071330` writes the rotation and the next three stores write where it stands. *Keeping the old
+            // translation left every body's collision shape where it started.*
+            core.CoreMatrix = IvpMatrix.FromRotation(core.WorkingOrientation, core.EventPosition);
 
             IvpPush.Flush(core);
 
@@ -271,6 +323,18 @@ public sealed class IvpSimulationUnit
             pushed.Add(Cores[index]);
         }
 
+        // `every core, every object (+0x70, count +0x6a): FUN_180074240(object)` — each object's invalid pairs minimized again, and
+        // those no longer invalid made exact. This is what turns a pair the broad phase just created into one the PSI can solve.
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = Cores[index];
+
+            for (int at = core.Objects.Count - 1; at >= 0; at--)
+            {
+                recheck(core.Objects[at]);
+            }
+        }
+
         if (!restCheckDue)
         {
             return false;
@@ -292,13 +356,21 @@ public sealed class IvpSimulationUnit
             return false;
         }
 
+        // `FUN_180088930` per core: `FUN_180078c90` — the core frozen (`FUN_180078bd0`), then per object, last first, its state 8,
+        // the broad phase refiling it, its hull settled and rebased, and its cache given back (`FUN_180080650`); then the listeners,
+        // which are not carried.
         for (int index = Cores.Count - 1; index >= 0; index--)
         {
             IvpRigidBody core = Cores[index];
+            core.Freeze(environment.InverseStep);
 
             for (int at = core.Objects.Count - 1; at >= 0; at--)
             {
-                core.Objects[at].Hull.Settle(now);
+                IvpCollisionObject collisionObject = core.Objects[at];
+                collisionObject.MovementState = 8;
+                environment.Refile?.Invoke(collisionObject);
+                collisionObject.Hull.Settle(now);
+                collisionObject.Cache = null;
             }
         }
 

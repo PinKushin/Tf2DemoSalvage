@@ -26,7 +26,7 @@ public sealed class IvpSimulationUnitTests
         core.Collisions = 7;
         List<IvpRigidBody> pushed = [];
 
-        unit.Psi(Environment(countdown: 5), now: 1d, step: 0.5f, pushed, () => 0f);
+        unit.Psi(Environment(countdown: 5), now: 1d, step: 0.5f, pushed, () => 0f, _ => { });
 
         core.EventPosition.ShouldBe((2d, 0d, 0d));
         core.Velocity.ShouldBe((0f, 3f, 0f), "the staged velocity is flushed into the live one");
@@ -42,7 +42,7 @@ public sealed class IvpSimulationUnitTests
         (IvpSimulationUnit unit, IvpRigidBody core) = Unit();
         core.UnitState = 1;
 
-        bool asleep = unit.Psi(Environment(countdown: 5), now: 1d, step: 0.5f, [], () => 0f);
+        bool asleep = unit.Psi(Environment(countdown: 5), now: 1d, step: 0.5f, [], () => 0f, _ => { });
 
         asleep.ShouldBeFalse();
         core.UnitState.ShouldBe(1, "untouched until the countdown reaches zero");
@@ -54,11 +54,11 @@ public sealed class IvpSimulationUnitTests
         (IvpSimulationUnit unit, IvpRigidBody core) = Unit();
         IvpImpactEnvironment environment = Environment(countdown: 1);
 
-        bool asleep = unit.Psi(environment, now: 100d, step: 0.5f, [], () => 0f);
+        bool asleep = unit.Psi(environment, now: 100d, step: 0.5f, [], () => 0f, _ => { });
 
         asleep.ShouldBeTrue();
         unit.State.ShouldBe(8);
-        core.UnitState.ShouldBe((int)IvpCoreMotion.Resting);
+        core.UnitState.ShouldBe(8, "the rest test answered resting and the freeze (FUN_180078bd0) wrote 8");
         environment.RestCheckCountdown.ShouldBe((short)15, "0xf less the jitter, which a zero random leaves alone");
     }
 
@@ -68,7 +68,7 @@ public sealed class IvpSimulationUnitTests
         (IvpSimulationUnit unit, IvpRigidBody core) = Unit();
         core.Position = (50d, 0d, 0d);
 
-        bool asleep = unit.Psi(Environment(countdown: 1), now: 100d, step: 0.5f, [], () => 0f);
+        bool asleep = unit.Psi(Environment(countdown: 1), now: 100d, step: 0.5f, [], () => 0f, _ => { });
 
         asleep.ShouldBeFalse();
         unit.State.ShouldBe(0);
@@ -81,7 +81,7 @@ public sealed class IvpSimulationUnitTests
         core.AngularVelocity = (2f, 0f, 0f);
         core.RestAnchorTime = 1d;
 
-        unit.Psi(Environment(countdown: 5), now: 50d, step: 0.5f, [], () => 0f);
+        unit.Psi(Environment(countdown: 5), now: 50d, step: 0.5f, [], () => 0f, _ => { });
 
         (unit.Flags & 0x400).ShouldBe(0x400);
         core.RestAnchorTime.ShouldBe(1d, "the anchors are reset a PSI later, when the bit has carried");
@@ -92,11 +92,11 @@ public sealed class IvpSimulationUnitTests
     {
         (IvpSimulationUnit unit, IvpRigidBody core) = Unit();
         core.AngularVelocity = (2f, 0f, 0f);
-        unit.Psi(Environment(countdown: 5), now: 50d, step: 0.5f, [], () => 0f);
+        unit.Psi(Environment(countdown: 5), now: 50d, step: 0.5f, [], () => 0f, _ => { });
         core.AngularVelocity = (0f, 0f, 0f);
         core.RestAnchorTime = 1d;
 
-        unit.Psi(Environment(countdown: 5), now: 51d, step: 0.5f, [], () => 0f);
+        unit.Psi(Environment(countdown: 5), now: 51d, step: 0.5f, [], () => 0f, _ => { });
 
         core.RestAnchorTime.ShouldBe(51d);
         (unit.Flags & 0xc00).ShouldBe(0, "the carry bits are cleared after they fire");
@@ -109,7 +109,7 @@ public sealed class IvpSimulationUnitTests
         Counting controller = new(priority: 1000);
         unit.AddController(controller).Cores.Add(core);
 
-        unit.Psi(Environment(countdown: 5), now: 1d, step: 0.25f, [], () => 0f);
+        unit.Psi(Environment(countdown: 5), now: 1d, step: 0.25f, [], () => 0f, _ => { });
 
         controller.Steps.ShouldBe([0.25f]);
         controller.Cores.ShouldBe([core]);
@@ -125,7 +125,7 @@ public sealed class IvpSimulationUnitTests
         unit.AddController(new Ordering(2000, order));
         unit.AddController(new Ordering(1000, order));
 
-        unit.Psi(Environment(countdown: 5), now: 1d, step: 0.25f, [], () => 0f);
+        unit.Psi(Environment(countdown: 5), now: 1d, step: 0.25f, [], () => 0f, _ => { });
 
         order.ShouldBe([2000, 1000, 600]);
     }
@@ -167,7 +167,7 @@ public sealed class IvpSimulationUnitTests
         core.Controllers.Add(controller);
         unit.Flags |= 0x100;
 
-        unit.Psi(Environment(countdown: 5), now: 1d, step: 0.25f, [], () => 0f);
+        unit.Psi(Environment(countdown: 5), now: 1d, step: 0.25f, [], () => 0f, _ => { });
 
         controller.Steps.ShouldBe([0.25f], "the rebuilt entry ran");
         (unit.Flags & 0x300).ShouldBe(0);

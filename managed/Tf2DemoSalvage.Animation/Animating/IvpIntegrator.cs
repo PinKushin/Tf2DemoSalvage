@@ -835,6 +835,29 @@ public sealed class IvpRigidBody
     /// <summary>When that was — <c>core+0x208</c>.</summary>
     public double SettleAnchorTime { get; set; }
 
+    /// <summary>Stops a core that has come to rest — <c>FUN_180078bd0(core)</c>, the first thing its sleep does.</summary>
+    /// <param name="environmentInverseStep">The environment's <c>+0x110</c>, narrowed into the core's own.</param>
+    /// <remarks>
+    /// **Read from the disassembly** (2026-09-16): state 8; the velocity, spin, both staged changes and the step's velocity zeroed;
+    /// `+0x80` zeroed; `+0x1d8 = (float)env+0x110`; the working orientation back to the committed one; then the step's bookkeeping
+    /// as `FUN_180077670` leaves it — linear speed, surface bound and the axis `(1, 0, 0)`.
+    /// </remarks>
+    public void Freeze(double environmentInverseStep)
+    {
+        UnitState = 8;
+        Velocity = (0f, 0f, 0f);
+        AngularVelocity = (0f, 0f, 0f);
+        PendingVelocity = (0f, 0f, 0f);
+        PendingAngularVelocity = (0f, 0f, 0f);
+        PreviousVelocity = (0f, 0f, 0f);
+        AngularSpeedBound = 0f;
+        InverseStep = (float)environmentInverseStep;
+        WorkingOrientation = Orientation;
+        LinearSpeed = 0f;
+        SurfaceSpeedBound = 0f;
+        RotationAxis = (1f, 0f, 0f);
+    }
+
     /// <summary>Whether this core is moving, still, or at rest — <c>FUN_180077220</c>.</summary>
     /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
     /// <param name="restDelay">How long a core must stay by its anchor — the environment's float at <c>+0xc8</c>.</param>

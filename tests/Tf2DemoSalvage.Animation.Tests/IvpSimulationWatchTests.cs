@@ -19,12 +19,34 @@ public sealed class IvpSimulationWatchTests
     [Test]
     public void SidesOf_AWatchedPair_StandsEachSynapseOnItsOwnCoresTransform()
     {
-        (IvpSimulation _, IvpMindist mindist, IvpRigidBody first, _) = Watched();
+        (IvpSimulation simulation, IvpMindist mindist, IvpRigidBody first, _) = Watched();
+        simulation.Start();
+        simulation.Advance(0.01d);
 
-        (IvpLedgeSide side, _) = IvpSimulation.SidesOf(mindist);
+        (IvpLedgeSide side, _) = simulation.SidesOf(mindist);
 
         side.CorePosition.ShouldBe(first.Position);
         side.Points.Count.ShouldBe(8, "the cube's own points, in the object's frame");
+    }
+
+    /// <remarks>
+    /// **A pair event between PSIs measures the bodies at the event**: the side stands on the object's cache, refreshed at the
+    /// clock's time, so a body moving since its last step is placed along its velocity.
+    /// </remarks>
+    [Test]
+    public void SidesOf_AMovingBodyBetweenPsis_StandsWhereTheBodyIsAtTheClock()
+    {
+        (IvpSimulation simulation, IvpMindist mindist, IvpRigidBody first, _) = Watched();
+        first.PreviousVelocity = (0f, 0f, 10f);
+        first.LastStepped = 0d;
+        simulation.Environment.Now = 0.25d;
+        simulation.Collisions.Now = 0.25d;
+        simulation.Collisions.Psi = 99;
+
+        (IvpLedgeSide side, _) = simulation.SidesOf(mindist);
+
+        side.CorePosition.Z.ShouldBe(first.Position.Z + 2.5d, 1e-9d);
+        side.Current.Translation.Z.ShouldBe(first.Position.Z + 2.5d, 1e-9d, "the matrix stands there too");
     }
 
     [Test]
@@ -76,28 +98,30 @@ public sealed class IvpSimulationWatchTests
     }
 
     /// <remarks>
-    /// **The cycle's other half**: a filed pair whose body then moves far enough for its hull to pass is told, and comes back to
-    /// the exact list — the tail's hull pass (<c>FUN_18009a690</c>) into <c>FUN_180097570</c>.
+    /// **The cycle's other half**: a filed pair whose body then moves far enough for its hull to pass is told — the tail's hull
+    /// pass (<c>FUN_18009a690</c>) into <c>FUN_180097570</c> — and handed to <c>FUN_1800977f0</c>, which measures it again. A pair
+    /// still far is filed again at once, so what shows the cycle is the told pair's new, shorter length.
     /// </remarks>
     [Test]
-    public void Advance_AFiledPairWhoseBodyMoves_ComesBackToTheExactList()
+    public void Advance_AFiledPairWhoseBodyMoves_IsToldAndMeasuredAgain()
     {
         (IvpSimulation simulation, IvpMindist mindist, IvpRigidBody first, _) = Watched(apart: 400d);
         simulation.Start();
         simulation.Advance(0.05d);
         simulation.LastOutcome.ShouldBe(IvpScheduleOutcome.Filed, "the control: it really was filed first");
+        float filedAt = mindist.Length;
 
         // Fast enough that the hull it was filed at is passed within a few PSIs.
         first.Velocity = (0f, 0f, 3000f);
         first.PreviousVelocity = (0f, 0f, 3000f);
 
-        for (double until = 0.1d; until <= 0.6d; until += 0.05d)
+        for (double until = 0.1d; until <= 0.3d; until += 0.05d)
         {
             simulation.Advance(until);
         }
 
-        mindist.HullRecord(0).HullSlot.ShouldBeNull("it left the hull managers when it was told");
-        mindist.HullRecord(1).HullSlot.ShouldBeNull();
+        simulation.LastHullPass.ShouldNotBeNull("its hull passed and it was told");
+        mindist.Length.ShouldBeLessThan(filedAt - 100f, "measured again where the body has moved to");
     }
 
     /// <remarks>
@@ -142,9 +166,9 @@ public sealed class IvpSimulationWatchTests
     [Test]
     public void Advance_TwoBodiesTouching_FireTheirPairEvent()
     {
-        // The synapses are one corner of each cube, so the gap the scheduler sees is the separation itself. The far threshold is
-        // the step times the closing bound plus the margin, which at this speed is about a unit.
-        (IvpSimulation simulation, IvpMindist mindist, IvpRigidBody first, _) = Watched(apart: 0.6d);
+        // Cubes of half four, their facing sides 0.6 apart. The far threshold is the step times the closing bound plus the margin,
+        // which at this speed is about a unit.
+        (IvpSimulation simulation, IvpMindist mindist, IvpRigidBody first, _) = Watched(apart: 8.6d);
         first.Velocity = (0f, 0f, 60f);
         first.PreviousVelocity = (0f, 0f, 60f);
         simulation.Start();
@@ -153,7 +177,8 @@ public sealed class IvpSimulationWatchTests
         simulation.Advance(0.1d);
         simulation.Advance(0.2d);
 
-        simulation.PairEvents.ShouldBeGreaterThan(0, "the pair's own event fired");
+        simulation.PairEvents.ShouldBeGreaterThan(
+            0, $"the pair's own event fired; last outcome {simulation.LastOutcome}, length {simulation.LastLength}, z {first.Position.Z}");
         mindist.MinimizedAt.ShouldNotBeNull("the control: the pipeline reached the pair at all");
     }
 
@@ -186,11 +211,51 @@ public sealed class IvpSimulationWatchTests
         simulation.Units.Sleeping.Count.ShouldBe(1, "the control: exactly one unit is asleep to wake");
         IvpSimulationUnit asleep = simulation.Units.Sleeping[0];
 
-        simulation.Units.Wake(asleep).ShouldBeTrue();
+        simulation.Wake(asleep).ShouldBeTrue();
 
         asleep.State.ShouldBe(1);
         simulation.AwakeUnits.ShouldBe(2);
         simulation.Units.Sleeping.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **A woken core that had been stepped is revived at rest** (<c>FUN_1800892b0</c>): its state is 1, its clock and anchors are
+    /// now, and its velocity and the step's bookkeeping are zeroed.
+    /// </remarks>
+    [Test]
+    public void Wake_ASleepingSteppedCore_IsRevivedAtRestAtNow()
+    {
+        (IvpSimulation simulation, _, _, _) = Watched(apart: 0.6d, restCheckCountdown: 4);
+        simulation.Start();
+        simulation.Advance(0.05d);
+        IvpRigidBody core = simulation.Units.Sleeping[0].Cores[0];
+        core.Velocity = (3f, 0f, 0f);
+        core.LinearSpeed = 3f;
+
+        simulation.Wake(simulation.Units.Sleeping[0]);
+
+        core.UnitState.ShouldBe(1);
+        core.LastStepped.ShouldBe(simulation.Now);
+        core.RestAnchorTime.ShouldBe(simulation.Now);
+        core.Velocity.ShouldBe((0f, 0f, 0f), "a core stepped before loses its velocity");
+        core.LinearSpeed.ShouldBe(0f);
+    }
+
+    /// <remarks>**A core never stepped keeps the velocity it was made with** — the save and restore around <c>FUN_180077670</c>.</remarks>
+    [Test]
+    public void Add_ABodyMadeMoving_IsRevivedWithItsVelocity()
+    {
+        IvpSimulation simulation = new(Environment(), (0f, 0f, 0f), () => 0f);
+        IvpRigidBody core = Body((0d, 0d, 0d));
+        core.Velocity = (0f, 0f, 5f);
+        core.PreviousVelocity = (0f, 0f, 5f);
+
+        simulation.Add(core);
+
+        core.UnitState.ShouldBe(1, "woken as it was added");
+        core.Velocity.ShouldBe((0f, 0f, 5f));
+        core.PreviousVelocity.ShouldBe((0f, 0f, 0f), "the step's own record of it is zeroed");
+        simulation.AwakeUnits.ShouldBe(1);
     }
 
     [Test]
@@ -198,7 +263,7 @@ public sealed class IvpSimulationWatchTests
     {
         (IvpSimulation simulation, _, IvpRigidBody first, _) = Watched();
 
-        simulation.Units.Wake(first.Unit!).ShouldBeFalse();
+        simulation.Wake(first.Unit!).ShouldBeFalse();
 
         simulation.AwakeUnits.ShouldBe(2, "it was already on the active list, and is not there twice");
     }
@@ -213,8 +278,9 @@ public sealed class IvpSimulationWatchTests
         simulation.Add(first);
         simulation.Add(second);
 
-        IvpCollisionObject firstObject = new() { Core = first };
-        IvpCollisionObject secondObject = new() { Core = second };
+        IvpReplayMaterial material = new(0d, 0d, HasSecondFriction: false);
+        IvpCollisionObject firstObject = new() { Core = first, Material = material };
+        IvpCollisionObject secondObject = new() { Core = second, Material = material };
         IvpMindist mindist = new(
             new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
             new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
@@ -243,38 +309,8 @@ public sealed class IvpSimulationWatchTests
             SettleAnchorOrientation = (0f, 0f, 0f, 1f),
             RestAnchorPosition = ((float)at.X, (float)at.Y, (float)at.Z),
             SettleAnchorPosition = ((float)at.X, (float)at.Y, (float)at.Z),
-            Ledges = Cube(),
+            Ledges = IvpTestCube.Ledges(Half),
         };
-
-    private static List<PhysicsLedge> Cube()
-    {
-        List<Vector3> points =
-        [
-            new(-Half, -Half, -Half), new(Half, -Half, -Half),
-            new(Half, Half, -Half), new(-Half, Half, -Half),
-            new(-Half, -Half, Half), new(Half, -Half, Half),
-            new(Half, Half, Half), new(-Half, Half, Half),
-        ];
-
-        List<(int A, int B, int C)> triangles =
-        [
-            (4, 5, 6), (4, 6, 7), (0, 2, 1), (0, 3, 2),
-            (0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
-            (1, 2, 6), (1, 6, 5), (3, 0, 4), (3, 4, 7),
-        ];
-
-        return
-        [
-            new PhysicsLedge(
-                points,
-                triangles,
-                new (int, int, int)[triangles.Count],
-                new int[triangles.Count],
-                new int[triangles.Count],
-                Vector3.Zero,
-                Half * 2f),
-        ];
-    }
 
     private static IvpImpactEnvironment Environment(short restCheckCountdown = 15) =>
         new()

@@ -108,10 +108,15 @@ public static class IvpFrictionLinking
     /// <param name="environment">The impact environment a freshly built system needs.</param>
     /// <returns>The system the contact now belongs to.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    /// <exception cref="NotSupportedException">
-    /// Both cores are movable, or both immovable — <c>FUN_180086240</c>'s system merge, needed only for body-against-body
-    /// contact, is not ported (this project collides a body only with the world, per <see cref="IvpEnvironment.LookAheadObject"/>).
-    /// </exception>
+    /// <exception cref="NotSupportedException">Both cores are immovable, a pair the engine's own filter never collides.</exception>
+    /// <remarks>
+    /// <code>
+    /// M = the core not unmovable, the first when both or neither;  S = the other
+    /// M has a system T:   S's share in T → file;  S movable in a system of its own → merge it into T → file;  else S joins T
+    /// M has none:         S movable in a system T → M joins T;  else a new T, M joins, S joins
+    /// file:  cp into T and its pair;  cp onto both shares;  unless either is unmovable or they share one, their units merge
+    /// </code>
+    /// </remarks>
     /// <remarks>
     /// **The ordering swap the native makes is approximated by <see cref="IvpRigidBody.Immovable"/>**, not the single bit it
     /// tests alone (<c>core+0x0 &amp; 2</c>) — a divergence only for a core that is constraint-immune (bit <c>0x10</c>)
@@ -132,39 +137,45 @@ public static class IvpFrictionLinking
         ArgumentNullException.ThrowIfNull(secondCore);
         ArgumentNullException.ThrowIfNull(environment);
 
-        if (firstCore.Immovable == secondCore.Immovable)
+        if (firstCore.Immovable && secondCore.Immovable)
         {
-            throw new NotSupportedException(
-                "LinkContactByCore is ported for exactly one movable and one immovable core - a body against the world, "
-                + "which is this project's only implemented collision. FUN_180086240's system merge, needed for "
-                + "body-against-body contact, is not ported.");
+            throw new NotSupportedException("Two immovable cores are filed into a friction system, which the engine's filter never collides.");
         }
 
         IvpRigidBody movable = firstCore.Immovable ? secondCore : firstCore;
         IvpRigidBody other = ReferenceEquals(movable, firstCore) ? secondCore : firstCore;
 
-        IvpFrictionSystem system = movable.FrictionInfo?.System ?? new IvpFrictionSystem(environment);
+        IvpFrictionSystem system;
 
-        if (movable.FrictionInfo is null)
+        if (movable.FrictionInfo is { } info)
         {
+            system = info.System;
+
+            if (other.FrictionInfoIn(system) is null)
+            {
+                if (!other.Immovable && other.FrictionInfo is { } own)
+                {
+                    system.Merge(own.System);
+                }
+                else
+                {
+                    system.AddCore(other);
+                }
+            }
+        }
+        else if (!other.Immovable && other.FrictionInfo is { } theirs)
+        {
+            system = theirs.System;
             system.AddCore(movable);
         }
-
-        if (other.FrictionInfoIn(system) is null)
+        else
         {
+            system = new IvpFrictionSystem(environment);
+            system.AddCore(movable);
             system.AddCore(other);
         }
 
-        if (system.PairFor(movable, other) is not { } pair)
-        {
-            pair = new IvpFrictionPair(movable, other);
-            system.AddPair(pair);
-        }
-
-        if (!pair.Contacts.Contains(contact))
-        {
-            pair.Contacts.Add(contact);
-        }
+        system.FileInPair(contact, movable, other);
 
         // **Onto each core's own share too** — `FUN_180054640`, "cp onto both records' contact vectors" (findings 51,
         // *Filing a contact into a friction system*). This is what `FUN_180083e40`'s per-core removal (`FUN_180075130`)
@@ -176,6 +187,12 @@ public static class IvpFrictionLinking
         if (!ReferenceEquals(contact.FrictionSystem, system))
         {
             system.Link(contact);
+        }
+
+        // `FUN_180074e40`: two movable cores in one friction system are simulated as one unit.
+        if (!movable.Immovable && !other.Immovable && !ReferenceEquals(movable.Unit, other.Unit))
+        {
+            environment.MergeUnits?.Invoke(movable, other);
         }
 
         return system;

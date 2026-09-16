@@ -193,11 +193,11 @@ public sealed class IvpFrictionControllerTests
         IvpSimulationUnit unit = new();
         IvpRigidBody core = contact.FirstObject.Core!;
         unit.Cores.Add(core);
-        core.Controllers.Add(new IvpNormalFrictionController(system));
+        core.Controllers.ShouldBe(system.Faces, "the control: the filing put the system's faces on its movable core");
 
         new IvpNormalFrictionController(system).Advance(unit, [], psiStep: 0.5f);
 
-        core.Controllers.Count.ShouldBe(1, "the system still holds a contact, so it stays");
+        core.Controllers.ShouldBe(system.Faces, "the system still holds a contact, so it stays");
     }
 
     /// <remarks>**Another system's controllers are left alone**, which a match on the controller type alone would get wrong.</remarks>

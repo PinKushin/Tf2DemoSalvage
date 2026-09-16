@@ -63,7 +63,7 @@ public sealed class IvpSimulationTests
         simulation.Advance(12d);
 
         simulation.AwakeUnits.ShouldBe(0, "a body that never moves sleeps at the first rest check");
-        core.UnitState.ShouldBe((int)IvpCoreMotion.Resting);
+        core.UnitState.ShouldBe(8, "frozen as its unit slept");
     }
 
     /// <remarks>**Joined bodies share one unit** (<c>FUN_180074e40</c>), so their group is solved once per PSI, not twice.</remarks>

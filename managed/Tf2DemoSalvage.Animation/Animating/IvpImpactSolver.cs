@@ -59,6 +59,22 @@ public sealed class IvpImpactEnvironment
 
     /// <summary>The PSIs left before the next rest check — <c>env+0x1a8</c>, reset with a jitter when it reaches zero.</summary>
     public short RestCheckCountdown { get; set; }
+
+    /// <summary>A contact's two ledge sides now — what the record build reaches through the contact's objects and their caches.</summary>
+    /// <remarks>Null where nothing builds a friction system's record controller, which then refuses to run.</remarks>
+    public Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)>? ContactSides { get; set; }
+
+    /// <summary>
+    /// The merge a contact's filing ends with — <c>FUN_180074e40</c> on the two cores' units, the absorbed one taken off the
+    /// time manager's lists. Null where there are no units, as for a body against the world.
+    /// </summary>
+    public Action<IvpRigidBody, IvpRigidBody>? MergeUnits { get; set; }
+
+    /// <summary>
+    /// The broad phase's refile of one object — <c>FUN_180098880</c> on <c>env+0x20</c>, which a core's sleep and revive run.
+    /// Null where there is no broad phase.
+    /// </summary>
+    public Action<IvpCollisionObject>? Refile { get; set; }
 }
 
 /// <summary>

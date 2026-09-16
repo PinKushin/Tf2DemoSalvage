@@ -83,8 +83,26 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// <summary><c>CMP EAX, 0x90000</c>: past this many pulls in a row a streak starts again.</summary>
     private const short LongestPull = 9;
 
+    private IIvpUnitController[]? _faces;
+
     /// <summary>The environment — <c>+0x8</c>.</summary>
     public IvpImpactEnvironment Environment { get; } = environment ?? throw new ArgumentNullException(nameof(environment));
+
+    /// <summary>
+    /// The system's three controller faces, in the order a joining core files them — <c>+0x10</c> (priority 0), the system itself
+    /// at <c>+0x0</c> (600), and <c>+0x20</c> (2000).
+    /// </summary>
+    internal IReadOnlyList<IIvpUnitController> Faces =>
+        _faces ??=
+        [
+            new IvpNormalFrictionController(this),
+            new IvpFrictionController(this),
+            new IvpRecordFrictionController(
+                this,
+                Environment,
+                contact => Environment.ContactSides?.Invoke(contact)
+                    ?? throw new InvalidOperationException("A friction system's record controller ran with no way to measure a contact's sides.")),
+        ];
 
     /// <summary>The head of the contact list — <c>+0x40</c>.</summary>
     public IvpContactPoint? FirstContact { get; private set; }
@@ -121,29 +139,134 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// <param name="core">The core; must not already have a share of this system.</param>
     /// <exception cref="ArgumentNullException"><paramref name="core"/> is null.</exception>
     /// <remarks>
-    /// **The native's gravity-list registration is not carried**: this project's <see cref="IvpDamping"/>,
-    /// <see cref="IvpPush"/> and <see cref="IvpGravity"/> already walk every body directly rather than a dynamically
-    /// registered subset, so a core joining a friction system needs no separate registration for them to keep reaching it.
-    /// **A movable core's share replaces <see cref="IvpRigidBody.FrictionInfo"/> outright** — the native writes
+    /// **A movable core files the system's three controller faces** (<see cref="Faces"/>) on itself and its unit, as
+    /// `FUN_180087bf0` does. **A movable core's share replaces <see cref="IvpRigidBody.FrictionInfo"/> outright** — the native writes
     /// <c>core+0x60</c> directly rather than merging — because a movable core belongs to exactly one system at a time.
     /// </remarks>
     internal void AddCore(IvpRigidBody core)
     {
         ArgumentNullException.ThrowIfNull(core);
 
-        IvpFrictionInfo share = new(this);
+        Join(core, new IvpFrictionInfo(this));
+    }
 
+    /// <summary>A core joins with a share — <c>FUN_180087bf0(system, core)</c> once its record is attached.</summary>
+    /// <remarks>
+    /// **A movable core files the system's three faces on itself** (`FUN_1800748b0` with `+0x10`, the system, `+0x20`), which is
+    /// what puts the friction controllers in its unit's PSI.
+    /// </remarks>
+    private void Join(IvpRigidBody core, IvpFrictionInfo share)
+    {
         Cores.Add(core);
 
         if (core.Immovable)
         {
             core.FrictionInfos[this] = share;
+            return;
         }
-        else
+
+        core.FrictionInfo = share;
+        MovableCores.Add(core);
+
+        foreach (IIvpUnitController face in Faces)
         {
-            core.FrictionInfo = share;
-            MovableCores.Add(core);
+            IvpSimulationUnit.Register(core, face);
         }
+    }
+
+    /// <summary>A core leaves — <c>FUN_180088c80(system, core)</c>, its share already detached.</summary>
+    /// <remarks>
+    /// **A movable core's faces leave its controllers and its unit's entries are marked stale** — bit 9 cleared and bit 8 set, so
+    /// the next PSI rebuilds them.
+    /// </remarks>
+    private void Leave(IvpRigidBody core)
+    {
+        Cores.Remove(core);
+
+        if (core.Immovable)
+        {
+            core.FrictionInfos.Remove(this);
+            return;
+        }
+
+        core.FrictionInfo = null;
+        MovableCores.Remove(core);
+
+        foreach (IIvpUnitController face in Faces)
+        {
+            core.Controllers.Remove(face);
+        }
+
+        if (core.Unit is { } unit)
+        {
+            unit.Flags = (unit.Flags & ~0x200) | 0x100;
+        }
+    }
+
+    /// <summary>Takes every contact and core of another system into this one — <c>FUN_180086240(target, source)</c>.</summary>
+    /// <param name="source">The system merged in; it is left empty.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (`docs/findings/51`, *Filing a contact into a friction system*):
+    /// <code>
+    /// every contact of source's list:  FUN_180088ce0 off it;  FUN_180088130 out of its pair;  FUN_180087c90, FUN_180088090 into target
+    /// every core of source, last first:
+    ///     a share in target already → its source contacts moved into that share, the source share gone (FUN_180077c10)
+    ///     else → the share detached (FUN_180079180), pointed at target, reattached;  FUN_180088c80 out of source;  joins target
+    /// source deletes itself (slot 7)
+    /// </code>
+    /// *The contact order a share's vector ends with after a move is not read*: they are appended here.
+    /// </remarks>
+    internal void Merge(IvpFrictionSystem source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        while (source.FirstContact is { } contact)
+        {
+            IvpRigidBody first = CoreOf(contact.FirstObject);
+            IvpRigidBody second = CoreOf(contact.SecondObject);
+
+            source.Unlink(contact);
+            source.RemoveFromPair(contact, first, second);
+            Link(contact);
+            FileInPair(contact, first, second);
+        }
+
+        for (int index = source.Cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = source.Cores[index];
+            IvpFrictionInfo moving = core.FrictionInfoIn(source)
+                ?? throw new InvalidOperationException("A core of a friction system has no share of it.");
+
+            source.Leave(core);
+
+            if (core.FrictionInfoIn(this) is { } kept)
+            {
+                kept.Contacts.AddRange(moving.Contacts);
+                continue;
+            }
+
+            IvpFrictionInfo share = new(this);
+            share.Contacts.AddRange(moving.Contacts);
+            Join(core, share);
+        }
+    }
+
+    /// <summary>A contact onto its physical cores' pair, found in either order or made — <c>FUN_180088090(system, cp)</c>.</summary>
+    internal IvpFrictionPair FileInPair(IvpContactPoint contact, IvpRigidBody first, IvpRigidBody second)
+    {
+        if (PairFor(first, second) is not { } pair)
+        {
+            pair = new IvpFrictionPair(first, second);
+            AddPair(pair);
+        }
+
+        if (!pair.Contacts.Contains(contact))
+        {
+            pair.Contacts.Add(contact);
+        }
+
+        return pair;
     }
 
     /// <summary>Adds a pair to the system — <c>FUN_1800833d0</c>'s call site inside <c>FUN_180088090</c>.</summary>
@@ -342,10 +465,8 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// contact vector (<c>FUN_180075130</c>), and an emptied share is detached from the core (<c>FUN_180077c10</c>) as the core
     /// leaves the system (<c>FUN_180088c80</c>).
     ///
-    /// **The inverse of <see cref="AddCore"/>, and no more.** `FUN_180088c80` also unlinks the system's three controller bases
-    /// from the core's simulation unit and clears bit 9 / sets bit 8 of that unit's dword; <see cref="AddCore"/> models none of
-    /// that — this project reaches gravity, damping and push by walking every body, not through a registered unit — so the
-    /// removal has nothing to undo there either.
+    /// **The inverse of <see cref="AddCore"/>**: `FUN_180088c80` also takes the system's three controller faces off a movable
+    /// core and clears bit 9 / sets bit 8 of its unit's dword, so the unit's entries are rebuilt without them.
     /// </remarks>
     internal bool RemoveCoreContact(IvpContactPoint contact, IvpRigidBody core)
     {
@@ -363,17 +484,7 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
             return false;
         }
 
-        Cores.Remove(core);
-
-        if (core.Immovable)
-        {
-            core.FrictionInfos.Remove(this);
-        }
-        else
-        {
-            core.FrictionInfo = null;
-            MovableCores.Remove(core);
-        }
+        Leave(core);
 
         return true;
     }

@@ -4183,13 +4183,67 @@ fires before it.
 **This port has two**: `PhysicsTimeManager` for the PSI event, and the `IvpMinList<IvpMindist>` the pair scheduler writes
 (`FUN_180099380`'s own `environment.Queue`). Two consequences, both measured while wiring `IvpSimulation`:
 
-- **The pair drain has to sit between PSIs.** Draining once after a long slice only ever finds the last PSI's requeue, which is
-  always in the future — every pair event is missed. `IvpSimulation.Advance` therefore runs one PSI, drains, and repeats.
+- **The two queues must be fired as one, one event at a time.** `IvpSimulation.Advance` fires a PSI event only when it falls
+  strictly before the earliest pair event (`PhysicsTimeManager.RunEarliest`), otherwise that pair event at its own time, and
+  snaps the clock to the target at the end. *Two wrong shapes came first, and both drove bodies through each other*: draining
+  pair events once after a slice (only the last PSI's requeue was ever found), then one PSI followed by a drain (a pair event
+  queued by one PSI still waited behind the next, and a whole `DrainUntil` to the earliest pair event already queued ran every
+  later PSI before a newly queued one could fire). A tie — a pair event at exactly a PSI's time — fires first here, where the
+  engine's min-list order decides.
 - **The pair queue holds ABSOLUTE times.** Its entries are not rebased with the other queue, so a time relative to a base that
   has since moved is wrong. That gives up exactly the float precision the engine's rebase exists to protect.
 
 **Neither is a reading of the engine — they are this port's shape**, and both go away when the two queues become one. Recorded
 here so the next reader does not take the interleaving loop for something the binary does.
+
+#### Two bodies driven together, end to end — six faults between the broad phase and the impact (2026-09-16)
+
+**The test** (`IvpSimulationBroadPhaseTests.Advance_TwoBodiesDrivenTogether_CollideAndShareTheirMomentum`): two cubes of half
+4, faces 1 apart, one moving at 6. Nothing is named by hand — the broad phase finds the pair. It failed six ways in turn, and
+each was found with an instrument carried out of the code (`LastLength`, `LastHullPass`, the hull manager's values), not by
+reading:
+
+1. **The fixture's cube had no edge links** — every edge offset zero, so each hop landed on itself and the minimize could never
+   leave the corner it started on. It measured the CENTERS' distance, 9, where the faces were 1 apart, and the pair was filed far
+   with an allowance two and a half times too big. *A test fixture, not the code*: `IvpTestCube` now links each edge to its twin.
+2. **The core matrix kept its old translation.** The unit PSI rebuilt `core+0x90` from the working orientation and left the
+   translation where it was. The matrix is three 32-byte rows and a translation, so `+0x90 + 0x60` IS the event position at
+   `+0xf0` — writing the event position writes where the matrix stands. Every body's collision shape stayed where it started.
+3. **A far pair's hull pass handed off to a bare minimize.** `FUN_180097f00`'s handoff is `FUN_1800977f0` — linked exact,
+   minimized, examined asking for a far pair's removal — and a new pair from the pair creation takes the same routine. With the
+   minimize alone a told pair was never examined again. *So a new pair of two still bodies is filed far at once*, before any PSI.
+4. **Sides were built on the PSI-start matrix, and the time code was invented.** `FUN_180082460` is `env+0x1a0 += 1; env+0x188 =
+   time` — every clock set counted, the drain's final snap included — and that count is what the minimize's once-per check and
+   every object cache key on. The port had a private counter bumped per minimize and read `core.CoreMatrix`, so a pair event
+   between PSIs measured the bodies a PSI late. Sides now stand on `IvpCollisionObject.CacheFor`, refreshed at the clock's time.
+   *The time code's starting value is not read*; one is interpolated so a pair made before the first clock set is measured.
+5. **The queues** — the bullet above.
+6. **Two movable cores refused to share a contact.** `FUN_180090e50`'s both-movable branches and `FUN_180086240`'s merge were
+   already read (*Filing a contact into a friction system*) and are now ported, with `FUN_180087bf0`'s registration of the
+   system's three controller faces on a joining movable core (`FUN_1800748b0`) and `FUN_180088c80`'s removal of them, and the
+   unit merge the filing ends with.
+
+**And the cores had to be awake the engine's way.** A core is born asleep (`core+0x1 = 8`) and the collision brings a core to the
+event only when that byte is under 8, so the impact island found no snapshot. Read for this:
+
+```
+FUN_1800892b0(core):  every object +0x78 = 1;  never stepped (+0x1d0 == 0) → velocity +0x140 and spin +0x130 kept
+    FUN_1800783c0:  +0x1 = 1;  +0x1d0 = now (after a dead store of now − (float)step);  +0x200 = +0x208 = now
+                    every object: +0x78 = 1;  FUN_180073b00 — core +0x1 and object +0x78 held at 0x21 around FUN_180098880
+    r = (float)(env+0x190 − now);  (double)r ≤ (double)1e-10f (COMISD/JBE, NaN too) → 1e10f  else (float)(1.0 / r)
+    FUN_180077670(core, {r, that}):  +0x1d8 = that;  +0x80 = +0x140 = +0x170 = +0x1dc = +0x254 = 0;  +0x1a0 = +0x180;  +0x1c0 = (1,0,0)
+    the kept velocity and spin back;  FUN_180086500 (resting contacts rebuilt — NOT carried);  listeners (not carried)
+FUN_180088930(core) → FUN_180078c90:  FUN_180078bd0 — +0x1 = 8;  velocity, spin, both staged changes, +0x170, +0x80 zeroed;
+    +0x1d8 = (float)env+0x110;  +0x1a0 = +0x180;  +0x1dc = +0x254 = 0;  +0x1c0 = (1,0,0)
+    every object: +0x78 = 8;  FUN_180098880;  the hull folded and rebased;  its cache given back (FUN_180080650)
+```
+
+`IvpSimulation.Add` now makes the unit asleep and wakes it, which is vphysics' own order for a body not created asleep.
+
+**Where it stands**: the impact fires once, one friction system holds the contact, the two bodies share a unit, and momentum is
+conserved (0.795 of 6 passed across a corner contact with a solid cube's inertia). **What is still wrong is after the impact**:
+the pair's minimize reads penetration, the pair leaves the exact list, and the normal push of the friction system's lone contact
+stays zero — so the bodies still sink into each other at 5.2. That is the next thing to read.
 
 #### The friction controller at priority 600, and the clamp's own weights — `FUN_1800836b0` and `FUN_180083970` (2026-09-15)
 
