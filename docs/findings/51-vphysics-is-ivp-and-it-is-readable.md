@@ -4173,6 +4173,39 @@ every core of +0x10, last to first, unless flags & 2:  FUN_1800792b0(core)
 actually moved are stepped — each over the environment's whole remaining PSI span, through the same integrator a PSI uses — then
 re-checked by the scheduler and stamped with the impact counter. `FUN_180077f00(core, system)` is the per-system record: through
 the hash at `core+0x60` for an unmovable core, else `core+0x60` itself when its `+0x10` is the system.
+#### The friction controller at priority 600, and the clamp's own weights — `FUN_1800836b0` and `FUN_180083970` (2026-09-15)
+
+**Read from the decompiler**, and it settles two things this project had recorded differently:
+
+```
+FUN_1800836b0(system, frame):
+    every pair of the system (+0x70, count +0x6a), last first, skipping a pair with no contacts:
+        b = Σ over its contacts (cp+0x88 · cp+0x78 · cp+0x60);  b = b · frame[0]²      -- four contacts at a time, then the tail
+        carry = 0
+        every contact, last first:
+            s = cp+0x68² + cp+0x6c²                                   -- the slide, squared
+            b² + DAT_1800eb140 < s:  r = 1/√s;  cp+0x91 = 1
+                cp+0x7c += (r·s − b) · cp+0x78 · cp+0x88              -- the carry
+                cp+0x68 ·= b·r;  cp+0x6c ·= b·r                       -- the slide clamped onto the cone
+            cp+0x64 == 1 → FUN_180085100(cp, frame)   else   carry += FUN_1800857c0(cp, frame)
+        0.0 < carry → pair+0x30 += carry
+
+FUN_180083970(cp, b):  the same clamp for one contact, the lone-contact path's own copy
+```
+
+- **The carry is weighted by `cp+0x78 × cp+0x88`** — the contact's friction times its own normal push. *This project's
+  `ClampSlide` used the RECORD's push-out estimate (`record+0x78`) instead, from a 2026-09-14 reading; corrected here. Both
+  fields read as "a push", which is how it slipped.*
+- **The clamp's excess is per contact and lands on `cp+0x7c`** — it is NOT chained from one contact to the next, which is how
+  this project's `ClampSlide` was being called (its `carry` parameter is that contact's own running total). Fixed with the
+  weight, and the field carried as `IvpContactPoint.SlideExcess`, so the weight is now observable.
+- **`pair+0x30` is a different quantity**: `FUN_1800857c0` RETURNS `fVar12 − cp+0x84` after writing `cp+0x84 = fVar12`, where
+  `fVar12 = √(step² · |slide|² · (cp+0x68² + cp+0x6c²)) · DAT_1800ee388`, and the pair grows by the sum of those deltas when it
+  comes out positive. *Neither `cp+0x84` nor that return is ported*, so `pair+0x30` is deliberately absent rather than left at
+  zero.
+- **The budget is per pair and per PSI**: the sum above times the step squared, with the contacts walked four at a time and the
+  remainder after, which changes nothing but the float summation order.
+
 #### The cone budget's third factor, found — `FUN_180083a60(cp)` and `FUN_180077840(core, arm)` (2026-09-15)
 
 **`cp+0x60` had been filed here, in `IvpTangentialSolve` and in `docs/HANDOFF.md` as a field with no writer found**, which is why

@@ -257,7 +257,7 @@ public static class IvpTangentialSolve
     /// <param name="slide">The contact's stored slide — <see cref="IvpContactPoint.Slide"/>.</param>
     /// <param name="budget">The pair's own friction-cone budget for this PSI.</param>
     /// <param name="friction">The contact's friction factor — <see cref="IvpContactPoint.Friction"/>.</param>
-    /// <param name="pushOut">The contact's push-out estimate — <see cref="IvpContactRecord.PushOut"/>.</param>
+    /// <param name="normalPush">The push the heap solve last gave the contact — <see cref="IvpContactPoint.NormalPush"/>, <c>cp+0x88</c>.</param>
     /// <param name="carry">The excess already carried from a previous clamp.</param>
     /// <returns>
     /// The slide, unchanged when it is already inside the budget (allowing for a <c>1e-6</c> slack on the squared
@@ -265,9 +265,11 @@ public static class IvpTangentialSolve
     /// </returns>
     /// <remarks>
     /// **Confirmed against <c>SolveOncePerPsi</c>'s own pre-clamp, read in full 2026-09-14** — the excess is the
-    /// SLIDE'S OWN magnitude past the budget, weighted by friction and push-out, not the clamped fraction the raw
-    /// distance clamping removed: <c>(|slide| − budget) × friction × pushOut</c>, added to whatever was already
-    /// carried. **Not a collision after all**: the native sets contact <c>+0x91</c> — <see cref="IvpContactPoint.FirstMeasure"/> —
+    /// SLIDE'S OWN magnitude past the budget, weighted by friction and the contact's normal push, not the clamped fraction the
+    /// raw distance clamping removed: <c>(|slide| − budget) × cp+0x78 × cp+0x88</c>, added to whatever was already
+    /// carried. **Corrected 2026-09-15**: this took the RECORD's push-out estimate (<c>record+0x78</c>) until
+    /// <c>FUN_180083970</c> was read whole, which reads <c>cp+0x88</c> — the contact's own normal push. Two different fields
+    /// whose names both read as "push". **Not a collision after all**: the native sets contact <c>+0x91</c> — <see cref="IvpContactPoint.FirstMeasure"/> —
     /// TRUE whenever this clamp fires, and <see cref="IvpContactGeometry"/>'s own measures already clear it FALSE once
     /// they use it; one writer setting it and another clearing it is an ordinary flip-flop, not two fields sharing an
     /// offset. Read as a re-arm: a contact whose slide was just clipped has its position/slide history treated as
@@ -275,7 +277,7 @@ public static class IvpTangentialSolve
     /// for where the flag is actually set.
     /// </remarks>
     public static ((float Span, float CrossSpan) Slide, float Carry) ClampSlide(
-        (float Span, float CrossSpan) slide, float budget, float friction, float pushOut, float carry)
+        (float Span, float CrossSpan) slide, float budget, float friction, float normalPush, float carry)
     {
         float magnitudeSquared = (slide.Span * slide.Span) + (slide.CrossSpan * slide.CrossSpan);
 
@@ -288,7 +290,7 @@ public static class IvpTangentialSolve
         float magnitude = inverseMagnitude * magnitudeSquared;
         float scale = budget * inverseMagnitude;
 
-        return ((slide.Span * scale, slide.CrossSpan * scale), ((magnitude - budget) * friction * pushOut) + carry);
+        return ((slide.Span * scale, slide.CrossSpan * scale), ((magnitude - budget) * friction * normalPush) + carry);
     }
 
     /// <summary>
@@ -464,14 +466,15 @@ public static class IvpTangentialSolve
     {
         ArgumentNullException.ThrowIfNull(pair);
 
-        float carry = 0f;
-
         foreach (IvpContactPoint contact in pair.Contacts)
         {
-            IvpContactRecord record = contact.Record ?? throw new InvalidOperationException("A pair's contact has no record.");
+            // The record is read by SolveContact below; its absence is the same failure, raised here where it is cheap to name.
+            _ = contact.Record ?? throw new InvalidOperationException("A pair's contact has no record.");
+
             (float Span, float CrossSpan) before = contact.Slide;
 
-            (contact.Slide, carry) = ClampSlide(before, budget, contact.Friction, record.PushOut, carry);
+            (contact.Slide, contact.SlideExcess) =
+                ClampSlide(before, budget, contact.Friction, contact.NormalPush, contact.SlideExcess);
 
             if (contact.Slide != before)
             {

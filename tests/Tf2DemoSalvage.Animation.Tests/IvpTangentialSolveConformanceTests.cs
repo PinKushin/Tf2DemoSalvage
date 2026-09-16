@@ -245,7 +245,7 @@ public sealed class IvpTangentialSolveConformanceTests
     public void ClampSlide_ASlideInsideTheBudget_IsUnchanged()
     {
         ((float Span, float CrossSpan) Slide, float Carry) result =
-            IvpTangentialSolve.ClampSlide((0.3f, 0.4f), budget: 1f, friction: 1f, pushOut: 1f, carry: 2f);
+            IvpTangentialSolve.ClampSlide((0.3f, 0.4f), budget: 1f, friction: 1f, normalPush: 1f, carry: 2f);
 
         result.Slide.ShouldBe((0.3f, 0.4f));
         result.Carry.ShouldBe(2f);
@@ -259,7 +259,7 @@ public sealed class IvpTangentialSolveConformanceTests
     public void ClampSlide_ASlideOverTheBudget_ScalesItDownAndCarriesTheExcess()
     {
         ((float Span, float CrossSpan) Slide, float Carry) result =
-            IvpTangentialSolve.ClampSlide((3f, 4f), budget: 1f, friction: 2f, pushOut: 3f, carry: 1f);
+            IvpTangentialSolve.ClampSlide((3f, 4f), budget: 1f, friction: 2f, normalPush: 3f, carry: 1f);
 
         result.Slide.Span.ShouldBe(0.6f, 1e-4f);
         result.Slide.CrossSpan.ShouldBe(0.8f, 1e-4f);
@@ -443,6 +443,54 @@ public sealed class IvpTangentialSolveConformanceTests
         IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, inverseStep: 100d);
 
         point.Slide.Span.ShouldBe(1f, 1e-3f);
+    }
+
+    /// <remarks>
+    /// **The excess is weighted by the contact's own normal push (<c>cp+0x88</c>), not by the record's push-out estimate
+    /// (<c>record+0x78</c>)**, and it lands on that contact's own <c>+0x7c</c> — `FUN_1800836b0` read whole, 2026-09-15.
+    /// </remarks>
+    [Test]
+    public void SolveOncePerPair_AClampedContact_AddsItsExcessWeightedByTheNormalPush()
+    {
+        IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new()
+        {
+            FirstCore = core,
+            FirstArm = (0f, 0f, 1f),
+            Span = (1f, 0f, 0f),
+            CrossSpan = (0f, 1f, 0f),
+            PushOut = 1000f,
+        };
+        IvpContactPoint point = ContactPoint(record);
+        point.Slide = (5f, 0f);
+        point.Friction = 2f;
+        point.NormalPush = 3f;
+        IvpFrictionPair pair = new(core, core);
+        pair.Contacts.Add(point);
+
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, inverseStep: 100d);
+
+        // (|slide| − budget) × friction × normal push = (5 − 1) × 2 × 3. The record's own 1000 is not read.
+        point.SlideExcess.ShouldBe(24f, 1e-3f);
+    }
+
+    /// <remarks>**The excess ADDS to what the contact already carried** — `cp+0x7c +=`, so an earlier PSI's excess stays.</remarks>
+    [Test]
+    public void SolveOncePerPair_AContactThatAlreadyCarriedExcess_AddsToIt()
+    {
+        IvpRigidBody core = new() { InverseInertia = (1f, 1f, 1f), CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)) };
+        IvpContactRecord record = new() { FirstCore = core, FirstArm = (0f, 0f, 1f), Span = (1f, 0f, 0f), CrossSpan = (0f, 1f, 0f) };
+        IvpContactPoint point = ContactPoint(record);
+        point.Slide = (5f, 0f);
+        point.Friction = 2f;
+        point.NormalPush = 3f;
+        point.SlideExcess = 10f;
+        IvpFrictionPair pair = new(core, core);
+        pair.Contacts.Add(point);
+
+        IvpTangentialSolve.SolveOncePerPair(pair, budget: 1f, inverseStep: 100d);
+
+        point.SlideExcess.ShouldBe(34f, 1e-3f);
     }
 
     /// <remarks>

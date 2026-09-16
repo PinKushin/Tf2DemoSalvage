@@ -29,6 +29,10 @@ public sealed class IvpFrictionPair(IvpRigidBody firstCore, IvpRigidBody secondC
     /// <summary>When the pair last collided — <c>+0x28</c>, written by <c>FUN_18008ef60</c> with <c>env+0x188</c>.</summary>
     public double LastImpact { get; internal set; }
 
+    // NOT carried: `pair+0x30`, which `FUN_1800836b0` grows by the sum of what each tangential solve RETURNS — a delta against
+    // a per-contact accumulator at `cp+0x84`, scaled by `DAT_1800ee388`. Neither the accumulator nor the return is ported, and a
+    // field this project can only ever leave at zero would read as carried. It arrives with that return value.
+
     /// <summary>
     /// The contacts touching this pair — the array <c>SolveOncePerPsi</c> walks per pair (its own <c>+8</c>/count
     /// <c>+2</c>), summing each contact's <c>NormalPush × Friction × &lt;an as-yet-unnamed +0x60 factor&gt;</c> into

@@ -142,6 +142,16 @@ public sealed class IvpContactPoint
     /// <remarks>**Written by <see cref="Weigh"/>** (<c>FUN_180083a60</c>), when either side's material has a second friction.</remarks>
     public bool UsesMaterialAxes { get; set; }
 
+    /// <summary>
+    /// How much slide this contact's clamps have thrown away, weighted — the float at <c>+0x7c</c>, accumulated by
+    /// <see cref="IvpTangentialSolve.ClampSlide"/>'s excess.
+    /// </summary>
+    /// <remarks>
+    /// **Per contact and never chained between them**: `FUN_1800836b0` adds each contact's own excess to its own
+    /// <c>+0x7c</c>. *What reads it is not established.*
+    /// </remarks>
+    public float SlideExcess { get; internal set; }
+
     /// <summary>The mass a unit push along this contact's normal has to move, inverted — the float at <c>+0x60</c>.</summary>
     /// <remarks>
     /// **Written by <see cref="Weigh"/>** (<c>FUN_180083a60</c>), and read by the friction controller as the third factor of a
