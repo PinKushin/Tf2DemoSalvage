@@ -1,0 +1,9 @@
+[
+  { "name": "DecompAt on tf2vphysics", "input": {"command": "cd /d/ghidra-proj && JAVA_HOME=x \"/d/ghidra_12.1.2_PUBLIC/support/analyzeHeadless.bat\" \"D:\\ghidra-proj\" tf2vphysics -process vphysics.dll -noanalysis -readOnly -scriptPath \"D:\\ghidra-proj\\scripts\" -postScript DecompAt.java 1800892b0 > out.txt"}, "expect": "deny" },
+  { "name": "DisasmWithData on tf2vphysics", "input": {"command": "analyzeHeadless.bat D:\\ghidra-proj tf2vphysics -process vphysics.dll -noanalysis -postScript DisasmWithData.java 180086b40"}, "expect": "deny" },
+
+  { "name": "CONTROL: engine.dll read", "input": {"command": "analyzeHeadless.bat D:\\ghidra-proj tf2engine -process engine.dll -noanalysis -postScript DecompAt.java 1800683d0"}, "expect": "allow" },
+  { "name": "CONTROL: an import of vphysics", "input": {"command": "analyzeHeadless.bat D:\\ghidra-proj tf2vphysics -import vphysics.dll -postScript DecompAt.java 180001000"}, "expect": "allow" },
+  { "name": "CONTROL: curl to the server", "input": {"command": "curl -s \"http://127.0.0.1:8089/disassemble_function?address=0x180038620\""}, "expect": "allow" },
+  { "name": "CONTROL: a rename script", "input": {"command": "analyzeHeadless.bat D:\\ghidra-proj tf2vphysics -process vphysics.dll -postScript RenameFunctions.java"}, "expect": "allow" }
+]

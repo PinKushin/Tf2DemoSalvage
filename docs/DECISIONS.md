@@ -8949,4 +8949,9 @@ spent. Thirteen cases in its `.tests.json`, controls included; the backup is in 
 
 **What would reopen it:** a class of legitimate text search it refuses, which goes in the tests as a control.
 
+**The MCP half, the same day.** The owner: *"Did you make a hook to remind you to use the mcp and lsp servers?"* — the first
+hook covered only the LSP. `~/.claude/hooks/prefer-ghidra-mcp.ps1` refuses an `analyzeHeadless` read script (`DecompAt`,
+`DisasmWithData`, the dumps) against the analysed vphysics projects and names the headless GhidraMCP server's start line and
+endpoints; imports, analysis and other programs pass. Six cases in its tests.
+
 Related: D168, D177.
