@@ -319,6 +319,26 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    narrowed to "whatever calls this exact function's caller," not the whole list mechanism blind). Read slot `+0x38`
    before writing any code — a wrong guess about what it does would be exactly the invented-mechanism mistake this
    investigation has repeatedly avoided.
+   **2026-09-17, the slot `+0x38` question turned out to be the wrong branch to chase — read `IvpFrictionSystem::DropContact`
+   (`180083e40`) itself in full instead, and it points somewhere already flagged in this codebase.** `DropContact` does two
+   independent things when a contact leaves a core's per-system tally at zero: it calls `FUN_180088c80` (already the ported
+   `IvpFrictionSystem.Leave`, confirmed correct) — and, separately, for EACH of the contact's two cores whose own
+   friction-info contact count (`+2` on the info) reaches zero, it reads `core+0x1f8` — **this project's own established
+   `IvpRigidBody.Unit` field** — dereferences to the unit's flags word (`unit+0x0`) and does
+   `flags = (flags & ~0x200) | 0x100`. **`IvpSimulationUnit.cs:57`'s own doc comment, written in an earlier session, already
+   names this exact gap**: *"the flags word, unit+0x0, whose 0x400/0x3000 bits carry a fast spin into the next PSI... what
+   sets the 0x300 pair is not read yet — the PSI only clears it once it has rebuilt."* `0x100`/`0x200` are precisely the
+   `0x300` pair. **This port never sets these bits anywhere** — `RemoveContact`/`RemoveFromPair`/`RemoveCoreContact` in
+   `IvpFrictionSystem.cs` touch contacts and cores but never a core's `Unit.Flags`. And per `RebuildEntries`'s own doc
+   comment (line 127, also pre-existing): *"the third routine the unit's 0x300 bits also call, `FUN_180074e80`, is
+   unread"* — meaning the PSI's dispatch on a unit with `0x300` bits set calls BOTH `RebuildEntries` (ported) AND a second,
+   never-read function, before clearing the bits. **This is now the strongest candidate found this session**: dropping a
+   contact is supposed to flag the loser's simulation unit for a rebuild-plus-something-else next PSI, and this port drops
+   the contact (correctly, `ad4c08ba`) without ever raising that flag — meaning whatever `FUN_180074e80` does for a
+   just-emptied core's unit never happens here. **Not yet confirmed**: what `FUN_180074e80` actually does, and where in
+   the PSI loop the `0x300` check itself lives (search for where `IvpSimulationUnit.Flags`'s callers already check other
+   bits, or find `FUN_180074e80`'s callers directly — it may only be called from that one dispatch site, same as
+   `FUN_1800737d0` had none). Read both before writing any code.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
