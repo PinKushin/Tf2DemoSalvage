@@ -17,7 +17,8 @@ public sealed class IvpPsiEventTests
         PhysicsTimeManager time = new();
         IvpUnitManager units = new();
 
-        IvpPsiEvent.RunPsi(environment, time, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, () => 0f, now: 4d);
+        IvpPsiEvent.RunPsi(
+            environment, time, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, () => 0f, now: 4d);
 
         environment.RebaseBase.ShouldBe(4d);
         environment.PsiEnd.ShouldBe(4.5d, "the step is added as a float");
@@ -37,7 +38,8 @@ public sealed class IvpPsiEventTests
         unit.Cores.Add(core);
         units.Active.Add(unit);
 
-        IvpPsiEvent.Start(environment, time, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, () => 0f);
+        IvpPsiEvent.Start(
+            environment, time, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, () => 0f);
         int fired = time.DrainUntil(1.2d, _ => { });
 
         fired.ShouldBe(3, "one at zero, then one per half-second step");
@@ -54,7 +56,9 @@ public sealed class IvpPsiEventTests
         time.DrainUntil(0.3d, _ => { });
         time.Now.ShouldNotBe(0d, "the control: the drained event moved the clock");
 
-        IvpPsiEvent.RunPsi(environment, time, new IvpUnitManager(), new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, () => 0f, now: 2d);
+        IvpPsiEvent.RunPsi(
+            environment, time, new IvpUnitManager(), new IvpMindistManager(), new IvpMinList<IvpMindist>(),
+            _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
 
         time.Now.ShouldBe(0d);
     }
@@ -66,7 +70,9 @@ public sealed class IvpPsiEventTests
         PhysicsTimeManager time = new();
         time.Add(new PhysicsEvent(3f, _ => { }));
 
-        IvpPsiEvent.RunPsi(environment, time, new IvpUnitManager(), new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, () => 0f, now: 2d);
+        IvpPsiEvent.RunPsi(
+            environment, time, new IvpUnitManager(), new IvpMindistManager(), new IvpMinList<IvpMindist>(),
+            _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
 
         time.Base.ShouldBe(2d, "every queued time is now measured from here");
         time.Count.ShouldBe(2);

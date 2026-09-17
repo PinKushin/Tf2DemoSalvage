@@ -368,7 +368,7 @@ public sealed class IvpSimulation
 
     /// <summary>Queues the first PSI event, due at once — the time manager's own constructor does this for the engine.</summary>
     public void Start() =>
-        IvpPsiEvent.Start(Environment, _time, _units, _mindists, _queue, Minimize, Examine, _random);
+        IvpPsiEvent.Start(Environment, _time, _units, _mindists, _queue, Minimize, MinimizeWithoutBudget, Examine, _random);
 
     /// <summary>Runs every PSI due before an absolute time, and every pair event those PSIs queued.</summary>
     /// <param name="target">The absolute time to simulate to.</param>

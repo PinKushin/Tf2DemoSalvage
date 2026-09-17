@@ -156,6 +156,12 @@ public static class IvpPhysicsPipeline
     /// <param name="mindists">The mindist manager phases 5 and 6 walk.</param>
     /// <param name="queue">The mindist queue those two phases take.</param>
     /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>.</param>
+    /// <param name="recheckInvalidMinimize">
+    /// The minimize with no step budget, <c>FUN_180095ad0</c> — what phase 2's <c>FUN_180074240</c> calls on each object's
+    /// invalid pairs. **Not <paramref name="minimize"/>**: the two routines are identical but for one stack constant (a step
+    /// budget of 20 versus none), so passing the budgeted one here would let an invalid pair converge on a budget the engine
+    /// never gives it (B369).
+    /// </param>
     /// <param name="examine">The scheduler in mode 1, <c>FUN_180099380(mindist, 1, 1)</c>, phase 6's own call.</param>
     /// <param name="random">The jitter the rest check's cadence takes.</param>
     /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
@@ -182,6 +188,7 @@ public static class IvpPhysicsPipeline
         IvpMindistManager mindists,
         IvpMinList<IvpMindist> queue,
         Action<IvpMindist> minimize,
+        Action<IvpMindist> recheckInvalidMinimize,
         Action<IvpMindist> examine,
         Func<float> random,
         double now)
@@ -191,6 +198,7 @@ public static class IvpPhysicsPipeline
         ArgumentNullException.ThrowIfNull(mindists);
         ArgumentNullException.ThrowIfNull(queue);
         ArgumentNullException.ThrowIfNull(minimize);
+        ArgumentNullException.ThrowIfNull(recheckInvalidMinimize);
         ArgumentNullException.ThrowIfNull(examine);
         ArgumentNullException.ThrowIfNull(random);
 
@@ -234,6 +242,6 @@ public static class IvpPhysicsPipeline
         environment.Phase = 5;
 
         // `FUN_180074240(object)`, which the unit PSI runs for every object of every core it simulated.
-        void RecheckInvalid(IvpCollisionObject collisionObject) => collisionObject.RecheckInvalid(mindists, minimize);
+        void RecheckInvalid(IvpCollisionObject collisionObject) => collisionObject.RecheckInvalid(mindists, recheckInvalidMinimize);
     }
 }
