@@ -90,7 +90,15 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    core freeze (findings 51, *Two bodies driven together, end to end*). Since ported, each in findings 51: the map as static
    objects and virtual terrain, the friction split, the revive's resting-contact rebuild, the tangential work bank,
    `CPhysicsEnvironment::Simulate`'s frame dispatch with `GetPosition` read at the clock, and air drag. **What it still lacks:**
-   the mindist slot-0 call at the 5,000-pass cap, and phase 1's guarded calls and `env+0x158` list.
+   the mindist slot-0 call at the 5,000-pass cap, and phase 1's guarded calls and `env+0x158` list. **A gap found 2026-09-17
+   on `wip/b369-contact-drops` (parked, not merged):** with the normal pass's contact drop in (`FUN_180084490`'s tail,
+   `FUN_1800a9bf0`'s filing pass), `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` falls through instead of resting. Traced
+   with `IvpSimulation.Examined`/`PairFired`: once a pair against the mesh's recursive mindist is handed off, every later hull
+   pass answers `Recursive` and the exact list stays empty (`exact=0`) through the whole bounce — one mindist reaches `Queued` at
+   2.8636s with length `-0.355` and is immediately `Frozen`, and nothing follows. Slots 7/8 (open on frozen minimize, open on a
+   virtual-face collision) are themselves marked done above, so the break is somewhere between a handed-off recursive pair and
+   its children being re-filed as exact — not identified further. *Not a regression the drop introduced*: the earlier resting
+   contact this project's own drop had been (wrongly) keeping was propping the body up over this gap the whole time.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
