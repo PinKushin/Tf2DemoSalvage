@@ -190,9 +190,26 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    bounce, meaning the parent never closes back to a plain exact pair (`IvpRecursiveMindist.HullPassed`'s `DeleteChildren`
    branch, which needs `(Flags & FrozenBits) == 0 && Length < ContactGap`, is apparently never taken), so the parent stays
    recursive and keeps calling `RefreshChildren` on a set that provably includes at least one permanently-`0x4000` child that
-   is never dropped. Read `IvpRecursiveMindist.HullPassed`'s actual condition against a live trace of `Flags`/`Length` at the
-   moment of the bounce (not just the disassembly, which was confirmed correct in isolation) — the divergence may be in
-   what VALUES it is fed, not in the function's own logic. *Not a regression the drop introduced*: the earlier resting contact
+   is never dropped. **Traced live (temporary `Console.WriteLine` in `IvpRecursiveMindist.HullPassed`, removed before this
+   commit): the PARENT's own `Flags` are ALSO stuck at exactly `0x4000`** (`0xFD04120 & 0xC000 == 0x4000`, all 4 hull passes
+   this pair got, `now=1.773` through `2.712`, `Length` ranging `5.36` down to `0.87` — the parent's own `Length` DOES track
+   real separation and shrinks correctly as the body falls back, but `frozenClear` is `False` every single time, so
+   `HullPassed`'s close-to-plain-exact branch can never be taken regardless of `Length`). **This is the same solver-dispatch
+   exhaustion as the child** — the parent's `recheck(this)` runs the identical `MinimizeWithoutBudget`/`Solver.Dispatch` on
+   its own (placeholder Point/Point-at-construction) synapses, hits `Backside`/`GaveUp`, and lands on `0x4000` exactly like a
+   real feature pair does. **And this exact fact was already flagged, correctly, before this session started** (see the
+   original *"the outer `IvpRecursiveMindist`'s own coarse pair gets stuck in the identical way... confirmed byte-for-byte...
+   not a port bug either"* above) — so BOTH the child's and the parent's `0x4000` states are now independently confirmed
+   correct against the disassembly, in isolation. **That means the divergence is not inside any function read so far** —
+   `HullPassed`, `Recheck`/`RecheckEveryPsi`, `RecheckInvalid`, `BecomeExact`/`Freeze`, and now the parent's own `HullPassed`
+   condition are all individually faithful ports. **The remaining candidate is a mechanism entirely outside the mindist
+   machinery — and it must be genuinely missing, not merely unmerged**: the contact-drop commit (`ad4c08ba`) is already an
+   ancestor of every commit on this branch, so it has been ACTIVE in every trace and every failing run this whole session.
+   The candidate is not "does merging the friction work change anything" (it already applies) but **what persistent
+   tracking real IVP's friction/contact system does, beyond what a mindist's own state carries, that would let a resting
+   contact survive its mindist going permanently `0x4000`-parked** — i.e. read `IvpFrictionSystem`'s own per-contact state
+   machine (not the mindist's) for anything that independently re-triggers a gap/impact check on a tracked contact once its
+   owning mindist stops updating it, which is the one area this session did not touch. *Not a regression the drop introduced*: the earlier resting contact
    this project's own drop had been (wrongly) keeping was propping the body up over
    this gap the whole time.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
