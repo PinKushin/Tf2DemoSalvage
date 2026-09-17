@@ -358,6 +358,57 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    whole dispatch (still unread), and testing whether porting all three (the `DropContact` flag-set, the `0x300` PSI
    check, and the real split in `FUN_1800761c0`) makes the failing test pass. Per this project's TDD/sabotage rules,
    port and test before declaring this the fix.
+   **2026-09-17, this candidate closed — read `FUN_1800761c0` in full and proved, not guessed, that it cannot explain
+   this test.** `FUN_1800761c0` is the unit-level split: given a unit and a differing core-root `r` (from
+   `FUN_180074e80`'s own scan), it allocates a brand-new `IvpSimulationUnit` (`FUN_180005480(0x48)`, initialized
+   asleep/state 8, exactly as this port's own `Add()` does), files it via `FUN_1800749f0(root's own +0x10 list,
+   newUnit)`, walks the ORIGINAL unit's cores moving every one whose root equals `r` into the new unit's own array
+   (retargeting each moved core's `+0x1f8`/`Unit`), rebuilds the new unit's entries (`FUN_180075470`), and loops again
+   (a `do...while`) if a THIRD distinct root turns up among what is left, so one PSI can split a unit more than once.
+   **`FUN_180074e80` re-read to confirm the dispatch it guards**: it re-derives each core's union-find root every call
+   (zeroing `core+0x258`/`UnionParent`, then for every controller entry merging that controller's OWN touching-core
+   set — the same union-find shape `IvpFrictionSystem.DetachedRoot` already uses), and ONLY IF a core's root differs
+   from the unit's first core's does it call `FUN_180074ba0`→`FUN_1800761c0`→`FUN_180075470`; **if every core still
+   shares one root it returns having done nothing at all, not even a rebuild.** **`180083e40` (`DropContact`) read
+   again in raw disassembly, not decompiled paraphrase, to pin the mask**:
+   `**(uint**)(core+0x1f8) = **(uint**)(core+0x1f8) & 0xfffffdff | 0x100` for each of the contact's two cores whose own
+   friction-info count hits zero — `0xfffffdff` is exactly `~0x200`, confirming the earlier summary's
+   `(flags & ~0x200) | 0x100` bit for bit. **But this port's `IvpFrictionSystem.Leave` already carries an equivalent
+   write** (committed at `52e83459`, before this investigation began) **and it turns out not to be the operative one
+   for this test at all**: `IvpNormalFrictionController.Advance`
+   (`managed/Tf2DemoSalvage.Animation/Animating/IvpFrictionController.cs:212`, already ported, priority 0, runs last
+   every PSI) sets the identical bits UNCONDITIONALLY every PSI a friction system's normal face runs — contact or no
+   contact, split or no split — matching that file's own pre-existing doc comment on `FUN_180084320`, *"either way the
+   unit's dword loses bit 9 and gains bit 8."* **So `Flags & 0x300` is already true on essentially every PSI once a
+   body has any live friction system**, not only transiently after a drop, and `IvpSimulationUnit.cs:309`'s
+   `if ((Flags & 0x300) != 0) { RebuildEntries(); ... }` already runs (as a no-op rebuild) on that same cadence.
+   **Why the chain still cannot be this test's gap, proven rather than guessed**:
+   `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` has exactly one dynamic body — `ground` is `Immovable` and is
+   never passed to `IvpSimulation.Add`, so it never gets a `Unit` at all (confirmed by reading `Add`, the only place a
+   `Unit` is constructed). `FUN_1800761c0`'s split needs ≥2 cores in one unit with DIFFERING roots; with exactly one
+   core, `FUN_180074e80`'s root scan compares the core's root against itself and can never diverge — the split is
+   mathematically unreachable, and separately, a full rebuild versus the engine's real no-op-when-no-divergence branch
+   produce an IDENTICAL `Entries` list for a one-core unit, so neither change can move this test's outcome even ported
+   byte-for-byte. **Checked whether any OTHER test could exercise it, so this isn't scoped too narrowly**: `Absorb`
+   (the only path that ever puts two cores in one unit) has exactly one caller in the whole codebase
+   (`IvpSimulation.cs:355`, the constraint-registration path), and no test under `tests/Tf2DemoSalvage.Animation.Tests`
+   calls the constraint API at all (grepped) — this mechanism is unreachable by the ENTIRE test suite, not just this
+   one test. **Per this file's own hard-stop rule, not implemented speculatively**: porting `FUN_180074e80`/
+   `FUN_1800761c0` for real needs a new `IIvpUnitController` member (the vtable `+0x10` "this controller's own
+   touching cores" call `FUN_180074e80` makes) implemented on every controller — drag, gravity, the three friction
+   faces, constraints — with no disassembly read yet for what gravity/drag/constraints return there, and no test,
+   existing or constructible from this session's findings, that would give it ground truth; building it now would be
+   exactly the untested, unverifiable churn this project's TDD/D38 rules are against, for a mechanism proven inert for
+   the actual gap. **This candidate is closed, not "still open"** — nothing here contradicts earlier findings; it
+   confirms `RebuildEntries`/`Split`/`DropContact` are each independently correct where already ported, and simply
+   cannot be the cause. **Still open, unchanged from before**: why the second impact never re-arms after the first
+   bounce. Every source-level candidate this file has named to date (`HullPassed`, `Recheck`/`RecheckEveryPsi`,
+   `RecheckInvalid`, `BecomeExact`/`Freeze`, the parent's own `HullPassed` condition, `IvpPairWatcher.Refresh`, and now
+   the unit-split/`DropContact` flag chain) is individually confirmed byte-for-byte faithful, and none of them is the
+   divergence. The next investigation needs the live disassembly trace of the real binary on this exact case that an
+   earlier entry in this file already named and could not get a viable attach window for — that blocker (measured, not
+   assumed: the whole 300-tick run completes faster than a manual attach can win the race, and
+   `Thread.Sleep`/`Task.Delay` are refused in any `.cs` file) is still standing.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
