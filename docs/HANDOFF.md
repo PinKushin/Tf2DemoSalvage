@@ -179,7 +179,20 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    divergence is real and specifically in how the recursive parent should be prompted to re-open (`DeleteChildren`+refile from
    scratch) rather than keep refreshing the same doomed child, which is squarely `IvpRecursiveMindist.HullPassed`'s own
    close-or-refresh branching (already read and confirmed byte-for-byte — so if the experiment says this path is wrong, the
-   divergence would be in a THIRD function not yet found, not in anything read so far). *Not a regression the drop introduced*: the earlier resting contact
+   divergence would be in a THIRD function not yet found, not in anything read so far).
+   **Experiment run 2026-09-17: moved the drop point off the seam (x=16, z=22, well inside one triangle, no grid line and no
+   local diagonal near either coordinate) — same failure, worse** (`y=20.09`, `impacts=4`, `hull=Refiled`, vs the on-seam
+   drop's `y=7.22`/`impacts=3`). **This rules out the seam-straddle theory outright: it is not a pathological-fixture
+   artifact, it is a genuine divergence**, reproducible from a plain, unremarkable drop point. Reverted the fixture change
+   (test file is clean again). The next read this needs is **whether the mindist that lands at `0x4000` and dies is a CHILD
+   of the recursive parent (one triangle's own exact pair, going through `BecomeExact`/`Freeze` independently of the parent)
+   or the recursive parent's OWN top-level pair** — `simulation.LastHullPass` still reports `Recursive` outcomes after the
+   bounce, meaning the parent never closes back to a plain exact pair (`IvpRecursiveMindist.HullPassed`'s `DeleteChildren`
+   branch, which needs `(Flags & FrozenBits) == 0 && Length < ContactGap`, is apparently never taken), so the parent stays
+   recursive and keeps calling `RefreshChildren` on a set that provably includes at least one permanently-`0x4000` child that
+   is never dropped. Read `IvpRecursiveMindist.HullPassed`'s actual condition against a live trace of `Flags`/`Length` at the
+   moment of the bounce (not just the disassembly, which was confirmed correct in isolation) — the divergence may be in
+   what VALUES it is fed, not in the function's own logic. *Not a regression the drop introduced*: the earlier resting contact
    this project's own drop had been (wrongly) keeping was propping the body up over
    this gap the whole time.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
