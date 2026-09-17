@@ -18,6 +18,10 @@ public sealed class IvpSimulationBroadPhaseTests
 {
     private const float Half = 4f;
 
+    /// <summary>The 40 × 40 × 1 slab's bounding radius, √(40² + 40² + 1²). *Given the cube's 4 it was a sphere smaller than its face*,
+    /// and a cube tipping toward its edge left the range and had its pair deleted while resting on it.</summary>
+    private static readonly float SlabRadius = System.MathF.Sqrt(3201f);
+
     private static readonly IIvpMaterial Material = new IvpReplayMaterial(0d, 0d, HasSecondFriction: false);
 
     [Test]
@@ -172,6 +176,7 @@ public sealed class IvpSimulationBroadPhaseTests
         slab.InverseMass = 0f;
         slab.InverseInertia = (0f, 0f, 0f);
         slab.Ledges = IvpTestCube.Box(40f, 40f, 1f);
+        slab.Radius = SlabRadius;
         simulation.Add(body);
         simulation.Collide(body, Material);
         simulation.Collide(slab, Material);
@@ -323,6 +328,7 @@ public sealed class IvpSimulationBroadPhaseTests
         slab.InverseMass = 0f;
         slab.InverseInertia = (0f, 0f, 0f);
         slab.Ledges = IvpTestCube.Box(40f, 40f, 1f);
+        slab.Radius = SlabRadius;
         simulation.Add(body);
         simulation.Collide(body, Material);
         simulation.Collide(slab, Material);
@@ -417,7 +423,8 @@ public sealed class IvpSimulationBroadPhaseTests
             Orientation = (0d, 0d, 0d, 1d),
             WorkingOrientation = (0d, 0d, 0d, 1d),
             CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), at),
-            Radius = Half,
+            // The cube's bounding radius, as `FUN_180078b90` takes one from a surface — its corner.
+            Radius = Half * System.MathF.Sqrt(3f),
             InverseMass = 1f,
             // A solid cube's: I = m·s²/6 with side 8 and unit mass. A looser inertia lets a corner hit spend its push on spin.
             InverseInertia = (6f / 64f, 6f / 64f, 6f / 64f),

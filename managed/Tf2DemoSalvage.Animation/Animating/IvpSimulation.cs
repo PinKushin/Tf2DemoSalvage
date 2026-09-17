@@ -816,11 +816,17 @@ public sealed class IvpSimulation
     public IvpScheduleOutcome? LastOutcome { get; private set; }
 
     /// <summary>One side as the time-of-impact searches read it — the ledge, the body's motion over the interval, its bounds.</summary>
-    private static IvpSearchSide Searchable(IvpLedgeSide side, IvpRigidBody core) =>
+    /// <remarks>
+    /// **The motion cache's slot 0 is the object's cache matrix at now** — the cache object's <c>+0x40</c> (<c>FUN_180094680</c>),
+    /// the same matrix the side is placed with. *It was the core's own matrix*, without the object's offset and not moved to now,
+    /// so a search started mid-PSI measured the body where its PSI had begun: a crate's rocking corner read its antipode as the
+    /// lower one and its pair was rechecked past the PSI while the corner went through.
+    /// </remarks>
+    internal static IvpSearchSide Searchable(IvpLedgeSide side, IvpRigidBody core) =>
         new(
             side.Points,
             side.Topology,
-            new IvpMotionCache(core, core.CoreMatrix, resting: core.Immovable),
+            new IvpMotionCache(core, side.Current, resting: core.Immovable),
             IvpRangeManager.Bounds(core));
 
     /// <summary>
