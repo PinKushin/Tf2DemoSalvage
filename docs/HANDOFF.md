@@ -339,6 +339,25 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    the PSI loop the `0x300` check itself lives (search for where `IvpSimulationUnit.Flags`'s callers already check other
    bits, or find `FUN_180074e80`'s callers directly — it may only be called from that one dispatch site, same as
    `FUN_1800737d0` had none). Read both before writing any code.
+   **2026-09-17, `FUN_180074e80` read in full — it is a UNIT-level split, distinct from `IvpFrictionSystem.Split`.** It
+   caches each core's friction-system root (via what reads as `IvpFrictionSystem.RootOf`, `FUN_1800878d0`) at a field this
+   session has not otherwise named (`core+600`/`0x258`), zeroed for every core in the unit first. Then it checks whether
+   EVERY core in the unit still shares the SAME root as the first — **if any core's root differs, the unit's cores no
+   longer form one connected friction-system component, and it calls a three-step sequence**: `FUN_180074ba0` (already
+   this project's own `RebuildEntries`'s first bookend, per that method's own doc comment), then `FUN_1800761c0`
+   (**still unread — almost certainly the actual unit-split, given the one differing-root core it is handed**), then
+   `FUN_180075470` (`RebuildEntries`'s second bookend). **This means `RebuildEntries` alone is not the full picture**:
+   the doc comment on it citing "`FUN_180074ba0` then `FUN_180075470`" was describing this function's OUTER bookends,
+   with the actual split (`FUN_1800761c0`) sandwiched between them — so `RebuildEntries()` as currently written may be
+   doing the rebuild-bookend work but is missing the split step entirely, even where it IS already called.
+   **This is a real, load-bearing missing mechanism, not a guess**: a body that just lost its last contact (dropped by
+   the already-ported `DropContact`) needs its unit checked for a split so it stops being simulated as part of a group
+   it no longer belongs to. Whether this specific gap is what blocks the second impact detection in
+   `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` is NOT yet confirmed — that requires reading
+   `FUN_1800761c0` (the actual split), finding where in the PSI loop a unit's `0x300` flags are checked to trigger this
+   whole dispatch (still unread), and testing whether porting all three (the `DropContact` flag-set, the `0x300` PSI
+   check, and the real split in `FUN_1800761c0`) makes the failing test pass. Per this project's TDD/sabotage rules,
+   port and test before declaring this the fix.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
