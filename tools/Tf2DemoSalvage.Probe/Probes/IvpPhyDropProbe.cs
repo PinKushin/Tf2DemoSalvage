@@ -188,6 +188,17 @@ public sealed class IvpPhyDropProbe : IProbe
                 $"v=({core.Velocity.X:R}, {core.Velocity.Y:R}, {core.Velocity.Z:R})  " +
                 $"v0=({core.PreviousVelocity.X:R}, {core.PreviousVelocity.Y:R}, {core.PreviousVelocity.Z:R})  " +
                 $"w=({core.AngularVelocity.X:R}, {core.AngularVelocity.Y:R}, {core.AngularVelocity.Z:R})"));
+
+            for (IvpContactPoint? contact = core.FrictionInfo?.System.FirstContact; contact is not null; contact = contact.Next)
+            {
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  cp push={contact.NormalPush:R} gap={contact.Gap:R} mass={contact.InverseContactMass:R} " +
+                    $"friction={contact.Friction:R} slide=({contact.Slide.Span:R}, {contact.Slide.CrossSpan:R}) " +
+                    $"at=({contact.LastPosition.X:R}, {contact.LastPosition.Y:R}, {contact.LastPosition.Z:R}) " +
+                    $"n=({contact.LastNormal.X:R}, {contact.LastNormal.Y:R}, {contact.LastNormal.Z:R})"));
+            }
+
             output.Flush();
         }
     }

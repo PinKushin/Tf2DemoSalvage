@@ -551,6 +551,21 @@ public sealed class VphysicsDropProbe : IProbe
                 $"v=({CoreFloat(core, 0x140):R}, {CoreFloat(core, 0x144):R}, {CoreFloat(core, 0x148):R})  " +
                 $"v0=({CoreFloat(core, 0x170):R}, {CoreFloat(core, 0x174):R}, {CoreFloat(core, 0x178):R})  " +
                 $"w=({CoreFloat(core, 0x130):R}, {CoreFloat(core, 0x134):R}, {CoreFloat(core, 0x138):R})"));
+
+            // The core's friction share (`+0x60`) → its system (`+0x10`) → the contact list (`+0x40`, next at `cp+0x0`).
+            nint share = Marshal.ReadIntPtr(core + 0x60);
+            nint contact = share == 0 ? 0 : Marshal.ReadIntPtr(Marshal.ReadIntPtr(share + 0x10) + 0x40);
+
+            for (int guard = 0; contact != 0 && guard < 16; guard++, contact = Marshal.ReadIntPtr(contact))
+            {
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  cp push={CoreFloat(contact, 0x88):R} gap={CoreFloat(contact, 0x8c):R} mass={CoreFloat(contact, 0x60):R} " +
+                    $"friction={CoreFloat(contact, 0x78):R} slide=({CoreFloat(contact, 0x68):R}, {CoreFloat(contact, 0x6c):R}) " +
+                    $"at=({CoreFloat(contact, 0xa0):R}, {CoreFloat(contact, 0xa4):R}, {CoreFloat(contact, 0xa8):R}) " +
+                    $"n=({CoreFloat(contact, 0xb0):R}, {CoreFloat(contact, 0xb4):R}, {CoreFloat(contact, 0xac):R})"));
+            }
+
             output.Flush();
         }
     }
