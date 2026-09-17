@@ -122,19 +122,26 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    hands exactly these isolated ledges to the per-triangle children. **Not a missing-topology bug.** Recovery is meant to come
    from the OUTER `IvpRecursiveMindist`'s own `HullPassed` → `RefreshChildren` → `IvpPairMindists.Refresh` cycle re-querying the
    surface tree fresh from the body's current position each hull pass — and that cycle **is firing**, confirmed by re-tracing
-   `simulation.LastHullPass` through the fall: `Refiled`/`HandedOff` alternate repeatedly from t≈0.6 to t≈2.0. So the true
-   symptom is not "stuck forever" or "falls through" (this doc's own framing above was wrong — 7.22 is well ABOVE the resting
-   y of −4, not below it): the body **bounces off the corner and launches upward** while `simulation.Environment.Impacts` stays
-   flat at 3 for the whole climb from y=−4.63 to y=+7.22, so the energy is not coming from the impact solver. The body was
-   dropped at x=25.4, z=25.4 — the centre of one flat grid cell, straddling the diagonal seam between its two triangles — and
-   each `HandedOff`/`Refiled` toggle swaps which triangle's mindist owns the contact, discarding whatever resting/friction
-   state the old one had and re-measuring a gap from a different triangle plane. **Not identified further**: whether the two
-   triangles' mindists are BOTH live and pushing at once (a double contact the real engine would merge or suppress), or
-   whether each fresh mindist's push-out/resting-contact gap estimate is seeded from a stale relative velocity across the
-   handoff. Needs a read of `IvpContactPoint`'s construction and the resting-contact push-out estimate specifically for the
-   handoff moment, not another static pass over `Solver.Dispatch` (already read in full above and cleared). *Not a regression
-   the drop introduced*: the earlier resting contact this project's own drop had been (wrongly) keeping was propping the body
-   up over this gap the whole time.
+   `simulation.LastHullPass` through the fall: `Refiled`/`HandedOff` alternate repeatedly from t≈0.6 to t≈2.0.
+   **Corrected 2026-09-17 (this doc's own "launches upward" framing, written earlier the same day, was itself wrong — it
+   compared raw Y values without the test's own +Y-is-down convention; see the test's remarks, "a cube dropped along IVP +Y"):**
+   traced `body.Velocity.Y` per step. Gravity accelerates it smoothly at a constant +0.1515/step from t≈0.55 (already past the
+   fixture's earlier fixed contact) with **zero impacts recorded** the whole way — i.e. **`IvpImpactSolver` is not seeing the
+   ground at all until one single event at t≈1.09**, where `simulation.Environment.Impacts` jumps 0→3 in one step and velocity
+   flips from +10.9 to −3.6 (a correct-looking bounce: three impacts, one per cube corner touching at once). That one bounce
+   is accurate — the body's parabolic apex lands at y≈−4.64, t≈1.44, within half a unit of the true rest y=−4. **Then it falls
+   straight back through with no second impact ever firing**: `Impacts` stays fixed at 3 all the way from t≈1.09 to the end of
+   the traced window (t=1.99, y=−3.18, climbing straight back toward and past the ground) while `LastHullPass` keeps cycling
+   `Refiled`/`HandedOff`/`Recursive` the whole time — the hull-pass machinery is still alive and still re-querying, it just never
+   produces a second `Fired` impact. **This is exactly "falls through", precisely located**: the first contact resolves once,
+   correctly, then the SAME pair's mindist (or its child under the recursive parent) never re-arms to catch the second approach,
+   consistent with the `0x4000` permanent-park state already found and explained above — the open question is why a mindist
+   that fired one correct exact-pair resolution doesn't return to a state `IvpImpactIsland`/`RecheckInvalid` will fire again on
+   the second approach. Needs tracing `IvpMindistManager.Recheck`/`RecheckInvalid` and the exact-pair flags specifically across
+   that first bounce (recheck 2026-09-16's instrumentation output, or re-add it, rather than another static disassembly pass —
+   `Solver.Dispatch`/`BacksideWalk`/`PhysicsVirtualMesh` are already read in full above and cleared). *Not a regression the drop
+   introduced*: the earlier resting contact this project's own drop had been (wrongly) keeping was propping the body up over
+   this gap the whole time.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
