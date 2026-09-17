@@ -214,8 +214,26 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    and probe-verified for the ORIGINAL pair-creation path, but never checked for what — if anything — periodically tears
    down and rebuilds a pair wholesale, independent of the recursive mindist's own internal state). If the broad-phase watcher
    ever destroys and recreates the entire pair (not just its children) on some schedule, that would explain how real IVP
-   avoids this exact trap without any of the functions read so far needing to differ from ours. This needs a fresh read,
-   not a retrace of anything already covered. *Not a regression the drop introduced*: the earlier resting contact
+   avoids this exact trap without any of the functions read so far needing to differ from ours.
+   **Read `IvpPairWatcher.Refresh` (`FUN_1800b6080`) in full — also ruled out, same day.** It calls
+   `IvpPairMindists.Refresh(_first, _second, gap, _pair, null, null, null, null, this)` with every ledge/root argument `null`,
+   meaning it re-queries EACH object's FULL surface fresh (not a fixed ledge) — but the surface query for a fixed object
+   always returns the SAME hull-root ledge references (`Mesh.Hulls[0]`/`[1]` for the ground, the body's one ledge for the
+   body — stable object identities, never rebuilt), so `Keep`'s identity match reuses the SAME top-level recursive mindist
+   here too, every time this fires (from the watcher's own periodic hull pass, confirmed by its one other caller,
+   `IvpPairWatcherRecord.HullPassed`). **Nothing anywhere in this port ever tears a mindist down purely because time passed
+   — every level relies on ledge-identity matching over stable object references, and that is consistent with real IVP's
+   actual design** (a pair's mindists persist and get updated in place for the whole life of the pair, not recreated). So
+   the "watcher periodically rebuilds" theory is wrong too, for the same underlying reason the seam-straddle theory was
+   wrong: it assumed a mechanism this session has now shown does not exist in EITHER the port or, most likely, the shipped
+   binary either. **Every plausible source-level candidate is now checked and cleared.** The one experiment left that
+   is not more source reading: run this exact fixture's geometry through the real `vphysics.dll` via the paired-drop harness
+   below and see whether the SHIPPED ENGINE also produces a permanent fall-through here. If it does, this is not a
+   divergence at all — it is a genuine IVP limitation this project has faithfully reproduced, and the fixture's expected
+   value (`-4d`) is simply wrong for this exact drop. If the real engine rests correctly, the divergence is real but is in
+   a mechanism this project has not identified even by name yet, and static reading has been exhausted for this specific
+   question — the next investigation needs to start from a live disassembly TRACE of the real binary on this exact case,
+   not another read of already-covered functions. *Not a regression the drop introduced*: the earlier resting contact
    this project's own drop had been (wrongly) keeping was propping the body up over
    this gap the whole time.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
