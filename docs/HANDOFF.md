@@ -149,10 +149,17 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    that write site has not been located. It is not `IvpMindistHull.HullPassed` (the coarse far-pair re-file loop, read above):
    this pair never re-enters that path, because `IvpPairMindists.Refresh`'s ledge-pointer-identity `Keep` reuses the SAME dead
    child object on the body's second descent (it lands on the same triangle) rather than routing through the coarse hull queue
-   at all. **The bounded next step**: find what call site writes to a mindist's flags on an `IvpCollisionObject`'s own
-   per-step invalidation of its `Synapses`/`InvalidSynapses` lists (both already present on `IvpCollisionObject`, in this file,
-   unread this session) — that is the only place left that could touch a dormant `Invalid`-listed mindist between hull passes
-   without going through either function already cleared. *Not a regression the drop introduced*: the earlier resting contact
+   at all. **`IvpMindistManager.RecheckEveryPsi`/`Recheck` (`FUN_180098610` walk, `FUN_1800983e0`/`FUN_180098710` bodies) ruled
+   out too**: `Recheck` calls `minimize(mindist)` UNCONDITIONALLY (no `0x4000` guard, unlike `RecheckInvalid`) so it looked like
+   the missing revival path — but it only runs on mindists in `IvpMindistManager`'s `_rechecked` array, added only when either
+   core's `HasOffset58` is set, and `IvpRigidBody.HasOffset58`'s own doc comment (read this session, `IvpIntegrator.cs:669`)
+   says outright **"no ragdoll element sets it"** and names it a constrained/rotated-core flag with an unread writer. This
+   test's cube and ground are plain unconstrained rigid bodies — neither ever gets `HasOffset58`, so this mindist never enters
+   `_rechecked` and `RecheckEveryPsi` never touches it. **The bounded next step**: find what call site writes to a mindist's
+   flags on an `IvpCollisionObject`'s own per-step invalidation of its `Synapses`/`InvalidSynapses` lists (both already present
+   on `IvpCollisionObject`, in this file, unread this session) — that is the only place left that could touch a dormant
+   `Invalid`-listed mindist between hull passes without going through any of the three functions already cleared this session
+   (`HullPassed`, `Recheck`/`RecheckEveryPsi`, `RecheckInvalid`). *Not a regression the drop introduced*: the earlier resting contact
    this project's own drop had been (wrongly) keeping was propping the body up over
    this gap the whole time.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
