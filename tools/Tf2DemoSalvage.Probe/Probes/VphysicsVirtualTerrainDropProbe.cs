@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Numerics;
@@ -213,6 +214,9 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
     {
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
+
+        output.WriteLine($"pid={Environment.ProcessId}");
+        SpinWaitForDebuggerAttach(output);
 
         if (!VphysicsLibrary.TryLoad(output, out nint module))
         {
@@ -447,6 +451,34 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
         Marshal.WriteIntPtr(handler, 0, vtable);
 
         return (handler, verts);
+    }
+
+    /// <summary>
+    /// Opt-in debugger-attach window: a live trace of this probe races the run against a manual/scripted
+    /// <c>debugger_attach</c>, and the whole 300-tick run otherwise completes faster than an attach can win that race
+    /// (measured, `docs/HANDOFF.md`'s virtual-terrain section). Set <c>TF2VPHYSICS_PROBE_PAUSE_MS</c> to spin-wait that
+    /// many milliseconds right here, before any native call, buying a real attach window. A plain <c>Stopwatch</c>
+    /// busy-wait, not <c>Thread.Sleep</c>/<c>Task.Delay</c> (banned in this repo, `~/.claude/hooks/block-banned-csharp.ps1`).
+    /// No-op unless the env var is set; never active in normal runs.
+    /// </summary>
+    private static void SpinWaitForDebuggerAttach(TextWriter output)
+    {
+        string? raw = Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_PAUSE_MS");
+
+        if (string.IsNullOrEmpty(raw) || !int.TryParse(raw, out int pauseMs) || pauseMs <= 0)
+        {
+            return;
+        }
+
+        output.WriteLine($"TF2VPHYSICS_PROBE_PAUSE_MS={pauseMs}: spin-waiting for debugger attach...");
+        Stopwatch stopwatch = Stopwatch.StartNew();
+
+        while (stopwatch.ElapsedMilliseconds < pauseMs)
+        {
+            // Busy-wait on purpose: Thread.Sleep/Task.Delay are banned in this repo.
+        }
+
+        output.WriteLine("Pause elapsed, continuing.");
     }
 
     private T Keep<T>(T callback)

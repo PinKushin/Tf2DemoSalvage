@@ -409,6 +409,35 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    earlier entry in this file already named and could not get a viable attach window for — that blocker (measured, not
    assumed: the whole 300-tick run completes faster than a manual attach can win the race, and
    `Thread.Sleep`/`Task.Delay` are refused in any `.cs` file) is still standing.
+   **2026-09-17: the attach-window blocker itself is fixed, but a second, different blocker replaced it — the
+   live trace still did not happen.** Added `TF2VPHYSICS_PROBE_PAUSE_MS` to `VphysicsVirtualTerrainDropProbe.cs`
+   (opt-in `Stopwatch` spin-wait, no `Thread.Sleep`/`Task.Delay`, printing `pid=<n>` before the wait and a
+   confirmation line after it), verified working stand-alone (`pid=10612`, a 2s pause, then the identical
+   trajectory this file already has on record — bounce at t≈1.1–1.2s, second correction t≈1.4–1.6s, settled
+   `Z≈157.95` by t≈1.8s — bit-for-bit the same run, so the pause changes nothing about the physics). Launched it
+   in the background (`pmux`, a 45s pause) and got a real PID with time to spare — the race this file previously
+   lost is solved. **`debugger_attach` then failed for an unrelated reason**: `"Debugger server not running at
+   http://127.0.0.1:8099. Start it with: uv run python -m debugger"`. This is a SEPARATE process from the
+   already-running GhidraMCP headless REST server (port 8089, static analysis only) — `debugger_attach` proxies
+   through `bridge_mcp_ghidra.debugger` (the installed uv tool, `C:\Users\pinku\AppData\Roaming\uv\tools\ghidra-mcp-bridge`)
+   to a second, standalone "debugger server" (its own docstring: `debugger/server.py`, wraps dbgeng/WinDbg via
+   `pybag`, Windows-only) that this machine does not have installed anywhere. **Searched and confirmed absent,
+   not just unrunning**: the installed `ghidra-mcp-bridge` venv's `site-packages` (only `bridge_mcp_ghidra`, which
+   proxies to it but does not embed it — no `pybag`, no `debugger` package), `D:\ghidra-proj` and its
+   `mcp-install` bundle (`INSTALLATION.md` documents only the Ghidra extension zip and the bridge wheel, nothing
+   about a debugger server), the published upstream repo `bethington/ghidra-mcp`'s own `python/bridge_mcp_ghidra`
+   directory (same set of files as the installed venv — no `debugger/` package there either, confirming it is
+   not part of this open-source project at all), and `Documents`/`Desktop`/`source` for any locally-authored
+   `pybag` script. **This is a hard environment gap, not a further disassembly question**: standing up a
+   dbgeng/WinDbg bridge from scratch is its own substantial piece of software (equivalent in scope to writing a
+   new debugger front end), squarely out of scope for a single investigation pass and not something to improvise
+   under this project's own no-invented-mechanism rule. **Net for this pass**: the previously-blocking attach
+   race is now solved and the fix is kept in the probe permanently (harmless, opt-in, `TF2VPHYSICS_PROBE_PAUSE_MS`
+   unset in every normal run) — but the live trace itself is blocked on a missing debugger backend service, a
+   different problem from anything this file has named before. **Next session, before trying to attach again**:
+   either locate wherever the owner's `debugger/server.py` actually lives (it is referenced by name in the
+   installed bridge's own source, so it exists somewhere, just not found by this pass's search) and start it, or
+   treat building one as its own separate, deliberately-scoped task before returning to this investigation.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
