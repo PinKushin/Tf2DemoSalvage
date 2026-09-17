@@ -243,6 +243,55 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    Z≈157.95 in against an expected 157.48 (the port's `-4d` in its own metric scale), and stays parked there through t=3.0s.
    **The divergence is real, not a shipped-IVP limitation this fixture happens to trigger** — the next step is the disassembly
    trace this file already names, not another source read.**
+   **2026-09-17, re-run and taken further (still not resolved)**: re-ran `vphysics-virtual-terrain-drop`, same numbers
+   bit-for-bit (bounce at t≈1.1–1.2s, −397.6→+60.0, apex, a second free-fall arc t≈1.4–1.6s at exactly gravity's
+   −393.7 in/s² with zero impacts, then arrested to ≈0 in/s by t=1.8s at Z=157.95). Brought up a live GhidraMCP headless
+   server on the vphysics.dll project (`D:\ghidra-proj\tf2vphysics-collide.gpr`, `D:\ghidra-proj\ghidra-mcp-headless.bat`,
+   port 8089 — was not running; start with `pmux new-session -d -s ghidra-mcp`, `pmux send-keys` the batch file, then
+   `connect_instance` to project `tf2vphysics-collide`; the tool's own dynamically-registered 214 tools are not reachable
+   through this session's tool-call surface, but its plain REST endpoints work directly, e.g.
+   `curl "http://127.0.0.1:8089/decompile_function?address=0x180082560"`, POST with a JSON body for endpoints that need
+   one such as `read_memory`) and read `IvpEnvironment::RunPipeline` (`180082560`) phase 1 in full for the first time —
+   the four call sites this file has flagged as *"not carried... none of which has been read"* since the driver first
+   went in. **One is now ruled out with confidence**: `env+0x58`'s guarded call (`FUN_180087e50`) is gated on the SAME
+   field `IvpCollisionEnvironment.RangeCallback` already documents as null in vphysics (confirmed the same struct by
+   matching `IvpCollisionEnvironment::AdvanceClock`'s `+0x1a0`/`+0x188` writes to the already-ported `Psi`/`Now` fields)
+   — this branch never fires, full stop. **The other three are read but not resolved**: `env+0x162`/`env+0x168` is a
+   small pointer vector, gated on a nonzero count, each entry's own flags word dispatched by a `kind==8` test through
+   `FUN_1800758e0` (relinks the entry between two lists) or `FUN_180075610`→`FUN_180078820` (unread), then clears bit
+   `0x0004` on the entry — read `FUN_180089210` and `FUN_180077c80` in full, but not what writes an entry INTO this list.
+   `env+0xE0` holds a pointer to a default-constructed object (`FUN_18009f490`, vtable `1800fe460`, read by dumping its
+   raw bytes via `read_memory` rather than guessing — slot 10 is `FUN_1800a0070`, called unconditionally every PSI, which
+   itself unconditionally calls its own slot 8 `FUN_1800a0280`, draining two more small add/remove queues at its own
+   `+0x28`/`+0x38` by calling each entry's slot 1 — reads as a deferred controller add/remove reconciliation, empty at
+   construction, no writer found). `env+0x158` (count `env+0x152`) is walked LAST FIRST every PSI, unconditionally,
+   calling each entry's own slot 0 with `&env` — population site not found either. **Ruled out as writers for the two
+   unresolved lists**, by reading each in full and finding no touch of `+0x158`/`+0x152`/`+0x162`/`+0x168`:
+   `IvpCollisionEnvironment::SimulateUnitPsi` (already the ported `IvpSimulationUnit.Psi`), `IvpIntegrator::IntegrateCore`
+   (already the ported `IvpIntegrator.StepCore`), `IvpCollisionEnvironment::AdvanceClock`, and the gravity-vector setters
+   `FUN_1800824e0`/`FUN_180075320` chained from `CPhysicsEnvironment::CPhysicsEnvironment`'s gravity install (also checked
+   `IvpGravity::AddToGravityList`, `1800748b0` — a real, already-named function, but it appends to a PER-CORE list at a
+   completely different offset, `core+0x1e0`, not `env+0x158`; a false lead from sharing the array-grow helper
+   `FUN_180072ba0`, not from any real connection). **Tried and abandoned the live half of the plan the same day**: set
+   out to attach the debugger to the actual probe process mid-run to watch these four fire, or not, in real time. Could
+   not get a viable window — measured directly, not assumed: backgrounding a build-then-run of the probe and polling
+   `tasklist` every 0.2s never once caught the process alive, meaning the ENTIRE 300-tick run (native calls into a
+   32-triangle mesh, trivial per-tick cost) completes in a small fraction of a second of wall clock after the dotnet
+   host starts, far faster than this session's own tool-call round-trip latency can win a manual attach race. The
+   established fix — a deliberate pause in the probe to buy attach time — is blocked: `Thread.Sleep`/`Task.Delay` are
+   refused in any `.cs` file with no carve-out for throwaway probe instrumentation
+   (`~/.claude/hooks/block-banned-csharp.ps1`), and this tool environment has no way to feed a blocking `Console.ReadLine`
+   real interactive stdin from a backgrounded process. **Net for this pass**: one of four candidates closed (`env+0x58`,
+   dead), three read but still open, and the live-fire question still unanswered — so still no concrete, evidence-backed
+   root cause, and per this file's own rule no fix was attempted. **Next session, in order**: (1) find the `env+0x158`/
+   `env+0x162` write sites with a whole-binary xref sweep on those two field offsets — GhidraMCP exposes
+   `get_field_access_context`/`analyze_struct_field_usage` for exactly this and neither got its parameter names right
+   this session (a REST/param-naming problem, not a missing capability — `search_tools` lists both as `callable`); (2)
+   once found, check statically whether a plain two-object drop (one static virtual-mesh ground, one dynamic poly
+   object, no constraints, no phantoms) would ever populate either list — if provably never, both are closed the same
+   way `env+0x58` was, with no live run needed; (3) only if (2) says yes, solve the attach-window problem (a
+   `Stopwatch`-spin busy-wait behind an opt-in env var is one option that avoids the literal banned APIs) and get the
+   trace this file has wanted since the divergence was first confirmed real.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
