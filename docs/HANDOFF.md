@@ -134,13 +134,26 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    the traced window (t=1.99, y=−3.18, climbing straight back toward and past the ground) while `LastHullPass` keeps cycling
    `Refiled`/`HandedOff`/`Recursive` the whole time — the hull-pass machinery is still alive and still re-querying, it just never
    produces a second `Fired` impact. **This is exactly "falls through", precisely located**: the first contact resolves once,
-   correctly, then the SAME pair's mindist (or its child under the recursive parent) never re-arms to catch the second approach,
-   consistent with the `0x4000` permanent-park state already found and explained above — the open question is why a mindist
-   that fired one correct exact-pair resolution doesn't return to a state `IvpImpactIsland`/`RecheckInvalid` will fire again on
-   the second approach. Needs tracing `IvpMindistManager.Recheck`/`RecheckInvalid` and the exact-pair flags specifically across
-   that first bounce (recheck 2026-09-16's instrumentation output, or re-add it, rather than another static disassembly pass —
-   `Solver.Dispatch`/`BacksideWalk`/`PhysicsVirtualMesh` are already read in full above and cleared). *Not a regression the drop
-   introduced*: the earlier resting contact this project's own drop had been (wrongly) keeping was propping the body up over
+   correctly, then the SAME pair's mindist (or its child under the recursive parent) never re-arms to catch the second approach.
+   **Traced the exact chain, read from source (`FUN_1800977f0` `BecomeExact`, `FUN_180097440`/`180097914` `Freeze`)**: a plain
+   exact mindist with `FrozenBits` set after its minimize (`(mindist.Flags & FrozenBits) != 0` in `IvpMindistHull.BecomeExact`)
+   calls `IvpMindist.Freeze`, which is confirmed to do exactly one thing — `manager.Invalidate(this, first, second, queue)` —
+   moving it into `IvpMindistManager.Invalid`. From there the ONLY path back to being examined again is
+   `IvpCollisionObject.RecheckInvalid` → `RecheckInvalid` → `IvpMindistMinimize.MinimizeWithoutBudget`, and that revival
+   condition (`(flags & 0xc000) != 0x4000`, `FUN_180074240`, already confirmed byte-for-byte against the disassembly) is
+   written to explicitly REFUSE a mindist sitting at exactly `0x4000` — which is exactly the flag value `BacksideWalk`'s
+   exhaustion leaves it at. **So the two already-confirmed-correct pieces combine into a real dead end**: `Freeze` always sends
+   a resolved exact pair to `Invalid`, and `RecheckInvalid` is written to never revive it from there once it lands at exactly
+   `0x4000`. Since real TF2 does not fall through displacement terrain after one bounce, something else in the shipped engine
+   must OR a second bit into those flags when the object starts moving again — meaning it stops being exactly `0x4000` — and
+   that write site has not been located. It is not `IvpMindistHull.HullPassed` (the coarse far-pair re-file loop, read above):
+   this pair never re-enters that path, because `IvpPairMindists.Refresh`'s ledge-pointer-identity `Keep` reuses the SAME dead
+   child object on the body's second descent (it lands on the same triangle) rather than routing through the coarse hull queue
+   at all. **The bounded next step**: find what call site writes to a mindist's flags on an `IvpCollisionObject`'s own
+   per-step invalidation of its `Synapses`/`InvalidSynapses` lists (both already present on `IvpCollisionObject`, in this file,
+   unread this session) — that is the only place left that could touch a dormant `Invalid`-listed mindist between hull passes
+   without going through either function already cleared. *Not a regression the drop introduced*: the earlier resting contact
+   this project's own drop had been (wrongly) keeping was propping the body up over
    this gap the whole time.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
