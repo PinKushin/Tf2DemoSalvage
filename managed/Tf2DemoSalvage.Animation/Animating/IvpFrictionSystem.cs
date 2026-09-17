@@ -585,6 +585,10 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
 
         RemoveCoreContact(contact, firstCore);
         RemoveCoreContact(contact, secondCore);
+
+        // `FUN_180083210`'s last step: both friction synapses off their objects' `+0x50` lists.
+        contact.FirstObject.ContactPoints.Remove(contact);
+        contact.SecondObject.ContactPoints.Remove(contact);
     }
 
     /// <summary>
@@ -823,6 +827,7 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// </remarks>
     internal void SolveNormalPushes(float inverseStep)
     {
+
         if (ContactCount <= 1)
         {
             SolveOne(inverseStep);
@@ -852,6 +857,8 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     internal void SolveHeap(float inverseStep)
     {
         SortContacts();
+
+        File();
         LeftOut = 0;
 
         if (ContactCount > MostContacts && Environment.Anomalies.MaximumContactsExceeded(Cores))
@@ -934,10 +941,17 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         {
             point.NormalPush = (float)IvpMath.Mulsd(inverseStep, push);
             record.Apply(push);
-            return;
+        }
+        else
+        {
+            point.NormalPush = 0f;
         }
 
-        point.NormalPush = 0f;
+        // `COMISS block[0x47], gap; JBE`: at or past the resting gap, a NaN gap included, or measured outside its feature.
+        if (!(IvpCollisionTolerance.RestingContactGap > point.Gap) || record.Outside)
+        {
+            RemoveContact(point, CoreOf(point.FirstObject), CoreOf(point.SecondObject), Environment.Now);
+        }
     }
 
     /// <summary>Two neighbours exchanged, <paramref name="after"/> moving ahead of <paramref name="before"/>.</summary>
@@ -956,6 +970,45 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         before.Previous = after;
         after.Next = before;
     }
+
+    /// <summary>The heap's filing pass between its sort and its solve — <c>FUN_1800a9bf0</c>.</summary>
+    /// <remarks>
+    /// <code>
+    /// every contact, the next saved first (gap = cp+0x8c, float):
+    ///     gap ≥ block[0x47] (COMISS/JNC — a NaN gap does NOT take this) or record+0x76 == 1 → FUN_180083e40(system, cp)
+    ///     else gap > block[0x46] + block[0x43] (ADDSS) and (byte [(cp+0x48)+0xf0] &amp; byte [(cp+0x20)+0xf0]) &amp; 1   -- each friction core's first byte
+    ///         → FUN_180088ce0 then FUN_180087c90: unlinked and linked again at the head
+    /// </code>
+    /// </remarks>
+    private void File()
+    {
+        float front = IvpCollisionTolerance.FrontGap + IvpCollisionTolerance.ContactGap;
+        IvpContactPoint? point = FirstContact;
+
+        while (point is not null)
+        {
+            IvpContactPoint? next = point.Next;
+            IvpContactRecord record = point.Record ?? throw new InvalidOperationException("A filed contact has no record.");
+            IvpRigidBody first = CoreOf(point.FirstObject);
+            IvpRigidBody second = CoreOf(point.SecondObject);
+
+            if (point.Gap >= IvpCollisionTolerance.RestingContactGap || record.Outside)
+            {
+                RemoveContact(point, first, second, Environment.Now);
+            }
+            else if (point.Gap > front && FrictionCoreOf(point.FirstObject).FlagBit0 && FrictionCoreOf(point.SecondObject).FlagBit0)
+            {
+                Unlink(point);
+                Link(point);
+            }
+
+            point = next;
+        }
+    }
+
+    /// <summary>An object's friction core, <c>+0xf0</c> — the byte the filing pass tests is its first.</summary>
+    private static IvpRigidBody FrictionCoreOf(IvpCollisionObject collisionObject) =>
+        collisionObject.FrictionCore ?? throw new InvalidOperationException("A contact's object has no friction core, where the filing pass dereferences it.");
 
     private static IvpRigidBody CoreOf(IvpCollisionObject collisionObject) =>
         collisionObject.Core ?? throw new InvalidOperationException("A contact's object has no core.");

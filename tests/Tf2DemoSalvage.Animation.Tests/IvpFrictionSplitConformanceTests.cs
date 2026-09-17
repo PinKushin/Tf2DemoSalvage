@@ -167,6 +167,11 @@ public sealed class IvpFrictionSplitConformanceTests
         {
             IvpContactPoint contact = pair.Contacts[0];
             IvpContactRecord.Build(contact, Revalidate.First(contact), Revalidate.Second(contact), 0d);
+
+            // Inside its feature and its resting gap, or the pass drops it (`record+0x76`, `block[0x47]`); the fabricated geometry
+            // measures outside and far.
+            contact.Record!.Outside = false;
+            contact.Gap = IvpCollisionTolerance.ContactGap;
         }
 
         new IvpNormalFrictionController(system).Advance(new IvpSimulationUnit(), [], psiStep: 0.5f);

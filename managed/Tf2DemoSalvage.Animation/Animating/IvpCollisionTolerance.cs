@@ -48,6 +48,9 @@ public static class IvpCollisionTolerance
     /// <summary><c>DAT_1800fd580</c>: <c>0.3f</c> widened, added to <c>block[0x43]</c> for <c>block[0x44]</c>.</summary>
     private const double ParallelEdgeShare = 0.3f;
 
+    /// <summary><c>DAT_1800eb150</c>: <c>(double)0.01f</c>, <c>block[0x46]</c>'s share of <c>d</c>.</summary>
+    private const double FrontShare = 0.01f;
+
     /// <summary><c>DAT_1800fdf80</c>: <c>2.5</c>, <c>block[0x47]</c>'s share of <c>d</c> over <c>block[0x43]</c>.</summary>
     private const double RestingContactShare = 2.5d;
 
@@ -110,6 +113,10 @@ public static class IvpCollisionTolerance
     /// </remarks>
     public static readonly float RestingContactGap = Settled.RestingContactGapMetres;
 
+    /// <summary><c>block[0x46]</c>, <c>DAT_18012d658</c>, in metres: <c>(float)(d · (double)0.01f)</c>, nothing added.</summary>
+    /// <remarks>The heap's filing pass moves a contact to the head once its gap passes this plus <see cref="ContactGap"/>.</remarks>
+    public static readonly float FrontGap = Settled.FrontGapMetres;
+
     /// <summary><c>block[0x48]</c>, <c>DAT_18012d660</c>, in metres: <c>(float)(d·20 + (double)block[0x43])</c>, which is <c>22·d</c>.</summary>
     /// <remarks>The gap past which <see cref="IvpContactPoint.Estimate"/> gives a record no estimate.</remarks>
     public static readonly float EstimateGap = Settled.EstimateLimitMetres;
@@ -164,7 +171,8 @@ public static class IvpCollisionTolerance
         float EdgeTargetScaleMetres,
         float DoubledToleranceMetres,
         float EstimateLimitMetres,
-        float RestingContactGapMetres)
+        float RestingContactGapMetres,
+        float FrontGapMetres)
     {
         /// <summary>One run of <c>FUN_180098fd0</c> on a tolerance.</summary>
         /// <param name="tolerance">The tolerance <c>d</c>, in metres, as the double the routine takes.</param>
@@ -188,7 +196,8 @@ public static class IvpCollisionTolerance
                 margin * EdgeTargetShare,
                 (float)(tolerance + tolerance),
                 (float)((tolerance * EstimateShare) + contactGap),
-                (float)((tolerance * RestingContactShare) + contactGap));
+                (float)((tolerance * RestingContactShare) + contactGap),
+                (float)(tolerance * FrontShare));
         }
     }
 }

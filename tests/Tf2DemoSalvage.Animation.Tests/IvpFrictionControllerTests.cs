@@ -190,6 +190,11 @@ public sealed class IvpFrictionControllerTests
     public void Advance_TheNormalPassWithContactsLeft_KeepsTheSystemOnItsCores()
     {
         (IvpFrictionSystem system, IvpContactPoint contact) = Linked();
+
+        // Inside its feature and its resting gap, or the pass drops it (`record+0x76`, `block[0x47]`); the fabricated geometry
+        // measures outside and far.
+        contact.Record!.Outside = false;
+        contact.Gap = IvpCollisionTolerance.ContactGap;
         IvpSimulationUnit unit = new();
         IvpRigidBody core = contact.FirstObject.Core!;
         unit.Cores.Add(core);
