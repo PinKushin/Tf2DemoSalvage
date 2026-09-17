@@ -8258,6 +8258,33 @@ both. The first divergence is now the impact at tick 20: z 24.21 against 23.96, 
 against (−7.92, 7.87). *Not established*: which of the impact's inputs differs. vphysics' spin is read in degrees about the
 object's axes and the port's in radians about the core's, so that column does not compare yet.
 
+**Closed the same day by reading core memory on both sides per tick** — position `+0x150`, the time last stepped `+0x1d0`, the
+velocities, the spin as `GetVelocity` (`FUN_18001c1f0`) reports it, and each side's friction contacts — beside the port's pair
+events (`IvpSimulation.PairFired`, `Examined`). Every step below was found by the first column that disagreed:
+
+1. **The impact was 0.82 ms late.** The core's stepped time at impact read 0.311016 in vphysics and 0.311837 in the port; the
+   port's pair queued an edge event at the PSI's start and was rechecked at `now + (length − ε)/bound`. The vertex-face edge
+   target is `−(0.1·d · face core+0x54)`, and **`IvpRangeManager.Bounds` handed every search `+0x54` and `+0x80` as zero** — fields
+   the range slots do not read. With `+0x54 = 0.5f / +0x4` (`FUN_180076f80`, run by `ConstructCore` after the radius) the impact,
+   the flight after it and the spin match vphysics to the hundredth.
+2. **A contact at `block[0x47]` stayed filed.** vphysics dropped the crate's second contact at gap 0.0334; the port pushed it.
+   The lone contact's tail and the heap's filing pass drop it (`FUN_180084490`, `FUN_1800a9bf0`, read again in the disassembly;
+   the move-to-head test reads each object's **friction core** `+0xf0`, which the heap replays had given the binary as zeroed
+   cores). *Parked, not merged — see 4.*
+3. **A search mid-PSI measured the body where its PSI had begun.** With the drop in, the crate's second corner went through the
+   pallet: after an edge event the re-minimize moved to the other corner, the search read it 3 mm lower than it was, the edge test
+   fired at the start and the recheck fell past the PSI. `IvpSimulation.Searchable` had built slot 0 of the motion cache from the
+   core's matrix; vphysics' slot 0 is the object's cache matrix at now (`FUN_180094680`'s `+0x40`). Fixed, and tick 26 then collides
+   as vphysics' does.
+4. **The drop exposes a fall-through on virtual terrain.** A cube bouncing on a displacement's hull loses its contact, its pairs
+   are filed far, the hull passes hand them back on the way down — and each leaves the exact list at once, so the cube falls
+   through. The contact the port wrongly kept had been holding it up. *Not established*: where a handed-off virtual-mesh pair goes
+   (a frozen minimize is suggested by later events with negative lengths). The drop waits on it.
+
+**Also measured:** the port has no inverse contact mass on a contact (`cp+0x60`, 0.17488 in vphysics, 0 in the port), which the
+friction cone's budget multiplies by; its writer `FUN_180083a60` is read (*The cone budget's third factor*) and not called on this
+path. And the broad-phase test fixtures gave every core the cube's radius: a 40 × 40 slab had a radius of 4.
+
 
 ### And the faces are already parsed — they are discarded one line before the physics (B306)
 
