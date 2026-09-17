@@ -8345,3 +8345,70 @@ an impressive number beside it.
 
 *Evidence class: the transform is read-from-source, from two functions in `vphysics.dll` that share no
 code; the identification of the defect is measured, with the identity transform as its control.*
+
+## A wiring bug found chasing the contact-drop fall-through, and the deeper gap it does not close
+
+`wip/b369-contact-drops` (B369, parked, unmerged) exposed
+`Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` falling through virtual terrain instead of
+resting. Tracing it with temporary instrumentation on `IvpMindistManager.Recheck`/`RecheckInvalid` and
+`IvpRecursiveMindist.HullPassed` (removed before committing, per this repo's own convention) found one
+real, fixable divergence and one deeper gap that is not.
+
+**The wiring bug, fixed.** `IvpCollisionObject::RecheckInvalid` (`FUN_180074240`) reads, quoted:
+
+```c
+void IvpCollisionObject__RecheckInvalid(longlong param_1)
+{
+  ...
+  IvpMindistMinimize__MinimizeWithoutBudget((longlong *)mindist);
+  ...
+  if ((mindist->dwFlags & 0xc000) != 0x4000) { ... revalidate ... }
+}
+```
+
+It calls `IvpMindistMinimize::MinimizeWithoutBudget` (`FUN_180095ad0`) specifically — not
+`IvpMindistMinimize::Minimize` (`FUN_180095cb0`), the routine `IvpPhysicsPipeline.Psi`'s phases 0 and 3
+use. The two are, per this project's own prior reading, "the same routine instruction for instruction
+but for `MOV [RSP+0x28], 0x14` versus `MOV [RSP+0x28], 0`" — a step budget of 20 versus none. The port's
+`IvpPhysicsPipeline.Psi` had a single shared `minimize` parameter and passed that same budgeted delegate
+into phase 2's `RecheckInvalid` closure too, so an invalid pair was being minimized with a budget the
+engine never gives it. Fixed by threading a second `recheckInvalidMinimize` parameter through
+`IvpPhysicsPipeline.Psi` → `IvpPsiEvent.RunPsi`/`Start` → `IvpSimulation.Start()`, wired to the
+already-existing `IvpSimulation.MinimizeWithoutBudget`. Pinned by
+`IvpPhysicsPipelineTests.Psi_AnInvalidMindist_IsRecheckedWithTheNoBudgetMinimizeNotThePhaseThreeOne`;
+sabotage-verified by reverting the one-line wiring and confirming exactly that test reddens, nothing
+else.
+
+**It does not close the fall-through gap.** `body.Position.Y` after the fix is `7.220574437630701` —
+bit-identical to before the fix. Re-tracing with the fix in place: the mesh's 8 child mindists (one per
+triangle beneath the opened ledge) are created correctly, cycle exact ↔ invalid in a real oscillating
+near-zero-length pattern for a while (a genuine resting-contact shape), and `RecheckInvalid` does revive
+several of them mid-fall — the wiring bug was real, just not this bug. Eventually every child's `Length`
+jumps by roughly 8 units in one PSI and its flags land at exactly `0x4000`, which
+`IvpCollisionObject::RecheckInvalid`'s own condition (`(flags & 0xc000) != 0x4000`) treats as
+permanently parked — confirmed against the quoted disassembly above, not a guess. Nothing ever revives
+it from there, because `IvpPairMindists::Refresh` (`FUN_180096680`, decompiled and read for this)
+matches an existing mindist to keep purely by a hash of the two ledge pointers — no state check — so the
+same dead object is handed back for that exact ledge pair on every later refresh rather than ever being
+discarded and rebuilt. The outer `IvpRecursiveMindist`'s own coarse pair is stuck the identical way:
+`IvpRecursiveMindist::HullPassed` (`FUN_1800b28a0`, decompiled and compared line for line against
+`IvpRecursiveMindist.HullPassed` — an exact match, not a port bug) re-minimizes the SAME fixed synapse
+features every hull pass via `MinimizeWithoutBudget`, so it never satisfies "frozen bits clear and
+length past tolerance," which is the only path that closes it back to a plain exact pair and calls
+`IvpRecursiveMindist.DeleteChildren`.
+
+**Left open, and where it actually lives.** Whether a repeated "GaveUp"/"Backside" result from
+`IvpMindistMinimize`'s solver dispatch is the ENGINE's real, permanent answer once a point's true
+closest feature has moved onto a neighboring triangle — i.e. a different sibling child mindist, not
+this one, is supposed to be carrying the contact from that point on, and the recovery this test needs
+is the outer mindist's own re-close — or whether `PhysicsVirtualMesh.Build`'s triangles are missing
+edge/neighbor topology a real `PhysicsLedge` would carry, leaving `BacksideWalk` nowhere to walk. This
+is a `IvpMindistMinimize`/`PhysicsVirtualMesh` question, not a `IvpMindistHull`/`IvpRecursiveMindist`
+one — the recursive-mindist port itself, port and reopening mechanism both, reads correct against the
+disassembly. It needs its own dedicated read of `Solver.Dispatch`'s per-feature-kind table and of what
+neighbor data `PhysicsVirtualMesh.Build` actually attaches to each triangle before any code changes.
+
+*Evidence class: the wiring bug is read-from-source (`FUN_180074240` quoted verbatim) and
+sabotage-verified; the deeper gap's boundary (recursive-mindist port correct, solver/mesh-topology
+question open) is measured by re-tracing the fixed build, not yet read from `Solver.Dispatch`'s own
+disassembly.*

@@ -92,13 +92,39 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    `CPhysicsEnvironment::Simulate`'s frame dispatch with `GetPosition` read at the clock, and air drag. **What it still lacks:**
    the mindist slot-0 call at the 5,000-pass cap, and phase 1's guarded calls and `env+0x158` list. **A gap found 2026-09-17
    on `wip/b369-contact-drops` (parked, not merged):** with the normal pass's contact drop in (`FUN_180084490`'s tail,
-   `FUN_1800a9bf0`'s filing pass), `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` falls through instead of resting. Traced
-   with `IvpSimulation.Examined`/`PairFired`: once a pair against the mesh's recursive mindist is handed off, every later hull
-   pass answers `Recursive` and the exact list stays empty (`exact=0`) through the whole bounce — one mindist reaches `Queued` at
-   2.8636s with length `-0.355` and is immediately `Frozen`, and nothing follows. Slots 7/8 (open on frozen minimize, open on a
-   virtual-face collision) are themselves marked done above, so the break is somewhere between a handed-off recursive pair and
-   its children being re-filed as exact — not identified further. *Not a regression the drop introduced*: the earlier resting
-   contact this project's own drop had been (wrongly) keeping was propping the body up over this gap the whole time.
+   `FUN_1800a9bf0`'s filing pass), `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` falls through instead of resting.
+   **One real wiring bug found and fixed the same day, but it does not close the gap**: `IvpPhysicsPipeline.Psi`'s phase-2
+   `RecheckInvalid` closure was calling the pipeline's shared budgeted `minimize` (`FUN_180095cb0`, `IvpSimulation.Minimize`)
+   on every invalid pair, where `IvpCollisionObject::RecheckInvalid` (`FUN_180074240`, read fresh from the disassembly) calls
+   specifically `IvpMindistMinimize::MinimizeWithoutBudget` (`FUN_180095ad0`) — the same routine but for one stack constant (a
+   step budget of 20 versus none). Fixed by threading a second `recheckInvalidMinimize` delegate through
+   `IvpPhysicsPipeline.Psi`/`IvpPsiEvent.Start`/`RunPsi`, wired to `IvpSimulation.MinimizeWithoutBudget` in `IvpSimulation.Start`;
+   pinned by `IvpPhysicsPipelineTests.Psi_AnInvalidMindist_IsRecheckedWithTheNoBudgetMinimizeNotThePhaseThreeOne` (sabotage-verified:
+   reverting the wiring reddens exactly that test). **The broad-phase test's own numbers are unchanged after the fix**
+   (`body.Position.Y` still lands at `7.220574437630701`, bit-identical) — so the fall-through is not a delegate mix-up.
+   Re-traced with a temporary `IvpMindistManager.Recheck`/`RecheckInvalid`/`IvpRecursiveMindist.HullPassed` instrumentation
+   (removed before committing, per this file's own convention): the mesh's 8 child mindists (one per triangle under the opened
+   ledge) DO get created, DO cycle exact ↔ invalid correctly for a while (a real oscillating near-zero-length resting pattern),
+   and `RecheckInvalid` DOES revive several of them mid-fall. Eventually every child in a PSI reports a single huge jump in
+   `Length` (observed `-7.84` to `-7.95` in different runs) and its flags settle at exactly `0x4000` — IVP's "genuinely parked,
+   `RecheckInvalid` refuses to revalidate" state (`(flags & 0xc000) != 0x4000` is the only reviving condition, confirmed against
+   `FUN_180074240`'s own instructions) — and **never comes back**, because `IvpPairMindists.Refresh`'s own "Keep" step (confirmed
+   against `FUN_180096680`'s disassembly: a hash match purely on the two ledge pointers, no state check at all) reuses the SAME
+   dead mindist object for that ledge pair forever rather than ever discarding and rebuilding it. The outer
+   `IvpRecursiveMindist`'s own coarse pair gets stuck in the identical way (its `HullPassed`'s `recheck(this)` re-minimizes the
+   SAME fixed synapse features every hull pass — confirmed byte-for-byte against `FUN_1800b28a0`, so this is not a port bug
+   either), which is why it never satisfies the "frozen bits clear AND length past tolerance" test that would let it close back
+   to a plain exact pair and `DeleteChildren()`. **Not identified further**: whether `IvpMindistMinimize`'s solver dispatch
+   (`Solver.Dispatch`/`BacksideWalk`) is supposed to eventually re-settle a point that has moved past a single-triangle ledge's
+   own boundary — i.e. whether a "GaveUp"/repeated "Backside" result for a point now closest to a NEIGHBORING triangle (a
+   different child mindist, not this one) is the engine's actual, permanent answer for that one child (in which case nothing here
+   is broken, and the recovery this test needs happens through the outer mindist's own re-close, which is the piece that still
+   needs reading), or whether the virtual mesh's triangles are missing edge/neighbor topology that a real `PhysicsLedge` would
+   carry, starving `BacksideWalk` of anywhere to walk to. That is squarely a `IvpMindistMinimize`/`PhysicsVirtualMesh` question,
+   not a `IvpRecursiveMindist`/`IvpMindistHull` one, and needs its own dedicated disassembly read of `Solver.Dispatch`'s
+   per-feature-kind table and confirmation of what neighbor data `PhysicsVirtualMesh.Build` actually attaches to each triangle,
+   before touching any code. *Not a regression the drop introduced*: the earlier resting contact this project's own drop had
+   been (wrongly) keeping was propping the body up over this gap the whole time.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
