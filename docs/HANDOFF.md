@@ -202,14 +202,20 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    not a port bug either"* above) — so BOTH the child's and the parent's `0x4000` states are now independently confirmed
    correct against the disassembly, in isolation. **That means the divergence is not inside any function read so far** —
    `HullPassed`, `Recheck`/`RecheckEveryPsi`, `RecheckInvalid`, `BecomeExact`/`Freeze`, and now the parent's own `HullPassed`
-   condition are all individually faithful ports. **The remaining candidate is a mechanism entirely outside the mindist
-   machinery — and it must be genuinely missing, not merely unmerged**: the contact-drop commit (`ad4c08ba`) is already an
-   ancestor of every commit on this branch, so it has been ACTIVE in every trace and every failing run this whole session.
-   The candidate is not "does merging the friction work change anything" (it already applies) but **what persistent
-   tracking real IVP's friction/contact system does, beyond what a mindist's own state carries, that would let a resting
-   contact survive its mindist going permanently `0x4000`-parked** — i.e. read `IvpFrictionSystem`'s own per-contact state
-   machine (not the mindist's) for anything that independently re-triggers a gap/impact check on a tracked contact once its
-   owning mindist stops updating it, which is the one area this session did not touch. *Not a regression the drop introduced*: the earlier resting contact
+   condition are all individually faithful ports.
+   **The `IvpFrictionSystem` candidate named just above was a wrong turn — corrected the same day.** Read
+   `IvpVirtualMeshSurfaceManager.LedgesWithin` (the spatial query `IvpPairMindists.Side` calls): it is a genuine fresh
+   `Tree.TrianglesInSphere` query against the CURRENT `center`/`radius` every call, not cached, so a body returning to the
+   same x/z correctly gets the same candidate triangle indices back — `Keep`'s ledge-identity reuse of the old dead child is
+   the RIGHT answer given a correct, un-cached query, not a symptom of a caching bug. And `IvpFrictionSystem` itself never
+   does spatial detection at all — it only solves and files contacts a mindist already handed it via `BecomeExact`/`Examine`;
+   it has no mechanism to invent a new contact on its own, so it cannot be where a missed second impact gets recovered.
+   **The genuinely untouched remaining area is `IvpPairWatcher`/`IvpPairCreator`** (in the HANDOFF "Done" table above, ported
+   and probe-verified for the ORIGINAL pair-creation path, but never checked for what — if anything — periodically tears
+   down and rebuilds a pair wholesale, independent of the recursive mindist's own internal state). If the broad-phase watcher
+   ever destroys and recreates the entire pair (not just its children) on some schedule, that would explain how real IVP
+   avoids this exact trap without any of the functions read so far needing to differ from ours. This needs a fresh read,
+   not a retrace of anything already covered. *Not a regression the drop introduced*: the earlier resting contact
    this project's own drop had been (wrongly) keeping was propping the body up over
    this gap the whole time.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
