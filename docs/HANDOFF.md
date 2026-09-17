@@ -155,11 +155,31 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    core's `HasOffset58` is set, and `IvpRigidBody.HasOffset58`'s own doc comment (read this session, `IvpIntegrator.cs:669`)
    says outright **"no ragdoll element sets it"** and names it a constrained/rotated-core flag with an unread writer. This
    test's cube and ground are plain unconstrained rigid bodies — neither ever gets `HasOffset58`, so this mindist never enters
-   `_rechecked` and `RecheckEveryPsi` never touches it. **The bounded next step**: find what call site writes to a mindist's
-   flags on an `IvpCollisionObject`'s own per-step invalidation of its `Synapses`/`InvalidSynapses` lists (both already present
-   on `IvpCollisionObject`, in this file, unread this session) — that is the only place left that could touch a dormant
-   `Invalid`-listed mindist between hull passes without going through any of the three functions already cleared this session
-   (`HullPassed`, `Recheck`/`RecheckEveryPsi`, `RecheckInvalid`). *Not a regression the drop introduced*: the earlier resting contact
+   `_rechecked` and `RecheckEveryPsi` never touches it.
+   **Read `RecheckInvalid` (`FUN_180074240`) itself in full, finally, and it changes the question.** It does NOT skip a
+   `0x4000` mindist: it calls `minimize(mindist)` unconditionally on every entry of `InvalidSynapses`, every PSI, and only
+   checks the flags AFTER to decide whether to revalidate. So the solver genuinely gets a fresh attempt every PSI — the
+   question is not "is it ever retried", it is **"why does the retry keep producing the same answer".** Read
+   `IvpMindistMinimize.Minimize` (`FUN_180095cb0`/`FUN_180095ad0`, both bodies, in full): on `Backside`, it calls
+   `BacksideWalk` and **stores the walked result back onto the mindist's own synapse** (`mindist.SetSynapse(behind, new
+   IvpSynapse(walked, IvpFeatureKind.Triangle))`) before retrying, up to twice, then sets `flags = 0x4000` and stops. Combined
+   with the already-confirmed fact that `BacksideWalk` can never cross out of an isolated single-triangle ledge
+   (no neighbor topology, by design, matching the shipped engine) — **every subsequent PSI's retry starts from the same
+   stuck synapse, walks the same three uncrossable edges, and lands on the same `0x4000` again, forever, regardless of how
+   far the body has moved and come back.** This is now a complete, disassembly-verified mechanism, not a further-unknown.
+   **The real open question is no longer "what call site is missing" — it's whether this is genuine shipped-IVP behavior for
+   a drop that lands EXACTLY on a shared triangle seam** (this fixture drops the cube at x=25.4, z=25.4, the flat cell's exact
+   centre, deliberately straddling the diagonal between its two triangles) **or an actual port divergence.** `IvpPairMindists`
+   only replaces a child when its ledge no longer appears in a fresh spatial query — a vertical drop returns to the same x/z
+   and re-queries the same seam every time, so `Keep`'s ledge-identity match (already confirmed correct against
+   `FUN_180096680`) would reuse the same exhausted child even in the shipped engine. **The single decisive experiment that
+   needs no more disassembly**: rerun this same fixture with the drop point moved off the exact seam (e.g. x=20, z=25.4, well
+   inside one triangle rather than straddling two) and see whether it rests correctly. If it does, the fixture itself — not
+   the port — is what needs fixing (test a realistic drop point, not a pathological one); if it still falls through, the
+   divergence is real and specifically in how the recursive parent should be prompted to re-open (`DeleteChildren`+refile from
+   scratch) rather than keep refreshing the same doomed child, which is squarely `IvpRecursiveMindist.HullPassed`'s own
+   close-or-refresh branching (already read and confirmed byte-for-byte — so if the experiment says this path is wrong, the
+   divergence would be in a THIRD function not yet found, not in anything read so far). *Not a regression the drop introduced*: the earlier resting contact
    this project's own drop had been (wrongly) keeping was propping the body up over
    this gap the whole time.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
