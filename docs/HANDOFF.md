@@ -292,6 +292,33 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    way `env+0x58` was, with no live run needed; (3) only if (2) says yes, solve the attach-window problem (a
    `Stopwatch`-spin busy-wait behind an opt-in env var is one option that avoids the literal banned APIs) and get the
    trace this file has wanted since the divergence was first confirmed real.
+   **2026-09-17, a concrete candidate found via the xref sweep this file asked for**: `search_instructions` for
+   `MOV ... [reg+0x162]` across the whole binary (not the field-access tools, which needed parameter names this session
+   never got right — plain instruction search worked immediately) turned up exactly four writers. Two are the environment
+   constructor and destructor (zero-init and teardown only, not a populate site — already expected). The third,
+   `FUN_180089100`, is a REMOVAL: given a core pointer, it searches `env+0x168` (the array `env+0x162` counts) for that
+   pointer by identity, removes it, and clears bit `0x4` on the core's own flags word. **The fourth is the real find**:
+   `FUN_1800737d0`, called from NOWHERE statically (`get_function_callers` returns none — it is only ever reached through
+   a function pointer, exactly matching this file's own unresolved note that `env+0x158`'s list "calls each entry's own
+   slot 0"). It takes a COLLISION OBJECT pointer (confirmed: it reads a core at `param+0xe8`, this project's own established
+   offset for `IvpCollisionObject.Core`) and does, in order: **if the core's flags have bit `0x4` set, calls the already-read
+   `FUN_180089100` to remove it from the `env+0x162` list**; then, if a state byte at `core+1` is under 8, walks the core's
+   OWN contact list (`core+0x38`, count `core+0x35` — this project's `IvpCollisionObject.ContactPoints`) and for each
+   contact calls **`IvpFrictionSystem::DropContact`, already ported as this branch's `ad4c08ba`** — but then, **if the
+   OTHER object in that contact now has zero contacts left (`*(short*)(other+0x7a) == 0`), calls that OTHER OBJECT's own
+   vtable slot `+0x38` with argument `1` — a call this port has never made, anywhere.** The rest of the function stamps
+   several float snapshots and a "now − 20.0" timestamp, reading as sleep/quiet-timer bookkeeping unrelated to the call
+   in question. **This is now the leading candidate**: the contact-drop mechanism this branch already ports correctly
+   removes a stale contact, but real IVP's companion step — telling the OTHER object something when it is left with zero
+   contacts — has no equivalent anywhere in this port. If that vtable slot is what forces a fresh mindist search (an
+   `IvpCollisionObject`-level "your synapses may be stale, recheck" signal, distinct from anything already read this
+   session), its absence would explain exactly this symptom: the drop removes the old contact correctly, and nothing
+   ever tells the body's object it needs to look again. **Not yet confirmed**: what vtable slot `+0x38` actually does
+   (needs a decompile of `IvpCollisionObject`'s vtable at that slot — not yet read this session), and what registers a
+   collision object into the `env+0x158` list in the first place (still the one open population-site question, now
+   narrowed to "whatever calls this exact function's caller," not the whole list mechanism blind). Read slot `+0x38`
+   before writing any code — a wrong guess about what it does would be exactly the invented-mechanism mistake this
+   investigation has repeatedly avoided.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
