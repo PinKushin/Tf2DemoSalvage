@@ -236,6 +236,13 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    not another read of already-covered functions. *Not a regression the drop introduced*: the earlier resting contact
    this project's own drop had been (wrongly) keeping was propping the body up over
    this gap the whole time.
+   **Run 2026-09-17 (`vphysics-virtual-terrain-drop`, `tools/Tf2DemoSalvage.Probe/Probes/VphysicsVirtualTerrainDropProbe.cs`):
+   the same `DisplacementCollisionTree`/field geometry fed to the shipped `vphysics.dll`'s own `IPhysicsCollision::CreateVirtualMesh`
+   (its real API, `public/vphysics/virtualmesh.h`), same half-cube, same undamped free fall — the REAL ENGINE RESTS, bouncing once
+   around t≈1.1s (v flips from −397.6 to +60.0 in/s), a second smaller correction near t≈1.4–1.6s, settled by t≈1.8s at
+   Z≈157.95 in against an expected 157.48 (the port's `-4d` in its own metric scale), and stays parked there through t=3.0s.
+   **The divergence is real, not a shipped-IVP limitation this fixture happens to trigger** — the next step is the disassembly
+   trace this file already names, not another source read.**
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
