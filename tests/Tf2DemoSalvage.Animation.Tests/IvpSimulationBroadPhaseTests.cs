@@ -264,7 +264,7 @@ public sealed class IvpSimulationBroadPhaseTests
     [Test]
     public void Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt()
     {
-        IvpSimulation simulation = new(Environment(), (0f, 10f, 0f), () => 0f);
+        IvpSimulation simulation = new(Environment(friction: 0.8d, elasticity: 0.25d), (0f, 10f, 0f), () => 0f);
         IvpRigidBody body = Body((25.4d, -10d, 25.4d));
         IvpRigidBody ground = Body((0d, 0d, 0d));
         ground.Immovable = true;
@@ -437,14 +437,24 @@ public sealed class IvpSimulationBroadPhaseTests
             Ledges = IvpTestCube.Ledges(Half),
         };
 
-    private static IvpImpactEnvironment Environment() =>
+    private static IvpImpactEnvironment Environment() => Environment(friction: 0d, elasticity: 0d);
+
+    /// <remarks>
+    /// Valve's own "default" surface (scripts/surfaceproperties.txt, confirmed live against the shipped vphysics.dll
+    /// by `vphysics-materials parse`) is friction 0.8, elasticity 0.25 - not every collision's frictionless, perfectly
+    /// inelastic pair here. Kept as an explicit override rather than <see cref="Environment()"/>'s own default: the
+    /// other tests in this file were authored and tuned against 0/0, and forcing the real values onto all of them at
+    /// once surfaces a second, separate divergence (a friction/damping instability, B369) that needs its own fix
+    /// rather than riding along with this one.
+    /// </remarks>
+    private static IvpImpactEnvironment Environment(double friction, double elasticity) =>
         new()
         {
             InverseStep = 66d,
             Step = 1d / 66d,
             Limits = new IvpAnomalyLimits(2000f, 6, 3600f, 250, 1f, 1e30f),
             Anomalies = new VphysicsAnomalyManager(new IvpImpactReplay.FixedAnswer(answer: false)),
-            Materials = new IvpReplayMaterials(new IvpReplayMaterial(0d, 0d, HasSecondFriction: false), 0d, 0d),
+            Materials = new IvpReplayMaterials(new IvpReplayMaterial(0d, 0d, HasSecondFriction: false), friction, elasticity),
             RestDelay = 5f,
             RestCheckCountdown = 15,
         };
