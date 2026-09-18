@@ -26989,6 +26989,16 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B409 OPEN 2026-09-18: gibs are never simulated — they hold in the air where the player died
+
+**The owner, watching `cp_process_f12`:** *"the gibs dont actually ever have physics take over it looks like, so theres just a
+vauguely player shaped gib models being spawned, and just holding in the air wherever the player died"* — with an F5 capture
+(`shot-20260918-180007-650.png`): a soldier's helmet, head, torso, hand and legs posed as the body stood, in mid-air. The same
+thing was seen at tick 79734 earlier and set aside as "pre-existing, separate" — it is this. **The engine** spawns each piece as a
+client-side physics prop — `C_TFPlayer::CreatePlayerGibs` into `CreateGibsFromList` — thrown with the death's velocity;
+`RagdollProps.Gibs` draws them posed and nothing puts them into the IVP world. *Not established*: the SDK's exact velocity and
+angular impulse for each piece, and whether a gib collides with corpses (one environment says it should).
+
 ### B408 FIXED 2026-09-18: the pair events sat in a queue of absolute float times, and 387 seconds in one fired forever
 
 **The owner, playing `cp_process_f12` from a seek to tick 26578:** *"even tried to play through and its hung now"*. The viewer held
