@@ -36,6 +36,81 @@ public static class IvpMapWorld
         IReadOnlyList<IvpCollisionObject> Props,
         IReadOnlyList<IvpCollisionObject> BrushEntities);
 
+    /// <summary>A map's collide as read from its lumps and its props' models — read once, loaded into as many worlds as need it.</summary>
+    /// <param name="World">The world model.</param>
+    /// <param name="BrushEntities">Every other brush model.</param>
+    /// <param name="Origins">Each brush model's entity origin, by model index.</param>
+    /// <param name="Terrain">Each displacement's tree and flag, or null when the world carries no virtual terrain.</param>
+    /// <param name="Hulls">Each displacement's <c>LUMP_PHYSDISP</c> blob.</param>
+    /// <param name="Props">The static props, in lump order.</param>
+    /// <param name="Collides">Each prop model's first solid, or null when it has none.</param>
+    public sealed record Collide(
+        IReadOnlyList<MapPhysicsModel> World,
+        IReadOnlyList<MapPhysicsModel> BrushEntities,
+        IReadOnlyDictionary<int, System.Numerics.Vector3> Origins,
+        IReadOnlyList<(DisplacementCollisionTree Tree, bool NoPhysics)?>? Terrain,
+        IReadOnlyList<byte[]?> Hulls,
+        IReadOnlyList<BspStaticProp> Props,
+        IReadOnlyDictionary<string, IvpStaticPropCollide?> Collides);
+
+    /// <summary>Reads a map's collide — the lumps, the displacements and each static prop's model.</summary>
+    /// <param name="map">The map's bytes.</param>
+    /// <param name="read">Reads a game file, the map's pakfile first; null when absent.</param>
+    /// <param name="log">Where a lump or model that will not read is reported.</param>
+    /// <returns>What <see cref="Load(IvpRagdollWorld, Collide)"/> builds a world from.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidDataException">The map's headers or displacement lumps are malformed.</exception>
+    public static Collide Parse(ReadOnlyMemory<byte> map, Func<string, byte[]?> read, ILogger log)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        ArgumentNullException.ThrowIfNull(log);
+
+        BspHeader header = BspHeader.Parse(map.Span);
+        IReadOnlyList<MapPhysicsModel> models = BspPhysicsCollision.Read(BspLumpData.Read(map, header.Lump(PhysCollideLump)));
+        MapPhysicsModel[] worldModel = [.. models.Where(model => model.ModelIndex == 0)];
+        bool terrain = worldModel.Length > 0 && MapSurfaceTable.Parse(worldModel[0].Text).HasVirtualTerrain;
+        IReadOnlyList<BspStaticProp> props = BspStaticProps.Read(map);
+        Dictionary<string, IvpStaticPropCollide?> collides = [];
+
+        foreach (BspStaticProp prop in props)
+        {
+            if (!collides.ContainsKey(prop.Model))
+            {
+                collides[prop.Model] = FirstSolid(prop.Model, read, log);
+            }
+        }
+
+        return new Collide(
+            worldModel,
+            [.. models.Where(model => model.ModelIndex != 0)],
+            MapLevel.BrushModelOrigins(BspEntities.ReadFrom(map)),
+            terrain ? Displacements(map) : null,
+            terrain ? BspPhysicsDisplacements.Read(BspLumpData.Read(map, header.Lump(PhysDispLump)), BspTerrain.Create(map).Count) : [],
+            props,
+            collides);
+    }
+
+    /// <summary>Loads a read collide into a world, in the order <c>PhysicsLevelInit</c> builds it.</summary>
+    /// <param name="world">The world.</param>
+    /// <param name="collide">The map's collide, from <see cref="Parse"/>.</param>
+    /// <returns>The objects of each kind.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static Objects Load(IvpRagdollWorld world, Collide collide)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(collide);
+
+        IReadOnlyList<IvpCollisionObject> worldObjects = world.AddMap(collide.World, collide.Origins);
+        IReadOnlyList<IvpCollisionObject> terrain = collide.Terrain is { } displacements
+            ? world.AddVirtualTerrain(displacements, collide.Hulls)
+            : [];
+        IReadOnlyList<IvpCollisionObject> props = world.AddStaticProps(
+            collide.Props, model => collide.Collides.TryGetValue(model, out IvpStaticPropCollide? found) ? found : null);
+        IReadOnlyList<IvpCollisionObject> brushEntities = world.AddMap(collide.BrushEntities, collide.Origins);
+
+        return new Objects(worldObjects, terrain, props, brushEntities);
+    }
+
     /// <summary>Loads a map into a world.</summary>
     /// <param name="world">The world.</param>
     /// <param name="map">The map's bytes.</param>
@@ -44,31 +119,8 @@ public static class IvpMapWorld
     /// <returns>The objects of each kind.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's headers or displacement lumps are malformed.</exception>
-    public static Objects Load(IvpRagdollWorld world, ReadOnlyMemory<byte> map, Func<string, byte[]?> read, ILogger log)
-    {
-        ArgumentNullException.ThrowIfNull(world);
-        ArgumentNullException.ThrowIfNull(read);
-        ArgumentNullException.ThrowIfNull(log);
-
-        BspHeader header = BspHeader.Parse(map.Span);
-        IReadOnlyList<MapPhysicsModel> models = BspPhysicsCollision.Read(BspLumpData.Read(map, header.Lump(PhysCollideLump)));
-        Dictionary<int, System.Numerics.Vector3> origins = MapLevel.BrushModelOrigins(BspEntities.ReadFrom(map));
-
-        MapPhysicsModel[] worldModel = [.. models.Where(model => model.ModelIndex == 0)];
-        IReadOnlyList<IvpCollisionObject> worldObjects = world.AddMap(worldModel, origins);
-        IReadOnlyList<IvpCollisionObject> terrain = [];
-
-        if (worldModel.Length > 0 && MapSurfaceTable.Parse(worldModel[0].Text).HasVirtualTerrain)
-        {
-            terrain = world.AddVirtualTerrain(Displacements(map), BspPhysicsDisplacements.Read(
-                BspLumpData.Read(map, header.Lump(PhysDispLump)), BspTerrain.Create(map).Count));
-        }
-
-        IReadOnlyList<IvpCollisionObject> props = world.AddStaticProps(BspStaticProps.Read(map), model => FirstSolid(model, read, log));
-        IReadOnlyList<IvpCollisionObject> brushEntities = world.AddMap([.. models.Where(model => model.ModelIndex != 0)], origins);
-
-        return new Objects(worldObjects, terrain, props, brushEntities);
-    }
+    public static Objects Load(IvpRagdollWorld world, ReadOnlyMemory<byte> map, Func<string, byte[]?> read, ILogger log) =>
+        Load(world, Parse(map, read, log));
 
     /// <summary>What builds a corpse environment for a map — a fresh world with the map's collide loaded — at any tick interval.</summary>
     /// <param name="map">The map's bytes.</param>
@@ -88,10 +140,15 @@ public static class IvpMapWorld
 
         PakFile pak = PakFile.ReadFrom(map);
 
+        // **Read once, at level init, built per world**: a backward seek rebuilds the environment (D179), and reading the lumps and
+        // every prop's model was 1,207 ms of a 1,298 ms rebuild on cp_process_f12. The engine reads the collide at `PhysicsLevelInit`,
+        // so the read belongs to the map load and a seek pays only for making the objects, which are the environment's own.
+        Collide collide = Parse(map, file => pak.ReadFile(file) ?? game?.Archives.Read(file), log);
+
         return interval =>
         {
             IvpRagdollWorld world = new(interval, new System.Numerics.Vector3(0f, 0f, -PhysicsEnvironment.DefaultGravity), surfaces);
-            Load(world, map, file => pak.ReadFile(file) ?? game?.Archives.Read(file), log);
+            Load(world, collide);
             return world;
         };
     }

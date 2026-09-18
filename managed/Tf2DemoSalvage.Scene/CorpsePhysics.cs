@@ -90,6 +90,9 @@ public sealed class CorpsePhysics
     /// <summary>The same, in seconds.</summary>
     public double SteppingSeconds => SteppingTicks / (double)System.Diagnostics.Stopwatch.Frequency;
 
+    /// <summary>Stopwatch ticks spent rebuilding — creating the world with its map and seeding the corpses born at its first tick.</summary>
+    public long BuildingTicks { get; private set; }
+
     /// <summary>Where the simulation has put each corpse's root body, by entity index — carried out of the solver (B243).</summary>
     public IReadOnlyDictionary<int, Vector3> Roots => _roots;
 
@@ -163,12 +166,15 @@ public sealed class CorpsePhysics
 
         if (unreachable)
         {
+            long buildingFrom = System.Diagnostics.Stopwatch.GetTimestamp();
+
             _world = CreateWorld?.Invoke(interval) ??
                 new IvpRagdollWorld(interval, new Vector3(0f, 0f, -PhysicsEnvironment.DefaultGravity), Surfaces);
             _touched.Clear();
             _worldTick = earliest;
             Rebuilds++;
             AddBornAt(corpses, births, _worldTick, tick, interval, seconds, seeded);
+            BuildingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - buildingFrom;
         }
 
         IvpRagdollWorld world = _world!;

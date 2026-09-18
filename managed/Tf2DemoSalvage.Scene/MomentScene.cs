@@ -531,10 +531,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         if (_models.Corpses.Count > 0 && _render.IsEnabled(LogLevel.Debug))
         {
             _render.LogDebug(
-                "corpses stepped {Steps} ticks in {Seconds} ms, {Rebuilds} rebuilds, {Impacts} impacts, {Mindists} mindists",
+                "corpses stepped {Steps} ticks in {Seconds} ms, {Rebuilds} rebuilds in {Building} ms, {Impacts} impacts, {Mindists} mindists",
                 _models.Corpses.Steps,
                 (_models.Corpses.SteppingSeconds * 1000d).ToString("0", CultureInfo.InvariantCulture),
                 _models.Corpses.Rebuilds,
+                (_models.Corpses.BuildingTicks * 1000d / System.Diagnostics.Stopwatch.Frequency).ToString("0", CultureInfo.InvariantCulture),
                 _models.Corpses.Physics?.Simulation.Environment.Impacts ?? 0,
                 _models.Corpses.Physics?.Simulation.Mindists ?? 0);
 

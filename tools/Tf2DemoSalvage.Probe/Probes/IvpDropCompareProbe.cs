@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// and through the invented solver (<see cref="RagdollSimulation"/>, <c>IvpEnvironment</c>) — side by side (B369, D172).
 /// </summary>
 /// <remarks>
-/// **The gate before the switchover.** Both run their production paths: the ported world loaded by <see cref="IvpMapWorld.Load"/>, the
+/// **The gate before the switchover.** Both run their production paths: the ported world loaded by <see cref="IvpMapWorld.Load(IvpRagdollWorld, ReadOnlyMemory{byte}, Func{string, byte[]}, Microsoft.Extensions.Logging.ILogger)"/>, the
 /// old one by <see cref="MapLevel.Read"/> and <see cref="MapPropCollision.Add"/>, each from the same start pose, force and step. The
 /// same map and model by default, `cp_process_f12` and the scout — the parity reference (`docs/memory/the-f12-demo-is-the-parity-reference.md`).
 /// <code>
