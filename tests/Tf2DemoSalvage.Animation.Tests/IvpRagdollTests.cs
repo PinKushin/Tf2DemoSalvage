@@ -127,7 +127,7 @@ public sealed class IvpRagdollTests
 
     private const float Tolerance = 1e-4f;
 
-    /// <summary>A body's IVP velocity, read back into Source in/s the same way <see cref="IvpTransform.SourcePosition"/> reads a
+    /// <summary>A body's IVP velocity, read back into Source in/s the same way <see cref="IvpTransform.SourcePosition(float, float, float)"/> reads a
     /// position — valid because that map is linear (axes and a uniform scale, no translation), so it carries a velocity exactly
     /// as it carries a point.</summary>
     private static Vector3 SourceVelocity(IvpRigidBody body)

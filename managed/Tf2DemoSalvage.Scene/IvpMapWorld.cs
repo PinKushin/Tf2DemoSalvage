@@ -143,7 +143,7 @@ public static class IvpMapWorld
         // **Read once, at level init, built per world**: a backward seek rebuilds the environment (D179), and reading the lumps and
         // every prop's model was 1,207 ms of a 1,298 ms rebuild on cp_process_f12. The engine reads the collide at `PhysicsLevelInit`,
         // so the read belongs to the map load and a seek pays only for making the objects, which are the environment's own.
-        Collide collide = Parse(map, file => pak.ReadFile(file) ?? game?.Archives.Read(file), log);
+        Collide collide = Parse(map, file => Read(pak, game, file, log), log);
 
         return interval =>
         {
@@ -151,6 +151,24 @@ public static class IvpMapWorld
             Load(world, collide);
             return world;
         };
+    }
+
+    /// <summary>Reads a game file, the map's own pakfile first — the order the engine's search path gives them.</summary>
+    /// <remarks>
+    /// **A malformed archive entry costs one prop its collision, not the map its load**, and is reported; a missing file is the
+    /// normal case and is not.
+    /// </remarks>
+    private static byte[]? Read(PakFile pak, GameContent? game, string file, ILogger log)
+    {
+        try
+        {
+            return pak.ReadFile(file) ?? game?.Archives.Read(file);
+        }
+        catch (Exception failure) when (failure is IOException or InvalidDataException)
+        {
+            log.LogWarning(failure, "reading {File} for the map's collide", file);
+            return null;
+        }
     }
 
     /// <summary>Each displacement's tree and flag, by displacement index — through the face that names it.</summary>

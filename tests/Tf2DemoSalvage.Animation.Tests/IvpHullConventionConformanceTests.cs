@@ -8,8 +8,8 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// A collision hull's points, out of IVP's convention and into Source's (B400).
 /// </summary>
 /// <remarks>
-/// **`IvpWorldCollision.ToSource` is the inverse of `IvpTransform.Position`, and it was the forward
-/// map applied a second time.** The forward map is read out of `vphysics.dll` —
+/// **`IvpTransform.SourcePosition` is the inverse of `IvpTransform.Position`, and its predecessor
+/// (`IvpWorldCollision.ToSource`, deleted with the old solver) was the forward map applied a second time.** The forward map is read out of `vphysics.dll` —
 /// `Source (x, y, z)` becomes `IVP (x, −z, y)` (`FUN_180002cc0`, and a second confirmation in
 /// `CPhysicsEnvironment::SetGravity` at `1800150f0`, see
 /// <see cref="IvpTransformConformanceTests"/>) — so the inverse sends `IVP (x, y, z)` to
@@ -41,9 +41,9 @@ public sealed class IvpHullConventionConformanceTests
     /// Source Z negated. A dropped sign or an exchanged pair cannot land on the same triple.
     /// </remarks>
     [Test]
-    public void ToSource_AnIvpPoint_PutsZIntoYAndNegatedYIntoZ()
+    public void SourcePosition_AnIvpPoint_PutsZIntoYAndNegatedYIntoZ()
     {
-        Vector3 at = IvpWorldCollision.ToSource(new Vector3(1f, 2f, 3f));
+        Vector3 at = IvpTransform.SourcePosition(new Vector3(1f, 2f, 3f));
 
         at.X.ShouldBe(39.370079f, Tolerance);
         at.Y.ShouldBe(118.110237f, Tolerance);
@@ -53,18 +53,18 @@ public sealed class IvpHullConventionConformanceTests
     /// <remarks>
     /// **The two directions must describe one convention, not two readings of it.** This is the
     /// assertion the old code would have failed while every self-consistent measurement passed:
-    /// `ToSource` and <see cref="IvpTransform.Position"/> disagreed by a 180° rotation, and nothing
+    /// the old `ToSource` and <see cref="IvpTransform.Position"/> disagreed by a 180° rotation, and nothing
     /// that only ever used one of them could tell.
     ///
     /// The bound is `1e-3` inches because each crossing rounds once in float, at `71` inches a few
     /// millionths.
     /// </remarks>
     [Test]
-    public void ToSource_OfPosition_ReturnsTheSourcePoint()
+    public void SourcePosition_OfPosition_ReturnsTheSourcePoint()
     {
         (float X, float Y, float Z) ivp = IvpTransform.Position(13f, -29f, 71f);
 
-        Vector3 back = IvpWorldCollision.ToSource(new Vector3(ivp.X, ivp.Y, ivp.Z));
+        Vector3 back = IvpTransform.SourcePosition(new Vector3(ivp.X, ivp.Y, ivp.Z));
 
         back.X.ShouldBe(13f, Tolerance);
         back.Y.ShouldBe(-29f, Tolerance);
@@ -80,9 +80,9 @@ public sealed class IvpHullConventionConformanceTests
     /// symmetric map is another slab's place.
     /// </remarks>
     [Test]
-    public void ToSource_TheIvpZAxis_IsSourcePositiveY()
+    public void SourcePosition_TheIvpZAxis_IsSourcePositiveY()
     {
-        Vector3 across = IvpWorldCollision.ToSource(new Vector3(0f, 0f, 1f));
+        Vector3 across = IvpTransform.SourcePosition(new Vector3(0f, 0f, 1f));
 
         across.X.ShouldBe(0f, Tolerance);
         across.Y.ShouldBe(39.370079f, Tolerance);

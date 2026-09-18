@@ -693,7 +693,7 @@ public sealed class RagdollBody
 
             foreach (Vector3 point in ledge.Points)
             {
-                hull.Add(IvpWorldCollision.ToSource(point));
+                hull.Add(IvpTransform.SourcePosition(point));
             }
 
             foreach ((int a, int b, int c) in ledge.Triangles)
@@ -710,7 +710,7 @@ public sealed class RagdollBody
 
     /// <summary>A solid's mass center and hull inertia, brought across the IVP seam into this element's space.</summary>
     /// <remarks>
-    /// **The mass center moves like a hull point** — through <see cref="IvpWorldCollision.ToSource"/>, which is
+    /// **The mass center moves like a hull point** — through <see cref="IvpTransform.SourcePosition(System.Numerics.Vector3)"/>, which is
     /// `(x, z, −y)` × 39.37. **The inertia moves by its AXES** — about Source x is about IVP x, about Source y is
     /// about IVP z, about Source z is about IVP y, with no sign, since an axis and its negation have the same
     /// moment — and by the SQUARE of the unit conversion.
@@ -727,7 +727,7 @@ public sealed class RagdollBody
         float squared = IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre;
 
         return (
-            IvpWorldCollision.ToSource(mass.MassCenter),
+            IvpTransform.SourcePosition(mass.MassCenter),
             new Vector3(mass.RotationInertia.X, mass.RotationInertia.Z, mass.RotationInertia.Y) * squared);
     }
 

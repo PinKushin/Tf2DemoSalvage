@@ -8981,3 +8981,19 @@ died. *"That sounds fine, just making sure I understood."* **So the requirement 
 cost — measured at 5 s for 992 ticks on f12 — is a defect to fix, not a property of this decision.
 
 Related: D136, D146, D172.
+
+## D180 — code production does not read is dead, and goes with the tests that call it (2026-09-18)
+
+**The owner, on the old solver's map world:** *"If production doesn't read it, it's dead code and can be removed with the tests that
+call it can't it?"* I had kept `IvpWorldCollision` (the old solver's map collision), `MapPropCollision` and `Gjk` alive after the
+switch-over (D172 step 7) because a probe (`map-collision`) and a handful of tests still used them, and had turned
+`MapLevel.Physics` from a load-time build into an on-request method for them. No reason beyond the question was given; the one it
+implies is that a test or probe is not a reader — a test of code nothing runs proves nothing about the product.
+
+**The rule:** when production stops reading a component, delete it with its tests and probes. **Carry across what production still
+needs** — here `CONTENTS_SOLID`/`MASK_SOLID` (to `IvpRagdollWorld`) and the IVP-to-Source hull convention (to
+`IvpTransform.SourcePosition(Vector3)`, its B400 conformance tests retargeted) — and **port a test whose ENGINE RULE still holds**
+onto the component that now implements it (the killing blow, the twist axis and the joint anchors moved to `IvpRagdollTests`), rather
+than deleting the rule with the old code.
+
+Related: D172, D179.

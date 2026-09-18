@@ -85,45 +85,6 @@ public sealed record MapLevel(
     public DisplacementCollision Displacements { get; } =
         Terrain is { } ground ? DisplacementCollision.From(Surfaces, ground) : DisplacementCollision.Empty;
 
-    /// <summary>The map's baked physics collision, as something a corpse can land on (B58).</summary>
-    /// <remarks>
-    /// **This is the world the engine itself collides ragdolls against**, not a second
-    /// approximation of the geometry: `LUMP_PHYSCOLLIDE` is what the compiler baked and what
-    /// `CreatePolyObjectStatic` is fed at level load (`physics_shared.cpp:602-667`). It is a
-    /// different thing from <see cref="Displacements"/> and <see cref="Sweep"/>, which answer a
-    /// camera's question about brush faces.
-    ///
-    /// **Built once, at load, like the terrain beside it** — deferring it would turn the first
-    /// corpse into a parse (`docs/memory/a-lazy-cache-makes-reading-a-write.md`).
-    ///
-    /// **Empty rather than null for a map with no lump**, so a corpse falls through an unreadable
-    /// map instead of the viewer branching at every step.
-    /// </remarks>
-    public IvpWorldCollision Physics { get; init; } = new();
-
-    /// <summary>Adds this map's terrain to its physics world.</summary>
-    /// <remarks>
-    /// **Separate from <see cref="PhysicsWorld"/> because it comes from a different lump and a
-    /// different mechanism.** The brush hulls are baked; the terrain is not in
-    /// `LUMP_PHYSCOLLIDE` at all and the engine rebuilds it at load from the displacement lump —
-    /// `PhysCreateVirtualTerrain` runs only when the collision text declares a `virtualterrain`
-    /// block (`physics_shared.cpp:682`), and it feeds vphysics a triangle soup through
-    /// `CDispCollTree::GetVirtualMeshList`.
-    ///
-    /// **Built from <see cref="Displacements"/>, which already exists for the chase camera**, so
-    /// the corpse and the camera cannot disagree about where a hillside is.
-    /// </remarks>
-    private void AddTerrain()
-    {
-        foreach (DisplacementTriangle triangle in Displacements.Triangles())
-        {
-            Physics.AddTriangle(
-                new Vector3(triangle.A.X, triangle.A.Y, triangle.A.Z),
-                new Vector3(triangle.B.X, triangle.B.Y, triangle.B.Z),
-                new Vector3(triangle.C.X, triangle.C.Y, triangle.C.Z));
-        }
-    }
-
     /// <summary>How far a box may travel through this map before something solid stops it.</summary>
     /// <param name="from">Where the box's centre starts.</param>
     /// <param name="to">Where it would end unobstructed.</param>
@@ -318,100 +279,9 @@ public sealed record MapLevel(
             // **Unguarded like the surfaces and the lighting**, because a map whose vertex normals
             // will not read is malformed in the same way — and unlike the decals, nothing degrades
             // gracefully without them once something does consume them (D93).
-            BspVertexNormals.Read(bytes))
-        {
-            Physics = PhysicsWorld(bytes, assets),
-        };
-
-        // **After construction, because the terrain comes from `Displacements`**, which the record
-        // builds from its own `Surfaces` and `Terrain` and so does not exist until it does.
-        level.AddTerrain();
+            BspVertexNormals.Read(bytes));
 
         return level;
-    }
-
-    /// <summary>Turns the map's baked collision into ledges the simulation can collide with.</summary>
-    /// <remarks>
-    /// **Every brush model, not only the world.** Index 0 is the world and the rest are `func_`
-    /// brush entities — doors, platforms, the fences a corpse drapes over. They are static here
-    /// because this project does not simulate a moving door, and a corpse resting on a closed one
-    /// is right for as long as it stays closed; a corpse on a moving platform is not, and that is
-    /// written down rather than discovered later.
-    ///
-    /// **A lump that will not read costs the collision and nothing else**, which is how every other
-    /// optional lump in this reader behaves.
-    /// </remarks>
-    private static IvpWorldCollision PhysicsWorld(ReadOnlyMemory<byte> bytes, ILogger assets)
-    {
-        IvpWorldCollision world = new();
-
-        try
-        {
-            BspHeader header = BspHeader.Parse(bytes.Span);
-
-            // **Where each brush model stands**, joined the way the drawing side already joins it:
-            // an entity names its geometry `*N` and carries the `origin` that places it. Most brush
-            // entities leave it at zero — their brushes are compiled in world coordinates — and the
-            // ones that do not are exactly the doors and platforms that would otherwise land at the
-            // map origin.
-            Dictionary<int, Vector3> origins = BrushModelOrigins(BspEntities.ReadFrom(bytes));
-
-            foreach (MapPhysicsModel model in
-                BspPhysicsCollision.Read(BspLumpData.Read(bytes, header.Lump(PhysCollideLump))))
-            {
-                // **Model 0 is the world; every other entry is a brush ENTITY placed by its own
-                // origin.** `PhysCreateWorld` builds the world (`physics_shared.cpp:602-667`) and a
-                // `func_` brush gets its collide through its entity, whose `origin` key says where
-                // that geometry stands. Adding one without the offset puts a door at the map origin
-                // — geometry missing where the door is and phantom geometry where it is not.
-                //
-                // **A door is included and treated as static**, which is right while it is shut and
-                // wrong while it moves; this project does not simulate a moving brush entity, and
-                // that is stated rather than left to look deliberate.
-                Vector3 origin = origins.TryGetValue(model.ModelIndex, out Vector3 placed)
-                    ? placed
-                    : Vector3.Zero;
-
-                // **What each solid is MADE of, which decides who collides with it.** The engine
-                // sets it on every world solid it creates — `pObject->SetContents(
-                // g_SolidSetup.GetContentsMask() )` (`physics_shared.cpp:648`) — and then refuses
-                // any pair whose masks do not overlap (`game/client/physics.cpp:249`).
-                //
-                // **A solid the text does not name falls back to `CONTENTS_SOLID`**, which is what
-                // a brush is unless it says otherwise, rather than to zero — a zero would make it
-                // collide with nothing at all and delete geometry that is really there.
-                Dictionary<int, int> contents = [];
-
-                foreach ((int index, int mask) in MapSurfaceTable.Parse(model.Text).StaticSolids)
-                {
-                    contents[index] = mask;
-                }
-
-                for (int solid = 0; solid < model.Hulls.Count; solid++)
-                {
-                    int mask = contents.TryGetValue(solid, out int declared)
-                        ? declared
-                        : IvpWorldCollision.ContentsSolid;
-
-                    foreach (PhysicsLedge ledge in model.Hulls[solid])
-                    {
-                        world.Add(
-                            ledge.Points,
-                            ledge.Triangles,
-                            ledge.Center,
-                            ledge.Radius,
-                            origin,
-                            mask);
-                    }
-                }
-            }
-        }
-        catch (InvalidDataException failure)
-        {
-            assets.LogWarning(failure, "{Message}", "reading the map's physics collision");
-        }
-
-        return world;
     }
 
     /// <summary>Each brush model's placement, by submodel index.</summary>
@@ -457,7 +327,4 @@ public sealed record MapLevel(
             ? new Vector3(x, y, z)
             : null;
     }
-
-    /// <summary><c>LUMP_PHYSCOLLIDE</c>, <c>bspfile.h:310</c>.</summary>
-    private const int PhysCollideLump = 29;
 }

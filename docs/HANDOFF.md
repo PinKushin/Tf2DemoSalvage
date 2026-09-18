@@ -20,9 +20,11 @@ death. `RagdollSimulation`, `IvpEnvironment`, `IvpContact` and their tests are g
 blow's shares, the twist axis, the joint anchors) were ported onto `IvpRagdoll` in `IvpRagdollTests`. The joint-axis choice lives in
 `RagdollJointAxes`. The probe `corpse-drop` is the old `ivp-drop-compare` with the old half removed; `ivp-step-compare` is gone.
 f12 seek to tick 26578: rebuild 347 ms, 992 ticks stepped in 0.7–0.95 s, same rests as before the switch.
-**Still to do**: `MapLevel.Physics` (the old solver's `IvpWorldCollision` map world) is built at every map load and read in production
-by nothing — remove it from the load path and prune `IvpWorldCollision` to what `IvpRagdollWorld` and the `map-collision` probe use;
-then gate and merge. A drawn corpse on the new build has not been looked at.
+The old solver's map world went next, on the owner's rule that what production does not read is dead with the tests that call it:
+`IvpWorldCollision`, `MapLevel.Physics` (built at every map load, read by nothing), `MapPropCollision`, `Gjk`, the `map-collision`
+probe and their tests. `CONTENTS_SOLID`/`MASK_SOLID` live on `IvpRagdollWorld`; the hull convention is
+`IvpTransform.SourcePosition(Vector3)`, still pinned by `IvpHullConventionConformanceTests`.
+**Still to do**: gate and merge. A drawn corpse on the new build has not been looked at.
 
 **Branch `fix/b369-ivp-narrow-phase`, pushed.** The last full Animation run: 4682 total, 4681 passed, 1 skipped (the medic
 medigun bone test, skipped before this work too). Solution build: zero warnings.

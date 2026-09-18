@@ -22,6 +22,20 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// </remarks>
 public sealed class IvpRagdollWorld
 {
+    /// <summary><c>CONTENTS_SOLID</c>, what ordinary brushwork and every prop is made of — <c>public/bspflags.h:22</c>.</summary>
+    public const int ContentsSolid = 0x1;
+
+    /// <summary><c>MASK_SOLID</c> — what a RAGDOLL collides with, and the whole rule.</summary>
+    /// <remarks>
+    /// **A ragdoll uses `MASK_SOLID`**: `C_AI_BaseNPC::PhysicsSolidMaskForEntity` returns it for a ragdoll — *"This allows ragdolls
+    /// to move through npcclip brushes"* (`game/client/c_ai_basenpc.cpp:53-62`) — and the base returns it outright
+    /// (`game/shared/physics_main_shared.cpp:1107-1110`). So a corpse collides with
+    /// `CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_WINDOW | CONTENTS_MONSTER | CONTENTS_GRATE` (`public/bspflags.h:106`) and
+    /// **not** with `CONTENTS_PLAYERCLIP`. That absence is what put three corpses under `koth_harvest_final`, whose solid 1 is
+    /// playerclip alone over the whole middle of the map.
+    /// </remarks>
+    public const int MaskSolid = 0x1 | 0x4000 | 0x2 | 0x2000000 | 0x8;
+
     /// <summary>The constructor's own step, <c>env+0x108 = 1/66</c>, at which the default limits are taken.</summary>
     private const double ConstructorStep = 1d / 66d;
 
@@ -91,7 +105,7 @@ public sealed class IvpRagdollWorld
     /// <returns>Its object.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public IvpCollisionObject AddStatic(PhysicsLedgeTree surface, Vector3 origin, IIvpMaterial material) =>
-        AddStatic(surface, origin, material, IvpWorldCollision.ContentsSolid);
+        AddStatic(surface, origin, material, ContentsSolid);
 
     /// <summary>Adds a static solid made of some contents — <c>CreatePolyObjectStatic</c> then <c>SetContents</c>.</summary>
     /// <param name="surface">The solid's compact surface.</param>
@@ -139,7 +153,7 @@ public sealed class IvpRagdollWorld
                 new Vector3(prop.X, prop.Y, prop.Z),
                 AngleQuaternion(prop.Pitch, prop.Yaw, prop.Roll),
                 material,
-                IvpWorldCollision.ContentsSolid));
+                ContentsSolid));
         }
 
         return made;
@@ -195,7 +209,7 @@ public sealed class IvpRagdollWorld
             };
 
             IvpCollisionObject collisionObject = Simulation.Collide(core, mesh, material);
-            _contents[collisionObject] = IvpWorldCollision.ContentsSolid;
+            _contents[collisionObject] = ContentsSolid;
             made.Add(collisionObject);
         }
 
@@ -298,7 +312,7 @@ public sealed class IvpRagdollWorld
                     Surfaces.SetWorldMaterialIndexTable(world);
                 }
 
-                AddSolid(made, model, 0, Vector3.Zero, material, IvpWorldCollision.ContentsSolid);
+                AddSolid(made, model, 0, Vector3.Zero, material, ContentsSolid);
 
                 foreach ((int index, int contents) in table.StaticSolids)
                 {
@@ -323,7 +337,7 @@ public sealed class IvpRagdollWorld
             {
                 AddSolid(
                     made, model, solid, origin, material,
-                    declared.TryGetValue(solid, out int contents) ? contents : IvpWorldCollision.ContentsSolid);
+                    declared.TryGetValue(solid, out int contents) ? contents : ContentsSolid);
             }
         }
 
@@ -403,9 +417,9 @@ public sealed class IvpRagdollWorld
         }
 
         IvpCollisionObject other = firstPart ? second : first;
-        int contents = _contents.TryGetValue(other, out int declared) ? declared : IvpWorldCollision.ContentsSolid;
+        int contents = _contents.TryGetValue(other, out int declared) ? declared : ContentsSolid;
 
-        return (contents & IvpWorldCollision.MaskSolid) != 0;
+        return (contents & MaskSolid) != 0;
     }
 }
 
