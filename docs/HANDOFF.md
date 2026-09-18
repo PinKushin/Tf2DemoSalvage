@@ -1039,31 +1039,33 @@ back down through y=0 at t≈2.41 with no new contact, and ends at y=+7.22 (shou
   area is the most heavily cross-validated code in the project (12,000 cases, 36 sabotages, an independent re-reader, per
   findings 51's *The larger mindist is ported*). Not impossible, but the evidence points elsewhere first.
 
-**Where the trail actually runs out, and it is not a fresh discovery — it is `docs/HANDOFF.md`'s own item 4, deferred
-2026-09-14, now confirmed to be exactly what this test is hitting:** the recursive mindist's own refinement, once a coarse
-hull-level candidate is judged too coarse, has to ask the ground's surface manager for the *actual triangles* near the
-contact (`IIvpSurfaceManager.LedgesWithin` with a real `root`, not null — `IvpPairMindists.cs:110-123`'s `Side` method).
-For a displacement, that query is `IvpVirtualMeshSurfaceManager.LedgesWithin` → `DisplacementCollisionTree.TrianglesInSphere`
-(`managed/Tf2DemoSalvage.Animation/Animating/IvpVirtualMeshSurfaceManager.cs:86`). **The real engine's equivalent,
-`FUN_180025bc0`, is outside vphysics.dll** (findings 51, *The ledges a pair is built from*: `"FUN_1800261a0 — the mesh
-manager: ... a ledge → FUN_180025bc0(mesh, centre, r, ledge, list), the triangles within r"` — never disassembled, per this
-doc's own item 4, because it isn't in this binary to disassemble). **`DisplacementCollisionTree.TrianglesInSphere` is
-therefore this project's own invention, never checked against Valve's real behaviour, and it is the one load-bearing piece
-in this whole chain with no oracle.** Every other stage between the bounce and the fall-through — the drop rule, the hull
-scheduler, the mindist matching — has now been read or measured and is either proven correct or proven to be firing
-correctly. This is the one link that has not been read at all, because there was never a binary to read it from.
+**CORRECTION, same session: the paragraph that stood here claimed `FUN_180025bc0` was outside vphysics.dll and that
+`DisplacementCollisionTree.TrianglesInSphere` had "no oracle" to check it against. Both were wrong, and this whole section
+duplicated ground `docs/findings/51` had already covered, more precisely, under *A wiring bug found chasing the
+contact-drop fall-through, and the deeper gap it does not close* — that section was not read before this one was written.
+Read that section, not this correction, for the real state.** For the record: `FUN_180025bc0` decompiles cleanly out of
+`vphysics.dll` (confirmed live, this session) — it is real vphysics code that makes one virtual call out to the engine's
+own `AABBTree_BuildTreeTrisInSphere_r`, and `DisplacementCollisionTree`/`TrianglesInSphere` is an already-ported, already
+sabotage-tested `CDispCollTree` (findings 51, *The virtual mesh's cache entry* and *The whole map in the ported driver*) —
+not an unverified invention.
 
-**Next step, named precisely rather than as a menu:** audit `DisplacementCollisionTree.TrianglesInSphere` on its own
-geometric merits — does a query at the seam point, called repeatedly after the pair has separated and is closing again,
-reliably return the seam's two triangles every time, with no hidden staleness or caching keyed off the ORIGINAL query rather
-than the current one? There is no disassembly to diff it against, so this is a correctness audit of the algorithm itself,
-not a parity comparison. **Separately, and this is the one open question that actually decides whether this is a defect at
-all**: does the real engine ALSO fail to catch a body landing exactly on a displacement seam like this, or does TF2's actual
-`FUN_180025bc0` handle it? The owner's own read is "it should lay over displacements" — real experience that TF2 ragdolls
-don't fall through — but that is evidence about ordinary landings, not about this exact razor's-edge, dead-centred,
-diagonal-seam alignment specifically, which a player is unlikely to ever notice happening or not happening. Settling that
-needs a live comparison (the Cheat Engine MCP bridge set up this session) of the real client dropping something exactly on
-a displacement seam — not more vphysics.dll reading, since the one function that matters here does not live in it.
+**What findings 51 already established, tracing this exact same test to the exact same `y=7.220574437630701` result**:
+`IvpPairMindists::Refresh` matches an existing mindist to keep purely by a hash of its two ledge pointers, with no check on
+its state — so once a child mindist's flags land at exactly `0x4000` ("permanently parked," per
+`IvpCollisionObject::RecheckInvalid`'s own condition, quoted verbatim there), the identical dead object is handed back for
+that ledge pair on every later refresh instead of ever being discarded and rebuilt. The outer `IvpRecursiveMindist` is stuck
+the same way: its `HullPassed` re-minimizes the same fixed, dead child synapses forever, so it never satisfies the one
+condition that would close it back to a plain pair and rebuild. Confirmed there that `IvpRecursiveMindist`'s own port is
+byte-correct against the disassembly — the open question is one level down, in `IvpMindistMinimize`'s solver dispatch and
+in whether `PhysicsVirtualMesh.Build` attaches neighbor/edge-adjacency data per triangle at all. A point sitting on this
+test's seam needs `BacksideWalk` to hand its closest-feature search off to the NEIGHBORING triangle once the true closest
+point moves past this one's edge; if our virtual-mesh triangles carry no record of which triangle is across each edge —
+unlike a real compiled `.phy`'s `PhysicsLedge` — that walk has nowhere to go, and the search just keeps re-reporting the
+same dead answer for the same stale triangle.
+
+**Next step, as findings 51 already names it — do this, not another re-trace of the symptom:** read
+`IvpMindistMinimize::Solver.Dispatch`'s per-feature-kind table against the disassembly, and check what `PhysicsVirtualMesh.Build`
+actually attaches per triangle for edge/neighbor topology, before writing any code.
 
 ## How the ports are built, so the next one matches
 
