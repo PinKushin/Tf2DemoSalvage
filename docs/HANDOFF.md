@@ -2,6 +2,9 @@
 
 Written 2026-09-14, superseding the handoff at `e47dc3f1` (same direction, earlier state).
 
+**2026-09-18: the virtual-terrain drop and the drive-together test both pass** — see *Resolved 2026-09-18* below. Branch
+`wip/b369-contact-drops`; Animation.Tests 5335 total, 5334 passed, 1 skipped.
+
 **Branch `fix/b369-ivp-narrow-phase`, pushed.** The last full Animation run: 4682 total, 4681 passed, 1 skipped (the medic
 medigun bone test, skipped before this work too). Solution build: zero warnings.
 
@@ -995,6 +998,34 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
 
 **Phantoms stay unported** (`FUN_180097940`'s far path is read, `FUN_18008ae50`/`FUN_18008b0a0` are the phantom controller's
 listeners); whether a TF2 client corpse ever meets one is not established — the port throws where one would be told.
+
+## Resolved 2026-09-18 — the virtual-terrain drop rests, and two boxes driven together no longer pass through
+
+**Both B369 symptom tests pass**, found by running the real `vphysics.dll` beside the port and diffing call by call
+(`vphysics-virtual-terrain-drop` and its new `boxes` mode, with `TF2VPHYSICS_PROBE_TRACE_IMPACTS=1` and
+`TF2VPHYSICS_PROBE_TRACE_QUEUE=a-b`). Three divergences, each fixed with its tests and sabotaged (commit `334662df`):
+
+1. **The fixture, not the engine.** `IvpTestCube` was a hand-wound cube; the engine's `BBoxToCollide` box has another vertex order
+   and triangulation (dumped at first attach, now the fixture word for word). Every minimize starts at triangle 0 slot 0, so the
+   start vertex decides the path: the hand cube walked one corner onto a terrain triangle's diagonal, where the triangle weights
+   are ±3.6e-12 on the seam and the backside walk turns back to the face it started behind — faithfully, the port's walk and
+   weights match `FUN_180094e30`/`FUN_18007cdf0` byte for byte. The engine's box never goes there. **The earlier section's
+   "B not a vertex" claim below is retracted**: the centre contact is a terrain vertex against a cube face, which is legitimate.
+2. **The wake is deferred.** `IPhysicsObject::Wake` (`18001e3d0` → `FUN_180073a30`) only lists a sleeping object's core
+   (`FUN_180087e00`, `env+0x160`); `RunPipeline` drains the list first (`FUN_180089210` → `FUN_180077c80` → `FUN_1800758e0`). The
+   revive's refile holds state `0x21`, so `FUN_1800977f0` examines a newborn pair **without** removal, and the PSI's own walk files it
+   far with speeds. The port woke in `Add`, paired at `Collide`, filed far at t = 0 with zero speeds, split the hull allowance
+   evenly, and so passed the hull at length 0.545 instead of the engine's 0.18 (tick 9). This closes the "not what writes an entry
+   INTO this list" gap noted in the 2026-09-17 entry below.
+3. **The contact feature match** (`FUN_180086a50`): a point matches any edge from the same vertex of the same ledge, an edge only
+   itself or its twin. The port matched edges by triangle, so the second corner of a face–face overlap reused the first corner's
+   contact and was solved at its arms. The engine makes a second contact and its island solves both.
+
+With all three, the drive-together scene's event sequence matches the binary through the second impact: hull pass at 0.1818,
+the look counter `0→1→2→3→0` at the same events, collide A at length 0.0063, collide B after a feature change.
+
+*Not established:* whether the two scenes' later trajectories match the binary tick for tick (compared only through the first
+impacts), and the other nine broad-phase tests' behaviour against the binary — they pass, but none has a probe twin.
 
 ## `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` — traced to the ground, 2026-09-17
 

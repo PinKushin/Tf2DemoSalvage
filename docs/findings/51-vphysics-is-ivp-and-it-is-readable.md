@@ -8412,3 +8412,53 @@ neighbor data `PhysicsVirtualMesh.Build` actually attaches to each triangle befo
 sabotage-verified; the deeper gap's boundary (recursive-mindist port correct, solver/mesh-topology
 question open) is measured by re-tracing the fixed build, not yet read from `Solver.Dispatch`'s own
 disassembly.*
+
+### The drop and the drive-together, settled by running the binary beside the port (2026-09-18)
+
+**The open question just above is answered, and the answer was not in the solver.** `Solver.Dispatch`, `BacksideWalk`
+(`FUN_180094e30`) and the triangle weights (`FUN_18007cdf0`, slot tables at `180124fdf..fe2`) were each compared with the
+disassembly and match; the virtual triangle ledge's twins are correct. What differed was the *start*: the probe dumped the body's
+ledge at its first attach, and the engine's `BBoxToCollide` box has another vertex order and triangulation than the test's
+hand-wound cube. Every minimize begins at triangle 0 slot 0, so the port's cube started from another corner and walked it onto a
+terrain triangle's diagonal. There the seam's weight is `−3.6e-12` on one face and `FLT_MIN` on the other, the backside walk turns
+back to the face it began behind, and the pair froze — which the engine would do too from that corner, and never does, because
+its box never starts there. **The fault was the fixture.** *Evidence: measured (the dump, the hooked `Minimize` and
+`TriangleWeights` of the binary at the same tick) and read (the three routines).*
+
+**A wake of a sleeping object is deferred to the next PSI.** `IPhysicsObject::Wake` (`18001e3d0`) tail-jumps to
+`FUN_180073a30(object)`:
+
+```
+object+0x78 != 8 → FUN_180078820(core):  core+0x200 = core+0x208 = env+0x188
+else             → FUN_180087e00(env, core):  core+0x0 & 4 clear → core appended to env+0x168 (count +0x162);  core+0x0 |= 4
+```
+
+`RunPipeline` (`180082584`) drains that list before anything else — `FUN_180089210`: every entry last first,
+`FUN_180077c80(core)` (`core+0x0 & 2` → nothing; `core+0x1 == 8` → `FUN_1800758e0(core+0x1f8, env)`; else `FUN_180075610`, every
+core of the unit given `FUN_180078820`), then bit 4 cleared and the list emptied. **The consequence is in `FUN_1800977f0`**: the
+pair a revive's refile makes is examined with `removeFar = (core0+0x1 | core1+0x1) < 0x21`, and the refile holds the core at
+`0x21` (`FUN_180073b00`), so a newborn pair is never filed far at birth — the same PSI's walk of the exact pairs files it, with the
+speeds that PSI gave its cores. *Measured*: in the binary the pair's mindist is attached inside the first `Simulate`, one object
+reading state `8 & 7` while the other revives; the first filing splits the gap 0.090/0.903 by speed, and the hull passes at
+length 0.1818. The port had paired at object creation and filed with zero speeds, splitting it 0.497/0.497. *That an object is
+born in state 8 is INFERRED from `& 7 == 0` and from the freeze writing 8; the constructor is not read.*
+
+**A contact's feature match is exact** — `FUN_180086a50(cp synapse, mindist synapse)` after `FUN_1800869a0` pairs the objects:
+
+```
+kinds differ → 0
+0 point:     the two edges' ledges equal (edge − index·16 over their headers) and their words' low sixteen bits equal — one vertex
+1 edge:      cp == m, or cp + ((int)(*cp · 2) >> 17) == m — the edge or its twin
+2 triangle:  (cp ^ m) & ~0xf == 0 — one triangle
+3 ball:      1;  otherwise Error(ivp_friction.cxx, 0x90a)
+```
+
+The port had simplified an edge to "the same triangle", which joins the two corners of a face–face overlap: both are edge pairs on
+the same two triangles in other slots. The binary made a second contact point for the second corner (`boxes`: points `…1a0` and
+`…270`, arms at (4, −3) and (−2, 4)) and solved both in its island; the port reused the first and solved the second corner at the
+first one's arms, and the boxes passed through each other. *Evidence: read and measured.*
+
+**What the three share**: none was visible to a port-only test. The first reproduced the engine's arithmetic faithfully on an input
+the engine never produces; the other two were each one layer from a green suite. They were found by hooking the binary at the
+first place its trace and the port's disagreed — the look counter's decay one event early, then the fire routine's length, then
+the impact's arms — and reading the routine there.
