@@ -457,6 +457,9 @@ public sealed class IvpRagdoll
     /// <summary>The world the corpse is in — for instruments.</summary>
     internal IvpRagdollWorld World => _world;
 
+    /// <summary>This ragdoll's joints, wired into the world — for instruments; empty when the file names none.</summary>
+    internal IvpConstraintGroup? Joints { get; private set; }
+
     /// <summary>Whether the game has forced it to sleep.</summary>
     public bool Asleep { get; private set; }
 
@@ -563,6 +566,8 @@ public sealed class IvpRagdoll
             });
         }
 
+        made.Joints = group;
+
         if (group.Joints.Count > 0)
         {
             world.Simulation.Add(group);
@@ -587,7 +592,39 @@ public sealed class IvpRagdoll
     /// <summary>The killing blow — <c>RagdollCreate</c>'s force, carried into IVP as vphysics' <c>ApplyForce*</c> carry it.</summary>
     /// <param name="force">The wire's <c>m_vecForce</c>, kg·in/s, Source axes.</param>
     /// <param name="forceBone">The wire's <c>m_nForceBone</c>, or negative for none.</param>
-    /// <remarks>See <see cref="RagdollSimulation.Kill"/> for the game's arithmetic, which is unit-free.</remarks>
+    /// <remarks>
+    /// **`RagdollCreate`, `ragdoll_shared.cpp:405`**, whose arithmetic is unit-free, so it carries into IVP's axes unchanged:
+    ///
+    /// <code>
+    /// totalMass = MAX( sum of masses, 1 );
+    /// if ( forceBone >= 0 &amp;&amp; forceBone &lt; ragdoll.listCount ) {
+    ///     ragdoll.list[forceBone].pObject-&gt;ApplyForceCenter( nudgeForce );
+    ///     ragdoll.list[forceBone].pObject-&gt;GetPosition( &amp;forcePosition, NULL );
+    /// }
+    /// if ( forcePosition != vec3_origin ) {
+    ///     for ( i … ) if ( forceBone != i ) {
+    ///         float scale = ragdoll.list[i].pObject-&gt;GetMass() / totalMass;
+    ///         ragdoll.list[i].pObject-&gt;ApplyForceOffset( scale * nudgeForce, forcePosition );
+    ///     }
+    /// }
+    /// </code>
+    ///
+    /// - **The struck bone takes the WHOLE force through its centre**, so it gains speed and no spin of its own.
+    /// - **Every other body takes a share by MASS, at the struck bone's position** — an offset push, so the rest of the body swings
+    ///   about the hit. That is the difference between a corpse that tumbles away from a rocket and one that slides.
+    /// - **`forcePosition` gates the second loop**, and with no force bone it stays at the origin. A corpse whose killer sent neither
+    ///   is pushed not at all, which is correct: `m_vecForce` is zeroed for a death animation (`c_tf_player.cpp:847`).
+    /// - **`GetPosition` reports the OBJECT's origin** — the bone — not its core (B403).
+    ///
+    /// **The scale divides by the TOTAL mass, not by the body's own**, so the shares sum to less than one force — Valve's own comment
+    /// beside it reads *"UNDONE: Test scaling the force by total mass on all bones"*, so this is deliberate and unfinished in the
+    /// engine too.
+    ///
+    /// **The magnitudes are Valve's own and they are large.** `CalcDamageForceVector` sizes the impulse at `damage * 75 * 4`
+    /// (`basecombatcharacter.cpp:1395`) — three hundred kg·in/s per point of damage, so a sixty-damage kill is eighteen thousand, and
+    /// `z1800` carries 16,793, 19,191 and 23,987. The struck bone weighs about ten kilos, so the whole force through its centre
+    /// really is thousands of units a second.
+    /// </remarks>
     public void Kill(Vector3 force, int forceBone)
     {
         if (forceBone < 0 || forceBone >= _bodies.Length)
@@ -625,6 +662,13 @@ public sealed class IvpRagdoll
 
     /// <summary>Gives every body the corpse's inherited velocity — <c>AddVelocity</c>, in Source in/s.</summary>
     /// <param name="velocity">The wire's <c>m_vecRagdollVelocity</c>.</param>
+    /// <remarks>
+    /// **A stated departure.** `RagdollApplyAnimationAsVelocity` (`ragdoll_shared.cpp:458`) derives a per-body velocity from TWO bone
+    /// snapshots `boneDt` apart — `GetRagdollInitBoneArrays` with `boneDt = 0.05f` (`c_tf_player.cpp:890`) — so each limb inherits
+    /// its own motion. A demo carries `m_vecRagdollVelocity` and not those snapshots, and a corpse is seeded from one pose, so every
+    /// body gets the entity's single velocity: the corpse travels correctly and its limbs do not lead or trail. A second seed pose one
+    /// `boneDt` earlier, which the timeline can produce, would close it.
+    /// </remarks>
     public void Inherit(Vector3 velocity)
     {
         (float X, float Y, float Z) ivp = IvpTransform.Position(velocity.X, velocity.Y, velocity.Z);
@@ -640,7 +684,29 @@ public sealed class IvpRagdoll
     /// moved no more than an inch on any axis for five seconds.
     /// </summary>
     /// <param name="step">The seconds the world just ran.</param>
-    /// <remarks>See <see cref="RagdollSimulation.Step"/> for the published arithmetic.</remarks>
+    /// <remarks>
+    /// **Published, constant for constant** (`game/client/ragdoll.cpp:265-297`):
+    ///
+    /// <code>
+    /// #define RAGDOLL_SLEEP_TOLERANCE 1.0f
+    /// static ConVar ragdoll_sleepaftertime( "ragdoll_sleepaftertime", "5.0f", 0, … );
+    ///
+    /// Vector delta = GetRagdollOrigin() - m_vecLastOrigin;
+    /// m_vecLastOrigin = GetRagdollOrigin();
+    /// for ( int i = 0; i &lt; 3; ++i )
+    ///     if ( fabs( delta[ i ] ) &gt; RAGDOLL_SLEEP_TOLERANCE )
+    ///     { m_flLastOriginChangeTime = gpGlobals-&gt;curtime; return; }
+    /// if ( dt &lt; ragdoll_sleepaftertime.GetFloat() ) return;
+    /// PhysForceRagdollToSleep();
+    /// </code>
+    ///
+    /// **Per AXIS and not by distance**, which is the engine's own test and a looser one — a body creeping 0.9 units along each of
+    /// three axes is stationary by this rule. `PhysForceRagdollToSleep` zeroes each body's linear and angular velocity
+    /// (`PhysForceClearVelocity`, `physics_shared.cpp:917`) and then stops it being integrated.
+    ///
+    /// **Its absence was measured**: dropped on `koth_harvest_final` without it, five scout ragdolls were still moving faster than a
+    /// unit a second after ten seconds, and on `z1800` some of them left the map.
+    /// </remarks>
     public void CheckSettle(float step)
     {
         if (Asleep || _bodies.Length == 0)
@@ -789,15 +855,15 @@ public sealed class IvpRagdoll
             (limits[2].Minimum, limits[2].Maximum),
         ];
 
-        int primary = RagdollSimulation.Turning(attached, reference, attachedBody, referenceAnchor, attachedAnchor);
-        int wider = RagdollSimulation.Widest(ranges, primary, -1);
-        int narrower = RagdollSimulation.Widest(ranges, primary, wider);
+        int primary = RagdollJointAxes.Turning(attached, reference, attachedBody, referenceAnchor, attachedAnchor);
+        int wider = RagdollJointAxes.Widest(ranges, primary, -1);
+        int narrower = RagdollJointAxes.Widest(ranges, primary, wider);
 
         return IvpRagdollConstraint.FromLimits(
             limits[primary],
             limits[narrower],
             limits[wider],
-            RagdollSimulation.Frame(RagdollAxes.Identity, primary, narrower, wider),
-            RagdollSimulation.Frame(attached, primary, narrower, wider));
+            RagdollJointAxes.Frame(RagdollAxes.Identity, primary, narrower, wider),
+            RagdollJointAxes.Frame(attached, primary, narrower, wider));
     }
 }

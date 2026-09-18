@@ -824,7 +824,7 @@ public sealed class IvpWorldCollision
 
     /// <summary>The retained id for one terrain triangle — negative, so it cannot meet a ledge's.</summary>
     /// <remarks>
-    /// **Below <see cref="IvpContact"/>'s <c>Speculative</c>, which is −1**, so the three kinds of
+    /// **Below the old solver's speculative contact id, which was −1**, so the three kinds of
     /// feature id occupy disjoint ranges without anyone having to bound the ledge count: a ledge
     /// face is <c>ledge × PlanesPerLedge + plane</c> and non-negative, a speculative contact is −1,
     /// and a terrain triangle is −2 downwards.
