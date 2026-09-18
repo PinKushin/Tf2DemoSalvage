@@ -130,6 +130,8 @@ public sealed class CorpsePhysics
     /// <summary>Forgets the environment — a new demo, or a map change.</summary>
     public void Clear()
     {
+        // A record was made against the old map and the old demo's corpses; kept, it would pose this one's from them.
+        Record = null;
         _world = null;
         _running.Clear();
         _roots.Clear();

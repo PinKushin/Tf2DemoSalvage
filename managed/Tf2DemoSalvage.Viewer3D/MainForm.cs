@@ -1686,6 +1686,7 @@ internal class MainForm : Form, IFrameSteps
             // `CreatePolyObjectStatic`. Set before any corpse is seeded — a simulation created
             // without a world falls through the map for its whole life, and `Clear` on a map change
             // is what stops one outliving its geometry.
+            StopCorpseRecord();
             _models.Corpses.Clear();
 
             // **The corpses' environment is the ported driver's, with the map's collide in it** (D172, D179): the world, the
@@ -2810,6 +2811,60 @@ internal class MainForm : Form, IFrameSteps
     public Task<DemoLoadResult> OpenCommandLineDemo() =>
         _openOnShow is null ? NothingSelected : LoadDemoAsync(_openOnShow);
 
+    /// <summary>Stops the background corpse pass for the demo and map being closed (D181).</summary>
+    private void StopCorpseRecord()
+    {
+        _corpseRecording?.Cancel();
+        _corpseRecording?.Dispose();
+        _corpseRecording = null;
+    }
+
+    /// <summary>Starts simulating every corpse in the open demo in the background, straight through, for seeks to read (D181).</summary>
+    /// <remarks>
+    /// **The live viewer reads the record the moment it reaches a tick, and D179's replay covers the rest**, so a seek ahead of the
+    /// pass still works — it is only slower. The pass has its own environment and entities and shares nothing writable with the
+    /// render thread: the map's model frames are fixed once the map is read, and the record publishes a tick only after writing it.
+    /// </remarks>
+    private void StartCorpseRecord()
+    {
+        StopCorpseRecord();
+
+        if (_moments.Source is not TimelineMoments source || source.RecordedCorpses() is not { Count: > 0 } corpses)
+        {
+            return;
+        }
+
+        CorpseRecord record = new(corpses);
+        _models.Corpses.Record = record;
+        _corpseRecording = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+
+        Func<string, PropModels.ModelFrames?> geometry = _models.Geometry;
+        Func<float, Tf2DemoSalvage.Animation.Animating.IvpRagdollWorld>? createWorld = _models.Corpses.CreateWorld;
+        Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps surfaces = _models.Corpses.Surfaces;
+        float interval = source.IntervalPerTick;
+        CancellationToken token = _corpseRecording.Token;
+        ILogger log = _renderLog;
+
+        CorpseRecording = Task.Run(
+            () =>
+            {
+                Stopwatch taken = Stopwatch.StartNew();
+                record.Run(geometry, createWorld, surfaces, interval, token);
+                log.LogInformation(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"corpse record: {corpses.Count} bodies to tick {record.Reached} in {taken.Elapsed.TotalSeconds:F1} s"));
+            },
+            token);
+    }
+
+    /// <summary>Cancels the pass on a demo or map change, and on shutdown through <see cref="_shutdown"/>.</summary>
+    private CancellationTokenSource? _corpseRecording;
+
+    /// <summary>The background corpse pass, held so its outcome is observed — a test awaits it, and a fault is not lost (D181).</summary>
+    public Task CorpseRecording { get; private set; } = Task.CompletedTask;
+
     /// <summary>UIA AutomationId of the loading overlay.</summary>
     public const string LoadingOverlayId = "LoadingOverlay";
 
@@ -3015,6 +3070,10 @@ internal class MainForm : Form, IFrameSteps
         // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
         // so on the async path this finds the work already done.
         DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog);
+
+        // **After the map and the models, because the pass reads both** (D181): the environment is the map's, and a corpse's
+        // bones come from its model.
+        StartCorpseRecord();
 
         _status.Text = _loaded?.Problem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
@@ -5552,6 +5611,11 @@ internal class MainForm : Form, IFrameSteps
             // resumes on this thread to set the status and build geometry; cancelling here is what
             // makes its continuation return instead of writing into a disposed form.
             _shutdown.Cancel();
+
+            // The corpse pass is linked to `_shutdown` and has just been told to stop; its source is ours to release (D181).
+            _corpseRecording?.Dispose();
+            _corpseRecording = null;
+
             // **Timed, because a slow exit is a defect nobody can diagnose from the outside.**
             // Two hundred textures, a lightmap atlas and a swap chain go here, and which of them
             // is slow is not guessable - the log says.

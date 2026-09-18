@@ -34,7 +34,11 @@ Merged to main 2026-09-18 (`cc41166e`). A drawn corpse on the new build has not 
    `RagdollProps.Fill` with no fade (fade shortens what is drawn, not what is simulated), recording each corpse's `State()` per tick
    into an array sized to its window, and publishes how far it has got.
 3. `CorpsePhysics.Advance` draws a corpse from the record when the record has reached the tick, else falls back to D179's replay.
-4. `MainForm` starts the pass after the map loads and drops it on a demo or map change.
+4. `MainForm` starts the pass after the map loads and drops it on a demo or map change. **Wired 2026-09-18**
+   (`StartCorpseRecord`, bodies from `RagdollProps.Recorded`, a gib's window ending at its own `fadetime`). Measured on
+   `demostf-cp_process_f12-2026-08-08-2207.dem`: 869 bodies recorded to the last tick in 53.2 s after load; afterwards moments
+   show `corpses 0 over 0 steps`. Not established: an assertion that a seek past the pass draws the same pose straight-through
+   play does on a real demo — `CorpseRecordTests` holds it on a synthetic corpse only.
 The control test: the record equals straight-through live play of the same corpses, tick for tick. *Not established*: the engine
 removes a ragdoll when it fades; neither path removes a corpse from the world, so a faded corpse still sleeps in it.
 

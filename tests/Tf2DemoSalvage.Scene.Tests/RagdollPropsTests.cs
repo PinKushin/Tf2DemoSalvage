@@ -300,6 +300,48 @@ public sealed class RagdollPropsTests
         scene.ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **The background pass simulates bodies, not what they wear** (D181). A dressed corpse is one body, drawn under the same index
+    /// <see cref="RagdollProps.Fill"/> gives it, recorded to the end of its entity's window — the fade shortens what is drawn, not
+    /// what is simulated.
+    /// </remarks>
+    [Test]
+    public void Recorded_ACorpseWearingThings_IsOneBodyToItsLastTick()
+    {
+        SceneRagdoll dressed = Corpse(team: SceneTeams.Blu) with
+        {
+            Worn = [new SceneWornItem("models/player/items/all/beard.mdl", ItemDefinitionIndex: null)],
+        };
+
+        IReadOnlyList<RecordedCorpse> recorded = RagdollProps.Recorded([dressed], Classes);
+
+        recorded.Count.ShouldBe(1);
+        recorded[0].Corpse.ClassName.ShouldBe(RagdollProps.RagdollClassName);
+        recorded[0].Corpse.EntityIndex.ShouldBe(RagdollProps.FirstCorpseEntityIndex);
+        recorded[0].Corpse.FirstTick.ShouldBe(100);
+        recorded[0].LastTick.ShouldBe(200);
+    }
+
+    /// <remarks>
+    /// **A piece's window closes where <see cref="RagdollProps.Fill"/> stops emitting it**, at its own ten-second <c>fadetime</c>:
+    /// 10 / 0.015 is 666.7 ticks, so 766 is its last. Kept in the world past that, it would collide with corpses that straight-through
+    /// play no longer has beside it. Fill itself is the oracle: it draws the piece at the recorded end and not one tick after.
+    /// </remarks>
+    [Test]
+    public void Recorded_AGibbedCorpse_EndsEachPieceWhereFillStopsEmittingIt()
+    {
+        SceneRagdoll gibbed = Corpse(SceneTeams.Blu) with { Gib = true, LastTick = 100000 };
+
+        IReadOnlyList<RecordedCorpse> recorded = RagdollProps.Recorded([gibbed], Classes, gibsOf: Gibs, intervalPerTick: 0.015f);
+
+        recorded.Count.ShouldBe(3);
+        recorded.ShouldAllBe(piece => piece.Corpse.ClassName == RagdollProps.GibClassName && piece.LastTick == 766);
+
+        List<SceneProp> scene = [];
+        RagdollProps.Fill([gibbed], 766d, Classes, scene, gibsOf: Gibs, intervalPerTick: 0.015f).ShouldBe(3);
+        RagdollProps.Fill([gibbed], 767d, Classes, scene, gibsOf: Gibs, intervalPerTick: 0.015f).ShouldBe(0);
+    }
+
     /// <summary>Three pieces, standing in for a class model's nine.</summary>
     private static IReadOnlyList<PhysicsBreakPiece> Gibs(string model) =>
         model == "models/player/medic.mdl"

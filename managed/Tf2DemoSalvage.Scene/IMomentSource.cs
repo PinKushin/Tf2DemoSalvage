@@ -266,6 +266,20 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
         }
     }
 
+    /// <summary>Every body the demo's corpses simulate as, from the same suppliers <see cref="PropsAt"/> draws them with (D181).</summary>
+    /// <returns>The corpses and gibs, or none when there is no class table yet.</returns>
+    public IReadOnlyList<RecordedCorpse> RecordedCorpses() =>
+        ClassModels?.Invoke() is { } classes
+            ? RagdollProps.Recorded(
+                timeline.Corpses,
+                classes,
+                Items?.Invoke(),
+                Gibs,
+                timeline.IntervalPerTick,
+                Appearance?.Invoke(),
+                Bodygroups?.Invoke())
+            : [];
+
     /// <inheritdoc />
     public int? RoundStateAt(double tick) => timeline.RoundStateAt(tick);
 
