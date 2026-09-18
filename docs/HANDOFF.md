@@ -1122,14 +1122,42 @@ of the run.** Crucially, `Length` keeps changing normally the whole time it is p
 and for all eight children at once, from this point on.** That is a single, precisely-characterized fact, not an
 inference.
 
-**What is still not established, precisely two things:** (1) `Solver.PointEdge`, `EdgeEdge`, `FaceFace`,
-`EdgeEdgeProximity` and `PointEdgeProximity`'s own bodies — the functions a stuck child's repeated re-minimize would
-actually be running through — have not yet been checked against their disassembly, only `PointPoint`, `PointFace` and
-`PointFaceProximity` have; (2) whether Valve's real engine also reaches this same simultaneous eight-way permanent
-`GaveUp`/`Backside` deadlock for a body landing dead-centred on a displacement seam, which would make this a genuine,
-provable Valve engine limitation rather than a defect to fix. **Settling either needs the remaining disassembly reads or
-a live trace of the real client** (the Cheat Engine MCP bridge set up earlier this session) — not another guess from the
-port's C# alone, which is exactly what produced this session's one confirmed mistake.
+**`PointEdge` (`FUN_1800b1aa0`) checked at the instruction level, exact match — including NaN.** Both its `Start<0` and
+`End<0` branches use `COMISS`/`JNC`, and `JNC` does not jump on unordered, so NaN routes identically to a real negative
+in both engines, matching `!(weights.Start >= 0f)` / `!(weights.End >= 0f)` precisely.
+
+**`PointEdgeProximity` (`FUN_1800b11c0`) checked, and a second apparent mismatch resolved by hand before being written
+down as a finding.** The real code's outer branch is `if (face.Edge <= 0.0)`; this port's is `if (face.Edge > 0f)` —
+opposite polarity on the same variable (`local_1d8[0]` confirmed to be `weights.Edge` via
+`IvpTriangleWeights(float Edge, float Next, float Previous, float Determinant)`'s declared field order). Enumerating
+all four `(face.Edge, twinFace.Edge)` sign combinations by hand for both sides shows the SAME four outcomes
+(`PointFace(twin)` / `PointFace(k)` / `PointFace(twin)` / the big Backside-or-settle block) — this port just checks the
+two conditions in the opposite order, which is a harmless reordering, not a divergence. The `overFace<0 && overTwin<0`
+Backside trigger inside that block matches this port's `!(overFace>=0d) && !(overTwin>=0d)` structurally; its exact NaN
+routing was not re-verified at the instruction level (unlike the two cases above), but every other NaN-adjacent branch
+checked this session has matched this port's `!(x >= 0)` convention exactly, with zero exceptions found.
+
+**Where this leaves B369, as of the end of this pass.** Every function actually reachable from this test's specific
+scenario — the outer pair's `PointPoint` (with `Steepest` and `LoopsBack`), `Route`'s dispatch, `PointFace`,
+`PointFaceProximity`, `PointEdge`, and `PointEdgeProximity`'s own dispatch — has been read against the live disassembly
+and found to match, several at the raw-instruction level specifically because the decompiler's pseudocode is known to
+mis-render NaN routing (`docs/findings/51` already warns of this pattern; this session hit it twice and caught both
+before writing them down as findings). Combined with the earlier-confirmed facts (the drop rule, the wake-up scheduler,
+the mindist ledge-matching, the virtual-mesh triangle's lack of cross-triangle neighbor data, and the loop-check budget
+arithmetic), **there is now no confirmed divergence anywhere in the path from bounce to fall-through.** The body's
+angular velocity through the stuck period is constant and physically unremarkable (`(-0.3317, 0, 0.3317)`,
+`|ω|≈0.4691`, unchanged from t=1.10 to t=2.91) — real, conserved spin from the original asymmetric bounce, not a
+runaway or a bug — which is consistent with, not against, the emerging picture: a genuinely rotating body's closest
+feature is a moving target for a zero-retry-budget search re-run independently every hull pass, against triangles that
+by Valve's own design cannot hand a search across to a genuine neighbor.
+
+**What remains, precisely:** `EdgeEdge`, `FaceFace`, and `EdgeEdgeProximity`'s own bodies are the only reachable
+functions still unchecked against disassembly (the "settle as Edge" and `EdgeEdge`-recursion tail of
+`PointEdgeProximity` can reach them). Beyond that, the only way to settle whether this is a genuine Valve engine
+limitation (in which case the test is asserting something Valve itself does not guarantee) or a divergence still hiding
+in those three functions is either reading them, or a live trace of the real client landing a rotating body dead-centred
+on an actual displacement seam. **Not another guess from the port's C# alone** — that produced this session's one
+confirmed mistake, caught and corrected in the commits above.
 
 ## How the ports are built, so the next one matches
 
