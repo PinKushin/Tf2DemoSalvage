@@ -1462,17 +1462,36 @@ body, A's own point — a different location on a now-rotating object — genuin
 and the scheduler is correctly leaving alone a contact that is, at that instant, truly separating. Nothing
 here is a scheduling bug; it is a faithful measurement of an already-wrong velocity/spin state.
 
-**So the divergence is upstream of the scheduler, in B's own impulse.** `IvpImpactSolver`'s math was already
-ruled out as a formula bug (lane-for-lane conformance-tested against the shipped binary) — which means if B's
-resolved spin differs from what the real engine produces for its own "B", the difference is most likely in
-what is *fed* to that formula: B's contact arm and/or normal. The closest-feature search that produces those
-(already exhaustively verified structurally correct earlier this session) is exactly the kind of place a
-floating-point tie-break could land on a different-but-plausible vertex/edge than the real engine's — the
-same category of knife-edge sensitivity this investigation has run into before. **The concrete next step**:
-compare B's exact resolved contact arm and normal, port vs. the real engine, at the instant each applies its
-impulse — not the scheduler, not the solver formula, the *input* to the formula. The comparison already in
-hand (port spin should land at exactly zero, matching the real engine) is what a fix needs to reproduce to be
-verified correct.
+**So the divergence is upstream of the scheduler, in B's own impulse — and traced to its exact input.**
+`IvpImpactSolver`'s math was already ruled out as a formula bug (lane-for-lane conformance-tested against the
+shipped binary), so printed the two contacts' actual resolved arms and normals (temporary, reverted, never
+committed):
+
+```
+A: secondArm=(-4.000000, 4.000000, -4.000000)  normal=(0.000000, -1.000000, 0.000000)  -> spin (-1.3212, 0, 1.3212)
+B: secondArm=( 0.000295, 4.005848, 0.000295)   normal=(0.000129, -1.000000, 0.000129)  -> spin (-0.8663, 0, 0.8663)
+```
+
+**A's contact point is an exact cube corner — `(±4, ±4, ±4)` is the whole of this fixture's geometry**
+(`IvpTestCube.Box`, checked: eight points, exactly those eight coordinates, no others). `(-4, 4, -4)` is one
+of them. **B's is not.** `(0.0003, 4.006, 0.0003)` is not a vertex of this cube under any tolerance worth the
+name — it sits within a hair of `(0, 4, 0)`, the centre of the +Y face. A symmetric landing on a seam should
+put B on a *different corner*, not the middle of a face. **This is the concrete, mechanistic bug**: whatever
+feature B's closest-feature search actually resolves to, it is being reported as a near-face-centre point on
+the body rather than the second corner the geometry calls for. A contact there is nearly collinear with the
+body's centre of mass — almost no lever arm — so B's resolve should barely touch A's already-large spin at
+all; instead the observed spin *drops* from A's own 1.3212 to 0.8663, meaning B's iterative push loop is
+still interacting with the existing spin through `PointVelocity` at that near-centre arm, adjusting it
+without ever being positioned to correct it toward zero the way a true second-corner contact could.
+
+**The concrete next step, precisely bounded now**: find why B's synapse resolves to a near-face-centre point
+instead of a genuine second vertex — read `IvpMindistMinimize`'s feature transition for this specific mindist
+(already exhaustively verified in isolation earlier this session, but not for this exact multi-step sequence:
+created, refreshed across five `RefreshChildren` cycles, examined repeatedly, finally resolving 9 microseconds
+after a sibling mindist already moved the body) — or capture the same arm/normal pair from the real engine's
+own `IvpImpactSolver::Enter` (`FUN_18008ed60`) for its own "B" to confirm it lands on a real corner where the
+port's does not. Either would settle it. The comparison already in hand (port spin should land at exactly
+zero, matching the real engine) is what a fix needs to reproduce to be verified correct.
 
 **Where this leaves the decision the owner already anticipated** ("we are probably doing 1 though... this
 isn't even a better-than-valve thing, this is a they-probably-made-this-happen-with-collision-optimization,
