@@ -1430,21 +1430,42 @@ left — a Gauss-Seidel-style iterative solve, sequential by construction, and t
 says Valve does. Both engines being sequential this way rules out "sequential vs. simultaneous" as the
 divergence — a faithfully-sequential solve that iterates to convergence is not inherently asymmetric.
 
-**The actual remaining candidate is event-queue timing, not solver structure.** `Build` is called once per
-`IvpMindistCollide.Collide`, and `Grow` only discovers a *second* corner's pair if that pair already exists
-in the friction system's list at the moment the first corner's island is being grown (`Grow` walks
-`System.Pairs` for anything already there touching the moved core). Two corners' mindists are two independent
-queued events (`IvpPairScheduler`/the event queue) — if both are scheduled to fire at the exact same
-PSI-relative time, both pairs exist before either grows, and one shared island's iterative drain naturally
-converges to a symmetric answer. If they are scheduled even slightly apart, the first corner's `Build` can
-drain and apply its full impulse — genuinely finishing, not just starting — before the second corner's event
-exists at all, so the second one reacts to an already-changed velocity from a *separate* island call, which
-reproduces exactly this asymmetry regardless of how correct each individual impulse computation is. **This is
-now a question about the two corners' own scheduled fire times within the same PSI, not about any function's
-internal logic** — a live trace of when each corner's queued event actually fires (not another source read)
-is what would confirm or rule this out, and is the concrete next step. The comparison already in hand — port
-spin should land at exactly zero, matching the real engine — is what any eventual fix needs to reproduce to
-be verified correct.
+**Live-traced the exact queue/collide/grow sequence in the port** (temporary instrumentation in
+`IvpPairScheduler.Examine`, `IvpMindistCollide.Collide`, `IvpImpactIsland.Grow`; reverted, never committed).
+Seven candidate mindists queue for the **exact same time**, `1.08730`. Only two ever fire `Collide()` — mindist
+`34138141` ("A"), then `63504289` ("B") nine microseconds later — each building its own single-pair island
+(`bodyFrictionSystem=none` at *both* entries, confirmed via `firstCore.FrictionInfo`), never coupled. The other
+five get examined again, found no longer close enough once the body starts moving, and never fire at all.
+
+**Checked `IvpFrictionLinking` (ruled out) and `IvpImpactSolver` (ruled out) as the site.** `LinkContactByCore`
+correctly looks for an existing `FrictionInfo` before building a new system — structurally sound; the reason B
+gets its own fresh system is that A's system was already gone (torn down once its single contact separated),
+not a linking bug. `IvpImpactSolver`'s per-contact math (`UnitPush`, virtual mass, the push loop) is pinned
+lane-for-lane against the shipped binary by `IvpImpactSolverConformanceTests` — not a plausible location for a
+silent bug, and a single isolated off-center contact producing *some* torque is correct physics, not a defect.
+The defect is that only two isolated contacts ever run, when a symmetric drop needs enough of them, seen
+together, to cancel back to zero.
+
+**Live-checked the real engine's own `IvpMindist::Collide` (`0x18008ecb0`, confirmed by Ghidra by name) for
+the identical drop — and it is not two calls, it is three: A, then B, then A AGAIN.** Cheat Engine breakpoint,
+register capture, three hits, two distinct `RCX` (mindist pointer) values in the pattern A/B/A. **This is the
+concrete divergence.** After B resolves, `IvpImpactIsland.Tail`'s per-core `Recheck` (`FUN_1800792b0`) walks
+every mindist on the moved body, finds A no longer stamped with the current impact generation (ground, being
+immovable, never got re-stamped, so the two records' stamps disagree), minimizes it, and reschedules it via
+the scheduler's mode-2 "AfterMiss" path (`FUN_180099380(mindist, 0, 2)`, confirmed faithful to the
+disassembly) — in **both** engines; this call chain itself is not the bug. In the real engine, A's
+recomputed recheck time still falls inside the current PSI, so A gets a genuine third pass — the one that
+would symmetrize a two-point impact back toward zero net torque. In the port, A's recheck time is pushed
+**past** the PSI's end, so it never fires again this step, and the two-point asymmetry from A and B alone is
+what survives into free flight as permanent spin.
+
+**What decides this is a specific number, not a function.** `IvpPairScheduler.Recheck`'s `AfterMiss` formula
+(`(gap / totalBound) + now + step·RecheckStepShare`) is itself already read and matches the disassembly
+exactly — the divergence must be in the `gap`/`totalBound` values it is fed at that exact instant (post-B,
+pre-recheck), which trace back to A's mindist state and the body's post-B velocity. **The concrete next
+step**: capture those two numbers (port vs. the real engine, at the equivalent moment) and find which one
+differs and why — not another architectural read, a numeric one. The comparison already in hand (spin should
+land at exactly zero) is what a fix needs to reproduce to be verified correct.
 
 **Where this leaves the decision the owner already anticipated** ("we are probably doing 1 though... this
 isn't even a better-than-valve thing, this is a they-probably-made-this-happen-with-collision-optimization,
