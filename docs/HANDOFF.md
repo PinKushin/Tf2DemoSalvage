@@ -3,7 +3,21 @@
 Written 2026-09-14, superseding the handoff at `e47dc3f1` (same direction, earlier state).
 
 **2026-09-18: the virtual-terrain drop and the drive-together test both pass** — see *Resolved 2026-09-18* below. Branch
-`wip/b369-contact-drops`; Animation.Tests 5335 total, 5334 passed, 1 skipped.
+`wip/b369-contact-drops`; Animation.Tests 5336 total, 5335 passed, 1 skipped.
+
+**2026-09-18, later: the corpse settles on a real map.** `ivp-drop-compare` (scout on `cp_process_f12` from (0, 0, 800)): the ported
+corpse is still by 1.0 s at z 741.9 and asleep at 5.5 s, 185 impacts in ten seconds. Before the two friction fixes it crept about
+fifty units, dropped a hundred and twenty at 5 s and never slept, 3,184 impacts. The fixes, each found by hooking the binary on the
+paired crate drop (`vphysics-drop phy` with `TF2VPHYSICS_PROBE_TRACE_FRICTION`, against `ivp-phy-drop`): **a new contact is weighed
+as it is filed** (`FUN_180090e50` → `FUN_180083a60`, `cp+0x60` — nothing called the weigh, so every friction budget was zero), and
+**a friction impulse lands on `+0x140`/`+0x130`**, not the staged pair (`FUN_18009c620`). The crate now sleeps 0.06 units from the
+binary's. *Not established*: the remaining 3e-6 m after the crate's first impact, which the bounce amplifies from tick 25, and
+the corpse against the binary itself — the binary has no map drop yet.
+
+**The switch-over is next**: `CorpsePhysics` still runs the old `RagdollSimulation` on the invented `IvpEnvironment`; nothing the
+viewer draws has used the ported driver. `IvpRagdollWorld`, `IvpRagdoll` and `IvpMapWorld` are ready. The engine's shape is ONE
+environment for the map and every corpse — and its counters are environment-wide (the look counter behind the corner-B divergence
+is one) — so the port does the same, and a backward seek rebuilds that environment and replays it forward.
 
 **Branch `fix/b369-ivp-narrow-phase`, pushed.** The last full Animation run: 4682 total, 4681 passed, 1 skipped (the medic
 medigun bone test, skipped before this work too). Solution build: zero warnings.
