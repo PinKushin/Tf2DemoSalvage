@@ -61,6 +61,30 @@ public sealed class IvpRagdollWorldTests
     }
 
     /// <remarks>
+    /// **Every object's core stands at its surface's mass centre** (`FUN_180073df0`, `IvpObjectTemplate::ConstructCore`): the surface
+    /// manager's slot 1 gives the centre, the object is set back from it, and the radius is the surface's own about it. A static solid
+    /// is built the same way as a corpse's part. *It stood at the object's origin instead*, its radius widened by the distance to the
+    /// centre — so a displacement, whose object is at the world's origin, was a sphere around the map's middle, and every body on f12
+    /// was paired with all 922 of them (B369).
+    /// </remarks>
+    [Test]
+    public void AddStatic_ASolidWhoseMassCentreIsAwayFromItsOrigin_StandsItsCoreThere()
+    {
+        IvpRagdollWorld world = World();
+        byte[] bytes = IvpTestSurface.Bytes((new Vector3(10f, 0f, 0f), new Vector3(0.5f)));
+        System.BitConverter.TryWriteBytes(System.MemoryExtensions.AsSpan(bytes, 0x00), 10f);
+        PhysicsLedgeTree surface = PhysicsHull.Tree(bytes).ShouldNotBeNull();
+        surface.MassCenter.X.ShouldBe(10f, "the control: the header's mass centre was read");
+
+        IvpCollisionObject made = world.AddStatic(surface, Vector3.Zero, world.Surfaces.ObjectMaterial("default")!);
+
+        IvpRigidBody core = made.Core.ShouldNotBeNull();
+        core.Position.X.ShouldBe(10d, 1e-6d);
+        core.ObjectOffset.ShouldBe((-10f, 0f, 0f));
+        core.Radius.ShouldBe(surface.Radius, "the surface's own radius, not widened by the distance to its centre");
+    }
+
+    /// <remarks>
     /// **`CStaticPropMgr::CreateVPhysicsRepresentations` walks the props LAST to first** (`FUN_180203280`), and each
     /// `SOLID_VPHYSICS` prop is one object over its model's first solid (`FUN_180203060`); a prop of another solid type, or one
     /// whose model has no collide, makes none.

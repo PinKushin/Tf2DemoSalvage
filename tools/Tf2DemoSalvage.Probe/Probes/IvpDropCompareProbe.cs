@@ -95,7 +95,9 @@ public sealed class IvpDropCompareProbe : IProbe
 
         IvpRagdollWorld world = new(Step, new Vector3(0f, 0f, -800f), game.Surfaces);
         IvpMapWorld.Objects loaded = IvpMapWorld.Load(world, map, Read, NullLogger.Instance);
+        int mapMindists = world.Simulation.Mindists;
         IvpRagdoll ported = IvpRagdoll.Create(world, ragdoll, start);
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"mindists: {mapMindists} after the map alone, {world.Simulation.Mindists} with the corpse added"));
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,

@@ -179,13 +179,17 @@ public sealed class IvpRagdollWorld
 
             byte[] hull = index < hulls.Count ? hulls[index] ?? [] : [];
             IvpVirtualMeshSurfaceManager mesh = new(PhysicsVirtualMesh.Build(tree.Vertices, tree.Triangles, hull), tree);
+            ((double X, double Y, double Z) at, (float X, float Y, float Z) offset) =
+                IvpRagdoll.AtMassCentre(mesh.MassCenter, (0d, 0d, 0d, 1d), (0d, 0d, 0d));
 
             IvpRigidBody core = new()
             {
                 Immovable = true,
+                Position = at,
+                ObjectOffset = offset,
                 Orientation = (0d, 0d, 0d, 1d),
                 WorkingOrientation = (0d, 0d, 0d, 1d),
-                CoreMatrix = IvpMatrix.FromRotation((0d, 0d, 0d, 1d), (0d, 0d, 0d)),
+                CoreMatrix = IvpMatrix.FromRotation((0d, 0d, 0d, 1d), at),
                 InverseMass = 0f,
                 InverseInertia = (0f, 0f, 0f),
             };
@@ -225,14 +229,17 @@ public sealed class IvpRagdollWorld
 
         (float x, float y, float z) = IvpTransform.Position(origin.X, origin.Y, origin.Z);
         (double X, double Y, double Z, double W) rotation = IvpRagdoll.Rotation(angles);
+        ((double X, double Y, double Z) at, (float X, float Y, float Z) offset) =
+            IvpRagdoll.AtMassCentre((surface.MassCenter.X, surface.MassCenter.Y, surface.MassCenter.Z), rotation, (x, y, z));
 
         IvpRigidBody core = new()
         {
             Immovable = true,
-            Position = (x, y, z),
+            Position = at,
+            ObjectOffset = offset,
             Orientation = rotation,
             WorkingOrientation = rotation,
-            CoreMatrix = IvpMatrix.FromRotation(rotation, (x, y, z)),
+            CoreMatrix = IvpMatrix.FromRotation(rotation, at),
             InverseMass = 0f,
             InverseInertia = (0f, 0f, 0f),
         };
@@ -484,14 +491,10 @@ public sealed class IvpRagdoll
             (float mass, (float X, float Y, float Z) inertia) = template.CoreInertia(
                 (element.IvpHullInertia.X, element.IvpHullInertia.Y, element.IvpHullInertia.Z));
 
-            (float X, float Y, float Z) offset = element.IvpMassCenter.LengthSquared() < NegligibleSquared
-                ? (0f, 0f, 0f)
-                : (-element.IvpMassCenter.X, -element.IvpMassCenter.Y, -element.IvpMassCenter.Z);
-
             (double X, double Y, double Z, double W) rotation = Rotation(orientation);
             (float bx, float by, float bz) = IvpTransform.Position(position.X, position.Y, position.Z);
-            (double X, double Y, double Z) turned = IvpMatrix.FromRotation(rotation, (0d, 0d, 0d)).Rotate((offset.X, offset.Y, offset.Z));
-            (double X, double Y, double Z) core = (bx - turned.X, by - turned.Y, bz - turned.Z);
+            ((double X, double Y, double Z) core, (float X, float Y, float Z) offset) =
+                AtMassCentre((element.IvpMassCenter.X, element.IvpMassCenter.Y, element.IvpMassCenter.Z), rotation, (bx, by, bz));
 
             IvpRigidBody body = new()
             {
@@ -705,6 +708,26 @@ public sealed class IvpRagdoll
         }
 
         return state;
+    }
+
+    /// <summary>Where an object's core stands and how the object sits inside it — <c>FUN_180073df0</c>, for every object.</summary>
+    /// <param name="massCentre">The surface's mass centre in the object's frame — the surface manager's slot 1, IVP metres.</param>
+    /// <param name="rotation">The object's orientation, in IVP's axes.</param>
+    /// <param name="objectPosition">Where the object stands, IVP metres.</param>
+    /// <returns>The core's position, and the object's offset inside it: minus the mass centre, or nothing when that is negligible.</returns>
+    /// <remarks>
+    /// **`IvpObjectTemplate::ConstructCore` puts the core at the mass centre and sets the object back from it**, static objects
+    /// included — the surface's radius is then taken about that centre. A mass centre nearer the origin than <c>1e-16</c> square metres
+    /// (<c>DAT_1800fcf98</c>) leaves the object at the core.
+    /// </remarks>
+    internal static ((double X, double Y, double Z) Core, (float X, float Y, float Z) Offset) AtMassCentre(
+        (float X, float Y, float Z) massCentre, (double X, double Y, double Z, double W) rotation, (double X, double Y, double Z) objectPosition)
+    {
+        float squared = (massCentre.X * massCentre.X) + (massCentre.Y * massCentre.Y) + (massCentre.Z * massCentre.Z);
+        (float X, float Y, float Z) offset = squared < NegligibleSquared ? (0f, 0f, 0f) : (-massCentre.X, -massCentre.Y, -massCentre.Z);
+        (double X, double Y, double Z) turned = IvpMatrix.FromRotation(rotation, (0d, 0d, 0d)).Rotate((offset.X, offset.Y, offset.Z));
+
+        return ((objectPosition.X - turned.X, objectPosition.Y - turned.Y, objectPosition.Z - turned.Z), offset);
     }
 
     /// <summary>Writes the corpse's current bones into an accessor, marking what it drove — what <c>AnimatingEntity.Ragdoll</c> takes.</summary>

@@ -8974,4 +8974,10 @@ engine could not seek. A forward play and a rewind agree exactly for any corpse 
 
 **What would reopen it:** a rewind whose difference from straight-through play is visible, or a seek the replay makes slow.
 
+**The owner's check, the same day:** *"Does that mean you can't just seek wherever you want and play? … You should be able to seek
+wherever you want and the physics just runs from there."* Answered: any tick can be sought and played from; the replay is a catch-up
+paid once at the seek, because a corpse's place at a tick depends on everything since it died and the demo carries only where it
+died. *"That sounds fine, just making sure I understood."* **So the requirement is a seek that feels instant**, and the catch-up's
+cost — measured at 5 s for 992 ticks on f12 — is a defect to fix, not a property of this decision.
+
 Related: D136, D146, D172.
