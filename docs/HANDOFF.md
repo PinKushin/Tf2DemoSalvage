@@ -1063,9 +1063,34 @@ point moves past this one's edge; if our virtual-mesh triangles carry no record 
 unlike a real compiled `.phy`'s `PhysicsLedge` — that walk has nowhere to go, and the search just keeps re-reporting the
 same dead answer for the same stale triangle.
 
-**Next step, as findings 51 already names it — do this, not another re-trace of the symptom:** read
-`IvpMindistMinimize::Solver.Dispatch`'s per-feature-kind table against the disassembly, and check what `PhysicsVirtualMesh.Build`
-actually attaches per triangle for edge/neighbor topology, before writing any code.
+**Update, same day: the neighbor-topology half of that question is answered, and it is not a bug.**
+`PhysicsVirtualMesh.TriangleLedge` (`managed/Tf2DemoSalvage.Content/Assets/PhysicsVirtualMesh.cs:117-134`) wires each
+terrain triangle's edges to hop only to its own mirrored backside — never to a different, neighboring triangle. Checked
+against the disassembly quoted in this same file's own doc comment (`FUN_180003f70`: front hops `6,4,2`, back hops
+`−2,−4,−6`) — an exact match. **Real vphysics also gives a virtual-mesh triangle zero neighbor-hop data.**
+`BacksideWalk` giving up on a lone triangle is Valve's own behavior here, not a port gap. Cross-triangle recovery was never
+supposed to happen inside one ledge's topology for a displacement — it happens by the OUTER recursive mindist re-closing
+and asking `RefreshChildren` for a fresh set of nearby triangles, which is the piece that is actually stuck.
+
+**Narrowed further: `IvpRecursiveMindist.HullPassed`'s re-close check (`Flags & 0xC000 == 0 && Length > ContactGap`,
+`IvpRecursiveMindist.cs:174`) needs `Length` to grow past tolerance from the outer pair's own fixed placeholder synapse
+(both sides start as vertex 0 of their ledge, per `IvpMindist.Attach` — confirmed it never touches the synapse feature,
+only the object/ledge references `Keep` reads). That `Length` is computed fresh in `Solver.PointPoint`
+(`IvpMindistMinimize.cs:555-628`, `FUN_1800b1b80`) — it is NOT frozen data — but only on a call that does not first return
+`GaveUp` from `LoopsBack` (`IvpMindistMinimize.cs:1379-1385`). `HullPassed` always calls the NO-BUDGET minimize
+(`budget=0`), and with budget 0, `LoopsBack`'s own arithmetic (`_budget--; return _budget < 0 && _loop.Seen(...)`) makes
+the loop-detector live from the very first feature-pair check, instead of tolerating ~20 free revisits the way the
+budgeted minimize used everywhere else does. A closest-feature search straddling a seam is exactly the case that
+legitimately needs a few back-and-forth steps between two triangles' edges to converge — which the budgeted minimize can
+absorb and the zero-budget one may not.**
+
+**Next step, precisely — do not write a fix before this:** decompile and compare `FUN_180094c70` (`Route`) and
+`FUN_1800b1b80` (`PointPoint`) against this port's copies line for line, specifically the loop-check's budget arithmetic
+and what happens when it fires. `IvpRecursiveMindist.HullPassed` itself is already confirmed an exact match to
+`FUN_1800b28a0` (findings 51) — that part is not in question. What is not yet established is whether Valve's own
+zero-budget solver also gets permanently stuck on this exact seam geometry (a real engine limitation, not a defect to
+port around) or whether this port's loop-check diverges from the disassembly in some way that makes it worse. Guessing
+which one is true without reading the binary is exactly the mistake already made once this session — do not repeat it.
 
 ## How the ports are built, so the next one matches
 
