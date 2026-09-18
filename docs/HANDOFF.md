@@ -1224,11 +1224,47 @@ flagged parked — is genuine, common Valve behavior, not a port invention. It d
 never falls through terrain, because real gameplay has many overlapping contacts (other corners, other props, other
 players' own contacts) that can keep a body supported even while one specific mindist sits stuck; the synthetic test
 isolates a single simple body with few candidate triangles, which is far more exposed to a stuck mindist actually
-mattering. **The open question has narrowed from "does this state exist in the real engine" (yes, confirmed) to "does
-the real engine's broader contact set ever leave a body with nothing else holding it up while every relevant mindist
-is simultaneously stuck this way"** — which is a question about density of contacts on real terrain, not about
-whether this specific mechanism is a port bug. It is not: it is read, verified, and now observed live, matching Valve
-exactly.
+mattering.
+
+**CORRECTION, same night: the seam was never the cause, and this is now a stronger, unified finding, not a weaker
+one.** Moved the test's drop position off the exact seam centre (20, 30) — a completely ordinary single-triangle
+landing, nowhere near the diagonal. **It still falls through** (`y=10.42`, `impacts=5`, `last hull pass Refiled` — a
+different status than the seam case ever showed, and briefly *did* register 2 contacts and hover near `y≈-4.1` for a
+few ticks before losing them all and free-falling forever). The seam-specific framing above was wrong; tracing this
+new failure found the real, shared mechanism.
+
+**The plain (non-recursive) path, traced and read against disassembly for the first time tonight.** `IvpMindistHull.
+HullPassed` (`FUN_180097f00`) — the far-pair path a non-hull-with-children contact actually takes — does a *cheap
+linear estimate* of remaining distance instead of a real re-measurement each hull-pass, only escalating to a real
+check (`HandedOff`) once the estimate looks close. Checked its full formula and its `6.0`-step threshold
+(`RefileSteps = 6d`) against the disassembly: **exact match, term for term, including the grouping.** The scheduling
+is not the bug — proven twice now, in two different mindist kinds.
+
+**Where `HandedOff` actually leads, and where the two paths converge.** `HandedOff` → `IvpMindistHull.BecomeExact`
+(`FUN_1800977f0`, checked, matches) → a real `Minimize` call → if it does not settle (`FrozenBits` set), a **plain**
+mindist's `Freeze` (`IvpMindist.Freeze`, `FUN_180097440`, checked, matches) does not open a hull like the recursive
+one does — it calls `IvpMindistManager.Invalidate`, putting the pair on the object's own **invalid list**.
+`IvpCollisionObject.RecheckInvalid` (`FUN_180074240`, already read and fixed earlier tonight for its budget-wiring
+bug) then re-runs the same **zero-budget** `Minimize` on every invalid pair, **every single PSI**, unconditionally,
+for as long as `flags & 0xC000 == 0x4000` keeps coming back — checked and matches the disassembly exactly.
+
+**The two failure paths are not two bugs. They are the same root cause wearing two faces.** A hull-with-children
+contact that cannot settle goes recursive/parked, re-minimized on the hull manager's own conservative schedule. A
+plain contact that cannot settle goes invalid, re-minimized unconditionally every PSI — *more* often, not less — and
+still does not resolve, because retrying changes nothing: it is the identical zero-budget solver, already verified
+byte-for-byte faithful to Valve down to the exact loop-check formula (`docs/HANDOFF.md`, earlier this session), run
+again on the same geometry. If it cannot converge once, retrying it every PSI forever does not help — and the
+live-verified fact that real vphysics.dll holds recursive mindists in exactly this parked state during ordinary
+gameplay (above) applies identically here, since it is the same solver code either way.
+
+**Where this actually leaves it.** Every scheduling path (conservative hull-manager estimate, unconditional per-PSI
+invalid recheck) and every solver function reachable from either path has been read against the disassembly or
+verified live tonight, and all of it matches Valve. **There is no confirmed port divergence anywhere in this chain.**
+What remains is the same question named above, now sharper: IVP's zero-budget minimize can persistently fail to
+converge on a body whose geometry keeps changing PSI to PSI — confirmed live, on the shipped binary, for the
+recursive path — and a body with too few other contacts to fall back on when that happens will fall through,
+regardless of which of the two mindist kinds its contact took. That is a real, load-bearing limitation of the
+engine's own solver, observed for real, not an artifact of this port or of one adversarial test position.
 
 ## How the ports are built, so the next one matches
 
