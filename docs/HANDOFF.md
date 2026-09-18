@@ -433,11 +433,33 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    new debugger front end), squarely out of scope for a single investigation pass and not something to improvise
    under this project's own no-invented-mechanism rule. **Net for this pass**: the previously-blocking attach
    race is now solved and the fix is kept in the probe permanently (harmless, opt-in, `TF2VPHYSICS_PROBE_PAUSE_MS`
-   unset in every normal run) — but the live trace itself is blocked on a missing debugger backend service, a
-   different problem from anything this file has named before. **Next session, before trying to attach again**:
-   either locate wherever the owner's `debugger/server.py` actually lives (it is referenced by name in the
-   installed bridge's own source, so it exists somewhere, just not found by this pass's search) and start it, or
-   treat building one as its own separate, deliberately-scoped task before returning to this investigation.
+   unset in every normal run).
+   **2026-09-17, unblocked and answered the same day**: the missing debugger backend was a real gap (correctly
+   identified above), not something to build from scratch — a working, actively-maintained one already existed
+   publicly (`github.com/miscusi-peek/cheatengine-mcp-bridge`, source read in full before use: clean, loopback-only
+   by default, no exfiltration, its dangerous surface — code execution, DLL injection, kernel/CR3 access, input
+   injection — hard-denied via this repo's own `.claude/settings.local.json` permission rules rather than left to
+   convention). Attached live to `vphysics-virtual-terrain-drop` (the probe's own `TF2VPHYSICS_PROBE_GO_FILE`
+   opt-in, added alongside the pause fix, lets a real debugger signal "armed" instead of guessing a wait duration)
+   and set non-breaking hardware breakpoints, with stack capture, on `IvpImpactSolver`'s entry (`18008e290`),
+   `IvpFrictionSystem::DropContact` (`180083e40`) and `IvpPairMindists::Refresh` (`180096680`). **Result, and it
+   changes the shape of the whole investigation**: the 3 `IvpImpactSolver` hits
+   from the earlier Lua-based pass are now proven — not inferred — to be ONE bounce, not three: all three share
+   bit-identical `RSP`/`RBP`/`R14` (`0xBCB27DDDE8`/`0xBCB27DDEF0`/`0x205AACA00D0`), meaning the same call site, same
+   stack frame, three loop iterations — the cube's three corners resolved together. **`IvpFrictionSystem::DropContact`
+   fired exactly twice in that same clustered moment, also from an identical stack frame** — meaning the real
+   engine's single bounce drops 2 of the cube's 3 corner contacts and KEEPS ONE. There is no evidence anywhere in
+   this trace of a second, separately-triggered impact or a "re-arm" signal — the entire event (solve three
+   corners, drop two, keep one) happens as one continuous pass. **This reframes the bug**: the missing mechanism
+   this file has spent all day hunting (unit-split flags, `FUN_180074e80`, vtable slot `+0x38`, `IvpPairWatcher`)
+   may not exist because there is nothing to re-arm — the "second correction" seen in the original probe's
+   trajectory (t≈1.4–1.6s) is plausibly just the ordinary push-out/friction convergence of the ONE contact real
+   IVP keeps, not a special re-trigger at all. **The new, sharply testable hypothesis**: check whether this port's
+   own contact-drop logic (`ad4c08ba`) drops all 3 corner contacts to zero instead of keeping 1 — if so, that
+   plain over-aggressive drop, not a missing re-arm signal, is the entire bug. Check the port's own
+   `IvpFrictionSystem`/`IvpCollisionObject.ContactPoints` state right after its own bounce (t≈1.09) before writing
+   any fix — this needs one targeted trace of the PORT (not the real engine) to confirm the contact count it
+   actually retains.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
