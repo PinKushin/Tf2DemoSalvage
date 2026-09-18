@@ -216,12 +216,15 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         output.WriteLine($"pid={Environment.ProcessId}");
-        SpinWaitForDebuggerAttach(output);
 
         if (!VphysicsLibrary.TryLoad(output, out nint module))
         {
             return;
         }
+
+        // Paused here, not before TryLoad: a breakpoint needs vphysics.dll already mapped into this
+        // process before its addresses mean anything to an attaching debugger.
+        SpinWaitForDebuggerAttach(output);
 
         nint createInterfaceExport = NativeLibrary.GetExport(module, "CreateInterface");
         CreateInterfaceDelegate createInterface =
@@ -456,10 +459,13 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
     /// <summary>
     /// Opt-in debugger-attach window: a live trace of this probe races the run against a manual/scripted
     /// <c>debugger_attach</c>, and the whole 300-tick run otherwise completes faster than an attach can win that race
-    /// (measured, `docs/HANDOFF.md`'s virtual-terrain section). Set <c>TF2VPHYSICS_PROBE_PAUSE_MS</c> to spin-wait that
-    /// many milliseconds right here, before any native call, buying a real attach window. A plain <c>Stopwatch</c>
-    /// busy-wait, not <c>Thread.Sleep</c>/<c>Task.Delay</c> (banned in this repo, `~/.claude/hooks/block-banned-csharp.ps1`).
-    /// No-op unless the env var is set; never active in normal runs.
+    /// (measured, `docs/HANDOFF.md`'s virtual-terrain section). Set <c>TF2VPHYSICS_PROBE_PAUSE_MS</c> to spin-wait right
+    /// here, before any native call, buying a real attach window — but polling <c>TF2VPHYSICS_PROBE_GO_FILE</c> every
+    /// iteration and returning the instant it appears, so the wait ends the moment whatever is attaching says it is
+    /// actually ready rather than after a guessed duration. The env var's value is only the upper bound if that file
+    /// never shows up (a debugger that fails to attach, or a typo'd path). A plain <c>Stopwatch</c> busy-wait, not
+    /// <c>Thread.Sleep</c>/<c>Task.Delay</c> (banned in this repo, `~/.claude/hooks/block-banned-csharp.ps1`). No-op
+    /// unless the env var is set; never active in normal runs.
     /// </summary>
     private static void SpinWaitForDebuggerAttach(TextWriter output)
     {
@@ -470,11 +476,22 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
             return;
         }
 
-        output.WriteLine($"TF2VPHYSICS_PROBE_PAUSE_MS={pauseMs}: spin-waiting for debugger attach...");
+        string? goFile = Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_GO_FILE");
+
+        output.WriteLine(
+            string.IsNullOrEmpty(goFile)
+                ? $"TF2VPHYSICS_PROBE_PAUSE_MS={pauseMs}: spin-waiting for debugger attach (fixed duration, no go-file set)..."
+                : $"TF2VPHYSICS_PROBE_PAUSE_MS={pauseMs} (upper bound), watching for {goFile} to continue early...");
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         while (stopwatch.ElapsedMilliseconds < pauseMs)
         {
+            if (!string.IsNullOrEmpty(goFile) && File.Exists(goFile))
+            {
+                output.WriteLine($"{goFile} appeared after {stopwatch.ElapsedMilliseconds}ms, continuing.");
+                return;
+            }
+
             // Busy-wait on purpose: Thread.Sleep/Task.Delay are banned in this repo.
         }
 
