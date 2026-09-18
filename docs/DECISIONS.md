@@ -8997,3 +8997,21 @@ onto the component that now implements it (the killing blow, the twist axis and 
 than deleting the rule with the old code.
 
 Related: D172, D179.
+
+## D181 — every corpse is simulated once, in the background, straight through; a seek is a lookup (2026-09-18)
+
+**Supersedes D179's backward-seek replay** (its one-environment rule stands). Offered three ways to make a seek instant — precompute
+in the background, only speed up the step, or checkpoint the world while playing — the owner chose **"Precompute in background"**,
+the recommended option; no further reason given.
+
+**What it means:** at demo load a background thread plays every corpse in the demo through ONE environment, in death order, from
+the first death to the last corpse's end, exactly as straight-through playback would, and records each corpse's pose per tick while
+it moves. A seek anywhere reads the record. **So a rewind now matches straight-through play exactly**, the difference D179 had
+accepted. Until the background pass reaches a tick, the viewer falls back to D179's replay.
+
+**Measured before choosing:** a step costs about 0.8 ms per awake corpse in Debug (f12 scout drop, 276 ms over 355 awake ticks),
+spread across the whole driver with no single hotspot, after halving its allocation (54 KB an awake tick); the f12 seek to tick
+26578 replayed 992 ticks in 0.7–0.95 s. **Its costs, accepted with the choice:** one core for tens of seconds after load, and the
+recorded poses — tens of megabytes on a full match.
+
+Related: D172, D179.

@@ -656,9 +656,9 @@ public static class RagdollProps
                 ClassName: GibClassName,
                 FirstTick: corpse.FirstTick,
 
-                // The piece's own throw and the corpse's shared spin, which the simulation stages
-                // onto the body exactly as a corpse's killing blow is staged.
-                Force: PlayerGibs.Velocity(corpse, piece),
+                // The piece's own throw, jittered as `BreakModelCreateSingle` jitters it, and the corpse's shared spin in
+                // degrees a second — the two arguments of the `AddVelocity` the simulation stages them with (B409).
+                Force: Jittered(PlayerGibs.Velocity(corpse, piece), PlayerGibs.Jitter(corpse, piece)),
                 RagdollVelocity: PlayerGibs.Spin(corpse)));
 
             drawn++;
@@ -666,4 +666,8 @@ public static class RagdollProps
 
         return drawn;
     }
+
+    /// <summary><c>velocity + rndf*velocity</c>, as a factor.</summary>
+    private static (float X, float Y, float Z) Jittered((float X, float Y, float Z) velocity, float factor) =>
+        (velocity.X * factor, velocity.Y * factor, velocity.Z * factor);
 }

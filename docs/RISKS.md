@@ -26989,7 +26989,18 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B409 OPEN 2026-09-18: gibs are never simulated — they hold in the air where the player died
+### B409 FIXED 2026-09-18: gibs are never simulated — they hold in the air where the player died
+
+**Fixed**: every TF2 gib model is BAKED (no skeleton; measured on `soldiergib00N.mdl`: prop body, `Skinned` null), so the corpse
+wiring — which needed an animating entity — skipped every one. A gib now goes into the one environment as a physics prop
+(`IvpRagdoll.CreateProp`, `rotInertiaLimit` 0.05, `COLLISION_GROUP_DEBRIS`: never another gib, always the world and corpses),
+created at its spawn transform and thrown with vphysics' `AddVelocity` as read from the binary (`18001a6c0`: degrees to radians,
+`(x, −z, y)`), jittered ±2.5% as `BreakModelCreateSingle` does; its baked mesh is drawn at the object's origin and `MatrixAngles`,
+as `C_PhysPropClientside`'s entity follows its object. Captured on f12 at the soldier gibbed at tick 4619: pieces scattered in the
+air at 4649, on the ground at 4819. *Still not carried*: the break sections' `offset`/placement and `burstScale` (TF2's values
+not yet read out of the shipped `.phy` text), the 1-second alpha fade after `fadeTime`, and `cl_phys_props_max` (300).
+
+### B409 (original report)
 
 **The owner, watching `cp_process_f12`:** *"the gibs dont actually ever have physics take over it looks like, so theres just a
 vauguely player shaped gib models being spawned, and just holding in the air wherever the player died"* — with an F5 capture
