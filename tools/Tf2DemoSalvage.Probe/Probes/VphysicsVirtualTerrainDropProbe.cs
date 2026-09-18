@@ -66,9 +66,11 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
     private const int ObjectGetPositionSlot = 47;
     private const int ObjectGetVelocitySlot = 51;
 
-    private const int TotalTicks = 300;
-    private const int PrintEveryTicks = 20;
-    private const float Timestep = 0.01f;
+    // Matches IvpSimulationBroadPhaseTests' own Environment() InverseStep (66), so a tick-by-tick diff against the port
+    // compares the same PSI rate rather than the engine's default 100Hz against the port's 66Hz (B369).
+    private const int TotalTicks = 198;
+    private const int PrintEveryTicks = 13;
+    private const float Timestep = 1f / 66f;
 
     /// <summary>The basin's 2000-inch square, matching the test's own corners.</summary>
     private const float BasinSize = 2000f;
