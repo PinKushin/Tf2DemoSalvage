@@ -1302,16 +1302,37 @@ from "a child mindist is exact and near" to "an impact actually commits and chan
 `IvpPairScheduler.Examine`, the event queue a scheduled pair is drained from, and whatever runs the actual
 impulse. That is the next concrete place to look, not another pass over the solver or the reopen lifecycle.
 
+**CORRECTION, same session: it is not the scheduler.** Live-traced `IvpPairScheduler.Examine` itself, correlated
+tick-by-tick against `RefreshChildren` (temporary instrumentation, reverted, never committed). The 8 children
+are examined cleanly through the first bounce (t=0.82–1.09, `closingEnough` true, length shrinking 0.30→0.006),
+then all eight go silent from **t=1.088 to t=2.86 — 1.77 of the run's 3 seconds** — despite four separate
+`RefreshChildren` calls in between (t=1.77, 2.06, 2.38, 2.71) finding the same 8 candidates every time. That
+silence is not `Examine` returning `LeftAlone` (which keeps a pair on the Exact list and still calls `Examine`
+every PSI) — a pair only stops being examined at all by leaving the Exact list, which happens exactly one way:
+`IvpMindist.Freeze` (`IvpMindistMinimize.cs:220`, unconditional) calling `Invalidate`. **This is the same
+mechanism already documented above** (`Freeze` → `Invalidate` → `IvpCollisionObject.RecheckInvalid`'s
+zero-budget retry, parked at `flags&0xC000==0x4000`) — the new fact is its precise duration: for these 8
+mindists, on this drop, it consumes 1.77 straight seconds while the body is demonstrably still moving the
+entire time (its own independently-traced trajectory climbs from y≈-4.2 to y≈+7.2 across this exact window).
+A zero-budget retry that is genuinely re-evaluated fresh every PSI against a body in a materially different
+position each time, and reports the identical `0x4000` verdict for 100+ consecutive ticks regardless, is
+either a real single-step-budget limitation that is mathematically bound to persist exactly this way for this
+geometry, or a sign that the retry is not actually seeing the updated state — and every formula that could
+decide between those two (the retry itself, `IvpMindistManager.Recheck`, `RecheckInvalid`) has already been
+read against the disassembly and matches. **Telling those two apart needs a live comparison against the
+shipped engine's own retry** (a Cheat Engine breakpoint on the equivalent zero-budget minimize, for the same
+geometry, the same way the earlier live-verification pass in this document worked) — not another pass over
+C# source, which has now been read about as far as reading alone can settle it.
+
 **Where this leaves the decision the owner already anticipated** ("we are probably doing 1 though... this
 isn't even a better-than-valve thing, this is a they-probably-made-this-happen-with-collision-optimization,
-and it never happens in game"): the collision-optimization framing is now specifically **disproven** for this
-geometry — the real engine does not need the optimization to fail here, it settles. What remains genuinely
-untested is whether the scheduler/impact-commit gap only bites this adversarial multi-bounce-on-a-corner
-scenario (in which case option 1 — adjust the synthetic test to an ordinary single-approach drop, which the
-other two static-slab tests in this file already cover and pass, and record this multi-approach case as a
-known limitation in `docs/RISKS.md` rather than a gate assertion) or is a real, general scheduler bug that
-would also bite an ordinary game drop (in which case it needs fixing, not filing). That question is answered
-by reading `IvpPairScheduler.Examine` and the event-queue drain next, not by further live tracing.
+and it never happens in game"): the collision-optimization framing is specifically **disproven** for this exact
+geometry by the probe — the real engine does not need an optimization to fail here, it settles cleanly. What
+decides between fixing this and filing it as a known limitation is now a single, narrow, answerable question:
+does the real engine's zero-budget retry, for this same stuck geometry, converge in fewer steps than the
+port's — or does it also sit at its own equivalent of `0x4000` for a while and get rescued by something else
+(another contact, a different candidate) that this adversarial single-triangle-patch test starves it of. That
+is a live-debugging question, not a reading one, and is the concrete next step if this continues.
 
 ## How the ports are built, so the next one matches
 
