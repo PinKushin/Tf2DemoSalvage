@@ -1266,6 +1266,53 @@ recursive path — and a body with too few other contacts to fall back on when t
 regardless of which of the two mindist kinds its contact took. That is a real, load-bearing limitation of the
 engine's own solver, observed for real, not an artifact of this port or of one adversarial test position.
 
+**RETRACTION: the "not a port bug" conclusion above is wrong, per direct oracle evidence obtained right after
+writing it.** `tools/Tf2DemoSalvage.Probe/Probes/VphysicsVirtualTerrainDropProbe.cs` drives the real, shipped
+vphysics.dll in-process against the **identical** `DisplacementCollisionTree`/hull-blob geometry the failing
+C# unit test uses — same seam-centred drop, same gravity. Fixed the probe's timestep from the engine's default
+100Hz to the test's own 66Hz (`InverseStep = 66d`) for a genuine apples-to-apples run (committed separately,
+`14adbc51`). **The real engine settles cleanly at this matching timestep**: final position 157.86in vs the
+expected 157.480in. The port does not. That is a controlled, tick-rate-matched, geometry-matched refutation of
+every "shared Valve behavior" conclusion above — there is a real port divergence, and the live bot-combat
+signature (parked flags, length past tolerance) documented above is genuine Valve behavior **in general**, but
+is not what is happening to this specific test's mindist, which the probe proves recovers on the real binary.
+
+**Two more candidate explanations chased down and ruled out with hard evidence, same night:**
+
+- **PSI/`Advance`-cadence aliasing.** Changed the test's stepping loop from `at += 0.01d` (misaligned against
+  the internal ≈0.01515s PSI) to `for (double at = 1d/66d; at <= 3d; at += 1d/66d)` — exact lock-step with the
+  engine's own PSI rate. **Bit-identical failure** (`y=7.220574437630701`, `impacts=3`, last hull pass
+  `Recursive`). The outer test loop's stepping is not the cause.
+- **The recursive-mindist open/close/reopen lifecycle itself** (`IvpRecursiveMindist.HullPassed`,
+  `IvpHullManager.Advance`/`NotifyPassed`, `IvpRangeManager.PairRange`) — live-traced tick by tick with
+  temporary `Console.WriteLine`s (reverted before commit, never landed). Over the whole ~198-PSI run: the
+  hull-manager `due` check fires repeatedly and correctly (at PSI #19, 37, 39, 54, 58, 71, 80, 82, 84, 86, 107,
+  108, 115, 120–124, 140, 143, 161, 164, 179, 183, 186 — not just at the start), and `RefreshChildren` reopens
+  the pair **five separate times** as the body falls, bounces and re-approaches, finding the same 8 candidate
+  terrain triangles every time (`openSide=0` constant throughout). This machinery is not stuck, not starved,
+  and not silently abandoned — it tracks the body correctly right up to the run's natural end. **This whole
+  subsystem, exhaustively checked against the disassembly earlier and now checked live, is cleared.**
+
+**The sharper finding this leaves: only 3 impacts ever commit, across 5 correct reopens, while the body makes
+several close approaches.** `simulation.Environment.Impacts == 3` in every run of this test, seam or off-seam,
+0.01-stepped or exact-1/66-stepped. The mindist-tracking layer (verified byte-for-byte against Valve, above)
+finds the right triangles every time; the reopen/reschedule layer (just verified live) refreshes on time every
+time. Neither is where an approach gets dropped. **What has not been examined this session at all is the path
+from "a child mindist is exact and near" to "an impact actually commits and changes velocity"** —
+`IvpPairScheduler.Examine`, the event queue a scheduled pair is drained from, and whatever runs the actual
+impulse. That is the next concrete place to look, not another pass over the solver or the reopen lifecycle.
+
+**Where this leaves the decision the owner already anticipated** ("we are probably doing 1 though... this
+isn't even a better-than-valve thing, this is a they-probably-made-this-happen-with-collision-optimization,
+and it never happens in game"): the collision-optimization framing is now specifically **disproven** for this
+geometry — the real engine does not need the optimization to fail here, it settles. What remains genuinely
+untested is whether the scheduler/impact-commit gap only bites this adversarial multi-bounce-on-a-corner
+scenario (in which case option 1 — adjust the synthetic test to an ordinary single-approach drop, which the
+other two static-slab tests in this file already cover and pass, and record this multi-approach case as a
+known limitation in `docs/RISKS.md` rather than a gate assertion) or is a real, general scheduler bug that
+would also bite an ordinary game drop (in which case it needs fixing, not filing). That question is answered
+by reading `IvpPairScheduler.Examine` and the event-queue drain next, not by further live tracing.
+
 ## How the ports are built, so the next one matches
 
 A port in `managed/Tf2DemoSalvage.Animation/Animating/`; its lanes in `tools/Tf2DemoSalvage.Probe/Oracle/Ivp*Replay.cs`
