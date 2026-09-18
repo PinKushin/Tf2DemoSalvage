@@ -27031,8 +27031,9 @@ step. *Evidence class: measured (process working set, sampled per second).*
 ### B406 OPEN 2026-09-18: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player
-though."* Nothing measured yet. *Not established*: which cosmetics, on which players (living or corpses), and whether "not
-rooting" means offset, trailing, or stuck at a spot. The engine's path is a bone-merged wearable asking its owner for bones by name
+though."* Asked where: *"living people, its offset i guess, its down near the feet"*. Down at the feet is where a bone-merged
+item lands when the merge does not happen — posed from its own rest skeleton at the entity origin, which for a player is the feet.
+*Not established*: which items, and why their merge fails. The engine's path is a bone-merged wearable asking its owner for bones by name
 (`docs/memory/bone-merge-sends-no-position.md`); `EntityModels.EntityFor`'s placement and the merge cache are where to read first.
 
 ### B405 FIXED 2026-09-12: a `.phy` too short for its header, or declaring another header size, escaped every Scene reader's catch
