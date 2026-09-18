@@ -624,7 +624,7 @@ public sealed class IvpSimulation
             return false;
         }
 
-        _ = IvpFrictionLinking.LinkContactByCore(contact, coreA, coreB, Environment);
+        _ = IvpFrictionLinking.FileNew(contact, coreA, coreB, Environment);
         return true;
     }
 

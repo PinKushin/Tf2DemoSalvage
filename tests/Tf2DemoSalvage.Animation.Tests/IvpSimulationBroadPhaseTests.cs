@@ -159,6 +159,25 @@ public sealed class IvpSimulationBroadPhaseTests
     }
 
     /// <remarks>
+    /// **A new contact is weighed as it is filed** (`FUN_180090e50` → `FUN_180083a60`): its `+0x60`, the third factor of the friction
+    /// budget. *Nothing called the weigh*, so every contact's budget was zero and nothing held a sliding body — the binary's crate on
+    /// its pallet reads `0.17488304` there, the port's read `0`, and the port's crate crept where the binary's stopped (B369).
+    /// </remarks>
+    [Test]
+    public void Advance_TwoBodiesDrivenTogether_WeighTheirContacts()
+    {
+        (_, IvpRigidBody moving, _, _) = DrivenTogether(until: 0.2d);
+
+        IvpContactPoint? contact = moving.FrictionInfo!.System.FirstContact;
+        contact.ShouldNotBeNull("the control: the collision filed a contact");
+
+        for (; contact is not null; contact = contact.Next)
+        {
+            contact.InverseContactMass.ShouldBeGreaterThan(0f);
+        }
+    }
+
+    /// <remarks>
     /// **After the impact the contact holds them apart.** A cube hit on a corner turns, so the centers may come a little inside 8,
     /// but not through: the contact's record has to measure the same penetration the pair's minimize does.
     /// </remarks>

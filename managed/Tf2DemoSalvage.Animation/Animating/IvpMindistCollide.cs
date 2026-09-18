@@ -79,7 +79,9 @@ public static class IvpMindistCollide
         IvpRigidBody coreA = recordZeroIsA ? firstCore : secondCore;
         IvpRigidBody coreB = recordZeroIsA ? secondCore : firstCore;
 
-        IvpFrictionSystem system = IvpFrictionLinking.LinkContactByCore(contact, coreA, coreB, environment);
+        // `FUN_180090e50(…, build: 1)`: the record built and the materials set first; a contact found already filed goes no further,
+        // and only a new one is filed and weighed. *This filed first and built after*, and so could not weigh.
+        bool isNew = contact.FrictionSystem is null;
         contact.LastMeasured = now;
 
         IvpContactRecord record = IvpContactRecord.Build(
@@ -88,6 +90,10 @@ public static class IvpMindistCollide
             new IvpContactBody(sideB, coreB, contact.SecondObject.ExtraRadius),
             now);
         contact.SetMaterials(materials);
+
+        IvpFrictionSystem system = isNew
+            ? IvpFrictionLinking.FileNew(contact, coreA, coreB, environment)
+            : contact.FrictionSystem!;
 
         IvpFrictionPair pair = system.PairFor(coreA, coreB)
             ?? throw new InvalidOperationException("A contact linked by core has no pair for its cores.");

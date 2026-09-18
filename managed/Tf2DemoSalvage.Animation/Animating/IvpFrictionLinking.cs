@@ -221,6 +221,30 @@ public static class IvpFrictionLinking
         return system;
     }
 
+    /// <summary>Files a NEW contact, its record already built, and weighs it — the tail of <c>FUN_180090e50</c>.</summary>
+    /// <param name="contact">The contact point, allocated this collision, with its record and materials.</param>
+    /// <param name="firstCore">Synapse A's core.</param>
+    /// <param name="secondCore">The other core.</param>
+    /// <param name="environment">The impact environment.</param>
+    /// <returns>The system the contact now belongs to.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// found:  record built, materials set, nothing filed        -- the caller's, which does not come here
+    /// new:    record built, materials set;  filed (LinkContactByCore);  FUN_180083a60(cp) — weighed;  the units merged
+    /// </code>
+    /// **Every production filing comes through here**, so a contact is never in a system unweighed: its `+0x60` is the third factor
+    /// of the friction budget, and a zero there holds nothing. *Nothing called the weigh until 2026-09-18*, and the port's bodies crept.
+    /// The engine weighs before the unit merge and this after it; the merge changes no field the weigh reads.
+    /// </remarks>
+    public static IvpFrictionSystem FileNew(
+        IvpContactPoint contact, IvpRigidBody firstCore, IvpRigidBody secondCore, IvpImpactEnvironment environment)
+    {
+        IvpFrictionSystem system = LinkContactByCore(contact, firstCore, secondCore, environment);
+        contact.Weigh();
+        return system;
+    }
+
     /// <summary>Files a contact onto one core's share of the system, once — half of <c>FUN_180054640</c>.</summary>
     private static void FileOnCore(IvpFrictionInfo? share, IvpContactPoint contact)
     {
