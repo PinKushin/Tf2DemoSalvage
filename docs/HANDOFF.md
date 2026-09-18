@@ -1093,17 +1093,43 @@ gets permanently stuck reporting `GaveUp` on this exact seam geometry, it gets s
 `vphysics.dll` — this specific mechanism cannot be the site of a fixable divergence, because there is nothing left for it
 to diverge from.
 
-**Where this leaves B369.** Every mechanism between the bounce and the fall-through has now been read or measured, and
-every one of them is either correct or faithfully matches Valve's own real behavior: the drop rule, the hull-manager
-wake-up scheduler, the mindist ledge-matching, the virtual-mesh triangle isolation, the solver's dispatch table, and its
-loop-check. **None of them is a confirmed port bug.** What remains open is whether real TF2 also fails to re-catch a
-body landing exactly, dead-centred, on a displacement's triangle seam like this test does — which would make this a
-genuine, provable Valve engine limitation rather than a defect to fix — or whether the actual divergence lives somewhere
-still unread (the `Steepest`/edge-walk portion of `PointPoint` past the loop-check, or `PointEdgeProximity`, neither
-checked against the disassembly yet). **Settling which needs one of: reading those two remaining functions against
-their disassembly, or a live trace of the real client landing something on a real displacement seam** (the Cheat Engine
-MCP bridge set up earlier this session) — not another guess from the port's C# alone, which is exactly what produced
-this session's one confirmed mistake.
+**`Steepest` (the edge-walk `PointPoint` uses) checked and matches exactly** — same operand order, same `+1e-18` inside
+the reciprocal square root (`RiseFloor`), confirmed against the inlined loop in `FUN_1800b1b80`'s own disassembly. **One
+apparent mismatch turned out to be a decompiler trap, caught before it was written down as a finding**: Ghidra's
+pseudocode renders the `Start<0` branch as `if (local_140 < 0.0)`, which in C semantics is false for NaN — but the real
+instructions are `COMISS`/`JNC`, and `JNC` does NOT jump on an unordered (NaN) comparison, so NaN actually takes the SAME
+branch as a genuine negative value. That is exactly what this port's `!(weights.Start >= 0f)` already does. Read the
+disassembly, not the decompiler's synthesized comparison operator, for every NaN-adjacent branch — this project's own
+convention for exactly this reason.
+
+**Where "Backside" actually comes from, read and pinned:** `Solver.PointFace` (`FUN_1800b1910`) routes a point either
+into `PointFaceProximity` (inside the triangle) or onward to the nearest edge. `PointFaceProximity`
+(`IvpMindistMinimize.cs:880-945`, `FUN_1800b0c20`) is where a settled point with no downhill neighbor gets checked for
+being behind the surface (`Length + ExtraRadius < 0`) and, if so, is marked `Backside` — the exact mechanism findings 51
+named. `BacksideWalk`'s one retry can only flip a triangle's own front/back (confirmed faithful to Valve, see above) — it
+cannot cross to a genuinely different neighboring triangle, in either engine. Recovery from that is supposed to be the
+OUTER recursive mindist discarding the dead attempt and asking for fresh candidates.
+
+**The empirical smoking gun, from tracing every child of the outer recursive mindist directly (temporary
+instrumentation, reverted after use).** The ground's hull opens **8** candidate triangle children (not 2), each an
+ordinary `IvpMindist` against the cube. Through t=1.60 most sit around `flags=...40xxx` (bits 14–15 clear — NOT parked)
+with `Length` in the 0.17–2.5 range. **Starting at t=1.80, every single one of the 8 children, AND the outer mindist
+itself, flips to `flags & 0xC000 == 0x4000` (parked) simultaneously — and none of them ever clears it again for the rest
+of the run.** Crucially, `Length` keeps changing normally the whole time it is parked — outer `Length` goes
+5.3579 → 3.7936 → 1.0247 → 1.0247 → 0.8688 across t=1.80…2.81, values enormously past `ContactGap` (≈0.0127) — so
+`HullPassed`'s re-close condition (`Flags & 0xC000 == 0 && Length > ContactGap`) is failing purely on the FLAGS half.
+**The `Length` computation is not the blocker. The solver is refusing to ever return `Settled` again, for the outer pair
+and for all eight children at once, from this point on.** That is a single, precisely-characterized fact, not an
+inference.
+
+**What is still not established, precisely two things:** (1) `Solver.PointEdge`, `EdgeEdge`, `FaceFace`,
+`EdgeEdgeProximity` and `PointEdgeProximity`'s own bodies — the functions a stuck child's repeated re-minimize would
+actually be running through — have not yet been checked against their disassembly, only `PointPoint`, `PointFace` and
+`PointFaceProximity` have; (2) whether Valve's real engine also reaches this same simultaneous eight-way permanent
+`GaveUp`/`Backside` deadlock for a body landing dead-centred on a displacement seam, which would make this a genuine,
+provable Valve engine limitation rather than a defect to fix. **Settling either needs the remaining disassembly reads or
+a live trace of the real client** (the Cheat Engine MCP bridge set up earlier this session) — not another guess from the
+port's C# alone, which is exactly what produced this session's one confirmed mistake.
 
 ## How the ports are built, so the next one matches
 
