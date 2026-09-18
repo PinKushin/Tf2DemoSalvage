@@ -1227,6 +1227,7 @@ internal class MainForm : Form, IFrameSteps
         Controls.Add(_actions);
         Controls.Add(statusStrip);
         Controls.Add(menu);
+        Controls.Add(_loading);
         MainMenuStrip = menu;
 
         // The docked controls that give their space to the viewport in full screen. The menu is
@@ -1262,9 +1263,15 @@ internal class MainForm : Form, IFrameSteps
             // demo looked identical to one whose renderer drew nothing, and the log distinguished
             // them nowhere: no `[demo]` line at all is the same absence for "we chose not to open
             // it" and "opening it failed".
+            //
+            // **Opened once the window is up, not inside this constructor.** Loading it here kept
+            // the window off screen for the whole decode and map read — 95 seconds on a 26-minute
+            // match — which is what the owner asked a loading screen for. The `--shot` countdown
+            // waits on the load rather than on frames (see `TakeAutomaticShot`).
             if (initialPaths.Length == 1 && File.Exists(initialPaths[0]))
             {
-                LoadDemo(initialPaths[0]);
+                _openOnShow = initialPaths[0];
+                Shown += (_, _) => Loading = OpenCommandLineDemo();
             }
             else if (initialPaths.Length == 1)
             {
@@ -1922,6 +1929,14 @@ internal class MainForm : Form, IFrameSteps
         // The coupling B208 found lives there now too: the settle point is `openingFrames -
         // settleFrames` rather than a literal, so lowering the wait cannot silently make it
         // unreachable and drop every launch option.
+        // **A load in flight is not a demo that never came.** The patience is a frame count, and a
+        // window that draws at 300 fps while an 80-second decode runs would give up two thirds of
+        // the way through it.
+        if (_loadsInFlight > 0)
+        {
+            return;
+        }
+
         switch (_opening.Advance())
         {
             case OpeningStep.ApplyOpeningState:
@@ -2658,22 +2673,43 @@ internal class MainForm : Form, IFrameSteps
         int ticket = _loads.Take();
 
         _status.Text = DemoLoadResult.Opening(path);
+        _loadsInFlight++;
+        _loading.Report(LoadingDecode, 0d);
 
         try
         {
             ILogger demoLog = _demoLog;
+
+            // **Posted, so a report can arrive after the decode has moved on** — the stage check
+            // keeps a late one from dragging the overlay back to "decoding".
+            bool decoding = true;
+            IProgress<double> progress = new Progress<double>(fraction =>
+            {
+                if (decoding && _loads.IsCurrent(ticket))
+                {
+                    _loading.Report(LoadingDecode, fraction);
+                }
+            });
+
             // **The shutdown token, on both worker hops** (B402). Neither read can be interrupted
             // part-way — a decode and a map read are one operation each — but the token means a
             // window that closes mid-load does not come back to a disposed form afterwards, which
             // is the same crash the map fetch had.
             DecodedDemo decoded = await Task
-                .Run(() => DecodedDemo.Read(path, demoLog), _shutdown.Token)
+                .Run(() => DecodedDemo.Read(path, demoLog, progress.Report), _shutdown.Token)
                 .ConfigureAwait(false);
 
             if (!_loads.IsCurrent(ticket))
             {
                 return OnUi(() => Superseded(_demoLog, path));
             }
+
+            OnUi(() =>
+            {
+                decoding = false;
+                _loading.Report(LoadingMap, fraction: null);
+                return 0;
+            });
 
             // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
             // old map touches the device and stays here; finding and reading the new one touches
@@ -2702,6 +2738,12 @@ internal class MainForm : Form, IFrameSteps
                     // `game`, which does not exist until the read has produced it.
                     (bool drawn, GameContent? game) =
                         ReadMapNamed(decoded.Demo.MapName, decoded.Timeline);
+
+                    OnUi(() =>
+                    {
+                        _loading.Report(LoadingAssets, fraction: null);
+                        return 0;
+                    });
 
                     // **Packed here rather than when a prop first appears, which is what Valve
                     // does** (D86). `CBaseEntity::PrecacheModel` sits behind `IsPrecacheAllowed()`
@@ -2740,7 +2782,61 @@ internal class MainForm : Form, IFrameSteps
                 ? CouldNotOpen(path, failure)
                 : Superseded(_demoLog, path));
         }
+        finally
+        {
+            OnUi(() =>
+            {
+                // **Hidden only when no newer load is still running**, which would otherwise lose
+                // its overlay to the one it superseded.
+                if (--_loadsInFlight == 0)
+                {
+                    _loading.Visible = false;
+                }
+
+                return 0;
+            });
+        }
     }
+
+    /// <summary>The demo named on the command line, opened once the window is up; null when none was.</summary>
+    private readonly string? _openOnShow;
+
+    /// <summary>Opens the demo named on the command line, the way a double-click in the playlist would.</summary>
+    /// <returns>The load, or the nothing-selected result when the command line named no single demo.</returns>
+    /// <remarks>
+    /// **Held in <see cref="Loading"/> by the <c>Shown</c> handler, never <c>async void</c>** — the owner's rule, and the
+    /// playlist's pattern: *"we dont async void, we do pass back"*.
+    /// </remarks>
+    public Task<DemoLoadResult> OpenCommandLineDemo() =>
+        _openOnShow is null ? NothingSelected : LoadDemoAsync(_openOnShow);
+
+    /// <summary>UIA AutomationId of the loading overlay.</summary>
+    public const string LoadingOverlayId = "LoadingOverlay";
+
+    /// <summary>UIA AutomationId of the loading overlay's stage label.</summary>
+    public const string LoadingStageId = "LoadingStage";
+
+    /// <summary>UIA AutomationId of the loading overlay's progress bar.</summary>
+    public const string LoadingProgressId = "LoadingProgress";
+
+    /// <summary>The overlay's words for the decode.</summary>
+    private const string LoadingDecode = "Decoding the demo";
+
+    /// <summary>The overlay's words for the map read.</summary>
+    private const string LoadingMap = "Loading the map";
+
+    /// <summary>The overlay's words for the model and sound precache.</summary>
+    private const string LoadingAssets = "Loading models and sounds";
+
+    /// <summary>What a demo load is doing, over the viewport.</summary>
+    [SuppressMessage(
+        "Usage",
+        "CA2213:Disposable fields should be disposed",
+        Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
+    private readonly LoadingOverlay _loading = new();
+
+    /// <summary>Asynchronous loads not yet finished; the `--shot` patience waits while any is.</summary>
+    private int _loadsInFlight;
 
     /// <summary>Says a load was overtaken, without touching anything.</summary>
     // The logger is a parameter because this is static (D83).

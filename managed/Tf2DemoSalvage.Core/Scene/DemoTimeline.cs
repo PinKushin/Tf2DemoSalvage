@@ -1407,8 +1407,15 @@ public sealed class DemoTimeline
         List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null) =>
         new([], props: props, playerTracks: players, recordedViews: null, viewmodels: viewmodels);
 
+    /// <summary>How many times a decode reports its progress — often enough for a bar to move, rarely enough to cost nothing.</summary>
+    private const int ProgressReports = 200;
+
     /// <summary>Walks a demo and records where everyone was.</summary>
     /// <param name="file">The whole demo file, header included.</param>
+    /// <param name="progress">
+    /// Told the fraction of the demo's commands walked — about two hundred times a demo, rising, and exactly <c>1</c> at the end —
+    /// or null for no reports. For the viewer's loading screen: an 80-second decode is otherwise 80 seconds of nothing.
+    /// </param>
     /// <returns>The timeline, empty when the demo carries no schema or no entities.</returns>
     /// <exception cref="ArgumentException">The file is too short to hold a header.</exception>
     /// <remarks>
@@ -1416,7 +1423,14 @@ public sealed class DemoTimeline
     /// files genuinely have none, and a viewer that refused to open them would be refusing exactly
     /// the salvage cases this project exists for.
     /// </remarks>
-    public static DemoTimeline Build(ReadOnlyMemory<byte> file)
+    public static DemoTimeline Build(ReadOnlyMemory<byte> file, Action<double>? progress = null)
+    {
+        DemoTimeline built = BuildTimeline(file, progress);
+        progress?.Invoke(1d);
+        return built;
+    }
+
+    private static DemoTimeline BuildTimeline(ReadOnlyMemory<byte> file, Action<double>? progress)
     {
         long buildFrom = Stopwatch.GetTimestamp();
         long commandTicks;
@@ -1660,8 +1674,16 @@ public sealed class DemoTimeline
         Dictionary<int, PlayerInfo> bySlot = [];
         Dictionary<int, PlayerInfo> everyone = [];
 
+        int walked = 0;
+        int reportEvery = Math.Max(1, commands.Count / ProgressReports);
+
         foreach (DemoCommand command in commands)
         {
+            if (progress is not null && walked++ % reportEvery == 0)
+            {
+                progress((double)walked / commands.Count);
+            }
+
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
             {
                 continue;

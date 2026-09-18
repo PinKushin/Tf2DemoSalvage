@@ -173,6 +173,9 @@ internal sealed partial class ViewerSession
     /// <summary>What it logs when it decodes and uploads a map's textures.</summary>
     public const string TextureUploadLine = "uploading textures";
 
+    /// <summary>What the loading overlay said the moment the window appeared, or null when it was not there.</summary>
+    public static string? LoadingStageAtLaunch { get; private set; }
+
     [OneTimeSetUp]
     public void LaunchTheViewer()
     {
@@ -219,6 +222,16 @@ internal sealed partial class ViewerSession
         // `LoadedDemoTests` drives `LoadDemo` and `LoadDemoAsync` with no window at all.
         _viewer = ViewerApplication.Launch(
             DemoPath, "--tick", OpeningTick.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        // **Read now, because now is the only time it exists.** The owner asked for a loading screen
+        // that appears at once; the demo decodes and its map loads for twenty seconds after the
+        // window opens, and this is the one moment inside that window a test can see. It costs no
+        // time: the wait below would spend it anyway. `LoadingOverlayUiTests` asserts on it.
+        // Waited on rather than read once: the window is found before its Shown event has run.
+        LoadingStageAtLaunch = Retry.WhileFalse(
+                () => _viewer.Exists(MainForm.LoadingStageId), TimeSpan.FromSeconds(10)).Success
+            ? _viewer.Find(MainForm.LoadingStageId).Name
+            : null;
 
         // Synchronised on the world appearing in the log, not on a delay. Loading a map reads a
         // hundred megabytes and decodes a couple of hundred textures, and how long that takes is a

@@ -25,6 +25,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
     /// <summary>Reads and decodes a demo. Safe to call off the UI thread.</summary>
     /// <param name="path">The demo file.</param>
     /// <param name="demo">Where the decode reports what it found.</param>
+    /// <param name="progress">Told the fraction of the timeline decoded, for a loading screen; null for none.</param>
     /// <returns>The header, and the timeline when one could be built.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -34,7 +35,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
     /// the demo ITSELF is not caught here: there is nothing left to show, and the caller decides
     /// what to say about it.
     /// </remarks>
-    public static DecodedDemo Read(string path, ILogger demo)
+    public static DecodedDemo Read(string path, ILogger demo, Action<double>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(demo);
@@ -54,7 +55,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
         {
             using (demo.Time("building the position timeline"))
             {
-                timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+                timeline = DemoTimeline.Build(File.ReadAllBytes(path), progress);
             }
 
             // **The columns, because the total alone says nothing about what to fix** (B265). The
