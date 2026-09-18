@@ -1357,6 +1357,24 @@ the FIRST post-bounce minimize of the budget it should have, would produce exact
 contact that resolves once, then freezes on its very next look instead of getting the extra steps a working
 budgeted search needs to keep tracking a body that just changed direction.
 
+**Checked and ruled out: the budget wiring is not the bug.** `IvpSimulation.Minimize` (`IvpSimulation.cs:740`,
+the delegate `MinimizeExact`/`Recheck` actually call) uses the 4-argument `IvpMindistMinimize.Minimize`
+overload, which defaults to `StepBudget = 20`; `MinimizeWithoutBudget` (`:875`) explicitly passes `budget: 0`.
+No mix-up — this session already found and fixed the one budget-wiring bug that existed (`RecheckInvalid`'s
+own closure, corrected earlier tonight), and there is no second one on the regular Exact-list side.
+
+**So the divergence is not "the search can't escape" on either side — that limitation is real, shared, and
+by design** (an isolated per-triangle ledge has no neighbor to walk to in EITHER engine, budgeted or not).
+The real question is why the port's search ever NEEDS to escape this specific triangle at all, when the real
+engine's identical contact never does. The one number that differs so far: at the first bounce (t≈1.09,
+tick≈78 at this test's stepping), the port's post-impact vertical speed is **≈60% larger in magnitude than the
+real engine's** at the same instant (port −2.70 vs real −1.67, both converted to the same Y-metres/second
+scale) — a smaller, gentler rebound would plausibly keep the contact tracking the SAME triangle face the whole
+time (matching the real engine's immediate, quick settle by t≈1.2), while a bigger one could push the search
+far enough to need the escape this topology can never provide. **Not yet measured**: whether this speed gap
+is itself the cause (a restitution/elasticity difference at the moment of impact) or a downstream symptom of
+something upstream of it. That is the next concrete, still-untested thread, not this session's stopping point.
+
 **Where this leaves the decision the owner already anticipated** ("we are probably doing 1 though... this
 isn't even a better-than-valve thing, this is a they-probably-made-this-happen-with-collision-optimization,
 and it never happens in game"): disproven twice over now — not only does the real engine not need an
