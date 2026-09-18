@@ -144,4 +144,5 @@
 - [Sticking friction is out of scope](sticking-friction-is-out-of-scope.md) — D175; its gate's field has no writer this project ever creates.
 - [Use Bash, not the PowerShell tool](use-bash-not-powershell-tool.md) — its encoded pre-parse tripped Defender (Commando.A!ml); Git Bash is present.
 - [Debug is what the owner runs](debug-is-what-the-owner-runs.md) — D176; Debug is optimized, measure the build the owner looks at, dotnet-trace for a profile.
+- [My own processes are mine](my-own-processes-are-mine.md) — a leftover viewer is almost always my launch; check mine before blaming the owner.
 - [Unread by production is dead](unread-by-production-is-dead.md) — D180; delete with its tests and probes, carry what production uses, port a still-true engine rule first.

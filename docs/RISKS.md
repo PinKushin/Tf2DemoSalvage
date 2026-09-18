@@ -26989,6 +26989,31 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B408 FIXED 2026-09-18: the pair events sat in a queue of absolute float times, and 387 seconds in one fired forever
+
+**The owner, playing `cp_process_f12` from a seek to tick 26578:** *"even tried to play through and its hung now"*. The viewer held
+at 15 GB. A CPU trace put the render thread in `IvpSimulation.FirePair`; a temporary trace showed one pair re-queued at `387.6695f`
+with the clock at the same float, forever. **Cause:** the port kept pair events in a second queue, unrebased, `QueueBase = 0` —
+a divergence the code itself documented ("It goes away when the two queues become one"). The engine keeps ONE min-list and
+`FUN_18008a020` rebases it every PSI. **Fixed** in `e6957849` by running the already-ported `IvpTimeManager` over the one queue.
+*Evidence class: measured (trace of the hung process), read from the binary (the rebase), regression test with a control.*
+**Not established:** why no test or gate saw it — nothing in either plays a real demo; that check is the next gate addition.
+
+### B407 OPEN 2026-09-18: the viewer holds about 16 GB after a map loads
+
+Measured on `cp_process_f12` (26-minute demo): 2.5 GB after the 80 s timeline decode, then 9.7 and 16.5 GB within 18 seconds of
+the map load starting (`reading textures took 7.54s`, `loading entity models took 3.03s`), and still near 16 GB while playback
+runs smoothly. Seen before and after B408's fix, so not the hang. *Not established*: what holds it — managed heap, textures, or
+GC headroom never returned. A heap census (`dotnet-gcdump`, not installed) or an allocation trace across the load is the next
+step. *Evidence class: measured (process working set, sampled per second).*
+
+### B406 OPEN 2026-09-18: cosmetics not rooting to the player
+
+**The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player
+though."* Nothing measured yet. *Not established*: which cosmetics, on which players (living or corpses), and whether "not
+rooting" means offset, trailing, or stuck at a spot. The engine's path is a bone-merged wearable asking its owner for bones by name
+(`docs/memory/bone-merge-sends-no-position.md`); `EntityModels.EntityFor`'s placement and the merge cache are where to read first.
+
 ### B405 FIXED 2026-09-12: a `.phy` too short for its header, or declaring another header size, escaped every Scene reader's catch
 
 **Found writing B404.** `PhysicsModel.Read` refused both headers with `InvalidOperationException`. Its Scene
