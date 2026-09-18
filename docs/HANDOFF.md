@@ -1423,17 +1423,28 @@ new one when the moving core already belongs to one; a second corner's contact u
 the first's system, not start its own. Structurally correct as read; this is not where the asymmetry comes
 from.
 
-**What is still open, and is the next concrete read**: `IvpImpactIsland.Build`'s actual impulse
-application — being filed into the *same* `IvpFrictionSystem` only guarantees shared bookkeeping, not that
-multiple simultaneous pairs get solved as one coupled event rather than one after another. If the island's
-drain (`FUN_180090bd0`) applies each pair's impulse in sequence, using whatever velocity the *previous* pair
-in the same drain already left behind, that alone reproduces exactly this symptom regardless of how correct
-each individual impulse computation is — two corners resolved as "first, then second-reacting-to-first"
-instead of "both at once" is asymmetric by construction, on a drop that is otherwise perfectly symmetric.
-Whether the drain iterates to convergence (a real simultaneous solve) or fires once per pair in list order is
-what settles this, and is unread as of this entry. The comparison already in hand (port spin should be
-exactly zero, matching the real engine, once fixed) is what any change here needs to reproduce to be verified
-correct — not a new live trace.
+**Read `IvpImpactIsland.Build`/`Drain`/`Grow` in full — the sequential design itself is not the bug.**
+`Drain` (`FUN_180090bd0`) explicitly "solves the contact predicted to close first" one at a time, in a
+`while (Drain(...))` loop that keeps re-picking whichever remaining pair's contact is soonest until none are
+left — a Gauss-Seidel-style iterative solve, sequential by construction, and that IS what the disassembly
+says Valve does. Both engines being sequential this way rules out "sequential vs. simultaneous" as the
+divergence — a faithfully-sequential solve that iterates to convergence is not inherently asymmetric.
+
+**The actual remaining candidate is event-queue timing, not solver structure.** `Build` is called once per
+`IvpMindistCollide.Collide`, and `Grow` only discovers a *second* corner's pair if that pair already exists
+in the friction system's list at the moment the first corner's island is being grown (`Grow` walks
+`System.Pairs` for anything already there touching the moved core). Two corners' mindists are two independent
+queued events (`IvpPairScheduler`/the event queue) — if both are scheduled to fire at the exact same
+PSI-relative time, both pairs exist before either grows, and one shared island's iterative drain naturally
+converges to a symmetric answer. If they are scheduled even slightly apart, the first corner's `Build` can
+drain and apply its full impulse — genuinely finishing, not just starting — before the second corner's event
+exists at all, so the second one reacts to an already-changed velocity from a *separate* island call, which
+reproduces exactly this asymmetry regardless of how correct each individual impulse computation is. **This is
+now a question about the two corners' own scheduled fire times within the same PSI, not about any function's
+internal logic** — a live trace of when each corner's queued event actually fires (not another source read)
+is what would confirm or rule this out, and is the concrete next step. The comparison already in hand — port
+spin should land at exactly zero, matching the real engine — is what any eventual fix needs to reproduce to
+be verified correct.
 
 **Where this leaves the decision the owner already anticipated** ("we are probably doing 1 though... this
 isn't even a better-than-valve thing, this is a they-probably-made-this-happen-with-collision-optimization,
