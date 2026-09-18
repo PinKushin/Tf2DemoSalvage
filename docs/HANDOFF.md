@@ -996,6 +996,75 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
 **Phantoms stay unported** (`FUN_180097940`'s far path is read, `FUN_18008ae50`/`FUN_18008b0a0` are the phantom controller's
 listeners); whether a TF2 client corpse ever meets one is not established — the port throws where one would be told.
 
+## `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` — traced to the ground, 2026-09-17
+
+**In plain terms first, per the owner's own framing**: the cube should land on the displacement and stay there — "it should
+lay over displacements" — the same way a TF2 ragdoll always does. Instead it bounces once, correctly, then falls straight
+through and is never caught again for the rest of the run, even though it physically crosses back through the ground plane
+on the way down. This is B369's virtual-terrain fall-through, now traced all the way to its floor.
+
+**The setup is a genuine edge case, not an ordinary flat drop.** The cube (half 4, X/Z at 25.4/25.4 — dead centre of the
+basin's flat middle) lands exactly on the diagonal seam between the flat middle's two ground triangles (hull triangles
+6-16-18 and 6-18-8 in the test's own vertex numbering — see `IvpSimulationBroadPhaseTests.cs`'s `HullBlob` comment). A
+temporary per-corner trace (`bodyObject.FrictionInfo.Contacts`, reverted after use) caught the actual bounce at t≈1.09–1.12:
+
+```
+t=1.09  gap=0.012967  pos=(21.40, ~0, 21.40)   corner A
+t=1.09  gap=0.006770  pos=(25.40, 0, 25.40)    dead centre — sitting ON the shared triangle edge
+t=1.09  gap=0.000583  pos=(29.40, ~0, 29.40)   corner B
+```
+
+All three contacts sit on the line x=z, i.e. exactly the seam — not the cube's four actual corners. Two of the cube's four
+bottom corners (21.4,29.4 and 29.4,21.4) never register a contact at all. By t=1.12 all three are gone (each contact's own
+`Gap` never printed a value near `IvpCollisionTolerance.RestingContactGap` (≈0.0286 m) before vanishing — the drop happens
+between two 0.01 s test-loop samples, faster than this trace's resolution), the body has vy≈−3.16 (a real, correct bounce),
+and from there it is in unconstrained free fall for the rest of the 3 s run: `impacts` stays at 3 forever, the body sails
+back down through y=0 at t≈2.41 with no new contact, and ends at y=+7.22 (should be −4).
+
+**Ruled out, each by direct measurement, not inference:**
+- **`IvpFrictionSystem.File()`'s drop rule is correct** (confirmed earlier, `managed/.../IvpFrictionSystem.cs:995`) — not
+  re-litigated here.
+- **The pair watcher is not deleted and its scheduling is not broken.** `bodyObject.Node.Watchers.Count` stays 1 for the
+  whole run. A temporary trace of `bodyObject.Hull.{Value,Gradient,NextPsiValue}` and
+  `bodyObject.Environment.WatcherRefreshes` (reverted after use) showed refreshes climbing the whole time — 4 at t=1.10, 6 by
+  t=1.90, 10 by t=2.51, 12 by t=2.91 — and `Gradient` growing with the body's own speed, exactly as
+  `IvpHullManager.Advance`/`GradientFor` is supposed to (`IvpHullManager.cs:81-106`). **The conservative-advancement bound
+  that is supposed to wake the pair up again works.** It wakes up repeatedly, right through the moment the body re-crosses
+  y=0. Something downstream of the wake-up just never turns it into a new contact.
+- **`IvpPairMindists.Refresh`/`Keep`'s ledge-matching is very unlikely to be the fault.** Read `docs/findings/51`'s *The
+  pair's mindists, instruction by instruction* and *The larger mindist's tables beside the plain one's*: slot 3 (the ledge-
+  pointer accessor `Keep` depends on, `FUN_180097510`) is **shared, byte-identical code between a plain `IvpMindist` and a
+  recursive `IvpRecursiveMindist`** (findings 51 line ~5307). A hypothesis that a recursive mindist's own refinement moves
+  its ledge pointers somewhere `Keep` can no longer recognize would have to apply to the real engine too — and this whole
+  area is the most heavily cross-validated code in the project (12,000 cases, 36 sabotages, an independent re-reader, per
+  findings 51's *The larger mindist is ported*). Not impossible, but the evidence points elsewhere first.
+
+**Where the trail actually runs out, and it is not a fresh discovery — it is `docs/HANDOFF.md`'s own item 4, deferred
+2026-09-14, now confirmed to be exactly what this test is hitting:** the recursive mindist's own refinement, once a coarse
+hull-level candidate is judged too coarse, has to ask the ground's surface manager for the *actual triangles* near the
+contact (`IIvpSurfaceManager.LedgesWithin` with a real `root`, not null — `IvpPairMindists.cs:110-123`'s `Side` method).
+For a displacement, that query is `IvpVirtualMeshSurfaceManager.LedgesWithin` → `DisplacementCollisionTree.TrianglesInSphere`
+(`managed/Tf2DemoSalvage.Animation/Animating/IvpVirtualMeshSurfaceManager.cs:86`). **The real engine's equivalent,
+`FUN_180025bc0`, is outside vphysics.dll** (findings 51, *The ledges a pair is built from*: `"FUN_1800261a0 — the mesh
+manager: ... a ledge → FUN_180025bc0(mesh, centre, r, ledge, list), the triangles within r"` — never disassembled, per this
+doc's own item 4, because it isn't in this binary to disassemble). **`DisplacementCollisionTree.TrianglesInSphere` is
+therefore this project's own invention, never checked against Valve's real behaviour, and it is the one load-bearing piece
+in this whole chain with no oracle.** Every other stage between the bounce and the fall-through — the drop rule, the hull
+scheduler, the mindist matching — has now been read or measured and is either proven correct or proven to be firing
+correctly. This is the one link that has not been read at all, because there was never a binary to read it from.
+
+**Next step, named precisely rather than as a menu:** audit `DisplacementCollisionTree.TrianglesInSphere` on its own
+geometric merits — does a query at the seam point, called repeatedly after the pair has separated and is closing again,
+reliably return the seam's two triangles every time, with no hidden staleness or caching keyed off the ORIGINAL query rather
+than the current one? There is no disassembly to diff it against, so this is a correctness audit of the algorithm itself,
+not a parity comparison. **Separately, and this is the one open question that actually decides whether this is a defect at
+all**: does the real engine ALSO fail to catch a body landing exactly on a displacement seam like this, or does TF2's actual
+`FUN_180025bc0` handle it? The owner's own read is "it should lay over displacements" — real experience that TF2 ragdolls
+don't fall through — but that is evidence about ordinary landings, not about this exact razor's-edge, dead-centred,
+diagonal-seam alignment specifically, which a player is unlikely to ever notice happening or not happening. Settling that
+needs a live comparison (the Cheat Engine MCP bridge set up this session) of the real client dropping something exactly on
+a displacement seam — not more vphysics.dll reading, since the one function that matters here does not live in it.
+
 ## How the ports are built, so the next one matches
 
 A port in `managed/Tf2DemoSalvage.Animation/Animating/`; its lanes in `tools/Tf2DemoSalvage.Probe/Oracle/Ivp*Replay.cs`
