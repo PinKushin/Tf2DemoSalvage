@@ -339,8 +339,9 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
 
                     if (tick % PrintEveryTicks == 0)
                     {
-                        getVelocity(bodyObject, out Vec3 velocity, out _);
-                        output.WriteLine($"tick {tick,4} t={tick * Timestep,5:F2}  pos={lastPosition}  vel={velocity}");
+                        getVelocity(bodyObject, out Vec3 velocity, out Vec3 angularVelocity);
+                        output.WriteLine(
+                            $"tick {tick,4} t={tick * Timestep,5:F2}  pos={lastPosition}  vel={velocity}  spin={angularVelocity}");
                     }
                 }
 
