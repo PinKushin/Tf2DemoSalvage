@@ -1375,12 +1375,56 @@ far enough to need the escape this topology can never provide. **Not yet measure
 is itself the cause (a restitution/elasticity difference at the moment of impact) or a downstream symptom of
 something upstream of it. That is the next concrete, still-untested thread, not this session's stopping point.
 
+**FOUND. The restitution-gap theory above was itself an artifact — the test's material was wrong, not just
+its own bounce.** `Environment()`'s shared `Materials` hardcoded `IvpReplayMaterials(..., friction: 0d,
+elasticity: 0d)` for the whole file. Valve's real "default" surface (`scripts/surfaceproperties.txt`,
+confirmed live against the shipped `vphysics.dll` via `vphysics-materials parse`) is **friction 0.8,
+elasticity 0.25** — a frictionless, perfectly inelastic pair was never the scenario the probe was comparing
+against. Fixed, isolated to just this test (`14adbc51`'s sibling commit `c0bc276b`; the other 12 tests in this
+file keep 0/0, since forcing the real values onto all of them surfaces a separate, real friction/damping
+instability — one static-slab test runs away to a 67 units/second creep instead of settling — that needs its
+own investigation and is out of scope here).
+
+**With the correct material, the first bounce now matches the real engine almost exactly**: port
+`vy=-1.6481` at t=1.18 vs the real engine's `vy≈-1.667` at the same instant — under 2% apart, not 60%. The
+"hotter first bounce" finding above is retracted; it was purely the material mismatch. **The fall-through
+still happens** (now via a `Refiled`/2-impact path instead of `Recursive`/3-impact, but still permanent) —
+so materials were never the actual bug, only a real, separate bug worth having fixed anyway.
+
+**The actual cause, found by printing angular velocity alongside linear on both sides (`ec8e0d15`):**
+
+```
+REAL:  spin=(0.00, 0.00, -0.00)   -- at EVERY printed tick, start to finish
+PORT:  spin=(0,0,0) before the bounce -> (-0.8663, 0.0000, 0.8663) at tick 78, unchanged forever after
+```
+
+**The real engine's cube never rotates, at all, for the entire run — a flat, centred, corner-symmetric drop
+has no net torque, and the real physics gets exactly zero.** The port's cube picks up a large, permanent spin
+at the very first bounce and keeps it exactly, to four decimal places, through complete free-flight afterward
+(no further contact ever touches it — the same "zero further impacts" fact already established, now with a
+concrete, physical cause instead of just a symptom). **This is the root cause, not another symptom**: a
+spinning cube's second approach presents a completely different, off-axis contact configuration than a
+level one, which is far more likely to land on the single-triangle, no-neighbor topology this document
+already proved cannot be escaped once entered — while a real, non-spinning cube keeps re-presenting the same
+flat, symmetric face and never needs to.
+
+**Leading hypothesis for where the spurious torque comes from, not yet confirmed**: the drop point is
+deliberately centred on the flat cell's own internal diagonal (two triangles, not one, under the cube), and
+this test's own recorded impact count is 3 corners, not 4 (`impacts=3` in the pre-fix trace) — an
+asymmetric 3-of-4 corner registration, or an uncoupled 2-and-2 split across the two triangles that doesn't
+resolve as one simultaneous, symmetric event, is exactly what would inject torque into an otherwise
+perfectly symmetric drop. `IvpImpactIsland`/`IvpFrictionLinking`'s handling of multiple simultaneous contacts
+under one body — whether corners split across two different mindists in the same PSI get coupled into one
+solve or resolved independently — is the next concrete place to read, not another live comparison; the
+comparison already done here is what a fix needs to reproduce (spin should stay exactly zero) to be verified.
+
 **Where this leaves the decision the owner already anticipated** ("we are probably doing 1 though... this
 isn't even a better-than-valve thing, this is a they-probably-made-this-happen-with-collision-optimization,
-and it never happens in game"): disproven twice over now — not only does the real engine not need an
-optimization to fail here, it doesn't even reach the machinery that optimization would apply to. This is a
-real, narrow, now well-localized port divergence, not a shared engine limitation. Evidence class: measured
-live, address identity confirmed by Ghidra by name, base confirmed independently by `enum_modules` — not
+and it never happens in game"): disproven — this is a real, now precisely-located port bug (spurious torque
+from an asymmetric multi-corner contact), not a shared engine limitation and not something that "never
+happens in game" — any TF2 drop that lands straddling a displacement's internal triangle seam is exposed to
+it. Evidence class: measured live (Cheat Engine, addresses confirmed by Ghidra by name) for the invalid-list
+finding above; measured directly (matched-material tick traces on both sides) for the spin finding. Neither
 interpolated.
 
 ## How the ports are built, so the next one matches
