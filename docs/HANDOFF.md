@@ -1084,13 +1084,26 @@ budgeted minimize used everywhere else does. A closest-feature search straddling
 legitimately needs a few back-and-forth steps between two triangles' edges to converge — which the budgeted minimize can
 absorb and the zero-budget one may not.**
 
-**Next step, precisely — do not write a fix before this:** decompile and compare `FUN_180094c70` (`Route`) and
-`FUN_1800b1b80` (`PointPoint`) against this port's copies line for line, specifically the loop-check's budget arithmetic
-and what happens when it fires. `IvpRecursiveMindist.HullPassed` itself is already confirmed an exact match to
-`FUN_1800b28a0` (findings 51) — that part is not in question. What is not yet established is whether Valve's own
-zero-budget solver also gets permanently stuck on this exact seam geometry (a real engine limitation, not a defect to
-port around) or whether this port's loop-check diverges from the disassembly in some way that makes it worse. Guessing
-which one is true without reading the binary is exactly the mistake already made once this session — do not repeat it.
+**Checked, same day: `FUN_180094c70` and `FUN_1800b1b80`, decompiled live and compared.** `Route`'s per-kind dispatch and
+`PointPoint`'s loop-check are both an exact match to this port's copies — same dispatch values, and the loop-check's real
+form is `budget--; if (budget >= 0 || !Seen(...)) proceed; else GaveUp`, which is the identical formula to
+`IvpMindistMinimize.cs`'s `LoopsBack` (`_budget--; return _budget < 0 && _loop.Seen(...)`), not merely equivalent-looking.
+**This rules the loop-check out as a port divergence with hard evidence, not inference.** If the zero-budget minimize
+gets permanently stuck reporting `GaveUp` on this exact seam geometry, it gets stuck the identical way in real
+`vphysics.dll` — this specific mechanism cannot be the site of a fixable divergence, because there is nothing left for it
+to diverge from.
+
+**Where this leaves B369.** Every mechanism between the bounce and the fall-through has now been read or measured, and
+every one of them is either correct or faithfully matches Valve's own real behavior: the drop rule, the hull-manager
+wake-up scheduler, the mindist ledge-matching, the virtual-mesh triangle isolation, the solver's dispatch table, and its
+loop-check. **None of them is a confirmed port bug.** What remains open is whether real TF2 also fails to re-catch a
+body landing exactly, dead-centred, on a displacement's triangle seam like this test does — which would make this a
+genuine, provable Valve engine limitation rather than a defect to fix — or whether the actual divergence lives somewhere
+still unread (the `Steepest`/edge-walk portion of `PointPoint` past the loop-check, or `PointEdgeProximity`, neither
+checked against the disassembly yet). **Settling which needs one of: reading those two remaining functions against
+their disassembly, or a live trace of the real client landing something on a real displacement seam** (the Cheat Engine
+MCP bridge set up earlier this session) — not another guess from the port's C# alone, which is exactly what produced
+this session's one confirmed mistake.
 
 ## How the ports are built, so the next one matches
 
