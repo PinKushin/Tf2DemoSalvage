@@ -1408,15 +1408,32 @@ level one, which is far more likely to land on the single-triangle, no-neighbor 
 already proved cannot be escaped once entered — while a real, non-spinning cube keeps re-presenting the same
 flat, symmetric face and never needs to.
 
-**Leading hypothesis for where the spurious torque comes from, not yet confirmed**: the drop point is
-deliberately centred on the flat cell's own internal diagonal (two triangles, not one, under the cube), and
-this test's own recorded impact count is 3 corners, not 4 (`impacts=3` in the pre-fix trace) — an
-asymmetric 3-of-4 corner registration, or an uncoupled 2-and-2 split across the two triangles that doesn't
-resolve as one simultaneous, symmetric event, is exactly what would inject torque into an otherwise
-perfectly symmetric drop. `IvpImpactIsland`/`IvpFrictionLinking`'s handling of multiple simultaneous contacts
-under one body — whether corners split across two different mindists in the same PSI get coupled into one
-solve or resolved independently — is the next concrete place to read, not another live comparison; the
-comparison already done here is what a fix needs to reproduce (spin should stay exactly zero) to be verified.
+**Narrowed further: both impacts land in the same PSI, and spin is already nonzero at the very first one.**
+Traced `simulation.Environment.Impacts` (temporary, reverted): with the correct material it goes 0→2 in a
+single tick (108, t=1.09) — not staggered across ticks — and `body.AngularVelocity` is already
+`(-0.8663, 0, 0.8663)` at that first print. Nothing after tick 108 ever changes the count again (matching the
+"never touched again" fact already established). So the torque is injected within that one PSI's contact
+resolution itself, not by a later event arriving too late or too early.
+
+**One specific hypothesis checked and ruled out**: that two triangles' contacts land in two separate,
+uncoupled `IvpFrictionSystem`s instead of one merged system. Read `IvpFrictionLinking.FindOrAllocate`/
+`LinkContactByCore` in full (`IvpFrictionLinking.cs`) — `LinkContactByCore` explicitly checks
+`movable.FrictionInfo` first and reuses that existing system (`system = info.System`) rather than building a
+new one when the moving core already belongs to one; a second corner's contact under the same PSI would join
+the first's system, not start its own. Structurally correct as read; this is not where the asymmetry comes
+from.
+
+**What is still open, and is the next concrete read**: `IvpImpactIsland.Build`'s actual impulse
+application — being filed into the *same* `IvpFrictionSystem` only guarantees shared bookkeeping, not that
+multiple simultaneous pairs get solved as one coupled event rather than one after another. If the island's
+drain (`FUN_180090bd0`) applies each pair's impulse in sequence, using whatever velocity the *previous* pair
+in the same drain already left behind, that alone reproduces exactly this symptom regardless of how correct
+each individual impulse computation is — two corners resolved as "first, then second-reacting-to-first"
+instead of "both at once" is asymmetric by construction, on a drop that is otherwise perfectly symmetric.
+Whether the drain iterates to convergence (a real simultaneous solve) or fires once per pair in list order is
+what settles this, and is unread as of this entry. The comparison already in hand (port spin should be
+exactly zero, matching the real engine, once fixed) is what any change here needs to reproduce to be verified
+correct — not a new live trace.
 
 **Where this leaves the decision the owner already anticipated** ("we are probably doing 1 though... this
 isn't even a better-than-valve thing, this is a they-probably-made-this-happen-with-collision-optimization,
