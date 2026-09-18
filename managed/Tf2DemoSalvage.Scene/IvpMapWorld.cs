@@ -70,6 +70,32 @@ public static class IvpMapWorld
         return new Objects(worldObjects, terrain, props, brushEntities);
     }
 
+    /// <summary>What builds a corpse environment for a map — a fresh world with the map's collide loaded — at any tick interval.</summary>
+    /// <param name="map">The map's bytes.</param>
+    /// <param name="game">The install, for the static props' models, or null for none.</param>
+    /// <param name="surfaces">The game's surfaces.</param>
+    /// <param name="log">Where a lump or model that will not read is reported.</param>
+    /// <returns>The factory <see cref="CorpsePhysics.CreateWorld"/> takes.</returns>
+    /// <remarks>
+    /// **`PhysicsLevelInit`'s environment** (`game/client/physics.cpp:163-187`): gravity at <c>sv_gravity</c>'s default and the
+    /// demo's tick as the step. A model is read from the map's pakfile first, then the install, as the engine's search path orders them.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="surfaces"/> or <paramref name="log"/> is null.</exception>
+    public static Func<float, IvpRagdollWorld> Factory(ReadOnlyMemory<byte> map, GameContent? game, VphysicsSurfaceProps surfaces, ILogger log)
+    {
+        ArgumentNullException.ThrowIfNull(surfaces);
+        ArgumentNullException.ThrowIfNull(log);
+
+        PakFile pak = PakFile.ReadFrom(map);
+
+        return interval =>
+        {
+            IvpRagdollWorld world = new(interval, new System.Numerics.Vector3(0f, 0f, -PhysicsEnvironment.DefaultGravity), surfaces);
+            Load(world, map, file => pak.ReadFile(file) ?? game?.Archives.Read(file), log);
+            return world;
+        };
+    }
+
     /// <summary>Each displacement's tree and flag, by displacement index — through the face that names it.</summary>
     private static List<(DisplacementCollisionTree Tree, bool NoPhysics)?> Displacements(ReadOnlyMemory<byte> map)
     {

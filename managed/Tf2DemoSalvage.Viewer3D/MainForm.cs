@@ -1680,19 +1680,14 @@ internal class MainForm : Form, IFrameSteps
             // without a world falls through the map for its whole life, and `Clear` on a map change
             // is what stops one outliving its geometry.
             _models.Corpses.Clear();
-            _models.Corpses.World = map.Level.Physics;
 
-            // **And the game's surfaces, which are what stop a corpse sliding.** Read from the install rather than assumed; a
-            // viewer with no game folder gives every body the no-install friction.
-            _models.Corpses.Surfaces = _game?.Surfaces ?? new Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps([]);
-
-            // **The control on the world a corpse is given.** Both halves come from different lumps
-            // by different mechanisms, and either can be empty while the other is fine — which is
-            // exactly the state that makes "the corpse fell through" unreadable.
-            _mapLog.LogInformation(
-                "physics world: {Ledges} brush ledges, {Triangles} terrain triangles",
-                map.Level.Physics.Ledges.Count,
-                map.Level.Physics.TriangleCount);
+            // **The corpses' environment is the ported driver's, with the map's collide in it** (D172, D179): the world, the
+            // static solids, the virtual terrain and the static props, as `PhysicsLevelInit` builds `physenv`. The game's surfaces
+            // are what stop a corpse sliding; a viewer with no game folder gives every body the no-install friction.
+            Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps surfaces =
+                _game?.Surfaces ?? new Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps([]);
+            _models.Corpses.Surfaces = surfaces;
+            _models.Corpses.CreateWorld = IvpMapWorld.Factory(bytes, _game, surfaces, _mapLog);
 
             // **The map's detail models are packed inside `LevelSystems.Load`** (B363), beside the
             // geometry loader that reads them — a call here instead ran after something else had

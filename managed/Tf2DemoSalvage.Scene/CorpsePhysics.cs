@@ -7,375 +7,294 @@ using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Scene;
 
+/// <summary>One corpse to bring up to a tick — what <see cref="CorpsePhysics.Advance"/> is handed for each corpse in the moment.</summary>
+/// <param name="EntityIndex">The index the corpse is drawn under.</param>
+/// <param name="Ragdoll">The model's bodies and joints.</param>
+/// <param name="Entity">The animating entity whose bones the simulation will drive.</param>
+/// <param name="BornAt">The tick this corpse died, or null when the timeline did not record it.</param>
+/// <param name="Force">The killing blow — <c>m_vecForce</c>, an impulse in kg·in/s.</param>
+/// <param name="ForceBone">Which body it landed on — <c>m_nForceBone</c>.</param>
+/// <param name="Velocity">What the corpse was already carrying — <c>m_vecRagdollVelocity</c>.</param>
+public readonly record struct CorpseRequest(
+    int EntityIndex,
+    RagdollBody Ragdoll,
+    AnimatingEntity Entity,
+    int? BornAt,
+    (float X, float Y, float Z)? Force,
+    int? ForceBone,
+    (float X, float Y, float Z)? Velocity);
+
 /// <summary>
-/// One running simulation per corpse, stepped by the demo's clock (B58, D146).
+/// The client's physics environment for corpses — one <see cref="IvpRagdollWorld"/> holding the map and every corpse, stepped by the
+/// demo's clock (B58, D146, D172, D179).
 /// </summary>
 /// <remarks>
-/// **A corpse is the one drawn thing whose pose depends on its own past.** Every other entity in
-/// this project is a pure function of the tick — ask for tick N and you get the same answer whether
-/// you arrived forwards, backwards, or by seeking. A ragdoll is not: it is where it is because of
-/// every step since it died, which is why this type exists at all rather than the pose being
-/// computed inline like everything else.
+/// **One environment, as the engine keeps one** (`physenv`, `game/client/physics.cpp`): the map's collide and every client ragdoll in
+/// it, stepped once per tick. Some of its state is environment-wide — the margin-decay look counter at `env+0x13c`, the random
+/// stream, the time code — so a corpse's path depends on the others that shared the world with it, as the engine's does.
 ///
-/// **So it follows D131's persistent sample, and it has the same hazard**: a stepped timeline must
-/// agree with a freshly built one. It cannot agree exactly here — a physics simulation is not
-/// reversible — so the rule is the weaker one that is actually achievable: **a corpse is simulated
-/// from its death forward, and any request that cannot be reached by stepping forward rebuilds from
-/// death.** Seeking backwards, or to a tick before this corpse existed, throws the simulation away.
+/// **A corpse is the one drawn thing whose pose depends on its own past**, so a stepped timeline and a freshly built one cannot agree
+/// exactly. **The rule (D179, the owner's choice):** the world steps forward with the demo, and anything it cannot reach by stepping
+/// forward — a seek backwards, or a corpse whose death is behind the world's tick — rebuilds the world and replays it from the
+/// earliest death among the corpses in the moment. A corpse that has already gone is not replayed, so a rewind can differ from
+/// straight-through play by what a departed corpse did to the shared state.
 ///
-/// **Seeded from the ANIMATED pose, which is what the engine does.** `InitAsClientRagdoll` poses the
-/// entity from its death animation and hands those bone matrices to the physics —
-/// `c_baseanimating.cpp:4931` copies the sequence and then zeroes the playback rate, so what the
-/// solver starts from is a real pose rather than the bind pose. Here that means: build the bones
-/// once with no ragdoll attached, read each element's bone out of the accessor, and start there.
+/// **Seeded from the ANIMATED pose, which is what the engine does.** `InitAsClientRagdoll` poses the entity from its death animation
+/// and hands those bone matrices to the physics — `c_baseanimating.cpp:4931` copies the sequence and then zeroes the playback rate.
 /// </remarks>
 public sealed class CorpsePhysics
 {
-    private readonly Dictionary<int, Running> _running = [];
-
-    /// <summary>How many corpses are being simulated.</summary>
-    public int Count => _running.Count;
-
-    /// <summary>The map every corpse falls onto, or null before one is loaded.</summary>
-    /// <remarks>
-    /// **Set when the map changes, and a simulation reads it at seed time.** A corpse created
-    /// before the world arrives would fall through it for its whole life, so
-    /// <see cref="Clear"/> — which a map change calls anyway — is what makes that impossible.
-    /// </remarks>
-    public IvpWorldCollision? World { get; set; }
-
-    /// <summary>The game's surfaces, parsed by vphysics' own parser, for the friction a corpse collides with.</summary>
-    /// <remarks>
-    /// **Empty is a working state and not a missing input**, which is what makes the game folder optional here: every body then
-    /// keeps <see cref="IvpRigidBody.NoSurfaceFriction"/>. That number is this project's; the engine never runs without surfaces.
-    /// </remarks>
-    public VphysicsSurfaceProps Surfaces { get; set; } = new([]);
-
-    /// <summary>How many were rebuilt from death because the tick could not be reached forwards.</summary>
-    /// <remarks>
-    /// **Counted because a seek is the expensive case and nothing else would say it happened.**
-    /// A rebuild replays every tick since the corpse died; a match seeked around in heavily is the
-    /// shape that would make this dominate a frame, and the number is what a later measurement
-    /// would start from.
-    /// </remarks>
-    public int Rebuilds { get; private set; }
-
-    /// <summary>How many steps have been run, across all corpses.</summary>
-    public int Steps { get; private set; }
-
-    /// <summary>Stopwatch ticks spent stepping corpses forward.</summary>
-    /// <remarks>
-    /// **The one unbounded cost in this type**, and the only number that separates "a corpse is
-    /// expensive" from "seeking is expensive": a seek replays every tick since a death, so the same
-    /// per-tick cost that vanishes in a frame is minutes when six hundred run at once.
-    /// </remarks>
-    public long SteppingTicks { get; private set; }
-
-    /// <summary>How many sub-intervals the last corpse's steps were walked in.</summary>
-    public long Slices { get; private set; }
-
-    // **`SimulatesOnlyWhatIsDrawn` was here and said `true`, filing a divergence** (B58): the engine
-    // keeps a ragdoll in `physenv` whether or not the view can see it, and this project advanced
-    // corpses inside the loop over DRAWN props. It was found by the instrument disagreeing with
-    // itself — three corpses left the world from one camera and none from a wider one that did not
-    // draw them. Its cost was a stall: a corpse back in view replayed every missed tick in one frame.
-    // `EntityModelSet.AdvanceCorpses` now runs before the cull, over every prop the moment carries;
-    // the entity it needs already exists, because `Simulate` makes one for every prop.
-
-    /// <summary>For each corpse that left the world, when, where, and its contacts then.</summary>
-    /// <remarks>
-    /// **The position is the point of the record.** The tick says a corpse sank rather than
-    /// started below; only the place says WHERE the world let it through, and the resting place
-    /// cannot stand in for it — three corpses measured on `z1800` slid between three hundred and
-    /// eight hundred units after crossing, so probing where they stopped asks about the wrong
-    /// geometry.
-    /// </remarks>
-    public IReadOnlyDictionary<int, (int Tick, int Contacts, (double X, double Y, double Z) At)>
-        Fell => _fell;
-
-    private readonly Dictionary<int, (int Tick, int Contacts, (double X, double Y, double Z) At)>
-        _fell = [];
-
+    private readonly Dictionary<int, (IvpRagdoll Ragdoll, int Born)> _running = [];
+    private readonly Dictionary<int, Vector3> _roots = [];
+    private readonly Dictionary<int, int> _contacts = [];
+    private readonly Dictionary<int, int> _born = [];
+    private readonly Dictionary<int, Vector3> _seeded = [];
+    private readonly Dictionary<int, (float X, float Y, float Z)> _blows = [];
+    private readonly Dictionary<int, (int Tick, int Contacts, (double X, double Y, double Z) At)> _fell = [];
     private readonly Dictionary<int, (double X, double Y, double Z)> _touched = [];
+    private IvpRagdollWorld? _world;
+    private int _worldTick;
 
-    /// <summary>How far below its last contact a body must be to have left the world, not sunk.</summary>
+    /// <summary>How far below the highest place it touched a corpse's root must be to have left the world, in Source units.</summary>
     /// <remarks>
-    /// **This was an absolute <c>-50</c> world height and it could not work.** A fixed z asks
-    /// "is the body below fifty units", which is a question about the MAP rather than about the
-    /// body: on `cp_granary` the ground under a real corpse sits near z −416, so every corpse there
-    /// is already "fallen" before it is dropped and the detector reports nothing — measured while
-    /// tracing corpses that were genuinely sinking (B306), where it stayed silent throughout.
-    ///
-    /// **A fall is leaving the surface you were ON**, which is what the record beside it already
-    /// says: *"The last contact is the lip of the hole."* So the threshold is relative to that
-    /// point, and it is map-independent by construction. Sixty-four units is the terrain slab's own
-    /// thickness (`IvpWorldCollision.TerrainDepth`) — a body still within it is inside the ground
-    /// the solve is trying to push it out of, and a body below it has passed through the whole slab
-    /// and is not coming back.
+    /// **Relative to what the corpse stood on, not a world height** (B306): a fixed height asks about the map. A body sixty-four units
+    /// below the highest surface it touched has passed through it and is not coming back.
     /// </remarks>
     private const double FallenThrough = -64d;
 
-    /// <summary>The same, in seconds.</summary>
-    public double SteppingSeconds =>
-        SteppingTicks / (double)System.Diagnostics.Stopwatch.Frequency;
-
-    /// <summary>Where the simulation has put each corpse's root body, by entity index.</summary>
+    /// <summary>Builds the world a corpse falls onto, for a tick interval — the map's collide loaded into a fresh environment.</summary>
     /// <remarks>
-    /// **Carried out of the solver rather than recomputed** (B243). A corpse's simulated position is
-    /// not its wire position — that is the entire point of simulating it — so pointing a camera at
-    /// what the demo said, which is what `docs/memory/point-the-camera-from-the-data.md` otherwise
-    /// prescribes, aims at where the body was when it died and not at where it is.
+    /// **Called on every rebuild**, so it must build the whole environment, map included. Null gives an empty world with
+    /// <see cref="Surfaces"/> and <c>sv_gravity</c>'s default — no map, which is a working state for a viewer without one.
     /// </remarks>
+    public Func<float, IvpRagdollWorld>? CreateWorld { get; set; }
+
+    /// <summary>The game's surfaces, for the friction a corpse collides with, when <see cref="CreateWorld"/> is not set.</summary>
+    public VphysicsSurfaceProps Surfaces { get; set; } = new([]);
+
+    /// <summary>The environment, or null before a corpse needed one — for instruments.</summary>
+    public IvpRagdollWorld? Physics => _world;
+
+    /// <summary>How many corpses the environment holds.</summary>
+    public int Count => _running.Count;
+
+    /// <summary>How many times the environment was rebuilt because a tick could not be reached forwards.</summary>
+    public int Rebuilds { get; private set; }
+
+    /// <summary>How many ticks the environment has been stepped, across rebuilds.</summary>
+    public int Steps { get; private set; }
+
+    /// <summary>Stopwatch ticks spent stepping — the one unbounded cost here, since a rebuild replays every tick since a death.</summary>
+    public long SteppingTicks { get; private set; }
+
+    /// <summary>The same, in seconds.</summary>
+    public double SteppingSeconds => SteppingTicks / (double)System.Diagnostics.Stopwatch.Frequency;
+
+    /// <summary>Where the simulation has put each corpse's root body, by entity index — carried out of the solver (B243).</summary>
     public IReadOnlyDictionary<int, Vector3> Roots => _roots;
 
-    private readonly Dictionary<int, Vector3> _roots = [];
-
-    /// <summary>How many contacts each corpse's last step found, by entity index.</summary>
-    /// <remarks>
-    /// **"Still falling" has two causes that look the same from outside** — no contact found, or
-    /// one found that did not hold — and only this separates them. Beside it, the root body's hull
-    /// point count, because a body with no hull cannot generate a contact at all and that is the
-    /// third cause.
-    /// </remarks>
+    /// <summary>How many friction contacts hold each corpse, by entity index.</summary>
     public IReadOnlyDictionary<int, int> Contacts => _contacts;
-
-    /// <summary>The deepest penetration each corpse's last step found, in whole Source units.</summary>
-    public IReadOnlyDictionary<int, int> Deepest => _deepest;
-
-    private readonly Dictionary<int, int> _contacts = [];
-
-    private readonly Dictionary<int, int> _deepest = [];
 
     /// <summary>The tick each corpse was seeded at — its death, when the timeline records one.</summary>
     public IReadOnlyDictionary<int, int> Born => _born;
 
-    private readonly Dictionary<int, int> _born = [];
-
     /// <summary>Where each corpse's root body was placed when it was seeded.</summary>
-    /// <remarks>
-    /// **The seed and the settled position answer different questions.** A body that ends up far
-    /// below the map either started somewhere wrong or fell from somewhere right, and only the pair
-    /// tells those apart.
-    /// </remarks>
     public IReadOnlyDictionary<int, Vector3> Seeded => _seeded;
 
-    private readonly Dictionary<int, Vector3> _seeded = [];
-
-    /// <summary>How hard each corpse was hit — the magnitude of <c>m_vecForce</c>.</summary>
-    /// <remarks>
-    /// **Carried out of the seed that used it** (B243). A corpse that flies too far has two causes
-    /// that look identical from outside — the wire's force being larger than expected, and this
-    /// project applying it wrongly — and only the number the code actually used separates them.
-    /// </remarks>
+    /// <summary>How hard each corpse was hit — <c>m_vecForce</c>, the vector the seed used.</summary>
     public IReadOnlyDictionary<int, (float X, float Y, float Z)> Blows => _blows;
 
-    private readonly Dictionary<int, (float X, float Y, float Z)> _blows = [];
+    /// <summary>For each corpse that left the world, when, with how many contacts, and the highest place it had touched.</summary>
+    public IReadOnlyDictionary<int, (int Tick, int Contacts, (double X, double Y, double Z) At)> Fell => _fell;
 
-    /// <summary>Forgets every simulation — a new demo, or a map change.</summary>
+    /// <summary>Forgets the environment — a new demo, or a map change.</summary>
     public void Clear()
     {
+        _world = null;
         _running.Clear();
         _roots.Clear();
     }
 
-    /// <summary>Brings one corpse's simulation up to a tick, creating it if needed.</summary>
-    /// <param name="entityIndex">The index the corpse is drawn under.</param>
-    /// <param name="ragdoll">The model's bodies and joints.</param>
-    /// <param name="entity">The animating entity whose bones the simulation will drive.</param>
+    /// <summary>Brings the environment up to a tick, with every corpse in the moment in it, and attaches each one's pose.</summary>
+    /// <param name="corpses">Every corpse the moment carries, seen or not.</param>
     /// <param name="tick">The tick being drawn.</param>
     /// <param name="interval">Seconds per tick.</param>
-    /// <param name="seconds">Playback time, for the pose that seeds a new simulation.</param>
-    /// <param name="bornAt">
-    /// The tick this corpse died, so a seek simulates it forward from there rather than seeding it
-    /// standing at whatever tick it was first drawn at. Null falls back to that drawn tick.
-    /// </param>
-    /// <param name="force">The killing blow — <c>m_vecForce</c>, an impulse in kg·in/s.</param>
-    /// <param name="forceBone">Which body it landed on — <c>m_nForceBone</c>.</param>
-    /// <param name="velocity">What the corpse was already carrying — <c>m_vecRagdollVelocity</c>.</param>
-    /// <returns><c>true</c> when the entity now has a simulation attached.</returns>
-    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <param name="seconds">Playback time, for the pose that seeds a new corpse.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="corpses"/> is null.</exception>
     /// <remarks>
-    /// **The step count comes from the TICK, never from how many times this was called.** A frame
-    /// rate is not a clock: at 300 frames a second a corpse asked to step once per rebuild would
-    /// fall four times as fast as one drawn at 66, and the pose would look plausible at every rate
-    /// while matching TF2 at none. `PhysicsLevelInit` sets the timestep to
-    /// `gpGlobals->interval_per_tick` for exactly this reason.
+    /// **The step count comes from the TICK, never from how many times this was called** — `PhysicsLevelInit` sets the timestep to
+    /// `gpGlobals->interval_per_tick`, and a frame rate is not a clock.
     /// </remarks>
-    public bool Advance(
-        int entityIndex,
-        RagdollBody ragdoll,
-        AnimatingEntity entity,
-        int tick,
-        float interval,
-        double seconds,
-        int? bornAt = null,
-        (float X, float Y, float Z)? force = null,
-        int? forceBone = null,
-        (float X, float Y, float Z)? velocity = null)
+    public void Advance(IReadOnlyList<CorpseRequest> corpses, int tick, float interval, double seconds)
     {
-        ArgumentNullException.ThrowIfNull(ragdoll);
-        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(corpses);
 
-        bool seeded = false;
-
-        if (!_running.TryGetValue(entityIndex, out Running? live) || tick < live.BornAt)
+        if (corpses.Count == 0)
         {
-            seeded = true;
-
-            // **A tick before this corpse existed cannot be reached by stepping forward**, so the
-            // simulation is discarded rather than run backwards. The same branch covers a seek to
-            // a different part of the demo entirely.
-            // **Seeded at DEATH, not at the tick being drawn, and that is the whole of seeking.**
-            // A corpse opened at tick 14,270 having died at 14,100 is not a corpse standing in its
-            // death pose; it is one that has had 170 ticks of physics. Falling back to the drawn
-            // tick keeps a corpse whose birth the timeline did not record from being seeded in the
-            // past, which would replay the whole demo's worth of steps.
-            int birth = bornAt is { } known && known <= tick ? known : tick;
-
-            live = Seed(
-                force,
-                forceBone,
-                velocity,
-                entityIndex,
-                ragdoll,
-                entity,
-                birth,
-                interval,
-                seconds - ((tick - birth) * interval));
-
-            if (live is null)
-            {
-                return false;
-            }
+            return;
         }
 
-        // Behind the requested tick: catch up. Ahead of it — a backward seek within this corpse's
-        // life — is handled above by rebuilding, so this only ever counts forward.
-        bool stepped = live.SteppedTo < tick;
+        bool unreachable = _world is null || tick < _worldTick;
 
+        foreach (CorpseRequest corpse in corpses)
+        {
+            int birth = BirthOf(corpse, tick);
+            unreachable |= birth < _worldTick && !IsRunning(corpse, birth);
+        }
+
+        if (unreachable)
+        {
+            _running.Clear();
+        }
+
+        // **Each birth decided once, after the rebuild is**: a corpse with no recorded death keeps its seed tick only while it is in the
+        // world, so a rebuild seeds it now — the replay must start from the births the corpses will actually be given.
+        int[] births = new int[corpses.Count];
+        int earliest = int.MaxValue;
+
+        for (int index = 0; index < births.Length; index++)
+        {
+            births[index] = BirthOf(corpses[index], tick);
+            earliest = Math.Min(earliest, births[index]);
+        }
+
+        HashSet<int> seeded = [];
+
+        if (unreachable)
+        {
+            _world = CreateWorld?.Invoke(interval) ??
+                new IvpRagdollWorld(interval, new Vector3(0f, 0f, -PhysicsEnvironment.DefaultGravity), Surfaces);
+            _touched.Clear();
+            _worldTick = earliest;
+            Rebuilds++;
+            AddBornAt(corpses, births, _worldTick, tick, interval, seconds, seeded);
+        }
+
+        IvpRagdollWorld world = _world!;
+        bool stepped = _worldTick < tick;
         long steppingFrom = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        while (live.SteppedTo < tick)
+        while (_worldTick < tick)
         {
-            live.Simulation.Step();
-            live.SteppedTo++;
+            world.Simulate(interval);
+            _worldTick++;
             Steps++;
 
-            // **The tick a corpse first drops out of the world, caught as it happens** (B58). The
-            // resting place says only where it stopped; three corpses on `z1800` end at the same
-            // three depths through every change, and what separates "it started there" from "it
-            // fell through on the way" is WHEN — with the contact count at that moment beside it,
-            // because a body falling with contacts is one the solve failed to hold and a body
-            // falling without any is one nothing ever saw.
-            if (live.Simulation.Environment.Bodies.Count == 0)
+            foreach ((int entity, (IvpRagdoll ragdoll, _)) in _running)
+            {
+                ragdoll.CheckSettle(interval);
+                WatchForAFall(entity, ragdoll);
+            }
+
+            AddBornAt(corpses, births, _worldTick, tick, interval, seconds, seeded);
+        }
+
+        SteppingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - steppingFrom;
+
+        for (int index = 0; index < births.Length; index++)
+        {
+            CorpseRequest corpse = corpses[index];
+
+            if (!IsRunning(corpse, births[index]))
             {
                 continue;
             }
 
-            (double X, double Y, double Z) at = live.Simulation.Environment.Bodies[0].Position;
+            IvpRagdoll ragdoll = _running[corpse.EntityIndex].Ragdoll;
 
-            // **The HIGHEST place it ever touched anything, which is the lip of the hole.** The
-            // threshold below fires long after the event — a corpse crossing a floor at z 200 is
-            // recorded three hundred units and a second of sideways travel later, and probing THAT
-            // spot asks about the wrong geometry. Two probes were spent on the wrong answer before
-            // this existed.
-            //
-            // **Highest rather than most recent, because a body sinking THROUGH a surface keeps
-            // finding contacts the whole way down** (B306). Measured: a corpse on `cp_granary`
-            // descended from −424 to −654 with ninety-odd contacts at every step, so a
-            // most-recent reference followed it down and the gap between the two never grew —
-            // the detector could not fire no matter how far the body sank. The surface it landed
-            // ON does not move.
-            if (live.Simulation.Environment.Contacts > 0 &&
-                (!_touched.TryGetValue(entityIndex, out (double X, double Y, double Z) touched) ||
-                 at.Z > touched.Z))
+            corpse.Entity.Ragdoll = ragdoll.PoseIntoAccessor;
+            _roots[corpse.EntityIndex] = ragdoll.State()[0].Position;
+            _contacts[corpse.EntityIndex] = ragdoll.Contacts;
+
+            // **`C_ClientRagdoll::LastBoneChangedTime()` returns the physics update time** (`c_baseanimating.cpp:587`), which
+            // `CRagdoll::VPhysicsUpdate` advances only while the body moves — so a stepped corpse's pose is rebuilt, and one asked
+            // for the same tick again is a cache hit, which is how the engine draws a pile of settled corpses for free.
+            if (stepped)
             {
-                _touched[entityIndex] = at;
+                corpse.Entity.LastBoneChangedTime = seconds;
             }
 
-            // **Measured against the last place it touched anything, not against a world height.**
-            // See <see cref="FallenThrough"/>: a body that never touched has nothing to have fallen
-            // THROUGH, so it is not reported until it does.
-            if (!_fell.ContainsKey(entityIndex) &&
-                _touched.TryGetValue(entityIndex, out (double X, double Y, double Z) last) &&
-                at.Z - last.Z < FallenThrough)
+            // **Seeding poses the entity out of band with the ragdoll detached**, which marks the frame built — so this frame's own
+            // `SetupBones` would be a cache hit and the hook just attached would never run.
+            if (seeded.Contains(corpse.EntityIndex))
             {
-                _fell[entityIndex] = (
-                    live.SteppedTo,
-                    live.Simulation.Environment.Contacts,
-                    last);
+                corpse.Entity.InvalidateBoneCache();
             }
         }
-
-        // **Timed because catching a corpse up is the one unbounded thing here** (B58). A seek to a
-        // tick long after a death replays every tick between, and a cost per tick that looks
-        // trivial in a frame is minutes when six hundred of them run at once — which is what the
-        // owner saw as a hang on seeking.
-        SteppingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - steppingFrom;
-
-        Slices = live.Simulation.Environment.Slices;
-
-        entity.Ragdoll = live.Write;
-
-        if (live.Simulation.Environment.Bodies.Count > 0)
-        {
-            (double x, double y, double z) = live.Simulation.Environment.Bodies[0].Position;
-
-            _roots[entityIndex] = new Vector3((float)x, (float)y, (float)z);
-
-            _contacts[entityIndex] = live.Simulation.Environment.Contacts;
-            _deepest[entityIndex] = (int)live.Simulation.Environment.DeepestContact;
-            _born[entityIndex] = live.BornAt;
-        }
-
-        // **`C_ClientRagdoll::LastBoneChangedTime()` returns the physics update time**
-        // (`c_baseanimating.cpp:587`), which `CRagdoll::VPhysicsUpdate` advances only while the
-        // body is awake (`ragdoll.cpp:191-193`). So a corpse that stepped has changed and its pose
-        // must be rebuilt; a corpse asked for the same tick again has not, and
-        // `SetupBones`' own guard then declines to invalidate it. **That is how the engine draws a
-        // pile of settled corpses for free**, and it is why this is a time rather than a flag.
-        if (stepped)
-        {
-            entity.LastBoneChangedTime = seconds;
-        }
-
-        // **Seeding is the case the time cannot cover.** It poses the entity out of band with the
-        // ragdoll DETACHED, which marks the frame built — so the draw's own `SetupBones`, same
-        // frame and same time, would be a cache hit and the hook just attached would never run.
-        // Measured: a corpse drew standing in its death animation while every part of the physics
-        // path passed its own tests.
-        if (seeded)
-        {
-            entity.InvalidateBoneCache();
-        }
-
-        return true;
     }
 
-    /// <summary>Builds a simulation seeded from the entity's animated pose.</summary>
+    /// <summary>
+    /// The tick a corpse is seeded at: its death when the timeline recorded one no later than now; else, for a corpse already in the
+    /// world, the tick it was seeded at; else now.
+    /// </summary>
     /// <remarks>
-    /// **The seed pose is built with the ragdoll DETACHED**, which is not a subtlety to optimise
-    /// away: attaching first would seed the simulation from its own previous output, and the corpse
-    /// would drift a little further from the animation every time it was rebuilt.
+    /// **A corpse with no recorded death keeps the birth it was given**, or every tick would make it a new corpse: the first draw's
+    /// tick is its birth from then on, as it was when each corpse had its own simulation.
     /// </remarks>
-    private Running? Seed(
-        (float X, float Y, float Z)? force,
-        int? forceBone,
-        (float X, float Y, float Z)? velocity,
-        int entityIndex,
-        RagdollBody ragdoll,
-        AnimatingEntity entity,
-        int tick,
-        float interval,
-        double seconds)
+    private int BirthOf(CorpseRequest corpse, int tick)
     {
-        entity.Ragdoll = null;
+        if (corpse.BornAt is { } known && known <= tick)
+        {
+            return known;
+        }
 
-        // **`ForceSetupBonesAtTime` opens exactly this way** — `InvalidateBoneCache(); // blow the
-        // cached prev bones` (`c_baseanimating.cpp:4763`), the routine the engine uses to pose an
-        // entity out of band, and `GetRagdollInitBoneArrays` right beneath it is what seeds a
-        // ragdoll from those bones. Without it the seed reads whatever this frame already built,
-        // which for a corpse rebuilt after a seek is its own previous output.
+        return _running.TryGetValue(corpse.EntityIndex, out (IvpRagdoll, int Born) live) && corpse.BornAt is null ? live.Born : tick;
+    }
+
+    /// <summary>Whether this corpse — its entity at this birth — is the one in the world, rather than an earlier corpse whose index it reuses.</summary>
+    private bool IsRunning(CorpseRequest corpse, int birth) =>
+        _running.TryGetValue(corpse.EntityIndex, out (IvpRagdoll, int Born) live) && live.Born == birth;
+
+    /// <summary>Puts every corpse that died at a tick into the world, seeded from its death pose.</summary>
+    private void AddBornAt(
+        IReadOnlyList<CorpseRequest> corpses, int[] births, int at, int tick, float interval, double seconds, HashSet<int> seeded)
+    {
+        for (int index = 0; index < births.Length; index++)
+        {
+            CorpseRequest corpse = corpses[index];
+            int birth = births[index];
+
+            if (birth != at || IsRunning(corpse, birth))
+            {
+                continue;
+            }
+
+            if (Seed(corpse, seconds - ((tick - birth) * interval)) is not { } start)
+            {
+                continue;
+            }
+
+            IvpRagdoll ragdoll = IvpRagdoll.Create(_world!, corpse.Ragdoll, start);
+
+            // **The killing blow, applied at creation exactly as `RagdollCreate` does** (B58), staged so it lands on the first step.
+            if (corpse.Velocity is { } inherited)
+            {
+                ragdoll.Inherit(new Vector3(inherited.X, inherited.Y, inherited.Z));
+            }
+
+            if (corpse.Force is { } blow)
+            {
+                ragdoll.Kill(new Vector3(blow.X, blow.Y, blow.Z), corpse.ForceBone ?? -1);
+                _blows[corpse.EntityIndex] = blow;
+            }
+
+            _running[corpse.EntityIndex] = (ragdoll, birth);
+            _born[corpse.EntityIndex] = birth;
+            _seeded[corpse.EntityIndex] = start.Length > 0 ? start[0].Position : Vector3.Zero;
+            seeded.Add(corpse.EntityIndex);
+        }
+    }
+
+    /// <summary>Each element's starting state, read from the entity posed at its death with the ragdoll detached.</summary>
+    /// <remarks>
+    /// **Detached, and the cache blown first** — `ForceSetupBonesAtTime` opens with `InvalidateBoneCache(); // blow the cached prev
+    /// bones` (`c_baseanimating.cpp:4763`). Attached, the seed would read the simulation's own previous output.
+    /// </remarks>
+    private static (Vector3 Position, Quaternion Orientation)[]? Seed(CorpseRequest corpse, double seconds)
+    {
+        AnimatingEntity entity = corpse.Entity;
+        entity.Ragdoll = null;
         entity.InvalidateBoneCache();
 
         if (!entity.SetupBones(StudioBoneFlags.UsedByAnything, seconds))
@@ -384,13 +303,11 @@ public sealed class CorpsePhysics
         }
 
         BoneAccessor posed = entity.Bones;
-
-        (Vector3 Position, Quaternion Orientation)[] start =
-            new (Vector3, Quaternion)[ragdoll.Elements.Count];
+        (Vector3 Position, Quaternion Orientation)[] start = new (Vector3, Quaternion)[corpse.Ragdoll.Elements.Count];
 
         for (int element = 0; element < start.Length; element++)
         {
-            int bone = ragdoll.Elements[element].BoneIndex;
+            int bone = corpse.Ragdoll.Elements[element].BoneIndex;
 
             if (bone < 0 || bone >= posed.Count)
             {
@@ -399,60 +316,33 @@ public sealed class CorpsePhysics
             }
 
             ReadOnlySpan<float> matrix = posed.Bone(bone);
-
             (float x, float y, float z, float w) = StudioBones.ToQuaternion(matrix);
 
-            start[element] = (
-                new Vector3(matrix[3], matrix[7], matrix[11]), new Quaternion(x, y, z, w));
+            start[element] = (new Vector3(matrix[3], matrix[7], matrix[11]), new Quaternion(x, y, z, w));
         }
 
-        RagdollSimulation simulation = RagdollSimulation.Create(
-            ragdoll, interval, start, Surfaces);
-
-        simulation.Environment.World = World;
-
-        // **The killing blow, applied at creation exactly as `RagdollCreate` does** (B58). It is
-        // staged rather than set, so it lands on this corpse's first step — the engine's own
-        // one-step lag, not a delay invented here.
-        if (velocity is { } inherited)
-        {
-            simulation.Inherit(inherited);
-        }
-
-        if (force is { } blow)
-        {
-            simulation.Kill(blow, forceBone ?? -1);
-
-            // **The whole vector, not its length.** A magnitude cannot reproduce the event: the two
-            // corpses that leave the world on `z1800` are the two that were hit hardest, and a
-            // probe replaying them with a guessed DIRECTION throws a different corpse off the map
-            // and rests the two that really go. Which is the wrong bug, arrived at confidently.
-            _blows[entityIndex] = blow;
-        }
-
-        Running live = new(simulation, tick, tick);
-
-        _seeded[entityIndex] = start.Length > 0 ? start[0].Position : Vector3.Zero;
-
-        _running[entityIndex] = live;
-        Rebuilds++;
-
-        return live;
+        return start;
     }
 
-    /// <summary>One corpse's simulation and how far it has been stepped.</summary>
-    private sealed class Running(RagdollSimulation simulation, int bornAt, int steppedTo)
+    /// <summary>Records the tick a corpse first drops out of the world, and the highest place it had touched (B58, B306).</summary>
+    /// <remarks>
+    /// **The highest place, not the most recent**: a body sinking through a surface keeps finding contacts the whole way down, so a
+    /// most-recent reference follows it and the gap never grows.
+    /// </remarks>
+    private void WatchForAFall(int entity, IvpRagdoll ragdoll)
     {
-        public RagdollSimulation Simulation { get; } = simulation;
+        Vector3 root = ragdoll.State()[0].Position;
+        (double X, double Y, double Z) at = (root.X, root.Y, root.Z);
+        int contacts = ragdoll.Contacts;
 
-        /// <summary>The tick this was seeded at; anything earlier needs a rebuild.</summary>
-        public int BornAt { get; } = bornAt;
+        if (contacts > 0 && (!_touched.TryGetValue(entity, out (double X, double Y, double Z) touched) || at.Z > touched.Z))
+        {
+            _touched[entity] = at;
+        }
 
-        /// <summary>The tick it has been stepped up to.</summary>
-        public int SteppedTo { get; set; } = steppedTo;
-
-        /// <summary>The delegate handed to the entity, allocated once rather than per frame.</summary>
-        public void Write(BoneAccessor into, BoneBitList written) =>
-            Simulation.PoseIntoAccessor(into, written);
+        if (!_fell.ContainsKey(entity) && _touched.TryGetValue(entity, out (double X, double Y, double Z) last) && at.Z - last.Z < FallenThrough)
+        {
+            _fell[entity] = (_worldTick, contacts, last);
+        }
     }
 }

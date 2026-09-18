@@ -531,25 +531,22 @@ public sealed class MomentScene : IGameSystemPerFrame
         if (_models.Corpses.Count > 0 && _render.IsEnabled(LogLevel.Debug))
         {
             _render.LogDebug(
-                "corpses stepped {Steps} ticks in {Seconds} ms, {Slices} slices, world examined " +
-                "{Examined} candidates, {Oversized} oversized of {Ledges}",
+                "corpses stepped {Steps} ticks in {Seconds} ms, {Rebuilds} rebuilds, {Impacts} impacts, {Mindists} mindists",
                 _models.Corpses.Steps,
                 (_models.Corpses.SteppingSeconds * 1000d).ToString("0", CultureInfo.InvariantCulture),
-                _models.Corpses.Slices,
-                _models.Corpses.World?.Examined ?? 0,
-                _models.Corpses.World?.OversizedCount ?? 0,
-                _models.Corpses.World?.Ledges.Count ?? 0);
+                _models.Corpses.Rebuilds,
+                _models.Corpses.Physics?.Simulation.Environment.Impacts ?? 0,
+                _models.Corpses.Physics?.Simulation.Mindists ?? 0);
 
             foreach ((int entity, System.Numerics.Vector3 root) in _models.Corpses.Roots)
             {
                 _render.LogDebug(
-                    "corpse {Entity} settled at {X} {Y} {Z} contacts {Contacts} deepest {Deepest} born {Born} seeded {Seeded} blow {Blow}",
+                    "corpse {Entity} settled at {X} {Y} {Z} contacts {Contacts} born {Born} seeded {Seeded} blow {Blow}",
                     entity,
                     root.X.ToString("0.#", CultureInfo.InvariantCulture),
                     root.Y.ToString("0.#", CultureInfo.InvariantCulture),
                     root.Z.ToString("0.#", CultureInfo.InvariantCulture),
                     _models.Corpses.Contacts.TryGetValue(entity, out int touching) ? touching : -1,
-                    _models.Corpses.Deepest.TryGetValue(entity, out int depth) ? depth : -1,
                     _models.Corpses.Born.TryGetValue(entity, out int born) ? born : -1,
                     _models.Corpses.Seeded.TryGetValue(entity, out System.Numerics.Vector3 seed)
                         ? $"{seed.X:0.#} {seed.Y:0.#} {seed.Z:0.#}"

@@ -152,6 +152,50 @@ public sealed class CorpsePhysicsWiringTests
         models.Corpses.Steps.ShouldBe(after, "the same tick asks for no further steps");
     }
 
+    /// <remarks>
+    /// **Every corpse is in one environment, as the engine's `physenv` holds them** (D179): two corpses make one world, stepped once
+    /// per tick, not two stepped once each.
+    /// </remarks>
+    [Test]
+    public void Instances_TwoCorpses_ShareOneEnvironmentSteppedOncePerTick()
+    {
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+        List<SceneProp> drawn = [Corpse(), Corpse() with { EntityIndex = 10 }];
+        models.Add(drawn, _ => Frames());
+
+        models.CurrentTick = 66d;
+        models.Instances(drawn, [], seconds: 1d);
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+
+        models.Corpses.Count.ShouldBe(2, "the control: both corpses are simulated");
+        models.Corpses.Rebuilds.ShouldBe(1, "one environment, built once");
+        models.Corpses.Steps.ShouldBe(66, "stepped once per tick for both, not once per corpse");
+    }
+
+    /// <remarks>
+    /// **A seek backwards rebuilds the environment and replays it from the earliest death on screen** (D179): a corpse that died at
+    /// tick 66, seen at 132 and then at 100, is rebuilt at 66 and stepped the 34 ticks to 100.
+    /// </remarks>
+    [Test]
+    public void Instances_SeekingBackwards_RebuildsAndReplaysFromTheDeath()
+    {
+        SceneProp corpse = Corpse() with { FirstTick = 66 };
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => Frames());
+
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+        models.Corpses.Steps.ShouldBe(66, "the control: seeded at its death and stepped to 132");
+
+        models.CurrentTick = 100d;
+        models.Instances(drawn, [], seconds: 100d / 66d);
+
+        models.Corpses.Rebuilds.ShouldBe(2, "the backward seek rebuilt the environment");
+        models.Corpses.Steps.ShouldBe(66 + 34, "and replayed it from the death at 66 to 100");
+    }
+
     /// <summary>Builds a scene with the one prop and draws it once.</summary>
     private static EntityModelSet Drawn(SceneProp prop, double seconds)
     {

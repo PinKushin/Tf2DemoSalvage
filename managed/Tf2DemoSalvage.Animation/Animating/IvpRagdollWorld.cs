@@ -707,6 +707,27 @@ public sealed class IvpRagdoll
         return state;
     }
 
+    /// <summary>Writes the corpse's current bones into an accessor, marking what it drove — what <c>AnimatingEntity.Ragdoll</c> takes.</summary>
+    /// <param name="into">The accessor to write through.</param>
+    /// <param name="written">Marked for every bone the ragdoll drove.</param>
+    public void PoseIntoAccessor(BoneAccessor into, BoneBitList written) => Body.PoseInto(State(), into, written);
+
+    /// <summary>How many friction contacts hold the corpse's bodies — an instrument, the contacts each body's share files.</summary>
+    public int Contacts
+    {
+        get
+        {
+            int count = 0;
+
+            foreach (IvpRigidBody body in _bodies)
+            {
+                count += body.FrictionInfo?.Contacts.Count ?? 0;
+            }
+
+            return count;
+        }
+    }
+
     /// <summary>A Source rotation in IVP's axes — <c>P·R·Pᵀ</c>, which for a quaternion turns its axis by <c>P</c>.</summary>
     internal static (double X, double Y, double Z, double W) Rotation(Quaternion source) =>
         (source.X, -source.Z, source.Y, source.W);

@@ -5377,6 +5377,8 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     private void AdvanceCorpses(IReadOnlyList<SceneProp> props, double seconds)
     {
+        _corpseRequests.Clear();
+
         for (int index = 0; index < props.Count; index++)
         {
             SceneProp prop = props[index];
@@ -5390,19 +5392,16 @@ public sealed class EntityModelSet : IModelBodygroups
                 continue;
             }
 
-            Corpses.Advance(
-                prop.EntityIndex,
-                corpse,
-                animating,
-                (int)CurrentTick,
-                IntervalPerTick,
-                seconds,
-                prop.FirstTick,
-                prop.Force,
-                prop.ForceBone,
-                prop.RagdollVelocity);
+            _corpseRequests.Add(new CorpseRequest(
+                prop.EntityIndex, corpse, animating, prop.FirstTick, prop.Force, prop.ForceBone, prop.RagdollVelocity));
         }
+
+        // **One environment for every corpse, stepped once** (D179): each corpse joins it at its death tick as it steps forward.
+        Corpses.Advance(_corpseRequests, (int)CurrentTick, IntervalPerTick, seconds);
     }
+
+    /// <summary>The moment's corpses, gathered for one advance — kept to be reused rather than allocated per frame.</summary>
+    private readonly List<CorpseRequest> _corpseRequests = [];
 
     /// <summary>The map's BSP tree, for the visibility half of the cull.</summary>
     /// <remarks>

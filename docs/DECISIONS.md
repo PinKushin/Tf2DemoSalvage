@@ -8955,3 +8955,23 @@ hook covered only the LSP. `~/.claude/hooks/prefer-ghidra-mcp.ps1` refuses an `a
 endpoints; imports, analysis and other programs pass. Six cases in its tests.
 
 Related: D168, D177.
+
+## D179 — one physics environment for every corpse; a backward seek replays the corpses on screen (2026-09-18)
+
+**The question, asked because it changes what scrubbing shows.** The engine keeps one environment for the map and every client
+ragdoll (`physenv`), and some of its state is environment-wide — the margin-decay look counter at `env+0x13c` (the counter whose
+one-event-early decay was a divergence this week), the random stream, the time code. The viewer ran one simulation per corpse,
+which is why a rewind reproduced each corpse exactly. Three ways were offered: replay the corpses on screen, replay everything from
+the map's start, or keep one world per corpse with its own copy of the map.
+
+**The owner chose: replay live corpses** — one shared world, and a backward seek rebuilds it and replays from the earliest death
+among the corpses in the moment being drawn. *No reasoning was given beyond the choice*; the option as offered said seeks stay fast,
+and that a corpse can land slightly differently after a rewind than straight through, because corpses that already disappeared are
+not replayed and they touched the shared state.
+
+**What it settles.** The structure is the engine's. The rewind is this project's adaptation, as D136's per-corpse seed was: the
+engine could not seek. A forward play and a rewind agree exactly for any corpse whose shared state no departed corpse touched.
+
+**What would reopen it:** a rewind whose difference from straight-through play is visible, or a seek the replay makes slow.
+
+Related: D136, D146, D172.
