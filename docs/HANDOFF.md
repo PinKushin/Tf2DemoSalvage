@@ -1324,15 +1324,46 @@ shipped engine's own retry** (a Cheat Engine breakpoint on the equivalent zero-b
 geometry, the same way the earlier live-verification pass in this document worked) — not another pass over
 C# source, which has now been read about as far as reading alone can settle it.
 
+**LIVE RESULT: the real engine's contact never goes invalid at all — the whole retry mechanism is never
+entered.** Ran `vphysics-virtual-terrain-drop` under a live debugger (Cheat Engine MCP, hardware breakpoints,
+non-blocking) against the shipped `vphysics.dll`, breakpointed at two addresses Ghidra confirms by name —
+`IvpMindistMinimize::MinimizeWithoutBudget` (`0x180095ad0`) and `IvpRecursiveMindist::HullPassed`
+(`0x1800b28a0`) — for the probe's full, successful (settles correctly) run of this exact geometry. **Both
+addresses verified live**: `disassemble` at the computed runtime address shows a genuine function prologue
+(`push rdi; sub rsp,0x870; ...`), and `enum_modules` independently confirmed the runtime base matched the
+probe's own self-reported load address, so this is not an address-translation miss. **Zero hits on either,
+across three independent runs.** `MinimizeWithoutBudget` is called from exactly one place,
+`IvpCollisionObject::RecheckInvalid`, once per entry of `InvalidSynapses` — zero calls means the invalid list
+is empty the entire run, i.e. **this contact's mindist never leaves the Exact list at all.** `HullPassed`
+never firing means the recursive parent never gets far enough from its children to need a hull-manager
+recheck either — it just never has to reopen.
+
+**This flips where the divergence lives.** Every piece of the "genuinely parked" mechanism — `Freeze`→
+`Invalidate`, `RecheckInvalid`'s zero-budget retry, `BacksideWalk`'s inability to cross an isolated
+single-triangle ledge — was independently confirmed byte-for-byte faithful to the disassembly earlier this
+session, and is mathematically guaranteed to stay parked forever once entered, for exactly the reason already
+found (no neighbor topology to walk to, by design, matching the shipped engine's own per-triangle ledges).
+**None of that is wrong, and none of it is where the bug is** — because the real engine, for this identical
+drop, never enters it in the first place. The port's contact freezes (leaves bits of `0xC000` after a
+minimize) shortly after the first bounce; the real engine's identical contact does not. Both go through the
+same regular, BUDGETED per-PSI minimize on the Exact list first (`IvpMindistMinimize::Minimize`,
+`FUN_180095cb0`, not the zero-budget one) — so the question is no longer "why can't the retry escape a dead
+end", it is **"why does the port's ordinary budgeted minimize freeze here when the real engine's does not."**
+The concrete next thing to check is the STEP BUDGET actually wired into that call for the normal Exact-list
+path (`IvpSimulation.Minimize`/`MinimizeExact`'s delegate) — this session already found and fixed one budget
+mix-up on the *invalid* side (`RecheckInvalid` was wired to the wrong, budgeted delegate; fixed, and the
+fall-through numbers didn't change) — an equivalent mix-up on the *regular Exact-list* side, silently starving
+the FIRST post-bounce minimize of the budget it should have, would produce exactly this signature: a normal
+contact that resolves once, then freezes on its very next look instead of getting the extra steps a working
+budgeted search needs to keep tracking a body that just changed direction.
+
 **Where this leaves the decision the owner already anticipated** ("we are probably doing 1 though... this
 isn't even a better-than-valve thing, this is a they-probably-made-this-happen-with-collision-optimization,
-and it never happens in game"): the collision-optimization framing is specifically **disproven** for this exact
-geometry by the probe — the real engine does not need an optimization to fail here, it settles cleanly. What
-decides between fixing this and filing it as a known limitation is now a single, narrow, answerable question:
-does the real engine's zero-budget retry, for this same stuck geometry, converge in fewer steps than the
-port's — or does it also sit at its own equivalent of `0x4000` for a while and get rescued by something else
-(another contact, a different candidate) that this adversarial single-triangle-patch test starves it of. That
-is a live-debugging question, not a reading one, and is the concrete next step if this continues.
+and it never happens in game"): disproven twice over now — not only does the real engine not need an
+optimization to fail here, it doesn't even reach the machinery that optimization would apply to. This is a
+real, narrow, now well-localized port divergence, not a shared engine limitation. Evidence class: measured
+live, address identity confirmed by Ghidra by name, base confirmed independently by `enum_modules` — not
+interpolated.
 
 ## How the ports are built, so the next one matches
 
