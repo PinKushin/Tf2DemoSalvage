@@ -1449,23 +1449,30 @@ together, to cancel back to zero.
 **Live-checked the real engine's own `IvpMindist::Collide` (`0x18008ecb0`, confirmed by Ghidra by name) for
 the identical drop — and it is not two calls, it is three: A, then B, then A AGAIN.** Cheat Engine breakpoint,
 register capture, three hits, two distinct `RCX` (mindist pointer) values in the pattern A/B/A. **This is the
-concrete divergence.** After B resolves, `IvpImpactIsland.Tail`'s per-core `Recheck` (`FUN_1800792b0`) walks
-every mindist on the moved body, finds A no longer stamped with the current impact generation (ground, being
-immovable, never got re-stamped, so the two records' stamps disagree), minimizes it, and reschedules it via
-the scheduler's mode-2 "AfterMiss" path (`FUN_180099380(mindist, 0, 2)`, confirmed faithful to the
-disassembly) — in **both** engines; this call chain itself is not the bug. In the real engine, A's
-recomputed recheck time still falls inside the current PSI, so A gets a genuine third pass — the one that
-would symmetrize a two-point impact back toward zero net torque. In the port, A's recheck time is pushed
-**past** the PSI's end, so it never fires again this step, and the two-point asymmetry from A and B alone is
-what survives into free flight as permanent spin.
+concrete divergence** — the real engine's A gets a third pass the port's A never does.
 
-**What decides this is a specific number, not a function.** `IvpPairScheduler.Recheck`'s `AfterMiss` formula
-(`(gap / totalBound) + now + step·RecheckStepShare`) is itself already read and matches the disassembly
-exactly — the divergence must be in the `gap`/`totalBound` values it is fed at that exact instant (post-B,
-pre-recheck), which trace back to A's mindist state and the body's post-B velocity. **The concrete next
-step**: capture those two numbers (port vs. the real engine, at the equivalent moment) and find which one
-differs and why — not another architectural read, a numeric one. The comparison already in hand (spin should
-land at exactly zero) is what a fix needs to reproduce to be verified correct.
+**CORRECTION, traced precisely: it is not a reschedule landing past the PSI end.** Instrumented every return
+path of `IvpPairScheduler.Examine` (temporary, reverted, never committed) rather than guess from the formulas.
+A is re-examined at `now=1.08739` — right after B's `Collide()` — and returns `LeftAlone` with
+**`closing=-2.558135`**: strongly *negative*, meaning A's own contact point now reads as separating, not
+approaching. That is `!closingEnough` (line ~199), which returns before the recheck/`Dropped` path is ever
+reached — the mode-2 `AfterMiss` reschedule this entry previously named is not what happens here. **This is a
+direct, physical reading of the state B's impulse left behind**: once B's impulse imparts spin to the whole
+body, A's own point — a different location on a now-rotating object — genuinely sweeps away from the ground,
+and the scheduler is correctly leaving alone a contact that is, at that instant, truly separating. Nothing
+here is a scheduling bug; it is a faithful measurement of an already-wrong velocity/spin state.
+
+**So the divergence is upstream of the scheduler, in B's own impulse.** `IvpImpactSolver`'s math was already
+ruled out as a formula bug (lane-for-lane conformance-tested against the shipped binary) — which means if B's
+resolved spin differs from what the real engine produces for its own "B", the difference is most likely in
+what is *fed* to that formula: B's contact arm and/or normal. The closest-feature search that produces those
+(already exhaustively verified structurally correct earlier this session) is exactly the kind of place a
+floating-point tie-break could land on a different-but-plausible vertex/edge than the real engine's — the
+same category of knife-edge sensitivity this investigation has run into before. **The concrete next step**:
+compare B's exact resolved contact arm and normal, port vs. the real engine, at the instant each applies its
+impulse — not the scheduler, not the solver formula, the *input* to the formula. The comparison already in
+hand (port spin should land at exactly zero, matching the real engine) is what a fix needs to reproduce to be
+verified correct.
 
 **Where this leaves the decision the owner already anticipated** ("we are probably doing 1 though... this
 isn't even a better-than-valve thing, this is a they-probably-made-this-happen-with-collision-optimization,
