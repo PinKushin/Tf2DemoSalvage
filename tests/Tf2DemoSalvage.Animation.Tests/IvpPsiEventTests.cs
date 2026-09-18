@@ -5,42 +5,47 @@ namespace Tf2DemoSalvage.Animation.Tests;
 
 /// <summary>The PSI event — <c>FUN_18008a020</c> (B369, D172).</summary>
 /// <remarks>
-/// **Read from the disassembly** (`docs/findings/51`): the base and the next PSI are set, the queue rebased, the pipeline run,
+/// **Read from the disassembly** (`docs/findings/51`): the base and the next PSI are set, the ONE queue rebased, the pipeline run,
 /// and the event requeued one step later. Synthetic conformance (D38).
 /// </remarks>
 public sealed class IvpPsiEventTests
 {
     [Test]
-    public void RunPsi_APsi_SetsTheBaseAndTheNextPsiAndRequeuesItself()
+    public void SimulateTimeEvent_APsi_SetsTheBaseAndTheNextPsiAndRequeuesItself()
     {
         IvpImpactEnvironment environment = Environment();
-        PhysicsTimeManager time = new();
-        IvpUnitManager units = new();
+        IvpTimeManager<IIvpTimeEvent> time = new();
+        IvpPsiEvent psi = Unqueued(Start(environment, time, new IvpUnitManager()), time);
 
-        IvpPsiEvent.RunPsi(
-            environment, time, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 4d);
+        psi.SimulateTimeEvent(4d);
 
         environment.RebaseBase.ShouldBe(4d);
         environment.PsiEnd.ShouldBe(4.5d, "the step is added as a float");
         time.Base.ShouldBe(4d);
-        time.Now.ShouldBe(0d);
-        time.Count.ShouldBe(1, "the event requeued itself");
+        time.Clock.ShouldBe(0d);
+        time.Queue.Count.ShouldBe(1, "the event requeued itself");
+        time.Queue.ValueOf(psi.QueueSlot!.Value).ShouldBe(0.5f, "a step from its own base");
     }
 
     [Test]
-    public void Start_ThenDraining_RunsOnePsiPerStep()
+    public void Start_ThenRunning_RunsOnePsiPerStep()
     {
         IvpImpactEnvironment environment = Environment();
-        PhysicsTimeManager time = new();
+        IvpTimeManager<IIvpTimeEvent> time = new();
         IvpUnitManager units = new();
         IvpSimulationUnit unit = new();
         IvpRigidBody core = Core();
         unit.Cores.Add(core);
         units.Active.Add(unit);
+        Start(environment, time, units);
 
-        IvpPsiEvent.Start(
-            environment, time, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f);
-        int fired = time.DrainUntil(1.2d, _ => { });
+        int fired = 0;
+        double now = 0d;
+        time.Run(1.2d, at => now = at, due =>
+        {
+            ((IvpPsiEvent)due).SimulateTimeEvent(now);
+            fired++;
+        });
 
         fired.ShouldBe(3, "one at zero, then one per half-second step");
         core.LastStepped.ShouldBe(1d, "the last PSI ran at one second");
@@ -48,34 +53,56 @@ public sealed class IvpPsiEventTests
 
     /// <remarks>**The manager's own clock goes back to the base**, which only shows after an event has moved it.</remarks>
     [Test]
-    public void RunPsi_AfterAnEarlierEventMovedTheClock_PutsItBackToZero()
+    public void SimulateTimeEvent_AfterAnEarlierEventMovedTheClock_PutsItBackToZero()
     {
         IvpImpactEnvironment environment = Environment();
-        PhysicsTimeManager time = new();
-        time.Add(new PhysicsEvent(0.25f, _ => { }));
-        time.DrainUntil(0.3d, _ => { });
-        time.Now.ShouldNotBe(0d, "the control: the drained event moved the clock");
+        IvpTimeManager<IIvpTimeEvent> time = new();
+        IvpPsiEvent psi = Unqueued(Start(environment, time, new IvpUnitManager()), time);
+        Other earlier = new();
+        earlier.QueueSlot = time.Queue.Add(earlier, 0.25f);
+        time.Run(0.3d, _ => { }, _ => { });
+        time.Clock.ShouldNotBe(0d, "the control: the earlier event moved the clock");
 
-        IvpPsiEvent.RunPsi(
-            environment, time, new IvpUnitManager(), new IvpMindistManager(), new IvpMinList<IvpMindist>(),
-            _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
+        psi.SimulateTimeEvent(2d);
 
-        time.Now.ShouldBe(0d);
+        time.Clock.ShouldBe(0d);
     }
 
+    /// <remarks>
+    /// **Every queued event — a pair's too — loses the absolute time and is measured from the new base**: `FUN_18008a020`
+    /// subtracts `(float)now` from each entry. One event at `3` and a PSI at `2` leave it at `1`.
+    /// </remarks>
     [Test]
-    public void RunPsi_QueuedEvents_AreRebasedOntoTheNewBase()
+    public void SimulateTimeEvent_QueuedEvents_AreRebasedOntoTheNewBase()
     {
         IvpImpactEnvironment environment = Environment();
-        PhysicsTimeManager time = new();
-        time.Add(new PhysicsEvent(3f, _ => { }));
+        IvpTimeManager<IIvpTimeEvent> time = new();
+        IvpPsiEvent psi = Unqueued(Start(environment, time, new IvpUnitManager()), time);
+        Other queued = new();
+        queued.QueueSlot = time.Queue.Add(queued, 3f);
 
-        IvpPsiEvent.RunPsi(
-            environment, time, new IvpUnitManager(), new IvpMindistManager(), new IvpMinList<IvpMindist>(),
-            _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
+        psi.SimulateTimeEvent(2d);
 
         time.Base.ShouldBe(2d, "every queued time is now measured from here");
-        time.Count.ShouldBe(2);
+        time.Queue.Count.ShouldBe(2);
+        time.Queue.ValueOf(queued.QueueSlot.Value).ShouldBe(1f);
+    }
+
+    /// <summary>Queues the first PSI event with a pipeline that does nothing of its own.</summary>
+    private static IvpPsiEvent Start(IvpImpactEnvironment environment, IvpTimeManager<IIvpTimeEvent> time, IvpUnitManager units) =>
+        IvpPsiEvent.Start(environment, time, units, new IvpMindistManager(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f);
+
+    /// <summary>Takes the event out of the queue, as the time manager's loop does before firing it.</summary>
+    private static IvpPsiEvent Unqueued(IvpPsiEvent psi, IvpTimeManager<IIvpTimeEvent> time)
+    {
+        time.Queue.Remove(psi.QueueSlot!.Value);
+        psi.QueueSlot = null;
+        return psi;
+    }
+
+    private sealed class Other : IIvpTimeEvent
+    {
+        public int? QueueSlot { get; set; }
     }
 
     private static IvpRigidBody Core() =>

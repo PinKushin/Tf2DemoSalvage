@@ -217,7 +217,7 @@ public class IvpMindist : IvpCollision, IIvpTimeEvent
     /// a plain mindist is unfiled and made invalid (<see cref="IvpMindistManager.Invalidate"/>) and a larger one opens its ledge
     /// instead.
     /// </remarks>
-    public virtual void Freeze(IvpMindistManager manager, IvpMinList<IvpMindist> queue)
+    public virtual void Freeze(IvpMindistManager manager, IvpMinList<IIvpTimeEvent> queue)
     {
         ArgumentNullException.ThrowIfNull(manager);
 

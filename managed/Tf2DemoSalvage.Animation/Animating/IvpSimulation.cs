@@ -25,8 +25,7 @@ public sealed class IvpSimulation
 {
     private readonly IvpUnitManager _units = new();
     private readonly IvpMindistManager _mindists;
-    private readonly IvpMinList<IvpMindist> _queue;
-    private readonly PhysicsTimeManager _time = new();
+    private readonly IvpTimeManager<IIvpTimeEvent> _time;
     private readonly IvpGravityController _gravity;
     private readonly Func<float> _random;
     /// <summary>
@@ -72,9 +71,11 @@ public sealed class IvpSimulation
         // **One manager**, the environment's own `+0x20`: the broad phase files pairs into it and the pipeline walks the same list.
         _mindists = Collisions.MindistManager;
 
-        // **One queue**, likewise: the pairs the scheduler queues are the ones a deleted pair's unlink takes out (`FUN_180098dd0`).
-        // *This kept a queue of its own*, so a queued pair deleted by a refile named a slot in the environment's empty one.
-        _queue = Collisions.EventQueue;
+        // **One queue**, likewise: the time manager's `+0x10`, holding the PSI event and every pair's event, which a deleted pair's
+        // unlink takes out (`FUN_180098dd0`). *This kept a queue of its own*, so a queued pair deleted by a refile named a slot in the
+        // environment's empty one; *and then the PSI event kept another*, unrebased, whose absolute float times hung the viewer
+        // 387 seconds into a demo when a re-check a hundred-thousandth of a second on narrowed onto the instant it fired (B369).
+        _time = new IvpTimeManager<IIvpTimeEvent>(Collisions.EventQueue);
         Collisions.Creators.Add(new IvpPairCreator());
 
         // What the impact environment reaches through a core's `+0x10`: the objects' caches, the unit merge and the broad phase.
@@ -374,44 +375,40 @@ public sealed class IvpSimulation
 
     /// <summary>Queues the first PSI event, due at once — the time manager's own constructor does this for the engine.</summary>
     public void Start() =>
-        IvpPsiEvent.Start(Environment, _time, _units, _mindists, _queue, Minimize, MinimizeWithoutBudget, Examine, unit => Wake(unit), _random);
+        IvpPsiEvent.Start(Environment, _time, _units, _mindists, Minimize, MinimizeWithoutBudget, Examine, unit => Wake(unit), _random);
 
-    /// <summary>Runs every PSI due before an absolute time, and every pair event those PSIs queued.</summary>
+    /// <summary>Runs every event due before an absolute time — the PSIs and the pair events they queue — <c>FUN_18008a110</c>.</summary>
     /// <param name="target">The absolute time to simulate to.</param>
     /// <returns>How many PSIs fired.</returns>
     /// <remarks>
-    /// **The engine keeps ONE queue** — the PSI event and every pair's event sit in the time manager's own min-list together, and
-    /// each fires with the clock set to its own time. This port has two: <see cref="PhysicsTimeManager"/> for the PSI event and
-    /// the mindist min-list the scheduler writes. **They are fired as one, one event at a time by time**: a PSI event only when it
-    /// is due strictly before the earliest pair event, then that pair event at its own time, and the clock snapped to the target
-    /// at the end. *Two wrong shapes came first*: firing a PSI's pair events after the next PSI, and draining every PSI up to the
-    /// earliest pair event already queued — both left a pair event queued by one PSI waiting behind later ones, with the bodies
-    /// stepped past the contact it was queued for. What remains different is a tie: a pair event at exactly a PSI's time fires
-    /// first here, where the engine's min-list order decides.
+    /// **The engine's one loop over its one queue** (<see cref="IvpTimeManager{T}.Run"/>): the PSI event and every pair's event sit
+    /// in the same min-list, each fires with the clock set to its own time, and the clock is snapped to the target at the end.
+    /// *Three wrong shapes came first*: firing a PSI's pair events after the next PSI; draining every PSI up to the earliest pair
+    /// event; and two queues interleaved by time, which left the pairs' queue unrebased — absolute float times that narrowed a
+    /// re-check onto the instant it fired and hung the viewer (B369).
     /// </remarks>
     public int Advance(double target)
     {
         int fired = 0;
 
-        while (true)
-        {
-            bool pairDue = _queue.TryFirst(out _, out int slot) && _queue.ValueOf(slot) < target;
-
-            if (_time.RunEarliest(pairDue ? _queue.ValueOf(slot) : target, SetClock))
+        _time.Run(
+            target,
+            SetClock,
+            due =>
             {
-                fired++;
-                continue;
-            }
-
-            if (!pairDue)
-            {
-                break;
-            }
-
-            FirePair();
-        }
-
-        SetClock(target);
+                switch (due)
+                {
+                    case IvpPsiEvent psi:
+                        psi.SimulateTimeEvent(Environment.Now);
+                        fired++;
+                        break;
+                    case IvpMindist mindist:
+                        FirePair(mindist);
+                        break;
+                    default:
+                        throw new InvalidOperationException($"The time manager's queue holds an event it cannot fire: {due.GetType().Name}.");
+                }
+            });
 
         return fired;
     }
@@ -419,22 +416,13 @@ public sealed class IvpSimulation
     /// <summary>How many pair events have fired — an instrument, not a field the engine keeps.</summary>
     public int PairEvents { get; private set; }
 
-    /// <summary>Fires the earliest queued pair event — one turn of the time manager's loop over its own queue.</summary>
-    private void FirePair()
+    /// <summary>Fires a pair's event, already unqueued and with the clock at its time — the mindist event's own slot 1, <c>FUN_1800992e0</c>.</summary>
+    private void FirePair(IvpMindist mindist)
     {
-        if (!_queue.TryFirst(out IvpMindist? mindist, out int slot))
-        {
-            return;
-        }
-
-        double due = _queue.ValueOf(slot);
-        _queue.Remove(slot);
-        mindist.QueueSlot = null;
         PairEvents++;
-        SetClock(due);
 
         IvpFireOutcome outcome = IvpMindistFire.Handle(mindist, Minimize, recheck => Examine(mindist, recheck), Collide);
-        PairFired?.Invoke(mindist, due, outcome);
+        PairFired?.Invoke(mindist, Environment.Now, outcome);
     }
 
     /// <summary>Told each pair event as it fires — its time and outcome; an instrument, not a callback the engine has.</summary>
@@ -681,7 +669,7 @@ public sealed class IvpSimulation
                 Manager = _mindists,
                 First = ObjectOf(mindist.HullRecord(0)),
                 Second = ObjectOf(mindist.HullRecord(1)),
-                Queue = _queue,
+                Queue = _time.Queue,
                 FirstRechecked = firstCore.HasOffset58,
                 SecondRechecked = secondCore.HasOffset58,
                 FirstCoreState = firstCore.UnitState,
@@ -780,13 +768,12 @@ public sealed class IvpSimulation
             NextPsi = Environment.PsiEnd,
             // `DAT_18012d654` for the gravity in force — the environment's own length, as `SetGravity` leaves it.
             ClosingSpeedThreshold = IvpCollisionTolerance.ClosingSpeedThreshold(Environment.GravityLength),
-            Queue = _queue,
+            Queue = _time.Queue,
 
-            // **Zero, so this queue holds ABSOLUTE times.** The engine's pair events live in the time manager's own queue and are
-            // rebased with everything else each PSI (`FUN_18008a020`); this port's mindist queue is separate and is not, so a
-            // relative time would be measured from a base that had moved. *The cost is the precision the rebase exists to protect:
-            // a float time far from zero. It goes away when the two queues become one.*
-            QueueBase = 0d,
+            // **The time manager's own base, `tm+0x28`**: the pair's event goes into the one queue measured from the last PSI, and is
+            // rebased with everything else at the next (`FUN_18008a020`). *Zero stood here while the queues were two* — absolute float
+            // times, which 387 seconds in could not tell a re-check from the instant it fired (B369).
+            QueueBase = _time.Base,
             MarginDecayCounter = _marginDecay,
         };
 

@@ -388,7 +388,7 @@ public sealed class IvpPairSchedulerConformanceTests
                 Now = Now,
                 NextPsi = Now + Step,
                 ClosingSpeedThreshold = 20f,
-                Queue = new IvpMinList<IvpMindist>(),
+                Queue = new IvpMinList<IIvpTimeEvent>(),
                 QueueBase = Now,
             };
         }

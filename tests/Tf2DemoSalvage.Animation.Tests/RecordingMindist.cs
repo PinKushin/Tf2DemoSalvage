@@ -22,10 +22,10 @@ internal sealed class RecordingMindist() : IvpMindist(
     public IvpMindistManager? FrozenBy { get; private set; }
 
     /// <summary>The queue slot 7 was last handed.</summary>
-    public IvpMinList<IvpMindist>? FrozenQueue { get; private set; }
+    public IvpMinList<IIvpTimeEvent>? FrozenQueue { get; private set; }
 
     /// <inheritdoc/>
-    public override void Freeze(IvpMindistManager manager, IvpMinList<IvpMindist> queue)
+    public override void Freeze(IvpMindistManager manager, IvpMinList<IIvpTimeEvent> queue)
     {
         Slots.Add("freeze");
         FrozenBy = manager;

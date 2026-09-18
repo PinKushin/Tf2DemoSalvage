@@ -141,7 +141,7 @@ public sealed class IvpExactPhasesConformanceTests
 
         public IvpMindistManager Manager { get; } = new();
 
-        public IvpMinList<IvpMindist> Queue { get; } = new();
+        public IvpMinList<IIvpTimeEvent> Queue { get; } = new();
 
         public List<IvpMindist> Pairs { get; } = [];
 

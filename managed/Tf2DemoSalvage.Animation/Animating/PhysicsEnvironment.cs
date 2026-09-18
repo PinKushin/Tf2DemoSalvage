@@ -27,12 +27,10 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// demo's own tick rate, which this project already decodes rather than assuming. Getting that wrong
 /// does not fail — it produces a ragdoll that settles differently at every frame rate.
 ///
-/// **`Simulate` clamps, and outside the clamp it simulates NOTHING**
-/// (`FUN_180015310` in `vphysics.dll`): the whole body is inside
-/// `if ((dt &lt;= max) &amp;&amp; (min &lt; dt))`, so a step too long or too short is skipped rather than
-/// sub-stepped. That is a behaviour rather than a guard, and it is transcribed as one.
+/// **The environment itself is <see cref="IvpRagdollWorld"/>**, on the ported driver (D172); this keeps only the gravity the
+/// client hands it. Its clock and its own time manager were deleted with the old solver's (D180, B369).
 /// </remarks>
-public sealed class PhysicsEnvironment
+public static class PhysicsEnvironment
 {
     /// <summary>Valve's `sv_gravity` default, in units per second squared.</summary>
     /// <remarks>
@@ -41,66 +39,4 @@ public sealed class PhysicsEnvironment
     /// Source's own axes, before any conversion into IVP's.
     /// </remarks>
     public const float DefaultGravity = 800f;
-
-    /// <summary>Creates an environment.</summary>
-    /// <param name="step">
-    /// The simulation timestep — the demo's <c>interval_per_tick</c>, NOT the frame time.
-    /// </param>
-    /// <param name="gravity">Downward acceleration, defaulting to <see cref="DefaultGravity"/>.</param>
-    /// <exception cref="ArgumentOutOfRangeException">The step is not positive.</exception>
-    public PhysicsEnvironment(float step, float gravity = DefaultGravity)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(step);
-
-        Step = step;
-        Gravity = gravity;
-    }
-
-    /// <summary>The fixed simulation step — <c>env+0x108</c>.</summary>
-    public float Step { get; }
-
-    /// <summary>Downward acceleration, in units per second squared.</summary>
-    public float Gravity { get; }
-
-    /// <summary>Absolute simulation time — <c>env+0x188</c>.</summary>
-    public double Now { get; private set; }
-
-    /// <summary>The time manager this environment drives.</summary>
-    public PhysicsTimeManager Time { get; } = new();
-
-    /// <summary>Sets the clock, which the event loop does before every event it fires.</summary>
-    /// <param name="now">The absolute time.</param>
-    /// <remarks>
-    /// **`FUN_180082460`, called from inside the drain rather than around it.** The loop sets this to
-    /// each event's own time before firing it and to the target once at the end.
-    /// </remarks>
-    public void SetTime(double now) => Now = now;
-
-    /// <summary>Simulates forward by a delta, as `simulate_dtime` does.</summary>
-    /// <param name="delta">Seconds to advance.</param>
-    /// <returns>How many events fired.</returns>
-    /// <remarks>
-    /// **The target is `env+0x188 + dtime`** — `FUN_180082540` is one line and that is all of it:
-    /// <c>FUN_180089f30(*(env + 8), env, *(double *)(env + 0x188) + dtime)</c>.
-    /// </remarks>
-    public int Simulate(double delta) => Time.DrainUntil(Now + delta, SetTime);
-
-    /// <summary>Whether a delta is one the engine would simulate at all.</summary>
-    /// <param name="delta">The proposed step.</param>
-    /// <param name="minimum">The lower bound; a delta at or below it simulates nothing.</param>
-    /// <param name="maximum">The upper bound; a delta above it simulates nothing either.</param>
-    /// <returns>Whether anything would happen.</returns>
-    /// <remarks>
-    /// **Outside the clamp the engine simulates NOTHING**, which is the part worth reproducing: the
-    /// entire body of `CPhysicsEnvironment::Simulate` sits inside the test, so a frame too long is
-    /// skipped rather than broken into sub-steps. A viewer that sub-stepped instead would be steadier
-    /// than TF2 and wrong — the corpse would settle differently after a hitch.
-    ///
-    /// **The bounds are read as arithmetic, not as named constants**: `FUN_180015310` compares
-    /// against two doubles in the binary's constant pool. They are not transcribed here because
-    /// their values have not been dumped — this method exists to make the SHAPE explicit and is
-    /// deliberately not called by anything yet.
-    /// </remarks>
-    public static bool WouldSimulate(double delta, double minimum, double maximum) =>
-        delta <= maximum && minimum < delta;
 }

@@ -474,7 +474,7 @@ public sealed class IvpMindistHullConformanceTests
                     Manager = Manager,
                     First = First,
                     Second = Second,
-                    Queue = new IvpMinList<IvpMindist>(),
+                    Queue = new IvpMinList<IIvpTimeEvent>(),
                     FirstRechecked = firstRechecked,
                     SecondRechecked = secondRechecked,
                     FirstCoreState = firstState,

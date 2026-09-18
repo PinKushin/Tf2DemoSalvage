@@ -76,7 +76,7 @@ public sealed class IvpRecursiveMindist : IvpMindist
     ///     flags &amp; 0xffd3ffff | 0x100000;  IvpRecursiveMindist::RefreshChildren(rA + rB)
     /// </code>
     /// </remarks>
-    public override void Freeze(IvpMindistManager manager, IvpMinList<IvpMindist> queue)
+    public override void Freeze(IvpMindistManager manager, IvpMinList<IIvpTimeEvent> queue)
     {
         ArgumentNullException.ThrowIfNull(manager);
 
@@ -290,7 +290,7 @@ public sealed class IvpRecursiveMindist : IvpMindist
     }
 
     /// <summary>Opens the ledge <see cref="OpenSide"/> names — the tail slots 7 and 8 share.</summary>
-    private void Open(IvpMindistManager manager, IvpMinList<IvpMindist> queue, IvpCollisionObject first, IvpCollisionObject second)
+    private void Open(IvpMindistManager manager, IvpMinList<IIvpTimeEvent> queue, IvpCollisionObject first, IvpCollisionObject second)
     {
         manager.Unlink(this, queue);
 

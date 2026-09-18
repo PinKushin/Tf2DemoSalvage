@@ -277,7 +277,7 @@ public sealed class IvpMindistManager
     /// Out of the queue if queued; off the exact list; each record off its object's list; and out of the rechecked array,
     /// searched from its end, **the last entry moving into its place**.
     /// </remarks>
-    public void Unlink(IvpMindist mindist, IvpMinList<IvpMindist> queue)
+    public void Unlink(IvpMindist mindist, IvpMinList<IIvpTimeEvent> queue)
     {
         ArgumentNullException.ThrowIfNull(mindist);
         ArgumentNullException.ThrowIfNull(queue);
@@ -324,7 +324,7 @@ public sealed class IvpMindistManager
     /// Unfiled (<see cref="Unlink"/>); flags `&amp; ~0x340000 | 0x80000`; the mindist at the head of the invalid list and
     /// each record at the head of its object's invalid list.
     /// </remarks>
-    public void Invalidate(IvpMindist mindist, IvpCollisionObject first, IvpCollisionObject second, IvpMinList<IvpMindist> queue)
+    public void Invalidate(IvpMindist mindist, IvpCollisionObject first, IvpCollisionObject second, IvpMinList<IIvpTimeEvent> queue)
     {
         ArgumentNullException.ThrowIfNull(first);
         ArgumentNullException.ThrowIfNull(second);
@@ -417,7 +417,7 @@ public sealed class IvpMindistManager
     /// pair whose minimize left bits of `0xc000` goes to its own slot 7 (<see cref="IvpMindist.Freeze"/>) and nothing else happens
     /// to it.
     /// </remarks>
-    public void MinimizeExact(Action<IvpMindist> minimize, IvpMinList<IvpMindist> queue)
+    public void MinimizeExact(Action<IvpMindist> minimize, IvpMinList<IIvpTimeEvent> queue)
     {
         ArgumentNullException.ThrowIfNull(minimize);
         ArgumentNullException.ThrowIfNull(queue);
@@ -447,7 +447,7 @@ public sealed class IvpMindistManager
     /// **From the last entry to the first**, the count read once: making an entry invalid moves the last entry into its
     /// place, which the walk is already past.
     /// </remarks>
-    public void RecheckEveryPsi(Action<IvpMindist> minimize, IvpMinList<IvpMindist> queue)
+    public void RecheckEveryPsi(Action<IvpMindist> minimize, IvpMinList<IIvpTimeEvent> queue)
     {
         ArgumentNullException.ThrowIfNull(minimize);
         ArgumentNullException.ThrowIfNull(queue);
@@ -494,7 +494,7 @@ public sealed class IvpMindistManager
     }
 
     /// <summary>One exact mindist's minimize and split — the body shared by <c>FUN_1800983e0</c> and <c>FUN_180098710</c>.</summary>
-    private void Recheck(IvpMindist mindist, Action<IvpMindist> minimize, IvpMinList<IvpMindist> queue)
+    private void Recheck(IvpMindist mindist, Action<IvpMindist> minimize, IvpMinList<IIvpTimeEvent> queue)
     {
         minimize(mindist);
 
@@ -617,7 +617,7 @@ public sealed class IvpExactHandoff
     public required IvpCollisionObject Second { get; init; }
 
     /// <summary>The time manager's queue.</summary>
-    public required IvpMinList<IvpMindist> Queue { get; init; }
+    public required IvpMinList<IIvpTimeEvent> Queue { get; init; }
 
     /// <summary>Whether record 0's core has its <c>+0x58</c> set. <i>What the field is, is not established.</i></summary>
     public required bool FirstRechecked { get; init; }

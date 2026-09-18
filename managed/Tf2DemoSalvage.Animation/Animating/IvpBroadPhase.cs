@@ -89,7 +89,7 @@ public sealed class IvpCollisionEnvironment
     public int DeletedMindists { get; set; }
 
     /// <summary>The time manager's queue, which an exact mindist leaves when it is unlinked.</summary>
-    public IvpMinList<IvpMindist> EventQueue { get; } = new();
+    public IvpMinList<IIvpTimeEvent> EventQueue { get; } = new();
 
     /// <summary>What a new mindist of two objects without phantoms becomes — <c>FUN_1800977f0(env+0x20, m)</c>.</summary>
     public Action<IvpMindist>? BecomeExact { get; init; }
