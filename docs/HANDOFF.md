@@ -456,10 +456,26 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    trajectory (t≈1.4–1.6s) is plausibly just the ordinary push-out/friction convergence of the ONE contact real
    IVP keeps, not a special re-trigger at all. **The new, sharply testable hypothesis**: check whether this port's
    own contact-drop logic (`ad4c08ba`) drops all 3 corner contacts to zero instead of keeping 1 — if so, that
-   plain over-aggressive drop, not a missing re-arm signal, is the entire bug. Check the port's own
-   `IvpFrictionSystem`/`IvpCollisionObject.ContactPoints` state right after its own bounce (t≈1.09) before writing
-   any fix — this needs one targeted trace of the PORT (not the real engine) to confirm the contact count it
-   actually retains.
+   plain over-aggressive drop, not a missing re-arm signal, is the entire bug.
+   **2026-09-17, confirmed with a targeted port-side trace (temporary `Console.WriteLine`, removed before this
+   commit): the port's `bodyObject.ContactPoints.Count` and `body.FrictionInfo` are `0`/`null` at BOTH t=1.2 (right
+   after the bounce) and t=3.0 (end) — every corner contact is gone, matching the hypothesis exactly.** Read
+   `IvpFrictionSystem.File()` (the heap's filing pass, `FUN_1800a9bf0`) in full — **it is not the bug**: its drop
+   condition (`point.Gap >= IvpCollisionTolerance.RestingContactGap || record.Outside`) matches the disassembly
+   exactly, evaluated independently per contact, no different from what the real engine's own filing pass does.
+   **The bug is therefore not in the drop condition's LOGIC — it is that this port's 3 corner contacts all end up
+   with a `Gap` that trips the same threshold, while the real engine's 3 corners come out with 2 past it and 1
+   under it.** The real engine's DropContact calls fired from an identical stack frame just like ImpactSolver's
+   did, meaning even there the mechanism is uniform across corners — so whatever makes ONE corner's gap smaller
+   in the real engine has to be a genuine PHYSICAL difference (most likely a small angular/rotational discrepancy
+   putting one corner measurably closer to the ground at the exact instant this filing pass runs), not a branch
+   this port takes differently. **Next step, now within reach with the live debugger working**: read each
+   corner's own `IvpContactPoint.Gap` (or its underlying mindist `Length`) individually — in the real engine via
+   `read_memory`/`read_integer` at the contact-record addresses already visible in the `DropContact` breakpoint's
+   own register capture (`RCX`/`RDX` held the record/system pointers), and in the port via the same kind of
+   temporary per-contact trace already used above — to find where the three corners' numbers actually diverge
+   between the port and the real engine. That comparison, not more reading of `File()` or anything upstream of
+   it, is what will actually locate the fix.
    **The measurement to work from** is the paired `.phy` drop (`vphysics-drop phy` / `ivp-phy-drop`, findings 51, *One prop
    dropped through vphysics.dll and through the port*): the two runs match through free fall, and **first differ at the impact on
    tick 20** — the port lands 0.25 lower and spins at under half vphysics' rate. After that vphysics comes to rest by 1.5 s and
