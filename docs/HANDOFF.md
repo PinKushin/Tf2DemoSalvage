@@ -1165,21 +1165,32 @@ sides have at least one negative weight) and the per-region `facing`/`cosine` se
 `EdgeEdgeProximity` — both are dense, XOR-indexed bit manipulation where a rushed hand-trace risks more error than a
 skipped check is worth, after everything else already verified this session.
 
-**`Solver.FaceFace` is the one function in the whole dispatch table never opened this session.** It is also the least
-likely to matter for this test: our reproduction's dispatch chain (a cube corner, a Point feature, against a ground
-triangle) only ever reaches Point/Edge-kind synapse pairs on the path traced above; Triangle-vs-Triangle requires both
-sides to independently settle into a Triangle-kind synapse, which nothing in the traced chain does. Lowest priority of
-what remains.
+**`Solver.FaceFace` (`FUN_180094f80`) checked — exact match, and this closes the entire solver.** Every phase
+corresponds directly: the 3×3 point-vertex search over both triangles; the point-vs-plane check run in both directions
+(`TriangleWeights(...).Inside` gate, the exact same `1.000000000001` tie-breaking epsilon this port's `Handicap`
+constant uses); the edge-vs-point check in both directions; the full 3×3 edge-vs-edge search; the final
+Point-kind-takes-priority swap before dispatch; and the terminal dispatch table itself, whose unreachable default case
+is a direct port of the real engine's own crash guard — `Error(..., "ivp_mindist_minimize.cxx", 0x1d9)` in the
+disassembly, matching this port's own citation of `ivp_mindist_minimize.cxx:473` for the same `InvalidOperationException`
+almost exactly (0x1d9 = 473 decimal — the same line, not a coincidence). The engine's own embedded build path,
+`C:\buildworker\rel_hl2_win64\build\src\ivp\ivp_collision\ivp_mindist_minimize.cxx`, is the exact file this whole port
+has been citing by name all session.
 
-**Where this actually leaves the fix.** Every function on the path this test's specific failure exercises — from the
-drop rule through the wake-up scheduler, the ledge-matching, the virtual-mesh triangle format, and every solver routine
-reachable from a Point-vs-Triangle contact all the way through `EdgeEdge`/`EdgeEdgeProximity` — has been read against
-the live disassembly this session and found faithful. **No divergence has been confirmed anywhere.** The two paths left
-to settle this for good: read `FaceFace` and the two skipped bit-manipulation blocks (for completeness, though neither
-is likely reached here), or trace the real client dropping a rotating body dead-centred on an actual displacement seam
-and see whether it also gets stuck. Absent either, the honest conclusion is that this looks like a genuine Valve engine
-limitation on a razor's-edge geometric alignment, not a confirmed port defect — which the standing "a divergence is a
-defect, fix it" rule does not apply to, because no divergence has been found to fix.
+**Every function in `IvpMindistMinimize` has now been read against the live disassembly and matches Valve exactly.**
+Combined with everything from earlier in this document (the drop rule, the wake-up scheduler, the mindist
+ledge-matching, the virtual-mesh triangle format), **there is no confirmed divergence anywhere in the entire path from
+the bounce to the fall-through, in any function that governs it.** What remains unverified is two small, dense
+bit-manipulation blocks inside `EdgeEdge` and `EdgeEdgeProximity` (named above) that were deliberately not hand-traced
+to avoid a transcription error after this much verification — and whether real TF2 reaches the identical stuck state
+on a dead-centred seam landing, which only a live trace can answer.
+
+**Live verification, same session, in progress:** attached the Cheat Engine MCP bridge to a live `tf_win64.exe`
+listen-server instance (`sv_cheats 1`, bots spawned for volume), matched vphysics.dll's runtime base
+(`0x7FF9FB440000`) to the Ghidra image exactly, and armed a non-blocking hardware breakpoint on
+`IvpRecursiveMindist::HullPassed` (`0x7FF9FB4F28A0`) to catch real hits. Given this document's own read of
+`HullPassed`, a hit whose mindist ends up with `[mindist+0x20] & 0xC000 == 0x4000` that never clears on later hits for
+the same object would be the same permanently-parked state found in the port — live, on the shipped binary. Result not
+yet in.
 
 ## How the ports are built, so the next one matches
 
