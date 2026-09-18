@@ -127,7 +127,7 @@ public static class IvpTangentialSolve
         return new IvpJacobianRow(row, massRow, diagonal);
     }
 
-    /// <summary>Applies the two-axis impulse to a core's staged pending push — <c>FUN_18009c620</c>.</summary>
+    /// <summary>Applies the two-axis impulse to a core's velocity and spin — <c>FUN_18009c620</c>.</summary>
     /// <param name="core">The core; null for a static side, which takes nothing.</param>
     /// <param name="axis0">The slide's first tangent axis, in world space — the same one <see cref="BuildJacobian"/> took.</param>
     /// <param name="axis1">The slide's second tangent axis, in world space.</param>
@@ -141,6 +141,10 @@ public static class IvpTangentialSolve
     /// **The linear push uses the raw axes scaled by inverse mass; the angular push uses the already inertia-scaled
     /// mass rows directly** — <see cref="IvpJacobianRow.MassRow"/> already carries <see cref="IvpRigidBody.InverseInertia"/>,
     /// so applying it again here would double-count it.
+    ///
+    /// **Onto `+0x140` and `+0x130` themselves**, as `FUN_18009c620` adds them. *This added onto the staged pending pair*, so a
+    /// friction impulse took effect late or not at all: on the paired crate drop the binary's tangential solve took the slide
+    /// from −0.19369 to −0.18810 and the port's left it at −0.19369, and the port's crate crept where the binary's stopped (B369).
     /// </remarks>
     public static void ApplyImpulse(
         IvpRigidBody? core,
@@ -158,15 +162,15 @@ public static class IvpTangentialSolve
         float scaled0 = impulse.Span * sign;
         float scaled1 = impulse.CrossSpan * sign;
 
-        core.PendingVelocity = (
-            core.PendingVelocity.X + (((axis0.X * scaled0) + (axis1.X * scaled1)) * core.InverseMass),
-            core.PendingVelocity.Y + (((axis0.Y * scaled0) + (axis1.Y * scaled1)) * core.InverseMass),
-            core.PendingVelocity.Z + (((axis0.Z * scaled0) + (axis1.Z * scaled1)) * core.InverseMass));
+        core.Velocity = (
+            core.Velocity.X + (((axis0.X * scaled0) + (axis1.X * scaled1)) * core.InverseMass),
+            core.Velocity.Y + (((axis0.Y * scaled0) + (axis1.Y * scaled1)) * core.InverseMass),
+            core.Velocity.Z + (((axis0.Z * scaled0) + (axis1.Z * scaled1)) * core.InverseMass));
 
-        core.PendingAngularVelocity = (
-            core.PendingAngularVelocity.X + (rows.Axis0.MassRow.X * scaled0) + (rows.Axis1.MassRow.X * scaled1),
-            core.PendingAngularVelocity.Y + (rows.Axis0.MassRow.Y * scaled0) + (rows.Axis1.MassRow.Y * scaled1),
-            core.PendingAngularVelocity.Z + (rows.Axis0.MassRow.Z * scaled0) + (rows.Axis1.MassRow.Z * scaled1));
+        core.AngularVelocity = (
+            core.AngularVelocity.X + (rows.Axis0.MassRow.X * scaled0) + (rows.Axis1.MassRow.X * scaled1),
+            core.AngularVelocity.Y + (rows.Axis0.MassRow.Y * scaled0) + (rows.Axis1.MassRow.Y * scaled1),
+            core.AngularVelocity.Z + (rows.Axis0.MassRow.Z * scaled0) + (rows.Axis1.MassRow.Z * scaled1));
     }
 
     /// <summary>One core's off-diagonal contribution to the 2×2 tangential system — <c>dot(Axis0.MassRow, Axis1.Row)</c>.</summary>

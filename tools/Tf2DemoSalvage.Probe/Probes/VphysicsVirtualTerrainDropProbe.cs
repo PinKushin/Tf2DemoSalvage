@@ -668,13 +668,13 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
         private const long BacksideWalkAddress = 0x180094e30;
 
         private readonly Action<string> _write;
-        private readonly Hook<MinimizeDelegate> _minimize;
-        private readonly Hook<BacksideWalkDelegate> _backsideWalk;
-        private readonly Hook<ImpactEntryDelegate> _entry;
-        private readonly Hook<CollideDelegate> _collide;
-        private readonly Hook<QueueAddDelegate> _queueAdd;
-        private readonly Hook<AttachDelegate> _attach;
-        private readonly Hook<HullPassedDelegate> _hullPassed;
+        private readonly VphysicsHook<MinimizeDelegate> _minimize;
+        private readonly VphysicsHook<BacksideWalkDelegate> _backsideWalk;
+        private readonly VphysicsHook<ImpactEntryDelegate> _entry;
+        private readonly VphysicsHook<CollideDelegate> _collide;
+        private readonly VphysicsHook<QueueAddDelegate> _queueAdd;
+        private readonly VphysicsHook<AttachDelegate> _attach;
+        private readonly VphysicsHook<HullPassedDelegate> _hullPassed;
         private readonly (int First, int Last) _queueTicks;
         private int _tick;
         private bool _dumped;
@@ -683,21 +683,21 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
         {
             _write = output.WriteLine;
             _queueTicks = queueTicks;
-            _entry = new Hook<ImpactEntryDelegate>(module, EntryAddress, Entered);
-            _collide = new Hook<CollideDelegate>(module, CollideAddress, Collided);
-            _queueAdd = new Hook<QueueAddDelegate>(module, QueueAddAddress, Queued);
-            _attach = new Hook<AttachDelegate>(module, AttachAddress, Attached);
-            _hullPassed = new Hook<HullPassedDelegate>(module, HullPassedAddress, Passed);
-            _minimize = new Hook<MinimizeDelegate>(module, MinimizeAddress, Minimized);
-            _backsideWalk = new Hook<BacksideWalkDelegate>(module, BacksideWalkAddress, Walked);
-            _weights = new Hook<TriangleWeightsDelegate>(module, TriangleWeightsAddress, Weighed);
-            _examine = new Hook<ExamineDelegate>(module, ExamineAddress, Examined);
+            _entry = new VphysicsHook<ImpactEntryDelegate>(module, EntryAddress, Entered);
+            _collide = new VphysicsHook<CollideDelegate>(module, CollideAddress, Collided);
+            _queueAdd = new VphysicsHook<QueueAddDelegate>(module, QueueAddAddress, Queued);
+            _attach = new VphysicsHook<AttachDelegate>(module, AttachAddress, Attached);
+            _hullPassed = new VphysicsHook<HullPassedDelegate>(module, HullPassedAddress, Passed);
+            _minimize = new VphysicsHook<MinimizeDelegate>(module, MinimizeAddress, Minimized);
+            _backsideWalk = new VphysicsHook<BacksideWalkDelegate>(module, BacksideWalkAddress, Walked);
+            _weights = new VphysicsHook<TriangleWeightsDelegate>(module, TriangleWeightsAddress, Weighed);
+            _examine = new VphysicsHook<ExamineDelegate>(module, ExamineAddress, Examined);
         }
 
         /// <summary><c>IvpPairScheduler::Examine(mindist, removeFar, recheck)</c>, <c>FUN_180099380</c>.</summary>
         private const long ExamineAddress = 0x180099380;
 
-        private readonly Hook<ExamineDelegate> _examine;
+        private readonly VphysicsHook<ExamineDelegate> _examine;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void ExamineDelegate(nint mindist, int removeFar, int recheck);
@@ -723,7 +723,7 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
         /// <summary><c>IvpCompactLedgeSolver::TriangleWeights(ledge, edge, point, out)</c>.</summary>
         private const long TriangleWeightsAddress = 0x18007cdf0;
 
-        private readonly Hook<TriangleWeightsDelegate> _weights;
+        private readonly VphysicsHook<TriangleWeightsDelegate> _weights;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void TriangleWeightsDelegate(nint ledge, nint edge, nint point, nint weights);
@@ -911,45 +911,5 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
             BitConverter.Int32BitsToSingle(Marshal.ReadInt32(at, offset)),
             BitConverter.Int32BitsToSingle(Marshal.ReadInt32(at, offset + 4)),
             BitConverter.Int32BitsToSingle(Marshal.ReadInt32(at, offset + 8)));
-    }
-
-    /// <summary>A detour a callback can call through: the routine's bytes put back, the routine called, the detour laid again.</summary>
-    /// <remarks>Only sound single-threaded, which the probe's simulation is.</remarks>
-    private sealed class Hook<T> : IDisposable
-        where T : Delegate
-    {
-        private readonly nint _module;
-        private readonly long _address;
-        private readonly T _callback;
-        private VphysicsDetour? _detour;
-
-        public Hook(nint module, long address, T callback)
-        {
-            _module = module;
-            _address = address;
-            _callback = callback;
-            _detour = new VphysicsDetour(module, address, callback);
-        }
-
-        public void CallThrough(Action<T> call)
-        {
-            _detour!.Dispose();
-            _detour = null;
-
-            try
-            {
-                call(Marshal.GetDelegateForFunctionPointer<T>(VphysicsLibrary.Address(_module, _address)));
-            }
-            finally
-            {
-                _detour = new VphysicsDetour(_module, _address, _callback);
-            }
-        }
-
-        public void Dispose()
-        {
-            _detour?.Dispose();
-            _detour = null;
-        }
     }
 }

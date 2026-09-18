@@ -358,7 +358,7 @@ public sealed class VphysicsDropProbe : IProbe
                 environment, dynamicCollide, materialIndex, new Vec3(0f, 0f, DefaultDropHeight), new Vec3(0f, 0f, 0f), ref dynamicParams);
 
             Drop(
-                output, environment, staticObject, dynamicObject,
+                output, module, environment, staticObject, dynamicObject,
                 "static slab", new Vec3(0f, 0f, 0f), "dropped box", new Vec3(0f, 0f, DefaultDropHeight), PrintEveryTicks);
         }
         finally
@@ -466,7 +466,7 @@ public sealed class VphysicsDropProbe : IProbe
                 ref dynamicParams);
 
             Drop(
-                output, environment, staticObject, dynamicObject,
+                output, module, environment, staticObject, dynamicObject,
                 staticModel, new Vec3(0f, 0f, 0f), dynamicModel, new Vec3(0f, 0f, z), every);
         }
         finally
@@ -495,6 +495,7 @@ public sealed class VphysicsDropProbe : IProbe
     /// <summary>The creation-frame control read-backs, the wake, and the stepped trajectory — shared by both modes.</summary>
     private static void Drop(
         TextWriter output,
+        nint module,
         nint environment,
         nint staticObject,
         nint dynamicObject,
@@ -527,8 +528,11 @@ public sealed class VphysicsDropProbe : IProbe
         GetPositionDelegate getPosition = VCall<GetPositionDelegate>(dynamicObject, ObjectGetPositionSlot);
         GetVelocityDelegate getVelocity = VCall<GetVelocityDelegate>(dynamicObject, ObjectGetVelocitySlot);
 
+        using FrictionTrace? friction = FrictionTrace.FromEnvironment(module, output, core);
+
         for (int tick = 1; tick <= TotalTicks; tick++)
         {
+            friction?.AtTick(tick);
             simulate(environment, Timestep);
 
             if (tick % every != 0)
@@ -567,6 +571,98 @@ public sealed class VphysicsDropProbe : IProbe
             }
 
             output.Flush();
+        }
+    }
+
+    /// <summary>
+    /// Opt-in (<c>TF2VPHYSICS_PROBE_TRACE_FRICTION=first-last</c>): the friction system's tangential solve
+    /// (<c>FUN_1800857c0(cp, frame)</c>) and lone normal solve (<c>FUN_180084490(controller, frame)</c>), each with the contact's
+    /// push and slide and the dropped core's velocity and spin before and after, in the order the engine calls them.
+    /// </summary>
+    private sealed class FrictionTrace : IDisposable
+    {
+        private const long TangentialAddress = 0x1800857c0;
+        private const long NormalAddress = 0x180084490;
+
+        private readonly Action<string> _write;
+        private readonly nint _core;
+        private readonly (int First, int Last) _ticks;
+        private readonly VphysicsHook<TangentialDelegate> _tangential;
+        private readonly VphysicsHook<NormalDelegate> _normal;
+        private int _tick;
+
+        private FrictionTrace(nint module, TextWriter output, nint core, (int First, int Last) ticks)
+        {
+            _write = output.WriteLine;
+            _core = core;
+            _ticks = ticks;
+            _tangential = new VphysicsHook<TangentialDelegate>(module, TangentialAddress, Tangential);
+            _normal = new VphysicsHook<NormalDelegate>(module, NormalAddress, Normal);
+        }
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate ulong TangentialDelegate(nint contact, nint frame);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void NormalDelegate(nint controller, nint frame);
+
+        public static FrictionTrace? FromEnvironment(nint module, TextWriter output, nint core)
+        {
+            if (Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_TRACE_FRICTION") is not { } window)
+            {
+                return null;
+            }
+
+            string[] bounds = window.Split('-');
+
+            return new FrictionTrace(
+                module, output, core,
+                (int.Parse(bounds[0], CultureInfo.InvariantCulture), int.Parse(bounds[^1], CultureInfo.InvariantCulture)));
+        }
+
+        public void AtTick(int tick) => _tick = tick;
+
+        public void Dispose()
+        {
+            _tangential.Dispose();
+            _normal.Dispose();
+        }
+
+        private ulong Tangential(nint contact, nint frame)
+        {
+            Write("TANGENTIAL in ", contact, frame);
+            ulong answer = 0;
+            _tangential.CallThrough(original => answer = original(contact, frame));
+            Write("TANGENTIAL out", contact, frame);
+            return answer;
+        }
+
+        private void Normal(nint controller, nint frame)
+        {
+            nint contact = Marshal.ReadIntPtr(Marshal.ReadIntPtr(controller, 8), 0x40);
+            Write("NORMAL in     ", contact, frame);
+            _normal.CallThrough(original => original(controller, frame));
+            Write("NORMAL out    ", contact, frame);
+        }
+
+        private void Write(string label, nint contact, nint frame)
+        {
+            if (_tick < _ticks.First || _tick > _ticks.Last)
+            {
+                return;
+            }
+
+            string point = contact == 0
+                ? "cp none"
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"push={CoreFloat(contact, 0x88):R} slide=({CoreFloat(contact, 0x68):R}, {CoreFloat(contact, 0x6c):R})");
+
+            _write(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{label} tick {_tick} frame=({CoreFloat(frame, 0):R}, {CoreFloat(frame, 4):R}) {point} " +
+                $"v=({CoreFloat(_core, 0x140):R}, {CoreFloat(_core, 0x144):R}, {CoreFloat(_core, 0x148):R}) " +
+                $"w=({CoreFloat(_core, 0x130):R}, {CoreFloat(_core, 0x134):R}, {CoreFloat(_core, 0x138):R})"));
         }
     }
 
