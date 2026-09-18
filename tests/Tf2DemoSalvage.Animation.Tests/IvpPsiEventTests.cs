@@ -18,7 +18,7 @@ public sealed class IvpPsiEventTests
         IvpUnitManager units = new();
 
         IvpPsiEvent.RunPsi(
-            environment, time, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, () => 0f, now: 4d);
+            environment, time, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 4d);
 
         environment.RebaseBase.ShouldBe(4d);
         environment.PsiEnd.ShouldBe(4.5d, "the step is added as a float");
@@ -39,7 +39,7 @@ public sealed class IvpPsiEventTests
         units.Active.Add(unit);
 
         IvpPsiEvent.Start(
-            environment, time, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, () => 0f);
+            environment, time, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f);
         int fired = time.DrainUntil(1.2d, _ => { });
 
         fired.ShouldBe(3, "one at zero, then one per half-second step");
@@ -58,7 +58,7 @@ public sealed class IvpPsiEventTests
 
         IvpPsiEvent.RunPsi(
             environment, time, new IvpUnitManager(), new IvpMindistManager(), new IvpMinList<IvpMindist>(),
-            _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
+            _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
 
         time.Now.ShouldBe(0d);
     }
@@ -72,7 +72,7 @@ public sealed class IvpPsiEventTests
 
         IvpPsiEvent.RunPsi(
             environment, time, new IvpUnitManager(), new IvpMindistManager(), new IvpMinList<IvpMindist>(),
-            _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
+            _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
 
         time.Base.ShouldBe(2d, "every queued time is now measured from here");
         time.Count.ShouldBe(2);

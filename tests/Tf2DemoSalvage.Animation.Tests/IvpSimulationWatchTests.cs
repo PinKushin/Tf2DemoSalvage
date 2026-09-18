@@ -269,16 +269,18 @@ public sealed class IvpSimulationWatchTests
 
     /// <remarks>**A core never stepped keeps the velocity it was made with** — the save and restore around <c>FUN_180077670</c>.</remarks>
     [Test]
-    public void Add_ABodyMadeMoving_IsRevivedWithItsVelocity()
+    public void Wake_ABodyMadeMoving_IsRevivedWithItsVelocity()
     {
         IvpSimulation simulation = new(Environment(), (0f, 0f, 0f), () => 0f);
         IvpRigidBody core = Body((0d, 0d, 0d));
         core.Velocity = (0f, 0f, 5f);
         core.PreviousVelocity = (0f, 0f, 5f);
-
         simulation.Add(core);
+        core.UnitState.ShouldBe(8, "the control: added asleep, listed for the first PSI");
 
-        core.UnitState.ShouldBe(1, "woken as it was added");
+        simulation.Wake(core.Unit!);
+
+        core.UnitState.ShouldBe(1, "revived");
         core.Velocity.ShouldBe((0f, 0f, 5f));
         core.PreviousVelocity.ShouldBe((0f, 0f, 0f), "the step's own record of it is zeroed");
         simulation.AwakeUnits.ShouldBe(1);
@@ -303,6 +305,12 @@ public sealed class IvpSimulationWatchTests
         IvpRigidBody second = Body((7d, -3d, apart));
         simulation.Add(first);
         simulation.Add(second);
+
+        // Woken before the pair is watched, as a collision would (`FUN_1800758e0`): `Add` only lists a core for the first PSI to revive,
+        // and a revive with the pair already watched would rebuild its resting contact there. The drain then finds them awake and only
+        // resets their anchors (`FUN_180075610`).
+        simulation.Wake(first.Unit!);
+        simulation.Wake(second.Unit!);
 
         IvpReplayMaterial material = new(0d, 0d, HasSecondFriction: false);
         IvpCollisionObject firstObject = new() { Core = first, Material = material };

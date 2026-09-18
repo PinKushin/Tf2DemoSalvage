@@ -72,6 +72,9 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
     private const int PrintEveryTicks = 13;
     private const float Timestep = 1f / 66f;
 
+    /// <summary>The cap the runtime handler hands its tree walk — <c>0xc00</c>, <c>MAX_VIRTUAL_TRIANGLES·3</c>.</summary>
+    private const int TriangleIndexCap = 0xc00;
+
     /// <summary>The basin's 2000-inch square, matching the test's own corners.</summary>
     private const float BasinSize = 2000f;
 
@@ -99,7 +102,21 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
         "thickness"     "-1"
         "dampening"     "0"
         }
+        "frictionless"
+        {
+        "friction"      "0"
+        "elasticity"    "0"
+        "density"       "2700"
+        "thickness"     "-1"
+        "dampening"     "0"
+        }
         """;
+
+    /// <summary><c>IPhysicsObject::SetVelocity</c>, counted as the other object slots are.</summary>
+    private const int ObjectSetVelocitySlot = 49;
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void SetVelocityDelegate(nint physicsObject, in Vec3 velocity, in Vec3 angularVelocity);
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly struct Vec3(float x, float y, float z)
@@ -209,7 +226,8 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
     public string Summary =>
         "drives the shipped vphysics.dll's real IPhysicsCollision::CreateVirtualMesh with the broad-phase virtual-terrain " +
         "test's own displacement geometry, drops the same half-cube, and reports whether the real engine rests at the " +
-        "test's expected height or falls through: vphysics-virtual-terrain-drop";
+        "test's expected height or falls through; 'boxes' drives the broad-phase test's two cubes together instead: " +
+        "vphysics-virtual-terrain-drop [boxes]";
 
     /// <inheritdoc />
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -253,7 +271,14 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
             return;
         }
 
-        bool supportsVirtualMesh = VCall<SupportsVirtualMeshDelegate>(collision, CollisionSupportsVirtualMeshSlot)(collision);
+        if (arguments.Count > 0 && arguments[0] == "boxes")
+        {
+            RunBoxes(output, module, physics, collision, VCall<GetSurfaceIndexDelegate>(surfaceProps, SurfacePropsGetSurfaceIndexSlot)(
+                surfaceProps, "frictionless"));
+            return;
+        }
+
+        bool supportsVirtualMesh =VCall<SupportsVirtualMeshDelegate>(collision, CollisionSupportsVirtualMeshSlot)(collision);
         output.WriteLine($"control: SupportsVirtualMesh() -> {supportsVirtualMesh}");
 
         if (!supportsVirtualMesh)
@@ -331,9 +356,11 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
                 GetVelocityDelegate getVelocity = VCall<GetVelocityDelegate>(bodyObject, ObjectGetVelocitySlot);
 
                 Vec3 lastPosition = start;
+                using ImpactTrace? impacts = ImpactTrace.FromEnvironment(module, output);
 
                 for (int tick = 1; tick <= TotalTicks; tick++)
                 {
+                    impacts?.AtTick(tick);
                     simulate(environment, Timestep);
                     getPosition(bodyObject, out lastPosition, out _);
 
@@ -368,6 +395,62 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
             }
 
             Marshal.FreeHGlobal(meshVerts);
+        }
+    }
+
+    /// <summary>
+    /// <c>boxes</c>: <c>IvpSimulationBroadPhaseTests</c>' two cubes driven together — half 4, one at IVP (2, 1, 0) moving at 6 along
+    /// IVP +z, one still at (0, 0, 9), no gravity, a frictionless inelastic surface — through the real engine.
+    /// </summary>
+    /// <remarks>IVP to Source is <c>(x, z, −y)</c> over <see cref="MetresPerInch"/>.</remarks>
+    private static void RunBoxes(TextWriter output, nint module, nint physics, nint collision, int materialIndex)
+    {
+        nint environment = VCall<CreateEnvironmentDelegate>(physics, 5)(physics);
+        VCall<SetGravityDelegate>(environment, EnvironmentSetGravitySlot)(environment, new Vec3(0f, 0f, 0f));
+        VCall<SetSimulationTimestepDelegate>(environment, EnvironmentSetSimulationTimestepSlot)(environment, Timestep);
+
+        nint box = VCall<BBoxToCollideDelegate>(collision, CollisionBBoxToCollideSlot)(
+            collision, new Vec3(-HalfInches, -HalfInches, -HalfInches), new Vec3(HalfInches, HalfInches, HalfInches));
+        nint movingName = Marshal.StringToHGlobalAnsi("moving");
+        nint stillName = Marshal.StringToHGlobalAnsi("still");
+
+        using ImpactTrace? impacts = ImpactTrace.FromEnvironment(module, output);
+
+        try
+        {
+            ObjectParams movingParams = ObjectParams.Default(mass: 1f, movingName);
+            ObjectParams stillParams = ObjectParams.Default(mass: 1f, stillName);
+            nint moving = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectSlot)(
+                environment, box, materialIndex, new Vec3(2f / MetresPerInch, 0f, -1f / MetresPerInch), new Vec3(0f, 0f, 0f), ref movingParams);
+            nint still = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectSlot)(
+                environment, box, materialIndex, new Vec3(0f, 9f / MetresPerInch, 0f), new Vec3(0f, 0f, 0f), ref stillParams);
+
+            foreach (nint body in (ReadOnlySpan<nint>)[moving, still])
+            {
+                VCall<EnableMotionDelegate>(body, ObjectEnableMotionSlot)(body, true);
+                VCall<WakeDelegate>(body, ObjectWakeSlot)(body);
+            }
+
+            VCall<SetVelocityDelegate>(moving, ObjectSetVelocitySlot)(moving, new Vec3(0f, 6f / MetresPerInch, 0f), new Vec3(0f, 0f, 0f));
+
+            SimulateDelegate simulate = VCall<SimulateDelegate>(environment, EnvironmentSimulateSlot);
+
+            for (int tick = 1; tick <= 66; tick++)
+            {
+                impacts?.AtTick(tick);
+                simulate(environment, Timestep);
+                VCall<GetPositionDelegate>(moving, ObjectGetPositionSlot)(moving, out Vec3 movingAt, out Vec3 movingAngles);
+                VCall<GetPositionDelegate>(still, ObjectGetPositionSlot)(still, out Vec3 stillAt, out Vec3 stillAngles);
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"tick {tick,3} moving IVP z={movingAt.Y * MetresPerInch:F4} angles={movingAngles} still IVP z={stillAt.Y * MetresPerInch:F4} " +
+                    $"angles={stillAngles} apart={(stillAt.Y - movingAt.Y) * MetresPerInch:F4}"));
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(movingName);
+            Marshal.FreeHGlobal(stillName);
         }
     }
 
@@ -437,14 +520,23 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
             Marshal.WriteInt32(pMaxs, 8, BitConverter.SingleToInt32Bits(maxs.Z));
         }));
 
-        // virtualmeshtrianglelist_t: triangleCount(0) triangleIndices[](4).
-        GetTrianglesInSphereDelegate getTriangles = Keep(new GetTrianglesInSphereDelegate((_, _, _, _, pList) =>
+        // virtualmeshtrianglelist_t: triangleCount(0) triangleIndices[](4) — TRIANGLE indices, as vphysics' FUN_180025bc0 reads
+        // them. Answered as the game's runtime handler does (engine.dll FUN_18017cb00: AABBTree_BuildTreeTrisInSphere_r, cap
+        // 0xc00), not as vbsp's CDispMeshEvent does: that one copies VERTEX indices with a count of indices/3, which vphysics
+        // reads as a scrambled, duplicated triangle list that never offers the last triangles at all.
+        GetTrianglesInSphereDelegate getTriangles = Keep(new GetTrianglesInSphereDelegate((_, _, center, radius, pList) =>
         {
-            Marshal.WriteInt32(pList, 0, indices.Length / 3);
+            Vector3 at = new(
+                BitConverter.Int32BitsToSingle(Marshal.ReadInt32(center, 0)),
+                BitConverter.Int32BitsToSingle(Marshal.ReadInt32(center, 4)),
+                BitConverter.Int32BitsToSingle(Marshal.ReadInt32(center, 8)));
+            IReadOnlyList<int> found = tree.TrianglesInSphere(at, radius, TriangleIndexCap);
 
-            for (int index = 0; index < indices.Length; index++)
+            Marshal.WriteInt32(pList, 0, found.Count);
+
+            for (int index = 0; index < found.Count; index++)
             {
-                Marshal.WriteInt16(pList, 4 + (index * 2), unchecked((short)indices[index]));
+                Marshal.WriteInt16(pList, 4 + (index * 2), unchecked((short)found[index]));
             }
         }));
 
@@ -540,5 +632,324 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
         nint vtable = Marshal.ReadIntPtr(instance);
         nint function = Marshal.ReadIntPtr(vtable, slot * nint.Size);
         return Marshal.GetDelegateForFunctionPointer<T>(function);
+    }
+
+    /// <summary>
+    /// Opt-in (<c>TF2VPHYSICS_PROBE_TRACE_IMPACTS=1</c>): every impact the real engine solves, as its impact entry
+    /// <c>FUN_18008ed60(record, cores, pushOut, cp)</c> is handed it — the record's normal (<c>+0x20</c>), its two arms
+    /// (<c>+0xd0</c>, <c>+0xe0</c>) and which of its cores (<c>+0x98</c>, <c>+0xa0</c>) are movable — so the contact the engine
+    /// resolves can be compared point for point with the port's.
+    /// </summary>
+    /// <remarks>
+    /// The entry's first twelve bytes are whole instructions (`MOV RAX,RSP`, three `MOV [RAX+n]`, `PUSH RBP`), so the detour is put
+    /// back for each call, the routine called through, and the detour laid again: the simulation is single-threaded.
+    /// </remarks>
+    private sealed class ImpactTrace : IDisposable
+    {
+        private const long EntryAddress = 0x18008ed60;
+
+        /// <summary><c>IvpMindist::Collide</c>, <c>this</c> the mindist.</summary>
+        private const long CollideAddress = 0x18008ecb0;
+
+        /// <summary>The min-list add, <c>FUN_1800aaed0(list, element, value)</c>; its first twelve bytes end mid-instruction, which
+        /// is harmless because the hook is lifted before anything runs them.</summary>
+        private const long QueueAddAddress = 0x1800aaed0;
+
+        /// <summary><c>IvpMindist::Attach(mindist, object0, ledge0, object1, ledge1)</c>: a mindist's objects and ledges written.</summary>
+        private const long AttachAddress = 0x1800975d0;
+
+        /// <summary><c>IvpMindistHull::HullPassed(mindist, overshoot)</c>: a far pair told its hull passed.</summary>
+        private const long HullPassedAddress = 0x180097f00;
+
+        /// <summary><c>IvpMindistMinimize::Minimize(mindist)</c>: the result, 1 settled to 3 backside.</summary>
+        private const long MinimizeAddress = 0x180095cb0;
+
+        /// <summary><c>IvpMindistMinimize::BacksideWalk(feature, point)</c>: the edge the walk stops in.</summary>
+        private const long BacksideWalkAddress = 0x180094e30;
+
+        private readonly Action<string> _write;
+        private readonly Hook<MinimizeDelegate> _minimize;
+        private readonly Hook<BacksideWalkDelegate> _backsideWalk;
+        private readonly Hook<ImpactEntryDelegate> _entry;
+        private readonly Hook<CollideDelegate> _collide;
+        private readonly Hook<QueueAddDelegate> _queueAdd;
+        private readonly Hook<AttachDelegate> _attach;
+        private readonly Hook<HullPassedDelegate> _hullPassed;
+        private readonly (int First, int Last) _queueTicks;
+        private int _tick;
+        private bool _dumped;
+
+        private ImpactTrace(nint module, TextWriter output, (int First, int Last) queueTicks)
+        {
+            _write = output.WriteLine;
+            _queueTicks = queueTicks;
+            _entry = new Hook<ImpactEntryDelegate>(module, EntryAddress, Entered);
+            _collide = new Hook<CollideDelegate>(module, CollideAddress, Collided);
+            _queueAdd = new Hook<QueueAddDelegate>(module, QueueAddAddress, Queued);
+            _attach = new Hook<AttachDelegate>(module, AttachAddress, Attached);
+            _hullPassed = new Hook<HullPassedDelegate>(module, HullPassedAddress, Passed);
+            _minimize = new Hook<MinimizeDelegate>(module, MinimizeAddress, Minimized);
+            _backsideWalk = new Hook<BacksideWalkDelegate>(module, BacksideWalkAddress, Walked);
+            _weights = new Hook<TriangleWeightsDelegate>(module, TriangleWeightsAddress, Weighed);
+            _examine = new Hook<ExamineDelegate>(module, ExamineAddress, Examined);
+        }
+
+        /// <summary><c>IvpPairScheduler::Examine(mindist, removeFar, recheck)</c>, <c>FUN_180099380</c>.</summary>
+        private const long ExamineAddress = 0x180099380;
+
+        private readonly Hook<ExamineDelegate> _examine;
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void ExamineDelegate(nint mindist, int removeFar, int recheck);
+
+        private void Examined(nint mindist, int removeFar, int recheck)
+        {
+            nint environment = Marshal.ReadIntPtr(Marshal.ReadIntPtr(mindist, 0x48), 0x30);
+            int before = Marshal.ReadInt32(mindist, 0x20);
+            int looksBefore = Marshal.ReadInt32(environment, 0x13c);
+            _examine.CallThrough(original => original(mindist, removeFar, recheck));
+
+            if (_tick <= _queueTicks.Last)
+            {
+                _write(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"EXAMINE tick {_tick} mindist={mindist:x} removeFar={removeFar} recheck={recheck} flags 0x{before:x8}->0x{Marshal.ReadInt32(mindist, 0x20):x8} " +
+                    $"looks {looksBefore}->{Marshal.ReadInt32(environment, 0x13c)} len={BitConverter.Int32BitsToSingle(Marshal.ReadInt32(mindist, 0xa8))} " +
+                    $"state0={Marshal.ReadByte(Marshal.ReadIntPtr(mindist, 0x48), 0x78) & 7} state1={Marshal.ReadByte(Marshal.ReadIntPtr(mindist, 0x80), 0x78) & 7} " +
+                    $"past={BitConverter.Int64BitsToDouble(Marshal.ReadInt64(mindist, 0xa0)):R}"));
+            }
+        }
+
+        /// <summary><c>IvpCompactLedgeSolver::TriangleWeights(ledge, edge, point, out)</c>.</summary>
+        private const long TriangleWeightsAddress = 0x18007cdf0;
+
+        private readonly Hook<TriangleWeightsDelegate> _weights;
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void TriangleWeightsDelegate(nint ledge, nint edge, nint point, nint weights);
+
+        private void Weighed(nint ledge, nint edge, nint point, nint weights)
+        {
+            _weights.CallThrough(original => original(ledge, edge, point, weights));
+
+            if (_tick >= _queueTicks.First && _tick <= _queueTicks.Last)
+            {
+                _write(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"WEIGHTS tick {_tick} ledge={ledge:x} edge={edge:x} point=({BitConverter.Int64BitsToDouble(Marshal.ReadInt64(point, 0)):R}, " +
+                    $"{BitConverter.Int64BitsToDouble(Marshal.ReadInt64(point, 8)):R}, {BitConverter.Int64BitsToDouble(Marshal.ReadInt64(point, 16)):R}) " +
+                    $"out=({BitConverter.Int32BitsToSingle(Marshal.ReadInt32(weights, 0)):R}, {BitConverter.Int32BitsToSingle(Marshal.ReadInt32(weights, 4)):R}, " +
+                    $"{BitConverter.Int32BitsToSingle(Marshal.ReadInt32(weights, 8)):R}, {BitConverter.Int32BitsToSingle(Marshal.ReadInt32(weights, 12)):R})"));
+            }
+        }
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate ulong MinimizeDelegate(nint mindist);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate nint BacksideWalkDelegate(nint feature, nint point);
+
+        private ulong Minimized(nint mindist)
+        {
+            ulong result = 0;
+            _minimize.CallThrough(original => result = original(mindist));
+
+            if (_tick <= _queueTicks.Last)
+            {
+                _write(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"MINIMIZE tick {_tick} mindist={mindist:x} result={result} {Kinds(mindist)} len={BitConverter.Int32BitsToSingle(Marshal.ReadInt32(mindist, 0xa8)):R} " +
+                    $"feature0={Marshal.ReadIntPtr(mindist, 0x50):x} feature1={Marshal.ReadIntPtr(mindist, 0x88):x}"));
+            }
+
+            return result;
+        }
+
+        private nint Walked(nint feature, nint point)
+        {
+            nint stopped = 0;
+            _backsideWalk.CallThrough(original => stopped = original(feature, point));
+            _write(string.Create(
+                CultureInfo.InvariantCulture,
+                $"WALK tick {_tick} feature={feature:x} stopped={stopped:x} point=({BitConverter.Int64BitsToDouble(Marshal.ReadInt64(point, 0)):R}, " +
+                $"{BitConverter.Int64BitsToDouble(Marshal.ReadInt64(point, 8)):R}, {BitConverter.Int64BitsToDouble(Marshal.ReadInt64(point, 16)):R})"));
+            return stopped;
+        }
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void AttachDelegate(nint mindist, nint object0, nint ledge0, nint object1, nint ledge1);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void HullPassedDelegate(nint mindist, float overshoot);
+
+        private void Attached(nint mindist, nint object0, nint ledge0, nint object1, nint ledge1)
+        {
+            _write(string.Create(
+                CultureInfo.InvariantCulture,
+                $"ATTACH tick {_tick} mindist={mindist:x} object0={object0:x} ledge0={ledge0:x} object1={object1:x} ledge1={ledge1:x}"));
+            if (!_dumped)
+            {
+                _dumped = true;
+                nint ledge = (object1 & ~0xf) - 0x10;
+                int triangles = Marshal.ReadInt16(ledge, 0xc);
+                int points = 0;
+                _write(string.Create(CultureInfo.InvariantCulture, $"LEDGE header={Marshal.ReadInt32(ledge, 0):x8} {Marshal.ReadInt32(ledge, 4):x8} {Marshal.ReadInt32(ledge, 8):x8} {Marshal.ReadInt32(ledge, 12):x8}"));
+
+                for (int t = 0; t < triangles; t++)
+                {
+                    nint at = ledge + 0x10 + (t * 16);
+                    _write(string.Create(CultureInfo.InvariantCulture, $"LEDGE tri {t} {Marshal.ReadInt32(at, 0):x8} {Marshal.ReadInt32(at, 4):x8} {Marshal.ReadInt32(at, 8):x8} {Marshal.ReadInt32(at, 12):x8}"));
+
+                    for (int s = 1; s <= 3; s++)
+                    {
+                        points = Math.Max(points, (Marshal.ReadInt32(at, s * 4) & 0xffff) + 1);
+                    }
+                }
+
+                nint pointArray = ledge + Marshal.ReadInt32(ledge, 0);
+
+                for (int p = 0; p < points; p++)
+                {
+                    _write(string.Create(CultureInfo.InvariantCulture, $"LEDGE point {p} {Read(pointArray, p * 16)}"));
+                }
+            }
+
+            _attach.CallThrough(original => original(mindist, object0, ledge0, object1, ledge1));
+            _write(string.Create(CultureInfo.InvariantCulture, $"ATTACHED mindist={mindist:x} {Kinds(mindist)}"));
+        }
+
+        private void Passed(nint mindist, float overshoot)
+        {
+            if (_tick >= _queueTicks.First && _tick <= _queueTicks.Last)
+            {
+                _write(string.Create(CultureInfo.InvariantCulture, $"HULLPASSED tick {_tick} mindist={mindist:x} {Kinds(mindist)}"));
+            }
+
+            _hullPassed.CallThrough(original => original(mindist, overshoot));
+        }
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void ImpactEntryDelegate(nint record, nint cores, float pushOut, nint point);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void CollideDelegate(nint mindist);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int QueueAddDelegate(nint list, nint element, float value);
+
+        /// <remarks><c>TF2VPHYSICS_PROBE_TRACE_QUEUE=first-last</c> also traces every min-list add in those ticks — every one, the
+        /// hull managers' too, so keep the window narrow.</remarks>
+        public static ImpactTrace? FromEnvironment(nint module, TextWriter output)
+        {
+            if (Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_TRACE_IMPACTS") != "1")
+            {
+                return null;
+            }
+
+            string[] window = (Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_TRACE_QUEUE") ?? "0-0").Split('-');
+
+            return new ImpactTrace(
+                module,
+                output,
+                (int.Parse(window[0], CultureInfo.InvariantCulture), int.Parse(window[1], CultureInfo.InvariantCulture)));
+        }
+
+        public void AtTick(int tick) => _tick = tick;
+
+        public void Dispose()
+        {
+            _entry.Dispose();
+            _collide.Dispose();
+            _queueAdd.Dispose();
+            _attach.Dispose();
+            _hullPassed.Dispose();
+            _minimize.Dispose();
+            _backsideWalk.Dispose();
+            _weights.Dispose();
+            _examine.Dispose();
+        }
+
+        private void Entered(nint record, nint cores, float pushOut, nint point)
+        {
+            _write(string.Create(
+                CultureInfo.InvariantCulture,
+                $"IMPACT tick {_tick} record={record:x} point={point:x} normal={Read(record, 0x20)} arm0={Read(record, 0xd0)} " +
+                $"arm1={Read(record, 0xe0)} core98={Marshal.ReadIntPtr(record, 0x98):x} coreA0={Marshal.ReadIntPtr(record, 0xa0):x} " +
+                $"impacts={Marshal.ReadInt16(record, 0x72)}"));
+
+            _entry.CallThrough(original => original(record, cores, pushOut, point));
+        }
+
+        private void Collided(nint mindist)
+        {
+            _write(string.Create(CultureInfo.InvariantCulture, $"COLLIDE tick {_tick} mindist={mindist:x} {Kinds(mindist)}"));
+            _collide.CallThrough(original => original(mindist));
+        }
+
+        private int Queued(nint list, nint element, float value)
+        {
+            int slot = 0;
+            _queueAdd.CallThrough(original => slot = original(list, element, value));
+
+            if (_tick >= _queueTicks.First && _tick <= _queueTicks.Last)
+            {
+                _write(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"QUEUE tick {_tick} list={list:x} element={element:x} key=0x{BitConverter.SingleToInt32Bits(value):x8} " +
+                    $"slot={slot} head={Marshal.ReadInt32(list, 0x18)} {Kinds(element)}"));
+            }
+
+            return slot;
+        }
+
+        /// <summary>A mindist's two synapse kinds, <c>+0x5a</c> and <c>+0x92</c> (read as the words the recursive mindist tests).</summary>
+        private static string Kinds(nint mindist) => string.Create(
+            CultureInfo.InvariantCulture,
+            $"kind0={Marshal.ReadInt16(mindist, 0x5a)} kind1={Marshal.ReadInt16(mindist, 0x92)} flags=0x{Marshal.ReadInt32(mindist, 0x20):x8}");
+
+        private static Vec3 Read(nint at, int offset) => new(
+            BitConverter.Int32BitsToSingle(Marshal.ReadInt32(at, offset)),
+            BitConverter.Int32BitsToSingle(Marshal.ReadInt32(at, offset + 4)),
+            BitConverter.Int32BitsToSingle(Marshal.ReadInt32(at, offset + 8)));
+    }
+
+    /// <summary>A detour a callback can call through: the routine's bytes put back, the routine called, the detour laid again.</summary>
+    /// <remarks>Only sound single-threaded, which the probe's simulation is.</remarks>
+    private sealed class Hook<T> : IDisposable
+        where T : Delegate
+    {
+        private readonly nint _module;
+        private readonly long _address;
+        private readonly T _callback;
+        private VphysicsDetour? _detour;
+
+        public Hook(nint module, long address, T callback)
+        {
+            _module = module;
+            _address = address;
+            _callback = callback;
+            _detour = new VphysicsDetour(module, address, callback);
+        }
+
+        public void CallThrough(Action<T> call)
+        {
+            _detour!.Dispose();
+            _detour = null;
+
+            try
+            {
+                call(Marshal.GetDelegateForFunctionPointer<T>(VphysicsLibrary.Address(_module, _address)));
+            }
+            finally
+            {
+                _detour = new VphysicsDetour(_module, _address, _callback);
+            }
+        }
+
+        public void Dispose()
+        {
+            _detour?.Dispose();
+            _detour = null;
+        }
     }
 }

@@ -39,13 +39,21 @@ public sealed class IvpSimulationTests
         core.LastStepped.ShouldBe(1d, "the last PSI ran at one second");
     }
 
+    /// <remarks>
+    /// **A body is born asleep and woken at the first PSI** — vphysics' wake of a sleeping object only lists its core
+    /// (`FUN_180073a30` → `FUN_180087e00`), and the PSI's first act revives the list (`FUN_180089210`). Measured: the binary makes a
+    /// new body's pairs inside the first `Simulate`, not when the body is created (`vphysics-virtual-terrain-drop boxes`, B369).
+    /// </remarks>
     [Test]
-    public void Add_ABody_PutsItInItsOwnAwakeUnitDrivenByGravity()
+    public void Add_ABody_PutsItInItsOwnUnitDrivenByGravityAwakeFromTheFirstPsi()
     {
         IvpSimulation simulation = Simulation(out IvpRigidBody core);
 
         IvpSimulationUnit unit = simulation.Add(new IvpRigidBody());
 
+        simulation.AwakeUnits.ShouldBe(0, "listed, not yet revived");
+        simulation.Start();
+        simulation.Advance(0.25d);
         simulation.AwakeUnits.ShouldBe(2);
         unit.Entries.Count.ShouldBe(1, "gravity alone, until the constraint and friction controllers are wired in");
         unit.Entries[0].Controller.Priority.ShouldBe(1000);
@@ -75,6 +83,8 @@ public sealed class IvpSimulationTests
         simulation.Add(second);
 
         IvpSimulationUnit unit = simulation.Add(Group(first, second));
+        simulation.Start();
+        simulation.Advance(0.25d);
 
         simulation.AwakeUnits.ShouldBe(1, "the second body's unit was absorbed");
         unit.Cores.ShouldBe([first, second]);

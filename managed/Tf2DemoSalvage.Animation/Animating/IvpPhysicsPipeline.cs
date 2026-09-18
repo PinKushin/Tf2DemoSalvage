@@ -135,6 +135,77 @@ public sealed class IvpUnitManager
 
         return false;
     }
+
+    /// <summary>Puts a core on the environment's revive list — <c>FUN_180087e00(env, core)</c>.</summary>
+    /// <param name="core">The core.</param>
+    /// <param name="environment">The environment whose list it joins.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// core+0x0 &amp; 4 clear:  the core appended to env+0x168 (count +0x162, grown through FUN_180072ba0);  core+0x0 |= 4
+    /// </code>
+    /// What <c>IPhysicsObject::Wake</c> does for an object in state <c>8</c> (<c>FUN_180073a30</c>); an awake object's wake only
+    /// sets its core's two anchor times to now (<c>FUN_180078820</c>).
+    /// </remarks>
+    internal static void QueueRevive(IvpRigidBody core, IvpImpactEnvironment environment)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+        ArgumentNullException.ThrowIfNull(environment);
+
+        if (core.ReviveQueued)
+        {
+            return;
+        }
+
+        environment.ReviveQueue.Add(core);
+        core.ReviveQueued = true;
+    }
+
+    /// <summary>Revives every queued core — <c>FUN_180089210(env)</c>, the PSI's first act.</summary>
+    /// <param name="environment">The environment whose list is drained.</param>
+    /// <param name="wake">The unit wake, <c>FUN_1800758e0(unit, env)</c>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// every entry, last first:  FUN_180077c80(core);  core+0x0 &amp;= ~4
+    /// FUN_180077c80(core):  core+0x0 &amp; 2 → nothing
+    ///                       core+0x1 == 8 → FUN_1800758e0(core+0x1f8, core+0x10)        -- the unit woken
+    ///                       else FUN_180075610(core+0x1f8): every core of the unit, last first, FUN_180078820 — +0x200 = +0x208 = now
+    /// the list emptied (its heap block freed unless it is the inline one at +0x170)
+    /// </code>
+    /// </remarks>
+    internal static void ReviveQueued(IvpImpactEnvironment environment, Action<IvpSimulationUnit> wake)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(wake);
+
+        List<IvpRigidBody> queued = environment.ReviveQueue;
+
+        for (int index = queued.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = queued[index];
+
+            if (!core.Immovable && core.Unit is { } unit)
+            {
+                if (core.UnitState == 8)
+                {
+                    wake(unit);
+                }
+                else
+                {
+                    for (int member = unit.Cores.Count - 1; member >= 0; member--)
+                    {
+                        unit.Cores[member].RestAnchorTime = environment.Now;
+                        unit.Cores[member].SettleAnchorTime = environment.Now;
+                    }
+                }
+            }
+
+            core.ReviveQueued = false;
+        }
+
+        queued.Clear();
+    }
 }
 
 /// <summary>
@@ -163,12 +234,14 @@ public static class IvpPhysicsPipeline
     /// never gives it (B369).
     /// </param>
     /// <param name="examine">The scheduler in mode 1, <c>FUN_180099380(mindist, 1, 1)</c>, phase 6's own call.</param>
+    /// <param name="wake">The unit wake, <c>FUN_1800758e0</c>, which the revive list's drain calls for a sleeping core.</param>
     /// <param name="random">The jitter the rest check's cadence takes.</param>
     /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// <code>
-    /// profiler 1;  +0x1ac = 0;  the env controllers at +0x158 last first, slot 0;  FUN_180098610(env+0x20)
+    /// profiler 1;  +0x1ac = 0;  +0x162 → FUN_180089210 (<see cref="IvpUnitManager.ReviveQueued"/>)
+    ///              the env controllers at +0x158 last first, slot 0;  FUN_180098610(env+0x20)
     /// profiler 2;  FUN_180075a90(env+0x10, env, buffer)   -- every awake unit's PSI, the cores collected
     /// profiler 3;  FUN_18009a590(env, buffer, second)     -- every collected core stepped, last first
     /// profiler 4;  +0x1ac = 2;  FUN_18009a690(env, second)
@@ -179,8 +252,8 @@ public static class IvpPhysicsPipeline
     /// **A unit that falls asleep in phase 2 moves to the sleeping list before phase 3**, so its cores are still stepped this
     /// PSI — they were collected before the rest check ran.
     ///
-    /// *Not carried in phase 1*: the two guarded calls (`FUN_180089210` on <c>env+0x162</c>, `FUN_180087e50` on <c>+0x58</c>),
-    /// the environment's own slot 10, and the <c>env+0x158</c> controller list, none of which has been read.
+    /// *Not carried in phase 1*: `FUN_180087e50` on <c>+0x58</c> (null in vphysics), the environment's own slot 10, and the
+    /// <c>env+0x158</c> controller list.
     /// </remarks>
     public static void Psi(
         IvpImpactEnvironment environment,
@@ -190,11 +263,13 @@ public static class IvpPhysicsPipeline
         Action<IvpMindist> minimize,
         Action<IvpMindist> recheckInvalidMinimize,
         Action<IvpMindist> examine,
+        Action<IvpSimulationUnit> wake,
         Func<float> random,
         double now)
     {
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(units);
+        ArgumentNullException.ThrowIfNull(wake);
         ArgumentNullException.ThrowIfNull(mindists);
         ArgumentNullException.ThrowIfNull(queue);
         ArgumentNullException.ThrowIfNull(minimize);
@@ -207,6 +282,12 @@ public static class IvpPhysicsPipeline
         List<IvpHullManager> due = [];
 
         environment.Phase = 0;
+
+        if (environment.ReviveQueue.Count != 0)
+        {
+            IvpUnitManager.ReviveQueued(environment, wake);
+        }
+
         mindists.RecheckEveryPsi(minimize, queue);
 
         int at = 0;

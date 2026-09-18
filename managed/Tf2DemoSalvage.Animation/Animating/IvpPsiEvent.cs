@@ -22,6 +22,7 @@ public static class IvpPsiEvent
     /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>.</param>
     /// <param name="recheckInvalidMinimize">The minimize with no step budget, <c>FUN_180095ad0</c> — see <see cref="IvpPhysicsPipeline.Psi"/>.</param>
     /// <param name="examine">The scheduler in mode 1, <c>FUN_180099380(mindist, 1, 1)</c>.</param>
+    /// <param name="wake">The unit wake, <c>FUN_1800758e0</c> — see <see cref="IvpPhysicsPipeline.Psi"/>.</param>
     /// <param name="random">The jitter the rest check's cadence takes.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static void Start(
@@ -33,13 +34,14 @@ public static class IvpPsiEvent
         Action<IvpMindist> minimize,
         Action<IvpMindist> recheckInvalidMinimize,
         Action<IvpMindist> examine,
+        Action<IvpSimulationUnit> wake,
         Func<float> random)
     {
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(time);
 
         time.Add(new PhysicsEvent(
-            0f, now => RunPsi(environment, time, units, mindists, queue, minimize, recheckInvalidMinimize, examine, random, now)));
+            0f, now => RunPsi(environment, time, units, mindists, queue, minimize, recheckInvalidMinimize, examine, wake, random, now)));
     }
 
     /// <summary>One PSI: the rebase, the pipeline, and the next event — <c>FUN_18008a020</c>.</summary>
@@ -51,6 +53,7 @@ public static class IvpPsiEvent
     /// <param name="minimize">The minimize.</param>
     /// <param name="recheckInvalidMinimize">The minimize with no step budget — see <see cref="IvpPhysicsPipeline.Psi"/>.</param>
     /// <param name="examine">The scheduler in mode 1.</param>
+    /// <param name="wake">The unit wake.</param>
     /// <param name="random">The rest check's jitter.</param>
     /// <param name="now">The time the event fired at, <c>env+0x188</c>.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -73,6 +76,7 @@ public static class IvpPsiEvent
         Action<IvpMindist> minimize,
         Action<IvpMindist> recheckInvalidMinimize,
         Action<IvpMindist> examine,
+        Action<IvpSimulationUnit> wake,
         Func<float> random,
         double now)
     {
@@ -86,10 +90,10 @@ public static class IvpPsiEvent
         time.Rebase(now);
         time.ZeroClock();
 
-        IvpPhysicsPipeline.Psi(environment, units, mindists, queue, minimize, recheckInvalidMinimize, examine, random, now);
+        IvpPhysicsPipeline.Psi(environment, units, mindists, queue, minimize, recheckInvalidMinimize, examine, wake, random, now);
 
         time.Add(new PhysicsEvent(
             (float)(environment.PsiEnd - time.Base),
-            later => RunPsi(environment, time, units, mindists, queue, minimize, recheckInvalidMinimize, examine, random, later)));
+            later => RunPsi(environment, time, units, mindists, queue, minimize, recheckInvalidMinimize, examine, wake, random, later)));
     }
 }

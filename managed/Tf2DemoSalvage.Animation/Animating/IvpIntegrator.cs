@@ -512,6 +512,10 @@ public sealed class IvpRigidBody
     /// </remarks>
     public int UnitState { get; set; } = 8;
 
+    /// <summary>Bit <c>0x4</c> of the word at <c>core+0x0</c>: the core waits on the environment's revive list (<c>env+0x160</c>).</summary>
+    /// <remarks>Set by <c>FUN_180087e00</c> as it appends the core, so a core is listed once; cleared as <c>FUN_180089210</c> drains it.</remarks>
+    public bool ReviveQueued { get; set; }
+
     /// <summary>A core with no objects yet, as the ports that predate the constructor build one.</summary>
     public IvpRigidBody()
     {

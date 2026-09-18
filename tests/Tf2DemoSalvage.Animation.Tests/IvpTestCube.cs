@@ -6,23 +6,41 @@ using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Animation.Tests;
 
-/// <summary>An axis-aligned cube as one compact ledge, with its edge words linked to their twins.</summary>
+/// <summary>An axis-aligned box as the compact ledge the real engine's <c>BBoxToCollide</c> builds, word for word.</summary>
 /// <remarks>
-/// **The edge offsets are what the minimize walks.** A cube whose offsets were all zero hopped every edge to itself, so a pair
-/// could never move off the vertices it started on and measured the centers' distance — nine, where the faces were one apart —
-/// and two bodies drove through each other with the pair still filed far.
+/// **Read out of the live engine** (`vphysics-virtual-terrain-drop` with `TF2VPHYSICS_PROBE_TRACE_IMPACTS=1`, which dumps the body's
+/// ledge at its first attach): the point order, each triangle's three edge words and each header's pierce field, for a box of half
+/// 4. A hand-wound cube stood here before, and it started every minimize from a different vertex than the engine's box does: on
+/// the virtual-terrain drop that walked one corner onto the diagonal of a terrain triangle, where the engine's own box never goes,
+/// and the pair froze behind the triangle's back face (B369).
 /// </remarks>
 internal static class IvpTestCube
 {
-    private static readonly List<(int A, int B, int C)> Triangles =
+    /// <summary>Each point's signs, in the engine's order.</summary>
+    private static readonly (int X, int Y, int Z)[] Signs =
     [
-        (4, 5, 6), (4, 6, 7), (0, 2, 1), (0, 3, 2),
-        (0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
-        (1, 2, 6), (1, 6, 5), (3, 0, 4), (3, 4, 7),
+        (1, -1, 1), (-1, 1, 1), (-1, -1, 1), (1, 1, 1),
+        (1, -1, -1), (-1, -1, -1), (-1, 1, -1), (1, 1, -1),
     ];
 
-    /// <summary>The triangle across the cube from each: the other face's triangle of the same winding.</summary>
-    private static readonly int[] Across = [2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9];
+    /// <summary>Each triangle's edge words' low sixteen bits: the points its three edges start at.</summary>
+    private static readonly List<(int A, int B, int C)> Triangles =
+    [
+        (0, 1, 2), (0, 3, 1), (2, 4, 0), (2, 5, 4),
+        (2, 1, 5), (5, 1, 6), (0, 7, 3), (0, 4, 7),
+        (1, 3, 6), (6, 3, 7), (7, 4, 6), (6, 4, 5),
+    ];
+
+    /// <summary>Each edge word's bits 16–30, signed: the words to its twin.</summary>
+    private static readonly (int, int, int)[] Offsets =
+    [
+        (6, 15, 8), (22, 27, -6), (6, 19, -8), (6, 32, -6),
+        (-15, 3, -6), (-3, 13, 24), (6, 12, -22), (-19, 11, -6),
+        (-27, 3, -13), (-3, -12, 4), (-11, 3, -4), (-3, -32, -24),
+    ];
+
+    /// <summary>Each header's bits 12–23: triangle <c>t</c> names <c>11 − t</c>.</summary>
+    private static readonly int[] Pierces = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0];
 
     /// <summary>The cube as a ledge list, a body's <see cref="Animating.IvpRigidBody.Ledges"/>.</summary>
     /// <param name="half">The half extent.</param>
@@ -36,47 +54,13 @@ internal static class IvpTestCube
     /// <returns>One ledge.</returns>
     public static List<PhysicsLedge> Box(float x, float y, float z)
     {
-        List<Vector3> points =
-        [
-            new(-x, -y, -z), new(x, -y, -z),
-            new(x, y, -z), new(-x, y, -z),
-            new(-x, -y, z), new(x, -y, z),
-            new(x, y, z), new(-x, y, z),
-        ];
+        List<Vector3> points = [];
 
-        (int, int, int)[] offsets = new (int, int, int)[Triangles.Count];
-
-        for (int triangle = 0; triangle < Triangles.Count; triangle++)
+        foreach ((int sx, int sy, int sz) in Signs)
         {
-            offsets[triangle] = (Twin(triangle, 0), Twin(triangle, 1), Twin(triangle, 2));
+            points.Add(new Vector3(sx * x, sy * y, sz * z));
         }
 
-        return [new PhysicsLedge(points, Triangles, offsets, Across, new int[Triangles.Count], Vector3.Zero, MathF.Sqrt((x * x) + (y * y) + (z * z)))];
-    }
-
-    /// <summary>The words from an edge to the edge running the other way — <c>16·t + 4 + 4·s</c> addresses, over four.</summary>
-    private static int Twin(int triangle, int slot)
-    {
-        (int from, int to) = Edge(triangle, slot);
-
-        for (int other = 0; other < Triangles.Count; other++)
-        {
-            for (int otherSlot = 0; otherSlot < 3; otherSlot++)
-            {
-                if (Edge(other, otherSlot) == (to, from))
-                {
-                    return ((16 * other) + (4 * otherSlot) - (16 * triangle) - (4 * slot)) / 4;
-                }
-            }
-        }
-
-        throw new InvalidOperationException("A cube edge has no twin, so its triangles are not consistently wound.");
-    }
-
-    private static (int From, int To) Edge(int triangle, int slot)
-    {
-        (int a, int b, int c) = Triangles[triangle];
-        int[] corners = [a, b, c];
-        return (corners[slot], corners[(slot + 1) % 3]);
+        return [new PhysicsLedge(points, Triangles, Offsets, Pierces, new int[Triangles.Count], Vector3.Zero, MathF.Sqrt((x * x) + (y * y) + (z * z)))];
     }
 }

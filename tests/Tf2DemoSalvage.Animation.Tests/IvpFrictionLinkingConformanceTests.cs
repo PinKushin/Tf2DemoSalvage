@@ -84,6 +84,75 @@ public sealed class IvpFrictionLinkingConformanceTests
     }
 
     /// <remarks>
+    /// **An edge matches only itself or its twin** (<c>FUN_180086a50</c>, kind 1: <c>cp == m || cp + ((int)(*cp · 2) &gt;&gt; 17) == m</c>).
+    /// Two corners of one face–face overlap are edge pairs on the same two triangles in other slots, and each is its own contact:
+    /// the binary made a second contact point for the second corner of two boxes driven together (`vphysics-virtual-terrain-drop
+    /// boxes`), where a same-triangle match reused the first and solved the second corner at the first one's arms (B369).
+    /// </remarks>
+    [Test]
+    public void FindOrAllocate_EdgesOfTheSameTrianglesInOtherSlots_BuildsASecondContact()
+    {
+        (IvpCollisionObject first, IvpCollisionObject second, IvpLedgeSide side) = Boxes();
+        IvpContactPoint built = IvpFrictionLinking.FindOrAllocate(
+            Exact(first, second, Edge(10, 0), Edge(0, 2)), first, side, second, side, now: 5d);
+
+        IvpContactPoint found = IvpFrictionLinking.FindOrAllocate(
+            Exact(first, second, Edge(10, 2), Edge(0, 1)), first, side, second, side, now: 6d);
+
+        found.ShouldNotBeSameAs(built);
+    }
+
+    /// <remarks>**An edge's twin is the same edge** — the other triangle's word for it — so a contact met from either side is one contact.</remarks>
+    [Test]
+    public void FindOrAllocate_TheTwinsOfItsEdges_ReusesTheContact()
+    {
+        (IvpCollisionObject first, IvpCollisionObject second, IvpLedgeSide side) = Boxes();
+        IvpContactPoint built = IvpFrictionLinking.FindOrAllocate(
+            Exact(first, second, Edge(10, 0), Edge(0, 2)), first, side, second, side, now: 5d);
+        IvpLedgeEdge firstTwin = side.Topology.Hop(new IvpLedgeEdge(10, 0));
+        IvpLedgeEdge secondTwin = side.Topology.Hop(new IvpLedgeEdge(0, 2));
+        firstTwin.Triangle.ShouldNotBe(10, "the control: the twin is on another triangle");
+
+        IvpContactPoint found = IvpFrictionLinking.FindOrAllocate(
+            Exact(first, second, new IvpSynapse(firstTwin, IvpFeatureKind.Edge), new IvpSynapse(secondTwin, IvpFeatureKind.Edge)),
+            first, side, second, side, now: 6d);
+
+        found.ShouldBeSameAs(built);
+    }
+
+    /// <remarks>
+    /// **A point matches any edge leaving the same vertex** (kind 0: the same ledge, and the edge words' low sixteen bits equal).
+    /// </remarks>
+    [Test]
+    public void FindOrAllocate_APointNamedThroughAnotherEdgeOfItsVertex_ReusesTheContact()
+    {
+        (IvpCollisionObject first, IvpCollisionObject second, IvpLedgeSide side) = Boxes();
+        IvpSynapse face = new(new IvpLedgeEdge(1, 0), IvpFeatureKind.Triangle);
+        IvpContactPoint built = IvpFrictionLinking.FindOrAllocate(
+            Exact(first, second, new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point), face), first, side, second, side, now: 5d);
+        IvpLedgeEdge sameVertex = new(1, 0);
+        side.Topology.Start(sameVertex).ShouldBe(side.Topology.Start(new IvpLedgeEdge(0, 0)), "the control: both edges leave point 0");
+
+        IvpContactPoint found = IvpFrictionLinking.FindOrAllocate(
+            Exact(first, second, new IvpSynapse(sameVertex, IvpFeatureKind.Point), face), first, side, second, side, now: 6d);
+
+        found.ShouldBeSameAs(built);
+    }
+
+    private static (IvpCollisionObject, IvpCollisionObject, IvpLedgeSide) Boxes() =>
+        (new IvpCollisionObject(), new IvpCollisionObject(),
+         IvpLedgeSide.FromLedge(IvpTestCube.Ledges(4f)[0], IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)), (0d, 0d, 0d)));
+
+    private static IvpSynapse Edge(int triangle, int slot) => new(new IvpLedgeEdge(triangle, slot), IvpFeatureKind.Edge);
+
+    private static IvpMindist Exact(IvpCollisionObject first, IvpCollisionObject second, IvpSynapse zero, IvpSynapse one)
+    {
+        IvpMindist mindist = new(zero, one, extraRadius: 0f) { Flags = 0xC0000 };
+        Attach(mindist, first, second);
+        return mindist;
+    }
+
+    /// <remarks>
     /// **Two movable cores with no system build one and are simulated as one unit** — <c>FUN_180090e50</c>'s "a new system, M joins,
     /// S joins", then the unit merge it ends with.
     /// </remarks>

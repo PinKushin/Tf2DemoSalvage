@@ -192,7 +192,10 @@ public sealed class IvpSimulation
             Core = core,
             Environment = Collisions,
             Surface = surface,
-            MovementState = 1,
+
+            // A sleeping core's objects are in its state 8, as its freeze writes them (`FUN_180078c90`), until the revive sets 1.
+            // *Measured*: the binary's object reads `& 7 == 0` until its core is revived. A static core keeps 1, as before.
+            MovementState = !core.Immovable && core.UnitState == 8 ? 8 : 1,
             Material = material,
 
             // **The friction core, `object+0xf0`.** The broad phase skips a pair whose two objects share one — two objects of the
@@ -284,11 +287,14 @@ public sealed class IvpSimulation
         core.Controllers.Add(_gravity);
         unit.RebuildEntries();
 
-        // **A core is born asleep** — state 8, in a sleeping unit — and vphysics wakes a body it does not create asleep, which is
-        // what revives the core (`FUN_1800892b0`) and gives it the state a collision reads.
+        // **A core is born asleep** — state 8, in a sleeping unit — and vphysics wakes a body it does not create asleep. That wake
+        // (`IPhysicsObject::Wake`, `FUN_180073a30` for an object in state 8) only lists the core (`FUN_180087e00`); the next PSI
+        // revives it (`FUN_180089210`), and the revive's refile is what makes the body's pairs, with its state held at 0x21 — so a
+        // pair is not filed far before a PSI has given its cores their speeds. *Waking here, before the collision object existed,
+        // made the pair at `Collide` instead, filed it far with no speeds, and split its hull allowance evenly* (B369).
         unit.Asleep();
         _units.Sleeping.Add(unit);
-        Wake(unit);
+        IvpUnitManager.QueueRevive(core, Environment);
 
         return unit;
     }
@@ -368,7 +374,7 @@ public sealed class IvpSimulation
 
     /// <summary>Queues the first PSI event, due at once — the time manager's own constructor does this for the engine.</summary>
     public void Start() =>
-        IvpPsiEvent.Start(Environment, _time, _units, _mindists, _queue, Minimize, MinimizeWithoutBudget, Examine, _random);
+        IvpPsiEvent.Start(Environment, _time, _units, _mindists, _queue, Minimize, MinimizeWithoutBudget, Examine, unit => Wake(unit), _random);
 
     /// <summary>Runs every PSI due before an absolute time, and every pair event those PSIs queued.</summary>
     /// <param name="target">The absolute time to simulate to.</param>

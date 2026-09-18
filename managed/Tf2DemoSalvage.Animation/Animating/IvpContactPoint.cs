@@ -112,6 +112,12 @@ public sealed class IvpContactPoint
     /// <summary>The ledge <see cref="Second"/>'s edge lies in.</summary>
     public PhysicsLedge? SecondLedge { get; }
 
+    /// <summary>The topology of <see cref="FirstLedge"/>, which a feature match walks for an edge's twin or a point's vertex.</summary>
+    internal IvpLedgeTopology FirstTopology => _firstTopology;
+
+    /// <summary>The topology of <see cref="SecondLedge"/>.</summary>
+    internal IvpLedgeTopology SecondTopology => _secondTopology;
+
     /// <summary>The record the last measure built — <c>+0x70</c>; null before the first.</summary>
     public IvpContactRecord? Record { get; internal set; }
 

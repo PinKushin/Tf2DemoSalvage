@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
@@ -44,6 +45,16 @@ public sealed class IvpImpactEnvironment
 
     /// <summary>The PSI's end, <c>env+0x190</c>, which the impact loop's tail steps moved cores to.</summary>
     public double PsiEnd { get; set; }
+
+    /// <summary>
+    /// The cores woken while asleep, waiting for the next PSI to revive them — the vector at <c>env+0x160</c> (capacity), <c>+0x162</c>
+    /// (count), <c>+0x168</c> (entries).
+    /// </summary>
+    /// <remarks>
+    /// Appended by <c>FUN_180087e00</c>, which <c>IPhysicsObject::Wake</c> (<c>18001e3d0</c> → <c>FUN_180073a30</c>) calls for an
+    /// object in state <c>8</c>; drained by <see cref="IvpPhysicsPipeline.Psi"/> before anything else.
+    /// </remarks>
+    internal List<IvpRigidBody> ReviveQueue { get; } = [];
 
     /// <summary>The time every queued event's float is measured from — <c>env+0x198</c>, set to now by each PSI event.</summary>
     public double RebaseBase { get; set; }

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>
@@ -65,37 +67,58 @@ public static class IvpFrictionLinking
         (IvpCollisionObject first, IvpCollisionObject second) = mindist.Objects;
         IvpSynapse mindistFirst = mindist.Synapse(0);
         IvpSynapse mindistSecond = mindist.Synapse(1);
+        PhysicsLedge? firstLedge = mindist.Ledge(0)?.Ledge;
+        PhysicsLedge? secondLedge = mindist.Ledge(1)?.Ledge;
 
         if (ReferenceEquals(candidate.FirstObject, first) && ReferenceEquals(candidate.SecondObject, second) &&
-            FeatureMatches(candidate.First, mindistFirst) && FeatureMatches(candidate.Second, mindistSecond))
+            FeatureMatches(candidate.First, candidate.FirstLedge, candidate.FirstTopology, mindistFirst, firstLedge) &&
+            FeatureMatches(candidate.Second, candidate.SecondLedge, candidate.SecondTopology, mindistSecond, secondLedge))
         {
             return true;
         }
 
         return ReferenceEquals(candidate.FirstObject, second) && ReferenceEquals(candidate.SecondObject, first) &&
-            FeatureMatches(candidate.First, mindistSecond) && FeatureMatches(candidate.Second, mindistFirst);
+            FeatureMatches(candidate.Second, candidate.SecondLedge, candidate.SecondTopology, mindistFirst, firstLedge) &&
+            FeatureMatches(candidate.First, candidate.FirstLedge, candidate.FirstTopology, mindistSecond, secondLedge);
     }
 
-    /// <summary>Whether two synapses name the same feature — <c>FUN_180086a50</c>.</summary>
+    /// <summary>Whether a contact's synapse names a mindist's feature — <c>FUN_180086a50(cp synapse, mindist synapse)</c>.</summary>
     /// <remarks>
-    /// **Simplified from the native's masked pointer comparison to this port's stable identity.** The native compares
-    /// pointers with the low bits masked off, normalising between two representations of the same triangle or edge; an
-    /// <see cref="IvpLedgeEdge"/> here already names one triangle and one slot as a value, so the same-triangle test this
-    /// project needs is plain equality on <see cref="IvpLedgeEdge.Triangle"/> for every kind but a point, which the native
-    /// additionally requires an exact edge match for.
+    /// <code>
+    /// kinds differ → 0
+    /// 0, a point:     the same ledge, and the two edge words' low sixteen bits — the point they start at — equal
+    /// 1, an edge:     the same edge, or the contact's edge's twin (cp + ((int)(*cp · 2) &gt;&gt; 17) words) is the mindist's
+    /// 2, a triangle:  the two edges' addresses equal but for their low four bits — the same triangle
+    /// 3, a ball:      1;   anything else asserts (ivp_friction.cxx:0x90a)
+    /// </code>
+    /// **A same-triangle test stood here for an edge, and an exact edge for a point.** The first joined the two corners of a
+    /// face–face overlap — edge pairs on the same two triangles in other slots — into one contact, so the second corner was solved
+    /// at the first one's arms and two boxes driven together passed through each other (B369). The binary makes two.
     /// </remarks>
-    private static bool FeatureMatches(IvpSynapse a, IvpSynapse b)
+    private static bool FeatureMatches(
+        IvpSynapse contact, PhysicsLedge? contactLedge, IvpLedgeTopology topology, IvpSynapse mindist, PhysicsLedge? mindistLedge)
     {
-        if (a.Kind != b.Kind)
+        if (contact.Kind != mindist.Kind)
         {
             return false;
         }
 
-        return a.Kind switch
+        if (contact.Kind == IvpFeatureKind.Ball)
         {
-            IvpFeatureKind.Ball => true,
-            IvpFeatureKind.Point => a.Feature == b.Feature,
-            _ => a.Feature.Triangle == b.Feature.Triangle,
+            return true;
+        }
+
+        if (!Equals(contactLedge, mindistLedge))
+        {
+            return false;
+        }
+
+        return contact.Kind switch
+        {
+            IvpFeatureKind.Point => topology.Start(contact.Feature) == topology.Start(mindist.Feature),
+            IvpFeatureKind.Edge => contact.Feature == mindist.Feature || topology.Hop(contact.Feature) == mindist.Feature,
+            IvpFeatureKind.Triangle => contact.Feature.Triangle == mindist.Feature.Triangle,
+            _ => throw new InvalidOperationException("A contact names a feature kind the engine asserts on (ivp_friction.cxx:0x90a)."),
         };
     }
 

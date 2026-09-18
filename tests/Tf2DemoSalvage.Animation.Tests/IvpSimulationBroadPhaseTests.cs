@@ -49,20 +49,27 @@ public sealed class IvpSimulationBroadPhaseTests
         Should.Throw<System.InvalidOperationException>(() => simulation.Collide(core, Material));
     }
 
-    /// <remarks>**Two bodies within each other's range make a watcher**, which is the creator's own slot 5.</remarks>
+    /// <remarks>
+    /// **Two bodies within each other's range make a watcher**, which is the creator's own slot 5 — **at the first PSI**, whose revive
+    /// refiles each woken body (`FUN_180089210` → `FUN_1800892b0` → `FUN_180073b00`). Two objects still asleep are not paired as they
+    /// are made: the binary attaches a new pair's mindist inside the first `Simulate` (`vphysics-virtual-terrain-drop boxes`, B369).
+    /// </remarks>
     [Test]
-    public void Collide_TwoBodiesWithinRange_MakeAPairWatcher()
+    public void Advance_TwoBodiesWithinRange_MakeAPairWatcherAtTheFirstPsi()
     {
         IvpSimulation simulation = Simulation();
         IvpRigidBody first = Body((0d, 0d, 0d));
         IvpRigidBody second = Body((0d, 0d, 6d));
         simulation.Add(first);
         simulation.Add(second);
-
         IvpCollisionObject firstObject = simulation.Collide(first, Material);
         simulation.Collide(second, Material);
+        firstObject.Node!.Watchers.ShouldBeEmpty("the control: both asleep, nothing paired yet");
+        simulation.Start();
 
-        firstObject.Node!.Watchers.Count.ShouldBe(1, "the creator made one watcher for the pair");
+        simulation.Advance(0.01d);
+
+        firstObject.Node.Watchers.Count.ShouldBe(1, "the creator made one watcher for the pair");
     }
 
     [Test]
@@ -102,12 +109,14 @@ public sealed class IvpSimulationBroadPhaseTests
     }
 
     /// <remarks>
-    /// **A new pair of two ordinary objects is made exact and examined at once** (<c>FUN_1800977f0</c>): linked, minimized, and
-    /// handed to the scheduler asking for a far pair's removal. Two still bodies cannot close within a PSI, so it is filed with
-    /// the hull managers before any PSI has run — the engine's own answer, not a failure to promote it.
+    /// **A new pair is made exact and examined at once** (<c>FUN_1800977f0</c>), **but not asked to leave**: it is born inside a
+    /// revive, whose refile holds the core at state <c>0x21</c>, and the removal is asked only when the two cores' states ORed are
+    /// under <c>0x21</c>. The same PSI's walk of the exact pairs then files it far, with the speeds that PSI gave the cores. *It was
+    /// filed at birth, before any PSI*, with no speeds — which split its hull allowance evenly, so a moving body's hull passed early
+    /// and its pair's looks ran a step ahead of the binary's (`vphysics-virtual-terrain-drop boxes`, B369).
     /// </remarks>
     [Test]
-    public void Collide_APairTheBroadPhaseMade_IsExaminedAndFiledAtOnce()
+    public void Advance_APairTheBroadPhaseMade_IsBornInTheFirstPsiAndFiledByItsWalk()
     {
         IvpSimulation simulation = Simulation();
         IvpRigidBody first = Body((0d, 0d, 0d));
@@ -116,8 +125,12 @@ public sealed class IvpSimulationBroadPhaseTests
         simulation.Add(second);
         simulation.Collide(first, Material);
         simulation.Collide(second, Material);
+        simulation.Mindists.ShouldBe(0, "the control: nothing is paired while both are asleep");
+        simulation.Start();
 
-        simulation.Mindists.ShouldBeGreaterThan(0, "the control: the watcher made the pair's mindists");
+        simulation.Advance(0.01d);
+
+        simulation.Mindists.ShouldBeGreaterThan(0, "the revive's refile made the pair's mindists");
         simulation.LastLength.ShouldBe(0.4f, 1e-4f, "minimized as it became exact");
         simulation.LastOutcome.ShouldBe(IvpScheduleOutcome.Filed);
         simulation.ExactPairs.ShouldBe(0);
@@ -296,10 +309,10 @@ public sealed class IvpSimulationBroadPhaseTests
                 (20, 16, 6), (20, 6, 0),
             ]);
 
-        simulation.Add(body);
-        simulation.Collide(body, Material);
         IvpVirtualMeshSurfaceManager manager = new(PhysicsVirtualMesh.Build(tree.Vertices, tree.Triangles, hull), tree);
         simulation.Collide(ground, manager, Material);
+        simulation.Add(body);
+        simulation.Collide(body, Material);
         simulation.Start();
 
         for (double at = 0.02d; at <= 3d; at += 0.01d)

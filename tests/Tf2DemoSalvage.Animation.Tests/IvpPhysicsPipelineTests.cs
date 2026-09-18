@@ -19,7 +19,7 @@ public sealed class IvpPhysicsPipelineTests
         (IvpUnitManager units, IvpSimulationUnit unit, IvpRigidBody core) = Units();
         IvpImpactEnvironment environment = Environment(countdown: 5);
 
-        IvpPhysicsPipeline.Psi(environment, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
+        IvpPhysicsPipeline.Psi(environment, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
 
         core.LastStepped.ShouldBe(2d, "the core was collected in phase 2 and stepped in phase 3");
         core.InverseStep.ShouldBe(2f, "the step handed down is the environment's own, 0.5");
@@ -33,7 +33,7 @@ public sealed class IvpPhysicsPipelineTests
         (IvpUnitManager units, IvpSimulationUnit unit, IvpRigidBody core) = Units();
 
         IvpPhysicsPipeline.Psi(
-            Environment(countdown: 1), units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, () => 0f, now: 100d);
+            Environment(countdown: 1), units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 100d);
 
         units.Active.ShouldBeEmpty();
         units.Sleeping.ShouldBe([unit]);
@@ -62,6 +62,7 @@ public sealed class IvpPhysicsPipelineTests
             _ => order.Add("minimize"),
             _ => order.Add("recheckInvalid"),
             _ => order.Add("examine"),
+            _ => { },
             () => 0f,
             now: 2d);
 
@@ -105,6 +106,7 @@ public sealed class IvpPhysicsPipelineTests
             // (`(flags & 0xC000) != 0x4000`) does not revalidate it, and phase 3 never gets a chance to touch it either way.
             mindist => { order.Add("noBudget"); mindist.Flags = (mindist.Flags & ~0xC000) | 0x4000; },
             _ => order.Add("examine"),
+            _ => { },
             () => 0f,
             now: 2d);
 

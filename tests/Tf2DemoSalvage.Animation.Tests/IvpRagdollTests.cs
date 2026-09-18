@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Numerics;
 
 using Tf2DemoSalvage.Animation.Animating;
@@ -24,7 +25,8 @@ public sealed class IvpRagdollTests
     {
         IvpRagdoll ragdoll = Ragdoll(out _, out IvpSimulation simulation, TurnedChild());
 
-        IvpRigidBody child = simulation.Units.Active[0].Cores.Find(core => core.ObjectOffset.X < -0.5f * Metre)!;
+        // Asleep until the first PSI revives it (`FUN_180089210`), so the unit is looked for on both lists.
+        IvpRigidBody child = simulation.Units.Sleeping.Concat(simulation.Units.Active).Single().Cores.Find(core => core.ObjectOffset.X < -0.5f * Metre)!;
 
         child.Position.X.ShouldBe(3d * Metre, 1e-5d);
         child.Position.Y.ShouldBe(0d, 1e-5d);
