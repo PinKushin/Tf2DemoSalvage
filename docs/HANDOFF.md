@@ -1160,10 +1160,20 @@ equally harmless once every case is mapped). `EdgeEdgeProximity`'s two Backside 
 marked `Backside` vs `Triangle` and the `Lerp` weights used for each. **One detail confirmed as correct, not a
 concern**: the real code marks a `Backside` synapse with the literal kind value `5` — this port's own
 `IvpFeatureKind.Backside = 5` (`IvpMindistMinimize.cs:24`) already declares that exact value, with `4` deliberately
-unused. Not verified line-by-line: the innermost `kNear`/`lNear` fallback tail of `EdgeEdge` (reached only when both
-sides have at least one negative weight) and the per-region `facing`/`cosine` selection loop inside
-`EdgeEdgeProximity` — both are dense, XOR-indexed bit manipulation where a rushed hand-trace risks more error than a
-skipped check is worth, after everything else already verified this session.
+unused. **The two blocks flagged as too risky to rush are now checked too, carefully, and both match.**
+`EdgeEdge`'s `kNear`/`lNear` tail: the real C has a genuine trap — `(0.0 <= A) && (puVar3 = B, C < 0.0)` mutates `puVar3`
+as a side effect of evaluating the right operand, EVEN WHEN the overall `&&` is false (i.e. even when `C < 0.0` turns
+out false, the comma's left half `puVar3 = B` already ran). Working through all three reachable cases by hand
+(`cond1` false; `cond1` true and `cond2` true; `cond1` true and `cond2` false) shows this port's three-way
+`if (!cond1) ... if (!cond2) ... else ...` produces the identical `PointPoint` call, arguments and side order, in
+every case — including the case where the trap matters. `EdgeEdgeProximity`'s `facing`/`cosine` loop: every operation
+maps in the same order (the `pointIndex`/`from`/`to`/`edge`/`along` computation, both early-exits, `normalScale`,
+`edgeScale`, the exact `candidate = edgeScale * along * normalScale` multiplication order, the `TriangleWeights` call
+and its `inside.Edge > 0f` gate), and the loop's starting constant matches exactly:
+`CosineStart = -4e-12d` (`IvpMindistMinimize.cs:462`) against the disassembly's `dVar27 = -4e-12`.
+
+**Every line of `IvpMindistMinimize` that this session set out to check has now been checked. Zero divergences found,
+anywhere, including the two pieces held back earlier out of caution.**
 
 **`Solver.FaceFace` (`FUN_180094f80`) checked — exact match, and this closes the entire solver.** Every phase
 corresponds directly: the 3×3 point-vertex search over both triangles; the point-vs-plane check run in both directions
