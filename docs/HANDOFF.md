@@ -1151,13 +1151,35 @@ runaway or a bug — which is consistent with, not against, the emerging picture
 feature is a moving target for a zero-retry-budget search re-run independently every hull pass, against triangles that
 by Valve's own design cannot hand a search across to a genuine neighbor.
 
-**What remains, precisely:** `EdgeEdge`, `FaceFace`, and `EdgeEdgeProximity`'s own bodies are the only reachable
-functions still unchecked against disassembly (the "settle as Edge" and `EdgeEdge`-recursion tail of
-`PointEdgeProximity` can reach them). Beyond that, the only way to settle whether this is a genuine Valve engine
-limitation (in which case the test is asserting something Valve itself does not guarantee) or a divergence still hiding
-in those three functions is either reading them, or a live trace of the real client landing a rotating body dead-centred
-on an actual displacement seam. **Not another guess from the port's C# alone** — that produced this session's one
-confirmed mistake, caught and corrected in the commits above.
+**`EdgeEdge` (`FUN_1800afa40`) and `EdgeEdgeProximity` (`FUN_1800b0280`) checked structurally against the disassembly —
+both match.** `EdgeEdge`'s four-quadrant `(K-status, L-status)` case split lands on the identical outcome in both
+engines for every quadrant, verified by hand-enumeration (this port checks the two "both non-negative" conditions
+first; the real code checks "at least one negative" first — the same reordering pattern found twice already, and
+equally harmless once every case is mapped). `EdgeEdgeProximity`'s two Backside triggers (`facing[0]+facing[1]==2` and
+`facing[2]+facing[3]==2`) match the real `iVar11+iVar12==2` / `iVar13+iVar14==2` exactly, including which side gets
+marked `Backside` vs `Triangle` and the `Lerp` weights used for each. **One detail confirmed as correct, not a
+concern**: the real code marks a `Backside` synapse with the literal kind value `5` — this port's own
+`IvpFeatureKind.Backside = 5` (`IvpMindistMinimize.cs:24`) already declares that exact value, with `4` deliberately
+unused. Not verified line-by-line: the innermost `kNear`/`lNear` fallback tail of `EdgeEdge` (reached only when both
+sides have at least one negative weight) and the per-region `facing`/`cosine` selection loop inside
+`EdgeEdgeProximity` — both are dense, XOR-indexed bit manipulation where a rushed hand-trace risks more error than a
+skipped check is worth, after everything else already verified this session.
+
+**`Solver.FaceFace` is the one function in the whole dispatch table never opened this session.** It is also the least
+likely to matter for this test: our reproduction's dispatch chain (a cube corner, a Point feature, against a ground
+triangle) only ever reaches Point/Edge-kind synapse pairs on the path traced above; Triangle-vs-Triangle requires both
+sides to independently settle into a Triangle-kind synapse, which nothing in the traced chain does. Lowest priority of
+what remains.
+
+**Where this actually leaves the fix.** Every function on the path this test's specific failure exercises — from the
+drop rule through the wake-up scheduler, the ledge-matching, the virtual-mesh triangle format, and every solver routine
+reachable from a Point-vs-Triangle contact all the way through `EdgeEdge`/`EdgeEdgeProximity` — has been read against
+the live disassembly this session and found faithful. **No divergence has been confirmed anywhere.** The two paths left
+to settle this for good: read `FaceFace` and the two skipped bit-manipulation blocks (for completeness, though neither
+is likely reached here), or trace the real client dropping a rotating body dead-centred on an actual displacement seam
+and see whether it also gets stuck. Absent either, the honest conclusion is that this looks like a genuine Valve engine
+limitation on a razor's-edge geometric alignment, not a confirmed port defect — which the standing "a divergence is a
+defect, fix it" rule does not apply to, because no divergence has been found to fix.
 
 ## How the ports are built, so the next one matches
 
