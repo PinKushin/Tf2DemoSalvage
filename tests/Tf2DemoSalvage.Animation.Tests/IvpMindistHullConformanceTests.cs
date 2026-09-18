@@ -89,10 +89,13 @@ public sealed class IvpMindistHullConformanceTests
         fixture.HandedOff.ShouldBe([fixture.Mindist]);
     }
 
-    /// <remarks>**A recursive mindist, state `0x100000`, goes to `FUN_1800b28a0`**, which is not read: refused.</remarks>
+    /// <remarks>
+    /// **The recursive state, `0x100000`, goes to `FUN_1800b28a0` on the flags alone**, so a plain mindist carrying it is refused
+    /// rather than measured as a far pair (`IvpRecursiveMindistConformanceTests` sends a larger one).
+    /// </remarks>
     [Test]
-    public void HullPassed_ARecursiveMindist_IsRefused() =>
-        Should.Throw<NotSupportedException>(() => new PassFixture(20f, flags: 0x100000).Run(-0.5f));
+    public void HullPassed_APlainMindistInTheRecursiveState_Throws() =>
+        Should.Throw<InvalidOperationException>(() => new PassFixture(20f, flags: 0x100000).Run(-0.5f));
 
     /// <remarks>
     /// **A phantom's pair, flags `0x3000` exactly `0x1000`, is handed to `FUN_180097940`**, which is not ported: refused
@@ -154,6 +157,7 @@ public sealed class IvpMindistHullConformanceTests
                 FirstBounds = still,
                 SecondBounds = still,
                 HandOff = handedOff.Add,
+                Recheck = _ => throw new InvalidOperationException("A plain far pair is not rechecked."),
             });
 
         outcome.ShouldBe(IvpHullPassOutcome.Refiled);
@@ -175,6 +179,61 @@ public sealed class IvpMindistHullConformanceTests
 
         first.ShouldBe(0.8409f, 0.001f);
         second.ShouldBe(0.1591f, 0.001f);
+    }
+
+    /// <remarks>
+    /// **An opened mindist's records are filed at the next PSI, a side at rest taking the split's floor** — `FUN_180097d60` tests
+    /// record 0's object's `+0x78 &amp; 7` first and hands `FUN_180097e20` `1e-10f` for that side, never zero, and the gap for the
+    /// other, each added in float to its manager's next PSI value (`docs/findings/51`, *The larger mindist in full*). With both
+    /// next PSI values at zero, the side at rest's key is `1e-10f` itself, which `FileFar`'s zero would not give. Both objects at
+    /// rest take the first branch.
+    /// </remarks>
+    [TestCase(0, 1)]
+    [TestCase(0, 0)]
+    public void FileRecursive_ARecordZeroObjectAtRest_TakesTheFloorAndGivesTheGapToRecordOne(int firstState, int secondState)
+    {
+        RecursiveFiling filing = new(firstState, secondState);
+
+        filing.Run(0.5f);
+
+        filing.KeyOf(0).ShouldBe(1e-10f);
+        filing.KeyOf(1).ShouldBe(0.5f);
+    }
+
+    /// <remarks>The mirror: record 0's object moving and record 1's at rest, so record 1 takes the floor and record 0 the gap.</remarks>
+    [Test]
+    public void FileRecursive_ARecordOneObjectAtRest_TakesTheFloorAndGivesTheGapToRecordZero()
+    {
+        RecursiveFiling filing = new(1, 0);
+
+        filing.Run(0.5f);
+
+        filing.KeyOf(0).ShouldBe(0.5f);
+        filing.KeyOf(1).ShouldBe(1e-10f);
+    }
+
+    /// <remarks>
+    /// **Both moving, the gap is split by speed** — `FUN_180097d60`'s split is <see cref="IvpMindistHull.SplitGap"/>'s, operand for
+    /// operand — and each share lands on its manager's next PSI value, here `2` and `3`. The flags become filed, the other bits kept:
+    /// `0xc0100 &amp; ~0x280000 | 0x140000` is `0x140100`. Either record's slot 1 hands the mindist to the filing's handler.
+    /// </remarks>
+    [Test]
+    public void FileRecursive_BothObjectsMoving_SplitsTheGapBySpeedAtTheNextPsi()
+    {
+        RecursiveFiling filing = new(1, 1, firstNext: 2f, secondNext: 3f);
+
+        filing.Run(0.5f);
+
+        (float firstShare, float secondShare) = IvpMindistHull.SplitGap(0.5f, filing.FirstBounds, filing.SecondBounds);
+
+        filing.KeyOf(0).ShouldBe(2f + firstShare);
+        filing.KeyOf(1).ShouldBe(3f + secondShare);
+        filing.Mindist.Flags.ShouldBe(0x140100);
+
+        filing.Mindist.HullRecord(0).HullPassed(filing.First.Hull, -2f);
+        filing.Mindist.HullRecord(1).HullPassed(filing.Second.Hull, -1f);
+
+        filing.Passed.ShouldBe([(filing.Mindist, -2f), (filing.Mindist, -1f)]);
     }
 
     /// <remarks>
@@ -235,7 +294,7 @@ public sealed class IvpMindistHullConformanceTests
     {
         HandoffFixture fixture = new() { MinimizeSets = 0x4000 };
 
-        fixture.Run(firstRechecked: true).ShouldBe(IvpExactOutcome.Invalidated);
+        fixture.Run(firstRechecked: true).ShouldBe(IvpExactOutcome.Frozen);
 
         fixture.Manager.Exact.ShouldBeEmpty();
         fixture.Manager.Invalid.ShouldBe([fixture.Mindist]);
@@ -245,6 +304,25 @@ public sealed class IvpMindistHullConformanceTests
         fixture.Second.InvalidSynapses.ShouldBe([fixture.Mindist.HullRecord(1)]);
         fixture.Examined.ShouldBeEmpty();
         fixture.Mindist.Flags.ShouldBe(0x84000);
+    }
+
+    /// <remarks>
+    /// **A frozen minimize hands the pair to its OWN slot 7** — `FUN_1800977f0` calls the mindist's `+0x38` with the manager at
+    /// `180097914` — so a larger mindist frozen at birth opens its ledge rather than going invalid, and the plain invalidation
+    /// does not run.
+    /// </remarks>
+    [Test]
+    public void BecomeExact_AFrozenMinimizeOfItsOwnKind_FreezesThroughItsOwnSlotSeven()
+    {
+        RecordingMindist own = new() { Flags = IvpMindistHull.FiledState };
+        HandoffFixture fixture = new(own) { MinimizeSets = 0x4000 };
+
+        fixture.Run().ShouldBe(IvpExactOutcome.Frozen);
+
+        own.Slots.ShouldBe(["freeze"]);
+        own.FrozenBy.ShouldBeSameAs(fixture.Manager);
+        fixture.Manager.Exact.ShouldBe([own], ignoreOrder: false, customMessage: "the plain invalidation did not run");
+        fixture.Examined.ShouldBeEmpty();
     }
 
     private static IvpMindist NewMindist(int flags) =>
@@ -318,20 +396,67 @@ public sealed class IvpMindistHullConformanceTests
                     FirstBounds = _recordOneIsA ? still : moving,
                     SecondBounds = _recordOneIsA ? moving : still,
                     HandOff = HandedOff.Add,
+                    Recheck = _ => throw new InvalidOperationException("A plain far pair is not rechecked."),
                 });
+        }
+    }
+
+    /// <summary>An opened pair about to be filed at the next PSI, two objects in given states, and a handler that records its calls.</summary>
+    private sealed class RecursiveFiling
+    {
+        public RecursiveFiling(int firstState, int secondState, float firstNext = 0f, float secondNext = 0f)
+        {
+            First = new IvpCollisionObject { MovementState = firstState };
+            Second = new IvpCollisionObject { MovementState = secondState };
+            First.Hull.NextPsiValue = firstNext;
+            Second.Hull.NextPsiValue = secondNext;
+        }
+
+        public IvpMindist Mindist { get; } = NewMindist(IvpMindistHull.ExactState | 0x100);
+
+        public IvpCollisionObject First { get; }
+
+        public IvpCollisionObject Second { get; }
+
+        public IvpCoreBounds FirstBounds { get; } = new(Radius: 1f, InverseDiameter: 1f, AngularSpeedBound: 0f, LinearSpeed: 2f, SurfaceSpeedBound: 1f);
+
+        public IvpCoreBounds SecondBounds { get; } = new(Radius: 1f, InverseDiameter: 1f, AngularSpeedBound: 0f, LinearSpeed: 0.5f, SurfaceSpeedBound: 0f);
+
+        public List<(IvpMindist Mindist, float Overshoot)> Passed { get; } = [];
+
+        public void Run(float gap) =>
+            IvpMindistHull.FileRecursive(
+                Mindist,
+                new IvpFarFiling(new IvpMindistManager(), First, Second, (mindist, overshoot) => Passed.Add((mindist, overshoot))),
+                FirstBounds,
+                SecondBounds,
+                gap);
+
+        public float KeyOf(int record)
+        {
+            IvpHullManager hull = record == 0 ? First.Hull : Second.Hull;
+
+            return hull.Synapses.ValueOf(Mindist.HullRecord(record).HullSlot.ShouldNotBeNull());
         }
     }
 
     /// <summary>A pair about to become exact, and a minimize and scheduler that record what they were asked.</summary>
     private sealed class HandoffFixture
     {
+        public HandoffFixture()
+            : this(NewMindist(IvpMindistHull.FiledState))
+        {
+        }
+
+        public HandoffFixture(IvpMindist mindist) => Mindist = mindist;
+
         public IvpMindistManager Manager { get; } = new();
 
         public IvpCollisionObject First { get; } = new();
 
         public IvpCollisionObject Second { get; } = new();
 
-        public IvpMindist Mindist { get; } = NewMindist(IvpMindistHull.FiledState);
+        public IvpMindist Mindist { get; }
 
         public List<bool> Examined { get; } = [];
 

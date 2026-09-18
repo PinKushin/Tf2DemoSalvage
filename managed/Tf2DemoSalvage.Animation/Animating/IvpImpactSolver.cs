@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
@@ -32,6 +33,62 @@ public sealed class IvpImpactEnvironment
 
     /// <summary>The impacts that found either core's freeze bits set, <c>env+0xac</c>.</summary>
     public int Frozen { get; set; }
+
+    /// <summary>The contacts the impact loop estimated again, <c>env+0xa8</c>.</summary>
+    public int Estimates { get; set; }
+
+    /// <summary>The impact loop's passes, one more per island than it drained, <c>env+0x98</c>.</summary>
+    public int LoopPasses { get; set; }
+
+    /// <summary>The impact generation, <c>env+0x1a4</c>: advanced once per collision by <c>FUN_18008ecb0</c>, stamped by the recheck.</summary>
+    public int ImpactGeneration { get; set; }
+
+    /// <summary>The PSI's end, <c>env+0x190</c>, which the impact loop's tail steps moved cores to.</summary>
+    public double PsiEnd { get; set; }
+
+    /// <summary>
+    /// The cores woken while asleep, waiting for the next PSI to revive them — the vector at <c>env+0x160</c> (capacity), <c>+0x162</c>
+    /// (count), <c>+0x168</c> (entries).
+    /// </summary>
+    /// <remarks>
+    /// Appended by <c>FUN_180087e00</c>, which <c>IPhysicsObject::Wake</c> (<c>18001e3d0</c> → <c>FUN_180073a30</c>) calls for an
+    /// object in state <c>8</c>; drained by <see cref="IvpPhysicsPipeline.Psi"/> before anything else.
+    /// </remarks>
+    internal List<IvpRigidBody> ReviveQueue { get; } = [];
+
+    /// <summary>The time every queued event's float is measured from — <c>env+0x198</c>, set to now by each PSI event.</summary>
+    public double RebaseBase { get; set; }
+
+    /// <summary>The environment's own clock — <c>env+0x188</c>, which every routine that needs "now" reads from here.</summary>
+    public double Now { get; set; }
+
+    /// <summary>The environment's phase, <c>env+0x1ac</c>, handed to the step and walked 0, 2, 3, 4, 5 by the pipeline.</summary>
+    public int Phase { get; set; }
+
+    /// <summary>How long a core must stay by its anchor to be called at rest — <c>env+0xc8</c>.</summary>
+    public float RestDelay { get; init; }
+
+    /// <summary>The energy friction systems have damped out of their pairs' relative motion — the double at <c>env+0x78</c>.</summary>
+    public double DampedEnergy { get; set; }
+
+    /// <summary>The PSIs left before the next rest check — <c>env+0x1a8</c>, reset with a jitter when it reaches zero.</summary>
+    public short RestCheckCountdown { get; set; }
+
+    /// <summary>A contact's two ledge sides now — what the record build reaches through the contact's objects and their caches.</summary>
+    /// <remarks>Null where nothing builds a friction system's record controller, which then refuses to run.</remarks>
+    public Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)>? ContactSides { get; set; }
+
+    /// <summary>
+    /// The merge a contact's filing ends with — <c>FUN_180074e40</c> on the two cores' units, the absorbed one taken off the
+    /// time manager's lists. Null where there are no units, as for a body against the world.
+    /// </summary>
+    public Action<IvpRigidBody, IvpRigidBody>? MergeUnits { get; set; }
+
+    /// <summary>
+    /// The broad phase's refile of one object — <c>FUN_180098880</c> on <c>env+0x20</c>, which a core's sleep and revive run.
+    /// Null where there is no broad phase.
+    /// </summary>
+    public Action<IvpCollisionObject>? Refile { get; set; }
 }
 
 /// <summary>

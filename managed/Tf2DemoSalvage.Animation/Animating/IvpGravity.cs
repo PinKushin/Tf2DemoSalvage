@@ -67,10 +67,10 @@ public static class IvpGravity
     ///   global vector would be right for TF2 and wrong for the engine.
     /// - **It accumulates**, so gravity and a constraint impulse in the same step both land.
     ///
-    /// **What is NOT transcribed, and is named rather than skipped silently:** the two calls the
-    /// engine makes before the add — `FUN_180078250(core, dt)` and `FUN_180077950(core)` — have not
-    /// been read. They take the core and the step, so they are per-body per-step work that happens
-    /// under the same `0x10` gate, and whatever they do is missing here.
+    /// **What is NOT transcribed, and is named rather than skipped silently:** `FUN_180078250(core, dt)`, which takes the core
+    /// and the step under the same `0x10` gate, has not been read. **`FUN_180077950(core)` has** (2026-09-15): it flushes the
+    /// staged velocities into the live ones and clears them, and the unit's own PSI already runs it for every core before any
+    /// controller — see <see cref="IvpSimulationUnit.Psi"/> and <see cref="IvpPush.Flush(IvpRigidBody)"/>.
     /// </remarks>
     public static void Apply(
         IReadOnlyList<IvpRigidBody> bodies,
@@ -97,5 +97,51 @@ public static class IvpGravity
                 (acceleration.Y * delta) + body.Velocity.Y,
                 (acceleration.Z * delta) + body.Velocity.Z);
         }
+    }
+}
+
+/// <summary>
+/// Gravity as a unit's controller — the entry at priority <c>1000</c> whose slot 4 is <c>FUN_180074c80</c> (B369, D172).
+/// </summary>
+/// <param name="gravity">The controller's own copy of the acceleration, <c>+0x10..0x18</c>.</param>
+/// <param name="alternate">The second acceleration, <c>+0x20..0x28</c>, for a core flagged <c>0x20</c>.</param>
+/// <remarks>
+/// **Read from the disassembly** (`docs/findings/51`): slot 4 walks the cores of its own entry, last first, skipping a core
+/// flagged <c>0x10</c>, and for each runs the damping (<c>FUN_180078250</c>), the staged-velocity flush
+/// (<c>FUN_180077950</c>) and then the acceleration.
+///
+/// **The three passes here are per core and read nothing of any other core**, so damping every core, then flushing every core,
+/// then adding to every core gives the same result as the engine's one-core-at-a-time order. That equivalence is what licenses
+/// reusing <see cref="IvpDamping"/>, <see cref="IvpPush"/> and <see cref="IvpGravity"/> as they stand; a term that mixed two
+/// cores would not allow it.
+/// </remarks>
+public sealed class IvpGravityController(
+    (float X, float Y, float Z) gravity, (float X, float Y, float Z)? alternate = null) : IIvpUnitController
+{
+    /// <summary>Gravity's own priority, read as <c>1000</c> from its slot 5.</summary>
+    public const int GravityPriority = 1000;
+
+    /// <inheritdoc/>
+    public int Priority => GravityPriority;
+
+    /// <inheritdoc/>
+    public void Advance(IvpSimulationUnit unit, IReadOnlyList<IvpRigidBody> cores, float psiStep)
+    {
+        ArgumentNullException.ThrowIfNull(cores);
+
+        for (int index = cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = cores[index];
+
+            if (core.SkipsGravity)
+            {
+                continue;
+            }
+
+            IvpDamping.Damp(core, psiStep, (core.RotationDamping, core.RotationDamping, core.RotationDamping), core.Damping);
+            IvpPush.Flush(core);
+        }
+
+        IvpGravity.Apply(cores, gravity, psiStep, alternate);
     }
 }

@@ -70,6 +70,15 @@ public sealed class IvpCollisionToleranceConformanceTests
         Bits(IvpCollisionTolerance.ContactGap).ShouldBe(0x3c4ffe5a);
 
     /// <remarks>
+    /// `block[0x47] = (float)(d · 2.5 + block[0x43])`, `DAT_18012d65c` (`DAT_1800fdf80` is `2.5`): `4.5·d` exactly in double, its
+    /// mantissa `0xcffe5a · 9/8` rounding down to `0x3ce9fe25`, `0.0285635698` metres. The length under which a revived core's
+    /// pair is rebuilt into a resting contact (`FUN_180086500`).
+    /// </remarks>
+    [Test]
+    public void RestingContactGap_InMetres_IsTwoAndAHalfTolerancesBeyondTheContactGap() =>
+        Bits(IvpCollisionTolerance.RestingContactGap).ShouldBe(0x3ce9fe25);
+
+    /// <remarks>
     /// `block[0x44] = (float)(d · 0.3f + block[0x43])`, `0x3c6f314e`, `0.0145991631` metres. It is `DAT_18012d650`, the gap
     /// the edge–edge measure gives edges with no crossing.
     /// </remarks>

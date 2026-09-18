@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
@@ -10,7 +12,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// **The Jacobian rows are cached once per tick and reused by every sweep**, which is the whole
 /// reason the engine splits the constraint vtable into an expensive slot 3 and a cheap slot 4:
 /// `FUN_18003c780` calls slot 3 once with a weight of `1.0` and then slot 4 twice per iteration
-/// with the relaxation weight. <see cref="Rebuild"/> is slot 3; <see cref="Sweep"/> is slot 4.
+/// with the relaxation weight. <see cref="Rebuild"/> is slot 3's rebuild; <see cref="Sweep(float)"/> is slot 4. The ported driver's pair is <see cref="Prepare"/> and <see cref="Relax"/>.
 /// </remarks>
 public sealed class IvpRagdollJoint
 {
@@ -107,6 +109,96 @@ public sealed class IvpRagdollJoint
 
         Solved?.Invoke();
     }
+
+    /// <summary>Measures the joint, builds its rows in each core's frame and solves once — slot 3, <c>FUN_180038620</c>.</summary>
+    /// <param name="step">The PSI event's step.</param>
+    /// <param name="inverseStep">Its inverse.</param>
+    /// <remarks>
+    /// **Everything a sweep needs is measured HERE and only here**: the three deflections at <c>+0x100</c>, the axes at
+    /// <c>+0x150..0x2d0</c> and the ball-and-socket's position error at <c>+0x0</c>. Slot 4 reads them back and recomputes only
+    /// the velocities. The twist turns about the UNIT bisector at <c>+0x110</c>; each swing about the cross of B's primary with
+    /// one of A's axes, lengthened to at least 0.1 (<c>max(rsqrt·0.1, 1)</c>) and retired below <c>FLT_EPSILON</c> squared length
+    /// (`FUN_1800372c0` writes type 2).
+    /// </remarks>
+    public void Prepare(float step, float inverseStep)
+    {
+        Constraint.MeasureWorking(BodyA, BodyB);
+
+        (float X, float Y, float Z) primaryA = IvpQuaternion.Rotate(BodyA.WorkingOrientation, Constraint.FrameA.Primary);
+        (float X, float Y, float Z) widerA = IvpQuaternion.Rotate(BodyA.WorkingOrientation, Constraint.FrameA.Wider);
+        (float X, float Y, float Z) primaryB = IvpQuaternion.Rotate(BodyB.WorkingOrientation, Constraint.FrameB.Primary);
+
+        (float X, float Y, float Z) sum = (primaryA.X + primaryB.X, primaryA.Y + primaryB.Y, primaryA.Z + primaryB.Z);
+        float squared = (sum.X * sum.X) + (sum.Y * sum.Y) + (sum.Z * sum.Z);
+        float estimate = Sse.IsSupported
+            ? Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(squared)).ToScalar()
+            : 1f / MathF.Sqrt(squared);
+        float reciprocal = (3f - (estimate * estimate * squared)) * estimate * 0.5f;
+
+        _halfBisector = reciprocal * 0.5f * squared;
+        _coreTwist = IvpJacobian.BuildInCore(BodyA, BodyB, (sum.X * reciprocal, sum.Y * reciprocal, sum.Z * reciprocal));
+        _coreCone = SwingRows(Cross(primaryB, primaryA));
+        _coreSwing = SwingRows(Cross(primaryB, widerA));
+        _socket.Build(BodyA, BodyB, AnchorA, AnchorB);
+
+        Relax(1f, 1f, step, inverseStep);
+    }
+
+    /// <summary>One sweep against slot 3's measurements — slot 4, <c>FUN_180038d10</c>.</summary>
+    /// <param name="errorWeight">Lane <c>x</c> of <c>+0x2d0</c>.</param>
+    /// <param name="velocityWeight">Lane <c>y</c>.</param>
+    /// <param name="step">The PSI event's step.</param>
+    /// <param name="inverseStep">Its inverse.</param>
+    /// <remarks>
+    /// The twist's scale takes <c>x·w</c>, the swings' <c>x</c> alone (`FUN_180036e10` hands the first `+0x2d0·w` and the others the
+    /// raw lanes); the ball-and-socket takes <c>x·invStep</c> on the error and <c>y</c> on the velocity.
+    /// </remarks>
+    public void Relax(float errorWeight, float velocityWeight, float step, float inverseStep)
+    {
+        IvpAngularLimit.SolveOverStep(
+            BodyA, BodyB, Constraint.Twist, _coreTwist, step, inverseStep, errorWeight * _halfBisector, IvpAngularLimit.Routine.Bisector);
+
+        if (_coreCone is { } cone)
+        {
+            IvpAngularLimit.SolveOverStep(BodyA, BodyB, Constraint.Cone, cone, step, inverseStep, errorWeight, IvpAngularLimit.Routine.Swing);
+        }
+
+        if (_coreSwing is { } swing)
+        {
+            IvpAngularLimit.SolveOverStep(BodyA, BodyB, Constraint.Swing, swing, step, inverseStep, errorWeight, IvpAngularLimit.Routine.Swing);
+        }
+
+        _socket.Solve(BodyA, BodyB, errorWeight * inverseStep, velocityWeight);
+
+        Solved?.Invoke();
+    }
+
+    /// <summary>A swing's rows about <c>cross</c>, or none when it is degenerate.</summary>
+    private IvpJacobian? SwingRows((float X, float Y, float Z) cross)
+    {
+        float squared = (cross.X * cross.X) + (cross.Y * cross.Y) + (cross.Z * cross.Z);
+
+        if (squared <= FloatEpsilon)
+        {
+            return null;
+        }
+
+        float estimate = Sse.IsSupported
+            ? Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(squared)).ToScalar()
+            : 1f / MathF.Sqrt(squared);
+        float scale = MathF.Max((3f - (estimate * estimate * squared)) * estimate * 0.5f * 0.1f, 1f);
+
+        return IvpJacobian.BuildInCore(BodyA, BodyB, (scale * cross.X, scale * cross.Y, scale * cross.Z));
+    }
+
+    private float _halfBisector = 1f;
+    private IvpJacobian _coreTwist;
+    private IvpJacobian? _coreCone;
+    private IvpJacobian? _coreSwing;
+    private readonly IvpBallSocketRows _socket = new();
+
+    /// <summary><c>FLT_EPSILON</c>, below which a swing's cross is retired.</summary>
+    private const float FloatEpsilon = 1.1920929e-07f;
 
     /// <summary>How far ahead the deflection is predicted — <c>param_1[0]</c>.</summary>
     /// <remarks>
@@ -226,10 +318,88 @@ public sealed class IvpConstraintGroup
     private static float Weight(int iteration) =>
         iteration >= 0 && iteration < Weights.Length ? Weights[iteration] : 0f;
 
+    /// <summary>Solves the group as the engine's driver does, with the PSI event's step — <c>FUN_18003c780</c>.</summary>
+    /// <param name="step">The event's <c>+0x0</c>.</param>
+    /// <param name="inverseStep">The event's <c>+0x4</c>.</param>
+    /// <remarks>
+    /// **Read from the disassembly** (2026-09-16):
+    /// <code>
+    /// every constraint, first to last:  slot 3 (FUN_180038620) with x = y = DAT_1800ea988 (1f)   -- rows rebuilt AND solved
+    /// i = 0 while i &lt; +0x20 (the iterations):  x = A[i];  x == 0 → stop;  y = B[i]
+    ///     every constraint, last to first, slot 4 (FUN_180038d10)(event, x, y);  then first to last, the same
+    /// A = {1, 1, 0.8, 0.6, 0.4, 0.4, 0.4, 0.4, 0.4, 0}    -- DAT_1800eeb80, DAT_1800eeb70, then 0.4f and 0 on the stack
+    /// B = {1, 1, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0}    -- DAT_1800eeba0, DAT_1800eeb90, then 0.8f and 0
+    /// </code>
+    /// **The stock two iterations run at full weight.** *<see cref="Solve()"/> read the table from <c>0x1800eeb70</c>, the second
+    /// block the driver lays down, took 0.4 for both passes and skipped slot 3's solve* — it stays as the invented solver's.
+    /// </remarks>
+    public void SolveOverStep(float step, float inverseStep)
+    {
+        for (int index = 0; index < Joints.Count; index++)
+        {
+            Joints[index].Prepare(step, inverseStep);
+        }
+
+        for (int iteration = 0; iteration < Iterations && iteration < ErrorWeights.Length; iteration++)
+        {
+            float errorWeight = ErrorWeights[iteration];
+
+            if (errorWeight == 0f)
+            {
+                break;
+            }
+
+            float velocityWeight = VelocityWeights[iteration];
+
+            for (int index = Joints.Count - 1; index >= 0; index--)
+            {
+                Joints[index].Relax(errorWeight, velocityWeight, step, inverseStep);
+            }
+
+            for (int index = 0; index < Joints.Count; index++)
+            {
+                Joints[index].Relax(errorWeight, velocityWeight, step, inverseStep);
+            }
+        }
+    }
+
+    /// <summary>The driver's error weights, as its stack holds them.</summary>
+    private static readonly float[] ErrorWeights = [1f, 1f, 0.8f, 0.6f, 0.4f, 0.4f, 0.4f, 0.4f, 0.4f, 0f];
+
+    /// <summary>The driver's velocity weights.</summary>
+    private static readonly float[] VelocityWeights = [1f, 1f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0f];
+
     /// <summary>The base every group starts from, before <c>additionalIterations</c>.</summary>
     private const int BaseIterations = 2;
 
     /// <summary><c>0x1800eeb70</c>, dumped.</summary>
     private static readonly float[] Weights =
         [0.4f, 0.4f, 0.4f, 0.4f, 1f, 1f, 0.8f, 0.6f, 0.8f, 0.8f, 0.8f, 0.8f];
+}
+
+/// <summary>
+/// A constraint group as a unit's controller — the entry at priority <c>405</c> whose slot 4 tail-calls its own slot 8,
+/// <c>FUN_18003c780</c> (B369, D172).
+/// </summary>
+/// <param name="group">The group this controller solves.</param>
+/// <remarks>
+/// **Read from the disassembly** (`docs/findings/51`): vphysics' constraint table sits at <c>1800eeb10</c>, its slot 4 is
+/// `MOV RAX,[RCX]; JMP [RAX+0x40]` — a tail call into its own slot 8 — and slot 5 answers <c>0x195</c>. So a PSI runs the
+/// constraints after gravity and the friction system's <c>600</c> pass, and before its normal pushes at <c>0</c>.
+/// </remarks>
+public sealed class IvpConstraintController(IvpConstraintGroup group) : IIvpUnitController
+{
+    /// <summary>The priority its slot 5 returns — <c>0x195</c>.</summary>
+    public const int ConstraintPriority = 405;
+
+    /// <summary>The group this controller solves.</summary>
+    public IvpConstraintGroup Group { get; } = group ?? throw new ArgumentNullException(nameof(group));
+
+    /// <inheritdoc/>
+    public int Priority => ConstraintPriority;
+
+    /// <inheritdoc/>
+    /// <remarks>**The entry's cores are not read**: the group already names the bodies each of its joints holds.</remarks>
+    public void Advance(IvpSimulationUnit unit, IReadOnlyList<IvpRigidBody> cores, float psiStep) =>
+        Group.SolveOverStep(psiStep, (float)IvpFrictionController.InverseOf(psiStep));
 }

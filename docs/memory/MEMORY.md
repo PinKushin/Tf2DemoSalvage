@@ -140,3 +140,8 @@
 - [Spend fewer tokens](spend-fewer-tokens.md) — ponytail ultra; LSP/MCP over raw reads, one-line remarks, no reflexive agents.
 - [Push when work piles up](push-when-work-piles-up.md) — crash safety outranks "push sparingly"; commit a green state first, never mid-sabotage.
 - [The JIT picks the NaN destination](the-jit-picks-the-nan-destination.md) — C# `+`/`*` leave two-NaN results to operand order; Addsd/Mulsd pin it, never license it; an order nothing can redden may be dead — trace it to an output first.
+- [Rename decompiled functions](rename-decompiled-functions.md) — D174; a read function is renamed in Ghidra for its port member, `Type::Member`; cite names, not `FUN_` addresses.
+- [Sticking friction is out of scope](sticking-friction-is-out-of-scope.md) — D175; its gate's field has no writer this project ever creates.
+- [Use Bash, not the PowerShell tool](use-bash-not-powershell-tool.md) — its encoded pre-parse tripped Defender (Commando.A!ml); Git Bash is present.
+- [Debug is what the owner runs](debug-is-what-the-owner-runs.md) — D176; Debug is optimized, measure the build the owner looks at, dotnet-trace for a profile.
+- [Unread by production is dead](unread-by-production-is-dead.md) — D180; delete with its tests and probes, carry what production uses, port a still-true engine rule first.

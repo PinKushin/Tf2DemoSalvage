@@ -24,7 +24,8 @@ public static class IvpLedgeTree
     /// <param name="into">Where each node whose ledge is found goes, in the order the engine appends them.</param>
     /// <exception cref="ArgumentNullException"><paramref name="tree"/> or <paramref name="into"/> is null.</exception>
     /// <exception cref="InvalidOperationException">
-    /// The ledge's node is terminal, or a terminal node has no ledge — where the engine reads bytes that are not a node or not a ledge.
+    /// The ledge names no node or a terminal one, or a terminal node has no ledge — where the engine reads bytes that are not a node or not
+    /// a ledge.
     /// </exception>
     /// <remarks>
     /// <code>
@@ -45,7 +46,8 @@ public static class IvpLedgeTree
             return;
         }
 
-        PhysicsLedgeTreeNode node = tree.Node(ledge.LedgeNodeOffset);
+        PhysicsLedgeTreeNode node = tree.Node(
+            ledge.LedgeNodeOffset ?? throw new InvalidOperationException("A radius query starts beneath a ledge that names no node, where the engine reads the ledge as one."));
 
         if (node.Left is null || node.Right is null)
         {

@@ -25,6 +25,30 @@ public sealed class IvpFrictionPair(IvpRigidBody firstCore, IvpRigidBody secondC
 
     /// <summary>The second core — <c>+0x40</c>.</summary>
     public IvpRigidBody SecondCore { get; } = secondCore;
+
+    /// <summary>When the pair last collided — <c>+0x28</c>, written by <c>FUN_18008ef60</c> with <c>env+0x188</c>.</summary>
+    public double LastImpact { get; internal set; }
+
+    /// <summary>The work banked against this pair and paid back as damping — the float at <c>+0x30</c>, zero when made.</summary>
+    /// <remarks>
+    /// Grown by the normal pushes' work (<see cref="IvpPairDamping.Bank"/>), decayed and spent by <see cref="IvpPairDamping.PayBack"/>,
+    /// and zeroed while the unit's <c>0x3000</c> bits are set. `FUN_1800836b0` also grows it by the positive sum of each tangential
+    /// solve's change in <see cref="IvpContactPoint.SlideWork"/> (<see cref="IvpTangentialSolve.SolveOncePerPair"/>).
+    /// </remarks>
+    public float StoredEnergy { get; internal set; }
+
+    /// <summary>
+    /// The contacts touching this pair — the array <c>SolveOncePerPsi</c> walks per pair (its own <c>+8</c>/count
+    /// <c>+2</c>), summing each contact's <c>NormalPush × Friction × &lt;an as-yet-unnamed +0x60 factor&gt;</c> into
+    /// the pair's own friction-cone budget before clamping and solving each one — see
+    /// <see cref="IvpTangentialSolve.SolveOncePerPair"/>.
+    /// </summary>
+    /// <remarks>
+    /// **Filed by <see cref="IvpFrictionLinking.LinkContactByCore"/>**, once per contact, the first time it links
+    /// into this pair. **Never removed** — the native's own drop (`FUN_180088090`'s bookkeeping when a mindist
+    /// stops colliding) is not ported; see `docs/HANDOFF.md`, item 3.
+    /// </remarks>
+    public IList<IvpContactPoint> Contacts { get; } = [];
 }
 
 /// <summary>
@@ -63,8 +87,26 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// <summary><c>CMP EAX, 0x90000</c>: past this many pulls in a row a streak starts again.</summary>
     private const short LongestPull = 9;
 
+    private IIvpUnitController[]? _faces;
+
     /// <summary>The environment — <c>+0x8</c>.</summary>
     public IvpImpactEnvironment Environment { get; } = environment ?? throw new ArgumentNullException(nameof(environment));
+
+    /// <summary>
+    /// The system's three controller faces, in the order a joining core files them — <c>+0x10</c> (priority 0), the system itself
+    /// at <c>+0x0</c> (600), and <c>+0x20</c> (2000).
+    /// </summary>
+    internal IReadOnlyList<IIvpUnitController> Faces =>
+        _faces ??=
+        [
+            new IvpNormalFrictionController(this),
+            new IvpFrictionController(this),
+            new IvpRecordFrictionController(
+                this,
+                Environment,
+                contact => Environment.ContactSides?.Invoke(contact)
+                    ?? throw new InvalidOperationException("A friction system's record controller ran with no way to measure a contact's sides.")),
+        ];
 
     /// <summary>The head of the contact list — <c>+0x40</c>.</summary>
     public IvpContactPoint? FirstContact { get; private set; }
@@ -84,6 +126,613 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// <summary>How many contacts at the head the solve leaves out — the signed word at <c>+0x7c</c>, which the solve zeroes first.</summary>
     public short LeftOut { get; private set; }
 
+    /// <summary>Whether a pair has been deleted since the last solve, so the system may have split — the byte at <c>+0x80</c>.</summary>
+    /// <remarks>
+    /// **Set by <see cref="RemoveContact"/> when a pair empties** (<c>FUN_180083e40</c>: `if FUN_180088130(system, cp) == 1:
+    /// system+0x80 = 1`), and read by the priority-0 controller, which clears it and runs the union-find
+    /// (<see cref="DetachedRoot"/>) to see whether the system now falls into two, splitting it when it does (<see cref="Split"/>).
+    /// Named for what it means rather than for the offset: losing a pair is the only thing that can
+    /// disconnect a system.
+    /// </remarks>
+    public bool SplitCheckDue { get; internal set; }
+
+    /// <summary>
+    /// Gives a core its share of the system, and adds it to <see cref="MovableCores"/> when it is not immovable —
+    /// <c>FUN_180087bf0</c> plus the share it links in, <c>FUN_180076690</c>.
+    /// </summary>
+    /// <param name="core">The core; must not already have a share of this system.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="core"/> is null.</exception>
+    /// <remarks>
+    /// **A movable core files the system's three controller faces** (<see cref="Faces"/>) on itself and its unit, as
+    /// `FUN_180087bf0` does. **A movable core's share replaces <see cref="IvpRigidBody.FrictionInfo"/> outright** — the native writes
+    /// <c>core+0x60</c> directly rather than merging — because a movable core belongs to exactly one system at a time.
+    /// </remarks>
+    internal void AddCore(IvpRigidBody core)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+
+        Join(core, new IvpFrictionInfo(this));
+    }
+
+    /// <summary>A core joins with a share — <c>FUN_180087bf0(system, core)</c> once its record is attached.</summary>
+    /// <remarks>
+    /// **A movable core files the system's three faces on itself** (`FUN_1800748b0` with `+0x10`, the system, `+0x20`), which is
+    /// what puts the friction controllers in its unit's PSI.
+    /// </remarks>
+    private void Join(IvpRigidBody core, IvpFrictionInfo share)
+    {
+        Cores.Add(core);
+
+        if (core.Immovable)
+        {
+            core.FrictionInfos[this] = share;
+            return;
+        }
+
+        core.FrictionInfo = share;
+        MovableCores.Add(core);
+
+        foreach (IIvpUnitController face in Faces)
+        {
+            IvpSimulationUnit.Register(core, face);
+        }
+    }
+
+    /// <summary>A core leaves — <c>FUN_180088c80(system, core)</c>, its share already detached.</summary>
+    /// <remarks>
+    /// **A movable core's faces leave its controllers and its unit's entries are marked stale** — bit 9 cleared and bit 8 set, so
+    /// the next PSI rebuilds them.
+    /// </remarks>
+    private void Leave(IvpRigidBody core)
+    {
+        Cores.Remove(core);
+
+        if (core.Immovable)
+        {
+            core.FrictionInfos.Remove(this);
+            return;
+        }
+
+        core.FrictionInfo = null;
+        MovableCores.Remove(core);
+
+        foreach (IIvpUnitController face in Faces)
+        {
+            core.Controllers.Remove(face);
+        }
+
+        if (core.Unit is { } unit)
+        {
+            unit.Flags = (unit.Flags & ~0x200) | 0x100;
+        }
+    }
+
+    /// <summary>Takes every contact and core of another system into this one — <c>FUN_180086240(target, source)</c>.</summary>
+    /// <param name="source">The system merged in; it is left empty.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (`docs/findings/51`, *Filing a contact into a friction system*):
+    /// <code>
+    /// every contact of source's list:  FUN_180088ce0 off it;  FUN_180088130 out of its pair;  FUN_180087c90, FUN_180088090 into target
+    /// every core of source, last first:
+    ///     a share in target already → its source contacts moved into that share, the source share gone (FUN_180077c10)
+    ///     else → the share detached (FUN_180079180), pointed at target, reattached;  FUN_180088c80 out of source;  joins target
+    /// source deletes itself (slot 7)
+    /// </code>
+    /// *The contact order a share's vector ends with after a move is not read*: they are appended here.
+    /// </remarks>
+    internal void Merge(IvpFrictionSystem source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        while (source.FirstContact is { } contact)
+        {
+            IvpRigidBody first = CoreOf(contact.FirstObject);
+            IvpRigidBody second = CoreOf(contact.SecondObject);
+
+            source.Unlink(contact);
+            source.RemoveFromPair(contact, first, second);
+            Link(contact);
+            FileInPair(contact, first, second);
+        }
+
+        for (int index = source.Cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = source.Cores[index];
+            IvpFrictionInfo moving = core.FrictionInfoIn(source)
+                ?? throw new InvalidOperationException("A core of a friction system has no share of it.");
+
+            source.Leave(core);
+
+            if (core.FrictionInfoIn(this) is { } kept)
+            {
+                kept.Contacts.AddRange(moving.Contacts);
+                continue;
+            }
+
+            Adopt(core, moving);
+        }
+    }
+
+    /// <summary>A core joins with the contacts of the share it brings — its share retargeted at this system.</summary>
+    private void Adopt(IvpRigidBody core, IvpFrictionInfo moving)
+    {
+        IvpFrictionInfo share = new(this);
+        share.Contacts.AddRange(moving.Contacts);
+        Join(core, share);
+    }
+
+    /// <summary>
+    /// The root of a set of movable cores that no longer touches the rest, or null — <c>FUN_1800877b0(system)</c>.
+    /// </summary>
+    /// <returns>The detached set's root, or null when every movable core is joined to the first.</returns>
+    /// <remarks>
+    /// **Read from the decompiler** (`docs/findings/51`, *The union-find*):
+    /// <code>
+    /// every core:  +0x258 = null
+    /// every pair, last first, neither core unmovable:  ra = A's root, rb = B's root;  ra != rb → rb+0x258 = ra   -- no path compression
+    /// R = the root of the lowest-index movable core
+    /// return the root of the lowest-index movable core whose root is not R, or null
+    /// </code>
+    /// **A pair with an immovable core joins nothing**, so two bodies resting on the same world are separate sets.
+    /// </remarks>
+    internal IvpRigidBody? DetachedRoot()
+    {
+        foreach (IvpRigidBody core in Cores)
+        {
+            core.UnionParent = null;
+        }
+
+        for (int index = Pairs.Count - 1; index >= 0; index--)
+        {
+            IvpFrictionPair pair = Pairs[index];
+
+            if (pair.FirstCore.Immovable || pair.SecondCore.Immovable)
+            {
+                continue;
+            }
+
+            IvpRigidBody first = RootOf(pair.FirstCore);
+            IvpRigidBody second = RootOf(pair.SecondCore);
+
+            if (!ReferenceEquals(first, second))
+            {
+                second.UnionParent = first;
+            }
+        }
+
+        IvpRigidBody? kept = null;
+
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            if (!Cores[index].Immovable)
+            {
+                kept = RootOf(Cores[index]);
+            }
+        }
+
+        IvpRigidBody? detached = null;
+
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            if (!Cores[index].Immovable && RootOf(Cores[index]) is var root && !ReferenceEquals(root, kept))
+            {
+                detached = root;
+            }
+        }
+
+        return detached;
+    }
+
+    /// <summary>Moves every detached set into a system of its own — <c>FUN_180086e80(system, root)</c>.</summary>
+    /// <param name="root">The detached set's root, as <see cref="DetachedRoot"/> answered it.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="root"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A moving pair's contact is not in this system's list, where the native asserts.</exception>
+    /// <remarks>
+    /// **Read from the decompiler** (`docs/findings/51`, *The split*):
+    /// <code>
+    /// do:
+    ///     T = a new system on the same environment
+    ///     every core, last first:  immovable → a new empty share of T, joins T
+    ///                              root is r → leaves S (FUN_180088c80), joins T (FUN_180087bf0), its share retargeted at T
+    ///     every pair, last first:  s = its immovable core if any, m = the other (else m = A)
+    ///         m's root is r → out of S's pairs (the last match), appended to T's
+    ///         every contact, last first:  must be in S's list (line 0x5ef);  off S's list, onto T's;  s's S share loses it, its T share gains it
+    ///     every immovable core, last first:  its T share empty → leaves T;  its S share empty → leaves S
+    ///     T under two cores → its first core's share detached, T deleted;  return
+    ///     S under two cores → the same for S;  return
+    ///     r = FUN_1800877b0(S)
+    /// while r
+    /// </code>
+    /// **The deletion (slot 7, `FUN_180087b20`) frees the system's vectors and nothing else** — it touches no core — so the lone
+    /// core only loses its share here. *Every movable core of a system holds a contact, whose other core lands in the same system,
+    /// so neither branch is reachable from the port's own filing.* The environment listeners told of each moving pair
+    /// (`FUN_180081f70`, `FUN_180081f10`) are not carried.
+    /// </remarks>
+    internal void Split(IvpRigidBody root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+
+        IvpRigidBody? detached = root;
+
+        while (detached is not null)
+        {
+            IvpFrictionSystem target = new(Environment);
+
+            for (int index = Cores.Count - 1; index >= 0; index--)
+            {
+                IvpRigidBody core = Cores[index];
+
+                if (core.Immovable)
+                {
+                    target.Join(core, new IvpFrictionInfo(target));
+                }
+                else if (ReferenceEquals(RootOf(core), detached))
+                {
+                    IvpFrictionInfo moving = core.FrictionInfoIn(this)
+                        ?? throw new InvalidOperationException("A core of a friction system has no share of it.");
+
+                    Leave(core);
+                    target.Adopt(core, moving);
+                }
+            }
+
+            for (int index = Pairs.Count - 1; index >= 0; index--)
+            {
+                MovePair(Pairs[index], detached, target);
+            }
+
+            for (int index = Cores.Count - 1; index >= 0; index--)
+            {
+                IvpRigidBody core = Cores[index];
+
+                if (!core.Immovable)
+                {
+                    continue;
+                }
+
+                if (core.FrictionInfoIn(target) is { Contacts.Count: 0 })
+                {
+                    target.Leave(core);
+                }
+
+                if (core.FrictionInfoIn(this) is { Contacts.Count: 0 })
+                {
+                    Leave(core);
+                }
+            }
+
+            if (target.Cores.Count < 2)
+            {
+                target.DetachLoneCore();
+                return;
+            }
+
+            if (Cores.Count < 2)
+            {
+                DetachLoneCore();
+                return;
+            }
+
+            detached = DetachedRoot();
+        }
+    }
+
+    /// <summary>One pair of <see cref="Split"/>'s walk: moved into the target with its contacts when its movable core is detached.</summary>
+    private void MovePair(IvpFrictionPair pair, IvpRigidBody detached, IvpFrictionSystem target)
+    {
+        IvpRigidBody moved = pair.FirstCore;
+        IvpRigidBody? world = null;
+
+        if (pair.FirstCore.Immovable)
+        {
+            world = pair.FirstCore;
+            moved = pair.SecondCore;
+        }
+        else if (pair.SecondCore.Immovable)
+        {
+            world = pair.SecondCore;
+        }
+
+        IvpFrictionInfo? left = world?.FrictionInfoIn(this);
+        IvpFrictionInfo? joined = world?.FrictionInfoIn(target);
+
+        if (!ReferenceEquals(RootOf(moved), detached))
+        {
+            return;
+        }
+
+        Pairs.RemoveAt(Pairs.LastIndexOf(pair));
+        target.Pairs.Add(pair);
+
+        for (int at = pair.Contacts.Count - 1; at >= 0; at--)
+        {
+            IvpContactPoint contact = pair.Contacts[at];
+
+            if (!ReferenceEquals(contact.FrictionSystem, this))
+            {
+                throw new InvalidOperationException(
+                    "A moving pair's contact is not in the system's list; the native asserts (ivp_friction.cxx, line 0x5ef).");
+            }
+
+            Unlink(contact);
+            target.Link(contact);
+
+            if (left is not null)
+            {
+                left.Contacts.RemoveAt(left.Contacts.LastIndexOf(contact));
+                joined!.Contacts.Add(contact);
+            }
+        }
+    }
+
+    /// <summary>A system left with one core lets go of it — <c>FUN_180077c10</c> on its first core's share, before the deletion.</summary>
+    private void DetachLoneCore()
+    {
+        IvpRigidBody core = Cores[0];
+
+        if (core.Immovable)
+        {
+            core.FrictionInfos.Remove(this);
+        }
+        else
+        {
+            core.FrictionInfo = null;
+        }
+    }
+
+    /// <summary>A core's set root along <see cref="IvpRigidBody.UnionParent"/>.</summary>
+    private static IvpRigidBody RootOf(IvpRigidBody core)
+    {
+        while (core.UnionParent is { } parent)
+        {
+            core = parent;
+        }
+
+        return core;
+    }
+
+    /// <summary>A contact onto its physical cores' pair, found in either order or made — <c>FUN_180088090(system, cp)</c>.</summary>
+    internal IvpFrictionPair FileInPair(IvpContactPoint contact, IvpRigidBody first, IvpRigidBody second)
+    {
+        if (PairFor(first, second) is not { } pair)
+        {
+            pair = new IvpFrictionPair(first, second);
+            AddPair(pair);
+        }
+
+        if (!pair.Contacts.Contains(contact))
+        {
+            pair.Contacts.Add(contact);
+        }
+
+        return pair;
+    }
+
+    /// <summary>Adds a pair to the system — <c>FUN_1800833d0</c>'s call site inside <c>FUN_180088090</c>.</summary>
+    /// <param name="pair">The pair.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="pair"/> is null.</exception>
+    internal void AddPair(IvpFrictionPair pair)
+    {
+        ArgumentNullException.ThrowIfNull(pair);
+        Pairs.Add(pair);
+    }
+
+    /// <summary>The system's existing pair for two cores, in either order, or null — <c>FUN_1800850b0</c>.</summary>
+    /// <param name="first">A core.</param>
+    /// <param name="second">The other core.</param>
+    /// <returns>The pair, or null when the two have none yet.</returns>
+    internal IvpFrictionPair? PairFor(IvpRigidBody first, IvpRigidBody second)
+    {
+        for (int index = Pairs.Count - 1; index >= 0; index--)
+        {
+            IvpFrictionPair candidate = Pairs[index];
+
+            if ((ReferenceEquals(candidate.FirstCore, first) && ReferenceEquals(candidate.SecondCore, second)) ||
+                (ReferenceEquals(candidate.FirstCore, second) && ReferenceEquals(candidate.SecondCore, first)))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Removes a contact from this system entirely — <c>FUN_180083e40(system, cp)</c>.</summary>
+    /// <param name="contact">The contact to remove.</param>
+    /// <param name="firstCore">The contact's first physical core.</param>
+    /// <param name="secondCore">Its second.</param>
+    /// <param name="now">The environment's time, <c>env+0x188</c>, which both cores' anchors are reset to.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">The cores have no pair, or a core no share of this system.</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (`docs/findings/51`, *Removing a contact point*), in this order and no other:
+    ///
+    /// <code>
+    /// FUN_180078820(core0); FUN_180078820(core1)   -- core+0x200 = core+0x208 = env+0x188
+    /// FUN_180088ce0(system, cp)                    -- off the system's list
+    /// if FUN_180088130(system, cp) == 1:  system+0x80 = 1   -- the pair emptied and was deleted
+    /// info0, info1 = FUN_180077f00(core, system);  each loses cp, and an emptied share takes its core out
+    /// FUN_180083210(cp);  free(cp, 0xd0)
+    /// </code>
+    ///
+    /// **The anchor reset comes first and it is not incidental**: both cores are told they moved now, so the rest test
+    /// (<see cref="IvpRigidBody.TestRest"/>) cannot call a core settled on the strength of an anchor older than the
+    /// contact that has just gone.
+    ///
+    /// **The destructor is not carried.** `FUN_180083210` releases each synapse's ledge through its surface manager and
+    /// tells the environment's listeners; this port holds neither, and the contact is simply dropped for collection.
+    /// </remarks>
+    internal void RemoveContact(
+        IvpContactPoint contact, IvpRigidBody firstCore, IvpRigidBody secondCore, double now)
+    {
+        ArgumentNullException.ThrowIfNull(contact);
+        ArgumentNullException.ThrowIfNull(firstCore);
+        ArgumentNullException.ThrowIfNull(secondCore);
+
+        // `FUN_180078820(core)` on each, before anything is unlinked.
+        firstCore.RestAnchorTime = now;
+        firstCore.SettleAnchorTime = now;
+        secondCore.RestAnchorTime = now;
+        secondCore.SettleAnchorTime = now;
+
+        Unlink(contact);
+
+        if (RemoveFromPair(contact, firstCore, secondCore))
+        {
+            SplitCheckDue = true;
+        }
+
+        RemoveCoreContact(contact, firstCore);
+        RemoveCoreContact(contact, secondCore);
+
+        // `FUN_180083210`'s last step: both friction synapses off their objects' `+0x50` lists.
+        contact.FirstObject.ContactPoints.Remove(contact);
+        contact.SecondObject.ContactPoints.Remove(contact);
+    }
+
+    /// <summary>
+    /// Measures a pair's contacts again and removes the ones now outside their features — <c>FUN_180083b30(pair, system)</c>.
+    /// </summary>
+    /// <param name="pair">The pair, in this system.</param>
+    /// <param name="sides">Each contact's two ledge sides where their objects are now — the cache objects the builder refreshes.</param>
+    /// <param name="materials">The material manager <see cref="IvpContactPoint.SetMaterials"/> reads.</param>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <param name="skip">A contact left alone — the collided one, when the island build runs this inline.</param>
+    /// <returns>How many contacts the pair has left.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// for i = pair+0x2 − 1 down to 0:  cp = pair+0x8[i]
+    ///     FUN_18008d0c0(cp, pair+0x38 core+0x10);  FUN_1800908d0(cp)
+    ///     if record+0x76 == 1:  FUN_180083e40 inline
+    /// return pair+0x2
+    /// </code>
+    /// **Last to first**, so a removal never shifts a contact not yet visited. *The side lookup is a parameter because the
+    /// cache objects (`core+0x10`) are not carried yet*; the collision path hands the builder its sides the same way.
+    /// </remarks>
+    internal short RevalidatePair(
+        IvpFrictionPair pair,
+        Func<IvpContactPoint, (IvpLedgeSide First, IvpLedgeSide Second)> sides,
+        IIvpMaterialManager materials,
+        double now,
+        IvpContactPoint? skip = null)
+    {
+        ArgumentNullException.ThrowIfNull(pair);
+        ArgumentNullException.ThrowIfNull(sides);
+        ArgumentNullException.ThrowIfNull(materials);
+
+        for (int index = pair.Contacts.Count - 1; index >= 0; index--)
+        {
+            IvpContactPoint contact = pair.Contacts[index];
+
+            // The island build's inline copy (`FUN_180090700`) walks every contact of the pair but the one that collided.
+            if (ReferenceEquals(contact, skip))
+            {
+                continue;
+            }
+
+            (IvpLedgeSide first, IvpLedgeSide second) = sides(contact);
+
+            IvpContactRecord record = IvpContactRecord.Build(
+                contact,
+                new IvpContactBody(first, CoreOf(contact.FirstObject), contact.FirstObject.ExtraRadius),
+                new IvpContactBody(second, CoreOf(contact.SecondObject), contact.SecondObject.ExtraRadius),
+                now);
+            contact.SetMaterials(materials);
+
+            if (record.Outside)
+            {
+                RemoveContact(contact, pair.FirstCore, pair.SecondCore, now);
+            }
+        }
+
+        return (short)pair.Contacts.Count;
+
+        static IvpRigidBody CoreOf(IvpCollisionObject collisionObject) =>
+            collisionObject.Core ?? throw new InvalidOperationException("A friction contact's object has no core.");
+    }
+
+    /// <summary>
+    /// Takes a contact off its pair and deletes the pair when it empties — <c>FUN_180088130(system, cp)</c>.
+    /// </summary>
+    /// <param name="contact">The contact being removed.</param>
+    /// <param name="firstCore">One of the contact's two physical cores.</param>
+    /// <param name="secondCore">The other.</param>
+    /// <returns><c>true</c> when the pair emptied and was removed, <c>false</c> when contacts remain on it.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">The two cores have no pair — the native asserts here (line <c>0x299</c>).</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (`docs/findings/51`, *Removing a contact point*): the pair of the two cores is
+    /// found in either order (<see cref="PairFor"/>, <c>FUN_1800863f0</c>), the contact is taken off its contact vector
+    /// (<c>FUN_180083da0</c>, an ordered removal), and when none remain — <c>FUN_180086b30</c> is that vector's count —
+    /// the pair leaves the system (<c>FUN_180083db0</c>) and is freed.
+    ///
+    /// **The environment listeners `FUN_180083db0` tells (`FUN_180081f70`) are not carried**, for the same reason none of
+    /// this port's listeners are: nothing in a corpse's own simulation subscribes. Cores are passed in rather than read
+    /// off the contact's objects, matching <see cref="IvpFrictionLinking.LinkContactByCore"/> — this project models the
+    /// object-to-core link nowhere else.
+    /// </remarks>
+    internal bool RemoveFromPair(IvpContactPoint contact, IvpRigidBody firstCore, IvpRigidBody secondCore)
+    {
+        ArgumentNullException.ThrowIfNull(contact);
+        ArgumentNullException.ThrowIfNull(firstCore);
+        ArgumentNullException.ThrowIfNull(secondCore);
+
+        IvpFrictionPair pair = PairFor(firstCore, secondCore)
+            ?? throw new InvalidOperationException(
+                "The two cores have no pair in this system; the native asserts (FUN_1800863f0, line 0x299).");
+
+        pair.Contacts.Remove(contact);
+
+        if (pair.Contacts.Count == 0)
+        {
+            Pairs.Remove(pair);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Takes a contact out of one core's share of this system, dropping the share and the core when it empties —
+    /// <c>FUN_180075130</c> then <c>FUN_180077c10</c>/<c>FUN_180088c80</c> inside <c>FUN_180083e40</c>.
+    /// </summary>
+    /// <param name="contact">The contact being removed.</param>
+    /// <param name="core">One of the contact's two physical cores.</param>
+    /// <returns><c>true</c> when the core's share emptied and the core left the system, <c>false</c> when contacts remain.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">The core has no share of this system — <c>FUN_180077f00</c> returned null.</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (`docs/findings/51`, *Removing a contact point* and *What a core keeps per system*): the
+    /// core's share is found (<see cref="IvpRigidBody.FrictionInfoIn"/>, <c>FUN_180077f00</c>), the contact leaves its ordered
+    /// contact vector (<c>FUN_180075130</c>), and an emptied share is detached from the core (<c>FUN_180077c10</c>) as the core
+    /// leaves the system (<c>FUN_180088c80</c>).
+    ///
+    /// **The inverse of <see cref="AddCore"/>**: `FUN_180088c80` also takes the system's three controller faces off a movable
+    /// core and clears bit 9 / sets bit 8 of its unit's dword, so the unit's entries are rebuilt without them.
+    /// </remarks>
+    internal bool RemoveCoreContact(IvpContactPoint contact, IvpRigidBody core)
+    {
+        ArgumentNullException.ThrowIfNull(contact);
+        ArgumentNullException.ThrowIfNull(core);
+
+        IvpFrictionInfo info = core.FrictionInfoIn(this)
+            ?? throw new InvalidOperationException(
+                "The core has no share of this system; FUN_180077f00 returned null where the removal dereferences it.");
+
+        info.Contacts.Remove(contact);
+
+        if (info.Contacts.Count != 0)
+        {
+            return false;
+        }
+
+        Leave(core);
+
+        return true;
+    }
+
     /// <summary>A contact filed at the head of the list — <c>FUN_180087c90(system, cp)</c>.</summary>
     /// <param name="point">The contact.</param>
     /// <exception cref="ArgumentNullException"><paramref name="point"/> is null.</exception>
@@ -102,6 +751,38 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
 
         FirstContact = point;
         ContactCount++;
+    }
+
+    /// <summary>A contact taken out of the list — <c>FUN_180088ce0(system, cp)</c>, the inverse of <see cref="Link"/>.</summary>
+    /// <param name="point">The contact; must be filed in this system's list.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="point"/> is null.</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (`docs/findings/51`, *Removing a contact point*): `cp+0x0` is the next link,
+    /// `cp+0x8` the previous, the head is `system+0x40`, and `system+0x7a` (the contact count) drops by one. The
+    /// removed contact's own links are cleared so a freed record cannot be walked back into.
+    /// </remarks>
+    internal void Unlink(IvpContactPoint point)
+    {
+        ArgumentNullException.ThrowIfNull(point);
+
+        if (point.Previous is { } before)
+        {
+            before.Next = point.Next;
+        }
+        else
+        {
+            FirstContact = point.Next;
+        }
+
+        if (point.Next is { } after)
+        {
+            after.Previous = point.Previous;
+        }
+
+        point.Next = null;
+        point.Previous = null;
+        point.FrictionSystem = null;
+        ContactCount--;
     }
 
     /// <summary>The list insertion-sorted by push streak, most pushed first — <c>FUN_1800a9bf0</c>'s first loop.</summary>
@@ -142,10 +823,11 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// +0x7a == 0 → the controller forgets the system, which deletes itself (slot 7);  the event's unit: bit 9 cleared, bit 8 set
     /// else +0x80 set → cleared;  r = FUN_1800877b0;  r → FUN_180086e80 (the split), and r's unit: bit 9 cleared, bit 8 set
     /// </code>
-    /// *Not carried yet: the deletion and the split, which land with the filing routines and the simulation units.*
+    /// The deletion and the split are the normal controller's (<see cref="IvpNormalFrictionController"/>).
     /// </remarks>
     internal void SolveNormalPushes(float inverseStep)
     {
+
         if (ContactCount <= 1)
         {
             SolveOne(inverseStep);
@@ -175,6 +857,8 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     internal void SolveHeap(float inverseStep)
     {
         SortContacts();
+
+        File();
         LeftOut = 0;
 
         if (ContactCount > MostContacts && Environment.Anomalies.MaximumContactsExceeded(Cores))
@@ -257,10 +941,17 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         {
             point.NormalPush = (float)IvpMath.Mulsd(inverseStep, push);
             record.Apply(push);
-            return;
+        }
+        else
+        {
+            point.NormalPush = 0f;
         }
 
-        point.NormalPush = 0f;
+        // `COMISS block[0x47], gap; JBE`: at or past the resting gap, a NaN gap included, or measured outside its feature.
+        if (!(IvpCollisionTolerance.RestingContactGap > point.Gap) || record.Outside)
+        {
+            RemoveContact(point, CoreOf(point.FirstObject), CoreOf(point.SecondObject), Environment.Now);
+        }
     }
 
     /// <summary>Two neighbours exchanged, <paramref name="after"/> moving ahead of <paramref name="before"/>.</summary>
@@ -279,6 +970,45 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         before.Previous = after;
         after.Next = before;
     }
+
+    /// <summary>The heap's filing pass between its sort and its solve — <c>FUN_1800a9bf0</c>.</summary>
+    /// <remarks>
+    /// <code>
+    /// every contact, the next saved first (gap = cp+0x8c, float):
+    ///     gap ≥ block[0x47] (COMISS/JNC — a NaN gap does NOT take this) or record+0x76 == 1 → FUN_180083e40(system, cp)
+    ///     else gap > block[0x46] + block[0x43] (ADDSS) and (byte [(cp+0x48)+0xf0] &amp; byte [(cp+0x20)+0xf0]) &amp; 1   -- each friction core's first byte
+    ///         → FUN_180088ce0 then FUN_180087c90: unlinked and linked again at the head
+    /// </code>
+    /// </remarks>
+    private void File()
+    {
+        float front = IvpCollisionTolerance.FrontGap + IvpCollisionTolerance.ContactGap;
+        IvpContactPoint? point = FirstContact;
+
+        while (point is not null)
+        {
+            IvpContactPoint? next = point.Next;
+            IvpContactRecord record = point.Record ?? throw new InvalidOperationException("A filed contact has no record.");
+            IvpRigidBody first = CoreOf(point.FirstObject);
+            IvpRigidBody second = CoreOf(point.SecondObject);
+
+            if (point.Gap >= IvpCollisionTolerance.RestingContactGap || record.Outside)
+            {
+                RemoveContact(point, first, second, Environment.Now);
+            }
+            else if (point.Gap > front && FrictionCoreOf(point.FirstObject).FlagBit0 && FrictionCoreOf(point.SecondObject).FlagBit0)
+            {
+                Unlink(point);
+                Link(point);
+            }
+
+            point = next;
+        }
+    }
+
+    /// <summary>An object's friction core, <c>+0xf0</c> — the byte the filing pass tests is its first.</summary>
+    private static IvpRigidBody FrictionCoreOf(IvpCollisionObject collisionObject) =>
+        collisionObject.FrictionCore ?? throw new InvalidOperationException("A contact's object has no friction core, where the filing pass dereferences it.");
 
     private static IvpRigidBody CoreOf(IvpCollisionObject collisionObject) =>
         collisionObject.Core ?? throw new InvalidOperationException("A contact's object has no core.");

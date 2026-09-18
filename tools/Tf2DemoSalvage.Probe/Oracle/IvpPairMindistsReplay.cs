@@ -159,16 +159,18 @@ public static class IvpPairMindistsReplay
     /// <param name="inputs">The case's inputs.</param>
     /// <param name="environment">The environment they belong to.</param>
     /// <param name="lanes">Filled with each tree's node lanes by node.</param>
+    /// <param name="surfaces">Each side's surface bytes, or null for <see cref="IvpLedgeTreeReplay.Surface(IReadOnlyDictionary{string, long[]}, string, int)"/>'s stubs.</param>
     /// <returns>The objects.</returns>
     /// <exception cref="InvalidDataException">A synthesized surface does not read as a tree.</exception>
     internal static IvpCollisionObject[] NewObjects(
-        IReadOnlyDictionary<string, long[]> inputs, IvpCollisionEnvironment environment, Dictionary<PhysicsLedgeTreeNode, int>[] lanes)
+        IReadOnlyDictionary<string, long[]> inputs, IvpCollisionEnvironment environment, Dictionary<PhysicsLedgeTreeNode, int>[] lanes,
+        Func<IReadOnlyDictionary<string, long[]>, int, (byte[] Surface, int[] Nodes, int[] Ledges)>? surfaces = null)
     {
         IvpCollisionObject[] objects = new IvpCollisionObject[2];
 
         for (int side = 0; side < 2; side++)
         {
-            (byte[] surface, int[] nodes, _) = IvpLedgeTreeReplay.Surface(inputs, Suffix(side), StubSize);
+            (byte[] surface, int[] nodes, _) = surfaces is null ? IvpLedgeTreeReplay.Surface(inputs, Suffix(side), StubSize) : surfaces(inputs, side);
             PhysicsLedgeTree tree = PhysicsHull.Tree(surface) ?? throw new InvalidDataException("A synthesized surface read as no tree.");
 
             for (int index = 0; index < NodeCount; index++)

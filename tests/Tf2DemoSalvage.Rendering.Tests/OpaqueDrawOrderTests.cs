@@ -43,6 +43,26 @@ public sealed class OpaqueDrawOrderTests
     private static ModelInstance Sized(string name, float side) =>
         new(name, Identity(), null, null, WorldBounds: Cube(side));
 
+    /// <summary>That the buffered form, reused across frames, keeps nothing from the frame before.</summary>
+    /// <remarks>
+    /// **The device reuses one pair of lists every frame**, so a missing clear would draw last
+    /// frame's models again. The second scene is smaller and in a different order, so a leftover
+    /// entry or a leftover key both change the answer.
+    /// </remarks>
+    [Test]
+    public void InDrawOrder_WithBuffersReusedForASecondScene_HoldsOnlyTheSecondScene()
+    {
+        List<(int Bucket, int Order, ModelInstance Instance)> keyed = [];
+        List<ModelInstance> ordered = [];
+
+        OpaqueBuckets.InDrawOrder(
+            [Sized("tiny", 10f), Sized("crate", 50f), Sized("tree", 400f)], default, keyed, ordered);
+
+        OpaqueBuckets.InDrawOrder([Sized("small", 10f), Sized("big", 100f)], default, keyed, ordered);
+
+        ordered.Select(instance => instance.ModelPath).ShouldBe(["big", "small"]);
+    }
+
     /// <summary>That the biggest bucket is drawn first and the smallest last.</summary>
     /// <remarks>
     /// **Handed in reverse, so list order cannot produce this answer.** If the sort were absent the

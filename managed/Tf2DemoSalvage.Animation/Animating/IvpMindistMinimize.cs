@@ -35,7 +35,7 @@ public readonly record struct IvpSynapse(IvpLedgeEdge Feature, IvpFeatureKind Ki
 /// `+0x20`, whose bits 8–9 name synapse A; the two synapse records from `+0x28`; the extra radius at `+0x98`; `+0x9c`;
 /// the length at `+0xa8`; the normal at `+0xb0`; and the step the minimize last ran in, at `+0xc0`.
 /// </remarks>
-public sealed class IvpMindist : IvpCollision, IIvpTimeEvent
+public class IvpMindist : IvpCollision, IIvpTimeEvent
 {
     private const int PhantomBits = 0xc00;
     private const int PhantomKeeps = unchecked((int)0xfffcf3ff);
@@ -117,6 +117,18 @@ public sealed class IvpMindist : IvpCollision, IIvpTimeEvent
     /// <summary>What the mindist tells when it goes, <c>+0x10</c>, or null.</summary>
     public IIvpCollisionDelegator? Delegator { get; set; }
 
+    /// <summary>
+    /// The persistent friction contact this mindist collides through, <c>+0x70</c>, or null before the pair's first
+    /// collision.
+    /// </summary>
+    /// <remarks>
+    /// **Not a per-collision value.** `FUN_18008d0c0` caches the record here and keeps it while the pair stays
+    /// close, so the same <see cref="IvpContactPoint"/> is measured again on every collision rather than rebuilt —
+    /// which is what lets its <see cref="IvpContactPoint.Slide"/> and <see cref="IvpContactPoint.PushStreak"/> warm
+    /// the next solve from the last one instead of starting from nothing.
+    /// </remarks>
+    public IvpContactPoint? ContactPoint { get; set; }
+
     /// <inheritdoc/>
     /// <exception cref="InvalidOperationException">A record was never given its object.</exception>
     public override (IvpCollisionObject First, IvpCollisionObject Second) Objects =>
@@ -193,6 +205,36 @@ public sealed class IvpMindist : IvpCollision, IIvpTimeEvent
         }
 
         Delegator?.CollisionRemoved(this);
+    }
+
+    /// <summary>Slot 7 (<c>+0x38</c>): what a frozen minimize makes of the mindist — <c>FUN_180097440</c> for a plain one.</summary>
+    /// <param name="manager">The environment's mindist manager.</param>
+    /// <param name="queue">The time manager's queue, which an exact mindist leaves when it is unfiled.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">A record has no object, or the mindist is not exact.</exception>
+    /// <remarks>
+    /// **Called through the mindist's own table** — by `FUN_1800977f0` at `180097914`, by `FUN_1800983e0` and by `FUN_180098710` — so
+    /// a plain mindist is unfiled and made invalid (<see cref="IvpMindistManager.Invalidate"/>) and a larger one opens its ledge
+    /// instead.
+    /// </remarks>
+    public virtual void Freeze(IvpMindistManager manager, IvpMinList<IvpMindist> queue)
+    {
+        ArgumentNullException.ThrowIfNull(manager);
+
+        (IvpCollisionObject first, IvpCollisionObject second) = Objects;
+
+        manager.Invalidate(this, first, second, queue);
+    }
+
+    /// <summary>Slot 8 (<c>+0x40</c>): the collision event <c>FUN_1800992e0</c> raises — <c>FUN_18008ecb0</c> for a plain one.</summary>
+    /// <param name="impact">The plain mindist's collision, <c>FUN_18008ecb0</c>, which is not ported and is handed in.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="impact"/> is null.</exception>
+    /// <remarks>A larger mindist's slot 8 opens its ledge when the contact is on a hull's face or edge, and runs this otherwise.</remarks>
+    public virtual void Collide(Action<IvpMindist> impact)
+    {
+        ArgumentNullException.ThrowIfNull(impact);
+
+        impact(this);
     }
 }
 

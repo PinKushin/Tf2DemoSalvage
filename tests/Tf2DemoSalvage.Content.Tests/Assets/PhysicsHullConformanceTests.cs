@@ -91,6 +91,40 @@ public sealed class PhysicsHullConformanceTests
     }
 
     /// <remarks>
+    /// **A tagged solid's drag areas are the header's three floats at `+0x0C`** — `FUN_18000a100` copies them over the collide's
+    /// `+0x10..0x18` after building it, as `swapcompactsurfaceheader_t::dragAxisAreas` (`common/studiobyteswap.cpp:433-443`), with
+    /// no turn and no scale.
+    /// </remarks>
+    [Test]
+    public void DragAxisAreas_ATaggedSolid_AreTheHeadersThreeFloats()
+    {
+        byte[] solid = Solid(Triangle, [(0, 1, 2)], dragAxisAreas: new Vector3(2f, 3f, 5f));
+
+        PhysicsHull.DragAxisAreas(solid).ShouldBe(new Vector3(2f, 3f, 5f));
+    }
+
+    /// <remarks>
+    /// **An untagged solid keeps the collide constructor's default, one on each axis** — `FUN_18000bcf0` writes `1.0f` to all three
+    /// and the untagged branch never overwrites them.
+    /// </remarks>
+    [Test]
+    public void DragAxisAreas_AnUntaggedSolid_AreOneOnEachAxis()
+    {
+        byte[] solid = Solid(Triangle, [(0, 1, 2)], tagged: false);
+
+        PhysicsHull.DragAxisAreas(solid).ShouldBe(Vector3.One);
+    }
+
+    /// <remarks>**A solid the loader builds no collide from has none** — `CollideGetOrthographicAreas` answers zero for it.</remarks>
+    [Test]
+    public void DragAxisAreas_ANullPhysicsModel_AreNone()
+    {
+        byte[] solid = Solid(Triangle, [(0, 1, 2)], version: 0, type: 1, dragAxisAreas: new Vector3(2f, 3f, 5f));
+
+        PhysicsHull.DragAxisAreas(solid).ShouldBeNull();
+    }
+
+    /// <remarks>
     /// **Type 1 is `DevMsg(2, "Null physics model")` and a NULL collide** (B404): no hull, and no surface for the
     /// mass properties to come from. The word at `+4` is left zero so a reader taking the type from there builds it.
     /// </remarks>
@@ -343,6 +377,139 @@ public sealed class PhysicsHullConformanceTests
         PhysicsHull.Read(solid)[0].PierceTriangles.ShouldBe([1, 0xFFF]);
     }
 
+    /// <remarks>
+    /// **A triangle's header word carries bit 31 on its own, and the larger mindist's slot 8 reads it as the word's sign**
+    /// (B369): `FUN_1800b2460` compares the header at `feature &amp; ~0xf` with zero, and a negative header marks the triangle as
+    /// part of a hull enclosing child ledges (`docs/findings/51`, *The larger mindist in full*). The second triangle sets
+    /// every other upper bit — the material index in bits 24–30 — so a read of the whole top byte, or of the material, gives
+    /// a different answer.
+    /// </remarks>
+    [Test]
+    public void Read_ATrianglesHeaderBit31_IsCarriedAsVirtual()
+    {
+        byte[] solid = Solid(
+            Triangle,
+            [(0, 1, 2), (0, 2, 1)],
+            headers: [0x8000_0000u, 0x7F00_0001u]);
+
+        PhysicsHull.Read(solid)[0].VirtualTriangles.ShouldBe([true, false]);
+    }
+
+    /// <remarks>
+    /// **An edge word's bit 31 is carried per slot, apart from the offset in bits 16–30** (B369): `FUN_1800b2460` compares an
+    /// edge feature's own word with zero. The outer edges set every offset bit (`−1`) with bit 31 clear, and the middle edge
+    /// sets bit 31, so a sign read of the offset, or a flag taken from the wrong slot, gives a different answer.
+    /// </remarks>
+    [Test]
+    public void Read_AnEdgeWordsBit31_IsCarriedAsVirtualPerSlot()
+    {
+        byte[] solid = Solid(
+            Triangle,
+            [(0, 1, 2)],
+            edgeOffsets: [(-1, 2, -1)],
+            highBit: true);
+
+        PhysicsLedge ledge = PhysicsHull.Read(solid)[0];
+
+        ledge.VirtualEdges.ShouldBe([(false, true, false)]);
+        ledge.EdgeOffsets[0].ShouldBe((-1, 2, -1), "the offsets are unchanged by the flag");
+    }
+
+    /// <remarks>
+    /// **Every tree node with a ledge carries it decoded, an inner node's hull as much as a leaf's ledge** (B369). The larger
+    /// mindist opens a hull ledge and reads its triangles' and edges' bit 31 (`FUN_1800b2460`), so a hull must be read by the
+    /// same reader as a leaf — here all three nodes name one ledge, and each must decode it exactly as `Read` does.
+    /// </remarks>
+    [Test]
+    public void Tree_AnInnerNodesHull_IsDecodedLikeALeafsLedge()
+    {
+        byte[] surface = InnerTree();
+
+        PhysicsLedgeTree tree = PhysicsHull.Tree(surface).ShouldNotBeNull();
+        PhysicsLedgeTreeNode[] nodes = [tree.Root, tree.Root.Left.ShouldNotBeNull(), tree.Root.Right.ShouldNotBeNull()];
+
+        foreach (PhysicsLedgeTreeNode node in nodes)
+        {
+            PhysicsLedge ledge = node.Ledge.ShouldNotBeNull();
+
+            ledge.Triangles.ShouldBe([(0, 1, 2)]);
+            ledge.Points[2].ShouldBe(new Vector3(7f, 8f, 9f));
+            ledge.VirtualTriangles.ShouldBe([true]);
+            ledge.VirtualEdges.ShouldBe([(false, true, false)]);
+        }
+    }
+
+    /// <remarks>
+    /// **A ledge whose `+0x4` word is zero names no node** (B369): `FUN_1800b2700` and `FUN_1800b2460` find a ledge's node as
+    /// `ledge + ledge+0x4` and take a zero word as none, whose radius they read as `1e15f` (`docs/findings/51`, *The larger
+    /// mindist in full*). Read as an offset, a zero would name the ledge's own address, which is no node at all.
+    /// </remarks>
+    [Test]
+    public void Tree_ALedgeWhoseNodeWordIsZero_NamesNoNode()
+    {
+        byte[] surface = Solid(Triangle, [(0, 1, 2)], tagged: false);
+
+        PhysicsLedgeTreeNode root = PhysicsHull.Tree(surface).ShouldNotBeNull().Root;
+
+        root.LedgeNodeOffset.ShouldBeNull();
+        root.LedgeNode.ShouldBeNull();
+    }
+
+    /// <remarks>The control on the one above: a ledge whose word names its node carries that node's offset, and the node.</remarks>
+    [Test]
+    public void Tree_ALedgeNamingItsNode_CarriesTheNodesOffsetAndTheNode()
+    {
+        byte[] surface = Solid(Triangle, [(0, 1, 2)], tagged: false);
+        int treeAt = surface.Length - 0x1C;
+
+        Write(surface, 0x30 + 4, treeAt - 0x30);
+
+        PhysicsLedgeTree tree = PhysicsHull.Tree(surface).ShouldNotBeNull();
+
+        tree.Root.LedgeNodeOffset.ShouldBe(treeAt);
+        tree.Root.LedgeNode.ShouldBeSameAs(tree.Root);
+    }
+
+    /// <remarks>
+    /// **A ledge whose word names an offset where no node lies carries the offset but no node** (B369): the engine would read
+    /// the bytes there as a node, which the larger mindist refuses to do rather than take a radius from a triangle. Here the word
+    /// names the ledge's first triangle.
+    /// </remarks>
+    [Test]
+    public void Tree_ALedgeNamingNoNodesOffset_CarriesTheOffsetButNoNode()
+    {
+        byte[] surface = Solid(Triangle, [(0, 1, 2)], tagged: false);
+
+        Write(surface, 0x30 + 4, 0x10);
+
+        PhysicsLedgeTreeNode root = PhysicsHull.Tree(surface).ShouldNotBeNull().Root;
+
+        root.LedgeNodeOffset.ShouldBe(0x40);
+        root.LedgeNode.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// An untagged surface whose root is an inner node with a hull ledge and two leaf children, every node naming the one
+    /// ledge — triangle header bit 31 set, and bit 31 on the middle edge.
+    /// </summary>
+    private static byte[] InnerTree()
+    {
+        byte[] single = Solid(Triangle, [(0, 1, 2)], headers: [0x8000_0000u], highBit: true, tagged: false);
+        byte[] surface = new byte[single.Length + (2 * 0x1C)];
+        int root = single.Length - 0x1C;
+        const int ledge = 0x30;
+
+        single.CopyTo(surface, 0);
+        Write(surface, root, 2 * 0x1C);
+        Write(surface, root + 0x1C + 4, ledge - (root + 0x1C));
+        Write(surface, root + 0x38 + 4, ledge - (root + 0x38));
+
+        return surface;
+    }
+
+    /// <summary>Writes a little-endian int.</summary>
+    private static void Write(byte[] bytes, int at, int value) => BitConverter.GetBytes(value).CopyTo(bytes, at);
+
     /// <summary>Where the ledge is written in a tagged solid, from its <c>VPHY</c> tag.</summary>
     private const int LedgeAt = 0x1C + 0x30;
 
@@ -371,7 +538,8 @@ public sealed class PhysicsHullConformanceTests
         bool tagged = true,
         short version = 0x100,
         short type = 0,
-        int? dataSize = null)
+        int? dataSize = null,
+        Vector3 dragAxisAreas = default)
     {
         int surfaceAt = tagged ? 0x1C : 0;
         int ledgeAt = surfaceAt + 0x30;
@@ -387,6 +555,9 @@ public sealed class PhysicsHullConformanceTests
             BitConverter.GetBytes(version).CopyTo(solid, 0x04);
             BitConverter.GetBytes(type).CopyTo(solid, 0x06);
             BitConverter.GetBytes(dataSize ?? solid.Length - 0x1C).CopyTo(solid, 0x08);
+            BitConverter.GetBytes(dragAxisAreas.X).CopyTo(solid, 0x0C);
+            BitConverter.GetBytes(dragAxisAreas.Y).CopyTo(solid, 0x10);
+            BitConverter.GetBytes(dragAxisAreas.Z).CopyTo(solid, 0x14);
         }
 
         // IVP_Compact_Surface: the mass center and rotation inertia lead it, then the tree offset and the

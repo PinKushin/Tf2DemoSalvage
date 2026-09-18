@@ -1896,6 +1896,30 @@ public static class PropModels
             return renumbered;
         }
 
+        /// <summary>An animation's IK rules, read once.</summary>
+        /// <param name="group">Which included model the animation belongs to.</param>
+        /// <param name="animation">The animation index within that group.</param>
+        /// <returns>The rules, or nothing when the animation declares none.</returns>
+        /// <remarks>
+        /// **Cached because the rules are fixed data in the file** and the IK pass asked for them on
+        /// every pose of every player — parsing the same bytes into a fresh array each time,
+        /// measured at 18 MB a second of garbage on f12. Keyed like <see cref="BonesOf"/>, per group.
+        /// </remarks>
+        public IReadOnlyList<StudioIkRule> IkRules(int group, int animation)
+        {
+            if (_ikRules.TryGetValue((group, animation), out IReadOnlyList<StudioIkRule>? cached))
+            {
+                return cached;
+            }
+
+            IReadOnlyList<StudioIkRule> read = StudioIkRules.Read(Models[group], animation);
+
+            _ikRules[(group, animation)] = read;
+            return read;
+        }
+
+        private readonly Dictionary<(int Group, int Animation), IReadOnlyList<StudioIkRule>> _ikRules = [];
+
         private readonly Dictionary<int, IReadOnlyList<StudioBone>> _bonesByGroup = [];
         private readonly Dictionary<int, int[]> _remapByGroup = [];
 

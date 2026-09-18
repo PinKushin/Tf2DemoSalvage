@@ -114,6 +114,9 @@ public readonly record struct RagdollElement(
     /// </remarks>
     public required Vector3 MassCenter { get; init; }
 
+    /// <summary>The solid's <c>objectparams_t::dragCoefficient</c> — the <c>.phy</c>'s own, or the engine's default when it omits it.</summary>
+    public float DragCoefficient { get; init; }
+
     /// <summary>The hull's rotational inertia per kilogram about this element's own axes, in Source units squared (B403).</summary>
     /// <remarks>
     /// **The core's inertia is this times the inertia scale times the mass**, per axis, floored at
@@ -124,6 +127,28 @@ public readonly record struct RagdollElement(
     /// object. <see cref="RagdollBody.Build"/> refuses such a solid rather than inventing a number.
     /// </remarks>
     public required Vector3 HullInertia { get; init; }
+
+    /// <summary>
+    /// The element's ledges, undiscarded — the same <see cref="PhysicsLedge"/>s <see cref="Hull"/>/<see cref="Faces"/> are
+    /// flattened from, kept whole for what a real mindist needs (B369).
+    /// </summary>
+    /// <remarks>
+    /// **Carried so a later port can build a real ledge-tree hull for a ragdoll body, not only the world.**
+    /// <see cref="IvpMindist"/> and <see cref="IvpLedgeSide.FromLedge"/> both need a <see cref="PhysicsLedge"/>'s
+    /// triangles, edge offsets and material indices — data <see cref="Hull"/>/<see cref="Faces"/> already discard once
+    /// flattened. Not yet consumed anywhere; see `docs/HANDOFF.md`, item 3.
+    /// </remarks>
+    public IReadOnlyList<PhysicsLedge> Ledges { get; init; } = [];
+
+    /// <summary>The surface's mass centre as the file stores it — IVP metres and axes, in the solid's frame.</summary>
+    /// <remarks>What the engine reads (<c>FUN_180073df0</c>); <see cref="MassCenter"/> is this carried into Source.</remarks>
+    public Vector3 IvpMassCenter { get; init; }
+
+    /// <summary>The surface's rotation inertia per kilogram as the file stores it — IVP axes, square metres.</summary>
+    public Vector3 IvpHullInertia { get; init; }
+
+    /// <summary>The solid's compact surface as a ledge tree, or null when it did not read as one.</summary>
+    public PhysicsLedgeTree? Surface { get; init; }
 
     /// <summary>The inertia floor, as a fraction of the inertia's length — <c>objectparams_t::rotInertiaLimit</c>.</summary>
     /// <remarks>
@@ -320,7 +345,7 @@ public sealed class RagdollBody
                 return null;
             }
 
-            (List<Vector3> Points, List<(int A, int B, int C)> Faces) shape =
+            (List<Vector3> Points, List<(int A, int B, int C)> Faces, IReadOnlyList<PhysicsLedge> Ledges) shape =
                 HullInBoneSpace(physics, index);
 
             if (MassInBoneSpace(physics, index) is not var (massCenter, hullInertia))
@@ -347,6 +372,11 @@ public sealed class RagdollBody
             {
                 MassCenter = massCenter,
                 HullInertia = hullInertia,
+                Ledges = shape.Ledges,
+                IvpMassCenter = physics.MassProperties[index]!.Value.MassCenter,
+                IvpHullInertia = physics.MassProperties[index]!.Value.RotationInertia,
+                Surface = index < physics.Surfaces.Count ? physics.Surfaces[index] : null,
+                DragCoefficient = solid.DragCoefficient,
 
                 // `solid.params.rotInertiaLimit = 0.1;` — `ragdoll_shared.cpp:192`, for every element.
                 RotationInertiaLimit = RagdollRotationInertiaLimit,
@@ -596,7 +626,7 @@ public sealed class RagdollBody
 
         PhysicsSolid solid = physics.Solids[0];
 
-        (List<Vector3> points, List<(int A, int B, int C)> faces) = HullInBoneSpace(physics, 0);
+        (List<Vector3> points, List<(int A, int B, int C)> faces, IReadOnlyList<PhysicsLedge> ledges) = HullInBoneSpace(physics, 0);
 
         if (points.Count == 0)
         {
@@ -629,6 +659,11 @@ public sealed class RagdollBody
                 {
                     MassCenter = massCenter,
                     HullInertia = hullInertia,
+                    Ledges = ledges,
+                    IvpMassCenter = physics.MassProperties[0]!.Value.MassCenter,
+                    IvpHullInertia = physics.MassProperties[0]!.Value.RotationInertia,
+                    Surface = physics.Surfaces.Count > 0 ? physics.Surfaces[0] : null,
+                    DragCoefficient = solid.DragCoefficient,
                 },
             ],
             [],
@@ -637,12 +672,12 @@ public sealed class RagdollBody
             null);
     }
 
-    private static (List<Vector3> Points, List<(int A, int B, int C)> Faces) HullInBoneSpace(
+    private static (List<Vector3> Points, List<(int A, int B, int C)> Faces, IReadOnlyList<PhysicsLedge> Ledges) HullInBoneSpace(
         PhysicsModel physics, int solid)
     {
         if (solid >= physics.Hulls.Count)
         {
-            return ([], []);
+            return ([], [], []);
         }
 
         List<Vector3> hull = [];
@@ -658,7 +693,7 @@ public sealed class RagdollBody
 
             foreach (Vector3 point in ledge.Points)
             {
-                hull.Add(IvpWorldCollision.ToSource(point));
+                hull.Add(IvpTransform.SourcePosition(point));
             }
 
             foreach ((int a, int b, int c) in ledge.Triangles)
@@ -667,7 +702,7 @@ public sealed class RagdollBody
             }
         }
 
-        return (hull, faces);
+        return (hull, faces, physics.Hulls[solid]);
     }
 
     /// <summary><c>solid.params.rotInertiaLimit = 0.1;</c> — <c>RagdollAddSolid</c>, <c>ragdoll_shared.cpp:192</c>.</summary>
@@ -675,7 +710,7 @@ public sealed class RagdollBody
 
     /// <summary>A solid's mass center and hull inertia, brought across the IVP seam into this element's space.</summary>
     /// <remarks>
-    /// **The mass center moves like a hull point** — through <see cref="IvpWorldCollision.ToSource"/>, which is
+    /// **The mass center moves like a hull point** — through <see cref="IvpTransform.SourcePosition(System.Numerics.Vector3)"/>, which is
     /// `(x, z, −y)` × 39.37. **The inertia moves by its AXES** — about Source x is about IVP x, about Source y is
     /// about IVP z, about Source z is about IVP y, with no sign, since an axis and its negation have the same
     /// moment — and by the SQUARE of the unit conversion.
@@ -692,7 +727,7 @@ public sealed class RagdollBody
         float squared = IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre;
 
         return (
-            IvpWorldCollision.ToSource(mass.MassCenter),
+            IvpTransform.SourcePosition(mass.MassCenter),
             new Vector3(mass.RotationInertia.X, mass.RotationInertia.Z, mass.RotationInertia.Y) * squared);
     }
 

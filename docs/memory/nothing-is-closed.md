@@ -530,6 +530,13 @@ ragdoll limit clamp — took two calls and no guessing:
 Three scalars inserted lane by lane, plus the bisector's fourth component. The decompiler had
 suggested that shape; the disassembly established it.
 
+**A field's WRITER is a disassembly search, not a decompiler one, 2026-09-15.** `cp+0x60` — the third factor of IVP's
+friction-cone budget — was searched for specifically on 2026-09-14 and filed in three places as having no writer, with
+"possibly arena-zeroed" as the leading guess. It has one: `FUN_180083a60` writes it every time a contact is weighed. What
+found it was `GrepDisasm.java` over `+ 0x60],XMM`, the store as an instruction. **The decompiled C of that function shows
+the write as a plain assignment to a differently-named local pointer, so no text search of decompiled output was ever
+going to match.** Before concluding a field has no writer, grep the instructions for a store to its offset.
+
 Related: the `an-empty-search-needs-a-control` and `print-a-value-somebody-can-recognise` sections
 of [[instrument-bugs-outnumber-decoder-bugs]] are the same discipline pointed at instruments rather
 than at reading — report the value that was USED, carried from where it was produced, never one

@@ -1117,8 +1117,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                     drawn = _allModels;
                 }
 
-                IReadOnlyList<ModelInstance> opaque =
-                    OpaqueBuckets.InDrawOrder(drawn, _frustum);
+                OpaqueBuckets.InDrawOrder(drawn, _frustum, _opaqueKeys, _opaqueOrder);
+
+                List<ModelInstance> opaque = _opaqueOrder;
 
                 ReportDrawOrder(models, opaque);
 
@@ -2392,11 +2393,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// </remarks>
     private void ReportBodySelection(ModelInstance instance, IReadOnlyList<WorldBatch> batches)
     {
-        if (!_reportedBodies.Add($"{instance.ModelPath}#{instance.Body}#{instance.Frame}"))
+        // **The guard alone, and keyed on a tuple.** The report's lambdas made the compiler build a
+        // closure on EVERY call, and the key was an interpolated string — together 20 MB a second
+        // of garbage on f12 for a line that is written once per model.
+        if (_reportedBodies.Add((instance.ModelPath, instance.Body, instance.Frame)))
         {
-            return;
+            DescribeBodySelection(instance, batches);
         }
+    }
 
+    /// <summary>Writes the once-per-model line <see cref="ReportBodySelection"/> guards.</summary>
+    private void DescribeBodySelection(ModelInstance instance, IReadOnlyList<WorldBatch> batches)
+    {
         int alternatives = batches
             .Select(batch => batch.BodyModel)
             .Distinct()
@@ -2449,7 +2457,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     }
 
     /// <summary>Models already reported on, so the log carries one line each.</summary>
-    private readonly HashSet<string> _reportedBodies = [];
+    private readonly HashSet<(string Model, int Body, int Frame)> _reportedBodies = [];
+
+    /// <summary>The opaque pass's sort keys, reused across frames.</summary>
+    private readonly List<(int Bucket, int Order, ModelInstance Instance)> _opaqueKeys = [];
+
+    /// <summary>The opaque pass's draw order, reused across frames.</summary>
+    private readonly List<ModelInstance> _opaqueOrder = [];
 
     /// <summary>Whether the repeated-model census has been written.</summary>
     private bool _reportedRepeats;
@@ -2650,7 +2664,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <returns>True when nothing of it can be seen.</returns>
     /// <remarks>
     /// **The same box the size bucket uses**, because the engine computes one box and does both
-    /// with it. The opaque path gets this inside <see cref="OpaqueBuckets.InDrawOrder"/>, which
+    /// with it. The opaque path gets this inside <see cref="OpaqueBuckets.InDrawOrder(IReadOnlyList{ModelInstance}, ViewFrustum)"/>, which
     /// culls and buckets in one pass; the translucent path has no sort to hang it on and calls it
     /// directly.
     /// </remarks>
@@ -3001,7 +3015,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <remarks>
     /// **Because neither the sort nor the cull is visible in the picture, and an invisible step is
     /// one that can quietly stop happening.** Measured before this line existed: removing
-    /// <see cref="OpaqueBuckets.InDrawOrder"/> from the draw loop left all 566 rendering tests
+    /// <see cref="OpaqueBuckets.InDrawOrder(IReadOnlyList{ModelInstance}, ViewFrustum)"/> from the draw loop left all 566 rendering tests
     /// green. Both steps change a frame rate rather than an image, so nothing that looks at the
     /// output can see them either.
     ///
@@ -3021,7 +3035,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// per-frame version would be tens of thousands of lines saying the same thing.
     /// </remarks>
     private void ReportDrawOrder(
-        IReadOnlyList<ModelInstance>? offered, IReadOnlyList<ModelInstance> ordered)
+        IReadOnlyList<ModelInstance>? offered, List<ModelInstance> ordered)
     {
         if (_reportedDrawOrder || offered is not { Count: > 0 })
         {

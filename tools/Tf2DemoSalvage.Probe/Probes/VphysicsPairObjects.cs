@@ -37,11 +37,16 @@ internal sealed class VphysicsPairObjects : IDisposable
 
     /// <summary>Builds the environment and both objects.</summary>
     /// <param name="module">The loaded <c>vphysics.dll</c>.</param>
-    public VphysicsPairObjects(nint module)
+    /// <param name="exact">What the exact tail does after naming the new mindist, handed the manager and the mindist; nothing when null.</param>
+    public VphysicsPairObjects(nint module, Action<nint, nint>? exact = null)
     {
         nint table = VphysicsLibrary.Address(module, PolygonTable);
 
-        _exact = new VphysicsDetour(module, ExactAddress, Keep(new TailCall((_, mindist) => Events.Add(Event(IvpPairMindistsReplay.Exact, mindist)))));
+        _exact = new VphysicsDetour(module, ExactAddress, Keep(new TailCall((manager, mindist) =>
+        {
+            Events.Add(Event(IvpPairMindistsReplay.Exact, mindist));
+            exact?.Invoke(manager, mindist);
+        })));
         _phantom = new VphysicsDetour(module, PhantomAddress, Keep(new TailCall((_, mindist) => Events.Add(Event(IvpPairMindistsReplay.Phantom, mindist)))));
         Environment = Block(0x200);
 
@@ -94,8 +99,9 @@ internal sealed class VphysicsPairObjects : IDisposable
     /// <summary>A random case's two objects: each tree, extra radius, core radius and cache placement.</summary>
     /// <param name="draws">The draws.</param>
     /// <param name="inputs">The case's inputs, every field allocated.</param>
+    /// <param name="hullShare">The share of inner nodes given a hull ledge; at zero no draw is spent on it, so older probes' cases are unchanged.</param>
     /// <returns>Each object's terminal node lanes.</returns>
-    public static List<int>[] RandomObjects(VphysicsPairDraws draws, Dictionary<string, long[]> inputs)
+    public static List<int>[] RandomObjects(VphysicsPairDraws draws, Dictionary<string, long[]> inputs, double hullShare = 0d)
     {
         List<int>[] terminals = [[], []];
 
@@ -105,7 +111,7 @@ internal sealed class VphysicsPairObjects : IDisposable
             float rootRadius = (float)(0.5d + draws.Unit());
 
             Array.Fill(inputs["kind" + suffix], IvpLedgeTreeReplay.Unused);
-            Generate(draws, inputs, suffix, 0, IvpPairMindistsReplay.NodeCount, (0f, 0f, 0f), rootRadius, terminals[side]);
+            Generate(draws, inputs, suffix, 0, IvpPairMindistsReplay.NodeCount, (0f, 0f, 0f), rootRadius, terminals[side], hullShare);
             inputs["extra"][side] = IvpImpactReplay.Lane((float)(draws.Unit() * 0.05d));
             inputs["core-radius"][side] = IvpImpactReplay.Lane((float)(0.3d + (draws.Unit() * 0.7d)));
 
@@ -167,7 +173,9 @@ internal sealed class VphysicsPairObjects : IDisposable
 
     /// <summary>Lays a case's surfaces, extra radii, core radii and cache matrices into the objects, and zeroes the mindist counters.</summary>
     /// <param name="inputs">The case's inputs.</param>
-    public void Load(IReadOnlyDictionary<string, long[]> inputs)
+    /// <param name="surfaces">Each side's surface bytes, or null for the pair replay's stubs.</param>
+    public void Load(
+        IReadOnlyDictionary<string, long[]> inputs, Func<IReadOnlyDictionary<string, long[]>, int, (byte[] Surface, int[] Nodes, int[] Ledges)>? surfaces = null)
     {
         Marshal.WriteInt32(Environment, 0xb0, 0);
         Marshal.WriteInt32(Environment, 0xb4, 0);
@@ -175,7 +183,9 @@ internal sealed class VphysicsPairObjects : IDisposable
 
         for (int side = 0; side < 2; side++)
         {
-            (byte[] bytes, _, int[] ledges) = IvpLedgeTreeReplay.Surface(inputs, IvpPairMindistsReplay.Suffix(side), IvpPairMindistsReplay.StubSize);
+            (byte[] bytes, _, int[] ledges) = surfaces is null
+                ? IvpLedgeTreeReplay.Surface(inputs, IvpPairMindistsReplay.Suffix(side), IvpPairMindistsReplay.StubSize)
+                : surfaces(inputs, side);
 
             _ledgeOffsets[side] = ledges;
             _surfaces[side] = Marshal.AllocHGlobal(bytes.Length);
@@ -289,11 +299,18 @@ internal sealed class VphysicsPairObjects : IDisposable
 
     /// <summary>A random subtree of inner and terminal nodes, children inside their parent's sphere; returns how many lanes it used.</summary>
     private static int Generate(
-        VphysicsPairDraws draws, Dictionary<string, long[]> inputs, string suffix, int index, int budget, (float X, float Y, float Z) center, float radius, List<int> terminals)
+        VphysicsPairDraws draws, Dictionary<string, long[]> inputs, string suffix, int index, int budget, (float X, float Y, float Z) center, float radius,
+        List<int> terminals, double hullShare)
     {
         bool terminal = budget < 3 || draws.Unit() < 0.35;
+        int kind = IvpLedgeTreeReplay.Terminal;
 
-        inputs["kind" + suffix][index] = terminal ? IvpLedgeTreeReplay.Terminal : IvpLedgeTreeReplay.Inner;
+        if (!terminal)
+        {
+            kind = hullShare > 0d && draws.Unit() < hullShare ? IvpLedgeTreeReplay.InnerWithLedge : IvpLedgeTreeReplay.Inner;
+        }
+
+        inputs["kind" + suffix][index] = kind;
         inputs["center" + suffix][index * 3] = IvpImpactReplay.Lane(center.X);
         inputs["center" + suffix][(index * 3) + 1] = IvpImpactReplay.Lane(center.Y);
         inputs["center" + suffix][(index * 3) + 2] = IvpImpactReplay.Lane(center.Z);
@@ -307,10 +324,12 @@ internal sealed class VphysicsPairObjects : IDisposable
         }
 
         int leftBudget = 1 + (2 * (int)(draws.Unit() * ((budget - 1) / 2)));
-        int left = Generate(draws, inputs, suffix, index + 1, leftBudget, draws.Child(center, radius), radius * (0.3f + (0.5f * (float)draws.Unit())), terminals);
+        int left = Generate(
+            draws, inputs, suffix, index + 1, leftBudget, draws.Child(center, radius), radius * (0.3f + (0.5f * (float)draws.Unit())), terminals, hullShare);
 
         return 1 + left + Generate(
-            draws, inputs, suffix, index + 1 + left, budget - 1 - left, draws.Child(center, radius), radius * (0.3f + (0.5f * (float)draws.Unit())), terminals);
+            draws, inputs, suffix, index + 1 + left, budget - 1 - left, draws.Child(center, radius), radius * (0.3f + (0.5f * (float)draws.Unit())), terminals,
+            hullShare);
     }
 
     private int LedgeOffset(nint mindist, int featureOffset, int side)

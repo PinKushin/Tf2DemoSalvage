@@ -318,6 +318,13 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private GameContent? _game;
 
+    /// <summary>Each class model's gib list, read once per install — see where <c>Gibs</c> is set.</summary>
+    private readonly Dictionary<string, IReadOnlyList<PhysicsBreakPiece>> _breakPieces =
+        new(StringComparer.Ordinal);
+
+    /// <summary>The install <see cref="_breakPieces"/> was read from, so a new one starts empty.</summary>
+    private GameContent? _breakPiecesFor;
+
     // **`_weaponRoles` was here until 2026-08-25** (B188, D90). It is inside the appearance that
     // `DemoAppearance.Ensure` builds, and `_moment.Appearance` is now the only cache — where there
     // used to be two things to keep in step, a nullable field and a record built from it.
@@ -1104,9 +1111,31 @@ internal class MainForm : Form, IFrameSteps
         //
         // The engine reads it at precache time, from the collide data, before anything spawns:
         // `PrecachePropsForModel` (`props_shared.cpp:1239`). So does this.
-        _demoSystems.Gibs = model => _game is { } install
-            ? DemoModels.BreakPiecesOf(model, install)
-            : [];
+        //
+        // **Read ONCE per model per install, as precache is once.** This called `BreakPiecesOf` on
+        // every frame for every gibbed corpse, which reopened the archive and reparsed the `.phy`
+        // each time — measured at 3.5% of a Debug frame, and most of the 3 ms `sample` column.
+        _demoSystems.Gibs = model =>
+        {
+            if (_game is not { } install)
+            {
+                return [];
+            }
+
+            if (!ReferenceEquals(_breakPiecesFor, install))
+            {
+                _breakPieces.Clear();
+                _breakPiecesFor = install;
+            }
+
+            if (!_breakPieces.TryGetValue(model, out IReadOnlyList<PhysicsBreakPiece>? pieces))
+            {
+                pieces = DemoModels.BreakPiecesOf(model, install);
+                _breakPieces[model] = pieces;
+            }
+
+            return pieces;
+        };
 
         // **The same owner, for the same reason** (B395). A corpse's `m_nBody` is the player's,
         // copied at death (`c_tf_player.cpp:790-793`), and turning a cosmetic's declared part name
@@ -1651,19 +1680,14 @@ internal class MainForm : Form, IFrameSteps
             // without a world falls through the map for its whole life, and `Clear` on a map change
             // is what stops one outliving its geometry.
             _models.Corpses.Clear();
-            _models.Corpses.World = map.Level.Physics;
 
-            // **And the game's surfaces, which are what stop a corpse sliding.** Read from the install rather than assumed; a
-            // viewer with no game folder gives every body the no-install friction.
-            _models.Corpses.Surfaces = _game?.Surfaces ?? new Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps([]);
-
-            // **The control on the world a corpse is given.** Both halves come from different lumps
-            // by different mechanisms, and either can be empty while the other is fine — which is
-            // exactly the state that makes "the corpse fell through" unreadable.
-            _mapLog.LogInformation(
-                "physics world: {Ledges} brush ledges, {Triangles} terrain triangles",
-                map.Level.Physics.Ledges.Count,
-                map.Level.Physics.TriangleCount);
+            // **The corpses' environment is the ported driver's, with the map's collide in it** (D172, D179): the world, the
+            // static solids, the virtual terrain and the static props, as `PhysicsLevelInit` builds `physenv`. The game's surfaces
+            // are what stop a corpse sliding; a viewer with no game folder gives every body the no-install friction.
+            Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps surfaces =
+                _game?.Surfaces ?? new Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps([]);
+            _models.Corpses.Surfaces = surfaces;
+            _models.Corpses.CreateWorld = IvpMapWorld.Factory(bytes, _game, surfaces, _mapLog);
 
             // **The map's detail models are packed inside `LevelSystems.Load`** (B363), beside the
             // geometry loader that reads them — a call here instead ran after something else had
@@ -3894,12 +3918,14 @@ internal class MainForm : Form, IFrameSteps
     /// they are empty in any modern demo and are projected through the top-down camera anyway. The
     /// map view still rebuilds, because there everything IS projected to screen space.
     /// </remarks>
-    private void UploadCamera()
+    private void UploadCamera(long flyTicks = 0)
     {
         if (_device is null || !_device.HasWorld)
         {
             return;
         }
+
+        long viewAt = Stopwatch.GetTimestamp();
 
         // **The camera itself rather than its matrix**, so the projection and the cull volume are
         // derived from one thing. `SetCamera(float[])` still exists for the viewmodel pass, which
@@ -3908,9 +3934,22 @@ internal class MainForm : Form, IFrameSteps
         // `CViewRender::SetUpView` computes the view once and everything downstream reads it.
         FreeCamera viewing = ViewCameraNow(_demoFrameSeconds);
 
+        long deviceAt = Stopwatch.GetTimestamp();
+
         _device.SetCamera(viewing, _menu.SurfaceColours.Checked);
 
+        long particlesAt = Stopwatch.GetTimestamp();
+
         DrawParticles(viewing);
+
+        // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
+        // in seconds with no collection, and it is four unrelated pieces of work.
+        StallReport.Camera(
+            flyTicks,
+            deviceAt - viewAt,
+            particlesAt - deviceAt,
+            Stopwatch.GetTimestamp() - particlesAt,
+            _renderLog);
     }
 
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
@@ -4555,11 +4594,13 @@ internal class MainForm : Form, IFrameSteps
         // **The ORDER of those phases moved to `FrameSequence`** (B188, B203, D90). It is the
         // engine's frame order, it was wrong here for months, and it was wrong because a window
         // cannot be asked what order it does things in.
+        GarbageReading frameBegan = GarbageReading.FromRuntime();
+
         FramePhases phases = FrameSequence.Run(this);
 
         _frames.Drawing(phases.Draw);
 
-        StallReport.Frame(phases, _renderLog);
+        StallReport.Frame(phases, _renderLog, frameBegan, GarbageReading.FromRuntime());
 
         // **Every frame, averaged over the second — not sampled once a second.** `StallReport.Frame`
         // above fires only past 30 ms, so at the 90 fps this actually runs at it never fires and
@@ -4643,8 +4684,11 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public void PlaceCamera()
     {
+        long flyAt = Stopwatch.GetTimestamp();
+
         FlyCamera();
-        UploadCamera();
+
+        UploadCamera(Stopwatch.GetTimestamp() - flyAt);
     }
 
     /// <summary>Put the ears where the eye is, and play what is due.</summary>

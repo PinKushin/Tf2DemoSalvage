@@ -103,15 +103,19 @@ public static class IvpRangeManager
         return (IvpMath.Mulsd(IvpMath.Mulsd(range, firstWeight), inverse), IvpMath.Mulsd(IvpMath.Mulsd(range, secondWeight), inverse));
     }
 
-    /// <summary>What both slots read of a core: its radius <c>+0x4</c>, linear speed <c>+0x1dc</c> and surface speed bound <c>+0x254</c>.</summary>
+    /// <summary>A core's bounds: radius <c>+0x4</c>, inverse diameter <c>+0x54</c>, angular bound <c>+0x80</c>, linear speed <c>+0x1dc</c>, surface bound <c>+0x254</c>.</summary>
     /// <param name="core">The core, an object's <c>+0xe8</c>.</param>
-    /// <returns>The bounds, the fields no slot reads zero.</returns>
+    /// <returns>The bounds.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="core"/> is null.</exception>
+    /// <remarks>
+    /// *Both slots here read only the radius and the two speeds*; the time-of-impact searches are handed the same bounds and read
+    /// the other two. **They were written zero here**, which gave the vertex-face edge target a zero factor.
+    /// </remarks>
     public static IvpCoreBounds Bounds(IvpRigidBody core)
     {
         ArgumentNullException.ThrowIfNull(core);
 
-        return new IvpCoreBounds(core.Radius, 0f, 0f, core.LinearSpeed, core.SurfaceSpeedBound);
+        return new IvpCoreBounds(core.Radius, core.InverseDiameter, core.AngularSpeedBound, core.LinearSpeed, core.SurfaceSpeedBound);
     }
 
     /// <summary><c>MINSD</c>: the first operand only when strictly less, so a NaN on either side answers the second.</summary>

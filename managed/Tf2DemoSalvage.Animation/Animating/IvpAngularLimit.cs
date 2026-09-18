@@ -158,6 +158,52 @@ public readonly struct IvpJacobian : IEquatable<IvpJacobian>
         };
     }
 
+    /// <summary>Builds the cached rows as the engine does, in each core's own frame — <c>FUN_180037bd0</c>.</summary>
+    /// <param name="a">The first body.</param>
+    /// <param name="b">The second.</param>
+    /// <param name="axis">The constraint axis, in world space.</param>
+    /// <returns>The cache the sweeps read.</returns>
+    /// <exception cref="ArgumentNullException">Either body is null.</exception>
+    /// <remarks>
+    /// **The axis goes world→core, through each core's matrix at <c>+0x90</c> narrowed to float**: lane <c>k</c> is
+    /// <c>(V.y·m[1,k] + V.z·m[2,k]) + V.x·m[0,k]</c>, body B's from <c>−V</c>. A core's spin at <c>+0x130</c> is in its own
+    /// frame, so this is the only direction a rate and an impulse can be taken along. *<see cref="Build"/> turned the axis
+    /// core→world by the quaternion, which a world-frame spin could carry and IVP's cannot.*
+    /// </remarks>
+    public static IvpJacobian BuildInCore(IvpRigidBody a, IvpRigidBody b, (float X, float Y, float Z) axis)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+
+        (float X, float Y, float Z) axisA = a.Immovable ? default : ToCore(a.CoreMatrix, axis);
+        (float X, float Y, float Z) axisB = b.Immovable ? default : ToCore(b.CoreMatrix, (-axis.X, -axis.Y, -axis.Z));
+
+        (float X, float Y, float Z) responseA = (
+            axisA.X * a.InverseInertia.X, axisA.Y * a.InverseInertia.Y, axisA.Z * a.InverseInertia.Z);
+
+        (float X, float Y, float Z) responseB = (
+            axisB.X * b.InverseInertia.X, axisB.Y * b.InverseInertia.Y, axisB.Z * b.InverseInertia.Z);
+
+        float mass =
+            (((responseA.Y * axisA.Y) + (responseA.X * axisA.X)) + (responseA.Z * axisA.Z)) +
+            (((responseB.Y * axisB.Y) + (responseB.X * axisB.X)) + (responseB.Z * axisB.Z));
+
+        return new IvpJacobian
+        {
+            AxisA = axisA,
+            AxisB = axisB,
+            ResponseA = responseA,
+            ResponseB = responseB,
+            InverseEffectiveMass = mass > FloatEpsilon ? 1f / mass : 0f,
+        };
+    }
+
+    /// <summary>A world direction in a core's frame, the matrix's terms narrowed first.</summary>
+    private static (float X, float Y, float Z) ToCore(IvpMatrix m, (float X, float Y, float Z) v) =>
+        (((v.Y * (float)m.M4) + (v.Z * (float)m.M8)) + (v.X * (float)m.M0),
+         ((v.Y * (float)m.M5) + (v.Z * (float)m.M9)) + (v.X * (float)m.M1),
+         ((v.Y * (float)m.M6) + (v.Z * (float)m.M10)) + (v.X * (float)m.M2));
+
     /// <summary>The rate the joint is turning at — <c>ωA · Ja + ωB · Jb</c>.</summary>
     /// <param name="a">The first body.</param>
     /// <param name="b">The second.</param>
@@ -383,6 +429,68 @@ public static class IvpAngularLimit
         float signed = routine == Routine.Bisector ? -overshoot : overshoot;
 
         float impulse = axis.Limited ? signed : 0f;
+
+        a.AngularVelocity = (
+            a.AngularVelocity.X + (impulse * jacobian.ResponseA.X),
+            a.AngularVelocity.Y + (impulse * jacobian.ResponseA.Y),
+            a.AngularVelocity.Z + (impulse * jacobian.ResponseA.Z));
+
+        b.AngularVelocity = (
+            b.AngularVelocity.X + (impulse * jacobian.ResponseB.X),
+            b.AngularVelocity.Y + (impulse * jacobian.ResponseB.Y),
+            b.AngularVelocity.Z + (impulse * jacobian.ResponseB.Z));
+    }
+
+    /// <summary>Solves one axis with the gains the PSI event and the driver actually hand it — <c>FUN_180036f80</c> and <c>FUN_1800372c0</c>.</summary>
+    /// <param name="a">The first body.</param>
+    /// <param name="b">The second.</param>
+    /// <param name="axis">The limit.</param>
+    /// <param name="jacobian">The cached rows.</param>
+    /// <param name="step">The event's <c>+0x0</c>, the PSI step: the angle is predicted <c>rate·step</c> ahead.</param>
+    /// <param name="inverseStep">The event's <c>+0x4</c>: an angle past a limit is removed as a rate over one step.</param>
+    /// <param name="laneFactor">
+    /// The driver's error weight from <c>+0x2d0</c> — times the lane <c>w</c> (half the bisector's length) for the twist, alone for
+    /// a swing.
+    /// </param>
+    /// <param name="routine">Which routine.</param>
+    /// <exception cref="ArgumentNullException">A body or the axis is null.</exception>
+    /// <remarks>
+    /// **Read from the disassembly** (2026-09-16), the live path past the spring branch:
+    /// <code>
+    /// k = inverseStep·+0x50 (1/K);   rate = (0·+0x40 + ω-rows)·step
+    /// twist:  θ = rate + angle   s = (+0xc·(x·w))·k   o = MIN((θ − lo)·s, 0) + MAX((θ − hi)·s, 0)   impulse = 0 − o
+    /// swing:  θ = angle − rate   s = (+0xc·x)·k       o = MAX((θ − hi)·s, 0) + MIN((θ − lo)·s, 0)   impulse = o + 0
+    /// ω_A += impulse·+0x20;  ω_B += impulse·+0x30
+    /// </code>
+    /// *The port's first overload took a rate gain of zero and no inverse step, which a Source-unit solver could carry and IVP's
+    /// cannot.*
+    /// </remarks>
+    public static void SolveOverStep(
+        IvpRigidBody a,
+        IvpRigidBody b,
+        IvpJointAxis axis,
+        in IvpJacobian jacobian,
+        float step,
+        float inverseStep,
+        float laneFactor,
+        Routine routine)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        ArgumentNullException.ThrowIfNull(axis);
+
+        float gain = inverseStep * jacobian.InverseEffectiveMass;
+        float rate = jacobian.Rate(a, b) * step;
+        float predicted = routine == Routine.Bisector ? rate + axis.Angle : axis.Angle - rate;
+        float scale = axis.Scale * laneFactor * gain;
+        float below = MathF.Min((predicted - axis.Lower) * scale, 0f);
+        float above = MathF.Max((predicted - axis.Upper) * scale, 0f);
+        float impulse = routine == Routine.Bisector ? 0f - (above + below) : above + below;
+
+        if (!axis.Limited)
+        {
+            impulse = 0f;
+        }
 
         a.AngularVelocity = (
             a.AngularVelocity.X + (impulse * jacobian.ResponseA.X),

@@ -10,8 +10,9 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// </summary>
 /// <remarks>
 /// **Read from the disassembly** (`docs/findings/51`, *The hull manager, and how a far pair is told to look again*). Phase
-/// 3 and the rechecked array minimize every pair and make a frozen plain pair invalid; phase 4 hands every exact pair to
-/// the scheduler with `removeFar` set, which is how a plain pair goes back to far.
+/// 3 and the rechecked array minimize every pair and hand a frozen one to its own slot 7 — for a plain pair `FUN_180097440`,
+/// which makes it invalid; phase 4 hands every exact pair to the scheduler with `removeFar` set, which is how a plain pair
+/// goes back to far.
 /// </remarks>
 public sealed class IvpExactPhasesConformanceTests
 {
@@ -21,10 +22,10 @@ public sealed class IvpExactPhasesConformanceTests
     {
         Phases phases = new(3);
 
-        phases.Manager.MinimizeExact(phases.Minimize, phases.Invalidate);
+        phases.Manager.MinimizeExact(phases.Minimize, phases.Queue);
 
         phases.Minimized.ShouldBe([phases.Pairs[2], phases.Pairs[1], phases.Pairs[0]]);
-        phases.Invalidated.ShouldBeEmpty();
+        phases.Manager.Invalid.ShouldBeEmpty();
     }
 
     /// <remarks>
@@ -37,11 +38,30 @@ public sealed class IvpExactPhasesConformanceTests
         Phases phases = new(3);
         phases.FreezeOnMinimize.Add(phases.Pairs[1]);
 
-        phases.Manager.MinimizeExact(phases.Minimize, phases.Invalidate);
+        phases.Manager.MinimizeExact(phases.Minimize, phases.Queue);
 
         phases.Minimized.ShouldBe([phases.Pairs[2], phases.Pairs[1], phases.Pairs[0]]);
-        phases.Invalidated.ShouldBe([phases.Pairs[1]]);
+        phases.Manager.Invalid.ShouldBe([phases.Pairs[1]]);
         phases.Manager.Exact.ShouldBe([phases.Pairs[2], phases.Pairs[0]]);
+    }
+
+    /// <remarks>
+    /// **A frozen pair is handed to its OWN slot 7** (`+0x38`), with the manager and the queue — `FUN_1800983e0` calls through the
+    /// mindist's table rather than making it invalid itself, which is how a larger mindist opens its ledge instead.
+    /// </remarks>
+    [Test]
+    public void MinimizeExact_AFrozenPairOfItsOwnKind_IsFrozenThroughItsOwnSlotSeven()
+    {
+        RecordingMindist own = new();
+        Phases phases = new(1, make: () => own);
+        phases.FreezeOnMinimize.Add(own);
+
+        phases.Manager.MinimizeExact(phases.Minimize, phases.Queue);
+
+        own.Slots.ShouldBe(["freeze"]);
+        own.FrozenBy.ShouldBeSameAs(phases.Manager);
+        own.FrozenQueue.ShouldBeSameAs(phases.Queue);
+        phases.Manager.Exact.ShouldBe([own], ignoreOrder: false, customMessage: "the plain mindist's invalidation did not run");
     }
 
     /// <remarks>
@@ -54,7 +74,7 @@ public sealed class IvpExactPhasesConformanceTests
         Phases phases = new(1);
         phases.Pairs[0].Flags |= 0x1000;
 
-        Should.Throw<NotSupportedException>(() => phases.Manager.MinimizeExact(phases.Minimize, phases.Invalidate));
+        Should.Throw<NotSupportedException>(() => phases.Manager.MinimizeExact(phases.Minimize, phases.Queue));
     }
 
     /// <remarks>
@@ -67,10 +87,10 @@ public sealed class IvpExactPhasesConformanceTests
         Phases phases = new(3, rechecked: true);
         phases.FreezeOnMinimize.Add(phases.Pairs[1]);
 
-        phases.Manager.RecheckEveryPsi(phases.Minimize, phases.Invalidate);
+        phases.Manager.RecheckEveryPsi(phases.Minimize, phases.Queue);
 
         phases.Minimized.ShouldBe([phases.Pairs[2], phases.Pairs[1], phases.Pairs[0]]);
-        phases.Invalidated.ShouldBe([phases.Pairs[1]]);
+        phases.Manager.Invalid.ShouldBe([phases.Pairs[1]]);
         phases.Manager.Rechecked.ShouldBe([phases.Pairs[0], phases.Pairs[2]]);
     }
 
@@ -94,17 +114,17 @@ public sealed class IvpExactPhasesConformanceTests
         phases.Manager.Exact.ShouldBeEmpty();
     }
 
-    /// <summary>A manager with exact pairs, and a minimize and invalidation that record what they were handed.</summary>
+    /// <summary>A manager with exact pairs, and a minimize that records what it was handed.</summary>
     private sealed class Phases
     {
         private readonly IvpCollisionObject _first = new();
         private readonly IvpCollisionObject _second = new();
 
-        public Phases(int count, bool rechecked = false)
+        public Phases(int count, bool rechecked = false, Func<IvpMindist>? make = null)
         {
             for (int index = 0; index < count; index++)
             {
-                IvpMindist mindist = new(
+                IvpMindist mindist = make?.Invoke() ?? new IvpMindist(
                     new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
                     new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Triangle),
                     extraRadius: 0f);
@@ -127,8 +147,6 @@ public sealed class IvpExactPhasesConformanceTests
 
         public List<IvpMindist> Minimized { get; } = [];
 
-        public List<IvpMindist> Invalidated { get; } = [];
-
         public HashSet<IvpMindist> FreezeOnMinimize { get; } = [];
 
         public void Minimize(IvpMindist mindist)
@@ -139,12 +157,6 @@ public sealed class IvpExactPhasesConformanceTests
             {
                 mindist.Flags |= 0x4000;
             }
-        }
-
-        public void Invalidate(IvpMindist mindist)
-        {
-            Invalidated.Add(mindist);
-            Manager.Invalidate(mindist, _first, _second, Queue);
         }
     }
 }

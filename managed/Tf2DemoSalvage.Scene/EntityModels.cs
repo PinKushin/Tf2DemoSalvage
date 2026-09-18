@@ -377,7 +377,9 @@ public sealed class EntityModelSet : IModelBodygroups
         long Animation,
         int AnimationCalls,
         int Built,
-        int PoseBuilds)
+        int PoseBuilds,
+        long Corpses = 0,
+        int CorpseSteps = 0)
     {
         /// <summary>What happened between an earlier snapshot and this one.</summary>
         /// <param name="before">The earlier snapshot.</param>
@@ -394,7 +396,9 @@ public sealed class EntityModelSet : IModelBodygroups
                 Animation - before.Animation,
                 AnimationCalls - before.AnimationCalls,
                 Built - before.Built,
-                PoseBuilds - before.PoseBuilds);
+                PoseBuilds - before.PoseBuilds,
+                Corpses - before.Corpses,
+                CorpseSteps - before.CorpseSteps);
     }
 
     /// <summary>Every pose-phase counter as it stands now.</summary>
@@ -409,7 +413,9 @@ public sealed class EntityModelSet : IModelBodygroups
         SkeletonPose.AnimationTicks,
         SkeletonPose.AnimationCalls,
         EntitiesBuilt,
-        SkeletonPose.PoseBuilds);
+        SkeletonPose.PoseBuilds,
+        Corpses.SteppingTicks,
+        Corpses.Steps);
 
     /// <summary>What per-prop reporting has cost, ever.</summary>
     public long ReportTicks { get; set; }
@@ -1601,7 +1607,7 @@ public sealed class EntityModelSet : IModelBodygroups
 
         ReadOnlyMemory<byte> model = skinned.Models[group];
 
-        IReadOnlyList<StudioIkRule> rules = StudioIkRules.Read(model, blend[0].Animation);
+        IReadOnlyList<StudioIkRule> rules = skinned.IkRules(group, blend[0].Animation);
 
         if (rules.Count == 0)
         {
@@ -1618,9 +1624,11 @@ public sealed class EntityModelSet : IModelBodygroups
             float first = float.NaN;
             bool matched = true;
 
-            foreach ((int animation, float weight) in blend)
+            for (int corner = 0; corner < blend.Count; corner++)
             {
-                IReadOnlyList<StudioIkRule> theirs = StudioIkRules.Read(model, animation);
+                (int animation, float weight) = blend[corner];
+
+                IReadOnlyList<StudioIkRule> theirs = skinned.IkRules(group, animation);
 
                 if (rule >= theirs.Count || theirs.Count != rules.Count)
                 {
@@ -1693,8 +1701,10 @@ public sealed class EntityModelSet : IModelBodygroups
             // it once before the corner loop.
             float envelope = 0f;
 
-            foreach ((int animation, float weight) in blend)
+            for (int blended = 0; blended < blend.Count; blended++)
             {
+                (int animation, float weight) = blend[blended];
+
                 float influence = StudioIkRules.Weight(
                     shared,
                     skinned.FramesOfAnimation(group, animation),
@@ -4635,6 +4645,8 @@ public sealed class EntityModelSet : IModelBodygroups
 
         SimulateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - simulatedAt;
 
+        AdvanceCorpses(props, seconds);
+
         // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
         // how "all the props went away" became a guessing game: the scene said 14 models, the map
         // showed one, and nothing in between reported which test rejected the other thirteen.
@@ -4790,33 +4802,8 @@ public sealed class EntityModelSet : IModelBodygroups
                 // BONE_USED_BY_ANYTHING because this project draws one level of detail and asks for
                 // everything; a narrower mask is the optimisation the accessor exists to allow and
                 // is not worth guessing at before something measures it.
-                // **A corpse's bones come from physics, and this is where the simulation is brought
-                // up to the tick being drawn.** Before `SetupBones`, because it attaches the hook
-                // that call then runs — the engine's order too, where `m_pRagdoll` is already set
-                // by the time `BuildTransformations` tests it.
-                //
-                // **Only a corpse, and only a model that declares joints.** `entry.Ragdoll` is null
-                // for all but 37 of the game's models, so this is a null check for everything else
-                // being drawn.
-                if (entry.Ragdoll is { } corpse && prop.ClassName == RagdollProps.RagdollClassName)
-                {
-                    // **The tick is derived from playback time, not counted.** `seconds` is the
-                    // demo clock this draw is at, so dividing by the tick interval gives the tick
-                    // the corpse must be simulated to — and a frame drawn twice at the same time
-                    // asks for the same tick and steps nothing.
-                    Corpses.Advance(
-                        prop.EntityIndex,
-                        corpse,
-                        animating,
-                        (int)CurrentTick,
-                        IntervalPerTick,
-                        seconds,
-                        prop.FirstTick,
-                        prop.Force,
-                        prop.ForceBone,
-                        prop.RagdollVelocity);
-                }
-
+                // A corpse's simulation was brought up to this tick by `AdvanceCorpses`, before the
+                // cull, which is what attached the ragdoll hook this `SetupBones` runs.
                 long setupAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
                 bool setUp = animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
@@ -5371,6 +5358,50 @@ public sealed class EntityModelSet : IModelBodygroups
 
         return true;
     }
+
+    /// <summary>Brings every corpse's simulation up to the tick, seen or not (B58).</summary>
+    /// <param name="props">Every prop this moment carries, before any cull.</param>
+    /// <param name="seconds">The demo clock, for a seed pose.</param>
+    /// <remarks>
+    /// **Before the cull, because the engine's physics does not look at the view.** A client ragdoll
+    /// lives in `physenv`, which `PhysicsSimulate` steps every frame for every object in it
+    /// (`physics.cpp:447`); visibility decides only what is drawn. This advance sat inside the draw
+    /// loop, so a corpse behind the camera stopped dead and, on coming back into view, replayed every
+    /// tick it had missed in one frame — 135, 151 and 551 ms frames on f12.
+    ///
+    /// **Before `SetupBones` as well**, because `Advance` attaches the hook that call runs — the
+    /// engine's order, where `m_pRagdoll` is set by the time `BuildTransformations` tests it.
+    ///
+    /// **The tick is the demo's, not a count of calls**, so drawing one moment twice steps nothing.
+    /// Only a corpse whose model declares joints; `entry.Ragdoll` is null for all but 37 models.
+    /// </remarks>
+    private void AdvanceCorpses(IReadOnlyList<SceneProp> props, double seconds)
+    {
+        _corpseRequests.Clear();
+
+        for (int index = 0; index < props.Count; index++)
+        {
+            SceneProp prop = props[index];
+
+            if (prop.ClassName != RagdollProps.RagdollClassName ||
+                !_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) ||
+                entry.Ragdoll is not { } corpse ||
+                entry.Skinned is null ||
+                !_entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating))
+            {
+                continue;
+            }
+
+            _corpseRequests.Add(new CorpseRequest(
+                prop.EntityIndex, corpse, animating, prop.FirstTick, prop.Force, prop.ForceBone, prop.RagdollVelocity));
+        }
+
+        // **One environment for every corpse, stepped once** (D179): each corpse joins it at its death tick as it steps forward.
+        Corpses.Advance(_corpseRequests, (int)CurrentTick, IntervalPerTick, seconds);
+    }
+
+    /// <summary>The moment's corpses, gathered for one advance — kept to be reused rather than allocated per frame.</summary>
+    private readonly List<CorpseRequest> _corpseRequests = [];
 
     /// <summary>The map's BSP tree, for the visibility half of the cull.</summary>
     /// <remarks>

@@ -41,7 +41,12 @@ public sealed record MapPhysicsModel(
     int SolidCount,
     IReadOnlyList<PhysicsBrushSolid> Solids,
     string Text,
-    IReadOnlyList<IReadOnlyList<PhysicsLedge>> Hulls);
+    IReadOnlyList<IReadOnlyList<PhysicsLedge>> Hulls)
+{
+    /// <summary>Each solid's compact surface as its ledge tree, indexed as <see cref="Hulls"/> — what <c>CreatePolyObjectStatic</c> takes.</summary>
+    /// <remarks>Null for a solid whose surface does not read as a tree. In IVP metres, like <see cref="Hulls"/>.</remarks>
+    public IReadOnlyList<PhysicsLedgeTree?> Surfaces { get; init; } = [];
+}
 
 /// <summary>
 /// The map's baked physics collision — <c>LUMP_PHYSCOLLIDE</c> (B58, B369).
@@ -132,6 +137,7 @@ public static class BspPhysicsCollision
             List<PhysicsBrushSolid> solids = Hulls(bytes, at, dataSize, solidCount);
 
             List<IReadOnlyList<PhysicsLedge>> ledges = new(solids.Count);
+            List<PhysicsLedgeTree?> surfaces = new(solids.Count);
 
             foreach (PhysicsBrushSolid solid in solids)
             {
@@ -147,6 +153,7 @@ public static class BspPhysicsCollision
                 }
 
                 ledges.Add(PhysicsHull.Read(blob));
+                surfaces.Add(PhysicsHull.Tree(PhysicsHull.Surface(blob)));
             }
 
             models.Add(new MapPhysicsModel(
@@ -154,7 +161,10 @@ public static class BspPhysicsCollision
                 solidCount,
                 solids,
                 Encoding.ASCII.GetString(bytes.Slice(at + dataSize, keydataSize)),
-                ledges));
+                ledges)
+            {
+                Surfaces = surfaces,
+            });
 
             at += dataSize + keydataSize;
         }

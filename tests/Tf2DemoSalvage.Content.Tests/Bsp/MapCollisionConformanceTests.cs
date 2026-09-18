@@ -194,6 +194,25 @@ public sealed class MapCollisionConformanceTests
     }
 
     /// <remarks>
+    /// **Each solid also reads as its surface's tree, one slot per solid**, which is what `CreatePolyObjectStatic` takes and
+    /// what the ported driver collides with (B369). A bare surface's tree does not read and keeps its slot as null.
+    /// </remarks>
+    [Test]
+    public void Read_AModelOfTwoSolids_CarriesASurfaceSlotForEach()
+    {
+        byte[] lump =
+        [
+            .. Model(modelIndex: 0, dataSize: 2 * (4 + 0x30), keydataSize: 0, solidCount: 2),
+            .. BitConverter.GetBytes(0x30),
+            .. Surface(),
+            .. BitConverter.GetBytes(0x30),
+            .. Surface(),
+        ];
+
+        BspPhysicsCollision.Read(lump)[0].Surfaces.Count.ShouldBe(2);
+    }
+
+    /// <remarks>
     /// **A solid with no `VPHY` tag and under `0x30` bytes stops the load** (B404). A map's solids are what
     /// `VCollideLoad` takes — Valve's own lump swapper hands them to it (`bsplib.cpp:1681`) — and vphysics' loader
     /// meets such a solid with `Error("Corrupt physics model")` (`FUN_18000a100`). This reader keeps what came before

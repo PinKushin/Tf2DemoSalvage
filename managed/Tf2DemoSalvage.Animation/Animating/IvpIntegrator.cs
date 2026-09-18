@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>
@@ -266,6 +268,33 @@ public sealed class IvpRigidBody
         set => _faces = value ?? [];
     }
 
+    /// <summary>The body's undiscarded ledges — what a real mindist needs, kept beside the GJK path's flat <see cref="Hull"/>/<see cref="Faces"/> (B369).</summary>
+    /// <remarks>
+    /// `IvpMindist` and <see cref="IvpLedgeSide.FromLedge"/> both need a <see cref="PhysicsLedge"/>'s triangles, edge
+    /// offsets and material indices, which flattening into <see cref="Hull"/>/<see cref="Faces"/> already discards.
+    /// See <see cref="LedgeTreeRoot"/> for what a full mindist search over this list still needs.
+    /// </remarks>
+    public IReadOnlyList<PhysicsLedge> Ledges { get; set; } = [];
+
+    /// <summary>
+    /// This body's one ledge, as the terminal node a mindist search needs to name it — <see cref="PhysicsLedgeTree.SingleLedge"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><see cref="Ledges"/> is empty.</exception>
+    /// <exception cref="NotSupportedException">
+    /// <see cref="Ledges"/> has more than one entry. A genuinely compound body needs the real ledge tree
+    /// `IvpWorldCollision` already builds for the world — matching a body against a REAL multi-ledge `.phy` solid is
+    /// not yet ported; see `docs/HANDOFF.md`, item 3. Every TF2 ragdoll bone this project has read has exactly one.
+    /// </exception>
+    public PhysicsLedgeTreeNode LedgeTreeRoot => Ledges.Count switch
+    {
+        0 => throw new InvalidOperationException("A core with no ledges was asked for its ledge tree."),
+        1 => PhysicsLedgeTree.SingleLedge(Ledges[0]),
+        _ => throw new NotSupportedException(
+            "LedgeTreeRoot is ported for exactly one ledge - a ragdoll bone's ordinary single-convex .phy solid. "
+            + "A genuinely compound body (more than one ledge) needs the real ledge tree IvpWorldCollision already "
+            + "builds for the world, which is not ported for a moving body."),
+    };
+
     /// <summary>Each contact FEATURE's tangential slip, carried between steps, keyed by normal.</summary>
     /// <remarks>
     /// **A friction contact in IVP SURVIVES between PSIs, and this is what that survival needs.**
@@ -431,6 +460,22 @@ public sealed class IvpRigidBody
     /// <summary>A movable core's share of the one friction system it is in — <c>core+0x60</c>.</summary>
     public IvpFrictionInfo? FrictionInfo { get; set; }
 
+    /// <summary>The linear drag basis — <c>CPhysicsObject+0x28</c>, per core axis.</summary>
+    public (float X, float Y, float Z) DragBasis { get; set; }
+
+    /// <summary>The angular drag basis — <c>CPhysicsObject+0x34</c>, per core axis.</summary>
+    public (float X, float Y, float Z) AngularDragBasis { get; set; }
+
+    /// <summary>The linear drag coefficient — <c>CPhysicsObject+0x58</c>, the object's <c>dragCoefficient</c>.</summary>
+    public float DragCoefficient { get; set; }
+
+    /// <summary>The angular drag coefficient — <c>CPhysicsObject+0x5c</c>, the same parameter.</summary>
+    public float AngularDragCoefficient { get; set; }
+
+    /// <summary>The union-find link a friction system's split check writes — <c>core+0x258</c>, null at a set's root.</summary>
+    /// <remarks>Scratch for <see cref="IvpFrictionSystem.DetachedRoot"/> only: cleared for every core of the system on each call.</remarks>
+    internal IvpRigidBody? UnionParent { get; set; }
+
     /// <summary>An immovable core's share of each friction system it is in — the hash at <c>core+0x60</c>, keyed by system.</summary>
     public Dictionary<IvpFrictionSystem, IvpFrictionInfo> FrictionInfos { get; } = [];
 
@@ -460,6 +505,133 @@ public sealed class IvpRigidBody
     /// </remarks>
     public int CollisionFreeze { get; set; }
 
+    /// <summary>The byte at <c>core+0x1</c>: <c>8</c> when the core's unit is made, then what the unit's PSI keeps from <see cref="TestRest"/>.</summary>
+    /// <remarks>
+    /// *The PSI that writes the rest answer here is not ported yet*, so only a caller sets it. The impact loop brings a core to the
+    /// event (<see cref="RebuildMatrixAtEventTime"/>) only below <c>8</c>.
+    /// </remarks>
+    public int UnitState { get; set; } = 8;
+
+    /// <summary>Bit <c>0x4</c> of the word at <c>core+0x0</c>: the core waits on the environment's revive list (<c>env+0x160</c>).</summary>
+    /// <remarks>Set by <c>FUN_180087e00</c> as it appends the core, so a core is listed once; cleared as <c>FUN_180089210</c> drains it.</remarks>
+    public bool ReviveQueued { get; set; }
+
+    /// <summary>A core with no objects yet, as the ports that predate the constructor build one.</summary>
+    public IvpRigidBody()
+    {
+    }
+
+    /// <summary>A core made for its first object — <c>FUN_1800782d0(core, object, gravity)</c>.</summary>
+    /// <param name="firstObject">The object, pushed first on the core's object vector.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="firstObject"/> is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// core+0x0..0x67 = 0;  +0x68 = an inline vector of one;  push object;  core+0x10 = object+0x30 (its environment)
+    /// core+0x1f8 = a new unit (FUN_180074770), linked to the core (FUN_1800749b0), its state 8
+    /// gravity set → FUN_1800748b0(core, [core+0x10])  (the gravity controller)
+    /// core+0x1 = 8
+    /// </code>
+    /// *The unit and the gravity controller are not carried*: <see cref="IvpGravity"/> walks every body already.
+    /// </remarks>
+    public IvpRigidBody(IvpCollisionObject firstObject)
+    {
+        ArgumentNullException.ThrowIfNull(firstObject);
+
+        Objects.Add(firstObject);
+    }
+
+    /// <summary>The mass a push along an arm has to move — <c>FUN_180077840(core, arm)</c>.</summary>
+    /// <param name="arm">The contact's arm in this core's frame, <c>record+0xd0</c> or <c>+0xe0</c>.</param>
+    /// <returns>The effective mass, the reciprocal of the inverse terms below.</returns>
+    /// <remarks>
+    /// <code>
+    /// s = MAX of (y²+z²)·core+0x40, (x²+z²)·core+0x44, (x²+y²)·core+0x48     -- each compared with COMISD/JBE
+    /// core+0x0 &amp; 0x10 == 0 → 1.0 / (s + core+0x4c)    else    1.0 / (s + 1.0)
+    /// </code>
+    /// **It is the MAXIMUM of the three inertia terms, not their sum**, which is what makes it a bound rather than the exact
+    /// effective mass; and a core flagged <c>0x10</c> contributes a unit mass instead of its own.
+    /// </remarks>
+    public double EffectiveMassAlong((float X, float Y, float Z) arm)
+    {
+        float x = arm.X * arm.X;
+        float y = arm.Y * arm.Y;
+        float z = arm.Z * arm.Z;
+
+        double most = (x + z) * InverseInertia.Y;
+        double aboutX = (y + z) * InverseInertia.X;
+
+        if (most <= aboutX)
+        {
+            most = aboutX;
+        }
+
+        double aboutZ = (x + y) * InverseInertia.Z;
+
+        if (most <= aboutZ)
+        {
+            most = aboutZ;
+        }
+
+        return 1d / (most + (SkipsGravity ? 1d : InverseMass));
+    }
+
+    /// <summary>The core's objects — the vector at <c>+0x68</c>, count <c>+0x6a</c>, elements <c>+0x70</c>.</summary>
+    internal List<IvpCollisionObject> Objects { get; } = [];
+
+    /// <summary>The controllers this core is driven by — the vector at <c>+0x1e8</c>, count <c>+0x1e2</c>.</summary>
+    /// <remarks>**What a unit's entries are rebuilt from** (<see cref="IvpSimulationUnit.RebuildEntries"/>).</remarks>
+    internal List<IIvpUnitController> Controllers { get; } = [];
+
+    /// <summary>The unit this core is simulated in — <c>core+0x1f8</c>, which the merge rewrites.</summary>
+    internal IvpSimulationUnit? Unit { get; set; }
+
+    /// <summary>The impact generation the core was last rechecked at — <c>core+0x250</c>, from <c>env+0x1a4</c>.</summary>
+    public int ImpactStamp { get; set; }
+
+    /// <summary>Rechecks every pair of this core's objects after an impact moved it — <c>FUN_1800792b0(core)</c>.</summary>
+    /// <param name="generation">The environment's impact counter, <c>env+0x1a4</c>.</param>
+    /// <param name="minimize">The minimize, <c>FUN_180095cb0</c>.</param>
+    /// <param name="reschedule">The scheduler in mode 2, <c>FUN_180099380(mindist, 0, 2)</c>.</param>
+    /// <exception cref="ArgumentNullException">A delegate is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// core+0x250 = env+0x1a4
+    /// every object (+0x70, count +0x6a), last first:  FUN_1800746c0(object):
+    ///     every mindist on the object's +0x40 list:  both records' objects' cores carry the same +0x250 → skip
+    ///         FUN_180095cb0(mindist);  flags &amp; 0xc000 == 0 → FUN_180099380(mindist, 0, 2)
+    /// </code>
+    /// **A pair whose two cores were both stamped this impact is looked at once, not twice.**
+    /// </remarks>
+    public void Recheck(int generation, Action<IvpMindist> minimize, Action<IvpMindist> reschedule)
+    {
+        ArgumentNullException.ThrowIfNull(minimize);
+        ArgumentNullException.ThrowIfNull(reschedule);
+
+        ImpactStamp = generation;
+
+        for (int index = Objects.Count - 1; index >= 0; index--)
+        {
+            for (LinkedListNode<IvpMindistHullRecord>? node = Objects[index].Synapses.First; node is not null; node = node.Next)
+            {
+                IvpMindist mindist = node.Value.Mindist;
+
+                if (mindist.HullRecord(0).CollisionObject?.Core is { } first &&
+                    mindist.HullRecord(1).CollisionObject?.Core is { } second &&
+                    first.ImpactStamp == second.ImpactStamp)
+                {
+                    continue;
+                }
+
+                minimize(mindist);
+
+                if ((mindist.Flags & 0xc000) == 0)
+                {
+                    reschedule(mindist);
+                }
+            }
+        }
+    }
+
     /// <summary>The core's transform at <c>core+0x90</c>, in doubles — what a contact's arm and normal are measured in.</summary>
     /// <remarks>
     /// **The frame every contact routine turns through**: the contact record's arms (`FUN_18008d0c0`), a point's velocity
@@ -469,7 +641,11 @@ public sealed class IvpRigidBody
     public IvpMatrix CoreMatrix { get; set; } = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d));
 
     /// <summary>The float at <c>core+0x8</c>, which the anomaly check reads beside <see cref="HasOffset58"/>.</summary>
-    /// <remarks>*Named by its offset because nothing read so far says what it is; no ragdoll element sets it.*</remarks>
+    /// <remarks>
+    /// Written once by <c>FUN_180078b90</c>: the surface's deviation, <c>(float)((double)(byte·0.004f·radius) + dist)</c> — see
+    /// <see cref="IvpSimulation.Collide(IvpRigidBody, Content.Assets.PhysicsLedgeTree, IIvpMaterial)"/>. *Still named by its
+    /// offset: what the anomaly check means by it is not read.*
+    /// </remarks>
     public float Offset08 { get; set; }
 
     /// <summary>The core's radius — the float at <c>core+0x4</c>, which the push-out estimate turns a spin into a distance with.</summary>
@@ -480,8 +656,17 @@ public sealed class IvpRigidBody
     /// </remarks>
     public float Radius { get; set; }
 
+    /// <summary><c>core+0x54</c>, <c>0.5f / +0x4</c> — <c>FUN_180076f80</c>'s last store, after <c>ConstructCore</c> sets the radius.</summary>
+    public float InverseDiameter => 0.5f / Radius;
+
     /// <summary>The core's linear speed, <c>core+0x1dc</c> — what the range manager and a hull's gradient read.</summary>
     public float LinearSpeed { get; set; }
+
+    /// <summary>How fast the core can be turning, per second — <c>core+0x80</c>, written every step beside the surface bound.</summary>
+    public float AngularSpeedBound { get; set; }
+
+    /// <summary>The step's rotation axis through the core's matrix — <c>core+0x1c0..0x1c8</c>, which the pair scheduler reads.</summary>
+    public (float X, float Y, float Z) RotationAxis { get; set; } = (1f, 0f, 0f);
 
     /// <summary>How fast a point on the core's surface can move because of its spin, <c>core+0x254</c>.</summary>
     public float SurfaceSpeedBound { get; set; }
@@ -502,6 +687,77 @@ public sealed class IvpRigidBody
     /// and this one by `sin((ω·0.5)·dt)` of its own, and composes the two. Read as `0`, `1` or `2`.
     /// </remarks>
     public int Offset58Axis { get; set; }
+
+    /// <summary>
+    /// The core's state saved before <see cref="RebuildMatrixAtEventTime"/> refines it for a collision, or null before the
+    /// first — <c>core+0x260</c>'s arena block, restored by <see cref="RestoreFromSnapshot"/> (<c>FUN_180079120</c>).
+    /// </summary>
+    public IvpCoreSnapshot? PendingSnapshot { get; set; }
+
+    /// <summary>
+    /// The core's position at the exact collision event time, extrapolated by its committed velocity —
+    /// <c>core+0xf0/0xf8/0x100</c>, written by <see cref="RebuildMatrixAtEventTime"/>.
+    /// </summary>
+    public (double X, double Y, double Z) EventPosition { get; set; }
+
+    /// <summary>Restores a queued snapshot into this core's bounds and transform, then clears it — <c>FUN_180079120</c>.</summary>
+    /// <remarks>Called at the top of a PSI, once, for a core that named a snapshot whose <see cref="IvpCoreBounds"/> agree.</remarks>
+    public void RestoreFromSnapshot(IvpCoreSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        AngularVelocity = snapshot.AngularVelocity;
+        Orientation = snapshot.Orientation;
+        WorkingOrientation = snapshot.WorkingOrientation;
+        PendingSnapshot = null;
+    }
+
+    /// <summary>
+    /// Refines this core's transform to the exact collision event time — <c>IvpRigidBody::RebuildMatrixAtEventTime</c>
+    /// (<c>180078d60</c>).
+    /// </summary>
+    /// <param name="now">The environment's time — the collision event's own.</param>
+    /// <remarks>
+    /// **Saves the current state first** (<see cref="PendingSnapshot"/>), so a later PSI's own integration is not left
+    /// working from a value this refinement already consumed. Computes the full step's rotation delta
+    /// (<c>conjugate(Orientation) ⊗ WorkingOrientation</c>) BEFORE narrowing <see cref="WorkingOrientation"/> to the
+    /// event-time interpolation, then rebuilds <see cref="CoreMatrix"/> and <see cref="EventPosition"/> at that instant.
+    /// **Unless <see cref="FlagBit3"/>**, recovers the exact instantaneous angular velocity the discrete step implied —
+    /// `asin` of each delta axis, scaled by twice the inverse step — rather than trusting whatever Euler approximation is
+    /// already stored.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Never; kept for parity with other transform methods.</exception>
+    public void RebuildMatrixAtEventTime(double now)
+    {
+        PendingSnapshot = new IvpCoreSnapshot(AngularVelocity, Orientation, WorkingOrientation);
+
+        (double X, double Y, double Z, double W) delta = IvpQuaternion.Product(Conjugate(Orientation), WorkingOrientation);
+
+        float elapsed = (float)(now - LastStepped);
+
+        WorkingOrientation = IvpQuaternion.Interpolate(Orientation, WorkingOrientation, IvpMath.Mulss(elapsed, InverseStep));
+
+        EventPosition = (
+            Position.X + ((double)PreviousVelocity.X * elapsed),
+            Position.Y + ((double)PreviousVelocity.Y * elapsed),
+            Position.Z + ((double)PreviousVelocity.Z * elapsed));
+
+        CoreMatrix = IvpMatrix.FromRotation(WorkingOrientation, EventPosition);
+
+        if (!FlagBit3)
+        {
+            double scale = (double)InverseStep + InverseStep;
+
+            AngularVelocity = (
+                (float)(Math.Asin(delta.X) * scale),
+                (float)(Math.Asin(delta.Y) * scale),
+                (float)(Math.Asin(delta.Z) * scale));
+        }
+    }
+
+    /// <summary>The conjugate of a rotation: its imaginary components negated.</summary>
+    private static (double X, double Y, double Z, double W) Conjugate((double X, double Y, double Z, double W) rotation) =>
+        (-rotation.X, -rotation.Y, -rotation.Z, rotation.W);
 
     /// <summary>The velocity of a point fixed to this core — <c>FUN_180077fa0</c>.</summary>
     /// <param name="arm">The point, in the core's frame.</param>
@@ -606,6 +862,29 @@ public sealed class IvpRigidBody
     /// <summary>When that was — <c>core+0x208</c>.</summary>
     public double SettleAnchorTime { get; set; }
 
+    /// <summary>Stops a core that has come to rest — <c>FUN_180078bd0(core)</c>, the first thing its sleep does.</summary>
+    /// <param name="environmentInverseStep">The environment's <c>+0x110</c>, narrowed into the core's own.</param>
+    /// <remarks>
+    /// **Read from the disassembly** (2026-09-16): state 8; the velocity, spin, both staged changes and the step's velocity zeroed;
+    /// `+0x80` zeroed; `+0x1d8 = (float)env+0x110`; the working orientation back to the committed one; then the step's bookkeeping
+    /// as `FUN_180077670` leaves it — linear speed, surface bound and the axis `(1, 0, 0)`.
+    /// </remarks>
+    public void Freeze(double environmentInverseStep)
+    {
+        UnitState = 8;
+        Velocity = (0f, 0f, 0f);
+        AngularVelocity = (0f, 0f, 0f);
+        PendingVelocity = (0f, 0f, 0f);
+        PendingAngularVelocity = (0f, 0f, 0f);
+        PreviousVelocity = (0f, 0f, 0f);
+        AngularSpeedBound = 0f;
+        InverseStep = (float)environmentInverseStep;
+        WorkingOrientation = Orientation;
+        LinearSpeed = 0f;
+        SurfaceSpeedBound = 0f;
+        RotationAxis = (1f, 0f, 0f);
+    }
+
     /// <summary>Whether this core is moving, still, or at rest — <c>FUN_180077220</c>.</summary>
     /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
     /// <param name="restDelay">How long a core must stay by its anchor — the environment's float at <c>+0xc8</c>.</param>
@@ -693,6 +972,19 @@ public sealed class IvpRigidBody
     }
 }
 
+/// <summary>A core's state saved before a collision refines it — <c>core+0x260</c>'s arena block (B369, D172).</summary>
+/// <param name="AngularVelocity">The angular velocity before the refinement.</param>
+/// <param name="Orientation">The committed orientation before it.</param>
+/// <param name="WorkingOrientation">The working orientation before it.</param>
+public sealed record IvpCoreSnapshot(
+    (float X, float Y, float Z) AngularVelocity,
+    (double X, double Y, double Z, double W) Orientation,
+    (double X, double Y, double Z, double W) WorkingOrientation)
+{
+    /// <summary>Whether an impact has moved the core, so the tail integrates it rather than putting it back — the byte at <c>+0x30</c>.</summary>
+    public bool Moved { get; set; }
+}
+
 /// <summary>
 /// IVP's per-core integration step — <c>FUN_180099a00</c> (B58, D142, D146).
 /// </summary>
@@ -746,7 +1038,8 @@ public static class IvpIntegrator
     /// - **The per-core dt is narrowed to `float` before use** — `(double)(float)(dVar9 - dVar2)` —
     ///   so the arithmetic runs at single precision even though both operands are doubles.
     /// </remarks>
-    public static void Step(IvpRigidBody body, double positionDelta, float orientationDelta, int phase)
+    /// <returns>The step's rotation quaternion, which <see cref="StepCore"/> bounds.</returns>
+    public static (double X, double Y, double Z, double W) Step(IvpRigidBody body, double positionDelta, float orientationDelta, int phase)
     {
         ArgumentNullException.ThrowIfNull(body);
 
@@ -776,6 +1069,80 @@ public static class IvpIntegrator
         // **Commit first.** What the rest of the engine reads is last step's working orientation.
         body.Orientation = body.WorkingOrientation;
         body.WorkingOrientation = IvpQuaternion.Normalise(IvpQuaternion.Product(body.WorkingOrientation, turn));
+
+        return turn;
+    }
+
+    /// <summary>One core's whole step as the island tail runs it — <c>FUN_180099a00(core, {step, 1/step}, &amp;pushed)</c>.</summary>
+    /// <param name="core">The core.</param>
+    /// <param name="environment">The environment, whose limits and anomaly manager are asked.</param>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <param name="step">The step, <c>(float)(env+0x190 − env+0x188)</c>.</param>
+    /// <param name="pushed">The hull managers found due, pushed in object order.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Read from the decompiler** (headless `DecompAt` of <c>180099a00</c>, 2026-09-15):
+    /// <code>
+    /// core+0x58 null or core+0x8 != 0:
+    ///     ((float)env+0x110 · limits+0x14)² &lt; |ω|² → anomaly slot 1(limits, core)
+    ///     limits+0xc² &lt; |v|² → anomaly slot 0(limits, core, &amp;v)
+    /// core+0x1dc = |v|;  core+0x1d8 = 1/step;  q = FUN_180099fc0;  position, velocity cache, commit, advance   (see Step)
+    /// s = FUN_180099d60(core, q)                   -- the surface bound, core+0x254
+    /// g = (s + core+0x1dc) · 1.00001f
+    /// every object (+0x70, count +0x6a), last first:  its manager (+0x80) advanced to now with g and |v|;
+    ///     minimum − next &lt; 0 → push the manager
+    /// </code>
+    /// *The `!= 0` test is the decompiler's*; whether a NaN `core+0x8` checks the limits is not settled in the disassembly.
+    /// </remarks>
+    internal static void StepCore(IvpRigidBody core, IvpImpactEnvironment environment, double now, float step, List<IvpHullManager> pushed)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+        ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(pushed);
+
+        if (!core.HasOffset58 || core.Offset08 != 0f)
+        {
+            IvpAnomalyLimits limits = environment.Limits;
+            float reach = (float)environment.InverseStep * limits.MaximumAngularVelocityPerPsi;
+            (float X, float Y, float Z) spin = core.AngularVelocity;
+
+            if (reach * reach < (spin.X * spin.X) + (spin.Y * spin.Y) + (spin.Z * spin.Z))
+            {
+                environment.Anomalies.MaximumAngularVelocityExceeded(limits, core, environment.InverseStep, ref spin);
+                core.AngularVelocity = spin;
+            }
+
+            (float X, float Y, float Z) velocity = core.Velocity;
+
+            if (limits.MaximumVelocity * limits.MaximumVelocity < (velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z))
+            {
+                environment.Anomalies.MaximumVelocityExceeded(limits, core, ref velocity);
+                core.Velocity = velocity;
+            }
+        }
+
+        (float X, float Y, float Z) moving = core.Velocity;
+        core.LinearSpeed = (float)Math.Sqrt((moving.X * moving.X) + (moving.Y * moving.Y) + (moving.Z * moving.Z));
+
+        (double X, double Y, double Z, double W) turn = Step(core, now - core.LastStepped, step, environment.Phase);
+        core.LastStepped = now;
+
+        IvpCoreSpeedBound bound = IvpCoreSpeedBound.From((turn.X, turn.Y, turn.Z), core.CoreMatrix, core.InverseStep, core.Offset08);
+        core.AngularSpeedBound = bound.Angular;
+        core.SurfaceSpeedBound = bound.Surface;
+        core.RotationAxis = bound.Axis;
+
+        float gradient = IvpHullManager.GradientFor(bound.Surface, core.LinearSpeed);
+
+        for (int index = core.Objects.Count - 1; index >= 0; index--)
+        {
+            IvpHullManager manager = core.Objects[index].Hull;
+
+            if (manager.Advance(now, step, gradient, core.LinearSpeed))
+            {
+                pushed.Add(manager);
+            }
+        }
     }
 
     /// <summary>Builds a step's rotation and advances the angular velocity — <c>FUN_180099fc0</c>, on the path the runtime chose.</summary>

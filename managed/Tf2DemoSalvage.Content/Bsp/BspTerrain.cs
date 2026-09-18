@@ -217,6 +217,79 @@ public sealed class BspTerrain
         return triangles;
     }
 
+    /// <summary>Reads one face's displacement as the engine's collision tree, and whether it is excluded from physics.</summary>
+    /// <param name="surface">A surface whose <c>DisplacementIndex</c> is not -1.</param>
+    /// <returns>The tree, and whether <c>SURF_NOPHYSICS_COLL</c> is set; null for a face that is not a displacement.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="surface"/> is null.</exception>
+    /// <exception cref="InvalidDataException">The displacement's data is malformed.</exception>
+    /// <remarks>
+    /// **The same corners, start corner first, and the same field as <see cref="ReadTriangles"/>**, handed to
+    /// <see cref="DisplacementCollisionTree.Build"/>. The flags are <c>CCoreDispInfo::InitDispInfo</c>'s (`public/builddisp.cpp:762-768`):
+    /// <c>minTess</c> with its high bit set carries <c>SURF_NOPHYSICS_COLL</c> (<c>0x2</c>, `builddisp.h:737`), which the engine's
+    /// loader (`engine.dll` `FUN_18016f6d0`) tests before it makes a virtual mesh.
+    /// </remarks>
+    public (DisplacementCollisionTree Tree, bool NoPhysics)? ReadCollisionTree(BspSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        if (!surface.IsDisplacement || surface.Vertices.Count != 4)
+        {
+            return null;
+        }
+
+        if (surface.DisplacementIndex >= Count)
+        {
+            throw new InvalidDataException($"Face {surface.FaceIndex} names displacement {surface.DisplacementIndex} of {Count}.");
+        }
+
+        ReadOnlySpan<byte> info = _infos.Span.Slice(surface.DisplacementIndex * DispInfoStride, DispInfoStride);
+        ReadOnlySpan<byte> vertices = _vertices.Span;
+
+        (float X, float Y, float Z) start = (
+            BinaryPrimitives.ReadSingleLittleEndian(info[DispStartPositionOffset..]),
+            BinaryPrimitives.ReadSingleLittleEndian(info[(DispStartPositionOffset + 4)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(info[(DispStartPositionOffset + 8)..]));
+
+        int vertexStart = BinaryPrimitives.ReadInt32LittleEndian(info[DispVertexStartOffset..]);
+        int power = BinaryPrimitives.ReadInt32LittleEndian(info[DispPowerOffset..]);
+        int minTess = BinaryPrimitives.ReadInt32LittleEndian(info[DispMinTessOffset..]);
+
+        if (power is < MinimumPower or > MaximumPower)
+        {
+            throw new InvalidDataException($"Displacement {surface.DisplacementIndex} declares power {power}.");
+        }
+
+        int side = (1 << power) + 1;
+        int needed = side * side;
+
+        if (vertexStart < 0 || vertexStart + needed > vertices.Length / DispVertStride)
+        {
+            throw new InvalidDataException($"Displacement {surface.DisplacementIndex} needs vertices {vertexStart} to {vertexStart + needed}.");
+        }
+
+        SurfaceVertex[] corners = Rotate(surface.Vertices, start);
+        (System.Numerics.Vector3 Direction, float Distance)[] field = new (System.Numerics.Vector3, float)[needed];
+
+        for (int index = 0; index < needed; index++)
+        {
+            ReadOnlySpan<byte> vertex = vertices.Slice((vertexStart + index) * DispVertStride, DispVertStride);
+
+            field[index] = (
+                new System.Numerics.Vector3(
+                    BinaryPrimitives.ReadSingleLittleEndian(vertex),
+                    BinaryPrimitives.ReadSingleLittleEndian(vertex[4..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(vertex[8..])),
+                BinaryPrimitives.ReadSingleLittleEndian(vertex[12..]));
+        }
+
+        DisplacementCollisionTree tree = DisplacementCollisionTree.Build(
+            [.. Array.ConvertAll(corners, corner => new System.Numerics.Vector3(corner.X, corner.Y, corner.Z))], power, field);
+
+        bool noPhysics = (minTess & int.MinValue) != 0 && (minTess & 0x2) != 0;
+
+        return (tree, noPhysics);
+    }
+
     /// <summary>Rotates a quad so the corner nearest a point comes first.</summary>
     private static SurfaceVertex[] Rotate(
         IReadOnlyList<SurfaceVertex> corners, (float X, float Y, float Z) start)

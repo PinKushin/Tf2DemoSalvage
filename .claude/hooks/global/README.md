@@ -11,6 +11,8 @@ drifted from the thing it backs up restores something that was never running.
 | file | matches | does |
 |---|---|---|
 | `block-expensive-subagents.ps1` | `Agent`, `Workflow` | refuses any subagent that is not `haiku` — including a `Workflow` script whose `agent()` calls do not name one |
+| `prefer-lsp-for-symbols.ps1` (+ `.tests.json`) | `Grep`, `Bash`, `PowerShell` | refuses a text search for a C# symbol and names the agent-lsp tools that answer it (D178) |
+| `prefer-ghidra-mcp.ps1` (+ `.tests.json`) | `Grep`, `Bash`, `PowerShell` | refuses an `analyzeHeadless` read script against the vphysics project and names the headless GhidraMCP server's endpoints (D178) |
 
 ## Why this directory exists at all, 2026-09-07
 

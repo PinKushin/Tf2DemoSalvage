@@ -12,6 +12,13 @@
   <PropertyGroup>
     <LangVersion>latest</LangVersion>
 
+    <!-- **Debug is optimized too (D176).** The owner runs the Debug viewer more often than not, and
+         an unoptimized JIT made it a different program: f12 measured 3-5 fps in Debug against
+         300-400 with this on, because corpse physics is arithmetic the JIT otherwise leaves as a
+         call per Vector3 operation, and the frame falls into catching up ever more ticks. Symbols
+         stay, so a debugger still attaches; some locals read as optimized away. -->
+    <Optimize>true</Optimize>
+
     <!-- D6 / global standards: explicit usings, non-null by default, zero warnings. -->
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>

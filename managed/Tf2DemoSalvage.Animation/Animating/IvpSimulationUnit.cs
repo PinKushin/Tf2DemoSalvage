@@ -1,0 +1,393 @@
+using System;
+using System.Collections.Generic;
+
+namespace Tf2DemoSalvage.Animation.Animating;
+
+/// <summary>One controller of a unit — its slot <c>+0x20</c> is the PSI's work and its slot <c>+0x28</c> the priority.</summary>
+/// <remarks>
+/// **The priorities are read** (`docs/findings/51`): friction `2000`, gravity `1000`, friction `600`, the constraints `405`,
+/// friction `0`. A unit's entries are sorted ascending and walked last first, so the PSI runs them highest priority first.
+/// </remarks>
+public interface IIvpUnitController
+{
+    /// <summary>The controller's priority — its slot <c>+0x28</c>, which sorts the unit's entries.</summary>
+    public int Priority { get; }
+
+    /// <summary>Runs this controller over the cores of its entry for one PSI — the slot <c>+0x20</c>.</summary>
+    /// <param name="unit">The unit the entry belongs to, <c>frame+0x10</c>.</param>
+    /// <param name="cores">The entry's cores, <c>entry+0x8</c>.</param>
+    /// <param name="psiStep">The PSI's step, <c>frame+0x0</c>.</param>
+    public void Advance(IvpSimulationUnit unit, IReadOnlyList<IvpRigidBody> cores, float psiStep);
+}
+
+/// <summary>One controller and the cores of this unit it drives — the <c>0x28</c> bytes of an entry at <c>unit+0x10</c>.</summary>
+/// <param name="controller">The controller, <c>+0x0</c>.</param>
+public sealed class IvpUnitControllerEntry(IIvpUnitController controller)
+{
+    /// <summary>The controller — <c>+0x0</c>.</summary>
+    public IIvpUnitController Controller { get; } = controller ?? throw new ArgumentNullException(nameof(controller));
+
+    /// <summary>Its cores in this unit — the vector at <c>+0x8</c>, count <c>+0xa</c>, elements <c>+0x10</c>.</summary>
+    internal List<IvpRigidBody> Cores { get; } = [];
+}
+
+/// <summary>
+/// A unit of cores simulated together, and its PSI — <c>FUN_180075c80(unit, frame, &amp;pushed)</c> (B369, D172).
+/// </summary>
+/// <remarks>
+/// **Read from the decompiler** (`docs/findings/51`, *The PSI per unit*). The unit is what the time manager's active list holds:
+/// the cores at <c>+0x8</c> (count <c>+0x1a</c>), the controllers at <c>+0x10</c> (count <c>+0x3a</c>), its flags at
+/// <c>+0x0</c> and its state in that word's low byte, <c>8</c> being asleep.
+/// </remarks>
+public sealed class IvpSimulationUnit
+{
+    /// <summary><c>DAT_1800ea988</c>: <c>1.0f</c>, the spin squared a unit is called fast above.</summary>
+    private const float FastSpin = 1f;
+
+    /// <summary>The state byte, <c>unit+0x0</c>'s low byte: <c>8</c> once the unit is asleep.</summary>
+    public int State { get; private set; }
+
+    /// <summary>Puts the state back to awake — <c>FUN_1800758e0</c>'s <c>*param_1 = 1</c> as it moves the unit's list.</summary>
+    internal void Woken() => State = 1;
+
+    /// <summary>The state a new unit is made in — <c>8</c>, on the sleeping list.</summary>
+    internal void Asleep() => State = 8;
+
+    /// <summary>The flags word, <c>unit+0x0</c>, whose <c>0x400</c>/<c>0x3000</c> bits carry a fast spin into the next PSI.</summary>
+    /// <remarks>*What sets the <c>0x300</c> pair is not read yet* — the PSI only clears it once it has rebuilt.</remarks>
+    public int Flags { get; internal set; }
+
+    /// <summary>The cores — <c>+0x8</c>, count <c>+0x1a</c>.</summary>
+    internal List<IvpRigidBody> Cores { get; } = [];
+
+    /// <summary>The controller entries — <c>+0x10</c>, count <c>+0x3a</c>, sorted ascending by priority.</summary>
+    internal List<IvpUnitControllerEntry> Entries { get; } = [];
+
+    /// <summary>
+    /// Appends an entry for a controller and sorts the entries again — <c>FUN_180074820</c> then <c>FUN_180075990</c>.
+    /// </summary>
+    /// <param name="controller">The controller.</param>
+    /// <returns>The entry, whose cores the caller fills.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="controller"/> is null.</exception>
+    /// <remarks>
+    /// **The sort is an insertion sort that moves a later entry down while its neighbour's priority is strictly greater**, so
+    /// entries of equal priority keep the order they were added — which decides which friction controller runs first.
+    /// </remarks>
+    internal IvpUnitControllerEntry AddController(IIvpUnitController controller)
+    {
+        ArgumentNullException.ThrowIfNull(controller);
+
+        IvpUnitControllerEntry entry = new(controller);
+        Entries.Add(entry);
+        Sort();
+
+        return entry;
+    }
+
+    /// <summary>Files a controller on a core of this unit — <c>FUN_1800748b0(core, controller)</c>.</summary>
+    /// <param name="core">The core; its controller list gains the controller.</param>
+    /// <param name="controller">The controller.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// the core's controllers (+0x1e0, +0x1e2, +0x1e8) gain it
+    /// its entry in the core's unit found from the last, or made (FUN_180074820);  the entry's cores gain the core
+    /// FUN_180075990(unit)                     -- the entries sorted
+    /// </code>
+    /// </remarks>
+    internal static void Register(IvpRigidBody core, IIvpUnitController controller)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+        ArgumentNullException.ThrowIfNull(controller);
+
+        core.Controllers.Add(controller);
+
+        if (core.Unit is not { } unit)
+        {
+            return;
+        }
+
+        for (int scan = unit.Entries.Count - 1; scan >= 0; scan--)
+        {
+            if (ReferenceEquals(unit.Entries[scan].Controller, controller))
+            {
+                unit.Entries[scan].Cores.Add(core);
+                unit.Sort();
+                return;
+            }
+        }
+
+        unit.AddController(controller).Cores.Add(core);
+    }
+
+    /// <summary>Rebuilds every entry from the cores' own controllers — <c>FUN_180074ba0</c> then <c>FUN_180075470</c>.</summary>
+    /// <remarks>
+    /// **Every core, last first, and every controller of that core, last first**: the controller's entry is searched for from
+    /// the last, made when missing, and gains the core. The entries are sorted once at the end. *The third routine the unit's
+    /// <c>0x300</c> bits also call, `FUN_180074e80`, is unread.*
+    /// </remarks>
+    internal void RebuildEntries()
+    {
+        Entries.Clear();
+
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = Cores[index];
+
+            for (int at = core.Controllers.Count - 1; at >= 0; at--)
+            {
+                IIvpUnitController controller = core.Controllers[at];
+                IvpUnitControllerEntry? found = null;
+
+                for (int scan = Entries.Count - 1; scan >= 0; scan--)
+                {
+                    if (ReferenceEquals(Entries[scan].Controller, controller))
+                    {
+                        found = Entries[scan];
+                        break;
+                    }
+                }
+
+                if (found is null)
+                {
+                    found = new IvpUnitControllerEntry(controller);
+                    Entries.Add(found);
+                }
+
+                found.Cores.Add(core);
+            }
+        }
+
+        Sort();
+    }
+
+    /// <summary>Takes every core of another unit into this one — <c>FUN_180074e40(unit, other)</c>, the merge.</summary>
+    /// <param name="other">The unit being absorbed; it is left empty.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="other"/> is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// FUN_180074ba0(unit)                    -- every entry freed
+    /// FUN_180076350(unit, other):  other's cores appended, each core's +0x1f8 = unit;  other unlinked from its manager list
+    /// FUN_180075470(unit)                    -- the entries rebuilt from the cores' own controllers
+    /// </code>
+    /// **This is what puts two constrained bodies in one unit**, so a controller they share runs once per PSI rather than once
+    /// per body. *Taking the absorbed unit off the manager's active list is the caller's, since the list lives there.*
+    /// </remarks>
+    internal void Absorb(IvpSimulationUnit other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        if (ReferenceEquals(other, this))
+        {
+            return;
+        }
+
+        // `FUN_180074ba0`'s free of every entry is what `RebuildEntries` below already does, so it is not a second clear here.
+        for (int index = 0; index < other.Cores.Count; index++)
+        {
+            IvpRigidBody core = other.Cores[index];
+
+            Cores.Add(core);
+            core.Unit = this;
+        }
+
+        other.Cores.Clear();
+        RebuildEntries();
+    }
+
+    /// <summary>The entries insertion-sorted ascending by priority — <c>FUN_180075990</c>.</summary>
+    private void Sort()
+    {
+        for (int index = 1; index < Entries.Count; index++)
+        {
+            IvpUnitControllerEntry moving = Entries[index];
+            int at = index;
+
+            while (at > 0 && Entries[at - 1].Controller.Priority > moving.Controller.Priority)
+            {
+                Entries[at] = Entries[at - 1];
+                at--;
+            }
+
+            Entries[at] = moving;
+        }
+    }
+
+    /// <summary>Runs one PSI for this unit — <c>FUN_180075c80</c>.</summary>
+    /// <param name="environment">The environment: its time, rest delay and rest-check countdown.</param>
+    /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <param name="step">The PSI's step, <c>env+0x108</c> narrowed.</param>
+    /// <param name="pushed">The cores to step, pushed last to first.</param>
+    /// <param name="random">The jitter the rest check's cadence takes, <c>FUN_18007d5c0</c>.</param>
+    /// <param name="recheck">
+    /// <c>FUN_180074240(object)</c>: an object's invalid pairs minimized again, and those no longer invalid made exact.
+    /// </param>
+    /// <returns><c>true</c> when the unit fell asleep, so the driver takes it off the active list.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <code>
+    /// every core, last first:  dt = (float)(env+0x188 − core+0x1d0)
+    ///     FUN_180071330(core+0x1a0, core+0x90);  core+0xf0 = core+0x150 + core+0x170·dt
+    ///     FUN_180077950(core);  core+0x0 &amp;= 0xff3f;  core+0x2 = 0;  remember (1.0 − |ω|²) &lt; 0
+    /// any fast:  flags = (flags &amp; ~0x800) | 0x400
+    /// else:      flags = (flags·4 ^ flags) &amp; 0xffffcfff ^ flags·4;  flags &amp; 0x3000 → every core's anchors reset;  flags &amp;= ~0xc00
+    /// env+0x1a8 −= 1;  zero → env+0x1a8 = 0xf − (short)(random · DAT_1800ee1c8)
+    /// every controller, last first:  its slot +0x20;  every core, last first:  pushed
+    /// the countdown was zero:  every core's +0x1 = FUN_180077220, ANDed with 3;  all 3 → the cores settle and the unit sleeps
+    /// </code>
+    /// *Not carried*: `FUN_180074e80`, the third routine the <c>0x300</c> bits call, and the sleep listeners
+    /// (<c>FUN_180088930</c> keeps only its hull settle here).
+    /// </remarks>
+    internal bool Psi(
+        IvpImpactEnvironment environment,
+        double now,
+        float step,
+        List<IvpRigidBody> pushed,
+        Func<float> random,
+        Action<IvpCollisionObject> recheck)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(pushed);
+        ArgumentNullException.ThrowIfNull(random);
+        ArgumentNullException.ThrowIfNull(recheck);
+
+        bool fast = false;
+
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = Cores[index];
+            float elapsed = (float)(now - core.LastStepped);
+
+            core.EventPosition = (
+                core.Position.X + ((double)core.PreviousVelocity.X * elapsed),
+                core.Position.Y + ((double)core.PreviousVelocity.Y * elapsed),
+                core.Position.Z + ((double)core.PreviousVelocity.Z * elapsed));
+
+            // The matrix at `+0x90` is three 32-byte rows and its translation, so the event position at `+0xf0` IS the matrix's
+            // translation: `FUN_180071330` writes the rotation and the next three stores write where it stands. *Keeping the old
+            // translation left every body's collision shape where it started.*
+            core.CoreMatrix = IvpMatrix.FromRotation(core.WorkingOrientation, core.EventPosition);
+
+            IvpPush.Flush(core);
+
+            core.CollisionFreeze = 0;
+            core.Collisions = 0;
+
+            (float X, float Y, float Z) spin = core.AngularVelocity;
+
+            fast |= FastSpin - ((spin.X * spin.X) + (spin.Y * spin.Y) + (spin.Z * spin.Z)) < 0f;
+        }
+
+        if (fast)
+        {
+            Flags = (Flags & ~0x800) | 0x400;
+        }
+        else
+        {
+            Flags = ((Flags * 4) ^ Flags) & ~0x3000 ^ (Flags * 4);
+
+            if ((Flags & 0x3000) != 0)
+            {
+                for (int index = Cores.Count - 1; index >= 0; index--)
+                {
+                    IvpRigidBody core = Cores[index];
+                    core.RestAnchorTime = now;
+                    core.SettleAnchorTime = now;
+                }
+            }
+
+            Flags &= ~0xc00;
+        }
+
+        bool restCheckDue = --environment.RestCheckCountdown == 0;
+
+        if (restCheckDue)
+        {
+            environment.RestCheckCountdown = (short)(0xf - (short)(random() * RestCheckJitter));
+        }
+
+        if ((Flags & 0x300) != 0)
+        {
+            RebuildEntries();
+            Flags &= ~0x300;
+        }
+
+        for (int index = Entries.Count - 1; index >= 0; index--)
+        {
+            IvpUnitControllerEntry entry = Entries[index];
+            entry.Controller.Advance(this, entry.Cores, step);
+        }
+
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            pushed.Add(Cores[index]);
+        }
+
+        // `every core, every object (+0x70, count +0x6a): FUN_180074240(object)` — each object's invalid pairs minimized again, and
+        // those no longer invalid made exact. This is what turns a pair the broad phase just created into one the PSI can solve.
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = Cores[index];
+
+            for (int at = core.Objects.Count - 1; at >= 0; at--)
+            {
+                recheck(core.Objects[at]);
+            }
+        }
+
+        if (!restCheckDue)
+        {
+            return false;
+        }
+
+        int motion = (int)IvpCoreMotion.Resting;
+
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = Cores[index];
+            IvpCoreMotion answer = core.TestRest(now, environment.RestDelay);
+
+            core.UnitState = (int)answer;
+            motion &= (int)answer;
+        }
+
+        if (motion != (int)IvpCoreMotion.Resting)
+        {
+            return false;
+        }
+
+        Freeze(environment, now);
+        return true;
+    }
+
+    /// <summary>Every core put to rest and the unit marked asleep — <c>FUN_180088930</c> per core, then state 8.</summary>
+    /// <param name="environment">The environment.</param>
+    /// <param name="now">The environment's time.</param>
+    /// <remarks>
+    /// `FUN_180088930` per core: `FUN_180078c90` — the core frozen (`FUN_180078bd0`), then per object, last first, its state 8, the
+    /// broad phase refiling it, its hull settled and rebased, and its cache given back (`FUN_180080650`); then the listeners, which
+    /// are not carried. Taking the unit off the active list is the caller's.
+    /// </remarks>
+    internal void Freeze(IvpImpactEnvironment environment, double now)
+    {
+        for (int index = Cores.Count - 1; index >= 0; index--)
+        {
+            IvpRigidBody core = Cores[index];
+            core.Freeze(environment.InverseStep);
+
+            for (int at = core.Objects.Count - 1; at >= 0; at--)
+            {
+                IvpCollisionObject collisionObject = core.Objects[at];
+                collisionObject.MovementState = 8;
+                environment.Refile?.Invoke(collisionObject);
+                collisionObject.Hull.Settle(now);
+                collisionObject.Cache = null;
+            }
+        }
+
+        State = 8;
+    }
+
+    /// <summary><c>_DAT_1800ee1c8</c>, dumped as <c>-5.0f</c>: the jitter the rest check's countdown is scaled by, so it lands in 15..20.</summary>
+    private const float RestCheckJitter = -5f;
+}

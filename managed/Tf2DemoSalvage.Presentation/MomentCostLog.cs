@@ -52,6 +52,8 @@ public sealed class MomentCostLog
     private long _setup;
     private long _skin;
     private long _animation;
+    private long _corpses;
+    private long _corpseSteps;
 
     /// <summary>Skeletons actually rebuilt, against the entities posed.</summary>
     private long _poseBuilds;
@@ -102,6 +104,8 @@ public sealed class MomentCostLog
         _setup += phases.Counters.Setup;
         _skin += phases.Counters.Skin;
         _animation += phases.Counters.Animation;
+        _corpses += phases.Counters.Corpses;
+        _corpseSteps += phases.Counters.CorpseSteps;
         _poseBuilds += phases.Counters.PoseBuilds;
         _report += phases.Counters.Report;
 
@@ -140,6 +144,7 @@ public sealed class MomentCostLog
             + $", setup {Mean(_setup, over):0.#}"
             + $", skin {Mean(_skin, over):0.#}"
             + $", anim {Mean(_animation, over):0.#}"
+            + $", corpses {Mean(_corpses, over):0.#} over {_corpseSteps / (double)over:0.#} steps"
             + $", rest {Mean(Rest(), over):0.#}"
             // **Builds against posed is the number that says WHICH fps problem this is.** Roughly
             // equal means the readable-bone cache works and the cost is bone math; builds far above
@@ -164,6 +169,8 @@ public sealed class MomentCostLog
         _setup = 0;
         _skin = 0;
         _animation = 0;
+        _corpses = 0;
+        _corpseSteps = 0;
         _poseBuilds = 0;
         _report = 0;
         _drawn = 0;
@@ -185,7 +192,7 @@ public sealed class MomentCostLog
     /// numbers.
     /// </remarks>
     private long Rest() =>
-        _pose - _lighting - _viewmodel - _simulate - _wornLight - _report - _setup - _skin;
+        _pose - _lighting - _viewmodel - _simulate - _wornLight - _report - _setup - _skin - _corpses;
 
     /// <summary>Mean milliseconds per rebuild.</summary>
     private static double Mean(long ticks, int rebuilds) =>

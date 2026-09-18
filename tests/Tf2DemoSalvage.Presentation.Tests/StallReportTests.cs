@@ -95,6 +95,36 @@ public sealed class StallReportTests
     // which is strictly stronger — it walks every stage rather than checking one arithmetic chain.
 
     [Test]
+    public void Frame_WithACollectionDuringIt_NamesTheCollectionAndItsPause()
+    {
+        // **The per-second GC line cannot attribute a stall to one frame**, and the stalls left on
+        // f12 land in a different column every time — which is what a pause from outside the code
+        // looks like. Distinct generation counts so a swapped pair reads wrong.
+        RecordingLogger log = new();
+
+        GarbageReading before = new(10, 4, 1, TimeSpan.FromMilliseconds(100), 0);
+        GarbageReading after = new(12, 5, 1, TimeSpan.FromMilliseconds(350), 0);
+
+        StallReport.Frame(Phases(SlowMs / 7d), log, before, after);
+
+        log.Lines[0].Message.ShouldContain("gc 2/1/0 paused 250 ms");
+    }
+
+    [Test]
+    public void Frame_WithNoCollectionDuringIt_SaysSo()
+    {
+        // The control: "no gc" printed is a measurement, and its absence from a line that was never
+        // given readings is a different thing — so the two cases must read differently.
+        RecordingLogger log = new();
+
+        GarbageReading same = new(10, 4, 1, TimeSpan.FromMilliseconds(100), 0);
+
+        StallReport.Frame(Phases(SlowMs / 7d), log, same, same);
+
+        log.Lines[0].Message.ShouldContain("no gc");
+    }
+
+    [Test]
     public void Frame_WithNoLogger_Refuses()
     {
         Should.Throw<ArgumentNullException>(() => StallReport.Frame(Phases(SlowMs), log: null!));
@@ -148,6 +178,28 @@ public sealed class StallReportTests
 
         // The whole 100 ms pose is in no measured sub-phase.
         log.Lines[0].Message.ShouldContain("rest 100");
+    }
+
+    [Test]
+    public void Moment_WithCorpseStepping_NamesItAndTakesItOutOfRest()
+    {
+        // A 100 ms pose of which 70 is ragdoll stepping must name the 70 and leave rest at 30.
+        RecordingLogger log = new();
+
+        MomentPhases phases = new(
+            Total: Ticks(SlowMs),
+            DrawList: 0,
+            Models: 0,
+            Pose: Ticks(SlowMs),
+            Weapons: 0,
+            Viewmodel: 0,
+            Counters: new EntityModelSet.PoseCounters(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Corpses: Ticks(70d)),
+            Drawn: 0);
+
+        StallReport.Moment(phases, sampleTicks: 0, playerTicks: 0, log);
+
+        log.Lines[0].Message.ShouldContain("corpses 70");
+        log.Lines[0].Message.ShouldContain("rest 30");
     }
 
     [Test]
@@ -209,6 +261,44 @@ public sealed class StallReportTests
         StallReport.Sounds(default, Ticks(StallReport.StallSeconds * 1000d), log);
 
         log.Lines.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Camera_UnderTheThreshold_IsNotReported()
+    {
+        RecordingLogger log = new();
+
+        StallReport.Camera(Ticks(1d), Ticks(1d), Ticks(1d), Ticks(1d), log);
+
+        log.Lines.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Camera_OverTheThreshold_NamesEveryStep()
+    {
+        // **The camera column held 102 and 410 ms stalls on f12 with no collection in that second**,
+        // and the column is four different pieces of work. Distinct values per step, so a report
+        // that swapped two columns reads wrong rather than coincidentally right.
+        RecordingLogger log = new();
+
+        StallReport.Camera(Ticks(10d), Ticks(20d), Ticks(30d), Ticks(40d), log);
+
+        log.Lines.Count.ShouldBe(1);
+
+        string line = log.Lines[0].Message;
+
+        line.ShouldStartWith("SLOW CAMERA 100");
+        line.ShouldContain("fly 10");
+        line.ShouldContain("view 20");
+        line.ShouldContain("device 30");
+        line.ShouldContain("particles 40");
+    }
+
+    [Test]
+    public void Camera_WithNoLogger_Refuses()
+    {
+        Should.Throw<ArgumentNullException>(() =>
+            StallReport.Camera(Ticks(SlowMs), 0, 0, 0, log: null!));
     }
 
     /// <summary>Seven equal phases, each of the given duration.</summary>

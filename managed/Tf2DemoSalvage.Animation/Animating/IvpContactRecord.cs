@@ -49,7 +49,7 @@ public sealed class IvpContactRecord
     public (float X, float Y, float Z) Span { get; internal set; }
 
     /// <summary><c>normal × span</c> — <c>+0xc0</c>.</summary>
-    public (float X, float Y, float Z) CrossSpan { get; private set; }
+    public (float X, float Y, float Z) CrossSpan { get; internal set; }
 
     /// <summary>The position in the first core's frame — <c>+0xd0</c>; zero for a static core.</summary>
     public (float X, float Y, float Z) FirstArm { get; internal set; }

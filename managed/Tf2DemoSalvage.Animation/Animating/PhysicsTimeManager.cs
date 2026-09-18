@@ -182,6 +182,40 @@ public sealed class PhysicsTimeManager
         Base = now;
     }
 
+    /// <summary>Fires the earliest event when it is due before an absolute time — one turn of <see cref="DrainUntil"/>'s loop.</summary>
+    /// <param name="before">The absolute time the event must fall strictly before, compared in base-relative float.</param>
+    /// <param name="setClock">Sets the environment's clock to the event's absolute time before it fires.</param>
+    /// <returns>Whether an event fired.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="setClock"/> is null.</exception>
+    /// <remarks>
+    /// **For a caller that keeps a second queue beside this one** and must interleave the two by time: a whole
+    /// <see cref="DrainUntil"/> would run every event before its target before the other queue's earliest could fire. *No final
+    /// snap* — the caller snaps once, as the engine's loop does after its last event.
+    /// </remarks>
+    public bool RunEarliest(double before, Action<double> setClock)
+    {
+        ArgumentNullException.ThrowIfNull(setClock);
+
+        if (Earliest() is not { } next || !(next.Time < (float)(before - Base)))
+        {
+            return false;
+        }
+
+        _events.Remove(next);
+        Now = next.Time;
+
+        double absolute = next.Time + Base;
+
+        setClock(absolute);
+        next.Fire(absolute);
+
+        return true;
+    }
+
+    /// <summary>Puts the manager's own clock back to the base — the PSI event's <c>tm+0x20 = 0</c>.</summary>
+    /// <remarks>**Part of <c>FUN_18008a020</c>, not of the rebase**, which is why it is its own call.</remarks>
+    internal void ZeroClock() => Now = 0d;
+
     /// <summary>The next event due, or null when nothing is queued.</summary>
     private PhysicsEvent? Earliest()
     {

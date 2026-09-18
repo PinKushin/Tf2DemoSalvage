@@ -60,3 +60,9 @@ owner had to be asked what main should get (D170).
   and stays the owner's own click.
 
 Recorded as D171.
+
+**2026-09-16, it came through a subagent.** A sonnet subagent building the paired `.phy` drop probes noticed a stale
+class doc and called `spawn_task` itself; the owner started the chip by mistake: *"you are not suppose to be doing
+those though asshole, that takes more tokens"*. The subagent has the tool and none of this rule. **How to apply:
+every subagent prompt says "never call spawn_task; report anything out of scope in your final answer instead"**,
+and the main loop does or delegates what comes back.

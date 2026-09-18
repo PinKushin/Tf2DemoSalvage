@@ -18,7 +18,12 @@ when a function's 60 lines would do.
   `docs/findings/51` ([[one-place-or-it-drifts]]).
 - **Code reads go through the LSP** (`agent-lsp`: `get_symbol_source`, `list_symbols`, `find_symbol`, `find_references`,
   `blast_radius` before an edit) — the owner, same day: *"reads can be done with the LSP which is what you were suppose
-  to be using already"*. Whole-file `Read` of a C# file is the exception, not the habit.
+  to be using already"*. Whole-file `Read` of a C# file is the exception, not the habit. **It did not stick**: a whole
+  session (2026-09-16) of porting ran on grep and sed over `.cs` files, and the owner: *"you've wasted so many tokens not
+  using that today. There needs to be a hook that reminds you."* So `~/.claude/hooks/prefer-lsp-for-symbols.ps1` now
+  refuses a text search for a C# symbol (D178). The LSP needs `start_lsp(root_dir=<repo>, language_id='csharp')` once per
+  session. **The same session also ran every Ghidra read through `analyzeHeadless`** — a JVM start per question —
+  where the headless MCP server below was the rule.
 - **The engine's C++ goes through `clangd`**: `start_lsp` with `root_dir` `F:\src\source-sdk-2013\src` (it has a
   `compile_commands.json`), then `get_symbol_source` — `PhysicsLevelInit` came back in 275 tokens against 8,055 for the
   file. No Java LSP is needed: vphysics has no source.

@@ -81,6 +81,20 @@ public static class IvpTransform
     public static (float X, float Y, float Z) SourcePosition(float x, float y, float z) =>
         (x * InchesPerMetre, z * InchesPerMetre, -y * InchesPerMetre);
 
+    /// <summary>A hull point as the <c>IVPS</c> section stores it, back in Source space.</summary>
+    /// <param name="point">IVP metres, Y-up.</param>
+    /// <returns>The point in inches, Z-up.</returns>
+    /// <remarks>
+    /// **For a long time this was the forward map applied a second time** — `(x, −z, y)` rather than `(x, z, −y)`. Two 90° turns about
+    /// X are a 180° one, so every hull arrived upside down and back to front while its extent stayed plausible: B400, corpses falling
+    /// through floors. `IvpHullConventionConformanceTests` pins it.
+    /// </remarks>
+    public static System.Numerics.Vector3 SourcePosition(System.Numerics.Vector3 point)
+    {
+        (float x, float y, float z) = SourcePosition(point.X, point.Y, point.Z);
+        return new System.Numerics.Vector3(x, y, z);
+    }
+
     /// <summary>Which physics axis a Source axis index becomes.</summary>
     /// <param name="axis">A Source axis, 0 to 3.</param>
     /// <returns>The physics axis, or 0 for an index outside the table.</returns>

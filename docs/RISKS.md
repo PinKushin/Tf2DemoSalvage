@@ -3342,6 +3342,20 @@ emulate the choice.
 
 ## B58 — jiggle bones and ragdolls, neither of which is rigid-body physics — jiggle DONE, the ragdoll SOLVER done, nothing DRAWS with it
 
+**Update 2026-09-15: a corpse is simulated whether or not it is drawn — the divergence
+`CorpsePhysics.SimulatesOnlyWhatIsDrawn` filed is closed.** The engine keeps a client ragdoll in
+`physenv`, which `CPhysicsSystem::PhysicsSimulate` steps every frame (`physics.cpp:447`), so
+visibility decides only drawing. The advance sat inside `EntityModelSet.Instances`' loop over props
+that survived the cull, so a corpse behind the camera stopped and, back in view, replayed every
+missed tick in one frame. That is what the owner saw as jitter: on f12 in Release, frames of 135,
+151 and 551 ms whose `SLOW MOMENT` put all of it in `corpses`. `AdvanceCorpses` now runs before the
+cull over every prop the moment carries (read-from-source for the engine's rule; measured for the
+stall). Test: `Instances_ForACorpseOutsideTheView_StillSimulatesTheTicksBetween`, red at 0 steps
+with `Culled` 1 as its control, green at 66. After it, a 90-second f12 run's slow moments carry
+0-0.9 ms of corpses. **Not established:** whether a corpse the moment no longer CARRIES (faded by
+`RagdollFade`) should keep stepping — the engine removes a faded ragdoll, so this matches, but no
+test pins it.
+
 **Update 2026-09-07: the ragdoll half is no longer "open", it is transcribed and running — and it is
 still invisible.** A TF2 corpse's physics is read end to end out of `vphysics.dll` and implemented
 with tests: integration, gravity, the environment's step order, the angular limit solve, all three

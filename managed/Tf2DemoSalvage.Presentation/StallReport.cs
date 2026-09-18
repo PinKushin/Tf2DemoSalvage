@@ -97,13 +97,40 @@ public static class StallReport
     /// <param name="phases">What the frame measured.</param>
     /// <param name="log">Where the line goes.</param>
     /// <exception cref="ArgumentNullException"><paramref name="log"/> is null.</exception>
-    public static void Frame(in FramePhases phases, ILogger log)
+    public static void Frame(in FramePhases phases, ILogger log) => Frame(phases, log, null, null);
+
+    /// <summary>The same report, with what the collector did during this one frame.</summary>
+    /// <param name="phases">What the frame measured.</param>
+    /// <param name="log">Where the line goes.</param>
+    /// <param name="before">The runtime's counters as the frame began, or null.</param>
+    /// <param name="after">The same as it ended, or null.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="log"/> is null.</exception>
+    /// <remarks>
+    /// **Per frame, because the per-second line cannot attribute a stall.** The stalls left on f12
+    /// land in a different column every time — bone setup, lighting, camera, sound, draw — which is
+    /// the signature of a pause from outside the code, and a second's total cannot say whether a
+    /// collection fell inside the 400 ms frame or beside it.
+    /// </remarks>
+    public static void Frame(
+        in FramePhases phases, ILogger log, GarbageReading? before, GarbageReading? after)
     {
         ArgumentNullException.ThrowIfNull(log);
 
         if (Ms(phases.Total) <= StallSeconds * 1000d)
         {
             return;
+        }
+
+        string garbage = string.Empty;
+
+        if (before is { } start && after is { } end)
+        {
+            garbage = end.Gen0 == start.Gen0 && end.Gen1 == start.Gen1 && end.Gen2 == start.Gen2
+                ? "; no gc"
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"; gc {end.Gen0 - start.Gen0}/{end.Gen1 - start.Gen1}/{end.Gen2 - start.Gen2}" +
+                    $" paused {(end.Paused - start.Paused).TotalMilliseconds:0} ms");
         }
 
         log.LogWarning(
@@ -117,7 +144,7 @@ public static class StallReport
                 $", capture {Ms(phases.Capture):0.#}" +
                 $", hud {Ms(phases.Hud):0.#}" +
                 $", draw {Ms(phases.Draw):0.#}" +
-                $"; unaccounted {Ms(phases.Unaccounted):0.#} ms"));
+                $"; unaccounted {Ms(phases.Unaccounted):0.#} ms{garbage}"));
     }
 
     /// <summary>Reports a scene rebuild that took too long, naming each phase and sub-phase.</summary>
@@ -159,9 +186,10 @@ public static class StallReport
         double reports = Ms(pose.Report);
         double setup = Ms(pose.Setup);
         double skin = Ms(pose.Skin);
+        double corpses = Ms(pose.Corpses);
 
         double rest =
-            Ms(phases.Pose) - lighting - viewmodel - simulate - wornLight - reports - setup - skin;
+            Ms(phases.Pose) - lighting - viewmodel - simulate - wornLight - reports - setup - skin - corpses;
 
         log.LogWarning(
             "{Message}",
@@ -178,6 +206,7 @@ public static class StallReport
                 $" (sink {Ms(pose.ReportLog):0.#})" +
                 $", setup {setup:0.#}" +
                 $", skin {skin:0.#}" +
+                $", corpses {corpses:0.#}" +
                 $", rest {rest:0.#}" +
                 $", built {pose.Built.ToString(CultureInfo.InvariantCulture)}" +
                 $" of {phases.Drawn.ToString(CultureInfo.InvariantCulture)}" +
@@ -219,6 +248,40 @@ public static class StallReport
                 $", loops {Ms(phases.Loops):0.#}" +
                 $", soundscape {Ms(phases.Soundscape):0.#}" +
                 $", starting {Ms(phases.Starting):0.#}"));
+    }
+
+    /// <summary>Reports a camera step that took too long, naming each piece of it.</summary>
+    /// <param name="flyTicks">Reading the clock and flying the free camera.</param>
+    /// <param name="viewTicks">Choosing and building this frame's view camera.</param>
+    /// <param name="deviceTicks">Handing it to the device: the world cull and the detail sprites.</param>
+    /// <param name="particleTicks">Stepping the particle effects and building their quads.</param>
+    /// <param name="log">Where the line goes.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="log"/> is null.</exception>
+    /// <remarks>
+    /// **The frame's `camera` column held 102 and 410 ms stalls on f12 in seconds with no
+    /// collection**, and that column is four unrelated pieces of work. Named apart so the next one
+    /// says which.
+    /// </remarks>
+    public static void Camera(
+        long flyTicks, long viewTicks, long deviceTicks, long particleTicks, ILogger log)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+
+        double total = Ms(flyTicks + viewTicks + deviceTicks + particleTicks);
+
+        if (total <= StallSeconds * 1000d)
+        {
+            return;
+        }
+
+        log.LogWarning(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SLOW CAMERA {total:0} ms: fly {Ms(flyTicks):0.#}" +
+                $", view {Ms(viewTicks):0.#}" +
+                $", device {Ms(deviceTicks):0.#}" +
+                $", particles {Ms(particleTicks):0.#}"));
     }
 
     /// <summary>Stopwatch ticks as milliseconds.</summary>

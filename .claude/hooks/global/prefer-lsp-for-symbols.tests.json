@@ -1,0 +1,16 @@
+[
+  { "name": "Grep tool: bare class name over cs glob", "input": {"pattern": "IvpFrictionSystem", "glob": "**/*.cs"}, "expect": "deny" },
+  { "name": "Grep tool: declaration over type cs", "input": {"pattern": "class IvpRecordFrictionController", "type": "cs"}, "expect": "deny" },
+  { "name": "Grep tool: member call over a cs file", "input": {"pattern": "LinkContactByCore\\(", "path": "C:/repo/managed/IvpFrictionLinking.cs"}, "expect": "deny" },
+  { "name": "Grep tool: alternation of symbols", "input": {"pattern": "SidesOf|SideOf\\(", "glob": "*.cs"}, "expect": "deny" },
+  { "name": "Bash grep: declaration in a cs file", "input": {"command": "grep -n \"public static void PointEdge\" managed/Animating/IvpContactGeometry.cs"}, "expect": "deny" },
+  { "name": "Bash grep: escaped alternation of symbols with include", "input": {"command": "grep -rn \"LinkContactByCore\\|AddCore(\" --include=*.cs managed"}, "expect": "deny" },
+
+  { "name": "CONTROL: engine address over cs", "input": {"pattern": "FUN_180086240", "glob": "*.cs"}, "expect": "allow" },
+  { "name": "CONTROL: offset over cs", "input": {"command": "grep -n \"+0x1b0\" managed/Animating/IvpIntegrator.cs"}, "expect": "allow" },
+  { "name": "CONTROL: prose in comments over cs", "input": {"pattern": "not carried", "glob": "*.cs"}, "expect": "allow" },
+  { "name": "CONTROL: symbol name searched in docs", "input": {"pattern": "IvpFrictionSystem", "glob": "docs/**/*.md"}, "expect": "allow" },
+  { "name": "CONTROL: symbol name in docs by bash", "input": {"command": "grep -n \"IvpSimulation\" docs/findings/51.md"}, "expect": "allow" },
+  { "name": "CONTROL: test output filter", "input": {"command": "grep -E \"Passed!|Failed!\" \"$TEMP/rv.txt\""}, "expect": "allow" },
+  { "name": "CONTROL: a dotnet test command", "input": {"command": "dotnet test tests/Tf2DemoSalvage.Animation.Tests --filter \"FullyQualifiedName~IvpSimulation\""}, "expect": "allow" }
+]

@@ -96,6 +96,12 @@ public sealed class IvpCollisionEnvironment
 
     /// <summary>What a new mindist with a phantom object becomes — <c>FUN_180097940(env+0x20, m)</c>.</summary>
     public Action<IvpMindist>? BecomePhantom { get; init; }
+
+    /// <summary>
+    /// What a filed mindist's record hands it to when its hull passes — slot 1, <c>FUN_180097570</c>, into <c>FUN_180097f00</c>
+    /// (<see cref="IvpMindistHull.HullPassed"/> over the environment). A larger mindist files its records with it when it opens.
+    /// </summary>
+    public Action<IvpMindist, float>? HullPassed { get; init; }
 }
 
 /// <summary>IVP's broad phase: an object's sphere refiled in the OV tree, and its collisions kept, dropped and made (B369).</summary>

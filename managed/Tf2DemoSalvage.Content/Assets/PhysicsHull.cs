@@ -28,6 +28,14 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// </remarks>
 /// <param name="Center">The centre of the bounding sphere its tree node carries.</param>
 /// <param name="Radius">That sphere's radius, in the same IVP metres as the points.</param>
+/// <param name="VirtualTriangles">
+/// **Each triangle's header word, bit 31** (B369) — what the larger mindist's slot 8, `FUN_1800b2460`, reads as the header's sign
+/// when it decides whether a contact on a hull ledge opens it (`docs/findings/51`, *The larger mindist in full*). Null for a ledge
+/// built by hand without it; <see cref="PhysicsHull"/> always reads it.
+/// </param>
+/// <param name="VirtualEdges">
+/// **Each edge word's bit 31, per triangle and slot** (B369), read the same way by `FUN_1800b2460` for an edge feature. Null likewise.
+/// </param>
 public readonly record struct PhysicsLedge(
     IReadOnlyList<Vector3> Points,
     IReadOnlyList<(int A, int B, int C)> Triangles,
@@ -35,7 +43,9 @@ public readonly record struct PhysicsLedge(
     IReadOnlyList<int> PierceTriangles,
     IReadOnlyList<int> MaterialIndices,
     Vector3 Center,
-    float Radius);
+    float Radius,
+    IReadOnlyList<bool>? VirtualTriangles = null,
+    IReadOnlyList<(bool A, bool B, bool C)>? VirtualEdges = null);
 
 /// <summary>The mass center and rotational inertia a hull's compact surface carries in its header (B403).</summary>
 /// <param name="MassCenter">Where the hull's mass center is, in IVP metres in the solid's own frame.</param>
@@ -135,6 +145,9 @@ public static class PhysicsHull
     /// <summary>Offset of a tagged solid's data size — the length the loader copies from <see cref="SurfaceOffset"/>.</summary>
     private const int DataSizeOffset = 0x08;
 
+    /// <summary>Offset of a tagged solid's three drag areas, <c>dragAxisAreas</c>.</summary>
+    private const int DragAxisAreasOffset = 0x0C;
+
     /// <summary>Where a TAGGED solid's <c>IVP_Compact_Surface</c> begins; an untagged solid's begins at its first byte.</summary>
     private const int SurfaceOffset = 0x1C;
 
@@ -149,6 +162,12 @@ public static class PhysicsHull
 
     /// <summary>Offset within the surface of the ledge tree's root offset.</summary>
     private const int LedgeTreeOffset = 0x20;
+
+    /// <summary>The surface's radius, <c>+0x18</c> — what <c>18007aeb0</c> reads a core's radius from.</summary>
+    private const int SurfaceRadiusOffset = 0x18;
+
+    /// <summary>The surface's deviation byte, <c>+0x1C</c>, scaled by <c>0.004f</c> and the radius.</summary>
+    private const int SurfaceDeviationOffset = 0x1C;
 
     /// <summary>Offset within the surface of the format magic.</summary>
     private const int MagicOffset = 0x2C;
@@ -283,6 +302,27 @@ public static class PhysicsHull
             : new PhysicsMassProperties(Triple(surface, MassCenterOffset), Triple(surface, RotationInertiaOffset));
     }
 
+    /// <summary>A solid's drag areas — what <c>CollideGetOrthographicAreas</c> answers for its collide.</summary>
+    /// <param name="solid">The solid's bytes, after its size prefix.</param>
+    /// <returns>The three areas, as the file stores them; null when the loader builds no collide.</returns>
+    /// <remarks>
+    /// **Read from the disassembly, 2026-09-16**: every compact-surface collide is constructed with `(1, 1, 1)` at `+0x10..0x18`
+    /// (`FUN_18000bcf0`), and `FUN_18000a100` overwrites them from a tagged solid's `+0x0C..0x14` — `dragAxisAreas` in
+    /// `swapcompactsurfaceheader_t` (`common/studiobyteswap.cpp:433-443`). The collide's slot `+0x40` (`FUN_18000bb80`) copies them
+    /// out untouched.
+    /// </remarks>
+    public static Vector3? DragAxisAreas(ReadOnlySpan<byte> solid)
+    {
+        (PhysicsSolidLoad load, int surface, _) = Locate(solid);
+
+        if (load != PhysicsSolidLoad.Collide)
+        {
+            return null;
+        }
+
+        return surface == SurfaceOffset ? Triple(solid, DragAxisAreasOffset) : Vector3.One;
+    }
+
     /// <summary>The bytes the loader builds a collide from, or empty when it builds none.</summary>
     /// <param name="solid">The solid's bytes, after its size prefix.</param>
     /// <returns>The <c>IVP_Compact_Surface</c> and the bytes the loader copies with it.</returns>
@@ -319,7 +359,25 @@ public static class PhysicsHull
         Dictionary<int, PhysicsLedgeTreeNode> nodes = [];
         PhysicsLedgeTreeNode? root = TreeNode(surface, BitConverter.ToInt32(surface[LedgeTreeOffset..]), nodes, MaximumDepth);
 
-        return root is null ? null : new PhysicsLedgeTree(root, nodes);
+        if (root is null)
+        {
+            return null;
+        }
+
+        foreach (PhysicsLedgeTreeNode node in nodes.Values)
+        {
+            if (node.LedgeNodeOffset is int offset && nodes.TryGetValue(offset, out PhysicsLedgeTreeNode? named))
+            {
+                node.LedgeNode = named;
+            }
+        }
+
+        return new PhysicsLedgeTree(root, nodes)
+        {
+            MassCenter = Triple(surface, MassCenterOffset),
+            Radius = BitConverter.ToSingle(surface[SurfaceRadiusOffset..]),
+            Deviation = surface[SurfaceDeviationOffset],
+        };
     }
 
     /// <summary>One node of <see cref="Tree"/> and everything beneath it, or null when any of it lies outside the bytes.</summary>
@@ -350,10 +408,13 @@ public static class PhysicsHull
                 return null;
             }
 
+            int nodeWord = BitConverter.ToInt32(surface[(at + 4)..]);
+
             read.HasLedge = true;
             read.LedgeOffset = at;
-            read.LedgeNodeOffset = at + BitConverter.ToInt32(surface[(at + 4)..]);
+            read.LedgeNodeOffset = nodeWord == 0 ? null : at + nodeWord;
             read.LedgeChildren = BitConverter.ToInt32(surface[(at + 8)..]) & 3;
+            read.Ledge = ReadLedge(surface, at, read.Center, read.Radius);
         }
 
         nodes[node] = read;
@@ -526,7 +587,7 @@ public static class PhysicsHull
     /// is shared between siblings, so carrying it whole would hand every ledge of `ladder001` the
     /// same several hundred points and make a convex test over one of them wrong as well as slow.
     /// </remarks>
-    private static PhysicsLedge? ReadLedge(
+    internal static PhysicsLedge? ReadLedge(
         ReadOnlySpan<byte> solid, int ledge, Vector3 centre, float radius)
     {
         if (ledge < 0 || ledge + LedgeHeaderSize > solid.Length)
@@ -549,6 +610,8 @@ public static class PhysicsHull
         List<(int A, int B, int C)> offsets = new(count);
         List<int> pierces = new(count);
         List<int> materials = new(count);
+        List<bool> virtualTriangles = new(count);
+        List<(bool A, bool B, bool C)> virtualEdges = new(count);
 
         for (int index = 0; index < count; index++)
         {
@@ -574,9 +637,13 @@ public static class PhysicsHull
             offsets.Add((EdgeOffset(first), EdgeOffset(second), EdgeOffset(third)));
             pierces.Add(PierceTriangle(header));
             materials.Add(MaterialIndex(header));
+
+            // Bit 31 of the header and of each edge word, which FUN_1800b2460 reads as the word's sign.
+            virtualTriangles.Add(header < 0);
+            virtualEdges.Add((first < 0, second < 0, third < 0));
         }
 
-        return new PhysicsLedge(kept, triangles, offsets, pierces, materials, centre, radius);
+        return new PhysicsLedge(kept, triangles, offsets, pierces, materials, centre, radius, virtualTriangles, virtualEdges);
     }
 
     /// <summary>A header word's bits 24–30: byte 3 less its top bit, as <c>FUN_1800863d0</c> reads it.</summary>

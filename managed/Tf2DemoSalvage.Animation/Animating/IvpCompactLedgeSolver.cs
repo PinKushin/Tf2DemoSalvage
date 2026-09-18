@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+
+using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
@@ -34,6 +37,23 @@ public sealed record IvpLedgeSide(
     /// <returns>The normal, in the object's frame.</returns>
     public (double X, double Y, double Z) FaceNormal(IvpLedgeEdge edge) =>
         IvpVector.FaceNormal(StartOf(edge), EndOf(edge), StartOf(Topology.Previous(edge)));
+
+    /// <summary>Builds a side from a decoded ledge and an object's current placement — what a live PSI needs each collision.</summary>
+    /// <param name="ledge">The ledge, decoded from the <c>.phy</c>'s compact surface — <see cref="PhysicsLedgeTreeNode.Ledge"/>.</param>
+    /// <param name="current">The object's matrix now.</param>
+    /// <param name="corePosition">The core's position now.</param>
+    /// <returns>The side.</returns>
+    /// <remarks>
+    /// **Not read from the disassembly — this project's own assembly of already-decoded pieces.** The native builds this
+    /// structure per synapse inside `FUN_180094c70`'s caller, which nothing in this port has needed until a live running
+    /// path does; <see cref="PhysicsLedge"/> already carries everything <see cref="IvpLedgeTopology"/> needs.
+    /// </remarks>
+    public static IvpLedgeSide FromLedge(PhysicsLedge ledge, IvpMatrix current, (double X, double Y, double Z) corePosition) =>
+        new(
+            ledge.Points.Select(point => (point.X, point.Y, point.Z)).ToList(),
+            new IvpLedgeTopology(ledge.Triangles, ledge.EdgeOffsets, ledge.PierceTriangles, ledge.MaterialIndices),
+            current,
+            corePosition);
 }
 
 /// <summary>An edge's two weights for a point — <c>FUN_18007d070</c>'s output.</summary>
@@ -264,6 +284,68 @@ public static class IvpCompactLedgeSolver
 
         return numerator / denominator;
     }
+
+    /// <summary>A point's squared distance from a triangle — <c>FUN_18007bea0</c>.</summary>
+    /// <param name="side">The side the triangle belongs to.</param>
+    /// <param name="triangle">The triangle.</param>
+    /// <param name="point">The point, in the side's frame.</param>
+    /// <returns>The squared distance.</returns>
+    /// <remarks>
+    /// **Read from the disassembly** (2026-09-16):
+    /// <code>
+    /// TriangleWeights(edge 0) all inside →  n = FaceNormal(edge 0) in double, v = edge 0's start;
+    ///     ((n.y·p.y + n.x·p.x) + n.z·p.z − ((v.y·n.y + v.x·n.x) + v.z·n.z))² / ((n.x² + n.y²) + n.z²)
+    /// else best = 1e101 (DAT_1800eedc0);  for edge 2, 1, 0:  EdgeWeights —
+    ///     start not ≥ 0 (NaN included) → best = MINSD((y² + x²) + z² of p − start, best)
+    ///     end ≥ 0 → best = MINSD(LineDistanceSquared, best);  else nothing
+    /// </code>
+    /// </remarks>
+    public static double TriangleDistanceSquared(IvpLedgeSide side, int triangle, (double X, double Y, double Z) point)
+    {
+        ArgumentNullException.ThrowIfNull(side);
+
+        IvpLedgeEdge first = new(triangle, 0);
+
+        if (TriangleWeights(side, first, point).Inside)
+        {
+            (double X, double Y, double Z) n = side.FaceNormal(first);
+            (float X, float Y, float Z) v = side.StartOf(first);
+
+            double along = (n.Y * point.Y) + (n.X * point.X) + (n.Z * point.Z);
+            double at = ((double)v.Y * n.Y) + ((double)v.X * n.X) + ((double)v.Z * n.Z);
+            double length = (n.X * n.X) + (n.Y * n.Y) + (n.Z * n.Z);
+            double offset = along - at;
+
+            return offset * offset / length;
+        }
+
+        double best = BitConverter.Int64BitsToDouble(0x54e6dc186ef9f45c);
+
+        for (int slot = 2; slot >= 0; slot--)
+        {
+            IvpLedgeEdge edge = new(triangle, slot);
+            IvpEdgeWeights weights = EdgeWeights(side, edge, point);
+
+            if (!(weights.Start >= 0f))
+            {
+                (float X, float Y, float Z) start = side.StartOf(edge);
+                double x = point.X - start.X;
+                double y = point.Y - start.Y;
+                double z = point.Z - start.Z;
+
+                best = Minsd((y * y) + (x * x) + (z * z), best);
+            }
+            else if (weights.End >= 0f)
+            {
+                best = Minsd(LineDistanceSquared(side, edge, point), best);
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary><c>MINSD</c>: the first when it is below the second, else the second — a NaN answers the second.</summary>
+    private static double Minsd(double first, double second) => first < second ? first : second;
 
     /// <summary>A point's squared distance from an edge as a segment — <c>FUN_18007c1a0</c>.</summary>
     /// <param name="side">The side the edge belongs to.</param>

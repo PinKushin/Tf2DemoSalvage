@@ -4153,8 +4153,9 @@ FUN_18008da40(block, core, pair):  push core on +0x10;  core+0x260's +0x30 = 1
 
 **So the loop is event-ordered by estimate, not by contact order**: every pass re-estimates what the last solve invalidated,
 solves the one contact predicted to close first below the margin, and pulls in each newly moved core's other pairs. **A NaN
-estimate ends the search for that pass** — `MINSD` answers its second operand, so the best becomes NaN and no later compare can
-beat it. The cap of 5,000 passes asks the mindist's slot 0 with one; *what that slot does is not read.* **Not ported.**
+estimate hides only the contact after it** — `MINSD` answers its second operand whenever either is NaN, so the best becomes NaN,
+the next compare fails, and that next estimate becomes the best again. *First written (2026-09-13) as "ends the search for that
+pass… no later compare can beat it"; that ignored the second half of `MINSD`, and a three-contact test (2026-09-15) settles it.* The cap of 5,000 passes asks the mindist's slot 0 with one; *what that slot does is not read.* **Not ported.**
 
 **`FUN_1800909d0(block)`, the tail, read whole:**
 
@@ -4172,6 +4173,355 @@ every core of +0x10, last to first, unless flags & 2:  FUN_1800792b0(core)
 actually moved are stepped — each over the environment's whole remaining PSI span, through the same integrator a PSI uses — then
 re-checked by the scheduler and stamped with the impact counter. `FUN_180077f00(core, system)` is the per-system record: through
 the hash at `core+0x60` for an unmovable core, else `core+0x60` itself when its `+0x10` is the system.
+#### One queue, and what having two costs — the PSI event beside the pair events (2026-09-16)
+
+**The engine keeps ONE queue.** The time manager's min-list at `tm+0x10` holds the PSI event (`FUN_18008a020`, which requeues
+itself) and every pair's event side by side, and `FUN_18008a020` rebases every entry in it each step:
+`for (each queued entry) entry.time -= (float)now`. The loop fires whatever is due next, so a pair event due before the next PSI
+fires before it.
+
+**This port has two**: `PhysicsTimeManager` for the PSI event, and the `IvpMinList<IvpMindist>` the pair scheduler writes
+(`FUN_180099380`'s own `environment.Queue`). Two consequences, both measured while wiring `IvpSimulation`:
+
+- **The two queues must be fired as one, one event at a time.** `IvpSimulation.Advance` fires a PSI event only when it falls
+  strictly before the earliest pair event (`PhysicsTimeManager.RunEarliest`), otherwise that pair event at its own time, and
+  snaps the clock to the target at the end. *Two wrong shapes came first, and both drove bodies through each other*: draining
+  pair events once after a slice (only the last PSI's requeue was ever found), then one PSI followed by a drain (a pair event
+  queued by one PSI still waited behind the next, and a whole `DrainUntil` to the earliest pair event already queued ran every
+  later PSI before a newly queued one could fire). A tie — a pair event at exactly a PSI's time — fires first here, where the
+  engine's min-list order decides.
+- **The pair queue holds ABSOLUTE times.** Its entries are not rebased with the other queue, so a time relative to a base that
+  has since moved is wrong. That gives up exactly the float precision the engine's rebase exists to protect.
+
+**Neither is a reading of the engine — they are this port's shape**, and both go away when the two queues become one. Recorded
+here so the next reader does not take the interleaving loop for something the binary does.
+
+#### Two bodies driven together, end to end — six faults between the broad phase and the impact (2026-09-16)
+
+**The test** (`IvpSimulationBroadPhaseTests.Advance_TwoBodiesDrivenTogether_CollideAndShareTheirMomentum`): two cubes of half
+4, faces 1 apart, one moving at 6. Nothing is named by hand — the broad phase finds the pair. It failed six ways in turn, and
+each was found with an instrument carried out of the code (`LastLength`, `LastHullPass`, the hull manager's values), not by
+reading:
+
+1. **The fixture's cube had no edge links** — every edge offset zero, so each hop landed on itself and the minimize could never
+   leave the corner it started on. It measured the CENTERS' distance, 9, where the faces were 1 apart, and the pair was filed far
+   with an allowance two and a half times too big. *A test fixture, not the code*: `IvpTestCube` now links each edge to its twin.
+2. **The core matrix kept its old translation.** The unit PSI rebuilt `core+0x90` from the working orientation and left the
+   translation where it was. The matrix is three 32-byte rows and a translation, so `+0x90 + 0x60` IS the event position at
+   `+0xf0` — writing the event position writes where the matrix stands. Every body's collision shape stayed where it started.
+3. **A far pair's hull pass handed off to a bare minimize.** `FUN_180097f00`'s handoff is `FUN_1800977f0` — linked exact,
+   minimized, examined asking for a far pair's removal — and a new pair from the pair creation takes the same routine. With the
+   minimize alone a told pair was never examined again. *So a new pair of two still bodies is filed far at once*, before any PSI.
+4. **Sides were built on the PSI-start matrix, and the time code was invented.** `FUN_180082460` is `env+0x1a0 += 1; env+0x188 =
+   time` — every clock set counted, the drain's final snap included — and that count is what the minimize's once-per check and
+   every object cache key on. The port had a private counter bumped per minimize and read `core.CoreMatrix`, so a pair event
+   between PSIs measured the bodies a PSI late. Sides now stand on `IvpCollisionObject.CacheFor`, refreshed at the clock's time.
+   *The time code's starting value is not read*; one is interpolated so a pair made before the first clock set is measured.
+5. **The queues** — the bullet above.
+6. **Two movable cores refused to share a contact.** `FUN_180090e50`'s both-movable branches and `FUN_180086240`'s merge were
+   already read (*Filing a contact into a friction system*) and are now ported, with `FUN_180087bf0`'s registration of the
+   system's three controller faces on a joining movable core (`FUN_1800748b0`) and `FUN_180088c80`'s removal of them, and the
+   unit merge the filing ends with.
+
+**And the cores had to be awake the engine's way.** A core is born asleep (`core+0x1 = 8`) and the collision brings a core to the
+event only when that byte is under 8, so the impact island found no snapshot. Read for this:
+
+```
+FUN_1800892b0(core):  every object +0x78 = 1;  never stepped (+0x1d0 == 0) → velocity +0x140 and spin +0x130 kept
+    FUN_1800783c0:  +0x1 = 1;  +0x1d0 = now (after a dead store of now − (float)step);  +0x200 = +0x208 = now
+                    every object: +0x78 = 1;  FUN_180073b00 — core +0x1 and object +0x78 held at 0x21 around FUN_180098880
+    r = (float)(env+0x190 − now);  (double)r ≤ (double)1e-10f (COMISD/JBE, NaN too) → 1e10f  else (float)(1.0 / r)
+    FUN_180077670(core, {r, that}):  +0x1d8 = that;  +0x80 = +0x140 = +0x170 = +0x1dc = +0x254 = 0;  +0x1a0 = +0x180;  +0x1c0 = (1,0,0)
+    the kept velocity and spin back;  FUN_180086500 (resting contacts rebuilt — NOT carried);  listeners (not carried)
+FUN_180088930(core) → FUN_180078c90:  FUN_180078bd0 — +0x1 = 8;  velocity, spin, both staged changes, +0x170, +0x80 zeroed;
+    +0x1d8 = (float)env+0x110;  +0x1a0 = +0x180;  +0x1dc = +0x254 = 0;  +0x1c0 = (1,0,0)
+    every object: +0x78 = 8;  FUN_180098880;  the hull folded and rebased;  its cache given back (FUN_180080650)
+```
+
+`IvpSimulation.Add` now makes the unit asleep and wakes it, which is vphysics' own order for a body not created asleep.
+
+**Then a seventh, which the fixture had been hiding.** The collision built the contact's record with the mindist's record-0 side
+first, where `FUN_18008d0c0(cp, env)` builds it from the contact's own objects, synapse A first. The two agree only while A is
+record 0. With the cubes exactly aligned it was, and they met corner to corner — a point–point contact at zero distance, whose
+normal has no direction — so the impact spent itself on spin (0.795 of 6 passed across), the pair went invalid, and they sank
+through each other. Offsetting one cube put a corner inside the other's face, synapse A on record 1, and the wrong order showed:
+`Advance_TwoBodiesDrivenTogether_DoNotPassThroughEachOther` is red with record-0 order and green with the contact's.
+
+*What the aligned case would do in the engine is not established*: the minimize port is read from the disassembly, so it very
+likely ends point–point there too, but nothing has measured the binary on it.
+
+**Where it stands**: two bodies driven together collide repeatedly (five impacts in 0.2 s), share one friction system and one
+unit, conserve momentum, and do not pass through each other.
+
+**An eighth, on a static slab — energy from nowhere.** A cube dropped flat on an immovable slab (a core in no unit, filed in the
+broad phase like any other) left at +13.6 having arrived at −10, after twelve impacts in one event. Traced inside the island's
+drain: one contact's record normal was `(−1.6e−7, −1.6e−7, −0.01)` — a hundredth long — so each push on it made spin and little
+lift, and the corner beside it kept re-solving. **The port's own wiring**: `IvpSimulation` handed the island `_ => (first,
+second)`, the mindist's record-order sides, for EVERY contact, where the island reads each contact's own sides, synapse A
+first. With A on record 1 the triangle was looked up on the other body — the cube's face, 64 long, over the slab's reciprocal
+determinant, 1/6400. With each contact's own sides it lands and rests.
+
+**A ninth, at rest — the many-contact branch.** With two contacts the priority-2000 controller did nothing (its many-contact
+branch was marked unread, though *The priority-2000 routines* below had read it), so the gaps stayed where the impact left them
+and the cube crept up at 0.012 a second on a constant push. Ported as `IvpPairDamping`: every record rebuilt with the pushes'
+work banked in `pair+0x30`, zeroed under the unit's `0x3000` bits, and paid back out of the pair's relative motion unless its
+`0xc00` bits are set. It rests still (`Advance_ABodyRestingOnAStaticSlab_DoesNotCreep`, under 1e-3).
+
+**`env+0x1b0` settled** (2026-09-16): `FUN_180082470` writes `FUN_1800d3cf0(step · DAT_1800fd4e0)`; `FUN_1800d3cf0` is the
+CRT's `exp` (already ported as `IvpMath.Exp`) and `DAT_1800fd4e0` is `0xbfbaf8e892d15de8`, NEAR ln 0.9 but not its closest
+double. *`Math.Pow(0.9, 1/66)` was the first oracle and it was wrong by 4e-10*; the right control is the constructor's own
+`+0x1b0 = 0x3feff2eed61b4202` for its default 1/66, which the port reproduces bit for bit.
+
+`FUN_1800836b0`'s share of `pair+0x30` — what each tangential solve returns against `cp+0x84` — was carried on 2026-09-16; see
+*The friction controller at priority 600*.
+
+**A tenth and eleventh, on a surface of many ledges** (2026-09-16), with a compact surface written byte for byte in the test
+and read through `PhysicsHull.Tree`: two boxes, a cube dropped over the higher. **Every side stood on the core's first ledge**,
+where the pair creation names each record's ledge (`FUN_1800975d0`, `IvpMindist.Ledge`) and the contact's edges lie in those
+ledges — so the sides now take the record's ledge, and a contact carries both. **And a static core had whatever radius its
+caller gave it**, where `core+0x4` is the surface's: `FUN_180078b90` through `18007aeb0` reads `surface+0x18`, widened past the
+mass centre's distance (and `+0x8` the deviation byte · `0.004f` · radius, widened the same way). The broad phase files a node by
+that radius, so a world core with a cube's radius was only ever found near its origin — *the earlier slab test passed only
+because its cube fell near the origin*. `PhysicsLedgeTree` now carries the header's mass centre, radius and deviation.
+*Which centre the distance is measured from is INFERRED*: the core's, at minus the object's offset.
+
+#### A ragdoll in IVP space, and the constraint solve that was written for Source units (2026-09-16)
+
+**`IvpRagdoll` builds a corpse on the ported driver from the `.phy`'s raw numbers** — surface mass centre, per-kilogram
+inertia, the compact surface tree — in IVP axes and metres, converting only the start pose, the killing force, the inherited
+velocity and the pose read back. Gravity along Source −Z, the conversions and the killing force pass their tests at once. **The
+joint did not hold**: pulled an inch apart, the child drifted to 18 inches.
+
+**The reason is that the ported constraint solve was built for the invented Source-unit solver**, and three things it took on
+trust are now read (GhidraMCP, disassembly):
+
+- **The driver `FUN_18003c780` runs slot 3 — rebuild AND solve — once per constraint with `x = y = 1f`, then per iteration slot
+  4 descending and ascending with `x = A[i]`, `y = B[i]`, stopping on `x == 0`.** The two tables are laid on its stack from four
+  dumped blocks: `A = {1, 1, 0.8, 0.6, 0.4, 0.4, 0.4, 0.4, 0.4, 0}` (`eeb80`, `eeb70`, then `0.4f`, `0`) and `B = {1, 1, 0.8,
+  0.8, 0.8…, 0}` (`eeba0`, `eeb90`, `0.8f`, `0`). *The port read `eeb70` as the table and gave both stock iterations 0.4, and
+  skipped slot 3's solve.*
+- **`param_2` of every solve routine is the PSI event**: `+0x0` the step, `+0x4` its inverse. The angle is predicted
+  `rate·step` ahead, and the correction scale is `+0xc·(x·w or x)·invStep·(1/K)`; the ball-and-socket's error gain is
+  `+0x150·x·invStep`, its velocity gain `+0x14c·y`. *The port took a rate gain of zero, no inverse step anywhere, and the weight
+  as the error gain* — which a solver in inches happened to tolerate.
+- **Lane `w` of `+0x2d0` is half the bisector's length**, `(3 − r²d)·r·0.5·0.5·d` over `r = RSQRTPS(|primaryA + primaryB|²)`,
+  the mask at `1800ff130` being `(0, 0, 0, ~0)`; the twist's scale takes it, the swings' do not.
+
+**Fixing the gains alone made the joint diverge**, ball-and-socket included, because the rest of the port's conventions are
+the invented solver's too: its angular velocity is crossed with world arms where the driver keeps `+0x130` in the core's frame,
+and its positions are `+0x150` where the solve reads the event position `+0xf0`. **So the whole solve was transcribed from
+the disassembly** (`FUN_180038620`, `FUN_180038d10`, `FUN_180036e10`, `FUN_180036f80`, `FUN_1800372c0`, `FUN_180037620`,
+`FUN_180037bd0`, `FUN_180038070`) rather than patched further, and it settled four things:
+
+- **Every axis goes world→core.** `FUN_180037bd0` forms lane `k` as `(V.y·m[1,k] + V.z·m[2,k]) + V.x·m[0,k]` over the matrix
+  at `core+0x90` narrowed to float — the transpose — and body B's from `−V`. The spin at `+0x130` is the core's own. *The port
+  turned the axis core→world through the quaternion*, which only a world-frame spin could carry.
+- **The ball-and-socket's rows are per core axis.** `FUN_180038070` builds `c_k × armA` and `armB × c_k` from the matrix's
+  columns (the arm is the anchor's world point less `+0xf0`), their inverse-inertia-weighted copies, and `K` from their sum
+  with the inverse masses on the diagonal; its inverse is the adjugate `(r1×r2, r2×r0, r0×r1)` over `r2·(r0×r1)`, reciprocated
+  by `rcpps` with no guard. The impulse `T` then turns each core's spin through those rows.
+- **Slot 4 measures nothing.** `FUN_180038d10` rewrites `+0x2d0` and re-enters `FUN_180036e10`, whose type-1 path reuses the
+  cached axes; the deflections at `+0x100` and the position error at `+0x0` are slot 3's. Only the velocities are re-read.
+- **A swing's cross is lengthened to at least 0.1** — `max(rsqrt(|c|²)·0.1, 1)·c` — and retired below `FLT_EPSILON` squared,
+  where `FUN_1800372c0` writes type 2 into its own dispatch field.
+
+**The transcription itself lied twice, and the disassembly caught both**: it dropped a `MULPS XMM3,XMM12` (the step on the
+twist's rate) and decoded `SHUFPS` immediates `0x09`/`0x52` as `{y,x,x,x}`, which would make the adjugate's crosses
+nonsense; they are `{y,z,x,x}` and `{z,x,y,y}`. **With the port in the core's frame, the joint pulled an inch apart closes**,
+and the angular controller's own fixture needed the working orientation and matrix it had never set. *Rounding still differs
+from the engine in two places, stated*: the anchors carry the object offset pre-added, and the reciprocals are divides.
+
+#### The friction controller at priority 600, and the clamp's own weights — `FUN_1800836b0` and `FUN_180083970` (2026-09-15)
+
+**Read from the decompiler**, and it settles two things this project had recorded differently:
+
+```
+FUN_1800836b0(system, frame):
+    every pair of the system (+0x70, count +0x6a), last first, skipping a pair with no contacts:
+        b = Σ over its contacts (cp+0x88 · cp+0x78 · cp+0x60);  b = b · frame[0]²      -- four contacts at a time, then the tail
+        carry = 0
+        every contact, last first:
+            s = cp+0x68² + cp+0x6c²                                   -- the slide, squared
+            b² + DAT_1800eb140 < s:  r = 1/√s;  cp+0x91 = 1
+                cp+0x7c += (r·s − b) · cp+0x78 · cp+0x88              -- the carry
+                cp+0x68 ·= b·r;  cp+0x6c ·= b·r                       -- the slide clamped onto the cone
+            cp+0x64 == 1 → FUN_180085100(cp, frame)   else   carry += FUN_1800857c0(cp, frame)
+        0.0 < carry → pair+0x30 += carry
+
+FUN_180083970(cp, b):  the same clamp for one contact, the lone-contact path's own copy
+```
+
+- **The carry is weighted by `cp+0x78 × cp+0x88`** — the contact's friction times its own normal push. *This project's
+  `ClampSlide` used the RECORD's push-out estimate (`record+0x78`) instead, from a 2026-09-14 reading; corrected here. Both
+  fields read as "a push", which is how it slipped.*
+- **The clamp's excess is per contact and lands on `cp+0x7c`** — it is NOT chained from one contact to the next, which is how
+  this project's `ClampSlide` was being called (its `carry` parameter is that contact's own running total). Fixed with the
+  weight, and the field carried as `IvpContactPoint.SlideExcess`, so the weight is now observable.
+- **`pair+0x30` is a different quantity**: `FUN_1800857c0` RETURNS `fVar12 − cp+0x84` after writing `cp+0x84 = fVar12`, where
+  `fVar12 = √(step² · |slide|² · (cp+0x68² + cp+0x6c²)) · DAT_1800ee388`, and the pair grows by the sum of those deltas when it
+  comes out positive. **The decompiler's formula names the wrong squared length; the disassembly (2026-09-16) settles it**: the
+  squared length is the solved impulse's, BEFORE its clip (`XMM7`, kept across the call), and the grouping is
+  `(float)(√(double)((s₆ᶜ² + s₆₈²) · (float)((double)step · |i|² · step)) · 0.5)`. The same read found the rest of the routine
+  in mixed precision the port had in one: the target `(float)(event[1]·slide − v)` in float, the gate `(double)(float)(push ·
+  friction · step) ≥ 1e-6` (a NaN refuses), and the clip `|i|² > b·b` in double with `iₙ = (float)((double)iₙ · (double)rsqrt·b)`.
+  All carried as `IvpTangentialSolve.SolveContact`, `cp+0x84` as `IvpContactPoint.SlideWork`, and the pair walk made last first.
+- **The budget is per pair and per PSI**: the sum above times the step squared, with the contacts walked four at a time and the
+  remainder after, which changes nothing but the float summation order.
+
+#### The cone budget's third factor, found — `FUN_180083a60(cp)` and `FUN_180077840(core, arm)` (2026-09-15)
+
+**`cp+0x60` had been filed here, in `IvpTangentialSolve` and in `docs/HANDOFF.md` as a field with no writer found**, which is why
+`SolveOncePerPair` takes its budget as a parameter. The writer is `FUN_180083a60`, located by grepping the disassembly for stores
+to `+ 0x60],XMM` rather than by reading the C:
+
+```
+FUN_180083a60(cp):
+    m0, m1 = each side's material (FUN_18008fb60: object+0xd0, or the surface manager's slot 1 for a triangle index)
+    either material's +0xc nonzero → cp+0x64 = 1                       -- the sticking/material-axis gate
+    A = cp+0x20's object's core (+0xe8), B = cp+0x48's;  arms record+0xd0 (A) and +0xe0 (B)
+    neither A nor B flagged 0x12:  m = (mB·mA) / (mB + mA),  each FUN_180077840(core, its own arm)
+    A flagged:                     m = FUN_180077840(B, record+0xe0)
+    else:                          m = FUN_180077840(A, record+0xd0)
+    cp+0x60 = (float)(1.0 / m)
+
+FUN_180077840(core, arm):
+    s = MAX of (y²+z²)·core+0x40, (x²+z²)·core+0x44, (x²+y²)·core+0x48
+    core+0x0 & 0x10 == 0 → 1.0 / (s + core+0x4c)     else    1.0 / (s + 1.0)
+```
+
+**So `cp+0x60` is the contact's own inverse effective mass**, and the pair budget the friction controller sums is
+`Σ (cp+0x88 · cp+0x78 · cp+0x60) · step²` — no guessed value anywhere in it.
+
+**Two details worth keeping.** `FUN_180077840` takes the **maximum** of the three inertia terms rather than their sum, so it is a
+bound rather than the exact mass along the arm; and a core flagged `0x10` contributes a unit mass instead of its own, so a body
+against the world is weighed by itself alone.
+
+#### The PSI per unit — `FUN_180075c80(unit, frame, &pushed)` (2026-09-15)
+
+**Read from the decompiler** (headless `DecompAt`). `frame` is the stack record phases 2 and 3 share: `{float step, float
+1/step, env, unit}` at `+0x0`, `+0x4`, `+0x8`, `+0x10`. **`FUN_180075a90(timeManager, env, &pushed)` walks the active unit list
+(head `manager+0x18`, next `+0x10`) and calls this per unit; `FUN_18009a590(env, pushed, &due)` then steps every core it
+collected** through `FUN_180099a00`, last first, with `{step, step ≤ 1e-10 ? 1e10 : 1/step}`.
+
+```
+frame+0x10 = unit;  env+0xf8's +0x20 += 1                     -- the deferral count, as the collision takes it
+every core of the unit (+0x8, count +0x1a), last first:
+    dt = (float)(env+0x188 − core+0x1d0)
+    FUN_180071330(core+0x1a0, core+0x90)                       -- the matrix rebuilt from the working orientation
+    core+0xf0/0xf8/0x100 = core+0x150/0x158/0x160 + core+0x170/0x174/0x178 · dt    -- the event position
+    FUN_180077950(core)                                        -- staged velocities flushed: +0x130 += +0x110, +0x140 += +0x120, both cleared
+    core+0x0 &= 0xff3f;  core+0x2 = 0                          -- the freeze bits and the collision count cleared
+    any (1.0 − |ω|²) < 0 remembered
+that sign, or the same for the last core:  unit+0x0 = (flags & ~0x800) | 0x400
+else the flags' 0x3000 pair is recomputed from flags·4, and when set every core's anchors are reset (FUN_180078820)
+env+0x1a8 −= 1;  zero → env+0x1a8 = 0xf − (short)(FUN_18007d5c0() · DAT_1800ee1c8)     -- the rest check's own cadence
+every controller of the unit (+0x10, count +0x3a), last first:  its slot +0x20 (frame, entry+0x8)
+every core, last first:  pushed
+env+0x1a8 was zero:
+    every core: core+0x1 = FUN_180077220(core, env+0x188);  AND the answers with 3
+    all 3 → every core FUN_180088930(core);  the unit unlinked from the active list, its state 8, pushed on env+0x10's +0x338
+every core, every object (+0x70, count +0x6a):  FUN_180074240(object)
+unit flags &amp; 0x300:  FUN_180074ba0, FUN_180075470, FUN_180074e80, then the bits cleared
+env+0xf8's +0x20 −= 1;  zero → FUN_180072970
+```
+
+**So the rest check is not run every PSI** — a counter at `env+0x1a8` fires it roughly every fifteen, jittered by
+`FUN_18007d5c0` (a random), and a unit sleeps only when EVERY core answers `3` (at rest). **The event position and the matrix
+are rebuilt for every awake core at the top of each PSI**, which is the same pair of writes the collision's refinement makes.
+
+- **`FUN_180077950(core)`** flushes the staged velocities into the live ones and zeroes them — this project's
+  <see cref="IvpPush"/> arithmetic.
+- **`FUN_180074240(object)`** walks the object's `+0x48` mindist list: `FUN_180095ad0(mindist)` (unread), then unless the
+  flags' `0xc000` reads exactly `0x4000`, `FUN_180098f30` and `FUN_180097ae0` on the manager at `object+0x30`'s `+0x20`
+  (both unread — an unfile and a refile).
+- **`FUN_180088930(core)`** settles the hull (`FUN_180078c90`) and then, per object, tells the environment's listeners for
+  that object (the hash at `env+0x18`, slot `+0x18` per listener) and finally `FUN_180082070` — the sleep notification.
+- **The unit's `0x300` bits mean its controller entries are stale**, which the three routines behind them settle: `FUN_180074ba0`
+  frees every entry, `FUN_180075470` rebuilds them from each core's own controller list (`core+0x1e8`, count `+0x1e2`) and
+  re-sorts, and the PSI then clears the bits. *`FUN_180074e80` is still unread, and so is what SETS the pair.* The entry shape and
+  the sort are quoted under *One resting contact* below: `0x28` bytes of controller plus its own cores, sorted ascending by the
+  controller's priority slot and walked last first. **What SETS the pair is the friction system's priority-0 controller**
+  (`FUN_180084320`, quoted further down: *"the unit's dword loses bit 9 and gains bit 8"*), so a unit holding a friction system
+  rebuilds its entries on every PSI, not occasionally.
+- *Unread*: what the `0x400`/`0x3000` bits mean beyond "recomputed from the spin test".
+
+#### The per-core step whole — `FUN_180099a00(core, {step, 1/step}, &pushed)` (2026-09-15)
+
+**Read from the decompiler** (headless `DecompAt`), filling in what precedes and follows the integration already quoted above:
+
+```
+core+0x58 null or core+0x8 != 0:
+    ((float)env+0x110 · limits+0x14)² < |ω|²  → anomaly manager slot 1(limits, core)
+    limits+0xc² < |v|²                        → anomaly manager slot 0(limits, core, &v)
+core+0x1dc = |v| (FUN_18006e120 of +0x140);  core+0x1d8 = 1/step;  q = FUN_180099fc0(core, step)
+position, velocity cache, commit, advance  (the integration quoted above)
+s = FUN_180099d60(core, q);  g = (s + core+0x1dc) · DAT_1800fdf8c
+every object (+0x70, count +0x6a), last first:  manager = object+0x80
+    t = (float)(env+0x188 − manager+0x0);  manager+0x94 += t·manager+0x8c;  manager+0x8c = core+0x1dc
+    manager+0x0 = env+0x188;  manager+0x90 += t·manager+0x88;  manager+0x88 = g;  manager+0x98 = g·step + manager+0x90
+    manager+0xb0 − manager+0x98 < 0 → push the manager
+```
+
+**The limits are asked at the start of every step, before the linear speed is taken**, and both are skipped for a core with
+`+0x58` set and `+0x8` zero — the same exemption the impact solver's check reads, *though the decompiler shows `!= 0.0` and
+whether a NaN `+0x8` is checked is not settled in the disassembly.* The linear speed the hull gradient and the range manager
+read is the speed after that check.
+
+#### The core constructor — `FUN_1800782d0(core, object, gravity)` (2026-09-15)
+
+**Read from the decompiler** (headless `DecompAt`, the MCP bridge being down):
+
+```
+core+0x0..0x67 = 0;  +0x68 = an inline vector of one (capacity word 1, pointer +0x78)
+push object on +0x68;  core+0x10 = object+0x30        -- the environment, taken from the first object
+core+0x1f8 = FUN_180074770(new 0x48);  FUN_1800749b0(unit, core);  unit's state = 8
+gravity → FUN_1800748b0(core, [core+0x10])            -- the gravity controller
+core+0x1 = 8
+```
+
+**A core is born from its first object**, so the object vector the tail's recheck (`FUN_1800792b0`) walks is never empty, and
+`core+0x1` starts at `8` — the value the impact loop's drain reads as asleep (see `FUN_1800758e0` below). *What adds a second object is
+not read.*
+
+#### The collision around the impact loop — `FUN_18008ecb0(mindist)` and `FUN_18008ef60(mindist, A, B)` (2026-09-15)
+
+**Read from the decompiler** (headless `DecompAt`):
+
+```
+FUN_18008ecb0(mindist):  A, B = mindist+0x48, +0x80 (the objects);  env = A+0x30
+    FUN_180074360(A);  FUN_180074360(B)          -- object+0x78 == 8 → FUN_1800758e0(core's unit, core+0x10)
+    env+0xf8's +0x20 += 1                         -- a deferral count
+    each object's core (+0xe8):  +0x1 < 8 and not flags & 0x10 → FUN_180078d60 (brought to the event)
+    env+0x1a4 += 1                                -- the impact generation the tail's recheck stamps
+    FUN_18008ef60(mindist, A, B)
+    env+0xf8's +0x20 −= 1;  zero → FUN_180072970(env+0xf8)
+
+FUN_18008ef60(mindist, A, B):
+    unit = A+0x78 < 8 ? B's core's +0x1f8 : A's core's +0x1f8
+    cp = FUN_180090e50(mindist, &system, &built, unit, 1);  record = cp+0x70
+    pair = FUN_1800850b0(system, A's core, B's core);  dt = (float)(env+0x188 − pair+0x28);  pair+0x28 = env+0x188
+    FUN_180082170(env, event);  each object flagged 0x2000 → FUN_180088800
+    FUN_18008ed60(record, cores, (float)FUN_18008fca0(cp), cp)       -- the impact solve
+    v = record+0x30..0x38, each word XOR DAT_1800ea5e0 (0x80000000, dumped: a negation) when B's core has flags & 2
+    FUN_180090700(block, mindist, system, pair, cp)                  -- the impact loop
+    record+0x30..0x38 = v
+    FUN_180082110(env, event);  each object flagged 0x2000 → FUN_1800886c0
+```
+
+**The island is built after the first solve, not instead of it**, and the record's relative velocity is put back afterwards —
+negated when the second core is immovable — so the listeners hear the first impact's velocity, not the loop's last. *The
+listeners' events are not read.*
+
+`FUN_1800758e0(unit, env)`, reached for an object in state `8`, **wakes a sleeping unit**:
+
+```
+every core of the unit (+0x20, count +0x1a), last first:  core+0x1 ≥ 8 and FUN_1800892b0(core) == 1 → start the walk again
+unit state == 8:  unlink it from the sleeping list (head env+0x10's +0x338, links +0x8/+0x10)
+                  state = 1;  push it on the active list (env+0x10's +0x18);  its +0x8 = 0
+```
+
+So state `8` is **asleep**, not "never simulated": a core born at `8` starts in a sleeping unit, and a collision wakes it.
+*What `FUN_1800892b0` answers is not read.*
 
 #### Filing a contact into a friction system — `FUN_180090e50(mindist, &system, &built, unit, rebuild)` (2026-09-13)
 
@@ -4452,6 +4802,16 @@ FUN_1800877b0(S) → the root of a part that no longer touches the rest, or null
     R = the root of the lowest-index movable core (the cores walked from the last, each movable one overwriting)
     return the root of the lowest-index movable core whose root is not R (walked the same way), or null
 ```
+
+**Checked again in the decompiler when the split was ported (2026-09-16), with three readings added.** "Fewer than two cores" is
+the short at `system+0x78`, which `FUN_180087bf0` (now `IvpFrictionSystem__Join`) increments and `FUN_180088c80`
+(`IvpFrictionSystem__Leave`) decrements alongside the `+0x48` vector — the core count, not a second counter. The deletion, slot 7
+of the vtable at `1800fd638` (`FUN_180087b20`, `IvpFrictionSystem__DeletingDestructor`), frees the pair, movable-core and core
+vectors and **touches no core**, so the lone core of a system too small to keep loses only its share. And both "too small" branches
+are unreachable from filing alone (arithmetic over the invariants, not measured): a movable core in a system always holds a
+contact, whose other core has the same root or is immovable and keeps a non-empty share, so each side of a split keeps at least
+two cores. The port is `IvpFrictionSystem.DetachedRoot` and `IvpFrictionSystem.Split`, run by the normal pass; the environment
+listeners each moving pair is shown to (`FUN_180081f70`, `FUN_180081f10`) are not carried.
 
 *Not read: `FUN_180085a80`, which a contact reaches only when its first core has `+0x58` set and there is no second core. Nothing
 read so far writes `core+0x58`; that it is IVP's car-wheel pointer is a guess from the shape (a one-sided special friction), not
@@ -5000,6 +5360,67 @@ FUN_180097e20(m, float a, float b):  flags & 0xffd7ffff | 0x140000 (filed);  rec
 every claim above stands. Two were challenged and held — `DAT_18012d66c` is zero in the image but `FUN_180002540` writes `0x3e8`
 to it at `180002570`, and `FUN_180097d60`'s clear side gets `1e-10f`, never zero, so it is not `IvpMindistHull.FileFar`'s branch
 shape — and one order was corrected: `FUN_1800b28a0` counts `env+0xbc` after the range call.
+
+**What the reader had to learn first (2026-09-14).** `PhysicsHull` dropped bit 31 of every header and edge word — the material
+index masks it off, and the edge offset shifts it out — and decoded no inner node's hull at all, so slot 8's test had nothing to
+read. It now carries both bits per triangle and per slot (`PhysicsLedge.VirtualTriangles`, `VirtualEdges`), every tree node with a
+ledge carries it decoded through the one `ReadLedge` (`PhysicsLedgeTreeNode.Ledge`), and a ledge whose `+0x4` is zero names no node
+(`LedgeNodeOffset` null) instead of its own address. Five synthetic cases pin them, and two sabotages — the edge flags taken from
+the wrong slots, the zero word read as an offset — reddened exactly the three cases predicted.
+
+**Slots 7 and 8 became the mindist's own (2026-09-14).** The port had handed a frozen pair's fate and a collision's body in as
+delegates, so every caller did the plain mindist's work itself — which a larger mindist, whose slots differ, cannot survive:
+`FUN_1800977f0` calls the mindist's `+0x38` at `180097914`, so even a larger mindist frozen the moment it is made runs its own
+slot 7. `IvpMindist` is now unsealed with `Freeze` (slot 7, the plain body `FUN_180097440`) and `Collide` (slot 8, the plain body
+`FUN_18008ecb0` still handed in), and `IvpMindistHull.BecomeExact`, `IvpMindistManager.MinimizeExact`/`RecheckEveryPsi` and
+`IvpMindistFire.Handle` dispatch through them. A mindist of its own kind pins each call site; sabotaging each back to the plain
+call reddened exactly its own case.
+
+**An opened pair is filed at the next PSI, not over now (2026-09-14).** `IvpMindistHull.FileRecursive` ports `FUN_180097d60` and
+`FUN_180097e20` beside `FileFar` rather than through it, because the two differ in three places: a side at rest takes `1e-10f`
+where the far filing gives it zero, each record's key is its manager's next PSI value plus its allowance rather than the hull
+over a time, and `+0xa0` is left alone. Four synthetic cases pin it, with every next PSI value zero in the clear-side cases so
+the floor is the key itself. Five sabotages each reddened exactly the cases predicted: either floor zeroed, the next PSI value
+subtracted back out, the flags ORed without their clear, the both-at-rest order swapped, either record's slot 1 left unset, and
+the split handed the first core twice. Handing it the cores swapped did not compile: Sonar's S2234 refuses arguments named like
+the parameters in another order.
+
+**The larger mindist is ported (2026-09-14).** `IvpRecursiveMindist` carries slot 0 (`FUN_1800b2250`), slot 7 (`FUN_1800b2700`),
+slot 8 (`FUN_1800b2460`), `FUN_1800b28a0` and `FUN_1800b29b0`, with its own delegator for the slots of table `1800fe9a8`. Porting it
+settled four things the reading had left implicit. `FUN_180096680` calls `FUN_1800975d0` for both kinds of mindist: the larger
+one's constructor returns to `180096cc7`, where the plain one's inline writes also arrive, so the two differ only in their table.
+The delegator's slot 3 asks the outer delegator a second time when the first answer is above zero, because that branch is a tail
+call rather than a return of the value it already has. The hull-passed handler's close test is `COMISS` then `JNC`, so a NaN length
+closes the pair, and `FUN_180097ae0` reads the phantom bits for the rechecked array before the handler clears them. And the side
+choice needs the node a ledge names, not the node it was found at: `PhysicsLedgeTreeNode.LedgeNode` now carries it, and a ledge
+naming an offset where no node lies is refused rather than read as a radius. A record's slot 1 reaches `FUN_180097f00` through the
+environment's handler, which sends the recursive state to the larger mindist on the flags alone, as the binary does; a plain
+mindist in that state is refused. Sixty synthetic cases pin it. An independent reader went through all thirteen functions in the
+disassembly against the port and found no divergence. Thirty-six sabotages each reddened a case: one cut per branch, comparison,
+constant, operand and call order. Four of them first failed to compile, because deleting a call left Sonar an unused local, and
+reddened once rewritten to keep their operands used. One cut was foreseen as a survivor before the round ran and got its case
+first: `IvpRecursiveMindist::RefreshChildren`'s own count check, unobservable while every caller past the limit returned before
+reaching it, is pinned by a refresh past the limit that files the records again but refreshes nothing beneath.
+
+**The binary agrees with the port (2026-09-14).** The `vphysics-recursive-mindist` probe builds each case's pair through the
+binary's own `IvpPairMindists::Refresh` over trees holding hull ledges, then freezes, collides or passes the hull of a larger
+mindist the pair holds, and deletes the pair; `IvpRecursiveMindistReplay` runs the same steps on the port. Five thousand random
+cases, twelve thousand actions on larger mindists, and no lane differs. Three hundred of them are the conformance suite's fixture,
+and a side choice sabotaged to open the wrong ledge reddens it. Four things had to be learned before the two agreed, none of them a
+fault in the port:
+
+- **The tolerance block at load is not a running environment's.** `IvpCollisionTolerance::FillAtLoad` fills it with a tolerance
+  of 0.01, so a probe that builds no environment reads a contact gap of 0.02 and closes pairs the port refreshes. The probe runs
+  `IvpCollisionTolerance::Block::Derive` twice, as the environment constructor and `SetGravity` do, and checks the gap it leaves
+  against the port's before any case runs.
+- **A mindist's flag bits 30 and 31 are whatever its allocation held.** `IvpMindist::IvpMindist` ANDs the flags with `0xcfc000ff`
+  and never clears those two, and they came back set in the probe where the port has them clear, so the flags lane carries the
+  other thirty. *Whether anything reads them is not established.*
+- **Only a hull's words may carry bit 31.** A virtual leaf lets slot 8 open a ledge with no node beneath it, where the binary's
+  radius query reads past a terminal node and the port refuses; the cases mark only hull ledges virtual. *That compiled hulls never
+  mark a leaf's words is interpolated from what the bit means, not measured on shipped `.phy` files.*
+- **A min-list reused across cases hands out its freed slots last freed first**, where the port's is new each case; the probe
+  builds a fresh one per case.
 
 So **a larger mindist opens its ledge only when the pair would otherwise freeze or collide on a hull's virtual face**, and
 then waits on the hull managers like a far pair; `FUN_180097f00`, told its hull passed, sends it to `FUN_1800b28a0`, which
@@ -7720,6 +8141,124 @@ the handler's three slots and the unload; read from published SDK source for vbs
 interface declarations; arithmetic for slot 46 and for `pHull`'s offset, each agreeing with an
 independent reading; measured for the lump counts and sizes. **The blob format is NOT established.***
 
+### The virtual mesh's cache entry, and the query that answers from it (2026-09-16)
+
+**Read from the decompiled `vphysics.dll`** through the GhidraMCP server, and it settles the blob format and the query.
+
+**The entry `FUN_180025f10` builds** is three runs of bytes: every triangle as a 48-byte ledge, then every vertex as 16 bytes
+`(x·0.0254f, −(z·0.0254f), y·0.0254f, 0)` (`DAT_18011f000` is `0x3cd013a9`), then the hull ledges unpacked. `+0x10` holds the hulls'
+start and `+0x12` the blob's count byte. **A triangle is a two-triangle ledge** (`FUN_180003f70`): the front `(i0, i1, i2)` with
+pierce 1 and edge hops `6, 4, 2`, the back `(i0, i2, i1)` with pierce 0 and hops `−2, −4, −6`, flags `0x304`, no child flag. **A
+hull** (`FUN_1800048d0`) is five header bytes — triangles, virtual triangles, edges, virtual edges, base vertex — and a body of
+four bytes per triangle (three edge ids, then the pierce triangle) and two per edge (its two vertex bytes). A triangle takes an
+edge's first byte the first time the edge is met and its second byte the next, and the two edge words are then set to hop to each
+other. An id under the virtual counts sets bit 31. The ledge carries the child flag, which is what makes a mindist on it a larger
+mindist that opens.
+
+**The radius query** (`FUN_1800261a0`, slot 4 of `1800ee220`):
+
+- **At the root** it returns the first `MIN(count, 2)` hull ledges.
+- **Beneath a hull** (`FUN_180025bc0`) it asks the engine's handler for the triangles in the sphere. The centre goes back to inches
+  as `(x, z, −y)·39.37008f`, and so does the radius.
+- **Hull choice:** with two hulls, the triangle range is halved, and the first hull takes the first half.
+- **Filter:** each candidate is kept when `FUN_18007bea0`'s squared distance from the centre to its ledge is within `r²`.
+
+**Slot 0** returns the hull when the count is exactly 1. **Slot 1** is the mesh's mass centre and **slot 2** its radius (for both
+radius and deviation), each through the mesh object's own table and converted.
+
+**The engine's half, from published source** (`dispcoll_common.cpp:1472-1488`, `:718-780`):
+
+- `GetVirtualMeshList` hands every grid vertex of the displacement's `CDispCollTree` and a shared index buffer in `m_aTris` order.
+- `GetTrianglesInSphere` walks the tree's four-child nodes box-against-sphere and emits BOTH triangles of every leaf whose box
+  passes.
+- `PhysCreateVirtualTerrain` makes each displacement a static object at the origin with surface `default`
+  (`physics_shared.cpp:563-582`).
+
+**This project's `DisplacementCollision` tessellates the same triangles** (`DisplacementTesselation` ports
+`TesselateDisplacementNode`). **It keeps neither the shared vertex array nor the tree**: it expands every corner and tests every
+triangle of any displacement whose single box passes.
+
+**`PhysicsVirtualMesh` builds the entry byte for byte** and decodes its ledges with the ledge reader every other surface uses.
+*Not yet ported: the per-displacement AABB tree and its sphere walk, the runtime handler's own reading of `GetVirtualMeshList`
+(`engine.dll` `FUN_18016f190`, to check the index order against the SDK's), the mesh object's mass centre and radius, and the
+surface manager in the driver.*
+
+*Evidence class: read from the decompiled `vphysics.dll` for the entry, the ledge writers and the query; read from published SDK
+source for the engine's list and walk; the entry's layout pinned by `PhysicsVirtualMeshConformanceTests`, with sabotages of the
+back triangle's hop and the hull's second-meeting byte each reddening its test.*
+
+#### The whole map in the ported driver, and the first drop compared on `cp_process_f12` (2026-09-16)
+
+**Everything the italic list above named is now ported**, and each piece has a test:
+
+- `DisplacementCollisionTree` is `CDispCollTree`: the full-grid triangles of `GenerateCollisionSurface`, the 4-ary tree and the
+  breadth-first sphere walk. The runtime handler reads that exact list (`engine.dll` `FUN_18017cb00`).
+- `IvpVirtualMeshSurfaceManager` is table `1800ee220`'s query, centre and radius.
+- `IvpMapWorld.Load` builds the client's environment in the engine's order:
+  - the world model's solids (`PhysCreateWorld_Shared`) and its `materialtable` (`FUN_18002eeb0`);
+  - the virtual terrain (`PhysCreateVirtualTerrain`, per displacement unless `SURF_NOPHYSICS_COLL`, hull from `LUMP_PHYSDISP`);
+  - the static props, walked last to first, each the model's FIRST solid (`engine.dll` `FUN_180203280`/`FUN_180203060`);
+  - then the brush entities.
+
+**On `cp_process_f12` that is 2 world objects, 922 displacements, 337 props and 200 brush-entity objects.** No `SOLID_BBOX` prop
+exists on f12 or harvest (`static-prop-solids`), so `BBoxToCollide` is left unported.
+
+**Loading a real map found four driver defects that the synthetic suite could not:**
+
+- The collision environment had no `HullPassed`, so a larger mindist could not open.
+- A larger mindist's hull pass ran the scheduler's examine where the engine runs the unbudgeted minimize, `FUN_180095ad0`.
+- The time-of-impact search gave synapse A record 0's side even when A is record 1. Two cubes of twelve triangles each cannot
+  tell; a two-triangle virtual ledge can.
+- **The simulation kept a pair-event queue of its own** beside the environment's. A queued pair deleted by a refile named a slot in
+  the other, empty queue, and the corpse's first contact threw.
+
+**The first comparison** (`ivp-drop-compare`, scout, dropped from 64 units above the floor at the map's middle, no force, ten
+seconds, *measured*):
+
+| | old solver (`IvpEnvironment`) | ported driver (`IvpSimulation`) |
+|---|---|---|
+| root at rest, z | 727.3 | 741.6 |
+| after 10 s | asleep | awake, the root still sliding ~0.9 units/s along +y |
+| impacts | — | 293 |
+
+**The two agree on the floor to within the root's own size and disagree on everything after the landing.** The old corpse's root
+sits about 9 units lower. That is the depth its thickness compensators allow, so it is interpolated to be the old solver sinking,
+not the new one floating. The ported corpse never stops creeping and never sleeps. *Not established*: what lies under that spot,
+whether a brush or a displacement, and whether the creep is friction on a virtual ledge, the rest check, or the joints. It is the
+next thing to measure, and the switchover waits on it.
+
+#### One prop dropped through `vphysics.dll` and through the port, tick by tick (2026-09-16)
+
+**A same-input differential replaced guessing at the corpse.** `vphysics-drop phy` loads `wood_crate001a` and
+`wood_pallet001a` through `VCollideLoad` and drives the shipped environment through its own vtable; `ivp-phy-drop` builds the same
+scene through the port and prints the same line (both take `[z] [every]`). *Measured, 2026-09-16, gravity 800, step 1/66, drop from
+z 64.* Both rest at z 24.12–24.15. vphysics is still by 1.5 s at (−0.77, 0.77); the port walks at 4–7 in/s until the ragdoll settle
+check sleeps it far away. Read per tick, **three differences came before any contact, and each was a missing engine mechanism**:
+
+| tick 1 | vphysics | port before |
+|---|---|---|
+| z | 63.45 | 64.00 |
+| v.z | −24.23 | −12.12 |
+
+- **The probe's own parameters.** It passed `g_PhysDefaultObjectParams` with only the mass replaced, damping 0.1; the prop path
+  fills inertia, damping, rotdamping, volume and drag from the solid's text. Fixed in the probe.
+- **`CPhysicsEnvironment::Simulate` (`FUN_180015310`) runs two PSIs on the first frame.** Its fixed-step byte `+0xcf` starts set,
+  and a frame equal to the step simulates to `env+0x198 + (float)step · 1.9999895f`, from the last PSI rather than the clock. The
+  port simulated to the clock plus the frame. And `GetPosition` (`FUN_18001c030` → `FUN_180073b80`) reports the core
+  interpolated to the clock, which the port's `State()` did not.
+- **Air drag.** The environment constructor keeps a drag controller at `env+0x10` (priority 500, density `2.0f`), and the object
+  builder files every movable object with a non-zero `dragCoefficient` under it. Its bases come from the collide's box
+  (`CollideGetAABB`, the extreme ledge points) and the `.phy` header's `dragAxisAreas` (`(1,1,1)` for an untagged solid), and
+  **both drag scalars apply the coefficient to the X term alone** — `(|v.x·b.x|·c + |v.y·b.y|) + |v.z·b.z|`. The basis pairs Source
+  extents in IVP axis order: the Y lane uses `e.x·e.y` and the Z lane `e.z·e.x`, because IVP's Y is Source's Z. *A reading
+  delegated to a subagent called that pairing an engine quirk; the decompile's axis order settled it as the conversion.*
+
+With all three carried, **free fall matches to the hundredth through tick 19**: 63.45, 62.90, 62.16 … 25.90, velocity −237.01 on
+both. The first divergence is now the impact at tick 20: z 24.21 against 23.96, v.z 39.50 against 38.53, v.xy (−7.64, 7.59)
+against (−7.92, 7.87). *Not established*: which of the impact's inputs differs. vphysics' spin is read in degrees about the
+object's axes and the port's in radians about the core's, so that column does not compare yet.
+
+
 ### And the faces are already parsed — they are discarded one line before the physics (B306)
 
 **`PhysicsLedge` carries `Points` AND `Triangles`** — the real faces out of the `IVPS` compact-ledge
@@ -7806,3 +8345,120 @@ an impressive number beside it.
 
 *Evidence class: the transform is read-from-source, from two functions in `vphysics.dll` that share no
 code; the identification of the defect is measured, with the identity transform as its control.*
+
+## A wiring bug found chasing the contact-drop fall-through, and the deeper gap it does not close
+
+`wip/b369-contact-drops` (B369, parked, unmerged) exposed
+`Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` falling through virtual terrain instead of
+resting. Tracing it with temporary instrumentation on `IvpMindistManager.Recheck`/`RecheckInvalid` and
+`IvpRecursiveMindist.HullPassed` (removed before committing, per this repo's own convention) found one
+real, fixable divergence and one deeper gap that is not.
+
+**The wiring bug, fixed.** `IvpCollisionObject::RecheckInvalid` (`FUN_180074240`) reads, quoted:
+
+```c
+void IvpCollisionObject__RecheckInvalid(longlong param_1)
+{
+  ...
+  IvpMindistMinimize__MinimizeWithoutBudget((longlong *)mindist);
+  ...
+  if ((mindist->dwFlags & 0xc000) != 0x4000) { ... revalidate ... }
+}
+```
+
+It calls `IvpMindistMinimize::MinimizeWithoutBudget` (`FUN_180095ad0`) specifically — not
+`IvpMindistMinimize::Minimize` (`FUN_180095cb0`), the routine `IvpPhysicsPipeline.Psi`'s phases 0 and 3
+use. The two are, per this project's own prior reading, "the same routine instruction for instruction
+but for `MOV [RSP+0x28], 0x14` versus `MOV [RSP+0x28], 0`" — a step budget of 20 versus none. The port's
+`IvpPhysicsPipeline.Psi` had a single shared `minimize` parameter and passed that same budgeted delegate
+into phase 2's `RecheckInvalid` closure too, so an invalid pair was being minimized with a budget the
+engine never gives it. Fixed by threading a second `recheckInvalidMinimize` parameter through
+`IvpPhysicsPipeline.Psi` → `IvpPsiEvent.RunPsi`/`Start` → `IvpSimulation.Start()`, wired to the
+already-existing `IvpSimulation.MinimizeWithoutBudget`. Pinned by
+`IvpPhysicsPipelineTests.Psi_AnInvalidMindist_IsRecheckedWithTheNoBudgetMinimizeNotThePhaseThreeOne`;
+sabotage-verified by reverting the one-line wiring and confirming exactly that test reddens, nothing
+else.
+
+**It does not close the fall-through gap.** `body.Position.Y` after the fix is `7.220574437630701` —
+bit-identical to before the fix. Re-tracing with the fix in place: the mesh's 8 child mindists (one per
+triangle beneath the opened ledge) are created correctly, cycle exact ↔ invalid in a real oscillating
+near-zero-length pattern for a while (a genuine resting-contact shape), and `RecheckInvalid` does revive
+several of them mid-fall — the wiring bug was real, just not this bug. Eventually every child's `Length`
+jumps by roughly 8 units in one PSI and its flags land at exactly `0x4000`, which
+`IvpCollisionObject::RecheckInvalid`'s own condition (`(flags & 0xc000) != 0x4000`) treats as
+permanently parked — confirmed against the quoted disassembly above, not a guess. Nothing ever revives
+it from there, because `IvpPairMindists::Refresh` (`FUN_180096680`, decompiled and read for this)
+matches an existing mindist to keep purely by a hash of the two ledge pointers — no state check — so the
+same dead object is handed back for that exact ledge pair on every later refresh rather than ever being
+discarded and rebuilt. The outer `IvpRecursiveMindist`'s own coarse pair is stuck the identical way:
+`IvpRecursiveMindist::HullPassed` (`FUN_1800b28a0`, decompiled and compared line for line against
+`IvpRecursiveMindist.HullPassed` — an exact match, not a port bug) re-minimizes the SAME fixed synapse
+features every hull pass via `MinimizeWithoutBudget`, so it never satisfies "frozen bits clear and
+length past tolerance," which is the only path that closes it back to a plain exact pair and calls
+`IvpRecursiveMindist.DeleteChildren`.
+
+**Left open, and where it actually lives.** Whether a repeated "GaveUp"/"Backside" result from
+`IvpMindistMinimize`'s solver dispatch is the ENGINE's real, permanent answer once a point's true
+closest feature has moved onto a neighboring triangle — i.e. a different sibling child mindist, not
+this one, is supposed to be carrying the contact from that point on, and the recovery this test needs
+is the outer mindist's own re-close — or whether `PhysicsVirtualMesh.Build`'s triangles are missing
+edge/neighbor topology a real `PhysicsLedge` would carry, leaving `BacksideWalk` nowhere to walk. This
+is a `IvpMindistMinimize`/`PhysicsVirtualMesh` question, not a `IvpMindistHull`/`IvpRecursiveMindist`
+one — the recursive-mindist port itself, port and reopening mechanism both, reads correct against the
+disassembly. It needs its own dedicated read of `Solver.Dispatch`'s per-feature-kind table and of what
+neighbor data `PhysicsVirtualMesh.Build` actually attaches to each triangle before any code changes.
+
+*Evidence class: the wiring bug is read-from-source (`FUN_180074240` quoted verbatim) and
+sabotage-verified; the deeper gap's boundary (recursive-mindist port correct, solver/mesh-topology
+question open) is measured by re-tracing the fixed build, not yet read from `Solver.Dispatch`'s own
+disassembly.*
+
+### The drop and the drive-together, settled by running the binary beside the port (2026-09-18)
+
+**The open question just above is answered, and the answer was not in the solver.** `Solver.Dispatch`, `BacksideWalk`
+(`FUN_180094e30`) and the triangle weights (`FUN_18007cdf0`, slot tables at `180124fdf..fe2`) were each compared with the
+disassembly and match; the virtual triangle ledge's twins are correct. What differed was the *start*: the probe dumped the body's
+ledge at its first attach, and the engine's `BBoxToCollide` box has another vertex order and triangulation than the test's
+hand-wound cube. Every minimize begins at triangle 0 slot 0, so the port's cube started from another corner and walked it onto a
+terrain triangle's diagonal. There the seam's weight is `−3.6e-12` on one face and `FLT_MIN` on the other, the backside walk turns
+back to the face it began behind, and the pair froze — which the engine would do too from that corner, and never does, because
+its box never starts there. **The fault was the fixture.** *Evidence: measured (the dump, the hooked `Minimize` and
+`TriangleWeights` of the binary at the same tick) and read (the three routines).*
+
+**A wake of a sleeping object is deferred to the next PSI.** `IPhysicsObject::Wake` (`18001e3d0`) tail-jumps to
+`FUN_180073a30(object)`:
+
+```
+object+0x78 != 8 → FUN_180078820(core):  core+0x200 = core+0x208 = env+0x188
+else             → FUN_180087e00(env, core):  core+0x0 & 4 clear → core appended to env+0x168 (count +0x162);  core+0x0 |= 4
+```
+
+`RunPipeline` (`180082584`) drains that list before anything else — `FUN_180089210`: every entry last first,
+`FUN_180077c80(core)` (`core+0x0 & 2` → nothing; `core+0x1 == 8` → `FUN_1800758e0(core+0x1f8, env)`; else `FUN_180075610`, every
+core of the unit given `FUN_180078820`), then bit 4 cleared and the list emptied. **The consequence is in `FUN_1800977f0`**: the
+pair a revive's refile makes is examined with `removeFar = (core0+0x1 | core1+0x1) < 0x21`, and the refile holds the core at
+`0x21` (`FUN_180073b00`), so a newborn pair is never filed far at birth — the same PSI's walk of the exact pairs files it, with the
+speeds that PSI gave its cores. *Measured*: in the binary the pair's mindist is attached inside the first `Simulate`, one object
+reading state `8 & 7` while the other revives; the first filing splits the gap 0.090/0.903 by speed, and the hull passes at
+length 0.1818. The port had paired at object creation and filed with zero speeds, splitting it 0.497/0.497. *That an object is
+born in state 8 is INFERRED from `& 7 == 0` and from the freeze writing 8; the constructor is not read.*
+
+**A contact's feature match is exact** — `FUN_180086a50(cp synapse, mindist synapse)` after `FUN_1800869a0` pairs the objects:
+
+```
+kinds differ → 0
+0 point:     the two edges' ledges equal (edge − index·16 over their headers) and their words' low sixteen bits equal — one vertex
+1 edge:      cp == m, or cp + ((int)(*cp · 2) >> 17) == m — the edge or its twin
+2 triangle:  (cp ^ m) & ~0xf == 0 — one triangle
+3 ball:      1;  otherwise Error(ivp_friction.cxx, 0x90a)
+```
+
+The port had simplified an edge to "the same triangle", which joins the two corners of a face–face overlap: both are edge pairs on
+the same two triangles in other slots. The binary made a second contact point for the second corner (`boxes`: points `…1a0` and
+`…270`, arms at (4, −3) and (−2, 4)) and solved both in its island; the port reused the first and solved the second corner at the
+first one's arms, and the boxes passed through each other. *Evidence: read and measured.*
+
+**What the three share**: none was visible to a port-only test. The first reproduced the engine's arithmetic faithfully on an input
+the engine never produces; the other two were each one layer from a green suite. They were found by hooking the binary at the
+first place its trace and the port's disagreed — the look counter's decay one event early, then the fire routine's length, then
+the impact's arms — and reading the routine there.

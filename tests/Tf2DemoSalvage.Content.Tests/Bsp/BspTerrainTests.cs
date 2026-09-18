@@ -64,6 +64,30 @@ public sealed class BspTerrainTests
         }
     }
 
+    /// <remarks>
+    /// **The collision tree stands on the same grid the renderer draws**: every vertex of the drawn tessellation is one of the tree's
+    /// vertices, to the rounding the two grid formulas differ by. A differential over a real map's 578 displacements, which a wrong
+    /// start corner or a misread field would fail everywhere.
+    /// </remarks>
+    [Test]
+    public void ReadCollisionTree_EveryDrawnVertex_IsOneOfTheTreesVertices()
+    {
+        BspTerrain terrain = BspTerrain.Create(_map);
+
+        foreach (BspSurface surface in _displacements)
+        {
+            (DisplacementCollisionTree tree, _) = terrain.ReadCollisionTree(surface).ShouldNotBeNull();
+
+            foreach (SurfaceVertex drawn in terrain.ReadTriangles(surface))
+            {
+                System.Numerics.Vector3 point = new(drawn.X, drawn.Y, drawn.Z);
+
+                tree.Vertices.Min(vertex => System.Numerics.Vector3.Distance(vertex, point))
+                    .ShouldBeLessThan(0.05f, $"face {surface.FaceIndex}");
+            }
+        }
+    }
+
     [Test]
     public void ReadTriangles_ReadsAWholeMapFasterThanThePerFacePath()
     {
