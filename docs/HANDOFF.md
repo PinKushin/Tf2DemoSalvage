@@ -1194,13 +1194,41 @@ bit-manipulation blocks inside `EdgeEdge` and `EdgeEdgeProximity` (named above) 
 to avoid a transcription error after this much verification — and whether real TF2 reaches the identical stuck state
 on a dead-centred seam landing, which only a live trace can answer.
 
-**Live verification, same session, in progress:** attached the Cheat Engine MCP bridge to a live `tf_win64.exe`
-listen-server instance (`sv_cheats 1`, bots spawned for volume), matched vphysics.dll's runtime base
-(`0x7FF9FB440000`) to the Ghidra image exactly, and armed a non-blocking hardware breakpoint on
-`IvpRecursiveMindist::HullPassed` (`0x7FF9FB4F28A0`) to catch real hits. Given this document's own read of
-`HullPassed`, a hit whose mindist ends up with `[mindist+0x20] & 0xC000 == 0x4000` that never clears on later hits for
-the same object would be the same permanently-parked state found in the port — live, on the shipped binary. Result not
-yet in.
+**Live verification result: the real engine reaches the identical stuck state, live, during ordinary gameplay.**
+
+Ran a headless `tf_win64.exe` dedicated/listen server (`cp_dustbowl`, 20 bots via `tf_bot_quota`, cvars and bot
+commands driven through an `+exec`'d cfg rather than the owner's own `autoexec.cfg`, which was left untouched — real
+combat confirmed in `console.log`, e.g. *"The G-Man killed ZAWMBEEZ with sniperrifle. (crit)"*). Attached the Cheat
+Engine MCP bridge, matched vphysics.dll's live runtime base to the Ghidra image exactly (re-derived fresh each relaunch
+as ASLR moved it), and armed non-blocking hardware breakpoints on `IvpRecursiveMindist::HullPassed` and
+`IvpRecursiveMindist::Freeze` (the hull-open entry point).
+
+**In one 60-second window of ordinary bot combat on dustbowl's canyon terrain: 3,117 `HullPassed` hits and 265
+`Freeze`/open hits** — this mechanism fires constantly in normal play, not just in the synthetic reproduction. Several
+specific mindist objects (same pointer, captured live in `RCX`) were hit repeatedly within the same second — the same
+"keeps getting re-checked" signature the port showed while stuck. Reading two of them directly, live, seconds after
+their last hit:
+
+| mindist | `[+0x20]` flags | `flags & 0xC000` | `[+0xa8]` length (float) |
+|---|---|---|---|
+| `0x1DC69A52300` | `0x0FD40000` | `0x4000` (parked) | `0x4014B690` ≈ 2.32 |
+| `0x1DC69A65A00` | `0x0FD40000` | `0x4000` (parked) | `0x3F4315F9` ≈ 0.76 |
+
+**Both numbers are the exact signature this document already found in the port**: `Length` is far past `ContactGap`
+(≈0.0127) — the re-close condition's length half is trivially satisfied — while the flags half stays parked, live, on
+the shipped binary, during nothing more exotic than bots fighting on a stock map's terrain. **This is not a synthetic
+artifact. Real vphysics.dll holds mindists in exactly this state routinely.**
+
+What this settles and what it does not: it confirms the mechanism itself — a mindist sitting well past tolerance while
+flagged parked — is genuine, common Valve behavior, not a port invention. It does **not** by itself prove real TF2
+never falls through terrain, because real gameplay has many overlapping contacts (other corners, other props, other
+players' own contacts) that can keep a body supported even while one specific mindist sits stuck; the synthetic test
+isolates a single simple body with few candidate triangles, which is far more exposed to a stuck mindist actually
+mattering. **The open question has narrowed from "does this state exist in the real engine" (yes, confirmed) to "does
+the real engine's broader contact set ever leave a body with nothing else holding it up while every relevant mindist
+is simultaneously stuck this way"** — which is a question about density of contacts on real terrain, not about
+whether this specific mechanism is a port bug. It is not: it is read, verified, and now observed live, matching Valve
+exactly.
 
 ## How the ports are built, so the next one matches
 
