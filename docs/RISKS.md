@@ -27041,6 +27041,12 @@ the decode are most of the timeline's 57-second `entities` column, and are the f
 fixed per schema and should be looked up, not concatenated. Allocation is not retention: this says what churns, not what holds
 the 6.5 GB. *Evidence class: measured (sampled every ~100 KB).*
 
+**Two churn sources removed, 2026-09-18.** `EntityState` reads its path keys in place (05bb01be): f12's timeline 72.2 → 53.3 s.
+The LZMA window is sized to the output rather than the header's dictionary (77daf5bf) — the 27.8 GB was every static prop's
+`.vhv` allocating a megabytes window: props load 2.83 → 1.46 s, working set after load 14.8 → 10.7 GB. Re-traced after the first:
+175 → 58 GB allocated per load. **Still open**: the ~10 GB retained, which needs a heap census (`dotnet-gcdump`), not an
+allocation trace.
+
 ### B406 OPEN 2026-09-18: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player
