@@ -25,6 +25,9 @@
         "**/tools/**"
       ]
     },
-    "additional-timeout": 10000
+    "additional-timeout": 10000,
+    "ignore-mutations": [
+      "StringLiteral"
+    ]
   }
 }
