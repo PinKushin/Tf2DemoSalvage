@@ -27000,6 +27000,18 @@ as `C_PhysPropClientside`'s entity follows its object. Captured on f12 at the so
 air at 4649, on the ground at 4819. *Still not carried*: the break sections' `offset`/placement and `burstScale` (TF2's values
 not yet read out of the shipped `.phy` text), the 1-second alpha fade after `fadeTime`, and `cl_phys_props_max` (300).
 
+**Placement settled, 2026-09-19 — no divergence.** `CreateGibsFromList` (`props_shared.cpp:1370-1466`, which TF's
+`CreatePlayerGibs` calls, `c_tf_player.cpp` after `:7443`) puts a piece at `matrix · (offset − placementOrigin)`, where
+`placementOrigin` is the gib's `placementOrigin` attachment less the parent's, or the parent's alone. The `gib-placement` probe
+reads them through the production `StudioAttachment` reader: `models/player/soldier.mdl` has 24 attachments (the control) and
+no `placementOrigin`, nor has any of its nine pieces; and every TF2 player `.phy` break block writes only `model`, `health`,
+`fadetime`, so `offset` is the parser's `vec3_origin` (`:612`). Every piece therefore spawns at the break origin, as ours do —
+the gib meshes are modelled in place around it. The per-piece velocity jitter (`:1470-1478`) was already carried by
+`PlayerGibs.Velocity`. **Still open, filed exactly**: the burst — `burstScale` is `BuildGibList`'s `1.0f`, and with the piece at
+the origin the engine impulses it at 1 unit/s along `WorldSpaceCenter() − origin` (`:1522-1534`), against a throw of up to 400;
+our physics prop has no `WorldSpaceCenter` (the collision OBB centre), and substituting the mass centre would be a different
+quantity. *Evidence class: read from source, measured on shipped models.*
+
 ### B409 (original report)
 
 **The owner, watching `cp_process_f12`:** *"the gibs dont actually ever have physics take over it looks like, so theres just a
