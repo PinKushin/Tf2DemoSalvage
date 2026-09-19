@@ -964,7 +964,7 @@ internal class MainForm : Form, IFrameSteps
                 : "audio output opened");
 
         Text = "TF2 Demo Salvage";
-        Name = "MainWindow";
+        Name = MainWindowId;
         AccessibleName = "TF2 Demo Salvage viewer";
         Width = 1280;
         Height = 720;
@@ -2865,6 +2865,31 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The background corpse pass, held so its outcome is observed — a test awaits it, and a fault is not lost (D181).</summary>
     public Task CorpseRecording { get; private set; } = Task.CompletedTask;
 
+    /// <summary>Says how long the program took to put this window on screen, from the process starting (D182).</summary>
+    /// <param name="elapsed">Process start to this window's first <c>Shown</c>.</param>
+    /// <remarks>
+    /// **The owner's reason for a splash was really this number**: *"I just want to see how long our boot time is, and be able to
+    /// notice if it becomes crazy long."* Always logged; shown in the status bar too unless a demo is already opening, whose own
+    /// status matters more.
+    /// </remarks>
+    public void ReportStartup(TimeSpan elapsed)
+    {
+        string started = string.Create(CultureInfo.InvariantCulture, $"Started in {elapsed.TotalSeconds:F2} s.");
+
+        _log.LogInformation("{Message}", $"startup: window shown {elapsed.TotalMilliseconds:F0} ms after the process started");
+
+        if (_loadsInFlight == 0 && _demo is null)
+        {
+            _status.Text = $"{_status.Text} {started}";
+        }
+    }
+
+    /// <summary>UIA AutomationId of this window.</summary>
+    public const string MainWindowId = "MainWindow";
+
+    /// <summary>UIA AutomationId of the window shown while the program starts, before this one (D182).</summary>
+    public const string StartupSplashId = "StartupSplash";
+
     /// <summary>UIA AutomationId of the loading overlay.</summary>
     public const string LoadingOverlayId = "LoadingOverlay";
 
@@ -3074,6 +3099,16 @@ internal class MainForm : Form, IFrameSteps
         // **After the map and the models, because the pass reads both** (D181): the environment is the map's, and a corpse's
         // bones come from its model.
         StartCorpseRecord();
+
+        // **Where the memory is, once everything is loaded** (B407): the process held ~16 GB after a map load and nobody could say
+        // whether that was the managed heap or native memory (textures, the device). The two numbers answer it.
+        GCMemoryInfo heap = GC.GetGCMemoryInfo();
+        _log.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"memory after load: working set {Environment.WorkingSet / 1048576d:F0} MB, managed heap {heap.HeapSizeBytes / 1048576d:F0} MB " +
+                $"(committed {heap.TotalCommittedBytes / 1048576d:F0} MB, fragmented {heap.FragmentedBytes / 1048576d:F0} MB)"));
 
         _status.Text = _loaded?.Problem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
@@ -4398,6 +4433,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Every per-second line this run produced, for <c>--measure</c> to print.</summary>
     private readonly List<string> _measured = [];
 
+    /// <summary>Whether the previous frame had a loaded demo on screen — the first frame after a load is not counted.</summary>
+    private bool _wasOnScreen;
+
     /// <summary>Prints what <c>--measure</c> gathered and closes.</summary>
     /// <remarks>
     /// **To stdout, because the log is buffered.** Reading the log file while the viewer is still
@@ -4761,7 +4799,19 @@ internal class MainForm : Form, IFrameSteps
         // above fires only past 30 ms, so at the 90 fps this actually runs at it never fires and
         // nothing says where the 11 ms goes. Fed here rather than in `BuildOverlay` because this is
         // where the whole frame's phases exist; the overlay only knows its own.
-        _frameSeconds += _clock.LastFrameSeconds;
+        //
+        // **Only once a demo is on screen** (D182). The window draws from the moment it opens now, behind the loading overlay, and
+        // counting those frames spent `--measure 20` — and gate phase 3's whole run — on a demo still decoding. **And not the first
+        // frame after**: the render loop is held off while the map is read, so that frame's duration is the whole wait, and counted it
+        // was the entire measurement in one sample.
+        bool onScreen = _demo is not null && _loadsInFlight == 0;
+
+        if (onScreen && _wasOnScreen)
+        {
+            _frameSeconds += _clock.LastFrameSeconds;
+        }
+
+        _wasOnScreen = onScreen;
 
         if (_frameRateLog.Report(_overlayQuads.LastReading, phases, _frameSeconds) is { } rate)
         {

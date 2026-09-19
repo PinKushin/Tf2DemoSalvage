@@ -76,6 +76,11 @@ internal static class Program
             return;
         }
 
+        // **Before anything else is built, because being first is its whole job** (D182). WinForms' own initialisation must
+        // come before any window, the splash's included, so it moved up from beside the form.
+        ApplicationConfiguration.Initialize();
+        Action closeSplash = StartupSplash.Open();
+
         // **A crash in the message loop has no name until something writes one down** (B402). The
         // capture test reported exit `-1073740771` — `STATUS_FATAL_USER_CALLBACK_EXCEPTION`, an
         // exception thrown inside a callback from native code — with an EMPTY standard error,
@@ -108,11 +113,18 @@ internal static class Program
         System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, task) =>
             crashes.LogError(task.Exception, "{Message}", "a background task faulted unobserved");
 
-        ApplicationConfiguration.Initialize();
         // Passed straight through: double-clicking a .dem, selecting several and pressing enter,
         // or dropping a folder on the executable all arrive here as paths, and all go through the
         // same library code the Open buttons use.
         using MainForm shell = new(loggers, args);
+
+        // The splash goes when the real window is on screen, not when it is built — and that moment is the boot time.
+        shell.Shown += (_, _) =>
+        {
+            closeSplash();
+            using System.Diagnostics.Process self = System.Diagnostics.Process.GetCurrentProcess();
+            shell.ReportStartup(DateTime.UtcNow - self.StartTime.ToUniversalTime());
+        };
 
         // **The `developer` cvar's other end.** The sink has always filtered on a settable Minimum
         // and nothing could set it, so Debug was unreachable and demoting a noisy line to Debug was

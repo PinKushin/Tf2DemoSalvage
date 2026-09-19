@@ -9033,4 +9033,17 @@ real decode.
 **Not a separate splash window:** an overlay inside the main window meets "pops up immediately" without a second top-level
 window to position and close. That reading is mine, not the owner's words, and is his to reverse.
 
+**Corrected the same day — I had built the wrong thing.** The owner: *"yea you didnt actually do what i asked at all … I asked
+for a splash screen for when the APPLICATION IS LOADING, literally on the boot of the app itself, i thought the demos loaded
+during that, but they dont, I want to see something happening basically immediately after double clicking the program, Like how
+maui and MPF do just naturally. this demo loading and map loading prograss bar is great though, i want to keep it, but it better
+also work and do the same thing if you just boot the program with no demo, and load one after boot."* And then: *"the splash
+screen will probably be basically unseeable on my PC, with how fast it is, I just want to see how long our boot time is, and be
+able to notice if it becomes crazy long."*
+
+So, added: `StartupSplash`, opened first thing in `Main` on its own UI thread and closed at the main window's first `Shown`;
+and the boot time itself — process start to that `Shown` — logged as `startup: window shown N ms` and put in the status bar when
+no demo is opening. The loading overlay stays, and serves a demo opened after boot too (the playlist and File > Open both reach
+`LoadDemoAsync`). Measured warm with no demo: window after 1.57 s.
+
 Related: B146, B401.

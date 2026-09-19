@@ -27028,6 +27028,19 @@ runs smoothly. Seen before and after B408's fix, so not the hang. *Not establish
 GC headroom never returned. A heap census (`dotnet-gcdump`, not installed) or an allocation trace across the load is the next
 step. *Evidence class: measured (process working set, sampled per second).*
 
+**Managed, not native — measured 2026-09-18** by the viewer's own `memory after load` line (`GC.GetGCMemoryInfo` beside
+`Environment.WorkingSet`, logged at the end of `Apply`), on `demostf-cp_process_f12-2026-08-08-2207.dem`: working set 14,206 MB,
+GC committed 13,243 MB, heap size at the last collection 6,527 MB, fragmented 269 MB. So textures and the device are at most
+about 1 GB of it; the rest is the managed heap, half of it live at the last GC. *Not established*: which types hold the 6.5 GB.
+
+**Allocation across the same load, 2026-09-18** (`dotnet-trace --profile gc-verbose`, AllocationTick summed by type and first
+project frame): **174,895 MB allocated** in one open-and-play of f12. By site: `EntityState.AnimationLayers()` 98,069 MB of
+`String`; `ValveLzma.Decode` 27,825 MB of `Byte[]`; `EntityState.EconAttributes` 16,429 MB of `String`; `DecodedProperty[]`
+growth 4,293 MB; `VpkArchive.ReadFile` 2,867 MB; `EntityState.Origin()` 2,000 MB of `String`. Strings built per call inside
+the decode are most of the timeline's 57-second `entities` column, and are the first thing to remove — a property NAME is
+fixed per schema and should be looked up, not concatenated. Allocation is not retention: this says what churns, not what holds
+the 6.5 GB. *Evidence class: measured (sampled every ~100 KB).*
+
 ### B406 OPEN 2026-09-18: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player

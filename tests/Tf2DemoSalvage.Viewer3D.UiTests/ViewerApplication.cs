@@ -360,14 +360,38 @@ internal sealed partial class ViewerApplication : IDisposable
         //
         // The real fix is in the application — loading a map on the UI thread also freezes the window
         // for a human — and is deliberately not made here. See B90.
+        //
+        // **Found by its AutomationId, not as "the main window"** (D182). The process shows a startup splash first, and
+        // `GetMainWindow` answers whichever top-level window is up — the splash, for the first second. Watching the top-level
+        // windows also records whether the splash appeared at all, which is what `StartupSplashUiTests` asserts.
+        bool splashSeen = false;
+
         Window window = Retry.WhileException(
-            () => application.GetMainWindow(automation, LaunchTimeout),
+            () => Retry.WhileNull(
+                () =>
+                {
+                    foreach (Window top in application.GetAllTopLevelWindows(automation))
+                    {
+                        string id = top.Properties.AutomationId.ValueOrDefault ?? string.Empty;
+
+                        splashSeen |= id == MainForm.StartupSplashId;
+
+                        if (id == MainForm.MainWindowId)
+                        {
+                            return top;
+                        }
+                    }
+
+                    return null;
+                },
+                LaunchTimeout,
+                TimeSpan.FromMilliseconds(20)).Result,
             LaunchTimeout,
             throwOnTimeout: true).Result
             ?? throw new InvalidOperationException(
                 $"The viewer's main window did not appear within {LaunchTimeout}.");
 
-        return new ViewerApplication(application, automation, window);
+        return new ViewerApplication(application, automation, window) { SplashSeen = splashSeen };
     }
 
     /// <remarks>
@@ -397,6 +421,9 @@ internal sealed partial class ViewerApplication : IDisposable
     /// automation surface of its own to invoke.
     /// </remarks>
     public void ClickButton(string automationId) => Find(automationId).AsButton().Invoke();
+
+    /// <summary>Whether the startup splash was among the process's windows before the main window appeared (D182).</summary>
+    public bool SplashSeen { get; init; }
 
     /// <summary>The most recent log line containing some text, or null.</summary>
     /// <param name="line">The text to look for, as the viewer writes it.</param>
