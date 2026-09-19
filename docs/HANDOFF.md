@@ -13,8 +13,14 @@ Written 2026-09-14, superseding the handoff at `e47dc3f1` (same direction, earli
 - **B407** f12 decode 72 → 53 s; per-load allocation 175 → ~58 GB; live heap during playback 6.4 → 3.66 GB (texture pixels,
   baked props, both vertex copies released after upload; a later failed upload reloads the map — that path is untested end to
   end). What remains is what playback reads: sounds, the timeline, the model source frames.
-- **Open, needing the owner**: a faded corpse is never removed from the physics world (the engine releases it on fade), and our
-  fade depends on what the camera saw, which the background record cannot know in advance.
+- **Next, decided (owner, 2026-09-19): a faded corpse leaves the physics world, full Valve parity.** The fade is what makes
+  seeks cheap — after a seek `RagdollFade.Rewound` treats every corpse as unseen, so a rebuild needs only deaths in the last
+  15 s, which `CorpsePhysics.Advance` already replays from. The missing piece: `Advance` never removes a corpse that stops being
+  requested; the engine's `EndFadeOut` → `ClearRagdoll` destroys its constraints, then its objects. **IVP has no object removal
+  in the port yet.** The decompile is at `D:\ghidra-proj\out\destroy-chain-dump.txt`: `CPhysicsEnvironment::DestroyObject`
+  `0x180013250`, `DestroyConstraint` `0x180012fe0`, `CPhysicsObject` deleting dtor `0x18001a530` (silent `FUN_180017b40` vs full
+  `FUN_180073700`), core release `FUN_1800791a0`. *Not traced*: how `FUN_180073700`'s neighbour walk reaches the mindist, OV-tree
+  and friction unlinks. Then measure seeks, and bring D181 (a PICKED decision, D183) back to the owner with numbers.
 
 **2026-09-18: the virtual-terrain drop and the drive-together test both pass** — see *Resolved 2026-09-18* below. Branch
 `wip/b369-contact-drops`; Animation.Tests 5313 total, 5312 passed, 1 skipped (after the old solver's deletion).
