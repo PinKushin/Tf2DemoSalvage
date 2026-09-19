@@ -13117,6 +13117,14 @@ test executes. Killed + survived alone would score 71.5 %, so **untested code, n
 *Next, in order*: `SoundscapePlacement` (no test at all) and `SoundscapeSystem` — pure logic, synthetic fixtures; then the
 mixing arithmetic inside `AudioOutput`, testable apart from the device; then the survivors file by file.
 
+**Done 2026-09-19, not yet re-measured on the box:** `SoundscapePlacementsTests` (13) and four `SoundscapeSystem.Update`
+tests on hand-written entity lumps, and `SoundSampleReadTests` (6) on hand-built waves. Each was sabotaged and reddened.
+**`AudioOutput`'s mixing arithmetic was already tested** (`AudioOutputMixTests` covers `ToStereo16`). Its 101 uncovered mutants
+are the OpenAL device calls, which the box, having no sound device, cannot reach; they are not for a synthetic test.
+**Found while writing:** `SoundSampleReader.FromWave`'s `Channels < 1` and `SampleRate <= 0` arms cannot be reached through
+`Read`, because `RiffWave.Read` refuses both first. Only the `> 2` arm is reachable. *Still open:* the survivors in `RiffWave`,
+`SoundScript` and `NativeLibraryResolver`.
+
 **Do not measure this locally.** A Stryker run takes the machine-wide exclusive lock and ~35 minutes,
 and a competing build failure is scored as a SURVIVING MUTANT rather than as an error. The box
 already runs it daily and keeps 30 runs; read those.
