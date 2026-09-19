@@ -294,6 +294,7 @@ public sealed class ItemSchema
 
                     // The top-level `attributes` section: each child is one definition, keyed by
                     // its index as text — the same spelling `instancebaseline` entries use.
+                    // Stryker disable once all : removing TryParse leaves 'index' undeclared in ternary, CS0165
                     attributeDefinition =
                         string.Equals(section, "attributes", StringComparison.OrdinalIgnoreCase)
                         && value is null
@@ -350,6 +351,7 @@ public sealed class ItemSchema
                 // wearer's own view model (`econ_entity.cpp:2091`), which a demo viewer drawing
                 // another player never has — and the Purity Fist declares both pairs with the same
                 // numbers, so a reader keyed to the wrong prefix passes every shipped case.
+                // Stryker disable all : removing TryParse from switch 'when' leaves 'part' undeclared, CS0165
                 case 4 when entry is not null && inVisuals && value is not null
                     && key.StartsWith("wm_bodygroup", StringComparison.OrdinalIgnoreCase)
                     && int.TryParse(
@@ -366,6 +368,7 @@ public sealed class ItemSchema
                     }
 
                     break;
+                // Stryker restore
 
                 // `static_attrs` is flat: the pair IS the attribute.
                 case 4 when entry is not null && inStaticAttrs && value is not null:
@@ -402,11 +405,13 @@ public sealed class ItemSchema
                 // **`"hat" "1"` — a body part's name and the state to put it in.** The engine reads
                 // the pair through `GetModifiedBodyGroup`, which hands back both, and applies it
                 // only when the value matches the pass it is running (`econ_entity.cpp:2046`).
+                // Stryker disable all : removing TryParse from switch 'when' leaves 'state' undeclared, CS0165
                 case 5 when entry is not null && inBodygroups && value is not null
                     && int.TryParse(
                         value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int state):
                     entry.PlayerBodygroups[key] = state;
                     break;
+                // Stryker restore
 
                 // Each numbered child of the block is one attachment. Its fields arrive next, so
                 // the pending record is reset here and committed when the following one starts or
@@ -424,6 +429,7 @@ public sealed class ItemSchema
                         entry.AttachedModels.Add(new AttachedModel(
                             attachedModel, attachedFlags, visualsTeam, attachedIsFestive));
                     }
+                    // Stryker disable once all : removing TryParse leaves 'flags' undeclared in else-if body, CS0165
                     else if (string.Equals(
                         key, "model_display_flags", StringComparison.OrdinalIgnoreCase)
                         && int.TryParse(
@@ -536,6 +542,7 @@ public sealed class ItemSchema
     {
         string className = ClassNames[playerClass];
 
+        // Stryker disable once all : removing TryGetValue leaves 'model' undeclared in lambda ternary, CS0165
         if (Inherited(definitionIndex, entry =>
             entry.PerClass.TryGetValue(className, out string? model) ? model : null) is { } named)
         {
@@ -975,6 +982,7 @@ public sealed class ItemSchema
     /// it — the value is a tri-state and encoding it as `"1"`/`"0"`/absent through a string search
     /// puts a parse in the middle of a lookup.
     /// </remarks>
+    // Stryker disable once all : removing TryGetValue leaves 'item' undeclared in && operand, CS0165
     public bool HidesBodygroupsWhenDeployedOnly(int definitionIndex) =>
         _items.TryGetValue(definitionIndex, out Entry? item)
         && DeployedOnly(item, LongestChain) == true;
@@ -992,6 +1000,7 @@ public sealed class ItemSchema
     /// **The two halves are searched independently**, because the chain can split them: an item may
     /// restate the part while taking the state from its prefab.
     /// </remarks>
+    // Stryker disable once all : removing TryGetValue leaves 'item' undeclared in ternary, CS0165
     public (int Group, int State) WorldmodelBodygroupOverrideFor(int definitionIndex) =>
         _items.TryGetValue(definitionIndex, out Entry? item)
             ? (Override(item, LongestChain, state: false), Override(item, LongestChain, state: true))
@@ -1006,6 +1015,7 @@ public sealed class ItemSchema
     /// consumer's `!= 0` guard reads as "never hidden", so an unknown item answering 0 degrades the
     /// same way the engine does rather than hiding something.
     /// </remarks>
+    // Stryker disable once all : removing TryGetValue leaves 'item' undeclared in ternary, CS0165
     public int VisionFilterFlagsFor(int definitionIndex) =>
         _items.TryGetValue(definitionIndex, out Entry? item)
             ? Vision(item, LongestChain) ?? 0
@@ -1123,6 +1133,7 @@ public sealed class ItemSchema
     {
         ArgumentNullException.ThrowIfNull(name);
 
+        // Stryker disable once all : removing TryGetValue leaves 'index' undeclared in ternary, CS0165
         return _attributeIndexByName.TryGetValue(name, out int index) ? index : null;
     }
 
@@ -1161,6 +1172,7 @@ public sealed class ItemSchema
     {
         foreach ((string name, string value) in entry.DefinitionAttributes)
         {
+            // Stryker disable once all : removing TryGetValue leaves 'index' undeclared at line below, CS0165
             if (!seen.Add(name) || !_attributeIndexByName.TryGetValue(name, out int index))
             {
                 continue;
@@ -1168,12 +1180,14 @@ public sealed class ItemSchema
 
             if (_attributeStoredAsInteger.Contains(index))
             {
+                // Stryker disable once all : removing TryParse leaves 'integer' undeclared in body, CS0165
                 if (int.TryParse(
                     value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int integer))
                 {
                     into.Add(new EconAttributeValue(index, integer));
                 }
             }
+            // Stryker disable once all : removing TryParse leaves 'number' undeclared in body, CS0165
             else if (float.TryParse(
                 value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number))
             {
@@ -1241,6 +1255,7 @@ public sealed class ItemSchema
             return prefab;
         }
 
+        // Stryker disable once all : removing TryParse leaves 'index' undeclared after this if-block, CS0165
         if (!string.Equals(section, "items", StringComparison.OrdinalIgnoreCase) ||
             !int.TryParse(name, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index))
         {
@@ -1309,6 +1324,7 @@ public sealed class ItemSchema
             return;
         }
 
+        // Stryker disable once all : removing TryParse leaves 'vision' undeclared in body, CS0165
         if (string.Equals(key, "vision_filter_flags", StringComparison.OrdinalIgnoreCase)
             && int.TryParse(
                 value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int vision))
