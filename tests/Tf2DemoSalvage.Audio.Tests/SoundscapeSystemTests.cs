@@ -18,11 +18,8 @@ namespace Tf2DemoSalvage.Audio.Tests;
 /// Valve's arrangement is the same shape: <c>C_SoundscapeSystem</c> decides what should be playing
 /// and calls through the <c>IEngineSound</c> interface rather than the mixer itself.
 ///
-/// **What is NOT covered here, stated rather than left to look covered**: choosing. `Choose` needs
-/// a <see cref="SoundscapePlacements"/>, whose only factory reads a map's entity lump, so a
-/// device-free test cannot reach it — the choosing rules are tested against a real map in
-/// <c>SoundscapeSelectionConformanceTests</c> instead. What IS here is the part that had no test at
-/// all: the guard, the seek, and the gain curve.
+/// Choosing is tested in <c>SoundscapePlacementsTests</c> on hand-written entity lumps (B217); the
+/// <c>Update</c> tests below build a one-soundscape map the same way.
 /// </remarks>
 public sealed class SoundscapeSystemTests
 {
@@ -85,6 +82,95 @@ public sealed class SoundscapeSystemTests
         far.ShouldBeGreaterThan(0f, "attenuation is a falloff, not a cutoff");
     }
 
+    /// <remarks>
+    /// **The whole path on a synthetic map** (B217): a soundscape placed in range, whose catalog entry loops one wave, starts
+    /// that wave once on the soundscape's own entity and only re-gains it afterwards. These were all uncovered on the mutation
+    /// box, whose only system tests never loaded a placement.
+    /// </remarks>
+    [Test]
+    public void Update_ASoundscapeInRange_StartsItsLoopOnceAndThenOnlyRegainsIt()
+    {
+        Sink sink = new();
+        SoundscapeSystem system = Playing(opens: true);
+
+        system.Update(sink, Origin, Right, now: 1d);
+        system.Update(sink, Origin, Right, now: 1.5d);
+        system.Update(sink, Origin, Right, now: 2d);
+
+        sink.Played.ShouldHaveSingleItem().Entity.ShouldBe(SoundscapeSystem.SoundscapeEntity);
+        sink.Regained.ShouldBeGreaterThan(0, "a playing loop is re-gained, not restarted");
+    }
+
+    [Test]
+    public void Update_AWaveThatWillNotOpen_IsNotAskedForAgain()
+    {
+        Sink sink = new();
+        int asked = 0;
+        SoundscapeSystem system = Playing(opens: false, onAsk: () => asked++);
+
+        system.Update(sink, Origin, Right, now: 1d);
+        system.Update(sink, Origin, Right, now: 2d);
+
+        sink.Played.ShouldBeEmpty();
+        asked.ShouldBe(1);
+    }
+
+    [Test]
+    public void Update_AfterLevelShutdown_PlaysNothingNew()
+    {
+        Sink sink = new();
+        SoundscapeSystem system = Playing(opens: true);
+
+        system.LevelShutdownPreEntity();
+        system.Update(sink, Origin, Right, now: 1d);
+
+        sink.Played.ShouldBeEmpty();
+        system.Placements.ShouldBeNull();
+    }
+
+    [Test]
+    public void Update_AListenerOutOfEveryRadius_StartsNothing()
+    {
+        Sink sink = new();
+        SoundscapeSystem system = Playing(opens: true);
+
+        system.Update(sink, (0f, 0f, 9000f), Right, now: 1d);
+        system.Update(sink, (0f, 0f, 9000f), Right, now: 2d);
+
+        sink.Played.ShouldBeEmpty();
+    }
+
+    private static SoundscapeSystem Playing(bool opens, global::System.Action? onAsk = null)
+    {
+        SoundscapeCatalog catalog = SoundscapeCatalog.Load(path => path switch
+        {
+            "scripts/soundscapes_manifest.txt" => global::System.Text.Encoding.UTF8.GetBytes(
+                "\"soundscapes_manifest\"\n{\n    \"file\"    \"scripts/soundscapes_test.txt\"\n}\n"),
+            "scripts/soundscapes_test.txt" => global::System.Text.Encoding.UTF8.GetBytes(
+                "\"test.room\"\n{\n    \"playlooping\"\n    {\n        \"volume\"    \"0.5\"\n" +
+                "        \"wave\"    \"ambient/room.wav\"\n    }\n}\n"),
+            _ => null,
+        });
+
+        SoundscapePlacements placements = SoundscapePlacements.From(
+            Tf2DemoSalvage.Content.Bsp.BspEntities.Parse(global::System.Text.Encoding.UTF8.GetBytes(
+                "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.room\"\n\"origin\" \"0 0 0\"\n\"radius\" \"500\"\n}\n")),
+            catalog);
+
+        return new SoundscapeSystem(
+            new ActiveLoops(),
+            _ =>
+            {
+                onAsk?.Invoke();
+                return opens ? new SoundSample(44100, 1, new float[441]) : null;
+            },
+            NullLogger.Instance)
+        {
+            Catalog = catalog,
+            Placements = placements,
+        };
+    }
+
     private static readonly (float X, float Y, float Z) Origin = (0f, 0f, 0f);
     private static readonly (float X, float Y, float Z) Right = (1f, 0f, 0f);
 
@@ -111,7 +197,13 @@ public sealed class SoundscapeSystemTests
             int entity,
             int channel) => Played.Add((entity, channel));
 
-        public bool SetGain(int entity, int channel, float gain) => true;
+        public int Regained { get; private set; }
+
+        public bool SetGain(int entity, int channel, float gain)
+        {
+            Regained++;
+            return true;
+        }
 
         public void Silence(int entity, int channel) => Silenced.Add((entity, channel));
 
