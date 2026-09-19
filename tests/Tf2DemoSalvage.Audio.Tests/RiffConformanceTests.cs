@@ -282,7 +282,7 @@ public sealed class RiffConformanceTests
     /// draws: a synthetic fixture is fine, sourcing it from our own code is not. It also reaches
     /// cases no shipped file contains — an odd-sized chunk, a length past the end.
     /// </remarks>
-    private static byte[] Wave(
+    internal static byte[] Wave(
         int format, int channels, int rate, int bits, byte[] data,
         (byte[] Id, byte[] Body)? leading = null)
     {
