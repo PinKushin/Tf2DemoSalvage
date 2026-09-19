@@ -506,65 +506,69 @@ public sealed class EntityState
     /// </remarks>
     public IReadOnlyList<EconAttributeValue> EconAttributes(EconAttributeList list)
     {
+        // Matched as a whole path component, so `m_AttributeList` cannot match inside `…ForDemos`.
         string marker = list == EconAttributeList.Local
-            ? ".m_AttributeList.m_Attributes."
-            : ".m_NetworkedDynamicAttributesForDemos.m_Attributes.";
+            ? "m_AttributeList.m_Attributes"
+            : "m_NetworkedDynamicAttributesForDemos.m_Attributes";
 
         // Group by everything before the ordinal, so a player's own list and a carried item's list
         // — both legitimately named `m_AttributeList` — stay separate vectors with separate lengths.
         Dictionary<string, SortedDictionary<int, (int? Definition, int? Bits)>> groups = [];
         Dictionary<string, int> lengths = [];
 
+        // **Looked up by span, so a key is cut into a group string only the first time its group is seen** (B407) — this
+        // read allocated 16 GB of strings in one f12 load.
+        Dictionary<string, SortedDictionary<int, (int? Definition, int? Bits)>>.AlternateLookup<ReadOnlySpan<char>> groupsBySpan =
+            groups.GetAlternateLookup<ReadOnlySpan<char>>();
+        Dictionary<string, int>.AlternateLookup<ReadOnlySpan<char>> lengthsBySpan = lengths.GetAlternateLookup<ReadOnlySpan<char>>();
+
         foreach ((string key, PropertyValue value) in _properties)
         {
-            // Keys are stored without a leading dot; the marker carries one so that
-            // `m_AttributeList` cannot match inside `…ForDemos`. Normalise by prefixing.
-            string dotted = "." + key;
-
-            int at = dotted.IndexOf(marker, StringComparison.Ordinal);
-            if (at < 0)
+            if (PathTail(key, marker) is not { } tail)
             {
                 continue;
             }
 
-            string group = dotted[..at];
-            string tail = dotted[(at + marker.Length)..];
+            // The group is the key before the marker and its separating dot — empty for a marker at the start.
+            int start = tail - marker.Length - 1;
+            ReadOnlySpan<char> group = key.AsSpan(0, Math.Max(0, start - 1));
+            ReadOnlySpan<char> rest = key.AsSpan(tail);
 
-            if (tail.StartsWith("lengthproxy.", StringComparison.Ordinal))
+            if (rest.StartsWith("lengthproxy.", StringComparison.Ordinal))
             {
-                lengths[group] = (int)value.AsInt;
+                lengthsBySpan[group] = (int)value.AsInt;
                 continue;
             }
 
-            int dot = tail.IndexOf('.', StringComparison.Ordinal);
+            int dot = rest.IndexOf('.');
             if (dot <= 0 ||
-                !int.TryParse(tail[..dot], NumberStyles.None, CultureInfo.InvariantCulture,
+                !int.TryParse(rest[..dot], NumberStyles.None, CultureInfo.InvariantCulture,
                     out int element))
             {
                 continue;
             }
 
-            string property = tail[(dot + 1)..];
+            ReadOnlySpan<char> property = rest[(dot + 1)..];
 
-            if (!groups.TryGetValue(
+            if (!groupsBySpan.TryGetValue(
                 group, out SortedDictionary<int, (int? Definition, int? Bits)>? elements))
             {
                 elements = [];
-                groups[group] = elements;
+                groupsBySpan[group] = elements;
             }
 
             (int? definition, int? held) = elements.TryGetValue(
                 element, out (int? Definition, int? Bits) existing) ? existing : (null, null);
 
-            if (string.Equals(property, "m_iAttributeDefinitionIndex", StringComparison.Ordinal))
+            if (property.SequenceEqual("m_iAttributeDefinitionIndex"))
             {
                 definition = (int)value.AsInt;
             }
-            else if (string.Equals(property, "m_iRawValue32", StringComparison.Ordinal))
+            else if (property.SequenceEqual("m_iRawValue32"))
             {
                 held = unchecked((int)value.AsInt);
             }
-            else if (string.Equals(property, "m_flValue", StringComparison.Ordinal))
+            else if (property.SequenceEqual("m_flValue"))
             {
                 // The era spelling is a genuine float; the union it fills is the same 32 bits.
                 held = BitConverter.SingleToInt32Bits(value.AsFloat);
@@ -597,6 +601,33 @@ public sealed class EntityState
         return found;
     }
 
+    /// <summary>Where a path-shaped key continues after a whole <paramref name="segment"/> component, or null when it has none.</summary>
+    /// <param name="key">A state key, components joined by dots.</param>
+    /// <param name="segment">The component to find — matched whole, at the start or after a dot, and followed by a dot.</param>
+    /// <returns>The index just past <c>segment.</c> at its first such occurrence.</returns>
+    /// <remarks>What <c>("." + key).IndexOf("." + segment + ".")</c> found, without building either string (B407).</remarks>
+    private static int? PathTail(string key, string segment)
+    {
+        for (int from = 0; ;)
+        {
+            int at = key.IndexOf(segment, from, StringComparison.Ordinal);
+
+            if (at < 0)
+            {
+                return null;
+            }
+
+            int end = at + segment.Length;
+
+            if ((at == 0 || key[at - 1] == '.') && end < key.Length && key[end] == '.')
+            {
+                return end + 1;
+            }
+
+            from = at + 1;
+        }
+    }
+
     /// <summary>The animation layers this entity is playing, from <c>m_AnimOverlay</c>.</summary>
     /// <returns>Its layers in <c>m_nOrder</c>, or empty.</returns>
     /// <remarks>
@@ -618,36 +649,31 @@ public sealed class EntityState
     /// </remarks>
     public IReadOnlyList<SceneAnimationLayer> AnimationLayers()
     {
-        const string marker = ".m_AnimOverlay.";
-
         SortedDictionary<int, (int? Sequence, float? Cycle, float? Weight, int? Order)> slots = [];
 
         int? length = null;
 
         foreach ((string key, PropertyValue value) in _properties)
         {
-            string dotted = "." + key;
-
-            int at = dotted.IndexOf(marker, StringComparison.Ordinal);
-
-            if (at < 0)
+            // **Matched in place, never cut into new strings** (B407): this runs for every property of every animating entity
+            // on every call, and the concatenation and slices it used to make were 98 GB of garbage in one f12 load.
+            if (PathTail(key, "m_AnimOverlay") is not { } tail)
             {
                 continue;
             }
 
-            string tail = dotted[(at + marker.Length)..];
+            ReadOnlySpan<char> rest = key.AsSpan(tail);
 
-            if (tail.StartsWith("lengthproxy.", StringComparison.Ordinal))
+            if (rest.StartsWith("lengthproxy.", StringComparison.Ordinal))
             {
                 length = (int)value.AsInt;
                 continue;
             }
 
-            int dot = tail.IndexOf('.', StringComparison.Ordinal);
+            int dot = rest.IndexOf('.');
 
             if (dot <= 0 ||
-                !int.TryParse(
-                    tail[..dot], NumberStyles.None, CultureInfo.InvariantCulture, out int element))
+                !int.TryParse(rest[..dot], NumberStyles.None, CultureInfo.InvariantCulture, out int element))
             {
                 continue;
             }
@@ -657,13 +683,23 @@ public sealed class EntityState
                     ? held
                     : (null, null, null, null);
 
-            switch (tail[(dot + 1)..])
+            ReadOnlySpan<char> field = rest[(dot + 1)..];
+
+            if (field.SequenceEqual("m_nSequence"))
             {
-                case "m_nSequence": sequence = (int)value.AsInt; break;
-                case "m_flCycle": cycle = value.AsFloat; break;
-                case "m_flWeight": weight = value.AsFloat; break;
-                case "m_nOrder": order = (int)value.AsInt; break;
-                default: break;
+                sequence = (int)value.AsInt;
+            }
+            else if (field.SequenceEqual("m_flCycle"))
+            {
+                cycle = value.AsFloat;
+            }
+            else if (field.SequenceEqual("m_flWeight"))
+            {
+                weight = value.AsFloat;
+            }
+            else if (field.SequenceEqual("m_nOrder"))
+            {
+                order = (int)value.AsInt;
             }
 
             slots[element] = (sequence, cycle, weight, order);
@@ -2481,6 +2517,14 @@ public sealed class EntityState
          Number($"{TfPlayerTable}.m_flTorsoScale"),
          Number($"{TfPlayerTable}.m_flHandScale"));
 
+    /// <summary>The three tables <see cref="Origin"/> reads, in declared order: each one's origin key and height key.</summary>
+    private static readonly (string Origin, string Height)[] OriginKeys =
+    [
+        ($"{LocalOriginTable}.{OriginProperty}", $"{LocalOriginTable}.{OriginZProperty}"),
+        ($"{NonLocalOriginTable}.{OriginProperty}", $"{NonLocalOriginTable}.{OriginZProperty}"),
+        ($"{BaseEntityTable}.{OriginProperty}", $"{BaseEntityTable}.{OriginZProperty}"),
+    ];
+
     /// <summary>The entity's world position, if it has sent one.</summary>
     /// <returns>The position, or <c>null</c> when no origin has arrived.</returns>
     /// <remarks>
@@ -2515,16 +2559,24 @@ public sealed class EntityState
     {
         // Most recently written first: see Sequence. A fixed order returns whichever table happens
         // to be listed first even when the other one was updated a thousand ticks later.
-        string[] tables = [LocalOriginTable, NonLocalOriginTable, BaseEntityTable];
+        //
+        // **The keys are built once, not per call** (B407): this ran for every entity every tick and interpolated six strings a
+        // time, 2 GB of them in one f12 load. The order is an insertion sort over the three, newest first, which keeps equal
+        // sequences in declared order exactly as the `Array.Sort` it replaces did — that sorts arrays this small by insertion too.
+        Span<long> written = [Sequence(OriginKeys[0].Origin), Sequence(OriginKeys[1].Origin), Sequence(OriginKeys[2].Origin)];
+        Span<int> order = [0, 1, 2];
 
-        System.Array.Sort(
-            tables,
-            (left, right) => Sequence($"{right}.{OriginProperty}")
-                .CompareTo(Sequence($"{left}.{OriginProperty}")));
-
-        foreach (string table in tables)
+        for (int at = 1; at < order.Length; at++)
         {
-            if (!_properties.TryGetValue($"{table}.{OriginProperty}", out PropertyValue origin))
+            for (int back = at; back > 0 && written[order[back]] > written[order[back - 1]]; back--)
+            {
+                (order[back], order[back - 1]) = (order[back - 1], order[back]);
+            }
+        }
+
+        foreach (int table in order)
+        {
+            if (!_properties.TryGetValue(OriginKeys[table].Origin, out PropertyValue origin))
             {
                 continue;
             }
@@ -2539,7 +2591,7 @@ public sealed class EntityState
             if (origin.Kind == PropertyValueKind.VectorXY)
             {
                 (float x, float y) = origin.AsVectorXY;
-                return (x, y, Number($"{table}.{OriginZProperty}") ?? 0f);
+                return (x, y, Number(OriginKeys[table].Height) ?? 0f);
             }
         }
 
