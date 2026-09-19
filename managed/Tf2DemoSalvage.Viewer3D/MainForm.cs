@@ -3108,7 +3108,8 @@ internal class MainForm : Form, IFrameSteps
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"memory after load: working set {Environment.WorkingSet / 1048576d:F0} MB, managed heap {heap.HeapSizeBytes / 1048576d:F0} MB " +
-                $"(committed {heap.TotalCommittedBytes / 1048576d:F0} MB, fragmented {heap.FragmentedBytes / 1048576d:F0} MB)"));
+                $"(committed {heap.TotalCommittedBytes / 1048576d:F0} MB, fragmented {heap.FragmentedBytes / 1048576d:F0} MB); " +
+                $"entity model vertices {_models.Vertices.Count:N0} in {_models.VertexBytes / 1048576d:F0} MB"));
 
         _status.Text = _loaded?.Problem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));

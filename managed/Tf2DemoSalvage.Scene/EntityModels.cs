@@ -3568,6 +3568,9 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     public IReadOnlyList<WorldVertex> Vertices => _vertices;
 
+    /// <summary>Bytes the vertex list's backing array holds, filled or not — for the memory report (B407).</summary>
+    public long VertexBytes => (long)_vertices.Capacity * System.Runtime.CompilerServices.Unsafe.SizeOf<WorldVertex>();
+
     /// <summary>How many distinct models have been packed.</summary>
     public int Count => _byModel.Count;
 
