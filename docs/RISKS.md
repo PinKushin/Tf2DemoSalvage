@@ -26989,6 +26989,28 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B410 OPEN 2026-09-19: Stryker's Safe Mode drops ~300 whole methods from mutation testing
+
+**Found auditing the mutation box at the owner's request.** Every scheduled module runs and finishes, but a mutation that
+leaves a local or struct field possibly unassigned fails to compile (CS0165 / CS0170 — e.g. `origin.Y` in
+`DemoTimeline.RecordProp`), and Stryker's Safe Mode then removes EVERY mutation in that method and counts them as compile
+errors. Latest run per module (`~/measurements/*-tf2-*/stryker.log`):
+
+| module | score | compile-error mutants | methods removed |
+|---|---|---|---|
+| core | 71.4 % | 3,364 | 119 (incl. `RecordProp`, `PropsAt`, `PlayersAt`, `MoveChildren`) |
+| scene | 25.0 % | 4,400 | 78 |
+| animation | 70.5 % | 1,693 | 31 |
+| content | 38.4 % | 1,374 | 29 |
+| presentation | 69.0 % | 699 | 29 |
+| audio | 45.1 % | 411 | 15 |
+| cli | 90.7 % | 32 | 0 |
+
+So the scores describe only the methods that survived the cull, and some of the hottest code is not mutation-tested at all.
+*Next*: list the removed methods per module from the logs, and remove the definite-assignment shape that trips them
+(`out`/`TryGetValue` patterns and partially assigned structs are the likely cause — read each, do not assume). *Evidence
+class: measured (box logs).*
+
 ### B409 FIXED 2026-09-18: gibs are never simulated — they hold in the air where the player died
 
 **Fixed**: every TF2 gib model is BAKED (no skeleton; measured on `soldiergib00N.mdl`: prop body, `Skinned` null), so the corpse
