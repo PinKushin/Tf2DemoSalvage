@@ -123,10 +123,12 @@ public sealed class SceneImage
             (long)entriesAt + ((long)scenes * EntryBytes) > span.Length ||
             HeaderBytes + ((long)stringCount * 4) > span.Length)
         {
+            // Stryker disable StringLiteral : string.Create ref handler cannot appear in Stryker's ternary wrapper
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A scene image declaring {scenes:N0} scenes and {stringCount:N0} strings does not " +
                 $"fit in {span.Length:N0} bytes."));
+            // Stryker restore StringLiteral
         }
 
         // The pool is offsets from the START of the file, which is what `String()` does:
