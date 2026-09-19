@@ -129,7 +129,7 @@ public sealed class MapAssetsTests
     /// from `MapCache`, because this empties what it loads.
     /// </remarks>
     [Test]
-    public void ReleasePixels_OnARealMap_EmptiesEveryImageAndKeepsEverythingElse()
+    public void ReleaseUploaded_OnARealMap_EmptiesImagesAndPropsAndKeepsEverythingElse()
     {
         if (GameFolder is not { } game || Path.Combine(game, "maps", "cp_process_final.bsp") is not { } map || !File.Exists(map))
         {
@@ -144,11 +144,13 @@ public sealed class MapAssetsTests
         // The control: pixels are there before, or emptying them would prove nothing.
         assets.Textures.Count(texture => texture is { Image.IsEmpty: false }).ShouldBeGreaterThan(100);
         assets.Bumps.Count(bump => bump is { Texture.Image.IsEmpty: false }).ShouldBeGreaterThan(0);
-        assets.PixelsReleased.ShouldBeFalse();
+        assets.Props.Count.ShouldBeGreaterThan(0);
+        assets.Released.ShouldBeFalse();
 
-        assets.ReleasePixels();
+        assets.ReleaseUploaded();
 
-        assets.PixelsReleased.ShouldBeTrue();
+        assets.Released.ShouldBeTrue();
+        assets.Props.ShouldBeEmpty();
         assets.Textures.Count.ShouldBe(count);
         assets.Textures.Count(texture => texture is { IsTranslucent: true }).ShouldBe(translucent);
         assets.Textures.ShouldAllBe(texture => texture == null || texture.Value.Image.IsEmpty);

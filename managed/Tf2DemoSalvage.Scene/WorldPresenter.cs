@@ -114,24 +114,21 @@ public sealed class WorldPresenter(ILogger render)
             // **Asks the device as well as the flag.** `TexturesAreCurrent` knows about maps and
             // `HasWorldTextures` knows about the GPU; either can be false on its own — a new level,
             // or a device that lost them — and both have to be true to skip the work.
+            // **What was released cannot go up again** (B407): only a failed upload asks twice for one map's textures or
+            // world, and the answer then is to read the map again, as the engine rebuilds a texture from its file.
+            if (assets.Released && (!TexturesAreCurrent || !upload.HasWorldTextures || !upload.HasWorld))
+            {
+                return new WorldUpload(Uploaded: false, Problem: "Reloading the map…", NeedsReload: true);
+            }
+
             if (!TexturesAreCurrent || !upload.HasWorldTextures)
             {
-                // **Released pixels cannot go up again** (B407): only a failed upload asks twice for one map, and the answer
-                // then is to read the map again, as the engine rebuilds a texture from its file.
-                if (assets.PixelsReleased)
-                {
-                    return new WorldUpload(Uploaded: false, Problem: "Reloading the map's textures…", NeedsReload: true);
-                }
-
                 using (render.Time("uploading textures"))
                 {
                     upload.UploadWorldTextures(assets);
                 }
 
                 TexturesAreCurrent = true;
-
-                // Once the device holds them, the 1.3 GB of pixels an f12 load kept has no reader (B407).
-                assets.ReleasePixels();
             }
 
             // **The camera is a matrix, so a resize is not a rebuild.** The world's vertices are in
@@ -206,6 +203,10 @@ public sealed class WorldPresenter(ILogger render)
                     : string.Create(
                         CultureInfo.InvariantCulture,
                         $"world culling ready over {built.FaceSpans.Count} face spans"));
+
+            // **Both are on the device now, so their CPU copies have no reader** (B407): 1.3 GB of texture pixels and 416 MB of
+            // baked static props on f12. Last, so a failure anywhere above leaves them for the retry.
+            assets.ReleaseUploaded();
 
             return new WorldUpload(Uploaded: true, Problem: null);
         }
