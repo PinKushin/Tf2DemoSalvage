@@ -210,6 +210,7 @@ public sealed class VmtMaterial
 
             // $alpha is a constant multiplier, so anything short of fully opaque blends. A missing
             // or unparseable value is not translucency - it is a material that said nothing.
+            // Stryker disable once all : removing the TryParse call leaves 'value' undeclared at 'value < 1f', CS0165
             return Value("$alpha") is { } alpha &&
                 float.TryParse(alpha, NumberStyles.Float, CultureInfo.InvariantCulture, out float value) &&
                 value < 1f;
@@ -437,6 +438,7 @@ public sealed class VmtMaterial
     {
         get
         {
+            // Stryker disable once all : removing TryVectorBody call leaves 'body'/'scale' undeclared, CS0165
             if (Value("$spriteorigin") is not { } text ||
                 !TryVectorBody(text.Trim(), out string body, out float scale))
             {
@@ -521,6 +523,7 @@ public sealed class VmtMaterial
             [' ', '\t', ','],
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+        // Stryker disable once all : removing either TryParse call leaves 'across'/'down' undeclared, CS0165
         if (parts.Length < 2 ||
             !float.TryParse(
                 parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float across) ||
