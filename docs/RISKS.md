@@ -13118,12 +13118,23 @@ test executes. Killed + survived alone would score 71.5 %, so **untested code, n
 mixing arithmetic inside `AudioOutput`, testable apart from the device; then the survivors file by file.
 
 **Done 2026-09-19, not yet re-measured on the box:** `SoundscapePlacementsTests` (13) and four `SoundscapeSystem.Update`
-tests on hand-written entity lumps, and `SoundSampleReadTests` (6) on hand-built waves. Each was sabotaged and reddened.
+tests on hand-written entity lumps. Each was sabotaged and reddened. (A `SoundSampleReadTests` added the same day duplicated
+the existing `SoundSampleReaderTests`, which the search that looked for it missed by grepping the wrong type name; it was
+deleted.)
 **`AudioOutput`'s mixing arithmetic was already tested** (`AudioOutputMixTests` covers `ToStereo16`). Its 101 uncovered mutants
 are the OpenAL device calls, which the box, having no sound device, cannot reach; they are not for a synthetic test.
 **Found while writing:** `SoundSampleReader.FromWave`'s `Channels < 1` and `SampleRate <= 0` arms cannot be reached through
-`Read`, because `RiffWave.Read` refuses both first. Only the `> 2` arm is reachable. *Still open:* the survivors in `RiffWave`,
+`Read`, because `RiffWave.Read` refuses both first. Only the `> 2` arm was reachable, so the other two were deleted (D180). *Still open:* the survivors in `RiffWave`,
 `SoundScript` and `NativeLibraryResolver`.
+
+**The larger cause, found the same day: the mutation box had no Source SDK.** About 65 fixtures across Core, Content, Rendering
+and Audio ignore themselves in a `[SetUp]` when `SourceSdk.Available` is false, so on the box every one of their tests was
+skipped and every mutant only they kill scored as uncovered. `RiffConformanceTests` was the audio case: ten hand-built-file tests
+behind a gate only one of them needed (moved into that one test). Fix: `build/run-measurements.sh` now exports `SOURCE_SDK` and
+shallow-clones the SDK to `~/src/source-sdk-2013` if it is missing. Measured on the box with it present: Audio 170 passed / 33
+skipped, Core 1846 / 48, Content 949 / 227, no failures. Rendering fails 50 there, all GPU or Windows tests, but Rendering has no
+mutation slot on the box. *Expect core, content and audio scores to jump at their next runs; that is the denominator becoming
+honest, not the tests improving.* SoundScript: `SoundScriptTests` added (5), sabotage-verified.
 
 **Do not measure this locally.** A Stryker run takes the machine-wide exclusive lock and ~35 minutes,
 and a competing build failure is scored as a SURVIVING MUTANT rather than as an error. The box
