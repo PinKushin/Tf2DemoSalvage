@@ -43,6 +43,30 @@ public sealed class LzmaTests
         decoded.ShouldBe(Blocks(3000));
     }
 
+    /// <remarks>
+    /// **A decode allocates its window to the OUTPUT, not to the dictionary the header declares** (B407). Every static prop's
+    /// `.vhv` in a map's pakfile is a few kilobytes behind a header declaring a window of megabytes, and a decoder built per file
+    /// allocated that window each time — 25 GB over one f12 load. LZMA never reaches further back than the bytes already
+    /// produced, so a window the size of the output decodes every valid stream identically.
+    /// </remarks>
+    [Test]
+    public void Decode_ASmallStreamDeclaringALargeDictionary_AllocatesForTheOutput()
+    {
+        // liblzma's fixture declares a small window, so it is widened to 64 MB here — still a valid stream, since a window only has
+        // to be at least as large as the encoder's — which is what a map's `.vhv` header looks like beside its few kilobytes.
+        byte[] lump = Convert.FromHexString(BlocksLump);
+        const uint declared = 64u << 20;
+        BitConverter.TryWriteBytes(lump.AsSpan(PropertiesOffset + 1, 4), declared).ShouldBeTrue();
+
+        _ = Decode(lump, 3000);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        byte[] decoded = Decode(lump, 3000);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        decoded.ShouldBe(Blocks(3000));
+        allocated.ShouldBeLessThan(256 * 1024, $"the header declares a {declared:N0}-byte window for 3,000 bytes of output");
+    }
+
     [Test]
     public void Decode_LiteralHeavyStream_ReturnsTheOriginalBytes()
     {

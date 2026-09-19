@@ -180,6 +180,34 @@ public sealed class EntityStateTableTests
         teammate.Origin().ShouldBe((128f, 256f, 64f));
     }
 
+    /// <remarks>
+    /// **Both exclusive tables carry an origin once a player has been recorded both ways, and the NEWER write is the position.**
+    /// A fixed order returns whichever table is listed first even when the other was updated a thousand ticks later. Asserted
+    /// in both directions, since either fixed order passes one of them. Added with B407's rewrite of the ordering, which no
+    /// test reddened when it was reversed.
+    /// </remarks>
+    [Test]
+    public void Origin_BothExclusiveTablesWritten_AnswersTheNewer()
+    {
+        EntityStateTable localLast = new(EntityBaselines.None);
+        localLast.Apply(Entity(1, EntityUpdateType.Enter,
+            Property("DT_TFNonLocalPlayerExclusive", "m_vecOrigin", PropertyValue.FromVectorXY(128f, 256f))));
+        localLast.Apply(Entity(1, EntityUpdateType.Delta,
+            Property("DT_TFLocalPlayerExclusive", "m_vecOrigin", PropertyValue.FromVectorXY(-480f, -4512f))));
+
+        localLast.TryGet(1, out EntityState? recorder).ShouldBeTrue();
+        recorder.Origin().ShouldBe((-480f, -4512f, 0f));
+
+        EntityStateTable nonLocalLast = new(EntityBaselines.None);
+        nonLocalLast.Apply(Entity(1, EntityUpdateType.Enter,
+            Property("DT_TFLocalPlayerExclusive", "m_vecOrigin", PropertyValue.FromVectorXY(-480f, -4512f))));
+        nonLocalLast.Apply(Entity(1, EntityUpdateType.Delta,
+            Property("DT_TFNonLocalPlayerExclusive", "m_vecOrigin", PropertyValue.FromVectorXY(128f, 256f))));
+
+        nonLocalLast.TryGet(1, out EntityState? teammate).ShouldBeTrue();
+        teammate.Origin().ShouldBe((128f, 256f, 0f));
+    }
+
     [Test]
     public void EntityState_OriginDeclaredByTheClasssOwnTable_IsStillFound()
     {
