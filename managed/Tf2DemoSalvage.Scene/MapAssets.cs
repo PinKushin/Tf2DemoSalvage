@@ -740,7 +740,7 @@ public sealed class MapAssets
     public IReadOnlyList<string> Shaders { get; }
 
     /// <summary>One decoded texture per material, null where none was found.</summary>
-    public IReadOnlyList<MapTexture?> Textures { get; }
+    public IReadOnlyList<MapTexture?> Textures { get; private set; }
 
     /// <summary>The second layer of a blend material, null for the great majority that have none.</summary>
     /// <remarks>
@@ -749,7 +749,7 @@ public sealed class MapAssets
     /// displacement's per-vertex alpha mixes them. Sampling only the first draws every outdoor
     /// surface as bare dirt, which is exactly how the map looked.
     /// </remarks>
-    public IReadOnlyList<MapTexture?> BlendTextures { get; }
+    public IReadOnlyList<MapTexture?> BlendTextures { get; private set; }
 
     /// <summary>The detail pattern for each material, null for those without one.</summary>
     /// <remarks>
@@ -757,7 +757,7 @@ public sealed class MapAssets
     /// pattern - concrete grain, brick speckle, noise - multiplied into the base texture at four
     /// times its frequency by default, and it is the difference between a surface and a swatch.
     /// </remarks>
-    public IReadOnlyList<MapDetail?> Details { get; }
+    public IReadOnlyList<MapDetail?> Details { get; private set; }
 
     /// <summary>The bump map for each material, null for those without one.</summary>
     /// <remarks>
@@ -766,7 +766,28 @@ public sealed class MapAssets
     /// pixel of the surface faces, and the three are mixed accordingly. That is what makes a flat
     /// wall look like brick rather than like a photograph of one.
     /// </remarks>
-    public IReadOnlyList<MapBump?> Bumps { get; }
+    public IReadOnlyList<MapBump?> Bumps { get; private set; }
+
+    /// <summary>Whether <see cref="ReleasePixels"/> has run — the images are gone and a re-upload needs the map read again.</summary>
+    public bool PixelsReleased { get; private set; }
+
+    /// <summary>Lets go of the texture pixels once the device holds them, keeping every other field (B407).</summary>
+    /// <remarks>
+    /// **1.3 GB of an f12 load was these mips**, kept for a re-upload only a failed upload asks for. Everything but the image
+    /// is still read after the upload — the world build asks whether a material is translucent — so only the images go. A
+    /// caller that needs the pixels again reads the map again, as the engine rebuilds a texture from its file.
+    /// </remarks>
+    public void ReleasePixels()
+    {
+        static MapTexture? Bare(MapTexture? texture) =>
+            texture is { } present ? present with { Image = TextureImage.None } : null;
+
+        Textures = [.. Textures.Select(Bare)];
+        BlendTextures = [.. BlendTextures.Select(Bare)];
+        Bumps = [.. Bumps.Select(bump => bump is { } present ? present with { Texture = Bare(present.Texture)!.Value } : (MapBump?)null)];
+        Details = [.. Details.Select(detail => detail is { } present ? present with { Texture = Bare(present.Texture)!.Value } : (MapDetail?)null)];
+        PixelsReleased = true;
+    }
 
     /// <summary>The baked reflection for each material, null for those without one.</summary>
     /// <remarks>
