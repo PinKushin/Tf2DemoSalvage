@@ -35,18 +35,18 @@ public sealed class RiffConformanceTests
 {
     private const string Riff = "src/public/tier2/riff.h";
 
-    [SetUp]
-    public void RequireTheSdk()
+    /// <remarks>
+    /// Only this test reads the SDK. The rest are hand-built files, and ignoring them with it — as a
+    /// fixture-wide [SetUp] once did — left RiffWave uncovered on the mutation box, which has no SDK (B217).
+    /// </remarks>
+    [Test]
+    public void FormatCodes_TheOnesValveDeclares_AreTheOnesThisReaderNames()
     {
         if (!SourceSdk.Available)
         {
             Assert.Ignore(SourceSdk.Missing);
         }
-    }
 
-    [Test]
-    public void FormatCodes_TheOnesValveDeclares_AreTheOnesThisReaderNames()
-    {
         Dictionary<string, int> declared = Declared();
 
         // The control: four codes, so a pattern that matched nothing cannot pass.
