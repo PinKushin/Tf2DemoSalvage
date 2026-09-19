@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Globalization;
 using System.IO;
 
@@ -32,6 +33,26 @@ public static class ValveLzma
     /// these itself; the check is here so the failure arrives as this project's exception type.
     /// </remarks>
     private const byte MaximumPropertiesByte = 224;
+
+    /// <summary>The five property bytes, with the dictionary cut to what this output can ever reference.</summary>
+    /// <remarks>
+    /// **The decoder allocates its whole window up front, sized by the header** (B407). A static prop's `.vhv` is a few kilobytes
+    /// behind a header declaring megabytes, so decoding a map's thousand of them allocated 25 GB. A match can only reach back
+    /// into bytes already produced, so a window as large as the output decodes every valid stream the same — and the decoder's
+    /// own <c>rep0 &gt;= position</c> check still refuses one that reaches further. The floor is the decoder's own minimum.
+    /// </remarks>
+    private static byte[] Windowed(ReadOnlySpan<byte> properties, int outputLength)
+    {
+        byte[] bytes = properties[..PropertiesBytes].ToArray();
+        uint needed = (uint)Math.Max(outputLength, 1 << 12);
+
+        if (BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(1)) > needed)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(1), needed);
+        }
+
+        return bytes;
+    }
 
     /// <summary>Decompresses a raw LZMA stream of known output length.</summary>
     /// <param name="properties">The five encoder property bytes.</param>
@@ -77,7 +98,7 @@ public static class ValveLzma
         try
         {
             Decoder decoder = new();
-            decoder.SetDecoderProperties(properties[..PropertiesBytes].ToArray());
+            decoder.SetDecoderProperties(Windowed(properties, outputLength));
 
             using MemoryStream source = new(input.ToArray(), writable: false);
             using BoundedSink destination = new(output);
