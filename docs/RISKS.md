@@ -28645,7 +28645,7 @@ the same is likely here and must be checked rather than assumed.
 *Evidence class: read-from-source. No measurement; the sequence-change case has never been measured on a
 real demo.*
 
-### B380 OPEN 2026-09-09: the sticky launcher fills the whole screen in first person on a 2008 demo
+### B380 FIXED 2026-09-11: the sticky launcher fills the whole screen in first person on a 2008 demo
 
 **Reported by the owner while watching `tf2-2008-build3420-stv-cp_granary`**, and filed with his own
 uncertainty intact because the uncertainty is the useful part:
