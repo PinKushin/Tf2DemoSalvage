@@ -329,19 +329,40 @@ public static class DemoModels
     {
         ArgumentNullException.ThrowIfNull(game);
 
+        return Worn(timeline, game.Weapons);
+    }
+
+    /// <summary>The worn set, from the install's item resolver alone.</summary>
+    /// <param name="timeline">The decoded demo, or null when none is open.</param>
+    /// <param name="weapons">What resolves an item to its model.</param>
+    /// <returns>The worn set, which is empty when no demo is open.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="weapons"/> is null.</exception>
+    internal static HashSet<string> Worn(DemoTimeline? timeline, WeaponModels weapons)
+    {
+        ArgumentNullException.ThrowIfNull(weapons);
+
         if (timeline is not { } demo)
         {
             return [];
         }
 
-        HashSet<string> worn = WornModels.From(demo.Props, game.Weapons.AllIn(demo));
+        HashSet<string> worn = WornModels.From(demo.Props, weapons.AllIn(demo));
+
+        // **And every model an ITEM names for itself** (B406). `WeaponPropModels.Resolve` gives a worn prop its item's model at
+        // draw time — the item wins over the wire (`econ_entity.cpp:411`) — so that is the model bone-merged onto the wearer, and
+        // one missing here was loaded baked and drawn at the wearer's origin: every item-named cosmetic at the feet, every life.
+        // `Needed` already packs these; this is the same walk telling the loader they are worn.
+        foreach (string item in weapons.AllWornIn(demo))
+        {
+            worn.Add(item);
+        }
 
         // **An attachment is skinned for the same reason a worn item is: it has no transform of its
         // own.** `DrawEconEntityAttachedModels` poses it with the ITEM's bone-to-world array
         // (`econ_entity.cpp:103`), so baking its bones away leaves nothing to hang it from — the
         // rule this set exists to enforce, applied to the one case that reaches the draw by a
         // different route.
-        foreach (string attachment in game.Weapons.AllAttachmentsIn(demo))
+        foreach (string attachment in weapons.AllAttachmentsIn(demo))
         {
             worn.Add(attachment);
         }

@@ -27091,13 +27091,25 @@ too, and the retry's map read resets the set. Live heap during f12 playback 4,29
 What remains is mostly what playback reads: decoded sounds (633 MB), the timeline's poses, players and gestures (~1.6 GB), and
 the source model frames (546 MB) that later packs read.
 
-### B406 OPEN 2026-09-18: cosmetics not rooting to the player
+### B406 FIXED 2026-09-19: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player
 though."* Asked where: *"living people, its offset i guess, its down near the feet"*. Down at the feet is where a bone-merged
 item lands when the merge does not happen — posed from its own rest skeleton at the entity origin, which for a player is the feet.
 *Not established*: which items, and why their merge fails. The engine's path is a bone-merged wearable asking its owner for bones by name
 (`docs/memory/bone-merge-sends-no-position.md`); `EntityModels.EntityFor`'s placement and the merge cache are where to read first.
+
+**Found and fixed, 2026-09-19.** The owner, on scope: *"the issue is across the whole demo, the cosmetic never roots on any
+spawn, so it's always there"*. The merge was never the fault — every pairing logged at `+developer 1` matched its bones. The
+fault was upstream: `DemoModels.Worn`, the set `PropModels.LoadFrames` is told `mustSkin` from, collected only models a TRACK
+named, while `WeaponPropModels.Resolve` gives every worn prop carrying an item index its ITEM's model at draw time (the item
+wins, `econ_entity.cpp:411`). An item-named cosmetic — including every wearable the wire sends with no model at all — was
+therefore loaded baked, never reached the skinned path, and was drawn at its bone-merged placement: the wearer's origin, the
+feet, on every life. `Needed` already packed these through `WeaponModels.AllWornIn`; `Worn` now takes the same walk.
+
+*Evidence*: a free-camera capture of f12's sniper at tick 20000 shows a white cap on the ground by his foot before the fix, and
+on his head after. Test `Worn_ForAPathlessHatCarryingAnItem_IncludesEveryClasssModel`, sabotaged red by dropping the walk.
+*Evidence class: read from our source, then measured by picture.*
 
 ### B405 FIXED 2026-09-12: a `.phy` too short for its header, or declaring another header size, escaped every Scene reader's catch
 
