@@ -9,4 +9,6 @@ The owner, 2026-09-19: *"we can give the mut runs a real map if we need to, we h
 
 **Why:** a mutation run executes the suite once per mutant. Map parsing has a fixed cost, but demo decode grows with the demo's length. A real map is not only the `.bsp` file. It also needs the game's VPKs.
 
+**Never the Source SDK (D184):** the program reads game data (maps, VTFs, VPKs) at runtime, so tests over it are worth mutating. The SDK is only a reference for what to emulate, and the tests that read it are conformance tests, which are not mutation-tested.
+
 **How to apply:** when box-side code shows as NoCoverage because a test needs the install, write a synthetic fixture first ([[mutation-score-is-not-the-goal]], D38). Provisioning maps with their VPKs on the box is allowed but is real work. Never put demos there.

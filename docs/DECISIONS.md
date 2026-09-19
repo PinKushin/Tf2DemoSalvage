@@ -9094,3 +9094,9 @@ of all ~65 fixtures is that task.
 
 **The history, in his words:** conformance tests were meant to be a separate suite from the start; they were not built that way.
 Splitting them out properly is the structural fix, not yet scheduled.
+
+**The line, drawn by the owner the same day:** *"the map and vtf stuff isnt the sdk, that can go on because we USE it in the
+program itself when we actually read a demo, but we dont grab anything from the sdk directly, we only reference the sdk to tell
+us what we need to do to emulate the rendering, physics, and other things we need to display and play the demos faithfully."*
+So game DATA the program reads at runtime (maps, VTFs, VPK contents) may go on the box and its tests are mutation-tested; the
+SDK is reference only and never goes there. Demos stay off for cost (`docs/memory/mutation-box-gets-maps-never-demos.md`).
