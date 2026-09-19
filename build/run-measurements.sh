@@ -37,15 +37,6 @@ export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"
 # fd 9 — which held the lock long after a finished run in PBJ's experience.
 export MSBUILDDISABLENODEREUSE=1
 
-# **The SDK, or ~65 conformance fixtures ignore themselves** and every mutant only they would kill
-# scores as uncovered (B217). A shallow clone is ~590 MB; it is fetched once and never updated,
-# since the SDK these tests cite does not change under them. Verified 2026-09-19: core, content and
-# audio all pass on this box with it present.
-export SOURCE_SDK="${SOURCE_SDK:-$HOME/src/source-sdk-2013}"
-if [ ! -d "$SOURCE_SDK/src" ]; then
-  git clone -q --depth 1 https://github.com/ValveSoftware/source-sdk-2013.git "$SOURCE_SDK"
-fi
-
 MODE="${1:-corpus}"
 
 # `fuzz` takes an optional budget between the mode and the flag, so the flag is not always $2.

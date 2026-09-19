@@ -9077,3 +9077,20 @@ that carry no tag are unaudited, not owner-voiced by default.
 missed that the corpse fade bounds a seek to about fifteen seconds of simulation — the reason full Valve parity needs no
 precompute. Whether D181 still earns its cost is measured once faded corpses leave the world (the engine's `EndFadeOut` →
 `ClearRagdoll`), and brought back to the owner with numbers.
+
+## D184 — conformance tests are not mutation-tested; the mutation box never gets the SDK (2026-09-19)
+
+**Owner-voiced.** I had found that about 65 fixtures ignore themselves without the Source SDK, gave the box a clone, and merged
+it. The owner: *"we shouldnt put the sdk itself on the boxes, those are likely conformance tests, which are not really needed to
+be mut tested"* — then, on whether that holds: *"make sure their conformance tests, but they should be because we dont own the
+sdk code and dont change it, this is actually why i originally wanted the conformance tests in a seperate suite, but the Agent
+that made them didnt do it right at all and it just snowballed from there."*
+
+**What it means:** a test that reads the SDK is checking our constants against code we do not own and never change; mutating
+our side under it adds nothing a normal run does not already catch. The SDK clone came out of `run-measurements.sh` and off the
+box the same day. **What stays owed:** any test inside an SDK-gated fixture that does NOT read the SDK is mis-gated — hidden from
+the box like `RiffConformanceTests`' ten hand-built-file tests were (B217) — and must move out from behind the gate. The audit
+of all ~65 fixtures is that task.
+
+**The history, in his words:** conformance tests were meant to be a separate suite from the start; they were not built that way.
+Splitting them out properly is the structural fix, not yet scheduled.
