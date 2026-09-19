@@ -204,6 +204,26 @@ public sealed class WeaponModelsTests
     }
 
     /// <remarks>
+    /// **An item's own models are WORN, so they must be loaded skinned** (B406). The owner: *"the cosmetic never roots on any
+    /// spawn, so it's always there … down near the feet"*. `WeaponPropModels.Resolve` gives a worn prop its item's model at draw
+    /// time, and `DemoModels.Worn` — the set `LoadFrames` is told `mustSkin` from — collected only models a TRACK named, so an
+    /// item-named cosmetic was loaded baked, never bone-merged, and drawn at its wearer's origin: the feet, every life. Both
+    /// per-class variants asserted, for the reason the test above gives.
+    /// </remarks>
+    [Test]
+    public void Worn_ForAPathlessHatCarryingAnItem_IncludesEveryClasssModel()
+    {
+        ScenePropTrack hat = new(entityIndex: 7, string.Empty) { ItemDefinitionIndex = HatItem, AttachedTo = 3 };
+
+        hat.Add(0, new ScenePose());
+
+        HashSet<string> worn = DemoModels.Worn(DemoTimeline.ForEverything(props: [hat]), Weapons());
+
+        worn.ShouldContain(ScoutHatModel);
+        worn.ShouldContain(SoldierHatModel);
+    }
+
+    /// <remarks>
     /// **The class route, which the walk reaches only by passing the track's own class name.** An
     /// item index the schema has never heard of is the ordinary case for a demo recorded on a later
     /// build than the installed game — measured on z1800, 22 of 56 held weapons send no item at all —
