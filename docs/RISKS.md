@@ -27055,6 +27055,24 @@ doubling) and `PropVertex[]` 443 MB — and a 67 MB `SceneSoundscape` track. Nex
 upload (a setting toggle that rebuilds is the likely reader), and a census that attributes the other 5.4 GB (PerfView's heap
 snapshot, or TraceEvent's `GCHeapDump` reader over this dump).
 
+**Attributed, every node, 2026-09-18** — a scratch reader over `dotnet-gcdump`'s own `Graphs.GCHeapDump`, summing every node
+(6,403 MB) and walking referrers four deep. Where the heap is after an f12 load:
+
+| held by | MB | reader after load |
+|---|---|---|
+| `MapAssets` textures, bumps, details (`List<ReadOnlyMemory<byte>>` mips) | 717 + 362 + 243 | `WorldPresenter` re-uploads when the device lost them |
+| `SoundCache`'s decoded `SoundSample` floats | 633 | playback |
+| `EntityModelSet._vertices`, 3,994,920 at 159 B | 655 | `Device3D` slices a model once when it is first uploaded |
+| `Device3D._packedModels` per-model copies | 412 → **0** | none — dropped after upload (this commit) |
+| `PropModels.ModelFrames` via `MapAssets.Geometry` | 523 | posing |
+| `MapAssets.Props`, static props baked in world space | 416 | the world build |
+| the timeline — poses, players, gestures, histories | ~1,600 | playback |
+
+Measured again during playback after the `Device3D` change: 5,995 MB live, the 412 MB gone. **The engine's arrangement for the
+largest line is different**: Source does not keep a CPU copy of every texture for device loss — the material system reloads from
+the VTF on disk. *Interpolated, not yet read* — the material system's device-lost path must be read before this is built on.
+Matching it would free ~1.3 GB.
+
 ### B406 OPEN 2026-09-18: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player

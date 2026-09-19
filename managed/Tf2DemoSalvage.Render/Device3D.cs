@@ -278,6 +278,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // Safe for the same reason the renderer's own skip is: a model path maps to fixed geometry
         // for the life of a map, and `ClearWorld` empties this with the buffers it feeds.
         Dictionary<string, PackedModel> packed = new(StringComparer.OrdinalIgnoreCase);
+        List<string> fresh = [];
 
         foreach (string path in models.Paths)
         {
@@ -339,9 +340,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
             _packedModels[path] = built;
             packed[path] = built;
+            fresh.Add(path);
         }
 
         _world.UploadModels(_device, packed);
+
+        // **The vertices are dropped from the cache once the renderer holds them** (B407): it never reads a model's vertices
+        // again after creating its buffer — its own skip is keyed on the buffer — and keeping the copy held 412 MB on f12, a
+        // second copy of `EntityModelSet`'s list. After the call rather than before, so a failed upload leaves them to retry.
+        foreach (string path in fresh)
+        {
+            _packedModels[path] = _packedModels[path] with { Vertices = [] };
+        }
     }
 
     /// <summary>Writes the next presented frame to a PNG.</summary>
