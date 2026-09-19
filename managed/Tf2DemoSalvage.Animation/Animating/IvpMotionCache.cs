@@ -25,7 +25,9 @@ public sealed class IvpMotionCache
     private readonly IvpRigidBody _body;
     private readonly IvpMatrix _current;
     private readonly bool _resting;
-    private readonly IvpMatrix?[] _slots = new IvpMatrix?[SlotCount];
+    /// <summary>The slots, made on the first fill — the engine's sit in the searcher's own storage; a cache here is made per search, and a
+    /// resting body's is never read.</summary>
+    private IvpMatrix?[]? _slots;
 
     /// <summary>Builds the cache for a body, as <c>FUN_1800a0800</c> does.</summary>
     /// <param name="body">The body whose transforms fill the slots.</param>
@@ -67,6 +69,7 @@ public sealed class IvpMotionCache
             return _current;
         }
 
+        _slots ??= new IvpMatrix?[SlotCount];
         IvpMatrix? filled = _slots[tick];
 
         if (filled.HasValue)

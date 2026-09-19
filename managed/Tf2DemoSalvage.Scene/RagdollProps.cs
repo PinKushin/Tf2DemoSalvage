@@ -100,166 +100,259 @@ public static class RagdollProps
 
         for (int at = 0; at < corpses.Count; at++)
         {
-            SceneRagdoll corpse = corpses[at];
-
-            if (tick < corpse.FirstTick || tick > corpse.LastTick)
-            {
-                continue;
-            }
-
-            // **One index per CORPSE, not per slot** (B318). Keying on the corpse's own entity index
-            // would give the second occupant of a reused slot the first one's per-entity caches, and
-            // two class models do not have the same bone count — which is the crash this fixes,
-            // narrowed rather than removed. The position in the list is unique for the life of the
-            // timeline, which is what a per-entity cache needs.
-            int drawnAs = FirstCorpseEntityIndex + at;
-
-            if (drawnAs >= ViewmodelScene.ArmsEntityIndex)
-            {
-                // Past the range reserved for corpses. A match reaching this has about 2,000 dead,
-                // some hours long; drawing one under a viewmodel's index would be worse than not
-                // drawing it, and silently is the only option left at this point.
-                continue;
-            }
-
-            // **The entity's lifetime is the OUTER bound and the fade is the real one.** The server
-            // keeps one ragdoll per player until that player next dies, so the window above admits
-            // far more bodies than TF2 ever draws — 57 at once against a twelve-player roster,
-            // measured. `RagdollFade` is `ClientThink`'s rule, which is what actually removes them.
-            //
-            // **Visibility is asked under the DRAWN index**, since that is what the renderer put in
-            // the set — asking under the corpse's own slot would report every corpse unseen and
-            // expire each one on the long timer, a fade that looks plausible and is never right.
-            if (fade is not null &&
-                fade.Gone(corpse, tick * fade.IntervalPerTick,
-                    visible?.Contains(drawnAs) ?? false))
-            {
-                continue;
-            }
-
-            RagdollAppearance look = RagdollAppearance.Of(corpse, modelForClass);
-
-            // The engine's own guard: no model means the whole block is skipped, skin included.
-            if (look.Model is not { } model || look.Skin is not { } skin)
-            {
-                continue;
-            }
-
-            // **A gibbed death draws PIECES and no body** (B371). `CreateTFGibs` spawns the gibs
-            // and then removes the ragdoll outright — `EndFadeOut()`, or
-            // `SetRenderMode( kRenderNone )` (`c_tf_player.cpp:1124-1133`) — so a corpse drawn here
-            // as well would be a whole body standing inside its own remains. `m_bGib` was decoded
-            // and read by NOTHING until this line, which is why it was.
-            if (corpse.Gib)
-            {
-                drawn += Gibs(corpse, model, tick, intervalPerTick, gibsOf, into);
-
-                continue;
-            }
-
-            into.Add(new SceneProp(
-                drawnAs,
-                model,
-                ScenePropTrack.Classify(model),
-                // **Sequence 0 is a KNOWN gap, not the engine's answer** (B316). An earlier version
-                // of this comment cited `LookupSequence( "RagdollSpawn" )` as the rule and that is
-                // the wrong branch: `CreateTFRagdoll` reaches for RagdollSpawn only under
-                // `else` — the LOCAL player — and takes
-                //
-                //     SetSequence( pPlayer->GetSequence() );
-                //
-                // for everyone else (`c_tf_player.cpp:757-766`). A SourceTV recording has no local
-                // player at all, so in this project's own reference demo EVERY corpse takes the
-                // copy branch. Zero is neither rule; it is what a `ScenePose` holds when nothing
-                // has set it, and it is why a corpse stands up straight.
-                //
-                // Copying needs the player's sequence and cycle, which for a player are NOT on the
-                // wire — the client rebuilds them
-                // (`docs/memory/the-player-send-table-excludes-the-animation.md`) — so the value
-                // lives in this project's own client-side animation and not in the timeline. That
-                // is the shape of the fix, and it is why it is not one line here.
-                new ScenePose
-                {
-                    X = corpse.X,
-                    Y = corpse.Y,
-                    Z = corpse.Z,
-
-                    // **Yaw only, because that is all `GetRenderAngles` gives a standing player.**
-                    // A player's pitch lives in the head's pose parameters rather than in the body
-                    // transform, so carrying it here would tip the whole corpse over backwards for
-                    // anyone who died looking up.
-                    Yaw = corpse.Yaw,
-                    Skin = skin,
-
-                    // **The player's bodygroups, copied at death** (B395,
-                    // `c_tf_player.cpp:790-793`). Zero until now, which showed every corpse with
-                    // the stock geometry its cosmetics are modelled to replace — a helmet under a
-                    // hat.
-                    //
-                    // **Computed from the corpse's OWN worn list, before the wearable skips**, so
-                    // the order matches the engine's: it copies the player's body at `:790` and
-                    // only refuses HEAD and MISC items at `:10206`. Taking the body from the
-                    // emitted props instead would apply the skip first and lose exactly the case
-                    // that matters — a decapitated corpse keeps the hidden-head bodygroup its hat
-                    // imposed, which is what makes a headless corpse a real TF2 look.
-                    Body = BodyAtDeath(corpse, model, appearance, bodygroups),
-
-                    // **What the player was DOING when they died, so the corpse can be posed the
-                    // way the engine poses it** (B316). `CreateTFRagdoll` copies the player's own
-                    // animation across for anyone but the local player —
-                    //
-                    //     m_flAnimTime = pPlayer->m_flAnimTime;
-                    //     SetSequence( pPlayer->GetSequence() );
-                    //     m_flPlaybackRate = pPlayer->GetPlaybackRate();
-                    //
-                    // (`c_tf_player.cpp:757-766`), and a SourceTV recording has no local player at
-                    // all, so every corpse in one takes that branch.
-                    //
-                    // **The wire already carries what that sequence was chosen FROM, on the corpse
-                    // itself.** `m_vecRagdollVelocity` is the player's velocity at the moment of
-                    // death and `m_bOnGround` is their ground state, which are the two inputs
-                    // `PlayerAnimation` needs — so this needs no capture from the player's own
-                    // entity, which is just as well: a player's speed is never on the wire and is
-                    // derived from position deltas at draw time.
-                    //
-                    // **Horizontal only**, because the activity a player is in is chosen by ground
-                    // speed; the vertical component is what the jump and fall activities read from
-                    // the ground flag instead.
-                    Speed = corpse.Velocity is { } moving
-                        ? MathF.Sqrt((moving.X * moving.X) + (moving.Y * moving.Y))
-                        : null,
-                    Flags = corpse.OnGround ? PlayerActivityState.OnGround : 0,
-                },
-                ClassName: RagdollClassName,
-
-                // **The death animation, decided here and resolved where models are open** (B323).
-                // Null for the great majority: only a headshot, a decapitation or a backstab is
-                // eligible at all, and three quarters of those discard it on the draw.
-                DeathSequence: RagdollDeath.SequenceFor(corpse),
-
-                // **The gold or ice VMT, replacing every material the model has** (B325).
-                //
-                //     m_MaterialOverride.Init( materialOverrideFilename, TEXTURE_GROUP_CLIENT_EFFECTS );
-                //
-                // `c_tf_player.cpp:980`. Null for every corpse in this corpus — 0 of 566 measured —
-                // which is why the decode was authored a specimen rather than tested on a demo.
-                MaterialOverride: look.Material,
-
-                // **When it died, which is when its physics starts** (B58). See `SceneProp`.
-                FirstTick: corpse.FirstTick,
-
-                // **And how it died, which is what makes it fly** (B58). Decoded since the corpse
-                // reader was written and read by nothing until the simulation existed to want it.
-                Force: corpse.Force,
-                ForceBone: corpse.ForceBone,
-                RagdollVelocity: corpse.Velocity));
-
-            drawn++;
-
-            drawn += Worn(corpse, drawnAs, at, into, items, look.Material);
+            drawn += Emit(corpses[at], at, tick, modelForClass, into, fade, visible, items, gibsOf, intervalPerTick, appearance, bodygroups);
         }
 
         return drawn;
+    }
+
+    /// <summary>Every corpse and gib the demo describes, as the simulation sees each at its death — what D181's background pass runs.</summary>
+    /// <param name="corpses">Every corpse the demo described.</param>
+    /// <param name="modelForClass">The class table.</param>
+    /// <param name="items">The econ schema, or null.</param>
+    /// <param name="gibsOf">A class model's break list, or null.</param>
+    /// <param name="intervalPerTick">Seconds per tick; a gib's window ends at its own <c>fadetime</c>.</param>
+    /// <param name="appearance">What each worn item hides, or null.</param>
+    /// <param name="bodygroups">The class model's part table, or null.</param>
+    /// <returns>One entry per simulated body — a corpse, or each of a gibbed corpse's pieces — with the last tick it is emitted.</returns>
+    /// <remarks>
+    /// **The props are <see cref="Fill"/>'s own, emitted at the death tick with no fade**: the fade shortens what is DRAWN, not what
+    /// is simulated (D181). Wearables are not bodies and are left out. A gib's window closes where <see cref="Fill"/> stops emitting
+    /// it — past its <c>fadetime</c> — because a piece still in the world would collide with corpses straight-through play no longer
+    /// has beside it.
+    /// </remarks>
+    public static IReadOnlyList<RecordedCorpse> Recorded(
+        IReadOnlyList<SceneRagdoll> corpses,
+        Func<int, string?> modelForClass,
+        ItemSchema? items = null,
+        Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf = null,
+        float intervalPerTick = 0f,
+        IPlayerAppearance? appearance = null,
+        IModelBodygroups? bodygroups = null)
+    {
+        ArgumentNullException.ThrowIfNull(corpses);
+        ArgumentNullException.ThrowIfNull(modelForClass);
+
+        List<RecordedCorpse> recorded = [];
+        List<SceneProp> emitted = [];
+
+        for (int at = 0; at < corpses.Count; at++)
+        {
+            SceneRagdoll corpse = corpses[at];
+
+            emitted.Clear();
+            Emit(corpse, at, corpse.FirstTick, modelForClass, emitted, null, null, items, gibsOf, intervalPerTick, appearance, bodygroups);
+
+            foreach (SceneProp prop in emitted)
+            {
+                if (prop.ClassName == RagdollClassName)
+                {
+                    recorded.Add(new RecordedCorpse(prop, corpse.LastTick));
+                }
+                else if (prop.ClassName == GibClassName)
+                {
+                    recorded.Add(new RecordedCorpse(prop, GibLastTick(corpse, prop, modelForClass, gibsOf, intervalPerTick)));
+                }
+            }
+        }
+
+        return recorded;
+    }
+
+    /// <summary>The last tick <see cref="Gibs"/> emits a piece: its corpse's end, or sooner where its <c>fadetime</c> runs out.</summary>
+    private static int GibLastTick(
+        SceneRagdoll corpse,
+        SceneProp gib,
+        Func<int, string?> modelForClass,
+        Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf,
+        float intervalPerTick)
+    {
+        // `Gibs` emits a piece with a fade of zero seconds for ever — no clock, no fade.
+        if (intervalPerTick <= 0f || gibsOf is null || RagdollAppearance.Of(corpse, modelForClass).Model is not { } model)
+        {
+            return corpse.LastTick;
+        }
+
+        float fadeTime = gibsOf(model)[gib.EntityIndex - FirstGibEntityIndex - (corpse.EntityIndex * MaximumGibsPerCorpse)].FadeTime;
+
+        // `Gibs`' own test, `(tick - FirstTick) * intervalPerTick > FadeTime`, walked to its last passing tick — so a boundary the
+        // float arithmetic rounds either way lands where the emission does.
+        int last = corpse.FirstTick;
+
+        while (last < corpse.LastTick && (double)(last + 1 - corpse.FirstTick) * intervalPerTick <= fadeTime)
+        {
+            last++;
+        }
+
+        return last;
+    }
+
+    /// <summary>One corpse's props at a tick — its body and wearables, or its gibs — appended to <paramref name="into"/>.</summary>
+    private static int Emit(
+        SceneRagdoll corpse,
+        int at,
+        double tick,
+        Func<int, string?> modelForClass,
+        ICollection<SceneProp> into,
+        RagdollFade? fade,
+        IReadOnlySet<int>? visible,
+        ItemSchema? items,
+        Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf,
+        float intervalPerTick,
+        IPlayerAppearance? appearance,
+        IModelBodygroups? bodygroups)
+    {
+        if (tick < corpse.FirstTick || tick > corpse.LastTick)
+        {
+            return 0;
+        }
+
+        // **One index per CORPSE, not per slot** (B318). Keying on the corpse's own entity index
+        // would give the second occupant of a reused slot the first one's per-entity caches, and
+        // two class models do not have the same bone count — which is the crash this fixes,
+        // narrowed rather than removed. The position in the list is unique for the life of the
+        // timeline, which is what a per-entity cache needs.
+        int drawnAs = FirstCorpseEntityIndex + at;
+
+        if (drawnAs >= ViewmodelScene.ArmsEntityIndex)
+        {
+            // Past the range reserved for corpses. A match reaching this has about 2,000 dead,
+            // some hours long; drawing one under a viewmodel's index would be worse than not
+            // drawing it, and silently is the only option left at this point.
+            return 0;
+        }
+
+        // **The entity's lifetime is the OUTER bound and the fade is the real one.** The server
+        // keeps one ragdoll per player until that player next dies, so the window above admits
+        // far more bodies than TF2 ever draws — 57 at once against a twelve-player roster,
+        // measured. `RagdollFade` is `ClientThink`'s rule, which is what actually removes them.
+        //
+        // **Visibility is asked under the DRAWN index**, since that is what the renderer put in
+        // the set — asking under the corpse's own slot would report every corpse unseen and
+        // expire each one on the long timer, a fade that looks plausible and is never right.
+        if (fade is not null &&
+            fade.Gone(corpse, tick * fade.IntervalPerTick,
+                visible?.Contains(drawnAs) ?? false))
+        {
+            return 0;
+        }
+
+        RagdollAppearance look = RagdollAppearance.Of(corpse, modelForClass);
+
+        // The engine's own guard: no model means the whole block is skipped, skin included.
+        if (look.Model is not { } model || look.Skin is not { } skin)
+        {
+            return 0;
+        }
+
+        // **A gibbed death draws PIECES and no body** (B371). `CreateTFGibs` spawns the gibs
+        // and then removes the ragdoll outright — `EndFadeOut()`, or
+        // `SetRenderMode( kRenderNone )` (`c_tf_player.cpp:1124-1133`) — so a corpse drawn here
+        // as well would be a whole body standing inside its own remains. `m_bGib` was decoded
+        // and read by NOTHING until this line, which is why it was.
+        if (corpse.Gib)
+        {
+            return Gibs(corpse, model, tick, intervalPerTick, gibsOf, into);
+        }
+
+        into.Add(new SceneProp(
+            drawnAs,
+            model,
+            ScenePropTrack.Classify(model),
+            // **Sequence 0 is a KNOWN gap, not the engine's answer** (B316). An earlier version
+            // of this comment cited `LookupSequence( "RagdollSpawn" )` as the rule and that is
+            // the wrong branch: `CreateTFRagdoll` reaches for RagdollSpawn only under
+            // `else` — the LOCAL player — and takes
+            //
+            //     SetSequence( pPlayer->GetSequence() );
+            //
+            // for everyone else (`c_tf_player.cpp:757-766`). A SourceTV recording has no local
+            // player at all, so in this project's own reference demo EVERY corpse takes the
+            // copy branch. Zero is neither rule; it is what a `ScenePose` holds when nothing
+            // has set it, and it is why a corpse stands up straight.
+            //
+            // Copying needs the player's sequence and cycle, which for a player are NOT on the
+            // wire — the client rebuilds them
+            // (`docs/memory/the-player-send-table-excludes-the-animation.md`) — so the value
+            // lives in this project's own client-side animation and not in the timeline. That
+            // is the shape of the fix, and it is why it is not one line here.
+            new ScenePose
+            {
+                X = corpse.X,
+                Y = corpse.Y,
+                Z = corpse.Z,
+
+                // **Yaw only, because that is all `GetRenderAngles` gives a standing player.**
+                // A player's pitch lives in the head's pose parameters rather than in the body
+                // transform, so carrying it here would tip the whole corpse over backwards for
+                // anyone who died looking up.
+                Yaw = corpse.Yaw,
+                Skin = skin,
+
+                // **The player's bodygroups, copied at death** (B395,
+                // `c_tf_player.cpp:790-793`). Zero until now, which showed every corpse with
+                // the stock geometry its cosmetics are modelled to replace — a helmet under a
+                // hat.
+                //
+                // **Computed from the corpse's OWN worn list, before the wearable skips**, so
+                // the order matches the engine's: it copies the player's body at `:790` and
+                // only refuses HEAD and MISC items at `:10206`. Taking the body from the
+                // emitted props instead would apply the skip first and lose exactly the case
+                // that matters — a decapitated corpse keeps the hidden-head bodygroup its hat
+                // imposed, which is what makes a headless corpse a real TF2 look.
+                Body = BodyAtDeath(corpse, model, appearance, bodygroups),
+
+                // **What the player was DOING when they died, so the corpse can be posed the
+                // way the engine poses it** (B316). `CreateTFRagdoll` copies the player's own
+                // animation across for anyone but the local player —
+                //
+                //     m_flAnimTime = pPlayer->m_flAnimTime;
+                //     SetSequence( pPlayer->GetSequence() );
+                //     m_flPlaybackRate = pPlayer->GetPlaybackRate();
+                //
+                // (`c_tf_player.cpp:757-766`), and a SourceTV recording has no local player at
+                // all, so every corpse in one takes that branch.
+                //
+                // **The wire already carries what that sequence was chosen FROM, on the corpse
+                // itself.** `m_vecRagdollVelocity` is the player's velocity at the moment of
+                // death and `m_bOnGround` is their ground state, which are the two inputs
+                // `PlayerAnimation` needs — so this needs no capture from the player's own
+                // entity, which is just as well: a player's speed is never on the wire and is
+                // derived from position deltas at draw time.
+                //
+                // **Horizontal only**, because the activity a player is in is chosen by ground
+                // speed; the vertical component is what the jump and fall activities read from
+                // the ground flag instead.
+                Speed = corpse.Velocity is { } moving
+                    ? MathF.Sqrt((moving.X * moving.X) + (moving.Y * moving.Y))
+                    : null,
+                Flags = corpse.OnGround ? PlayerActivityState.OnGround : 0,
+            },
+            ClassName: RagdollClassName,
+
+            // **The death animation, decided here and resolved where models are open** (B323).
+            // Null for the great majority: only a headshot, a decapitation or a backstab is
+            // eligible at all, and three quarters of those discard it on the draw.
+            DeathSequence: RagdollDeath.SequenceFor(corpse),
+
+            // **The gold or ice VMT, replacing every material the model has** (B325).
+            //
+            //     m_MaterialOverride.Init( materialOverrideFilename, TEXTURE_GROUP_CLIENT_EFFECTS );
+            //
+            // `c_tf_player.cpp:980`. Null for every corpse in this corpus — 0 of 566 measured —
+            // which is why the decode was authored a specimen rather than tested on a demo.
+            MaterialOverride: look.Material,
+
+            // **When it died, which is when its physics starts** (B58). See `SceneProp`.
+            FirstTick: corpse.FirstTick,
+
+            // **And how it died, which is what makes it fly** (B58). Decoded since the corpse
+            // reader was written and read by nothing until the simulation existed to want it.
+            Force: corpse.Force,
+            ForceBone: corpse.ForceBone,
+            RagdollVelocity: corpse.Velocity));
+
+        return 1 + Worn(corpse, drawnAs, at, into, items, look.Material);
     }
 
     /// <summary>Hangs a corpse's cosmetics on it.</summary>
@@ -656,9 +749,9 @@ public static class RagdollProps
                 ClassName: GibClassName,
                 FirstTick: corpse.FirstTick,
 
-                // The piece's own throw and the corpse's shared spin, which the simulation stages
-                // onto the body exactly as a corpse's killing blow is staged.
-                Force: PlayerGibs.Velocity(corpse, piece),
+                // The piece's own throw, jittered as `BreakModelCreateSingle` jitters it, and the corpse's shared spin in
+                // degrees a second — the two arguments of the `AddVelocity` the simulation stages them with (B409).
+                Force: Jittered(PlayerGibs.Velocity(corpse, piece), PlayerGibs.Jitter(corpse, piece)),
                 RagdollVelocity: PlayerGibs.Spin(corpse)));
 
             drawn++;
@@ -666,4 +759,8 @@ public static class RagdollProps
 
         return drawn;
     }
+
+    /// <summary><c>velocity + rndf*velocity</c>, as a factor.</summary>
+    private static (float X, float Y, float Z) Jittered((float X, float Y, float Z) velocity, float factor) =>
+        (velocity.X * factor, velocity.Y * factor, velocity.Z * factor);
 }

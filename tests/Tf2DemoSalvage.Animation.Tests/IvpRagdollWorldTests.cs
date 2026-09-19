@@ -280,6 +280,64 @@ public sealed class IvpRagdollWorldTests
     }
 
     /// <remarks>
+    /// **Two gibs never collide** (B409): TF sets every gib to `COLLISION_GROUP_DEBRIS` (`BreakModelCreateSingle`,
+    /// `physpropclientside.cpp`, `#ifdef TF_CLIENT_DLL`), and `CGameRules::ShouldCollide` returns false for debris against
+    /// anything but `COLLISION_GROUP_NONE` and `PUSHAWAY` (`gamerules.cpp:692-717`).
+    /// </remarks>
+    [Test]
+    public void ShouldCollide_TwoGibs_DoNotCollide()
+    {
+        IvpRagdollWorld world = World();
+        (IvpCollisionObject first, IvpCollisionObject second) = TwoSolids(world);
+
+        world.Own(first.Core.ShouldNotBeNull(), Gib(world), 0);
+        world.Own(second.Core.ShouldNotBeNull(), Gib(world), 0);
+
+        world.Simulation.ShouldCollide!(first, second).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A gib and a corpse collide** (B409): the corpse's group is never set on the client — `InitAsClientRagdoll` does not call
+    /// `SetCollisionGroup` — so it is `COLLISION_GROUP_NONE`, which debris collides with; and `cl_ragdoll_collide` asks only when
+    /// BOTH objects are part of a ragdoll (`physics.cpp:241`).
+    /// </remarks>
+    [Test]
+    public void ShouldCollide_AGibAndACorpse_Collide()
+    {
+        IvpRagdollWorld world = World();
+        (IvpCollisionObject first, IvpCollisionObject second) = TwoSolids(world);
+
+        world.Own(first.Core.ShouldNotBeNull(), Gib(world), 0);
+        world.Own(second.Core.ShouldNotBeNull(), Ragdoll(world), 0);
+
+        world.Simulation.ShouldCollide!(first, second).ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **`CPhysicsObject::AddVelocity` (`18001a6c0`, vtable slot 52), read from the binary**: the linear part into `core+0x120` as
+    /// `(x, −z, y) × 0.0254`, the angular part into `core+0x110` as `(x, −z, y) × 0.017453292` — DEGREES a second, in the same
+    /// axes. A gib's spin is `AngularImpulse( RandomFloat( 0, 120 ), RandomFloat( 0, 120 ), 0 )` in those units.
+    /// </remarks>
+    [Test]
+    public void AddVelocity_AThrowAndASpinInDegrees_AreStagedInIvpMetresAndRadians()
+    {
+        IvpRagdollWorld world = World();
+        IvpRagdoll gib = Gib(world);
+        IvpRigidBody core = gib.Bodies[0];
+        (float X, float Y, float Z) velocityBefore = core.PendingVelocity;
+        (float X, float Y, float Z) spinBefore = core.PendingAngularVelocity;
+
+        gib.AddVelocity(new Vector3(100f, 0f, 50f), new Vector3(90f, 30f, 60f));
+
+        core.PendingVelocity.X.ShouldBe(velocityBefore.X + (100f * 0.0254f), 1e-6f);
+        core.PendingVelocity.Y.ShouldBe(velocityBefore.Y - (50f * 0.0254f), 1e-6f);
+        core.PendingVelocity.Z.ShouldBe(velocityBefore.Z, 1e-6f);
+        core.PendingAngularVelocity.X.ShouldBe(spinBefore.X + (90f * 0.017453292f), 1e-6f);
+        core.PendingAngularVelocity.Y.ShouldBe(spinBefore.Y - (60f * 0.017453292f), 1e-6f);
+        core.PendingAngularVelocity.Z.ShouldBe(spinBefore.Z + (30f * 0.017453292f), 1e-6f);
+    }
+
+    /// <remarks>
     /// **A solid made of playerclip alone is not in a corpse's `MASK_SOLID`** (`physics.cpp:249`), where an ordinary brush is.
     /// </remarks>
     [Test]
@@ -440,4 +498,11 @@ public sealed class IvpRagdollWorldTests
             RagdollBody.Build(physics, RagdollSkeletons.Straight())!,
             [(Vector3.Zero, Quaternion.Identity), (new Vector3(3f, 4f, 0f), Quaternion.Identity)]);
     }
+
+    /// <summary>A gib — one prop body from a single-solid <c>.phy</c> — made as <c>BreakModelCreateSingle</c> makes one.</summary>
+    private static IvpRagdoll Gib(IvpRagdollWorld world) =>
+        IvpRagdoll.CreateProp(
+            world,
+            RagdollBody.BuildProp(RagdollBodyConformanceTests.Prop("gib_reference"))!,
+            [(Vector3.Zero, Quaternion.Identity)]);
 }

@@ -26989,6 +26989,53 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B409 FIXED 2026-09-18: gibs are never simulated — they hold in the air where the player died
+
+**Fixed**: every TF2 gib model is BAKED (no skeleton; measured on `soldiergib00N.mdl`: prop body, `Skinned` null), so the corpse
+wiring — which needed an animating entity — skipped every one. A gib now goes into the one environment as a physics prop
+(`IvpRagdoll.CreateProp`, `rotInertiaLimit` 0.05, `COLLISION_GROUP_DEBRIS`: never another gib, always the world and corpses),
+created at its spawn transform and thrown with vphysics' `AddVelocity` as read from the binary (`18001a6c0`: degrees to radians,
+`(x, −z, y)`), jittered ±2.5% as `BreakModelCreateSingle` does; its baked mesh is drawn at the object's origin and `MatrixAngles`,
+as `C_PhysPropClientside`'s entity follows its object. Captured on f12 at the soldier gibbed at tick 4619: pieces scattered in the
+air at 4649, on the ground at 4819. *Still not carried*: the break sections' `offset`/placement and `burstScale` (TF2's values
+not yet read out of the shipped `.phy` text), the 1-second alpha fade after `fadeTime`, and `cl_phys_props_max` (300).
+
+### B409 (original report)
+
+**The owner, watching `cp_process_f12`:** *"the gibs dont actually ever have physics take over it looks like, so theres just a
+vauguely player shaped gib models being spawned, and just holding in the air wherever the player died"* — with an F5 capture
+(`shot-20260918-180007-650.png`): a soldier's helmet, head, torso, hand and legs posed as the body stood, in mid-air. The same
+thing was seen at tick 79734 earlier and set aside as "pre-existing, separate" — it is this. **The engine** spawns each piece as a
+client-side physics prop — `C_TFPlayer::CreatePlayerGibs` into `CreateGibsFromList` — thrown with the death's velocity;
+`RagdollProps.Gibs` draws them posed and nothing puts them into the IVP world. *Not established*: the SDK's exact velocity and
+angular impulse for each piece, and whether a gib collides with corpses (one environment says it should).
+
+### B408 FIXED 2026-09-18: the pair events sat in a queue of absolute float times, and 387 seconds in one fired forever
+
+**The owner, playing `cp_process_f12` from a seek to tick 26578:** *"even tried to play through and its hung now"*. The viewer held
+at 15 GB. A CPU trace put the render thread in `IvpSimulation.FirePair`; a temporary trace showed one pair re-queued at `387.6695f`
+with the clock at the same float, forever. **Cause:** the port kept pair events in a second queue, unrebased, `QueueBase = 0` —
+a divergence the code itself documented ("It goes away when the two queues become one"). The engine keeps ONE min-list and
+`FUN_18008a020` rebases it every PSI. **Fixed** in `e6957849` by running the already-ported `IvpTimeManager` over the one queue.
+*Evidence class: measured (trace of the hung process), read from the binary (the rebase), regression test with a control.*
+**Not established:** why no test or gate saw it — nothing in either plays a real demo; that check is the next gate addition.
+
+### B407 OPEN 2026-09-18: the viewer holds about 16 GB after a map loads
+
+Measured on `cp_process_f12` (26-minute demo): 2.5 GB after the 80 s timeline decode, then 9.7 and 16.5 GB within 18 seconds of
+the map load starting (`reading textures took 7.54s`, `loading entity models took 3.03s`), and still near 16 GB while playback
+runs smoothly. Seen before and after B408's fix, so not the hang. *Not established*: what holds it — managed heap, textures, or
+GC headroom never returned. A heap census (`dotnet-gcdump`, not installed) or an allocation trace across the load is the next
+step. *Evidence class: measured (process working set, sampled per second).*
+
+### B406 OPEN 2026-09-18: cosmetics not rooting to the player
+
+**The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player
+though."* Asked where: *"living people, its offset i guess, its down near the feet"*. Down at the feet is where a bone-merged
+item lands when the merge does not happen — posed from its own rest skeleton at the entity origin, which for a player is the feet.
+*Not established*: which items, and why their merge fails. The engine's path is a bone-merged wearable asking its owner for bones by name
+(`docs/memory/bone-merge-sends-no-position.md`); `EntityModels.EntityFor`'s placement and the merge cache are where to read first.
+
 ### B405 FIXED 2026-09-12: a `.phy` too short for its header, or declaring another header size, escaped every Scene reader's catch
 
 **Found writing B404.** `PhysicsModel.Read` refused both headers with `InvalidOperationException`. Its Scene

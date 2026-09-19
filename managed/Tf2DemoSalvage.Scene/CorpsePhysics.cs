@@ -14,15 +14,28 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="BornAt">The tick this corpse died, or null when the timeline did not record it.</param>
 /// <param name="Force">The killing blow — <c>m_vecForce</c>, an impulse in kg·in/s.</param>
 /// <param name="ForceBone">Which body it landed on — <c>m_nForceBone</c>.</param>
-/// <param name="Velocity">What the corpse was already carrying — <c>m_vecRagdollVelocity</c>.</param>
+/// <param name="Velocity">What the corpse was already carrying — <c>m_vecRagdollVelocity</c>; for a gib, its own throw.</param>
+/// <param name="Gib">
+/// Whether this is a gib — a physics prop made by <c>BreakModelCreateSingle</c> and thrown with <c>AddVelocity</c> — rather than a
+/// corpse (B409).
+/// </param>
+/// <param name="Spin">A gib's angular impulse, degrees a second about its own axes; unused for a corpse.</param>
+/// <param name="Spawn">
+/// Where a gib is created — <c>CreateGibsFromList</c>'s position and angles, the corpse's origin and render yaw. A gib is a BAKED
+/// model with no skeleton to seed from, so it starts here; unused for a corpse.
+/// </param>
+/// <remarks><paramref name="Entity"/> is null for a gib drawn as a baked model — it has no animating entity to hook a pose to.</remarks>
 public readonly record struct CorpseRequest(
     int EntityIndex,
     RagdollBody Ragdoll,
-    AnimatingEntity Entity,
+    AnimatingEntity? Entity,
     int? BornAt,
     (float X, float Y, float Z)? Force,
     int? ForceBone,
-    (float X, float Y, float Z)? Velocity);
+    (float X, float Y, float Z)? Velocity,
+    bool Gib = false,
+    (float X, float Y, float Z)? Spin = null,
+    (Vector3 Origin, float Yaw)? Spawn = null);
 
 /// <summary>
 /// The client's physics environment for corpses — one <see cref="IvpRagdollWorld"/> holding the map and every corpse, stepped by the
@@ -72,6 +85,9 @@ public sealed class CorpsePhysics
     /// <summary>The game's surfaces, for the friction a corpse collides with, when <see cref="CreateWorld"/> is not set.</summary>
     public VphysicsSurfaceProps Surfaces { get; set; } = new([]);
 
+    /// <summary>Every corpse simulated once in the background (D181), or null for none — read first, and the world runs only past it.</summary>
+    public CorpseRecord? Record { get; set; }
+
     /// <summary>The environment, or null before a corpse needed one — for instruments.</summary>
     public IvpRagdollWorld? Physics => _world;
 
@@ -114,9 +130,12 @@ public sealed class CorpsePhysics
     /// <summary>Forgets the environment — a new demo, or a map change.</summary>
     public void Clear()
     {
+        // A record was made against the old map and the old demo's corpses; kept, it would pose this one's from them.
+        Record = null;
         _world = null;
         _running.Clear();
         _roots.Clear();
+        _placements.Clear();
     }
 
     /// <summary>Brings the environment up to a tick, with every corpse in the moment in it, and attaches each one's pose.</summary>
@@ -134,6 +153,11 @@ public sealed class CorpsePhysics
         ArgumentNullException.ThrowIfNull(corpses);
 
         if (corpses.Count == 0)
+        {
+            return;
+        }
+
+        if (Record is { } record && tick <= record.Reached && ShowRecorded(record, corpses, tick, seconds))
         {
             return;
         }
@@ -189,7 +213,12 @@ public sealed class CorpsePhysics
 
             foreach ((int entity, (IvpRagdoll ragdoll, _)) in _running)
             {
-                ragdoll.CheckSettle(interval);
+                // `CRagdoll::CheckSettleStationaryRagdoll` is a CORPSE's; a gib is a prop, and IVP's own rest check sleeps it.
+                if (!ragdoll.IsDebris)
+                {
+                    ragdoll.CheckSettle(interval);
+                }
+
                 WatchForAFall(entity, ragdoll);
             }
 
@@ -208,27 +237,116 @@ public sealed class CorpsePhysics
             }
 
             IvpRagdoll ragdoll = _running[corpse.EntityIndex].Ragdoll;
+            (Vector3 Position, Quaternion Orientation)[] state = ragdoll.State();
 
-            corpse.Entity.Ragdoll = ragdoll.PoseIntoAccessor;
-            _roots[corpse.EntityIndex] = ragdoll.State()[0].Position;
+            _roots[corpse.EntityIndex] = state[0].Position;
             _contacts[corpse.EntityIndex] = ragdoll.Contacts;
+            Place(corpse, state);
+
+            if (corpse.Entity is not { } entity)
+            {
+                continue;
+            }
+
+            entity.Ragdoll = ragdoll.PoseIntoAccessor;
 
             // **`C_ClientRagdoll::LastBoneChangedTime()` returns the physics update time** (`c_baseanimating.cpp:587`), which
             // `CRagdoll::VPhysicsUpdate` advances only while the body moves — so a stepped corpse's pose is rebuilt, and one asked
             // for the same tick again is a cache hit, which is how the engine draws a pile of settled corpses for free.
             if (stepped)
             {
-                corpse.Entity.LastBoneChangedTime = seconds;
+                entity.LastBoneChangedTime = seconds;
             }
 
             // **Seeding poses the entity out of band with the ragdoll detached**, which marks the frame built — so this frame's own
             // `SetupBones` would be a cache hit and the hook just attached would never run.
             if (seeded.Contains(corpse.EntityIndex))
             {
-                corpse.Entity.InvalidateBoneCache();
+                entity.InvalidateBoneCache();
             }
         }
     }
+
+    /// <summary>Where each gib is, as its entity's origin and angles — what a baked gib is drawn at (B409).</summary>
+    /// <remarks>
+    /// **`C_PhysPropClientside`'s origin and angles follow its physics object**: vphysics' `GetPosition( &amp;origin, &amp;angles )`
+    /// makes a matrix from the core and reads the angles back with `MatrixAngles`. A gib has no skeleton — every TF2 gib model is
+    /// baked — so this, not a bone pose, is what places it.
+    /// </remarks>
+    public IReadOnlyDictionary<int, (Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles)> Placements => _placements;
+
+    private readonly Dictionary<int, (Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles)> _placements = [];
+
+    /// <summary>Records a gib's placement from its one body's state; a corpse is posed through its bones instead.</summary>
+    private void Place(CorpseRequest corpse, (Vector3 Position, Quaternion Orientation)[] state)
+    {
+        if (!corpse.Gib || state.Length == 0)
+        {
+            return;
+        }
+
+        (Vector3 position, Quaternion orientation) = state[0];
+        float[] matrix = StudioBones.FromQuaternion(
+            (orientation.X, orientation.Y, orientation.Z, orientation.W), (position.X, position.Y, position.Z));
+
+        _placements[corpse.EntityIndex] = (position, StudioBones.ToAngles(matrix));
+    }
+
+    /// <summary>Each corpse's pose as the record holds it at this tick, or false — changing nothing — when any corpse is missing from it.</summary>
+    /// <remarks>
+    /// **All or none**, so a moment never mixes a recorded corpse with a live one in two different environments. A pose that is a
+    /// new array marks the bones changed, as a stepped corpse's are; the same array again is the settled corpse's cache hit.
+    /// </remarks>
+    private bool ShowRecorded(CorpseRecord record, IReadOnlyList<CorpseRequest> corpses, int tick, double seconds)
+    {
+        (Vector3 Position, Quaternion Orientation)[][] states = new (Vector3, Quaternion)[corpses.Count][];
+
+        for (int index = 0; index < corpses.Count; index++)
+        {
+            CorpseRequest corpse = corpses[index];
+
+            if (corpse.BornAt is not { } born || !record.TryGet(corpse.EntityIndex, born, tick, out (Vector3 Position, Quaternion Orientation)[]? state))
+            {
+                return false;
+            }
+
+            states[index] = state!;
+        }
+
+        for (int index = 0; index < corpses.Count; index++)
+        {
+            CorpseRequest corpse = corpses[index];
+            (Vector3 Position, Quaternion Orientation)[] state = states[index];
+
+            if (_shown.TryGetValue(corpse.EntityIndex, out (Vector3, Quaternion)[]? was) && ReferenceEquals(was, state) &&
+                (corpse.Entity is null || corpse.Entity.Ragdoll is not null))
+            {
+                continue;
+            }
+
+            _shown[corpse.EntityIndex] = state;
+            _roots[corpse.EntityIndex] = state.Length > 0 ? state[0].Position : Vector3.Zero;
+            Place(corpse, state);
+
+            if (corpse.Entity is { } entity)
+            {
+                RagdollBody body = corpse.Ragdoll;
+                entity.Ragdoll = (into, written) => body.PoseInto(state, into, written);
+                entity.LastBoneChangedTime = seconds;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>The pose each corpse was last shown from the record with, by entity index.</summary>
+    private readonly Dictionary<int, (Vector3, Quaternion)[]> _shown = [];
+
+    /// <summary>A running corpse's pose now, as <see cref="IvpRagdoll.State"/> reports it — what <see cref="CorpseRecord"/> stores.</summary>
+    /// <param name="entity">The index the corpse is drawn under.</param>
+    /// <returns>The pose, or null when that corpse is not in the world.</returns>
+    internal (Vector3 Position, Quaternion Orientation)[]? StateOf(int entity) =>
+        _running.TryGetValue(entity, out (IvpRagdoll Ragdoll, int) live) ? live.Ragdoll.State() : null;
 
     /// <summary>
     /// The tick a corpse is seeded at: its death when the timeline recorded one no later than now; else, for a corpse already in the
@@ -271,18 +389,32 @@ public sealed class CorpsePhysics
                 continue;
             }
 
-            IvpRagdoll ragdoll = IvpRagdoll.Create(_world!, corpse.Ragdoll, start);
+            IvpRagdoll ragdoll;
 
-            // **The killing blow, applied at creation exactly as `RagdollCreate` does** (B58), staged so it lands on the first step.
-            if (corpse.Velocity is { } inherited)
+            if (corpse.Gib)
             {
-                ragdoll.Inherit(new Vector3(inherited.X, inherited.Y, inherited.Z));
+                // **A gib is a physics prop, thrown with `AddVelocity( rndVel, angVelocity )`** (`BreakModelCreateSingle`,
+                // `physpropclientside.cpp:787-796`, B409) — not a ragdoll with a killing blow.
+                ragdoll = IvpRagdoll.CreateProp(_world!, corpse.Ragdoll, start);
+                (float X, float Y, float Z) throwAt = corpse.Velocity ?? (0f, 0f, 0f);
+                (float X, float Y, float Z) spin = corpse.Spin ?? (0f, 0f, 0f);
+                ragdoll.AddVelocity(new Vector3(throwAt.X, throwAt.Y, throwAt.Z), new Vector3(spin.X, spin.Y, spin.Z));
             }
-
-            if (corpse.Force is { } blow)
+            else
             {
-                ragdoll.Kill(new Vector3(blow.X, blow.Y, blow.Z), corpse.ForceBone ?? -1);
-                _blows[corpse.EntityIndex] = blow;
+                ragdoll = IvpRagdoll.Create(_world!, corpse.Ragdoll, start);
+
+                // **The killing blow, applied at creation exactly as `RagdollCreate` does** (B58), staged so it lands on the first step.
+                if (corpse.Velocity is { } inherited)
+                {
+                    ragdoll.Inherit(new Vector3(inherited.X, inherited.Y, inherited.Z));
+                }
+
+                if (corpse.Force is { } blow)
+                {
+                    ragdoll.Kill(new Vector3(blow.X, blow.Y, blow.Z), corpse.ForceBone ?? -1);
+                    _blows[corpse.EntityIndex] = blow;
+                }
             }
 
             _running[corpse.EntityIndex] = (ragdoll, birth);
@@ -299,7 +431,19 @@ public sealed class CorpsePhysics
     /// </remarks>
     private static (Vector3 Position, Quaternion Orientation)[]? Seed(CorpseRequest corpse, double seconds)
     {
-        AnimatingEntity entity = corpse.Entity;
+        // **A gib is created at its spawn transform, not from a pose**: `CreateGibsFromList` hands `BreakModelCreateSingle` a
+        // position and `params.angles` — the player's render angles — and a gib's one body is its model's own transform (B409).
+        if (corpse.Gib && corpse.Spawn is { } spawn)
+        {
+            (float x, float y, float z, float w) = StudioBones.FromAngles(0f, spawn.Yaw, 0f);
+            return [.. System.Linq.Enumerable.Repeat((spawn.Origin, new Quaternion(x, y, z, w)), corpse.Ragdoll.Elements.Count)];
+        }
+
+        if (corpse.Entity is not { } entity)
+        {
+            return null;
+        }
+
         entity.Ragdoll = null;
         entity.InvalidateBoneCache();
 

@@ -196,6 +196,61 @@ public sealed class CorpsePhysicsWiringTests
         models.Corpses.Steps.ShouldBe(66 + 34, "and replayed it from the death at 66 to 100");
     }
 
+    /// <remarks>
+    /// **A gib is a physics prop, thrown and simulated** (B409): `CreateGibsFromList` makes each piece with
+    /// `BreakModelCreateSingle`, which gives it a physics object and `AddVelocity( rndVel, angVelocity )`
+    /// (`physpropclientside.cpp:787-796`). The owner saw every gib hold in the air where the player died, because nothing put one
+    /// into the world. Thrown at 400 in/s along x, it is well along x a second later.
+    /// </remarks>
+    [Test]
+    public void Instances_AGib_IsThrownByItsVelocityAndSimulated()
+    {
+        SceneProp gib = Corpse() with { ClassName = RagdollProps.GibClassName, FirstTick = 66, Force = (400f, 0f, 0f) };
+        EntityModelSet models = new() { Geometry = _ => GibFrames() };
+        List<SceneProp> drawn = [gib];
+        models.Add(drawn, _ => GibFrames());
+
+        models.CurrentTick = 66d;
+        models.Instances(drawn, [], seconds: 1d);
+        models.CurrentTick = 132d;
+        List<ModelInstance> instances = [];
+        models.Instances(drawn, instances, seconds: 2d);
+
+        models.Corpses.Count.ShouldBe(1, "the gib is in the physics world");
+        models.Corpses.Roots[gib.EntityIndex].X.ShouldBeGreaterThan(300f, "thrown 400 in/s along x for a second");
+
+        // **The output: the baked mesh is DRAWN where the physics put it**, as `C_PhysPropClientside`'s origin follows its object.
+        instances.ShouldNotBeEmpty("the control: the gib was drawn");
+        instances[0].Matrix[12].ShouldBe(models.Corpses.Roots[gib.EntityIndex].X, 1e-3f, "drawn at the simulated origin (row-major, translation last)");
+    }
+
+    /// <summary>A gib's frames as a real gib model loads: BAKED, no skeleton, one prop body from its <c>.phy</c>.</summary>
+    /// <remarks>Measured on `cp_process_f12`: every `soldiergib00N.mdl` loads with a prop body and <c>Skinned</c> null.</remarks>
+    private static PropModels.ModelFrames GibFrames() =>
+        Frames() with { Skinned = null, Ragdoll = RagdollBody.BuildProp(GibPhysics())! };
+
+    /// <summary>A single-solid prop with one hull, as every gib's <c>.phy</c> is.</summary>
+    private static PhysicsModel GibPhysics()
+    {
+        PhysicsLedge ledge = new(
+            [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f), new Vector3(0f, 0f, 0.1f)],
+            [(0, 1, 2), (0, 3, 1), (0, 2, 3), (1, 3, 2)],
+            [(0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+            Vector3.Zero,
+            0.1f);
+
+        return PhysicsModel.From(
+            [new PhysicsSolid(0, "gib_reference", "", "flesh", 5f, 1f, 0f, 0f, 10f, 0f)],
+            [],
+            1,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [[ledge]],
+            massProperties: [new PhysicsMassProperties(Vector3.Zero, Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
+    }
+
     /// <summary>Builds a scene with the one prop and draws it once.</summary>
     private static EntityModelSet Drawn(SceneProp prop, double seconds)
     {
@@ -209,7 +264,7 @@ public sealed class CorpsePhysicsWiringTests
         return models;
     }
 
-    private static SceneProp Corpse() =>
+    internal static SceneProp Corpse() =>
         new(
             9,
             "models/player/soldier.mdl",
@@ -223,7 +278,7 @@ public sealed class CorpsePhysicsWiringTests
     /// whether production reaches the simulation at all, not whether a joint solves — that is
     /// covered where the joint lives.
     /// </remarks>
-    private static PropModels.ModelFrames Frames()
+    internal static PropModels.ModelFrames Frames()
     {
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("bip_pelvis");
 

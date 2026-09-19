@@ -177,6 +177,21 @@ public static class PlayerGibs
     public static (float X, float Y, float Z) Spin(SceneRagdoll corpse) =>
         (Draw(corpse, -1, 0) * MaximumSpin, Draw(corpse, -1, 1) * MaximumSpin, 0f);
 
+    /// <summary>The factor one piece's velocity is jittered by before it is added — <c>BreakModelCreateSingle</c>'s 2.5%.</summary>
+    /// <param name="corpse">The corpse.</param>
+    /// <param name="piece">Which piece.</param>
+    /// <returns>A factor in [0.975, 1.025].</returns>
+    /// <remarks>
+    /// <code>
+    /// // randomize velocity by 5%
+    /// float rndf = RandomFloat( -0.025, 0.025 );
+    /// Vector rndVel = velocity + rndf*velocity;
+    /// pPhysicsObject->AddVelocity( &amp;rndVel, &amp;angVelocity );
+    /// </code>
+    /// `physpropclientside.cpp:787-796`. **Only the linear velocity is jittered** — the spin is added as it was drawn.
+    /// </remarks>
+    public static float Jitter(SceneRagdoll corpse, int piece) => 1f + ((Draw(corpse, piece, 3) * 0.05f) - 0.025f);
+
     /// <summary><c>m_vecForce + m_vecRagdollVelocity</c>, with either half absent treated as zero.</summary>
     private static (float X, float Y, float Z) Sum(SceneRagdoll corpse)
     {

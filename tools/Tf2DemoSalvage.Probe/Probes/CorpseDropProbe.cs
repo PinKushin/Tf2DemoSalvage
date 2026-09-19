@@ -118,9 +118,27 @@ public sealed class CorpseDropProbe : IProbe
             }
         };
 
+        long allocated = 0;
+        long stepping = 0;
+        int asleepTicks = 0;
+        long asleepBytes = 0;
+
         for (int tick = 1; tick <= Ticks; tick++)
         {
+            // **What the step itself costs**, bytes and time around the one call — the seek replays exactly this per tick (D179).
+            long bytesBefore = GC.GetAllocatedBytesForCurrentThread();
+            long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            bool wasAsleep = ported.Asleep;
             world.Simulate(Step);
+            stepping += System.Diagnostics.Stopwatch.GetTimestamp() - startedAt;
+            long bytes = GC.GetAllocatedBytesForCurrentThread() - bytesBefore;
+            allocated += bytes;
+
+            if (wasAsleep)
+            {
+                asleepTicks++;
+                asleepBytes += bytes;
+            }
 
             // The client's own settle check, after the step as `CRagdoll` runs it.
             ported.CheckSettle(Step);
@@ -149,6 +167,12 @@ public sealed class CorpseDropProbe : IProbe
                     $"impacts {world.Simulation.Environment.Impacts}  fastest {Fastest(ported),6:0.00} in/s{(ported.Asleep ? " asleep" : string.Empty)}"));
             }
         }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  stepping {Ticks} ticks: {stepping * 1000d / System.Diagnostics.Stopwatch.Frequency:0} ms, " +
+            $"{allocated / Ticks:N0} bytes allocated a tick; asleep {asleepTicks} ticks at " +
+            $"{(asleepTicks == 0 ? 0 : asleepBytes / asleepTicks):N0} bytes a tick"));
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,

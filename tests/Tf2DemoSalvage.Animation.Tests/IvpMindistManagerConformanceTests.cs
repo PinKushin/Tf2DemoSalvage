@@ -47,7 +47,7 @@ public sealed class IvpMindistManagerConformanceTests
         IvpMindistManager manager = new();
         IvpCollisionObject first = new();
         IvpCollisionObject second = new();
-        IvpMinList<IvpMindist> queue = new();
+        IvpMinList<IIvpTimeEvent> queue = new();
         IvpMindist other = NewMindist();
         IvpMindist mindist = NewMindist();
         manager.LinkExact(other, first, second);
@@ -73,7 +73,7 @@ public sealed class IvpMindistManagerConformanceTests
         IvpMindistManager manager = new();
         IvpCollisionObject first = new();
         IvpCollisionObject second = new();
-        IvpMinList<IvpMindist> queue = new();
+        IvpMinList<IIvpTimeEvent> queue = new();
         IvpMindist a = NewMindist();
         IvpMindist b = NewMindist();
         IvpMindist c = NewMindist();
@@ -97,7 +97,7 @@ public sealed class IvpMindistManagerConformanceTests
     /// </remarks>
     [Test]
     public void Unlink_AMindistNotOnTheExactList_IsRefused() =>
-        Should.Throw<InvalidOperationException>(() => new IvpMindistManager().Unlink(NewMindist(), new IvpMinList<IvpMindist>()));
+        Should.Throw<InvalidOperationException>(() => new IvpMindistManager().Unlink(NewMindist(), new IvpMinList<IIvpTimeEvent>()));
 
     /// <remarks>
     /// **A record told of a rebase adds the value shift less the center shift, taken in float, to the mindist's `+0xa0`**
@@ -161,7 +161,7 @@ public sealed class IvpMindistManagerConformanceTests
         manager.LinkExact(invalid, first, second);
         manager.LinkExact(exact, first, second);
 
-        manager.Invalidate(invalid, first, second, new IvpMinList<IvpMindist>());
+        manager.Invalidate(invalid, first, second, new IvpMinList<IIvpTimeEvent>());
 
         manager.Exact.ShouldBe([exact]);
         manager.Invalid.ShouldBe([invalid]);
@@ -181,7 +181,7 @@ public sealed class IvpMindistManagerConformanceTests
         IvpMindistManager manager = new();
         IvpCollisionObject first = new();
         IvpCollisionObject second = new();
-        IvpMinList<IvpMindist> queue = new();
+        IvpMinList<IIvpTimeEvent> queue = new();
         IvpMindist other = NewMindist();
         IvpMindist mindist = NewMindist();
         manager.LinkExact(other, first, second);
@@ -273,7 +273,7 @@ public sealed class IvpMindistManagerConformanceTests
         IvpMindistManager manager = new();
         IvpCollisionObject first = new() { Core = new IvpRigidBody() };
         IvpCollisionObject second = new() { Core = new IvpRigidBody() };
-        IvpMinList<IvpMindist> queue = new();
+        IvpMinList<IIvpTimeEvent> queue = new();
         IvpMindist stays = NewMindist();
         IvpMindist settles = NewMindist();
         IvpMindist both = NewMindist();
@@ -311,7 +311,7 @@ public sealed class IvpMindistManagerConformanceTests
         IvpMindistManager manager = new();
         IvpCollisionObject first = new() { Core = new IvpRigidBody() };
         IvpCollisionObject second = new() { Core = new IvpRigidBody() };
-        IvpMinList<IvpMindist> queue = new();
+        IvpMinList<IIvpTimeEvent> queue = new();
         IvpMindist earlier = NewMindist();
         IvpMindist later = NewMindist();
         List<IvpMindist> minimized = [];

@@ -27,7 +27,7 @@ public sealed class IvpSchedulerEnvironment
     public required float ClosingSpeedThreshold { get; init; }
 
     /// <summary>The time manager's queue, <c>tm+0x10</c>.</summary>
-    public required IvpMinList<IvpMindist> Queue { get; init; }
+    public required IvpMinList<IIvpTimeEvent> Queue { get; init; }
 
     /// <summary>The time manager's base, <c>tm+0x28</c>, which a queued time is taken relative to.</summary>
     public required double QueueBase { get; init; }

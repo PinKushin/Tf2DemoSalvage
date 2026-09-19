@@ -19,7 +19,7 @@ public sealed class IvpPhysicsPipelineTests
         (IvpUnitManager units, IvpSimulationUnit unit, IvpRigidBody core) = Units();
         IvpImpactEnvironment environment = Environment(countdown: 5);
 
-        IvpPhysicsPipeline.Psi(environment, units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
+        IvpPhysicsPipeline.Psi(environment, units, new IvpMindistManager(), new IvpMinList<IIvpTimeEvent>(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 2d);
 
         core.LastStepped.ShouldBe(2d, "the core was collected in phase 2 and stepped in phase 3");
         core.InverseStep.ShouldBe(2f, "the step handed down is the environment's own, 0.5");
@@ -33,7 +33,7 @@ public sealed class IvpPhysicsPipelineTests
         (IvpUnitManager units, IvpSimulationUnit unit, IvpRigidBody core) = Units();
 
         IvpPhysicsPipeline.Psi(
-            Environment(countdown: 1), units, new IvpMindistManager(), new IvpMinList<IvpMindist>(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 100d);
+            Environment(countdown: 1), units, new IvpMindistManager(), new IvpMinList<IIvpTimeEvent>(), _ => { }, _ => { }, _ => { }, _ => { }, () => 0f, now: 100d);
 
         units.Active.ShouldBeEmpty();
         units.Sleeping.ShouldBe([unit]);
@@ -58,7 +58,7 @@ public sealed class IvpPhysicsPipelineTests
             Environment(countdown: 5),
             units,
             mindists,
-            new IvpMinList<IvpMindist>(),
+            new IvpMinList<IIvpTimeEvent>(),
             _ => order.Add("minimize"),
             _ => order.Add("recheckInvalid"),
             _ => order.Add("examine"),
@@ -83,7 +83,7 @@ public sealed class IvpPhysicsPipelineTests
         IvpCollisionObject first = new() { Core = core };
         IvpCollisionObject second = new() { Core = new IvpRigidBody() };
         core.Objects.Add(first);
-        IvpMinList<IvpMindist> queue = new();
+        IvpMinList<IIvpTimeEvent> queue = new();
         IvpMindist mindist = new(
             new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
             new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Triangle),

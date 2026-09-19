@@ -259,7 +259,7 @@ public static class IvpPhysicsPipeline
         IvpImpactEnvironment environment,
         IvpUnitManager units,
         IvpMindistManager mindists,
-        IvpMinList<IvpMindist> queue,
+        IvpMinList<IIvpTimeEvent> queue,
         Action<IvpMindist> minimize,
         Action<IvpMindist> recheckInvalidMinimize,
         Action<IvpMindist> examine,

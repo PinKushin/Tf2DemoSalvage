@@ -566,7 +566,7 @@ public sealed class RagdollBodyConformanceTests
     }
 
     /// <summary>A single-solid prop with one hull, as every gib model is.</summary>
-    private static PhysicsModel Prop(string solidName)
+    internal static PhysicsModel Prop(string solidName)
     {
         PhysicsLedge ledge = new(
             [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],

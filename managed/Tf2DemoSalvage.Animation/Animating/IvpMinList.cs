@@ -170,6 +170,23 @@ public sealed class IvpMinList<T>
         Minimum = shift + Minimum;
     }
 
+    /// <summary>Subtracts a shift from every queued value and from the minimum — the time manager's rebase, <c>FUN_18008a020</c>.</summary>
+    /// <param name="shift">What is subtracted, in float.</param>
+    /// <remarks>
+    /// `*(float *)(entry + 8) -= shift` walking from the head, then the same for the list's <c>+0x10</c> — so, as with
+    /// <see cref="Offset"/>, **the minimum moves even when nothing is queued**. Order is not re-established; one float subtracted
+    /// from every entry keeps it.
+    /// </remarks>
+    public void Shift(float shift)
+    {
+        for (int index = _head; index != None; index = _entries[index].Next)
+        {
+            _entries[index] = _entries[index] with { Value = _entries[index].Value - shift };
+        }
+
+        Minimum -= shift;
+    }
+
     /// <summary>The head of the queue — what the event loop fires next.</summary>
     /// <param name="element">The head's element, when there is one.</param>
     /// <param name="slot">The head's slot, or <c>-1</c> when the queue is empty.</param>

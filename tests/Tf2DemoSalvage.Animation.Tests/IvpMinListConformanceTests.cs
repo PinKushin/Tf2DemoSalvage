@@ -36,6 +36,27 @@ public sealed class IvpMinListConformanceTests
     }
 
     /// <remarks>
+    /// **A shift subtracts in float from every entry and keeps their order** — `FUN_18008a020`'s rebase walk,
+    /// `*(float *)(entry + 8) -= (float)shift`, with the minimum still the head's value.
+    /// </remarks>
+    [Test]
+    public void Shift_ThreeEntries_SubtractsItFromEachAndTheMinimum()
+    {
+        IvpMinList<string> queue = new();
+        int half = queue.Add("half", 0.5f);
+        int quarter = queue.Add("quarter", 0.25f);
+        int later = queue.Add("later", 1.5f);
+
+        queue.Shift(0.125f);
+
+        queue.ValueOf(half).ShouldBe(0.375f);
+        queue.ValueOf(quarter).ShouldBe(0.125f);
+        queue.ValueOf(later).ShouldBe(1.375f);
+        queue.Minimum.ShouldBe(0.125f);
+        Drain(queue).ShouldBe(["quarter", "half", "later"]);
+    }
+
+    /// <remarks>
     /// **A new event goes before every queued event of equal time** — at the head, where `COMISS`/`JA` takes a tie as
     /// not over the minimum, and in the middle, where the walk stops at the first entry the value is not over.
     /// </remarks>

@@ -8997,3 +8997,40 @@ onto the component that now implements it (the killing blow, the twist axis and 
 than deleting the rule with the old code.
 
 Related: D172, D179.
+
+## D181 — every corpse is simulated once, in the background, straight through; a seek is a lookup (2026-09-18)
+
+**Supersedes D179's backward-seek replay** (its one-environment rule stands). Offered three ways to make a seek instant — precompute
+in the background, only speed up the step, or checkpoint the world while playing — the owner chose **"Precompute in background"**,
+the recommended option; no further reason given.
+
+**What it means:** at demo load a background thread plays every corpse in the demo through ONE environment, in death order, from
+the first death to the last corpse's end, exactly as straight-through playback would, and records each corpse's pose per tick while
+it moves. A seek anywhere reads the record. **So a rewind now matches straight-through play exactly**, the difference D179 had
+accepted. Until the background pass reaches a tick, the viewer falls back to D179's replay.
+
+**Measured before choosing:** a step costs about 0.8 ms per awake corpse in Debug (f12 scout drop, 276 ms over 355 awake ticks),
+spread across the whole driver with no single hotspot, after halving its allocation (54 KB an awake tick); the f12 seek to tick
+26578 replayed 992 ticks in 0.7–0.95 s. **Its costs, accepted with the choice:** one core for tens of seconds after load, and the
+recorded poses — tens of megabytes on a full match.
+
+Related: D172, D179.
+
+## D182 — the window opens at once and a loading overlay reports the decode; a command-line demo loads after Shown (2026-09-18)
+
+**The owner asked:** *"is there a way to add like a splash screen that pops up immediately on boot and gives the user a progress
+bar?"* and answered "yes" to the plan: open a window immediately, show progress from the decode, then the map load, and close when
+the demo is on screen, with its own UI test.
+
+**What it means:** the demo named on the command line is no longer loaded inside `MainForm`'s constructor, which kept the window
+off screen for the whole decode and map read (measured on f12: 80 s decode plus about 14 s map). It loads through
+`LoadDemoAsync` from `Shown`, the task held in `Loading` as the playlist does (no `async void`, the owner's standing rule). A
+centered `LoadingOverlay` shows "Decoding the demo… N%" from `DemoTimeline.Build`'s progress callback (about 200 reports per
+decode), then marquee stages for the map and the model/sound precache, and hides when the last in-flight load ends. The `--shot`
+patience does not count frames while a load is in flight, because at 300 fps it would give up two thirds of the way through a
+real decode.
+
+**Not a separate splash window:** an overlay inside the main window meets "pops up immediately" without a second top-level
+window to position and close. That reading is mine, not the owner's words, and is his to reverse.
+
+Related: B146, B401.

@@ -413,7 +413,15 @@ public sealed class IvpRagdollWorld
 
         if (a is { } mine && b is { } theirs)
         {
-            return ReferenceEquals(mine.Ragdoll, theirs.Ragdoll) && mine.Ragdoll.Body.ShouldCollide(mine.Element, theirs.Element);
+            if (ReferenceEquals(mine.Ragdoll, theirs.Ragdoll))
+            {
+                return mine.Ragdoll.Body.ShouldCollide(mine.Element, theirs.Element);
+            }
+
+            // **The game rules by collision group, then `cl_ragdoll_collide`** (B409): debris against debris never collides
+            // (`gamerules.cpp:713-717`); a gib against a corpse — `COLLISION_GROUP_NONE` — does, and `cl_ragdoll_collide` (`"0"`)
+            // stops only a pair whose BOTH objects are part of a ragdoll (`physics.cpp:241`).
+            return mine.Ragdoll.IsDebris != theirs.Ragdoll.IsDebris;
         }
 
         IvpCollisionObject other = firstPart ? second : first;
@@ -476,6 +484,57 @@ public sealed class IvpRagdoll
 
     /// <summary>Whether the game has forced it to sleep.</summary>
     public bool Asleep { get; private set; }
+
+    /// <summary>Whether this is a gib — a client physics prop in <c>COLLISION_GROUP_DEBRIS</c> — rather than a corpse (B409).</summary>
+    public bool IsDebris { get; private set; }
+
+    /// <summary>Builds a gib — <c>BreakModelCreateSingle</c>'s physics prop (B409).</summary>
+    /// <param name="world">The environment.</param>
+    /// <param name="prop">The prop's one body, from <see cref="RagdollBody.BuildProp"/> — the prop's own parameters.</param>
+    /// <param name="start">Its starting position and orientation, in Source space.</param>
+    /// <returns>The gib.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentException">The starting state does not match the element count.</exception>
+    /// <remarks>
+    /// **`C_PhysPropClientside::Initialize` → `VPhysicsInitNormal` → `PhysModelCreate`**: one object from the model's first solid,
+    /// with `PhysModelParseSolid`'s parameters over `g_PhysDefaultObjectParams` — `rotInertiaLimit` 0.05, where a ragdoll element's is
+    /// 0.1 — and woken, `createAsleep` being false. **TF then sets it to `COLLISION_GROUP_DEBRIS`** (`BreakModelCreateSingle`,
+    /// `#ifdef TF_CLIENT_DLL`), which <see cref="IvpRagdollWorld"/>'s rules read as <see cref="IsDebris"/>. *A prop has no
+    /// `CRagdoll`*, so no forced settle: IVP's own rest check is what puts it to sleep.
+    /// </remarks>
+    public static IvpRagdoll CreateProp(IvpRagdollWorld world, RagdollBody prop, IReadOnlyList<(Vector3 Position, Quaternion Orientation)> start)
+    {
+        IvpRagdoll made = Create(world, prop, start);
+        made.IsDebris = true;
+        return made;
+    }
+
+    /// <summary>Adds a velocity and a spin to every body — vphysics' <c>CPhysicsObject::AddVelocity</c>, <c>18001a6c0</c>.</summary>
+    /// <param name="velocity">Source inches a second.</param>
+    /// <param name="angular">Degrees a second about the body's own axes — an <c>AngularImpulse</c>.</param>
+    /// <remarks>
+    /// **Read from the binary** (vtable slot 52): gated on moveable, then woken, then
+    /// <code>
+    /// core+0x120 += x·0.0254;  core+0x124 −= z·0.0254;  core+0x128 += y·0.0254
+    /// core+0x110 += x·0.017453292;  core+0x114 −= z·0.017453292;  core+0x118 += y·0.017453292
+    /// </code>
+    /// then the speed limit (<see cref="IvpPush.Limit"/>) for an object with no shadow controller. *The wake is not repeated here*: a
+    /// body is revived at the first PSI after it is added to the simulation, which is where every caller of this stands.
+    /// </remarks>
+    public void AddVelocity(Vector3 velocity, Vector3 angular)
+    {
+        (float X, float Y, float Z) linear = IvpTransform.Position(velocity.X, velocity.Y, velocity.Z);
+        (float X, float Y, float Z) spin = (angular.X * DegreesToRadians, -(angular.Z * DegreesToRadians), angular.Y * DegreesToRadians);
+
+        foreach (IvpRigidBody body in _bodies)
+        {
+            IvpPush.AddVelocity(body, linear, spin);
+            IvpPush.Limit(body, _world.Simulation.Environment.Limits, _world.Simulation.Environment.InverseStep);
+        }
+    }
+
+    /// <summary>The <c>0.017453292</c> vphysics' <c>AddVelocity</c> multiplies an angular impulse by.</summary>
+    private const float DegreesToRadians = 0.017453292f;
 
     /// <summary>Builds a ragdoll in a world.</summary>
     /// <param name="world">The environment.</param>

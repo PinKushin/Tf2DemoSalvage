@@ -4749,6 +4749,23 @@ public sealed class EntityModelSet : IModelBodygroups
             //
             // Left as it was, deliberately: an unverifiable change to where EVERY prop is drawn is
             // not worth carrying on a theory the evidence does not support.
+            //
+            // **A gib is drawn where its physics object is** (B409): `C_PhysPropClientside`'s origin and angles follow the object,
+            // and a gib model is baked, so its entity transform is the whole of its pose.
+            if (prop.ClassName == RagdollProps.GibClassName &&
+                Corpses.Placements.TryGetValue(prop.EntityIndex, out (Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles) placed))
+            {
+                pose = pose with
+                {
+                    X = placed.Origin.X,
+                    Y = placed.Origin.Y,
+                    Z = placed.Origin.Z,
+                    Pitch = placed.Angles.Pitch,
+                    Yaw = placed.Angles.Yaw,
+                    Roll = placed.Angles.Roll,
+                };
+            }
+
             PropTransform transform = new(
                 pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale);
 
@@ -5383,11 +5400,30 @@ public sealed class EntityModelSet : IModelBodygroups
         {
             SceneProp prop = props[index];
 
-            if (prop.ClassName != RagdollProps.RagdollClassName ||
+            bool gib = prop.ClassName == RagdollProps.GibClassName;
+
+            if ((prop.ClassName != RagdollProps.RagdollClassName && !gib) ||
                 !_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) ||
-                entry.Ragdoll is not { } corpse ||
-                entry.Skinned is null ||
-                !_entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating))
+                entry.Ragdoll is not { } corpse)
+            {
+                continue;
+            }
+
+            _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating);
+
+            if (gib)
+            {
+                // **A gib carries its throw in `Force` and its spin in `RagdollVelocity`** (`RagdollProps.Gibs`), the two arguments of the
+                // `AddVelocity` that makes it fly, and it is created at its own pose. **It needs no animating entity**: every TF2 gib
+                // model is BAKED, drawn by its entity transform, which the simulation places (B409).
+                _corpseRequests.Add(new CorpseRequest(
+                    prop.EntityIndex, corpse, animating, prop.FirstTick, null, null, prop.Force,
+                    Gib: true, Spin: prop.RagdollVelocity, Spawn: (new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z), prop.Pose.Yaw)));
+
+                continue;
+            }
+
+            if (entry.Skinned is null || animating is null)
             {
                 continue;
             }
@@ -5398,6 +5434,25 @@ public sealed class EntityModelSet : IModelBodygroups
 
         // **One environment for every corpse, stepped once** (D179): each corpse joins it at its death tick as it steps forward.
         Corpses.Advance(_corpseRequests, (int)CurrentTick, IntervalPerTick, seconds);
+    }
+
+    /// <summary>Runs the corpse path alone over these corpses at a moment — what <see cref="CorpseRecord"/> drives in the background (D181).</summary>
+    /// <param name="corpses">The corpses alive at <see cref="CurrentTick"/>; their sequences are resolved in place.</param>
+    /// <param name="seconds">Demo time.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="corpses"/> is null.</exception>
+    /// <remarks>
+    /// **The same three steps a live frame runs for a corpse, in the same order** — <see cref="UpdateClientSideAnimations"/>, then
+    /// the bone clock and <c>Simulate</c>, then <c>AdvanceCorpses</c> — and nothing else, so the record's corpses are seeded and
+    /// stepped by the production path rather than by a copy of it.
+    /// </remarks>
+    internal void AdvanceCorpsesAlone(List<SceneProp> corpses, double seconds)
+    {
+        ArgumentNullException.ThrowIfNull(corpses);
+
+        UpdateClientSideAnimations(corpses);
+        _boneFrames.Advance();
+        Simulate(corpses, seconds);
+        AdvanceCorpses(corpses, seconds);
     }
 
     /// <summary>The moment's corpses, gathered for one advance — kept to be reused rather than allocated per frame.</summary>

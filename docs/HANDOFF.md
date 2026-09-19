@@ -24,7 +24,23 @@ The old solver's map world went next, on the owner's rule that what production d
 `IvpWorldCollision`, `MapLevel.Physics` (built at every map load, read by nothing), `MapPropCollision`, `Gjk`, the `map-collision`
 probe and their tests. `CONTENTS_SOLID`/`MASK_SOLID` live on `IvpRagdollWorld`; the hull convention is
 `IvpTransform.SourcePosition(Vector3)`, still pinned by `IvpHullConventionConformanceTests`.
-**Still to do**: gate and merge. A drawn corpse on the new build has not been looked at.
+Merged to main 2026-09-18 (`cc41166e`). A drawn corpse on the new build has not been looked at.
+
+**In progress, branch `perf/corpse-seek` — D181, every corpse simulated once in the background.** The plan:
+1. `EntityModelSet` gains one entry point that runs the production corpse path alone — `UpdateClientSideAnimations`, `Simulate`,
+   `AdvanceCorpses` over the corpses only — so the background pass seeds and steps through the SAME code as the live one.
+2. `CorpseTimeline` (Scene): on a background thread, a PRIVATE `EntityModelSet` (its own entities, bone clock and `CorpsePhysics`,
+   sharing only the map's read-only model frames) walks every tick from the first death to the last corpse's `LastTick`, corpses from
+   `RagdollProps.Fill` with no fade (fade shortens what is drawn, not what is simulated), recording each corpse's `State()` per tick
+   into an array sized to its window, and publishes how far it has got.
+3. `CorpsePhysics.Advance` draws a corpse from the record when the record has reached the tick, else falls back to D179's replay.
+4. `MainForm` starts the pass after the map loads and drops it on a demo or map change. **Wired 2026-09-18**
+   (`StartCorpseRecord`, bodies from `RagdollProps.Recorded`, a gib's window ending at its own `fadetime`). Measured on
+   `demostf-cp_process_f12-2026-08-08-2207.dem`: 869 bodies recorded to the last tick in 53.2 s after load; afterwards moments
+   show `corpses 0 over 0 steps`. Not established: an assertion that a seek past the pass draws the same pose straight-through
+   play does on a real demo — `CorpseRecordTests` holds it on a synthetic corpse only.
+The control test: the record equals straight-through live play of the same corpses, tick for tick. *Not established*: the engine
+removes a ragdoll when it fades; neither path removes a corpse from the world, so a faded corpse still sleeps in it.
 
 **Branch `fix/b369-ivp-narrow-phase`, pushed.** The last full Animation run: 4682 total, 4681 passed, 1 skipped (the medic
 medigun bone test, skipped before this work too). Solution build: zero warnings.

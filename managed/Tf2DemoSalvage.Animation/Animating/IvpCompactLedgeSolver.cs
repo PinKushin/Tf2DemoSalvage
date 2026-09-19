@@ -48,12 +48,29 @@ public sealed record IvpLedgeSide(
     /// structure per synapse inside `FUN_180094c70`'s caller, which nothing in this port has needed until a live running
     /// path does; <see cref="PhysicsLedge"/> already carries everything <see cref="IvpLedgeTopology"/> needs.
     /// </remarks>
-    public static IvpLedgeSide FromLedge(PhysicsLedge ledge, IvpMatrix current, (double X, double Y, double Z) corePosition) =>
-        new(
-            ledge.Points.Select(point => (point.X, point.Y, point.Z)).ToList(),
-            new IvpLedgeTopology(ledge.Triangles, ledge.EdgeOffsets, ledge.PierceTriangles, ledge.MaterialIndices),
-            current,
-            corePosition);
+    public static IvpLedgeSide FromLedge(PhysicsLedge ledge, IvpMatrix current, (double X, double Y, double Z) corePosition)
+    {
+        if (!Compacts.TryGetValue(ledge.Points, out Compact? compact))
+        {
+            compact = Compacts.GetValue(
+                ledge.Points,
+                _ => new Compact(
+                    [.. ledge.Points.Select(point => (point.X, point.Y, point.Z))],
+                    new IvpLedgeTopology(ledge.Triangles, ledge.EdgeOffsets, ledge.PierceTriangles, ledge.MaterialIndices)));
+        }
+
+        return new(compact.Points, compact.Topology, current, corePosition);
+    }
+
+    /// <summary>A ledge's own half of a side — its points and topology, which never change — built once per ledge.</summary>
+    /// <remarks>
+    /// **The engine reads the compact ledge in place**; this project's decoded ledge needs its points as tuples and its topology
+    /// wrapped, and building both per side was a quarter of what a step allocated (f12 scout drop, 20 of 68 MB). Keyed by the
+    /// ledge's point list, which is one instance per decoded ledge, so a ledge that is dropped takes its entry with it.
+    /// </remarks>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyList<System.Numerics.Vector3>, Compact> Compacts = [];
+
+    private sealed record Compact(IReadOnlyList<(float X, float Y, float Z)> Points, IvpLedgeTopology Topology);
 }
 
 /// <summary>An edge's two weights for a point — <c>FUN_18007d070</c>'s output.</summary>

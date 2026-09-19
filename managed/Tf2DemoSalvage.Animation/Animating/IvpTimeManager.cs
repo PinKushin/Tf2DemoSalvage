@@ -21,8 +21,36 @@ public interface IIvpTimeEvent
 public sealed class IvpTimeManager<T>
     where T : class, IIvpTimeEvent
 {
+    /// <summary>Makes a time manager with an empty queue of its own.</summary>
+    public IvpTimeManager()
+        : this(new IvpMinList<T>())
+    {
+    }
+
+    /// <summary>Makes a time manager over a queue — the environment's one min-list, which the collision side also queues into.</summary>
+    /// <param name="queue">The queue.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="queue"/> is null.</exception>
+    public IvpTimeManager(IvpMinList<T> queue) => Queue = queue ?? throw new ArgumentNullException(nameof(queue));
+
     /// <summary>The queue, <c>+0x10</c>.</summary>
-    public IvpMinList<T> Queue { get; } = new();
+    public IvpMinList<T> Queue { get; }
+
+    /// <summary>The PSI event's rebase of the queue — <c>FUN_18008a020</c>'s middle.</summary>
+    /// <param name="now">The environment's time, <c>env+0x188</c>, which becomes the base.</param>
+    /// <remarks>
+    /// <code>
+    /// every entry, and the list's minimum:  -= (float)env+0x188
+    /// tm+0x28 = env+0x198;  tm+0x20 = 0
+    /// </code>
+    /// **The ABSOLUTE time is subtracted, not `now − base`**: read from the binary. It is moot for a pair event, which the
+    /// scheduler never queues past the next PSI, so at a PSI the queue holds only ties.
+    /// </remarks>
+    public void Rebase(double now)
+    {
+        Queue.Shift((float)now);
+        Base = now;
+        Clock = 0d;
+    }
 
     /// <summary>The base the queued times are relative to, <c>+0x28</c>.</summary>
     public double Base { get; set; }

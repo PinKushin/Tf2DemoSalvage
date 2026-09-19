@@ -40,6 +40,23 @@ public sealed class IvpSimulationTests
     }
 
     /// <remarks>
+    /// **One queue for every event, measured from the last PSI** (B369): the PSI event waits in the same min-list as the pairs'
+    /// events, one step on from the base the last PSI set — `0.5` from `1.0`, not `1.5` from zero. A queue of absolute float times
+    /// lost the precision the base exists for and hung the viewer 387 seconds into a demo.
+    /// </remarks>
+    [Test]
+    public void Advance_PastAPsi_QueuesTheNextOneAStepFromItsBase()
+    {
+        IvpSimulation simulation = Simulation(out _);
+        simulation.Start();
+
+        simulation.Advance(1.2d);
+
+        simulation.Collisions.EventQueue.Count.ShouldBe(1, "the PSI event is in the one queue");
+        simulation.Collisions.EventQueue.Minimum.ShouldBe(0.5f, "a step from the last PSI's base");
+    }
+
+    /// <remarks>
     /// **A body is born asleep and woken at the first PSI** — vphysics' wake of a sleeping object only lists its core
     /// (`FUN_180073a30` → `FUN_180087e00`), and the PSI's first act revives the list (`FUN_180089210`). Measured: the binary makes a
     /// new body's pairs inside the first `Simulate`, not when the body is created (`vphysics-virtual-terrain-drop boxes`, B369).

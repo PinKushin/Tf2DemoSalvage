@@ -89,6 +89,64 @@ public sealed class IvpTimeManagerConformanceTests
     public void Run_AnEmptyQueueWithALimitOverTenBillion_IsRefused() =>
         Should.Throw<InvalidOperationException>(() => new Fixture().Run(Base + 2e10d));
 
+    /// <remarks>
+    /// **The rebase subtracts `(float)now` — the ABSOLUTE time — from every entry and from the minimum, then makes `now` the
+    /// base** (`FUN_18008a020`: `*(float *)(entry + 8) -= (float)env+0x188`, the same for the list's `+0x10`, then
+    /// `tm+0x28 = env+0x198`). Not `now − base`: the engine never has a pair event queued past the next PSI, so at a PSI the queue
+    /// holds only ties and what it subtracts from them is moot — but it is what the binary does.
+    /// </remarks>
+    [Test]
+    public void Rebase_TwoQueuedEvents_LoseTheAbsoluteTimeAndTakeItAsTheBase()
+    {
+        Fixture fixture = new();
+        TestEvent first = fixture.Queue("first", 0.1f);
+        TestEvent second = fixture.Queue("second", 0.3f);
+        float shift = (float)10.2d;
+
+        fixture.Manager.Rebase(10.2d);
+
+        fixture.Manager.Base.ShouldBe(10.2d);
+        fixture.Manager.Clock.ShouldBe(0d, "tm+0x20 = 0");
+        fixture.Manager.Queue.ValueOf(first.QueueSlot!.Value).ShouldBe(0.1f - shift);
+        fixture.Manager.Queue.ValueOf(second.QueueSlot!.Value).ShouldBe(0.3f - shift);
+        fixture.Manager.Queue.Minimum.ShouldBe(0.1f - shift);
+    }
+
+    /// <remarks>
+    /// **The precision the base protects, and B369's hang.** Late in a session an event that re-queues itself a hundred-thousandth
+    /// of a second on moves on when it is measured from a recent base — a thousandth of a second holds about a hundred of them.
+    /// **The control is the same event measured from zero**: `387 + 1e-5` narrows to `387f`, the event is due at the instant it
+    /// just fired, and it fires there until something stops it. That is what froze the viewer at 15 GB.
+    /// </remarks>
+    [Test]
+    public void Run_LateInASessionAnEventRequeuedJustAfterNow_Progresses()
+    {
+        RequeuedJustAfterNow(managerBase: 0d).ShouldBeGreaterThan(1000, "the control: measured from zero, it never moves on");
+        RequeuedJustAfterNow(managerBase: 387d).ShouldBeLessThan(200, "measured from a recent base, it moves on a step each time");
+    }
+
+    /// <summary>Fires an event at 387 s that re-queues itself 1e-5 s later, until 387.001 or a thousand fires.</summary>
+    private static int RequeuedJustAfterNow(double managerBase)
+    {
+        IvpTimeManager<TestEvent> manager = new() { Base = managerBase };
+        TestEvent ticking = new("ticking");
+        ticking.QueueSlot = manager.Queue.Add(ticking, (float)(387d - managerBase));
+        double now = 0d;
+        int fired = 0;
+
+        manager.Run(
+            387.001d,
+            at => now = at,
+            due =>
+            {
+                fired++;
+                due.QueueSlot = manager.Queue.Add(due, (float)(now + 1e-5d - manager.Base));
+                manager.Stopping = fired > 1000;
+            });
+
+        return fired;
+    }
+
     private sealed class TestEvent(string name) : IIvpTimeEvent
     {
         public string Name => name;

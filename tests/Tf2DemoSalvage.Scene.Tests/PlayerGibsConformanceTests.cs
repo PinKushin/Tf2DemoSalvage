@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -189,6 +190,29 @@ public class PlayerGibsConformanceTests
         SceneRagdoll second = Corpse(force: (300f, 0f, 0f)) with { Serial = 2 };
 
         PlayerGibs.Velocity(first, 0).ShouldNotBe(PlayerGibs.Velocity(second, 0));
+    }
+
+    /// <remarks>
+    /// **Every piece is jittered by up to 2.5% of its own velocity** — `BreakModelCreateSingle`'s
+    /// `rndf = RandomFloat( -0.025, 0.025 ); rndVel = velocity + rndf*velocity` before `AddVelocity`
+    /// (`physpropclientside.cpp:787-796`) — so across a corpse's pieces the factor stays in `[0.975, 1.025]` and is not
+    /// constant.
+    /// </remarks>
+    [Test]
+    public void Jitter_AcrossThePieces_StaysWithinTwoAndAHalfPercentAndVaries()
+    {
+        SceneRagdoll corpse = Corpse(force: (300f, -200f, 50f));
+        HashSet<float> seen = [];
+
+        for (int piece = 0; piece < 32; piece++)
+        {
+            float jitter = PlayerGibs.Jitter(corpse, piece);
+
+            jitter.ShouldBeInRange(0.975f, 1.025f);
+            seen.Add(jitter);
+        }
+
+        seen.Count.ShouldBeGreaterThan(1, "drawn per piece, not once");
     }
 
     private static SceneRagdoll Corpse(

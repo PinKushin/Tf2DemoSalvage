@@ -1227,6 +1227,7 @@ internal class MainForm : Form, IFrameSteps
         Controls.Add(_actions);
         Controls.Add(statusStrip);
         Controls.Add(menu);
+        Controls.Add(_loading);
         MainMenuStrip = menu;
 
         // The docked controls that give their space to the viewport in full screen. The menu is
@@ -1262,9 +1263,15 @@ internal class MainForm : Form, IFrameSteps
             // demo looked identical to one whose renderer drew nothing, and the log distinguished
             // them nowhere: no `[demo]` line at all is the same absence for "we chose not to open
             // it" and "opening it failed".
+            //
+            // **Opened once the window is up, not inside this constructor.** Loading it here kept
+            // the window off screen for the whole decode and map read — 95 seconds on a 26-minute
+            // match — which is what the owner asked a loading screen for. The `--shot` countdown
+            // waits on the load rather than on frames (see `TakeAutomaticShot`).
             if (initialPaths.Length == 1 && File.Exists(initialPaths[0]))
             {
-                LoadDemo(initialPaths[0]);
+                _openOnShow = initialPaths[0];
+                Shown += (_, _) => Loading = OpenCommandLineDemo();
             }
             else if (initialPaths.Length == 1)
             {
@@ -1679,6 +1686,7 @@ internal class MainForm : Form, IFrameSteps
             // `CreatePolyObjectStatic`. Set before any corpse is seeded — a simulation created
             // without a world falls through the map for its whole life, and `Clear` on a map change
             // is what stops one outliving its geometry.
+            StopCorpseRecord();
             _models.Corpses.Clear();
 
             // **The corpses' environment is the ported driver's, with the map's collide in it** (D172, D179): the world, the
@@ -1922,6 +1930,14 @@ internal class MainForm : Form, IFrameSteps
         // The coupling B208 found lives there now too: the settle point is `openingFrames -
         // settleFrames` rather than a literal, so lowering the wait cannot silently make it
         // unreachable and drop every launch option.
+        // **A load in flight is not a demo that never came.** The patience is a frame count, and a
+        // window that draws at 300 fps while an 80-second decode runs would give up two thirds of
+        // the way through it.
+        if (_loadsInFlight > 0)
+        {
+            return;
+        }
+
         switch (_opening.Advance())
         {
             case OpeningStep.ApplyOpeningState:
@@ -2658,22 +2674,43 @@ internal class MainForm : Form, IFrameSteps
         int ticket = _loads.Take();
 
         _status.Text = DemoLoadResult.Opening(path);
+        _loadsInFlight++;
+        _loading.Report(LoadingDecode, 0d);
 
         try
         {
             ILogger demoLog = _demoLog;
+
+            // **Posted, so a report can arrive after the decode has moved on** — the stage check
+            // keeps a late one from dragging the overlay back to "decoding".
+            bool decoding = true;
+            IProgress<double> progress = new Progress<double>(fraction =>
+            {
+                if (decoding && _loads.IsCurrent(ticket))
+                {
+                    _loading.Report(LoadingDecode, fraction);
+                }
+            });
+
             // **The shutdown token, on both worker hops** (B402). Neither read can be interrupted
             // part-way — a decode and a map read are one operation each — but the token means a
             // window that closes mid-load does not come back to a disposed form afterwards, which
             // is the same crash the map fetch had.
             DecodedDemo decoded = await Task
-                .Run(() => DecodedDemo.Read(path, demoLog), _shutdown.Token)
+                .Run(() => DecodedDemo.Read(path, demoLog, progress.Report), _shutdown.Token)
                 .ConfigureAwait(false);
 
             if (!_loads.IsCurrent(ticket))
             {
                 return OnUi(() => Superseded(_demoLog, path));
             }
+
+            OnUi(() =>
+            {
+                decoding = false;
+                _loading.Report(LoadingMap, fraction: null);
+                return 0;
+            });
 
             // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
             // old map touches the device and stays here; finding and reading the new one touches
@@ -2702,6 +2739,12 @@ internal class MainForm : Form, IFrameSteps
                     // `game`, which does not exist until the read has produced it.
                     (bool drawn, GameContent? game) =
                         ReadMapNamed(decoded.Demo.MapName, decoded.Timeline);
+
+                    OnUi(() =>
+                    {
+                        _loading.Report(LoadingAssets, fraction: null);
+                        return 0;
+                    });
 
                     // **Packed here rather than when a prop first appears, which is what Valve
                     // does** (D86). `CBaseEntity::PrecacheModel` sits behind `IsPrecacheAllowed()`
@@ -2740,7 +2783,115 @@ internal class MainForm : Form, IFrameSteps
                 ? CouldNotOpen(path, failure)
                 : Superseded(_demoLog, path));
         }
+        finally
+        {
+            OnUi(() =>
+            {
+                // **Hidden only when no newer load is still running**, which would otherwise lose
+                // its overlay to the one it superseded.
+                if (--_loadsInFlight == 0)
+                {
+                    _loading.Visible = false;
+                }
+
+                return 0;
+            });
+        }
     }
+
+    /// <summary>The demo named on the command line, opened once the window is up; null when none was.</summary>
+    private readonly string? _openOnShow;
+
+    /// <summary>Opens the demo named on the command line, the way a double-click in the playlist would.</summary>
+    /// <returns>The load, or the nothing-selected result when the command line named no single demo.</returns>
+    /// <remarks>
+    /// **Held in <see cref="Loading"/> by the <c>Shown</c> handler, never <c>async void</c>** — the owner's rule, and the
+    /// playlist's pattern: *"we dont async void, we do pass back"*.
+    /// </remarks>
+    public Task<DemoLoadResult> OpenCommandLineDemo() =>
+        _openOnShow is null ? NothingSelected : LoadDemoAsync(_openOnShow);
+
+    /// <summary>Stops the background corpse pass for the demo and map being closed (D181).</summary>
+    private void StopCorpseRecord()
+    {
+        _corpseRecording?.Cancel();
+        _corpseRecording?.Dispose();
+        _corpseRecording = null;
+    }
+
+    /// <summary>Starts simulating every corpse in the open demo in the background, straight through, for seeks to read (D181).</summary>
+    /// <remarks>
+    /// **The live viewer reads the record the moment it reaches a tick, and D179's replay covers the rest**, so a seek ahead of the
+    /// pass still works — it is only slower. The pass has its own environment and entities and shares nothing writable with the
+    /// render thread: the map's model frames are fixed once the map is read, and the record publishes a tick only after writing it.
+    /// </remarks>
+    private void StartCorpseRecord()
+    {
+        StopCorpseRecord();
+
+        if (_moments.Source is not TimelineMoments source || source.RecordedCorpses() is not { Count: > 0 } corpses)
+        {
+            return;
+        }
+
+        CorpseRecord record = new(corpses);
+        _models.Corpses.Record = record;
+        _corpseRecording = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+
+        Func<string, PropModels.ModelFrames?> geometry = _models.Geometry;
+        Func<float, Tf2DemoSalvage.Animation.Animating.IvpRagdollWorld>? createWorld = _models.Corpses.CreateWorld;
+        Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps surfaces = _models.Corpses.Surfaces;
+        float interval = source.IntervalPerTick;
+        CancellationToken token = _corpseRecording.Token;
+        ILogger log = _renderLog;
+
+        CorpseRecording = Task.Run(
+            () =>
+            {
+                Stopwatch taken = Stopwatch.StartNew();
+                record.Run(geometry, createWorld, surfaces, interval, token);
+                log.LogInformation(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"corpse record: {corpses.Count} bodies to tick {record.Reached} in {taken.Elapsed.TotalSeconds:F1} s"));
+            },
+            token);
+    }
+
+    /// <summary>Cancels the pass on a demo or map change, and on shutdown through <see cref="_shutdown"/>.</summary>
+    private CancellationTokenSource? _corpseRecording;
+
+    /// <summary>The background corpse pass, held so its outcome is observed — a test awaits it, and a fault is not lost (D181).</summary>
+    public Task CorpseRecording { get; private set; } = Task.CompletedTask;
+
+    /// <summary>UIA AutomationId of the loading overlay.</summary>
+    public const string LoadingOverlayId = "LoadingOverlay";
+
+    /// <summary>UIA AutomationId of the loading overlay's stage label.</summary>
+    public const string LoadingStageId = "LoadingStage";
+
+    /// <summary>UIA AutomationId of the loading overlay's progress bar.</summary>
+    public const string LoadingProgressId = "LoadingProgress";
+
+    /// <summary>The overlay's words for the decode.</summary>
+    private const string LoadingDecode = "Decoding the demo";
+
+    /// <summary>The overlay's words for the map read.</summary>
+    private const string LoadingMap = "Loading the map";
+
+    /// <summary>The overlay's words for the model and sound precache.</summary>
+    private const string LoadingAssets = "Loading models and sounds";
+
+    /// <summary>What a demo load is doing, over the viewport.</summary>
+    [SuppressMessage(
+        "Usage",
+        "CA2213:Disposable fields should be disposed",
+        Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
+    private readonly LoadingOverlay _loading = new();
+
+    /// <summary>Asynchronous loads not yet finished; the `--shot` patience waits while any is.</summary>
+    private int _loadsInFlight;
 
     /// <summary>Says a load was overtaken, without touching anything.</summary>
     // The logger is a parameter because this is static (D83).
@@ -2919,6 +3070,10 @@ internal class MainForm : Form, IFrameSteps
         // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
         // so on the async path this finds the work already done.
         DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog);
+
+        // **After the map and the models, because the pass reads both** (D181): the environment is the map's, and a corpse's
+        // bones come from its model.
+        StartCorpseRecord();
 
         _status.Text = _loaded?.Problem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
@@ -5456,6 +5611,11 @@ internal class MainForm : Form, IFrameSteps
             // resumes on this thread to set the status and build geometry; cancelling here is what
             // makes its continuation return instead of writing into a disposed form.
             _shutdown.Cancel();
+
+            // The corpse pass is linked to `_shutdown` and has just been told to stop; its source is ours to release (D181).
+            _corpseRecording?.Dispose();
+            _corpseRecording = null;
+
             // **Timed, because a slow exit is a defect nobody can diagnose from the outside.**
             // Two hundred textures, a lightmap atlas and a swap chain go here, and which of them
             // is slow is not guessable - the log says.

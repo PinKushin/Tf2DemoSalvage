@@ -218,15 +218,22 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
-    public void LoadedDemo_OneFileOnTheCommandLine_IsOpened()
+    public async Task OpenCommandLineDemo_OneFileOnTheCommandLine_OpensIt()
     {
         // The file-association case. Double-clicking a .dem in Explorer has to end with the demo
         // on screen: listing it in a playlist and waiting is not what opening a file means
         // anywhere else, and it is what the viewer used to do.
+        //
+        // **Opened once the window is shown, not in the constructor**, so the loading overlay the
+        // owner asked for is on screen during the decode. `Shown` calls this; the UI suite's whole
+        // session rests on that wiring, since its demo is named on the command line.
         string path = WriteDemo("cp_snakewater_final1", ticks: 22000, seconds: 330f);
 
         using MainForm form = new(path);
 
+        DemoLoadResult result = await form.OpenCommandLineDemo().ConfigureAwait(false);
+
+        result.Loaded.ShouldBeTrue(result.Message);
         form.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_snakewater_final1");
         form.Transport.LastTick.ShouldBe(22000);
     }
@@ -240,6 +247,7 @@ public sealed class LoadedDemoTests
 
         using MainForm form = new(_folder);
 
+        form.OpenCommandLineDemo().Result.Loaded.ShouldBeFalse();
         form.Demo.ShouldBeNull();
         form.Transport.LastTick.ShouldBe(0);
     }
@@ -253,6 +261,7 @@ public sealed class LoadedDemoTests
 
         using MainForm form = new(first, second);
 
+        form.OpenCommandLineDemo().Result.Loaded.ShouldBeFalse();
         form.Demo.ShouldBeNull();
     }
 
