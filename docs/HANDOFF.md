@@ -2,6 +2,20 @@
 
 Written 2026-09-14, superseding the handoff at `e47dc3f1` (same direction, earlier state).
 
+**2026-09-19 — state on `main` (`7cb8e559`), every item gated in three phases and merged:**
+- **B408** hang fixed (one rebased IVP event queue); **B409** gibs simulated, fade over their last second, placement settled
+  (no `placementOrigin` on TF2 player models); the 1 unit/s burst toward `WorldSpaceCenter` is filed, not carried.
+- **D181** background corpse record wired: f12 records 869 bodies in 53 s after load; seeks past it are lookups.
+- **D182** startup splash plus boot time (`startup: window shown N ms`, status bar); demo/map loading overlay; `--measure` and
+  gate phase 3 count real playback only (phase 3 refuses a run with no moment rebuild).
+- **B406** fixed: item-named cosmetics were loaded baked and drawn at the wearer's feet; `DemoModels.Worn` now takes
+  `AllWornIn`.
+- **B407** f12 decode 72 → 53 s; per-load allocation 175 → ~58 GB; live heap during playback 6.4 → 3.66 GB (texture pixels,
+  baked props, both vertex copies released after upload; a later failed upload reloads the map — that path is untested end to
+  end). What remains is what playback reads: sounds, the timeline, the model source frames.
+- **Open, needing the owner**: a faded corpse is never removed from the physics world (the engine releases it on fade), and our
+  fade depends on what the camera saw, which the background record cannot know in advance.
+
 **2026-09-18: the virtual-terrain drop and the drive-together test both pass** — see *Resolved 2026-09-18* below. Branch
 `wip/b369-contact-drops`; Animation.Tests 5313 total, 5312 passed, 1 skipped (after the old solver's deletion).
 
