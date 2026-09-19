@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.SdkReference;
@@ -119,6 +120,41 @@ public sealed class MapAssetsTests
         Directory.CreateDirectory(content);
 
         GameArchives.Open(content).Read("../secret.txt").ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **Pixels are let go once the device has them, and nothing else is** (B407). The map's texture mips were 1.3 GB of the
+    /// viewer's heap after an f12 load, held for a re-upload that only a failed upload ever asks for. Every other field is still
+    /// read afterwards — the world build asks whether a material is translucent — so only the images may go. Loaded fresh, not
+    /// from `MapCache`, because this empties what it loads.
+    /// </remarks>
+    [Test]
+    public void ReleasePixels_OnARealMap_EmptiesEveryImageAndKeepsEverythingElse()
+    {
+        if (GameFolder is not { } game || Path.Combine(game, "maps", "cp_process_final.bsp") is not { } map || !File.Exists(map))
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_final is not installed.");
+            return;
+        }
+
+        MapAssets assets = MapAssets.Load(File.ReadAllBytes(map), GameArchives.Open(game), maximumTextureSize: 64);
+        int count = assets.Textures.Count;
+        int translucent = assets.Textures.Count(texture => texture is { IsTranslucent: true });
+
+        // The control: pixels are there before, or emptying them would prove nothing.
+        assets.Textures.Count(texture => texture is { Image.IsEmpty: false }).ShouldBeGreaterThan(100);
+        assets.Bumps.Count(bump => bump is { Texture.Image.IsEmpty: false }).ShouldBeGreaterThan(0);
+        assets.PixelsReleased.ShouldBeFalse();
+
+        assets.ReleasePixels();
+
+        assets.PixelsReleased.ShouldBeTrue();
+        assets.Textures.Count.ShouldBe(count);
+        assets.Textures.Count(texture => texture is { IsTranslucent: true }).ShouldBe(translucent);
+        assets.Textures.ShouldAllBe(texture => texture == null || texture.Value.Image.IsEmpty);
+        assets.BlendTextures.ShouldAllBe(texture => texture == null || texture.Value.Image.IsEmpty);
+        assets.Bumps.ShouldAllBe(bump => bump == null || bump.Value.Texture.Image.IsEmpty);
+        assets.Details.ShouldAllBe(detail => detail == null || detail.Value.Texture.Image.IsEmpty);
     }
 
     [Test]

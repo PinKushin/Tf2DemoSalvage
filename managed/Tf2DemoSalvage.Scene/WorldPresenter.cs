@@ -12,7 +12,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <summary>What a world upload did, or why it did nothing.</summary>
 /// <param name="Uploaded">Whether geometry reached the device this time.</param>
 /// <param name="Problem">What went wrong, or null when nothing did.</param>
-public readonly record struct WorldUpload(bool Uploaded, string? Problem);
+/// <param name="NeedsReload">The textures must go up again and their pixels were released, so the map has to be read again.</param>
+public readonly record struct WorldUpload(bool Uploaded, string? Problem, bool NeedsReload = false);
 
 /// <summary>Gets a level's world onto the device, and points it at a camera.</summary>
 /// <remarks>
@@ -115,12 +116,22 @@ public sealed class WorldPresenter(ILogger render)
             // or a device that lost them — and both have to be true to skip the work.
             if (!TexturesAreCurrent || !upload.HasWorldTextures)
             {
+                // **Released pixels cannot go up again** (B407): only a failed upload asks twice for one map, and the answer
+                // then is to read the map again, as the engine rebuilds a texture from its file.
+                if (assets.PixelsReleased)
+                {
+                    return new WorldUpload(Uploaded: false, Problem: "Reloading the map's textures…", NeedsReload: true);
+                }
+
                 using (render.Time("uploading textures"))
                 {
                     upload.UploadWorldTextures(assets);
                 }
 
                 TexturesAreCurrent = true;
+
+                // Once the device holds them, the 1.3 GB of pixels an f12 load kept has no reader (B407).
+                assets.ReleasePixels();
             }
 
             // **The camera is a matrix, so a resize is not a rebuild.** The world's vertices are in

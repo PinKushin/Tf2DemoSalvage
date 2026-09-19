@@ -27073,6 +27073,12 @@ largest line is different**: Source does not keep a CPU copy of every texture fo
 the VTF on disk. *Interpolated, not yet read* — the material system's device-lost path must be read before this is built on.
 Matching it would free ~1.3 GB.
 
+**Done the same day**: `MapAssets.ReleasePixels` empties the four texture lists' images once `WorldPresenter` has uploaded
+them, keeping every other field; a later retry that finds them released answers `NeedsReload` and `MainForm` reads the map
+again. Only a failed upload ever asked twice for one map's textures. Live heap during f12 playback 5,995 → 4,710 MB (`Byte[]`
+1,617 → 332 MB); a capture of f12 at 26578 draws the map textured. *Not established*: the reload path has not been exercised
+end to end — no test forces an upload failure after a successful one.
+
 ### B406 OPEN 2026-09-18: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player
