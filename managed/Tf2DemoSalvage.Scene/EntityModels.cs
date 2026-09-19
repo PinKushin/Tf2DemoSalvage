@@ -3568,6 +3568,37 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     public IReadOnlyList<WorldVertex> Vertices => _vertices;
 
+    /// <summary>The global offset of <see cref="Vertices"/>' first element — how many were let go after upload (B407).</summary>
+    /// <remarks>A batch's <c>FirstVertex</c> is global; its vertices are at <c>FirstVertex - VertexBase</c> in <see cref="Vertices"/>.</remarks>
+    public int VertexBase { get; private set; }
+
+    /// <summary>Whether an upload lets go of the vertices it sent — armed once the map's world is on the device.</summary>
+    private bool _releaseOnUpload;
+
+    /// <summary>Lets go of every vertex the device holds, now and after each later upload (B407).</summary>
+    /// <remarks>
+    /// **655 MB on f12, read only to slice each model once for its GPU buffer.** Armed by the window once the map's own copies
+    /// are released too, because a failed world upload clears the renderer and its model buffers together, and the retry then
+    /// reads the map again — whose level shutdown resets this set. Before that nothing is dropped, so a failed first upload can
+    /// still retry from here. Offsets stay global, so batches already recorded keep meaning what they meant.
+    /// </remarks>
+    public void ReleaseUploaded()
+    {
+        _releaseOnUpload = true;
+
+        if (!Grown)
+        {
+            DropVertices();
+        }
+    }
+
+    private void DropVertices()
+    {
+        VertexBase += _vertices.Count;
+        _vertices.Clear();
+        _vertices.TrimExcess();
+    }
+
     /// <summary>Bytes the vertex list's backing array holds, filled or not — for the memory report (B407).</summary>
     public long VertexBytes => (long)_vertices.Capacity * System.Runtime.CompilerServices.Unsafe.SizeOf<WorldVertex>();
 
@@ -4201,6 +4232,8 @@ public sealed class EntityModelSet : IModelBodygroups
     public void LevelShutdown()
     {
         _vertices.Clear();
+        VertexBase = 0;
+        _releaseOnUpload = false;
         _byModel.Clear();
         _frames.Clear();
         _swaps.Clear();
@@ -4383,7 +4416,7 @@ public sealed class EntityModelSet : IModelBodygroups
                 {
                     batches.Add(new WorldBatch(
                         group.Key.Material,
-                        _vertices.Count,
+                        VertexBase + _vertices.Count,
                         group.Value.Count,
                         group.Key.Part,
                         group.Key.Model,
@@ -4528,7 +4561,15 @@ public sealed class EntityModelSet : IModelBodygroups
     public bool Grown { get; private set; }
 
     /// <summary>Notes that the current contents have reached the device.</summary>
-    public void Uploaded() => Grown = false;
+    public void Uploaded()
+    {
+        Grown = false;
+
+        if (_releaseOnUpload)
+        {
+            DropVertices();
+        }
+    }
 
     /// <summary>The running simulation behind every corpse being drawn.</summary>
     /// <remarks>

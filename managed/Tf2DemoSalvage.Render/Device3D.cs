@@ -315,11 +315,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 continue;
             }
 
+            // **Offsets are global and the set may have let go of what was uploaded before** (B407), so the slice starts at
+            // `lowest - VertexBase`. A model not yet uploaded is always in what the set still holds.
             WorldVertex[] own = new WorldVertex[highest - lowest];
+            int from = lowest - models.VertexBase;
 
             for (int at = 0; at < own.Length; at++)
             {
-                own[at] = models.Vertices[lowest + at];
+                own[at] = models.Vertices[from + at];
             }
 
             List<IReadOnlyList<WorldBatch>> rebased = [];

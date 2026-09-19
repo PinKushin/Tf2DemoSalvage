@@ -1795,6 +1795,13 @@ internal class MainForm : Form, IFrameSteps
             _status.Text = problem;
         }
 
+        // **The world is up and the map's copies are gone, so the entity models' can go too** (B407). Armed only now, because a
+        // failure before this point clears the renderer's model buffers and must be able to re-upload from memory.
+        if (result.Uploaded && map?.Assets is { Released: true })
+        {
+            _models.ReleaseUploaded();
+        }
+
         // The textures and props were released after their first upload and a failure cleared them (B407): read the map again.
         if (result.NeedsReload && _demo is { } open)
         {

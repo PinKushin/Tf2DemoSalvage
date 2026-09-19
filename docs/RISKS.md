@@ -27084,6 +27084,13 @@ whose one reader is the world build; the release moved to the END of a successfu
 on the device, and a retry needing either answers `NeedsReload`. Live heap during f12 playback 4,710 → 4,293 MB
 (`PropVertex[]` 962 → 546 MB). A free-camera capture over cp_process_f12 draws the rock, railings, lamp and grates.
 
+**And the entity-model vertex list**: `EntityModelSet.ReleaseUploaded`, armed by the window once `Project` reports the world up
+with the map's copies released, drops every vertex the device holds and advances `VertexBase`; batch offsets stay global and
+`Device3D` slices at `lowest - VertexBase`. Armed only then because a failed world upload clears the renderer's model buffers
+too, and the retry's map read resets the set. Live heap during f12 playback 4,293 → 3,659 MB — **6,403 → 3,659 MB over the day**.
+What remains is mostly what playback reads: decoded sounds (633 MB), the timeline's poses, players and gestures (~1.6 GB), and
+the source model frames (546 MB) that later packs read.
+
 ### B406 OPEN 2026-09-18: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player

@@ -101,5 +101,41 @@ public sealed class PackedModelUploadTests
         reads.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **Once the map's world is up, what the device holds is let go, and offsets stay global** (B407). The packed vertex
+    /// list was 655 MB on f12, read only to slice each model once when it is uploaded. Before arming nothing is dropped — a
+    /// failed first upload still needs every vertex — and after, a model packed later keeps a global offset that resolves
+    /// through <see cref="EntityModelSet.VertexBase"/>.
+    /// </remarks>
+    [Test]
+    public void ReleaseUploaded_ThenPackingAnother_KeepsGlobalOffsetsAndDropsWhatWasUploaded()
+    {
+        EntityModelSet models = new() { Geometry = ModelFramesFixture.OneTriangle };
+
+        models.Precache(["models/a.mdl"]);
+        int first = models.Vertices.Count;
+        models.Uploaded();
+
+        // The control: not armed, so an upload drops nothing.
+        models.Vertices.Count.ShouldBe(first);
+        first.ShouldBeGreaterThan(0);
+
+        models.ReleaseUploaded();
+
+        models.Vertices.ShouldBeEmpty();
+        models.VertexBase.ShouldBe(first);
+
+        models.Precache(["models/b.mdl"]);
+        WorldBatch batch = models.AllFrames("models/b.mdl")[0][0];
+
+        batch.FirstVertex.ShouldBe(first, "offsets stay global across a release");
+        models.Vertices.Count.ShouldBe(batch.VertexCount);
+
+        models.Uploaded();
+
+        models.Vertices.ShouldBeEmpty("armed, every later upload drops what it sent");
+        models.VertexBase.ShouldBe(first + batch.VertexCount);
+    }
+
     private const string Path = "models/props_foliage/grass_02_detailmodel.mdl";
 }
