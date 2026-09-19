@@ -146,4 +146,5 @@
 - [Debug is what the owner runs](debug-is-what-the-owner-runs.md) — D176; Debug is optimized, measure the build the owner looks at, dotnet-trace for a profile.
 - [My own processes are mine](my-own-processes-are-mine.md) — a leftover viewer is almost always my launch; check mine before blaming the owner.
 - [Unread by production is dead](unread-by-production-is-dead.md) — D180; delete with its tests and probes, carry what production uses, port a still-true engine rule first.
+- [Ask what the request is for](ask-what-the-request-is-for.md) — "splash on boot" meant "let me see boot time"; restate the moment in his words.
 - [A measure needs focus](a-measure-needs-focus.md) — ~19 fps at 50 ms with near-zero columns is engine_no_focus_sleep; the owner uses the desktop during the lock.

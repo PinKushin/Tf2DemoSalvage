@@ -964,7 +964,7 @@ internal class MainForm : Form, IFrameSteps
                 : "audio output opened");
 
         Text = "TF2 Demo Salvage";
-        Name = "MainWindow";
+        Name = MainWindowId;
         AccessibleName = "TF2 Demo Salvage viewer";
         Width = 1280;
         Height = 720;
@@ -2864,6 +2864,31 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>The background corpse pass, held so its outcome is observed — a test awaits it, and a fault is not lost (D181).</summary>
     public Task CorpseRecording { get; private set; } = Task.CompletedTask;
+
+    /// <summary>Says how long the program took to put this window on screen, from the process starting (D182).</summary>
+    /// <param name="elapsed">Process start to this window's first <c>Shown</c>.</param>
+    /// <remarks>
+    /// **The owner's reason for a splash was really this number**: *"I just want to see how long our boot time is, and be able to
+    /// notice if it becomes crazy long."* Always logged; shown in the status bar too unless a demo is already opening, whose own
+    /// status matters more.
+    /// </remarks>
+    public void ReportStartup(TimeSpan elapsed)
+    {
+        string started = string.Create(CultureInfo.InvariantCulture, $"Started in {elapsed.TotalSeconds:F2} s.");
+
+        _log.LogInformation("{Message}", $"startup: window shown {elapsed.TotalMilliseconds:F0} ms after the process started");
+
+        if (_loadsInFlight == 0 && _demo is null)
+        {
+            _status.Text = $"{_status.Text} {started}";
+        }
+    }
+
+    /// <summary>UIA AutomationId of this window.</summary>
+    public const string MainWindowId = "MainWindow";
+
+    /// <summary>UIA AutomationId of the window shown while the program starts, before this one (D182).</summary>
+    public const string StartupSplashId = "StartupSplash";
 
     /// <summary>UIA AutomationId of the loading overlay.</summary>
     public const string LoadingOverlayId = "LoadingOverlay";
