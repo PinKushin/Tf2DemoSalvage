@@ -73,4 +73,14 @@ if ($played -lt $Seconds -or $samples -lt ($Seconds - 1)) {
     exit 1
 }
 
-Write-Output "playback-check: $Demo from tick $Tick played $played s in $samples samples and exited on its own."
+# **The samples must be of a demo, not of the loading screen** (D182). The window draws from the moment it opens now, and this
+# check once passed on twenty seconds of frames drawn while the demo was still decoding. A moment is rebuilt only while a demo
+# plays, so a run with no rebuild breakdown among its samples played nothing.
+$rebuilds = ([regex]::Matches($text, 'moment cost, mean over')).Count
+
+if ($rebuilds -lt 1) {
+    Write-Error "playback-check: FAILED - $samples samples and not one moment rebuilt; the demo never played:`n$text"
+    exit 1
+}
+
+Write-Output "playback-check: $Demo from tick $Tick played $played s in $samples samples ($rebuilds rebuild reports) and exited on its own."

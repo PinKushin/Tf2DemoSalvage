@@ -3075,6 +3075,16 @@ internal class MainForm : Form, IFrameSteps
         // bones come from its model.
         StartCorpseRecord();
 
+        // **Where the memory is, once everything is loaded** (B407): the process held ~16 GB after a map load and nobody could say
+        // whether that was the managed heap or native memory (textures, the device). The two numbers answer it.
+        GCMemoryInfo heap = GC.GetGCMemoryInfo();
+        _log.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"memory after load: working set {Environment.WorkingSet / 1048576d:F0} MB, managed heap {heap.HeapSizeBytes / 1048576d:F0} MB " +
+                $"(committed {heap.TotalCommittedBytes / 1048576d:F0} MB, fragmented {heap.FragmentedBytes / 1048576d:F0} MB)"));
+
         _status.Text = _loaded?.Problem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
 
@@ -4398,6 +4408,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Every per-second line this run produced, for <c>--measure</c> to print.</summary>
     private readonly List<string> _measured = [];
 
+    /// <summary>Whether the previous frame had a loaded demo on screen — the first frame after a load is not counted.</summary>
+    private bool _wasOnScreen;
+
     /// <summary>Prints what <c>--measure</c> gathered and closes.</summary>
     /// <remarks>
     /// **To stdout, because the log is buffered.** Reading the log file while the viewer is still
@@ -4761,7 +4774,19 @@ internal class MainForm : Form, IFrameSteps
         // above fires only past 30 ms, so at the 90 fps this actually runs at it never fires and
         // nothing says where the 11 ms goes. Fed here rather than in `BuildOverlay` because this is
         // where the whole frame's phases exist; the overlay only knows its own.
-        _frameSeconds += _clock.LastFrameSeconds;
+        //
+        // **Only once a demo is on screen** (D182). The window draws from the moment it opens now, behind the loading overlay, and
+        // counting those frames spent `--measure 20` — and gate phase 3's whole run — on a demo still decoding. **And not the first
+        // frame after**: the render loop is held off while the map is read, so that frame's duration is the whole wait, and counted it
+        // was the entire measurement in one sample.
+        bool onScreen = _demo is not null && _loadsInFlight == 0;
+
+        if (onScreen && _wasOnScreen)
+        {
+            _frameSeconds += _clock.LastFrameSeconds;
+        }
+
+        _wasOnScreen = onScreen;
 
         if (_frameRateLog.Report(_overlayQuads.LastReading, phases, _frameSeconds) is { } rate)
         {

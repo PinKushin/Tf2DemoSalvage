@@ -27028,6 +27028,11 @@ runs smoothly. Seen before and after B408's fix, so not the hang. *Not establish
 GC headroom never returned. A heap census (`dotnet-gcdump`, not installed) or an allocation trace across the load is the next
 step. *Evidence class: measured (process working set, sampled per second).*
 
+**Managed, not native — measured 2026-09-18** by the viewer's own `memory after load` line (`GC.GetGCMemoryInfo` beside
+`Environment.WorkingSet`, logged at the end of `Apply`), on `demostf-cp_process_f12-2026-08-08-2207.dem`: working set 14,206 MB,
+GC committed 13,243 MB, heap size at the last collection 6,527 MB, fragmented 269 MB. So textures and the device are at most
+about 1 GB of it; the rest is the managed heap, half of it live at the last GC. *Not established*: which types hold the 6.5 GB.
+
 ### B406 OPEN 2026-09-18: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player
