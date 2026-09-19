@@ -13098,6 +13098,25 @@ The full report is on the box at `~/measurements/20260826T192001Z-e93ff35-tf2-au
 Read the survivors rather than chasing the number: some will be equivalent by construction and some
 mark code that does not matter and can go.
 
+**Re-measured 2026-09-19** (`20260918T173001Z-bbb9d56a-tf2-audio`, the box keeps only four runs, all this commit): **45.09 %** —
+339 killed, 135 survived, 411 compile error (B410's Safe Mode, 15 methods), and about 278 **NoCoverage**: mutants in code no
+test executes. Killed + survived alone would score 71.5 %, so **untested code, not weak tests, is most of the loss.** By file
+(no coverage / survived / killed):
+
+| file | none | survived | killed |
+|---|---:|---:|---:|
+| `AudioOutput.cs` | 101 | 2 | 20 |
+| `SoundscapePlacement.cs` | 53 | 0 | 0 |
+| `SoundscapeSystem.cs` | 48 | 4 | 4 |
+| `SoundSample.cs` | 36 | 13 | 56 |
+| `NativeLibraryResolver.cs` | 15 | 18 | 0 |
+| `RiffWave.cs` | 11 | 19 | 32 |
+| `SoundscapeCatalog.cs` | 9 | 8 | 59 |
+| `SoundScript.cs` | 3 | 18 | 35 |
+
+*Next, in order*: `SoundscapePlacement` (no test at all) and `SoundscapeSystem` — pure logic, synthetic fixtures; then the
+mixing arithmetic inside `AudioOutput`, testable apart from the device; then the survivors file by file.
+
 **Do not measure this locally.** A Stryker run takes the machine-wide exclusive lock and ~35 minutes,
 and a competing build failure is scored as a SURVIVING MUTANT rather than as an error. The box
 already runs it daily and keeps 30 runs; read those.
