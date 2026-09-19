@@ -175,11 +175,11 @@ public static class RagdollProps
 
         float fadeTime = gibsOf(model)[gib.EntityIndex - FirstGibEntityIndex - (corpse.EntityIndex * MaximumGibsPerCorpse)].FadeTime;
 
-        // `Gibs`' own test, `(tick - FirstTick) * intervalPerTick > FadeTime`, walked to its last passing tick — so a boundary the
-        // float arithmetic rounds either way lands where the emission does.
+        // `Gibs`' own test, <see cref="Fading"/>, walked to its last passing tick — so a boundary the float arithmetic rounds
+        // either way lands where the emission does, through the second of fade as well (B409).
         int last = corpse.FirstTick;
 
-        while (last < corpse.LastTick && (double)(last + 1 - corpse.FirstTick) * intervalPerTick <= fadeTime)
+        while (last < corpse.LastTick && Fading(fadeTime, (double)(last + 1 - corpse.FirstTick) * intervalPerTick) > 0f)
         {
             last++;
         }
@@ -730,7 +730,12 @@ public static class RagdollProps
 
         for (int piece = 0; piece < count; piece++)
         {
-            if (since > pieces[piece].FadeTime)
+            // **Alive until `fadetime` plus a second, fading through that second** (B409): `StartFadeOut` sets
+            // `m_fDeathTime = curtime + fadeTime + FADEOUT_TIME` and `ClientThink` releases the prop there
+            // (`physpropclientside.cpp:412-433`).
+            float fading = Fading(pieces[piece].FadeTime, since);
+
+            if (fading <= 0f)
             {
                 continue;
             }
@@ -745,6 +750,12 @@ public static class RagdollProps
                     Y = corpse.Y,
                     Z = corpse.Z,
                     Yaw = corpse.Yaw,
+
+                    // `SetRenderMode( kRenderTransTexture )` and `SetRenderColorA( alpha * 256 )` once the fade begins
+                    // (`:420-424`); the byte conversion truncates, and 1.0 exactly — only reachable at the fade's first
+                    // instant — is held at 255 rather than wrapping.
+                    RenderMode = fading < 1f ? RenderTransTexture : 0,
+                    RenderAlpha = fading < 1f ? (byte)Math.Min(255f, fading * 256f) : (byte)255,
                 },
                 ClassName: GibClassName,
                 FirstTick: corpse.FirstTick,
@@ -759,6 +770,17 @@ public static class RagdollProps
 
         return drawn;
     }
+
+    /// <summary>How much of a gib is left: 1 before its <c>fadetime</c>, falling to 0 over the second after — gone at or below 0.</summary>
+    /// <remarks>The one rule both <see cref="Gibs"/> and <see cref="Recorded"/> read, so what is drawn and what is simulated end together.</remarks>
+    private static float Fading(float fadeTime, double since) =>
+        since > fadeTime ? (float)(fadeTime + FadeOutSeconds - since) : 1f;
+
+    /// <summary><c>FADEOUT_TIME</c>: the second a client-side prop fades through after its <c>fadetime</c> (`physpropclientside.cpp:21`).</summary>
+    private const float FadeOutSeconds = 1f;
+
+    /// <summary><c>kRenderTransTexture</c>, the mode a fading client-side prop draws in.</summary>
+    private const int RenderTransTexture = 2;
 
     /// <summary><c>velocity + rndf*velocity</c>, as a factor.</summary>
     private static (float X, float Y, float Z) Jittered((float X, float Y, float Z) velocity, float factor) =>

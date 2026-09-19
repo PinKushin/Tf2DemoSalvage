@@ -323,8 +323,8 @@ public sealed class RagdollPropsTests
     }
 
     /// <remarks>
-    /// **A piece's window closes where <see cref="RagdollProps.Fill"/> stops emitting it**, at its own ten-second <c>fadetime</c>:
-    /// 10 / 0.015 is 666.7 ticks, so 766 is its last. Kept in the world past that, it would collide with corpses that straight-through
+    /// **A piece's window closes where <see cref="RagdollProps.Fill"/> stops emitting it**, at its own ten-second <c>fadetime</c>
+    /// plus the one-second fade (B409): 11 / 0.015 is 733.3 ticks, so 833 is its last. Kept in the world past that, it would collide with corpses that straight-through
     /// play no longer has beside it. Fill itself is the oracle: it draws the piece at the recorded end and not one tick after.
     /// </remarks>
     [Test]
@@ -335,11 +335,46 @@ public sealed class RagdollPropsTests
         IReadOnlyList<RecordedCorpse> recorded = RagdollProps.Recorded([gibbed], Classes, gibsOf: Gibs, intervalPerTick: 0.015f);
 
         recorded.Count.ShouldBe(3);
-        recorded.ShouldAllBe(piece => piece.Corpse.ClassName == RagdollProps.GibClassName && piece.LastTick == 766);
+        recorded.ShouldAllBe(piece => piece.Corpse.ClassName == RagdollProps.GibClassName && piece.LastTick == 833);
 
         List<SceneProp> scene = [];
-        RagdollProps.Fill([gibbed], 766d, Classes, scene, gibsOf: Gibs, intervalPerTick: 0.015f).ShouldBe(3);
-        RagdollProps.Fill([gibbed], 767d, Classes, scene, gibsOf: Gibs, intervalPerTick: 0.015f).ShouldBe(0);
+        RagdollProps.Fill([gibbed], 833d, Classes, scene, gibsOf: Gibs, intervalPerTick: 0.015f).ShouldBe(3);
+        RagdollProps.Fill([gibbed], 834d, Classes, scene, gibsOf: Gibs, intervalPerTick: 0.015f).ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A gib fades over one second after its `fadetime`, it does not vanish** (B409). `C_PhysPropClientside::StartFadeOut`
+    /// sets `m_fDeathTime = curtime + fadeTime + FADEOUT_TIME` (1.0, `physpropclientside.cpp:21,431`), and `ClientThink` then
+    /// draws it `kRenderTransTexture` at `alpha = (m_fDeathTime - curtime) / FADEOUT_TIME`, `SetRenderColorA( alpha * 256 )`
+    /// (`:420-424`). 700 ticks at 0.015 is 10.5 s: half a second into the fade, alpha 0.5, so 128.
+    /// </remarks>
+    [Test]
+    public void Fill_AGibHalfASecondIntoItsFade_DrawsTranslucentAtHalfAlpha()
+    {
+        List<SceneProp> scene = [];
+
+        RagdollProps.Fill(
+            [Corpse(SceneTeams.Blu) with { Gib = true, LastTick = 100000 }],
+            tick: 800d,
+            Classes,
+            scene,
+            gibsOf: Gibs,
+            intervalPerTick: 0.015f)
+            .ShouldBe(3);
+
+        scene.ShouldAllBe(gib => gib.Pose.RenderMode == 2 && gib.Pose.RenderAlpha == 128);
+    }
+
+    /// <remarks>The control: before its `fadetime` a gib is drawn opaque, in the normal render mode.</remarks>
+    [Test]
+    public void Fill_AGibBeforeItsFade_DrawsOpaque()
+    {
+        List<SceneProp> scene = [];
+
+        RagdollProps.Fill(
+            [Corpse(SceneTeams.Blu) with { Gib = true, LastTick = 100000 }], tick: 150d, Classes, scene, gibsOf: Gibs, intervalPerTick: 0.015f);
+
+        scene.ShouldAllBe(gib => gib.Pose.RenderMode == 0 && gib.Pose.RenderAlpha == 255);
     }
 
     /// <summary>Three pieces, standing in for a class model's nine.</summary>
