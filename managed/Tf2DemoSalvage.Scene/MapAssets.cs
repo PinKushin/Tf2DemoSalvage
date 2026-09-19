@@ -705,7 +705,7 @@ public sealed class MapAssets
     /// **Their materials continue the map's own table**, so a prop's material index indexes
     /// <see cref="Textures"/> exactly like a brush face's. That is what lets one renderer draw both.
     /// </remarks>
-    public IReadOnlyList<PropVertex> Props { get; }
+    public IReadOnlyList<PropVertex> Props { get; private set; }
 
     /// <summary>Entity models, in their own coordinates, keyed by path.</summary>
     /// <remarks>
@@ -768,17 +768,19 @@ public sealed class MapAssets
     /// </remarks>
     public IReadOnlyList<MapBump?> Bumps { get; private set; }
 
-    /// <summary>Whether <see cref="ReleasePixels"/> has run — the images are gone and a re-upload needs the map read again.</summary>
-    public bool PixelsReleased { get; private set; }
+    /// <summary>Whether <see cref="ReleaseUploaded"/> has run — pixels and baked props are gone, and a re-upload reads the map again.</summary>
+    public bool Released { get; private set; }
 
-    /// <summary>Lets go of the texture pixels once the device holds them, keeping every other field (B407).</summary>
+    /// <summary>Lets go of what the device now holds — texture pixels and the baked static props — keeping every other field (B407).</summary>
     /// <remarks>
-    /// **1.3 GB of an f12 load was these mips**, kept for a re-upload only a failed upload asks for. Everything but the image
-    /// is still read after the upload — the world build asks whether a material is translucent — so only the images go. A
-    /// caller that needs the pixels again reads the map again, as the engine rebuilds a texture from its file.
+    /// **1.3 GB of an f12 load was texture mips and 416 MB the static props baked into world space**, both kept for a re-upload
+    /// only a failed upload asks for. Everything else is still read — the world build asks whether a material is translucent —
+    /// so only the images and the prop vertices go. A caller that needs them again reads the map again, as the engine rebuilds
+    /// a texture from its file.
     /// </remarks>
-    public void ReleasePixels()
+    public void ReleaseUploaded()
     {
+        Props = [];
         static MapTexture? Bare(MapTexture? texture) =>
             texture is { } present ? present with { Image = TextureImage.None } : null;
 
@@ -786,7 +788,7 @@ public sealed class MapAssets
         BlendTextures = [.. BlendTextures.Select(Bare)];
         Bumps = [.. Bumps.Select(bump => bump is { } present ? present with { Texture = Bare(present.Texture)!.Value } : (MapBump?)null)];
         Details = [.. Details.Select(detail => detail is { } present ? present with { Texture = Bare(present.Texture)!.Value } : (MapDetail?)null)];
-        PixelsReleased = true;
+        Released = true;
     }
 
     /// <summary>The baked reflection for each material, null for those without one.</summary>

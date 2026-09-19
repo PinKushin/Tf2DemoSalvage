@@ -27079,6 +27079,11 @@ again. Only a failed upload ever asked twice for one map's textures. Live heap d
 1,617 → 332 MB); a capture of f12 at 26578 draws the map textured. *Not established*: the reload path has not been exercised
 end to end — no test forces an upload failure after a successful one.
 
+**The baked static props too, the same day**: `ReleaseUploaded` (renamed from `ReleasePixels`) also empties `MapAssets.Props`,
+whose one reader is the world build; the release moved to the END of a successful `Project`, when textures and world are both
+on the device, and a retry needing either answers `NeedsReload`. Live heap during f12 playback 4,710 → 4,293 MB
+(`PropVertex[]` 962 → 546 MB). A free-camera capture over cp_process_f12 draws the rock, railings, lamp and grates.
+
 ### B406 OPEN 2026-09-18: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player

@@ -1795,7 +1795,7 @@ internal class MainForm : Form, IFrameSteps
             _status.Text = problem;
         }
 
-        // The textures were released after their first upload and a failure cleared them (B407): read the map again.
+        // The textures and props were released after their first upload and a failure cleared them (B407): read the map again.
         if (result.NeedsReload && _demo is { } open)
         {
             _log.LogWarning("{Message}", $"world textures lost after their pixels were released; reading {open.MapName} again");
