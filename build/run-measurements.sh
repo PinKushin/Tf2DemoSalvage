@@ -37,6 +37,11 @@ export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"
 # fd 9 — which held the lock long after a finished run in PBJ's experience.
 export MSBUILDDISABLENODEREUSE=1
 
+# Game data for tests that read the installed game (D184).
+# Maps, VPKs and scripts committed to ~/tf2-data on the box; never the Source SDK.
+# Override with TF2_FOLDER=<path> to point elsewhere.
+export TF2_FOLDER="${TF2_FOLDER:-$HOME/tf2-data}"
+
 MODE="${1:-corpus}"
 
 # `fuzz` takes an optional budget between the mode and the flag, so the flag is not always $2.
