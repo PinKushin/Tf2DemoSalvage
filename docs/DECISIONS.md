@@ -4,6 +4,11 @@ Short record of every locked decision from planning, with the reasoning. If you'
 
 ## Adding a decision
 
+**Every entry says where the decision came from** (D183): *Owner-voiced* — he stated it in his own words, which the entry
+quotes — or *Picked from offered options* — he chose from a list the assistant wrote, which the entry names, with the options
+he did not take. A picked decision is only as good as the list: it can leave out the obvious answer, and some were past what
+the owner should have to check, so it is the first thing to re-examine when its premise moves.
+
 **The next number is D44.** Take it from the index below, never by scrolling to the end — entries are
 in the order they were written and the file is not sorted, so the last heading is not the highest
 number. D32 and D33 sit between D34 and D35.
@@ -8401,6 +8406,8 @@ the weapon-attachment rework, is recorded as his guess and has not been checked.
 Valve's assets in a repository meant to be public, and every CI job pays GitHub's free large-file
 download allowance for them.
 
+**Provenance: picked from offered options** (D183), then the source chosen in his own words.
+
 **Protocol 24 needs more snapshots, and the owner chose to get them (2026-09-10/11).** The census found
 every class's arms reordered between the 2013 install and today, and protocol 24 spans both, so the
 protocol cannot pick the table. Asked how to handle it, the owner chose to fetch more snapshots over
@@ -8718,6 +8725,8 @@ Related: D145, D168, B369.
 
 ## D170 — the sibling branch lands on main whole, the unwired B369 port with it (2026-09-13)
 
+**Provenance: picked from offered options** (D183).
+
 **Asked what should land on main** when `fix/vphysics-solid-load-table` was to be merged and pushed, the
 owner chose **"Whole branch"**. The branch carries the loader fix (B404/B405), B403's core mass
 properties, and — merged into it at `ef22e894` — the B369 narrow-phase port up to `875cbf83`, none of
@@ -9000,6 +9009,8 @@ Related: D172, D179.
 
 ## D181 — every corpse is simulated once, in the background, straight through; a seek is a lookup (2026-09-18)
 
+**Provenance: picked from offered options** (D183) — and all three missed that the corpse fade bounds a seek; see D183.
+
 **Supersedes D179's backward-seek replay** (its one-environment rule stands). Offered three ways to make a seek instant — precompute
 in the background, only speed up the step, or checkpoint the world while playing — the owner chose **"Precompute in background"**,
 the recommended option; no further reason given.
@@ -9047,3 +9058,22 @@ no demo is opening. The loading overlay stays, and serves a demo opened after bo
 `LoadDemoAsync`). Measured warm with no demo: window after 1.57 s.
 
 Related: B146, B401.
+
+## D183 — every decision records whether the owner voiced it or picked it from offered options (2026-09-19)
+
+**Owner-voiced.** After a multiple-choice question about faded corpses left out the obvious answer — that the 15-second fade
+bounds a seek's replay, so full Valve parity costs nothing — the owner: *"you need to take into account in the decisions if
+they were decisions i made and voiced myself, and those you gave me a multiple choice for, because those multiple choice
+answers can leave out obvious things, like we just saw now, and sometimes i wont catch them because some of those decisions
+have been a bit over my knowledge level."*
+
+**What it means:** each entry carries a provenance line (the rule is under *Adding a decision* above). A picked decision
+names the options offered and those not taken, and is the first to re-examine when its premise changes. Tagged on
+2026-09-19 by a keyword search, not a full audit of all 168: **D160, D170 and D181 were picked from offered options**; D102 and
+D112, which also followed an offer, are owner-voiced — he declined what was offered and said why. Entries before this one
+that carry no tag are unaudited, not owner-voiced by default.
+
+**D181 is already in question.** It was picked ("Precompute in background", marked Recommended) from three options that all
+missed that the corpse fade bounds a seek to about fifteen seconds of simulation — the reason full Valve parity needs no
+precompute. Whether D181 still earns its cost is measured once faded corpses leave the world (the engine's `EndFadeOut` →
+`ClearRagdoll`), and brought back to the owner with numbers.
