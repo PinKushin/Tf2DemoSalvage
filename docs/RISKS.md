@@ -27012,6 +27012,14 @@ the origin the engine impulses it at 1 unit/s along `WorldSpaceCenter() − orig
 our physics prop has no `WorldSpaceCenter` (the collision OBB centre), and substituting the mass centre would be a different
 quantity. *Evidence class: read from source, measured on shipped models.*
 
+**The fade, carried 2026-09-19.** `C_PhysPropClientside::StartFadeOut` keeps a gib until `fadeTime + FADEOUT_TIME` (1.0) and
+`ClientThink` draws that last second `kRenderTransTexture` at `SetRenderColorA( (deathTime − now) / 1.0 × 256 )`
+(`physpropclientside.cpp:21,404-433`). `RagdollProps.Gibs` now emits a piece until then with that mode and alpha, through one
+`Fading` rule the background record reads too, so the simulated window ends where the drawn one does. The alpha reaches the
+draw through `ComputeFxBlend` (B221). *Not established*: a picture of a fading gib — two cameras missed the pieces.
+**`cl_phys_props_max` (300) stays uncarried and is out of reach**: nine pieces per gibbing, gone within 11 s, needs 34
+gibbings inside 11 s to reach it; f12 has 81 in 26 minutes.
+
 ### B409 (original report)
 
 **The owner, watching `cp_process_f12`:** *"the gibs dont actually ever have physics take over it looks like, so theres just a
