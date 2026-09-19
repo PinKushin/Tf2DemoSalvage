@@ -27047,6 +27047,14 @@ The LZMA window is sized to the output rather than the header's dictionary (77da
 175 → 58 GB allocated per load. **Still open**: the ~10 GB retained, which needs a heap census (`dotnet-gcdump`), not an
 allocation trace.
 
+**Heap census after an f12 load, 2026-09-18** (`dotnet-gcdump`, taken once `memory after load` was logged): 6,714 MB live in
+9.06 M objects. Named by type, the report accounts for only 1,293 MB of it — the tool's per-type lines are not reliable at this
+size (`String` reads 316,180 objects at 22 bytes), so the rest is **not established**. What is: the two largest live objects are
+the CPU copies of the vertices after their GPU upload — `WorldVertex[]` 691 MB (one array of 665 MB, a `List` grown by
+doubling) and `PropVertex[]` 443 MB — and a 67 MB `SceneSoundscape` track. Next: whether anything reads those copies after
+upload (a setting toggle that rebuilds is the likely reader), and a census that attributes the other 5.4 GB (PerfView's heap
+snapshot, or TraceEvent's `GCHeapDump` reader over this dump).
+
 ### B406 OPEN 2026-09-18: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player
