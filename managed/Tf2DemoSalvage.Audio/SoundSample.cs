@@ -138,7 +138,8 @@ public static class SoundSampleReader
             return SoundSampleResult.Refused($"unsupported wave format {wave.Format}");
         }
 
-        if (wave.Channels is < 1 or > 2 || wave.SampleRate <= 0)
+        // Zero channels and a zero rate are refused by RiffWave.Read; only too many can reach here.
+        if (wave.Channels > 2)
         {
             return SoundSampleResult.Refused(
                 $"unusable format: {wave.Channels} channels at {wave.SampleRate} Hz");

@@ -13118,11 +13118,13 @@ test executes. Killed + survived alone would score 71.5 %, so **untested code, n
 mixing arithmetic inside `AudioOutput`, testable apart from the device; then the survivors file by file.
 
 **Done 2026-09-19, not yet re-measured on the box:** `SoundscapePlacementsTests` (13) and four `SoundscapeSystem.Update`
-tests on hand-written entity lumps, and `SoundSampleReadTests` (6) on hand-built waves. Each was sabotaged and reddened.
+tests on hand-written entity lumps. Each was sabotaged and reddened. (A `SoundSampleReadTests` added the same day duplicated
+the existing `SoundSampleReaderTests`, which the search that looked for it missed by grepping the wrong type name; it was
+deleted.)
 **`AudioOutput`'s mixing arithmetic was already tested** (`AudioOutputMixTests` covers `ToStereo16`). Its 101 uncovered mutants
 are the OpenAL device calls, which the box, having no sound device, cannot reach; they are not for a synthetic test.
 **Found while writing:** `SoundSampleReader.FromWave`'s `Channels < 1` and `SampleRate <= 0` arms cannot be reached through
-`Read`, because `RiffWave.Read` refuses both first. Only the `> 2` arm is reachable. *Still open:* the survivors in `RiffWave`,
+`Read`, because `RiffWave.Read` refuses both first. Only the `> 2` arm was reachable, so the other two were deleted (D180). *Still open:* the survivors in `RiffWave`,
 `SoundScript` and `NativeLibraryResolver`.
 
 **Do not measure this locally.** A Stryker run takes the machine-wide exclusive lock and ~35 minutes,

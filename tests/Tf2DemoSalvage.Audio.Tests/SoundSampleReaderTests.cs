@@ -128,6 +128,14 @@ public sealed class SoundSampleReaderTests
     }
 
     [Test]
+    public void Read_ThreeChannels_IsRefusedAsUnusable()
+    {
+        // Zero channels never gets here: RiffWave.Read refuses it first (B217).
+        SoundSampleReader.Read(WaveBytes(16, 3, 22050, [0, 0, 0, 0, 0, 0])).Refusal
+            .ShouldBe("unusable format: 3 channels at 22050 Hz");
+    }
+
+    [Test]
     public void Read_Mp3Bytes_AreRoutedByContentNotByAnyExtension()
     {
         // **The sniff is on the bytes, and this is not academic**: SoundFile serves 60 of the

@@ -1146,8 +1146,9 @@ run Tf2DemoSalvage.Scene.Tests    scene     737
 # its sample cache behind IEngineSound (IEngineSound.h:89-91) and game code asks it, so a window
 # owning one was ours alone — and none of it had a test.
 # 206 on 2026-09-19 (B217): SoundscapePlacementsTests (13), four SoundscapeSystem Update tests and
-# SoundSampleReadTests (6) — synthetic, so the mutation box, which has no TF2, runs them.
-run Tf2DemoSalvage.Audio.Tests    audio     206
+# a three-channel refusal (1) — synthetic, so the mutation box, which has no TF2, runs them.
+# 201, not 206: six SoundSampleReadTests were deleted as duplicates of SoundSampleReaderTests.
+run Tf2DemoSalvage.Audio.Tests    audio     201
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
