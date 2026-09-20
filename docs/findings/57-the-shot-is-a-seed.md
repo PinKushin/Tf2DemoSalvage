@@ -112,6 +112,52 @@ comparison. Comparing in double throughout would clamp on a different set of inp
 
 The warm-up is `NTAB + 7` = 39 iterations filling `m_iv` backwards, which Ghidra shows unrolled eight ways.
 
-*Evidence class: read from the SDK for the call path, read from the shipped binary's disassembly and its memory for every
-constant.* *Not established*: `RandomInt`'s own mapping, and whether `mult_spread_scale_first_shot` appears on any
-weapon a demo in this corpus carries.
+## Normalising the direction is not a division
+
+`fireInfo.m_vecDirShooting.NormalizeInPlace()` reaches `VectorNormalize` (`public/mathlib/vector.h:2239`), and on a PC
+that is the Intel branch:
+
+```cpp
+float sqrlen = vec.LengthSqr() + 1.0e-10f, invlen;
+_SSE_RSqrtInline(sqrlen, &invlen);
+vec.x *= invlen;  vec.y *= invlen;  vec.z *= invlen;
+return sqrlen * invlen;
+```
+
+`_SSE_RSqrtInline` (`vector.h:2224`) is `rsqrtss` plus one Newton step, `x·(3 − x²·a)·0.5`. **Neither half is
+cosmetic.** The `1.0e-10f` is added to the SQUARED length and is the divide-by-zero guard — it is what makes a zero
+direction answer zero instead of `NaN`. And the estimate carries about a part in ten million of error that
+`1/sqrt(len)` does not, so a true reciprocal gives a direction that is right and different in the bits.
+
+Reproduced exactly in `Tf2DemoSalvage.Scene.VectorMath`, `rsqrtss` included, because .NET exposes the same
+instruction as `Sse.ReciprocalSqrtScalar` — the idiom `IvpConstraintGroup` already uses for IVP's own copy of it.
+**Three other readings of this function already exist in the repository** (`PlayerGibs.Unit`, `ViewFrustum`,
+`StudioBones`), each dividing by the length; consolidating them changes what they answer in the last bits and is
+left as its own change.
+
+## What is rebuilt, and what is filed instead
+
+`Tf2DemoSalvage.Scene.FireBulletsSpread.Directions` reproduces the random branch: the per-bullet reseed, the two
+draws per axis, the composition against Valve's own basis and the normalise. **Two of Valve's branches are quoted
+there and deliberately NOT reproduced**, because each needs data this layer does not have:
+
+| branch | `tf_fx_shared.cpp` | what it needs |
+|---|---|---|
+| fixed weapon spread | 314-340 | `DMG_BUCKSHOT` from the weapon script, `nBulletsPerShot > 1`, and the server's `IsFixedWeaponSpreadEnabled` |
+| first-shot accuracy bonus | 344-367 | `m_flLastFireTime` and `curtime`, neither on the wire, plus `mult_spread_scale_first_shot` |
+
+The second one matters more than it looks: when the bonus applies, `flVariance` can be **zero**, and the guard
+`if ( flVariance != 0.f )` then takes no draws at all — the stream is not advanced. A reconstruction that always
+draws would be wrong for exactly the shots a player notices most.
+
+**There is no oracle for this loop, unlike the RNG under it.** `FX_FireBullets` lives in `client.dll` and is not
+exported; calling it would need a live `CTFPlayer`, a weapon-info handle and the entity list. So
+`FireBulletsSpreadConformanceTests` pins the reconstruction's SHAPE — zero spread is the aim vector exactly, a
+shotgun's pellets are a seed run, four draws in the order x, x, y, y, every direction a unit vector — against a
+stream that *is* oracle-verified. That Valve composes them in this order is read from the source above and nothing
+in the suite re-checks it.
+
+*Evidence class: read from the SDK for the call path and the spread loop, read from the shipped binary's
+disassembly and its memory for every RNG constant.* *Not established*: `RandomInt`'s own mapping; whether
+`mult_spread_scale_first_shot` appears on any weapon a demo in this corpus carries; and whether any corpus shot
+takes the fixed-spread branch, which cannot be answered before weapon scripts are read.
