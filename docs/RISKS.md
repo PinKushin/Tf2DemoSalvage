@@ -27049,6 +27049,12 @@ So the scores describe only the methods that survived the cull, and some of the 
 (`out`/`TryGetValue` patterns and partially assigned structs are the likely cause — read each, do not assume). *Evidence
 class: measured (box logs).*
 
+**2026-09-19 — Content module was failing entirely, not just degraded.** Commit `73f9cb8f` added `"StringLiteral"` to
+`Content.Tests/stryker-config.json`'s `ignore-mutations` list to suppress Safe Mode on `string.Create` call sites.
+`StringLiteral` is not a valid mutation type in Stryker 4.16; the valid name is `String`. Stryker aborted with an error
+rather than running, so every `tf2-content` box run since that commit produced no score at all. Fixed in `e85537d5`.
+The table above is from an earlier run, before the suppression was attempted.
+
 ### B409 FIXED 2026-09-18: gibs are never simulated — they hold in the air where the player died
 
 **Fixed**: every TF2 gib model is BAKED (no skeleton; measured on `soldiergib00N.mdl`: prop body, `Skinned` null), so the corpse
