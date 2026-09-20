@@ -238,10 +238,14 @@ public static class BspEntities
 
         foreach (BspEntity entity in entities)
         {
+            // Declare before the compound condition so a mutant that short-circuits past
+            // TryReadVector still compiles — the variable is always assigned, CS0165 never fires.
+            (float X, float Y, float Z) position = default;
+
             if (!entity.TryGetValue("classname", out string? classname) ||
                 !string.Equals(classname, SkyCameraClass, StringComparison.OrdinalIgnoreCase) ||
                 !entity.TryGetValue("origin", out string? origin) ||
-                !TryReadVector(origin, out (float X, float Y, float Z) position))
+                !TryReadVector(origin, out position))
             {
                 continue;
             }
