@@ -123,6 +123,7 @@ public sealed class SceneImage
             (long)entriesAt + ((long)scenes * EntryBytes) > span.Length ||
             HeaderBytes + ((long)stringCount * 4) > span.Length)
         {
+            // Stryker disable once : string mutator wraps the interpolated literal in a ternary that cannot be passed as ref to string.Create, CS1620
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A scene image declaring {scenes:N0} scenes and {stringCount:N0} strings does not " +

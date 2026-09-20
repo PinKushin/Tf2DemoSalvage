@@ -89,11 +89,10 @@ public sealed class DisplacementCollision
                 continue;
             }
 
-            IReadOnlyList<SurfaceVertex> corners;
+            IReadOnlyList<SurfaceVertex>? corners = null;
 
             try
             {
-                // Stryker disable once : removing this assignment leaves 'corners' unassigned, CS0165
                 corners = terrain.ReadTriangles(surface);
             }
             catch (System.IO.InvalidDataException)
@@ -103,7 +102,7 @@ public sealed class DisplacementCollision
                 continue;
             }
 
-            if (corners.Count < 3)
+            if (corners is null || corners.Count < 3)
             {
                 continue;
             }
