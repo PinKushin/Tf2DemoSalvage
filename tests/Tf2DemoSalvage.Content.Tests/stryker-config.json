@@ -27,7 +27,7 @@
     },
     "additional-timeout": 10000,
     "ignore-mutations": [
-      "StringLiteral"
+      "String"
     ]
   }
 }
