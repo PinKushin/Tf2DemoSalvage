@@ -27027,6 +27027,68 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B415 OPEN 2026-09-20: every temp entity but one is decoded and then dropped — no tracers, impacts, explosions or decals
+
+**The owner, listing what he can see missing**: *"we still dont have the hitscan particle stuff either or explosion
+particles or decals when they hit, i think the medibeam is also not drawing, but that might be part of the hitscan bullet
+particle stuff."*
+
+**It is ONE gap, not three, and the data is already on the wire and already decoded.** `svc_TempEntities` is read,
+length-handled across the protocol 23 boundary, and decoded into `DecodedTempEntity` — `SmallMessages.cs` even names its
+contents *"short-lived effects: explosions, tracers, impacts"*. Then `DemoTimeline.RecordGestures` keeps exactly one
+class and throws the rest away:
+
+```csharp
+if (!classNames.TryGetValue(effect.ClassId, out string? className) ||
+    !string.Equals(className, PlayerGestureFeed.EventClassName, StringComparison.Ordinal))
+{
+    continue;                      // ← every explosion, tracer, impact and decal, discarded here
+}
+```
+
+So the decode work is done and nothing consumes it. `DemoScan` collects all of them into `Result.Effects` for the text
+dump, which is the proof the classes are readable; the timeline, which is what the renderer reads, takes one.
+
+**The medibeam is NOT part of this** — the owner guessed it might be, and it is a separate mechanism already filed as
+**B396**: a heal beam is not a temp entity at all but a two-control-point particle effect, control point 0 on the
+medigun's muzzle and control point 1 on `m_hHealingTarget` (`tf_weapon_medigun.cpp`). It needs a decoded
+`m_hHealingTarget`, which nothing decodes, and a particle renderer that can stretch an effect between two independently
+moving entities.
+
+**What the four reports share is the particle subsystem B373 already names.** Tracers, impacts, explosions and the heal
+beam are all particle systems in TF2; only decals are a different mechanism (`TE_WorldDecal` / `TE_Decal`, a projected
+texture — `docs/findings/18-decals.md`, and B68 established the decal path itself works, the walls were missing).
+
+**Censused 2026-09-20, and no probe was needed** — `DemoJsonLinesWriter` already emits every effect with its resolved
+class name, so `tf2demosalvage <demo> -j` answers it. On `demostf-cp_process_f12-2026-08-07.dem`, one 26-minute
+six-versus-six match: **42,188 temp entities, of which the timeline consumes 27,174 and drops 15,014.**
+
+| class | count | |
+|---|---:|---|
+| `CTEPlayerAnimEvent` | 27,174 | the one class consumed — gestures |
+| `CTETFBlood` | 3,343 | |
+| `CTETFExplosion` | 2,786 | the owner's "explosion particles" |
+| `CTEFireBullets` | 2,176 | the owner's "hitscan particle stuff" |
+| `CTEWorldDecal` | 2,167 | the owner's "decals when they hit" |
+| `CTEDust` | 1,970 | |
+| `CTEEffectDispatch` | 1,308 | plus named: `bloodimpact` 246, `Impact` 235, `TFBoltImpact` 133, `Tracer` 45, `TF_3rdPersonMuzzleFlash_SentryGun` 45, `ParticleEffect` 1 |
+| `CTEDecal` | 192 | |
+| `CTEArmorRicochet` | 142 | |
+| `CTESparks` | 101 | |
+| `CTETFParticleEffect` | 70 | |
+| `CTEMetalSparks` | 33 | |
+| `CTESmoke` | 12 | |
+| `CTEPlayerDecal` | 9 | |
+
+**Nothing here is rare, which is the finding.** Each of the owner's three reports fires thousands of times in a single
+match: hitscan is `CTEFireBullets` plus `EffectDispatch(Tracer)` and `(Impact)`, about 2,456; explosions are 2,786;
+decals are `CTEWorldDecal` + `CTEDecal` + `CTEPlayerDecal` = 2,368. This is not a feature that would run and change
+nothing — the failure mode `conditions` was written to catch.
+
+*Not established*: whether the mix holds on other eras. f12 is one modern competitive match, and the era specimens are
+solo recordings with nobody to shoot at, so they cannot answer it (`docs/memory/era-axis-is-measured.md`). *Evidence
+class: measured on one demo.*
+
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
 **The owner, unprompted, while I was measuring something else**: *"for some reason the first person rockets still dont
