@@ -93,7 +93,7 @@ public sealed class DisplacementCollision
 
             try
             {
-                // Stryker disable once all : removing this assignment leaves 'corners' unassigned, CS0165
+                // Stryker disable once : removing this assignment leaves 'corners' unassigned, CS0165
                 corners = terrain.ReadTriangles(surface);
             }
             catch (System.IO.InvalidDataException)

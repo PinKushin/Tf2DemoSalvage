@@ -452,7 +452,7 @@ public static class DmxFile
 
         foreach (DmxElement element in elements)
         {
-            // Stryker disable once all : removing TryGetValue call leaves 'already' undeclared, CS0165
+            // Stryker disable once : removing TryGetValue call leaves 'already' undeclared, CS0165
             byType[element.Type] = byType.TryGetValue(element.Type, out int already)
                 ? already + 1
                 : 1;

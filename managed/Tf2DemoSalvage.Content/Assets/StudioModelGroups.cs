@@ -120,7 +120,7 @@ public sealed class StudioSequenceTable
 
                 // An unnamed sequence cannot be matched by name, so it is kept rather than folded
                 // into whatever other unnamed one came first.
-                // Stryker disable once all : removing TryGetValue leaves 'already' undeclared at lines below, CS0165
+                // Stryker disable once : removing TryGetValue leaves 'already' undeclared at lines below, CS0165
                 if (sequence.Label.Length == 0 ||
                     !byLabel.TryGetValue(sequence.Label, out int already))
                 {

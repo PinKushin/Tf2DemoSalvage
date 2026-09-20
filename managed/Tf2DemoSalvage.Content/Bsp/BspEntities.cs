@@ -54,7 +54,7 @@ public sealed class BspEntity
     /// Every entity in a compiled map has one; empty means the lump held a block that did not, which
     /// is worth reading as "not the class you are looking for" rather than throwing.
     /// </remarks>
-    // Stryker disable once all : removing TryGetValue leaves 'name' undeclared in ternary, CS0165
+    // Stryker disable once : removing TryGetValue leaves 'name' undeclared in ternary, CS0165
     public string ClassName => _values.TryGetValue("classname", out string? name) ? name : string.Empty;
 }
 
@@ -527,7 +527,7 @@ public static class BspEntities
             return false;
         }
 
-        // Stryker disable once all : removing any TryParse leaves x/y/z undeclared at 'vector = (x, y, z)', CS0165
+        // Stryker disable once : removing any TryParse leaves x/y/z undeclared at 'vector = (x, y, z)', CS0165
         if (!float.TryParse(span[parts[0]], CultureInfo.InvariantCulture, out float x) ||
             !float.TryParse(span[parts[1]], CultureInfo.InvariantCulture, out float y) ||
             !float.TryParse(span[parts[2]], CultureInfo.InvariantCulture, out float z))
