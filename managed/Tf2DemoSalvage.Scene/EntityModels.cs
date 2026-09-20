@@ -642,11 +642,16 @@ public sealed class EntityModelSet : IModelBodygroups
         foreach (SceneProp prop in props)
         {
 
+            // Stryker disable all : a mutant that empties the guard body, or that short-circuits
+            // past the TryGetValue, leaves 'skinned' unassigned below (CS0165), and Safe Mode then
+            // drops every mutation in this method — B410.
             if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) ||
                 entry.Skinned is not { } skinned)
             {
                 continue;
             }
+
+            // Stryker restore all
 
             AnimatingEntity animating = EntityFor(prop, skinned);
 

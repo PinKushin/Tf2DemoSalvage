@@ -673,8 +673,14 @@ public static class PropModels
             // animations it plays are in the models it INCLUDES, so a budget computed from the
             // local ones alone says a player is cheap to bake, which is how this first measured.
             List<byte[]> groupModels = [modelFile];
+
+            // Stryker disable all : a mutant wraps the group number in a ternary, and a
+            // target-typed conditional cannot convert inside this tuple literal (CS1503), which
+            // puts the whole method into Safe Mode — B410.
             List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
                 [(0, sequences)];
+
+            // Stryker restore all
 
             foreach (string included in StudioModelGroups.Read(modelFile))
             {
@@ -2570,15 +2576,18 @@ public static class PropModels
         /// </remarks>
         public int RelativeSequence(int relativeTo, int local)
         {
-            // Stryker disable once : a mutant that empties the guard body leaves 'where'
+            // Stryker disable all : a mutant that empties the guard body leaves 'where'
             // unassigned (CS0170 on its 'Group' field), and Safe Mode then drops every mutation
-            // in this method — B410.
+            // in this method — B410. The range form rather than 'disable once', which reaches only
+            // the 'if' itself and left this one still triggering.
             if (Sequences.At(relativeTo) is not { } where)
             {
                 return -1;
             }
 
             (int Group, int Local) key = (where.Group, local);
+
+            // Stryker restore all
 
             if (_relativeSequences.TryGetValue(key, out int found))
             {

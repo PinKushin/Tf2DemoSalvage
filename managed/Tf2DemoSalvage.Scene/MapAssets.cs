@@ -1604,19 +1604,27 @@ public sealed class MapAssets
         // texture with one frame — 292 shipped ones do, the proxy written once for a whole family —
         // and that is a legitimate no-op rather than a fault. A count of materials with frames but
         // no proxy, or the reverse, is what a broken resolve looks like.
+        // Stryker disable all : the Linq mutators rewrite these counts into a call whose result no
+        // longer converts (CS1503), and Safe Mode then drops every mutation in this method — B410.
         assets.LogInformation(
             "{Message}",
             $"{table.AnimationFrames.Count(frames => frames is not null)} materials animate their " +
             $"base texture, {table.AnimationFrames.Sum(frames => frames?.Count ?? 0)} frames in all");
 
+        // Stryker restore all
+
         // **Materials against FILES, because the gap between them is the whole design** (B342).
         // Thousands of materials sharing one 121-frame texture is the case a per-material table
         // would decode thousands of times, and these two numbers are what say the sharing works.
+        // Stryker disable all : same as above — a mutated Linq call's result no longer converts
+        // (CS1503), which puts the whole method into Safe Mode — B410.
         assets.LogInformation(
             "{Message}",
             $"{table.DetailAnimations.Count(path => path is not null)} materials animate a detail " +
             $"texture, across {animatedDetails.Count} files and " +
             $"{animatedDetails.Values.Sum(frames => frames.Count)} frames");
+
+        // Stryker restore all
 
         return new MapAssets(
             table.Textures,
@@ -1988,8 +1996,10 @@ public sealed class MapAssets
         {
             string path = "materials/" + BspCubemaps.TextureName(mapName, placement) + ".vtf";
 
-            // Stryker disable once : a mutant that empties the guard body leaves 'file'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
+            // Stryker disable all : a mutant that empties the guard body leaves 'file' unassigned
+            // at the CubeFaces call below (CS0165), and Safe Mode then drops every mutation in
+            // this method — B410. The range form rather than 'disable once', which reaches only
+            // the 'if' and left this one still triggering — the use is several statements later.
             if (pak.ReadFile(path) is not { } file)
             {
                 // **Expected on some maps rather than a defect.** `Cubemap_AddUnreferencedCubemaps`
@@ -2010,6 +2020,8 @@ public sealed class MapAssets
                 // build would otherwise print hundreds of identical lines.
                 refused++;
             }
+
+            // Stryker restore all
         }
 
         assets.LogInformation(

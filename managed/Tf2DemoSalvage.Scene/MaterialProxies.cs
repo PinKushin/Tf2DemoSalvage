@@ -178,10 +178,12 @@ public static class MaterialProxies
 
         while (at < words.Length)
         {
-            // Stryker disable once : a mutant that turns either '&&' into '||' reaches the
+            // Stryker disable all : a mutant that turns any of these '&&' into '||' reaches the
             // 'centre = read;' / 'scale = read;' / 'translate = read;' assignment without the
             // 'Pair' call that assigns 'read' having run, leaving it unassigned (CS0165), and
-            // Safe Mode then drops every mutation in this method — B410.
+            // Safe Mode then drops every mutation in this method — B410. The range form rather
+            // than 'disable once' because the hazard is in the 'else if' branches too, and 'once'
+            // reaches only the chain's outermost node.
             if (Keyword(words[at], "center") && Pair(words, at, out (float X, float Y) read))
             {
                 centre = read;
@@ -213,6 +215,8 @@ public static class MaterialProxies
                 // after it.
                 at++;
             }
+
+            // Stryker restore all
         }
 
         // **Nothing understood is the identity, which is Valve's fallback for a variable that is not
