@@ -13,14 +13,24 @@ Written 2026-09-14, superseding the handoff at `e47dc3f1` (same direction, earli
 - **B407** f12 decode 72 → 53 s; per-load allocation 175 → ~58 GB; live heap during playback 6.4 → 3.66 GB (texture pixels,
   baked props, both vertex copies released after upload; a later failed upload reloads the map — that path is untested end to
   end). What remains is what playback reads: sounds, the timeline, the model source frames.
-- **Next, decided (owner, 2026-09-19): a faded corpse leaves the physics world, full Valve parity.** The fade is what makes
-  seeks cheap — after a seek `RagdollFade.Rewound` treats every corpse as unseen, so a rebuild needs only deaths in the last
-  15 s, which `CorpsePhysics.Advance` already replays from. The missing piece: `Advance` never removes a corpse that stops being
-  requested; the engine's `EndFadeOut` → `ClearRagdoll` destroys its constraints, then its objects. **IVP has no object removal
-  in the port yet.** The decompile is at `D:\ghidra-proj\out\destroy-chain-dump.txt`: `CPhysicsEnvironment::DestroyObject`
-  `0x180013250`, `DestroyConstraint` `0x180012fe0`, `CPhysicsObject` deleting dtor `0x18001a530` (silent `FUN_180017b40` vs full
-  `FUN_180073700`), core release `FUN_1800791a0`. *Not traced*: how `FUN_180073700`'s neighbour walk reaches the mindist, OV-tree
-  and friction unlinks. Then measure seeks, and bring D181 (a PICKED decision, D183) back to the owner with numbers.
+- **DONE 2026-09-20 — a faded corpse leaves the physics world.** The whole chain is ported and gated: `IvpSimulation.Remove`
+  (`FUN_180073700`), `RemoveConstraints` (`DestroyConstraint`), `IvpRagdoll.Destroy` (`ClearRagdoll`'s constraints-then-objects
+  order) and `CorpsePhysics.Retire`, which takes absence from the moment's list as the fade signal. Both of
+  `FUN_180073700`'s neighbour walks were decompiled first and are written up in `docs/findings/51` (*Removing an object*).
+
+  **Two engine facts that changed the design**, neither of them guessable from the dump alone. Removal is **not** a list-unlink:
+  the engine treats a departing object as one that just went STATIC — freeze, refile, then re-derive each neighbour's pair and
+  contact — so a mindist dies because the re-derivation finds no live partner, which is why the destroy path never calls
+  `IvpMindistManager::Unlink` or `IvpOvTree::Remove`. And `DestroyConstraint`'s notify to each endpoint, which the dump had
+  guessed was `RemoveConstraintNotify` bookkeeping, is **`Wake`** — pinned by hand-disassembling `0x18001e3d0`
+  (`mov rcx,[rcx+0x10]`, `jmp 0x180073a30`). That is what forces constraints-before-objects: waking a body about to go is
+  harmless, waking one already torn down is not.
+
+  **Next, and B413 is the entry for it**: the seek saving is NOT measured. The f12 run after this (259–445 fps from a seek to
+  26578, corpse column 0–0.1 ms) is a single reading with no baseline beside it, so it says "no regression", not "faster".
+  The instrument is a corpse count over a long playback — before, `CorpsePhysics` kept every corpse ever born and the
+  environment grew monotonically; now it should plateau. `Rebuilds`/`BuildingTicks` are already there to take it with. Then
+  bring D181 (a PICKED decision, D183) back to the owner with numbers.
 
 **2026-09-18: the virtual-terrain drop and the drive-together test both pass** — see *Resolved 2026-09-18* below. Branch
 `wip/b369-contact-drops`; Animation.Tests 5313 total, 5312 passed, 1 skipped (after the old solver's deletion).

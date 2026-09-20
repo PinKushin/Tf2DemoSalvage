@@ -27027,6 +27027,30 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B413 OPEN 2026-09-20: a faded corpse now leaves the world, but the seek saving is not yet measured
+
+**The removal chain is ported and B316's blocker is gone** — `IvpSimulation.Remove` (`FUN_180073700`), `RemoveConstraints`
+(`CPhysicsEnvironment::DestroyConstraint`), `IvpRagdoll.Destroy` (`ClearRagdoll`'s constraints-then-objects order) and
+`CorpsePhysics.Retire`, each written from the decompile in `docs/findings/51` (*Removing an object*) and each
+sabotage-verified. Every corpse the moment stops carrying is taken out of the physics environment.
+
+**What IS established:** the bodies genuinely leave, measured through `IvpSimulation.HeldUnits`, which counts units awake
+AND asleep — removing `Ragdoll.Destroy()` from the retire takes it from 0 to 1 and reddens the test. The whole gate is
+green on all three phases, and the viewer plays `demostf-cp_process_f12-2026-08-07.dem` from a seek to tick 26578 at
+259–445 fps over 20 measured seconds with the corpse column at 0–0.1 ms.
+
+**What is NOT established, and it is the reason this entry is open**: that seeks actually got *cheaper*. The owner's
+reason for wanting removal was that the fade is what bounds a rebuild, and nothing here measured a seek before against a
+seek after — the f12 run above is a single reading with no baseline beside it, so it says "no regression", not "faster".
+The instrument that would settle it is a corpse count over a long playback: before this change `CorpsePhysics` kept every
+corpse ever born, so the environment grew monotonically and each rebuild carried the lot; now it should plateau at the
+unfaded set. *That measurement is the next step, and `Rebuilds`/`BuildingTicks` are already on `CorpsePhysics` to take
+it with.*
+
+**Also not established**: the corpse-level behaviour on screen. Nobody has watched a corpse fade on a real demo since
+this landed — the evidence is unit-level throughout. *Evidence class: read from the binary, measured (unit tests with
+sabotage controls, one f12 playback).*
+
 ### B412 FIXED 2026-09-20: the startup-splash UI test sampled for a window that lives under half a second
 
 **`Launch_BeforeTheMainWindow_ShowsTheStartupSplash` fails on `main`**, at `a9f11293`, with *"no startup splash appeared
