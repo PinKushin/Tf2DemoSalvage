@@ -31,6 +31,9 @@ namespace Tf2DemoSalvage.Audio.Tests;
 ///
 /// **No game audio is involved.** Every sample is synthesised, so nothing here depends on an
 /// install — which is the other half of why the boxes could not run the existing audio tests.
+///
+/// The null backend is selected by <see cref="AudioDriverPolicy"/>, which is assembly-scoped because
+/// OpenAL reads the driver list once per process; see that type for what a per-fixture version cost.
 /// </remarks>
 [NonParallelizable]
 public sealed class AudioOutputDeviceTests
@@ -46,21 +49,6 @@ public sealed class AudioOutputDeviceTests
         }
 
         return new SoundSample(44100, 1, samples);
-    }
-
-    /// <remarks>
-    /// **Static because the assembly runs `InstancePerTestCase`** — NUnit rejects an instance
-    /// `[OneTimeSetUp]` in that mode outright, and the failure arrives as every test in the fixture
-    /// erroring rather than as anything about setup.
-    /// </remarks>
-    [OneTimeSetUp]
-    public static void UseTheNullDevice()
-    {
-        // **Set before the first OpenAL call, because the driver list is read once.** OpenAL Soft
-        // reads `ALSOFT_DRIVERS` when the library initialises, so a later change is ignored — which
-        // would leave these tests quietly driving the developer's real sound card and playing a
-        // tone during every run.
-        Environment.SetEnvironmentVariable("ALSOFT_DRIVERS", "null");
     }
 
     private static AudioOutput Open()
