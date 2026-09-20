@@ -27027,6 +27027,41 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B412 OPEN 2026-09-20: the startup-splash UI test asserts a guarantee the splash deliberately does not make
+
+**`Launch_BeforeTheMainWindow_ShowsTheStartupSplash` fails on `main`**, at `a9f11293`, with *"no startup splash appeared
+before the main window"*. Found while running gate phase 2 for an unrelated branch; **confirmed pre-existing by running
+that one test on `main` itself**, where it fails identically. The other 36 UI tests pass, including the splash's two
+siblings. The feature landed 2026-09-18 in `0765a457`, 53 commits back.
+
+**The implementation does not promise the splash ever appears, and says so in code.** `StartupSplash.Open`
+(`StartupSplash.cs:52-96`) starts a background STA thread and returns without waiting; the thread builds the form and
+then checks a flag before showing it:
+
+```csharp
+Volatile.Write(ref splash, made);
+
+if (Volatile.Read(ref closing) == 0)
+{
+    Application.Run(made);
+}
+```
+
+So when the main window's `Shown` calls `closeSplash()` before that thread reaches the check, `Application.Run` is
+skipped and **no splash window is ever created** — which is sensible, since flashing a splash for a 200 ms boot is worse
+than not showing one. The test asserts it unconditionally, so it is the shape
+`docs/memory/a-test-can-outlive-its-design.md` is about: the test blames the app for a demand the design gave up.
+
+*Not established*: whether the splash is now always losing this race or only sometimes, and whether the boot got faster
+since 0765a457 or the race was always there and the test was lucky. **Do not "fix" this by re-running it** — flake is a
+defect here, and this failure is deterministic given a fast enough boot.
+
+**The choice is the owner's, because it is about what he sees**: either the splash is made to appear for a minimum time
+whenever boot exceeds some threshold, or the test asserts the weaker true thing — that the splash appears *when the boot
+is slow enough to need one* — with a slow boot arranged deliberately. The owner's stated want was *"I want to see
+something happening basically immediately after double clicking the program"*, which argues for the first.
+*Evidence class: measured (test run on main), read from source.*
+
 ### B411 OPEN 2026-09-20: the kernel is OOM-killing mutation runs, and a killed run looks like a config error
 
 **Found while waiting on a content run that never produced a `summary.txt`.** The process was simply gone, and `dmesg`
