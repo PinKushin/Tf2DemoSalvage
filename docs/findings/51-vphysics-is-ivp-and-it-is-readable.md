@@ -8462,3 +8462,64 @@ first one's arms, and the boxes passed through each other. *Evidence: read and m
 the engine never produces; the other two were each one layer from a green suite. They were found by hooking the binary at the
 first place its trace and the port's disagreed — the look counter's decay one event early, then the fire routine's length, then
 the impact's arms — and reading the routine there.
+
+## Removing an object, and what it tells its neighbours
+
+**Read 2026-09-20, closing the one gap `docs/HANDOFF.md` left open** (*"Not traced: how `FUN_180073700`'s neighbour walk
+reaches the mindist, OV-tree and friction unlinks"*). The chain above it was already dumped at
+`D:\ghidra-proj\out\destroy-chain-dump.txt`; what follows is the two walks at the bottom of it, decompiled in full.
+
+**The shape is not "unlink from every list".** An object leaving the world is treated as an object that just went STATIC:
+the engine freezes it, re-files it in the broad phase so the neighbours see a settled picture, and then re-derives each
+neighbour's pair and contact against that picture. Deletion is what happens to the pairs that no longer have a live
+partner — it is a *consequence* of the re-derivation, not a list-walk of its own. That is why searching for calls to
+`IvpMindistManager::Unlink` or `IvpOvTree::Remove` from the destroy path finds nothing: they are reached one level down,
+inside the ordinary minimize.
+
+**`FUN_180073700` — the full delete**, taken by `CPhysicsObject`'s deleting destructor (`0x18001a530`) when the object is
+awake and no keep-frozen override applies; the quick path `FUN_180017b40` skips straight to the core's own destructor.
+
+1. Core not asleep (`core[0x1d] & 2` clear) → drop it from the environment's active-core bucket, `FUN_180075610` for the
+   small-array form or `FUN_1800758e0` for the hashed one, chosen on `*env < 8`.
+2. Core awake → **force movement state `0x21` on the core's byte at `+1` and on the object's at `+0xf`**, call
+   `IvpBroadPhase::Refile`, then **restore both bytes**. The freeze is for the refile's duration only.
+3. `FUN_180086500(core)` — the mindist walk.
+4. `FUN_1800788b0(core)` — the contact-point walk.
+5. Dispatch the core's own vtable slot 0.
+
+**`FUN_180086500` — every mindist on this core's OV buckets.** Buckets are `core+0x70`, count `core+0x6a`, walked last
+first; each bucket's mindist list hangs at `+0x40`, and a mindist is reached by the `short` back-offset at `+0x30`.
+Skipping any whose flags meet `& 0x3000`, it takes **the OTHER core** — `mindist[9]+0xe8`, or `mindist[0x10]+0xe8` when
+that one is this core — and then:
+
+- **Neighbour awake** (`& 2` clear) and `core+0x60` null: re-minimize it (`IvpMindistMinimize::Minimize`), and if the
+  result is unfrozen (`& 0xc000` clear) and strictly inside `DAT_18012d65c`, file a contact through
+  `IvpFrictionSystem::LinkContactByCore(mindist, out, out, env, 1)`. If that reports `1`, **wake the neighbour**
+  (`FUN_180078820`) and the walk returns 1.
+- **Neighbour asleep, and this core asleep too**: delete the mindist outright through its own vtable slot 0.
+
+A neighbour that is asleep while this core is awake gets nothing — it is left to the ordinary machinery.
+
+**`FUN_1800788b0` — every contact point on the same buckets** (`+0x50` per bucket, same `short` back-offset at `+3`). It
+pins the friction heap across the whole walk (`env.FrictionHeap+0x20` incremented first, `+4` decremented after, and
+`FUN_180072970` when that reaches zero), and per contact sets `*(contact+0xc0)+0x80 = 1` before branching on the other
+core:
+
+- **Awake**: wake every object in the neighbour core's own buckets — `FUN_180073a30`, which **is `IPhysicsObject::Wake`'s
+  body**, matching the chain already recorded above (`object+0x78 != 8` → `FUN_180078820(core)`, else
+  `FUN_180087e00(env, core)`) — then `IvpContactRecord::Build`, `IvpContactPoint::SetMaterials`, and `FUN_180083a60`,
+  which is the already-ported weigh-as-filed (B369).
+- **Asleep**: `FUN_180083210` then `operator delete` — the contact is gone.
+
+**`FUN_180078460` is a one-line getter**, `return core+0x60`, used only as the guard above; a non-null `+0x60` suppresses
+the re-minimize.
+
+**What this means for the port.** `IvpSimulation` has `Add`, `Wake`, `Sleep`, `Merge` and no `Remove` at all, so the
+sequence has no equivalent anywhere. The order is load-bearing and is the part a from-scratch removal would get wrong:
+the refile happens under a temporary freeze, the neighbour walks run *after* it, and waking a neighbour is something the
+removal DOES rather than something it avoids — a body resting on the corpse that is about to vanish has to be woken, or
+it hangs in the air on a contact whose other half no longer exists.
+
+*Evidence class: read from the shipped binary, decompiled.* *Not established*: the core's own vtable slot 0 — the
+destroy dump could not pin the core vtable to a construction-site literal the way `CPhysicsObject`'s `0x1800ecbf0` was
+pinned, so the final dispatch is read as "the core's destructor" by position rather than by name.
