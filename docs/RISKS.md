@@ -27056,11 +27056,17 @@ than not showing one. The test asserts it unconditionally, so it is the shape
 since 0765a457 or the race was always there and the test was lucky. **Do not "fix" this by re-running it** — flake is a
 defect here, and this failure is deterministic given a fast enough boot.
 
-**The choice is the owner's, because it is about what he sees**: either the splash is made to appear for a minimum time
-whenever boot exceeds some threshold, or the test asserts the weaker true thing — that the splash appears *when the boot
-is slow enough to need one* — with a slow boot arranged deliberately. The owner's stated want was *"I want to see
-something happening basically immediately after double clicking the program"*, which argues for the first.
-*Evidence class: measured (test run on main), read from source.*
+**Settled the same day by the owner, and the reading above is superseded — see D185.** *"really the test should just make
+sure it shows for a millisecond … my pc isnt wuite that fast, but it is close its up for less than half a second"*. So the
+splash DOES appear on his machine, for under half a second, and he is the measurement. The test's demand is right; **the
+20 ms poll over `application.GetAllTopLevelWindows` is failing to observe a window that was there**, which makes this an
+instrument defect rather than a feature one — `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` again.
+
+*Next*, in his order of suspicion: he thinks backgrounding the program is what hid it, so check first whether
+`GetAllTopLevelWindows` enumerates a window belonging to a background process at all, with a control — ask it for the main
+window at the same moment and confirm it answers. Then whether `Name` on a `Form` created on a second STA thread actually
+reaches UIA as `AutomationId`. **Not licensed**: padding the splash's lifetime, or weakening the assertion to pass.
+*Evidence class: measured (test run on main), read from source, owner-observed (the half second).*
 
 ### B411 OPEN 2026-09-20: the kernel is OOM-killing mutation runs, and a killed run looks like a config error
 
