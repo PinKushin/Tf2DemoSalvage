@@ -33,15 +33,36 @@ public sealed class IvpObjectRemovalConformanceTests
     /// <c>FUN_180087e00</c>, which lists the core for the next PSI's revive rather than waking it on the spot.
     /// </remarks>
     [Test]
-    public void Remove_ACoreWhoseContactNeighbourIsAwake_QueuesThatNeighboursRevive()
+    public void Remove_ACoreWhoseContactNeighbourIsInStateEight_QueuesThatNeighboursRevive()
     {
         IvpSimulation simulation = Simulation(out IvpRigidBody going, out IvpRigidBody staying);
         IvpCollisionObject neighbourObject = ContactBetween(going, staying);
+        neighbourObject.MovementState = 8;
 
         simulation.Remove(going);
 
-        neighbourObject.Core.ShouldBe(staying);
         staying.ReviveQueued.ShouldBeTrue("a body resting on the removed one must be woken, not left on a dead contact");
+    }
+
+    /// <remarks>
+    /// The other half of <c>FUN_180073a30</c>, and the control for the test above: an object NOT in state <c>8</c> takes
+    /// <c>FUN_180078820</c> instead, which only resets the core's two anchor times to now — so the rest test cannot call it
+    /// settled on the strength of an anchor older than the contact that has just gone. It is not queued.
+    /// </remarks>
+    [Test]
+    public void Remove_ACoreWhoseContactNeighbourIsNotInStateEight_ResetsThatNeighboursAnchorsWithoutQueueingIt()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody going, out IvpRigidBody staying);
+        IvpCollisionObject neighbourObject = ContactBetween(going, staying);
+        neighbourObject.MovementState = 1;
+        staying.RestAnchorTime = -5d;
+        staying.SettleAnchorTime = -5d;
+
+        simulation.Remove(going);
+
+        staying.RestAnchorTime.ShouldBe(simulation.Now);
+        staying.SettleAnchorTime.ShouldBe(simulation.Now);
+        staying.ReviveQueued.ShouldBeFalse("only a state-8 object joins the revive list");
     }
 
     /// <remarks><c>FUN_1800788b0</c>'s asleep branch: <c>FUN_180083210</c> then <c>operator delete</c> — the contact is gone.</remarks>
@@ -50,11 +71,12 @@ public sealed class IvpObjectRemovalConformanceTests
     {
         IvpSimulation simulation = Simulation(out IvpRigidBody going, out IvpRigidBody staying);
         IvpCollisionObject neighbourObject = ContactBetween(going, staying);
+        IvpCollisionObject goingObject = going.Objects[0];
         staying.Unit!.Asleep();
 
         simulation.Remove(going);
 
-        going.Objects[0].ContactPoints.ShouldBeEmpty("the neighbour is asleep, so the contact is deleted rather than rebuilt");
+        goingObject.ContactPoints.ShouldBeEmpty("the neighbour is asleep, so the contact is deleted rather than rebuilt");
         neighbourObject.ContactPoints.ShouldBeEmpty();
         staying.ReviveQueued.ShouldBeFalse("an asleep neighbour is left asleep");
     }
@@ -72,13 +94,14 @@ public sealed class IvpObjectRemovalConformanceTests
     public void Remove_ACoreThatWasAwake_RestoresTheStateBytesTheRefileForced()
     {
         IvpSimulation simulation = Simulation(out IvpRigidBody going, out _);
+        IvpCollisionObject goingObject = going.Objects[0];
         going.UnitState = 3;
-        going.Objects[0].MovementState = 4;
+        goingObject.MovementState = 4;
 
         simulation.Remove(going);
 
         going.UnitState.ShouldBe(3, "the 0x21 freeze is for the refile's duration only");
-        going.Objects[0].MovementState.ShouldBe(4);
+        goingObject.MovementState.ShouldBe(4);
     }
 
     /// <remarks>
@@ -101,14 +124,18 @@ public sealed class IvpObjectRemovalConformanceTests
             .ShouldContain(staying, "removing one body does not disturb the others");
     }
 
-    /// <summary>A contact between the two bodies, filed on both objects as the engine's buckets hold it.</summary>
+    /// <summary>A contact between the two bodies' objects, filed on both as the engine's buckets hold it.</summary>
+    /// <remarks>
+    /// **The mindist is built, used and then taken back off both objects' synapse lists**, so these tests exercise the CONTACT
+    /// walk (<c>FUN_1800788b0</c>) alone. <see cref="IvpContactPoint"/> needs a linked mindist to take its two records from, but
+    /// leaving it linked would also put the mindist walk (<c>FUN_180086500</c>) in the way, and that one re-minimizes — which
+    /// these synthetic bodies cannot do, having no ledges to stand a synapse on. The mindist walk gets its own coverage from
+    /// <c>RebuildRestingContacts</c>'s existing tests, which is the same routine.
+    /// </remarks>
     private static IvpCollisionObject ContactBetween(IvpRigidBody going, IvpRigidBody staying)
     {
-        IvpCollisionObject goingObject = new() { Core = going };
-        IvpCollisionObject stayingObject = new() { Core = staying };
-
-        going.Objects.Add(goingObject);
-        staying.Objects.Add(stayingObject);
+        IvpCollisionObject goingObject = going.Objects[0];
+        IvpCollisionObject stayingObject = staying.Objects[0];
 
         IvpMindist mindist = new(
             new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
@@ -122,6 +149,9 @@ public sealed class IvpObjectRemovalConformanceTests
 
         IvpLedgeSide side = IvpContactGeometryConformanceTests.Anywhere();
         IvpContactPoint contact = new(mindist, goingObject, side, stayingObject, side, now: 0d);
+
+        goingObject.Synapses.Clear();
+        stayingObject.Synapses.Clear();
 
         goingObject.ContactPoints.AddLast(contact);
         stayingObject.ContactPoints.AddLast(contact);
@@ -150,6 +180,28 @@ public sealed class IvpObjectRemovalConformanceTests
 
         simulation.Add(going);
         simulation.Add(staying);
+
+        // One collision object each, which is what the broad phase files and what the two walks iterate.
+        foreach (IvpRigidBody body in new[] { going, staying })
+        {
+            IvpCollisionObject collisionObject = new() { Core = body };
+
+            body.Objects.Add(collisionObject);
+            simulation.Objects.Add(collisionObject);
+        }
+
+        // **Both woken and taken off the revive list, or two of these tests could not fail.** `Add` puts a body in a SLEEPING
+        // unit and queues its revive for the first PSI (B369) — so a removal that woke nothing would still find
+        // `ReviveQueued` true from creation, and a removal that skipped its walks entirely would be indistinguishable, since
+        // `FUN_180073700` runs them only for an awake core.
+        foreach (IvpRigidBody body in new[] { going, staying })
+        {
+            body.Unit!.Woken();
+            simulation.Units.Sleeping.Remove(body.Unit);
+            simulation.Units.Active.Add(body.Unit);
+            simulation.Environment.ReviveQueue.Remove(body);
+            body.ReviveQueued = false;
+        }
 
         return simulation;
     }
