@@ -27089,6 +27089,35 @@ nothing — the failure mode `conditions` was written to catch.
 solo recordings with nobody to shoot at, so they cannot answer it (`docs/memory/era-axis-is-measured.md`). *Evidence
 class: measured on one demo.*
 
+**The hitscan route, read 2026-09-20 — and it has one blocker that is not in the SDK.** `DT_TEFireBullets`
+(`c_tf_fx.cpp:36`) sends `m_vecOrigin`, `m_vecAngles[0]`, `m_vecAngles[1]`, `m_iWeaponID`, `m_iMode`, `m_iSeed`,
+`m_iPlayer`, `m_flSpread` and `m_bCritical` — **no bullet paths at all**. The client reconstructs every shot:
+`PostDataUpdate` zeroes `m_vecAngles.z` and calls `FX_FireBullets(NULL, m_iPlayer + 1, …)` — note the **`+ 1`**, the wire
+carries the player index one below the entity.
+
+`FX_FireBullets` (`tf_fx_shared.cpp`) then, per bullet of `m_nBulletsPerShot`:
+
+```
+RandomSeed( iSeed );                                  // reseeded EVERY bullet
+x = RandomFloat(-v, v) + RandomFloat(-v, v);          // v = 0.5, or mult_spread_scale_first_shot
+y = RandomFloat(-v, v) + RandomFloat(-v, v);          // two draws each — a triangular distribution
+dir = forward + (x · flSpread · right) + (y · flSpread · up);  normalized
+pPlayer->FireBullet( … );
+++iSeed;                                              // the next bullet's seed
+```
+
+with `fireInfo.m_iTracerFreq = 2` for everything except the minigun — **a tracer on every second bullet**, not every one.
+A buckshot weapon with fixed spread takes a table (`g_vecFixedWpnSpreadPellets`) instead of the random draws.
+
+**So the shot is deterministic given the seed, and reproducing it needs Valve's RNG bit for bit.** `CUniformRandomStream`
+(`public/vstdlib/random.h`) holds `m_idum`, `m_iy` and `m_iv[NTAB]` with `NTAB 32` — the shape of Numerical Recipes'
+`ran1`, a Park–Miller generator with a Bays–Durham shuffle. **The header declares the members and not one constant**, and
+`random.cpp` is not in the SDK: vstdlib ships closed. *Next*: settle the multiplier, modulus and shuffle constants in the
+DISASSEMBLY of `vstdlib.dll` rather than assuming the textbook `ran1` values — `docs/memory/nothing-is-closed.md` is
+about exactly this, and a spread reconstructed from a wrong constant would put every tracer somewhere plausible and
+wrong. The weapon script data (`m_nBulletsPerShot`, range, `m_flSpread`) is a separate input and comes from the shipped
+`tf_weapon_*.txt`, which is game data this project already reads.
+
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
 **The owner, unprompted, while I was measuring something else**: *"for some reason the first person rockets still dont
