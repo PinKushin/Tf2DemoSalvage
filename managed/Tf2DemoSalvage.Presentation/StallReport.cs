@@ -125,14 +125,21 @@ public static class StallReport
 
         if (before is { } start && after is { } end)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             garbage = end.Gen0 == start.Gen0 && end.Gen1 == start.Gen1 && end.Gen2 == start.Gen2
                 ? "; no gc"
                 : string.Create(
                     CultureInfo.InvariantCulture,
                     $"; gc {end.Gen0 - start.Gen0}/{end.Gen1 - start.Gen1}/{end.Gen2 - start.Gen2}" +
                     $" paused {(end.Paused - start.Paused).TotalMilliseconds:0} ms");
+
+            // Stryker restore all
         }
 
+        // Stryker disable all : the same String-mutator hazard as above (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         log.LogWarning(
             "{Message}",
             string.Create(
@@ -145,6 +152,8 @@ public static class StallReport
                 $", hud {Ms(phases.Hud):0.#}" +
                 $", draw {Ms(phases.Draw):0.#}" +
                 $"; unaccounted {Ms(phases.Unaccounted):0.#} ms{garbage}"));
+
+        // Stryker restore all
     }
 
     /// <summary>Reports a scene rebuild that took too long, naming each phase and sub-phase.</summary>
@@ -191,6 +200,9 @@ public static class StallReport
         double rest =
             Ms(phases.Pose) - lighting - viewmodel - simulate - wornLight - reports - setup - skin - corpses;
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         log.LogWarning(
             "{Message}",
             string.Create(
@@ -215,6 +227,8 @@ public static class StallReport
                 $", weapons {Ms(phases.Weapons):0.#}" +
                 $", players {Ms(playerTicks):0.#}" +
                 $"; unaccounted {Ms(phases.Unaccounted):0.#} ms"));
+
+        // Stryker restore all
     }
 
     /// <summary>Reports a sound step that took too long, naming each phase.</summary>
@@ -239,6 +253,9 @@ public static class StallReport
             return;
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         log.LogWarning(
             "{Message}",
             string.Create(
@@ -248,6 +265,8 @@ public static class StallReport
                 $", loops {Ms(phases.Loops):0.#}" +
                 $", soundscape {Ms(phases.Soundscape):0.#}" +
                 $", starting {Ms(phases.Starting):0.#}"));
+
+        // Stryker restore all
     }
 
     /// <summary>Reports a camera step that took too long, naming each piece of it.</summary>
@@ -274,6 +293,9 @@ public static class StallReport
             return;
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         log.LogWarning(
             "{Message}",
             string.Create(
@@ -282,6 +304,8 @@ public static class StallReport
                 $", view {Ms(viewTicks):0.#}" +
                 $", device {Ms(deviceTicks):0.#}" +
                 $", particles {Ms(particleTicks):0.#}"));
+
+        // Stryker restore all
     }
 
     /// <summary>Stopwatch ticks as milliseconds.</summary>

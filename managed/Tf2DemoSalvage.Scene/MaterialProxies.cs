@@ -178,6 +178,10 @@ public static class MaterialProxies
 
         while (at < words.Length)
         {
+            // Stryker disable once : a mutant that turns either '&&' into '||' reaches the
+            // 'centre = read;' / 'scale = read;' / 'translate = read;' assignment without the
+            // 'Pair' call that assigns 'read' having run, leaving it unassigned (CS0165), and
+            // Safe Mode then drops every mutation in this method — B410.
             if (Keyword(words[at], "center") && Pair(words, at, out (float X, float Y) read))
             {
                 centre = read;

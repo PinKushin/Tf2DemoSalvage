@@ -118,9 +118,14 @@ public sealed class FrameLedger
         string playing = context.Playing ? ", playing" : ", paused";
         string flying = context.Flying ? ", flying" : string.Empty;
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         string line = string.Create(
             CultureInfo.InvariantCulture,
             $"{_frames / elapsedSeconds:0.#} frames a second, longest {_longestFrameSeconds * 1000d:0.##} ms{playing}{flying}; drawing {Ms(_drawing):0.#} ms; yielded {_yields} times to {context.YieldedTo}; sampling {Ms(_sampling):0.#} ms, posing {Ms(_posing):0.#} ms (lighting {Ms(context.LightingTicks):0.#} ms) of the second{context.Garbage}");
+
+        // Stryker restore all
 
         _frames = 0;
         _longestFrameSeconds = 0d;

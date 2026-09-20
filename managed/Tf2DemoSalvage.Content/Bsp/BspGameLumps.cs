@@ -76,10 +76,15 @@ public static class BspGameLumps
 
         if (count < 0 || sizeof(int) + ((long)count * EntryBytes) > directory.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"The game lump declares {count:N0} sub-lumps, which do not fit in its " +
                 $"{directory.Length:N0} bytes."));
+
+            // Stryker restore all
         }
 
         List<BspGameLumpEntry> entries = new(count);
@@ -116,10 +121,15 @@ public static class BspGameLumps
     {
         if (entry.Offset < 0 || entry.PackedEnd <= entry.Offset || entry.PackedEnd > file.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Game lump '{entry.Name}' lies at {entry.Offset:N0} to {entry.PackedEnd:N0} of a " +
                 $"{file.Length:N0}-byte file."));
+
+            // Stryker restore all
         }
 
         ReadOnlyMemory<byte> payload = BspLumpData.Read(

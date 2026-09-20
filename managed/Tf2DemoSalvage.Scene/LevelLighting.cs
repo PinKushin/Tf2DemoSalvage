@@ -295,6 +295,9 @@ public sealed class LevelLighting
             return;
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a
+        // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+        // and Safe Mode then drops every mutation in this method — B410.
         _render.LogDebug(
             "{Message}",
             string.Create(
@@ -302,5 +305,7 @@ public sealed class LevelLighting
                 $"light terms at ({x:0},{y:0},{z:0}): bounce {AmbientCube.Luminance(bounced):0.####}, " +
                 $"with direct {AmbientCube.Luminance(lit):0.####}, " +
                 $"{_worldLights.Count} world lights on the map"));
+
+        // Stryker restore all
     }
 }

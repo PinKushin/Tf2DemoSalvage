@@ -91,6 +91,9 @@ public static class DemoModels
             double packedSeconds =
                 (Stopwatch.GetTimestamp() - packedAt) / (double)Stopwatch.Frequency;
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             render.LogInformation(
                 "{Message}",
                 string.Create(
@@ -99,6 +102,8 @@ public static class DemoModels
                     $"({models.Count} packed of {packing.Count} offered, " +
                     $"{attachments} of them item attachments, " +
                     $"{models.Vertices.Count} vertices)"));
+
+            // Stryker restore all
         }
         catch (Exception failure) when (
             failure is InvalidDataException or ArgumentException or KeyNotFoundException)

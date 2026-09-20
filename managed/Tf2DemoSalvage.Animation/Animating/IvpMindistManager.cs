@@ -285,6 +285,8 @@ public sealed class IvpMindistManager
         IvpMindistHullRecord firstRecord = mindist.HullRecord(0);
         IvpMindistHullRecord secondRecord = mindist.HullRecord(1);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'node'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (mindist.ListNode is not { } node || node.List != Exact || firstRecord.ObjectNode is null || secondRecord.ObjectNode is null)
         {
             throw new InvalidOperationException("A mindist that is not exact is unfiled.");
@@ -370,6 +372,8 @@ public sealed class IvpMindistManager
         IvpMindistHullRecord firstRecord = mindist.HullRecord(0);
         IvpMindistHullRecord secondRecord = mindist.HullRecord(1);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'node'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (mindist.ListNode is not { } node || node.List != Invalid || firstRecord.ObjectNode is null || secondRecord.ObjectNode is null)
         {
             throw new InvalidOperationException("A mindist that is not invalid is taken off the invalid list.");

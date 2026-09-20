@@ -243,6 +243,8 @@ public sealed class CorpsePhysics
             _contacts[corpse.EntityIndex] = ragdoll.Contacts;
             Place(corpse, state);
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'entity'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (corpse.Entity is not { } entity)
             {
                 continue;
@@ -384,6 +386,8 @@ public sealed class CorpsePhysics
                 continue;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'start'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Seed(corpse, seconds - ((tick - birth) * interval)) is not { } start)
             {
                 continue;
@@ -439,6 +443,8 @@ public sealed class CorpsePhysics
             return [.. System.Linq.Enumerable.Repeat((spawn.Origin, new Quaternion(x, y, z, w)), corpse.Ragdoll.Elements.Count)];
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'entity'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (corpse.Entity is not { } entity)
         {
             return null;

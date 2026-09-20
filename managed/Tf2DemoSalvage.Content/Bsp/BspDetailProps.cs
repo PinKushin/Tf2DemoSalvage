@@ -356,10 +356,15 @@ public static class BspDetailProps
     {
         if (count < 0 || from + ((long)count * stride) > length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"The detail prop lump declares {count:N0} {what} at {stride} bytes each from " +
                 $"offset {from:N0}, which do not fit in its {length:N0} bytes."));
+
+            // Stryker restore all
         }
     }
 

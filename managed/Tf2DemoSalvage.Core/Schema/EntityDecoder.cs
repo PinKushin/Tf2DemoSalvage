@@ -247,14 +247,24 @@ public sealed class EntityDecoder : IEntityBaselines
 
         for (int i = 0; i < header.UpdatedEntries; i++)
         {
+            // Stryker disable all : a mutant that removes this statement removes the declaration
+            // of 'indexPayloadBits' along with it, so its use below no longer names anything
+            // (CS0103), and Safe Mode then drops every mutation in this method — B410.
             entityIndex += (int)UBitVar.Read(ref reader, out int indexPayloadBits) + 1;
+
+            // Stryker restore all
 
             if (entityIndex is < 0 or >= MaxEntities)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Entity index {entityIndex} is outside 0..{MaxEntities - 1}, so the entity " +
                     $"stream has desynchronised."));
+
+                // Stryker restore all
             }
 
             DecodedEntity entity = ReadEntity(ref reader, entityIndex, indexPayloadBits);
@@ -493,10 +503,15 @@ public sealed class EntityDecoder : IEntityBaselines
                 break;
 
             default:
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Property '{property.Name}' has type {property.Type}, which never appears " +
                     $"in a flattened list - DataTable properties are structure, not values."));
+
+                // Stryker restore all
         }
     }
 
@@ -506,10 +521,15 @@ public sealed class EntityDecoder : IEntityBaselines
     {
         if (flat.ArrayElement is not SendProperty element)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Array property '{flat.Property.Name}' has no element template, so its " +
                 $"elements cannot be encoded."));
+
+            // Stryker restore all
         }
 
         IReadOnlyList<PropertyValue> values = value.AsArray;
@@ -556,10 +576,15 @@ public sealed class EntityDecoder : IEntityBaselines
 
         if (!_entityClasses.TryGetValue(entityIndex, out int existingClass))
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Entity {entityIndex} was updated without ever entering, so its class is " +
                 $"unknown and its properties cannot be sized."));
+
+            // Stryker restore all
         }
 
         return new DecodedEntity(
@@ -616,10 +641,15 @@ public sealed class EntityDecoder : IEntityBaselines
 
             if (classId < 0)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Temp entity {i} carries no class and none preceded it, so there is no " +
                     $"schema to read its properties against."));
+
+                // Stryker restore all
             }
 
             effects.Add(new DecodedTempEntity(
@@ -630,10 +660,15 @@ public sealed class EntityDecoder : IEntityBaselines
         // means the layout above is wrong for this demo rather than the demo being damaged.
         if (reader.BitsRead > lengthBits)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Decoding {effectCount} temp entities consumed {reader.BitsRead} bits of a stated " +
                 $"{lengthBits}."));
+
+            // Stryker restore all
         }
 
         return effects;
@@ -712,14 +747,24 @@ public sealed class EntityDecoder : IEntityBaselines
         // when the flag is clear.
         while (reader.ReadBit())
         {
+            // Stryker disable all : a mutant that removes this statement removes the declaration
+            // of 'indexPayloadBits' along with it, so its use below no longer names anything
+            // (CS0103), and Safe Mode then drops every mutation in this method — B410.
             index += (int)UBitVar.Read(ref reader, out int indexPayloadBits) + 1;
+
+            // Stryker restore all
 
             if (index < 0 || index >= flat.Count)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Property index {index} is past the {flat.Count} properties of class " +
                     $"{classId}, so the entity stream has desynchronised."));
+
+                // Stryker restore all
             }
 
             properties.Add(new DecodedProperty(
@@ -778,10 +823,15 @@ public sealed class EntityDecoder : IEntityBaselines
                 return ReadArray(ref reader, flat, out elementShapes);
 
             default:
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Property '{property.Name}' has type {property.Type}, which never appears " +
                     $"in a flattened list - DataTable properties are structure, not values."));
+
+                // Stryker restore all
         }
     }
 
@@ -790,10 +840,15 @@ public sealed class EntityDecoder : IEntityBaselines
     {
         if (flat.ArrayElement is not SendProperty element)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Array property '{flat.Property.Name}' has no element template, so its " +
                 $"elements cannot be decoded."));
+
+            // Stryker restore all
         }
 
         // The count is sized from the declared maximum, not transmitted at a fixed width.
@@ -802,10 +857,15 @@ public sealed class EntityDecoder : IEntityBaselines
 
         if (count > flat.Property.ElementCount)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Array property '{flat.Property.Name}' declares {count} elements, more than " +
                 $"the {flat.Property.ElementCount} its definition allows."));
+
+            // Stryker restore all
         }
 
         List<PropertyValue> values = new(count);

@@ -176,16 +176,26 @@ internal static class StringTableCodec
 
         if (!isLzss && !isSnappy)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"unknown compression magic 0x{Convert.ToHexString(magic)}"));
+
+            // Stryker restore all
         }
 
         if (compressedSize < MagicBytes || compressedSize - MagicBytes > body.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"compressed size {compressedSize} does not fit in {body.Length} bytes"));
+
+            // Stryker restore all
         }
 
         // The magic counts toward the compressed size, so the payload is what remains after it.
@@ -203,10 +213,15 @@ internal static class StringTableCodec
 
         if (decompressed.Length != decompressedSize)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"decompressed to {decompressed.Length} bytes, not the {decompressedSize} " +
                 $"the table declared"));
+
+            // Stryker restore all
         }
 
         return decompressed;

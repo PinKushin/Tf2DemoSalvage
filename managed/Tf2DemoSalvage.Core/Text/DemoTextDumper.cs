@@ -102,12 +102,23 @@ public static class DemoTextDumper
         WriteField(writer, "Client", header.ClientName);
         WriteField(writer, "Map", header.MapName);
         WriteField(writer, "Game directory", header.GameDirectory);
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         WriteField(writer, "Playback time", string.Create(
             CultureInfo.InvariantCulture, $"{header.PlaybackTimeSeconds:F2} s"));
+
+        // Stryker restore all
         WriteField(writer, "Playback ticks", header.PlaybackTicks.ToString(CultureInfo.InvariantCulture));
         WriteField(writer, "Playback frames", header.PlaybackFrames.ToString(CultureInfo.InvariantCulture));
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         WriteField(writer, "Signon length", string.Create(
             CultureInfo.InvariantCulture, $"{header.SignonLengthBytes} bytes"));
+
+        // Stryker restore all
         writer.WriteLine();
     }
 
@@ -137,9 +148,14 @@ public static class DemoTextDumper
         writer.WriteLine("Command summary");
         foreach ((DemoCommandType type, int count) in counts)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  {WireName(type),-18} {count,10}   {payloadBytes[type],14} payload bytes"));
+
+            // Stryker restore all
         }
 
         writer.WriteLine();
@@ -148,10 +164,16 @@ public static class DemoTextDumper
         // container walk drifts and never lands exactly on the declared frame count. Reporting
         // it in the dump means a human reading the output sees the check, not just the data.
         bool agrees = packets == header.PlaybackFrames;
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"Frame check: {packets} dem_packet vs {header.PlaybackFrames} declared -> " +
             $"{(agrees ? "ok" : "MISMATCH")}"));
+
+        // Stryker restore all
         writer.WriteLine();
     }
 
@@ -193,10 +215,15 @@ public static class DemoTextDumper
                 note = " (bot)";
             }
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  {player.EntityIndex,6}  {player.UserId,6}  {player.Name,-32} " +
                 $"{player.SteamId}{note}"));
+
+            // Stryker restore all
         }
 
         writer.WriteLine();
@@ -230,14 +257,25 @@ public static class DemoTextDumper
         foreach ((int tick, ChatMessage line) in chat.Take(sampleSize))
         {
             string who = string.IsNullOrEmpty(line.From) ? "(server)" : line.From;
+
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"  tick {tick,-8} {who}: {line.Text}"));
+
+            // Stryker restore all
         }
 
         if (chat.Count > sampleSize)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"  ... {chat.Count - sampleSize} more"));
+
+            // Stryker restore all
         }
 
         writer.WriteLine();
@@ -272,18 +310,34 @@ public static class DemoTextDumper
             return;
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         WriteField(writer, "Events", string.Create(
             CultureInfo.InvariantCulture, $"{total} across {counts.Count} types"));
+
+        // Stryker restore all
         writer.WriteLine();
 
         foreach ((string name, int count) in counts.OrderByDescending(e => e.Value).ThenBy(e => e.Key, StringComparer.Ordinal))
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {name,-32} {count,8}"));
+
+            // Stryker restore all
         }
 
         writer.WriteLine();
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"  First {sample.Count} in order:"));
+
+        // Stryker restore all
         writer.WriteLine();
 
         // Same history the kill feed uses, and for the same reason: an event names whoever was
@@ -292,9 +346,14 @@ public static class DemoTextDumper
 
         foreach ((int tick, string name, IReadOnlyList<KeyValuePair<string, object?>> fields) in sample)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  tick {tick,-8} {name,-28} {Describe(fields, byUserId)}"));
+
+            // Stryker restore all
         }
 
         writer.WriteLine();
@@ -361,8 +420,13 @@ public static class DemoTextDumper
                     : field);
             }
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"  tick {tick,-8} {KillFeed.Line(resolved)}"));
+
+            // Stryker restore all
         }
 
         writer.WriteLine();
@@ -437,17 +501,29 @@ public static class DemoTextDumper
     private static void WriteCommandListing(TextWriter writer, IReadOnlyList<DemoCommand> commands)
     {
         writer.WriteLine("Commands");
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"  {"#",8}  {"tick",10}  {"command",-18} {"payload",12}"));
 
+        // Stryker restore all
+
         for (int i = 0; i < commands.Count; i++)
         {
             DemoCommand command = commands[i];
+
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  {i + 1,8}  {command.Tick,10}  {WireName(command.Type),-18} " +
                 $"{command.Payload.Length,12}"));
+
+            // Stryker restore all
         }
     }
 

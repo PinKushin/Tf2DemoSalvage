@@ -116,9 +116,14 @@ public sealed class GarbageCounter
             return string.Empty;
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         return string.Create(
             CultureInfo.InvariantCulture,
             $"; gc {since.Gen0}/{since.Gen1}/{since.Gen2} paused {since.Paused.TotalMilliseconds:0.#} ms" +
             $", allocated {since.Allocated / (double)Megabyte:0.#} MB");
+
+        // Stryker restore all
     }
 }

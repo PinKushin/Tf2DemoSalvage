@@ -61,6 +61,8 @@ public static class IvpDrag
                 return;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'ledge'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (node.Ledge is not { } ledge)
             {
                 return;

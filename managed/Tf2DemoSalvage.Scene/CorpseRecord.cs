@@ -50,6 +50,8 @@ public sealed class CorpseRecord
 
         foreach (RecordedCorpse recorded in _corpses)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'born'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (recorded.Corpse.FirstTick is not { } born || recorded.LastTick < born)
             {
                 throw new ArgumentException("A recorded corpse needs its death tick, and must end after it.", nameof(corpses));
@@ -155,6 +157,8 @@ public sealed class CorpseRecord
     {
         int born = corpse.FirstTick!.Value;
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'state' and 'track'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (corpses.StateOf(corpse.EntityIndex) is not { } state || !_tracks.TryGetValue((corpse.EntityIndex, born), out (Vector3 Position, Quaternion Orientation)[]?[]? track))
         {
             return;

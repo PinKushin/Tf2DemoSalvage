@@ -82,9 +82,14 @@ public static class StudioVertexLighting
 
         if (bytes.Length < HeaderBytes)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A lighting file of {bytes.Length:N0} bytes is too short to hold its header."));
+
+            // Stryker restore all
         }
 
         int version = BinaryPrimitives.ReadInt32LittleEndian(bytes[VersionOffset..]);
@@ -112,16 +117,26 @@ public static class StudioVertexLighting
 
         if (vertexSize is < 4 or > 64)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A lighting file declares {vertexSize:N0} bytes per vertex."));
+
+            // Stryker restore all
         }
 
         if (meshes is < 0 or > MaximumMeshes || vertices < 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A lighting file declares {meshes:N0} meshes and {vertices:N0} vertices."));
+
+            // Stryker restore all
         }
 
         if (HeaderBytes + ((long)meshes * MeshHeaderBytes) > bytes.Length)
@@ -154,9 +169,14 @@ public static class StudioVertexLighting
             if (count < 0 || at < HeaderBytes ||
                 (long)at + ((long)count * vertexSize) > bytes.Length)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+                // and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"A lighting file puts {count:N0} colours at {at:N0} of {bytes.Length:N0} bytes."));
+
+                // Stryker restore all
             }
 
             List<(byte Red, byte Green, byte Blue)> colours = new(count);
@@ -195,7 +215,12 @@ public static class StudioVertexLighting
     {
         ArgumentOutOfRangeException.ThrowIfNegative(propIndex);
 
+        // Stryker disable once : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         yield return string.Create(CultureInfo.InvariantCulture, $"sp_{propIndex}.vhv");
+
+        // Stryker disable once : the same String-mutator/CS1620 shape as the LDR path above.
         yield return string.Create(CultureInfo.InvariantCulture, $"sp_hdr_{propIndex}.vhv");
     }
 }

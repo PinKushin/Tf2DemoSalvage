@@ -37,7 +37,17 @@ nothing it was added for.
   `// Stryker disable all` … `// Stryker restore all`. A comment placed INSIDE an argument list is
   ignored outright; that was tried and the error survived.
 
+**Write `all` on the range form — it is load-bearing, not decoration.** A commit once removed it across
+twenty sites on the reasoning that *"'all' is not a valid mutator name in Stryker 4.16"*, without running
+Stryker. An A/B on two sibling `throw`s in one method, in one run, says otherwise: with `all` the site
+was suppressed and 4 mutants were Ignored; with the bare form the CS1620 came straight back and only 1
+mutant was Ignored. The no-argument form reaches only the statement's outermost node, and the mutant
+that matters is several levels down on an interpolated literal.
+
 Keep the disabled range tight: every mutant inside it is lost, which is the cost of the fix.
+
+A fourth shape turns up too: `while (true)` where the Boolean Literal mutator flips it to `false`, so a
+loop holding the method's only `return` or only assignment never runs (CS0161 / CS0165).
 
 **Fix the `string.Create` family exhaustively, never from the log.** The log names only the FIRST
 trigger in a method, because Safe Mode removes the rest before they can be reported — so a file fixed

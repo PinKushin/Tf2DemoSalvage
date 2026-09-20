@@ -137,6 +137,8 @@ public sealed class IkLocks
         {
             _held[at] = default;
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'bone'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (EffectorOf(locks[at], chains) is not { } bone)
             {
                 continue;
@@ -196,6 +198,8 @@ public sealed class IkLocks
 
         for (int at = 0; at < locks.Count && at < _held.Length; at++)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'bone'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (!_held[at].Held || EffectorOf(locks[at], chains) is not { } bone)
             {
                 continue;

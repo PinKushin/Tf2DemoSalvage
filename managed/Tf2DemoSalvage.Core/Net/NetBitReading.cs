@@ -60,10 +60,15 @@ public static class NetBitReading
         // rather than through this parser's own contract.
         if (bitCount < 0 || bitCount > reader.BitsRemaining)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A body of {bitCount} bits was declared, but the packet holds " +
                 $"{reader.BitsRemaining}."));
+
+            // Stryker restore all
         }
 
         // Stryker disable once Arithmetic: mutating the rounding only over-allocates. The

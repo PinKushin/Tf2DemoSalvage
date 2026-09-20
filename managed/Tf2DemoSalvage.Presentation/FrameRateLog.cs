@@ -107,6 +107,9 @@ public sealed class FrameRateLog
 
         int over = _frames;
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         string line = string.Create(
             CultureInfo.InvariantCulture,
             $"frame rate {frame.Fps} fps ({frame.Low} worst, {frame.High} best)"
@@ -119,6 +122,8 @@ public sealed class FrameRateLog
             + $", hud {Mean(_totals.Hud, over):0.#}"
             + $", draw {Mean(_totals.Draw, over):0.#}"
             + $", unaccounted {Mean(_totals.Unaccounted, over):0.#} ms");
+
+        // Stryker restore all
 
         // **Reset, or every line after the first averages the whole run.** A stall in the opening
         // second would then never wash out, and the number would drift toward a lifetime mean that

@@ -42,8 +42,13 @@ public static class Captures
     /// down, or an automatic shot beside a manual one — and a second-resolution name would have the
     /// second overwrite the first.
     /// </remarks>
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     public static string Name(DateTime when) =>
         string.Create(CultureInfo.InvariantCulture, $"shot-{when:yyyyMMdd-HHmmss-fff}.png");
+
+    // Stryker restore all
 
     /// <summary>Where captures should be written.</summary>
     /// <param name="wanted">The folder the user asked for, or null or blank for none.</param>

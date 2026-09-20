@@ -273,6 +273,8 @@ public sealed class SoundPresenter(
             return;
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'opened'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (sound.Name.Length == 0 || sample(sound.Name) is not { } opened)
         {
             return;

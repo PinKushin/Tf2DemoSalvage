@@ -107,10 +107,15 @@ public static class SteamVoicePayload
     {
         if (body.Length < SteamIdBytes + TailBytes)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A voice payload of {body.Length} bytes is too short to hold a steamID and a " +
                 $"tail, which every packet has."));
+
+            // Stryker restore all
         }
 
         ulong steamId = BinaryPrimitives.ReadUInt64LittleEndian(body);
@@ -145,10 +150,16 @@ public static class SteamVoicePayload
 
                     if (at + length > end)
                     {
+                        // Stryker disable all : the String mutator wraps the interpolated literal
+                        // in a ternary that cannot bind to string.Create's interpolated-string
+                        // handler (CS1620), and Safe Mode then drops every mutation in this
+                        // method — B410.
                         throw new InvalidDataException(string.Create(
                             CultureInfo.InvariantCulture,
                             $"An audio block declares {length} bytes at offset {at}, but only " +
                             $"{end - at} remain before the tail."));
+
+                        // Stryker restore all
                     }
 
                     terminated |= ReadChunks(body.Slice(at, length), chunks);
@@ -157,20 +168,30 @@ public static class SteamVoicePayload
                 }
 
                 default:
+                    // Stryker disable all : the String mutator wraps the interpolated literal in a
+                    // ternary that cannot bind to string.Create's interpolated-string handler
+                    // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                     throw new InvalidDataException(string.Create(
                         CultureInfo.InvariantCulture,
                         $"A voice payload carries sub-packet type 0x{type:X2} at offset " +
                         $"{at - 1}, which is not one this layout knows. Guessing its width " +
                         $"would desynchronise everything after it."));
+
+                    // Stryker restore all
             }
         }
 
         if (at != end)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A voice payload's sub-packets ended at offset {at} rather than {end}, so one " +
                 $"of them was read at the wrong width."));
+
+            // Stryker restore all
         }
 
         return new VoicePacket(
@@ -198,10 +219,15 @@ public static class SteamVoicePayload
 
                 if (at != block.Length)
                 {
+                    // Stryker disable all : the String mutator wraps the interpolated literal in a
+                    // ternary that cannot bind to string.Create's interpolated-string handler
+                    // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                     throw new InvalidDataException(string.Create(
                         CultureInfo.InvariantCulture,
                         $"An audio block's terminator is at offset {at - FieldBytes} with " +
                         $"{block.Length - at} bytes behind it, so it is not a terminator."));
+
+                    // Stryker restore all
                 }
 
                 return true;
@@ -209,10 +235,15 @@ public static class SteamVoicePayload
 
             if (at + ChunkHeaderBytes + length > block.Length)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"An audio chunk at offset {at} declares {length} bytes, which runs past " +
                     $"the {block.Length}-byte block holding it."));
+
+                // Stryker restore all
             }
 
             int sequence = BinaryPrimitives.ReadUInt16LittleEndian(block[(at + FieldBytes)..]);
@@ -224,10 +255,15 @@ public static class SteamVoicePayload
 
         if (at != block.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"An audio block has {block.Length - at} bytes after its last chunk, which is " +
                 $"neither a chunk nor the two-byte terminator."));
+
+            // Stryker restore all
         }
 
         return false;
@@ -237,9 +273,14 @@ public static class SteamVoicePayload
     {
         if (at + FieldBytes > end)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A voice payload ends before {what} that its sub-packet type declares."));
+
+            // Stryker restore all
         }
 
         int value = BinaryPrimitives.ReadUInt16LittleEndian(body[at..]);

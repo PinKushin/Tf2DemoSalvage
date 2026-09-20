@@ -359,6 +359,8 @@ public sealed class ConfigConsole
     /// <param name="key">The key's Source name, such as <c>w</c> or <c>MOUSE1</c>.</param>
     public void KeyDown(string key)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'command'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (CommandFor(key ?? string.Empty) is not { } command)
         {
             return;
@@ -397,11 +399,16 @@ public sealed class ConfigConsole
     /// </remarks>
     public void KeyUp(string key)
     {
+        // Stryker disable all : the condition spans two lines, and a mutant that empties the guard
+        // body leaves 'command' unassigned at its use below (CS0165), and Safe Mode then drops
+        // every mutation in this method — B410.
         if (CommandFor(key ?? string.Empty) is not { } command ||
             !command.StartsWith('+'))
         {
             return;
         }
+
+        // Stryker restore all
 
         Run(string.Concat("-", command.AsSpan(1)), key!, depth: 0);
     }
@@ -803,6 +810,8 @@ public sealed class ConfigConsole
             return;
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'action'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (KeyBindings.ActionOf(command) is not { } action)
         {
             return;

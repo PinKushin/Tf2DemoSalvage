@@ -125,6 +125,8 @@ public static class SchemaClasses
                 return true;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'table'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (!seen.Add(current) || schema.FindTable(current) is not { } table)
             {
                 // A table the schema does not define is not an error: a demo names what it names,

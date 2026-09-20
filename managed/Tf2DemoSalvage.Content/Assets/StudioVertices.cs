@@ -90,9 +90,14 @@ public static class StudioVertices
 
         if (bytes.Length < VvdHeaderStride)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A vertex file of {bytes.Length:N0} bytes is too short to hold its header."));
+
+            // Stryker restore all
         }
 
         if (BinaryPrimitives.ReadInt32LittleEndian(bytes) != VvdIdentifier)
@@ -128,9 +133,14 @@ public static class StudioVertices
 
         if (wanted is < 0 or > MaximumVertices)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A vertex file declares {wanted:N0} vertices at level {lod}."));
+
+            // Stryker restore all
         }
 
         ReadOnlySpan<byte> vertices = Region(bytes, vertexStart, "vertex data");
@@ -161,17 +171,27 @@ public static class StudioVertices
     {
         if (fixups > MaximumVertices)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture, $"A vertex file declares {fixups:N0} fixups."));
+
+            // Stryker restore all
         }
 
         ReadOnlySpan<byte> table = Region(file, fixupStart, "fixup table");
 
         if ((long)fixups * FixupStride > table.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A vertex file declares {fixups:N0} fixups, beyond its own length."));
+
+            // Stryker restore all
         }
 
         List<StudioVertex> assembled = new(wanted);
@@ -200,10 +220,15 @@ public static class StudioVertices
     {
         if (first < 0 || count < 0 || (long)(first + count) * VertexStride > vertices.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A vertex file names vertices {first:N0} to {first + count:N0}, beyond the " +
                 $"{vertices.Length / VertexStride:N0} it holds."));
+
+            // Stryker restore all
         }
 
         List<StudioVertex> range = new(count);
@@ -239,9 +264,14 @@ public static class StudioVertices
     {
         if (start < VvdHeaderStride || start > file.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A vertex file puts its {what} at {start:N0} of {file.Length:N0} bytes."));
+
+            // Stryker restore all
         }
 
         return file[start..];

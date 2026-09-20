@@ -194,6 +194,9 @@ public static class StudioMotion
             // rates exactly as the engine does.
             rate += StudioAnimation.CyclesPerSecond(file, animation) * weight;
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'moved's fields
+            // unassigned at their later use below (CS0170), and Safe Mode then drops every mutation
+            // in this method — B410.
             if (Position(file, animation, 1f) is not { } moved)
             {
                 continue;

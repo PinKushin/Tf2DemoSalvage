@@ -35,8 +35,13 @@ public readonly record struct DemoPosition(int Tick, int LastTick)
 
     /// <summary>The readout as it appears on the transport bar.</summary>
     /// <returns>Text of the form <c>tick 2500 / 8065</c>.</returns>
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     public string Label() =>
         string.Create(CultureInfo.InvariantCulture, $"tick {Tick} / {LastTick}");
+
+    // Stryker restore all
 
     /// <summary>Reads a position back out of a readout.</summary>
     /// <param name="readout">Text produced by <see cref="Label"/>.</param>

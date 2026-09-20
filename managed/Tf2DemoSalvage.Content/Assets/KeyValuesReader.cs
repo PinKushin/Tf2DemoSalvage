@@ -39,6 +39,9 @@ public static class KeyValuesReader
 
         while (true)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'key' unassigned
+            // at its later use (CS0165), and Safe Mode then drops every mutation in this
+            // method — B410.
             if (Token(text, ref at) is not { } key)
             {
                 return;
@@ -61,6 +64,9 @@ public static class KeyValuesReader
 
             int before = at;
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'next' unassigned
+            // at its later use (CS0165), and Safe Mode then drops every mutation in this
+            // method — B410.
             if (Token(text, ref at) is not { } next)
             {
                 _ = visitor(key, null, depth);

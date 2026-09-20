@@ -288,9 +288,15 @@ public static class PlayerProps
         // `C_TFPlayer::ValidateModelIndex` (`c_tf_player.cpp:8998`) takes the model from
         // `GetPlayerClassData( GetDisguiseClass() )` when a spy is disguised and we are on the other
         // team. `Disguise.VisibleClass` is that branch and its `else`.
+        // Stryker disable all : a mutant that turns the last '&&' into '||' can reach
+        // 'appearance.ModelOf(playerClass)' without 'Disguise.VisibleClass' having matched,
+        // leaving 'playerClass' unassigned (CS0165), and Safe Mode then drops every mutation in
+        // this method — B410.
         return player.IsPlaying && player.Drawn && Disguise.VisibleClass(player) is { } playerClass
             ? appearance.ModelOf(playerClass)
             : null;
+
+        // Stryker restore all
     }
 
     /// <summary>Adds a prop for every player who should be drawn.</summary>
@@ -340,11 +346,16 @@ public static class PlayerProps
             // A missing class or model means the install cannot say what they look like, and a prop
             // with no model draws as a missing asset — which reads as a loading fault rather than
             // as a player we could not name.
+            // Stryker disable all : a mutant that empties the guard body leaves 'model' and
+            // 'playerClass' unassigned below (CS0165), and Safe Mode then drops every mutation
+            // in this method — B410.
             if (ModelFor(player, appearance) is not { } model ||
                 player.PlayerClass is not { } playerClass)
             {
                 continue;
             }
+
+            // Stryker restore all
 
             // **What their equipment does to them, before anything else writes a body number**
             // (B352). This is `RecalculatePlayerBodygroups`' own starting point — the field is
@@ -500,6 +511,8 @@ public static class PlayerProps
         {
             SceneGesture gesture = gestures[index];
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'scene'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (gesture.SceneName is not { Length: > 0 } scene)
             {
                 resolved?.Add(gesture);
@@ -519,6 +532,8 @@ public static class PlayerProps
                 }
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'taunt'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (appearance.TauntForScene(scene) is not { Gestures.Count: > 0 } taunt)
             {
                 continue;
@@ -641,11 +656,16 @@ public static class PlayerProps
         {
             SceneProp prop = props[index];
 
+            // Stryker disable all : a mutant that empties the guard body leaves 'item'
+            // unassigned below (CS0165), and Safe Mode then drops every mutation in this
+            // method — B410.
             if (prop.ItemDefinitionIndex is not { } item
                 || (prop.OwnedBy ?? prop.AttachedTo) != player.EntityIndex)
             {
                 continue;
             }
+
+            // Stryker restore all
 
             body = Bodygroup(
                 item, player.ActiveWeapon == prop.EntityIndex, appearance, bodygroups, model, body);

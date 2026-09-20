@@ -56,6 +56,9 @@ public static class EntityAssembly
             return null;
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         List<string> lines =
         [
             string.Create(
@@ -67,22 +70,35 @@ public static class EntityAssembly
                 $"updated={message.UpdatedEntries} bits={message.LengthBits} {{"),
         ];
 
+        // Stryker restore all
+
         foreach (DecodedEntity entity in entities)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             lines.Add(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  entity {entity.EntityIndex} {entity.UpdateType.ToString().ToUpperInvariant()} " +
                 $"class={entity.ClassId} serial={entity.SerialNumber} " +
                 $"ibits={entity.IndexPayloadBits} {{"));
 
+            // Stryker restore all
+
             foreach (DecodedProperty property in entity.Properties)
             {
                 string value = PropertyText.Write(property.Definition, property.Value);
                 string shape = Shape(property);
+
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 lines.Add(string.Create(
                     CultureInfo.InvariantCulture,
                     $"    prop {property.Index}{shape} {property.Definition.OwnerTable}." +
                     $"{property.Definition.Property.Name} {value}"));
+
+                // Stryker restore all
             }
 
             lines.Add("  " + BlockEnd);
@@ -90,7 +106,12 @@ public static class EntityAssembly
 
         foreach (int removed in decoder.RemovedEntities)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             lines.Add(string.Create(CultureInfo.InvariantCulture, $"  removed {removed}"));
+
+            // Stryker restore all
         }
 
         // **The slack is data, not padding, and assuming it away costs a tenth of all snapshots.**
@@ -105,9 +126,14 @@ public static class EntityAssembly
         int slack = message.LengthBits - written;
         if (slack > 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             lines.Add(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  slack {slack} {Convert.ToHexString(Bits(message.Body.Span, written, slack))}"));
+
+            // Stryker restore all
         }
 
         lines.Add(BlockEnd);
@@ -159,6 +185,9 @@ public static class EntityAssembly
             return null;
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         List<string> lines =
         [
             string.Create(
@@ -166,20 +195,33 @@ public static class EntityAssembly
                 $"svc_tempentities count={message.Count} bits={message.BodyBits} {{"),
         ];
 
+        // Stryker restore all
+
         foreach (DecodedTempEntity effect in effects)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             lines.Add(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  effect class={effect.ClassId} delay={Round(effect.DelaySeconds)} {{"));
+
+            // Stryker restore all
 
             foreach (DecodedProperty property in effect.Properties)
             {
                 string value = PropertyText.Write(property.Definition, property.Value);
                 string shape = Shape(property);
+
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 lines.Add(string.Create(
                     CultureInfo.InvariantCulture,
                     $"    prop {property.Index}{shape} {property.Definition.OwnerTable}." +
                     $"{property.Definition.Property.Name} {value}"));
+
+                // Stryker restore all
             }
 
             lines.Add("  " + BlockEnd);
@@ -275,12 +317,17 @@ public static class EntityAssembly
     /// Both parts are choices the sender made that the value cannot recover: which UBitVar bucket
     /// the index delta used, and which components of a coordinate took the narrow integer field.
     /// </remarks>
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     private static string Shape(DecodedProperty property) =>
         property.IndexPayloadBits == 0 && property.CoordShape == 0
             ? string.Empty
             : string.Create(
                 CultureInfo.InvariantCulture,
                 $"/{property.IndexPayloadBits}/{property.CoordShape}");
+
+    // Stryker restore all
 
     /// <summary>Reads a snapshot's lines back into a message.</summary>
     /// <param name="tokens">The <c>svc_packetentities</c> line's tokens.</param>

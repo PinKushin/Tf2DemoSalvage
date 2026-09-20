@@ -77,10 +77,15 @@ public readonly record struct PlayerInfo(
     {
         if (data.Length < RecordBytes)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A userinfo record is {RecordBytes} bytes; this one has {data.Length}. " +
                 $"Reading it anyway would take whatever follows as a Steam id."));
+
+            // Stryker restore all
         }
 
         return new PlayerInfo(

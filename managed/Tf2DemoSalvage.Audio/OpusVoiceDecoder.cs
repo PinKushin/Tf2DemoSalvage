@@ -119,7 +119,9 @@ public sealed class OpusVoiceDecoder : IDisposable
             {
                 // Stryker disable all : the String mutator wraps the interpolated literal in a
                 // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
-                // and Safe Mode then drops every mutation in this method — B410.
+                // and Safe Mode then drops every mutation in this method — B410. The `all` is
+                // load-bearing: without it the comment reaches only the outermost node, which was
+                // measured here and left this very throw still triggering.
                 throw new InvalidOperationException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"A {frame.Length}-byte frame declares {frameCount} frames of " +

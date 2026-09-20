@@ -96,10 +96,15 @@ public sealed class LoadedDemo
 
             if (read < headerBytes.Length)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"'{path}' is {read} bytes, too short to hold a {DemoHeader.SizeBytes}-byte " +
                     $"demo header."));
+
+                // Stryker restore all
             }
         }
 
@@ -127,9 +132,14 @@ public sealed class LoadedDemo
     {
         string measured = LengthWasMeasured ? " (truncated, length measured)" : string.Empty;
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a
+        // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+        // and Safe Mode then drops every mutation in this method — B410.
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{System.IO.Path.GetFileName(Path)} — {MapName}, {Duration:mm\\:ss}, " +
             $"protocol {NetworkProtocol}{measured}");
+
+        // Stryker restore all
     }
 }

@@ -142,6 +142,8 @@ public static class IvpBroadPhase
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(collisionObject);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'node'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (collisionObject.Node is not { } node)
         {
             return;

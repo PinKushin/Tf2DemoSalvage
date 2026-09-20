@@ -125,6 +125,9 @@ public sealed class MomentCostLog
 
         int over = _rebuilds;
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         string line = string.Create(
             CultureInfo.InvariantCulture,
             $"moment cost, mean over {over} rebuilds: {Mean(_total + _sample, over):0.#} ms"
@@ -154,6 +157,8 @@ public sealed class MomentCostLog
             + $"; posed {_drawn / (double)over:0.#} of {_selected / (double)over:0.#} selected"
             + $", {_hidden / (double)over:0.#} hidden by pvs"
             + $", {_unjudged / (double)over:0.#} unjudgeable");
+
+        // Stryker restore all
 
         _rebuilds = 0;
         _sample = 0;

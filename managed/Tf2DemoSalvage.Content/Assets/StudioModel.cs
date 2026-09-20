@@ -342,9 +342,14 @@ public static class StudioModel
 
         if (bytes.Length < HeaderBodyPartIndexOffset + sizeof(int))
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A model of {bytes.Length:N0} bytes is too short to hold its header."));
+
+            // Stryker restore all
         }
 
         if (BinaryPrimitives.ReadInt32LittleEndian(bytes) != Identifier)
@@ -505,10 +510,15 @@ public static class StudioModel
 
             if (offset < 0 || count < 0 || offset + count > vertices)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+                // and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"A mesh claims vertices {offset:N0} to {offset + count:N0} of a model with " +
                     $"{vertices:N0}."));
+
+                // Stryker restore all
             }
 
             into.Add(new StudioMesh(material, firstVertex + offset, count, part, model));
@@ -526,8 +536,13 @@ public static class StudioModel
 
         if (count is < 0 or > MaximumCount)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture, $"A model declares {count:N0} {what}."));
+
+            // Stryker restore all
         }
 
         return count;
@@ -556,9 +571,14 @@ public static class StudioModel
 
         if (start < 0 || start + ((long)count * stride) > file.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A model puts {count:N0} {what} at {start:N0} of {file.Length:N0} bytes."));
+
+            // Stryker restore all
         }
 
         return (int)start;
@@ -569,9 +589,14 @@ public static class StudioModel
     {
         if (at < 0 || at >= file.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A model names a string at {at:N0} of {file.Length:N0} bytes."));
+
+            // Stryker restore all
         }
 
         return ReadFixedString(file[at..]);

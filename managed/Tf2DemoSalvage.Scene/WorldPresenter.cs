@@ -100,11 +100,16 @@ public sealed class WorldPresenter(ILogger render)
     {
         ArgumentNullException.ThrowIfNull(loggers);
 
+        // Stryker disable all : a mutant that empties the guard body leaves 'level' and 'assets'
+        // unassigned below (CS0165), and Safe Mode then drops every mutation in this method —
+        // B410.
         if (map is not { } level || level.Outline.IsEmpty || upload is null ||
             level.Assets is not { } assets || level.Level.Surfaces.Count == 0)
         {
             return new WorldUpload(Uploaded: false, Problem: null);
         }
+
+        // Stryker restore all
 
         try
         {
@@ -143,11 +148,16 @@ public sealed class WorldPresenter(ILogger render)
             // line is the fix working, one of each per resize is not. The viewport size is in both
             // for the same reason — a world built at one size and drawn at another is the defect,
             // and a line naming only the vertex count cannot show it.
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             render.LogInformation(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"camera set for a {viewport.Width}x{viewport.Height} viewport"));
+
+            // Stryker restore all
 
             if (upload.HasWorld)
             {
@@ -161,12 +171,17 @@ public sealed class WorldPresenter(ILogger render)
                 built = level.BuildWorld(loggers);
             }
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             render.LogInformation(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material " +
                     $"batches for a {viewport.Width}x{viewport.Height} viewport"));
+
+            // Stryker restore all
 
             upload.UploadWorldGeometry(built);
 
@@ -196,6 +211,9 @@ public sealed class WorldPresenter(ILogger render)
                 BspEntities.DetailController(level.Level.Entities),
                 level.Assets?.DetailModelNames ?? []);
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             render.LogInformation(
                 "{Message}",
                 culling is null
@@ -203,6 +221,8 @@ public sealed class WorldPresenter(ILogger render)
                     : string.Create(
                         CultureInfo.InvariantCulture,
                         $"world culling ready over {built.FaceSpans.Count} face spans"));
+
+            // Stryker restore all
 
             // **Both are on the device now, so their CPU copies have no reader** (B407): 1.3 GB of texture pixels and 416 MB of
             // baked static props on f12. Last, so a failure anywhere above leaves them for the retry.

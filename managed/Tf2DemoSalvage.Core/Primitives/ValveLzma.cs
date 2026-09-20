@@ -74,18 +74,28 @@ public static class ValveLzma
 
         if (properties.Length < PropertiesBytes)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"An LZMA stream needs {PropertiesBytes} property bytes but only " +
                 $"{properties.Length} are present."));
+
+            // Stryker restore all
         }
 
         if (properties[0] > MaximumPropertiesByte)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{properties[0]} is not an LZMA properties byte: the largest that encodes a real " +
                 $"lc/lp/pb combination is {MaximumPropertiesByte}."));
+
+            // Stryker restore all
         }
 
         if (outputLength == 0)
@@ -110,10 +120,15 @@ public static class ValveLzma
                 // The stream ran out before producing what was promised. Left alone this returns a
                 // buffer whose tail is zeroes, which for geometry means a map that reads as valid
                 // and is quietly wrong - the failure mode this codebase keeps meeting.
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"An LZMA stream promised {outputLength} bytes but produced " +
                     $"{destination.Written}."));
+
+                // Stryker restore all
             }
         }
         catch (Exception failure) when (failure is not InvalidDataException

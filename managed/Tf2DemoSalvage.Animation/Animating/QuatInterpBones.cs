@@ -59,6 +59,8 @@ public static class QuatInterpBones
         ReadOnlySpan<float> parentWorld,
         Span<float> destination)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'triggers'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (rule.Triggers is not { Count: > 0 } triggers)
         {
             return;

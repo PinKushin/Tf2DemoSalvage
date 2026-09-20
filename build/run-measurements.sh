@@ -633,6 +633,27 @@ dotnet tool restore 9>&-
 STRYKER_CONCURRENCY="${STRYKER_CONCURRENCY:-$(nproc)}"
 echo "concurrency: ${STRYKER_CONCURRENCY} of $(nproc) cores"
 
+# A MUTANT THAT ALLOCATES WITHOUT BOUND MUST DIE IN ITS OWN PROCESS, not take the box with it.
+#
+# Measured 2026-09-20 from `dmesg`: the kernel has been OOM-killing these runs, five times in two
+# days and at least once per content slot - "Out of memory: Killed process 1525816 (dotnet)
+# total-vm:39558484kB, anon-rss:16983296kB" on a box with 18 GB. One process, not three, so it is a
+# single test host ballooning rather than concurrency. The run then ends with no summary.txt and no
+# score at all, which reads exactly like the config error B410 already cost us a week to.
+#
+# The cause is inherent to mutation testing rather than a defect here: this code reads sizes out of
+# files (BSP lumps, VTF headers, VPK directories) and checks them, so a mutant that flips one of
+# those guards allocates whatever the field happens to say. That mutant SHOULD be reported killed -
+# an unbounded allocation is precisely the behaviour the guard exists to prevent - and it is only
+# because the allocation escapes to the OS that it kills the measurement instead.
+#
+# 4 GiB, so the three concurrent hosts cannot reach 18 GB between them even at the limit. The cap
+# turns the kernel's OOM into an in-process OutOfMemoryException, which fails that mutant's tests
+# and scores it killed. Stryker's own process is well under this: its footprint is the syntax trees
+# and the report, not the mutants' allocations.
+export DOTNET_GCHeapHardLimit=0x100000000
+echo "per-process heap cap: ${DOTNET_GCHeapHardLimit} (4 GiB)"
+
 set +e
 if [ -n "${MEASURE_TIMEOUT:-}" ]; then
   echo "hard limit: ${MEASURE_TIMEOUT}"

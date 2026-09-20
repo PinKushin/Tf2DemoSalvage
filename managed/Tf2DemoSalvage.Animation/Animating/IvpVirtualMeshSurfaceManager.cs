@@ -109,6 +109,8 @@ public sealed record IvpVirtualMeshSurfaceManager(PhysicsVirtualMesh Mesh, Displ
 
         foreach (int index in found)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'ledge'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (index < first || index >= last || Mesh.Triangles[index].Ledge is not { } ledge)
             {
                 continue;

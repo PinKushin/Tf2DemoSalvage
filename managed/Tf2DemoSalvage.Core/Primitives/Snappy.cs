@@ -76,10 +76,15 @@ public static class Snappy
         if (declaredLength > (uint)int.MaxValue ||
             declaredLength > (uint)compressed.Length * MaxExpansionRatio)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A Snappy stream of {compressed.Length} bytes declares {declaredLength} bytes " +
                 $"of output, which no stream that size can produce."));
+
+            // Stryker restore all
         }
 
         int targetLength = (int)declaredLength;
@@ -140,9 +145,14 @@ public static class Snappy
 
         if (written != targetLength)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Snappy stream ended after {written} of {targetLength} declared bytes."));
+
+            // Stryker restore all
         }
 
         return output;
@@ -182,10 +192,15 @@ public static class Snappy
             // regardless: Need() would refuse it a line later against a buffer this size.
             if (accumulated > int.MaxValue - 1)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"A Snappy literal declares a length of {accumulated} bytes, which cannot be " +
                     $"a real length in a {compressed.Length}-byte stream."));
+
+                // Stryker restore all
             }
 
             length = (int)accumulated;
@@ -214,9 +229,14 @@ public static class Snappy
         // buffer happens to hold, which is a silent wrong answer rather than a failure.
         if (offset <= 0 || offset > written)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Snappy copy offset {offset} is outside the {written} bytes produced so far."));
+
+            // Stryker restore all
         }
 
         if (written + length > targetLength)
@@ -272,15 +292,25 @@ public static class Snappy
         // of them share.
         if ((long)read + count > compressed.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Snappy stream needs {count} bytes at offset {read} but holds " +
                 $"{compressed.Length}."));
+
+            // Stryker restore all
         }
     }
 
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     private static InvalidDataException TooLong(int targetLength) =>
         new(string.Create(
             CultureInfo.InvariantCulture,
             $"Snappy stream produces more than the {targetLength} bytes it declared."));
+
+    // Stryker restore all
 }

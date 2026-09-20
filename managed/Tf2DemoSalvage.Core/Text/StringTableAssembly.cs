@@ -45,6 +45,9 @@ public static class StringTableAssembly
             return null;
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         string head = string.Create(
             CultureInfo.InvariantCulture,
             $"svc_createstringtable {Quote(message.Name)} max={message.MaxEntries} " +
@@ -52,6 +55,8 @@ public static class StringTableAssembly
             $"userbytes={wire.FixedUserDataSizeBytes?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
             $"userbits={wire.FixedUserDataSizeBits} " +
             $"compressed={(message.IsCompressed ? 1 : 0)}");
+
+        // Stryker restore all
 
         // A compressed payload keeps its bits. Everything around it is still worth reading, which
         // is why this is a promotion rather than a raw line.
@@ -79,10 +84,15 @@ public static class StringTableAssembly
             return null;
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         string head = string.Create(
             CultureInfo.InvariantCulture,
             $"svc_updatestringtable table={message.TableId} count={wire.EntryCount} " +
             $"bits={wire.BodyBits}");
+
+        // Stryker restore all
 
         // An update whose table was never seen has no capacity to size its indices against, so
         // its entries were never decoded either.
@@ -188,10 +198,16 @@ public static class StringTableAssembly
         foreach (StringTableEntry entry in entries)
         {
             System.Text.StringBuilder line = new("  entry ");
+
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             line.Append(string.Create(
                 CultureInfo.InvariantCulture,
                 $"index={entry.Index} follows={(entry.FollowsPrevious ? 1 : 0)} " +
                 $"hist={entry.HistoryIndex} copy={entry.CopyLength}"));
+
+            // Stryker restore all
 
             if (entry.Text is not null)
             {

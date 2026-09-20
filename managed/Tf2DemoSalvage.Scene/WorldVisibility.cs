@@ -153,6 +153,8 @@ public sealed class WorldVisibility
             return;
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'split'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (_tree.Node(node) is not { } split)
         {
             return;

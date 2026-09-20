@@ -160,6 +160,8 @@ public sealed class PlaybackPresenter
     /// </remarks>
     public void Advance()
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'clock'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (!_view.Playing || _clock is not { } clock)
         {
             return;
@@ -190,6 +192,8 @@ public sealed class PlaybackPresenter
 
     private void OnScrubbed(object? sender, TickEventArgs e)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'clock'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (_clock is not { } clock)
         {
             return;
@@ -216,6 +220,8 @@ public sealed class PlaybackPresenter
 
     private void OnSpeedChanged(object? sender, SpeedEventArgs e)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'clock'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (_clock is not { } clock)
         {
             return;

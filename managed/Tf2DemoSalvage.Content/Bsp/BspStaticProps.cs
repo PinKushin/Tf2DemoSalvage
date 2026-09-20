@@ -182,9 +182,14 @@ public static class BspStaticProps
 
         if ((long)leaves * sizeof(ushort) > payload.Length - at)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"The static prop lump declares {leaves:N0} leaf entries, beyond its own length."));
+
+            // Stryker restore all
         }
 
         at += leaves * sizeof(ushort);
@@ -203,20 +208,30 @@ public static class BspStaticProps
         // wrote, and a wrong reading does not divide exactly.
         if (remaining % props != 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{remaining:N0} bytes of static prop data do not divide into {props:N0} " +
                 $"placements."));
+
+            // Stryker restore all
         }
 
         int stride = remaining / props;
 
         if (stride is < MinimumPropStride or > MaximumPropStride)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Static prop version {version} implies a {stride:N0}-byte placement, which is " +
                 $"not one."));
+
+            // Stryker restore all
         }
 
         List<BspStaticProp> placements = new(props);
@@ -229,9 +244,14 @@ public static class BspStaticProps
 
             if (type >= models.Length)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+                // and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Static prop {index} names model {type} of {models.Length:N0}."));
+
+                // Stryker restore all
             }
 
             placements.Add(new BspStaticProp(
@@ -298,9 +318,14 @@ public static class BspStaticProps
 
         if ((long)count * ModelNameBytes > payload.Length - at)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"The static prop lump declares {count:N0} model names, beyond its own length."));
+
+            // Stryker restore all
         }
 
         string[] models = new string[count];
@@ -333,9 +358,14 @@ public static class BspStaticProps
 
         if (count < 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"The static prop lump declares {count:N0} {what} entries."));
+
+            // Stryker restore all
         }
 
         at += sizeof(int);

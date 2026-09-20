@@ -328,6 +328,10 @@ public sealed class IvpOvTree
         int keyY;
         int keyZ;
 
+        // Stryker disable all : the Boolean Literal mutator flips this loop's 'true' to 'false',
+        // so the loop — which holds the only assignment to 'keyX', 'keyY' and 'keyZ' — never runs
+        // and the reads of them below are unassigned (CS0165), and Safe Mode then drops every
+        // mutation in this method — B410.
         while (true)
         {
             double scale = LevelTable(41 - exponent);
@@ -344,6 +348,8 @@ public sealed class IvpOvTree
 
             exponent++;
         }
+
+        // Stryker restore all
 
         if (radius >= outerRadius)
         {

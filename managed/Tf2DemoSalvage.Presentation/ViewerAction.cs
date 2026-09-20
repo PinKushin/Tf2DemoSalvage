@@ -502,6 +502,8 @@ public sealed class KeyBindings
         {
             foreach ((string key, string command) in SourceConfig.ReadBinds(text))
             {
+                // Stryker disable once : a mutant that empties the guard body leaves 'action'
+                // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
                 if (Resolve(command, aliases, depth: 0) is not { } action)
                 {
                     continue;

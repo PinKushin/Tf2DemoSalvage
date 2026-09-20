@@ -142,11 +142,17 @@ public sealed class IvpRagdollWorld
         {
             BspStaticProp prop = props[index];
 
+            // Stryker disable all : the condition spans two lines, so 'disable once' cannot reach
+            // it (measured). A mutant that empties the guard body leaves 'found' or 'material'
+            // unassigned below (CS0165), and Safe Mode then drops every mutation in this method —
+            // B410.
             if (prop.Solid != SolidVphysics || collide(prop.Model) is not { } found ||
                 Surfaces.ObjectMaterial(found.SurfaceProp) is not { } material)
             {
                 continue;
             }
+
+            // Stryker restore all
 
             made.Add(AddStatic(
                 found.Surface,
@@ -179,6 +185,8 @@ public sealed class IvpRagdollWorld
 
         List<IvpCollisionObject> made = [];
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'material'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Surfaces.ObjectMaterial("default") is not { } material)
         {
             return made;
@@ -186,6 +194,8 @@ public sealed class IvpRagdollWorld
 
         for (int index = 0; index < displacements.Count; index++)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'tree'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (displacements[index] is not (DisplacementCollisionTree tree, false))
             {
                 continue;
@@ -284,6 +294,8 @@ public sealed class IvpRagdollWorld
 
         List<IvpCollisionObject> made = [];
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'material'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Surfaces.ObjectMaterial("default") is not { } material)
         {
             return made;

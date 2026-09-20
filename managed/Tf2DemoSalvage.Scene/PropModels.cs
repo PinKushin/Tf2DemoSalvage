@@ -678,6 +678,9 @@ public static class PropModels
 
             foreach (string included in StudioModelGroups.Read(modelFile))
             {
+                // Stryker disable once : a mutant that empties the guard body leaves 'animations'
+                // unassigned (CS0165), and Safe Mode then drops every mutation in this method —
+                // B410.
                 if (Find(included) is not { } animations)
                 {
                     // Reported rather than skipped: a missing animation model is why a class would
@@ -710,6 +713,10 @@ public static class PropModels
                         Enumerable.Range(0, Math.Min(8, table.Count))
                             .Select(index =>
                             {
+                                // Stryker disable all : a mutant that empties the guard body
+                                // leaves 'at' unassigned below (CS0170 on its 'Group'/'Local'
+                                // fields), and Safe Mode then drops every mutation in this
+                                // method — B410.
                                 if (table.At(index) is not { } at ||
                                     at.Group >= groups.Count ||
                                     at.Local >= groups[at.Group].Sequences.Count)
@@ -717,6 +724,7 @@ public static class PropModels
                                     return $"[{index}] unresolved";
                                 }
 
+                                // Stryker restore all
                                 StudioSequence entry = groups[at.Group].Sequences[at.Local];
 
                                 return $"[{index}] g{at.Group} '{entry.Label}'" +
@@ -1354,6 +1362,9 @@ public static class PropModels
                 return existing;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'painted' and
+            // 'texture' unassigned (CS0165), and Safe Mode then drops every mutation in this
+            // method — B410.
             if (load(candidate) is not { Texture: { } painted } texture)
             {
                 continue;
@@ -1618,6 +1629,9 @@ public static class PropModels
         {
             ArgumentNullException.ThrowIfNull(poseValues);
 
+            // Stryker disable all : a mutant that empties the guard body leaves 'where'
+            // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+            // every mutation in this method — B410.
             if (Sequences.At(sequence) is not { } where ||
                 where.Group >= Models.Count ||
                 where.Local >= Groups[where.Group].Sequences.Count)
@@ -1625,6 +1639,7 @@ public static class PropModels
                 return [];
             }
 
+            // Stryker restore all
             StudioSequence chosen = Groups[where.Group].Sequences[where.Local];
 
             if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
@@ -1717,6 +1732,9 @@ public static class PropModels
         {
             ArgumentNullException.ThrowIfNull(poseValues);
 
+            // Stryker disable all : a mutant that empties the guard body leaves 'where'
+            // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+            // every mutation in this method — B410.
             if (Sequences.At(sequence) is not { } where ||
                 where.Group >= Models.Count ||
                 where.Local >= Groups[where.Group].Sequences.Count)
@@ -1724,6 +1742,7 @@ public static class PropModels
                 return (0, []);
             }
 
+            // Stryker restore all
             StudioSequence chosen = Groups[where.Group].Sequences[where.Local];
 
             if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
@@ -1774,6 +1793,9 @@ public static class PropModels
         {
             ArgumentNullException.ThrowIfNull(poseValues);
 
+            // Stryker disable all : a mutant that empties the guard body leaves 'where'
+            // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+            // every mutation in this method — B410.
             if (Sequences.At(sequence) is not { } where ||
                 where.Group >= Models.Count ||
                 where.Group >= Groups.Count ||
@@ -1782,6 +1804,7 @@ public static class PropModels
                 return 0f;
             }
 
+            // Stryker restore all
             StudioSequence chosen = Groups[where.Group].Sequences[where.Local];
 
             if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
@@ -1994,6 +2017,9 @@ public static class PropModels
         {
             for (int sequence = 0; sequence < Sequences.Count; sequence++)
             {
+                // Stryker disable all : a mutant that empties the guard body leaves 'where'
+                // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then
+                // drops every mutation in this method — B410.
                 if (Sequences.At(sequence) is not { } where ||
                     where.Group >= Groups.Count ||
                     where.Local >= Groups[where.Group].Sequences.Count)
@@ -2001,6 +2027,7 @@ public static class PropModels
                     continue;
                 }
 
+                // Stryker restore all
                 // **Exact, which is what the engine does and what this got wrong.**
                 // Studio_LookupSequence compares labels with stricmp. Matching on Contains instead
                 // takes the first LONGER label that happens to embed the wanted one, and TF2 has
@@ -2057,6 +2084,9 @@ public static class PropModels
 
             for (int sequence = 0; sequence < Sequences.Count; sequence++)
             {
+                // Stryker disable all : a mutant that empties the guard body leaves 'where'
+                // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then
+                // drops every mutation in this method — B410.
                 if (Sequences.At(sequence) is not { } where ||
                     where.Group >= Groups.Count ||
                     where.Local >= Groups[where.Group].Sequences.Count)
@@ -2064,6 +2094,7 @@ public static class PropModels
                     continue;
                 }
 
+                // Stryker restore all
                 StudioSequence candidate = Groups[where.Group].Sequences[where.Local];
 
                 if (candidate.ActivityWeight <= 0 ||
@@ -2093,6 +2124,9 @@ public static class PropModels
         /// </remarks>
         public float CyclesPerSecond(int sequence)
         {
+            // Stryker disable all : a mutant that empties the guard body leaves 'where'
+            // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+            // every mutation in this method — B410.
             if (Sequences.At(sequence) is not { } where ||
                 where.Group >= Models.Count ||
                 where.Local >= Groups[where.Group].Sequences.Count)
@@ -2100,6 +2134,7 @@ public static class PropModels
                 return 0f;
             }
 
+            // Stryker restore all
             return StudioAnimation.CyclesPerSecond(
                 Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation);
         }
@@ -2107,11 +2142,17 @@ public static class PropModels
         /// <summary>Whether the sequence loops.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns><c>true</c> when it carries <c>STUDIO_LOOPING</c>.</returns>
+        // Stryker disable all : a mutant that turns any '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public bool Loops(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].Loops;
+
+        // Stryker restore all
 
         /// <summary>The IK chains a merged sequence pins while it plays.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2133,10 +2174,16 @@ public static class PropModels
                 return cached;
             }
 
+            // Stryker disable all : a mutant that turns the '&&' into '||' can reach
+            // 'where.Group'/'where.Local' without 'Sequences.At' having matched, leaving 'where'
+            // unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops every
+            // mutation in this method — B410.
             IReadOnlyList<StudioIkLock> read =
                 Sequences.At(sequence) is { } where && where.Group < Models.Count
                     ? StudioIkLocks.Read(Models[where.Group], where.Local)
                     : [];
+
+            // Stryker restore all
 
             _locks[sequence] = read;
 
@@ -2156,11 +2203,17 @@ public static class PropModels
         /// (B309) — the MvM bot animation models, `layer_primary_jump_floatNoise` and its
         /// neighbours. Rare, and on content a demo can contain.
         /// </remarks>
+        // Stryker disable all : a mutant that turns any '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public bool Realtime(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].Realtime;
+
+        // Stryker restore all
 
         /// <summary>The events a merged sequence carries, resolved through the include chain.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2172,12 +2225,18 @@ public static class PropModels
         /// them are footsteps. Reading the root model's own sequence list answers "no events" for
         /// every player in every demo, which is a fact about the reader.
         /// </remarks>
+        // Stryker disable all : a mutant that turns either '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public IReadOnlyList<StudioEvent> Events(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count
                 ? Groups[where.Group].Sequences[where.Local].FiredEvents
                 : [];
+
+        // Stryker restore all
 
         /// <summary>The sequence with this exact label — the engine's <c>LookupSequence</c>.</summary>
         /// <param name="label">The name studiomdl gave the sequence, such as <c>ragdollspawn</c>.</param>
@@ -2200,6 +2259,9 @@ public static class PropModels
 
             for (int index = 0; index < Sequences.Count; index++)
             {
+                // Stryker disable all : a mutant that empties the guard body leaves 'at'
+                // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then
+                // drops every mutation in this method — B410.
                 if (Sequences.At(index) is not { } at ||
                     at.Group >= Groups.Count ||
                     at.Local >= Groups[at.Group].Sequences.Count)
@@ -2207,6 +2269,7 @@ public static class PropModels
                     continue;
                 }
 
+                // Stryker restore all
                 if (string.Equals(
                     Groups[at.Group].Sequences[at.Local].Label,
                     label,
@@ -2235,6 +2298,9 @@ public static class PropModels
 
             for (int index = 0; index < Sequences.Count; index++)
             {
+                // Stryker disable all : a mutant that empties the guard body leaves 'at'
+                // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then
+                // drops every mutation in this method — B410.
                 if (Sequences.At(index) is not { } at ||
                     at.Group >= Groups.Count ||
                     at.Local >= Groups[at.Group].Sequences.Count)
@@ -2242,6 +2308,7 @@ public static class PropModels
                     continue;
                 }
 
+                // Stryker restore all
                 if (Groups[at.Group].Sequences[at.Local].Activity
                     .Contains(fragment, StringComparison.OrdinalIgnoreCase))
                 {
@@ -2267,6 +2334,9 @@ public static class PropModels
 
             for (int index = 0; index < Sequences.Count; index++)
             {
+                // Stryker disable all : a mutant that empties the guard body leaves 'at'
+                // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then
+                // drops every mutation in this method — B410.
                 if (Sequences.At(index) is not { } at ||
                     at.Group >= Groups.Count ||
                     at.Local >= Groups[at.Group].Sequences.Count)
@@ -2274,6 +2344,7 @@ public static class PropModels
                     continue;
                 }
 
+                // Stryker restore all
                 if (string.Equals(
                     Groups[at.Group].Sequences[at.Local].Activity,
                     activity,
@@ -2296,6 +2367,9 @@ public static class PropModels
         /// </remarks>
         public string UnimplementedFor(int sequence)
         {
+            // Stryker disable all : a mutant that empties the guard body leaves 'where'
+            // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+            // every mutation in this method — B410.
             if (Sequences.At(sequence) is not { } where ||
                 where.Group >= Models.Count ||
                 where.Local >= Groups[where.Group].Sequences.Count)
@@ -2303,6 +2377,7 @@ public static class PropModels
                 return string.Empty;
             }
 
+            // Stryker restore all
             (int hierarchy, int zeroFrames) = StudioAnimation.Unimplemented(
                 Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation);
 
@@ -2324,11 +2399,17 @@ public static class PropModels
         /// rest rotation carried a real orientation. Knowing whether the viewmodel's sequence is one
         /// separates "we are playing the wrong sequence" from "we are playing it the wrong way".
         /// </remarks>
+        // Stryker disable all : a mutant that turns any '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public bool IsDelta(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Models.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].IsDelta;
+
+        // Stryker restore all
 
         /// <summary>Whether the ANIMATION behind a sequence is additive.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2348,12 +2429,18 @@ public static class PropModels
         /// the two agree here — but they are separate fields and only this one governs the seeding
         /// in `CalcVirtualAnimation` (B284).
         /// </remarks>
+        // Stryker disable all : a mutant that turns any '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public bool AnimationIsDelta(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Models.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             StudioAnimation.IsDelta(
                 Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation);
+
+        // Stryker restore all
         /// <summary>How long a sequence takes to blend in — <c>fadeintime</c>.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>Its fade-in time in seconds, or zero.</returns>
@@ -2362,6 +2449,10 @@ public static class PropModels
         /// <see cref="FadeOut"/>, and `CheckForSequenceChange` takes the smaller
         /// (`sequence_Transitioner.cpp:46`).
         /// </remarks>
+        // Stryker disable all : a mutant that turns either '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public float FadeIn(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Models.Count &&
@@ -2369,15 +2460,23 @@ public static class PropModels
                 ? StudioSequenceFade.In(Models[where.Group], where.Local)
                 : 0f;
 
+        // Stryker restore all
+
         /// <summary>How long a sequence takes to blend out — <c>fadeouttime</c>.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>Its fade-out time in seconds, or zero.</returns>
+        // Stryker disable all : a mutant that turns either '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public float FadeOut(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Models.Count &&
             where.Local < Groups[where.Group].Sequences.Count
                 ? StudioSequenceFade.Out(Models[where.Group], where.Local)
                 : 0f;
+
+        // Stryker restore all
 
         /// <summary>Whether entering a sequence cuts rather than fades — <c>STUDIO_SNAP</c>.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2388,11 +2487,17 @@ public static class PropModels
         /// (`sequence_Transitioner.cpp:41`). Fading such a sequence in would be adding a blend the
         /// animator deliberately removed.
         /// </remarks>
+        // Stryker disable all : a mutant that turns any '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public bool SnapsTo(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Models.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].Snaps;
+
+        // Stryker restore all
 
         /// <summary>Whether a sequence composes its delta after the base — <c>STUDIO_POST</c>.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2402,11 +2507,17 @@ public static class PropModels
         /// is composed on (<c>bone_setup.cpp:1441</c>). Read rather than assumed because the two
         /// give different rotations and nothing downstream could tell them apart.
         /// </remarks>
+        // Stryker disable all : a mutant that turns any '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public bool IsPost(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Models.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].IsPost;
+
+        // Stryker restore all
 
         /// <summary>The sequences a merged sequence automatically layers over itself.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2425,12 +2536,18 @@ public static class PropModels
                 return cached;
             }
 
+            // Stryker disable all : a mutant that turns either '&&' into '||' can reach a
+            // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+            // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+            // every mutation in this method — B410.
             IReadOnlyList<StudioAutoLayer> read =
                 Sequences.At(sequence) is { } where &&
                 where.Group < Models.Count &&
                 where.Local < Groups[where.Group].Sequences.Count
                     ? StudioAutoLayers.Read(Models[where.Group], where.Local)
                     : [];
+
+            // Stryker restore all
 
             _autoLayers[sequence] = read;
 
@@ -2453,6 +2570,9 @@ public static class PropModels
         /// </remarks>
         public int RelativeSequence(int relativeTo, int local)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'where'
+            // unassigned (CS0170 on its 'Group' field), and Safe Mode then drops every mutation
+            // in this method — B410.
             if (Sequences.At(relativeTo) is not { } where)
             {
                 return -1;
@@ -2496,12 +2616,17 @@ public static class PropModels
         /// </remarks>
         public int SharedPoseParameter(int sequence, int local)
         {
+            // Stryker disable all : a mutant that empties the guard body leaves 'where'
+            // unassigned below (CS0170 on its 'Group' field), and Safe Mode then drops every
+            // mutation in this method — B410.
             if (Sequences.At(sequence) is not { } where ||
                 where.Group < 0 ||
                 where.Group >= MasterPose.Count)
             {
                 return -1;
             }
+
+            // Stryker restore all
 
             IReadOnlyList<int> map = MasterPose[where.Group];
 
@@ -2517,11 +2642,17 @@ public static class PropModels
         /// applies. Measured on `c_engineer_arms`: `throw_draw`, `throw_idle` and `throw_fire` all
         /// carry both.
         /// </remarks>
+        // Stryker disable all : a mutant that turns any '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public bool IsLocal(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].HasLocalLayers;
+
+        // Stryker restore all
 
         /// <summary>How many frames one animation of a group has.</summary>
         /// <param name="group">Which model group.</param>
@@ -2541,12 +2672,18 @@ public static class PropModels
         /// <summary>The activity a merged sequence claims, such as <c>ACT_MP_STAND_PRIMARY</c>.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>Its activity name, or empty.</returns>
+        // Stryker disable all : a mutant that turns either '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public string ActivityOf(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count
                 ? Groups[where.Group].Sequences[where.Local].Activity
                 : string.Empty;
+
+        // Stryker restore all
 
         /// <summary>How strongly a merged sequence claims its activity — <c>actweight</c>.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2556,12 +2693,18 @@ public static class PropModels
         /// claiming one activity is normal and which one runs is a weighting question rather than
         /// a lookup failure.
         /// </remarks>
+        // Stryker disable all : a mutant that turns either '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public int ActivityWeightOf(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count
                 ? Groups[where.Group].Sequences[where.Local].ActivityWeight
                 : 0;
+
+        // Stryker restore all
 
         /// <summary>A merged sequence's blend grid, or null when it has none.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2572,12 +2715,18 @@ public static class PropModels
         /// misread as 1x1 and a plain one-animation sequence both report one corner. Only
         /// <c>groupsize</c> separates them.
         /// </remarks>
+        // Stryker disable all : a mutant that turns either '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public StudioBlendGrid? GridOf(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count
                 ? Groups[where.Group].Sequences[where.Local].Blend
                 : null;
+
+        // Stryker restore all
 
         /// <summary>A merged sequence's own label, such as <c>ACT_MP_STAND_PRIMARY</c>.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2588,12 +2737,18 @@ public static class PropModels
         /// a plausible answer about the wrong sequence — the mistake that made a jump label read
         /// correctly for the wrong reason once already.
         /// </remarks>
+        // Stryker disable all : a mutant that turns either '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public string LabelOf(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count
                 ? Groups[where.Group].Sequences[where.Local].Label
                 : string.Empty;
+
+        // Stryker restore all
 
         /// <summary>The model's IK chains — <c>rhand</c>, <c>lhand</c>, <c>rfoot</c>, <c>lfoot</c>.</summary>
         /// <remarks>
@@ -2634,6 +2789,10 @@ public static class PropModels
 
             for (int sequence = 0; sequence < Sequences.Count; sequence++)
             {
+                // Stryker disable all : a mutant that turns any '&&' into '||' can reach a
+                // 'where.Group'/'where.Local' access without 'Sequences.At' having matched,
+                // leaving 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe
+                // Mode then drops every mutation in this method — B410.
                 if (Sequences.At(sequence) is { } where &&
                     where.Group < Groups.Count &&
                     where.Local < Groups[where.Group].Sequences.Count &&
@@ -2641,6 +2800,8 @@ public static class PropModels
                 {
                     found.Add(sequence);
                 }
+
+                // Stryker restore all
             }
 
             return found;
@@ -2650,6 +2811,10 @@ public static class PropModels
         /// <summary>How many frames the animation behind a sequence has.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>The frame count, or one when the sequence does not resolve.</returns>
+        // Stryker disable all : a mutant that turns either '&&' into '||' can reach a
+        // 'where.Group'/'where.Local' access without 'Sequences.At' having matched, leaving
+        // 'where' unassigned (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+        // every mutation in this method — B410.
         public int Frames(int sequence) =>
             Sequences.At(sequence) is { } where &&
             where.Group < Models.Count &&
@@ -2659,6 +2824,8 @@ public static class PropModels
                     StudioAnimation.Frames(
                         Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation))
                 : 1;
+
+        // Stryker restore all
 
         /// <summary>A sequence's per-bone weight list, indexed by THIS model's bones.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2710,6 +2877,9 @@ public static class PropModels
         /// <returns>One weight per bone of this model.</returns>
         private float[] ReadBoneWeights(int sequence)
         {
+            // Stryker disable all : a mutant that empties the guard body leaves 'where'
+            // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
+            // every mutation in this method — B410.
             if (Sequences.At(sequence) is not { } where ||
                 where.Group >= Models.Count ||
                 where.Local >= Groups[where.Group].Sequences.Count)
@@ -2717,6 +2887,7 @@ public static class PropModels
                 return [];
             }
 
+            // Stryker restore all
             IReadOnlyList<StudioBone> group = BonesOfGroup(where.Group);
 
             // **Read with the GROUP's bone count**, since that is the extent the list was written

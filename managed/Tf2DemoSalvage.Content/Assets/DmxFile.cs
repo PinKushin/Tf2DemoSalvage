@@ -248,6 +248,9 @@ public static class DmxFile
                 DmxAttributeType type = (DmxAttributeType)file[at];
                 at += 1;
 
+                // Stryker disable once : a mutant that empties the guard body leaves 'value'
+                // unassigned at its later use (CS0165), and Safe Mode then drops every mutation in
+                // this method — B410.
                 if (ReadValue(file, ref at, type) is not { } value)
                 {
                     break;

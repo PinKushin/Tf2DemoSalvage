@@ -102,6 +102,8 @@ public sealed class IvpSimulationUnit
 
         core.Controllers.Add(controller);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'unit'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (core.Unit is not { } unit)
         {
             return;

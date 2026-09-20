@@ -55,9 +55,14 @@ public static class Lzss
     {
         if (compressed.Length < sizeof(uint))
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"LZSS payload of {compressed.Length} bytes is too short to hold its length."));
+
+            // Stryker restore all
         }
 
         int targetLength = (int)BinaryPrimitives.ReadUInt32LittleEndian(compressed);
@@ -67,10 +72,15 @@ public static class Lzss
         // produce a table of the wrong size rather than an error.
         if (targetLength != expectedLength)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"LZSS header declares {targetLength} bytes but the message declared " +
                 $"{expectedLength}."));
+
+            // Stryker restore all
         }
 
         // BOUND BEFORE ALLOCATING. The header length and the message length agreeing proves
@@ -85,16 +95,26 @@ public static class Lzss
         // there.
         if (targetLength < 0 || targetLength > (long)compressed.Length * MaxExpansionRatio)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"no LZSS payload of {compressed.Length} bytes can produce {targetLength} bytes " +
                 $"of output."));
+
+            // Stryker restore all
         }
 
         byte[] output = new byte[targetLength];
         int written = 0;
         int read = sizeof(uint);
 
+        // Stryker disable all : a mutant that flips this loop's Boolean literal to 'false' makes
+        // the compiler treat the code after the loop as reachable, and there is no return there
+        // (CS0161: 'Lzss.Decompress' not all code paths return a value), so Safe Mode then drops
+        // every mutation in this method — B410. The literal is inseparable from the loop it
+        // guards, so the whole loop is the smallest statement this can be wrapped around.
         while (true)
         {
             if (read >= compressed.Length)
@@ -159,6 +179,8 @@ public static class Lzss
                 }
             }
         }
+
+        // Stryker restore all
     }
 
     /// <summary>
@@ -175,16 +197,26 @@ public static class Lzss
     {
         if (written >= targetLength)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"LZSS stream produces more than the {targetLength} bytes it declared."));
+
+            // Stryker restore all
         }
 
         output[written++] = value;
     }
 
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     private static InvalidDataException Truncated(int written, int targetLength) =>
         new(string.Create(
             CultureInfo.InvariantCulture,
             $"LZSS stream ended after {written} of {targetLength} bytes."));
+
+    // Stryker restore all
 }

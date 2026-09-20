@@ -147,12 +147,17 @@ public static class LaunchOptionsReader
                 string command = argument[1..];
                 string value = pending.Dequeue();
 
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+                // and Safe Mode then drops every mutation in this method — B410.
                 read = read with
                 {
                     Settings = ViewerSettings.Parse(
                         string.Create(CultureInfo.InvariantCulture, $"{command} \"{value}\""),
                         onto: read.Settings),
                 };
+
+                // Stryker restore all
 
                 log.LogInformation("{Message}", $"{command} {value} (from the command line)");
                 continue;

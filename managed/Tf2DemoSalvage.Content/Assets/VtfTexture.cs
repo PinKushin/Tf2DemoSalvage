@@ -546,9 +546,14 @@ public sealed class VtfTexture
 
         if (width <= 0 || height <= 0 || mipCount <= 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A VTF of {width}x{height} with {mipCount} mips is not readable."));
+
+            // Stryker restore all
         }
 
         if (format is VtfFormat.Unknown)
@@ -617,10 +622,15 @@ public sealed class VtfTexture
         {
             // Not clamped: a caller asking for face 7 of seven has an off-by-one, and quietly
             // returning face 6 hides it behind a picture that is merely wrong.
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new ArgumentOutOfRangeException(
                 nameof(face),
                 face,
                 string.Create(CultureInfo.InvariantCulture, $"This VTF has {faces} face(s)."));
+
+            // Stryker restore all
         }
 
         int level = ChooseLevel(width, height, mipCount, maximumSize);
@@ -661,9 +671,14 @@ public sealed class VtfTexture
 
         if (at < 0 || (long)at + bytes > span.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Mip {level} of a VTF needs {bytes} bytes at {at} in a {span.Length}-byte file."));
+
+            // Stryker restore all
         }
 
         bool blocks = !expand && format is

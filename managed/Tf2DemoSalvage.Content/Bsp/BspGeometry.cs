@@ -231,6 +231,9 @@ public sealed class BspGeometry
     {
         if (!condition)
         {
+            // Stryker disable once : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(CultureInfo.InvariantCulture, $"{message}"));
         }
     }

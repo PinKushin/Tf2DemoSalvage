@@ -187,6 +187,9 @@ public static class BspEntities
 
         foreach (BspEntity entity in entities)
         {
+            // Stryker disable once : a mutant that empties the guard body, or that short-circuits
+            // past the TryGetValue("origin", ...) call, leaves 'origin' unassigned at its use below
+            // (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (!entity.TryGetValue("classname", out string? classname) ||
                 !string.Equals(classname, SkyCameraClass, StringComparison.OrdinalIgnoreCase) ||
                 !entity.TryGetValue("origin", out string? origin))

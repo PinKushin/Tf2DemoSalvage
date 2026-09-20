@@ -61,6 +61,8 @@ public static class Tf2ConfigFiles
 
         foreach (string path in Order)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'text'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Read(archives, path) is not { } text)
             {
                 continue;

@@ -100,9 +100,14 @@ public static class StudioTriangles
 
         if (bytes.Length < VtxHeaderStride)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"An index file of {bytes.Length:N0} bytes is too short to hold its header."));
+
+            // Stryker restore all
         }
 
         int version = BinaryPrimitives.ReadInt32LittleEndian(bytes);
@@ -385,9 +390,14 @@ public static class StudioTriangles
 
         if (start < VtxHeaderStride || at < 0 || at + stride > file.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"An index file addresses {at:N0} of {file.Length:N0} bytes."));
+
+            // Stryker restore all
         }
 
         return (int)at;
@@ -399,9 +409,14 @@ public static class StudioTriangles
         if (count < 0 || start < VtxHeaderStride ||
             (long)start + ((long)count * stride) > file.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"An index file puts {count:N0} entries at {start:N0} of {file.Length:N0} bytes."));
+
+            // Stryker restore all
         }
     }
 }
