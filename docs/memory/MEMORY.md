@@ -152,3 +152,4 @@
 - [A parity rule may bound the cost](a-parity-rule-may-bound-the-cost.md) — the corpse fade caps a seek's replay at ~15 s.
 - [A measure needs focus](a-measure-needs-focus.md) — 50 ms frames with empty columns is engine_no_focus_sleep.
 - [Mutation box gets maps, never demos](mutation-box-gets-maps-never-demos.md) — maps need all VPKs; synthetic first.
+- [Stryker Safe Mode needs an inline comment](stryker-safe-mode-needs-an-inline-comment.md) — config does nothing; one bad mutant drops the method.

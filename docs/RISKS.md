@@ -27062,11 +27062,48 @@ a different mutation site. Fix: changed `corners` from definite-assignment to `I
 with a null-check guard, so a Block mutation produces a valid program that skips via the null branch. Fixed in `d204307e`.
 (2) `SceneImage.Read` at the `throw` using `string.Create`: the String mutator wraps the interpolated literal in a
 ternary that cannot be passed as `ref` to `string.Create`, producing CS1620. Added `// Stryker disable once` before the
-throw. Fixed in `d204307e`. The `ignore-mutations: ["String"]` config would also suppress this globally, but the inline
-comment is more targeted.
+throw. Fixed in `d204307e`. ~~The `ignore-mutations: ["String"]` config would also suppress this globally, but the inline
+comment is more targeted.~~ **That sentence is wrong and was measured wrong — see "config cannot fix any of this" below.**
 (3) `BspEntities.SkyCamera` at line 244: `position` declared via `out` in a compound `if` condition. Any mutation that
 replaces the entire condition before evaluating `!TryReadVector(...)` leaves `position` undeclared. Fixed in `1a5d6ccf`
 by declaring `(float X, float Y, float Z) position = default;` above the if and using `out position` (not `out ... position`).
+
+**2026-09-20 — it is three shapes, not a scatter, and config cannot fix any of them.** Worked out on
+`Tf2DemoSalvage.Audio` because it is the smallest project carrying all three (15 triggers, ~1 minute per run), by running
+Stryker rather than by reading it.
+
+| shape | what breaks | error |
+|---|---|---|
+| `if (expr is not { } name)` — the house null-check idiom | a mutant that empties the guard body leaves `name`, or a struct `name`'s fields, unassigned at the use below | CS0165 / CS0170 |
+| `try { x = …; } catch { throw …; }` | a mutant that empties the catch removes the `throw` that C#'s definite-assignment analysis relies on | CS0165 |
+| `string.Create(CultureInfo.InvariantCulture, $"…")` | the String mutator rewrites the literal as `(IsActive(n) ? $"" : $"…")`, and that ternary cannot bind to the second parameter, which is a `ref DefaultInterpolatedStringHandler` | CS1620 |
+
+**`ignore-mutations` and `ignore-methods` were both tried and neither does anything.** A run with
+`"ignore-mutations": ["Block"]` and `"ignore-methods": ["String.Create"]` produced a byte-identical Safe Mode list — the
+same 15 triggers and the same 410 compile-error mutants — while its own counters confirmed the filter had applied (154
+"Removed by block already covered" became 191 "Removed by mutation type filter"). Those filters run AFTER injection and
+compilation, so the mutant still breaks the build first. The same reasoning kills the `"String"` entry already sitting in
+`Content.Tests/stryker-config.json`: it suppressed nothing, and the 14 CS1620 triggers in that run are the proof.
+*Evidence class: measured, with a control.*
+
+**Only an inline comment prevents injection, and placement is not obvious.** `// Stryker disable once` covers the next
+STATEMENT, which is enough for a one-line `if` guard — `SoundScriptCatalog.Load` dropped off the list and its method's
+mutants came back. It is NOT enough for a multi-line `throw`, and a comment placed inside an argument list is ignored
+outright: both were tried and the CS1620 survived. Those need the range form, `// Stryker disable all` …
+`// Stryker restore all`, which does reach a statement's descendants. Keep the range tight — every mutant inside it is
+lost, and that is the price of the fix.
+
+**Measured on Audio after all 15:** zero triggers, compile-error mutants 410 → 240, tested mutants 681 → **786**, and the
+score 62.37% → **59.62%**. *The score going DOWN is the point*: the recovered methods contain survivors the blind spot
+was hiding, so the old number was flattering rather than accurate. Cost: 44 mutants suppressed by the comments. Fixed in
+`b1734834`.
+
+**Scale, and why the `string.Create` half must be done exhaustively rather than from the log.** The log names only the
+FIRST trigger in each method, because Safe Mode removes the rest before they can be reported — so a file fixed from the
+log alone just surfaces its next one on the following run. Every `string.Create(CultureInfo.InvariantCulture, $"…")` is a
+deterministic trigger, and there are **303 of them** across `managed/` (Core 35 files, Content 51 sites, Scene 12,
+Presentation 12, Audio 4, Viewer3D 3, Logging 2, Render 1, Fonts 1). The definite-assignment shapes add ~143 more across
+core (119 triggers), scene (80), animation (31) and presentation (29).
 
 ### B409 FIXED 2026-09-18: gibs are never simulated — they hold in the air where the player died
 
