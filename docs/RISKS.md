@@ -26313,7 +26313,7 @@ than oscillating. Both are questions for the `docs/findings/51` rework rather th
 *Evidence class: measured, with the corpse-drop trace on two maps after the B400 correction; the
 terrain-versus-brush hypothesis was measured and refuted rather than assumed away.*
 
-### B370 OPEN 2026-09-08: granary's shutter doors do not animate
+### B370 FIXED 2026-09-09: granary's shutter doors do not animate
 
 **Reported by the owner while watching a demo play, and filed rather than chased**: *"the shutter
 doors on granary are not animating right, note it dont fix or look into it right now"*.
@@ -28588,7 +28588,7 @@ Reddens `At_ADoorClosingAfterBeingHeldOpen_NeverMovesAgainstItsTravel`,
 *Evidence class: read-from-source for the structure; arithmetic for the 579.085 prediction; measured for
 the suite (core 1827 total, 0 failed) and for entity 648.*
 
-### B383 OPEN 2026-09-09: the engine RESETS the cycle history on a new sequence and we hold the older cycles
+### B383 FIXED 2026-09-10: the engine RESETS the cycle history on a new sequence and we hold the older cycles
 
 **Found while replacing B382's structure**, and deliberately not fixed with it, because adopting it
 changes what is drawn.
@@ -29153,7 +29153,7 @@ failed. The crash and its stack are recorded in the other branch's entry.*
 *Evidence class: measured on one real match; read-from-source for the single-reference claim, which is a
 grep over this project rather than over the engine.*
 
-### B379 OPEN 2026-09-09: 12,069 props are offered with no model at all
+### B379 FIXED 2026-09-10: 12,069 props are offered with no model at all
 
 **The other half of the same census line**, and unlike the sprites it is not yet diagnosed. Twelve
 thousand offers across 1,019 sampled frames — about twelve per frame — of a prop whose `ModelPath` is
@@ -29789,7 +29789,7 @@ tick-scoped already.
 `tf2-2013-build1729296-stv-cp_foundry` for the track windows; read-from-source in our own code for the
 lookup and its three call sites; the three sabotage runs are differential.*
 
-### B390 OPEN 2026-09-10: every sprite is forced upright and centred, and 221 shipped materials say otherwise
+### B390 FIXED 2026-09-10: every sprite is forced upright and centred, and 221 shipped materials say otherwise
 
 **B378's own remark asserted this could not matter and the measurement refutes it.** It read:
 
@@ -30551,7 +30551,7 @@ screen. Whether they match the 2008 game is his to say, and the captures were se
 *Evidence class: measured tables from the period installs; differential for the four sabotages and
 the before/after capture; the owner's observation for the symptom.*
 
-### B392 OPEN 2026-09-11: the map downloader asked one mirror for the plain file of any version, where the engine asks the demo's server for the compressed file first
+### B392 FIXED 2026-09-11: the map downloader asked one mirror for the plain file of any version, where the engine asks the demo's server for the compressed file first
 
 **Found while planning D162**, by reading what the engine does with `sv_downloadurl` before extending
 `MapDownloader`.
@@ -30644,7 +30644,7 @@ Sabotaged: `Find`'s mismatch detection hardcoded to `false` reddened exactly
 *Evidence class: differential (the sabotage); read from `docs/findings/43-what-identifies-a-map.md` for
 which field is the checksum.*
 
-### B393 OPEN 2026-09-11: a demo opened from the playlist had its map read with the previous demo's timeline, or none
+### B393 FIXED 2026-09-11: a demo opened from the playlist had its map read with the previous demo's timeline, or none
 
 **Found by reading, while planning D162's map-version check**, not by a report.
 
@@ -30685,7 +30685,7 @@ of how D162's wait-for-the-download holds playback, and it belongs to that slice
 
 *Evidence class: differential (red on the unfixed code, green on the fix).*
 
-### B394 OPEN 2026-09-11: `sv_downloadurl`'s declared default was `"0"`, a copy of its neighbours' rather than read
+### B394 FIXED 2026-09-11: `sv_downloadurl`'s declared default was `"0"`, a copy of its neighbours' rather than read
 
 **Found while checking `EngineConVars` before wiring the demo's own `sv_downloadurl` into D162.**
 `sv_downloadurl` sat right after `sv_cheats` (`"0"`) and `host_timescale` (`"1"`) in the declaration
