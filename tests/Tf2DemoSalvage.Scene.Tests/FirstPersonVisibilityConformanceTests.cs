@@ -37,16 +37,34 @@ public sealed class FirstPersonVisibilityConformanceTests
     private const int Viewed = 3;
 
     /// <remarks>
-    /// The defect. A fired rocket carries <c>m_hOwnerEntity</c> naming the soldier who fired it, so an
-    /// owner test that does not ask whether the prop is a weapon hides every rocket he can see best.
+    /// The defect, and it is the whole projectile family rather than the rocket the owner happened to
+    /// notice. **Not one TF projectile overrides <c>ShouldDraw</c>** — grepped across `shared/tf` and
+    /// `client/tf`, where the only overrides are `CCaptureFlag`, `CHalloweenGiftPickup`, `CTFItem` and
+    /// the spellbook HUD. Every class below therefore inherits a base with no owner rule:
+    ///
+    /// <code>
+    /// C_TFProjectile_Rocket, _Arrow, _EnergyBall, _Flare : C_TFBaseRocket : CBaseProjectile
+    /// CTFProjectile_Syringe, _EnergyRing                 : CTFBaseProjectile
+    /// CTFGrenadePipebombProjectile                       : CTFWeaponBaseGrenadeProj : CBaseGrenade : CBaseProjectile
+    /// </code>
+    ///
+    /// Each carries <c>m_hOwnerEntity</c> naming whoever fired it, so an owner test that does not ask
+    /// whether the prop is a WEAPON hides all of them from the player best placed to see them.
     /// </remarks>
-    [Test]
-    public void Visible_AProjectileOwnedByTheViewedPlayer_IsStillDrawn()
+    [TestCase("models/weapons/w_models/w_rocket.mdl", "CTFProjectile_Rocket")]
+    [TestCase("models/weapons/w_models/w_stickybomb.mdl", "CTFGrenadePipebombProjectile")]
+    [TestCase("models/weapons/w_models/w_grenade_grenadelauncher.mdl", "CTFGrenadePipebombProjectile")]
+    [TestCase("models/weapons/w_models/w_arrow.mdl", "CTFProjectile_Arrow")]
+    [TestCase("models/weapons/w_models/w_flaregun_shell.mdl", "CTFProjectile_Flare")]
+    [TestCase("models/weapons/w_models/w_syringe_proj.mdl", "CTFProjectile_Syringe")]
+    public void Visible_AProjectileOwnedByTheViewedPlayer_IsStillDrawn(string model, string className)
     {
-        SceneProp rocket = Owned(entity: 40, "models/weapons/w_models/w_rocket.mdl", weaponState: null);
+        SceneProp projectile = Owned(entity: 40, model, weaponState: null);
 
-        FirstPersonVisibility.Visible([rocket], Viewed)
-            .ShouldContain(rocket, "a projectile has no ShouldDraw override, so the owner rule never reaches it");
+        FirstPersonVisibility.Visible([projectile], Viewed)
+            .ShouldContain(
+                projectile,
+                $"{className} has no ShouldDraw override, so the owner rule never reaches it");
     }
 
     /// <remarks>
