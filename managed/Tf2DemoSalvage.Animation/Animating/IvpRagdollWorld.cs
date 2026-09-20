@@ -494,6 +494,31 @@ public sealed class IvpRagdoll
     /// <summary>This ragdoll's joints, wired into the world — for instruments; empty when the file names none.</summary>
     internal IvpConstraintGroup? Joints { get; private set; }
 
+    /// <summary>Takes this ragdoll out of the world — <c>CRagdoll::ClearRagdoll</c>'s own order (B316, D172).</summary>
+    /// <remarks>
+    /// **Constraints first, then objects, and the order is not cosmetic.** `CPhysicsEnvironment::DestroyConstraint`
+    /// (`0x180012fe0`) reaches each endpoint through pointers the constraint still holds and calls the object's vtable
+    /// `+0xc0` — which is <c>Wake</c> (`docs/findings/51`, *Destroying a constraint wakes both bodies it joined*). Run the
+    /// other way round, that notify would be reaching objects already torn down, and the limbs would never be woken to resume
+    /// simulating on their own.
+    ///
+    /// Calling it twice is harmless: the joints are dropped on the first pass and the bodies are already gone from the
+    /// simulation's units.
+    /// </remarks>
+    public void Destroy()
+    {
+        if (Joints is { } joints)
+        {
+            _world.Simulation.RemoveConstraints(joints);
+            Joints = null;
+        }
+
+        foreach (IvpRigidBody body in _bodies)
+        {
+            _world.Simulation.Remove(body);
+        }
+    }
+
     /// <summary>Whether the game has forced it to sleep.</summary>
     public bool Asleep { get; private set; }
 

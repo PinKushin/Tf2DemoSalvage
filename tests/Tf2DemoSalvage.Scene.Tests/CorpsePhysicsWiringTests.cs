@@ -91,6 +91,47 @@ public sealed class CorpsePhysicsWiringTests
         models.Corpses.Steps.ShouldBe(66, "one second at the demo's tick rate, seen or not");
     }
 
+    /// <remarks>
+    /// **A faded corpse leaves the physics world** (owner, 2026-09-19), which is what makes a seek cheap: the rebuild after a
+    /// seek replays only the last fifteen seconds of deaths, and a corpse that never left would be carried by every rebuild
+    /// after it. `EndFadeOut` → `ClearRagdoll` destroys its constraints and then its objects.
+    ///
+    /// **The empty moment is the case that matters**, and it is the one an early return hides: a moment carrying no corpses at
+    /// all is every corpse having faded, so retiring has to happen before `Advance` decides it has nothing to do.
+    ///
+    /// The first assertion is the control — without it, a wiring that never put the corpse in the world at all would pass.
+    /// </remarks>
+    [Test]
+    public void Instances_ForACorpseTheMomentStopsCarrying_TakesItOutOfTheWorld()
+    {
+        SceneProp corpse = Corpse();
+
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn = [corpse];
+
+        models.Add(drawn, _ => Frames());
+
+        models.CurrentTick = 66d;
+        models.Instances(drawn, [], seconds: 1d);
+
+        models.Corpses.Count.ShouldBe(1, "the control: it was in the world to begin with");
+
+        int held = models.Corpses.Physics!.Simulation.HeldUnits;
+        held.ShouldBeGreaterThan(0, "the control: its bodies really were units in the environment");
+
+        models.CurrentTick = 132d;
+        models.Instances([], [], seconds: 2d);
+
+        models.Corpses.Count.ShouldBe(0, "a corpse the moment no longer carries has faded, and a faded corpse leaves");
+
+        // **`Count` alone cannot see this, which is why both are asserted.** It reads the bookkeeping dictionary, and the
+        // retire empties that whether or not the ragdoll was torn down — measured: skipping `Destroy()` left this test green.
+        // Only the environment's own unit count is evidence that the bodies left the world.
+        models.Corpses.Physics.Simulation.HeldUnits
+            .ShouldBe(0, "the bodies left the environment, not just the bookkeeping");
+    }
+
     /// <summary>A camera 200 units along +X looking further along it, so the origin is behind.</summary>
     private static ViewFrustum LookingAwayFromTheOrigin() =>
         ViewFrustum.PerspectiveFromAspect(

@@ -270,6 +270,14 @@ public sealed class IvpSimulation
     /// <summary>How many units are awake.</summary>
     public int AwakeUnits => _units.Active.Count;
 
+    /// <summary>How many units the environment holds at all, awake or asleep — what is still IN the world.</summary>
+    /// <remarks>
+    /// **Distinct from <see cref="AwakeUnits"/>, and the difference is the one a removal test needs.** A body that has been
+    /// taken out and one that is merely asleep both report zero awake units, so only this counts as evidence that
+    /// <see cref="Remove(IvpRigidBody)"/> actually happened.
+    /// </remarks>
+    public int HeldUnits => _units.Active.Count + _units.Sleeping.Count;
+
     /// <summary>Adds a body, in its own unit, driven by gravity — the shape a core's constructor gives it.</summary>
     /// <param name="core">The core.</param>
     /// <returns>The unit it was put in.</returns>
