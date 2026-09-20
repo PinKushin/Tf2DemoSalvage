@@ -27027,6 +27027,44 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B415 OPEN 2026-09-20: every temp entity but one is decoded and then dropped — no tracers, impacts, explosions or decals
+
+**The owner, listing what he can see missing**: *"we still dont have the hitscan particle stuff either or explosion
+particles or decals when they hit, i think the medibeam is also not drawing, but that might be part of the hitscan bullet
+particle stuff."*
+
+**It is ONE gap, not three, and the data is already on the wire and already decoded.** `svc_TempEntities` is read,
+length-handled across the protocol 23 boundary, and decoded into `DecodedTempEntity` — `SmallMessages.cs` even names its
+contents *"short-lived effects: explosions, tracers, impacts"*. Then `DemoTimeline.RecordGestures` keeps exactly one
+class and throws the rest away:
+
+```csharp
+if (!classNames.TryGetValue(effect.ClassId, out string? className) ||
+    !string.Equals(className, PlayerGestureFeed.EventClassName, StringComparison.Ordinal))
+{
+    continue;                      // ← every explosion, tracer, impact and decal, discarded here
+}
+```
+
+So the decode work is done and nothing consumes it. `DemoScan` collects all of them into `Result.Effects` for the text
+dump, which is the proof the classes are readable; the timeline, which is what the renderer reads, takes one.
+
+**The medibeam is NOT part of this** — the owner guessed it might be, and it is a separate mechanism already filed as
+**B396**: a heal beam is not a temp entity at all but a two-control-point particle effect, control point 0 on the
+medigun's muzzle and control point 1 on `m_hHealingTarget` (`tf_weapon_medigun.cpp`). It needs a decoded
+`m_hHealingTarget`, which nothing decodes, and a particle renderer that can stretch an effect between two independently
+moving entities.
+
+**What the four reports share is the particle subsystem B373 already names.** Tracers, impacts, explosions and the heal
+beam are all particle systems in TF2; only decals are a different mechanism (`TE_WorldDecal` / `TE_Decal`, a projected
+texture — `docs/findings/18-decals.md`, and B68 established the decal path itself works, the walls were missing).
+
+*Next, in the order that sizes the work*: census the temp entity classes a real demo actually carries, with counts —
+`DemoScan.Result.Effects` already has them, but `DemoScan` is `internal`, so a probe needs either
+`InternalsVisibleTo` or its own walk. **A count per class is the denominator**: it says which effects are worth building
+and which never fire, the same question `conditions` answers for player conditions. *Evidence class: read from this
+project's own source; the owner's report is the observation.*
+
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
 **The owner, unprompted, while I was measuring something else**: *"for some reason the first person rockets still dont
