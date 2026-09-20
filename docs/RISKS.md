@@ -27055,6 +27055,19 @@ class: measured (box logs).*
 rather than running, so every `tf2-content` box run since that commit produced no score at all. Fixed in `e85537d5`.
 The table above is from an earlier run, before the suppression was attempted.
 
+**2026-09-19 — Same run: two more Safe Mode triggers found during the first real Content run since the above fix.**
+(1) `DisplacementCollision.From` at line 92: the Block mutator removes the try body, leaving `corners` unassigned (CS0165).
+The prior `// Stryker disable once` comment only covered the assignment mutation; Block operates on the whole try body,
+a different mutation site. Fix: changed `corners` from definite-assignment to `IReadOnlyList<SurfaceVertex>? corners = null`
+with a null-check guard, so a Block mutation produces a valid program that skips via the null branch. Fixed in `d204307e`.
+(2) `SceneImage.Read` at the `throw` using `string.Create`: the String mutator wraps the interpolated literal in a
+ternary that cannot be passed as `ref` to `string.Create`, producing CS1620. Added `// Stryker disable once` before the
+throw. Fixed in `d204307e`. The `ignore-mutations: ["String"]` config would also suppress this globally, but the inline
+comment is more targeted.
+(3) `BspEntities.SkyCamera` at line 244: `position` declared via `out` in a compound `if` condition. Any mutation that
+replaces the entire condition before evaluating `!TryReadVector(...)` leaves `position` undeclared. Fixed in `1a5d6ccf`
+by declaring `(float X, float Y, float Z) position = default;` above the if and using `out position` (not `out ... position`).
+
 ### B409 FIXED 2026-09-18: gibs are never simulated — they hold in the air where the player died
 
 **Fixed**: every TF2 gib model is BAKED (no skeleton; measured on `soldiergib00N.mdl`: prop body, `Skinned` null), so the corpse
