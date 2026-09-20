@@ -27059,11 +27059,35 @@ moving entities.
 beam are all particle systems in TF2; only decals are a different mechanism (`TE_WorldDecal` / `TE_Decal`, a projected
 texture — `docs/findings/18-decals.md`, and B68 established the decal path itself works, the walls were missing).
 
-*Next, in the order that sizes the work*: census the temp entity classes a real demo actually carries, with counts —
-`DemoScan.Result.Effects` already has them, but `DemoScan` is `internal`, so a probe needs either
-`InternalsVisibleTo` or its own walk. **A count per class is the denominator**: it says which effects are worth building
-and which never fire, the same question `conditions` answers for player conditions. *Evidence class: read from this
-project's own source; the owner's report is the observation.*
+**Censused 2026-09-20, and no probe was needed** — `DemoJsonLinesWriter` already emits every effect with its resolved
+class name, so `tf2demosalvage <demo> -j` answers it. On `demostf-cp_process_f12-2026-08-07.dem`, one 26-minute
+six-versus-six match: **42,188 temp entities, of which the timeline consumes 27,174 and drops 15,014.**
+
+| class | count | |
+|---|---:|---|
+| `CTEPlayerAnimEvent` | 27,174 | the one class consumed — gestures |
+| `CTETFBlood` | 3,343 | |
+| `CTETFExplosion` | 2,786 | the owner's "explosion particles" |
+| `CTEFireBullets` | 2,176 | the owner's "hitscan particle stuff" |
+| `CTEWorldDecal` | 2,167 | the owner's "decals when they hit" |
+| `CTEDust` | 1,970 | |
+| `CTEEffectDispatch` | 1,308 | plus named: `bloodimpact` 246, `Impact` 235, `TFBoltImpact` 133, `Tracer` 45, `TF_3rdPersonMuzzleFlash_SentryGun` 45, `ParticleEffect` 1 |
+| `CTEDecal` | 192 | |
+| `CTEArmorRicochet` | 142 | |
+| `CTESparks` | 101 | |
+| `CTETFParticleEffect` | 70 | |
+| `CTEMetalSparks` | 33 | |
+| `CTESmoke` | 12 | |
+| `CTEPlayerDecal` | 9 | |
+
+**Nothing here is rare, which is the finding.** Each of the owner's three reports fires thousands of times in a single
+match: hitscan is `CTEFireBullets` plus `EffectDispatch(Tracer)` and `(Impact)`, about 2,456; explosions are 2,786;
+decals are `CTEWorldDecal` + `CTEDecal` + `CTEPlayerDecal` = 2,368. This is not a feature that would run and change
+nothing — the failure mode `conditions` was written to catch.
+
+*Not established*: whether the mix holds on other eras. f12 is one modern competitive match, and the era specimens are
+solo recordings with nobody to shoot at, so they cannot answer it (`docs/memory/era-axis-is-measured.md`). *Evidence
+class: measured on one demo.*
 
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
