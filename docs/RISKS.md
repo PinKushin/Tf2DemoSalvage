@@ -27027,6 +27027,82 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B412 OPEN 2026-09-20: the startup-splash UI test asserts a guarantee the splash deliberately does not make
+
+**`Launch_BeforeTheMainWindow_ShowsTheStartupSplash` fails on `main`**, at `a9f11293`, with *"no startup splash appeared
+before the main window"*. Found while running gate phase 2 for an unrelated branch; **confirmed pre-existing by running
+that one test on `main` itself**, where it fails identically. The other 36 UI tests pass, including the splash's two
+siblings. The feature landed 2026-09-18 in `0765a457`, 53 commits back.
+
+**The implementation does not promise the splash ever appears, and says so in code.** `StartupSplash.Open`
+(`StartupSplash.cs:52-96`) starts a background STA thread and returns without waiting; the thread builds the form and
+then checks a flag before showing it:
+
+```csharp
+Volatile.Write(ref splash, made);
+
+if (Volatile.Read(ref closing) == 0)
+{
+    Application.Run(made);
+}
+```
+
+So when the main window's `Shown` calls `closeSplash()` before that thread reaches the check, `Application.Run` is
+skipped and **no splash window is ever created** — which is sensible, since flashing a splash for a 200 ms boot is worse
+than not showing one. The test asserts it unconditionally, so it is the shape
+`docs/memory/a-test-can-outlive-its-design.md` is about: the test blames the app for a demand the design gave up.
+
+*Not established*: whether the splash is now always losing this race or only sometimes, and whether the boot got faster
+since 0765a457 or the race was always there and the test was lucky. **Do not "fix" this by re-running it** — flake is a
+defect here, and this failure is deterministic given a fast enough boot.
+
+**Settled the same day by the owner, and the reading above is superseded — see D185.** *"really the test should just make
+sure it shows for a millisecond … my pc isnt wuite that fast, but it is close its up for less than half a second"*. So the
+splash DOES appear on his machine, for under half a second, and he is the measurement. The test's demand is right; **the
+20 ms poll over `application.GetAllTopLevelWindows` is failing to observe a window that was there**, which makes this an
+instrument defect rather than a feature one — `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` again.
+
+*Next*, in his order of suspicion: he thinks backgrounding the program is what hid it, so check first whether
+`GetAllTopLevelWindows` enumerates a window belonging to a background process at all, with a control — ask it for the main
+window at the same moment and confirm it answers. Then whether `Name` on a `Form` created on a second STA thread actually
+reaches UIA as `AutomationId`. **Not licensed**: padding the splash's lifetime, or weakening the assertion to pass.
+*Evidence class: measured (test run on main), read from source, owner-observed (the half second).*
+
+### B411 OPEN 2026-09-20: the kernel is OOM-killing mutation runs, and a killed run looks like a config error
+
+**Found while waiting on a content run that never produced a `summary.txt`.** The process was simply gone, and `dmesg`
+says why — five kills in two days, at least one per content slot:
+
+```
+[Sun Sep 20 12:19:17 2026] Out of memory: Killed process 1525816 (dotnet)
+    total-vm:39558484kB, anon-rss:16983296kB, file-rss:4828kB, shmem-rss:25016kB
+```
+
+Also Sep 19 at 15:23:53, 15:24:13, 16:38:56 and 20:59:16. **17 GB in ONE process on an 18 GB box**, so this is a single
+test host ballooning rather than the three concurrent ones adding up.
+
+**The cause is inherent to mutation testing here, not a defect in the code being tested.** This project reads sizes out
+of files — BSP lumps, VTF headers, VPK directories — and checks them before allocating. A mutant that flips one of those
+guards allocates whatever the field says. That mutant *should* be reported killed, since an unbounded allocation is
+exactly what the guard exists to prevent; it only kills the measurement instead because the allocation escapes to the OS.
+
+**Fixed by capping the heap per process**: `DOTNET_GCHeapHardLimit=0x100000000` (4 GiB) exported in
+`build/run-measurements.sh`, so three concurrent hosts cannot reach 18 GB between them, and the kernel's OOM becomes an
+in-process `OutOfMemoryException` that fails that mutant's tests and scores it killed. *Not yet established*: whether
+4 GiB is enough headroom for Stryker's own process on the largest projects (Core ~9,500 mutants, Content ~12,400) — its
+footprint is syntax trees and the report rather than mutant allocations, so it should be far under, but that is reasoning
+and not a measurement. The next scheduled run of each module answers it.
+
+**Why it matters beyond the lost run:** an OOM-killed run leaves a `stryker.log` that ends mid-sentence and no score,
+which is indistinguishable at a glance from B410's config error — the one that silently killed every content run for a
+week. `build/check-measurements.ps1` reports this as "NO SCORE LINE", which is correct but does not say OOM. *Evidence
+class: measured (`dmesg`, process accounting).*
+
+**This gets worse as B410 is fixed, not better.** Clearing Safe Mode means thousands of previously-discarded mutants are
+actually executed: the content run above went from ~7 minutes to testing 6,376 mutants and was still going at 56 minutes
+when it died. Every module's slot will need re-timing, and the booked cron spacing in
+`PokemonBattleJournal/build/measurement-schedule.md` was sized for culled runs.
+
 ### B410 OPEN 2026-09-19: Stryker's Safe Mode drops ~300 whole methods from mutation testing
 
 **Found auditing the mutation box at the owner's request.** Every scheduled module runs and finishes, but a mutation that
@@ -27062,11 +27138,68 @@ a different mutation site. Fix: changed `corners` from definite-assignment to `I
 with a null-check guard, so a Block mutation produces a valid program that skips via the null branch. Fixed in `d204307e`.
 (2) `SceneImage.Read` at the `throw` using `string.Create`: the String mutator wraps the interpolated literal in a
 ternary that cannot be passed as `ref` to `string.Create`, producing CS1620. Added `// Stryker disable once` before the
-throw. Fixed in `d204307e`. The `ignore-mutations: ["String"]` config would also suppress this globally, but the inline
-comment is more targeted.
+throw. Fixed in `d204307e`. ~~The `ignore-mutations: ["String"]` config would also suppress this globally, but the inline
+comment is more targeted.~~ **That sentence is wrong and was measured wrong — see "config cannot fix any of this" below.**
 (3) `BspEntities.SkyCamera` at line 244: `position` declared via `out` in a compound `if` condition. Any mutation that
 replaces the entire condition before evaluating `!TryReadVector(...)` leaves `position` undeclared. Fixed in `1a5d6ccf`
 by declaring `(float X, float Y, float Z) position = default;` above the if and using `out position` (not `out ... position`).
+
+**2026-09-20 — it is three shapes, not a scatter, and config cannot fix any of them.** Worked out on
+`Tf2DemoSalvage.Audio` because it is the smallest project carrying all three (15 triggers, ~1 minute per run), by running
+Stryker rather than by reading it.
+
+| shape | what breaks | error |
+|---|---|---|
+| `if (expr is not { } name)` — the house null-check idiom | a mutant that empties the guard body leaves `name`, or a struct `name`'s fields, unassigned at the use below | CS0165 / CS0170 |
+| `try { x = …; } catch { throw …; }` | a mutant that empties the catch removes the `throw` that C#'s definite-assignment analysis relies on | CS0165 |
+| `string.Create(CultureInfo.InvariantCulture, $"…")` | the String mutator rewrites the literal as `(IsActive(n) ? $"" : $"…")`, and that ternary cannot bind to the second parameter, which is a `ref DefaultInterpolatedStringHandler` | CS1620 |
+
+**`ignore-mutations` and `ignore-methods` were both tried and neither does anything.** A run with
+`"ignore-mutations": ["Block"]` and `"ignore-methods": ["String.Create"]` produced a byte-identical Safe Mode list — the
+same 15 triggers and the same 410 compile-error mutants — while its own counters confirmed the filter had applied (154
+"Removed by block already covered" became 191 "Removed by mutation type filter"). Those filters run AFTER injection and
+compilation, so the mutant still breaks the build first. The same reasoning kills the `"String"` entry already sitting in
+`Content.Tests/stryker-config.json`: it suppressed nothing, and the 14 CS1620 triggers in that run are the proof.
+*Evidence class: measured, with a control.*
+
+**Only an inline comment prevents injection, and placement is not obvious.** `// Stryker disable once` covers the next
+STATEMENT, which is enough for a one-line `if` guard — `SoundScriptCatalog.Load` dropped off the list and its method's
+mutants came back. It is NOT enough for a multi-line `throw`, and a comment placed inside an argument list is ignored
+outright: both were tried and the CS1620 survived. Those need the range form, `// Stryker disable all` …
+`// Stryker restore all`, which does reach a statement's descendants. Keep the range tight — every mutant inside it is
+lost, and that is the price of the fix.
+
+**The `all` is load-bearing, and `e7d530cb` is wrong about it.** That commit says *"'all' is not a valid mutator name in
+Stryker 4.16; the legal form for disabling every mutator on a line is '// Stryker disable once' with no mutator
+argument"*, and changed 20 occurrences across six Content files on that basis. It was never run. An A/B in ONE Audio run
+settles it, on two sibling `throw`s in the same method of `OpusVoiceDecoder`, identical but for the comment:
+
+| form | result |
+|---|---|
+| `// Stryker disable all` … `// Stryker restore all` | suppressed; **4** mutants Ignored |
+| `// Stryker disable` … `// Stryker restore` | **still triggered** CS1620; **1** mutant Ignored |
+
+So the no-argument form reaches only the outermost node of the statement, while `all` reaches its descendants — which is
+exactly what a `string.Create` needs, since the offending mutant is on an interpolated literal several levels down. The
+two range-form sites that commit weakened (`ItemSchema.cs`, the `case … when` guards at 354 and 408) are restored to
+`all`. Its 18 `disable once all` → `disable once` changes are left alone: those are single-line sites and the in-flight
+Content run shows them ignoring mutants and not triggering. *Evidence class: measured, A/B with a control in one run.*
+
+**A fourth shape, found in Animation:** `while (true)` where the Boolean Literal mutator flips `true` to `false`, so a
+loop holding the method's only `return` or only assignment never runs — CS0161 or CS0165. Four sites
+(`IvpMindistMinimize` twice, `IvpOvTree`, `VphysicsSurfaceData`). Range form, because the loop spans lines.
+
+**Measured on Audio after all 15:** zero triggers, compile-error mutants 410 → 240, tested mutants 681 → **786**, and the
+score 62.37% → **59.62%**. *The score going DOWN is the point*: the recovered methods contain survivors the blind spot
+was hiding, so the old number was flattering rather than accurate. Cost: 44 mutants suppressed by the comments. Fixed in
+`b1734834`.
+
+**Scale, and why the `string.Create` half must be done exhaustively rather than from the log.** The log names only the
+FIRST trigger in each method, because Safe Mode removes the rest before they can be reported — so a file fixed from the
+log alone just surfaces its next one on the following run. Every `string.Create(CultureInfo.InvariantCulture, $"…")` is a
+deterministic trigger, and there are **303 of them** across `managed/` (Core 35 files, Content 51 sites, Scene 12,
+Presentation 12, Audio 4, Viewer3D 3, Logging 2, Render 1, Fonts 1). The definite-assignment shapes add ~143 more across
+core (119 triggers), scene (80), animation (31) and presentation (29).
 
 ### B409 FIXED 2026-09-18: gibs are never simulated — they hold in the air where the player died
 

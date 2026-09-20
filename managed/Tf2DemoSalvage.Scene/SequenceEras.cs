@@ -77,11 +77,16 @@ public sealed class SequenceEras
 
             if (words[0] == "protocol")
             {
+                // Stryker disable all : a mutant that empties the guard body leaves 'protocol'
+                // unassigned below (CS0165), and Safe Mode then drops every mutation in this
+                // method — B410.
                 if (words.Length != 3 ||
                     !int.TryParse(words[1], NumberStyles.None, CultureInfo.InvariantCulture, out int protocol))
                 {
                     throw new InvalidDataException($"Line {number} is not 'protocol <number> <era>': {line}");
                 }
+
+                // Stryker restore all
 
                 eraByProtocol[protocol] = words[2];
                 continue;

@@ -58,6 +58,8 @@ public static class PlayerBoneScales
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(skeleton);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'head'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Unscaled(scale) || Lookup(skeleton, "bip_head") is not { } head)
         {
             return;
@@ -69,6 +71,8 @@ public static class PlayerBoneScales
 
         foreach (string name in (string[])["prp_helmet", "prp_hat"])
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'hat'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Lookup(skeleton, name) is not { } hat)
             {
                 continue;
@@ -111,6 +115,8 @@ public static class PlayerBoneScales
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(skeleton);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'pelvis'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Unscaled(scale) || Lookup(skeleton, "bip_pelvis") is not { } pelvis)
         {
             return;
@@ -120,6 +126,8 @@ public static class PlayerBoneScales
 
         foreach (string name in Spine)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'move'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Lookup(skeleton, name) is not { } move)
             {
                 return;
@@ -180,6 +188,8 @@ public static class PlayerBoneScales
 
         foreach (string name in (string[])["bip_hand_L", "bip_hand_R"])
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'hand'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Lookup(skeleton, name) is not { } hand)
             {
                 continue;

@@ -115,9 +115,14 @@ public sealed class VpkArchive
 
         if (signature != Signature)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"0x{signature:X8} is not the VPK signature 0x{Signature:X8}."));
+
+            // Stryker restore all
         }
 
         int version = (int)BinaryPrimitives.ReadUInt32LittleEndian(span[4..]);
@@ -197,9 +202,14 @@ public sealed class VpkArchive
 
         if (start + entry.Length > stream.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"'{path}' claims {entry.Length} bytes at {start} of a {stream.Length}-byte archive."));
+
+            // Stryker restore all
         }
 
         stream.Seek(start, SeekOrigin.Begin);
@@ -234,8 +244,13 @@ public sealed class VpkArchive
             name = name[..^4];
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         return Path.Combine(
             folder, string.Create(CultureInfo.InvariantCulture, $"{name}_{index:D3}.vpk"));
+
+        // Stryker restore all
     }
 
     private static Dictionary<string, VpkEntry> ReadTree(
@@ -289,10 +304,16 @@ public sealed class VpkArchive
 
                     if (terminator != EntryTerminator)
                     {
+                        // Stryker disable all : the String mutator wraps the interpolated literal
+                        // in a ternary that cannot bind to string.Create's interpolated-string
+                        // handler (CS1620), and Safe Mode then drops every mutation in this
+                        // method — B410.
                         throw new InvalidDataException(string.Create(
                             CultureInfo.InvariantCulture,
                             $"A VPK entry for '{name}' ends with 0x{terminator:X4} rather than " +
                             $"0x{EntryTerminator:X4}; the tree is not being read correctly."));
+
+                        // Stryker restore all
                     }
 
                     if (at + preloadBytes > span.Length)

@@ -50,10 +50,15 @@ internal struct DecodeProgress(string what, int start)
         // body decoder returns without reading.
         if (position <= _last)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Decoding {_what} made no progress at position {_last}: an iteration consumed " +
                 $"nothing, so the loop would not terminate. The input is malformed."));
+
+            // Stryker restore all
         }
 
         _last = position;

@@ -84,9 +84,14 @@ public static class DemoCommandReader
             DemoCommandType type = (DemoCommandType)data.Span[position];
             if (!Enum.IsDefined(type))
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+                // and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidDataException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Unrecognised demo command {data.Span[position]} at offset {position}."));
+
+                // Stryker restore all
             }
 
             // dem_stop is where every TF2 demo runs out of bytes. The writer emits the command
@@ -105,10 +110,15 @@ public static class DemoCommandReader
 
             if (data.Length - position < CommandHeaderBytes)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+                // and Safe Mode then drops every mutation in this method — B410.
                 onTruncated?.Invoke(string.Create(
                     CultureInfo.InvariantCulture,
                     $"The demo ends inside a {type} command header at offset {position}: " +
                     $"{CommandHeaderBytes} bytes are needed and {data.Length - position} remain."));
+
+                // Stryker restore all
                 yield break;
             }
 
@@ -126,6 +136,10 @@ public static class DemoCommandReader
             ReadOnlyMemory<byte> payload;
             int prologueLength;
 
+            // Stryker disable all : a mutant that empties the catch removes the 'yield break' that
+            // C#'s definite-assignment analysis relies on, leaving 'payload' and 'prologueLength'
+            // unassigned at their use below (CS0165), and Safe Mode then drops every mutation in
+            // this method — B410.
             try
             {
                 payload = ReadPayload(data, type, ref position, out prologueLength);
@@ -137,6 +151,8 @@ public static class DemoCommandReader
                 onTruncated?.Invoke(truncated.Message);
                 yield break;
             }
+
+            // Stryker restore all
 
             yield return new DemoCommand(
                 type, tick, payload, data.Slice(prologueStart, prologueLength), view);
@@ -211,10 +227,15 @@ public static class DemoCommandReader
     {
         if (data.Length - position < count)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new EndOfStreamException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A {type} command needs {count} more bytes at offset {position}, but only " +
                 $"{data.Length - position} remain."));
+
+            // Stryker restore all
         }
 
         position += count;
@@ -231,18 +252,28 @@ public static class DemoCommandReader
         if (length < 0)
         {
             // Left unchecked this would rewind the cursor and loop forever on a corrupt file.
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A {type} command at offset {position - Int32Bytes} declares a negative " +
                 $"payload length of {length}."));
+
+            // Stryker restore all
         }
 
         if (data.Length - position < length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new EndOfStreamException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A {type} command declares {length} payload bytes at offset {position}, but " +
                 $"only {data.Length - position} remain."));
+
+            // Stryker restore all
         }
 
         ReadOnlyMemory<byte> payload = data.Slice(position, length);

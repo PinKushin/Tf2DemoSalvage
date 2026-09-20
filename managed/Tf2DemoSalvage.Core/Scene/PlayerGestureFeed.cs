@@ -272,11 +272,16 @@ public sealed class PlayerGestureFeed
 
         int slot = (int)GestureSlot.Jump;
 
+        // Stryker disable all : the guard condition spans two lines, so a mutant that empties the
+        // guard body leaves 'jumping' unassigned at its use below (CS0165), and Safe Mode then
+        // drops every mutation in this method — B410.
         if (slots[slot] is not { } jumping ||
             seconds - jumping.StartedSeconds <= GroundBelievedAfterSeconds)
         {
             return;
         }
+
+        // Stryker restore all
 
         // Already the landing gesture: replacing it every tick on the ground would restart it for
         // ever, which is the same ratchet a naive "reset while grounded" would produce.
@@ -342,12 +347,17 @@ public sealed class PlayerGestureFeed
     /// </remarks>
     public void StopScene(int entityIndex, string scene, double seconds)
     {
+        // Stryker disable all : the guard condition spans three lines, so a mutant that empties the
+        // guard body leaves 'playing' unassigned at its use below (CS0165), and Safe Mode then
+        // drops every mutation in this method — B410.
         if (!_byPlayer.TryGetValue(entityIndex, out SceneGesture?[]? slots) ||
             slots[(int)GestureSlot.Vcd] is not { } playing ||
             !string.Equals(playing.SceneName, scene, StringComparison.Ordinal))
         {
             return;
         }
+
+        // Stryker restore all
 
         slots[(int)GestureSlot.Vcd] = playing with { StoppedSeconds = seconds };
     }

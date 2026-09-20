@@ -650,6 +650,8 @@ public sealed class EntityModelSet : IModelBodygroups
 
             AnimatingEntity animating = EntityFor(prop, skinned);
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'posed'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (animating.Pose is not SkeletonPose posed)
             {
                 continue;
@@ -1020,6 +1022,9 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     private void Attach(SceneProp prop, AnimatingEntity animating, double seconds)
     {
+        // Stryker disable all : a mutant that empties the guard body leaves 'point', 'wearer',
+        // 'posed', 'wearerModel' and 'attachments' unassigned below (CS0165), and Safe Mode then
+        // drops every mutation in this method — B410.
         if (prop.AttachmentPoint is not { } point ||
             animating.Follows is not { } wearer ||
             animating.Pose is not SkeletonPose posed ||
@@ -1030,6 +1035,8 @@ public sealed class EntityModelSet : IModelBodygroups
         {
             return;
         }
+
+        // Stryker restore all
 
         if (!wearer.SetupBones(StudioBoneFlags.UsedByAnything, seconds))
         {
@@ -1049,6 +1056,8 @@ public sealed class EntityModelSet : IModelBodygroups
         // the same matrices twice, and a wearer with several did the bone lookup once per item.
         float[][] resolved = AttachmentsOf(prop.AttachedTo ?? -1, wearer, attachments);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'placement'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (point > resolved.Length || resolved[point - 1] is not { } placement)
         {
             return;
@@ -1358,6 +1367,8 @@ public sealed class EntityModelSet : IModelBodygroups
                 Locks: skinned.LocksOf(sent.Sequence)));
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'gestures'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (prop.Pose.Gestures is not { Count: > 0 } gestures)
         {
             return layers;
@@ -1398,6 +1409,8 @@ public sealed class EntityModelSet : IModelBodygroups
             // `SelectWeightedSequence( iGestureActivity )`, and its `<= 0` abandonment. An activity
             // number rather than a name is the two custom-gesture events, which carry the activity
             // on the wire; nothing resolves those yet, so they are skipped rather than guessed at.
+            // Stryker disable once : a mutant that empties the guard body leaves 'named'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (gesture.ActivityName is not { Length: > 0 } named)
             {
                 continue;
@@ -2418,6 +2431,8 @@ public sealed class EntityModelSet : IModelBodygroups
     private void SpinBarrel(
         SceneProp prop, PropModels.SkinnedModel skinned, SkeletonPose posed, double seconds)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'state'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (prop.Pose.MinigunState is not { } state)
         {
             return;
@@ -2473,6 +2488,9 @@ public sealed class EntityModelSet : IModelBodygroups
     private void TurnChamber(
         SceneProp prop, PropModels.SkinnedModel skinned, SkeletonPose posed, double seconds)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves the fields of
+        // 'chamber' ('Current', 'Goal', 'StartedSeconds') unassigned (CS0170), and Safe Mode then
+        // drops every mutation in this method — B410.
         if (prop.Pose.Chamber is not { } chamber)
         {
             return;
@@ -2925,6 +2943,9 @@ public sealed class EntityModelSet : IModelBodygroups
 
             foreach (AnimatingEntity animating in _entities.Values)
             {
+                // Stryker disable once : a mutant that empties the guard body leaves 'posed'
+                // unassigned (CS0165), and Safe Mode then drops every mutation in this method —
+                // B410.
                 if (animating.Pose is not SkeletonPose posed)
                 {
                     continue;
@@ -3663,6 +3684,8 @@ public sealed class EntityModelSet : IModelBodygroups
     {
         ArgumentNullException.ThrowIfNull(props);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'era'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (SequenceEra is not { } era)
         {
             return;
@@ -3672,12 +3695,17 @@ public sealed class EntityModelSet : IModelBodygroups
         {
             SceneProp prop = props[index];
 
+            // Stryker disable all : a mutant that empties the guard body leaves 'old' and
+            // 'skinned' unassigned below (CS0165), and Safe Mode then drops every mutation in
+            // this method — B410.
             if (Eras.For(era, prop.ModelPath) is not { } old ||
                 !_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) ||
                 frames.Skinned is not { } skinned)
             {
                 continue;
             }
+
+            // Stryker restore all
 
             int sequence = EraSequenceTranslation.Translate(
                 old, prop.Pose.Sequence, skinned.SequenceByLabel, skinned.SequenceWithActivity);
@@ -3729,6 +3757,8 @@ public sealed class EntityModelSet : IModelBodygroups
             return -1;
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'skinned'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (frames.Skinned is not { } skinned)
         {
             _render.LogWarning(
@@ -3786,11 +3816,15 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     private int CorpseSequence(SceneProp prop)
     {
+        // Stryker disable all : a mutant that empties the guard body leaves 'corpse'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? bodies) ||
             bodies.Skinned is not { } corpse)
         {
             return prop.Pose.Sequence;
         }
+
+        // Stryker restore all
 
         // `ResetSequence( iDeathSeq )` (`c_tf_player.cpp:851`); the label comes from
         // `LookupSequence`, so it is matched by label and never by activity.
@@ -3892,6 +3926,8 @@ public sealed class EntityModelSet : IModelBodygroups
                 continue;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'speed'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (prop.Pose.Speed is not { } speed)
             {
                 continue;
@@ -4314,6 +4350,8 @@ public sealed class EntityModelSet : IModelBodygroups
             added = true;
             Grown = true;
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'model'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (load(prop.ModelPath) is not { Geometry.Count: > 0 } model)
             {
                 continue;
@@ -4982,6 +5020,9 @@ public sealed class EntityModelSet : IModelBodygroups
                 // The owner's report is a door that never opens while its parent demonstrably moves, and
                 // that is a question about the second, third and hundredth frame. One line per distinct
                 // height answers it and still cannot flood: a door has about thirty of them.
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 if (_render.IsEnabled(LogLevel.Debug) &&
                     _reportedFrames.Add(string.Create(
                         CultureInfo.InvariantCulture,
@@ -4995,6 +5036,8 @@ public sealed class EntityModelSet : IModelBodygroups
                         + $"({prop.Pose.X:0} {prop.Pose.Y:0} {prop.Pose.Z:0}) = "
                         + $"({transform.OriginX:0} {transform.OriginY:0} {transform.OriginZ:0})");
                 }
+
+                // Stryker restore all
             }
             else if (prop.AttachedTo is { } wearer)
             {
@@ -5234,6 +5277,8 @@ public sealed class EntityModelSet : IModelBodygroups
             // (`econ_entity.cpp:110-117`, `146-147`). So a hat on a golden corpse turns gold and the
             // extra mesh bolted to that hat does not. Read-from-source. Both sites that raise the
             // flag are econ overrides, which is exactly what a corpse's wearables carry.
+            // Stryker disable once : a mutant that empties the guard body leaves 'attachmentsFor'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Attachments is not { } attachmentsFor)
             {
                 continue;
@@ -5446,12 +5491,17 @@ public sealed class EntityModelSet : IModelBodygroups
 
             bool gib = prop.ClassName == RagdollProps.GibClassName;
 
+            // Stryker disable all : a mutant that empties the guard body leaves 'entry' and
+            // 'corpse' unassigned below (CS0165), and Safe Mode then drops every mutation in
+            // this method — B410.
             if ((prop.ClassName != RagdollProps.RagdollClassName && !gib) ||
                 !_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) ||
                 entry.Ragdoll is not { } corpse)
             {
                 continue;
             }
+
+            // Stryker restore all
 
             _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating);
 
@@ -5660,6 +5710,8 @@ public sealed class EntityModelSet : IModelBodygroups
         // cells of the grid are blended, so they choose whose authored speed is being asked about —
         // and only then rescales and sets them again. Reading the speed first would ask about
         // whichever cells the previous frame happened to leave behind.
+        // Stryker disable once : a mutant that empties the guard body leaves 'speed'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (pose.Speed is not { } speed || speed <= 0f)
         {
             return values;

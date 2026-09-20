@@ -106,18 +106,28 @@ public static class BspMaterials
     {
         if (nameIndex < 0 || nameIndex >= nameCount)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A texture names string {nameIndex} of {nameCount}."));
+
+            // Stryker restore all
         }
 
         int offset = BinaryPrimitives.ReadInt32LittleEndian(table[(nameIndex * StringTableStride)..]);
 
         if (offset < 0 || offset >= names.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A texture name starts at {offset} of {names.Length} bytes of name data."));
+
+            // Stryker restore all
         }
 
         ReadOnlySpan<byte> rest = names[offset..];

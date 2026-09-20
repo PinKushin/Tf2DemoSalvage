@@ -155,6 +155,8 @@ public sealed class SoundscapeMixer
 
         _generation++;
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'placed'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (placement is not { } placed || soundscape is null)
         {
             return;
@@ -287,6 +289,8 @@ public sealed class SoundscapeMixer
             // one of them.** `AddLoopingSound` matches on `sound.pitch == pitch` and the wave name;
             // a differing volume is written into `volumeTarget` and faded to, which is the whole
             // point of reusing the slot.
+            // Stryker disable once : a mutant that empties the guard body leaves 'slot'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (sound.Position is not { } slot)
             {
                 resolved.Add((sound.Wave, sound.Pitch, null));

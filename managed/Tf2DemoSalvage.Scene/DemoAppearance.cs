@@ -125,6 +125,9 @@ public static class DemoAppearance
                 }
             }
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             log.LogInformation(
                 "{Message}",
                 string.Create(
@@ -132,6 +135,8 @@ public static class DemoAppearance
                     $"scenes: {scenes.Count:N0} in the archive, {taunts.Count:N0} played by this " +
                     $"recording, {taunts.Values.Count(one => one.Gestures.Count > 0):N0} staging a " +
                     $"gesture, {taunts.Values.Count(one => one.Loops):N0} looping"));
+
+            // Stryker restore all
         }
         else
         {

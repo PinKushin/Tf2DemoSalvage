@@ -91,6 +91,9 @@ public sealed class SpeexVoiceDecoder : IDisposable
     {
         nint mode;
 
+        // Stryker disable all : a mutant that empties the catch removes the throw the compiler
+        // relies on, leaving 'mode' unassigned below (CS0165), and Safe Mode then drops every
+        // mutation in this method — B410.
         try
         {
             mode = NativeSpeex.LibGetMode(NativeSpeex.NarrowbandMode);
@@ -103,6 +106,8 @@ public sealed class SpeexVoiceDecoder : IDisposable
                 "directory's README.md.",
                 missing);
         }
+
+        // Stryker restore all
 
         _state = NativeSpeex.DecoderInit(mode);
 

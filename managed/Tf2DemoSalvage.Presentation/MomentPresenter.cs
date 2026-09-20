@@ -150,6 +150,8 @@ public sealed class MomentPresenter
     /// </remarks>
     public void Show(double tick, in MomentView view)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'source'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Source is not { } source)
         {
             return;
@@ -259,6 +261,8 @@ public sealed class MomentPresenter
         ReadOnlySpan<bool> visibleByLeaf = default,
         (float X, float Y, float Z)? eye = null)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'info'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (_builtFor is not { } info || _posed)
         {
             return;

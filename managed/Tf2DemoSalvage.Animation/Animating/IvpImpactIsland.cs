@@ -387,6 +387,8 @@ public sealed class IvpImpactIsland
 
         for (int slot = 1; slot >= 0; slot--)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'core'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (cores[slot] is not { Immovable: false } core)
             {
                 continue;

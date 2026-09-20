@@ -1911,6 +1911,8 @@ public sealed class DemoTimeline
                         break;
                 }
 
+                // Stryker disable once : a mutant that empties the guard body leaves 'snapshot'
+                // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
                 if (message is not PacketEntitiesMessage snapshot || snapshot.LengthBits <= 0)
                 {
                     continue;
@@ -1998,6 +2000,8 @@ public sealed class DemoTimeline
                     }
                 }
 
+                // Stryker disable once : a mutant that empties the guard body leaves 'fog'
+                // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
                 if (entity.Fog() is not { } fog)
                 {
                     continue;
@@ -2022,6 +2026,9 @@ public sealed class DemoTimeline
             // event that would fall in the gap.
             foreach (EntityState entity in entities.OfClass(SceneEntityClass))
             {
+                // Stryker disable all : the guard condition spans two lines, so a mutant that
+                // empties the guard body leaves 'index' unassigned at its use below (CS0165), and
+                // Safe Mode then drops every mutation in this method — B410.
                 if (entity.ScenePlayingBack() is not true ||
                     entity.SceneStringIndex() is not { } index)
                 {
@@ -2040,6 +2047,8 @@ public sealed class DemoTimeline
 
                     continue;
                 }
+
+                // Stryker restore all
 
                 if (playingScenes.TryGetValue(entity.EntityIndex, out int already) &&
                     already == index)
@@ -2105,6 +2114,9 @@ public sealed class DemoTimeline
                     lastHeld[player.EntityIndex] = holding;
                 }
 
+                // Stryker disable once : a mutant that empties the guard body leaves 'origin's
+                // fields unassigned (CS0170), and Safe Mode then drops every mutation in this
+                // method — B410.
                 if (!player.IsVisible || player.Origin() is not { } origin)
                 {
                     continue;
@@ -2767,6 +2779,8 @@ public sealed class DemoTimeline
                 continue;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'rawIndex'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (entity.ViewmodelModelIndex() is not { } rawIndex)
             {
                 continue;
@@ -2968,6 +2982,9 @@ public sealed class DemoTimeline
 
         foreach (ScenePropTrack track in tracks.Values)
         {
+            // Stryker disable all : the guard condition spans several lines, so a mutant that
+            // empties the guard body leaves 'definition' unassigned at its use below (CS0165), and
+            // Safe Mode then drops every mutation in this method — B410.
             if (track.AttachedTo != owner ||
                 !track.BoneMerged ||
                 track.OfDisguise != disguised ||
@@ -2975,6 +2992,8 @@ public sealed class DemoTimeline
             {
                 continue;
             }
+
+            // Stryker restore all
 
             bool wearable =
                 track.ClassName.Contains("Wearable", StringComparison.Ordinal) ||
@@ -4116,6 +4135,8 @@ public sealed class DemoTimeline
         // interpolation, a sixteen-field construction) happens only when something changed.
         foreach (ScenePropTrack track in _props)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'prop'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (track.Live is not { } prop)
             {
                 continue;
@@ -4406,6 +4427,8 @@ public sealed class DemoTimeline
 
         foreach (ScenePropTrack track in _props)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'parent'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (track.AttachedTo is not { } parent || parent == track.EntityIndex)
             {
                 continue;
@@ -4632,12 +4655,17 @@ public sealed class DemoTimeline
                 continue;
             }
 
+            // Stryker disable all : the guard condition spans two lines, so a mutant that empties
+            // the guard body leaves 'pose' unassigned at its use below (CS0165), and Safe Mode
+            // then drops every mutation in this method — B410.
             if (!_trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) ||
                 (interpolating ? track.At(tick) : track.Held(tick)) is not { } pose)
             {
                 into.Add(player);
                 continue;
             }
+
+            // Stryker restore all
 
             (float moveX, float moveY) = MoveParameters(track, tick, pose.EyeYaw ?? pose.Yaw);
 
@@ -4824,6 +4852,8 @@ public sealed class DemoTimeline
 
         double ticks = window / Math.Max(0.001f, 0.015f);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'now' and 'was'
+        // unassigned below (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (track.At(tick) is not { } now || track.At(Math.Max(0d, tick - ticks)) is not { } was)
         {
             return 0f;
@@ -4851,6 +4881,8 @@ public sealed class DemoTimeline
 
         double ticks = window / Math.Max(0.001f, 0.015f);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'now' and 'was'
+        // unassigned below (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (track.At(tick) is not { } now || track.At(Math.Max(0d, tick - ticks)) is not { } was)
         {
             return null;

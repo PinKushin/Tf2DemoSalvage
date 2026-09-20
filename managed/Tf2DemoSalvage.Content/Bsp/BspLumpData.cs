@@ -79,10 +79,15 @@ public static class BspLumpData
         if (lump.Offset < 0 || lump.Length < 0 ||
             (long)lump.Offset + lump.Length > file.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A lump at offset {lump.Offset} of {lump.Length} bytes does not fit in a " +
                 $"{file.Length}-byte file."));
+
+            // Stryker restore all
         }
 
         ReadOnlyMemory<byte> raw = file.Slice(lump.Offset, lump.Length);
@@ -100,18 +105,28 @@ public static class BspLumpData
 
         if (actualSize > MaximumDecompressedBytes)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A compressed lump declares {actualSize:N0} decompressed bytes, beyond the " +
                 $"{MaximumDecompressedBytes:N0}-byte limit this reader will allocate."));
+
+            // Stryker restore all
         }
 
         if (packedSize > raw.Length - CompressionHeaderBytes)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A compressed lump declares {packedSize:N0} packed bytes but only " +
                 $"{raw.Length - CompressionHeaderBytes:N0} follow its header."));
+
+            // Stryker restore all
         }
 
         return ValveLzma.Decode(
@@ -142,10 +157,15 @@ public static class BspLumpData
 
         if (data.Length % stride != 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"The {what} lump is {data.Length:N0} bytes, which is not a whole number of " +
                 $"{stride}-byte entries."));
+
+            // Stryker restore all
         }
 
         return data;

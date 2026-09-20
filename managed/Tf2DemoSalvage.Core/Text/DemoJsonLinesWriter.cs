@@ -112,6 +112,8 @@ public static class DemoJsonLinesWriter
         // the file records.
         foreach (DemoCommand command in commands)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'view'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (command.View is not { } view)
             {
                 continue;

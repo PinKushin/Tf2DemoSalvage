@@ -73,6 +73,9 @@ public static class DemoWriter
                 // silent corruption is hardest to notice.
                 if (command.Tick < 0 || command.Tick > MaxStopTick)
                 {
+                    // Stryker disable all : the String mutator wraps the interpolated literal in a
+                    // ternary that cannot bind to string.Create's interpolated-string handler
+                    // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                     throw new ArgumentOutOfRangeException(
                         nameof(commands),
                         command.Tick,
@@ -81,6 +84,8 @@ public static class DemoWriter
                             $"dem_stop stores its tick in {StopTickBytes} bytes, so it cannot " +
                             $"represent {command.Tick}. Writing it would produce a demo that " +
                             $"reads back as a different tick."));
+
+                    // Stryker restore all
                 }
 
                 BinaryPrimitives.WriteInt32LittleEndian(scratch, command.Tick);
@@ -140,9 +145,14 @@ public static class DemoWriter
         byte[] bytes = Encoding.UTF8.GetBytes(value);
         if (bytes.Length >= width)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"'{value}' needs {bytes.Length} bytes and the field holds {width - 1}."));
+
+            // Stryker restore all
         }
 
         bytes.CopyTo(buffer, offset);

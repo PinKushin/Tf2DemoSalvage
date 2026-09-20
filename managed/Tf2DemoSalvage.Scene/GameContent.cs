@@ -200,6 +200,8 @@ public sealed class GameContent
     /// </remarks>
     public IEnumerable<string> ModelPaths()
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'models'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Classes is not { } models)
         {
             yield break;

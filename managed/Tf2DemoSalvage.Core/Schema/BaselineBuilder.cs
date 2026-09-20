@@ -42,12 +42,17 @@ public static class BaselineBuilder
 
         foreach (StringTableEntry entry in entries)
         {
+            // Stryker disable all : the guard condition spans several lines, so a mutant that
+            // empties the guard body leaves 'classId' unassigned at its use below (CS0165), and
+            // Safe Mode then drops every mutation in this method — B410.
             if (entry.UserData.Count == 0 ||
                 !int.TryParse(
                     entry.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int classId))
             {
                 continue;
             }
+
+            // Stryker restore all
 
             decoder.SetBaseline(classId, [.. entry.UserData]);
         }

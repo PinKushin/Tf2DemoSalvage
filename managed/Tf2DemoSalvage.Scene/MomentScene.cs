@@ -610,12 +610,17 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         if (addSeconds > StallSeconds)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             _render.LogWarning(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"STALL reading models took {addSeconds * 1000d:0} ms for {_drawn.Count} props " +
                     $"({_models.Count} packed); this frame is a freeze"));
+
+            // Stryker restore all
         }
 
         // **Valve's own pass, under Valve's own name.** `UpdateClientSideAnimations` →
@@ -633,6 +638,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         // across demos, so after a switch it already holds what the new demo needs and does not grow
         // — but the GPU buffer it was uploaded into is gone. Every posed model then took the "posed
         // before any geometry was uploaded" branch, 440,412 times in one five-minute run.
+        // Stryker disable once : a mutant that empties the guard body leaves 'upload'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Upload is not { } upload)
         {
             // **Reported once, because forgetting this draws NOTHING and says nothing** (B193). The
@@ -682,12 +689,17 @@ public sealed class MomentScene : IGameSystemPerFrame
             // **The whole buffer is rebuilt whenever the set GROWS**, so this is not a one-off cost
             // at load: it is paid again every time a model nobody has seen yet comes into view, and
             // it gets more expensive as the set gets bigger.
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             _render.LogWarning(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"STALL uploading {_models.Vertices.Count} vertices took " +
                     $"{uploadSeconds * 1000d:0} ms because the model set grew to {_models.Count}"));
+
+            // Stryker restore all
         }
 
         // **Logged because a model that draws nothing looks exactly like one that was never
@@ -893,6 +905,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         //
         // It joins the existing early return rather than getting one of its own: every clause here
         // means "draw no weapon in hand", and they must all drop the camera the same way.
+        // Stryker disable all : a mutant that empties the guard body leaves 'source', 'follower'
+        // and 'camera' unassigned below (CS0165), and Safe Mode then drops every mutation in
+        // this method — B410.
         if (!info.DrawViewmodel ||
             !info.FirstPerson ||
             Viewmodels is not { } source ||
@@ -905,6 +920,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             ViewmodelCamera = null;
             return;
         }
+
+        // Stryker restore all
 
         // **Resolved from the players this moment already sampled**, rather than being handed in.
         // The arms come from the class script exactly as the body does, and the weapon from the item
@@ -1324,12 +1341,18 @@ public sealed class MomentScene : IGameSystemPerFrame
 
                 if (first == None)
                 {
+                    // Stryker disable all : the String mutator wraps the interpolated literal
+                    // in a ternary that cannot bind to string.Create's interpolated-string
+                    // handler (CS1620), and Safe Mode then drops every mutation in this
+                    // method — B410.
                     first = string.Create(
                         CultureInfo.InvariantCulture,
                         $"{System.IO.Path.GetFileNameWithoutExtension(prop.ModelPath)}" +
                         $" entity {prop.EntityIndex}" +
                         $" owner {prop.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "-"}" +
                         $" attached {prop.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
+
+                    // Stryker restore all
                 }
             }
         }
@@ -1365,14 +1388,22 @@ public sealed class MomentScene : IGameSystemPerFrame
 
             if (drawn == None)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 drawn = string.Create(
                     CultureInfo.InvariantCulture,
                     $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)}" +
                     $" at ({x:0}, {y:0}, {z:0})" +
                     $" [{(instance.Bones is { Count: > 0 } ? "bone" : "matrix")}]");
+
+                // Stryker restore all
             }
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a
+        // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+        // and Safe Mode then drops every mutation in this method — B410.
         _render.LogDebug(
             "{Message}",
             string.Create(
@@ -1382,6 +1413,8 @@ public sealed class MomentScene : IGameSystemPerFrame
                 $"{atOrigin} sent no origin of their own, which is what a bone merge looks like; " +
                 $"{drawnAtOrigin} DRAWN AT THE ORIGIN; " +
                 $"first without an origin {first}; first instanced {drawn}"));
+
+        // Stryker restore all
     }
 
     /// <summary>What the weapon report says when it found none, in both halves.</summary>

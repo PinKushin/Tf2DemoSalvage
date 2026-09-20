@@ -167,22 +167,32 @@ public sealed record UserCommand(
         }
         catch (EndOfStreamException exhausted)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"A user command payload of {payload.Length} bytes ended before its fields " +
                     $"did, so one of them was read at the wrong width."),
                 exhausted);
+
+            // Stryker restore all
         }
 
         int expectedBytes = (reader.BitsRead + BitsPerByte - 1) / BitsPerByte;
 
         if (expectedBytes != payload.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A user command's fields occupy {reader.BitsRead} bits, which is " +
                 $"{expectedBytes} bytes, but the payload is {payload.Length}."));
+
+            // Stryker restore all
         }
 
         // Read rather than assumed. These bits are the engine's uninitialised stack and they are

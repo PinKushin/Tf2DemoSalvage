@@ -1741,6 +1741,8 @@ public sealed class MapAssets
                 return [];
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'texture'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (vmt is null || VmtMaterial.Parse(vmt).PrimaryTexture is not { } texture)
             {
                 assets.LogWarning(
@@ -1986,6 +1988,8 @@ public sealed class MapAssets
         {
             string path = "materials/" + BspCubemaps.TextureName(mapName, placement) + ".vtf";
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'file'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (pak.ReadFile(path) is not { } file)
             {
                 // **Expected on some maps rather than a defect.** `Cubemap_AddUnreferencedCubemaps`
@@ -2068,6 +2072,8 @@ public sealed class MapAssets
         IReadOnlyDictionary<string, ParticleMaterial> Materials) LoadRocketTrail(
         ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'file'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (archives.Read("particles/rockettrail.pcf") is not { Length: > 0 } file)
         {
             return (null, EmptySystems, EmptyMaterials);
@@ -2128,6 +2134,9 @@ public sealed class MapAssets
             ? found
             : ParticleMaterial.None;
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a
+        // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+        // and Safe Mode then drops every mutation in this method — B410.
         assets.LogInformation(
             "{Message}",
             string.Create(
@@ -2137,6 +2146,8 @@ public sealed class MapAssets
                 $"{(own.Sheet is null ? "did NOT resolve" : "resolved")}, " +
                 $"{own.Sequences.Count} sheet sequences, {own.Blend} blending; " +
                 $"{materials.Count} particle materials loaded"));
+
+        // Stryker restore all
 
         return (trail, systems, materials);
     }
@@ -2212,6 +2223,8 @@ public sealed class MapAssets
                 named = named[..dot];
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'texture'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Resolve(assets, named, pak, archives, maximumTextureSize).Texture is not { } texture)
             {
                 continue;
@@ -2235,11 +2248,16 @@ public sealed class MapAssets
                 vmt?.IgnoresVertexColors ?? true);
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a
+        // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+        // and Safe Mode then drops every mutation in this method — B410.
         assets.LogInformation(
             "{Message}",
             string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"entity sprites: {paths.Count} materials asked for, {sprites.Count} resolved"));
+
+        // Stryker restore all
 
         foreach (string absent in paths.Where(one => !sprites.ContainsKey(one)))
         {
@@ -2281,6 +2299,8 @@ public sealed class MapAssets
             return ([], SpriteBlend.Translucent);
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'texture'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (parsed.PrimaryTexture is not { Length: > 0 } texture)
         {
             return ([], parsed.SpriteBlending);
@@ -2458,6 +2478,9 @@ public sealed class MapAssets
 
             for (int frame = 0; frame < probe.FrameCount; frame++)
             {
+                // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
+                // unassigned (CS0165), and Safe Mode then drops every mutation in this method —
+                // B410.
                 if (LoadFrame(detail, frame) is not { } decoded)
                 {
                     break;
@@ -2502,6 +2525,8 @@ public sealed class MapAssets
                 }
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'texture'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (animator is null || material.BaseTexture is not { } texture)
             {
                 return null;
@@ -2520,6 +2545,9 @@ public sealed class MapAssets
 
             for (int frame = 0; frame < probe.FrameCount; frame++)
             {
+                // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
+                // unassigned (CS0165), and Safe Mode then drops every mutation in this method —
+                // B410.
                 if (LoadFrame(texture, frame) is not { } decoded)
                 {
                     break;
@@ -2542,6 +2570,8 @@ public sealed class MapAssets
                 return null;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Load(name) is not { } decoded)
             {
                 // **Five of the 1,862 materials that name one set it to the literal `"1"`**, which
@@ -2572,6 +2602,8 @@ public sealed class MapAssets
                 return null;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Load(name) is not { } decoded)
             {
                 assets.LogWarning(
@@ -2687,6 +2719,8 @@ public sealed class MapAssets
                 ? name[..^4]
                 : name;
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'file'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Find("materials/" + bare + ".vtf") is not { } file)
             {
                 assets.LogWarning(
@@ -2729,6 +2763,8 @@ public sealed class MapAssets
                 return null;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Load(name) is not { } decoded)
             {
                 assets.LogWarning(
@@ -2748,6 +2784,8 @@ public sealed class MapAssets
                 return null;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Load(name) is not { } decoded)
             {
                 assets.LogWarning(
@@ -2773,6 +2811,8 @@ public sealed class MapAssets
                 ? name[..^4]
                 : name;
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'file'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Find("materials/" + bare + ".vtf") is not { } file)
             {
                 return null;
@@ -2803,6 +2843,8 @@ public sealed class MapAssets
                 ? name[..^4]
                 : name;
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'file'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Find("materials/" + bare + ".vtf") is not { } file)
             {
                 assets.LogWarning(

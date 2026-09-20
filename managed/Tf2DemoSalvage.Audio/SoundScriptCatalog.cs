@@ -127,6 +127,8 @@ public sealed class SoundScriptCatalog
 
         foreach (string path in Listed(manifest))
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'script'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (read(path) is not { } script)
             {
                 continue;

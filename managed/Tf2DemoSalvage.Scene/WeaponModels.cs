@@ -84,6 +84,8 @@ public sealed class WeaponModels
     /// </remarks>
     public string? For(int? weaponItem, string? weaponClass, int? forClass)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'schema'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Schema() is not { } schema)
         {
             return null;
@@ -163,6 +165,8 @@ public sealed class WeaponModels
     /// </remarks>
     public bool IsFestivized(SceneProp prop)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'festivized'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Schema()?.AttributeDefinitionIndex("is_festivized") is not { } festivized)
         {
             return false;
@@ -200,6 +204,8 @@ public sealed class WeaponModels
     {
         ArgumentNullException.ThrowIfNull(prop);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'schema'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Schema() is not { } schema)
         {
             return null;
@@ -240,10 +246,15 @@ public sealed class WeaponModels
     public IReadOnlyList<string> AttachmentsFor(
         int? item, int? team, bool festivized, int displayFlagMask)
     {
+        // Stryker disable all : a mutant that empties the guard body leaves 'definition' and
+        // 'schema' unassigned below (CS0165), and Safe Mode then drops every mutation in this
+        // method — B410.
         if (item is not { } definition || Schema() is not { } schema)
         {
             return [];
         }
+
+        // Stryker restore all
 
         List<string> models = [];
 
@@ -323,6 +334,8 @@ public sealed class WeaponModels
 
         foreach (ScenePropTrack track in timeline.Props)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'item'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (track.ItemDefinitionIndex is not { } item || !asked.Add(item))
             {
                 continue;
@@ -363,6 +376,8 @@ public sealed class WeaponModels
 
         foreach (ScenePropTrack track in timeline.Props)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'item'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (track.ItemDefinitionIndex is not { } item || !asked.Add(item))
             {
                 continue;

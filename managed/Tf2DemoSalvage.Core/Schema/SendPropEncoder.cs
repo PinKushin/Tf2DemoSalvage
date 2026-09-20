@@ -293,6 +293,9 @@ public static class SendPropEncoder
 
             if (integer > 1 << width)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 throw new ArgumentOutOfRangeException(
                     nameof(value),
                     value,
@@ -300,6 +303,8 @@ public static class SendPropEncoder
                         CultureInfo.InvariantCulture,
                         $"A coordinate's integer part is {width} bits, so it stops at " +
                         $"{1 << width}."));
+
+                // Stryker restore all
             }
 
             // Minus one, matching the decoder's plus one: a present integer part is never zero,

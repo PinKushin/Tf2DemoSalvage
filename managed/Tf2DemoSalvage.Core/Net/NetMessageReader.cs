@@ -125,11 +125,16 @@ public static class NetMessageReader
 
                 if (!Enum.IsDefined((NetMessageType)rawType))
                 {
+                    // Stryker disable all : the String mutator wraps the interpolated literal in a
+                    // ternary that cannot bind to string.Create's interpolated-string handler
+                    // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                     return Stopped(messages, messageStarts, lastGoodBit, null, string.Create(
                         CultureInfo.InvariantCulture,
                         $"Unrecognised message id {rawType} at bit {typeStartBit}. Ids 1, 9, " +
                         $"16, 20 and 22 are unused at network protocol 24 - an id in that set " +
                         $"usually means an earlier message overread, not a new message type."));
+
+                    // Stryker restore all
                 }
 
                 NetMessageType type = (NetMessageType)rawType;
@@ -147,10 +152,16 @@ public static class NetMessageReader
                     case NetMessageType.NetTick:
                         if (reader.BitsRemaining < NetTickBodyBits)
                         {
+                            // Stryker disable all : the String mutator wraps the interpolated
+                            // literal in a ternary that cannot bind to string.Create's
+                            // interpolated-string handler (CS1620), and Safe Mode then drops every
+                            // mutation in this method — B410.
                             return Stopped(messages, messageStarts, lastGoodBit, null, string.Create(
                                 CultureInfo.InvariantCulture,
                                 $"Packet is truncated: {type} at bit {typeStartBit} needs " +
                                 $"{NetTickBodyBits} body bits but only {reader.BitsRemaining} remain."));
+
+                            // Stryker restore all
                         }
 
                         messages.Add(new NetTickMessage(
@@ -491,11 +502,17 @@ public static class NetMessageReader
                     }
 
                     default:
+                        // Stryker disable all : the String mutator wraps the interpolated literal
+                        // in a ternary that cannot bind to string.Create's interpolated-string
+                        // handler (CS1620), and Safe Mode then drops every mutation in this
+                        // method — B410.
                         return Stopped(messages, messageStarts, lastGoodBit, type, string.Create(
                             CultureInfo.InvariantCulture,
                             $"{type} at bit {typeStartBit} is not decoded yet. Messages carry no " +
                             $"length prefix, so the rest of this packet cannot be reached until " +
                             $"it is implemented."));
+
+                        // Stryker restore all
                 }
 
                 // Every message accounts for itself, including the ones read purely for
@@ -515,9 +532,14 @@ public static class NetMessageReader
         }
         catch (EndOfStreamException exception)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             return Stopped(messages, messageStarts, lastGoodBit, null, string.Create(
                 CultureInfo.InvariantCulture,
                 $"A message body ran past the end of the packet: {exception.Message}"));
+
+            // Stryker restore all
         }
         catch (InvalidDataException exception)
         {
@@ -532,9 +554,15 @@ public static class NetMessageReader
             // that now report a stop here were previously consuming that garbage without
             // complaint. Two of them were reading counts of 32876 and 18961 classes against a
             // game that has a few hundred.
+            //
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             return Stopped(messages, messageStarts, lastGoodBit, null, string.Create(
                 CultureInfo.InvariantCulture,
                 $"A message declared more than the packet can hold: {exception.Message}"));
+
+            // Stryker restore all
         }
 
         return new NetMessageReadResult
@@ -579,10 +607,15 @@ public static class NetMessageReader
 
         if (byteCount < 0 || (long)byteCount * BitsPerByte > reader.BitsRemaining)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             problem = string.Create(
                 CultureInfo.InvariantCulture,
                 $"declares {byteCount} bytes of body but only " +
                 $"{reader.BitsRemaining / BitsPerByte} remain in the packet.");
+
+            // Stryker restore all
             return false;
         }
 

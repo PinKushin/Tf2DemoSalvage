@@ -129,6 +129,8 @@ public sealed class SoundscapeSystem(
     {
         ArgumentNullException.ThrowIfNull(output);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'placements'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Placements is not { } placements)
         {
             // **Said once, because "no placements" and "none reaches the listener" are different
@@ -261,6 +263,8 @@ public sealed class SoundscapeSystem(
             return;
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'opened'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (sample(voice.Wave) is not { } opened)
         {
             // Remembered as started even when it could not be opened, so a missing file is looked

@@ -182,6 +182,8 @@ public sealed class IvpHullManager
     {
         ArgumentNullException.ThrowIfNull(synapse);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'slot'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (synapse.HullSlot is not int slot)
         {
             throw new InvalidOperationException("A synapse that is not filed is taken out of a hull manager.");

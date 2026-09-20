@@ -113,6 +113,9 @@ public static class MessageAssembly
 
             PrefetchMessage prefetch => [Line("svc_prefetch", prefetch.SoundIndex)],
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             FixAngleMessage angle =>
             [
                 string.Create(
@@ -121,6 +124,11 @@ public static class MessageAssembly
                     $"{Round(angle.Pitch)} {Round(angle.Yaw)} {Round(angle.Roll)}"),
             ],
 
+            // Stryker restore all
+
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             FileMessage file =>
             [
                 string.Create(
@@ -128,6 +136,8 @@ public static class MessageAssembly
                     $"svc_file {file.TransferId} {Quote(file.FileName)} " +
                     $"{(file.IsRequested ? 1 : 0)}"),
             ],
+
+            // Stryker restore all
 
             GetCvarValueMessage cvar =>
             [
@@ -143,6 +153,9 @@ public static class MessageAssembly
 
             BspDecalMessage decal => [WriteDecal(decal)],
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             EntityMessage entity =>
             [
                 string.Create(
@@ -151,6 +164,11 @@ public static class MessageAssembly
                     $"{Convert.ToHexString(entity.Body.Span)}"),
             ],
 
+            // Stryker restore all
+
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             VoiceDataMessage voice =>
             [
                 string.Create(
@@ -159,9 +177,15 @@ public static class MessageAssembly
                     $"{Convert.ToHexString(voice.Body.Span)}"),
             ],
 
+            // Stryker restore all
+
             // Chat is one of forty-odd payloads sharing svc_UserMessage and goes back as the user
             // message it arrived in. Its decoded text belongs in the trace; here the body is what
             // has to survive.
+            //
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             ChatMessage chat =>
             [
                 string.Create(
@@ -170,6 +194,11 @@ public static class MessageAssembly
                     $"{Convert.ToHexString(chat.Body.Span)}"),
             ],
 
+            // Stryker restore all
+
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             UserMessage user =>
             [
                 string.Create(
@@ -177,6 +206,8 @@ public static class MessageAssembly
                     $"svc_usermessage {user.UserMessageType} {user.BodyBits} " +
                     $"{Convert.ToHexString(user.Body.Span)}"),
             ],
+
+            // Stryker restore all
 
             SoundsMessage sounds => WriteSounds(sounds, protocol),
 
@@ -194,10 +225,15 @@ public static class MessageAssembly
     /// trip. It is there because a reader who meets a hex string deserves to know what it stands
     /// for — and because counting what is still opaque, by type, is otherwise guesswork.
     /// </remarks>
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     public static string WriteRaw(ReadOnlySpan<byte> bits, int bitCount, string label) =>
         string.Create(
             CultureInfo.InvariantCulture,
             $"{RawKeyword} {bitCount} {Convert.ToHexString(bits)} # {label}");
+
+    // Stryker restore all
 
     /// <summary>Reads one message's lines back into bits.</summary>
     /// <param name="line">The message's first line.</param>
@@ -359,6 +395,9 @@ public static class MessageAssembly
             $"Unknown message '{tokens[0]}' in: {string.Join(' ', tokens)}"),
     };
 
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     private static string WriteServerInfo(ServerInfoMessage info) => string.Create(
         CultureInfo.InvariantCulture,
         $"svc_serverinfo {info.NetworkProtocol} {info.ServerCount} " +
@@ -367,6 +406,8 @@ public static class MessageAssembly
         $"{info.MaxPlayers} {Round(info.IntervalPerTick)} {(int)info.Platform} " +
         $"{Quote(info.GameDirectory)} {Quote(info.Map)} {Quote(info.Skybox)} " +
         $"{Quote(info.ServerName)} {(info.IsReplay ? 1 : 0)}");
+
+    // Stryker restore all
 
     private static ServerInfoMessage BuildServerInfo(List<string> tokens) => new(
         (ushort)Integer(tokens, 1),
@@ -388,6 +429,9 @@ public static class MessageAssembly
 
     private static List<string> WriteClassInfo(ClassInfoMessage classes)
     {
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         List<string> lines =
         [
             string.Create(
@@ -395,12 +439,19 @@ public static class MessageAssembly
                 $"svc_classinfo {classes.ClassCount} {(classes.CreateOnClient ? 1 : 0)} {{"),
         ];
 
+        // Stryker restore all
+
         foreach (ServerClass serverClass in classes.Classes)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             lines.Add(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  class {serverClass.Id} {Quote(serverClass.ClassName)} " +
                 $"{Quote(serverClass.TableName)}"));
+
+            // Stryker restore all
         }
 
         lines.Add(BlockEnd);
@@ -425,6 +476,9 @@ public static class MessageAssembly
     /// Quality 255 means a sample rate follows, and the reader overwrites the quality with it. The
     /// two shapes are spelled differently here so they cannot collapse into one.
     /// </remarks>
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     private static string WriteVoiceInit(VoiceInitMessage voice) => voice.SampleRate is { } rate
         ? string.Create(
             CultureInfo.InvariantCulture, $"svc_voiceinit {Quote(voice.Codec)} rate {rate}")
@@ -432,11 +486,18 @@ public static class MessageAssembly
             CultureInfo.InvariantCulture,
             $"svc_voiceinit {Quote(voice.Codec)} quality {voice.Quality}");
 
+    // Stryker restore all
+
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     private static string WriteDecal(BspDecalMessage decal) => string.Create(
         CultureInfo.InvariantCulture,
         $"svc_bspdecal {Axis(decal.X)} {Axis(decal.Y)} {Axis(decal.Z)} {decal.TextureIndex} " +
         $"{(decal.OnEntity ? 1 : 0)} {decal.EntityIndex} {decal.ModelIndex} " +
         $"{(decal.IsLowPriority ? 1 : 0)}");
+
+    // Stryker restore all
 
     private static BspDecalMessage BuildDecal(List<string> tokens) => new(
         Integer(tokens, 5) != 0,
@@ -459,17 +520,26 @@ public static class MessageAssembly
         IReadOnlyList<DecodedSound> sounds = SoundDecoder.Decode(
             message.Body.Span, message.Count, message.BodyBits, protocol);
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         List<string> lines =
         [
             string.Create(
                 CultureInfo.InvariantCulture, $"svc_sounds {(message.IsReliable ? 1 : 0)} {{"),
         ];
 
+        // Stryker restore all
+
         foreach (DecodedSound sound in sounds)
         {
             // Every field, including the ones a trace leaves out. `sent` is the one that looks
             // like an implementation detail and is not: which fields the sender transmitted is
             // not recoverable from the values, so without it the message cannot be rebuilt.
+            //
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             lines.Add(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  sound entity={sound.EntityIndex} num={sound.SoundNumber} " +
@@ -480,6 +550,8 @@ public static class MessageAssembly
                 $"delay={Round(sound.DelaySeconds)} x={Round(sound.OriginX)} " +
                 $"y={Round(sound.OriginY)} z={Round(sound.OriginZ)} " +
                 $"speaker={sound.SpeakerEntity} dsp={sound.SpecialDsp} sent={(int)sound.Sent}"));
+
+            // Stryker restore all
         }
 
         lines.Add(BlockEnd);

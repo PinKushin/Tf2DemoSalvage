@@ -120,6 +120,8 @@ public sealed class EntitySpriteBatches
             // `CEngineSprite::Init` builds a material per render mode and the shader switches on it;
             // `light_glow03`'s text reads translucent, and drawing it by that text painted its opaque
             // black around every lamp. A mode with no material at all draws nothing.
+            // Stryker disable once : a mutant that empties the guard body leaves 'blending'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (EntitySprites.BlendFor(prop.Pose.RenderMode) is not { } blending)
             {
                 Skipped++;
@@ -173,6 +175,8 @@ public sealed class EntitySpriteBatches
             // the literal `SPR_VP_PARALLEL_UPRIGHT` for every sprite until then — so `light_glow03`,
             // which asks for `vp_parallel`, stood upright: foreshortened from above, and refused
             // outright within a degree of straight down.
+            // Stryker disable all : a mutant that empties the guard body leaves 'right' and 'up'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (EntitySprites.Axes(
                     sprite.Orientation,
                     origin,
@@ -185,6 +189,8 @@ public sealed class EntitySpriteBatches
                 Skipped++;
                 continue;
             }
+
+            // Stryker restore all
 
             if (!_byMaterial.TryGetValue((prop.ModelPath, blending), out List<DetailSpriteVertex>? corners))
             {

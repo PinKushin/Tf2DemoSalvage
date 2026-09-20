@@ -136,6 +136,8 @@ public sealed class SoundscapePlacements
                 name = resolved;
             }
 
+            // Stryker disable once : a mutant that empties the guard body leaves 'origin's fields
+            // unassigned (CS0170), and Safe Mode then drops every mutation in this method — B410.
             if (name is null || Origin(entity) is not { } origin)
             {
                 continue;

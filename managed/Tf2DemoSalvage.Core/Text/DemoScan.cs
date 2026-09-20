@@ -173,8 +173,13 @@ internal static class DemoScan
                 {
                     case GameEventMessage gameEvent:
                     {
+                        // Stryker disable all : the String mutator wraps the interpolated literal in
+                        // a ternary that cannot bind to string.Create's interpolated-string handler
+                        // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                         string name = gameEvent.Name ?? string.Create(
                             CultureInfo.InvariantCulture, $"#{gameEvent.EventId}");
+
+                        // Stryker restore all
                         counts[name] = counts.TryGetValue(name, out int seen) ? seen + 1 : 1;
                         total++;
 
@@ -358,6 +363,10 @@ internal static class DemoScan
         List<EntityEvent> into)
     {
         IReadOnlyList<DecodedEntity> entities;
+
+        // Stryker disable all : a mutant that empties the catch removes the 'return' that C#'s
+        // definite-assignment analysis relies on, leaving 'entities' unassigned at its use below
+        // (CS0165), and Safe Mode then drops every mutation in this method — B410.
         try
         {
             entities = decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits);
@@ -373,6 +382,8 @@ internal static class DemoScan
 
             return;
         }
+
+        // Stryker restore all
 
         foreach (DecodedEntity entity in entities)
         {

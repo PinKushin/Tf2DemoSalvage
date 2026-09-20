@@ -168,10 +168,15 @@ public sealed class PakFile
 
         if (entry.Uncompressed > MaximumEntryBytes)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"'{path}' declares {entry.Uncompressed:N0} bytes, beyond the " +
                 $"{MaximumEntryBytes:N0}-byte limit."));
+
+            // Stryker restore all
         }
 
         ReadOnlySpan<byte> span = _zip.Span;
@@ -191,9 +196,14 @@ public sealed class PakFile
 
         if (data < 0 || (long)data + entry.Compressed > span.Length)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"'{path}' claims {entry.Compressed:N0} bytes at {data} of a {span.Length:N0}-byte zip."));
+
+            // Stryker restore all
         }
 
         ReadOnlyMemory<byte> payload = _zip.Slice(data, (int)entry.Compressed);

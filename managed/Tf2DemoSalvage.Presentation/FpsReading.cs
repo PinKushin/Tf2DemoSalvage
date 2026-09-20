@@ -36,6 +36,9 @@ public readonly record struct FpsReading(
     /// <c>V_GetFileName( engine->GetLevelName() )</c> and <c>V_GetFileName</c> is
     /// <c>V_UnqualifiedFileName</c>: it strips the directory and keeps the rest.
     /// </remarks>
+    // Stryker disable all : the String mutator wraps either interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     public string Text(string levelName) => Smoothed
         ? string.Create(
             CultureInfo.InvariantCulture,
@@ -43,4 +46,6 @@ public readonly record struct FpsReading(
         : string.Create(
             CultureInfo.InvariantCulture,
             $"{Fps,3} fps on {levelName}");
+
+    // Stryker restore all
 }

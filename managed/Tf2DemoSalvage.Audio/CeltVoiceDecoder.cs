@@ -180,6 +180,11 @@ public sealed class CeltVoiceDecoder : IDisposable
         nint mode;
         int error;
 
+        // Stryker disable all : a mutant that empties the catch removes the throw the compiler
+        // relies on, leaving 'mode' and 'error' unassigned below (CS0165), and the String mutator
+        // wraps the interpolated literal in a ternary that cannot bind to string.Create's
+        // interpolated-string handler (CS1620). Either one puts the whole method into Stryker's
+        // Safe Mode, which drops every mutation in it — B410.
         try
         {
             mode = NativeCelt.ModeCreate(NativeCelt.SampleRate, NativeCelt.FrameSize, out error);
@@ -201,6 +206,8 @@ public sealed class CeltVoiceDecoder : IDisposable
                 $"error {error}. That mode is not one of the compiled-in static modes, so this " +
                 $"needs a CUSTOM_MODES build - see tools/native-audio/build.ps1."));
         }
+
+        // Stryker restore all
 
         return mode;
     }

@@ -141,12 +141,17 @@ public sealed class SoundCache
 
         if (readSeconds > StallSeconds && !_precaching)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             _audio.LogWarning(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"STALL decoding '{name}' took {readSeconds * 1000d:0} ms " +
                     $"({sample?.FrameCount ?? 0} frames); this frame is a freeze"));
+
+            // Stryker restore all
         }
 
         return sample;

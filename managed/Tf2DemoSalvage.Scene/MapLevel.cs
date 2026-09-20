@@ -296,6 +296,9 @@ public sealed record MapLevel(
 
         foreach (BspEntity entity in entities)
         {
+            // Stryker disable all : a mutant that empties the guard body leaves 'model'
+            // unassigned below (CS0165), and Safe Mode then drops every mutation in this
+            // method — B410.
             if (!entity.TryGetValue("model", out string name) ||
                 name.Length < 2 ||
                 name[0] != Tf2DemoSalvage.Scene.BrushModels.SubmodelPrefix ||
@@ -304,6 +307,8 @@ public sealed record MapLevel(
             {
                 continue;
             }
+
+            // Stryker restore all
 
             if (entity.TryGetValue("origin", out string origin) &&
                 Vector(origin) is { } placed)

@@ -357,6 +357,10 @@ public static class IvpMindistMinimize
         int retries = 0;
         int result;
 
+        // Stryker disable all : the Boolean Literal mutator flips this loop's 'true' to 'false',
+        // so the loop — which holds the only assignment to 'result' — never runs and the read of
+        // 'result' after it is unassigned (CS0165), and Safe Mode then drops every mutation in
+        // this method — B410.
         while (true)
         {
             result = solver.Dispatch();
@@ -390,6 +394,8 @@ public static class IvpMindistMinimize
             }
         }
 
+        // Stryker restore all
+
         int flags = mindist.Flags;
         bool notifies = (flags & 0x3000) != 0x1000 && (flags & 0x3C0000) != 0x100000;
 
@@ -412,6 +418,10 @@ public static class IvpMindistMinimize
         bool[] entered = new bool[topology.TriangleCount];
         IvpLedgeEdge current = topology.Pierce(feature);
 
+        // Stryker disable all : the Boolean Literal mutator flips this loop's 'true' to 'false',
+        // so the loop — which holds the method's only return — never runs and control falls off
+        // the end with no value returned (CS0161), and Safe Mode then drops every mutation in
+        // this method — B410.
         while (true)
         {
             entered[current.Triangle] = true;
@@ -444,6 +454,8 @@ public static class IvpMindistMinimize
 
             current = next;
         }
+
+        // Stryker restore all
     }
 
     /// <summary>The solver structure <c>FUN_180095cb0</c> keeps on its stack, and the routines that share it.</summary>

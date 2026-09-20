@@ -96,7 +96,12 @@ public static class DemoTraceWriter
 
     private static void WriteHeader(TextWriter writer, string fileName, DemoHeader header)
     {
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"// {fileName}"));
+
+        // Stryker restore all
         writer.WriteLine("header {");
         WriteField(writer, "demo_protocol", header.DemoProtocol.ToString(CultureInfo.InvariantCulture));
         WriteField(writer, "network_protocol", header.NetworkProtocol.ToString(CultureInfo.InvariantCulture));
@@ -104,8 +109,14 @@ public static class DemoTraceWriter
         WriteField(writer, "client", Quote(header.ClientName));
         WriteField(writer, "map", Quote(header.MapName));
         WriteField(writer, "game", Quote(header.GameDirectory));
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         WriteField(writer, "playback_time", string.Create(
             CultureInfo.InvariantCulture, $"{header.PlaybackTimeSeconds:F6}"));
+
+        // Stryker restore all
         WriteField(writer, "playback_ticks", header.PlaybackTicks.ToString(CultureInfo.InvariantCulture));
         WriteField(writer, "playback_frames", header.PlaybackFrames.ToString(CultureInfo.InvariantCulture));
         writer.WriteLine("}");
@@ -170,24 +181,40 @@ public static class DemoTraceWriter
 
             // Still a block. A trace that omitted dem_synctick or dem_stop would not describe
             // the file it read.
+            //
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"block {kind} tick {command.Tick};"));
+
+            // Stryker restore all
             return;
         }
 
         NetMessageReadResult result = NetMessageReader.Read(command.Payload.Span, state);
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"block {kind} tick {command.Tick} {{"));
+
+        // Stryker restore all
 
         // The camera this command was recorded from. Skipped by the reader until now, and the
         // only record in the file of where the recording client was looking.
         if (command.View is { } view)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"    view origin {view.OriginX:F3} {view.OriginY:F3} {view.OriginZ:F3} " +
                 $"angles {view.Pitch:F3} {view.Yaw:F3} {view.Roll:F3} flags {view.Flags};"));
+
+            // Stryker restore all
         }
 
         foreach (INetMessage message in result.Messages)
@@ -257,17 +284,28 @@ public static class DemoTraceWriter
             // the reader could have had.
             Roster.Observe(message, state, roster);
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"    {Render(message, roster, entities)};"));
+
+            // Stryker restore all
         }
 
         if (result.StopReason is not null)
         {
             // In place, at the position it happened. This line is the reason a trace beats a
             // summary for a damaged demo.
+            //
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"    stopped after {result.BitsConsumed} bits: {Quote(result.StopReason)};"));
+
+            // Stryker restore all
         }
 
         writer.WriteLine("}");
@@ -295,10 +333,15 @@ public static class DemoTraceWriter
     private static void WriteSounds(
         TextWriter writer, SoundsMessage message, NetDecodeState state, SoundNames soundNames)
     {
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"    svc_sounds {(message.IsReliable ? "reliable" : "unreliable")} " +
             $"count {message.Count} bits {message.BodyBits} {{"));
+
+        // Stryker restore all
 
         try
         {
@@ -311,18 +354,28 @@ public static class DemoTraceWriter
                 string? name = soundNames.Resolve(sound.SoundNumber);
                 string named = name is null ? string.Empty : $" {Quote(name)}";
 
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 writer.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
                     $"        sound {sound.SoundNumber}{named} entity {sound.EntityIndex} " +
                     $"origin {sound.OriginX:F1} {sound.OriginY:F1} {sound.OriginZ:F1} " +
                     $"volume {sound.Volume:F2} pitch {sound.Pitch} " +
                     $"channel {sound.Channel} flags {sound.Flags};"));
+
+                // Stryker restore all
             }
         }
         catch (Exception failure) when (failure is InvalidDataException or EndOfStreamException)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"        undecoded {Quote(failure.Message)};"));
+
+            // Stryker restore all
         }
 
         writer.WriteLine("    }");
@@ -341,9 +394,14 @@ public static class DemoTraceWriter
         EntityDecoder entities,
         DemoTraceOptions options)
     {
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"    svc_tempentities count {message.Count} bits {message.BodyBits} {{"));
+
+        // Stryker restore all
 
         try
         {
@@ -351,26 +409,47 @@ public static class DemoTraceWriter
                 message.Body.Span, message.Count, message.BodyBits))
             {
                 string reliable = effect.IsReliable ? " reliable" : string.Empty;
+
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 string head = string.Create(
                     CultureInfo.InvariantCulture,
                     $"        effect {Named(entities, effect.ClassId)} " +
                     $"delay {effect.DelaySeconds:F2}{reliable}");
 
+                // Stryker restore all
+
                 if (!options.IncludeEntityProperties || effect.Properties.Count == 0)
                 {
+                    // Stryker disable all : the String mutator wraps the interpolated literal in
+                    // a ternary that cannot bind to string.Create's interpolated-string handler
+                    // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                     writer.WriteLine(string.Create(
                         CultureInfo.InvariantCulture,
                         $"{head} props {effect.Properties.Count};"));
+
+                    // Stryker restore all
                     continue;
                 }
 
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{head} {{"));
+
+                // Stryker restore all
                 foreach (DecodedProperty property in effect.Properties)
                 {
+                    // Stryker disable all : the String mutator wraps the interpolated literal in
+                    // a ternary that cannot bind to string.Create's interpolated-string handler
+                    // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                     writer.WriteLine(string.Create(
                         CultureInfo.InvariantCulture,
                         $"            {property.Definition.OwnerTable}.{property.Definition.Property.Name} " +
                         $"{property.Value};"));
+
+                    // Stryker restore all
                 }
 
                 writer.WriteLine("        }");
@@ -378,8 +457,13 @@ public static class DemoTraceWriter
         }
         catch (Exception failure) when (failure is InvalidDataException or EndOfStreamException)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"        undecoded {Quote(failure.Message)};"));
+
+            // Stryker restore all
         }
 
         writer.WriteLine("    }");
@@ -428,15 +512,27 @@ public static class DemoTraceWriter
         string? named = entities is null
             ? null
             : EntityMessageNames.Lookup(entities.ClassName(classId), messageType);
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         return named is null ? string.Empty : string.Create(CultureInfo.InvariantCulture, $" {named}");
+
+        // Stryker restore all
     }
 
     private static string Named(EntityDecoder entities, int classId)
     {
         string name = entities.ClassName(classId);
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         return name.Length == 0
             ? classId.ToString(CultureInfo.InvariantCulture)
             : string.Create(CultureInfo.InvariantCulture, $"{name}({classId})");
+
+        // Stryker restore all
     }
 
     private static void WriteSnapshot(
@@ -445,12 +541,23 @@ public static class DemoTraceWriter
         EntityDecoder entities,
         DemoTraceOptions options)
     {
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"    svc_packetentities delta {(snapshot.IsDelta ? 1 : 0)} " +
             $"updated {snapshot.UpdatedEntries} bits {snapshot.LengthBits} {{"));
 
+        // Stryker restore all
+
         IReadOnlyList<DecodedEntity> decoded;
+
+        // Stryker disable all : a mutant that empties the catch removes the 'return' that C#'s
+        // definite-assignment analysis relies on, leaving 'decoded' unassigned at its use below
+        // (CS0165); the same catch also carries a string.Create call whose interpolated literal
+        // the String mutator would wrap in a ternary that cannot bind to string.Create's handler
+        // (CS1620). Either way Safe Mode drops every mutation in this method — B410.
         try
         {
             decoded = entities.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits);
@@ -462,6 +569,8 @@ public static class DemoTraceWriter
             writer.WriteLine("    }");
             return;
         }
+
+        // Stryker restore all
 
         foreach (DecodedEntity entity in decoded)
         {
@@ -475,23 +584,38 @@ public static class DemoTraceWriter
 
             if (!options.IncludeEntityProperties || properties.Count == 0)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 writer.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
                     $"        entity {entity.EntityIndex} {kind} class {Named(entities, entity.ClassId)} " +
                     $"props {properties.Count};"));
+
+                // Stryker restore all
                 continue;
             }
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"        entity {entity.EntityIndex} {kind} class {Named(entities, entity.ClassId)} {{"));
 
+            // Stryker restore all
+
             foreach (DecodedProperty property in properties)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
                 writer.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
                     $"            {property.Definition.OwnerTable}.{property.Definition.Property.Name} " +
                     $"{property.Value};"));
+
+                // Stryker restore all
             }
 
             writer.WriteLine("        }");
@@ -505,26 +629,51 @@ public static class DemoTraceWriter
         INetMessage message, Dictionary<int, PlayerInfo> roster,
         EntityDecoder? schema = null) => message switch
     {
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         NetTickMessage tick => string.Create(
             CultureInfo.InvariantCulture,
             $"net_tick tick {tick.Tick} frametime {tick.HostFrameTimeSeconds:F6}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         PrintMessage print => string.Create(
             CultureInfo.InvariantCulture, $"svc_print {Quote(print.Text)}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         StringCmdMessage command => string.Create(
             CultureInfo.InvariantCulture, $"svc_stufftext {Quote(command.Command)}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         ChatMessage chat => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_chat from {Quote(chat.From ?? string.Empty)} text {Quote(chat.Text)}"),
 
+        // Stryker restore all
+
         GameEventMessage gameEvent => RenderEvent(gameEvent, roster),
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         ServerInfoMessage info => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_serverinfo protocol {info.NetworkProtocol} map {Quote(info.Map)} " +
             $"max_classes {info.MaxClasses} tickrate {info.IntervalPerTick:F6}"),
+
+        // Stryker restore all
 
         // **What the server CHANGED from default, which is the only place a demo says so** (B220).
         // This fell through to the bare-name default and printed `svc_setconvar;` — the message
@@ -536,47 +685,96 @@ public static class DemoTraceWriter
         // recording client's own interpolation could have been (D106, docs/CVAR-COVERAGE.md).
         SetConVarMessage convars => RenderConVars(convars),
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         PacketEntitiesMessage entities => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_packetentities delta {(entities.IsDelta ? 1 : 0)} " +
             $"updated {entities.UpdatedEntries} bits {entities.LengthBits}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         CreateStringTableMessage table => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_createstringtable {Quote(table.Name)} entries {table.Entries.Count} " +
             $"max {table.MaxEntries}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         ClassInfoMessage classes => string.Create(
             CultureInfo.InvariantCulture, $"svc_classinfo count {classes.Classes.Count}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         FileMessage file => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_file {(file.IsRequested ? "request" : "offer")} " +
             $"id {file.TransferId} name {Quote(file.FileName)}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         GetCvarValueMessage cvar => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_getcvarvalue cookie {cvar.Cookie} name {Quote(cvar.CvarName)}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         PrefetchMessage prefetch => string.Create(
             CultureInfo.InvariantCulture, $"svc_prefetch sound {prefetch.SoundIndex}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         FixAngleMessage angle => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_fixangle {(angle.IsRelative ? "relative" : "absolute")} " +
             $"pitch {angle.Pitch:F3} yaw {angle.Yaw:F3} roll {angle.Roll:F3}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         SetViewMessage view => string.Create(
             CultureInfo.InvariantCulture, $"svc_setview entity {view.EntityIndex}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         SignOnStateMessage signon => string.Create(
             CultureInfo.InvariantCulture,
             $"net_signonstate state {signon.State} spawn {signon.SpawnCount}"),
+
+        // Stryker restore all
 
         // The leading byte selects the case inside the receiving class's ReceiveMessage, so the
         // class has to be resolved before the byte can be named: 1 is BASEENTITY_MSG_REMOVE_DECALS
         // to most handlers and PLAY_PLAYER_JINGLE to C_BasePlayer. With no schema in hand the
         // number is still reported bare, which claims nothing.
+        //
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         EntityMessage { MessageType: int entityMessageType } addressed => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_entitymessage entity {addressed.EntityIndex} " +
@@ -584,46 +782,90 @@ public static class DemoTraceWriter
             $"bits {addressed.BodyBits} type {entityMessageType}" +
             $"{Suffixed(schema, addressed.ClassId, entityMessageType)}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         EntityMessage entityMessage => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_entitymessage entity {entityMessage.EntityIndex} " +
             $"class {entityMessage.ClassId} bits {entityMessage.BodyBits}"),
 
+        // Stryker restore all
+
         // A world decal carries no entity or model, so it renders as a different shape rather
         // than as zeroes that look like real indices.
+        //
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         BspDecalMessage { OnEntity: true } decal => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_bspdecal entity {decal.EntityIndex} model {decal.ModelIndex}"),
 
+        // Stryker restore all
+
         BspDecalMessage => "svc_bspdecal world",
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         VoiceInitMessage voice => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_voiceinit codec {Quote(voice.Codec)} quality {voice.Quality}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         TempEntitiesMessage temp => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_tempentities count {temp.Count} bits {temp.BodyBits}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         SoundsMessage sounds => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_sounds {(sounds.IsReliable ? "reliable" : "unreliable")} " +
             $"count {sounds.Count} bits {sounds.BodyBits}"),
 
+        // Stryker restore all
+
         // Named where the id is known, numbered where it is not. A user message carries no name
         // on the wire, and an unnamed one is the single most common message in some demos.
+        //
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         UserMessage user => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_usermessage {user.Name ?? "#" + user.UserMessageType.ToString(CultureInfo.InvariantCulture)} " +
             $"type {user.UserMessageType} bits {user.BodyBits}{UserFields(user)}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         VoiceDataMessage voice => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_voicedata client {voice.Client} proximity {voice.Proximity} " +
             $"bits {voice.BodyBits}"),
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         SkippedMessage skipped => string.Create(
             CultureInfo.InvariantCulture, $"{WireName(skipped.Type)} bits {skipped.BodyBits}"),
+
+        // Stryker restore all
 
         _ => WireName(message.Type),
     };
@@ -632,8 +874,14 @@ public static class DemoTraceWriter
         GameEventMessage gameEvent, Dictionary<int, PlayerInfo> roster)
     {
         StringBuilder line = new();
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         line.Append("svc_gameevent ").Append(gameEvent.Name ?? string.Create(
             CultureInfo.InvariantCulture, $"#{gameEvent.EventId}"));
+
+        // Stryker restore all
 
         foreach (KeyValuePair<string, object?> field in gameEvent.Values)
         {
@@ -657,8 +905,13 @@ public static class DemoTraceWriter
         return line.ToString();
     }
 
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     private static void WriteField(TextWriter writer, string name, string value) =>
         writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"    {name} {value};"));
+
+    // Stryker restore all
 
     /// <summary>
     /// Quotes a string, escaping what would otherwise break the format.
@@ -729,58 +982,103 @@ public static class DemoTraceWriter
     {
         UserCommand input = UserCommand.Decode(command.Payload.Span);
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"block {kind} tick {command.Tick} {{"));
 
+        // Stryker restore all
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"    command {input.CommandNumber} client_tick {input.TickCount};"));
 
+        // Stryker restore all
+
         if (input.Pitch != 0 || input.Yaw != 0 || input.Roll != 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"    angles {input.Pitch:F3} {input.Yaw:F3} {input.Roll:F3};"));
+
+            // Stryker restore all
         }
 
         if (input.ForwardMove != 0 || input.SideMove != 0 || input.UpMove != 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"    move {input.ForwardMove:F3} {input.SideMove:F3} {input.UpMove:F3};"));
+
+            // Stryker restore all
         }
 
         if (input.Buttons != 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"    buttons {UserCommandButtons.Describe(input.Buttons)};"));
+
+            // Stryker restore all
         }
 
         if (input.Impulse != 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"    impulse {input.Impulse};"));
+
+            // Stryker restore all
         }
 
         if (input.WeaponSelect != 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"    weapon {input.WeaponSelect} subtype {input.WeaponSubtype};"));
+
+            // Stryker restore all
         }
 
         if (input.MouseDx != 0 || input.MouseDy != 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"    mouse {input.MouseDx} {input.MouseDy};"));
+
+            // Stryker restore all
         }
 
         if (input.Padding != 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
             writer.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"    pad 0x{input.Padding:X};"));
+
+            // Stryker restore all
         }
 
         writer.WriteLine("}");
@@ -799,9 +1097,14 @@ public static class DemoTraceWriter
         int end = payload.IndexOf((byte)0);
         string text = Encoding.UTF8.GetString(end < 0 ? payload : payload[..end]);
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         writer.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"block {kind} tick {command.Tick} {{ command {Quote(text)}; }}"));
+
+        // Stryker restore all
     }
 
     private static string WireName(DemoCommandType type) => type switch

@@ -524,6 +524,8 @@ public sealed class EntityState
 
         foreach ((string key, PropertyValue value) in _properties)
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'tail'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (PathTail(key, marker) is not { } tail)
             {
                 continue;
@@ -541,12 +543,18 @@ public sealed class EntityState
             }
 
             int dot = rest.IndexOf('.');
+
+            // Stryker disable all : the guard condition spans several lines, so a mutant that
+            // empties the guard body leaves 'element' unassigned at its use below (CS0165), and
+            // Safe Mode then drops every mutation in this method — B410.
             if (dot <= 0 ||
                 !int.TryParse(rest[..dot], NumberStyles.None, CultureInfo.InvariantCulture,
                     out int element))
             {
                 continue;
             }
+
+            // Stryker restore all
 
             ReadOnlySpan<char> property = rest[(dot + 1)..];
 
@@ -589,6 +597,9 @@ public sealed class EntityState
                 // `element >= length` is a LIFTED comparison: with no length ever declared it is
                 // false and the element is kept, which is the defensive reading — a vector whose
                 // size never arrived is reported whole rather than empty.
+                // Stryker disable once : a mutant that empties the guard body leaves 'index' and
+                // 'raw' unassigned (CS0165), and Safe Mode then drops every mutation in this
+                // method — B410.
                 if (element >= length || definition is not { } index || bits is not { } raw)
                 {
                     continue;
@@ -657,6 +668,8 @@ public sealed class EntityState
         {
             // **Matched in place, never cut into new strings** (B407): this runs for every property of every animating entity
             // on every call, and the concatenation and slices it used to make were 98 GB of garbage in one f12 load.
+            // Stryker disable once : a mutant that empties the guard body leaves 'tail'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (PathTail(key, "m_AnimOverlay") is not { } tail)
             {
                 continue;
@@ -672,11 +685,16 @@ public sealed class EntityState
 
             int dot = rest.IndexOf('.');
 
+            // Stryker disable all : the guard condition spans two lines, so a mutant that empties
+            // the guard body leaves 'element' unassigned at its use below (CS0165), and Safe Mode
+            // then drops every mutation in this method — B410.
             if (dot <= 0 ||
                 !int.TryParse(rest[..dot], NumberStyles.None, CultureInfo.InvariantCulture, out int element))
             {
                 continue;
             }
+
+            // Stryker restore all
 
             (int? sequence, float? cycle, float? weight, int? order) =
                 slots.TryGetValue(element, out (int? Sequence, float? Cycle, float? Weight, int? Order) held)
@@ -717,6 +735,9 @@ public sealed class EntityState
             }
 
             // `if (m_AnimOverlay[i].m_nOrder < MAX_OVERLAYS)` — anything else is an unused slot.
+            // Stryker disable once : a mutant that empties the guard body leaves 'position' and
+            // 'plays' unassigned (CS0165), and Safe Mode then drops every mutation in this
+            // method — B410.
             if (order is not { } position || position >= MaximumOverlays || sequence is not { } plays)
             {
                 continue;

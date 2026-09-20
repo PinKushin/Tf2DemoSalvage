@@ -123,11 +123,17 @@ public sealed class SceneImage
             (long)entriesAt + ((long)scenes * EntryBytes) > span.Length ||
             HeaderBytes + ((long)stringCount * 4) > span.Length)
         {
-            // Stryker disable once : string mutator wraps the interpolated literal in a ternary that cannot be passed as ref to string.Create, CS1620
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410. A prior "disable once" here did
+            // not reach the mutant because this throw spans several lines and "once" only covers
+            // the next line's statement.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A scene image declaring {scenes:N0} scenes and {stringCount:N0} strings does not " +
                 $"fit in {span.Length:N0} bytes."));
+
+            // Stryker restore all
         }
 
         // The pool is offsets from the START of the file, which is what `String()` does:

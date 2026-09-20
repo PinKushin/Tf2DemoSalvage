@@ -233,6 +233,8 @@ public sealed class LoadedMap
     {
         ArgumentNullException.ThrowIfNull(loggers);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'assets'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Assets is not { } assets)
         {
             throw new InvalidOperationException(
@@ -334,6 +336,9 @@ public sealed class LoadedMap
 
         (double seconds, long count) = Tf2DemoSalvage.Content.Assets.VtfTexture.DecodeCost;
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a
+        // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+        // and Safe Mode then drops every mutation in this method — B410.
         assetLog.LogInformation(
             "{Message}",
             string.Create(
@@ -341,5 +346,7 @@ public sealed class LoadedMap
                 $"VTF decode so far: {seconds:F2}s CPU over {count} textures " +
                 $"(decoded in parallel, so wall clock is less); " +
                 $"baking {PropModels.BakeSeconds:F2}s"));
+
+        // Stryker restore all
     }
 }

@@ -172,6 +172,8 @@ public sealed class DemoSystems
         // rather than documents" the hazard; it removed the half that was inside.
         _playback.SetDemoLength(lastTick);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'demo'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (timeline is not { } demo)
         {
             // **The clock is a source like the others and was the one this method did not clear.**

@@ -147,6 +147,8 @@ public static class IvpBallSocket
             (0f - (velocityGain * relative.Y)) + (errorGain * error.Y),
             (0f - (velocityGain * relative.Z)) + (errorGain * error.Z));
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'impulse'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (Solve(a, b, armA, armB, movableA, movableB, wanted) is not { } impulse)
         {
             return;

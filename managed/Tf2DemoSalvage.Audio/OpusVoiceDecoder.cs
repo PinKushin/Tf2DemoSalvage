@@ -100,11 +100,16 @@ public sealed class OpusVoiceDecoder : IDisposable
 
             if (frameCount <= 0 || samplesPerFrame <= 0)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+                // and Safe Mode then drops every mutation in this method — B410.
                 throw new InvalidOperationException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"A {frame.Length}-byte frame is not a valid Opus packet: " +
                     $"opus_packet_get_nb_frames returned {frameCount} and " +
                     $"opus_packet_get_samples_per_frame returned {samplesPerFrame}."));
+
+                // Stryker restore all
             }
 
             // Checked as well as the framing, because a packet can be well-formed and still
@@ -112,10 +117,17 @@ public sealed class OpusVoiceDecoder : IDisposable
             // anything beyond it would have overrun a buffer sized to that.
             if ((long)frameCount * samplesPerFrame > MaxFrameSamples)
             {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+                // and Safe Mode then drops every mutation in this method — B410. The `all` is
+                // load-bearing: without it the comment reaches only the outermost node, which was
+                // measured here and left this very throw still triggering.
                 throw new InvalidOperationException(string.Create(
                     CultureInfo.InvariantCulture,
                     $"A {frame.Length}-byte frame declares {frameCount} frames of " +
                     $"{samplesPerFrame} samples, beyond the {MaxFrameSamples}-sample maximum."));
+
+                // Stryker restore all
             }
 
             samples = NativeOpus.Decode(

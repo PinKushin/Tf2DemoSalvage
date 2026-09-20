@@ -170,10 +170,15 @@ public static class BspCubemaps
     {
         ArgumentNullException.ThrowIfNull(mapName);
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         return string.Create(
             CultureInfo.InvariantCulture,
             $"maps/{mapName}/c{cubemap.X}_{cubemap.Y}_{cubemap.Z}")
             .ToLowerInvariant();
+
+        // Stryker restore all
     }
 
     /// <summary>Which baked cubemap a point reflects.</summary>

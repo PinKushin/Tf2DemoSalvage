@@ -159,6 +159,10 @@ internal static class VphysicsSurfaceData
 
         int c;
 
+        // Stryker disable all : the Boolean Literal mutator flips this loop's 'true' to 'false',
+        // so the loop — which holds the only assignment to 'c' — never runs and the reads of 'c'
+        // below are unassigned (CS0165), and Safe Mode then drops every mutation in this method —
+        // B410.
         while (true)
         {
             c = Signed(text, at);
@@ -203,6 +207,8 @@ internal static class VphysicsSurfaceData
 
             break;
         }
+
+        // Stryker restore all
 
         StringBuilder token = new();
 

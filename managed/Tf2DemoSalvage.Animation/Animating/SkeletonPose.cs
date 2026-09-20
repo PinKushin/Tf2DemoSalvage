@@ -830,11 +830,17 @@ public sealed class SkeletonPose : IBonePose
             {
                 int bone = over.Bone;
 
+                // Stryker disable all : the condition spans two lines, so 'disable once' cannot
+                // reach it (measured). A mutant that empties the guard body leaves 'weights'
+                // unassigned below (CS0165), and Safe Mode then drops every mutation in this
+                // method — B410.
                 if (bone < 0 || bone >= result.Length ||
                     layer.BoneWeights is not { } weights || bone >= weights.Count)
                 {
                     continue;
                 }
+
+                // Stryker restore all
 
                 float s2 = weight * weights[bone];
 
@@ -1167,6 +1173,8 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     private void Jiggle(int bone, double currentTime, float[] destination)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'model'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (JiggleSource is not { } model)
         {
             return;
@@ -1177,6 +1185,8 @@ public sealed class SkeletonPose : IBonePose
             return;
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'jiggle'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (StudioJiggleBones.Read(model, bone) is not { } jiggle)
         {
             return;
@@ -1223,6 +1233,8 @@ public sealed class SkeletonPose : IBonePose
             return;
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'model'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (JiggleSource is not { } model)
         {
             return;
@@ -1244,6 +1256,8 @@ public sealed class SkeletonPose : IBonePose
             _quatInterp[bone] = rule;
         }
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'driven'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (rule is not { } driven)
         {
             return;

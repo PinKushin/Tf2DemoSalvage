@@ -48,10 +48,15 @@ internal static class WireBounds
         // reporting it.
         if (count < 0)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{what} declares {count} items, which is not a count. The stream is corrupt " +
                 $"or misaligned."));
+
+            // Stryker restore all
         }
 
         // `long`, because count × minBitsPerItem overflows int for large counts — and an
@@ -61,10 +66,15 @@ internal static class WireBounds
 
         if (needed > bitsRemaining)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{what} declares {count} items needing at least {needed} bits, but only " +
                 $"{bitsRemaining} remain. The stream is corrupt or misaligned."));
+
+            // Stryker restore all
         }
     }
 }

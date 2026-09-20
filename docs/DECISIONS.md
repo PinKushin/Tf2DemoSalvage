@@ -9100,3 +9100,25 @@ program itself when we actually read a demo, but we dont grab anything from the 
 us what we need to do to emulate the rendering, physics, and other things we need to display and play the demos faithfully."*
 So game DATA the program reads at runtime (maps, VTFs, VPK contents) may go on the box and its tests are mutation-tested; the
 SDK is reference only and never goes there. Demos stay off for cost (`docs/memory/mutation-box-gets-maps-never-demos.md`).
+
+## D185 — the splash test asserts the splash EXISTED, not that a user saw it (2026-09-20)
+
+**Owner-voiced**, on being shown that `Launch_BeforeTheMainWindow_ShowsTheStartupSplash` fails on `main` and asked how he
+wanted it settled: *"im pretty sure the splash screen test failed because i backgrounded the program, idk why it failed but
+really the test should just make sure it shows for a millisecond because hypothetically a pc can be fast enough its never seen
+by the user, my pc isnt wuite that fast, but it is close its up for less than half a second"*.
+
+**What it means, and it is a narrower demand than the test currently makes.** The assertion is that the splash window comes
+into existence before the main window — for a millisecond is enough. It is NOT that the splash is on screen long enough to be
+perceived, and it is NOT that a minimum display time should be imposed. A machine fast enough to skip it entirely is a machine
+that needed no splash, which is the outcome `StartupSplash.Open`'s close-flag check already produces on purpose.
+
+**So the defect is in the instrument, not the feature.** On his machine the splash is up for **under half a second** — he is
+the measurement — so a test that reports "no startup splash appeared" is failing to observe a window that was there. B412's
+first reading, that the test asserted a guarantee the design withheld, is superseded by this: the guarantee is wanted, the
+window does appear, and the 20 ms poll over top-level windows is missing it. His own hypothesis is that backgrounding the
+program is what hid it, which is the first thing to test — and `docs/memory/ui-tests-run-every-time.md` already records that
+foreground is not focus, so a background window must still be enumerable.
+
+**What is NOT licensed by this:** weakening the test to pass, or holding the splash on screen longer to make it easier to see.
+The half-second is his machine's real boot and must not be padded.

@@ -94,10 +94,15 @@ public static class VarInt
             }
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         throw new InvalidDataException(string.Create(
             CultureInfo.InvariantCulture,
             $"A 32-bit varint is at most {MaxGroups32} bytes, but the encoding at bit offset " +
             $"{reader.BitsRead} asks for more."));
+
+        // Stryker restore all
     }
 
     /// <summary>Reads a zig-zag encoded signed 32-bit varint.</summary>
@@ -136,10 +141,15 @@ public static class VarInt
             }
         }
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+        // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
+        // then drops every mutation in this method — B410.
         throw new InvalidDataException(string.Create(
             CultureInfo.InvariantCulture,
             $"A 64-bit varint is at most {MaxGroups64} bytes, but the encoding at bit offset " +
             $"{reader.BitsRead} asks for more."));
+
+        // Stryker restore all
     }
 
     /// <summary>Reads a zig-zag encoded signed 64-bit varint.</summary>

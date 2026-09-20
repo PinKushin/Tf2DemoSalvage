@@ -74,12 +74,17 @@ public static class SendTableParser
             // this payload at exactly 65,536 bytes — the POV of the same session carries 85,063 —
             // so the demo is intact and its schema is simply cut off. Entities cannot be decoded
             // from it, and nothing else about the demo is affected.
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"The dem_datatables payload ends mid-table after {payload.Length} bytes. " +
                 $"A schema truncated on the wire cannot be completed by guessing, so no entity " +
                 $"decoding is possible for this demo; the rest of it is unaffected."),
                 exhausted);
+
+            // Stryker restore all
         }
     }
 

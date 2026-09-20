@@ -100,12 +100,17 @@ public static class DemoSounds
             PrecacheResult result = cache.Precache(
                 ToPrecache(timeline.SoundsToPrecache(), soundscape));
 
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             audio.LogInformation(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"precached {result.Decoded} of {result.Named} sounds " +
                     $"in {result.Seconds * 1000d:0} ms"));
+
+            // Stryker restore all
         }
         catch (Exception failure) when (
             failure is InvalidDataException or ArgumentException or KeyNotFoundException)

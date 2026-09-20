@@ -149,6 +149,9 @@ public sealed class DemoLibrary
             string[] files;
             string[] children;
 
+            // Stryker disable all : a mutant that empties the catch removes the continue the
+            // compiler relies on, leaving 'files' and 'children' unassigned below (CS0165), and
+            // Safe Mode then drops every mutation in this method — B410.
             try
             {
                 files = Directory.GetFiles(current, "*" + DemoExtension);
@@ -164,6 +167,8 @@ public sealed class DemoLibrary
 
                 continue;
             }
+
+            // Stryker restore all
 
             foreach (string file in files)
             {

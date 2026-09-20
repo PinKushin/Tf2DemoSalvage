@@ -62,9 +62,14 @@ public sealed class BspHeader
     {
         if (file.Length < SizeBytes)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A BSP header is {SizeBytes} bytes and this file is {file.Length}."));
+
+            // Stryker restore all
         }
 
         string ident = Encoding.ASCII.GetString(file[..4]);
@@ -122,17 +127,27 @@ public sealed class BspHeader
             // A 32-bit field read as a signed int arrives negative above int.MaxValue, and a
             // negative length slips past a "too large" check - the shape of the Snappy literal
             // defect the fuzzer found on the demo side.
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Lump {index} declares offset {offset} and length {length}; neither can be " +
                 $"negative."));
+
+            // Stryker restore all
         }
 
         if (offset < SizeBytes)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Lump {index} starts at {offset}, inside the {SizeBytes}-byte header."));
+
+            // Stryker restore all
         }
 
         // `long`, because offset + length overflows int for large values and an overflowed sum
@@ -140,10 +155,15 @@ public sealed class BspHeader
         // largest, most damaging values through.
         if ((long)offset + length > fileLength)
         {
+            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
+            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
+            // Mode then drops every mutation in this method — B410.
             throw new InvalidDataException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Lump {index} claims bytes {offset} to {(long)offset + length} of a " +
                 $"{fileLength}-byte file."));
+
+            // Stryker restore all
         }
     }
 

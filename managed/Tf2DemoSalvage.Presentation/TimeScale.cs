@@ -204,8 +204,13 @@ public readonly record struct TimeScale(double Speed)
     /// change exists to reach as `0.0x`, which is the quantising the ladder used to do, moved into
     /// the label.
     /// </remarks>
+    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     public string Label() =>
         string.Create(CultureInfo.InvariantCulture, $"{Speed:0.##}x");
+
+    // Stryker restore all
 
     /// <summary>The speed as a screen reader says it.</summary>
     /// <returns>A spoken phrase, such as <c>speed 2 times, reversed</c>.</returns>
@@ -220,8 +225,13 @@ public readonly record struct TimeScale(double Speed)
     /// came from a hand-written literal in a constructor that no update ever reproduced, so the test
     /// failed against a bar that was working.
     /// </remarks>
+    // Stryker disable all : the String mutator wraps either interpolated literal in a ternary that
+    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+    // drops every mutation in this method — B410.
     public string Description() =>
         Speed < 0d
             ? string.Create(CultureInfo.InvariantCulture, $"speed {-Speed:0.##} times, reversed")
             : string.Create(CultureInfo.InvariantCulture, $"speed {Speed:0.##} times");
+
+    // Stryker restore all
 }

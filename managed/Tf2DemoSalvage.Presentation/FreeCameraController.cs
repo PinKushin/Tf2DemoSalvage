@@ -273,6 +273,9 @@ public sealed class FreeCameraController(ILogger log)
     /// <summary>Takes a placement from <see cref="CameraVariable"/>, once.</summary>
     private void PlaceFromEnvironment()
     {
+        // Stryker disable all : the condition spans several lines, and a mutant that empties the
+        // guard body leaves 'placed' (and its fields Origin/Pitch/Yaw/X/Y/Z) unassigned at their
+        // use below (CS0170), and Safe Mode then drops every mutation in this method — B410.
         if (Origin is not null ||
             Environment.GetEnvironmentVariable(CameraVariable) is not { Length: > 0 } placement ||
             Parse(placement) is not { } placed)
@@ -280,9 +283,14 @@ public sealed class FreeCameraController(ILogger log)
             return;
         }
 
+        // Stryker restore all
+
         Origin = placed.Origin;
         Angles = (placed.Pitch, placed.Yaw);
 
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         log.LogInformation(
             "{Message}",
             string.Create(
@@ -290,6 +298,8 @@ public sealed class FreeCameraController(ILogger log)
                 $"free camera placed from {CameraVariable} at " +
                 $"({placed.Origin.X:0.##},{placed.Origin.Y:0.##},{placed.Origin.Z:0.##}) " +
                 $"pitch {placed.Pitch:0.##} yaw {placed.Yaw:0.##}"));
+
+        // Stryker restore all
     }
 
     /// <summary>Puts the camera above the map looking down, once.</summary>
@@ -333,6 +343,9 @@ public sealed class FreeCameraController(ILogger log)
         // than a nested `string.Create`: nesting one inside an interpolation turns the outer
         // argument into a plain concatenated string, which no longer binds to the interpolated
         // handler overload — CS1620, and the build failure is how that was found.
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         string ofMap = framed.Equals(map.MainBounds)
             ? string.Empty
             : string.Create(
@@ -340,6 +353,10 @@ public sealed class FreeCameraController(ILogger log)
                 $" of a map measuring {map.MainBounds.MaxX - map.MainBounds.MinX:0.##} x " +
                 $"{map.MainBounds.MaxY - map.MainBounds.MinY:0.##}");
 
+        // Stryker restore all
+
+        // Stryker disable all : the same String-mutator hazard as above (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
         log.LogInformation(
             "{Message}",
             string.Create(
@@ -351,6 +368,8 @@ public sealed class FreeCameraController(ILogger log)
                 $"free camera placed overhead at ({origin.X:0.##},{origin.Y:0.##},{origin.Z:0.##}) " +
                 $"pitch {pitch:0.##}, framing {framed.MaxX - framed.MinX:0.##} x " +
                 $"{framed.MaxY - framed.MinY:0.##}{ofMap}"));
+
+        // Stryker restore all
     }
 
     /// <summary>Reads a camera placement, or null when the text is not five numbers.</summary>

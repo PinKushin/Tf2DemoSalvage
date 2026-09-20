@@ -351,7 +351,7 @@ public sealed class ItemSchema
                 // wearer's own view model (`econ_entity.cpp:2091`), which a demo viewer drawing
                 // another player never has — and the Purity Fist declares both pairs with the same
                 // numbers, so a reader keyed to the wrong prefix passes every shipped case.
-                // Stryker disable : removing TryParse from switch 'when' leaves 'part' undeclared, CS0165
+                // Stryker disable all : removing TryParse from switch 'when' leaves 'part' undeclared, CS0165
                 case 4 when entry is not null && inVisuals && value is not null
                     && key.StartsWith("wm_bodygroup", StringComparison.OrdinalIgnoreCase)
                     && int.TryParse(
@@ -368,7 +368,7 @@ public sealed class ItemSchema
                     }
 
                     break;
-                // Stryker restore
+                // Stryker restore all
 
                 // `static_attrs` is flat: the pair IS the attribute.
                 case 4 when entry is not null && inStaticAttrs && value is not null:
@@ -405,13 +405,13 @@ public sealed class ItemSchema
                 // **`"hat" "1"` — a body part's name and the state to put it in.** The engine reads
                 // the pair through `GetModifiedBodyGroup`, which hands back both, and applies it
                 // only when the value matches the pass it is running (`econ_entity.cpp:2046`).
-                // Stryker disable : removing TryParse from switch 'when' leaves 'state' undeclared, CS0165
+                // Stryker disable all : removing TryParse from switch 'when' leaves 'state' undeclared, CS0165
                 case 5 when entry is not null && inBodygroups && value is not null
                     && int.TryParse(
                         value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int state):
                     entry.PlayerBodygroups[key] = state;
                     break;
-                // Stryker restore
+                // Stryker restore all
 
                 // Each numbered child of the block is one attachment. Its fields arrive next, so
                 // the pending record is reset here and committed when the following one starts or
