@@ -152,6 +152,11 @@ public sealed class CorpsePhysics
     {
         ArgumentNullException.ThrowIfNull(corpses);
 
+        // **Before either early return, because the emptiest moment is the one that retires the most.** A moment carrying no
+        // corpses at all is the case where every one of them has faded, and returning first would leave the whole set sleeping
+        // in the environment forever — the exact defect this is here to fix.
+        Retire(corpses);
+
         if (corpses.Count == 0)
         {
             return;
@@ -266,6 +271,51 @@ public sealed class CorpsePhysics
             {
                 entity.InvalidateBoneCache();
             }
+        }
+    }
+
+    /// <summary>Takes every corpse the moment no longer asks for out of the world — <c>EndFadeOut</c> → <c>ClearRagdoll</c>.</summary>
+    /// <param name="corpses">Every corpse the moment carries, seen or not.</param>
+    /// <remarks>
+    /// **A faded corpse leaves the physics world, which is what makes a seek cheap** (owner, 2026-09-19). The fade is already
+    /// what bounds a rebuild — after a seek `RagdollFade.Rewound` treats every corpse as unseen, so only deaths in the last
+    /// fifteen seconds are replayed — but until now nothing ever removed one, so a body that had faded from the screen went on
+    /// sleeping in the environment and every later rebuild carried it again.
+    ///
+    /// **Absence from <paramref name="corpses"/> is the signal**: the moment carries every corpse it still holds, seen or not,
+    /// so one that is gone from the list has faded rather than merely been culled.
+    /// </remarks>
+    private void Retire(IReadOnlyList<CorpseRequest> corpses)
+    {
+        if (_running.Count == 0)
+        {
+            return;
+        }
+
+        HashSet<int> asked = [];
+
+        foreach (CorpseRequest corpse in corpses)
+        {
+            asked.Add(corpse.EntityIndex);
+        }
+
+        List<int> retiring = [];
+
+        foreach ((int entity, _) in _running)
+        {
+            if (!asked.Contains(entity))
+            {
+                retiring.Add(entity);
+            }
+        }
+
+        foreach (int entity in retiring)
+        {
+            _running[entity].Ragdoll.Destroy();
+            _running.Remove(entity);
+            _roots.Remove(entity);
+            _contacts.Remove(entity);
+            _placements.Remove(entity);
         }
     }
 

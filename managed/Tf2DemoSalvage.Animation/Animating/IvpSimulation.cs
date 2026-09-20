@@ -270,6 +270,14 @@ public sealed class IvpSimulation
     /// <summary>How many units are awake.</summary>
     public int AwakeUnits => _units.Active.Count;
 
+    /// <summary>How many units the environment holds at all, awake or asleep — what is still IN the world.</summary>
+    /// <remarks>
+    /// **Distinct from <see cref="AwakeUnits"/>, and the difference is the one a removal test needs.** A body that has been
+    /// taken out and one that is merely asleep both report zero awake units, so only this counts as evidence that
+    /// <see cref="Remove(IvpRigidBody)"/> actually happened.
+    /// </remarks>
+    public int HeldUnits => _units.Active.Count + _units.Sleeping.Count;
+
     /// <summary>Adds a body, in its own unit, driven by gravity — the shape a core's constructor gives it.</summary>
     /// <param name="core">The core.</param>
     /// <returns>The unit it was put in.</returns>
@@ -354,6 +362,210 @@ public sealed class IvpSimulation
         }
 
         return into;
+    }
+
+    /// <summary>Destroys a constraint group, waking every body it joined — <c>CPhysicsEnvironment::DestroyConstraint</c>.</summary>
+    /// <param name="group">The group; one this simulation never held is a no-op.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="group"/> is null.</exception>
+    /// <remarks>
+    /// **The engine's notify to each endpoint IS a wake** (`docs/findings/51`, *Destroying a constraint wakes both
+    /// bodies it joined*). <c>0x180012fe0</c> fetches the reference and attached objects through the constraint's own vtable
+    /// slots <c>+0x28</c>/<c>+0x30</c> and calls each object's <c>+0xc0</c>, which disassembles to a tail jump into
+    /// <c>FUN_180073a30</c> — so a ragdoll losing its joints has every limb woken, each to resume simulating on its own rather
+    /// than staying asleep in a pose the joints were holding.
+    ///
+    /// **Before the objects, never after.** The notify reaches endpoints the constraint still holds live pointers to, so it
+    /// cannot run once their own removal has: waking a body about to go is harmless, waking one already torn down is not.
+    /// </remarks>
+    public void RemoveConstraints(IvpConstraintGroup group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        foreach (IvpRagdollJoint joint in group.Joints)
+        {
+            foreach (IvpRigidBody body in new[] { joint.BodyA, joint.BodyB })
+            {
+                foreach (IvpCollisionObject collisionObject in body.Objects)
+                {
+                    WakeAsPhysicsObject(collisionObject, body);
+                }
+
+                body.Controllers.RemoveAll(controller => controller is IvpConstraintController);
+                body.Unit?.RebuildEntries();
+            }
+        }
+    }
+
+    /// <summary>The movement state the refile is run under — <c>0x21</c>, written to <c>core+0x1</c> and <c>object+0x78</c>.</summary>
+    private const int RefileFreezeState = 0x21;
+
+    /// <summary>Takes a body out of the world — <c>FUN_180073700</c>, reached from <c>CPhysicsEnvironment::DestroyObject</c>.</summary>
+    /// <param name="core">The body.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="core"/> is null.</exception>
+    /// <remarks>
+    /// **Removal is not a list-unlink** (`docs/findings/51`, *Removing an object*). The engine treats a departing object as one
+    /// that just went STATIC: freeze it, re-file it in the broad phase so its neighbours see a settled picture, then re-derive
+    /// each neighbour's pair and contact against that picture. A mindist dies because the re-derivation finds no live partner,
+    /// which is why the destroy path never calls <see cref="IvpMindistManager.Unlink"/> or the OV tree's removal itself.
+    ///
+    /// **Waking a neighbour is something this DOES**, not something it avoids: a body resting on the corpse that is about to
+    /// vanish has to be woken, or it hangs in the air on a contact whose other half no longer exists.
+    ///
+    /// **Per OBJECT, because the engine's is.** <c>DestroyObject</c> takes one <c>IPhysicsObject</c>, so a ragdoll's limbs each
+    /// run this separately; a core holding several objects runs it once each, last first.
+    /// </remarks>
+    public void Remove(IvpRigidBody core)
+    {
+        ArgumentNullException.ThrowIfNull(core);
+
+        for (int at = core.Objects.Count - 1; at >= 0; at--)
+        {
+            Remove(core.Objects[at], core);
+        }
+
+        core.Objects.Clear();
+
+        // `CPhysicsEnvironment::DestroyObject`'s own swap-with-last out of `env+0x20`, and the drop of the core from the
+        // active bucket that `FUN_180073700` opens with (`FUN_180075610` small-array, `FUN_1800758e0` hashed).
+        if (core.Unit is { } unit)
+        {
+            unit.Cores.Remove(core);
+            core.Unit = null;
+
+            if (unit.Cores.Count == 0)
+            {
+                _units.Active.Remove(unit);
+                _units.Sleeping.Remove(unit);
+            }
+            else
+            {
+                unit.RebuildEntries();
+            }
+        }
+
+        // A core still listed for revive would be brought back by the next PSI, having already been torn down.
+        Environment.ReviveQueue.Remove(core);
+        core.ReviveQueued = false;
+    }
+
+    /// <summary>One object's own teardown — the body of <c>FUN_180073700</c>.</summary>
+    private void Remove(IvpCollisionObject collisionObject, IvpRigidBody core)
+    {
+        // **The freeze is for the refile's duration and nothing else.** `FUN_180073700` writes `0x21` to `core+0x1` and
+        // `object+0x78`, refiles, then writes both back — it restores `core+0x1` from the high byte of the ushort it read at
+        // `core+0x0` before the write, so the value that comes back is the one that was there.
+        int unitState = core.UnitState;
+        int movementState = collisionObject.MovementState;
+
+        core.UnitState = RefileFreezeState;
+        collisionObject.MovementState = RefileFreezeState;
+
+        IvpBroadPhase.Refile(Collisions, collisionObject);
+
+        core.UnitState = unitState;
+        collisionObject.MovementState = movementState;
+
+        // `FUN_180086500(core)` — already carried, because a revived core rebuilds its resting contacts the same way.
+        RebuildRestingContacts(core);
+
+        // `FUN_1800788b0(core)`.
+        RemoveContacts(core);
+
+        Objects.Remove(collisionObject);
+    }
+
+    /// <summary>Every contact on a core's objects, told its partner is going — <c>FUN_1800788b0</c>.</summary>
+    /// <remarks>
+    /// Walks the same buckets as the mindist pass, last first, and branches on the OTHER core: an awake one has every object in
+    /// its own buckets woken (<c>FUN_180073a30</c>, which is <c>IPhysicsObject::Wake</c>'s body) and its contact rebuilt; an
+    /// asleep one has the contact deleted outright (<c>FUN_180083210</c> then <c>operator delete</c>).
+    ///
+    /// The rebuild's own three steps are <see cref="Rebuild"/>.
+    /// </remarks>
+    private void RemoveContacts(IvpRigidBody core)
+    {
+        for (int at = core.Objects.Count - 1; at >= 0; at--)
+        {
+            IvpCollisionObject owner = core.Objects[at];
+
+            // **The next link is read before the contact is touched**, which is how `FUN_1800788b0` walks it
+            // (`puVar3 = *puVar5` first, `puVar5 = puVar3` after) — so deleting the current one mid-walk is safe.
+            LinkedListNode<IvpContactPoint>? node = owner.ContactPoints.First;
+
+            while (node is not null)
+            {
+                IvpContactPoint contact = node.Value;
+                node = node.Next;
+
+                IvpCollisionObject otherObject =
+                    ReferenceEquals(contact.FirstObject, owner) ? contact.SecondObject : contact.FirstObject;
+
+                if (otherObject.Core is not { } other)
+                {
+                    continue;
+                }
+
+                if (other.Unit is { State: IvpSimulationUnit.AsleepState })
+                {
+                    contact.FrictionSystem?.RemoveContact(
+                        contact, contact.FirstObject.Core ?? core, contact.SecondObject.Core ?? core, Environment.Now);
+
+                    owner.ContactPoints.Remove(contact);
+                    otherObject.ContactPoints.Remove(contact);
+                    continue;
+                }
+
+                foreach (IvpCollisionObject neighbour in other.Objects)
+                {
+                    WakeAsPhysicsObject(neighbour, other);
+                }
+
+                Rebuild(contact);
+            }
+        }
+    }
+
+    /// <summary>A surviving contact measured again against the refiled picture — the awake branch's three calls.</summary>
+    /// <remarks>
+    /// <c>IvpContactRecord::Build</c>, <see cref="IvpContactPoint.SetMaterials"/> and <c>FUN_180083a60</c>
+    /// (<see cref="IvpContactPoint.Weigh"/>), in that order, which is what <c>FUN_1800788b0</c> runs once the neighbour has been
+    /// woken. **Unlike <see cref="IvpFrictionSystem.RevalidatePair"/> it does NOT drop a contact whose record comes back
+    /// outside its features** — the engine's walk has no such branch here, and the ordinary filing pass is what removes one.
+    /// </remarks>
+    private void Rebuild(IvpContactPoint contact)
+    {
+        if (contact.FirstObject.Core is not { } first || contact.SecondObject.Core is not { } second)
+        {
+            return;
+        }
+
+        (IvpLedgeSide firstSide, IvpLedgeSide secondSide) = ContactSides(contact);
+
+        IvpContactRecord.Build(
+            contact,
+            new IvpContactBody(firstSide, first, contact.FirstObject.ExtraRadius),
+            new IvpContactBody(secondSide, second, contact.SecondObject.ExtraRadius),
+            Environment.Now);
+
+        contact.SetMaterials(Environment.Materials);
+        contact.Weigh();
+    }
+
+    /// <summary><c>IPhysicsObject::Wake</c>'s body, <c>FUN_180073a30</c>.</summary>
+    /// <remarks>
+    /// An object whose movement state is <c>8</c> takes <c>FUN_180087e00</c> and only JOINS the environment's revive list, for
+    /// the next PSI to drain; any other state takes <c>FUN_180078820</c>, which resets the core's two anchor times to now.
+    /// </remarks>
+    private void WakeAsPhysicsObject(IvpCollisionObject collisionObject, IvpRigidBody core)
+    {
+        if (collisionObject.MovementState != 8)
+        {
+            core.RestAnchorTime = Environment.Now;
+            core.SettleAnchorTime = Environment.Now;
+            return;
+        }
+
+        IvpUnitManager.QueueRevive(core, Environment);
     }
 
     /// <summary>One unit absorbs another, which leaves the time manager's lists — <c>FUN_180074e40</c>.</summary>

@@ -44,6 +44,9 @@ public sealed class IvpSimulationUnit
     /// <summary><c>DAT_1800ea988</c>: <c>1.0f</c>, the spin squared a unit is called fast above.</summary>
     private const float FastSpin = 1f;
 
+    /// <summary>The value <see cref="State"/> holds while the unit is asleep.</summary>
+    internal const int AsleepState = 8;
+
     /// <summary>The state byte, <c>unit+0x0</c>'s low byte: <c>8</c> once the unit is asleep.</summary>
     public int State { get; private set; }
 
