@@ -480,9 +480,7 @@ public sealed class IvpSimulation
     /// its own buckets woken (<c>FUN_180073a30</c>, which is <c>IPhysicsObject::Wake</c>'s body) and its contact rebuilt; an
     /// asleep one has the contact deleted outright (<c>FUN_180083210</c> then <c>operator delete</c>).
     ///
-    /// *Not carried*: the rebuild's own three steps for an awake neighbour — <c>IvpContactRecord::Build</c>,
-    /// <see cref="IvpContactPoint.SetMaterials"/> and the weigh — which are left to the ordinary filing pass. The wake IS
-    /// carried, and it is the half a resting body depends on.
+    /// The rebuild's own three steps are <see cref="Rebuild"/>.
     /// </remarks>
     private void RemoveContacts(IvpRigidBody core)
     {
@@ -521,8 +519,36 @@ public sealed class IvpSimulation
                 {
                     WakeAsPhysicsObject(neighbour, other);
                 }
+
+                Rebuild(contact);
             }
         }
+    }
+
+    /// <summary>A surviving contact measured again against the refiled picture — the awake branch's three calls.</summary>
+    /// <remarks>
+    /// <c>IvpContactRecord::Build</c>, <see cref="IvpContactPoint.SetMaterials"/> and <c>FUN_180083a60</c>
+    /// (<see cref="IvpContactPoint.Weigh"/>), in that order, which is what <c>FUN_1800788b0</c> runs once the neighbour has been
+    /// woken. **Unlike <see cref="IvpFrictionSystem.RevalidatePair"/> it does NOT drop a contact whose record comes back
+    /// outside its features** — the engine's walk has no such branch here, and the ordinary filing pass is what removes one.
+    /// </remarks>
+    private void Rebuild(IvpContactPoint contact)
+    {
+        if (contact.FirstObject.Core is not { } first || contact.SecondObject.Core is not { } second)
+        {
+            return;
+        }
+
+        (IvpLedgeSide firstSide, IvpLedgeSide secondSide) = ContactSides(contact);
+
+        IvpContactRecord.Build(
+            contact,
+            new IvpContactBody(firstSide, first, contact.FirstObject.ExtraRadius),
+            new IvpContactBody(secondSide, second, contact.SecondObject.ExtraRadius),
+            Environment.Now);
+
+        contact.SetMaterials(Environment.Materials);
+        contact.Weigh();
     }
 
     /// <summary><c>IPhysicsObject::Wake</c>'s body, <c>FUN_180073a30</c>.</summary>

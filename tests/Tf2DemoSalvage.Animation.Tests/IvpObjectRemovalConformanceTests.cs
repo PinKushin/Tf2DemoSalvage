@@ -36,8 +36,8 @@ public sealed class IvpObjectRemovalConformanceTests
     public void Remove_ACoreWhoseContactNeighbourIsInStateEight_QueuesThatNeighboursRevive()
     {
         IvpSimulation simulation = Simulation(out IvpRigidBody going, out IvpRigidBody staying);
-        IvpCollisionObject neighbourObject = ContactBetween(going, staying);
-        neighbourObject.MovementState = 8;
+        ContactBetween(going, staying);
+        staying.Objects[0].MovementState = 8;
 
         simulation.Remove(going);
 
@@ -53,8 +53,8 @@ public sealed class IvpObjectRemovalConformanceTests
     public void Remove_ACoreWhoseContactNeighbourIsNotInStateEight_ResetsThatNeighboursAnchorsWithoutQueueingIt()
     {
         IvpSimulation simulation = Simulation(out IvpRigidBody going, out IvpRigidBody staying);
-        IvpCollisionObject neighbourObject = ContactBetween(going, staying);
-        neighbourObject.MovementState = 1;
+        ContactBetween(going, staying);
+        staying.Objects[0].MovementState = 1;
         staying.RestAnchorTime = -5d;
         staying.SettleAnchorTime = -5d;
 
@@ -70,14 +70,15 @@ public sealed class IvpObjectRemovalConformanceTests
     public void Remove_ACoreWhoseContactNeighbourIsAsleep_DropsTheContact()
     {
         IvpSimulation simulation = Simulation(out IvpRigidBody going, out IvpRigidBody staying);
-        IvpCollisionObject neighbourObject = ContactBetween(going, staying);
+        IvpContactPoint contact = ContactBetween(going, staying);
         IvpCollisionObject goingObject = going.Objects[0];
+        IvpCollisionObject neighbourObject = staying.Objects[0];
         staying.Unit!.Asleep();
 
         simulation.Remove(going);
 
-        goingObject.ContactPoints.ShouldBeEmpty("the neighbour is asleep, so the contact is deleted rather than rebuilt");
-        neighbourObject.ContactPoints.ShouldBeEmpty();
+        goingObject.ContactPoints.ShouldNotContain(contact, "the neighbour is asleep, so the contact is deleted rather than rebuilt");
+        neighbourObject.ContactPoints.ShouldNotContain(contact);
         staying.ReviveQueued.ShouldBeFalse("an asleep neighbour is left asleep");
     }
 
@@ -122,6 +123,34 @@ public sealed class IvpObjectRemovalConformanceTests
         simulation.Units.Active.Concat(simulation.Units.Sleeping)
             .SelectMany(unit => unit.Cores)
             .ShouldContain(staying, "removing one body does not disturb the others");
+    }
+
+    /// <remarks>
+    /// The awake branch's other half: once the neighbour is woken, <c>FUN_1800788b0</c> runs <c>IvpContactRecord::Build</c>,
+    /// <see cref="IvpContactPoint.SetMaterials"/> and <c>FUN_180083a60</c> — the weigh, whose output is
+    /// <see cref="IvpContactPoint.InverseContactMass"/> at <c>cp+0x60</c>. So a contact that survives the removal is measured
+    /// again against the refiled picture rather than left holding what it read before.
+    ///
+    /// **The engine does NOT drop a contact here even if the rebuilt record comes back outside its features** — that branch
+    /// exists in <c>FUN_180083b30</c>'s revalidate, not in this walk.
+    /// </remarks>
+    [Test]
+    public void Remove_ACoreWhoseContactNeighbourIsAwake_MeasuresThatContactAgain()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody going, out IvpRigidBody staying);
+        IvpContactPoint contact = ContactBetween(going, staying);
+        staying.Objects[0].MovementState = 1;
+
+        // **Zeroed first, so the assertion is about THIS removal writing it.** `InverseContactMass` is `cp+0x60`, and the
+        // weigh (`FUN_180083a60`) is its only writer — reading it non-zero afterwards is evidence the three steps ran, where
+        // a contact count is not: the refile files real pairs now that the bodies have ledges, so counts move on their own.
+        contact.InverseContactMass = 0f;
+
+        simulation.Remove(going);
+
+        staying.Objects[0].ContactPoints.ShouldContain(contact, "an awake neighbour keeps its contact");
+        contact.Record.ShouldNotBeNull("the record was rebuilt against the refiled picture");
+        contact.InverseContactMass.ShouldNotBe(0f, "and the weigh ran over it");
     }
 
     /// <remarks>
@@ -193,7 +222,7 @@ public sealed class IvpObjectRemovalConformanceTests
     /// these synthetic bodies cannot do, having no ledges to stand a synapse on. The mindist walk gets its own coverage from
     /// <c>RebuildRestingContacts</c>'s existing tests, which is the same routine.
     /// </remarks>
-    private static IvpCollisionObject ContactBetween(IvpRigidBody going, IvpRigidBody staying)
+    private static IvpContactPoint ContactBetween(IvpRigidBody going, IvpRigidBody staying)
     {
         IvpCollisionObject goingObject = going.Objects[0];
         IvpCollisionObject stayingObject = staying.Objects[0];
@@ -217,7 +246,7 @@ public sealed class IvpObjectRemovalConformanceTests
         goingObject.ContactPoints.AddLast(contact);
         stayingObject.ContactPoints.AddLast(contact);
 
-        return stayingObject;
+        return contact;
     }
 
     private static IvpSimulation Simulation(out IvpRigidBody going, out IvpRigidBody staying)
@@ -245,7 +274,12 @@ public sealed class IvpObjectRemovalConformanceTests
         // One collision object each, which is what the broad phase files and what the two walks iterate.
         foreach (IvpRigidBody body in new[] { going, staying })
         {
-            IvpCollisionObject collisionObject = new() { Core = body };
+            // A material as well as a ledge: the rebuild's `SetMaterials` asks each object for its own.
+            IvpCollisionObject collisionObject = new()
+            {
+                Core = body,
+                Material = new IvpReplayMaterial(0d, 0d, HasSecondFriction: false),
+            };
 
             body.Objects.Add(collisionObject);
             simulation.Objects.Add(collisionObject);
@@ -267,6 +301,11 @@ public sealed class IvpObjectRemovalConformanceTests
         return simulation;
     }
 
+    /// <remarks>
+    /// **Given a real ledge, because the awake branch's rebuild needs one.** <c>IvpContactRecord::Build</c> measures against
+    /// the ledge side each object is standing on, and a body with none is a fixture artefact rather than a state the engine
+    /// can be in — everything in the world has a solid.
+    /// </remarks>
     private static IvpRigidBody Body() =>
         new()
         {
@@ -276,5 +315,6 @@ public sealed class IvpObjectRemovalConformanceTests
             InverseMass = 1f,
             Damping = 0f,
             RotationDamping = 0f,
+            Ledges = IvpTestCube.Box(1f, 1f, 1f),
         };
 }
