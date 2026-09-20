@@ -3,6 +3,8 @@ using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
 
+using Microsoft.Extensions.Logging;
+
 namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>A small window shown the moment the program starts, until the main window is up (D182).</summary>
@@ -48,9 +50,24 @@ internal sealed class StartupSplash : Form
     }
 
     /// <summary>Shows the splash on its own thread and returns at once.</summary>
+    /// <param name="log">Where the splash reports that it reached the screen.</param>
     /// <returns>Call it to close the splash; safe from any thread, and more than once.</returns>
-    public static Action Open()
+    /// <exception cref="ArgumentNullException"><paramref name="log"/> is null.</exception>
+    /// <remarks>
+    /// **It reports its own <c>Shown</c> because nothing outside the process can reliably catch it** (B412, D185). The owner
+    /// measured the splash at *"less than half a second"* on his machine, and a UI test that polls the desktop's top-level
+    /// windows can take longer than that to complete its first walk — so the test read "no startup splash appeared" about a
+    /// window that had been and gone. Sampling is the wrong instrument for something this short-lived; the window saying so
+    /// itself cannot miss it.
+    ///
+    /// The line is what <c>StartupSplashUiTests</c> asserts. It is deliberately the <c>Shown</c> event rather than anything
+    /// earlier: <c>Shown</c> fires when the form actually reached the screen, so this records the splash HAPPENING rather
+    /// than the program intending it.
+    /// </remarks>
+    public static Action Open(ILogger log)
     {
+        ArgumentNullException.ThrowIfNull(log);
+
         // **Never waited on**: the main thread goes straight on building the real window. Either side may finish first, so a
         // close asked for before the splash exists is remembered, and the splash checks it once it is up.
         int closing = 0;
@@ -61,6 +78,8 @@ internal sealed class StartupSplash : Form
             StartupSplash made = new();
             made.Shown += (_, _) =>
             {
+                log.LogInformation("{Message}", "startup: splash shown");
+
                 if (Volatile.Read(ref closing) == 1)
                 {
                     made.Close();

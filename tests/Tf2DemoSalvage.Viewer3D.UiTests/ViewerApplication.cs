@@ -362,21 +362,19 @@ internal sealed partial class ViewerApplication : IDisposable
         // for a human — and is deliberately not made here. See B90.
         //
         // **Found by its AutomationId, not as "the main window"** (D182). The process shows a startup splash first, and
-        // `GetMainWindow` answers whichever top-level window is up — the splash, for the first second. Watching the top-level
-        // windows also records whether the splash appeared at all, which is what `StartupSplashUiTests` asserts.
-        bool splashSeen = false;
-
+        // `GetMainWindow` answers whichever top-level window is up — the splash, for the first second.
+        //
+        // **This walk does NOT answer whether the splash appeared, and it used to claim to** (B412, D185). The splash lives
+        // under half a second on the owner's machine, which is shorter than a first walk of the desktop's top-level windows
+        // can take, so a `splashSeen` flag set here reported "no startup splash appeared" about a window that had been and
+        // gone. The splash logs its own `Shown` instead, and `StartupSplashUiTests` reads that line.
         Window window = Retry.WhileException(
             () => Retry.WhileNull(
                 () =>
                 {
                     foreach (Window top in application.GetAllTopLevelWindows(automation))
                     {
-                        string id = top.Properties.AutomationId.ValueOrDefault ?? string.Empty;
-
-                        splashSeen |= id == MainForm.StartupSplashId;
-
-                        if (id == MainForm.MainWindowId)
+                        if ((top.Properties.AutomationId.ValueOrDefault ?? string.Empty) == MainForm.MainWindowId)
                         {
                             return top;
                         }
@@ -391,7 +389,7 @@ internal sealed partial class ViewerApplication : IDisposable
             ?? throw new InvalidOperationException(
                 $"The viewer's main window did not appear within {LaunchTimeout}.");
 
-        return new ViewerApplication(application, automation, window) { SplashSeen = splashSeen };
+        return new ViewerApplication(application, automation, window);
     }
 
     /// <remarks>
@@ -421,9 +419,6 @@ internal sealed partial class ViewerApplication : IDisposable
     /// automation surface of its own to invoke.
     /// </remarks>
     public void ClickButton(string automationId) => Find(automationId).AsButton().Invoke();
-
-    /// <summary>Whether the startup splash was among the process's windows before the main window appeared (D182).</summary>
-    public bool SplashSeen { get; init; }
 
     /// <summary>The most recent log line containing some text, or null.</summary>
     /// <param name="line">The text to look for, as the viewer writes it.</param>

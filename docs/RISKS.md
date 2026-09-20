@@ -27027,7 +27027,7 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B412 OPEN 2026-09-20: the startup-splash UI test asserts a guarantee the splash deliberately does not make
+### B412 FIXED 2026-09-20: the startup-splash UI test sampled for a window that lives under half a second
 
 **`Launch_BeforeTheMainWindow_ShowsTheStartupSplash` fails on `main`**, at `a9f11293`, with *"no startup splash appeared
 before the main window"*. Found while running gate phase 2 for an unrelated branch; **confirmed pre-existing by running
@@ -27062,11 +27062,24 @@ splash DOES appear on his machine, for under half a second, and he is the measur
 20 ms poll over `application.GetAllTopLevelWindows` is failing to observe a window that was there**, which makes this an
 instrument defect rather than a feature one — `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` again.
 
-*Next*, in his order of suspicion: he thinks backgrounding the program is what hid it, so check first whether
-`GetAllTopLevelWindows` enumerates a window belonging to a background process at all, with a control — ask it for the main
-window at the same moment and confirm it answers. Then whether `Name` on a `Form` created on a second STA thread actually
-reaches UIA as `AutomationId`. **Not licensed**: padding the splash's lifetime, or weakening the assertion to pass.
-*Evidence class: measured (test run on main), read from source, owner-observed (the half second).*
+**Fixed the same day, by replacing the instrument rather than the feature.** The owner confirmed the feature is fine —
+*"the real thing is popping up, and disappearing properly by what i saw"* — which makes this an instrument defect, and
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md` is the casebook it joins.
+
+`StartupSplash.Open` now takes an `ILogger` and writes `startup: splash shown` from the form's own `Shown`, and the test
+counts that line instead of polling. **A window logging its own appearance cannot be missed; a poll of the desktop's
+top-level windows can take longer than the whole window lives.** `Shown` is the right hook rather than anything earlier,
+because it fires when the form actually reached the screen — so the line records the splash HAPPENING, not the program
+intending it. The `splashSeen` flag and `ViewerApplication.SplashSeen` are gone, since a broken instrument kept beside a
+working one is just a second answer.
+
+The assertion is the same strength D185 asked for: the splash existed and was shown, for however briefly. **Proved able
+to fail** by deleting the log call, which reddened that one test alone (`count 0, should be 1`) and nothing else; restored
+by the exact inverse edit. Suite green after: 37 of 37. *Evidence class: measured (test run on main, sabotage with a
+control), read from source, owner-observed (the half second, and the splash working).*
+
+**Still owed, and the owner raised it unprompted:** *"it does look kinda funky, and we will need to work on the look of
+it before its all over."* The splash's appearance is untouched here — this was about the test.
 
 ### B411 OPEN 2026-09-20: the kernel is OOM-killing mutation runs, and a killed run looks like a config error
 

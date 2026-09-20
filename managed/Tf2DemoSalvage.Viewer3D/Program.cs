@@ -79,7 +79,7 @@ internal static class Program
         // **Before anything else is built, because being first is its whole job** (D182). WinForms' own initialisation must
         // come before any window, the splash's included, so it moved up from beside the form.
         ApplicationConfiguration.Initialize();
-        Action closeSplash = StartupSplash.Open();
+        Action closeSplash = StartupSplash.Open(loggers.CreateLogger("viewer"));
 
         // **A crash in the message loop has no name until something writes one down** (B402). The
         // capture test reported exit `-1073740771` — `STATUS_FATAL_USER_CALLBACK_EXCEPTION`, an
