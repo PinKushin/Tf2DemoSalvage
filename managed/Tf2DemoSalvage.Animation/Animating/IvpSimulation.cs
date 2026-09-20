@@ -356,6 +356,38 @@ public sealed class IvpSimulation
         return into;
     }
 
+    /// <summary>Destroys a constraint group, waking every body it joined — <c>CPhysicsEnvironment::DestroyConstraint</c>.</summary>
+    /// <param name="group">The group; one this simulation never held is a no-op.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="group"/> is null.</exception>
+    /// <remarks>
+    /// **The engine's notify to each endpoint IS a wake** (`docs/findings/51`, *Destroying a constraint wakes both
+    /// bodies it joined*). <c>0x180012fe0</c> fetches the reference and attached objects through the constraint's own vtable
+    /// slots <c>+0x28</c>/<c>+0x30</c> and calls each object's <c>+0xc0</c>, which disassembles to a tail jump into
+    /// <c>FUN_180073a30</c> — so a ragdoll losing its joints has every limb woken, each to resume simulating on its own rather
+    /// than staying asleep in a pose the joints were holding.
+    ///
+    /// **Before the objects, never after.** The notify reaches endpoints the constraint still holds live pointers to, so it
+    /// cannot run once their own removal has: waking a body about to go is harmless, waking one already torn down is not.
+    /// </remarks>
+    public void RemoveConstraints(IvpConstraintGroup group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        foreach (IvpRagdollJoint joint in group.Joints)
+        {
+            foreach (IvpRigidBody body in new[] { joint.BodyA, joint.BodyB })
+            {
+                foreach (IvpCollisionObject collisionObject in body.Objects)
+                {
+                    WakeAsPhysicsObject(collisionObject, body);
+                }
+
+                body.Controllers.RemoveAll(controller => controller is IvpConstraintController);
+                body.Unit?.RebuildEntries();
+            }
+        }
+    }
+
     /// <summary>The movement state the refile is run under — <c>0x21</c>, written to <c>core+0x1</c> and <c>object+0x78</c>.</summary>
     private const int RefileFreezeState = 0x21;
 

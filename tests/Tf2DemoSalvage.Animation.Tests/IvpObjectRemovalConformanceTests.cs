@@ -124,6 +124,67 @@ public sealed class IvpObjectRemovalConformanceTests
             .ShouldContain(staying, "removing one body does not disturb the others");
     }
 
+    /// <remarks>
+    /// **<c>DestroyConstraint</c>'s notify is <c>Wake</c>**, which the destroy dump had guessed was bookkeeping. Slot
+    /// <c>+0xc0</c> of <c>CPhysicsObject</c>'s vtable (<c>0x1800ecbf0</c>) is the pointer at <c>0x1800eccb0</c>,
+    /// <c>0x18001e3d0</c>, which disassembles to <c>mov rcx, [rcx+0x10]</c> then a tail jump to <c>0x180073a30</c> —
+    /// <c>IPhysicsObject::Wake</c>'s body, the same routine the contact walk calls.
+    ///
+    /// So a ragdoll losing its joints has every limb woken: each must resume simulating on its own rather than staying asleep
+    /// in a pose the joints were holding.
+    /// </remarks>
+    [Test]
+    public void RemoveConstraints_AGroupJoiningTwoBodies_WakesBothOfThem()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody first, out IvpRigidBody second);
+        first.Objects[0].MovementState = 8;
+        second.Objects[0].MovementState = 8;
+        IvpConstraintGroup group = Group(first, second);
+        simulation.Add(group);
+
+        simulation.RemoveConstraints(group);
+
+        first.ReviveQueued.ShouldBeTrue("the reference object is told through its vtable +0xc0, which is Wake");
+        second.ReviveQueued.ShouldBeTrue("and so is the attached object");
+    }
+
+    /// <remarks>
+    /// The constraint's notify reaches endpoint objects it still holds live pointers to, so it cannot run after their own
+    /// <c>DestroyObject</c>. <c>CLAUDE.md</c>'s note that <c>RagdollDestroy</c> destroys constraints first is confirmed by
+    /// that: waking a body about to be removed is harmless, waking one already torn down is not.
+    /// </remarks>
+    [Test]
+    public void RemoveConstraints_AGroup_TakesItsControllerOffBothBodies()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody first, out IvpRigidBody second);
+        IvpConstraintGroup group = Group(first, second);
+        simulation.Add(group);
+
+        simulation.RemoveConstraints(group);
+
+        first.Controllers.ShouldNotContain(controller => controller is IvpConstraintController);
+        second.Controllers.ShouldNotContain(controller => controller is IvpConstraintController);
+    }
+
+    private static IvpConstraintGroup Group(IvpRigidBody first, IvpRigidBody second)
+    {
+        IvpConstraintGroup group = new();
+
+        group.Joints.Add(new IvpRagdollJoint
+        {
+            BodyA = first,
+            BodyB = second,
+            Constraint = IvpRagdollConstraint.FromDegrees(
+                primary: (-30f, 15f),
+                narrower: (-25f, 25f),
+                wider: (-79f, 57f),
+                reference: IvpConstraintFrame.Identity,
+                attached: IvpConstraintFrame.Identity),
+        });
+
+        return group;
+    }
+
     /// <summary>A contact between the two bodies' objects, filed on both as the engine's buckets hold it.</summary>
     /// <remarks>
     /// **The mindist is built, used and then taken back off both objects' synapse lists**, so these tests exercise the CONTACT

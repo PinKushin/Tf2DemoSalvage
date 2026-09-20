@@ -8523,3 +8523,29 @@ it hangs in the air on a contact whose other half no longer exists.
 *Evidence class: read from the shipped binary, decompiled.* *Not established*: the core's own vtable slot 0 — the
 destroy dump could not pin the core vtable to a construction-site literal the way `CPhysicsObject`'s `0x1800ecbf0` was
 pinned, so the final dispatch is read as "the core's destructor" by position rather than by name.
+
+### Destroying a constraint wakes both bodies it joined
+
+`CPhysicsEnvironment::DestroyConstraint` (`0x180012fe0`) fetches the constraint's two endpoints through its own vtable —
+`+0x28` reference, `+0x30` attached — and calls **each object's vtable `+0xc0`** before the constraint goes. The destroy
+dump left that slot unresolved and guessed *"presumably `RemoveConstraintNotify` or equivalent bookkeeping"*.
+
+**It is `Wake`.** `CPhysicsObject`'s vtable is `0x1800ecbf0`, so slot `+0xc0` is the pointer at `0x1800eccb0`, which reads
+`d0 e3 01 80 01 00 00 00` — `0x18001e3d0`. Ghidra has no function there, so it was disassembled by hand:
+
+```
+18001e3d0   48 8b 49 10         mov  rcx, [rcx+0x10]     ; CPhysicsObject+0x10 — the wrapped IVP object
+18001e3d4   e9 57 56 05 00      jmp  0x180073a30         ; IPhysicsObject::Wake's body
+```
+
+`0x180073a30` is the same routine the contact walk calls, already identified above as `IPhysicsObject::Wake`'s body — so
+the guess was wrong in a way that matters. The notify is not bookkeeping at all: **a constraint being destroyed wakes the
+two bodies it joined**, which is what a ragdoll losing its joints needs, since each limb must resume simulating on its
+own rather than staying asleep in a pose the joints were holding.
+
+It also settles the ORDER. `CLAUDE.md`'s note that constraints are destroyed before objects in `RagdollDestroy` is
+confirmed twice over: the notify reaches endpoint objects the constraint still holds live pointers to, which would be
+unsafe after their own `DestroyObject` had run — and waking a body that is about to be removed is harmless, while waking
+one already torn down is not.
+
+*Evidence class: read from the shipped binary, and disassembled by hand where Ghidra had no function.*
