@@ -27027,7 +27027,37 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B413 OPEN 2026-09-20: a faded corpse now leaves the world, but the seek saving is not yet measured
+### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
+
+**The owner, unprompted, while I was measuring something else**: *"for some reason the first person rockets still dont
+draw, btw, that was never fixed i guess"*.
+
+**The owner rule was applied to every prop, and it belongs to weapons alone.** `FirstPersonVisibility.Visible` skipped
+anything whose `OwnedBy` named the viewed player. A fired rocket carries `m_hOwnerEntity` naming the soldier who fired
+it, so every rocket was hidden from the one player with the best view of it.
+
+`C_BaseCombatWeapon::ShouldDraw` (`c_basecombatweapon.cpp`) is the only place that rule lives, and **a projectile does
+not override it**: `CTFBaseRocket : CBaseProjectile` (`tf_weaponbase_rocket.h:36`), and `C_TFProjectile_Rocket` declares
+`OnDataChanged`, `CreateTrails` and `GetTrailParticleName` and nothing else — a grep for `ShouldDraw` across every
+`c_tf_projectile_*.cpp/.h` in the SDK returns nothing at all. So a rocket owned by the viewed player draws like any other
+entity.
+
+**Fixed** by asking whether the prop is a combat weapon before applying the rule. `SceneProp.WeaponState` was already the
+right discriminator and already carried: it is null for anything that did not declare `DT_BaseCombatWeapon`, which is the
+same test the engine's class hierarchy makes. No new wire field.
+
+**Confirmed by looking**, which is the only thing that could confirm it: `b414-rocket-after.png`, Beleleu's own
+first-person view on `demostf-cp_process_f12-2026-08-07.dem` at tick 51093 — the rocket body, its flame and its trail, in
+flight away from the camera. The tick came from B397's own measurement of that rocket, and `roster` names entity 2 as
+Beleleu. Five conformance tests in `FirstPersonVisibilityConformanceTests`, and before the fix exactly one of them was red
+— the projectile — with the four controls (the player, a bone-merged hat, an owned weapon, another player's weapon) green,
+so the fix could not have been "draw everything". *Evidence class: read from the SDK, measured, confirmed by eye.*
+
+*Not established*: whether other projectiles were hidden the same way. Pipebombs, arrows and flares are all
+`CBaseProjectile` and all carry an owner, so the same rule applied to them — they should be fixed by the same change, but
+only the rocket was looked at.
+
+### B413 FIXED 2026-09-20: a faded corpse leaves the world, and the environment drains to zero
 
 **The removal chain is ported and B316's blocker is gone** — `IvpSimulation.Remove` (`FUN_180073700`), `RemoveConstraints`
 (`CPhysicsEnvironment::DestroyConstraint`), `IvpRagdoll.Destroy` (`ClearRagdoll`'s constraints-then-objects order) and
@@ -27039,13 +27069,43 @@ AND asleep — removing `Ragdoll.Destroy()` from the retire takes it from 0 to 1
 green on all three phases, and the viewer plays `demostf-cp_process_f12-2026-08-07.dem` from a seek to tick 26578 at
 259–445 fps over 20 measured seconds with the corpse column at 0–0.1 ms.
 
-**What is NOT established, and it is the reason this entry is open**: that seeks actually got *cheaper*. The owner's
-reason for wanting removal was that the fade is what bounds a rebuild, and nothing here measured a seek before against a
-seek after — the f12 run above is a single reading with no baseline beside it, so it says "no regression", not "faster".
-The instrument that would settle it is a corpse count over a long playback: before this change `CorpsePhysics` kept every
-corpse ever born, so the environment grew monotonically and each rebuild carried the lot; now it should plateau at the
-unfaded set. *That measurement is the next step, and `Rebuilds`/`BuildingTicks` are already on `CorpsePhysics` to take
-it with.*
+**What is NOT established, and it is the reason this entry is open**: that seeks actually got *cheaper*.
+
+**The obvious measurement was tried and it cannot see this change — the question was wrong, not the data.** Two viewer
+runs on `demostf-cp_process_f12-2026-08-07.dem`, reading the moment log's corpse column:
+
+| seek to | first sample | rest of the run |
+|---|---|---|
+| tick 4619 | `corpses 5.4 ms over 46.8 steps` | **`0 over 0 steps` for all 57 remaining samples, 60 s** |
+| tick 26578 | `corpses 0.1 over 0.3 steps` | `0–0.1 over 0.2 steps` |
+
+Neither number is evidence. **The long run of zeroes is D181's background record**, which reaches the last tick about 53 s
+after load on f12; from then on `ShowRecorded` answers and nothing steps live, exactly as that work recorded. And **the
+seek case was already cheap before any of this**: `RagdollFade.Rewound` bounds a rebuild to deaths in the last 15 s, so
+tick 26578 rebuilt almost nothing whether or not corpses are ever removed.
+
+**So the window where removal changes anything is continuous play before the record catches up**, and the corpse column
+is a COST, not a population — it cannot show an environment growing.
+
+**Measured instead, and this one answers it.** The moment line gained `N held` — `CorpsePhysics.Count`, carried through
+`PoseCounters` as a LEVEL rather than differenced like every other field there, and reported as the window's MAXIMUM so a
+quiet stretch cannot average it away. On `demostf-cp_process_f12-2026-08-07.dem` from tick 4619:
+
+```
+corpses 0.2 over 0.5 steps, 12 held
+corpses 0   over 0   steps, 11 held     (×7)
+corpses 0   over 0   steps,  1 held
+corpses 0   over 0   steps,  0 held     (and 0 for the remaining 27 samples)
+```
+
+**The environment drains and stays drained.** Before this change `_running` never shrank, so the same run would have
+climbed monotonically toward every corpse the demo carries — 869 bodies on f12 (D181). *Evidence class: measured, one
+viewer run.*
+
+**The seek TIMING is still not measured and is not worth chasing** — the owner, 2026-09-20: *"you dont have an easy way
+to test that i dont think, you have to basically start playing then press the timeline backwards or forwards from where
+you are, idk how we would test or measure that"*. He is right: a seek is an interactive act, the two automated readings
+above measure something else, and the population count answers the question the removal was for without timing anything.
 
 **Also not established**: the corpse-level behaviour on screen. Nobody has watched a corpse fade on a real demo since
 this landed — the evidence is unit-level throughout. *Evidence class: read from the binary, measured (unit tests with

@@ -54,6 +54,7 @@ public sealed class MomentCostLog
     private long _animation;
     private long _corpses;
     private long _corpseSteps;
+    private int _corpsesHeld;
 
     /// <summary>Skeletons actually rebuilt, against the entities posed.</summary>
     private long _poseBuilds;
@@ -106,6 +107,11 @@ public sealed class MomentCostLog
         _animation += phases.Counters.Animation;
         _corpses += phases.Counters.Corpses;
         _corpseSteps += phases.Counters.CorpseSteps;
+
+        // **The MOST it held over the window, not the mean** (B413). This is a level rather than a cost, and it exists to
+        // answer one question — does the environment plateau, or keep growing — which an average across a window that
+        // includes quiet moments would flatten out of sight.
+        _corpsesHeld = Math.Max(_corpsesHeld, phases.Counters.CorpsesHeld);
         _poseBuilds += phases.Counters.PoseBuilds;
         _report += phases.Counters.Report;
 
@@ -147,7 +153,7 @@ public sealed class MomentCostLog
             + $", setup {Mean(_setup, over):0.#}"
             + $", skin {Mean(_skin, over):0.#}"
             + $", anim {Mean(_animation, over):0.#}"
-            + $", corpses {Mean(_corpses, over):0.#} over {_corpseSteps / (double)over:0.#} steps"
+            + $", corpses {Mean(_corpses, over):0.#} over {_corpseSteps / (double)over:0.#} steps, {_corpsesHeld} held"
             + $", rest {Mean(Rest(), over):0.#}"
             // **Builds against posed is the number that says WHICH fps problem this is.** Roughly
             // equal means the readable-bone cache works and the cost is bone math; builds far above
@@ -176,6 +182,7 @@ public sealed class MomentCostLog
         _animation = 0;
         _corpses = 0;
         _corpseSteps = 0;
+        _corpsesHeld = 0;
         _poseBuilds = 0;
         _report = 0;
         _drawn = 0;

@@ -379,7 +379,8 @@ public sealed class EntityModelSet : IModelBodygroups
         int Built,
         int PoseBuilds,
         long Corpses = 0,
-        int CorpseSteps = 0)
+        int CorpseSteps = 0,
+        int CorpsesHeld = 0)
     {
         /// <summary>What happened between an earlier snapshot and this one.</summary>
         /// <param name="before">The earlier snapshot.</param>
@@ -398,7 +399,13 @@ public sealed class EntityModelSet : IModelBodygroups
                 Built - before.Built,
                 PoseBuilds - before.PoseBuilds,
                 Corpses - before.Corpses,
-                CorpseSteps - before.CorpseSteps);
+                CorpseSteps - before.CorpseSteps,
+
+                // **A LEVEL, so it is carried rather than differenced** (B413). Every other field here is a running total
+                // whose difference is the work done between two snapshots; this one is how many corpses the environment is
+                // holding right now, and subtracting an earlier reading would answer "how many did it gain", which is not
+                // the question — the question is whether it plateaus.
+                CorpsesHeld);
     }
 
     /// <summary>Every pose-phase counter as it stands now.</summary>
@@ -415,7 +422,8 @@ public sealed class EntityModelSet : IModelBodygroups
         EntitiesBuilt,
         SkeletonPose.PoseBuilds,
         Corpses.SteppingTicks,
-        Corpses.Steps);
+        Corpses.Steps,
+        Corpses.Count);
 
     /// <summary>What per-prop reporting has cost, ever.</summary>
     public long ReportTicks { get; set; }

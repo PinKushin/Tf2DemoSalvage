@@ -72,9 +72,18 @@ public static class FirstPersonVisibility
             // own origin is owned by its carrier and parented to nobody, and reads as attached to
             // nothing. It was therefore drawn in the first-person view alongside the viewmodel:
             // two sticky launchers overlapping, and a soldier's rocket launcher across the lens.
+            // **And the owner rule reaches WEAPONS only** (B414). `ShouldDraw` above is
+            // `C_BaseCombatWeapon`'s, and nothing else overrides it — `CTFBaseRocket : CBaseProjectile`
+            // (`tf_weaponbase_rocket.h:36`) declares none, nor does any `c_tf_projectile_*`. A fired
+            // rocket carries `m_hOwnerEntity` naming the soldier who fired it, so applying the weapon
+            // rule to every prop hid every rocket from the one player with the best view of it. The
+            // owner, on seeing it: *"for some reason the first person rockets still dont draw"*.
+            //
+            // `WeaponState` is the discriminator the wire already gives us: it is null for anything
+            // that did not declare `DT_BaseCombatWeapon`.
             if (prop.EntityIndex == hidden ||
                 prop.AttachedTo == hidden ||
-                prop.OwnedBy == hidden)
+                (prop.OwnedBy == hidden && prop.WeaponState is not null))
             {
                 continue;
             }
