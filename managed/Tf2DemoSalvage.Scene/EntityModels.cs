@@ -632,6 +632,8 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     private void Simulate(IReadOnlyList<SceneProp> props, double seconds)
     {
+        _simulatedSeconds = seconds;
+
         // **Indexed first, because a placement follows its parent chain up** and the chain can
         // point anywhere in the list. This is what CalcAbsolutePosition walks (c_baseentity.cpp:4387).
         _propsByEntity.Clear();
@@ -1179,6 +1181,59 @@ public sealed class EntityModelSet : IModelBodygroups
 
         return resolved;
     }
+
+    /// <summary>The demo time the last pass simulated to, which an attachment asked between passes is posed at.</summary>
+    private double _simulatedSeconds;
+
+    /// <summary>Where one of an entity's named attachments is — <c>LookupAttachment</c> then <c>GetAttachment</c>.</summary>
+    /// <param name="entity">The entity, such as a player's active weapon.</param>
+    /// <param name="name">The attachment's name; <c>FireBullet</c> asks for <c>muzzle</c>.</param>
+    /// <returns>Its world position, or null when the entity is not posed here or its model has no such point.</returns>
+    /// <remarks>
+    /// **Case-insensitive, and absence is an answer.** `Studio_FindAttachment` compares with `stricmp`, and
+    /// `LookupAttachment` returns 0 for a miss, which `GetAttachment` refuses, so `FireBullet` keeps its own start.
+    /// Resolved through the same per-pass table the worn items use, so a weapon asked twice in one pass costs one
+    /// bone setup — `SetupBones( …, BONE_USED_BY_ATTACHMENT, … )` is what `GetAttachment` runs.
+    /// </remarks>
+    public (float X, float Y, float Z)? AttachmentPosition(int entity, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
+        // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
+        if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_entityModels.TryGetValue(entity, out string? model) ||
+            !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
+            frames.Attachments is not { Count: > 0 } attachments)
+        {
+            return null;
+        }
+
+        // Stryker restore all
+        int point = -1;
+
+        for (int index = 0; index < attachments.Count && point < 0; index++)
+        {
+            if (string.Equals(attachments[index].Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                point = index;
+            }
+        }
+
+        if (point < 0 || !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        return AttachmentsOf(entity, animating, attachments)[point] is { } placement
+            ? (placement[3], placement[7], placement[11])
+            : null;
+    }
+
+    /// <summary>Whether an entity has been posed by a pass here, so a question about its attachments has an answer.</summary>
+    /// <param name="entity">The entity index.</param>
+    /// <returns><c>true</c> once a pass has built its skeleton.</returns>
+    public bool IsPosed(int entity) => _entities.ContainsKey(entity);
 
     /// <summary>Whether an entity is one of the viewmodel pass's own.</summary>
     /// <remarks>

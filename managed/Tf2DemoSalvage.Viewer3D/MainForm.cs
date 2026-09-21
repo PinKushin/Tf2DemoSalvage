@@ -1435,6 +1435,9 @@ internal class MainForm : Form, IFrameSteps
     {
         _loaded = null;
 
+        // Indexed by the map's own tracer list, which goes with it.
+        _tracerStarts.Clear();
+
         // **Every system is told the level is going, in reverse registration order** — Valve's
         // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
         //
@@ -4253,14 +4256,20 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Every tracer in the window this tick, reused.</summary>
     private readonly List<(int Index, ShotTracer Tracer)> _tracersNow = [];
 
+    /// <summary>Where each tracer was drawn from, by its index in the map's list, fixed at first sight.</summary>
+    private readonly Dictionary<int, (float X, float Y, float Z)> _tracerStarts = [];
+
     /// <summary>Adds a burst for every tracer in the window — `ParticleTracerCallback` (B415).</summary>
     /// <remarks>
     /// **Control point 0 is the start and 1 is the end, with 0 facing the end**: `ParticleTracerCallback` takes
     /// `VectorAngles` of the normalised start-to-end and `ParticleEffectCallback` sets both points and that
     /// orientation before the effect first simulates.
     ///
-    /// **The start is the bullet's own origin for now, not the muzzle** — `FireBullet` moves it to the active
-    /// weapon's `muzzle` attachment, which is not wired yet (B415).
+    /// **The start is the active weapon's `muzzle`** when that weapon is posed here — `FireBullet`'s
+    /// `pWeapon->GetAttachment( iAttachment, vecStart )` on the non-dormant branch — and the bullet's own origin
+    /// otherwise, which is what the engine keeps when the lookup fails. It is read ONCE, the first time the tracer is
+    /// offered, as the engine reads it once when the shot arrives: re-read every frame, a tracer would follow the gun.
+    /// A seek that lands mid-flight reads the gun where it is then, which is the nearest pose there is.
     /// </remarks>
     private void AddTracers(int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
@@ -4278,8 +4287,38 @@ internal class MainForm : Form, IFrameSteps
                 continue;
             }
 
+            if (!_tracerStarts.TryGetValue(index, out (float X, float Y, float Z) start))
+            {
+                (float X, float Y, float Z)? muzzle = _models.AttachmentPosition(tracer.Weapon, "muzzle");
+
+                start = muzzle ?? tracer.Start;
+
+                // A weapon no pass has posed YET is asked again next frame; only an answer is kept. The first frame
+                // after a load or a seek offers tracers before the model pass has run.
+                if (muzzle is not null || _models.IsPosed(tracer.Weapon))
+                {
+                    _tracerStarts[index] = start;
+                }
+
+                if (_renderLog.IsEnabled(LogLevel.Debug))
+                {
+                    float away = MathF.Sqrt(
+                        ((start.X - tracer.Start.X) * (start.X - tracer.Start.X)) +
+                        ((start.Y - tracer.Start.Y) * (start.Y - tracer.Start.Y)) +
+                        ((start.Z - tracer.Start.Z) * (start.Z - tracer.Start.Z)));
+
+                    _renderLog.LogDebug(
+                        "{Message}",
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"tracer {index} (shot {tracer.Shot}, weapon entity {tracer.Weapon}) starts at " +
+                            $"{(muzzle is null ? "the bullet origin, no muzzle" : "the muzzle")}, {away:0.0} units from the origin" +
+                            $"{(_models.IsPosed(tracer.Weapon) ? string.Empty : "; weapon not posed yet")}"));
+                }
+            }
+
             (float pitch, float yaw, float roll) = AngleVectors.Angles(
-                tracer.End.X - tracer.Start.X, tracer.End.Y - tracer.Start.Y, tracer.End.Z - tracer.Start.Z);
+                tracer.End.X - start.X, tracer.End.Y - start.Y, tracer.End.Z - start.Z);
 
             (float fx, float fy, float fz) = AngleVectors.Forward(pitch, yaw);
             (float px, float py, float pz) = AngleVectors.Right(pitch, yaw, roll);
@@ -4289,7 +4328,7 @@ internal class MainForm : Form, IFrameSteps
                 TracerKeys + index,
                 definition,
                 new ParticleControlPoint(
-                    new Vector3(tracer.Start.X, tracer.Start.Y, tracer.Start.Z),
+                    new Vector3(start.X, start.Y, start.Z),
                     new Vector3(fx, fy, fz),
                     new Vector3(px, py, pz),
                     new Vector3(qx, qy, qz)),

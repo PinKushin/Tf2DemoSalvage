@@ -11,7 +11,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Shot">The shot's index in the timeline's feed.</param>
 /// <param name="Bullet">Which of its bullets.</param>
 /// <param name="Tick">The tick it fired on.</param>
-/// <param name="Shooter">The shooter's entity index, whose weapon's muzzle the drawn tracer starts from.</param>
+/// <param name="Shooter">The shooter's entity index.</param>
+/// <param name="Weapon">Their active weapon's entity index when the shot arrived, whose `muzzle` the drawn tracer starts from.</param>
 /// <param name="Effect">The particle system, <c>GetTracerType()</c> plus <c>_crit</c>.</param>
 /// <param name="Start">Where the bullet started, `m_vecOrigin` — the fallback when there is no muzzle.</param>
 /// <param name="End">`trace.endpos`, where the bullet stopped.</param>
@@ -20,6 +21,7 @@ public readonly record struct ShotTracer(
     int Bullet,
     int Tick,
     int Shooter,
+    int Weapon,
     string Effect,
     (float X, float Y, float Z) Start,
     (float X, float Y, float Z) End);
@@ -126,6 +128,7 @@ public sealed class HitscanTracers
             // `pPlayer->GetActiveTFWeapon()` decides the damage type and whether the crit flag is read at all.
             // *Interpolated:* its weapon id is taken to be the shot's; a player fires the weapon they hold.
             bool holding = by.Weapon is not null;
+            int weapon = by.Weapon ?? 0;
             bool buckshot = holding && Buckshot.Contains(shot.WeaponId);
             bool critical = holding && shot.Critical;
 
@@ -155,6 +158,7 @@ public sealed class HitscanTracers
                     bullet,
                     shot.Tick,
                     shot.Shooter,
+                    weapon,
                     effect,
                     shot.Origin,
                     (
