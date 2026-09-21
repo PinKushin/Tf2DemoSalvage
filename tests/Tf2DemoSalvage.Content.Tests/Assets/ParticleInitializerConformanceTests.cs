@@ -505,6 +505,59 @@ public sealed class ParticleInitializerConformanceTests
         store.Lifetime[index].ShouldBe((distance - 10f) / 1000f, 0.0001f);
     }
 
+    /// <remarks>
+    /// **`control_point_number` picks the point, and a tracer's impact child names 1**: `bullet_scattergun_impact01`
+    /// places its sparks within a sphere around control point 1, the bullet's end. Read from control point 0 they
+    /// sat at the muzzle — seen on f12 at tick 1656 as a cluster of yellow glows round the shooter.
+    /// </remarks>
+    [Test]
+    public void Spawn_PositionWithinSphereRandomOnControlPointOne_PlacesAroundThatPoint()
+    {
+        ParticleFunction sphere = new(
+            "Position Within Sphere Random",
+            "sphere",
+            new Dictionary<string, DmxValue>(System.StringComparer.Ordinal)
+            {
+                ["control_point_number"] = new DmxValue(DmxAttributeType.Whole, 1d),
+            });
+
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(sphere),
+            store,
+            ParticleControlPoint.Unoriented(Vector3.Zero),
+            lives: 1f,
+            seconds: 1f / 66f,
+            points: [ParticleControlPoint.Unoriented(Vector3.Zero), ParticleControlPoint.Unoriented(new Vector3(900f, 0f, 0f))]);
+
+        store.PositionOf(index).ShouldBe(new Vector3(900f, 0f, 0f));
+    }
+
+    [Test]
+    public void Spawn_PositionModifyOffsetRandomOnControlPointOne_UsesThatPointsFrame()
+    {
+        Vector4 out50 = new(50f, 0f, 0f, 0f);
+
+        ParticleFunction offset = Offset(out50, out50, local: true);
+        Dictionary<string, DmxValue> onOne = new(offset.Parameters, System.StringComparer.Ordinal)
+        {
+            ["control_point_number"] = new DmxValue(DmxAttributeType.Whole, 1d),
+        };
+
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(offset with { Parameters = onOne }),
+            store,
+            ParticleControlPoint.Unoriented(Vector3.Zero),
+            lives: 1f,
+            seconds: 1f / 66f,
+            points: [ParticleControlPoint.Unoriented(Vector3.Zero), FacingPlusY(Vector3.Zero)]);
+
+        store.PositionOf(index).ShouldBe(new Vector3(0f, 50f, 0f), "along control point 1's forward, +Y, not 0's +X");
+    }
+
     [Test]
     public void SpriteBlending_AddSelf_OutranksAdditive()
     {

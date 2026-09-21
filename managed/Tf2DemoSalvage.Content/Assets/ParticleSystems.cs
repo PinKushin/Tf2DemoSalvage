@@ -287,8 +287,10 @@ public static class ParticleSystems
                 // 1.2-unit sphere, one unit per second outward, and ten units per second down the
                 // control point's LOCAL Z — which is why the point carries a basis
                 // (<see cref="ParticleControlPoint"/>).
+                // **On the control point it names**, which is not always 0: a tracer's impact child places its sparks
+                // around control point 1, the bullet's end.
                 case "Position Within Sphere Random":
-                    Place(one, into, index, point, seconds);
+                    Place(one, into, index, ControlPoint(point, points, (int)one.Number(ControlPointNumber, 0d)), seconds);
                     break;
 
                 // **`Rotation Random` is what stops a trail looking like a grid.** `rockettrail`
@@ -333,7 +335,7 @@ public static class ParticleSystems
                     break;
 
                 case "Position Modify Offset Random":
-                    Offset(one, into, index, point);
+                    Offset(one, into, index, ControlPoint(point, points, (int)one.Number(ControlPointNumber, 0d)));
                     break;
 
                 case "move particles between 2 control points":
@@ -546,6 +548,9 @@ public static class ParticleSystems
             ? points[number]
             : ParticleControlPoint.Unoriented(Vector3.Zero);
     }
+
+    /// <summary>The attribute an initializer names its control point by; 0 when it leaves it out.</summary>
+    private const string ControlPointNumber = "control_point_number";
 
     /// <summary>Which table entry <c>move particles between 2 control points</c> draws its speed from.</summary>
     public const int MoveSpeedDraw = 1792;
