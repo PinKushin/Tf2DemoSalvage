@@ -105,6 +105,53 @@ public sealed class ParticleInitializerConformanceTests
         moved.ShouldBeTrue();
     }
 
+    /// <remarks>
+    /// **`C_INIT_CreateWithinSphere` raises its speed draw to `speed_random_exponent`**, as the trail-length initializer
+    /// does — `FLD [this+0x58]`, `FLD r`, `FXCH`, `CALL pow` at <c>0x107bb223</c>. An exponent of 4 puts the mean speed
+    /// at a fifth of the band where a plain lerp puts it at half.
+    /// </remarks>
+    [Test]
+    public void Spawn_PositionWithinSphereRandomWithASpeedExponent_SkewsTowardTheMinimum()
+    {
+        ParticleSystem system = Declaring(Sphere(speedLeast: 0d, speedMost: 1d, exponent: 4d));
+
+        ParticleStore store = new();
+
+        const float Step = 1f / 66f;
+        const int Count = 512;
+
+        float total = 0f;
+
+        for (int one = 0; one < Count; one++)
+        {
+            int index = ParticleSystems.Spawn(
+                system, store, ParticleControlPoint.Unoriented(Vector3.Zero), lives: 1f, seconds: Step);
+
+            total += (store.PositionOf(index) - store.Previous[index]).Length() / Step;
+        }
+
+        (total / Count).ShouldBeInRange(0.14f, 0.26f);
+    }
+
+    /// <remarks>
+    /// **No outward speed at all unless `speed_max` is above zero** — `COMISS` against 0 and `JBE` past the whole draw
+    /// (<c>0x107bb1fa</c>), so a declared minimum on its own launches nothing.
+    /// </remarks>
+    [Test]
+    public void Spawn_PositionWithinSphereRandomWithNoSpeedMaximum_LaunchesNothing()
+    {
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(Sphere(speedLeast: 5d, speedMost: 0d, exponent: 1d)),
+            store,
+            ParticleControlPoint.Unoriented(Vector3.Zero),
+            lives: 1f,
+            seconds: 1f / 66f);
+
+        (store.PositionOf(index) - store.Previous[index]).ShouldBe(Vector3.Zero);
+    }
+
     [Test]
     public void Spawn_RotationRandom_TurnsEachCardWithinTheDeclaredBand()
     {
@@ -223,6 +270,119 @@ public sealed class ParticleInitializerConformanceTests
         store.TrailLengthOf(index).ShouldBe(0.1f);
     }
 
+    /// <remarks>
+    /// **`C_INIT_PositionOffset`, read out of `client.dll`** (<c>FUN_107bc1b0</c>, B415). `Explosion_Flash_1` declares
+    /// <c>(50 0 0)</c> IN LOCAL SPACE — fifty units along the control point's forward, and an explosion's forward is
+    /// the wall's normal. Without it the flash sits on the wall and the wall hides half of it. BOTH positions move, so
+    /// the particle is displaced rather than launched: Verlet reads <c>position − previous</c> as its speed.
+    /// </remarks>
+    [Test]
+    public void Spawn_PositionModifyOffsetRandomInLocalSpace_MovesAlongTheControlPointsForward()
+    {
+        Vector4 out50 = new(50f, 0f, 0f, 0f);
+
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(Offset(out50, out50, local: true)),
+            store,
+            FacingPlusY(new Vector3(10f, 20f, 30f)),
+            lives: 1f,
+            seconds: 1f / 66f);
+
+        store.PositionOf(index).ShouldBe(new Vector3(10f, 70f, 30f));
+        store.Previous[index].ShouldBe(new Vector3(10f, 70f, 30f));
+    }
+
+    /// <remarks>
+    /// **Local +Y is LEFT here, and it is RIGHT in `Position Within Sphere Random`.** The offset goes through
+    /// <c>GetControlPointTransformAtTime</c>, which builds the matrix from <c>( forward, −right, up )</c> — an XORPS with
+    /// <c>0x80000000</c> at <c>0x107a05de</c> — while the sphere initializer multiplies its local speed by
+    /// <c>m_RightVector</c> directly (<c>0x107bb325</c>). Both are Valve's, so neither may borrow the other's basis.
+    /// </remarks>
+    [Test]
+    public void Spawn_PositionModifyOffsetRandomAlongLocalY_MovesLeftNotRight()
+    {
+        Vector4 ten = new(0f, 10f, 0f, 0f);
+
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(Offset(ten, ten, local: true)), store, FacingPlusY(Vector3.Zero), lives: 1f, seconds: 1f / 66f);
+
+        // Right is +X for a point facing +Y, so left is -X.
+        store.PositionOf(index).ShouldBe(new Vector3(-10f, 0f, 0f));
+    }
+
+    [Test]
+    public void Spawn_PositionModifyOffsetRandomInWorldSpace_IgnoresTheOrientation()
+    {
+        Vector4 five = new(5f, 0f, 0f, 0f);
+
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(Offset(five, five, local: false)), store, FacingPlusY(Vector3.Zero), lives: 1f, seconds: 1f / 66f);
+
+        store.PositionOf(index).ShouldBe(new Vector3(5f, 0f, 0f));
+    }
+
+    /// <remarks>
+    /// With <c>offset proportional to radius</c> the engine scales BOTH bounds by the particle's radius before the draw
+    /// (<c>0x107bc25f</c>), so the radius an earlier initializer set decides the distance.
+    /// </remarks>
+    [Test]
+    public void Spawn_PositionModifyOffsetRandomProportionalToRadius_ScalesByTheRadius()
+    {
+        Vector4 two = new(2f, 0f, 0f, 0f);
+
+        ParticleFunction radiusFour = new(
+            "Radius Random",
+            "radius",
+            new Dictionary<string, DmxValue>(System.StringComparer.Ordinal)
+            {
+                ["radius_min"] = new DmxValue(DmxAttributeType.Real, 4d),
+                ["radius_max"] = new DmxValue(DmxAttributeType.Real, 4d),
+            });
+
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(radiusFour, Offset(two, two, local: false, proportional: true)),
+            store,
+            ParticleControlPoint.Unoriented(Vector3.Zero),
+            lives: 1f,
+            seconds: 1f / 66f);
+
+        store.PositionOf(index).ShouldBe(new Vector3(8f, 0f, 0f));
+    }
+
+    [Test]
+    public void Spawn_PositionModifyOffsetRandomWithARange_DrawsWithinItAndDiffers()
+    {
+        ParticleStore store = new();
+
+        ParticleSystem system = Declaring(Offset(Vector4.Zero, new Vector4(0f, 0f, 10f, 0f), local: false));
+
+        float least = float.MaxValue;
+        float most = float.MinValue;
+
+        for (int one = 0; one < 64; one++)
+        {
+            int index = ParticleSystems.Spawn(
+                system, store, ParticleControlPoint.Unoriented(Vector3.Zero), lives: 1f, seconds: 1f / 66f);
+
+            float z = store.PositionOf(index).Z;
+
+            z.ShouldBeInRange(0f, 10f);
+
+            least = System.MathF.Min(least, z);
+            most = System.MathF.Max(most, z);
+        }
+
+        (most - least).ShouldBeGreaterThan(5f, "every particle at one offset is not a draw");
+    }
+
     [Test]
     public void SpriteBlending_AddSelf_OutranksAdditive()
     {
@@ -268,12 +428,43 @@ public sealed class ParticleInitializerConformanceTests
                 ["length_random_exponent"] = new DmxValue(DmxAttributeType.Real, exponent),
             });
 
-    /// <summary>A definition carrying one initializer and nothing else.</summary>
-    private static ParticleSystem Declaring(ParticleFunction initializer) =>
+    /// <summary>`Position Within Sphere Random` at a point, with only an outward speed.</summary>
+    private static ParticleFunction Sphere(double speedLeast, double speedMost, double exponent) =>
+        new(
+            "Position Within Sphere Random",
+            "sphere",
+            new Dictionary<string, DmxValue>(System.StringComparer.Ordinal)
+            {
+                ["speed_min"] = new DmxValue(DmxAttributeType.Real, speedLeast),
+                ["speed_max"] = new DmxValue(DmxAttributeType.Real, speedMost),
+                ["speed_random_exponent"] = new DmxValue(DmxAttributeType.Real, exponent),
+            });
+
+    /// <summary>`Position Modify Offset Random` with its four parameters.</summary>
+    private static ParticleFunction Offset(Vector4 least, Vector4 most, bool local, bool proportional = false) =>
+        new(
+            "Position Modify Offset Random",
+            "offset",
+            new Dictionary<string, DmxValue>(System.StringComparer.Ordinal)
+            {
+                ["offset min"] = new DmxValue(DmxAttributeType.Vector3, Vector: least),
+                ["offset max"] = new DmxValue(DmxAttributeType.Vector3, Vector: most),
+                ["offset in local space 0/1"] = new DmxValue(DmxAttributeType.Boolean, local ? 1d : 0d),
+                ["offset proportional to radius 0/1"] = new DmxValue(DmxAttributeType.Boolean, proportional ? 1d : 0d),
+            });
+
+    /// <summary>
+    /// A point facing +Y, with the basis `AngleVectors` gives yaw 90: right is +X, up is +Z — an explosion on a wall
+    /// whose normal is +Y.
+    /// </summary>
+    private static ParticleControlPoint FacingPlusY(Vector3 at) => new(at, Vector3.UnitY, Vector3.UnitX, Vector3.UnitZ);
+
+    /// <summary>A definition carrying these initializers and nothing else.</summary>
+    private static ParticleSystem Declaring(params ParticleFunction[] initializers) =>
         new(
             "test",
             Emitters: [],
-            Initializers: [initializer],
+            Initializers: initializers,
             Operators: [],
             Renderers: [],
             Children: [],

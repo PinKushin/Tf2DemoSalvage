@@ -281,6 +281,70 @@ two outside-the-window tests, and a linear ramp reddens the two smoothstep ones.
 *Evidence class: read from the shipped binary's disassembly for the renderer, the initializer and the operator, with
 addresses; measured through the probe for the zero alpha; read from the shipped `.pcf` for every declared value.*
 
+## The flash was centred on the wall, and the wall hid half of it
+
+With the fade corrected, the first capture showed the flash — cut off along a straight horizontal line through its
+middle, with nothing above it. **A straight edge where a sprite meets a wall is not by itself a defect**: none of the
+explosion's materials declares `$depthblend`, four of the six are plain `UnlitGeneric`, so TF2 depth-tests these quads
+against the wall too. The question was why the edge ran through the CENTRE.
+
+`Explosion_Flash_1` is one camera-facing sprite that grows to a radius of about 200 in its tenth of a second. Centred
+on a wall that the camera looks down at, the upper half of that quad leans into the wall and is hidden. And the file
+says it is not centred on the wall: it declares `Position Modify Offset Random` with `(50 0 0)` **in local space**,
+which this project did not implement.
+
+`C_INIT_PositionOffset` is in `particles.lib`, so it was read out of the binary the same way. Its factory is the one
+`FUN_107c70d0` registers at `0x10c38920`; the factory's `CreateInstance` allocates `0x4c` bytes with vtable
+`0x10b5ba4c`, whose `InitNewParticlesScalar` slot holds `FUN_107bc1b0`. The unpack table's initialiser names the
+members — `offset min` `+0x2c`, `offset max` `+0x38`, `control_point_number` `+0x44`, `offset in local space 0/1`
+`+0x48`, `offset proportional to radius 0/1` `+0x49` — and the function is:
+
+```
+if ( proportional )  min, max = min · RADIUS, max · RADIUS
+offset = ( max − min ) · r + min                          per axis
+if ( local )         offset = VectorRotate( offset, GetControlPointTransformAtTime( cp, CREATION_TIME ) )
+XYZ += offset;  PREV_XYZ += offset
+```
+
+An explosion's control point faces the wall's normal, so `(50 0 0)` local is fifty units out from the wall. With it,
+the flash is a whole disc. Both positions move, so the particle is displaced rather than launched.
+
+### Two of Valve's initializers disagree about which way local Y points
+
+`GetControlPointTransformAtTime` (`0x107a05a0`) builds the matrix from the control point's stored vectors — forward at
+`+0x70`, up at `+0x7c`, right at `+0x88`, the member order `particles.h:999` declares — and **negates right** for the
+second column, with an `XORPS` against `0x80000000` at `0x107a05de`. So in this initializer local +Y is LEFT.
+
+`C_INIT_CreateWithinSphere`'s scalar path (`0x107bae50`) does not use that matrix. It multiplies its local speed's Y by
+`m_RightVector` directly (`0x107bb325`), so there local +Y is RIGHT. **Two initializers in the same library, and
+opposite conventions** — which is why this project reproduces each as it is rather than giving the control point one
+"local to world" helper that would make one of them wrong. Nothing in the explosion yet declares a non-zero local Y
+offset, so it changes no picture today; it is recorded because the helper is the obvious refactor.
+
+### The sphere initializer's speed had two more branches
+
+Reading `C_INIT_CreateWithinSphere` for the Y question showed two things `Place` did not do:
+
+- **The speed draw is raised to `speed_random_exponent`** — the same `FLD [this+0x58]`, `FLD r`, `FXCH`, `CALL pow`
+  as the trail length, at `0x107bb223`.
+- **There is no outward speed at all unless `speed_max` is above zero** — `COMISS` against 0 and a `JBE` past the
+  whole draw (`0x107bb1fa`). A declared minimum on its own launches nothing.
+
+The unpack defaults, read from the initialiser rather than assumed: `speed_max` `"0"`, `speed_random_exponent` `"1"`
+(the strings at `0x10926bec` and `0x10926be8`). Every explosion child declares an exponent of 1 and a positive
+maximum, so neither changes an explosion; both would change the next effect that does not.
+
+### "Why `Explosion_Flash_1` does not draw" was the capture, not the code
+
+It had been filed as unexplained: renderer implemented, emitter implemented, material resolved, and nothing drawn at
+tick 21880. **Its lifetime is exactly 0.1 seconds** — `lifetime_min` and `lifetime_max` are both `0.1` — which is under
+seven ticks, and the blast it belongs to is at tick 21869. A still eleven ticks after the blast cannot show a flash
+that died four ticks earlier. The captures above are three and seven ticks after it.
+
+*Evidence class: read from the shipped binary's disassembly for both initializers, the transform and the defaults;
+read from the SDK for the member order; read from the shipped `.pcf` for Flash_1's values; differential between the
+two captures for the edge.*
+
 ## What is not established
 
 - **Whether the 178 entity-bearing blasts are players.** `bIsPlayer` needs the entity's class, and only the count
@@ -297,8 +361,7 @@ addresses; measured through the probe for the zero alpha; read from the shipped 
   Every explosion child declares proxy control point −1, which should mean "off" — *interpolated*, not read.
 - **Whether `m_nRandomSeed` is fixed or varies per effect instance**, which decides whether two identical blasts
   draw identical trail lengths in TF2.
-- **Why `Explosion_Flash_1` does not draw**, although both its renderer and its emitter are now implemented and
-  its material resolved. Unlike the smoke, nothing of it appeared.
+- **`Oscillate Scalar`**, the one operator on the explosion path still unimplemented (`Explosion_Smoke_1`).
 - **The debris chunks' size and tint.** They draw, and they dominate the picture in a way TF2's do not.
 - **Which `.pcf` the engine actually loads.** `ExplosionCore_` appears in five files —
   `explosion.pcf`, `explosion_high.pcf`, `explosion_dx90_slow.pcf`, `explosion_dx80.pcf` and `bigboom.pcf` — and

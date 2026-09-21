@@ -326,6 +326,10 @@ public static class ParticleSystems
 
                     break;
 
+                case "Position Modify Offset Random":
+                    Offset(one, into, index, point);
+                    break;
+
                 default:
                     break;
             }
@@ -349,6 +353,10 @@ public static class ParticleSystems
     /// along the outward direction the sphere sample gave; `speed_in_local_coordinate_system` is in
     /// the control point's own basis. `rockettrail` uses `(0 0 -10)`, ten units per second down the
     /// rocket's local Z, which reads as the trail being pushed away from the projectile.
+    ///
+    /// **That basis is forward, RIGHT and up, read out of `client.dll`** (B415): the scalar
+    /// initializer multiplies local Y by <c>m_RightVector</c> directly (<c>0x107bb325</c>). It is
+    /// not the matrix <see cref="Offset"/> goes through, whose local Y is left.
     ///
     /// *Interpolated:* that `distance_min` and `distance_max` bound the sample's RADIUS rather than
     /// replacing it — the initializers ship only in the binary. With `distance_min = 0`, which is
@@ -379,13 +387,17 @@ public static class ParticleSystems
 
         into.Position[index] = point.At + (outward * (least + (radius * (most - least))));
 
+        // Read out of `client.dll` (B415, `0x107bb1f2`): no outward speed at all unless `speed_max` is above zero,
+        // and the draw raised to `speed_random_exponent` before the lerp, as `Trail Length Random` does.
         float speedLeast = (float)one.Number("speed_min", 0d);
+        float speedMost = (float)one.Number("speed_max", 0d);
 
-        float speed = ParticleRandom.Between(
-            into.Id[index],
-            SpeedDraw,
-            speedLeast,
-            (float)one.Number("speed_max", speedLeast));
+        float speed = speedMost > 0f
+            ? ((speedMost - speedLeast) *
+               MathF.Pow(
+                   ParticleRandom.Sample(into.Id[index], SpeedDraw),
+                   (float)one.Number("speed_random_exponent", 1d))) + speedLeast
+            : 0f;
 
         Vector4 localLeast = one.Vector("speed_in_local_coordinate_system_min", default);
         Vector4 localMost = one.Vector("speed_in_local_coordinate_system_max", localLeast);
@@ -403,6 +415,55 @@ public static class ParticleSystems
             + (point.Up * local.Z);
 
         into.Previous[index] = into.Position[index] - (velocity * seconds);
+    }
+
+    /// <summary>Displaces one new particle — <c>Position Modify Offset Random</c>.</summary>
+    /// <remarks>
+    /// **`C_INIT_PositionOffset`, read out of `client.dll`** (B415) — `FUN_107bc1b0`, the scalar initializer, with the
+    /// members its unpack table names: `offset min` +0x2c, `offset max` +0x38, `control_point_number` +0x44,
+    /// `offset in local space 0/1` +0x48, `offset proportional to radius 0/1` +0x49. Per particle:
+    ///
+    /// <code>
+    /// if ( proportional )  min, max = min · RADIUS, max · RADIUS
+    /// offset = ( max − min ) · r + min                        per axis, three table draws
+    /// if ( local )         offset = VectorRotate( offset, GetControlPointTransformAtTime( cp, CREATION_TIME ) )
+    /// XYZ += offset;  PREV_XYZ += offset
+    /// </code>
+    ///
+    /// **The transform's second column is −right** (`0x107a05de` XORs <c>m_RightVector</c> with the sign mask), so
+    /// local +Y is LEFT here — where <see cref="Place"/>, which multiplies by <c>m_RightVector</c> directly, has it
+    /// right. Two of Valve's initializers disagree, and each is reproduced as it is.
+    ///
+    /// Both positions move, so the particle is displaced, not launched. The control point is taken as it is now rather
+    /// than at the particle's creation time, which is the same thing for a spawn.
+    /// </remarks>
+    private static void Offset(ParticleFunction one, ParticleStore into, int index, ParticleControlPoint point)
+    {
+        Vector4 least = one.Vector("offset min", default);
+        Vector4 most = one.Vector("offset max", default);
+
+        if (one.Number("offset proportional to radius 0/1", 0d) != 0d)
+        {
+            float radius = into.RadiusOf(index);
+
+            least *= radius;
+            most *= radius;
+        }
+
+        int id = into.Id[index];
+
+        Vector3 offset = new(
+            ((most.X - least.X) * ParticleRandom.Sample(id, OffsetDraw)) + least.X,
+            ((most.Y - least.Y) * ParticleRandom.Sample(id, OffsetDraw + 1)) + least.Y,
+            ((most.Z - least.Z) * ParticleRandom.Sample(id, OffsetDraw + 2)) + least.Z);
+
+        if (one.Number("offset in local space 0/1", 0d) != 0d)
+        {
+            offset = (point.Forward * offset.X) - (point.Right * offset.Y) + (point.Up * offset.Z);
+        }
+
+        into.Position[index] += offset;
+        into.Previous[index] += offset;
     }
 
     /// <summary>
@@ -437,6 +498,12 @@ public static class ParticleSystems
 
     /// <summary>Which table entry <c>Radius Random</c> reads.</summary>
     public const int RadiusDraw = 256;
+
+    /// <summary>
+    /// Where <c>Position Modify Offset Random</c>'s three draws start — this entry and the two after it, so nothing
+    /// else may claim 1281 or 1282.
+    /// </summary>
+    public const int OffsetDraw = 1280;
 
     /// <summary>Which table entry <c>Trail Length Random</c> reads.</summary>
     /// <remarks>
