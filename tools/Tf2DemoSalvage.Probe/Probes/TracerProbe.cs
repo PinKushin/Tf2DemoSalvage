@@ -181,6 +181,16 @@ public sealed class TracerProbe : IProbe
                 $"{game.Weapons.Items?.ItemClass(item.Key ?? -1)} particle {flash.Particle ?? "(none)"} model {flash.Model ?? "(none)"}"));
         }
 
+        foreach (IGrouping<SparkKind, SceneSpark> kind in timeline.Sparks.All.GroupBy(one => one.Kind))
+        {
+            SceneSpark first = kind.First();
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  sparks {kind.Key,-9} x{kind.Count(),4}; first tick {first.Tick} at ({first.Position.X:0},{first.Position.Y:0},{first.Position.Z:0}) " +
+                $"dir ({first.Direction.X:0.##},{first.Direction.Y:0.##},{first.Direction.Z:0.##}) magnitude {first.Magnitude} trail {first.TrailLength}"));
+        }
+
         foreach (SceneBlood blood in timeline.Blood.All.Take(shown))
         {
             // 120 units out along the normal — towards the shooter — looking back at the hit.

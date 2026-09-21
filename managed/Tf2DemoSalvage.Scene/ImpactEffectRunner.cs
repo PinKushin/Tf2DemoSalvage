@@ -21,6 +21,12 @@ public sealed class ImpactEffectRunner
     private readonly List<int> _retiring = [];
     private int _tick = int.MinValue;
 
+    /// <summary>The events the <see cref="ShotImpact"/> overload hands on, reused.</summary>
+    private readonly List<(int Index, int Tick, int Seed)> _events = [];
+
+    /// <summary>Each offered impact by index, for the duration of one call.</summary>
+    private readonly Dictionary<int, ShotImpact> _impacts = [];
+
     /// <summary>How many effects are held, finished or not.</summary>
     public int Count => _running.Count;
 
@@ -45,6 +51,35 @@ public sealed class ImpactEffectRunner
     {
         ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(spawn);
+
+        _events.Clear();
+
+        foreach ((int index, ShotImpact impact) in live)
+        {
+            _events.Add((index, impact.Tick, SeededDraw.Of(impact.Shot, impact.Bullet, salt: 1)));
+            _impacts[index] = impact;
+        }
+
+        Advance(_events, tick, seconds, (index, random) => spawn(index, _impacts[index], random), trace);
+        _impacts.Clear();
+    }
+
+    /// <summary>Starts, steps and retires effects so each is where it should be at this tick — any event with a tick.</summary>
+    /// <param name="live">The events whose effects should be running: an index unique to this runner, the tick, and the seed of their draws.</param>
+    /// <param name="tick">The tick shown.</param>
+    /// <param name="seconds">How long one tick is.</param>
+    /// <param name="spawn">An event's effect, from its own draws; null for one that throws nothing.</param>
+    /// <param name="trace">The world trace, for flecks and sparks.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void Advance(
+        IReadOnlyList<(int Index, int Tick, int Seed)> live,
+        int tick,
+        float seconds,
+        Func<int, Func<float, float, float>, ImpactEffect?> spawn,
+        Func<Vector3, Vector3, BspTrace> trace)
+    {
+        ArgumentNullException.ThrowIfNull(live);
+        ArgumentNullException.ThrowIfNull(spawn);
         ArgumentNullException.ThrowIfNull(trace);
 
         if (tick < _tick)
@@ -55,9 +90,9 @@ public sealed class ImpactEffectRunner
         _tick = tick;
         _offered.Clear();
 
-        foreach ((int index, ShotImpact impact) in live)
+        foreach ((int index, int at, int seed) in live)
         {
-            int wanted = tick - impact.Tick;
+            int wanted = tick - at;
 
             if (wanted < 0)
             {
@@ -70,9 +105,9 @@ public sealed class ImpactEffectRunner
             // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
             if (!_running.TryGetValue(index, out Running running) || running.Stepped > wanted)
             {
-                Func<float, float, float> random = SeededDraw.For(SeededDraw.Of(impact.Shot, impact.Bullet, salt: 1));
+                Func<float, float, float> random = SeededDraw.For(seed);
 
-                running = new Running(spawn(index, impact, random), 0, random);
+                running = new Running(spawn(index, random), 0, random);
             }
 
             // Stryker restore all

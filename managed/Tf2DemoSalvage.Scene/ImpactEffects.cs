@@ -94,7 +94,7 @@ public static class ImpactEffects
 
                 return MetalSpark(origin, reflect, normal, draw);
             case 'P':
-                return ElectricSpark(origin + normal, trace, draw);
+                return ElectricSpark(origin + normal, 1, 1, null, trace, draw);
             default:
                 return null;
         }
@@ -291,8 +291,43 @@ public static class ImpactEffects
         return effect;
     }
 
-    /// <summary>`FX_ElectricSpark( pos, 1, 1, NULL )`, what `IEffects::Sparks` does with its defaults.</summary>
-    private static ImpactEffect ElectricSpark(Vector3 position, Func<Vector3, Vector3, BspTrace> trace, Draw draw)
+    /// <summary>`IEffects::Sparks` from a `CTESparks` — `FX_ElectricSpark( pos, nMagnitude, nTrailLength, pVecDir )`.</summary>
+    /// <param name="position">`m_vecOrigin`.</param>
+    /// <param name="magnitude">`m_nMagnitude`.</param>
+    /// <param name="trailLength">`m_nTrailLength`.</param>
+    /// <param name="direction">`m_vecDir`, or null for none.</param>
+    /// <param name="trace">The world trace, for the collision setup.</param>
+    /// <param name="random">`random->RandomFloat`.</param>
+    /// <returns>The effect.</returns>
+    public static ImpactEffect Sparks(
+        Vector3 position,
+        int magnitude,
+        int trailLength,
+        Vector3? direction,
+        Func<Vector3, Vector3, BspTrace> trace,
+        Func<float, float, float> random)
+    {
+        ArgumentNullException.ThrowIfNull(trace);
+        ArgumentNullException.ThrowIfNull(random);
+
+        return ElectricSpark(position, magnitude, trailLength, direction, trace, new Draw(random));
+    }
+
+    /// <summary>`IEffects::MetalSparks` and `::Ricochet` — `FX_MetalSpark( position, direction, direction )`.</summary>
+    /// <param name="position">`m_vecPos`.</param>
+    /// <param name="direction">`m_vecDir`, which is also the surface normal the glow faces.</param>
+    /// <param name="random">`random->RandomFloat`.</param>
+    /// <returns>The effect.</returns>
+    public static ImpactEffect MetalSparks(Vector3 position, Vector3 direction, Func<float, float, float> random)
+    {
+        ArgumentNullException.ThrowIfNull(random);
+
+        return MetalSpark(position, direction, direction, new Draw(random));
+    }
+
+    /// <summary>`FX_ElectricSpark( pos, nMagnitude, nTrailLength, vecDir )` (`fx_sparks.cpp:300`).</summary>
+    private static ImpactEffect ElectricSpark(
+        Vector3 position, int magnitude, int trailLength, Vector3? direction, Func<Vector3, Vector3, BspTrace> trace, Draw draw)
     {
         ImpactEffect effect = new();
         ImpactEmitter big = new(ImpactEmitterKind.Trail) { Collides = true, VelocityDampen = 0f };
@@ -301,17 +336,22 @@ public static class ImpactEffects
         // `m_flVelocityDampen` stays at its constructor's zero.
         big.Collision.Setup(position, null, 64f, 300f, 800f, 0.3f, trace);
 
-        int count = (int)(1 * 1 * draw.Float(2f, 4f));
+        int count = (int)(magnitude * magnitude * draw.Float(2f, 4f));
 
         for (int i = 0; i < count; i++)
         {
-            float die = 1 * draw.Float(1f, 2f);
+            float die = magnitude * draw.Float(1f, 2f);
             Vector3 dir = new(draw.Float(-1f, 1f), draw.Float(-1f, 1f), draw.Float(-1f, 1f));
 
             dir.Z = draw.Float(0.5f, 1f);
 
+            if (direction is { } lean)
+            {
+                dir = Normalized(dir + (2f * lean));
+            }
+
             float width = draw.Float(2f, 5f);
-            float streak = 1 * draw.Float(0.02f, 0.05f);
+            float streak = trailLength * draw.Float(0.02f, 0.05f);
 
             big.Particles.Add(new ImpactParticle(Spark, position, dir * draw.Float(64f, 300f), die)
             {
@@ -327,14 +367,20 @@ public static class ImpactEffects
 
         little.Collision.Gravity = 400f;
 
-        count = 1 * draw.Int(16, 32);
+        count = magnitude * draw.Int(16, 32);
 
         for (int i = 0; i < count; i++)
         {
             Vector3 dir = new(draw.Float(-1f, 1f), draw.Float(-1f, 1f), draw.Float(-1f, 1f));
+
+            if (direction is { } lean)
+            {
+                dir = Normalized(dir + lean);
+            }
+
             float width = draw.Float(2f, 4f);
-            float streak = 1 * draw.Float(0.02f, 0.03f);
-            float die = 1 * draw.Float(0.1f, 0.2f);
+            float streak = trailLength * draw.Float(0.02f, 0.03f);
+            float die = magnitude * draw.Float(0.1f, 0.2f);
 
             little.Particles.Add(new ImpactParticle(Spark, position, dir * draw.Float(128f, 256f), die)
             {
@@ -354,7 +400,7 @@ public static class ImpactEffects
             Colour = (255, 255, 255),
             StartAlpha = 255,
             EndAlpha = 255,
-            StartSize = (byte)(1 * draw.Int(4, 8)),
+            StartSize = (byte)(magnitude * draw.Int(4, 8)),
             EndSize = 0,
             Roll = draw.Int(0, 360),
         });
@@ -366,7 +412,7 @@ public static class ImpactEffects
             Colour = (grey, grey, grey),
             StartAlpha = grey,
             EndAlpha = 0,
-            StartSize = (byte)(1 * draw.Int(32, 64)),
+            StartSize = (byte)(magnitude * draw.Int(32, 64)),
             EndSize = 0,
             Roll = draw.Int(0, 360),
             RollDelta = draw.Float(-1f, 1f),

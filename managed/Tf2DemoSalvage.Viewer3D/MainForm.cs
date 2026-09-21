@@ -1448,6 +1448,7 @@ internal class MainForm : Form, IFrameSteps
         _thumbnails.Clear();
         _struckPlayers.Clear();
         _impactEffects.Clear();
+        _sparkEffects.Clear();
         _bloodBursts.Clear();
         _tracerLines.Clear();
         _particleDispatchPoints.Clear();
@@ -4503,15 +4504,18 @@ internal class MainForm : Form, IFrameSteps
         (float ux, float uy, float uz) = AngleVectors.Up(viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
         Vector3 eye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
 
-        if (_impactEffects.Count > 0)
+        foreach (ImpactEffectRunner runner in (ImpactEffectRunner[])[_impactEffects, _sparkEffects])
         {
-            _impactEffects.Build(
-                eye,
-                new Vector3(fx, fy, fz),
-                new Vector3(rx, ry, rz),
-                new Vector3(ux, uy, uz),
-                name => materials.TryGetValue(name, out ParticleMaterial material) ? material.Alpha : 1f,
-                _impactCorners);
+            if (runner.Count > 0)
+            {
+                runner.Build(
+                    eye,
+                    new Vector3(fx, fy, fz),
+                    new Vector3(rx, ry, rz),
+                    new Vector3(ux, uy, uz),
+                    name => materials.TryGetValue(name, out ParticleMaterial material) ? material.Alpha : 1f,
+                    _impactCorners);
+            }
         }
 
         AddTracerLines(eye, new Vector3(fx, fy, fz));
@@ -4609,6 +4613,57 @@ internal class MainForm : Form, IFrameSteps
                     flying, (tick - dispatch.Tick + 1) * timeline.IntervalPerTick, eye, forward, halfWidth, corners);
             }
         }
+    }
+
+    /// <summary>Every spark temp entity's effect, stepped by ticks as the impacts' are.</summary>
+    private readonly ImpactEffectRunner _sparkEffects = new();
+
+    /// <summary>How long a spark is offered — ten seconds, past a magnitude-15 electric spark's thirty-second ceiling only in theory.</summary>
+    private const int SparkWindowTicks = 660;
+
+    /// <summary>Every spark in the window this tick, reused.</summary>
+    private readonly List<(int Index, SceneSpark Spark)> _sparksNow = [];
+
+    /// <summary>The window's sparks as the runner's events, reused.</summary>
+    private readonly List<(int Index, int Tick, int Seed)> _sparkEvents = [];
+
+    /// <summary>Brings every spark's effect to this tick — `IEffects::Sparks`, `::MetalSparks` and `::Ricochet` (B415).</summary>
+    /// <remarks>*Not built:* `FX_RicochetSound` for an armor ricochet.</remarks>
+    private void StepSparks(int tick)
+    {
+        if (_timeline is not { } timeline || _loaded?.Level is not { } level)
+        {
+            return;
+        }
+
+        IReadOnlyList<SceneSpark> sparks = timeline.Sparks.All;
+
+        TickWindow.Between(sparks, static spark => spark.Tick, tick - SparkWindowTicks, tick, _sparksNow);
+
+        _sparkEvents.Clear();
+
+        foreach ((int index, SceneSpark spark) in _sparksNow)
+        {
+            _sparkEvents.Add((index, spark.Tick, SeededDraw.Of(index, 0, salt: 4)));
+        }
+
+        Func<Vector3, Vector3, BspTrace> trace = WorldTrace(level);
+
+        _sparkEffects.Advance(
+            _sparkEvents,
+            tick,
+            timeline.IntervalPerTick,
+            (index, random) =>
+            {
+                SceneSpark spark = sparks[index];
+                Vector3 at = new(spark.Position.X, spark.Position.Y, spark.Position.Z);
+                Vector3 toward = new(spark.Direction.X, spark.Direction.Y, spark.Direction.Z);
+
+                return spark.Kind == SparkKind.Electric
+                    ? ImpactEffects.Sparks(at, spark.Magnitude, spark.TrailLength, toward, trace, random)
+                    : ImpactEffects.MetalSparks(at, toward, random);
+            },
+            trace);
     }
 
     /// <summary>The brushes-only world trace the legacy particles collide with — `MASK_SOLID_BRUSHONLY`.</summary>
@@ -5106,6 +5161,7 @@ internal class MainForm : Form, IFrameSteps
         // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
         StepDecals(_transport.CurrentTick);
         StepImpactEffects(_transport.CurrentTick);
+        StepSparks(_transport.CurrentTick);
 
         IReadOnlyList<ParticleBatch> batches = [];
 

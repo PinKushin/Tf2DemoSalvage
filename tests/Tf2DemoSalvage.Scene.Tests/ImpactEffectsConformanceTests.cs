@@ -222,6 +222,42 @@ public sealed class ImpactEffectsConformanceTests
         corners["m"].ShouldBeEmpty();
     }
 
+    [Test]
+    public void Sparks_AMagnitudeOfTwo_SquaresTheBigSparksAndDoublesTheLittle()
+    {
+        // `FX_ElectricSpark`: `nMagnitude² · RandomFloat( 2, 4 )` big sparks, `nMagnitude · RandomInt( 16, 32 )` little.
+        ImpactEffect one = ImpactEffects.Sparks(Vector3.Zero, 1, 1, null, Floor, Middle);
+        ImpactEffect two = ImpactEffects.Sparks(Vector3.Zero, 2, 1, null, Floor, Middle);
+
+        two.Emitters[0].Particles.Count.ShouldBe((int)(4 * 3f));
+        two.Emitters[1].Particles.Count.ShouldBe(one.Emitters[1].Particles.Count * 2);
+    }
+
+    [Test]
+    public void Sparks_WithADirection_LeansTheBigSparksAlongIt()
+    {
+        // `dir.Random( -1, 1 ); dir[2] = RandomFloat( 0.5, 1 ); dir += 2 · vecDir; VectorNormalize( dir )` — with every
+        // draw at its middle, ( 0, 0, 0.75 ) + ( 2, 0, 0 ).
+        ImpactEffect sparks = ImpactEffects.Sparks(Vector3.Zero, 1, 1, Vector3.UnitX, Floor, Middle);
+
+        Vector3 flying = Vector3.Normalize(sparks.Emitters[0].Particles[0].Velocity);
+        Vector3 expected = Vector3.Normalize(new Vector3(2f, 0f, 0.75f));
+
+        flying.X.ShouldBe(expected.X, 1e-5f);
+        flying.Y.ShouldBe(expected.Y, 1e-5f);
+        flying.Z.ShouldBe(expected.Z, 1e-5f);
+    }
+
+    [Test]
+    public void MetalSparks_AreTheMetalSparkWithTheDirectionAsItsNormal()
+    {
+        // `CEffectsClient::MetalSparks` and `::Ricochet` both call `FX_MetalSpark( position, direction, direction )`.
+        ImpactEffect sparks = ImpactEffects.MetalSparks(Vector3.Zero, Vector3.UnitY, Middle);
+
+        sparks.Emitters.ShouldHaveSingleItem();
+        sparks.Quads.ShouldHaveSingleItem().Origin.ShouldBe(Vector3.UnitY, "one unit along the normal, which is the direction");
+    }
+
     private static ImpactEffect? Perform(char material, SurfaceProperties flags = SurfaceProperties.None) =>
         ImpactEffects.Perform(
             material,

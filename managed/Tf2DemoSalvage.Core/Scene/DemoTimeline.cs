@@ -1118,6 +1118,9 @@ public sealed class DemoTimeline
     /// <summary>Every `CTETFParticleEffect`, as its `"ParticleEffect"` dispatch, in fire order (B415).</summary>
     public TfParticleEffectFeed TfParticleEffects { get; private init; } = new();
 
+    /// <summary>Every `CTESparks`, `CTEMetalSparks` and `CTEArmorRicochet`, in fire order (B415).</summary>
+    public SparkFeed Sparks { get; private init; } = new();
+
     /// <summary>Every choreographed scene that started playing, in tick order (B351).</summary>
     /// <remarks>
     /// **A start rather than a per-tick state, for the reason <see cref="SceneChoreography"/>
@@ -2609,6 +2612,7 @@ public sealed class DemoTimeline
             Dispatches = feeds.Dispatches,
             MuzzleFlashes = muzzleFlashes,
             TfParticleEffects = feeds.TfParticleEffects,
+            Sparks = feeds.Sparks,
             Scenes = choreography,
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
