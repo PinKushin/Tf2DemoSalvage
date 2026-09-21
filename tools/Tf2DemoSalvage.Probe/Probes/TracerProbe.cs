@@ -165,13 +165,19 @@ public sealed class TracerProbe : IProbe
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"{timeline.MuzzleFlashes.All.Count} weapon muzzle flashes"));
 
+        WeaponMuzzleFlashes muzzles = new(game.Archives.Read, game.Weapons.Items);
+
         foreach (IGrouping<int?, SceneMuzzleFlash> item in timeline.MuzzleFlashes.All
                      .GroupBy(one => one.Item)
                      .OrderByDescending(one => one.Count())
                      .Take(12))
         {
+            WeaponMuzzleFlash flash = muzzles.For(item.Key, item.First().Team);
+
             output.WriteLine(string.Create(
-                CultureInfo.InvariantCulture, $"  item {item.Key,6} x{item.Count(),5}; first tick {item.First().Tick} weapon {item.First().Weapon}"));
+                CultureInfo.InvariantCulture,
+                $"  item {item.Key,6} x{item.Count(),5}; first tick {item.First().Tick} weapon {item.First().Weapon}: " +
+                $"{game.Weapons.Items?.ItemClass(item.Key ?? -1)} particle {flash.Particle ?? "(none)"} model {flash.Model ?? "(none)"}"));
         }
 
         foreach (SceneBlood blood in timeline.Blood.All.Take(shown))

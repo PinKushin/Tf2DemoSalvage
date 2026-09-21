@@ -87,6 +87,36 @@ public sealed class LoadedMap
     /// </remarks>
     public (float Lowest, float Highest)? HeightRange { get; private set; }
 
+    /// <summary>Every particle system a weapon muzzle flash in the demo starts, and the rocket launchers' backblast.</summary>
+    private static HashSet<string> WeaponMuzzleSystems(GameContent game, DemoTimeline? timeline)
+    {
+        HashSet<string> used = new(StringComparer.OrdinalIgnoreCase);
+
+        if (timeline is null)
+        {
+            return used;
+        }
+
+        WeaponMuzzleFlashes muzzles = new(game.Archives.Read, game.Weapons.Items);
+
+        foreach (SceneMuzzleFlash flash in timeline.MuzzleFlashes.All)
+        {
+            WeaponMuzzleFlash what = muzzles.For(flash.Item, flash.Team);
+
+            if (what.Particle is { } particle)
+            {
+                used.Add(particle);
+            }
+
+            if (what.Backblast)
+            {
+                used.Add(WeaponMuzzleFlashes.BackblastSystem);
+            }
+        }
+
+        return used;
+    }
+
     /// <summary>Reads a map and everything drawing it needs.</summary>
     /// <param name="bytes">The whole BSP.</param>
     /// <param name="game">What the install provides.</param>
@@ -240,6 +270,7 @@ public sealed class LoadedMap
                             .. tracers.Select(static tracer => tracer.Effect).Distinct(StringComparer.OrdinalIgnoreCase),
                             .. BloodEffects.Systems,
                             .. SentryMuzzleFlash.Systems,
+                            .. WeaponMuzzleSystems(game, timeline),
                             .. timeline.Dispatches.All
                                 .Where(dispatch => timeline.Dispatches.Names.Name(dispatch.Name) == "ParticleEffect")
                                 .Select(dispatch => timeline.Dispatches.ParticleNames.Name(dispatch.HitBox))

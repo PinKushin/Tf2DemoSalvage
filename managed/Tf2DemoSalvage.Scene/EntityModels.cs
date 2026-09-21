@@ -1199,18 +1199,7 @@ public sealed class EntityModelSet : IModelBodygroups
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        return Attachment(entity, attachments =>
-        {
-            for (int index = 0; index < attachments.Count; index++)
-            {
-                if (string.Equals(attachments[index].Name, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    return index;
-                }
-            }
-
-            return -1;
-        });
+        return Attachment(entity, attachments => Named(attachments, name));
     }
 
     /// <summary>Where an entity's attachment is by the engine's own number — `GetAttachment( iAttachment )`, 1-based.</summary>
@@ -1228,18 +1217,43 @@ public sealed class EntityModelSet : IModelBodygroups
     /// `MatrixVectors( attachmentToWorld, &amp;forward, &amp;right, &amp;up )`: forward is the matrix's first column, up its third,
     /// and right the NEGATED second, because a Source matrix's second axis points left.
     /// </remarks>
-    public ParticleControlPoint? AttachmentPoint(int entity, int number)
-    {
-        float[]? matrix = AttachmentMatrix(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1);
+    public ParticleControlPoint? AttachmentPoint(int entity, int number) =>
+        PointOf(AttachmentMatrix(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1));
 
-        return matrix is null
+    /// <summary>A named attachment as a particle control point — `PATTACH_POINT_FOLLOW` on `LookupAttachment( name )`.</summary>
+    /// <param name="entity">The entity, such as a weapon.</param>
+    /// <param name="name">The attachment's name, such as <c>muzzle</c>.</param>
+    /// <returns>The point, or null when the entity is not posed here or its model has no such attachment.</returns>
+    public ParticleControlPoint? AttachmentPoint(int entity, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return PointOf(AttachmentMatrix(entity, attachments => Named(attachments, name)));
+    }
+
+    /// <summary>`Studio_FindAttachment`: the first attachment of that name, compared without case; −1 for none.</summary>
+    private static int Named(IReadOnlyList<StudioAttachment> attachments, string name)
+    {
+        for (int index = 0; index < attachments.Count; index++)
+        {
+            if (string.Equals(attachments[index].Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>An attachment's 3×4 matrix as a control point: forward, the negated left column as right, up.</summary>
+    private static ParticleControlPoint? PointOf(float[]? matrix) =>
+        matrix is null
             ? null
             : new ParticleControlPoint(
                 new Vector3(matrix[3], matrix[7], matrix[11]),
                 new Vector3(matrix[0], matrix[4], matrix[8]),
                 new Vector3(-matrix[1], -matrix[5], -matrix[9]),
                 new Vector3(matrix[2], matrix[6], matrix[10]));
-    }
 
     /// <summary>`GetAttachment` for the attachment <paramref name="pick"/> chooses, −1 for none.</summary>
     private (float X, float Y, float Z)? Attachment(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>

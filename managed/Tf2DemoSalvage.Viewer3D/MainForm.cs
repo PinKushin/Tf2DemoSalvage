@@ -4265,6 +4265,7 @@ internal class MainForm : Form, IFrameSteps
         AddBlood(timeline, tick, systems, viewing);
         AddSentryMuzzleFlashes(timeline, tick, systems);
         AddParticleDispatches(timeline, tick, systems);
+        AddWeaponMuzzleFlashes(timeline, tick, systems);
 
         _particles.Bursts(
             _burstsNow,
@@ -4783,6 +4784,61 @@ internal class MainForm : Form, IFrameSteps
             }
 
             _burstsNow.Add(new ParticleBurst(MuzzleFlashKeys + index, definition, barrel, dispatch.Tick));
+        }
+    }
+
+    /// <summary>Weapon muzzle flash keys sit above the dispatched particles'; two a flash, the muzzle and the backblast.</summary>
+    private const long WeaponFlashKeys = 5L << 32;
+
+    /// <summary>How long a weapon's flash is offered and followed — a second.</summary>
+    private const int WeaponFlashWindowTicks = 66;
+
+    /// <summary>Every weapon flash in the window this tick, reused.</summary>
+    private readonly List<(int Index, SceneMuzzleFlash Flash)> _weaponFlashesNow = [];
+
+    /// <summary>Resolves a weapon's flash from its item and script, built on first use.</summary>
+    private WeaponMuzzleFlashes? _weaponMuzzles;
+
+    /// <summary>Starts every weapon's muzzle flash in the window — `CTFWeaponBase::CreateMuzzleFlashEffects` (B415).</summary>
+    /// <remarks>
+    /// **Only for a weapon posed here**, which stands in for `DoAnimationEvents`' own gate: it returns before looking at
+    /// the parity for an entity that is not visible, and a first-person weapon is the viewmodel's business. Nothing
+    /// starts unless the model has a `muzzle` attachment; the particle then follows it, as the backblast follows the
+    /// weapon's own `backblast`. **Not built:** the muzzle flash MODEL (`C_MuzzleFlashModel`), which no f12 weapon's
+    /// script names, and the viewmodel's flash in first person.
+    /// </remarks>
+    private void AddWeaponMuzzleFlashes(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        if (_game is not { } game)
+        {
+            return;
+        }
+
+        _weaponMuzzles ??= new WeaponMuzzleFlashes(game.Archives.Read, game.Weapons.Items);
+
+        TickWindow.Between(
+            timeline.MuzzleFlashes.All, static flash => flash.Tick, tick - WeaponFlashWindowTicks, tick, _weaponFlashesNow);
+
+        foreach ((int index, SceneMuzzleFlash flash) in _weaponFlashesNow)
+        {
+            if (_models.AttachmentPoint(flash.Weapon, "muzzle") is not { } muzzle)
+            {
+                continue;
+            }
+
+            WeaponMuzzleFlash what = _weaponMuzzles.For(flash.Item, flash.Team);
+
+            if (what.Particle is { } particle && systems.TryGetValue(particle, out ParticleSystem? definition))
+            {
+                _burstsNow.Add(new ParticleBurst(WeaponFlashKeys + (index * 2L), definition, muzzle, flash.Tick));
+            }
+
+            if (what.Backblast &&
+                systems.TryGetValue(WeaponMuzzleFlashes.BackblastSystem, out ParticleSystem? backblast) &&
+                _models.AttachmentPoint(flash.Weapon, WeaponMuzzleFlashes.BackblastAttachment) is { } behind)
+            {
+                _burstsNow.Add(new ParticleBurst(WeaponFlashKeys + (index * 2L) + 1, backblast, behind, flash.Tick));
+            }
         }
     }
 
