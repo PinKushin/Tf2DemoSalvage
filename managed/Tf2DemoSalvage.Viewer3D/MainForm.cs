@@ -1449,6 +1449,7 @@ internal class MainForm : Form, IFrameSteps
         _struckPlayers.Clear();
         _impactEffects.Clear();
         _bloodBursts.Clear();
+        _tracerLines.Clear();
 
         // **Every system is told the level is going, in reverse registration order** — Valve's
         // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
@@ -4475,7 +4476,7 @@ internal class MainForm : Form, IFrameSteps
     /// <remarks>The corner lists are handed to the device and read by this frame's draw, before the next refill.</remarks>
     private IReadOnlyList<ParticleBatch> WithImpactEffects(IReadOnlyList<ParticleBatch> batches, FreeCamera viewing)
     {
-        if (_impactEffects.Count == 0 || _loaded?.Assets?.ParticleMaterials is not { } materials)
+        if (_loaded?.Assets?.ParticleMaterials is not { } materials)
         {
             return batches;
         }
@@ -4488,14 +4489,25 @@ internal class MainForm : Form, IFrameSteps
         (float fx, float fy, float fz) = AngleVectors.Forward(viewing.Angles.Pitch, viewing.Angles.Yaw);
         (float rx, float ry, float rz) = AngleVectors.Right(viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
         (float ux, float uy, float uz) = AngleVectors.Up(viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
+        Vector3 eye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
 
-        _impactEffects.Build(
-            new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
-            new Vector3(fx, fy, fz),
-            new Vector3(rx, ry, rz),
-            new Vector3(ux, uy, uz),
-            name => materials.TryGetValue(name, out ParticleMaterial material) ? material.Alpha : 1f,
-            _impactCorners);
+        if (_impactEffects.Count > 0)
+        {
+            _impactEffects.Build(
+                eye,
+                new Vector3(fx, fy, fz),
+                new Vector3(rx, ry, rz),
+                new Vector3(ux, uy, uz),
+                name => materials.TryGetValue(name, out ParticleMaterial material) ? material.Alpha : 1f,
+                _impactCorners);
+        }
+
+        AddTracerLines(eye, new Vector3(fx, fy, fz));
+
+        if (!_impactCorners.Values.Any(static corners => corners.Count > 0))
+        {
+            return batches;
+        }
 
         List<ParticleBatch> all = [.. batches];
 
@@ -4508,6 +4520,83 @@ internal class MainForm : Form, IFrameSteps
         }
 
         return all;
+    }
+
+    /// <summary>How long a `"Tracer"` dispatch is offered: 8192 units at 5000 a second is 1.64 s.</summary>
+    private const int TracerLineWindowTicks = 120;
+
+    /// <summary>`TRACER_FLAG_USEATTACHMENT`.</summary>
+    private const int TracerUseAttachment = 0x2;
+
+    /// <summary>Every effect dispatch in the tracer window this frame, reused.</summary>
+    private readonly List<(int Index, SceneEffectDispatch Dispatch)> _tracerDispatchesNow = [];
+
+    /// <summary>Each `"Tracer"` dispatch's line by its index in the feed, fixed at first sight; null for one too short.</summary>
+    private readonly Dictionary<int, DiscreetLine?> _tracerLines = [];
+
+    /// <summary>Draws every `"Tracer"` dispatch in flight as `CFXDiscreetLine` quads — `TracerCallback` (B415).</summary>
+    /// <remarks>
+    /// **The start is read ONCE**, as `GetTracerOrigin` reads the attachment when the dispatch arrives: the line then
+    /// flies its own path and does not follow the barrel. A server-side shooter's `m_vStart` is the multiplayer
+    /// sentinel (999, 999, 999) from `ComputeTracerStartPosition`, "so the results … should never actually get used";
+    /// so a dispatch whose entity is not posed yet is asked again next frame rather than fixed there. Stepped by
+    /// ticks: `Draw` runs `Update` first, so the line is one tick old on the tick it arrives.
+    /// </remarks>
+    private void AddTracerLines(Vector3 eye, Vector3 forward)
+    {
+        if (_timeline is not { } timeline)
+        {
+            return;
+        }
+
+        int tick = _transport.CurrentTick;
+
+        TickWindow.Between(
+            timeline.Dispatches.All, static dispatch => dispatch.Tick, tick - TracerLineWindowTicks, tick, _tracerDispatchesNow);
+
+        if (!_impactCorners.TryGetValue(DiscreetLines.TracerMaterial, out List<DetailSpriteVertex>? corners))
+        {
+            corners = [];
+            _impactCorners[DiscreetLines.TracerMaterial] = corners;
+        }
+
+        float halfWidth = _viewport.ClientSize.Width * 0.5f;
+
+        foreach ((int index, SceneEffectDispatch dispatch) in _tracerDispatchesNow)
+        {
+            if (!string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "Tracer", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!_tracerLines.TryGetValue(index, out DiscreetLine? line))
+            {
+                (float X, float Y, float Z)? barrel = (dispatch.Flags & TracerUseAttachment) != 0
+                    ? _models.AttachmentPosition(dispatch.Entity, dispatch.Attachment)
+                    : null;
+
+                if (barrel is null && (dispatch.Flags & TracerUseAttachment) != 0 && !_models.IsPosed(dispatch.Entity))
+                {
+                    continue;
+                }
+
+                (float X, float Y, float Z) start = barrel ?? dispatch.Start;
+
+                line = DiscreetLines.Tracer(
+                    new Vector3(start.X, start.Y, start.Z),
+                    new Vector3(dispatch.Origin.X, dispatch.Origin.Y, dispatch.Origin.Z),
+                    dispatch.Scale != 0f ? dispatch.Scale : DiscreetLines.TracerSpeed,
+                    SeededDraw.For(SeededDraw.Of(index, 0, salt: 3)));
+
+                _tracerLines[index] = line;
+            }
+
+            if (line is { } flying)
+            {
+                DiscreetLines.Draw(
+                    flying, (tick - dispatch.Tick + 1) * timeline.IntervalPerTick, eye, forward, halfWidth, corners);
+            }
+        }
     }
 
     /// <summary>The brushes-only world trace the legacy particles collide with — `MASK_SOLID_BRUSHONLY`.</summary>
