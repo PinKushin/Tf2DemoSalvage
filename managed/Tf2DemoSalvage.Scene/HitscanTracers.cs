@@ -28,6 +28,27 @@ public readonly record struct ShotTracer(
     (float X, float Y, float Z) End,
     (float X, float Y, float Z) Reach);
 
+/// <summary>One bullet the world stopped — `UTIL_ImpactTrace`'s trace, before the players are counted (B415).</summary>
+/// <param name="Shot">The shot's index in the timeline's feed.</param>
+/// <param name="Bullet">Which of its bullets.</param>
+/// <param name="Tick">The tick it fired on.</param>
+/// <param name="Shooter">The shooter's entity index.</param>
+/// <param name="Team">The shooter's team: `FireBullet` decals nothing on the shooter's own team.</param>
+/// <param name="Start">`trace.startpos`, the bullet's origin.</param>
+/// <param name="End">`trace.endpos` against the world alone.</param>
+/// <param name="Reach">The origin plus the whole range, for the player pass.</param>
+/// <param name="Texinfo">The struck brush side's texinfo — `trace.surface` — or −1 for terrain, whose surface is not traced.</param>
+public readonly record struct ShotImpact(
+    int Shot,
+    int Bullet,
+    int Tick,
+    int Shooter,
+    int Team,
+    (float X, float Y, float Z) Start,
+    (float X, float Y, float Z) End,
+    (float X, float Y, float Z) Reach,
+    int Texinfo);
+
 /// <summary>Which bullets of a demo's shots draw a tracer, and where each ends (B415).</summary>
 /// <remarks>
 /// **The client rebuilds every bullet and traces it itself**, `FX_FireBullets` into `CTFPlayer::FireBullet`
@@ -98,14 +119,16 @@ public sealed class HitscanTracers
 
     /// <summary>Every tracer a demo's shots draw, in fire order.</summary>
     /// <param name="shots">Every shot, in fire order — the counter needs all of them.</param>
-    /// <param name="sweep">How far along a segment a bullet gets before something stops it, 0 to 1.</param>
+    /// <param name="sweep">How far along a segment a bullet gets before something stops it, 0 to 1, and the texinfo it struck.</param>
     /// <param name="fixedSpread">`IsFixedWeaponSpreadEnabled`: the server's `tf_use_fixed_weaponspreads`.</param>
+    /// <param name="impacts">When given, every bullet the world stopped, in fire order.</param>
     /// <returns>The tracers.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public IReadOnlyList<ShotTracer> Trace(
         IReadOnlyList<SceneShot> shots,
-        Func<(float X, float Y, float Z), (float X, float Y, float Z), float> sweep,
-        bool fixedSpread)
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), (float Fraction, int Texinfo)> sweep,
+        bool fixedSpread,
+        ICollection<ShotImpact>? impacts = null)
     {
         ArgumentNullException.ThrowIfNull(shots);
         ArgumentNullException.ThrowIfNull(sweep);
@@ -150,26 +173,26 @@ public sealed class HitscanTracers
                     shot.Origin.Y + (direction.Y * range),
                     shot.Origin.Z + (direction.Z * range));
 
-                float fraction = sweep(shot.Origin, end);
+                (float fraction, int texinfo) = sweep(shot.Origin, end);
 
-                if (fraction >= 1f || (count++ % frequency) != 0 || effect is null)
+                if (fraction >= 1f)
                 {
                     continue;
                 }
 
-                tracers.Add(new ShotTracer(
-                    index,
-                    bullet,
-                    shot.Tick,
-                    shot.Shooter,
-                    weapon,
-                    effect,
-                    shot.Origin,
-                    (
-                        shot.Origin.X + ((end.X - shot.Origin.X) * fraction),
-                        shot.Origin.Y + ((end.Y - shot.Origin.Y) * fraction),
-                        shot.Origin.Z + ((end.Z - shot.Origin.Z) * fraction)),
-                    end));
+                (float X, float Y, float Z) stopped = (
+                    shot.Origin.X + ((end.X - shot.Origin.X) * fraction),
+                    shot.Origin.Y + ((end.Y - shot.Origin.Y) * fraction),
+                    shot.Origin.Z + ((end.Z - shot.Origin.Z) * fraction));
+
+                impacts?.Add(new ShotImpact(index, bullet, shot.Tick, shot.Shooter, by.Team, shot.Origin, stopped, end, texinfo));
+
+                if ((count++ % frequency) != 0 || effect is null)
+                {
+                    continue;
+                }
+
+                tracers.Add(new ShotTracer(index, bullet, shot.Tick, shot.Shooter, weapon, effect, shot.Origin, stopped, end));
             }
         }
 

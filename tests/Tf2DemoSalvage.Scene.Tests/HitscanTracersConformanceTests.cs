@@ -33,13 +33,42 @@ public sealed class HitscanTracersConformanceTests
     private const int Red = 2;
     private const int Blue = 3;
 
-    /// <summary>A world that stops every bullet halfway.</summary>
-    private static readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), float> Halfway =
-        static (_, _) => 0.5f;
+    /// <summary>A world that stops every bullet halfway, on texinfo 3.</summary>
+    private static readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), (float Fraction, int Texinfo)> Halfway =
+        static (_, _) => (0.5f, 3);
 
     /// <summary>A world with nothing in it.</summary>
-    private static readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), float> Empty =
-        static (_, _) => 1f;
+    private static readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), (float Fraction, int Texinfo)> Empty =
+        static (_, _) => (1f, -1);
+
+    /// <remarks>
+    /// **Every bullet the world stops is an impact, tracer or not**: `UTIL_ImpactTrace` sits under
+    /// `if ( trace.fraction &lt; 1.0 )` beside the counter, not inside it, and never asks for a tracer effect.
+    /// </remarks>
+    [Test]
+    public void Trace_TwoBulletsThatHit_AreTwoImpactsOnTheStruckSurface()
+    {
+        List<ShotImpact> impacts = [];
+
+        Tracers(Rifle, tracer: null, range: 1000f)
+            .Trace([Shot(Rifle, tick: 1), Shot(Rifle, tick: 2, weapon: null)], Halfway, fixedSpread: false, impacts);
+
+        impacts.Count.ShouldBe(2);
+        (impacts[1] with { End = default, Reach = default })
+            .ShouldBe(new ShotImpact(1, 0, 2, 5, Red, (0f, 0f, 0f), default, default, 3));
+        impacts[1].End.X.ShouldBe(500f, 0.001f, "yaw 0 fires down +X; half of 1000");
+        impacts[1].Reach.X.ShouldBe(1000f, 0.001f);
+    }
+
+    [Test]
+    public void Trace_ABulletIntoNothing_IsNoImpact()
+    {
+        List<ShotImpact> impacts = [];
+
+        Tracers(Rifle, "bullet_tracer01").Trace([Shot(Rifle, tick: 1)], Empty, fixedSpread: false, impacts);
+
+        impacts.ShouldBeEmpty();
+    }
 
     [Test]
     public void Trace_TwoBulletsThatHit_DrawATracerForTheFirstOnly()
@@ -62,7 +91,7 @@ public sealed class HitscanTracersConformanceTests
 
         IReadOnlyList<ShotTracer> tracers = Tracers(Rifle, "bullet_tracer01").Trace(
             [Shot(Rifle, tick: 1), Shot(Rifle, tick: 2)],
-            (_, _) => calls++ == 0 ? 1f : 0.5f,
+            (_, _) => calls++ == 0 ? (1f, -1) : (0.5f, 3),
             fixedSpread: false);
 
         tracers.Count.ShouldBe(1);

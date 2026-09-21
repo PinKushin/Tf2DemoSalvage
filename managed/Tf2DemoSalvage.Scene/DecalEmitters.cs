@@ -89,6 +89,19 @@ public sealed class DecalEmitters
         return emitters;
     }
 
+    /// <summary>Every file any group names — what `LevelInitPreEntity` precaches.</summary>
+    /// <returns>The files, in group order.</returns>
+    public IEnumerable<string> Files()
+    {
+        foreach (List<(string File, float Weight)> group in _groups.Values)
+        {
+            foreach ((string file, _) in group)
+            {
+                yield return file;
+            }
+        }
+    }
+
     /// <summary>`TranslateDecalForGameMaterial`.</summary>
     /// <param name="decalName">The name the entity asked for.</param>
     /// <param name="gameMaterial">The struck surface's `game.material`.</param>

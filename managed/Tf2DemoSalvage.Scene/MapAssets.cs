@@ -2388,7 +2388,7 @@ public sealed class MapAssets
     /// returned the patch itself until then, so a patched sprite or particle material reported the
     /// shader `Patch` and read its orientation and its sheet from the wrong file.
     /// </remarks>
-    private static VmtMaterial? ReadVmt(string material, PakFile pak, GameArchives archives)
+    internal static VmtMaterial? ReadVmt(string material, PakFile pak, GameArchives archives)
     {
         if (material.Length == 0)
         {

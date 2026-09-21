@@ -68,6 +68,12 @@ public sealed class LoadedMap
     /// <summary>Every tracer the demo's shots draw on this map, in fire order (B415).</summary>
     public IReadOnlyList<ShotTracer> Tracers { get; private init; } = [];
 
+    /// <summary>Every bullet the world stopped, in fire order — each a candidate for a decal (B415).</summary>
+    public IReadOnlyList<ShotImpact> Impacts { get; private init; } = [];
+
+    /// <summary>What decal each impact leaves, or null for a map read without a demo.</summary>
+    public ImpactDecals? ImpactDecals { get; private init; }
+
     /// <summary>What went wrong loading the content, or null when nothing did.</summary>
     public string? Problem { get; }
 
@@ -127,6 +133,9 @@ public sealed class LoadedMap
         // makes each shot depend on every one before it, so they are answered together, in fire order, here where
         // both the level and the timeline are to hand — and before the textures, which need the effects' names.
         IReadOnlyList<ShotTracer> tracers = [];
+        List<ShotImpact> impacts = [];
+        ImpactDecals? impactDecals = null;
+        HashSet<string> decalMaterials = new(StringComparer.OrdinalIgnoreCase);
 
         if (timeline is not null)
         {
@@ -134,18 +143,38 @@ public sealed class LoadedMap
             {
                 tracers = new HitscanTracers(game.Archives.Read).Trace(
                     timeline.Shots.All,
-                    (from, to) => level.Sweep(from, to, 0f),
+                    (from, to) => level.SweepSurface(from, to, 0f),
                     float.TryParse(
                         timeline.ServerConVars.Value("tf_use_fixed_weaponspreads"),
                         NumberStyles.Float,
                         CultureInfo.InvariantCulture,
-                        out float fixedSpread) && fixedSpread != 0f);
+                        out float fixedSpread) && fixedSpread != 0f,
+                    impacts);
+            }
+
+            // **Every decal the demo can place, resolved now so their materials load with the map's** (B415): the
+            // impact groups a bullet can draw from, and the names the decalprecache table carries for decal events.
+            using (renderLog.Time("reading the decal system"))
+            {
+                impactDecals = ImpactDecals.Load(bytes, game.Archives, game.Surfaces);
+                decalMaterials.UnionWith(impactDecals.Drawn());
+
+                foreach (SceneDecal decal in timeline.Decals.All)
+                {
+                    if (timeline.Decals.Names.Name(decal.Index) is { } name &&
+                        impactDecals.Materials.Resolve(name)?.Draws is { } drawn)
+                    {
+                        decalMaterials.Add(drawn);
+                    }
+                }
             }
 
             renderLog.LogInformation(
                 "{Message}",
-                $"{tracers.Count.ToString(CultureInfo.InvariantCulture)} tracers from " +
-                $"{timeline.Shots.All.Count.ToString(CultureInfo.InvariantCulture)} shots");
+                $"{tracers.Count.ToString(CultureInfo.InvariantCulture)} tracers and " +
+                $"{impacts.Count.ToString(CultureInfo.InvariantCulture)} impacts from " +
+                $"{timeline.Shots.All.Count.ToString(CultureInfo.InvariantCulture)} shots; " +
+                $"{decalMaterials.Count.ToString(CultureInfo.InvariantCulture)} decal materials to load");
         }
 
         // **The early `LoadedMap` went with the baked tint** (B219). It existed only so
@@ -229,12 +258,18 @@ public sealed class LoadedMap
                     // **Passed explicitly, and forgetting it is silent (D83).** The parameter
                     // defaults to a null logger so tests need not supply one, which means an
                     // omission here costs every asset line in the run and nothing reports it.
-                    loggers: loggers);
+                    loggers: loggers,
+                    decalMaterials: decalMaterials);
             }
 
             Report(level, assets, textureQuality, assetLog);
 
-            return new LoadedMap(outline, level, assets, lighting, game, null) { Tracers = tracers };
+            return new LoadedMap(outline, level, assets, lighting, game, null)
+            {
+                Tracers = tracers,
+                Impacts = impacts,
+                ImpactDecals = impactDecals,
+            };
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -246,7 +281,12 @@ public sealed class LoadedMap
                 null,
                 lighting,
                 game,
-                "Map content unavailable: " + failure.Message) { Tracers = tracers };
+                "Map content unavailable: " + failure.Message)
+            {
+                Tracers = tracers,
+                Impacts = impacts,
+                ImpactDecals = impactDecals,
+            };
         }
     }
 
