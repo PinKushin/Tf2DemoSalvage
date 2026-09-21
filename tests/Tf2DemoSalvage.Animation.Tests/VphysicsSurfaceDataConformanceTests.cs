@@ -55,6 +55,32 @@ public sealed class VphysicsSurfaceDataConformanceTests
         Bits(props.Surfaces[4]).ShouldBe([0x3ee66666, 0x00000000, 0x00000000, 0x00000000, 0x00000000]);
     }
 
+    /// <remarks>
+    /// `gamematerial` (`FUN_180018740`): one non-digit character is uppercased — the key parser lowercased it — and
+    /// anything else is `atoi`'d. `base` copies it with the physics, and a block that never sets it keeps what it
+    /// started from, which for a new name is <c>default</c>'s.
+    /// </remarks>
+    [Test]
+    public void ParseSurfaceData_GameMaterial_IsUppercasedNumberedAndInherited()
+    {
+        VphysicsSurfaceProps props = new([]);
+
+        props.ParseSurfaceData(Encoding.Latin1.GetBytes(
+            "\"default\" { \"gamematerial\" \"c\" } " +
+            "\"metal\" { \"gamematerial\" \"M\" } " +
+            "\"odd\" { \"gamematerial\" \"77\" } " +
+            "\"grate\" { \"base\" \"metal\" } " +
+            "\"plain\" { \"friction\" \"0.5\" }"));
+
+        int Game(string name) => props.Surfaces.Single(surface => surface.Name == name).GameMaterial;
+
+        Game("default").ShouldBe('C');
+        Game("metal").ShouldBe('M');
+        Game("odd").ShouldBe(77);
+        Game("grate").ShouldBe('M');
+        Game("plain").ShouldBe('C');
+    }
+
     private static int[] Bits(VphysicsSurface surface) =>
     [
         System.BitConverter.SingleToInt32Bits(surface.Physics.Friction),

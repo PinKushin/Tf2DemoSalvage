@@ -34,6 +34,12 @@ public sealed class VphysicsSurface(string name, SurfacePhysicsParams physics, b
 
     /// <inheritdoc />
     public bool HasSecondFriction { get; } = hasSecondFriction;
+
+    /// <summary>
+    /// `surfacegameprops_t.material`, the <c>gamematerial</c> key — a character such as <c>'C'</c> for concrete, which is
+    /// what picks a bullet's impact decal and effect (B415). Zero when no block or <c>base</c> ever set one.
+    /// </summary>
+    public int GameMaterial { get; init; }
 }
 
 /// <summary>
