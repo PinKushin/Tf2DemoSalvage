@@ -4252,6 +4252,7 @@ internal class MainForm : Form, IFrameSteps
 
         AddTracers(tick, systems);
         AddBlood(timeline, tick, systems, viewing);
+        AddSentryMuzzleFlashes(timeline, tick, systems);
 
         _particles.Bursts(
             _burstsNow,
@@ -4647,6 +4648,41 @@ internal class MainForm : Form, IFrameSteps
             // `DispatchParticleEffect( name, origin, angles, … )` passes the origin as `vecStart` too: control point 1.
             _burstsNow.Add(new ParticleBurst(
                 key, definition, burst.Point, tick, ParticleControlPoint.Unoriented(burst.Point.At)));
+        }
+    }
+
+    /// <summary>Muzzle flash keys sit above the blood's.</summary>
+    private const long MuzzleFlashKeys = 3L << 32;
+
+    /// <summary>How long a muzzle flash is offered — a second, far past `muzzle_sentry`'s own life.</summary>
+    private const int MuzzleFlashWindowTicks = 66;
+
+    /// <summary>Every effect dispatch in the window this tick, reused.</summary>
+    private readonly List<(int Index, SceneEffectDispatch Dispatch)> _dispatchesNow = [];
+
+    /// <summary>Adds every sentry muzzle flash in the window at its barrel — `TF_3rdPersonMuzzleFlashCallback_SentryGun` (B415).</summary>
+    /// <remarks>
+    /// **`PATTACH_POINT_FOLLOW`, so the barrel is read every frame**, not once: the flash rides the barrel as the sentry
+    /// turns. A sentry not posed here has no barrel to follow and its flash is not started, which stands in for the
+    /// callback's `IsDormant` refusal — a sentry outside the recorder's view is not in the table, and one culled
+    /// from this view would flash where nobody is looking.
+    /// </remarks>
+    private void AddSentryMuzzleFlashes(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        TickWindow.Between(
+            timeline.Dispatches.All, static dispatch => dispatch.Tick, tick - MuzzleFlashWindowTicks, tick, _dispatchesNow);
+
+        foreach ((int index, SceneEffectDispatch dispatch) in _dispatchesNow)
+        {
+            if (!string.Equals(
+                    timeline.Dispatches.Names.Name(dispatch.Name), SentryMuzzleFlash.EffectName, StringComparison.Ordinal) ||
+                !systems.TryGetValue(SentryMuzzleFlash.System(dispatch.Flags), out ParticleSystem? definition) ||
+                _models.AttachmentPoint(dispatch.Entity, dispatch.Attachment) is not { } barrel)
+            {
+                continue;
+            }
+
+            _burstsNow.Add(new ParticleBurst(MuzzleFlashKeys + index, definition, barrel, dispatch.Tick));
         }
     }
 

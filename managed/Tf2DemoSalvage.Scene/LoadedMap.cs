@@ -239,6 +239,7 @@ public sealed class LoadedMap
                             .. new ExplosionEffects(game.Archives.Read).Used(timeline.Explosions.All),
                             .. tracers.Select(static tracer => tracer.Effect).Distinct(StringComparer.OrdinalIgnoreCase),
                             .. BloodEffects.Systems,
+                            .. SentryMuzzleFlash.Systems,
                         ],
 
                     // **A factory rather than finished geometry, because the atlas is packed inside
