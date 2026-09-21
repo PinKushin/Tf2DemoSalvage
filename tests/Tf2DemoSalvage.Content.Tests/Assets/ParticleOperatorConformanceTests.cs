@@ -420,6 +420,134 @@ public sealed class ParticleOperatorConformanceTests
         }
     }
 
+    [Test]
+    public void RemapScalar_CreationTimeToRadius_IsTheClampedLine()
+    {
+        // `C_OP_RemapScalar::Operate` (particles.lib): t = clamp( (in − inMin) / (inMax − inMin) ), out = lerp( outMin,
+        // outMax, t ). `rocketjump_smoke`'s own mapping: born 0..2 s → radius 11..5.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 10f);
+        particles.Tick(1f);
+        particles.Add(Vector3.Zero, lives: 10f);
+        particles.Tick(2f);
+        particles.Add(Vector3.Zero, lives: 10f);
+
+        Step(particles, "Remap Scalar", Remap(8, 0f, 2f, 3, 11f, 5f), seconds: 0f, previous: null);
+
+        particles.RadiusOf(0).ShouldBe(11f, 1e-5d);
+        particles.RadiusOf(1).ShouldBe(8f, 1e-5d);
+        particles.RadiusOf(2).ShouldBe(5f, 1e-5d, "born at 3 s, past the input's maximum");
+    }
+
+    [Test]
+    public void RemapScalar_EqualInputBounds_IsAStepAtThem()
+    {
+        // `if ( inMin == inMax ) out = ( in >= inMax ) ? outMax : outMin` — no division.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 10f);
+        particles.Tick(1f);
+        particles.Add(Vector3.Zero, lives: 10f);
+
+        Step(particles, "Remap Scalar", Remap(8, 1f, 1f, 3, 2f, 7f), seconds: 0f, previous: null);
+
+        particles.RadiusOf(0).ShouldBe(2f);
+        particles.RadiusOf(1).ShouldBe(7f);
+    }
+
+    [Test]
+    public void RemapScalar_IntoAlpha_ClampsItsOutputBoundsToOne()
+    {
+        // An output field in the mask `0x10080` — ALPHA (7) and ALPHA2 (16) — has both bounds clamped to [0, 1]
+        // before the line is drawn.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 10f);
+
+        Step(particles, "Remap Scalar", Remap(8, 0f, 1f, 7, -1f, 3f), seconds: 0f, previous: null);
+
+        particles.AlphaOf(0).ShouldBe(0f, "born at 0, so the clamped minimum");
+    }
+
+    [Test]
+    public void RemapScalar_NothingDeclared_MapsAlphaOntoRadius()
+    {
+        // The unpack defaults: input field 7 (alpha) over 0..1, output field 3 (radius) over 0..1.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 10f);
+        particles.Alpha[0] = 0.25f;
+
+        Step(particles, "Remap Scalar", None, seconds: 0f, previous: null);
+
+        particles.RadiusOf(0).ShouldBe(0.25f, 1e-6d);
+    }
+
+    [Test]
+    public void RotationSpinRoll_NoStopTime_TurnsByTheRateAsRevolutionsModTwoPi()
+    {
+        // `CGeneralSpin::InitParams` converts `spin_rate_degrees` to radians, and `Operate` then takes that as
+        // REVOLUTIONS: `drot = fmod( dt · |rate · 2π|, 2π )` when `spin_stop_time` is 0. 36° is 0.6283 rad, so a half
+        // second turns 0.5 · 0.6283 · 2π = 1.9739 rad — not the 0.314 the parameter's name suggests.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 10f);
+
+        Step(particles, "Rotation Spin Roll", Spin(36, 0, 0f), seconds: 0.5f, previous: null);
+
+        particles.RotationOf(0).ShouldBe(0.5f * float.DegreesToRadians(36f) * MathF.Tau, 1e-5d);
+    }
+
+    [Test]
+    public void RotationSpinRoll_WithAStopTime_SlowsAcrossThatFractionOfTheLife()
+    {
+        // `factor = max( 0, 1 − ( now − born ) / ( stop · life ) )`: half way through a stop window of 0.5 of a
+        // 2-second life, the turn is halved; no `fmod` once a stop time is set.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 2f);
+        particles.Tick(0.5f);
+
+        Step(particles, "Rotation Spin Roll", Spin(36, 0, 0.5f), seconds: 0.5f, previous: null);
+
+        particles.RotationOf(0).ShouldBe(0.5f * 0.5f * float.DegreesToRadians(36f) * MathF.Tau, 1e-5d);
+    }
+
+    [Test]
+    public void RotationSpinRoll_PastTwoPi_WrapsBack()
+    {
+        // `if ( rot >= 2π ) rot −= 2π`.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 10f);
+        particles.Rotation[0] = 6f;
+
+        Step(particles, "Rotation Spin Roll", Spin(36, 0, 0f), seconds: 0.5f, previous: null);
+
+        particles.RotationOf(0).ShouldBe(6f + (0.5f * float.DegreesToRadians(36f) * MathF.Tau) - MathF.Tau, 1e-4d);
+    }
+
+    private static Dictionary<string, DmxValue> Spin(int degrees, int minimum, float stop) =>
+        new(StringComparer.Ordinal)
+        {
+            ["spin_rate_degrees"] = new DmxValue(DmxAttributeType.Whole, Number: degrees),
+            ["spin_rate_min"] = new DmxValue(DmxAttributeType.Whole, Number: minimum),
+            ["spin_stop_time"] = new DmxValue(DmxAttributeType.Real, Number: stop),
+        };
+
+    private static Dictionary<string, DmxValue> Remap(
+        int input, float inputMinimum, float inputMaximum, int output, float outputMinimum, float outputMaximum) =>
+        new(StringComparer.Ordinal)
+        {
+            ["input field"] = new DmxValue(DmxAttributeType.Whole, Number: input),
+            ["input minimum"] = new DmxValue(DmxAttributeType.Real, Number: inputMinimum),
+            ["input maximum"] = new DmxValue(DmxAttributeType.Real, Number: inputMaximum),
+            ["output field"] = new DmxValue(DmxAttributeType.Whole, Number: output),
+            ["output minimum"] = new DmxValue(DmxAttributeType.Real, Number: outputMinimum),
+            ["output maximum"] = new DmxValue(DmxAttributeType.Real, Number: outputMaximum),
+        };
+
     /// <summary>An operator that declares nothing, so every parameter takes its default.</summary>
     private static readonly Dictionary<string, DmxValue> None = new(StringComparer.Ordinal);
 

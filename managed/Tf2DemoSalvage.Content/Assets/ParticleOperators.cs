@@ -68,6 +68,8 @@ public static class ParticleOperators
             new AlphaFadeAndDecay(),
             new ColourFade(),
             new OscillateScalar(),
+            new RemapScalar(),
+            new RotationSpinRoll(),
         ])
         {
             all[one.Named] = one;
@@ -273,6 +275,186 @@ public sealed class RadiusScale : IParticleOperator
 
             particles.Radius[index] =
                 particles.RadiusAtBirth[index] * (from + ((to - from) * through));
+        }
+    }
+}
+
+/// <summary>
+/// <c>Remap Scalar</c> — one attribute's value drawn as a straight line into another's.
+/// </summary>
+/// <remarks>
+/// **`C_OP_RemapScalar::Operate`, read out of `particles.lib`** (`builtin_particle_ops.obj`, whose symbols are
+/// intact), with its fields and defaults from `C_OP_RemapScalar_UnpackInit`:
+///
+/// <code>
+/// input field 7 (ALPHA), input minimum 0, input maximum 1, output field 3 (RADIUS), output minimum 0, output maximum 1
+/// if ( 1 &lt;&lt; output field ) &amp; 0x10080:  clamp both output bounds to [0, 1]         // ALPHA, ALPHA2
+/// per particle:  target = inMin == inMax ? ( in >= inMax ? outMax : outMin )
+///                                        : lerp( outMin, outMax, clamp( ( in − inMin ) / ( inMax − inMin ), 0, 1 ) )
+///                out = ( target − out ) · strength + out
+/// </code>
+///
+/// **The float `Operate` is given is the operator's fade STRENGTH, not the step** — and this project's runner does
+/// not compute an operator fade, so it is taken as 1, which is what every `operator start/end fade` left at zero
+/// gives. **`CREATION_TIME` is relative to the system**, which is <see cref="ParticleStore.Born"/>, so
+/// `rocketjump_smoke`'s born-0-to-2-seconds is a radius falling from 11 to 5 along the trail.
+///
+/// **Only the attributes the store holds are mapped**: input from lifetime, radius, rotation, alpha, creation time
+/// and trail length; output to radius, rotation, alpha and trail length. Anything else — `ALPHA2`, which
+/// `rocketjump_smoke` writes and whose reader is the closed renderer — is left alone rather than guessed at.
+/// </remarks>
+public sealed class RemapScalar : IParticleOperator
+{
+    /// <summary>The attributes this reads and writes, by Valve's number (`particles.h:63`).</summary>
+    private const int LifeDuration = 1, Radius = 3, Rotation = 4, Alpha = 7, CreationTime = 8, TrailLength = 10;
+
+    /// <summary>`ALPHA` and `ALPHA2` — the output fields whose bounds are clamped to [0, 1].</summary>
+    private const int ClampedOutputs = 0x10080;
+
+    /// <inheritdoc/>
+    public string Named => "Remap Scalar";
+
+    /// <inheritdoc/>
+    public void Operate(ParticleStore particles, ParticleFunction parameters, float seconds)
+    {
+        ArgumentNullException.ThrowIfNull(particles);
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        _ = seconds;
+
+        int input = (int)parameters.Number("input field", Alpha);
+        int output = (int)parameters.Number("output field", Radius);
+        float inputMinimum = (float)parameters.Number("input minimum", 0d);
+        float inputMaximum = (float)parameters.Number("input maximum", 1d);
+        float outputMinimum = (float)parameters.Number("output minimum", 0d);
+        float outputMaximum = (float)parameters.Number("output maximum", 1d);
+
+        if (output is < 0 or > 31 || Written(particles, output) is not { } into)
+        {
+            return;
+        }
+
+        if (((1 << output) & ClampedOutputs) != 0)
+        {
+            outputMinimum = Math.Clamp(outputMinimum, 0f, 1f);
+            outputMaximum = Math.Clamp(outputMaximum, 0f, 1f);
+        }
+
+        for (int index = 0; index < particles.Count; index++)
+        {
+            if (Read(particles, input, index) is not { } value)
+            {
+                return;
+            }
+
+            into[index] = Target(value, inputMinimum, inputMaximum, outputMinimum, outputMaximum);
+        }
+    }
+
+    /// <summary>The line from the input bounds to the output bounds, clamped; a step when the input bounds meet.</summary>
+    private static float Target(float value, float inputMinimum, float inputMaximum, float outputMinimum, float outputMaximum)
+    {
+        // Equal bounds are the engine's own `==`: no division, a step at the bound.
+#pragma warning disable S1244 // Floating point numbers should not be tested for equality — the engine's own comparison
+        if (inputMinimum == inputMaximum)
+#pragma warning restore S1244
+        {
+            return value >= inputMaximum ? outputMaximum : outputMinimum;
+        }
+
+        float along = Math.Clamp((value - inputMinimum) / (inputMaximum - inputMinimum), 0f, 1f);
+
+        return outputMinimum + (along * (outputMaximum - outputMinimum));
+    }
+
+    /// <summary>The stream an output field names, or null for one the store does not hold.</summary>
+    private static float[]? Written(ParticleStore particles, int field) => field switch
+    {
+        Radius => particles.Radius,
+        Rotation => particles.Rotation,
+        Alpha => particles.Alpha,
+        TrailLength => particles.TrailLength,
+        _ => null,
+    };
+
+    /// <summary>One particle's value of an input field, or null for one the store does not hold.</summary>
+    private static float? Read(ParticleStore particles, int field, int index) => field switch
+    {
+        LifeDuration => particles.Lifetime[index],
+        CreationTime => particles.Born[index],
+        _ => Written(particles, field)?[index],
+    };
+}
+
+/// <summary>
+/// <c>Rotation Spin Roll</c> — turns each particle's card, slowing across a stop window.
+/// </summary>
+/// <remarks>
+/// **`CGeneralSpin::InitParams` and `Operate`, read out of `particles.lib`** (`C_OP_Spin` names attribute 4, `ROTATION`):
+///
+/// <code>
+/// rate = spin_rate_degrees · π/180;  minimum = spin_rate_min · π/180          // InitParams; both declared as ints
+/// if rate · strength == 0: nothing
+/// drot = dt · |rate · strength · 2π|;  if spin_stop_time == 0: drot = fmod( drot, 2π );  negated when the rate is
+/// least = dt · |minimum · 2π|
+/// per particle:  factor = max( 0, 1 − ( now − born ) / ( spin_stop_time · life ) )      // 1 when the stop time is 0
+///                rot += max( factor · drot, least );  rot −= 2π if ≥ 2π;  rot += 2π if ≤ −2π
+/// </code>
+///
+/// **The rate is converted to radians and then used as revolutions** — multiplied by 2π a second time. That is the
+/// engine's arithmetic and it is reproduced: 36° a second turns a card 3.95 radians a second. Strength is 1, as for
+/// <see cref="RemapScalar"/>.
+/// </remarks>
+public sealed class RotationSpinRoll : IParticleOperator
+{
+    /// <inheritdoc/>
+    public string Named => "Rotation Spin Roll";
+
+    /// <inheritdoc/>
+    public void Operate(ParticleStore particles, ParticleFunction parameters, float seconds)
+    {
+        ArgumentNullException.ThrowIfNull(particles);
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        float rate = (int)parameters.Number("spin_rate_degrees", 0d) * (MathF.PI / 180f);
+        float minimum = (int)parameters.Number("spin_rate_min", 0d) * (MathF.PI / 180f);
+        float stop = (float)parameters.Number("spin_stop_time", 0d);
+
+        if (rate == 0f)
+        {
+            return;
+        }
+
+        float turn = seconds * MathF.Abs(rate * MathF.Tau);
+
+        if (stop == 0f)
+        {
+            turn %= MathF.Tau;
+        }
+
+        if (rate < 0f)
+        {
+            turn = -turn;
+        }
+
+        float least = seconds * MathF.Abs(minimum * MathF.Tau);
+
+        for (int index = 0; index < particles.Count; index++)
+        {
+            float scale = stop == 0f ? 0f : 1f / (stop * particles.Lifetime[index]);
+            float factor = MathF.Max(0f, 1f - ((particles.Age - particles.Born[index]) * scale));
+            float rotation = particles.Rotation[index] + MathF.Max(factor * turn, least);
+
+            if (rotation >= MathF.Tau)
+            {
+                rotation -= MathF.Tau;
+            }
+            else if (rotation <= -MathF.Tau)
+            {
+                rotation += MathF.Tau;
+            }
+
+            particles.Rotation[index] = rotation;
         }
     }
 }
