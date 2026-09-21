@@ -27278,6 +27278,28 @@ replayed from its own tick on every frame. The item above filed as "for the perf
   paint, which was not read. And at blood 34 no player model stands where the blood is: entity 2 is the demo's own
   player, and whether the free camera should draw it there is not read.
 
+**Fixed 2026-09-21: two decode errors in every temp entity, found through `CTEEffectDispatch`** (`docs/findings/62`).
+
+1. **An effect that omits its class is a delta against the previous effect in the message, not a fresh one.** The
+   wire list was read as the whole effect, so every field the two effects share came back as zero. Measured on f12:
+   all 45 sentry muzzle flashes read entity 0 and attachment 0. Those are exactly the two fields each flash shares
+   with the `Tracer` sent just before it. After the fix they read entity 502 or 407 and attachments 1 or 4, the
+   same as their tracers. `DecodedTempEntity.State` now holds the effect as received, and every feed reads it.
+   `Properties` stays the wire list, for the assembler and the trace.
+2. **An unsent `DT_EffectData` field is a zero received through its proxy, not `CEffectData`'s constructor.** An
+   unsent `entindex` therefore means the world. TF's `ImpactCallback` returns on a null entity
+   (`tf_fx_impacts.cpp:32`), so with the old `INVALID_EHANDLE` default no server impact could ever mark the world.
+   On f12 server impacts on the world went from 0 to 2.
+
+**Server `Impact` dispatches built**: the two world hits trace, place a decal and throw debris, as a shot's
+impact does. **The other 233 on f12 hit players** (entities 2–13, surfaceprop 39): model decals are not built,
+so they draw nothing yet. Sentry muzzle flashes, `Tracer` dispatches, `ParticleEffect` dispatches and
+`TFBoltImpact` are still not drawn.
+
+**Not established:** whether the engine's client also starts a full update from zero through
+`RecvTable_DecodeZeros`. The world-impact argument above requires it, but the engine's temp-entity parse was
+not read; the Ghidra engine project was locked.
+
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
 **The owner, unprompted, while I was measuring something else**: *"for some reason the first person rockets still dont

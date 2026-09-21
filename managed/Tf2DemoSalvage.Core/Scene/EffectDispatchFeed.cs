@@ -80,7 +80,7 @@ public sealed class EffectDispatchFeed
 
         Fields fields = new();
 
-        foreach (DecodedProperty property in effect.Properties)
+        foreach (DecodedProperty property in effect.State)
         {
             fields.Read(property.Definition.Property.Name, property.Value);
         }

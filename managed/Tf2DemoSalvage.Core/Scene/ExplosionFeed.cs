@@ -94,7 +94,7 @@ public sealed class ExplosionFeed
         int item = SceneExplosion.NoItem;
         int sound = SceneExplosion.Special1;
 
-        foreach (DecodedProperty property in effect.Properties)
+        foreach (DecodedProperty property in effect.State)
         {
             switch (property.Definition.Property.Name)
             {

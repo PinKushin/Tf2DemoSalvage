@@ -93,7 +93,7 @@ public sealed class DecalFeed
         int index = 0;
         int player = 0;
 
-        foreach (DecodedProperty property in effect.Properties)
+        foreach (DecodedProperty property in effect.State)
         {
             switch (property.Definition.Property.Name)
             {

@@ -40,5 +40,10 @@ false of reading the merged result. Half a fix reads exactly like a whole one.
   [[fixtures-are-the-weak-point]]. Pick the specimen that can falsify: viaduct's 213/174/221 fixes
   the colour byte order, a grey map cannot.
 
+**The same split for temp entities (2026-09-21, finding 62):** an effect that omits its class is a delta
+against the PREVIOUS effect in the message. `DecodedTempEntity.State` is the effect; `Properties` is the wire.
+The tell was a pair: a sentry's muzzle flash read entity 0 and attachment 0, exactly the two fields it shares
+with the tracer sent before it.
+
 Related: [[measure-the-output-not-the-capability]], [[output-level-assertion-or-it-is-not-done]],
 [[one-place-or-it-drifts]], [[instrument-bugs-outnumber-decoder-bugs]].

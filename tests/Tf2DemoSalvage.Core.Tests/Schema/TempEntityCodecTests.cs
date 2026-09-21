@@ -1,7 +1,9 @@
 using System.Collections.Generic;
 using System.Linq;
 
+using Tf2DemoSalvage.Core.Primitives;
 using Tf2DemoSalvage.Core.Schema;
+using Tf2DemoSalvage.Core.Tests.Net;
 
 namespace Tf2DemoSalvage.Core.Tests.Schema;
 
@@ -98,6 +100,44 @@ public sealed class TempEntityCodecTests
 
         read.Select(effect => effect.ClassId).ShouldBe([4, 5]);
     }
+
+    [Test]
+    public void Decode_AnEffectRepeatingItsClass_IsADeltaOnThePreviousEffect()
+    {
+        // **An effect that omits its class is a delta against the effect before it**, not against zero: the
+        // server writes it with `SendTable_WriteAllDeltaProps( lastEvent->pData, … )` and the client decodes it
+        // onto the previous event's state. Measured on f12: a sentry's `TF_3rdPersonMuzzleFlash_SentryGun`
+        // follows its `Tracer` and read entity 0 and attachment 0 — exactly the two fields the pair shares.
+        DemoSchema schema = new(
+            [new SendTable("DT_Test", true, [
+                new SendProperty(SendPropType.Int, "m_iHealth", 1, string.Empty, 0f, 0f, 10, 0),
+                new SendProperty(SendPropType.Int, "m_iTeamNum", 1, string.Empty, 0f, 0f, 3, 0)])],
+            [.. Enumerable.Range(0, 4).Select(id => new Core.Net.ServerClass(id, $"CTest{id}", "DT_Test"))]);
+        int classBits = EntityDecoder.ClassIdBits(schema.ServerClasses.Count);
+        EntityDecoder decoder = new(schema, classBits);
+
+        BitWriter writer = new();
+
+        // Class 0, both fields; then class 0 again, only the team; then class 1, only the team.
+        writer.Write(0, 1).Write(1, 1).Write(1, classBits)
+            .Write(1, 1).UBitVar(0).Write(125, 10).Write(1, 1).UBitVar(0).Write(2, 3).Write(0, 1);
+        writer.Write(0, 1).Write(0, 1)
+            .Write(1, 1).UBitVar(1).Write(3, 3).Write(0, 1);
+        writer.Write(0, 1).Write(1, 1).Write(2, classBits)
+            .Write(1, 1).UBitVar(1).Write(1, 3).Write(0, 1);
+
+        byte[] body = writer.Build();
+        IReadOnlyList<DecodedTempEntity> read = decoder.DecodeTempEntities(body, 3, body.Length * 8);
+
+        read[1].Properties.Select(Named).ShouldBe([("m_iTeamNum", 3L)], "the wire carries only the change");
+        read[1].State.Select(Named).ShouldBe([("m_iHealth", 125L), ("m_iTeamNum", 3L)]);
+
+        // The control: a new class is a full update against zero, and inherits nothing.
+        read[2].State.Select(Named).ShouldBe([("m_iTeamNum", 1L)]);
+    }
+
+    private static (string Name, long Value) Named(DecodedProperty property) =>
+        (property.Definition.Property.Name, property.Value.AsInt);
 
     /// <summary>Encodes effects and reads them back through the same decoder.</summary>
     private static IReadOnlyList<DecodedTempEntity> RoundTrip(params DecodedTempEntity[] effects)

@@ -2779,7 +2779,7 @@ public sealed class DemoTimeline
     {
         int player = 0;
 
-        foreach (DecodedProperty property in effect.Properties)
+        foreach (DecodedProperty property in effect.State)
         {
             if (string.Equals(
                 property.Definition.Property.Name,

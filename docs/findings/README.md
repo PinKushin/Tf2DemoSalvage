@@ -193,6 +193,10 @@ in any public writeup found:
   hand-written emitters, not PCF. Their colour is a face's average light — `r_avglight` is 1 — times its texture's
   thumbnail, read out of three closed functions. On the way: every finished burst was being replayed every frame
   ([61](61-debris-is-the-old-particle-system.md)).
+- **An effect without a class is a delta.** Within one message, an effect that repeats the previous effect's class
+  sends only what differs from it. So a sentry's muzzle flash, sent right after its tracer, omits the sentry and the
+  attachment. Reading the wire list as the whole effect had given every such flash entity 0
+  ([62](62-an-effect-without-a-class-is-a-delta.md)).
 
 ## Conventions used throughout
 

@@ -53,7 +53,7 @@ public sealed class ShotFeed
         float spread = 0f;
         bool critical = false;
 
-        foreach (DecodedProperty property in effect.Properties)
+        foreach (DecodedProperty property in effect.State)
         {
             switch (property.Definition.Property.Name)
             {

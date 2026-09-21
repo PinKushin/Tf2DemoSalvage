@@ -137,14 +137,15 @@ public sealed class TracerProbe : IProbe
         }
 
         foreach (IGrouping<int, SceneEffectDispatch> struck in timeline.Dispatches.All
-                     .Where(one => timeline.Dispatches.Names.Name(one.Name) == "Impact")
-                     .GroupBy(one => one.Entity)
+                     .Where(one => timeline.Dispatches.Names.Name(one.Name) is "Impact" or "TF_3rdPersonMuzzleFlash_SentryGun" or "Tracer")
+                     .GroupBy(one => (one.Name << 16) | one.Entity)
                      .OrderByDescending(one => one.Count()))
         {
             SceneEffectDispatch first = struck.First();
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"  Impact entity {struck.Key,5} x{struck.Count(),4}; first tick {first.Tick} hitbox {first.HitBox} " +
+                $"  {timeline.Dispatches.Names.Name(first.Name)} entity {first.Entity,5} x{struck.Count(),4}; first tick {first.Tick} " +
+                $"flags {first.Flags} attachment {first.Attachment} scale {first.Scale} start ({first.Start.X:0},{first.Start.Y:0},{first.Start.Z:0}) hitbox {first.HitBox} " +
                 $"damage {first.DamageType} surfaceprop {first.SurfaceProp} at ({first.Origin.X:0},{first.Origin.Y:0},{first.Origin.Z:0})"));
         }
 
