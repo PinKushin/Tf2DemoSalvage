@@ -371,6 +371,10 @@ public static class ParticleSystems
                     RemapInitial(one, into, index);
                     break;
 
+                case "Position Along Path Random":
+                    AlongPath(one, into, index, points is { Count: > 0 } ? points : [point]);
+                    break;
+
                 case "move particles between 2 control points":
                     MoveBetween(one, into, index, ControlPoint(point, points, (int)one.Number("end control point", 1d)), seconds);
                     break;
@@ -630,6 +634,44 @@ public static class ParticleSystems
         into.Lifetime[index] = distance / (speed + Epsilon);
         into.Previous[index] = into.Position[index] - (delta * (speed / distance) * seconds);
     }
+
+    /// <summary>Places one new particle on a path — <c>Position Along Path Random</c>.</summary>
+    /// <remarks>
+    /// **`C_INIT_CreateAlongPath::InitNewParticlesScalar`, read out of `particles.lib`** (B396). Its path parameters are the
+    /// ones <see cref="PathConstraint.PathValues"/> reads, plus `maximum distance` (default 0):
+    ///
+    /// <code>
+    /// start, mid, end = CalculatePathValues( CREATION_TIME );  t = rand
+    /// XYZ = lerp( lerp( start, mid, t ), lerp( mid, end, t ), t ) + ( 2 · rand − 1 ) · maximum distance, per axis
+    /// PREV_XYZ = XYZ when no earlier initializer wrote it
+    /// </code>
+    ///
+    /// PREV_XYZ is always written here: an initializer listed after this one still overwrites it.
+    /// </remarks>
+    private static void AlongPath(
+        ParticleFunction one, ParticleStore into, int index, IReadOnlyList<ParticleControlPoint> points)
+    {
+        (Vector3 start, Vector3 mid, Vector3 end) = PathConstraint.PathValues(one, points);
+
+        int id = into.Id[index];
+        float t = ParticleRandom.Sample(id, AlongPathDraw);
+        float spread = (float)one.Number("maximum distance", 0d);
+
+        Vector3 a = start + ((mid - start) * t);
+        Vector3 b = mid + ((end - mid) * t);
+        Vector3 jitter = new(
+            (2f * spread * ParticleRandom.Sample(id, AlongPathDraw + 1)) - spread,
+            (2f * spread * ParticleRandom.Sample(id, AlongPathDraw + 2)) - spread,
+            (2f * spread * ParticleRandom.Sample(id, AlongPathDraw + 3)) - spread);
+
+        into.Position[index] = a + ((b - a) * t) + jitter;
+        into.Previous[index] = into.Position[index];
+    }
+
+    /// <summary>
+    /// Where <c>Position Along Path Random</c>'s four draws start — this entry and the three after it.
+    /// </summary>
+    public const int AlongPathDraw = 3328;
 
     /// <summary>Control point <paramref name="number"/>, or the origin when it is unset.</summary>
     private static ParticleControlPoint ControlPoint(

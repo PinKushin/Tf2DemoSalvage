@@ -96,6 +96,37 @@ public sealed class PathConstraintConformanceTests
         particles.PositionOf(0).Y.ShouldBe(0f, 1e-3f);
     }
 
+    [Test]
+    public void Spawn_PositionAlongPathRandom_PutsTheParticleOnTheCurveAtOneDraw()
+    {
+        // `C_INIT_CreateAlongPath::InitNewParticlesScalar`: one draw t, the Bézier at t, plus ( 2r − 1 ) · maximum distance
+        // per axis — here 0 — written to XYZ and PREV_XYZ, so the particle is placed and not launched.
+        ParticleStore particles = new();
+        Dictionary<string, DmxValue> parameters = Path(0.5f);
+
+        parameters["maximum distance"] = new DmxValue(DmxAttributeType.Real, Number: 0d);
+
+        ParticleSystems.Spawn(
+            new ParticleSystem(
+                "test",
+                [],
+                [new ParticleFunction("Position Along Path Random", "path", parameters)],
+                [],
+                [],
+                [],
+                new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+            particles,
+            Start,
+            lives: 1f,
+            seconds: 0.1f,
+            points: [Start, End]);
+
+        float t = ParticleRandom.Sample(0, ParticleSystems.AlongPathDraw);
+
+        particles.PositionOf(0).ShouldBe(new Vector3(100f * t, 0f, 0f));
+        particles.Previous[0].ShouldBe(particles.PositionOf(0));
+    }
+
     private static ParticleStore Particle(Vector3 at, float age)
     {
         ParticleStore particles = new();
