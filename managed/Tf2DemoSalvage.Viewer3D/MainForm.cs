@@ -28,6 +28,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 // `PlaybackClock`, and lists of `ScenePlayer` and `ScenePoint` to hand to the presenters that act
 // on them. It reasons about none of them.
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Logging;
 
@@ -1438,9 +1439,15 @@ internal class MainForm : Form, IFrameSteps
         // Indexed by the map's own tracer list, which goes with it.
         _tracerStarts.Clear();
 
-        // The decal pool is the map's; the device's copy goes with ClearWorld below.
+        // The decal pool is the map's; the device's copy goes with ClearWorld below. So are the impact effects and
+        // everything they read of the map.
         _decalReplay = null;
         _decalVersion = -1;
+        _decalWorld = null;
+        _surfaceColour = null;
+        _thumbnails.Clear();
+        _struckPlayers.Clear();
+        _impactEffects.Clear();
 
         // **Every system is told the level is going, in reverse registration order** — Valve's
         // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
@@ -4358,6 +4365,166 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The world's decals, replayed from the demo — built on the first frame of a map, dropped with it.</summary>
     private DecalReplay? _decalReplay;
 
+    /// <summary>The map as both engine walks see it — the decal walk and `R_LightVec` — built once per map.</summary>
+    private DecalWorld? _decalWorld;
+
+    /// <summary>`GetColorForSurface` over this map, built with the first impact effect that asks.</summary>
+    private SurfaceColour? _surfaceColour;
+
+    /// <summary>Each texdata's thumbnail, decoded the first time a colour asks for it.</summary>
+    private readonly Dictionary<int, SurfaceThumbnail?> _thumbnails = [];
+
+    /// <summary>The bullets a player was judged to stop, so the world's decal and effect skip them alike.</summary>
+    private readonly HashSet<(int Shot, int Bullet)> _struckPlayers = [];
+
+    /// <summary>The impact effects in flight.</summary>
+    private readonly ImpactEffectRunner _impactEffects = new();
+
+    /// <summary>The impacts in the effects' window this tick, reused.</summary>
+    private readonly List<(int Index, ShotImpact Impact)> _impactsNow = [];
+
+    /// <summary>How long an impact effect is offered: a fleck lives three seconds, which is 198 ticks.</summary>
+    private const int ImpactWindowTicks = 200;
+
+    private DecalWorld DecalWorldOf(LoadedMap loaded) =>
+        _decalWorld ??= loaded.Level.Leaves is { } tree && loaded.Level.LeafFaces is { } leafFaces
+            ? DecalWorld.From(tree, leafFaces, loaded.Level.Surfaces)
+            : DecalWorld.Empty;
+
+    /// <summary>Whether a player stopped this bullet — judged only on its own tick, and remembered.</summary>
+    /// <remarks>Recorded so an impact's decal and its effect agree, whichever asks first.</remarks>
+    private bool StruckPlayer(ShotImpact bullet, int tick)
+    {
+        if (_struckPlayers.Contains((bullet.Shot, bullet.Bullet)))
+        {
+            return true;
+        }
+
+        if (tick - bullet.Tick > 1 || StruckEnd(bullet).Struck is null)
+        {
+            return false;
+        }
+
+        _struckPlayers.Add((bullet.Shot, bullet.Bullet));
+
+        return true;
+    }
+
+    /// <summary>Starts and steps the debris, dust and sparks of every impact in the window (B415).</summary>
+    /// <remarks>
+    /// **Only where `Impact` returned true**, as `ImpactCallback` asks: a bullet with a decal on the world, not one a
+    /// player stopped. The surface's colour is asked only by the effects that tint.
+    /// </remarks>
+    private void StepImpactEffects(int tick)
+    {
+        if (_timeline is not { } timeline ||
+            _loaded is not { ImpactDecals: { } impacts, LightSamples: { } samples, Assets: { } assets } loaded)
+        {
+            return;
+        }
+
+        MapLevel level = loaded.Level;
+
+        TickWindow.Between(loaded.Impacts, static impact => impact.Tick, tick - ImpactWindowTicks, tick, _impactsNow);
+
+        _impactEffects.Advance(
+            _impactsNow,
+            tick,
+            timeline.IntervalPerTick,
+            (_, impact, random) =>
+            {
+                if (StruckPlayer(impact, tick) || impacts.For(impact) is null || impacts.Surface(impact) is not { } surface)
+                {
+                    return null;
+                }
+
+                Vector3 start = new(impact.Start.X, impact.Start.Y, impact.Start.Z);
+                Vector3 end = new(impact.End.X, impact.End.Y, impact.End.Z);
+
+                return ImpactEffects.Perform(
+                    surface.GameMaterial,
+                    surface.Flags,
+                    end,
+                    new Vector3(impact.Normal.X, impact.Normal.Y, impact.Normal.Z),
+                    Vector3.Normalize(end - start),
+                    () =>
+                    {
+                        (float r, float g, float b) = ColourOf(loaded, samples, assets).At(start, end);
+
+                        return new Vector3(r, g, b);
+                    },
+                    WorldTrace(level),
+                    random);
+            },
+            WorldTrace(level));
+    }
+
+    /// <summary>Each impact effect material's corners this frame, the lists reused.</summary>
+    private readonly Dictionary<string, List<DetailSpriteVertex>> _impactCorners = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The impact effects' quads added to the frame's particle batches, one per material.</summary>
+    /// <remarks>The corner lists are handed to the device and read by this frame's draw, before the next refill.</remarks>
+    private IReadOnlyList<ParticleBatch> WithImpactEffects(IReadOnlyList<ParticleBatch> batches, FreeCamera viewing)
+    {
+        if (_impactEffects.Count == 0 || _loaded?.Assets?.ParticleMaterials is not { } materials)
+        {
+            return batches;
+        }
+
+        foreach (List<DetailSpriteVertex> corners in _impactCorners.Values)
+        {
+            corners.Clear();
+        }
+
+        (float fx, float fy, float fz) = AngleVectors.Forward(viewing.Angles.Pitch, viewing.Angles.Yaw);
+        (float rx, float ry, float rz) = AngleVectors.Right(viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
+        (float ux, float uy, float uz) = AngleVectors.Up(viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
+
+        _impactEffects.Build(
+            new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
+            new Vector3(fx, fy, fz),
+            new Vector3(rx, ry, rz),
+            new Vector3(ux, uy, uz),
+            name => materials.TryGetValue(name, out ParticleMaterial material) ? material.Alpha : 1f,
+            _impactCorners);
+
+        List<ParticleBatch> all = [.. batches];
+
+        foreach ((string name, List<DetailSpriteVertex> corners) in _impactCorners)
+        {
+            if (corners.Count > 0 && materials.TryGetValue(name, out ParticleMaterial material))
+            {
+                all.Add(new ParticleBatch(corners, material));
+            }
+        }
+
+        return all;
+    }
+
+    /// <summary>The brushes-only world trace the legacy particles collide with — `MASK_SOLID_BRUSHONLY`.</summary>
+    private static Func<Vector3, Vector3, BspTrace> WorldTrace(MapLevel level) =>
+        level.Leaves is { } tree
+            ? (from, to) => tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, 0f)
+            : static (_, _) => new BspTrace(1f, -1, default, false);
+
+    private SurfaceColour ColourOf(LoadedMap loaded, BspLightSamples samples, MapAssets assets) =>
+        _surfaceColour ??= new SurfaceColour(DecalWorldOf(loaded), samples, texdata =>
+        {
+            if (!_thumbnails.TryGetValue(texdata, out SurfaceThumbnail? thumbnail))
+            {
+                thumbnail = texdata >= 0 && texdata < assets.Textures.Count &&
+                            assets.Textures[texdata] is { Thumbnail: { } small } texture
+                    ? new SurfaceThumbnail(
+                        small.Image.ToRgba(small.Width, small.Height), small.Width, small.Height,
+                        texture.MappingWidth, texture.MappingHeight)
+                    : null;
+
+                _thumbnails[texdata] = thumbnail;
+            }
+
+            return thumbnail;
+        });
+
     /// <summary>The pool version last uploaded, so an unchanged pool costs nothing.</summary>
     private int _decalVersion = -1;
 
@@ -4381,22 +4548,14 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        if (_decalReplay is null)
-        {
-            MapLevel level = loaded.Level;
-            DecalWorld world = level.Leaves is { } tree && level.LeafFaces is { } leafFaces
-                ? DecalWorld.From(tree, leafFaces, level.Surfaces)
-                : DecalWorld.Empty;
+        _decalReplay ??= new DecalReplay(
+            new WorldDecals(DecalWorldOf(loaded)),
+            loaded.Impacts,
+            timeline.Decals.All,
+            impacts.For,
+            index => timeline.Decals.Names.Name(index) is { } name ? impacts.Materials.Resolve(name) : null);
 
-            _decalReplay = new DecalReplay(
-                new WorldDecals(world),
-                loaded.Impacts,
-                timeline.Decals.All,
-                impacts.For,
-                index => timeline.Decals.Names.Name(index) is { } name ? impacts.Materials.Resolve(name) : null);
-        }
-
-        _decalReplay.AdvanceTo(tick, bullet => tick - bullet.Tick <= 1 && StruckEnd(bullet).Struck is not null);
+        _decalReplay.AdvanceTo(tick, bullet => StruckPlayer(bullet, tick));
 
         if (_decalReplay.Decals.Version == _decalVersion)
         {
@@ -4527,6 +4686,7 @@ internal class MainForm : Form, IFrameSteps
 
         // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
         StepDecals(_transport.CurrentTick);
+        StepImpactEffects(_transport.CurrentTick);
 
         IReadOnlyList<ParticleBatch> batches = [];
 
@@ -4657,6 +4817,8 @@ internal class MainForm : Form, IFrameSteps
                 batches = both;
             }
         }
+
+        batches = WithImpactEffects(batches, viewing);
 
         _device.SetParticles(batches);
     }

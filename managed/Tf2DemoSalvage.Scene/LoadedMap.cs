@@ -74,6 +74,9 @@ public sealed class LoadedMap
     /// <summary>What decal each impact leaves, or null for a map read without a demo.</summary>
     public ImpactDecals? ImpactDecals { get; private init; }
 
+    /// <summary>The map's raw lightmap data, which impact debris is tinted by; null for a map read without a demo.</summary>
+    public BspLightSamples? LightSamples { get; private init; }
+
     /// <summary>What went wrong loading the content, or null when nothing did.</summary>
     public string? Problem { get; }
 
@@ -135,6 +138,7 @@ public sealed class LoadedMap
         IReadOnlyList<ShotTracer> tracers = [];
         List<ShotImpact> impacts = [];
         ImpactDecals? impactDecals = null;
+        BspLightSamples? lightSamples = null;
         HashSet<string> decalMaterials = new(StringComparer.OrdinalIgnoreCase);
 
         if (timeline is not null)
@@ -157,6 +161,7 @@ public sealed class LoadedMap
             using (renderLog.Time("reading the decal system"))
             {
                 impactDecals = ImpactDecals.Load(bytes, game.Archives, game.Surfaces);
+                lightSamples = BspLightmaps.ReadSamples(bytes);
                 decalMaterials.UnionWith(impactDecals.Drawn());
 
                 foreach (SceneDecal decal in timeline.Decals.All)
@@ -270,6 +275,7 @@ public sealed class LoadedMap
                 Tracers = tracers,
                 Impacts = impacts,
                 ImpactDecals = impactDecals,
+                LightSamples = lightSamples,
             };
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
@@ -287,6 +293,7 @@ public sealed class LoadedMap
                 Tracers = tracers,
                 Impacts = impacts,
                 ImpactDecals = impactDecals,
+                LightSamples = lightSamples,
             };
         }
     }
