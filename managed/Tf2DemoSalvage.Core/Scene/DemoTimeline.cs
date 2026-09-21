@@ -1112,6 +1112,9 @@ public sealed class DemoTimeline
     /// <summary>Every `CTEEffectDispatch`, in fire order, and the table naming them (B415).</summary>
     public EffectDispatchFeed Dispatches { get; private init; } = new();
 
+    /// <summary>Every weapon muzzle flash, in tick order (B415).</summary>
+    public MuzzleFlashFeed MuzzleFlashes { get; private init; } = new();
+
     /// <summary>Every choreographed scene that started playing, in tick order (B351).</summary>
     /// <remarks>
     /// **A start rather than a per-tick state, for the reason <see cref="SceneChoreography"/>
@@ -1590,6 +1593,7 @@ public sealed class DemoTimeline
         // **Every explosion, from the same stream** (B415). A one-shot at a tick rather than a state at every
         // tick, so it is a list in fire order and not a per-frame sample — see `ExplosionFeed`.
         EffectFeeds feeds = new();
+        MuzzleFlashFeed muzzleFlashes = new();
 
         List<TimelineFrame> frames = [];
 
@@ -1991,6 +1995,19 @@ public sealed class DemoTimeline
                     entities.Apply(entity);
 
                     touchedEntities.Add(entity.EntityIndex);
+
+                    if (combatWeapons.Contains(entity.ClassId) &&
+                        entities.TryGet(entity.EntityIndex, out EntityState? weaponState))
+                    {
+                        muzzleFlashes.Observe(
+                            entity.EntityIndex,
+                            entity.UpdateType == EntityUpdateType.Enter,
+                            isWeapon: true,
+                            weaponState.Integer(MuzzleFlashFeed.ParityKey),
+                            weaponState.ItemDefinitionIndex(),
+                            weaponState.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
+                            command.Tick);
+                    }
 
                     // **Noticed here, where the cost is proportional to what the demo said**
                     // (B265). An entity is a viewmodel for its whole life, so this asks once per
@@ -2587,6 +2604,7 @@ public sealed class DemoTimeline
             Decals = feeds.Decals,
             Blood = feeds.Blood,
             Dispatches = feeds.Dispatches,
+            MuzzleFlashes = muzzleFlashes,
             Scenes = choreography,
             ServerConVars = serverConVars,
             MapCrc = mapCrc,

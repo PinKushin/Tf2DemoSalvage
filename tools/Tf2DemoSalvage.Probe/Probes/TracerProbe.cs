@@ -162,6 +162,18 @@ public sealed class TracerProbe : IProbe
                 $"colours {first.CustomColours} cp1 {first.HasControlPoint1}"));
         }
 
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture, $"{timeline.MuzzleFlashes.All.Count} weapon muzzle flashes"));
+
+        foreach (IGrouping<int?, SceneMuzzleFlash> item in timeline.MuzzleFlashes.All
+                     .GroupBy(one => one.Item)
+                     .OrderByDescending(one => one.Count())
+                     .Take(12))
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"  item {item.Key,6} x{item.Count(),5}; first tick {item.First().Tick} weapon {item.First().Weapon}"));
+        }
+
         foreach (SceneBlood blood in timeline.Blood.All.Take(shown))
         {
             // 120 units out along the normal — towards the shooter — looking back at the hit.
