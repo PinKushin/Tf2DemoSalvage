@@ -62,6 +62,9 @@ public sealed class ParticleEffects
     /// <summary>How many effects are running.</summary>
     public int Count => _running.Count;
 
+    /// <summary>The sheet each system's material carries, for `Lifetime From Sequence`; null before a map's materials load.</summary>
+    public Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? Sheets { get; set; }
+
     /// <summary>How many one-shots are running.</summary>
     public int BurstCount => _bursts.Count;
 
@@ -151,7 +154,7 @@ public sealed class ParticleEffects
 
             if (!_running.TryGetValue(entity, out ParticleEffect? effect))
             {
-                effect = new ParticleEffect(definition, others);
+                effect = new ParticleEffect(definition, others, Sheets);
                 _running[entity] = effect;
             }
 
@@ -292,7 +295,7 @@ public sealed class ParticleEffects
             // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
             if (!_bursts.TryGetValue(burst.Key, out RunningBurst running) || running.Stepped > wanted)
             {
-                running = new RunningBurst(new ParticleEffect(burst.Definition, others), 0);
+                running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets), 0);
 
                 if (burst.End is { } end)
                 {

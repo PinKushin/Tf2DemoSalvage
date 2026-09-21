@@ -1687,6 +1687,15 @@ internal class MainForm : Form, IFrameSteps
             // and the content is a nullable beside them.
             _loaded = map;
 
+            // A collection's `m_Sheet` is its material's, which `Lifetime From Sequence` reads at birth; null for a
+            // material with none, as the engine's pointer is.
+            _particles.Sheets = map.Assets?.ParticleMaterials is { } sheetsFrom
+                ? system => sheetsFrom.TryGetValue(ParticleEffects.MaterialOf(system), out ParticleMaterial material) &&
+                            material.Sequences.Count > 0
+                    ? material.Sequences
+                    : null
+                : null;
+
             // **The chase camera clips against the world, and this is where it gets one.** Valve
             // traces a twelve-unit hull from the target to the camera and pulls the camera in to
             // whatever it hits (`hltvcamera.cpp`, and see `ChaseCamera`). Null until a map is open,

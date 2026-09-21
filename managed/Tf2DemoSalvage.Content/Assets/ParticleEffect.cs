@@ -45,6 +45,9 @@ public sealed class ParticleEffect
     /// <summary>The operators this run can apply, by name.</summary>
     private readonly IReadOnlyDictionary<string, IParticleOperator> _operators;
 
+    /// <summary>The sheet this system's material carries, or null.</summary>
+    private readonly IReadOnlyList<SheetSequence>? _sheet;
+
     /// <summary>The fraction of a particle owed from previous steps.</summary>
     private float _owed;
 
@@ -158,6 +161,10 @@ public sealed class ParticleEffect
     /// Every system that could be a child, by name, or null for an instance with none. A child is
     /// referred to BY NAME and may live in another file, so the caller resolves rather than this.
     /// </param>
+    /// <param name="sheets">
+    /// The sheet each system's material carries — the collection's `m_Sheet`, which `Lifetime From Sequence` reads — or
+    /// null when none is to hand.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="system"/> is null.</exception>
     /// <remarks>
     /// **A child that cannot be resolved is skipped rather than throwing**, because a `.pcf` names
@@ -168,12 +175,15 @@ public sealed class ParticleEffect
     /// recurse until the stack ran out, at load, on a file this project does not control.
     /// </remarks>
     public ParticleEffect(
-        ParticleSystem system, IReadOnlyDictionary<string, ParticleSystem>? others = null)
+        ParticleSystem system,
+        IReadOnlyDictionary<string, ParticleSystem>? others = null,
+        Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets = null)
     {
         ArgumentNullException.ThrowIfNull(system);
 
         System = system;
         _operators = ParticleOperators.All();
+        _sheet = sheets?.Invoke(system);
 
         List<ParticleEffect> children = [];
 
@@ -183,7 +193,7 @@ public sealed class ParticleEffect
                 !string.Equals(named, system.Name, StringComparison.OrdinalIgnoreCase) &&
                 others.TryGetValue(named, out ParticleSystem? child))
             {
-                children.Add(new ParticleEffect(child, Without(others, system.Name)));
+                children.Add(new ParticleEffect(child, Without(others, system.Name), sheets));
             }
         }
 
@@ -346,7 +356,7 @@ public sealed class ParticleEffect
             {
                 _owed -= 1f;
 
-                if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds, _points) < 0)
+                if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds, _points, _sheet) < 0)
                 {
                     // At `max_particles`. Dropping the owed fraction too, because a system at its
                     // cap has not banked a debt — it simply did not emit.
@@ -408,7 +418,7 @@ public sealed class ParticleEffect
 
         while (born < allowed && owed > 0)
         {
-            if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds, _points) < 0)
+            if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds, _points, _sheet) < 0)
             {
                 // At `max_particles`: a system at its cap has not banked a debt, it simply did not emit.
                 owed = 0;

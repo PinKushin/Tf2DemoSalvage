@@ -151,6 +151,7 @@ public static class ParticleSystems
     /// <paramref name="point"/> — a tracer's end is control point 1. Null or short means the rest are unset, and an
     /// unset point is the origin, as a collection's are before anything sets them.
     /// </param>
+    /// <param name="sheet">The sheet the system's material carries — the collection's `m_Sheet` — or null for none.</param>
     /// <returns>Its index, or -1 when the system is already at <c>max_particles</c>.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -174,7 +175,8 @@ public static class ParticleSystems
         ParticleControlPoint point,
         float lives,
         float seconds,
-        IReadOnlyList<ParticleControlPoint>? points = null)
+        IReadOnlyList<ParticleControlPoint>? points = null,
+        IReadOnlyList<SheetSequence>? sheet = null)
     {
         ArgumentNullException.ThrowIfNull(system);
         ArgumentNullException.ThrowIfNull(into);
@@ -338,6 +340,22 @@ public static class ParticleSystems
                     Offset(one, into, index, ControlPoint(point, points, (int)one.Number(ControlPointNumber, 0d)));
                     break;
 
+                // **`C_INIT_SequenceLifeTime`, read out of `particles.lib`**: when "Frames Per Second" (default 30) is not
+                // zero and the material carries a sheet, the life is the sequence's frame span over that rate, or 1 when
+                // the span is zero. It reads `SEQUENCE_NUMBER` as it stands when it runs, so a `Sequence Random` listed
+                // after it has not drawn yet.
+                case "Lifetime From Sequence":
+                    float rate = (float)one.Number("Frames Per Second", 30d);
+
+                    if (rate != 0f && sheet is not null)
+                    {
+                        float span = SpanOf(sheet, into.Sequence[index]);
+
+                        into.Lifetime[index] = span != 0f ? span / rate : 1f;
+                    }
+
+                    break;
+
                 case "move particles between 2 control points":
                     MoveBetween(one, into, index, ControlPoint(point, points, (int)one.Number("end control point", 1d)), seconds);
                     break;
@@ -348,6 +366,20 @@ public static class ParticleSystems
         }
 
         return index;
+    }
+
+    /// <summary>`m_flFrameSpan[ sequence ]`: the sequence's total time, zero for one the sheet does not declare.</summary>
+    private static float SpanOf(IReadOnlyList<SheetSequence> sheet, int sequence)
+    {
+        foreach (SheetSequence one in sheet)
+        {
+            if (one.Id == sequence)
+            {
+                return one.TotalTime;
+            }
+        }
+
+        return 0f;
     }
 
     /// <summary>Places and launches one particle — <c>Position Within Sphere Random</c>.</summary>
