@@ -189,6 +189,10 @@ in any public writeup found:
   a texture with no `$surfaceprop` impacts as surface zero rather than nothing. The first holes sat in dark squares
   because the engine's mod2x multiplies gamma values and this renderer blends linear ones
   ([60](60-a-bullet-hole-is-a-translated-name.md)).
+- **Debris is the old particle system.** `cl_new_impact_effects` defaults to 0, so dust, flecks and sparks are the
+  hand-written emitters, not PCF. Their colour is a face's average light — `r_avglight` is 1 — times its texture's
+  thumbnail, read out of three closed functions. On the way: every finished burst was being replayed every frame
+  ([61](61-debris-is-the-old-particle-system.md)).
 
 ## Conventions used throughout
 

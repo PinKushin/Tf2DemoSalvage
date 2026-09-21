@@ -27245,8 +27245,38 @@ it once the mod2x blend was corrected.
 - **`r_decals` is the default, 2048**, not read from the viewer's config.
 - **For the performance pass, unverified:** a backward seek clears and re-shoots every impact up to the tick — sixteen
   thousand on f12 at the end of the match. Not measured.
-- **The effects half of `Impact` is not built**: `PerformCustomEffects` (debris, sparks, dust), the impact and
-  ricochet sounds, and `FX_AffectRagdolls`.
+- ~~**The effects half of `Impact` is not built**~~ **Built 2026-09-21, the particles**: see below. The impact and
+  ricochet sounds, and `FX_AffectRagdolls`, are not.
+
+**Built 2026-09-21: the legacy impact effects** (`docs/findings/61`). `cl_new_impact_effects` is `"0"` and no shipped
+config sets it, so `PerformCustomEffects` takes its legacy branch: `FX_DebrisFlecks` for concrete, tile and wood,
+`FX_DustImpact` for dirt and sand, `FX_MetalSpark` and its glow quad for metal and vent, `FX_ElectricSpark` for
+computers. Ported with their emitters (`CSimpleEmitter`, `CDustParticle`, `CFleckParticles`, `CTrailParticles`) and
+`CParticleCollision`; tinted by `GetColorForSurface`, whose three closed pieces were read in `engine.dll` and
+`materialsystem.dll`; stepped per tick by `ImpactEffectRunner`. **Looked at**: `impact1.png`, a grey puff and tan
+flecks at shot 4's hole.
+
+**Built the same day: blood** — `CTETFBlood`'s `blood_impact_red_01` and `blood_spray_red_01`/`_far`, the spray turned
+against the view as `TFBloodSprayCallback` turns it. **Looked at**: `blood4.png`, a red splat at the hit.
+
+**Fixed on the way — read in the code, not measured:** `ParticleEffects.Retire` dropped every finished burst while its
+caller still offered it, so every finished tracer and explosion in the 120- and 200-tick windows was rebuilt and
+replayed from its own tick on every frame. The item above filed as "for the performance pass, unverified" is this.
+
+**What the impact effects and blood still leave out:**
+
+- **Stepped per tick, not per frame.** The engine steps by frame time; stepping by ticks is what makes a seek land
+  on the same picture. A bounce or a decay reached in unequal steps differs slightly.
+- **Draws are seeded, not the engine's stream**, as for decals.
+- **`CFleckParticles` merging is not built**: a fleck emitter within 120 units of an older one joins it and re-runs
+  the older one's collision setup at the new impact.
+- **`GetColorForSurface` is partial**: displacements and static props in `R_LightVec`'s walk, light styles beyond
+  their level-start 264, water surfaces, and a hit on no face (the engine's base colour is then an uninitialised
+  local; zero here).
+- **Blood**: the underwater, birthday, Pyrovision and low-violence variants; dormancy — every event is taken as live.
+- **Not established**: the tan flecks on the blue wall at shot 4 — right if that wall is a concrete material under
+  paint, which was not read. And at blood 34 no player model stands where the blood is: entity 2 is the demo's own
+  player, and whether the free camera should draw it there is not read.
 
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
