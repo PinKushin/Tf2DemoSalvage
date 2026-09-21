@@ -60,6 +60,33 @@ public sealed class EffectDispatchFeedConformanceTests
     }
 
     [Test]
+    public void Record_CustomColoursAndControlPointOne_AreReadWithTheirFlags()
+    {
+        // `ParticleEffectCallback` reads both only behind their flags (`c_particle_system.cpp:247`, `:253`).
+        EffectDispatchFeed feed = new();
+
+        feed.Record(
+            EffectDispatchFeed.EventClassName,
+            Effect(
+                Int("m_bCustomColors", 1),
+                Vector("m_CustomColors.m_vecColor1", (1f, 0.5f, 0f)),
+                Vector("m_CustomColors.m_vecColor2", (0f, 0.25f, 1f)),
+                Int("m_bControlPoint1", 1),
+                Float("m_ControlPoint1.m_vecOffset[0]", 10f),
+                Float("m_ControlPoint1.m_vecOffset[1]", 20f),
+                Float("m_ControlPoint1.m_vecOffset[2]", 30f)),
+            2);
+
+        SceneEffectDispatch dispatch = feed.All[0];
+
+        dispatch.CustomColours.ShouldBeTrue();
+        dispatch.ColourOne.ShouldBe((1f, 0.5f, 0f));
+        dispatch.ColourTwo.ShouldBe((0f, 0.25f, 1f));
+        dispatch.HasControlPoint1.ShouldBeTrue();
+        dispatch.ControlPoint1.ShouldBe((10f, 20f, 30f));
+    }
+
+    [Test]
     public void Record_AnotherClass_IsNotADispatch()
     {
         new EffectDispatchFeed().Record("CTETFBlood", Effect(), 1).ShouldBeFalse();
@@ -73,6 +100,9 @@ public sealed class EffectDispatchFeedConformanceTests
 
     private static DecodedProperty Float(string name, float value) =>
         Declared(name, SendPropType.Float, PropertyValue.FromFloat(value));
+
+    private static DecodedProperty Vector(string name, (float X, float Y, float Z) value) =>
+        Declared(name, SendPropType.Vector, PropertyValue.FromVector(value.X, value.Y, value.Z));
 
     private static DecodedProperty Declared(string name, SendPropType type, PropertyValue value) =>
         new(

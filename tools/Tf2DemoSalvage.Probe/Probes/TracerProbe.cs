@@ -149,6 +149,19 @@ public sealed class TracerProbe : IProbe
                 $"damage {first.DamageType} surfaceprop {first.SurfaceProp} at ({first.Origin.X:0},{first.Origin.Y:0},{first.Origin.Z:0})"));
         }
 
+        foreach (IGrouping<(string?, int, int), SceneEffectDispatch> particle in timeline.Dispatches.All
+                     .Where(one => timeline.Dispatches.Names.Name(one.Name) == "ParticleEffect")
+                     .GroupBy(one => (timeline.Dispatches.ParticleNames.Name(one.HitBox), one.Flags, one.DamageType))
+                     .OrderByDescending(one => one.Count()))
+        {
+            SceneEffectDispatch first = particle.First();
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  particle {particle.Key.Item1 ?? "(index " + first.HitBox + ")",-36} flags {particle.Key.Item2} attach {particle.Key.Item3} " +
+                $"x{particle.Count(),5}; first tick {first.Tick} entity {first.Entity} attachment {first.Attachment} " +
+                $"colours {first.CustomColours} cp1 {first.HasControlPoint1}"));
+        }
+
         foreach (SceneBlood blood in timeline.Blood.All.Take(shown))
         {
             // 120 units out along the normal — towards the shooter — looking back at the hit.

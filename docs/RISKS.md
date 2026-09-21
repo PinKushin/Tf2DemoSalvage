@@ -27296,6 +27296,36 @@ impact does. **The other 233 on f12 hit players** (entities 2–13, surfaceprop 
 so they draw nothing yet. Sentry muzzle flashes, `Tracer` dispatches, `ParticleEffect` dispatches and
 `TFBoltImpact` are still not drawn.
 
+**Built 2026-09-21, three more dispatches.**
+
+- **Sentry muzzle flashes** (`TF_3rdPersonMuzzleFlashCallback_SentryGun`). Level 1 draws `muzzle_sentry`,
+  2 and 3 draw `muzzle_sentry2`, and the flash follows its barrel.
+- **`"Tracer"`** (`TracerCallback` → `FX_Tracer` → `CFXDiscreetLine` with `tracer_extra` 1). Its
+  start is the attachment, read once. The server's `m_vStart` is the multiplayer sentinel
+  (999, 999, 999).
+- **`"ParticleEffect"`** (`ParticleEffectCallback`). The system name is `m_nHitBox` read into the
+  `ParticleEffectNames` table. A `PATTACH_POINT_FOLLOW` effect is given its attachment's pose every
+  frame. On f12 this is 1,272 `rocketjump_smoke`, 32 `xms_ornament_smash_red` and 5
+  `xms_ornament_glitter`.
+
+**Looked at:** a flash at the sentry's barrel, and a thin streak leaving it.
+
+**Not drawn, measured:** `rocketjump_smoke`. It is placed on both feet (logged `placed`), but nothing
+shows. Its flame child comes out 0.08 units wide through the production burst. The system uses four
+particle operators that are not implemented: `Remap Scalar`, `Movement Lock to Control Point`,
+`Rotation Spin Roll` and `Lifetime From Sequence`. Their code is only in `particles.lib`.
+
+**Also not built:** these dispatch features, none of which f12 uses:
+
+- the origin and root-bone attach types;
+- a following effect's `m_vStart` offset;
+- `PARTICLE_DISPATCH_RESET_PARTICLES`;
+- custom colours;
+- Pyrovision.
+
+**Also true after a seek:** a following effect replays its missed ticks at the attachment's current
+pose, so a still frame shows a clump where playback shows a trail.
+
 **Not established:** whether the engine's client also starts a full update from zero through
 `RecvTable_DecodeZeros`. The world-impact argument above requires it, but the engine's temp-entity parse was
 not read; the Ghidra engine project was locked.

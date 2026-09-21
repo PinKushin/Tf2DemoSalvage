@@ -21,6 +21,11 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="HitBox">`m_nHitBox`.</param>
 /// <param name="Entity">`entindex` through `RecvProxy_EntIndex`; 0, the world, unless sent.</param>
 /// <param name="Colour">`m_nColor`.</param>
+/// <param name="CustomColours">`m_bCustomColors`: whether <paramref name="ColourOne"/> and <paramref name="ColourTwo"/> apply.</param>
+/// <param name="ColourOne">`m_CustomColors.m_vecColor1`, 0 to 1.</param>
+/// <param name="ColourTwo">`m_CustomColors.m_vecColor2`, 0 to 1.</param>
+/// <param name="HasControlPoint1">`m_bControlPoint1`: whether <paramref name="ControlPoint1"/> applies.</param>
+/// <param name="ControlPoint1">`m_ControlPoint1.m_vecOffset`, which `ParticleEffectCallback` sets as control point 1.</param>
 public readonly record struct SceneEffectDispatch(
     int Tick,
     int Name,
@@ -36,7 +41,12 @@ public readonly record struct SceneEffectDispatch(
     int DamageType,
     int HitBox,
     int Entity,
-    int Colour);
+    int Colour,
+    bool CustomColours = false,
+    (float X, float Y, float Z) ColourOne = default,
+    (float X, float Y, float Z) ColourTwo = default,
+    bool HasControlPoint1 = false,
+    (float X, float Y, float Z) ControlPoint1 = default);
 
 /// <summary>Every `CTEEffectDispatch` a demo carries, in fire order, and the table naming them (B415).</summary>
 /// <remarks>
@@ -61,6 +71,12 @@ public sealed class EffectDispatchFeed
 
     /// <summary>The <c>EffectDispatch</c> table: an effect's name by its index.</summary>
     public NameTable Names { get; } = new();
+
+    /// <summary>The string table a <c>"ParticleEffect"</c> dispatch's `m_nHitBox` points into.</summary>
+    public const string ParticleTableName = "ParticleEffectNames";
+
+    /// <summary>The <c>ParticleEffectNames</c> table — `GetParticleSystemNameFromIndex`.</summary>
+    public NameTable ParticleNames { get; } = new();
 
     /// <summary>Takes one decoded temp entity if it is an effect dispatch.</summary>
     /// <param name="className">The class the effect's id resolved to.</param>
@@ -107,6 +123,11 @@ public sealed class EffectDispatchFeed
         private int _hitBox;
         private int _entity;
         private int _colour;
+        private bool _customColours;
+        private (float X, float Y, float Z) _colourOne;
+        private (float X, float Y, float Z) _colourTwo;
+        private bool _hasControlPoint1;
+        private (float X, float Y, float Z) _controlPoint1;
 
         public void Read(string name, PropertyValue value)
         {
@@ -130,12 +151,20 @@ public sealed class EffectDispatchFeed
                 case "m_nHitBox": _hitBox = (int)value.AsInt; break;
                 case "entindex": _entity = Math.Max(-1, (int)value.AsInt); break;
                 case "m_nColor": _colour = (int)value.AsInt; break;
+                case "m_bCustomColors": _customColours = value.AsInt != 0; break;
+                case "m_CustomColors.m_vecColor1": _colourOne = value.AsVector; break;
+                case "m_CustomColors.m_vecColor2": _colourTwo = value.AsVector; break;
+                case "m_bControlPoint1": _hasControlPoint1 = value.AsInt != 0; break;
+                case "m_ControlPoint1.m_vecOffset[0]": _controlPoint1.X = value.AsFloat; break;
+                case "m_ControlPoint1.m_vecOffset[1]": _controlPoint1.Y = value.AsFloat; break;
+                case "m_ControlPoint1.m_vecOffset[2]": _controlPoint1.Z = value.AsFloat; break;
                 default: break;
             }
         }
 
         public readonly SceneEffectDispatch At(int tick) =>
             new(tick, _name, _origin, _start, _normal, _angles, _flags, _scale, _attachment, _surfaceProp, _material,
-                _damageType, _hitBox, _entity, _colour);
+                _damageType, _hitBox, _entity, _colour, _customColours, _colourOne, _colourTwo, _hasControlPoint1,
+                _controlPoint1);
     }
 }

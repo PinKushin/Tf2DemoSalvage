@@ -240,6 +240,11 @@ public sealed class LoadedMap
                             .. tracers.Select(static tracer => tracer.Effect).Distinct(StringComparer.OrdinalIgnoreCase),
                             .. BloodEffects.Systems,
                             .. SentryMuzzleFlash.Systems,
+                            .. timeline.Dispatches.All
+                                .Where(dispatch => timeline.Dispatches.Names.Name(dispatch.Name) == "ParticleEffect")
+                                .Select(dispatch => timeline.Dispatches.ParticleNames.Name(dispatch.HitBox))
+                                .OfType<string>()
+                                .Distinct(StringComparer.OrdinalIgnoreCase),
                         ],
 
                     // **A factory rather than finished geometry, because the atlas is packed inside

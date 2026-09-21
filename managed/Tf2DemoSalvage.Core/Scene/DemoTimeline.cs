@@ -1945,6 +1945,16 @@ public sealed class DemoTimeline
                         feeds.Dispatches.Names.Apply(effectUpdate.Entries);
                         continue;
 
+                    // **The particle system names**, which a `"ParticleEffect"` dispatch's `m_nHitBox` points into.
+                    case CreateStringTableMessage { Name: EffectDispatchFeed.ParticleTableName } particleTable:
+                        feeds.Dispatches.ParticleNames.Apply(particleTable.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage particleUpdate
+                        when state.StringTableName(particleUpdate.TableId) == EffectDispatchFeed.ParticleTableName:
+                        feeds.Dispatches.ParticleNames.Apply(particleUpdate.Entries);
+                        continue;
+
                     case UpdateStringTableMessage update
                         when state.StringTableName(update.TableId) == ModelPrecache.TableName:
                         precache.Apply(update.Entries);

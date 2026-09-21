@@ -1450,6 +1450,7 @@ internal class MainForm : Form, IFrameSteps
         _impactEffects.Clear();
         _bloodBursts.Clear();
         _tracerLines.Clear();
+        _particleDispatchPoints.Clear();
 
         // **Every system is told the level is going, in reverse registration order** — Valve's
         // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
@@ -4254,6 +4255,7 @@ internal class MainForm : Form, IFrameSteps
         AddTracers(tick, systems);
         AddBlood(timeline, tick, systems, viewing);
         AddSentryMuzzleFlashes(timeline, tick, systems);
+        AddParticleDispatches(timeline, tick, systems);
 
         _particles.Bursts(
             _burstsNow,
@@ -4773,6 +4775,144 @@ internal class MainForm : Form, IFrameSteps
 
             _burstsNow.Add(new ParticleBurst(MuzzleFlashKeys + index, definition, barrel, dispatch.Tick));
         }
+    }
+
+    /// <summary>Dispatched particle keys sit above the muzzle flashes'.</summary>
+    private const long ParticleDispatchKeys = 4L << 32;
+
+    /// <summary>How long a dispatched particle effect is offered and followed — ten seconds.</summary>
+    /// <remarks>Nothing on the client stops `rocketjump_smoke`; it ends when its own definition does.</remarks>
+    private const int ParticleDispatchWindowTicks = 660;
+
+    /// <summary>`PARTICLE_DISPATCH_FROM_ENTITY`.</summary>
+    private const int DispatchFromEntity = 1 << 0;
+
+    /// <summary>`PATTACH_CUSTOMORIGIN`, `PATTACH_POINT` and `PATTACH_POINT_FOLLOW`.</summary>
+    private const int AttachCustomOrigin = 2, AttachPoint = 3, AttachPointFollow = 4;
+
+    /// <summary>Every effect dispatch in the particle window this tick, reused.</summary>
+    private readonly List<(int Index, SceneEffectDispatch Dispatch)> _particleDispatchesNow = [];
+
+    /// <summary>The dispatches already logged, so each is reported once.</summary>
+    private readonly HashSet<int> _loggedDispatches = [];
+
+    /// <summary>Where each non-following dispatched effect was created, fixed at first sight.</summary>
+    private readonly Dictionary<int, ParticleControlPoint> _particleDispatchPoints = [];
+
+    /// <summary>Adds every `"ParticleEffect"` dispatch in the window — `ParticleEffectCallback` (B415).</summary>
+    /// <remarks>
+    /// <code>
+    /// // c_particle_system.cpp:181
+    /// name = GetParticleSystemNameFromIndex( m_nHitBox )
+    /// if FROM_ENTITY:  entity non-dormant → ParticleProp()->Create( name, (attach) m_nDamageType, m_nAttachmentIndex, offset )
+    ///                  CUSTOMORIGIN: control point 0 = m_vOrigin, 1 = m_vStart, 0 oriented by m_vAngles
+    /// else:            Create( name ): control point 0 = m_vOrigin, 1 = m_vStart, 0 oriented by m_vAngles
+    /// m_bControlPoint1 → control point 1 = m_ControlPoint1.m_vecOffset
+    /// </code>
+    /// **A following effect is offered its attachment's pose every frame**, which is `PATTACH_POINT_FOLLOW`. An entity
+    /// not posed here starts nothing, standing in for the dormancy refusal. **Not built**, and absent from f12's 1,309:
+    /// the origin and root-bone attach types, a following effect's `m_vStart` offset, `PARTICLE_DISPATCH_RESET_PARTICLES`,
+    /// custom colours, and the Pyrovision translation.
+    /// </remarks>
+    private void AddParticleDispatches(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        TickWindow.Between(
+            timeline.Dispatches.All, static dispatch => dispatch.Tick, tick - ParticleDispatchWindowTicks, tick, _particleDispatchesNow);
+
+        foreach ((int index, SceneEffectDispatch dispatch) in _particleDispatchesNow)
+        {
+            if (!string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ParticleEffect", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string? name = timeline.Dispatches.ParticleNames.Name(dispatch.HitBox);
+            ParticleSystem? definition = name is null ? null : systems.GetValueOrDefault(name);
+            ParticleControlPoint? point = definition is null ? null : DispatchedPoint(index, dispatch);
+
+            // Once unplaced and once placed: the first frame after a load or seek comes before any pose pass.
+            if (_renderLog.IsEnabled(LogLevel.Debug) && _loggedDispatches.Add((index * 2) + (point is null ? 0 : 1)))
+            {
+                string posed = _models.IsPosed(dispatch.Entity) ? " (posed)" : " (not posed)";
+
+                _renderLog.LogDebug(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"particle dispatch {index} at tick {dispatch.Tick}: {name ?? "(unnamed " + dispatch.HitBox + ")"} " +
+                        $"{(definition is null ? "NO DEFINITION" : "loaded")}, entity {dispatch.Entity} attach " +
+                        $"{dispatch.DamageType} point {dispatch.Attachment}: " +
+                        $"{(point is null ? "NOT PLACED" + posed : "placed")}"));
+            }
+
+            if (definition is null || point is not { } at)
+            {
+                continue;
+            }
+
+            _burstsNow.Add(new ParticleBurst(ParticleDispatchKeys + index, definition, at, dispatch.Tick, DispatchedEnd(dispatch)));
+        }
+    }
+
+    /// <summary>Control point 1 of a dispatched effect: `m_ControlPoint1` when sent, else `m_vStart` where the callback sets it.</summary>
+    private static ParticleControlPoint? DispatchedEnd(SceneEffectDispatch dispatch)
+    {
+        if (dispatch.HasControlPoint1)
+        {
+            return ParticleControlPoint.Unoriented(
+                new Vector3(dispatch.ControlPoint1.X, dispatch.ControlPoint1.Y, dispatch.ControlPoint1.Z));
+        }
+
+        return (dispatch.Flags & DispatchFromEntity) == 0 || dispatch.DamageType == AttachCustomOrigin
+            ? ParticleControlPoint.Unoriented(new Vector3(dispatch.Start.X, dispatch.Start.Y, dispatch.Start.Z))
+            : null;
+    }
+
+    /// <summary>Control point 0 of a dispatched effect, or null when the callback would create nothing here.</summary>
+    private ParticleControlPoint? DispatchedPoint(int index, SceneEffectDispatch dispatch)
+    {
+        bool fromEntity = (dispatch.Flags & DispatchFromEntity) != 0;
+
+        if (fromEntity && dispatch.DamageType == AttachPointFollow)
+        {
+            return _models.AttachmentPoint(dispatch.Entity, dispatch.Attachment);
+        }
+
+        if (_particleDispatchPoints.TryGetValue(index, out ParticleControlPoint fixedPoint))
+        {
+            return fixedPoint;
+        }
+
+        ParticleControlPoint? point;
+
+        if (!fromEntity || dispatch.DamageType == AttachCustomOrigin)
+        {
+            if (fromEntity && !_models.IsPosed(dispatch.Entity))
+            {
+                return null;
+            }
+
+            (float fx, float fy, float fz) = AngleVectors.Forward(dispatch.Angles.X, dispatch.Angles.Y);
+            (float rx, float ry, float rz) = AngleVectors.Right(dispatch.Angles.X, dispatch.Angles.Y, dispatch.Angles.Z);
+            (float ux, float uy, float uz) = AngleVectors.Up(dispatch.Angles.X, dispatch.Angles.Y, dispatch.Angles.Z);
+
+            point = new ParticleControlPoint(
+                new Vector3(dispatch.Origin.X, dispatch.Origin.Y, dispatch.Origin.Z),
+                new Vector3(fx, fy, fz),
+                new Vector3(rx, ry, rz),
+                new Vector3(ux, uy, uz));
+        }
+        else
+        {
+            point = dispatch.DamageType == AttachPoint ? _models.AttachmentPoint(dispatch.Entity, dispatch.Attachment) : null;
+        }
+
+        if (point is { } found)
+        {
+            _particleDispatchPoints[index] = found;
+        }
+
+        return point;
     }
 
     /// <summary>`MASK_SOLID | CONTENTS_HITBOX`, what `FireBullet` traces with.</summary>
