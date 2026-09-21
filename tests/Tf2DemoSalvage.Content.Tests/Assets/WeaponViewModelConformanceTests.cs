@@ -88,21 +88,21 @@ public sealed class WeaponViewModelConformanceTests
 
             foreach (string candidate in WeaponScriptName.Candidates(serverClass, playerClass))
             {
-                if (Script(read, "scripts/" + candidate) is not { } script)
+                if (WeaponScript.Read(read, candidate) is not { } script)
                 {
                     continue;
                 }
 
                 foundScript = true;
 
-                model = ScriptKeyValue.First(script, ViewModelKey);
+                model = script.Value(ViewModelKey);
 
                 // **Read from the raw text too, because the value is not quoted and a reader
                 // looking for one walks straight past it.** `ScriptKeyValue.First` takes the next
                 // quoted token, which here is the NEXT KEY — it answered 'playermodel' for the
                 // scattergun. That is the shape of a silent wrong answer, and it is why this test
                 // looks at the bytes as well.
-                string text = System.Text.Encoding.UTF8.GetString(script);
+                string text = System.Text.Encoding.UTF8.GetString(script.Text.Span);
                 int at = text.IndexOf(
                     '"' + ViewModelKey + '"', StringComparison.OrdinalIgnoreCase);
 
@@ -161,23 +161,6 @@ public sealed class WeaponViewModelConformanceTests
 
         // A positive control: an empty list satisfies every assertion above vacuously.
         resolved.Count.ShouldBe(serverClasses.Length);
-    }
-
-    /// <summary>Reads a weapon script, plain or ICE-encrypted, as the engine does.</summary>
-    /// <remarks>
-    /// Plain text first and then the encrypted form, which is <c>ReadEncryptedKVFile</c>'s own
-    /// order — a loose <c>.txt</c> is how a mod overrides a weapon.
-    /// </remarks>
-    private static byte[]? Script(Func<string, byte[]?> read, string name)
-    {
-        if (read(name + ".txt") is { } plain)
-        {
-            return plain;
-        }
-
-        return read(name + ".ctx") is { } encrypted
-            ? new IceCipher(WeaponRoles.EncryptionKey).DecryptAll(encrypted)
-            : null;
     }
 
     /// <summary>Opens files out of the game's archives, or null when it is not installed.</summary>

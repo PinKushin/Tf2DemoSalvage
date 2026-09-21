@@ -27,9 +27,6 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// </remarks>
 public sealed class WeaponRoles
 {
-    /// <summary>Valve's own, <c>GetTFEncryptionKey</c>, <c>tf_shareddefs.cpp:1616</c>.</summary>
-    internal static readonly byte[] EncryptionKey = "E2NcUkG2"u8.ToArray();
-
     /// <summary>
     /// The <c>WeaponType</c> strings and the activity suffix each one names.
     /// </summary>
@@ -76,7 +73,6 @@ public sealed class WeaponRoles
         ArgumentNullException.ThrowIfNull(serverClasses);
 
         WeaponRoles roles = new();
-        IceCipher cipher = new(EncryptionKey);
 
         foreach ((string serverClass, int? playerClass) in serverClasses)
         {
@@ -89,23 +85,15 @@ public sealed class WeaponRoles
 
             foreach (string candidate in WeaponScriptName.Candidates(serverClass, playerClass))
             {
-                string name = "scripts/" + candidate;
-
                 // Plain text first and then the encrypted form, which is the engine's own order in
-                // ReadEncryptedKVFile — a loose .txt is how a mod overrides a weapon.
-                byte[]? script = readFile(name + ".txt");
-
-                if (script is null && readFile(name + ".ctx") is { } encrypted)
-                {
-                    script = cipher.DecryptAll(encrypted);
-                }
-
-                if (script is null)
+                // ReadEncryptedKVFile — a loose .txt is how a mod overrides a weapon. WeaponScript owns
+                // that order and the cipher key, since the explosion effects read the same files (B415).
+                if (WeaponScript.Read(readFile, candidate) is not { } script)
                 {
                     continue;
                 }
 
-                if (ScriptKeyValue.First(script, "WeaponType") is { } type &&
+                if (script.Value("WeaponType") is { } type &&
                     Suffixes.TryGetValue(type, out string? suffix))
                 {
                     roles._byServerClass[key] = suffix;
