@@ -2026,7 +2026,9 @@ public sealed class DemoTimeline
                                 EntityState.Slot(weaponState.Integer(HealBeamFeed.TargetKey)),
                                 weaponState.Integer(HealBeamFeed.ChargeReleaseKey) is 1,
                                 weaponState.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
-                                command.Tick);
+                                command.Tick,
+                                weaponState.ItemDefinitionIndex(),
+                                weaponState.Owner());
                         }
 
                         muzzleFlashes.Observe(

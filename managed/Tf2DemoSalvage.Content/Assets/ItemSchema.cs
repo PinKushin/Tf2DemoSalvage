@@ -277,6 +277,7 @@ public sealed class ItemSchema
         bool inVisuals = false;
         bool inAttached = false;
         bool inBodygroups = false;
+        bool inCustomParticle = false;
         bool attachedIsFestive = false;
         string attachedModel = string.Empty;
         int attachedFlags = AttachedModel.MaskAll;
@@ -360,6 +361,7 @@ public sealed class ItemSchema
                     }
 
                     inAttached = false;
+                    inCustomParticle = false;
 
                     // The two definition-attribute forms open here; every other depth-3 key closes
                     // both, so a stray pair after the block cannot be swallowed into it.
@@ -441,6 +443,16 @@ public sealed class ItemSchema
                     inBodygroups =
                         key.Equals("player_bodygroups", StringComparison.OrdinalIgnoreCase);
 
+                    inCustomParticle =
+                        key.Equals(CustomParticleKey, StringComparison.OrdinalIgnoreCase);
+
+                    break;
+
+                // **`custom_particlesystem { system … }`**, `iCustomType` 1 (`econ_item_schema.cpp:2533`): the system a
+                // medigun adds beside its beam. Kept per block like the flat keys above.
+                case 5 when entry is not null && inCustomParticle && value is not null
+                    && key.Equals("system", StringComparison.OrdinalIgnoreCase):
+                    entry.WeaponSounds[visualsTeam + "/" + CustomParticleKey] = value;
                     break;
 
                 // **`"hat" "1"` — a body part's name and the state to put it in.** The engine reads
@@ -1277,6 +1289,18 @@ public sealed class ItemSchema
     /// <param name="team">The weapon's team.</param>
     /// <returns>The system the item names in place of its script's, or null when it names none.</returns>
     public string? MuzzleFlash(int definitionIndex, int team) => Visual(definitionIndex, team, "muzzle_flash");
+
+    /// <summary>
+    /// The system an item's `custom_particlesystem` names, or null — the `iCustomType == 1` attached particle
+    /// `CWeaponMedigun::UpdateEffects` creates beside its beam (`tf_weapon_medigun.cpp:2469`).
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The weapon's team.</param>
+    /// <returns>The system, such as <c>medicgun_beam_attrib_overheal_red</c>.</returns>
+    public string? CustomParticle(int definitionIndex, int team) => Visual(definitionIndex, team, CustomParticleKey);
+
+    /// <summary>The visuals block naming an item's custom particle.</summary>
+    private const string CustomParticleKey = "custom_particlesystem";
 
     /// <summary>An item's weapon class — `item_class`, such as <c>tf_weapon_scattergun</c> — or null.</summary>
     /// <param name="definitionIndex">The item.</param>

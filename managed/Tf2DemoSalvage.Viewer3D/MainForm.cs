@@ -4891,8 +4891,10 @@ internal class MainForm : Form, IFrameSteps
                 continue;
             }
 
-            string name = (beam.Team == RedTeam ? "medicgun_beam_red" : "medicgun_beam_blue") +
-                          (beam.ChargeRelease ? "_invun" : string.Empty);
+            // `bHealTargetMarker && pFiringPlayer == pLocalPlayer`: only the recording medic's own beam, and only when
+            // the config asks. A SourceTV recording's local player is never a medic.
+            bool targeted = _settings.HealTargetMarker && beam.Owner is { } medic && medic == timeline.RecorderEntityIndex;
+            string name = HealBeamFeed.EffectName(beam.Team, beam.ChargeRelease, targeted);
 
             if (!systems.TryGetValue(name, out ParticleSystem? definition) ||
                 _models.AttachmentPoint(beam.Medigun, "muzzle") is not { } muzzle)
@@ -4919,18 +4921,19 @@ internal class MainForm : Form, IFrameSteps
                 _healBeamFrom[index] = from;
             }
 
-            _burstsNow.Add(new ParticleBurst(
-                HealBeamKeys + index,
-                definition,
-                muzzle,
-                from,
-                ParticleControlPoint.Unoriented(target + new Vector3(0f, 0f, 50f)),
-                beam.End));
+            ParticleControlPoint patient = ParticleControlPoint.Unoriented(target + new Vector3(0f, 0f, 50f));
+
+            _burstsNow.Add(new ParticleBurst(HealBeamKeys + (2L * index), definition, muzzle, from, patient, beam.End));
+
+            // The item's `custom_particlesystem`, created beside the beam on the same two points (`:2469-2479`).
+            if (beam.Item is { } item &&
+                _game?.Weapons.Items?.CustomParticle(item, beam.Team) is { } custom &&
+                systems.TryGetValue(custom, out ParticleSystem? added))
+            {
+                _burstsNow.Add(new ParticleBurst(HealBeamKeys + (2L * index) + 1, added, muzzle, from, patient, beam.End));
+            }
         }
     }
-
-    /// <summary>`TF_TEAM_RED`.</summary>
-    private const int RedTeam = 2;
 
     /// <summary>Weapon muzzle flash keys sit above the dispatched particles'; two a flash, the muzzle and the backblast.</summary>
     private const long WeaponFlashKeys = 5L << 32;

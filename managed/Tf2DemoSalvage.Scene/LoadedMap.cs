@@ -87,6 +87,30 @@ public sealed class LoadedMap
     /// </remarks>
     public (float Lowest, float Highest)? HeightRange { get; private set; }
 
+    /// <summary>Every medigun beam system the demo's beams can ask for — all six variants, and each item's custom one.</summary>
+    private static HashSet<string> HealBeamSystems(GameContent game, DemoTimeline? timeline)
+    {
+        HashSet<string> used = new(StringComparer.OrdinalIgnoreCase);
+
+        if (timeline is null)
+        {
+            return used;
+        }
+
+        foreach (SceneHealBeam beam in timeline.HealBeams.All)
+        {
+            used.Add(HealBeamFeed.EffectName(beam.Team, beam.ChargeRelease, targeted: false));
+            used.Add(HealBeamFeed.EffectName(beam.Team, beam.ChargeRelease, targeted: true));
+
+            if (beam.Item is { } item && game.Weapons.Items?.CustomParticle(item, beam.Team) is { } custom)
+            {
+                used.Add(custom);
+            }
+        }
+
+        return used;
+    }
+
     /// <summary>Every particle system a weapon muzzle flash in the demo starts, and the rocket launchers' backblast.</summary>
     private static HashSet<string> WeaponMuzzleSystems(GameContent game, DemoTimeline? timeline)
     {
@@ -277,7 +301,7 @@ public sealed class LoadedMap
                             .. tracers.Select(static tracer => tracer.Effect).Distinct(StringComparer.OrdinalIgnoreCase),
                             .. BloodEffects.Systems,
                             .. SentryMuzzleFlash.Systems,
-                            "medicgun_beam_red", "medicgun_beam_blue", "medicgun_beam_red_invun", "medicgun_beam_blue_invun",
+                            .. HealBeamSystems(game, timeline),
                             .. WeaponMuzzleSystems(game, timeline),
                             .. timeline.Dispatches.All
                                 .Where(dispatch => timeline.Dispatches.Names.Name(dispatch.Name) == "ParticleEffect")

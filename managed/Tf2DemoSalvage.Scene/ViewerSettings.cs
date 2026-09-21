@@ -315,6 +315,9 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string PhongCommand = "mat_phong";
 
+    /// <summary>The convar that swaps the local medic's beam for its `_targeted` variant.</summary>
+    public const string HealTargetMarkerCommand = "hud_medichealtargetmarker";
+
     /// <summary>The narrowest the viewmodel field of view may be — <c>view.cpp:111</c>.</summary>
     /// <remarks>
     /// **The FIRST of four bounds, and using the wrong pair was a real defect.** `viewmodel_fov` is
@@ -635,6 +638,12 @@ public sealed record ViewerSettings
     /// </remarks>
     public bool Phong { get; init; } = true;
 
+    /// <summary>
+    /// Whether the local medic's beam is the `_targeted` one — <c>hud_medichealtargetmarker</c>, default <c>"0"</c>
+    /// (`tf_weapon_medigun.cpp:205`), read by `CWeaponMedigun::UpdateEffects` for the local player's own beam only.
+    /// </summary>
+    public bool HealTargetMarker { get; init; }
+
     /// <summary>The world field of view, in degrees.</summary>
     /// <remarks>
     /// **Settable because the game lets a player set it, which is the whole rule** (D69,
@@ -805,6 +814,11 @@ public sealed record ViewerSettings
         if (Read(values, PhongCommand) is { } phong)
         {
             settings = settings with { Phong = phong != 0 };
+        }
+
+        if (Read(values, HealTargetMarkerCommand) is { } marker)
+        {
+            settings = settings with { HealTargetMarker = marker != 0 };
         }
 
         // **Both names, and the demo one wins, which is the engine's own precedence.** A config

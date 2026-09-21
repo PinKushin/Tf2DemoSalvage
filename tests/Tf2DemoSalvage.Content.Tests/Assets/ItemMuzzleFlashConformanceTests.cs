@@ -48,6 +48,17 @@ public sealed class ItemMuzzleFlashConformanceTests
         Read().ItemClass(803).ShouldBe("tf_weapon_scattergun");
     }
 
+    [Test]
+    public void CustomParticle_ATeamBlocksCustomParticleSystem_IsItsSystem()
+    {
+        // `custom_particlesystem { "system" … }` is `iCustomType` 1 (`econ_item_schema.cpp:2533`), per team block.
+        ItemSchema schema = Read();
+
+        schema.CustomParticle(804, Red).ShouldBe("overheal_red");
+        schema.CustomParticle(804, Blu).ShouldBe("overheal_blue");
+        schema.CustomParticle(800, Red).ShouldBeNull();
+    }
+
     private static ItemSchema Read() => ItemSchema.Read(Encoding.UTF8.GetBytes(Schema));
 
     private const string Schema = """
@@ -94,6 +105,23 @@ public sealed class ItemMuzzleFlashConformanceTests
                 "803"
                 {
                     "prefab" "a_scattergun"
+                }
+                "804"
+                {
+                    "visuals_red"
+                    {
+                        "custom_particlesystem"
+                        {
+                            "system" "overheal_red"
+                        }
+                    }
+                    "visuals_blu"
+                    {
+                        "custom_particlesystem"
+                        {
+                            "system" "overheal_blue"
+                        }
+                    }
                 }
             }
         }
