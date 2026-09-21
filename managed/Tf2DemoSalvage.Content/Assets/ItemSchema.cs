@@ -404,6 +404,13 @@ public sealed class ItemSchema
                     entry.WeaponSounds[visualsTeam + "/" + key["sound_".Length..]] = value;
                     break;
 
+                // `muzzle_flash` and `tracer_effect` (`econ_item_schema.cpp:2623`), per block for the same reason.
+                case 4 when entry is not null && inVisuals && value is not null
+                    && (key.Equals("muzzle_flash", StringComparison.OrdinalIgnoreCase) ||
+                        key.Equals("tracer_effect", StringComparison.OrdinalIgnoreCase)):
+                    entry.WeaponSounds[visualsTeam + "/" + key] = value;
+                    break;
+
                 // `static_attrs` is flat: the pair IS the attribute.
                 case 4 when entry is not null && inStaticAttrs && value is not null:
                     entry.DefinitionAttributes.Add((key, value));
@@ -1260,8 +1267,30 @@ public sealed class ItemSchema
     /// </remarks>
     public string? WeaponSoundReplacement(int definitionIndex, int team, int weaponSound)
     {
-        if (weaponSound < 0 || weaponSound >= WeaponSoundCategories.Length ||
-            !_items.TryGetValue(definitionIndex, out Entry? item))
+        return weaponSound < 0 || weaponSound >= WeaponSoundCategories.Length
+            ? null
+            : Visual(definitionIndex, team, WeaponSoundCategories[weaponSound]);
+    }
+
+    /// <summary>An item's muzzle flash particle system, or null — `CEconItemDefinition::GetMuzzleFlash( team )`.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The weapon's team.</param>
+    /// <returns>The system the item names in place of its script's, or null when it names none.</returns>
+    public string? MuzzleFlash(int definitionIndex, int team) => Visual(definitionIndex, team, "muzzle_flash");
+
+    /// <summary>An item's weapon class — `item_class`, such as <c>tf_weapon_scattergun</c> — or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The class, which is also its weapon script's name.</returns>
+    public string? ItemClass(int definitionIndex) => Inherited(definitionIndex, entry => entry.ItemClass);
+
+    /// <summary>One key from the visuals block `GetBestVisualTeamData` chooses for a team, prefabs included.</summary>
+    /// <remarks>
+    /// A team with its own `visuals_red`/`visuals_blu` uses that block alone; any other team the base `visuals`; an item
+    /// with no base block answers nothing.
+    /// </remarks>
+    private string? Visual(int definitionIndex, int team, string key)
+    {
+        if (!_items.TryGetValue(definitionIndex, out Entry? item))
         {
             return null;
         }
@@ -1284,7 +1313,7 @@ public sealed class ItemSchema
             return null;
         }
 
-        string wanted = section + "/" + WeaponSoundCategories[weaponSound];
+        string wanted = section + "/" + key;
 
         return Search(item, entry => entry.WeaponSounds.GetValueOrDefault(wanted), LongestChain);
     }
