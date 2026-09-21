@@ -769,7 +769,8 @@ public sealed class BspLeafTree
             ref hit,
             0);
 
-        return new BspTrace(hit.Fraction, hit.Texinfo, (hit.NormalX, hit.NormalY, hit.NormalZ), hit.AllSolid);
+        return new BspTrace(
+            hit.Fraction, hit.Texinfo, (hit.NormalX, hit.NormalY, hit.NormalZ), hit.AllSolid, hit.Distance);
     }
 
     /// <summary>Where a sweep has got to, and the side it struck.</summary>
@@ -781,6 +782,7 @@ public sealed class BspLeafTree
         public float NormalX;
         public float NormalY;
         public float NormalZ;
+        public float Distance;
         public bool AllSolid;
     }
 
@@ -1046,6 +1048,7 @@ public sealed class BspLeafTree
         float leaves = 1f;
         int leadTexinfo = -1;
         (float X, float Y, float Z) leadNormal = default;
+        float leadDistance = 0f;
 
         // Whether the sweep begins outside the brush at all. A sweep that starts inside every plane
         // is already embedded, which is a different answer from hitting a surface on the way.
@@ -1073,10 +1076,10 @@ public sealed class BspLeafTree
             float normalX = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
             float normalY = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
             float normalZ = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
-            float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+            float planeDistance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
 
             // The box pushed into the plane, so a swept box becomes a swept point.
-            distance += halfExtent *
+            float distance = planeDistance + halfExtent *
                 (MathF.Abs(normalX) + MathF.Abs(normalY) + MathF.Abs(normalZ));
 
             float start = (normalX * fromX) + (normalY * fromY) + (normalZ * fromZ) - distance;
@@ -1122,6 +1125,7 @@ public sealed class BspLeafTree
                     enters = crossing;
                     leadTexinfo = BinaryPrimitives.ReadInt16LittleEndian(brushSides[(sideAt + 2)..]);
                     leadNormal = (normalX, normalY, normalZ);
+                    leadDistance = planeDistance;
                 }
             }
             else
@@ -1150,6 +1154,7 @@ public sealed class BspLeafTree
             hit.Fraction = enters;
             hit.Texinfo = leadTexinfo;
             (hit.NormalX, hit.NormalY, hit.NormalZ) = leadNormal;
+            hit.Distance = leadDistance;
         }
     }
 
@@ -1348,4 +1353,6 @@ public sealed class BspLeafTree
 /// <param name="Texinfo">`surface`: the struck brush side's texinfo, or −1.</param>
 /// <param name="Normal">`plane.normal` of the side it entered through; zero when nothing was struck.</param>
 /// <param name="AllSolid">`allsolid`: it began and ended inside one brush.</param>
-public readonly record struct BspTrace(float Fraction, int Texinfo, (float X, float Y, float Z) Normal, bool AllSolid);
+/// <param name="Distance">`plane.dist` of that side's plane.</param>
+public readonly record struct BspTrace(
+    float Fraction, int Texinfo, (float X, float Y, float Z) Normal, bool AllSolid, float Distance = 0f);
