@@ -322,9 +322,13 @@ public sealed class ParticleStore
     public void Tick(float seconds)
     {
         Age += seconds;
+        PreviousStep = LastStep;
         LastStep = seconds;
         Steps++;
     }
+
+    /// <summary>The step before the last — the collection's `m_flPreviousDt`, which the integrator scales by; zero before a second step.</summary>
+    public float PreviousStep { get; private set; }
 
     /// <summary>How many steps the clock has taken, which keys a draw the engine makes afresh every frame.</summary>
     public int Steps { get; private set; }

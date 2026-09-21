@@ -1452,6 +1452,7 @@ internal class MainForm : Form, IFrameSteps
         _bloodBursts.Clear();
         _tracerLines.Clear();
         _particleDispatchPoints.Clear();
+        _healBeamFrom.Clear();
 
         // **Every system is told the level is going, in reverse registration order** — Valve's
         // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
@@ -4267,6 +4268,7 @@ internal class MainForm : Form, IFrameSteps
         AddSentryMuzzleFlashes(timeline, tick, systems);
         AddParticleDispatches(timeline, tick, systems);
         AddWeaponMuzzleFlashes(timeline, tick, systems);
+        AddHealBeams(timeline, tick, systems);
 
         _particles.Bursts(
             _burstsNow,
@@ -4842,6 +4844,93 @@ internal class MainForm : Form, IFrameSteps
             _burstsNow.Add(new ParticleBurst(MuzzleFlashKeys + index, definition, barrel, dispatch.Tick));
         }
     }
+
+    /// <summary>Medigun beam keys sit above the TF particle effects'.</summary>
+    private const long HealBeamKeys = 7L << 32;
+
+    /// <summary>How long a stopped beam is still offered, fading — two seconds, past its particles' lives.</summary>
+    private const int HealBeamFadeTicks = 132;
+
+    /// <summary>The tick each beam was first stepped from, fixed at first sight so a seek does not replay minutes of it.</summary>
+    private readonly Dictionary<int, int> _healBeamFrom = [];
+
+    /// <summary>The tick <see cref="AddHealBeams"/> last ran at, so a backward seek can forget <see cref="_healBeamFrom"/>.</summary>
+    private int _healBeamTick = int.MinValue;
+
+    /// <summary>Every player's position this tick by entity, filled only while a beam needs one.</summary>
+    private readonly Dictionary<int, Vector3> _playersNow = [];
+
+    /// <summary>Draws every medigun beam at this tick — `CWeaponMedigun::UpdateEffects` (B396).</summary>
+    /// <remarks>
+    /// Control point 0 follows the medigun's `muzzle`; control point 1 the target's origin plus 50 up
+    /// (`PATTACH_ABSORIGIN_FOLLOW`, offset `( 0, 0, 50 )`), both read every frame. A stopped beam fades.
+    /// **A seek into a beam replays at most two seconds of it**, from where it was first met: the beam's own particles
+    /// live well under that, so the picture is the same as replaying from its start. *Not built:* the revive marker's
+    /// `healbeam`, the local medic's `_targeted` beam, the item's custom beam particle, a building target, and a beam on
+    /// a medigun not posed here (a first-person medic's is on the viewmodel).
+    /// </remarks>
+    private void AddHealBeams(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        IReadOnlyList<SceneHealBeam> beams = timeline.HealBeams.All;
+
+        if (tick < _healBeamTick)
+        {
+            _healBeamFrom.Clear();
+        }
+
+        _healBeamTick = tick;
+        _playersNow.Clear();
+
+        // ponytail: a scan over every beam, 1,211 on f12; an interval index if a demo ever carries far more.
+        for (int index = 0; index < beams.Count; index++)
+        {
+            SceneHealBeam beam = beams[index];
+
+            if (beam.Start > tick || (beam.End is { } end && tick >= end + HealBeamFadeTicks))
+            {
+                continue;
+            }
+
+            string name = (beam.Team == RedTeam ? "medicgun_beam_red" : "medicgun_beam_blue") +
+                          (beam.ChargeRelease ? "_invun" : string.Empty);
+
+            if (!systems.TryGetValue(name, out ParticleSystem? definition) ||
+                _models.AttachmentPoint(beam.Medigun, "muzzle") is not { } muzzle)
+            {
+                continue;
+            }
+
+            if (_playersNow.Count == 0)
+            {
+                foreach (ScenePlayer player in timeline.PlayersAt(tick))
+                {
+                    _playersNow[player.EntityIndex] = new Vector3(player.X, player.Y, player.Z);
+                }
+            }
+
+            if (!_playersNow.TryGetValue(beam.Target, out Vector3 target))
+            {
+                continue;
+            }
+
+            if (!_healBeamFrom.TryGetValue(index, out int from))
+            {
+                from = Math.Max(beam.Start, tick - HealBeamFadeTicks);
+                _healBeamFrom[index] = from;
+            }
+
+            _burstsNow.Add(new ParticleBurst(
+                HealBeamKeys + index,
+                definition,
+                muzzle,
+                from,
+                ParticleControlPoint.Unoriented(target + new Vector3(0f, 0f, 50f)),
+                beam.End));
+        }
+    }
+
+    /// <summary>`TF_TEAM_RED`.</summary>
+    private const int RedTeam = 2;
 
     /// <summary>Weapon muzzle flash keys sit above the dispatched particles'; two a flash, the muzzle and the backblast.</summary>
     private const long WeaponFlashKeys = 5L << 32;

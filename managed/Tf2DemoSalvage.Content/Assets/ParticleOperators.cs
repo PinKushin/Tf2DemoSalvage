@@ -97,10 +97,20 @@ public static class ParticleOperators
 ///
 /// **`drag` and `gravity` are the declared parameters**, measured on `rockettrail.pcf`:
 /// `Movement Basic` there declares `drag 0` and a `gravity` vector, and omits nothing else that
-/// this reads. *Interpolated:* that drag scales the inherited step linearly.
+/// this reads.
+///
+/// **How drag scales the step was read out of `particles.lib`** (`C_OP_BasicMovement::Operate`, B396), and it
+/// REPLACED a reading this class carried as *interpolated* — `( 1 − drag )` per step. The engine's is
+/// `exp( ln( 1 − drag ) · 29.999998 · dt ) · dt / prevDt`: drag is lost per thirtieth of a second, whatever the step,
+/// so at 66 ticks a second and drag 0.1 a particle keeps 0.953 of its step, not 0.9. Drag 0, which is the rocket
+/// trail's, is unchanged. **The same operator then applies the system's constraints**, which
+/// <see cref="ParticleEffect"/> does after it. *Not built:* force generators (`C_OP_*Force`).
 /// </remarks>
 public sealed class MovementBasic : IParticleOperator
 {
+    /// <summary>`0x41efffff`: drag is a fraction lost per thirtieth of a second.</summary>
+    private const float DragPerSecond = 29.999998f;
+
     /// <inheritdoc/>
     public string Named => "Movement Basic";
 
@@ -111,12 +121,20 @@ public sealed class MovementBasic : IParticleOperator
         ArgumentNullException.ThrowIfNull(parameters);
 
         Vector4 gravity = parameters.Vector("gravity", default);
-        float drag = (float)parameters.Number("drag", 0d);
+        float drag = MathF.Max(0f, (float)parameters.Number("drag", 0d));
+
+        // `C_OP_BasicMovement::Operate`: the fraction carried is `exp( ln( 1 − drag ) · 29.999998 · dt ) · dt / prevDt`.
+        float carry = MathF.Exp(MathF.Log(1f - drag) * DragPerSecond * seconds);
+
+        if (particles.PreviousStep > 0f)
+        {
+            carry *= seconds / particles.PreviousStep;
+        }
 
         for (int index = 0; index < particles.Count; index++)
         {
             Vector3 position = particles.Position[index];
-            Vector3 carried = (position - particles.Previous[index]) * (1f - drag);
+            Vector3 carried = (position - particles.Previous[index]) * carry;
 
             Vector3 next = position + carried +
                 (new Vector3(gravity.X, gravity.Y, gravity.Z) * seconds * seconds);
@@ -334,7 +352,7 @@ public sealed class RemapScalar : IParticleOperator
             return;
         }
 
-        if (((1 << output) & ClampedOutputs) != 0)
+        if (ClampsOutput(output))
         {
             outputMinimum = Math.Clamp(outputMinimum, 0f, 1f);
             outputMaximum = Math.Clamp(outputMaximum, 0f, 1f);
@@ -352,7 +370,7 @@ public sealed class RemapScalar : IParticleOperator
     }
 
     /// <summary>The line from the input bounds to the output bounds, clamped; a step when the input bounds meet.</summary>
-    private static float Target(float value, float inputMinimum, float inputMaximum, float outputMinimum, float outputMaximum)
+    internal static float Target(float value, float inputMinimum, float inputMaximum, float outputMinimum, float outputMaximum)
     {
         // Equal bounds are the engine's own `==`: no division, a step at the bound.
 #pragma warning disable S1244 // Floating point numbers should not be tested for equality — the engine's own comparison
@@ -367,8 +385,11 @@ public sealed class RemapScalar : IParticleOperator
         return outputMinimum + (along * (outputMaximum - outputMinimum));
     }
 
+    /// <summary>Whether an output field's bounds are clamped to [0, 1] — `ALPHA` and `ALPHA2`.</summary>
+    internal static bool ClampsOutput(int field) => field is >= 0 and <= 31 && ((1 << field) & ClampedOutputs) != 0;
+
     /// <summary>The stream an output field names, or null for one the store does not hold.</summary>
-    private static float[]? Written(ParticleStore particles, int field) => field switch
+    internal static float[]? Written(ParticleStore particles, int field) => field switch
     {
         Radius => particles.Radius,
         Rotation => particles.Rotation,
@@ -378,7 +399,7 @@ public sealed class RemapScalar : IParticleOperator
     };
 
     /// <summary>One particle's value of an input field, or null for one the store does not hold.</summary>
-    private static float? Read(ParticleStore particles, int field, int index) => field switch
+    internal static float? Read(ParticleStore particles, int field, int index) => field switch
     {
         LifeDuration => particles.Lifetime[index],
         CreationTime => particles.Born[index],

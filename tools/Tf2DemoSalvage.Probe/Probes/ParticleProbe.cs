@@ -48,6 +48,7 @@ public sealed class ParticleProbe : IProbe
             ("emitter", system.Emitters),
             ("initializer", system.Initializers),
             ("operator", system.Operators),
+            ("constraint", system.Constraints),
             ("renderer", system.Renderers),
         ];
 

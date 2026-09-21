@@ -1115,6 +1115,12 @@ public sealed class DemoTimeline
     /// <summary>Every weapon muzzle flash, in tick order (B415).</summary>
     public MuzzleFlashFeed MuzzleFlashes { get; private init; } = new();
 
+    /// <summary>Every medigun beam, in the order they started (B396).</summary>
+    public HealBeamFeed HealBeams { get; private init; } = new();
+
+    /// <summary>The medigun's server class — every medigun item is one, the Kritzkrieg and Quick-Fix included.</summary>
+    private const string MedigunClass = "CWeaponMedigun";
+
     /// <summary>Every `CTETFParticleEffect`, as its `"ParticleEffect"` dispatch, in fire order (B415).</summary>
     public TfParticleEffectFeed TfParticleEffects { get; private init; } = new();
 
@@ -1600,6 +1606,7 @@ public sealed class DemoTimeline
         // tick, so it is a list in fire order and not a per-frame sample — see `ExplosionFeed`.
         EffectFeeds feeds = new();
         MuzzleFlashFeed muzzleFlashes = new();
+        HealBeamFeed healBeams = new();
 
         List<TimelineFrame> frames = [];
 
@@ -2002,9 +2009,26 @@ public sealed class DemoTimeline
 
                     touchedEntities.Add(entity.EntityIndex);
 
+                    if (entity.UpdateType is EntityUpdateType.Leave or EntityUpdateType.Delete)
+                    {
+                        healBeams.Leave(entity.EntityIndex, command.Tick);
+                    }
+
                     if (combatWeapons.Contains(entity.ClassId) &&
                         entities.TryGet(entity.EntityIndex, out EntityState? weaponState))
                     {
+                        if (entity.UpdateType is not (EntityUpdateType.Leave or EntityUpdateType.Delete) &&
+                            string.Equals(weaponState.ClassName, MedigunClass, StringComparison.Ordinal))
+                        {
+                            healBeams.Observe(
+                                entity.EntityIndex,
+                                entity.UpdateType == EntityUpdateType.Enter,
+                                EntityState.Slot(weaponState.Integer(HealBeamFeed.TargetKey)),
+                                weaponState.Integer(HealBeamFeed.ChargeReleaseKey) is 1,
+                                weaponState.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
+                                command.Tick);
+                        }
+
                         muzzleFlashes.Observe(
                             entity.EntityIndex,
                             entity.UpdateType == EntityUpdateType.Enter,
@@ -2611,6 +2635,7 @@ public sealed class DemoTimeline
             Blood = feeds.Blood,
             Dispatches = feeds.Dispatches,
             MuzzleFlashes = muzzleFlashes,
+            HealBeams = healBeams,
             TfParticleEffects = feeds.TfParticleEffects,
             Sparks = feeds.Sparks,
             Scenes = choreography,

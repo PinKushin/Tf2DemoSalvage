@@ -62,6 +62,26 @@ public sealed class ParticleOperatorConformanceTests
     }
 
     [Test]
+    public void MovementBasic_WithDrag_CarriesTheEnginesTimeScaledFraction()
+    {
+        // `C_OP_BasicMovement::Operate` (particles.lib): the step carried is `exp( ln( 1 − drag ) · 29.999998 · dt )`,
+        // times `dt / prevDt` — drag is a fraction lost per thirtieth of a second, not per step. At 66 ticks a second
+        // and drag 0.1 that carries 0.9533, where `1 − drag` would carry 0.9.
+        ParticleStore particles = new();
+
+        particles.Add(new Vector3(1f, 0f, 0f), lives: 10f);
+
+        Dictionary<string, DmxValue> drag = new(StringComparer.Ordinal)
+        {
+            ["drag"] = new DmxValue(DmxAttributeType.Real, Number: 0.1d),
+        };
+
+        Step(particles, "Movement Basic", drag, seconds: 1f / 66f, previous: Vector3.Zero);
+
+        particles.PositionOf(0).X.ShouldBe(1f + MathF.Exp(MathF.Log(0.9f) * 29.999998f / 66f), 1e-5d);
+    }
+
+    [Test]
     public void LifespanDecay_AParticlePastItsDuration_IsRemovedAndAYoungerOneIsNot()
     {
         // The control is the second particle: an operator that removed everything would pass a

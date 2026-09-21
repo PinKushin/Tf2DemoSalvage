@@ -192,6 +192,11 @@ public sealed class TracerProbe : IProbe
                 $"dir ({first.Direction.X:0.##},{first.Direction.Y:0.##},{first.Direction.Z:0.##}) magnitude {first.Magnitude} trail {first.TrailLength}"));
         }
 
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{timeline.HealBeams.All.Count} medigun beams, {timeline.HealBeams.All.Count(one => one.ChargeRelease)} charged; " +
+            $"first {(timeline.HealBeams.All.Count > 0 ? timeline.HealBeams.All[0].ToString() : "none")}"));
+
         foreach (SceneBlood blood in timeline.Blood.All.Take(shown))
         {
             // 120 units out along the normal — towards the shooter — looking back at the hit.

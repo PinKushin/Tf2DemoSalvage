@@ -288,6 +288,11 @@ public sealed class ParticleEffect
             if (_operators.TryGetValue(one.Function, out IParticleOperator? run))
             {
                 run.Operate(Particles, one, seconds);
+
+                if (run is MovementBasic)
+                {
+                    ApplyConstraints(one, at);
+                }
             }
             else if (string.Equals(one.Function, MovementLock.Named, StringComparison.Ordinal))
             {
@@ -305,6 +310,68 @@ public sealed class ParticleEffect
 
         Particles.Reap();
     }
+
+    /// <summary>The control points the constraints see this step, slot 0 the emitter's, reused.</summary>
+    private readonly List<ParticleControlPoint> _constraintPoints = [];
+
+    /// <summary>
+    /// The definition's constraints, as `C_OP_BasicMovement::Operate` runs them after integrating (B396).
+    /// </summary>
+    /// <remarks>
+    /// <code>
+    /// for pass in 0 .. "max constraint passes" (3):
+    ///     for each constraint not yet satisfied this round:  mark it;  if it moved anything, un-mark every other
+    /// </code>
+    /// *Not built:* the "final" constraints the engine runs once after the passes, and every constraint but the path's.
+    /// </remarks>
+    private void ApplyConstraints(ParticleFunction movement, ParticleControlPoint at)
+    {
+        IReadOnlyList<ParticleFunction> constraints = System.Constraints;
+
+        if (constraints.Count == 0)
+        {
+            return;
+        }
+
+        _constraintPoints.Clear();
+        _constraintPoints.AddRange(_points);
+
+        if (_constraintPoints.Count == 0)
+        {
+            _constraintPoints.Add(at);
+        }
+        else
+        {
+            _constraintPoints[0] = at;
+        }
+
+        int passes = (int)movement.Number("max constraint passes", 3d);
+        Span<bool> satisfied = stackalloc bool[constraints.Count];
+
+        for (int pass = 0; pass < passes; pass++)
+        {
+            for (int index = 0; index < constraints.Count; index++)
+            {
+                if (satisfied[index])
+                {
+                    continue;
+                }
+
+                satisfied[index] = true;
+
+                if (Enforce(constraints[index], _constraintPoints))
+                {
+                    satisfied.Clear();
+                    satisfied[index] = true;
+                }
+            }
+        }
+    }
+
+    /// <summary>One constraint's `EnforceConstraint`; false for one this project does not implement.</summary>
+    private bool Enforce(ParticleFunction constraint, IReadOnlyList<ParticleControlPoint> points) =>
+        string.Equals(constraint.Function, PathConstraint.Named, StringComparison.Ordinal) &&
+        PathConstraint.Enforce(Particles, constraint, points);
 
     /// <summary>Each declared `Movement Lock to Control Point` with its own context, as the engine gives each operator one.</summary>
     private readonly Dictionary<ParticleFunction, MovementLock> _locks = new(ReferenceEqualityComparer.Instance);

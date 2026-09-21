@@ -127,6 +127,54 @@ public sealed class ParticleEffectConformanceTests
         effect.Children[0].Particles.Lifetime[0].ShouldBe(0.1f, 0.0001f);
     }
 
+    [Test]
+    public void Step_AConstrainedSystem_HoldsItsParticleOnThePathAfterMoving()
+    {
+        // `C_OP_BasicMovement::Operate` applies the definition's constraints after integrating (B396). A particle born at
+        // control point 0 with a band of zero sits on the path point: half-way along a one-second travel, ( 50, 0, 0 ).
+        ParticleSystem constrained = new ParticleSystem(
+            "beam",
+            [
+                new ParticleFunction("emit_instantaneously", "emit",
+                    new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                    {
+                        ["num_to_emit"] = new DmxValue(DmxAttributeType.Whole, 1d),
+                    }),
+            ],
+            [
+                new ParticleFunction("Lifetime Random", "life",
+                    new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                    {
+                        ["lifetime_min"] = new DmxValue(DmxAttributeType.Real, 10d),
+                        ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 10d),
+                    }),
+            ],
+            [new ParticleFunction("Movement Basic", "move", Empty)],
+            [],
+            [],
+            Empty)
+        {
+            Constraints =
+            [
+                new ParticleFunction(PathConstraint.Named, "path",
+                    new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                    {
+                        ["end control point number"] = new DmxValue(DmxAttributeType.Whole, 1d),
+                        ["maximum distance"] = new DmxValue(DmxAttributeType.Real, 0d),
+                        ["travel time"] = new DmxValue(DmxAttributeType.Real, 1d),
+                    }),
+            ],
+        };
+
+        ParticleEffect effect = new(constrained);
+
+        effect.SetControlPoint(1, ParticleControlPoint.Unoriented(new Vector3(100f, 0f, 0f)));
+        effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), seconds: 0.5f);
+        effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), seconds: 0.5f);
+
+        effect.Particles.PositionOf(0).X.ShouldBe(50f, 1e-3f);
+    }
+
     /// <summary>One particle at once, sent at 5000 units a second toward control point 1.</summary>
     private static ParticleSystem Tracer(string name, IReadOnlyList<string> children) =>
         new(

@@ -68,7 +68,15 @@ public sealed record ParticleSystem(
     IReadOnlyList<ParticleFunction> Operators,
     IReadOnlyList<ParticleFunction> Renderers,
     IReadOnlyList<string> Children,
-    IReadOnlyDictionary<string, DmxValue> Parameters);
+    IReadOnlyDictionary<string, DmxValue> Parameters)
+{
+    /// <summary>What holds particles in place after they move — the definition's `constraints` array.</summary>
+    /// <remarks>
+    /// **Read for B396, having been dropped since B373**: every shipped `.pcf` declares the array, and the medigun's
+    /// beam is made of particles a path constraint holds between the gun and its patient. `Movement Basic` applies them.
+    /// </remarks>
+    public IReadOnlyList<ParticleFunction> Constraints { get; init; } = [];
+}
 
 /// <summary>
 /// The particle systems a <c>.pcf</c> declares, on top of <see cref="DmxFile"/> (B373).
@@ -130,7 +138,10 @@ public static class ParticleSystems
                 Functions(elements, element, "operators"),
                 Functions(elements, element, "renderers"),
                 ChildNames(elements, element),
-                element.Attributes);
+                element.Attributes)
+            {
+                Constraints = Functions(elements, element, "constraints"),
+            };
         }
 
         return systems;
@@ -356,6 +367,10 @@ public static class ParticleSystems
 
                     break;
 
+                case "remap initial scalar":
+                    RemapInitial(one, into, index);
+                    break;
+
                 case "move particles between 2 control points":
                     MoveBetween(one, into, index, ControlPoint(point, points, (int)one.Number("end control point", 1d)), seconds);
                     break;
@@ -366,6 +381,55 @@ public static class ParticleSystems
         }
 
         return index;
+    }
+
+    /// <summary>`C_INIT_RemapScalar::InitNewParticlesScalar`, read out of `particles.lib` — <see cref="RemapScalar"/>'s line, at birth.</summary>
+    /// <remarks>
+    /// <code>
+    /// if ( emitter start ≤ born &lt; emitter end, or either is −1 ) and ( not "only active within specified input range",
+    ///      or inMin ≤ in ≤ inMax ):
+    ///     out = the operator's clamped line;  if "output is scalar of initial random range": out ·= the current value
+    /// </code>
+    /// Only the attributes the store holds are read and written, as for the operator.
+    /// </remarks>
+    private static void RemapInitial(ParticleFunction one, ParticleStore into, int index)
+    {
+        int input = (int)one.Number("input field", 8d);
+        int output = (int)one.Number("output field", 3d);
+        float inputMinimum = (float)one.Number("input minimum", 0d);
+        float inputMaximum = (float)one.Number("input maximum", 1d);
+        float outputMinimum = (float)one.Number("output minimum", 0d);
+        float outputMaximum = (float)one.Number("output maximum", 1d);
+        float startTime = (float)one.Number("emitter lifetime start time (seconds)", -1d);
+        float endTime = (float)one.Number("emitter lifetime end time (seconds)", -1d);
+        bool inRangeOnly = one.Number("only active within specified input range", 0d) != 0d;
+        bool scales = one.Number("output is scalar of initial random range", 0d) != 0d;
+
+        if (RemapScalar.Written(into, output) is not { } written || RemapScalar.Read(into, input, index) is not { } value)
+        {
+            return;
+        }
+
+        float born = into.Born[index];
+
+#pragma warning disable S1244 // Floating point equality — the engine's own `== -1` sentinel test on both window ends
+        bool inWindow = (startTime <= born && born < endTime) || startTime == -1f || endTime == -1f;
+#pragma warning restore S1244
+
+        if (!inWindow || (inRangeOnly && (value < inputMinimum || value > inputMaximum)))
+        {
+            return;
+        }
+
+        if (RemapScalar.ClampsOutput(output))
+        {
+            outputMinimum = Math.Clamp(outputMinimum, 0f, 1f);
+            outputMaximum = Math.Clamp(outputMaximum, 0f, 1f);
+        }
+
+        float mapped = RemapScalar.Target(value, inputMinimum, inputMaximum, outputMinimum, outputMaximum);
+
+        written[index] = scales ? mapped * written[index] : mapped;
     }
 
     /// <summary>`m_flFrameSpan[ sequence ]`: the sequence's total time, zero for one the sheet does not declare.</summary>

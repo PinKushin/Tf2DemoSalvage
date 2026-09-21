@@ -49,6 +49,40 @@ public sealed class LifetimeFromSequenceConformanceTests
         particles.LifetimeOf(0).ShouldBe(1f);
     }
 
+    [Test]
+    public void Spawn_RemapInitialScalar_DrawsBirthTimeOntoRotation()
+    {
+        // `C_INIT_RemapScalar::InitNewParticlesScalar`: the operator's straight line, once, at birth. The medigun's curls
+        // map creation time 0..1000 onto rotation 0..8000 — a particle born two seconds in turns to 16 radians.
+        ParticleStore particles = new();
+
+        particles.Tick(2f);
+
+        ParticleSystems.Spawn(
+            new ParticleSystem(
+                "test",
+                [],
+                [
+                    new ParticleFunction("remap initial scalar", "remap", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                    {
+                        ["input field"] = new DmxValue(DmxAttributeType.Whole, Number: 8d),
+                        ["input maximum"] = new DmxValue(DmxAttributeType.Real, Number: 1000d),
+                        ["output field"] = new DmxValue(DmxAttributeType.Whole, Number: 4d),
+                        ["output maximum"] = new DmxValue(DmxAttributeType.Real, Number: 8000d),
+                    }),
+                ],
+                [],
+                [],
+                [],
+                new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+            particles,
+            Here,
+            lives: 1f,
+            seconds: 0f);
+
+        particles.RotationOf(0).ShouldBe(16f, 1e-3f);
+    }
+
     private static readonly ParticleControlPoint Here = ParticleControlPoint.Unoriented(Vector3.Zero);
 
     private static SheetSequence Sequence(int id, float span) => new(id, false, span, []);

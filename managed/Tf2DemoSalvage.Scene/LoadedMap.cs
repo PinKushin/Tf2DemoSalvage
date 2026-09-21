@@ -277,6 +277,7 @@ public sealed class LoadedMap
                             .. tracers.Select(static tracer => tracer.Effect).Distinct(StringComparer.OrdinalIgnoreCase),
                             .. BloodEffects.Systems,
                             .. SentryMuzzleFlash.Systems,
+                            "medicgun_beam_red", "medicgun_beam_blue", "medicgun_beam_red_invun", "medicgun_beam_blue_invun",
                             .. WeaponMuzzleSystems(game, timeline),
                             .. timeline.Dispatches.All
                                 .Where(dispatch => timeline.Dispatches.Names.Name(dispatch.Name) == "ParticleEffect")
