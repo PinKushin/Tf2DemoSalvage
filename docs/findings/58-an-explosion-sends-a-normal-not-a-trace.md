@@ -434,13 +434,20 @@ choice.
 
 **Not yet heard by anyone.** The chain is asserted through the presenter into a recording sink; nobody has listened.
 
+### Two Original blasts both sound — the mixer's static channels, read out of `engine.dll`
+
+The stock, Black Box and Air Strike explosions are `CHAN_WEAPON` from the world, and a second sound on a dynamic
+channel replaces the first on the same (source, channel): `SND_PickDynamicChannel` (`FUN_18002a330` in the x64
+engine) returns that busy slot for reuse, for any source but −1, the world included. The audio output already did
+that. **The Original's `Weapon_QuakeRPG.Explode` is `CHAN_STATIC`**, and `S_StartStaticSound` (`FUN_18002e990`)
+takes the first free slot from index 64 or appends one up to 128 without ever comparing the source or the channel —
+so two static sounds from one entity both play. The output was replacing them like any named channel, which would
+have cut every Original blast short when a second landed; it no longer does for `CHAN_STATIC`. How a STOP matches is
+different again and is B416.
+
 ## What is not established
 
-- **Whether a `CHAN_STATIC` sound overrides its predecessor on the same entity.** The Original's
-  `Weapon_QuakeRPG.Explode` is `CHAN_STATIC` from the world, and this project's audio output stops any earlier sound
-  on the same (entity, channel) for every channel but `CHAN_AUTO`. If the engine gives static sounds their own slot
-  without overriding — as its channel split suggests — overlapping Original blasts cut each other off here and layer
-  in TF2. Unread; the answer is in `engine.dll`'s mixer.
+- **How a stop matches layered static sounds** — B416. The layering itself is settled below.
 - **Water.** `UTIL_PointContents( vecOrigin ) & CONTENTS_WATER` decides `ExplosionWaterEffect`, and this project
   does not evaluate BSP contents at a point.
 - **Whether any recording anywhere sets `m_iCustomParticleIndex`.** One demo says no. It is decoded and carried

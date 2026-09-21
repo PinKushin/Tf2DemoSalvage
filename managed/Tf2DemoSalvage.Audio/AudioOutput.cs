@@ -52,6 +52,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// </summary>
     private const int AutoChannel = 0;
 
+    /// <summary><c>CHAN_STATIC</c>: every sound on it gets a slot of its own.</summary>
+    private const int StaticChannel = 6;
+
     private bool _disposed;
 
     private AudioOutput(AL al, ALContext alc, Device* device, Context* context)
@@ -180,7 +183,15 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         // That is how the engine cuts a player's previous voice line off with their next, and how a
         // door's looping move sound is replaced rather than layered. CHAN_AUTO is exempt by
         // definition: the engine allocates a free channel for those, so they are meant to overlap.
-        Stop(entity, channel);
+        //
+        // **CHAN_STATIC is exempt too, read out of `engine.dll`** (B415): `S_StartStaticSound` takes the first free
+        // slot from `MAX_DYNAMIC_CHANNELS` on and never compares the source or the channel, where
+        // `SND_PickDynamicChannel` hands back the busy (source, channel) slot to reuse. Only an explicit stop ends a
+        // static sound.
+        if (channel != StaticChannel)
+        {
+            Stop(entity, channel);
+        }
 
         // **The PAN is baked into the samples; the distance gain is not.** Once a buffer is
         // uploaded its samples cannot change, so anything baked in is fixed for the life of the

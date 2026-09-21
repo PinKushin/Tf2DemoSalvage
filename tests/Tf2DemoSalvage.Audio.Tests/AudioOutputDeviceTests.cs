@@ -111,6 +111,23 @@ public sealed class AudioOutputDeviceTests
         output.Playing.ShouldBe(1, "the second sound replaced the first on that channel");
     }
 
+    /// <remarks>
+    /// **`CHAN_STATIC` is the exception, read out of `engine.dll`** (B415): `S_StartStaticSound` takes the first free
+    /// slot from index 64 (`MAX_DYNAMIC_CHANNELS`) or appends one, and never compares the source or the channel — where
+    /// `SND_PickDynamicChannel` returns the busy (source, channel) slot for reuse. So two static sounds from one entity
+    /// both play. The Original's explosion is `CHAN_STATIC` from the world, and two blasts close together are the case.
+    /// </remarks>
+    [Test]
+    public void Play_TwiceOnTheStaticChannel_LayersRatherThanReplaces()
+    {
+        using AudioOutput output = Open();
+
+        output.Play(Tone(), leftPan: 1f, rightPan: 1f, entity: 0, channel: 6);
+        output.Play(Tone(), leftPan: 1f, rightPan: 1f, entity: 0, channel: 6);
+
+        output.Playing.ShouldBe(2, "a static sound takes a slot of its own");
+    }
+
     [Test]
     public void Play_TwiceOnDifferentEntities_LayersRatherThanReplaces()
     {

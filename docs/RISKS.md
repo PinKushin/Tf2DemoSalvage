@@ -27031,6 +27031,25 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B416 OPEN 2026-09-21: a sound STOP silences the whole (entity, channel); the engine stops one named sound
+
+**Found while settling the CHAN_STATIC half of it, which is fixed** (B415, `AudioOutput.Play`): `S_StartStaticSound`
+takes the first free slot from index 64 (`MAX_DYNAMIC_CHANNELS`) and never compares the source or the channel, so two
+static sounds from one entity both play — the output used to cut the first, and The Original's `CHAN_STATIC`
+explosions from the world cut each other.
+
+**What is still different, read out of `engine.dll` (x64, `snd_dma.cpp`):** `S_AlterChannel` (`FUN_18002aa20`), which
+`SND_STOP` goes through, matches a channel on the source AND the channel AND the sound (`ch->sfx == sfx`), acts on the
+FIRST match and returns — unless flag `0x200` is set, when it takes every channel of the source whatever its channel or
+sound. `IAudioSink.Silence` matches (entity, channel) and stops every voice there, and `SoundSchedule.LiveAt` keeps
+one sound per (entity, channel) for CHAN_STATIC as for every other named channel.
+
+**What would be heard:** only with two static sounds layered on one entity and then a stop naming one of them — ours
+silences both where the engine keeps the other; and a seek re-establishes one of two layered static loops. Rare, which
+is why it is filed rather than done in the same change; it is the same three functions when it is done.
+
+*Evidence class: read from the shipped binary's disassembly; nothing measured.*
+
 ### B415 OPEN 2026-09-20: every temp entity but one is decoded and then dropped — no tracers, impacts, explosions or decals
 
 **The owner, listing what he can see missing**: *"we still dont have the hitscan particle stuff either or explosion
