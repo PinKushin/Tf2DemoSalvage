@@ -40,6 +40,12 @@ public readonly record struct ShotTracer(
 /// <param name="Reach">The origin plus the whole range, for the player pass.</param>
 /// <param name="Texinfo">The struck brush side's texinfo — `trace.surface` — or −1 for terrain, whose surface is not traced.</param>
 /// <param name="Normal">`trace.plane.normal`; zero for terrain.</param>
+/// <param name="SurfaceProp">
+/// A server `Impact` dispatch's `m_nSurfaceProp`, which names the game material directly; −1 for a client bullet, whose
+/// material is its struck texinfo's.
+/// </param>
+/// <param name="DamageType">The dispatch's `m_nDamageType`, which `DamageDecal` reads; 0 for a client bullet.</param>
+/// <remarks>**A negative <see cref="Shot"/> is a server dispatch**, `−1 − index` into the dispatch feed: no player judgement is asked of it.</remarks>
 public readonly record struct ShotImpact(
     int Shot,
     int Bullet,
@@ -50,7 +56,13 @@ public readonly record struct ShotImpact(
     (float X, float Y, float Z) End,
     (float X, float Y, float Z) Reach,
     int Texinfo,
-    (float X, float Y, float Z) Normal = default);
+    (float X, float Y, float Z) Normal = default,
+    int SurfaceProp = -1,
+    int DamageType = 0)
+{
+    /// <summary>Whether the server sent this impact rather than the client tracing it.</summary>
+    public bool FromServer => Shot < 0;
+}
 
 /// <summary>Which bullets of a demo's shots draw a tracer, and where each ends (B415).</summary>
 /// <remarks>

@@ -7,18 +7,21 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class EffectDispatchFeedConformanceTests
 {
     [Test]
-    public void Record_NothingSent_IsCEffectDatasConstructor()
+    public void Record_NothingSent_IsZeroThroughEachProxy()
     {
-        // `m_flScale = 1.f` and `m_hEntity = INVALID_EHANDLE`; everything else zero.
+        // An unsent field is a zero the server left out, received through its proxy — not `CEffectData`'s
+        // constructor. `RecvProxy_EntIndex(0)` is the world (`effect_dispatch_data.cpp:31`), which TF's
+        // `ImpactCallback` needs non-null (`tf_fx_impacts.cpp:32`) or no world bullet hole would draw; and
+        // `RecvProxy_ShortSubOne(0)` is −1.
         EffectDispatchFeed feed = new();
 
         feed.Record(EffectDispatchFeed.EventClassName, Effect(), 3).ShouldBeTrue();
 
         SceneEffectDispatch dispatch = feed.All[0];
 
-        dispatch.Scale.ShouldBe(1f);
-        dispatch.Entity.ShouldBe(-1);
-        dispatch.SurfaceProp.ShouldBe(0);
+        dispatch.Scale.ShouldBe(0f);
+        dispatch.Entity.ShouldBe(0);
+        dispatch.SurfaceProp.ShouldBe(-1);
     }
 
     [TestCase(1, 0)]

@@ -29,15 +29,24 @@ public sealed class ImpactDecals
     private readonly DecalMaterials _materials;
     private readonly IReadOnlyList<BspTexinfo> _texinfo;
     private readonly char[] _gameMaterials;
+    private readonly Func<int, char> _surfacePropMaterial;
+
+    /// <summary>`DMG_SLASH`: `DamageDecal` answers `"ManhackCut"` for exactly this damage type.</summary>
+    private const int SlashDamage = 1 << 2;
 
     /// <summary>A resolver over one map.</summary>
     /// <param name="emitters">The game's decal groups.</param>
     /// <param name="materials">Decal names to materials.</param>
     /// <param name="texinfo">The map's texinfos.</param>
     /// <param name="gameMaterials">Each texdata's `game.material`.</param>
+    /// <param name="surfacePropMaterial">A surfaceprop index's `game.material` — `GetSurfaceData( i )->game.material`.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public ImpactDecals(
-        DecalEmitters emitters, DecalMaterials materials, IReadOnlyList<BspTexinfo> texinfo, char[] gameMaterials)
+        DecalEmitters emitters,
+        DecalMaterials materials,
+        IReadOnlyList<BspTexinfo> texinfo,
+        char[] gameMaterials,
+        Func<int, char>? surfacePropMaterial = null)
     {
         ArgumentNullException.ThrowIfNull(emitters);
         ArgumentNullException.ThrowIfNull(materials);
@@ -48,6 +57,7 @@ public sealed class ImpactDecals
         _materials = materials;
         _texinfo = texinfo;
         _gameMaterials = gameMaterials;
+        _surfacePropMaterial = surfacePropMaterial ?? (static _ => '\0');
     }
 
     /// <summary>Decal names to materials — the <c>decalprecache</c> table's names resolve here too.</summary>
@@ -83,7 +93,8 @@ public sealed class ImpactDecals
             DecalEmitters.Parse(script ?? []),
             DecalMaterials.Over(path => pak.ReadFile(path) ?? archives.Read(path)),
             BspMaterials.ReadTexinfo(map),
-            gameMaterials);
+            gameMaterials,
+            surfaceProp => (char)(surfaces.GetSurfaceData(surfaceProp)?.GameMaterial ?? 0));
     }
 
     /// <summary>The decal a bullet leaves where the world stopped it, or null for none.</summary>
@@ -102,8 +113,9 @@ public sealed class ImpactDecals
             return null;
         }
 
-        char gameMaterial = surface.GameMaterial;
-        string group = _emitters.Translate(DecalEmitters.ImpactConcrete, gameMaterial);
+        // `CBaseEntity::DamageDecal` for the world: "ManhackCut" for exactly `DMG_SLASH`, else "Impact.Concrete".
+        string decal = impact.DamageType == SlashDamage ? "ManhackCut" : DecalEmitters.ImpactConcrete;
+        string group = _emitters.Translate(decal, surface.GameMaterial);
 
         return group.Length > 0 && _emitters.Pick(group, random) is { } file ? _materials.Resolve(file) : null;
     }
@@ -116,6 +128,11 @@ public sealed class ImpactDecals
     /// <summary>What `PerformCustomEffects` reads of the struck surface: its game material and its flags.</summary>
     /// <param name="impact">The bullet.</param>
     /// <returns>The surface, or null for terrain.</returns>
+    /// <remarks>
+    /// **The material is the dispatch's own for a server impact** — `ParseImpactData` reads it from `m_nSurfaceProp` —
+    /// and the struck texinfo's for a client bullet, as its trace's `surface.surfaceProps` gives it. The flags are always
+    /// the trace's.
+    /// </remarks>
     public (char GameMaterial, SurfaceProperties Flags)? Surface(ShotImpact impact)
     {
         if (impact.Texinfo < 0 || impact.Texinfo >= _texinfo.Count)
@@ -124,9 +141,18 @@ public sealed class ImpactDecals
         }
 
         BspTexinfo surface = _texinfo[impact.Texinfo];
-        char gameMaterial = surface.Texdata >= 0 && surface.Texdata < _gameMaterials.Length
-            ? _gameMaterials[surface.Texdata]
-            : '\0';
+        char gameMaterial;
+
+        if (impact.FromServer)
+        {
+            gameMaterial = _surfacePropMaterial(impact.SurfaceProp);
+        }
+        else
+        {
+            gameMaterial = surface.Texdata >= 0 && surface.Texdata < _gameMaterials.Length
+                ? _gameMaterials[surface.Texdata]
+                : '\0';
+        }
 
         return (gameMaterial, surface.Flags);
     }

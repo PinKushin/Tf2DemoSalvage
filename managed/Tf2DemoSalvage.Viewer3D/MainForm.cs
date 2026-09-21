@@ -4397,6 +4397,12 @@ internal class MainForm : Form, IFrameSteps
     /// <remarks>Recorded so an impact's decal and its effect agree, whichever asks first.</remarks>
     private bool StruckPlayer(ShotImpact bullet, int tick)
     {
+        // The server already traced its own impacts; one it sent for the world struck the world.
+        if (bullet.FromServer)
+        {
+            return false;
+        }
+
         if (_struckPlayers.Contains((bullet.Shot, bullet.Bullet)))
         {
             return true;

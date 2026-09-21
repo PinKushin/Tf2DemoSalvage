@@ -13,13 +13,13 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Normal">`m_vNormal`.</param>
 /// <param name="Angles">`m_vAngles`, degrees.</param>
 /// <param name="Flags">`m_fFlags`.</param>
-/// <param name="Scale">`m_flScale`, 1 unless sent.</param>
+/// <param name="Scale">`m_flScale`, 0 unless sent.</param>
 /// <param name="Attachment">`m_nAttachmentIndex`.</param>
-/// <param name="SurfaceProp">`m_nSurfaceProp`, a `short`: the sent value less one (`RecvProxy_ShortSubOne`); 0 unless sent.</param>
+/// <param name="SurfaceProp">`m_nSurfaceProp`, a `short`: the sent value less one (`RecvProxy_ShortSubOne`); −1 unless sent.</param>
 /// <param name="Material">`m_nMaterial`.</param>
 /// <param name="DamageType">`m_nDamageType`.</param>
 /// <param name="HitBox">`m_nHitBox`.</param>
-/// <param name="Entity">`entindex` through `RecvProxy_EntIndex`; −1 for none, which is also the default.</param>
+/// <param name="Entity">`entindex` through `RecvProxy_EntIndex`; 0, the world, unless sent.</param>
 /// <param name="Colour">`m_nColor`.</param>
 public readonly record struct SceneEffectDispatch(
     int Tick,
@@ -40,9 +40,11 @@ public readonly record struct SceneEffectDispatch(
 
 /// <summary>Every `CTEEffectDispatch` a demo carries, in fire order, and the table naming them (B415).</summary>
 /// <remarks>
-/// `DT_TEEffectDispatch` is one data table, `DT_EffectData` (`effect_dispatch_data.cpp:36`). **An unsent field is
-/// `CEffectData`'s constructor default**, which is not zero for two of them: `m_flScale` is 1 and `m_hEntity` is
-/// `INVALID_EHANDLE`.
+/// `DT_TEEffectDispatch` is one data table, `DT_EffectData` (`effect_dispatch_data.cpp:36`). **An unsent field is a
+/// zero the server left out, received through its proxy** — not `CEffectData`'s constructor. So an unsent `entindex`
+/// is the world (`RecvProxy_EntIndex(0)`), which is how every world impact arrives: TF's `ImpactCallback` returns on a
+/// null entity (`tf_fx_impacts.cpp:32`), so a constructor's `INVALID_EHANDLE` would draw no world bullet hole at all.
+/// An unsent `m_nSurfaceProp` is −1 through `RecvProxy_ShortSubOne`, and an unsent `m_flScale` is 0.
 /// </remarks>
 public sealed class EffectDispatchFeed
 {
@@ -88,7 +90,7 @@ public sealed class EffectDispatchFeed
         return true;
     }
 
-    /// <summary>The fields as they arrive, starting from `CEffectData`'s constructor.</summary>
+    /// <summary>The fields as they arrive, starting from zero through each proxy.</summary>
     private struct Fields()
     {
         private (float X, float Y, float Z) _origin;
@@ -97,13 +99,13 @@ public sealed class EffectDispatchFeed
         private (float X, float Y, float Z) _angles;
         private int _name;
         private int _flags;
-        private float _scale = 1f;
+        private float _scale;
         private int _attachment;
-        private int _surfaceProp;
+        private int _surfaceProp = -1;
         private int _material;
         private int _damageType;
         private int _hitBox;
-        private int _entity = -1;
+        private int _entity;
         private int _colour;
 
         public void Read(string name, PropertyValue value)

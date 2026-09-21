@@ -162,6 +162,17 @@ public sealed class LoadedMap
             {
                 impactDecals = ImpactDecals.Load(bytes, game.Archives, game.Surfaces);
                 lightSamples = BspLightmaps.ReadSamples(bytes);
+
+                // **The server's own impacts join the client's**, in tick order, because the decal pool is one ring
+                // whichever side traced the bullet (a sentry's are the server's).
+                ServerImpacts.From(
+                    timeline.Dispatches.All,
+                    timeline.Dispatches.Names.Name,
+                    (from, to) => level.Trace(from, to, 0f),
+                    impacts);
+
+                // Stable, so bullets of one tick keep their fire order.
+                impacts = [.. impacts.OrderBy(static impact => impact.Tick)];
                 decalMaterials.UnionWith(impactDecals.Drawn());
 
                 foreach (SceneDecal decal in timeline.Decals.All)

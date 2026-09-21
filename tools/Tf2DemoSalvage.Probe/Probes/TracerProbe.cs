@@ -123,6 +123,31 @@ public sealed class TracerProbe : IProbe
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"{timeline.Blood.All.Count} blood events, {timeline.Blood.All.Count(one => one.IsPlayer)} on players"));
 
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{timeline.Dispatches.All.Count} effect dispatches; {impacts.Count(one => one.FromServer)} server impacts on the world"));
+
+        foreach (IGrouping<(string?, int), SceneEffectDispatch> kind in timeline.Dispatches.All
+                     .GroupBy(one => (timeline.Dispatches.Names.Name(one.Name), Math.Sign(one.Entity)))
+                     .OrderByDescending(one => one.Count()))
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {kind.Key.Item1 ?? "(unnamed " + kind.First().Name + ")",-40} {kind.Key.Item2 switch { 0 => "world", < 0 => "unsent", _ => "entity" },-6} {kind.Count(),5}"));
+        }
+
+        foreach (IGrouping<int, SceneEffectDispatch> struck in timeline.Dispatches.All
+                     .Where(one => timeline.Dispatches.Names.Name(one.Name) == "Impact")
+                     .GroupBy(one => one.Entity)
+                     .OrderByDescending(one => one.Count()))
+        {
+            SceneEffectDispatch first = struck.First();
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  Impact entity {struck.Key,5} x{struck.Count(),4}; first tick {first.Tick} hitbox {first.HitBox} " +
+                $"damage {first.DamageType} surfaceprop {first.SurfaceProp} at ({first.Origin.X:0},{first.Origin.Y:0},{first.Origin.Z:0})"));
+        }
+
         foreach (SceneBlood blood in timeline.Blood.All.Take(shown))
         {
             // 120 units out along the normal — towards the shooter — looking back at the hit.

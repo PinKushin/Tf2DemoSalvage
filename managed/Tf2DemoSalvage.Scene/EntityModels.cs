@@ -1199,6 +1199,55 @@ public sealed class EntityModelSet : IModelBodygroups
     {
         ArgumentNullException.ThrowIfNull(name);
 
+        return Attachment(entity, attachments =>
+        {
+            for (int index = 0; index < attachments.Count; index++)
+            {
+                if (string.Equals(attachments[index].Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        });
+    }
+
+    /// <summary>Where an entity's attachment is by the engine's own number — `GetAttachment( iAttachment )`, 1-based.</summary>
+    /// <param name="entity">The entity, such as a sentry gun.</param>
+    /// <param name="number">The attachment number a dispatch carries; 0 is none.</param>
+    /// <returns>Its world position, or null when the entity is not posed here or has no such attachment.</returns>
+    public (float X, float Y, float Z)? AttachmentPosition(int entity, int number) =>
+        Attachment(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1);
+
+    /// <summary>An attachment as a particle control point: `PATTACH_POINT_FOLLOW`'s origin and orientation.</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="number">The attachment number, 1-based.</param>
+    /// <returns>The point, or null when the entity is not posed here or has no such attachment.</returns>
+    /// <remarks>
+    /// `MatrixVectors( attachmentToWorld, &amp;forward, &amp;right, &amp;up )`: forward is the matrix's first column, up its third,
+    /// and right the NEGATED second, because a Source matrix's second axis points left.
+    /// </remarks>
+    public ParticleControlPoint? AttachmentPoint(int entity, int number)
+    {
+        float[]? matrix = AttachmentMatrix(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1);
+
+        return matrix is null
+            ? null
+            : new ParticleControlPoint(
+                new Vector3(matrix[3], matrix[7], matrix[11]),
+                new Vector3(matrix[0], matrix[4], matrix[8]),
+                new Vector3(-matrix[1], -matrix[5], -matrix[9]),
+                new Vector3(matrix[2], matrix[6], matrix[10]));
+    }
+
+    /// <summary>`GetAttachment` for the attachment <paramref name="pick"/> chooses, −1 for none.</summary>
+    private (float X, float Y, float Z)? Attachment(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>
+        AttachmentMatrix(entity, pick) is { } placement ? (placement[3], placement[7], placement[11]) : null;
+
+    /// <summary>The attachment's world matrix, 3×4 row-major, for the attachment <paramref name="pick"/> chooses.</summary>
+    private float[]? AttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick)
+    {
         // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
         // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
@@ -1210,24 +1259,14 @@ public sealed class EntityModelSet : IModelBodygroups
         }
 
         // Stryker restore all
-        int point = -1;
-
-        for (int index = 0; index < attachments.Count && point < 0; index++)
-        {
-            if (string.Equals(attachments[index].Name, name, StringComparison.OrdinalIgnoreCase))
-            {
-                point = index;
-            }
-        }
+        int point = pick(attachments);
 
         if (point < 0 || !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
         {
             return null;
         }
 
-        return AttachmentsOf(entity, animating, attachments)[point] is { } placement
-            ? (placement[3], placement[7], placement[11])
-            : null;
+        return AttachmentsOf(entity, animating, attachments)[point];
     }
 
     /// <summary>How far along a ray an entity's posed hitboxes let it get — <c>C_BaseAnimating::TestHitboxes</c>.</summary>
