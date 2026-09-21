@@ -9122,3 +9122,20 @@ foreground is not focus, so a background window must still be enumerable.
 
 **What is NOT licensed by this:** weakening the test to pass, or holding the splash on screen longer to make it easier to see.
 The half-second is his machine's real boot and must not be padded.
+
+## D186 — everything a gun or a player puts into the world is built to parity before the f12 performance check (2026-09-21)
+
+**Owner-voiced.** After hitscan tracers landed: *"keep going, do the decals i want everything implemented that can come out
+of a gun/player in game, then ill watch f12 and make sure the fps is still good and parity was properly done, because if
+parity is proper, we probably shouldnt have ANY fps issues, the fps issues have all been parity or us not using the right type
+in c#, causing updates, redraws, and massive memory usage every frame. Basically forgetting to use span properly lol"*
+
+**What it means:** the scope of B415 is every effect a weapon or a player puts into the world, not only the three he first
+named. That covers bullet impact decals and debris, blood, the temp entities the census counts (world decals, player decals,
+sparks, dust, ricochets, particle effects and effect dispatches), muzzle flashes, and the heal beam (B396). It is done as one
+stretch. Performance is checked once, at the end, by the owner watching `demostf-cp_process_f12`, and is not measured by the
+assistant in between (`docs/memory/a-measure-needs-focus.md`).
+
+**His premise, recorded because it decides where a later slowdown is looked for first:** a correct port should cost nothing
+extra. The slowdowns found so far were a divergence from the engine, or the wrong C# type: allocating and rebuilding every
+frame where a `Span` or a reused buffer belonged.
