@@ -75,6 +75,60 @@ public sealed class ParticleEffect
         }
     }
 
+    /// <summary>Whether this effect has run out of particles AND will make no more.</summary>
+    /// <remarks>
+    /// **Emptiness alone is not finishedness, and the engine says so in the declaration itself**:
+    /// *"IsFinished returns true when a system has no particles and won't be creating any more"*
+    /// (`particles.h:1119`). The second half is what <see cref="Empty"/> cannot answer.
+    ///
+    /// **It matters the moment an emitter has a start time.** `emit_continuously` carries
+    /// `emission_start_time`, so a system that waits before its first particle is empty and unfinished — and a
+    /// caller that dropped it on emptiness would throw it away before it ever emitted, which looks exactly like an
+    /// effect that does not exist.
+    ///
+    /// **Zero duration is forever**, the sentinel <see cref="Step"/> already reads: such a system is never
+    /// finished on its own and is stopped from outside, which is what <see cref="Fade"/> is for.
+    /// </remarks>
+    public bool Finished
+    {
+        get
+        {
+            if (!Empty)
+            {
+                return false;
+            }
+
+            foreach (ParticleFunction emitter in System.Emitters)
+            {
+                if (!string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                float duration = (float)emitter.Number("emission_duration", 0d);
+
+                if (duration <= 0f ||
+                    Particles.Age <= (float)emitter.Number("emission_start_time", 0d) + duration)
+                {
+                    return false;
+                }
+            }
+
+            foreach (ParticleEffect child in Children)
+            {
+                if (!child.Finished)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>The one emitter function this understands, named once.</summary>
+    private const string ContinuousEmitter = "emit_continuously";
+
     /// <summary>The systems this one runs alongside itself.</summary>
     /// <remarks>
     /// **A child is a full collection, not a decoration.** `rockettrail` declares two —
@@ -224,7 +278,7 @@ public sealed class ParticleEffect
     {
         foreach (ParticleFunction emitter in System.Emitters)
         {
-            if (!string.Equals(emitter.Function, "emit_continuously", StringComparison.Ordinal))
+            if (!string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
             {
                 continue;
             }

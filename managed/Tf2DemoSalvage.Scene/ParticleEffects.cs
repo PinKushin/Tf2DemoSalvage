@@ -53,8 +53,27 @@ public sealed class ParticleEffects
     /// <summary>The entities that still exist this tick, reused to avoid allocating per frame.</summary>
     private readonly HashSet<int> _alive = [];
 
+    /// <summary>The one-shots, by their caller's key. See <see cref="Bursts"/>.</summary>
+    private readonly Dictionary<long, RunningBurst> _bursts = [];
+
+    /// <summary>The tick <see cref="Bursts"/> last advanced to, so a backward seek can be recognised.</summary>
+    private int _burstTick;
+
     /// <summary>How many effects are running.</summary>
     public int Count => _running.Count;
+
+    /// <summary>How many one-shots are running.</summary>
+    public int BurstCount => _bursts.Count;
+
+    /// <summary>How many times one burst has been stepped, for a test or a diagnostic.</summary>
+    /// <param name="key">The caller's key for it.</param>
+    /// <returns>The step count, or −1 when no burst has that key.</returns>
+    /// <remarks>
+    /// **The value the code USED, carried out, not recomputed from the tick** (B243). A count derived here as
+    /// `tick − burst.Tick` would agree with the arithmetic rather than with what was done, and the whole question
+    /// is whether the stepping matches that arithmetic.
+    /// </remarks>
+    public int BurstSteps(long key) => _bursts.TryGetValue(key, out RunningBurst running) ? running.Stepped : -1;
 
     /// <summary>Steps every effect, starting one for each projectile that has none.</summary>
     /// <param name="projectiles">
@@ -198,6 +217,118 @@ public sealed class ParticleEffects
         }
     }
 
+    /// <summary>Steps every one-shot, starting one for each that is offered and not already running.</summary>
+    /// <param name="live">
+    /// The bursts whose effects should be running at this tick — for explosions, everything that fired inside the
+    /// caller's window. A burst already running stays running whether or not it is still offered.
+    /// </param>
+    /// <param name="seconds">How long one tick is.</param>
+    /// <param name="others">Every system that could be a CHILD, by name, as <see cref="Update"/> takes it.</param>
+    /// <param name="tick">The demo tick being shown.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="live"/> is null.</exception>
+    /// <remarks>
+    /// **A burst's state is a function of how many TICKS have passed since it fired, never of how many times this
+    /// was called.** A viewer drawing three hundred frames a second calls this five times a tick, and a burst
+    /// stepped per call would run five times too fast — the fault B375 found in the rocket trail, where a paused
+    /// viewer piled every particle of a flight onto one point.
+    ///
+    /// **So a burst met part way through catches up**, which is what a viewer seeking into the middle of an
+    /// explosion must see: half-finished, not beginning.
+    ///
+    /// **And a backward seek rebuilds, because stepping is one-way.** An effect that has run forty ticks cannot be
+    /// asked for its state at ten; it is thrown away and replayed from its own tick. `CorpsePhysics` does exactly
+    /// this with the physics world (D179) and for the same reason. The cost is bounded by the caller's window:
+    /// nothing is replayed further than the oldest burst it still offers.
+    ///
+    /// **A burst no longer offered keeps running until it is empty.** Cutting an explosion off because the
+    /// window moved past its start is the same mistake as removing a rocket's trail with the rocket.
+    /// </remarks>
+    public void Bursts(
+        IReadOnlyList<ParticleBurst> live,
+        float seconds,
+        IReadOnlyDictionary<string, ParticleSystem>? others,
+        int tick)
+    {
+        ArgumentNullException.ThrowIfNull(live);
+
+        // **A seek backwards throws every burst away rather than trying to unwind one.** Each is then rebuilt
+        // below from whatever the caller still offers, so the answer at this tick does not depend on how the
+        // viewer arrived at it — which is the property a scrub needs and a live client never does.
+        //
+        // **This is NOT redundant with the per-burst rebuild below**, which was the first thing sabotage said
+        // about it: for a burst the caller still offers, `Stepped > wanted` rebuilds it anyway and removing this
+        // line reddened nothing. What it alone handles is a burst the caller has stopped offering — one that
+        // fired AFTER the tick now being shown. Without it that effect keeps running and keeps drawing, so
+        // scrubbing back before an explosion leaves the explosion on screen.
+        if (tick < _burstTick)
+        {
+            _bursts.Clear();
+        }
+
+        _burstTick = tick;
+
+        foreach (ParticleBurst burst in live)
+        {
+            int wanted = tick - burst.Tick;
+
+            if (wanted < 0)
+            {
+                // Offered before it fires. Nothing to show yet, and starting it would run it early.
+                continue;
+            }
+
+            if (!_bursts.TryGetValue(burst.Key, out RunningBurst running) || running.Stepped > wanted)
+            {
+                running = new RunningBurst(new ParticleEffect(burst.Definition, others), 0);
+            }
+
+            // **Counted by the loop, not assigned from `wanted`.** Writing the arithmetic back is what B243
+            // warns about and it happened here: with `Stepped = wanted` the step count agreed with the
+            // subtraction rather than with the stepping, and replacing this whole loop with a single `Step`
+            // reddened nothing at all.
+            int taken = running.Stepped;
+
+            while (taken < wanted)
+            {
+                running.Effect.Step(burst.At, seconds);
+                taken++;
+            }
+
+            _bursts[burst.Key] = running with { Stepped = taken };
+        }
+
+        Retire();
+    }
+
+    /// <summary>Drops every burst that has run out of particles and will make no more.</summary>
+    /// <remarks>
+    /// **`Finished` and not `Empty`, which is the difference between the two halves of the engine's own
+    /// sentence**: *"IsFinished returns true when a system has no particles and won't be creating any more"*
+    /// (`particles.h:1119`). A trail can be dropped on emptiness because `Update` has already stopped its
+    /// emission by then; a burst has nothing stopping it from outside, so a system whose emitter has a start
+    /// time is empty on its first step and must not be thrown away before it emits.
+    /// </remarks>
+    private void Retire()
+    {
+        List<long>? finished = null;
+
+        foreach ((long key, RunningBurst running) in _bursts)
+        {
+            if (running.Effect.Finished)
+            {
+                (finished ??= []).Add(key);
+            }
+        }
+
+        foreach (long key in finished ?? [])
+        {
+            _bursts.Remove(key);
+        }
+    }
+
+    /// <summary>One running one-shot, and how far it has been stepped.</summary>
+    private readonly record struct RunningBurst(ParticleEffect Effect, int Stepped);
+
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
     /// <param name="right">The camera's right vector.</param>
     /// <param name="up">The camera's up vector.</param>
@@ -229,6 +360,11 @@ public sealed class ParticleEffects
         foreach (ParticleEffect effect in _running.Values)
         {
             Gather(effect, right, up, materials);
+        }
+
+        foreach (RunningBurst running in _bursts.Values)
+        {
+            Gather(running.Effect, right, up, materials);
         }
 
         _batches.Clear();
@@ -328,5 +464,27 @@ public sealed class ParticleEffects
     /// **A new demo must not inherit the last one's trails**, which is the stale-pairing fault the
     /// map's own collision and detail props each document.
     /// </remarks>
-    public void Clear() => _running.Clear();
+    public void Clear()
+    {
+        _running.Clear();
+        _bursts.Clear();
+        _burstTick = 0;
+    }
 }
+
+/// <summary>One one-shot effect to run at a fixed point — an explosion, an impact, a decal puff (B415).</summary>
+/// <param name="Key">
+/// What identifies this burst between frames. It must be stable for one event and distinct between events: two
+/// rockets landing on the same tick are two bursts, and a key that collapsed them would draw one explosion.
+/// </param>
+/// <param name="Definition">
+/// The system to run. **Per burst rather than per call**, because two explosions in one frame genuinely differ —
+/// a rocket against a wall is `ExplosionCore_Wall` and one in mid air is `ExplosionCore_MidAir`.
+/// </param>
+/// <param name="At">Where it is and which way up, which is control point 0 and its orientation.</param>
+/// <param name="Tick">The demo tick it fired on, which is what its age is measured from.</param>
+public readonly record struct ParticleBurst(
+    long Key,
+    ParticleSystem Definition,
+    ParticleControlPoint At,
+    int Tick);
