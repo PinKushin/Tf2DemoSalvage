@@ -71,6 +71,17 @@ public sealed class VmtParameterTests
     }
 
     [Test]
+    public void IsModulateTwice_DecalModulate_IsAlwaysTwice()
+    {
+        // `DecalModulate_dx9.cpp:67`: `BlendFunc( SHADER_BLEND_DST_COLOR, SHADER_BLEND_SRC_COLOR )` with no key read —
+        // the bullet hole atlas `decals/decals_mod2x` declares only `$decal` and `$translucent` (B415).
+        VmtMaterial hole = Parse("\"DecalModulate\"\n{\n\t\"$decal\" 1\n\t\"$translucent\" 1\n}\n");
+
+        hole.IsModulate.ShouldBeTrue();
+        hole.IsModulateTwice.ShouldBeTrue();
+    }
+
+    [Test]
     public void VmtParameters_ModulateTwice_NeedsBothTheShaderAndTheKey()
     {
         // An AND of two conditions, so each has to be shown to matter on its own - otherwise a

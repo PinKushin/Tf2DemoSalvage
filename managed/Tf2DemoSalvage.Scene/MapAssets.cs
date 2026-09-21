@@ -895,6 +895,15 @@ public sealed class MapAssets
     public IReadOnlyDictionary<string, EngineSprite> SpriteMaterials
     { get; private init; } = new Dictionary<string, EngineSprite>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The materials the game's decals draw with, by name, at their index in the material table (B415).</summary>
+    /// <remarks>
+    /// **In the world's own table**, after everything else, because a decal draws in the world's overlay pass and binds
+    /// its textures the way an overlay's do. Loaded with the map for the reason every model is: a material added
+    /// during playback would grow the table and re-upload it mid-match.
+    /// </remarks>
+    public IReadOnlyDictionary<string, int> DecalMaterials
+    { get; private init; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
     /// <remarks>
     /// **Read and discarded until 2026-09-06.** `BspDetailProps.Read` has always returned it as the
@@ -1093,6 +1102,7 @@ public sealed class MapAssets
     /// because the caller reads the leaves and ambient samples before any asset is loaded.
     /// </param>
     /// <param name="loggers">Where loading reports what it could not use, or null for nowhere.</param>
+    /// <param name="decalMaterials">The materials the game's decals draw with — a Subrect's atlas, not the Subrect (B415).</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
@@ -1117,7 +1127,8 @@ public sealed class MapAssets
         IReadOnlyCollection<string>? particleSystemsUsed = null,
         Func<LightmapAtlas, IReadOnlyDictionary<string, PropModels.ModelFrames>>? brushModels = null,
         Func<float, float, float, PointLighting>? lightAt = null,
-        ILoggerFactory? loggers = null)
+        ILoggerFactory? loggers = null,
+        IReadOnlyCollection<string>? decalMaterials = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -1329,6 +1340,22 @@ public sealed class MapAssets
 
         IReadOnlyDictionary<string, EngineSprite> sprites =
             LoadSpriteMaterials(assets, spriteMaterials ?? [], pak, archives, maximumTextureSize);
+
+        // The decal materials continue the same table; a name that resolves to no texture is left out and draws nothing.
+        Dictionary<string, int> decals = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string name in decalMaterials ?? [])
+        {
+            if (!decals.ContainsKey(name) && ResolveProp(name) is { Texture: not null } decal)
+            {
+                decals[name] = table.Count;
+                table.Add(new BspMaterial(name, (1f, 1f, 1f), 0, 0), decal);
+            }
+        }
+
+        assets.LogInformation(
+            "{Message}",
+            $"decal materials: {decalMaterials?.Count ?? 0} asked for, {decals.Count} resolved");
 
         // **Entity models are loaded here, with the map's own props, and that is the point.**
         // Their materials go into the same table, so the textures upload once with everything in
@@ -1659,6 +1686,7 @@ public sealed class MapAssets
             ParticleSystemsByName = particleSystems,
             ParticleMaterials = particleMaterials,
             SpriteMaterials = sprites,
+            DecalMaterials = decals,
             DetailModelNames = detailModelNames,
             EntityModels = models,
             UnimplementedParameters = census,

@@ -280,6 +280,7 @@ internal static class MaterialCensus
         "WorldVertexTransition",
         "UnLitTwoTexture",
         "Modulate",
+        "DecalModulate",
         "Patch",
     };
 

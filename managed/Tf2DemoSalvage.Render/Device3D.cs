@@ -1466,6 +1466,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _device, world.Vertices, world.Batches, world.Decals, world.Props);
     }
 
+    /// <summary>Replaces the decals the game has placed on the world — bullet holes and the demo's decal events (B415).</summary>
+    /// <param name="vertices">Their triangles, grouped by material.</param>
+    /// <param name="batches">One run per material.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    public void UploadShotDecals(IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _world?.UploadShotDecals(_device, _context, vertices, batches);
+    }
+
     /// <summary>How this map decides what of the world to draw, or null to draw all of it.</summary>
     private WorldCulling? _culling;
 

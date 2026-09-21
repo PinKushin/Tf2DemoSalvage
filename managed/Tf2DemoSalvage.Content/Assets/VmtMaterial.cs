@@ -243,7 +243,10 @@ public sealed class VmtMaterial
     /// and the material can brighten as well as darken. Reported separately because the two want
     /// different blend factors.
     /// </remarks>
-    public bool IsModulate => Shader.Equals("Modulate", StringComparison.OrdinalIgnoreCase);
+    public bool IsModulate => Shader.Equals("Modulate", StringComparison.OrdinalIgnoreCase) || IsDecalModulate;
+
+    /// <summary>`DecalModulate`: the bullet holes' shader, a mod2x blend by construction (`DecalModulate_dx9.cpp:67`).</summary>
+    private bool IsDecalModulate => Shader.Equals("DecalModulate", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether this material is drawn from both sides.</summary>
     /// <remarks>
@@ -483,7 +486,7 @@ public sealed class VmtMaterial
     public string? SecondTexture => Value("$texture2");
 
     /// <summary>Whether a modulating material doubles its result.</summary>
-    public bool IsModulateTwice => IsModulate && Flag("$mod2x");
+    public bool IsModulateTwice => IsDecalModulate || (IsModulate && Flag("$mod2x"));
 
     /// <summary>The detail texture tiled over the base, without extension, or null.</summary>
     public string? Detail => Value("$detail");
