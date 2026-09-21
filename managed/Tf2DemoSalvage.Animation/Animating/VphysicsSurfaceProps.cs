@@ -158,6 +158,32 @@ public sealed class VphysicsSurfaceProps : IIvpMaterialManager
         return index < 0 || index > _surfaces.Count - 1 ? null : _surfaces[index];
     }
 
+    /// <summary>A surface's data by index — slot 5, <c>FUN_1800184a0</c>, `GetSurfaceData`.</summary>
+    /// <param name="index">The surface index.</param>
+    /// <returns>The surface; surface zero for any index that names none; null only when there are no surfaces.</returns>
+    /// <remarks>
+    /// <code>
+    /// index > 0x7f:  index = index == 0xf000 ? props+0x1cc : 0
+    /// index &lt; 0 or index > count − 1:  surface 0
+    /// </code>
+    /// **Unlike <see cref="GetIVPMaterial"/>, nothing is ever missing**: a world texture without `$surfaceprop` is stored as −1 by
+    /// `CMod_LoadTextures` and reads as surface zero here.
+    /// </remarks>
+    public VphysicsSurface? GetSurfaceData(int index)
+    {
+        if (index > WorldTableSize - 1)
+        {
+            index = index == ShadowIndex ? ShadowSurface : 0;
+        }
+
+        if (index >= 0 && index <= _surfaces.Count - 1)
+        {
+            return _surfaces[index];
+        }
+
+        return _surfaces.Count > 0 ? _surfaces[0] : null;
+    }
+
     /// <summary>Sets the world's material table — slot 8, <c>FUN_180019220</c>: <c>min(size, 128)</c> words of the map.</summary>
     /// <param name="map">The map's surface index for each triangle material index.</param>
     /// <exception cref="ArgumentNullException"><paramref name="map"/> is null.</exception>
