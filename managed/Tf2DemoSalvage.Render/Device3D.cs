@@ -1466,6 +1466,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _device, world.Vertices, world.Batches, world.Decals, world.Props);
     }
 
+    /// <summary>The vertex light a mod2x decal's corners carry — the reasoning is on the renderer's own constant.</summary>
+    public const float ModulateTwiceLight = WorldRenderer.ModulateTwiceLight;
+
     /// <summary>Replaces the decals the game has placed on the world — bullet holes and the demo's decal events (B415).</summary>
     /// <param name="vertices">Their triangles, grouped by material.</param>
     /// <param name="batches">One run per material.</param>

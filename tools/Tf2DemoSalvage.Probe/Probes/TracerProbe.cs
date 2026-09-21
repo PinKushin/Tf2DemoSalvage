@@ -101,6 +101,45 @@ public sealed class TracerProbe : IProbe
                 $"({tracer.Start.X:0},{tracer.Start.Y:0},{tracer.Start.Z:0}) -> ({tracer.End.X:0},{tracer.End.Y:0},{tracer.End.Z:0}) " +
                 $"{length:0} units; TF2VIEW_CAMERA=\"{camera.X:0} {camera.Y:0} {camera.Z:0} 5 {yaw:0}\""));
         }
+
+        // **The impacts, and what each resolves to through the production chain** (B415): the decal counts are the
+        // values `ImpactDecals.For` returned, not a second reading of the surface.
+        IReadOnlyList<ShotImpact> impacts = map.Impacts;
+        List<(ShotImpact Impact, DecalMaterial? Decal)> resolved =
+            [.. impacts.Select(one => (one, map.ImpactDecals?.For(one)))];
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{impacts.Count} impacts, {resolved.Count(one => one.Decal is not null)} with a decal, " +
+            $"{impacts.Count(one => one.Texinfo < 0)} on terrain; " +
+            $"{map.Assets?.DecalMaterials.Count ?? 0} decal materials loaded"));
+
+        foreach (IGrouping<string, (ShotImpact Impact, DecalMaterial? Decal)> group in
+                 resolved.GroupBy(one => one.Decal?.Name ?? "(none)").OrderByDescending(one => one.Count()))
+        {
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {group.Key,-40} {group.Count(),6}"));
+        }
+
+        foreach ((ShotImpact impact, DecalMaterial? decal) in resolved.Where(one => one.Decal is not null).Take(shown))
+        {
+            // Back along the bullet 96 units, looking at where it stopped.
+            (float X, float Y, float Z) delta = (
+                impact.End.X - impact.Start.X, impact.End.Y - impact.Start.Y, impact.End.Z - impact.Start.Z);
+            float length = MathF.Max(1f, MathF.Sqrt((delta.X * delta.X) + (delta.Y * delta.Y) + (delta.Z * delta.Z)));
+            float back = MathF.Min(96f, length);
+            (float X, float Y, float Z) camera = (
+                impact.End.X - (delta.X / length * back),
+                impact.End.Y - (delta.Y / length * back),
+                impact.End.Z - (delta.Z / length * back));
+            float yaw = float.RadiansToDegrees(MathF.Atan2(delta.Y, delta.X));
+            float pitch = -float.RadiansToDegrees(MathF.Asin(delta.Z / length));
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  tick {impact.Tick} shot {impact.Shot} bullet {impact.Bullet} texinfo {impact.Texinfo} {decal?.Name} " +
+                $"at ({impact.End.X:0},{impact.End.Y:0},{impact.End.Z:0}); " +
+                $"TF2VIEW_CAMERA=\"{camera.X:0} {camera.Y:0} {camera.Z:0} {pitch:0} {yaw:0}\""));
+        }
     }
 
     private static string TfAlias(int weaponId) => Content.Assets.TfWeaponAliases.Of(weaponId) ?? "?";

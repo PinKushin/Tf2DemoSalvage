@@ -27222,6 +27222,32 @@ through the viewer's own load: 2,176 shots, **7,957 tracers**, twelve effect nam
 - **An unprecached tracer name** resolves to string-table entry 0 in the engine (`GetParticleSystemIndex` returns 0);
   here it is looked up by name and skipped when absent.
 
+**Built 2026-09-21: world decals — bullet holes and the demo's decal events** (D186; `docs/findings/60`). The engine's
+decal system is ported out of `engine.dll` (`WorldDecals`), every bullet the world stops is an impact carrying its
+struck brush side (`ShotImpact`, `MapLevel.SweepSurface`), `ImpactDecals` runs the client chain from
+`UTIL_ImpactTrace` to `GetDecalIndexForName`, `DecalReplay` shoots them and the `CTEWorldDecal`/world `CTEDecal` events
+in tick order, and they draw in the overlay pass from a dynamic buffer. On f12, through the viewer's own load: **16,359
+impacts, 12,105 with a decal** (concrete 9,431, metal 1,729, dirt 731, glass 194, wood 20), 1,424 on terrain.
+**Looked at**: `decals2.png` — a hole on the blue wall at shot 4's pellet cluster (tick 1654), with no square around
+it once the mod2x blend was corrected.
+
+**What the decals still get wrong or leave out, each filed rather than hidden:**
+
+- **Players are judged only for a bullet met on its own tick.** A seek replays the pool from the start against the world
+  alone, so a bullet a player took leaves a hole in the wall behind them. The engine's rewind re-simulates with every
+  player posed; this would need every player posed at every shot.
+- **The pick is not the engine's.** `GetDecalIndexForName` draws from the client's global random stream, which no demo
+  records; the draw here is seeded by shot and bullet, so a replay gives the same hole every time.
+- **Not built:** displacement decals (1,424 f12 impacts on terrain draw none), brush-entity decals (a door's holes ride
+  the door), static-prop and model decals (`CTEDecal` with a hitbox, blood on a player), sprays (`CTEPlayerDecal`),
+  decal fade, and `ImpactWaterTrace`'s splash for a bullet entering water.
+- **Order within one tick is interpolated**: a decal event is shot before a bullet's; the packet's order is not kept.
+- **`r_decals` is the default, 2048**, not read from the viewer's config.
+- **For the performance pass, unverified:** a backward seek clears and re-shoots every impact up to the tick — sixteen
+  thousand on f12 at the end of the match. Not measured.
+- **The effects half of `Impact` is not built**: `PerformCustomEffects` (debris, sparks, dust), the impact and
+  ricochet sounds, and `FX_AffectRagdolls`.
+
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
 **The owner, unprompted, while I was measuring something else**: *"for some reason the first person rockets still dont

@@ -1438,6 +1438,10 @@ internal class MainForm : Form, IFrameSteps
         // Indexed by the map's own tracer list, which goes with it.
         _tracerStarts.Clear();
 
+        // The decal pool is the map's; the device's copy goes with ClearWorld below.
+        _decalReplay = null;
+        _decalVersion = -1;
+
         // **Every system is told the level is going, in reverse registration order** — Valve's
         // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
         //
@@ -4296,9 +4300,10 @@ internal class MainForm : Form, IFrameSteps
                 // **Players are clipped only for a tracer met on its own tick**, where this frame's bones are the ones
                 // the engine traced against when the shot arrived. Met later — a seek into the window — the players
                 // have moved and this frame's bones would strike whoever stands there now; the world's end is kept.
-                ((float X, float Y, float Z) end, bool judged) = tick - tracer.Tick <= 1
-                    ? StruckEnd(tracer)
-                    : (tracer.End, true);
+                ((float X, float Y, float Z) end, bool judged, _) = tick - tracer.Tick <= 1
+                    ? StruckEnd(new ShotImpact(
+                        tracer.Shot, tracer.Bullet, tracer.Tick, tracer.Shooter, 0, tracer.Start, tracer.End, tracer.Reach, -1))
+                    : (tracer.End, true, null);
 
                 path = (start, end);
 
@@ -4350,6 +4355,71 @@ internal class MainForm : Form, IFrameSteps
         }
     }
 
+    /// <summary>The world's decals, replayed from the demo — built on the first frame of a map, dropped with it.</summary>
+    private DecalReplay? _decalReplay;
+
+    /// <summary>The pool version last uploaded, so an unchanged pool costs nothing.</summary>
+    private int _decalVersion = -1;
+
+    private readonly List<PlacedDecal> _placedDecals = [];
+    private readonly List<WorldVertex> _decalVertices = [];
+    private readonly List<WorldBatch> _decalBatches = [];
+
+    /// <summary>Brings the world's decals to this tick and uploads them when they changed (B415).</summary>
+    /// <remarks>
+    /// **Players are judged only for a bullet met on its own tick**, as a tracer's are: then this frame's bones are the
+    /// ones the engine traced against. Met later — a seek, or a replay after one — the world's answer stands, and a
+    /// bullet a player took leaves a hole in the wall behind them. That is the stated cost of replaying without
+    /// re-posing every player at every shot.
+    /// </remarks>
+    private void StepDecals(int tick)
+    {
+        if (_device is null ||
+            _timeline is not { } timeline ||
+            _loaded is not { Assets: { } assets, ImpactDecals: { } impacts } loaded)
+        {
+            return;
+        }
+
+        if (_decalReplay is null)
+        {
+            MapLevel level = loaded.Level;
+            DecalWorld world = level.Leaves is { } tree && level.LeafFaces is { } leafFaces
+                ? DecalWorld.From(tree, leafFaces, level.Surfaces)
+                : DecalWorld.Empty;
+
+            _decalReplay = new DecalReplay(
+                new WorldDecals(world),
+                loaded.Impacts,
+                timeline.Decals.All,
+                impacts.For,
+                index => timeline.Decals.Names.Name(index) is { } name ? impacts.Materials.Resolve(name) : null);
+        }
+
+        _decalReplay.AdvanceTo(tick, bullet => tick - bullet.Tick <= 1 && StruckEnd(bullet).Struck is not null);
+
+        if (_decalReplay.Decals.Version == _decalVersion)
+        {
+            return;
+        }
+
+        _decalVersion = _decalReplay.Decals.Version;
+        _decalReplay.Decals.Placed(_placedDecals);
+
+        DecalMesh.Build(
+            _placedDecals,
+            material => material.Draws is { } drawn && assets.DecalMaterials.TryGetValue(drawn, out int index) ? index : -1,
+            index => index < assets.Shaders.Count &&
+                     string.Equals(assets.Shaders[index], "DecalModulate", StringComparison.OrdinalIgnoreCase)
+                ? Device3D.ModulateTwiceLight
+                : null,
+            assets.Lightmaps.Rectangles,
+            _decalVertices,
+            _decalBatches);
+
+        _device.UploadShotDecals(_decalVertices, _decalBatches);
+    }
+
     /// <summary>`MASK_SOLID | CONTENTS_HITBOX`, what `FireBullet` traces with.</summary>
     private const int BulletMask = 0x0200400B | 0x40000000;
 
@@ -4365,26 +4435,26 @@ internal class MainForm : Form, IFrameSteps
     /// which is the tick the tracer is first drawn on. **A player no pass has posed has no hitboxes to hit**, so a bullet
     /// passes through someone culled from view — whose tracer end is most likely out of view too.
     /// </remarks>
-    private ((float X, float Y, float Z) End, bool Judged) StruckEnd(ShotTracer tracer)
+    private ((float X, float Y, float Z) End, bool Judged, int? Struck) StruckEnd(ShotImpact bullet)
     {
         if (_timeline is not { } timeline || _loaded?.Level is not { } level)
         {
-            return (tracer.End, true);
+            return (bullet.End, true, null);
         }
 
-        Vector3 start = new(tracer.Start.X, tracer.Start.Y, tracer.Start.Z);
-        Vector3 reach = new(tracer.Reach.X, tracer.Reach.Y, tracer.Reach.Z);
+        Vector3 start = new(bullet.Start.X, bullet.Start.Y, bullet.Start.Z);
+        Vector3 reach = new(bullet.Reach.X, bullet.Reach.Y, bullet.Reach.Z);
         float full = Vector3.Distance(start, reach);
         float worldFraction = full > 0f
-            ? Vector3.Distance(start, new Vector3(tracer.End.X, tracer.End.Y, tracer.End.Z)) / full
+            ? Vector3.Distance(start, new Vector3(bullet.End.X, bullet.End.Y, bullet.End.Z)) / full
             : 1f;
 
         List<BulletTarget> targets = [];
 
-        foreach (ScenePlayer player in timeline.PlayersAt(tracer.Tick))
+        foreach (ScenePlayer player in timeline.PlayersAt(bullet.Tick))
         {
             // `CTraceFilterSimple( this, … )` passes over the shooter; the rest must be alive and present.
-            if (player.EntityIndex != tracer.Shooter && (player.LifeState ?? Alive) == Alive)
+            if (player.EntityIndex != bullet.Shooter && (player.LifeState ?? Alive) == Alive)
             {
                 targets.Add(new BulletTarget(
                     player.EntityIndex,
@@ -4426,11 +4496,11 @@ internal class MainForm : Form, IFrameSteps
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"bullet (shot {tracer.Shot} pellet {tracer.Bullet}): {targets.Count} players, {posed} posed, " +
+                    $"bullet (shot {bullet.Shot} pellet {bullet.Bullet}): {targets.Count} players, {posed} posed, " +
                     $"{asked} hitbox tests, {answered} hit; struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}"));
         }
 
-        return ((end.X, end.Y, end.Z), targets.Count == 0 || posed > 0);
+        return ((end.X, end.Y, end.Z), targets.Count == 0 || posed > 0, struck);
     }
 
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
@@ -4454,6 +4524,9 @@ internal class MainForm : Form, IFrameSteps
         {
             return;
         }
+
+        // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
+        StepDecals(_transport.CurrentTick);
 
         IReadOnlyList<ParticleBatch> batches = [];
 

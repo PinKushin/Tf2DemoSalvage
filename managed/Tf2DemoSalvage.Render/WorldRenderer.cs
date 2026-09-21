@@ -5269,6 +5269,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.RSSetState(Raster(_bothSides));
     }
 
+    /// <summary>The vertex light a mod2x decal's corners carry so this pipeline reproduces the engine's blend (B415).</summary>
+    /// <remarks>
+    /// **The engine's mod2x multiplies GAMMA values**: `DecalModulate` reads its texture with `EnableSRGBRead( false )`
+    /// and writes with `EnableSRGBWrite( false )`, so the framebuffer's stored value becomes `dst · 2s`, and a texel of
+    /// 128 leaves the wall unchanged. This renderer blends in LINEAR space — the target view is sRGB — and samples the
+    /// texture decoded, so the same equation in linear terms is `dst_lin · (2s)^2.2 = dst_lin · 2^2.2 · s_lin`. The
+    /// blend supplies one factor of two; the shader lights an unlit corner from the white texel at `OverbrightScale`,
+    /// which is another; this carries what is left, `2^2.2 / 2 / 2`.
+    ///
+    /// *Arithmetic, on the sRGB curve's 2.2 approximation.* A texel above about 0.68 would brighten past what an
+    /// unsigned-normalised output can carry and is clamped; a bullet hole's atlas is dark.
+    /// </remarks>
+    public const float ModulateTwiceLight = 1.1486983f;
+
     /// <summary>The world's placed decals, drawn after the overlays; rebuilt when the decal list changes.</summary>
     private IReadOnlyList<WorldBatch> _shotDecals = [];
 

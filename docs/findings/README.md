@@ -184,6 +184,11 @@ in any public writeup found:
   The particle's life is the trip's length over its speed, read out of `client.dll`, whose start-offset
   branch writes y and z into the neighbouring particles
   ([59](59-a-tracer-is-a-counter-and-two-points.md)).
+- **A bullet hole is a translated name.** The world asks for `"Impact.Concrete"` whatever it is, and a table in
+  `decals_subrect.txt` swaps it for the struck surface's group. The surface's material is set per texdata at load, and
+  a texture with no `$surfaceprop` impacts as surface zero rather than nothing. The first holes sat in dark squares
+  because the engine's mod2x multiplies gamma values and this renderer blends linear ones
+  ([60](60-a-bullet-hole-is-a-translated-name.md)).
 
 ## Conventions used throughout
 

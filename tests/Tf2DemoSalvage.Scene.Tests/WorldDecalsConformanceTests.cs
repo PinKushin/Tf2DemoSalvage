@@ -161,7 +161,7 @@ public sealed class WorldDecalsConformanceTests
     }
 
     /// <summary>One node on the plane x = 0, holding one 512-unit wall face; both children are empty leaves.</summary>
-    private static DecalWorld Wall()
+    internal static DecalWorld Wall()
     {
         Vector3[] corners =
         [

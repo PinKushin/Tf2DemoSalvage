@@ -32,12 +32,16 @@ public sealed class DecalMeshTests
     }
 
     [Test]
-    public void Build_AnUnlitDecal_TakesTheWhiteTexel()
+    public void Build_AnUnlitDecal_TakesTheWhiteTexelAndItsVertexLight()
     {
-        (List<WorldVertex> vertices, _) = Build([Quad(0, Hole, face: 1)]);
+        (List<WorldVertex> vertices, _) = Build([Quad(0, Hole, face: 1), Quad(1, Scorch, face: 1)]);
 
         vertices[2].LightU.ShouldBe(0f);
         vertices[2].LightV.ShouldBe(0f);
+        (vertices[2].Red, vertices[2].Green, vertices[2].Blue).ShouldBe((1.25f, 1.25f, 1.25f));
+
+        // The lit one keeps the vertex light a brush face carries: one.
+        vertices[8].Red.ShouldBe(1f);
     }
 
     [Test]
@@ -63,7 +67,7 @@ public sealed class DecalMeshTests
                 "decals/scorch1" => 9,
                 _ => -1,
             },
-            index => index == 7,
+            index => index == 7 ? 1.25f : null,
             Lightmaps,
             vertices,
             batches);
