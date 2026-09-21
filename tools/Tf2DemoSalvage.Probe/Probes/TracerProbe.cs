@@ -151,6 +151,7 @@ public sealed class TracerProbe : IProbe
 
         foreach (IGrouping<(string?, int, int), SceneEffectDispatch> particle in timeline.Dispatches.All
                      .Where(one => timeline.Dispatches.Names.Name(one.Name) == "ParticleEffect")
+                     .Concat(timeline.TfParticleEffects.All)
                      .GroupBy(one => (timeline.Dispatches.ParticleNames.Name(one.HitBox), one.Flags, one.DamageType))
                      .OrderByDescending(one => one.Count()))
         {

@@ -273,6 +273,7 @@ public sealed class LoadedMap
                             .. WeaponMuzzleSystems(game, timeline),
                             .. timeline.Dispatches.All
                                 .Where(dispatch => timeline.Dispatches.Names.Name(dispatch.Name) == "ParticleEffect")
+                                .Concat(timeline.TfParticleEffects.All)
                                 .Select(dispatch => timeline.Dispatches.ParticleNames.Name(dispatch.HitBox))
                                 .OfType<string>()
                                 .Distinct(StringComparer.OrdinalIgnoreCase),

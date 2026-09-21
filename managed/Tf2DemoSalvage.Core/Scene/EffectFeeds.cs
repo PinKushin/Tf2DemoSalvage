@@ -26,6 +26,9 @@ public sealed class EffectFeeds
     /// <summary>`CTEEffectDispatch` and the <c>EffectDispatch</c> table.</summary>
     public EffectDispatchFeed Dispatches { get; } = new();
 
+    /// <summary>`CTETFParticleEffect`, as the `"ParticleEffect"` dispatches the client turns them into.</summary>
+    public TfParticleEffectFeed TfParticleEffects { get; } = new();
+
     /// <summary>Offers one decoded temp entity to each feed until one takes it.</summary>
     /// <param name="className">The class the effect's id resolved to.</param>
     /// <param name="effect">The decoded effect.</param>
@@ -40,5 +43,6 @@ public sealed class EffectFeeds
         Shots.Record(className, effect, tick, shooter) ||
         Decals.Record(className, effect, tick) ||
         Blood.Record(className, effect, tick, isPlayer) ||
-        Dispatches.Record(className, effect, tick);
+        Dispatches.Record(className, effect, tick) ||
+        TfParticleEffects.Record(className, effect, tick);
 }

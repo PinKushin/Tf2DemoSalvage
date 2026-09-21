@@ -4858,11 +4858,17 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Every effect dispatch in the particle window this tick, reused.</summary>
     private readonly List<(int Index, SceneEffectDispatch Dispatch)> _particleDispatchesNow = [];
 
-    /// <summary>The dispatches already logged, so each is reported once.</summary>
-    private readonly HashSet<int> _loggedDispatches = [];
+    /// <summary>The dispatches already logged by key, so each is reported once unplaced and once placed.</summary>
+    private readonly HashSet<long> _loggedDispatches = [];
 
-    /// <summary>Where each non-following dispatched effect was created, fixed at first sight.</summary>
-    private readonly Dictionary<int, ParticleControlPoint> _particleDispatchPoints = [];
+    /// <summary>Where each non-following dispatched effect was created by key, fixed at first sight.</summary>
+    private readonly Dictionary<long, ParticleControlPoint> _particleDispatchPoints = [];
+
+    /// <summary>`CTETFParticleEffect` keys sit above the weapon flashes'.</summary>
+    private const long TfParticleKeys = 6L << 32;
+
+    /// <summary>Every `CTETFParticleEffect` in the particle window this tick, reused.</summary>
+    private readonly List<(int Index, SceneEffectDispatch Dispatch)> _tfParticlesNow = [];
 
     /// <summary>Adds every `"ParticleEffect"` dispatch in the window — `ParticleEffectCallback` (B415).</summary>
     /// <remarks>
@@ -4886,36 +4892,48 @@ internal class MainForm : Form, IFrameSteps
 
         foreach ((int index, SceneEffectDispatch dispatch) in _particleDispatchesNow)
         {
-            if (!string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ParticleEffect", StringComparison.Ordinal))
+            if (string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ParticleEffect", StringComparison.Ordinal))
             {
-                continue;
+                AddParticleEffect(ParticleDispatchKeys + index, dispatch, timeline, systems);
             }
+        }
 
-            string? name = timeline.Dispatches.ParticleNames.Name(dispatch.HitBox);
-            ParticleSystem? definition = name is null ? null : systems.GetValueOrDefault(name);
-            ParticleControlPoint? point = definition is null ? null : DispatchedPoint(index, dispatch);
+        // `C_TETFParticleEffect::PostDataUpdate` is the same dispatch, built on the client.
+        TickWindow.Between(
+            timeline.TfParticleEffects.All, static dispatch => dispatch.Tick, tick - ParticleDispatchWindowTicks, tick, _tfParticlesNow);
 
-            // Once unplaced and once placed: the first frame after a load or seek comes before any pose pass.
-            if (_renderLog.IsEnabled(LogLevel.Debug) && _loggedDispatches.Add((index * 2) + (point is null ? 0 : 1)))
-            {
-                string posed = _models.IsPosed(dispatch.Entity) ? " (posed)" : " (not posed)";
+        foreach ((int index, SceneEffectDispatch dispatch) in _tfParticlesNow)
+        {
+            AddParticleEffect(TfParticleKeys + index, dispatch, timeline, systems);
+        }
+    }
 
-                _renderLog.LogDebug(
-                    "{Message}",
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"particle dispatch {index} at tick {dispatch.Tick}: {name ?? "(unnamed " + dispatch.HitBox + ")"} " +
-                        $"{(definition is null ? "NO DEFINITION" : "loaded")}, entity {dispatch.Entity} attach " +
-                        $"{dispatch.DamageType} point {dispatch.Attachment}: " +
-                        $"{(point is null ? "NOT PLACED" + posed : "placed")}"));
-            }
+    /// <summary>One `"ParticleEffect"` dispatch's burst, under a key unique across both sources.</summary>
+    private void AddParticleEffect(
+        long key, SceneEffectDispatch dispatch, DemoTimeline timeline, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        string? name = timeline.Dispatches.ParticleNames.Name(dispatch.HitBox);
+        ParticleSystem? definition = name is null ? null : systems.GetValueOrDefault(name);
+        ParticleControlPoint? point = definition is null ? null : DispatchedPoint(key, dispatch);
 
-            if (definition is null || point is not { } at)
-            {
-                continue;
-            }
+        // Once unplaced and once placed: the first frame after a load or seek comes before any pose pass.
+        if (_renderLog.IsEnabled(LogLevel.Debug) && _loggedDispatches.Add((key * 2) + (point is null ? 0 : 1)))
+        {
+            string posed = _models.IsPosed(dispatch.Entity) ? " (posed)" : " (not posed)";
 
-            _burstsNow.Add(new ParticleBurst(ParticleDispatchKeys + index, definition, at, dispatch.Tick, DispatchedEnd(dispatch)));
+            _renderLog.LogDebug(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"particle dispatch {key:x} at tick {dispatch.Tick}: {name ?? "(unnamed " + dispatch.HitBox + ")"} " +
+                    $"{(definition is null ? "NO DEFINITION" : "loaded")}, entity {dispatch.Entity} attach " +
+                    $"{dispatch.DamageType} point {dispatch.Attachment}: " +
+                    $"{(point is null ? "NOT PLACED" + posed : "placed")}"));
+        }
+
+        if (definition is not null && point is { } at)
+        {
+            _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch)));
         }
     }
 
@@ -4934,7 +4952,7 @@ internal class MainForm : Form, IFrameSteps
     }
 
     /// <summary>Control point 0 of a dispatched effect, or null when the callback would create nothing here.</summary>
-    private ParticleControlPoint? DispatchedPoint(int index, SceneEffectDispatch dispatch)
+    private ParticleControlPoint? DispatchedPoint(long index, SceneEffectDispatch dispatch)
     {
         bool fromEntity = (dispatch.Flags & DispatchFromEntity) != 0;
 

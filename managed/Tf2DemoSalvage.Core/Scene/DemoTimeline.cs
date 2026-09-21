@@ -1115,6 +1115,9 @@ public sealed class DemoTimeline
     /// <summary>Every weapon muzzle flash, in tick order (B415).</summary>
     public MuzzleFlashFeed MuzzleFlashes { get; private init; } = new();
 
+    /// <summary>Every `CTETFParticleEffect`, as its `"ParticleEffect"` dispatch, in fire order (B415).</summary>
+    public TfParticleEffectFeed TfParticleEffects { get; private init; } = new();
+
     /// <summary>Every choreographed scene that started playing, in tick order (B351).</summary>
     /// <remarks>
     /// **A start rather than a per-tick state, for the reason <see cref="SceneChoreography"/>
@@ -2605,6 +2608,7 @@ public sealed class DemoTimeline
             Blood = feeds.Blood,
             Dispatches = feeds.Dispatches,
             MuzzleFlashes = muzzleFlashes,
+            TfParticleEffects = feeds.TfParticleEffects,
             Scenes = choreography,
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
