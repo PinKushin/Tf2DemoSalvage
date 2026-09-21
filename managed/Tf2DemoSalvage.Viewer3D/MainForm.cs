@@ -4866,8 +4866,7 @@ internal class MainForm : Form, IFrameSteps
     /// (`PATTACH_ABSORIGIN_FOLLOW`, offset `( 0, 0, 50 )`), both read every frame. A stopped beam fades.
     /// **A seek into a beam replays at most two seconds of it**, from where it was first met: the beam's own particles
     /// live well under that, so the picture is the same as replaying from its start. *Not built:* the revive marker's
-    /// `healbeam`, the local medic's `_targeted` beam, the item's custom beam particle, a building target, and a beam on
-    /// a medigun not posed here (a first-person medic's is on the viewmodel).
+    /// `healbeam` (MvM), and a beam on a medigun not posed here (a first-person medic's is on the viewmodel).
     /// </remarks>
     private void AddHealBeams(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
