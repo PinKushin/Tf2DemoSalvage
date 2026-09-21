@@ -134,44 +134,8 @@ public sealed class ExplosionFeed
     /// are two effects. The index into <see cref="All"/> is exact and free; a hash of the blast's own fields would
     /// be neither.
     /// </remarks>
-    public void Between(int fromTick, int toTick, ICollection<(int Index, SceneExplosion Blast)> into)
-    {
-        ArgumentNullException.ThrowIfNull(into);
-
-        into.Clear();
-
-        for (int at = FirstFrom(fromTick); at < _blasts.Count && _blasts[at].Tick <= toTick; at++)
-        {
-            into.Add((at, _blasts[at]));
-        }
-    }
-
-    /// <summary>The index of the first blast at or after a tick.</summary>
-    /// <remarks>
-    /// A binary search rather than a scan: `demostf-cp_process_f12` carries 2,786 of these over one match, and this
-    /// is asked once a frame.
-    /// </remarks>
-    private int FirstFrom(int tick)
-    {
-        int low = 0;
-        int high = _blasts.Count;
-
-        while (low < high)
-        {
-            int middle = low + ((high - low) / 2);
-
-            if (_blasts[middle].Tick < tick)
-            {
-                low = middle + 1;
-            }
-            else
-            {
-                high = middle;
-            }
-        }
-
-        return low;
-    }
+    public void Between(int fromTick, int toTick, ICollection<(int Index, SceneExplosion Blast)> into) =>
+        TickWindow.Between(_blasts, static blast => blast.Tick, fromTick, toTick, into);
 
     /// <summary>`RecvProxy_ExplosionEntIndex` — both encodings of "no entity" become one.</summary>
     private static int Entity(int sent) =>

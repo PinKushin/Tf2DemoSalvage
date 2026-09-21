@@ -76,6 +76,13 @@ public sealed class ParticleEffects
     // Stryker disable once : removing TryGetValue leaves 'running' undeclared in ternary, CS0165 — B410.
     public int BurstSteps(long key) => _bursts.TryGetValue(key, out RunningBurst running) ? running.Stepped : -1;
 
+    /// <summary>One running burst's own particles, for a test or a diagnostic.</summary>
+    /// <param name="key">The caller's key for it.</param>
+    /// <returns>The store, or null when no burst has that key.</returns>
+    // Stryker disable once : removing TryGetValue leaves 'running' undeclared in ternary, CS0165 — B410.
+    public ParticleStore? BurstParticles(long key) =>
+        _bursts.TryGetValue(key, out RunningBurst running) ? running.Effect.Particles : null;
+
     /// <summary>Steps every effect, starting one for each projectile that has none.</summary>
     /// <param name="projectiles">
     /// The live projectiles this tick: where each is, where it STARTED, and how many ticks ago
@@ -283,6 +290,11 @@ public sealed class ParticleEffects
             if (!_bursts.TryGetValue(burst.Key, out RunningBurst running) || running.Stepped > wanted)
             {
                 running = new RunningBurst(new ParticleEffect(burst.Definition, others), 0);
+
+                if (burst.End is { } end)
+                {
+                    running.Effect.SetControlPoint(1, end);
+                }
             }
 
             // Stryker restore all
@@ -520,8 +532,13 @@ public sealed class ParticleEffects
 /// </param>
 /// <param name="At">Where it is and which way up, which is control point 0 and its orientation.</param>
 /// <param name="Tick">The demo tick it fired on, which is what its age is measured from.</param>
+/// <param name="End">
+/// Control point 1, or null when the effect has none. A tracer's is where its bullet stopped: `ParticleEffectCallback`
+/// sets control point 0 to the muzzle and 1 to the end before the effect first simulates.
+/// </param>
 public readonly record struct ParticleBurst(
     long Key,
     ParticleSystem Definition,
     ParticleControlPoint At,
-    int Tick);
+    int Tick,
+    ParticleControlPoint? End = null);

@@ -114,6 +114,45 @@ public sealed class FireBulletsSpreadConformanceTests
         drawn.Z.ShouldBe(expected.Z, 1e-6f);
     }
 
+    /// <remarks>
+    /// **Fixed spread takes `g_vecFixedWpnSpreadPellets` at half scale and draws nothing** (`tf_fx_shared.cpp:325`):
+    /// pellet 0 and pellet 9 go straight down the middle, pellet 1 goes half a spread right. f12's server sets
+    /// `tf_use_fixed_weaponspreads 1`, so every scattergun and shotgun in the reference demo takes this branch.
+    /// </remarks>
+    [Test]
+    public void Directions_WithFixedSpread_FollowTheSquarePatternAtHalfScale()
+    {
+        const float Spread = 0.1f;
+
+        (float X, float Y, float Z)[] pellets =
+            FireBulletsSpread.Directions(pitch: 0f, yaw: 0f, spread: Spread, seed: 5, bullets: 10, fixedSpread: true);
+
+        (float X, float Y, float Z) forward = AngleVectors.Forward(0f, 0f);
+
+        pellets[0].X.ShouldBe(forward.X, 1e-6f);
+        pellets[9].X.ShouldBe(forward.X, 1e-6f);
+
+        (float X, float Y, float Z) right = AngleVectors.Right(0f, 0f, 0f);
+        (float X, float Y, float Z) expected = Normalized((
+            forward.X + (0.5f * Spread * right.X),
+            forward.Y + (0.5f * Spread * right.Y),
+            forward.Z + (0.5f * Spread * right.Z)));
+
+        pellets[1].X.ShouldBe(expected.X, 1e-6f);
+        pellets[1].Y.ShouldBe(expected.Y, 1e-6f);
+    }
+
+    /// <remarks>An eleventh pellet wraps back to the table's start: `iSpread -= ARRAYSIZE(...)`.</remarks>
+    [Test]
+    public void Directions_WithFixedSpreadPastTenPellets_WrapToTheStartOfThePattern()
+    {
+        (float X, float Y, float Z)[] pellets =
+            FireBulletsSpread.Directions(pitch: 3f, yaw: 40f, spread: 0.1f, seed: 5, bullets: 12, fixedSpread: true);
+
+        pellets[11].ShouldBe(pellets[1]);
+        pellets[10].ShouldBe(pellets[0]);
+    }
+
     /// <remarks><c>NormalizeInPlace</c> is the loop's last act, so every direction is a unit vector.</remarks>
     [Test]
     public void Directions_WithSpread_AreUnitVectors()

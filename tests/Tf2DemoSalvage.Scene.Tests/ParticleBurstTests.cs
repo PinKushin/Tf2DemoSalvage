@@ -158,6 +158,48 @@ public sealed class ParticleBurstTests
     /// retired before anything can be asked about it. That was the fixture being degenerate, not the code being
     /// wrong — but chasing it is what surfaced `ParticleEffect.Finished`, which the code really did need.
     /// </remarks>
+    /// <remarks>
+    /// **Control point 1 is set before the first step**, as `ParticleEffectCallback` sets it before the effect
+    /// simulates: a tracer spawned without it would head for the world origin.
+    /// </remarks>
+    [Test]
+    public void Bursts_WithAnEnd_SendTheirParticlesToIt()
+    {
+        ParticleEffects effects = new();
+
+        ParticleSystem tracer = new(
+            Name: "test_tracer",
+            Emitters: [new ParticleFunction("emit_instantaneously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["num_to_emit"] = new(DmxAttributeType.Whole, 1d),
+            })],
+            Initializers: [new ParticleFunction("move particles between 2 control points", "move", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["minimum speed"] = new(DmxAttributeType.Real, 1000d),
+                ["maximum speed"] = new(DmxAttributeType.Real, 1000d),
+            })],
+            Operators: [],
+            Renderers: [],
+            Children: [],
+            Parameters: new Dictionary<string, DmxValue>(StringComparer.Ordinal));
+
+        effects.Bursts(
+            [new ParticleBurst(
+                7,
+                tracer,
+                ParticleControlPoint.Unoriented(new Vector3(100f, 0f, 0f)),
+                100,
+                ParticleControlPoint.Unoriented(new Vector3(100f, 300f, 0f)))],
+            Interval,
+            null,
+            tick: 101);
+
+        ParticleStore particles = effects.BurstParticles(7).ShouldNotBeNull();
+
+        particles.Count.ShouldBe(1);
+        particles.LifetimeOf(0).ShouldBe(0.3f, 0.0001f, "300 units at 1000 a second");
+    }
+
     private static ParticleBurst Burst(long key, int tick, float x = 0f) =>
         new(
             key,

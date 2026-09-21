@@ -1100,6 +1100,9 @@ public sealed class DemoTimeline
     /// </remarks>
     public ExplosionFeed Explosions { get; private init; } = new();
 
+    /// <summary>Every hitscan shot the demo carried, in fire order (B415) — asked for by window, like explosions.</summary>
+    public ShotFeed Shots { get; private init; } = new();
+
     /// <summary>Every choreographed scene that started playing, in tick order (B351).</summary>
     /// <remarks>
     /// **A start rather than a per-tick state, for the reason <see cref="SceneChoreography"/>
@@ -1578,6 +1581,7 @@ public sealed class DemoTimeline
         // **Every explosion, from the same stream** (B415). A one-shot at a tick rather than a state at every
         // tick, so it is a list in fire order and not a per-frame sample — see `ExplosionFeed`.
         ExplosionFeed explosions = new();
+        ShotFeed shots = new();
 
         List<TimelineFrame> frames = [];
 
@@ -1910,7 +1914,8 @@ public sealed class DemoTimeline
                             effectClassNames,
                             entities,
                             gestures,
-                            explosions);
+                            explosions,
+                            shots);
                         continue;
 
                     case UpdateStringTableMessage update
@@ -2541,6 +2546,7 @@ public sealed class DemoTimeline
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             Explosions = explosions,
+            Shots = shots,
             Scenes = choreography,
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
@@ -2629,6 +2635,7 @@ public sealed class DemoTimeline
     /// </param>
     /// <param name="gestures">The gesture feed.</param>
     /// <param name="explosions">The explosion feed.</param>
+    /// <param name="shots">The hitscan shot feed.</param>
     /// <remarks>
     /// **A body that will not read is skipped rather than fatal**, which is the rule everywhere
     /// else in this project: a demo is salvaged, and a temp entities body is independent of every
@@ -2651,7 +2658,8 @@ public sealed class DemoTimeline
         Dictionary<int, string> classNames,
         EntityStateTable entities,
         PlayerGestureFeed gestures,
-        ExplosionFeed explosions)
+        ExplosionFeed explosions,
+        ShotFeed shots)
     {
         try
         {
@@ -2664,7 +2672,8 @@ public sealed class DemoTimeline
                     continue;
                 }
 
-                if (explosions.Record(className, effect, tick, index => IsPlayer(entities, index)))
+                if (explosions.Record(className, effect, tick, index => IsPlayer(entities, index)) ||
+                    shots.Record(className, effect, tick, index => Shooter(entities, index)))
                 {
                     continue;
                 }
@@ -2690,6 +2699,23 @@ public sealed class DemoTimeline
     private static bool IsPlayer(EntityStateTable entities, int index) =>
         entities.TryGet(index, out EntityState? entity) &&
         PlayerClass.Equals(entity.ClassName, StringComparison.Ordinal);
+
+    /// <summary>`ToTFPlayer( GetBaseEntity( iPlayer ) )` for a shot, with what the tracer asks of it, or null.</summary>
+    private static ShotShooter? Shooter(EntityStateTable entities, int index)
+    {
+        if (!entities.TryGet(index, out EntityState? player) ||
+            !PlayerClass.Equals(player.ClassName, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        int? weapon = player.ActiveWeapon();
+        int? item = weapon is { } held && entities.TryGet(held, out EntityState? holding)
+            ? holding.ItemDefinitionIndex()
+            : null;
+
+        return new ShotShooter(First(player, TeamProperties) ?? 0, weapon, item);
+    }
 
     /// <summary>What the player named by a gesture event was doing when it arrived.</summary>
     /// <param name="effect">The gesture event.</param>
