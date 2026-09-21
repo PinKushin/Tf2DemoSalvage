@@ -96,6 +96,27 @@ TF_WEAPON_ROCKETLAUNCHER   ExplosionEffect=ExplosionCore_wall
 not.** Skipping the weapon scripts would have drawn `ExplosionCore_wall` for the 449 mid-air blasts, which is most
 of what a soldier does.
 
+### The name Valve's code uses is not the name Valve's data uses
+
+`tf_fx_explosions.cpp:88` and every stock weapon script say **`ExplosionCore_wall`**. The system that ships is
+**`ExplosionCore_Wall`**, with a capital W — measured with the `particles` probe, whose search is a byte compare:
+
+```
+'ExplosionCore_wall' named by 0 of 134 files
+'ExplosionCore_Wall' appears in PARTICLES/EXPLOSION.PCF
+'ExplosionCore_MidAir' appears in PARTICLES/EXPLOSION.PCF
+```
+
+The probe is not lying — `ExplosionCore_MidAir` is the control and it matches exactly, so the search works and the
+case really does differ. TF2 draws the effect, so the engine's particle lookup is case-insensitive.
+
+**This project already agrees, by accident rather than by decision**: `ParticleSystems.Read` builds its map with
+`StringComparer.OrdinalIgnoreCase` (`ParticleSystems.cs:115`), as does `ParticleEffects` (`:321`). Recorded here so
+that neither is "tidied" to `Ordinal` — the symptom would be every wall explosion silently drawing nothing, while
+airbursts, which match exactly, kept working.
+
+*Measured, with a control.*
+
 ## Two encodings for "no entity", and the comment says which demos
 
 `RecvProxy_ExplosionEntIndex` (`tf_fx_explosions.cpp:222-229`):
@@ -124,3 +145,6 @@ wrong effect. Note also that the modern field is `SPROP_UNSIGNED`, so −1 canno
   regardless, so the day one does, the value is there.
 - **`GameRules()->TranslateEffectForVisionFilter( "particles", pszEffect )`**, the last thing
   `TFExplosionCallback` does before dispatching. Unread.
+- **Which `.pcf` the engine actually loads.** `ExplosionCore_` appears in five files —
+  `explosion.pcf`, `explosion_high.pcf`, `explosion_dx90_slow.pcf`, `explosion_dx80.pcf` and `bigboom.pcf` — and
+  which one wins is a `particles_manifest.txt` and detail-level question this has not looked at.
