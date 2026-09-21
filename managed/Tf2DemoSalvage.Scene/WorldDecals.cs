@@ -53,6 +53,8 @@ public sealed record PlacedDecal(int Slot, int Face, DecalMaterial Material, IRe
 /// <param name="Displacement">`SURFDRAW_HAS_DISP`: displacements take their own path, which is not built.</param>
 /// <param name="RefusesDecals">The flag both passes test with <c>0x4000</c> — see <see cref="WorldDecals"/>.</param>
 /// <param name="Lighting">How to light a point on it.</param>
+/// <param name="Flags">Its texinfo's <c>SURF_*</c> flags, which `R_LightVec`'s walk reads as the face's draw flags.</param>
+/// <param name="Texdata">Its texture table index; −1 when unknown.</param>
 public sealed record DecalFace(
     int Index,
     IReadOnlyList<Vector3> Vertices,
@@ -65,7 +67,9 @@ public sealed record DecalFace(
     bool OnNode,
     bool Displacement,
     bool RefusesDecals,
-    LuxelMapping Lighting)
+    LuxelMapping Lighting,
+    SurfaceProperties Flags = SurfaceProperties.None,
+    int Texdata = -1)
 {
     /// <summary>`CalcSurfaceExtents` (`engine.dll` `0x1800fcf80`): per axis, mins = (int)min, extent = ceil(max) − mins.</summary>
     /// <param name="vertices">The corners.</param>
@@ -210,7 +214,9 @@ public sealed record DecalWorld(
                 surface.OnNode,
                 surface.IsDisplacement,
                 (surface.Flags & SurfaceProperties.NoDecals) != 0,
-                surface.Lighting);
+                surface.Lighting,
+                surface.Flags,
+                surface.MaterialIndex);
         }
 
         return new DecalWorld(nodes, leaves, faces);
