@@ -84,6 +84,50 @@ public sealed class DemoSystems
         _demoLog = loggers.CreateLogger("demo");
     }
 
+    /// <summary>Adds what the client emits itself — every explosion's sound — to the demo's schedule (B415).</summary>
+    /// <param name="game">The install, or null when none is open.</param>
+    /// <returns>The sounds added, which a precache wants; empty when the demo or the install is missing.</returns>
+    /// <remarks>
+    /// **Two lifetimes meet here, as they do for the appearance.** The blasts are the demo's; their sounds come from
+    /// the install's weapon scripts, item schema and soundscripts. So this runs once both are known — after the map
+    /// read that opens the install — and it rebuilds the schedule from the demo's own list, so a second call replaces
+    /// rather than doubles.
+    ///
+    /// **The listener's team is the recorder's at each blast**, and a SourceTV recording has none, which is what
+    /// makes `TFExplosionCallback` skip an item's replacement there (`ExplosionEffects.SoundFor`).
+    /// </remarks>
+    public IReadOnlyList<SceneSound> AddEffectSounds(GameContent? game)
+    {
+        if (game is null || _appearances.Timeline is not { } timeline || _sound.Scripts is not { } scripts)
+        {
+            return [];
+        }
+
+        ExplosionEffects effects = new(game.Archives.Read);
+        ItemSchema? items = game.Weapons.Items;
+
+        IReadOnlyList<SceneSound> sounds = ExplosionSounds.For(
+            timeline.Explosions.All,
+            blast =>
+            {
+                int? team = timeline.RecorderTeamAt(blast.Tick);
+
+                return effects.SoundFor(
+                    blast,
+                    (item, weaponSound) => items?.WeaponSoundReplacement(item, team ?? 0, weaponSound),
+                    hasLocalPlayer: team is not null);
+            },
+            scripts.Entries);
+
+        _sound.Schedule = new SoundSchedule(ExplosionSounds.Merged(timeline.Sounds, sounds));
+
+        _audioLog.LogInformation(
+            "{Message}",
+            $"{sounds.Count} of {timeline.Explosions.All.Count} explosions given a sound");
+
+        return sounds;
+    }
+
     /// <summary>Hands a newly-opened demo to everything that reads one.</summary>
     /// <param name="timeline">The decoded demo, or null when it carried no schema.</param>
     /// <param name="lastTick">The demo's final tick, for the clock.</param>

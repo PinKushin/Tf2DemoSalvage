@@ -44,6 +44,10 @@ public sealed class LevelSystems
     private readonly EntityModelSet _models;
     private readonly SoundCache _sounds;
     private readonly SoundscapeSystem _soundscape;
+
+    /// <summary>The emitter, whose script table the install supplies.</summary>
+    private readonly SoundPresenter _sound;
+
     private readonly ILoggerFactory _loggers;
     private readonly ILogger _audio;
     private readonly IReadOnlyList<IGameSystem> _systems;
@@ -96,14 +100,15 @@ public sealed class LevelSystems
         _models = models;
         _sounds = sounds;
         _soundscape = soundscape;
+        _sound = sound;
         _loggers = loggers;
         _audio = loggers.CreateLogger("audio");
 
         // The registered list, in the order the engine would have added them. `EntityModelSet` and
         // `SoundCache` are absent on purpose — see the note on the type.
         //
-        // `sound` is held only here rather than as a field: the emitter is walked like every other
-        // system and nothing else in this type addresses it directly.
+        // The emitter is walked like every other system; it is ALSO a field only because the install supplies
+        // its script table (`OpenGame`).
         _systems = [moment, soundscape, sound];
     }
 
@@ -142,6 +147,11 @@ public sealed class LevelSystems
         _soundscape.Catalog = game.Archives.IsEmpty
             ? null
             : SoundscapeCatalog.Load(game.Archives.Read);
+
+        // The same rule for the emitter's soundscripts: null when there are no archives, not empty.
+        _sound.Scripts = game.Archives.IsEmpty
+            ? null
+            : SoundScriptCatalog.Load(game.Archives.Read);
 
         // **The install is half of the player appearance and this is when it arrives.** The other
         // half is the demo, which `DemoSystems.Open` supplies — two lifetimes, so two setters, and

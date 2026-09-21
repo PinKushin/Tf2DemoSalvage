@@ -2772,8 +2772,9 @@ internal class MainForm : Form, IFrameSteps
                     DemoModels.Precache(_models, decoded.Timeline, game, _renderLog);
 
                     // Same timing, same reason, and the audio path is where the cost actually
-                    // landed once the model stalls were gone.
-                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog);
+                    // landed once the model stalls were gone. **No emitted sounds yet**: those join
+                    // the schedule in `Apply`, which precaches them itself.
+                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: []);
 
                     return drawn;
                 }, _shutdown.Token).ConfigureAwait(false);
@@ -3106,9 +3107,13 @@ internal class MainForm : Form, IFrameSteps
         // site was changed to carry it structurally instead.
         DemoModels.Precache(_models, _timeline, _game, _renderLog);
 
+        // **Every explosion's sound, which the client emits and no demo carries** (B415). After the map read,
+        // because that is what opens the install whose scripts name them.
+        IReadOnlyList<SceneSound> emitted = _demoSystems.AddEffectSounds(_game);
+
         // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
         // so on the async path this finds the work already done.
-        DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog);
+        DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog, emitted);
 
         // **After the map and the models, because the pass reads both** (D181): the environment is the map's, and a corpse's
         // bones come from its model.

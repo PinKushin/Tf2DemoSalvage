@@ -134,6 +134,13 @@ public sealed class SoundPresenter(
     /// <summary>Which sounds are due as playback moves, or null before a demo is opened.</summary>
     public SoundSchedule? Schedule { get; set; }
 
+    /// <summary>The soundscripts the game loaded, or null until an install is opened.</summary>
+    /// <remarks>
+    /// **The emitter's own table** — `soundemitterbase` in the engine. `svc_Sounds` arrive already resolved to a
+    /// wave, but a sound the CLIENT emits by script name, an explosion's, is resolved against this (B415).
+    /// </remarks>
+    public SoundScriptCatalog? Scripts { get; set; }
+
     /// <summary>Brings the audible world up to date for one tick.</summary>
     /// <param name="output">Where sound goes.</param>
     /// <param name="tick">The tick being played.</param>

@@ -383,10 +383,64 @@ the rocket launcher that is `ExplosionCore_wall` where the script's `ExplosionPl
 `ExplosionCore_MidAir`. Looked at, on blast #23 (tick 20634, a rocket into a Scout): the mid-air effect draws at the
 player.
 
+## An explosion's sound is the client's, and a SourceTV recording hears a different one
+
+`TFExplosionCallback` plays the blast's sound itself — `C_BaseEntity::EmitSound( filter, SOUND_FROM_WORLD, pszSound,
+&vecOrigin )` with a `CLocalPlayerFilter` (`tf_fx_explosions.cpp:162-163`) — so the server never sends it and no demo
+carries it. A viewer that plays only `svc_Sounds` is silent for every blast. The name is chosen in this order
+(`:127-157`):
+
+```
+pszSound = "BaseExplosionEffect.Sound";
+if ( pWeaponInfo && m_szExplosionSound[0] )
+    if ( nDefID >= 0 ) { if ( pLocalPlayer ) { pszSound = item's replacement; if empty, m_szExplosionSound } }
+    else pszSound = m_szExplosionSound;
+if ( iWeaponID == TF_WEAPON_PUMPKIN_BOMB ) pszSound = "Halloween.PumpkinExplode";
+```
+
+**Two consequences that are easy to miss.** A blast naming an item where there is NO local player assigns nothing, so
+it keeps the base sound — not the item's and not the script's. And a SourceTV recording has no local player (the
+timeline's `RecorderTeam` is null there for exactly that reason), so **an STV demo plays the stock explosion for a Black
+Box or an Original** where the same match recorded from a player's point of view plays the item's own.
+
+The item's replacement is `CEconItemDefinition::GetWeaponReplacementSound( local team, m_nSound )`: a `sound_<category>`
+key in the item's visuals (`econ_item_schema.cpp:2648`), `special1` being `m_nSound`'s default. The team rule is
+`GetBestVisualTeamData` — a team whose own `visuals_red`/`visuals_blu` exists uses that block ALONE, and every other
+team, spectator included, uses the base `visuals`. An index the schema does not know answers the `"default"` item on a
+client (`:6694`), and the shipped default has no visuals.
+
+### The Original replaces it — and the first reading said it did not
+
+On `demostf-cp_process_f12`, 1,412 blasts come from item 513, The Original. Its visuals block was printed to check,
+showed `sound_single_shot`, `sound_burst` and `sound_deploy`, and was concluded to leave the explosion alone; a commit
+message and two test remarks said so. **The print had stopped partway down the block.** A `weapon-sounds` probe that
+asks the viewer's own `ItemSchema` answered `special1 → Weapon_QuakeRPG.Explode`, and the Iron Bomber's
+`Weapon_Airstrike.Explosion` besides. The fixture that had borrowed 513 was replaced. The lesson is the one the
+project keeps relearning: a partial print is an instrument with no control, and the schema's own reader was the one to
+ask.
+
+### What the engine does with the name
+
+`CSoundEmitterSystem::EmitSoundByHandle` (`SoundEmitterSystem.cpp:450-525`) resolves the soundscript entry — its
+channel and soundlevel, a volume and a pitch drawn from its ranges, one of its waves — and hands them to the engine
+from entity 0 at the blast's origin. `EmitSound_t`'s flags default to 0 (`shareddefs.h:837`) and this overload sets
+none, so `SND_CHANGE_PITCH`/`SND_CHANGE_VOL` never override the draws. Built here as `ExplosionSounds.For`, merged into
+the schedule once the install has been opened (`DemoSystems.AddEffectSounds`), and precached with the demo's own:
+on `demostf-cp_process_f12` every one of the 2,786 blasts is given a sound, and the precache grows by 11 distinct waves.
+
+*Interpolated:* which wave, volume and pitch. The engine draws from its global stream, whose state is recorded nowhere;
+each blast here is its own stream of Valve's generator seeded by its place in the recording, so a seek replays the same
+choice.
+
+**Not yet heard by anyone.** The chain is asserted through the presenter into a recording sink; nobody has listened.
+
 ## What is not established
 
-- **The explosion's SOUND.** `TFExplosionCallback` plays the weapon script's `ExplosionSound` from the client
-  (`CLocalPlayerFilter`, `tf_fx_explosions.cpp:131-163`) — so the demo does not carry it, and nothing here plays it.
+- **Whether a `CHAN_STATIC` sound overrides its predecessor on the same entity.** The Original's
+  `Weapon_QuakeRPG.Explode` is `CHAN_STATIC` from the world, and this project's audio output stops any earlier sound
+  on the same (entity, channel) for every channel but `CHAN_AUTO`. If the engine gives static sounds their own slot
+  without overriding — as its channel split suggests — overlapping Original blasts cut each other off here and layer
+  in TF2. Unread; the answer is in `engine.dll`'s mixer.
 - **Water.** `UTIL_PointContents( vecOrigin ) & CONTENTS_WATER` decides `ExplosionWaterEffect`, and this project
   does not evaluate BSP contents at a point.
 - **Whether any recording anywhere sets `m_iCustomParticleIndex`.** One demo says no. It is decoded and carried

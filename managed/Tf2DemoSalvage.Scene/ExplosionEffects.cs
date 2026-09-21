@@ -137,7 +137,11 @@ public sealed class ExplosionEffects
     /// <param name="blast">The explosion.</param>
     /// <param name="replacement">
     /// <c>CEconItemDefinition::GetWeaponReplacementSound( local team, m_nSound )</c> for an item index, or null when
-    /// the item declares none. Asked only for a blast that names an item.
+    /// the item declares none. Asked only for a blast that names an item, where there is a local player.
+    /// </param>
+    /// <param name="hasLocalPlayer">
+    /// <c>pLocalPlayer</c>. A SourceTV recording has none — see <c>TimelineFrame.RecorderTeam</c> — so there a blast
+    /// naming an item keeps the base sound.
     /// </param>
     /// <returns>A sound script key, never empty.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="replacement"/> is null.</exception>
@@ -152,12 +156,15 @@ public sealed class ExplosionEffects
     /// if ( iWeaponID == TF_WEAPON_PUMPKIN_BOMB ) pszSound = "Halloween.PumpkinExplode";
     /// </code>
     ///
-    /// **Two engine facts are folded in rather than asked.** A demo always has a local player, so `pLocalPlayer`
-    /// is taken as present. And `pItemDef` is never null on a client: `CEconItemSchema::GetItemDefinition` answers
-    /// the schema's `"default"` item for an index it does not know (`econ_item_schema.cpp:6694`), and the shipped
-    /// default declares no visuals — so an unknown index replaces nothing, which is what a null answer says.
+    /// **With an item and no local player, NEITHER assignment runs** — the script's sound is only given on the
+    /// `nDefID &lt; 0` branch — so the base sound stands.
+    ///
+    /// **One engine fact is folded in rather than asked**: `pItemDef` is never null on a client, because
+    /// `CEconItemSchema::GetItemDefinition` answers the schema's `"default"` item for an index it does not know
+    /// (`econ_item_schema.cpp:6694`), and the shipped default declares no visuals — so an unknown index replaces
+    /// nothing, which is what a null answer says.
     /// </remarks>
-    public string SoundFor(SceneExplosion blast, Func<int, int, string?> replacement)
+    public string SoundFor(SceneExplosion blast, Func<int, int, string?> replacement, bool hasLocalPlayer)
     {
         ArgumentNullException.ThrowIfNull(replacement);
 
@@ -166,10 +173,16 @@ public sealed class ExplosionEffects
         if (TfWeaponAliases.ForExplosion(blast.WeaponId) is { } alias &&
             Script(alias)?.Value(SoundKey) is { Length: > 0 } scripted)
         {
-            sound = blast.ItemDefinition >= 0 &&
-                replacement(blast.ItemDefinition, blast.WeaponSound) is { Length: > 0 } replaced
+            if (blast.ItemDefinition < 0)
+            {
+                sound = scripted;
+            }
+            else if (hasLocalPlayer)
+            {
+                sound = replacement(blast.ItemDefinition, blast.WeaponSound) is { Length: > 0 } replaced
                     ? replaced
                     : scripted;
+            }
         }
 
         return blast.WeaponId == TfWeaponAliases.PumpkinBomb ? PumpkinSound : sound;

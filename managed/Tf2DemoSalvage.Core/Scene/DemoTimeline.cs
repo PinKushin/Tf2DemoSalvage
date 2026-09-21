@@ -4745,6 +4745,15 @@ public sealed class DemoTimeline
     /// </remarks>
     public int? RoundStateAt(double tick) => FrameAt((int)Math.Floor(tick))?.RoundState;
 
+    /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
+    /// <param name="tick">The moment being asked about.</param>
+    /// <returns><see cref="TimelineFrame.RecorderTeam"/> for the frame at or before it.</returns>
+    /// <remarks>
+    /// **Null means a SourceTV recording**, where the engine's own `pLocalPlayer` is null and every guard on it falls
+    /// through — which is how a client-emitted sound such as an explosion's decides whether to ask an item.
+    /// </remarks>
+    public int? RecorderTeamAt(int tick) => FrameAt(tick)?.RecorderTeam;
+
     /// <summary>The most recent frame at or before a tick.</summary>
     /// <remarks>
     /// **The server does not send a packet every tick**, so this answers with the last one rather

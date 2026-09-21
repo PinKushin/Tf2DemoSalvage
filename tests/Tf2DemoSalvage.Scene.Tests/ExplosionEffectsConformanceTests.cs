@@ -174,7 +174,29 @@ public sealed class ExplosionEffectsConformanceTests
     public void SoundFor_ABlastFromNoItem_IsTheScriptsExplosionSound()
     {
         Effects(RocketLauncherAlias, sound: "Rocket.Explode")
-            .SoundFor(Blast(RocketLauncher), NoReplacement)
+            .SoundFor(Blast(RocketLauncher), NoReplacement, hasLocalPlayer: true)
+            .ShouldBe("Rocket.Explode");
+    }
+
+    /// <remarks>
+    /// **A SourceTV recording has no local player**, so the `pLocalPlayer` guard falls through and a blast that names
+    /// an item keeps the BASE sound — not the item's, and not the script's either, because the script's is only
+    /// assigned on the `nDefID &lt; 0` branch.
+    /// </remarks>
+    [Test]
+    public void SoundFor_AnItemsBlastWithNoLocalPlayer_IsTheBaseSound()
+    {
+        Effects(RocketLauncherAlias, sound: "Rocket.Explode")
+            .SoundFor(Blast(RocketLauncher, item: 228), static (_, _) => "BlackBox.Explode", hasLocalPlayer: false)
+            .ShouldBe(ExplosionEffects.DefaultSound);
+    }
+
+    /// <remarks>The control: with no item the local player is never asked about, so the script's sound stands.</remarks>
+    [Test]
+    public void SoundFor_ABlastFromNoItemWithNoLocalPlayer_IsStillTheScriptsSound()
+    {
+        Effects(RocketLauncherAlias, sound: "Rocket.Explode")
+            .SoundFor(Blast(RocketLauncher), NoReplacement, hasLocalPlayer: false)
             .ShouldBe("Rocket.Explode");
     }
 
@@ -185,19 +207,20 @@ public sealed class ExplosionEffectsConformanceTests
         Effects(RocketLauncherAlias, sound: "Rocket.Explode")
             .SoundFor(
                 Blast(RocketLauncher, item: 228),
-                (item, weaponSound) => item == 228 && weaponSound == SceneExplosion.Special1 ? "BlackBox.Explode" : null)
+                (item, weaponSound) => item == 228 && weaponSound == SceneExplosion.Special1 ? "BlackBox.Explode" : null,
+                hasLocalPlayer: true)
             .ShouldBe("BlackBox.Explode");
     }
 
     /// <remarks>
-    /// The Loose Cannon replaces none of its sounds (the `weapon-sounds` probe: 0 of 16), so its 240 blasts in
-    /// `demostf-cp_process_f12` fall to the script.
+    /// The Loose Cannon replaces none of its sounds (the `weapon-sounds` probe: 0 of 16), so where there is a local
+    /// player its blasts fall to the script.
     /// </remarks>
     [Test]
     public void SoundFor_AnItemThatDoesNotReplaceIt_IsTheScriptsSound()
     {
         Effects(RocketLauncherAlias, sound: "Rocket.Explode")
-            .SoundFor(Blast(RocketLauncher, item: 996), NoReplacement)
+            .SoundFor(Blast(RocketLauncher, item: 996), NoReplacement, hasLocalPlayer: true)
             .ShouldBe("Rocket.Explode");
     }
 
@@ -205,7 +228,7 @@ public sealed class ExplosionEffectsConformanceTests
     public void SoundFor_AWeaponWithNoScript_IsTheBaseSound()
     {
         Effects(RocketLauncherAlias, sound: "Rocket.Explode")
-            .SoundFor(Blast(weapon: 0), NoReplacement)
+            .SoundFor(Blast(weapon: 0), NoReplacement, hasLocalPlayer: true)
             .ShouldBe(ExplosionEffects.DefaultSound);
     }
 
@@ -217,7 +240,7 @@ public sealed class ExplosionEffectsConformanceTests
     public void SoundFor_AScriptWithNoExplosionSound_IgnoresTheItem()
     {
         Effects(RocketLauncherAlias, wall: "wall_fx")
-            .SoundFor(Blast(RocketLauncher, item: 228), static (_, _) => "BlackBox.Explode")
+            .SoundFor(Blast(RocketLauncher, item: 228), static (_, _) => "BlackBox.Explode", hasLocalPlayer: true)
             .ShouldBe(ExplosionEffects.DefaultSound);
     }
 
@@ -226,7 +249,7 @@ public sealed class ExplosionEffectsConformanceTests
     public void SoundFor_APumpkinBomb_IsThePumpkinsSound()
     {
         Effects(PipebombLauncher, sound: "Pipe.Explode")
-            .SoundFor(Blast(Content.Assets.TfWeaponAliases.PumpkinBomb), NoReplacement)
+            .SoundFor(Blast(Content.Assets.TfWeaponAliases.PumpkinBomb), NoReplacement, hasLocalPlayer: true)
             .ShouldBe("Halloween.PumpkinExplode");
     }
 
