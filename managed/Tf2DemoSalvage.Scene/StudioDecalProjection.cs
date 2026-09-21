@@ -61,7 +61,7 @@ public static class StudioDecalProjection
     /// <returns>The decal's corners, three per triangle; empty when the ray has no direction.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static IReadOnlyList<StudioDecalCorner> Project(
-        IReadOnlyList<PropVertex> vertices,
+        IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<float[]> poseToWorld,
         Vector3 start,
         Vector3 delta,
@@ -196,7 +196,7 @@ public static class StudioDecalProjection
     private readonly record struct Projected(float U, float V, bool Facing, bool InDepth);
 
     private static Projected Vertex(
-        PropVertex vertex, float[][] toDecal, float scale, float radius, bool noPokeThru)
+        WorldVertex vertex, float[][] toDecal, float scale, float radius, bool noPokeThru)
     {
         float facing = 0f;
         float u = 0f;
@@ -208,9 +208,10 @@ public static class StudioDecalProjection
             float[] m = toDecal[bone];
 
             facing += ((m[8] * vertex.NormalX) + (m[9] * vertex.NormalY) + (m[10] * vertex.NormalZ)) * weight;
-            u += ((m[0] * vertex.X) + (m[1] * vertex.Y) + (m[2] * vertex.Z) + m[3]) * weight;
-            v += ((m[4] * vertex.X) + (m[5] * vertex.Y) + (m[6] * vertex.Z) + m[7]) * weight;
-            depth += ((m[8] * vertex.X) + (m[9] * vertex.Y) + (m[10] * vertex.Z) + m[11]) * weight;
+            // A packed model vertex keeps its model-space z in `Depth`.
+            u += ((m[0] * vertex.X) + (m[1] * vertex.Y) + (m[2] * vertex.Depth) + m[3]) * weight;
+            v += ((m[4] * vertex.X) + (m[5] * vertex.Y) + (m[6] * vertex.Depth) + m[7]) * weight;
+            depth += ((m[8] * vertex.X) + (m[9] * vertex.Y) + (m[10] * vertex.Depth) + m[11]) * weight;
         }
 
         return new Projected(
@@ -218,14 +219,18 @@ public static class StudioDecalProjection
     }
 
     /// <summary>A vertex's bones with their weights; a vertex with none rides bone 0 whole, as a rigid mesh does.</summary>
-    private static IEnumerable<(int Bone, float Weight)> Influences(PropVertex vertex, int bones)
+    private static IEnumerable<(int Bone, float Weight)> Influences(WorldVertex vertex, int bones)
     {
-        (byte first, byte second, byte third) = vertex.Bones;
-        (float w1, float w2, float w3) = vertex.Weights;
+        int first = (int)vertex.BoneA;
+        int second = (int)vertex.BoneB;
+        int third = (int)vertex.BoneC;
+        float w1 = vertex.WeightA;
+        float w2 = vertex.WeightB;
+        float w3 = vertex.WeightC;
 
         if (w1 <= 0f && w2 <= 0f && w3 <= 0f)
         {
-            yield return (Math.Min((int)first, bones - 1), 1f);
+            yield return (Math.Clamp(first, 0, bones - 1), 1f);
             yield break;
         }
 

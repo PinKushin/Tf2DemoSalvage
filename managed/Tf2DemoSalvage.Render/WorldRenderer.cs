@@ -5350,6 +5350,93 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.Unmap(_shotDecalBuffer, 0);
     }
 
+    /// <summary>The model decals being drawn, a dynamic buffer shared by every model and grown as needed.</summary>
+    private ComPtr<ID3D11Buffer> _modelDecalBuffer;
+
+    /// <summary>How many corners <see cref="_modelDecalBuffer"/> holds.</summary>
+    private int _modelDecalCapacity;
+
+    /// <summary>Draws one model's decals, right after the model and with its bones — `CStudioRender::DrawModel`'s order.</summary>
+    /// <param name="device">Device to grow the buffer on.</param>
+    /// <param name="context">The device context; the model's bones must already be set.</param>
+    /// <param name="vertices">The decal's corners: the model's own vertices, carrying the decal's UV and material.</param>
+    /// <param name="batches">One run per decal material, into <paramref name="vertices"/>.</param>
+    /// <param name="bones">How many bones skin the model, or zero.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **The world decal pass's state** — the decal depth bias, tested and never written, and each material's own blend
+    /// (`DrawDecalBatch`) — with the model path's skinning. The caller restores its own depth and raster state after.
+    /// </remarks>
+    public void DrawModelDecals(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches,
+        int bones)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(batches);
+
+        if (vertices.Count == 0 || _decalOffset.Handle is null || _decalDepth.Handle is null)
+        {
+            return;
+        }
+
+        if (vertices.Count > _modelDecalCapacity)
+        {
+            if (_modelDecalBuffer.Handle is not null)
+            {
+                _modelDecalBuffer.Dispose();
+                _modelDecalBuffer = default;
+            }
+
+            _modelDecalCapacity = Math.Max(vertices.Count, _modelDecalCapacity * 2);
+
+            BufferDesc description = new()
+            {
+                ByteWidth = (uint)(_modelDecalCapacity * VertexStride),
+                Usage = Usage.Dynamic,
+                BindFlags = (uint)BindFlag.VertexBuffer,
+                CPUAccessFlags = (uint)CpuAccessFlag.Write,
+            };
+
+            SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref _modelDecalBuffer));
+        }
+
+        float[] data = Pack(vertices);
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_modelDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = data)
+        {
+            System.Buffer.MemoryCopy(
+                source, mapped.PData, (long)_modelDecalCapacity * VertexStride, sizeof(float) * (long)data.Length);
+        }
+
+        context.Unmap(_modelDecalBuffer, 0);
+
+        uint stride = VertexStride;
+        uint offset = 0;
+
+        context.IASetVertexBuffers(0, 1, ref _modelDecalBuffer, in stride, in offset);
+        context.RSSetState(Raster(_decalOffset));
+        context.OMSetDepthStencilState(_decalDepth, 0);
+
+        // Unlit: `DecalModulate` samples its texture and nothing else, so no ambient cube is handed over.
+        SetModel(context, ModelIdentity, bones: bones);
+
+        foreach (WorldBatch batch in batches)
+        {
+            DrawDecalBatch(context, batch);
+        }
+
+        context.RSSetState(Raster(_bothSides));
+    }
+
+    /// <summary>The identity placement a skinned model's decal draws with, its bones carrying it.</summary>
+    private static readonly float[] ModelIdentity = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
+
     /// <summary>Draws one decal run with its material's textures, in whatever vertex buffer is bound.</summary>
     private void DrawDecalBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch)
     {

@@ -66,10 +66,11 @@ public sealed class StudioDecalProjectionConformanceTests
         corners[0].U.ShouldBe(0.75f);
     }
 
-    private static IReadOnlyList<StudioDecalCorner> Project(PropVertex[] vertices) =>
+    private static IReadOnlyList<StudioDecalCorner> Project(WorldVertex[] vertices) =>
         StudioDecalProjection.Project(
             vertices, [Identity], new Vector3(100f, 0f, 0f), new Vector3(-110f, 0f, 0f), Vector3.UnitZ, radius: 4f, noPokeThru: false);
 
-    private static PropVertex Corner(float x, float y, float z, float normalX = 1f) =>
-        new(x, y, z, 0f, 0f, 0, NormalX: normalX, NormalY: 0f, NormalZ: 0f, Weights: (1f, 0f, 0f));
+    // A packed model vertex: model-space z rides in Depth.
+    private static WorldVertex Corner(float x, float y, float z, float normalX = 1f) =>
+        new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: normalX, NormalY: 0f, NormalZ: 0f, WeightA: 1f);
 }
