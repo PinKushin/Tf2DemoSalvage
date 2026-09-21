@@ -27215,6 +27215,10 @@ through the viewer's own load: 2,176 shots, **7,957 tracers**, twelve effect nam
   for one); the count here is the script's.
 - **The counter starts at zero**, as a fresh client's does. Which bullet of a pair draws depends on everything the
   client traced before, which no demo records.
+- **For the performance pass, unverified:** a burst is offered for its whole window (120 ticks for a tracer, 200 for
+  an explosion), long after its particles are gone. If `ParticleEffects.Bursts` has retired it, the next offer starts it
+  again and replays it from its own tick, every frame. That was suspected from a comparison run while the viewer was in
+  the background, so it has not been measured; it is a reading to check, not a finding.
 - **An unprecached tracer name** resolves to string-table entry 0 in the engine (`GetParticleSystemIndex` returns 0);
   here it is looked up by name and skipped when absent.
 
