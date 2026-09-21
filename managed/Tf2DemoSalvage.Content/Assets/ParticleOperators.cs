@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
@@ -283,19 +285,31 @@ public sealed class RadiusScale : IParticleOperator
 /// ships is not the same as what ONE effect needs, and running the definition end to end is what
 /// showed the difference (B373).
 ///
-/// **Its four times are all life FRACTIONS**, read from the shipped definition:
+/// **`C_OP_FadeAndKill::Operate`, read out of `client.dll`** (`FUN_107aeb00`, B415) — which REPLACED a reading this
+/// class carried from B373 and flagged *interpolated*: that alpha rose from zero to `start_alpha`, held there, and fell
+/// linearly. The engine does something else on every one of those points:
 ///
 /// <code>
-/// start_alpha 1   start_fade_in_time  0     end_fade_in_time  0.1
-/// end_alpha   0   start_fade_out_time 0.1   end_fade_out_time 1
+/// life = age · rcp( lifetime )                                   // rcpps, no refinement
+/// if ( in_start  ≤ life &lt; in_end  )  alpha = S(t)·(initial − initial·start_alpha) + initial·start_alpha
+/// if ( out_start ≤ life &lt; out_end )  alpha = S(t)·(initial·end_alpha − initial) + initial
+/// S(t) = 3t² − 2t³,  t clamped to [0, 1]                        // 3.0 at 0x10b51fa0, 2.0 at 0x10b51f90
+/// outside both windows, alpha is NOT WRITTEN
 /// </code>
 ///
-/// So alpha rises from zero to `start_alpha` across the fade-in window, holds, then falls to
-/// `end_alpha` across the fade-out window. *Interpolated:* that both ramps are linear, and that the
-/// windows are expressed against the life fraction rather than in seconds.
+/// **So `start_alpha` is where the fade-in BEGINS, as a fraction of the particle's own alpha, not a level it holds.**
+/// It was invisible in the rocket trail — `start_alpha 1` makes the fade-in a constant, which the old reading drew as a
+/// ramp up from zero at the rocket that TF2 does not have — and fatal in an explosion: `Explosion_CoreFlash` declares
+/// `start_alpha 0` with an EMPTY fade-in window (<c>0 ≤ life &lt; 0</c> is never true), so it keeps its initializer's
+/// alpha until 70% of its life. The old reading held it at zero for all of it, and the heart of every blast drew
+/// nothing — found by counting each child's live particles when a picture of an explosion showed one streak.
 ///
-/// **"and Decay" is the second half of the name and it is not decoration** — this operator also
-/// ends the particle, which is why an effect carrying it needs no separate `Lifespan Decay`.
+/// **The fraction and the window widths use `rcpps`**, the approximate reciprocal, with no Newton step; reproduced
+/// with <c>Sse.ReciprocalScalar</c> so the smoothstep lands on the same float.
+///
+/// **"and Decay" is the second half of the name and it is not decoration** — this operator also ends the particle
+/// (the engine appends <c>lifetime ≤ age</c> lanes to the collection's kill list), which is why an effect carrying it
+/// needs no separate `Lifespan Decay`.
 /// </remarks>
 public sealed class AlphaFadeAndDecay : IParticleOperator
 {
@@ -310,44 +324,64 @@ public sealed class AlphaFadeAndDecay : IParticleOperator
 
         _ = seconds;
 
+        // The unpack table's defaults, read from `client.dll`: `start_alpha` "1", `end_alpha` "0",
+        // `start_fade_in_time` "0", `end_fade_in_time` "0.5", `start_fade_out_time` "0.5", `end_fade_out_time` "1".
         float startAlpha = (float)parameters.Number("start_alpha", 1d);
         float endAlpha = (float)parameters.Number("end_alpha", 0d);
 
         float inFrom = (float)parameters.Number("start_fade_in_time", 0d);
-        float inTo = (float)parameters.Number("end_fade_in_time", 0d);
-        float outFrom = (float)parameters.Number("start_fade_out_time", 1d);
+        float inTo = (float)parameters.Number("end_fade_in_time", 0.5d);
+        float outFrom = (float)parameters.Number("start_fade_out_time", 0.5d);
         float outTo = (float)parameters.Number("end_fade_out_time", 1d);
+
+        float acrossIn = Reciprocal(inTo - inFrom);
+        float acrossOut = Reciprocal(outTo - outFrom);
 
         for (int index = 0; index < particles.Count; index++)
         {
-            float through = particles.Through(index);
+            float age = particles.AgeOf(index);
+            float lifetime = particles.Lifetime[index];
 
-            // **The particle's OWN spawn alpha is what these scale**, which is the same rule
-            // `RadiusAtBirth` records for radius and `GetReadInitialAttributes` (`particles.h:602`)
-            // states in general. The file settles it for this operator: `rockettrail` declares
-            // `Alpha Random` 96..128 of 255 AND `start_alpha 1`, so reading `start_alpha` as an
-            // absolute means the operator overwrites the initializer on the first frame and
-            // `Alpha Random` can never do anything — on this effect or any other that pairs them.
+            if (lifetime <= age)
+            {
+                // A dying lane is masked out of both writes and goes on the kill list; `Reap` below is that list.
+                continue;
+            }
+
+            float life = Reciprocal(lifetime) * age;
+
+            // **The particle's OWN spawn alpha is what both fades are fractions of** — the operator reads the INITIAL
+            // alpha stream (`GetReadInitialAttributes`, `particles.h:602`), which is why `Alpha Random` survives it.
             float born = particles.AlphaAtBirth[index];
 
-            if (through < inTo)
+            if (inFrom <= life && life < inTo)
             {
-                // Rising into the particle's own alpha.
-                particles.Alpha[index] = born * startAlpha * Ramp(through, inFrom, inTo);
+                float from = born * startAlpha;
+
+                particles.Alpha[index] = (Smooth((life - inFrom) * acrossIn) * (born - from)) + from;
             }
-            else if (through <= outFrom)
+
+            if (outFrom <= life && life < outTo)
             {
-                // Held between the two windows.
-                particles.Alpha[index] = born * startAlpha;
-            }
-            else
-            {
-                particles.Alpha[index] = born *
-                    (startAlpha + ((endAlpha - startAlpha) * Ramp(through, outFrom, outTo)));
+                particles.Alpha[index] = (Smooth((life - outFrom) * acrossOut) * ((born * endAlpha) - born)) + born;
             }
         }
 
         particles.Reap();
+    }
+
+    /// <summary><c>rcpps</c> — the approximate reciprocal the engine uses here, with no refinement step.</summary>
+    private static float Reciprocal(float value) =>
+        Sse.IsSupported
+            ? Sse.ReciprocalScalar(Vector128.CreateScalar(value)).ToScalar()
+            : 1f / value;
+
+    /// <summary>The engine's smoothstep, <c>3t² − 2t³</c>, on <c>t</c> clamped to [0, 1] — in its own operand order.</summary>
+    private static float Smooth(float raw)
+    {
+        float t = MathF.Min(1f, MathF.Max(0f, raw));
+
+        return (t * t * 3f) - (t * 2f * t * t);
     }
 
     /// <summary>Where a value sits between two bounds, clamped — 0 before, 1 after.</summary>

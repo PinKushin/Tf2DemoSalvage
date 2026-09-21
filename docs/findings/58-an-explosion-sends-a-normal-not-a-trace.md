@@ -166,7 +166,8 @@ it as a billboard is not an approximation of it; it is a different shape.
 
 Fixed: a system this project cannot draw draws nothing. **It costs `rockettrail_burst`**, which declares the same
 renderer — a rocket keeps its smoke and its fire and loses a glow it was drawing wrongly. `render_sprite_trail` is
-five of `ExplosionCore_Wall`'s eight children and is the largest single piece still missing.
+five of `ExplosionCore_Wall`'s eight children and is the largest single piece still missing. *(Built the same day —
+see below — and `rockettrail_burst` draws again, as a trail this time.)*
 
 ### `emit_instantaneously` was not implemented, and an explosion is made of it
 
@@ -186,6 +187,100 @@ declares −1.
 
 With it implemented, the smoke appears. *Confirmed by looking*, at `cp_process_f12` tick 21880.
 
+## `render_sprite_trail` exists only in the binary
+
+`C_OP_RenderSpriteTrail` is in `particles.lib`, which the SDK ships compiled and the client links statically. **There
+is no source for it anywhere**, so everything below was read out of `client-live-x86.dll` (Ghidra project
+`tf2usermsg`), and the statement-for-statement reproduction lives in `ParticleSpriteTrails`'s remarks rather than
+here.
+
+**The way in was the parameter names, not the op's name.** The string `render_sprite_trail` (`0x10b5b0c8`) has no
+code reference at all, and neither do `max length` or `min length` — because a DMX unpack table is not initialised
+data. It is filled at static-init time by a run of `MOV dword ptr [abs32], imm32` (`C7 05 …`), one per field of
+`{ name, default, type, offset, size }`, so a search for pointers to the strings in `.data` finds nothing and a search
+for the pointer's four bytes inside `.text` finds the initialiser (`0x107b626b`). Decoding that run gave the members:
+
+| field | offset | default |
+|---|---|---|
+| `animation rate` | `this+0x58` | `0.1` |
+| `length fade in time` | `this+0x5c` | `0` |
+| `max length` | `this+0x60` | `2000` |
+| `min length` | `this+0x64` | `0` |
+
+The function that answers the table (`0x107b5ee0`, a `GetUnpackStructure`-shaped virtual) is what locates the vtable,
+and the vtable's render slot leads to the loop that computes `1 / m_flDt` — **exactly 1 when `m_flDt` is exactly
+0.0**, an equality against `_DAT_10926e30` — and calls the per-particle builder `FUN_107b8d30` once a particle.
+
+What the builder does, in behaviour rather than code:
+
+- **One quad a particle, not a ribbon.** A trail is a streak from where the particle IS back along where it WAS, as
+  long as its speed times its own `TRAIL_LENGTH`, and as wide as its radius or its length, whichever is less.
+- **The length is `rsqrt(|d|² + 1e-10) · |d|²`, never a square root** — `rsqrtss` and one Newton step, the `3.0`
+  at `DAT_1092706c` and `0.5` at `DAT_10926e38`, with the `1e-10` guard at `DAT_1092704c`. The same sequence is
+  `_SSE_RSqrtInline` (`vector.h:2224`); it is shared here as `VectorMath.ReciprocalSqrt`.
+- **The maximum is clamped before the minimum**, so a minimum above the maximum wins.
+- **A particle at rest is not skipped.** The guard leaves its length about `1e-5 · (1/dt) · TRAIL_LENGTH`, which is
+  above zero, so the engine emits a quad of zero area — six indices and all. Only a zero FADE (a particle on the
+  step it was born, with a fade-in) or a zero alpha byte skips one.
+- A material with no sheet takes the rectangle `{0, 0, 1, 1}` (`DAT_10c37d10`); the head takes its bottom edge and
+  the tail its top.
+
+### `Trail Length Random`, and the decompiler that said its exponent was dead
+
+`C_INIT_RandomTrailLength` (`FUN_107be5c0`) sets the `TRAIL_LENGTH` the builder multiplies by. Every explosion child
+that uses the trail renderer declares it — `Explosion_CoreFlash` with `length_min 0.33`, `length_max 0.4`,
+`length_random_exponent 1`. **The first reading of it was wrong**: Ghidra's pseudocode showed a plain lerp with the
+exponent loaded and never used, which reads as a dead parameter. The disassembly has `FLD [this+0x34]`, `FLD r`,
+`FXCH`, `CALL pow` — the decompiler had dropped the x87 stack setup and with it the call's arguments. So:
+
+```
+TRAIL_LENGTH = pow( r, length_random_exponent ) · ( length_max − length_min ) + length_min
+```
+
+Both bounds default to `0.1`, the same value the collection gives a particle no initializer touches — which is what
+`rockettrail_burst` draws with, since it declares none.
+
+**Its draw is not keyed by particle in the engine.** The scalar path indexes the random table with
+`( m_nRandomSeed + m_nRandomQueryCount++ ) & 0xfff`, the collection's running count at `+0x1fe8`, where the other
+initializers here key by `PARTICLE_ID`. This project keys it by particle anyway, because the table's contents are
+its own rather than Valve's, so no per-particle value could match whichever index were used — the distribution is
+what can match, and particle keying keeps a seek reproducible.
+
+## `Alpha Fade and Decay` was read wrong, and the heart of every explosion was invisible
+
+With the trail renderer drawing, the flash still did not appear. The `particles burst ExplosionCore_Wall` probe said
+why without a picture: `Explosion_CoreFlash`, `Explosion_Dustup` and `Explosion_FlyingEmbers` sat at **alpha 0 from
+the step they were born**.
+
+The operator had been written from B373's reading, **flagged interpolated at the time**: alpha rises from zero to
+`start_alpha`, is held there, and falls linearly to `end_alpha`. `Explosion_CoreFlash` declares `start_alpha 0`, so
+on that reading it is held at zero for its whole life.
+
+`C_OP_FadeAndKill::Operate` (`FUN_107aeb00`) does something else on every one of those points:
+
+```
+life = age · rcp( lifetime )                                    // rcpps, no refinement
+if ( in_start  ≤ life < in_end  )  alpha = lerp( S(t), initial · start_alpha, initial )
+if ( out_start ≤ life < out_end )  alpha = lerp( S(t), initial, initial · end_alpha )
+S(t) = 3t² − 2t³ on t clamped to [0, 1]                         // 3.0 at 0x10b51fa0, 2.0 at 0x10b51f90
+```
+
+and **nothing is written outside the two windows** — its stores are masked by the window tests. So `start_alpha` is
+not a level; it is where the fade-in STARTS, as a fraction of the particle's own alpha. `Explosion_CoreFlash`'s
+fade-in is `0..0`, an empty window under `≤ … <`, and its fade-out starts at 0.7: it keeps its initializer's alpha
+for 70% of its life, where the old reading drew it at zero throughout.
+
+**It changes every rocket too.** `rockettrail` declares `start_alpha 1` over `0..0.1`, so its fade-in runs from
+`initial · 1` to `initial` — a constant. The old reading faded every plume in from nothing at the rocket; the engine
+does not, and the fade-out is a smoothstep rather than a line.
+
+The old tests asserted the old reading and passed, which is what a test written from the same interpolation does.
+Their replacements were each reddened by putting one half of the old reading back: holding the level reddens the
+two outside-the-window tests, and a linear ramp reddens the two smoothstep ones.
+
+*Evidence class: read from the shipped binary's disassembly for the renderer, the initializer and the operator, with
+addresses; measured through the probe for the zero alpha; read from the shipped `.pcf` for every declared value.*
+
 ## What is not established
 
 - **Whether the 178 entity-bearing blasts are players.** `bIsPlayer` needs the entity's class, and only the count
@@ -196,8 +291,12 @@ With it implemented, the smoke appears. *Confirmed by looking*, at `cp_process_f
   regardless, so the day one does, the value is there.
 - **`GameRules()->TranslateEffectForVisionFilter( "particles", pszEffect )`**, the last thing
   `TFExplosionCallback` does before dispatching. Unread.
-- **`render_sprite_trail`**, which five of the eight children declare and this project does not implement. It is
-  the largest piece still missing from an explosion, and it also costs `rockettrail_burst`.
+- **Draw order.** The engine walks a back-to-front sorted render list; the trail renderer here walks the store's
+  order, as the sprite renderer does. Additive glows do not care, a translucent trail would.
+- **The visibility scale** (`Visibility Proxy …`), which the engine folds into the render list's radius and alpha.
+  Every explosion child declares proxy control point −1, which should mean "off" — *interpolated*, not read.
+- **Whether `m_nRandomSeed` is fixed or varies per effect instance**, which decides whether two identical blasts
+  draw identical trail lengths in TF2.
 - **Why `Explosion_Flash_1` does not draw**, although both its renderer and its emitter are now implemented and
   its material resolved. Unlike the smoke, nothing of it appeared.
 - **The debris chunks' size and tint.** They draw, and they dominate the picture in a way TF2's do not.

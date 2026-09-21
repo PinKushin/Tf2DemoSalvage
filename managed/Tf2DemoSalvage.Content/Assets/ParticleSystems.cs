@@ -302,6 +302,30 @@ public static class ParticleSystems
 
                     break;
 
+                // **`C_INIT_RandomTrailLength`, read out of `client.dll`** (B415) — `FUN_107be5c0`, the scalar
+                // initializer, loads `length_min` (+0x2c), `length_max` (+0x30) and `length_random_exponent`
+                // (+0x34), draws one table float, and hands it with the exponent to the CRT's x87 `pow`:
+                //
+                //     TRAIL_LENGTH = pow( r, exponent ) · ( max − min ) + min
+                //
+                // **The exponent IS used, and the decompiler said otherwise.** Ghidra's pseudocode showed a
+                // plain lerp, because it dropped the x87 stack setup before the `pow` call; the disassembly has
+                // `FLD [this+0x34]`, `FLD r`, `FXCH`, `CALL pow`. Every explosion child declares 1, so it changes
+                // nothing yet — it is here because the next system might not.
+                //
+                // Both bounds default to "0.1" in the unpack table, the same value the collection gives a
+                // particle no initializer touches (`ParticleStore.DefaultTrailLength`).
+                case "Trail Length Random":
+                    float shortest = (float)one.Number("length_min", ParticleStore.DefaultTrailLength);
+                    float longest = (float)one.Number("length_max", ParticleStore.DefaultTrailLength);
+                    float exponent = (float)one.Number("length_random_exponent", 1d);
+
+                    into.TrailLength[index] =
+                        (MathF.Pow(ParticleRandom.Sample(into.Id[index], TrailLengthDraw), exponent) *
+                         (longest - shortest)) + shortest;
+
+                    break;
+
                 default:
                     break;
             }
@@ -413,6 +437,18 @@ public static class ParticleSystems
 
     /// <summary>Which table entry <c>Radius Random</c> reads.</summary>
     public const int RadiusDraw = 256;
+
+    /// <summary>Which table entry <c>Trail Length Random</c> reads.</summary>
+    /// <remarks>
+    /// **The engine does not key this draw by particle**: `C_INIT_RandomTrailLength`'s scalar path indexes the table
+    /// with <c>( m_nRandomSeed + m_nRandomQueryCount++ ) &amp; 0xfff</c> — the collection's running query count at
+    /// <c>+0x1fe8</c> — where the other initializers here are keyed by <c>PARTICLE_ID</c> as `ParticleRandom`
+    /// describes. It is keyed by particle here too, because the table's CONTENTS are this project's own rather than
+    /// Valve's (`ParticleRandom`'s remarks), so no per-particle value could match whichever index were used; the
+    /// distribution is what can be matched, and particle keying keeps a seek reproducible. *Not established:* whether
+    /// <c>m_nRandomSeed</c> is fixed or varies per effect instance. Recorded in `docs/findings/58`.
+    /// </remarks>
+    public const int TrailLengthDraw = 768;
 
     /// <summary>A number the definition declares, or a default when it does not.</summary>
     private static double Number(ParticleSystem system, string named, double otherwise) =>

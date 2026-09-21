@@ -335,6 +335,7 @@ public sealed class ParticleEffects
     private readonly record struct RunningBurst(ParticleEffect Effect, int Stepped);
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
+    /// <param name="eye">Where the camera is — a sprite trail turns about its own length to face it.</param>
     /// <param name="right">The camera's right vector.</param>
     /// <param name="up">The camera's up vector.</param>
     /// <param name="materials">Every particle material this map loaded, by its normalised name.</param>
@@ -351,6 +352,7 @@ public sealed class ParticleEffects
     /// caller that needs them after the next `Build` must copy.
     /// </remarks>
     public IReadOnlyList<ParticleBatch> Build(
+        Vector3 eye,
         Vector3 right,
         Vector3 up,
         IReadOnlyDictionary<string, ParticleMaterial> materials)
@@ -364,12 +366,12 @@ public sealed class ParticleEffects
 
         foreach (ParticleEffect effect in _running.Values)
         {
-            Gather(effect, right, up, materials);
+            Gather(effect, eye, right, up, materials);
         }
 
         foreach (RunningBurst running in _bursts.Values)
         {
-            Gather(running.Effect, right, up, materials);
+            Gather(running.Effect, eye, right, up, materials);
         }
 
         _batches.Clear();
@@ -393,13 +395,14 @@ public sealed class ParticleEffects
     /// </remarks>
     private void Gather(
         ParticleEffect effect,
+        Vector3 eye,
         Vector3 right,
         Vector3 up,
         IReadOnlyDictionary<string, ParticleMaterial> materials)
     {
         foreach (ParticleEffect child in effect.Children)
         {
-            Gather(child, right, up, materials);
+            Gather(child, eye, right, up, materials);
         }
 
         string named = MaterialOf(effect.System);
@@ -417,45 +420,56 @@ public sealed class ParticleEffects
             _byMaterial[named] = corners;
         }
 
-        ParticleFunction? renderer = null;
-
-        foreach (ParticleFunction one in effect.System.Renderers)
+        // **EVERY renderer the system declares runs, in its own order** — the engine walks the definition's
+        // renderer list and calls each one's `Render`. `Explosion_FlyingEmbers` declares two, a sprite trail and an
+        // animated sprite, so an ember is a streak with a glowing head; taking the first match drew half of it.
+        //
+        // **A renderer this project does not implement draws NOTHING, rather than being drawn as one it does.**
+        // The fallback used to be a null renderer handed to `ParticleSprites.Build`, which does not skip — it draws
+        // whole-texture billboards. **Seen, not reasoned about**: an explosion at `cp_process_f12` tick 21880 came
+        // out as fifteen hard orange quads, which were the `render_sprite_trail` children drawn as sprites (B415).
+        //
+        // **A system with no renderer at all draws nothing**, which is what `ExplosionCore_Wall` is: a pure parent
+        // whose children do the work, carrying a `material` nothing draws with.
+        foreach (ParticleFunction renderer in effect.System.Renderers)
         {
-            if (string.Equals(one.Function, AnimatedSprites, StringComparison.Ordinal))
+            switch (renderer.Function)
             {
-                renderer = one;
-                break;
+                case AnimatedSprites:
+                    ParticleSprites.Build(
+                        effect.Particles,
+                        right,
+                        up,
+                        corners,
+                        material.Sequences,
+                        (float)renderer.Number("animation rate", 1d),
+                        renderer.Number("use animation rate as FPS", 0d) != 0d,
+                        renderer.Number("animation_fit_lifetime", 0d) != 0d);
+                    break;
+
+                // `C_OP_RenderSpriteTrail`, read out of `client.dll` — see `ParticleSpriteTrails`. Its defaults are
+                // the unpack table's: `animation rate` 0.1, `min length` 0, `max length` 2000, `length fade in
+                // time` 0.
+                case SpriteTrail:
+                    ParticleSpriteTrails.Build(
+                        effect.Particles,
+                        eye,
+                        corners,
+                        material.Sequences,
+                        (float)renderer.Number("animation rate", 0.1d),
+                        (float)renderer.Number("min length", 0d),
+                        (float)renderer.Number("max length", 2000d),
+                        (float)renderer.Number("length fade in time", 0d));
+                    break;
+
+                default:
+                    break;
             }
         }
-
-        // **A system this project cannot draw draws NOTHING, rather than being drawn as the one it can.**
-        // `render_animated_sprites` is the only renderer implemented, and the fallback used to be a null
-        // `renderer` handed to `Build` — which does not skip the system, it draws it with whole-texture UVs, no
-        // sheet and a default animation rate. So a `render_sprite_trail` particle, which the engine stretches
-        // along its velocity, came out as an opaque square.
-        //
-        // **Seen, not reasoned about**: an explosion at `cp_process_f12` tick 21880 drew as fifteen hard orange
-        // quads on a wall. Five of `ExplosionCore_Wall`'s eight children declare `render_sprite_trail`, and those
-        // five were the quads. This costs `rockettrail_burst` too, which declares the same renderer — the trail
-        // keeps its smoke and its fire, and loses a glow it was drawing wrongly.
-        //
-        // **A system with no renderer at all is also skipped**, which is what an `ExplosionCore_Wall` is: a pure
-        // parent whose nine children do the work, carrying a `material` nothing draws with.
-        if (renderer is null)
-        {
-            return;
-        }
-
-        ParticleSprites.Build(
-            effect.Particles,
-            right,
-            up,
-            corners,
-            material.Sequences,
-            (float)renderer.Number("animation rate", 1d),
-            renderer.Number("use animation rate as FPS", 0d) != 0d,
-            renderer.Number("animation_fit_lifetime", 0d) != 0d);
     }
+
+    /// <summary>The velocity-stretched renderer — <c>C_OP_RenderSpriteTrail</c>'s own name.</summary>
+    private const string SpriteTrail = "render_sprite_trail";
 
     /// <summary>The material a definition names, normalised the way a lookup key must be.</summary>
     /// <remarks>

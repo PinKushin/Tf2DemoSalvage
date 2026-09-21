@@ -221,6 +221,112 @@ public sealed class ParticleProbe : IProbe
             return;
         }
 
+        // **One burst run through the PRODUCTION path, tick by tick** (B415). `ParticleEffects.Bursts` then `Build`,
+        // exactly as `MainForm.StepExplosions` and `DrawParticles` call them, with every child's live count and
+        // every material's corner count printed. Built because a picture of an explosion showed one small streak
+        // where eight children should be drawing, and "which of them is missing" is a count, not a look.
+        //
+        // **Every material is given a stand-in**, so the corner counts say what WOULD be drawn; whether the viewer
+        // resolved a texture for it is a separate question and is printed separately, from the same archives.
+        if (filter.Equals("burst", StringComparison.OrdinalIgnoreCase))
+        {
+            if (arguments.Count < 2)
+            {
+                output.WriteLine("Usage: particles burst <system name> [ticks]");
+                return;
+            }
+
+            GameArchives store = GameArchives.Open(game);
+            Dictionary<string, ParticleSystem> loaded = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string path in ParticleManifest.Files(store.Read))
+            {
+                if (store.Read(path) is { Length: > 0 } raw)
+                {
+                    foreach ((string one, ParticleSystem declared) in ParticleSystems.Read(raw))
+                    {
+                        loaded.TryAdd(one, declared);
+                    }
+                }
+            }
+
+            if (!loaded.TryGetValue(arguments[1], out ParticleSystem? blast))
+            {
+                output.WriteLine($"  '{arguments[1]}' is in none of the manifest's files.");
+                return;
+            }
+
+            int ticks = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 11;
+            const float interval = 1f / 66f;
+
+            // The same object and the same step `ParticleEffects.Bursts` makes, so the counts are production's.
+            ParticleEffect effect = new(blast, loaded);
+            ParticleControlPoint at = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+
+            for (int tick = 0; tick < ticks; tick++)
+            {
+                effect.Step(at, interval);
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"  '{blast.Name}' after {ticks} ticks ({ticks * interval:0.###} s):"));
+
+            foreach (ParticleEffect child in effect.Children)
+            {
+                string material = ParticleEffects.MaterialOf(child.System);
+
+                // The quads each renderer WOULD build, through the production builders `Gather` dispatches to.
+                // Camera 220 units out along +X looking back — the shape of the viewer's own shot.
+                List<string> drawn = [];
+
+                foreach (ParticleFunction renderer in child.System.Renderers)
+                {
+                    List<DetailSpriteVertex> corners = [];
+
+                    if (renderer.Function == "render_animated_sprites")
+                    {
+                        ParticleSprites.Build(
+                            child.Particles, -Vector3.UnitY, Vector3.UnitZ, corners, [],
+                            (float)renderer.Number("animation rate", 1d),
+                            renderer.Number("use animation rate as FPS", 0d) != 0d,
+                            renderer.Number("animation_fit_lifetime", 0d) != 0d);
+                    }
+                    else if (renderer.Function == "render_sprite_trail")
+                    {
+                        ParticleSpriteTrails.Build(
+                            child.Particles, new Vector3(220f, 0f, 0f), corners, [],
+                            (float)renderer.Number("animation rate", 0.1d),
+                            (float)renderer.Number("min length", 0d),
+                            (float)renderer.Number("max length", 2000d),
+                            (float)renderer.Number("length fade in time", 0d));
+                    }
+
+                    drawn.Add(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{renderer.Function} {corners.Count / ParticleSprites.CornersPerParticle} quads"));
+                }
+
+                // A sample of what the live particles actually are, so "drew nothing" can be told apart from
+                // "drew something too small or too faint to see".
+                string first = child.Particles.Count == 0
+                    ? "none alive"
+                    : string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"first: radius {child.Particles.RadiusOf(0):0.##} alpha {child.Particles.AlphaOf(0):0.###} " +
+                        $"trail {child.Particles.TrailLengthOf(0):0.###} " +
+                        $"speed {(child.Particles.PositionOf(0) - child.Particles.PreviousOf(0)).Length() / interval:0.#} u/s " +
+                        $"life {child.Particles.LifetimeOf(0):0.###}");
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    '{child.System.Name}' [{material}] vmt " +
+                    $"{(store.Read("materials/" + material + ".vmt") is { Length: > 0 } ? "found" : "MISSING")}: " +
+                    $"{child.Particles.Count} alive; {string.Join(", ", drawn)}; {first}"));
+            }
+
+            return;
+        }
+
         // **What the viewer now loads, and what it costs** (B415). `MapAssets` used to open
         // `particles/rockettrail.pcf` alone, so `explosion.pcf` was absent and every explosion resolved to a
         // system that had never been read. This walks Valve's own manifest through the same two production calls

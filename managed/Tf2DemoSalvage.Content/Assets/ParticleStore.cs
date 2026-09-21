@@ -120,6 +120,25 @@ public sealed class ParticleStore
     /// </remarks>
     internal int[] Id = new int[Initial];
 
+    /// <summary>How long each particle's trail is, in seconds of travel — <c>TRAIL_LENGTH</c>, attribute 10.</summary>
+    /// <remarks>
+    /// **Read by `render_sprite_trail` and nothing else**: its length is speed × this, clamped (B415). Its default is
+    /// <see cref="DefaultTrailLength"/>.
+    /// </remarks>
+    internal float[] TrailLength = new float[Initial];
+
+    /// <summary>What <c>TRAIL_LENGTH</c> is when no initializer writes it.</summary>
+    /// <remarks>
+    /// **Read out of the collection's own init in `client.dll`, not assumed.** `FUN_107a0870` fills the per-attribute
+    /// constant block, 0x30 bytes an attribute, and writes four lanes of <c>0x3dcccccd</c> — 0.1f — at
+    /// <c>+0x1e0</c>, which is <c>10 × 0x30</c>. Its neighbours check the layout: <c>9 × 0x30</c> takes the definition's
+    /// constant sequence number and <c>11 × 0x30</c> (<c>PARTICLE_ID</c>) takes zero.
+    ///
+    /// **It matters for every rocket**: `rockettrail_burst` draws with `render_sprite_trail` and declares no
+    /// `Trail Length Random`, so its length is this and nothing else.
+    /// </remarks>
+    public const float DefaultTrailLength = 0.1f;
+
     /// <summary>How many particles the streams start with.</summary>
     private const int Initial = 64;
 
@@ -132,10 +151,44 @@ public sealed class ParticleStore
     /// <summary>How long the system has been running, in seconds.</summary>
     public float Age { get; private set; }
 
+    /// <summary>How long the last step was, in seconds — the collection's <c>m_flDt</c>.</summary>
+    /// <remarks>
+    /// **A trail's length is a SPEED times a time, and under Verlet the speed is <c>(XYZ − PREV_XYZ) / dt</c>.**
+    /// `render_sprite_trail` reads <c>m_flDt</c> at <c>+0x2c</c> on the collection and takes <c>1 / dt</c>, or 1 when
+    /// it is zero — so the last step's length has to be carried, not recomputed from anything.
+    /// </remarks>
+    public float LastStep { get; private set; }
+
     /// <summary>Where one particle is.</summary>
     /// <param name="index">Which particle.</param>
     /// <returns>Its position.</returns>
     public Vector3 PositionOf(int index) => Position[index];
+
+    /// <summary>Where one particle was a step ago — <c>PREV_XYZ</c>.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <returns>Its previous position.</returns>
+    public Vector3 PreviousOf(int index) => Previous[index];
+
+    /// <summary>How long one particle's trail is, in seconds of travel.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <returns>Its <c>TRAIL_LENGTH</c>.</returns>
+    public float TrailLengthOf(int index) => TrailLength[index];
+
+    /// <summary>Places one particle, and where it was a step ago.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <param name="position">Where it is.</param>
+    /// <param name="previous">Where it was — which, under Verlet, is how its velocity is stated.</param>
+    /// <remarks>A writer for the reason <see cref="Fade"/> is one: the streams are internal to this assembly.</remarks>
+    public void Move(int index, Vector3 position, Vector3 previous)
+    {
+        Position[index] = position;
+        Previous[index] = previous;
+    }
+
+    /// <summary>Sets one particle's trail length.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <param name="seconds">Its <c>TRAIL_LENGTH</c>, in seconds of travel.</param>
+    public void Stretch(int index, float seconds) => TrailLength[index] = seconds;
 
     /// <summary>How large one particle is.</summary>
     /// <param name="index">Which particle.</param>
@@ -220,6 +273,7 @@ public sealed class ParticleStore
         AlphaAtBirth[Count] = 1f;
         Rotation[Count] = 0f;
         Sequence[Count] = 0;
+        TrailLength[Count] = DefaultTrailLength;
         Id[Count] = _next++;
 
         return Count++;
@@ -265,7 +319,11 @@ public sealed class ParticleStore
 
     /// <summary>Advances the clock without moving anything.</summary>
     /// <param name="seconds">How long a step is.</param>
-    public void Tick(float seconds) => Age += seconds;
+    public void Tick(float seconds)
+    {
+        Age += seconds;
+        LastStep = seconds;
+    }
 
     /// <summary>Removes every particle that has outlived its duration.</summary>
     /// <returns>How many were removed.</returns>
@@ -298,6 +356,7 @@ public sealed class ParticleStore
             AlphaAtBirth[index] = AlphaAtBirth[last];
             Rotation[index] = Rotation[last];
             Sequence[index] = Sequence[last];
+            TrailLength[index] = TrailLength[last];
             Id[index] = Id[last];
 
             removed++;
@@ -323,6 +382,7 @@ public sealed class ParticleStore
         Array.Resize(ref AlphaAtBirth, size);
         Array.Resize(ref Rotation, size);
         Array.Resize(ref Sequence, size);
+        Array.Resize(ref TrailLength, size);
         Array.Resize(ref Id, size);
     }
 }

@@ -143,29 +143,27 @@ public sealed class ParticleOperatorConformanceTests
         particles.RadiusOf(0).ShouldBe(2f, 0.0001d);
     }
 
+    // **`C_OP_FadeAndKill::Operate`, read out of `client.dll`** (`FUN_107aeb00`, B415). These replace two tests that
+    // encoded B373's reading — flagged *interpolated* at the time — and the engine contradicts both. Per lane:
+    //
+    //     life = age · rcp( lifetime )
+    //     if ( in_start  ≤ life < in_end  )  alpha = lerp( S(t), initial·start_alpha, initial )
+    //     if ( out_start ≤ life < out_end )  alpha = lerp( S(t), initial, initial·end_alpha )
+    //     S(t) = 3t² − 2t³ on t clamped to [0, 1]         — 3.0 and 2.0 at 0x10b51fa0 / 0x10b51f90
+    //     outside both windows alpha is NOT WRITTEN
+    //
+    // The old reading had `start_alpha` as the HELD level; it is where the fade-in STARTS, as a fraction of the
+    // particle's own alpha. The difference is every explosion's core flash — `start_alpha 0` with an empty fade-in
+    // window — which the old reading held at zero for its whole life.
+
+    /// <remarks>
+    /// **`rockettrail` does not fade in.** It declares `start_alpha 1` over `0..0.1`, so the fade-in runs from
+    /// <c>initial · 1</c> to <c>initial</c> — a constant. The old test asserted 0.5 here, on a rising ramp the engine
+    /// never draws; every rocket's smoke began invisible at the rocket and TF2's does not.
+    /// </remarks>
     [Test]
-    public void AlphaFadeAndDecay_BetweenItsTwoWindows_HoldsTheStartAlpha()
+    public void AlphaFadeAndDecay_RocketTrailInsideItsFadeIn_HoldsItsOwnAlpha()
     {
-        // The real rockettrail's own numbers: fade in over 0..0.1 of the life, hold, then fade out
-        // over 0.1..1. Sampled at a quarter through, which is inside the fade-out window, so the
-        // alpha is on its way down from 1 rather than held.
-        ParticleStore particles = new();
-
-        particles.Add(Vector3.Zero, lives: 4f);
-        particles.Tick(1f);
-
-        Step(particles, "Alpha Fade and Decay", Rocket(), seconds: 0f, previous: null);
-
-        // A quarter through, one sixth of the way across the 0.1..1 fade-out window.
-        particles.AlphaOf(0).ShouldBe(1f - ((0.25f - 0.1f) / 0.9f), 0.001d);
-    }
-
-    [Test]
-    public void AlphaFadeAndDecay_InsideTheFadeInWindow_IsStillRising()
-    {
-        // The control for the test above: at 5% of the life the particle is inside the 0..0.1 fade
-        // IN window, so alpha is half of start_alpha rather than nearly all of it. An operator
-        // implementing only the fade-out would return 1 here and pass the other test.
         ParticleStore particles = new();
 
         particles.Add(Vector3.Zero, lives: 20f);
@@ -173,7 +171,84 @@ public sealed class ParticleOperatorConformanceTests
 
         Step(particles, "Alpha Fade and Decay", Rocket(), seconds: 0f, previous: null);
 
-        particles.AlphaOf(0).ShouldBe(0.5f, 0.001d);
+        particles.AlphaOf(0).ShouldBe(1f, 0.001d);
+    }
+
+    /// <remarks>
+    /// **The fade-out is a smoothstep, not a line.** A quarter through `rockettrail`'s life is a sixth of the way
+    /// across its `0.1..1` fade-out; <c>S(1/6) = 3/36 − 2/216 = 0.0741</c>, so alpha is <c>0.9259</c> — where a linear
+    /// ramp, which the old test asserted, gives 0.8333.
+    /// </remarks>
+    [Test]
+    public void AlphaFadeAndDecay_RocketTrailInsideItsFadeOut_FollowsTheSmoothstep()
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 4f);
+        particles.Tick(1f);
+
+        Step(particles, "Alpha Fade and Decay", Rocket(), seconds: 0f, previous: null);
+
+        particles.AlphaOf(0).ShouldBe(0.9259259f, 0.0005d);
+    }
+
+    /// <remarks>
+    /// **An explosion's core flash, which drew nothing.** `Explosion_CoreFlash` declares `start_alpha 0` with
+    /// `start_fade_in_time` = `end_fade_in_time` = 0 — an EMPTY window, since the test is <c>in_start ≤ life &lt;
+    /// in_end</c> — and a fade-out from 0.7. So until 70% of its life it keeps its initializer's alpha. The old reading
+    /// held it at <c>initial · start_alpha</c> = zero, and the heart of every explosion was invisible.
+    /// </remarks>
+    [Test]
+    public void AlphaFadeAndDecay_AnEmptyFadeInWindow_LeavesTheInitializersAlpha()
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 1f);
+        particles.Tick(0.5f);
+
+        Step(particles, "Alpha Fade and Decay", CoreFlash(), seconds: 0f, previous: null);
+
+        particles.AlphaOf(0).ShouldBe(1f, 0.001d);
+    }
+
+    /// <remarks>
+    /// **The fade-in runs FROM <c>initial · start_alpha</c> TO <c>initial</c>**, on the smoothstep. A window of
+    /// <c>0..0.5</c> sampled at a quarter of the life is halfway across it, and <c>S(0.5) = 0.5</c> — so from 0 to 1 it
+    /// is 0.5; at an eighth, <c>S(0.25) = 0.15625</c>, which a linear ramp would put at 0.25.
+    /// </remarks>
+    [TestCase(1f, 4f, 0.5f)]
+    [TestCase(0.5f, 4f, 0.15625f)]
+    public void AlphaFadeAndDecay_InsideAFadeIn_RisesOnTheSmoothstep(float age, float lives, float expected)
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: lives);
+        particles.Tick(age);
+
+        Step(particles, "Alpha Fade and Decay", Windows(startAlpha: 0d, inFrom: 0d, inTo: 0.5d, outFrom: 0.9d, outTo: 1d),
+            seconds: 0f, previous: null);
+
+        particles.AlphaOf(0).ShouldBe(expected, 0.001d);
+    }
+
+    /// <remarks>
+    /// **Between the windows the operator writes nothing at all** — its stores are masked by the window tests. So an
+    /// alpha another operator (or anything) set is left alone. Pinned with a value the initializer never gave, which
+    /// an operator that re-held the "held level" would overwrite.
+    /// </remarks>
+    [Test]
+    public void AlphaFadeAndDecay_BetweenItsWindows_WritesNothing()
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 4f);
+        particles.Tick(2f);
+        particles.Fade(0, 0.3f);
+
+        Step(particles, "Alpha Fade and Decay", Windows(startAlpha: 0d, inFrom: 0d, inTo: 0.1d, outFrom: 0.9d, outTo: 1d),
+            seconds: 0f, previous: null);
+
+        particles.AlphaOf(0).ShouldBe(0.3f);
     }
 
     [Test]
@@ -204,6 +279,23 @@ public sealed class ParticleOperatorConformanceTests
         // Halfway from 255 to 0, linear because ease_in_and_out is absent and defaults off.
         particles.TintOf(0).X.ShouldBe(127.5f, 0.01d);
     }
+
+    /// <summary>`Explosion_CoreFlash`'s own Alpha Fade and Decay parameters, as the shipped `.pcf` declares them.</summary>
+    private static Dictionary<string, DmxValue> CoreFlash() =>
+        Windows(startAlpha: 0d, inFrom: 0d, inTo: 0d, outFrom: 0.7d, outTo: 1d, endAlpha: 0d);
+
+    /// <summary>A fade with explicit windows.</summary>
+    private static Dictionary<string, DmxValue> Windows(
+        double startAlpha, double inFrom, double inTo, double outFrom, double outTo, double endAlpha = 0d) =>
+        new(StringComparer.Ordinal)
+        {
+            ["start_alpha"] = new DmxValue(DmxAttributeType.Real, startAlpha),
+            ["end_alpha"] = new DmxValue(DmxAttributeType.Real, endAlpha),
+            ["start_fade_in_time"] = new DmxValue(DmxAttributeType.Real, inFrom),
+            ["end_fade_in_time"] = new DmxValue(DmxAttributeType.Real, inTo),
+            ["start_fade_out_time"] = new DmxValue(DmxAttributeType.Real, outFrom),
+            ["end_fade_out_time"] = new DmxValue(DmxAttributeType.Real, outTo),
+        };
 
     /// <summary>The real rockettrail's own Alpha Fade and Decay parameters.</summary>
     private static Dictionary<string, DmxValue> Rocket() =>

@@ -31,12 +31,13 @@ public sealed class ParticleEffectsTests
     {
         ParticleEffects effects = new();
 
+        // `render_rope`, because `render_sprite_trail` — which this test first used — is implemented now.
         ParticleSystem unsupported = Trail() with
         {
             Renderers =
             [
                 new ParticleFunction(
-                    "render_sprite_trail", "draw", new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+                    "render_rope", "draw", new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
             ],
         };
 
@@ -45,6 +46,41 @@ public sealed class ParticleEffectsTests
 
         effects.Count.ShouldBe(1, "the effect runs and its particles are simulated");
         Corners(effects).ShouldBeEmpty("but nothing this project cannot draw correctly is drawn");
+    }
+
+    /// <remarks>
+    /// **Every renderer a system declares runs**, which is what the engine does with the definition's renderer list.
+    /// `Explosion_FlyingEmbers` declares a sprite trail AND an animated sprite, so an ember is a streak with a glowing
+    /// head; a `Gather` that stopped at the first match drew half of it. Two renderers over the same particles must
+    /// therefore give twice the corners of one.
+    /// </remarks>
+    [Test]
+    public void Build_ASystemWithTwoRenderers_DrawsBoth()
+    {
+        ParticleEffects one = new();
+        ParticleEffects both = new();
+
+        ParticleSystem twice = Trail() with
+        {
+            Renderers =
+            [
+                new ParticleFunction(
+                    "render_animated_sprites", "draw", new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+                new ParticleFunction(
+                    "render_animated_sprites", "again", new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+            ],
+        };
+
+        one.Update([Rocket(0f)], Trail(), 1f / 66f, null, 1);
+        one.Update([Rocket(100f)], Trail(), 1f / 66f, null, 2);
+
+        both.Update([Rocket(0f)], twice, 1f / 66f, null, 1);
+        both.Update([Rocket(100f)], twice, 1f / 66f, null, 2);
+
+        int single = Corners(one).Count;
+
+        single.ShouldBeGreaterThan(0);
+        Corners(both).Count.ShouldBe(single * 2);
     }
 
     /// <remarks>
@@ -240,7 +276,7 @@ public sealed class ParticleEffectsTests
     {
         List<DetailSpriteVertex> corners = [];
 
-        foreach (ParticleBatch batch in effects.Build(Vector3.UnitX, Vector3.UnitZ, Materials()))
+        foreach (ParticleBatch batch in effects.Build(Vector3.Zero, Vector3.UnitX, Vector3.UnitZ, Materials()))
         {
             corners.AddRange(batch.Corners);
         }

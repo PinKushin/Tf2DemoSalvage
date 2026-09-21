@@ -4342,6 +4342,7 @@ internal class MainForm : Form, IFrameSteps
                 viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
 
             batches = _particles.Build(
+                new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
                 new Vector3(rx, ry, rz),
                 new Vector3(ux, uy, uz),
                 _loaded?.Assets?.ParticleMaterials ?? NoParticleMaterials);

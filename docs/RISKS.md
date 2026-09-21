@@ -26784,6 +26784,10 @@ test.
 still interpolated, and what would settle it is a capture of the same effect in TF2 beside ours
 (`docs/findings/24-reference-capture.md`).
 
+**Settled 2026-09-20 for `Alpha Fade and Decay` by the disassembly instead, and the interpolation was
+wrong** — `start_alpha` is where a smoothstep fade-in starts, not a held level, and nothing is written
+between the windows. B415; `docs/findings/58-an-explosion-sends-a-normal-not-a-trace.md`.
+
 *Evidence class: measured — the file counts, the 10,456 systems, the 110 distinct operators and
 their ranking, all read through this project's own `DmxFile` over every shipped `.pcf`;
 read-from-source for the attribute layout and the absent implementations.*
@@ -27163,6 +27167,12 @@ point 1 at `vStart` (which the origin-and-angles overload sets to the origin as 
 orientation from `AngleVectors(angles)`. That is one `ParticleControlPoint`. What `ParticleEffects` does NOT have is the
 lifecycle: every effect there is owned by a live entity, and an explosion is a one-shot at a tick that a viewer must be
 able to scrub back to.
+
+**Built 2026-09-20: `render_sprite_trail`, `Trail Length Random`, and a corrected `Alpha Fade and Decay`**, all three
+read out of `client.dll` because the ops ship only in `particles.lib`. Five of `ExplosionCore_Wall`'s eight children
+use the trail renderer, and the fade correction is what makes the core flash visible at all — it was held at zero
+alpha for its whole life. The trace, the constants and the wrong readings are in `docs/findings/58`. **Still open
+here:** hitscan tracers (the only half that needs a BSP trace), impacts, decals and blood.
 
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 

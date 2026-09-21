@@ -34,7 +34,11 @@ namespace Tf2DemoSalvage.Scene;
 public static class VectorMath
 {
     /// <summary>The guard added to the SQUARED length, so a zero vector normalises to zero rather than NaN.</summary>
-    private const float ZeroGuard = 1.0e-10f;
+    /// <remarks>
+    /// `vector.h:2242`'s <c>1.0e-10f</c>, and the same constant `C_OP_RenderSpriteTrail` adds before each of its two
+    /// reciprocal roots (<c>DAT_1092704c</c> in `client.dll`).
+    /// </remarks>
+    public const float ZeroGuard = 1.0e-10f;
 
     /// <summary>The unit vector in a direction, as <c>VectorNormalize</c> computes it.</summary>
     /// <param name="x">The direction, east-west.</param>
@@ -43,14 +47,25 @@ public static class VectorMath
     /// <returns>The unit vector, or the zero vector for a zero input.</returns>
     public static (float X, float Y, float Z) Normalized(float x, float y, float z)
     {
-        float squared = (x * x) + (y * y) + (z * z) + ZeroGuard;
-
-        float estimate = Sse.IsSupported
-            ? Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(squared)).ToScalar()
-            : 1f / MathF.Sqrt(squared);
-
-        float reciprocal = (3f - (estimate * estimate * squared)) * estimate * 0.5f;
+        float reciprocal = ReciprocalSqrt((x * x) + (y * y) + (z * z) + ZeroGuard);
 
         return (x * reciprocal, y * reciprocal, z * reciprocal);
+    }
+
+    /// <summary>A squared length's guarded reciprocal square root, as the engine computes it everywhere.</summary>
+    /// <param name="x">The squared length with any guard already added.</param>
+    /// <returns>Approximately <c>1 / sqrt(x)</c>.</returns>
+    /// <remarks>
+    /// **`rsqrtss` and one Newton step, <c>e·(3 − e²·x)·0.5</c>** — `_SSE_RSqrtInline` (`vector.h:2224`), and the same
+    /// sequence `C_OP_RenderSpriteTrail`'s builder inlines twice in `client.dll` (the <c>3.0</c> at <c>DAT_1092706c</c>
+    /// and <c>0.5</c> at <c>DAT_10926e38</c>). Shared so the trail and <see cref="Normalized"/> cannot drift apart.
+    /// </remarks>
+    public static float ReciprocalSqrt(float x)
+    {
+        float estimate = Sse.IsSupported
+            ? Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar()
+            : 1f / MathF.Sqrt(x);
+
+        return (3f - (estimate * estimate * x)) * estimate * 0.5f;
     }
 }

@@ -144,6 +144,85 @@ public sealed class ParticleInitializerConformanceTests
         (most - least).ShouldBeGreaterThan(30f);
     }
 
+    /// <remarks>
+    /// **`C_INIT_RandomTrailLength`, as `client.dll` computes it**: <c>pow( r, exponent ) · ( max − min ) + min</c>
+    /// (<c>FUN_107be5c0</c>, B415). `Explosion_CoreFlash` declares 0.33..0.4 with an exponent of 1, so every draw lies
+    /// in that band — and the draws must DIFFER, or every ember in a blast is the same length.
+    /// </remarks>
+    [Test]
+    public void Spawn_TrailLengthRandom_DrawsWithinTheDeclaredBand()
+    {
+        ParticleSystem system = Declaring(TrailLength(least: 0.33d, most: 0.4d, exponent: 1d));
+
+        ParticleStore store = new();
+
+        float least = float.MaxValue;
+        float most = float.MinValue;
+
+        for (int one = 0; one < 128; one++)
+        {
+            int index = ParticleSystems.Spawn(
+                system, store, ParticleControlPoint.Unoriented(Vector3.Zero), lives: 1f, seconds: 1f / 66f);
+
+            float length = store.TrailLengthOf(index);
+
+            length.ShouldBeInRange(0.33f, 0.4f);
+
+            least = System.MathF.Min(least, length);
+            most = System.MathF.Max(most, length);
+        }
+
+        (most - least).ShouldBeGreaterThan(0.05f, "a band of 0.07 that every particle agrees on is not a draw");
+    }
+
+    /// <remarks>
+    /// **The exponent is applied, which the decompiler denied.** Ghidra's pseudocode for the initializer showed a
+    /// plain lerp; the disassembly loads <c>length_random_exponent</c> and calls the CRT's x87 <c>pow</c> with it. An
+    /// exponent of 4 pushes most draws toward the minimum, so the MEAN falls well below the band's midpoint, which a
+    /// lerp ignoring the exponent could never do.
+    /// </remarks>
+    [Test]
+    public void Spawn_TrailLengthRandomWithAnExponent_SkewsTowardTheMinimum()
+    {
+        ParticleSystem system = Declaring(TrailLength(least: 0d, most: 1d, exponent: 4d));
+
+        ParticleStore store = new();
+
+        float total = 0f;
+        const int Count = 512;
+
+        for (int one = 0; one < Count; one++)
+        {
+            int index = ParticleSystems.Spawn(
+                system, store, ParticleControlPoint.Unoriented(Vector3.Zero), lives: 1f, seconds: 1f / 66f);
+
+            total += store.TrailLengthOf(index);
+        }
+
+        // E[r⁴] for r uniform on [0,1) is 0.2; a lerp without the exponent would sit at 0.5.
+        (total / Count).ShouldBeInRange(0.14f, 0.26f);
+    }
+
+    /// <remarks>
+    /// **With no initializer, a particle takes the collection's own default, <c>0.1</c>** — four lanes of
+    /// <c>0x3dcccccd</c> written at <c>10 × 0x30</c> into the constant block by the collection init. `rockettrail_burst`
+    /// draws with `render_sprite_trail` and sets no trail length, so this is every rocket's burst.
+    /// </remarks>
+    [Test]
+    public void Spawn_WithNoTrailLengthInitializer_TakesTheCollectionsDefault()
+    {
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(new ParticleFunction("Alpha Random", "alpha", new Dictionary<string, DmxValue>(System.StringComparer.Ordinal))),
+            store,
+            ParticleControlPoint.Unoriented(Vector3.Zero),
+            lives: 1f,
+            seconds: 1f / 66f);
+
+        store.TrailLengthOf(index).ShouldBe(0.1f);
+    }
+
     [Test]
     public void SpriteBlending_AddSelf_OutranksAdditive()
     {
@@ -176,6 +255,18 @@ public sealed class ParticleInitializerConformanceTests
     /// <summary>A material parsed from its own text.</summary>
     private static VmtMaterial Material(string text) =>
         VmtMaterial.Parse(System.Text.Encoding.UTF8.GetBytes(text));
+
+    /// <summary>`Trail Length Random` with its three parameters.</summary>
+    private static ParticleFunction TrailLength(double least, double most, double exponent) =>
+        new(
+            "Trail Length Random",
+            "trail",
+            new Dictionary<string, DmxValue>(System.StringComparer.Ordinal)
+            {
+                ["length_min"] = new DmxValue(DmxAttributeType.Real, least),
+                ["length_max"] = new DmxValue(DmxAttributeType.Real, most),
+                ["length_random_exponent"] = new DmxValue(DmxAttributeType.Real, exponent),
+            });
 
     /// <summary>A definition carrying one initializer and nothing else.</summary>
     private static ParticleSystem Declaring(ParticleFunction initializer) =>
