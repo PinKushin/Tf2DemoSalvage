@@ -4292,11 +4292,20 @@ internal class MainForm : Form, IFrameSteps
                 (float X, float Y, float Z)? muzzle = _models.AttachmentPosition(tracer.Weapon, "muzzle");
 
                 (float X, float Y, float Z) start = muzzle ?? tracer.Start;
-                path = (start, StruckEnd(tracer));
 
-                // A weapon no pass has posed YET is asked again next frame; only an answer is kept. The first frame
-                // after a load or a seek offers tracers before the model pass has run.
-                if (muzzle is not null || _models.IsPosed(tracer.Weapon))
+                // **Players are clipped only for a tracer met on its own tick**, where this frame's bones are the ones
+                // the engine traced against when the shot arrived. Met later — a seek into the window — the players
+                // have moved and this frame's bones would strike whoever stands there now; the world's end is kept.
+                ((float X, float Y, float Z) end, bool judged) = tick - tracer.Tick <= 1
+                    ? StruckEnd(tracer)
+                    : (tracer.End, true);
+
+                path = (start, end);
+
+                // Asked again next frame until a model pass has answered: the first frame after a load or a seek offers
+                // tracers before any entity is posed. A muzzle, or any player posed for the hitbox pass, is an answer;
+                // a weapon that is never drawn — the spectated player's own, in first person — is not waited for.
+                if (muzzle is not null || _models.IsPosed(tracer.Weapon) || judged)
                 {
                     _tracerStarts[index] = path;
                 }
@@ -4356,11 +4365,11 @@ internal class MainForm : Form, IFrameSteps
     /// which is the tick the tracer is first drawn on. **A player no pass has posed has no hitboxes to hit**, so a bullet
     /// passes through someone culled from view — whose tracer end is most likely out of view too.
     /// </remarks>
-    private (float X, float Y, float Z) StruckEnd(ShotTracer tracer)
+    private ((float X, float Y, float Z) End, bool Judged) StruckEnd(ShotTracer tracer)
     {
         if (_timeline is not { } timeline || _loaded?.Level is not { } level)
         {
-            return tracer.End;
+            return (tracer.End, true);
         }
 
         Vector3 start = new(tracer.Start.X, tracer.Start.Y, tracer.Start.Z);
@@ -4384,15 +4393,44 @@ internal class MainForm : Form, IFrameSteps
             }
         }
 
-        (Vector3 end, _) = PlayerBulletTrace.Clip(
+        int asked = 0;
+        int answered = 0;
+
+        (Vector3 end, int? struck) = PlayerBulletTrace.Clip(
             start,
             reach,
             worldFraction,
             targets,
-            (entity, from, delta) => _models.TraceHitboxes(entity, from, delta, BulletMask),
+            (entity, from, delta) =>
+            {
+                asked++;
+
+                float? fraction = _models.TraceHitboxes(entity, from, delta, BulletMask);
+
+                answered += fraction is null ? 0 : 1;
+
+                return fraction;
+            },
             (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f));
 
-        return (end.X, end.Y, end.Z);
+        int posed = 0;
+
+        foreach (BulletTarget target in targets)
+        {
+            posed += _models.IsPosed(target.Entity) ? 1 : 0;
+        }
+
+        if (_renderLog.IsEnabled(LogLevel.Debug))
+        {
+            _renderLog.LogDebug(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"bullet (shot {tracer.Shot} pellet {tracer.Bullet}): {targets.Count} players, {posed} posed, " +
+                    $"{asked} hitbox tests, {answered} hit; struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}"));
+        }
+
+        return ((end.X, end.Y, end.Z), targets.Count == 0 || posed > 0);
     }
 
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
