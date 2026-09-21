@@ -423,15 +423,33 @@ public sealed class ParticleEffects
             }
         }
 
+        // **A system this project cannot draw draws NOTHING, rather than being drawn as the one it can.**
+        // `render_animated_sprites` is the only renderer implemented, and the fallback used to be a null
+        // `renderer` handed to `Build` — which does not skip the system, it draws it with whole-texture UVs, no
+        // sheet and a default animation rate. So a `render_sprite_trail` particle, which the engine stretches
+        // along its velocity, came out as an opaque square.
+        //
+        // **Seen, not reasoned about**: an explosion at `cp_process_f12` tick 21880 drew as fifteen hard orange
+        // quads on a wall. Five of `ExplosionCore_Wall`'s eight children declare `render_sprite_trail`, and those
+        // five were the quads. This costs `rockettrail_burst` too, which declares the same renderer — the trail
+        // keeps its smoke and its fire, and loses a glow it was drawing wrongly.
+        //
+        // **A system with no renderer at all is also skipped**, which is what an `ExplosionCore_Wall` is: a pure
+        // parent whose nine children do the work, carrying a `material` nothing draws with.
+        if (renderer is null)
+        {
+            return;
+        }
+
         ParticleSprites.Build(
             effect.Particles,
             right,
             up,
             corners,
             material.Sequences,
-            (float)(renderer?.Number("animation rate", 1d) ?? 1d),
-            (renderer?.Number("use animation rate as FPS", 0d) ?? 0d) != 0d,
-            (renderer?.Number("animation_fit_lifetime", 0d) ?? 0d) != 0d);
+            (float)renderer.Number("animation rate", 1d),
+            renderer.Number("use animation rate as FPS", 0d) != 0d,
+            renderer.Number("animation_fit_lifetime", 0d) != 0d);
     }
 
     /// <summary>The material a definition names, normalised the way a lookup key must be.</summary>

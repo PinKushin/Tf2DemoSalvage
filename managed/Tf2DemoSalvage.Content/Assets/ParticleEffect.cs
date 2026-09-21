@@ -98,6 +98,13 @@ public sealed class ParticleEffect
                 return false;
             }
 
+            // **A burst that has not fired yet is not finished**, which is the same rule as a steady emitter
+            // with a start time: both are empty and both will emit.
+            if (!BurstsSpent)
+            {
+                return false;
+            }
+
             foreach (ParticleFunction emitter in System.Emitters)
             {
                 if (!string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
@@ -126,8 +133,15 @@ public sealed class ParticleEffect
         }
     }
 
-    /// <summary>The one emitter function this understands, named once.</summary>
+    /// <summary>The steady emitter, named once.</summary>
     private const string ContinuousEmitter = "emit_continuously";
+
+    /// <summary>The one-shot emitter — what an explosion is made of.</summary>
+    private const string BurstEmitter = "emit_instantaneously";
+
+    /// <summary>Which of <c>ParticleRandom</c>'s channels a burst's own count is drawn from.</summary>
+    /// <remarks>Its own, so a burst's size does not move when a spawn-time random beside it changes.</remarks>
+    private const int BurstCountChannel = 11;
 
     /// <summary>The systems this one runs alongside itself.</summary>
     /// <remarks>
@@ -278,6 +292,12 @@ public sealed class ParticleEffect
     {
         foreach (ParticleFunction emitter in System.Emitters)
         {
+            if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal))
+            {
+                EmitBurst(emitter, at, seconds);
+                continue;
+            }
+
             if (!string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
             {
                 continue;
@@ -310,4 +330,92 @@ public sealed class ParticleEffect
         }
     }
 
+    /// <summary>Emits a burst's particles once, at its own start time — <c>emit_instantaneously</c>.</summary>
+    /// <remarks>
+    /// **An explosion is a burst, and this is most of one.** Six of `ExplosionCore_Wall`'s eight children
+    /// declare this emitter; with only `emit_continuously` implemented, exactly one part of an explosion drew —
+    /// the debris chunks — and a blast on a wall in `cp_process_f12` came out as fifteen hard orange polygons.
+    /// **Seen before it was diagnosed** (B415).
+    ///
+    /// **Its parameters are read from the shipped `.pcf`**, which states what a closed emitter is parameterised
+    /// by (`docs/memory/nothing-is-closed.md`). `Explosion_Smoke_1` declares:
+    ///
+    /// <code>
+    ///   num_to_emit = 8            num_to_emit_minimum = -1
+    ///   emission_start_time = 0    maximum emission per frame = 100
+    /// </code>
+    ///
+    /// **`num_to_emit_minimum` of −1 is "no range", not "emit none"** — the count is exactly `num_to_emit`.
+    /// A non-negative value makes the count a random one in `[minimum, num_to_emit]`, which is why the sentinel
+    /// cannot be read as a bound (`docs/memory/sentinels-conflate-unknown-with-answer.md`).
+    ///
+    /// **The per-frame cap is honoured rather than ignored because TF2's own values are under it.** A system
+    /// asking for more than it may emit in one step carries the rest to the next, so the cap delays a burst
+    /// instead of truncating it. Nothing in the explosion path reaches 100; implementing what the parameter says
+    /// costs three lines and not implementing it is a divergence waiting for a bigger effect.
+    /// </remarks>
+    private void EmitBurst(ParticleFunction emitter, ParticleControlPoint at, float seconds)
+    {
+        if (Particles.Age < (float)emitter.Number("emission_start_time", 0d))
+        {
+            return;
+        }
+
+        if (!_bursts.TryGetValue(emitter, out int owed))
+        {
+            int count = (int)emitter.Number("num_to_emit", 0d);
+            int least = (int)emitter.Number("num_to_emit_minimum", -1d);
+
+            // **A minimum of −1 means the count is exact**, and it is what every emitter in the explosion path
+            // declares. A non-negative one makes the count a random draw in `[minimum, num_to_emit]`; the draw
+            // is keyed on the collection's own particle id the way every other spawn-time random is
+            // (`ParticleRandom`), so a burst replayed after a seek reproduces itself.
+            owed = least < 0 || least >= count
+                ? count
+                : ParticleRandom.Whole(Particles.Count, BurstCountChannel, least, count);
+        }
+
+        int allowed = (int)emitter.Number("maximum emission per frame", int.MaxValue);
+        int born = 0;
+
+        while (born < allowed && owed > 0)
+        {
+            if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds) < 0)
+            {
+                // At `max_particles`: a system at its cap has not banked a debt, it simply did not emit.
+                owed = 0;
+                break;
+            }
+
+            born++;
+            owed--;
+        }
+
+        _bursts[emitter] = owed;
+    }
+
+    /// <summary>What each burst emitter still owes, so it fires once rather than every step.</summary>
+    /// <remarks>
+    /// **Keyed by the emitter, because a system may declare several** and each has its own start time and count.
+    /// A single flag would make the second one silently follow the first.
+    /// </remarks>
+    private readonly Dictionary<ParticleFunction, int> _bursts = [];
+
+    /// <summary>Whether every burst emitter has fired and has nothing left owing.</summary>
+    internal bool BurstsSpent
+    {
+        get
+        {
+            foreach (ParticleFunction emitter in System.Emitters)
+            {
+                if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal) &&
+                    (!_bursts.TryGetValue(emitter, out int owed) || owed > 0))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
 }

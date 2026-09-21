@@ -12,6 +12,56 @@ namespace Tf2DemoSalvage.Scene.Tests;
 [TestFixture]
 public sealed class ParticleEffectsTests
 {
+    /// <remarks>
+    /// **A system whose renderer this project does not implement draws NOTHING, rather than being drawn as the
+    /// one it does** (B415). `render_animated_sprites` is the only one implemented; `Gather` used to hand a null
+    /// renderer to `ParticleSprites.Build`, which does not skip the system — it draws it with whole-texture UVs,
+    /// no sheet and a default animation rate.
+    ///
+    /// **Seen before it was reasoned about.** An explosion at `cp_process_f12` tick 21880 drew as fifteen hard
+    /// orange quads on a wall; five of `ExplosionCore_Wall`'s eight children declare `render_sprite_trail`, and
+    /// those five were the quads. A `render_sprite_trail` particle is stretched along its velocity by the engine,
+    /// so drawing it as a billboard is not an approximation of it — it is a different shape entirely.
+    ///
+    /// **The particles still EXIST and still simulate**; only the draw is withheld. That is what makes this
+    /// recoverable by implementing the renderer rather than by re-plumbing anything.
+    /// </remarks>
+    [Test]
+    public void Build_ASystemWithAnUnimplementedRenderer_DrawsNothing()
+    {
+        ParticleEffects effects = new();
+
+        ParticleSystem unsupported = Trail() with
+        {
+            Renderers =
+            [
+                new ParticleFunction(
+                    "render_sprite_trail", "draw", new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+            ],
+        };
+
+        effects.Update([Rocket(0f)], unsupported, 1f / 66f, null, 1);
+        effects.Update([Rocket(100f)], unsupported, 1f / 66f, null, 2);
+
+        effects.Count.ShouldBe(1, "the effect runs and its particles are simulated");
+        Corners(effects).ShouldBeEmpty("but nothing this project cannot draw correctly is drawn");
+    }
+
+    /// <remarks>
+    /// The control: the same fixture with the renderer this project DOES implement draws. Without it, the test
+    /// above would pass on a `Build` that drew nothing at all.
+    /// </remarks>
+    [Test]
+    public void Build_ASystemWithTheImplementedRenderer_Draws()
+    {
+        ParticleEffects effects = new();
+
+        effects.Update([Rocket(0f)], Trail(), 1f / 66f, null, 1);
+        effects.Update([Rocket(100f)], Trail(), 1f / 66f, null, 2);
+
+        Corners(effects).ShouldNotBeEmpty();
+    }
+
     [Test]
     public void Update_AProjectile_GetsOneEffectThatFollowsIt()
     {
@@ -245,7 +295,16 @@ public sealed class ParticleEffectsTests
                     }),
             ],
             [],
-            [],
+
+            // **A renderer, because every system that draws declares one and the real `rockettrail` declares
+            // this one.** The fixture had none and relied on `Gather` drawing a system with no renderer as if it
+            // had this — which is the divergence B415 removed: five of `ExplosionCore_Wall`'s children declare
+            // `render_sprite_trail` and were coming out as opaque squares. A system this project cannot draw now
+            // draws nothing, so a fixture that declares nothing draws nothing too, correctly.
+            [
+                new ParticleFunction(
+                    "render_animated_sprites", "draw", new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+            ],
             [],
             none);
     }

@@ -135,6 +135,57 @@ look up, and one that knows only −1 looks up edict 2047. Both then take the wr
 wrong effect. Note also that the modern field is `SPROP_UNSIGNED`, so −1 cannot arrive from a current server at all
 — the check is there purely for recordings.
 
+## An explosion is nine systems, and eight of them are the children
+
+`ExplosionCore_Wall` and `ExplosionCore_MidAir` declare **no renderers, no initializers and no operators**. They are
+pure parents; all the work is in eight and nine children respectively. A reader that resolved the parent and drew it
+would draw nothing and conclude the system was empty.
+
+| child of `ExplosionCore_Wall` | material | renderer | emitter |
+|---|---|---|---|
+| `Explosion_Debris001` | `effects/debris/debris_chunk` | `render_animated_sprites` | `emit_continuously` |
+| `Explosion_Dustup` | `effects/softglow_translucent` | `render_sprite_trail` | `emit_continuously` |
+| `Explosion_CoreFlash` | `effects/softglow` | `render_sprite_trail` | `emit_instantaneously` |
+| `Explosion_FloatieEmbers` | `effects/brightglow_y_nomodel` | `render_sprite_trail` | `emit_instantaneously` |
+| `Explosion_Smoke_1` | `effects/smokelit2/smoke2lit` | `render_animated_sprites` | `emit_instantaneously` |
+| `Explosion_Flash_1` | `effects/sc_brightglow_y_nomodel` | `render_animated_sprites` | `emit_instantaneously` |
+| `Explosion_FlyingEmbers` | `effects/circle2` | both | `emit_instantaneously` |
+| `Explosion_Flashup` | `effects/softglow` | `render_sprite_trail` | `emit_instantaneously` |
+
+**So one of eight drew**, and the first picture of an explosion in this viewer was fifteen hard orange polygons on a
+wall — `Explosion_Debris001`, the only child whose renderer AND emitter were both implemented.
+
+Two separate faults, and only the picture separated them.
+
+### A system whose renderer is not implemented was drawn as one that is
+
+`ParticleEffects.Gather` looked for `render_animated_sprites` and passed a **null** renderer onwards when it found
+none. `ParticleSprites.Build` does not skip a system for that — it draws it with whole-texture UVs, no sheet and a
+default animation rate. A `render_sprite_trail` particle is stretched along its velocity by the engine, so drawing
+it as a billboard is not an approximation of it; it is a different shape.
+
+Fixed: a system this project cannot draw draws nothing. **It costs `rockettrail_burst`**, which declares the same
+renderer — a rocket keeps its smoke and its fire and loses a glow it was drawing wrongly. `render_sprite_trail` is
+five of `ExplosionCore_Wall`'s eight children and is the largest single piece still missing.
+
+### `emit_instantaneously` was not implemented, and an explosion is made of it
+
+Six of the eight children use it. `ParticleEffect.Emit` handled `emit_continuously` alone, so those six emitted
+nothing — indistinguishable from a material that failed to resolve.
+
+Its parameters, read from the shipped `.pcf` rather than guessed (`Explosion_Smoke_1`):
+
+```
+num_to_emit = 8             num_to_emit_minimum = -1
+emission_start_time = 0     maximum emission per frame = 100
+```
+
+**`num_to_emit_minimum` of −1 is "no range", not "emit none"** — the count is exactly `num_to_emit`, and a
+non-negative value makes it a random draw in `[minimum, num_to_emit]`. Every emitter in the explosion path
+declares −1.
+
+With it implemented, the smoke appears. *Confirmed by looking*, at `cp_process_f12` tick 21880.
+
 ## What is not established
 
 - **Whether the 178 entity-bearing blasts are players.** `bIsPlayer` needs the entity's class, and only the count
@@ -145,6 +196,11 @@ wrong effect. Note also that the modern field is `SPROP_UNSIGNED`, so −1 canno
   regardless, so the day one does, the value is there.
 - **`GameRules()->TranslateEffectForVisionFilter( "particles", pszEffect )`**, the last thing
   `TFExplosionCallback` does before dispatching. Unread.
+- **`render_sprite_trail`**, which five of the eight children declare and this project does not implement. It is
+  the largest piece still missing from an explosion, and it also costs `rockettrail_burst`.
+- **Why `Explosion_Flash_1` does not draw**, although both its renderer and its emitter are now implemented and
+  its material resolved. Unlike the smoke, nothing of it appeared.
+- **The debris chunks' size and tint.** They draw, and they dominate the picture in a way TF2's do not.
 - **Which `.pcf` the engine actually loads.** `ExplosionCore_` appears in five files —
   `explosion.pcf`, `explosion_high.pcf`, `explosion_dx90_slow.pcf`, `explosion_dx80.pcf` and `bigboom.pcf` — and
   which one wins is a `particles_manifest.txt` and detail-level question this has not looked at.
