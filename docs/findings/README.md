@@ -165,6 +165,20 @@ in any public writeup found:
   count was the instrument**: the census hand-rolled a subset of `MomentScene.Build` without
   `WeaponModels.Resolve`, so every item-resolved weapon read as having no model
   ([56](56-the-item-names-the-model-and-no-track-does.md)).
+- **A hitscan shot is a seed** — `DT_TEFireBullets` sends no bullet paths at all, so every pellet's
+  direction is rebuilt by reseeding Valve's own RNG per bullet. Which meant reading
+  `CUniformRandomStream` out of `vstdlib.dll`'s disassembly, because `random.h` declares `m_idum`,
+  `m_iy` and `m_iv[NTAB]` and not one constant. The priming loop runs forty advances and not
+  thirty-nine, and starting one lower gave a generator that passed every self-consistency test in the
+  suite while disagreeing with the shipped DLL on **1,767 of 1,800 draws** — only an in-process oracle
+  found it ([57](57-the-shot-is-a-seed.md)).
+- **An explosion sends a normal, not a trace** — so "went off in mid air" costs no ray cast: it is
+  `fabs(x) < 0.05 && fabs(y) < 0.05 && fabs(z) < 0.05`, and the send table proves Valve's comment
+  literal, since six bits over `[-1, 1]` cannot represent zero at all. **And the sentinel is 65535**:
+  `INVALID_STRING_INDEX` is `(unsigned short)-1`, so reading it as −1 made 2,492 of one match's 2,786
+  explosions claim a custom particle effect. The true figure is zero, and the wrong one would have
+  made a string table nothing uses into the priority
+  ([58](58-an-explosion-sends-a-normal-not-a-trace.md)).
 
 ## Conventions used throughout
 

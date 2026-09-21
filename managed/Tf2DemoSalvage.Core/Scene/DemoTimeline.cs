@@ -1088,6 +1088,15 @@ public sealed class DemoTimeline
     /// </remarks>
     public IReadOnlyList<SceneRagdoll> Corpses { get; private init; } = [];
 
+    /// <summary>Every explosion the demo carried, in fire order (B415).</summary>
+    /// <remarks>
+    /// **The feed itself rather than a list, because a blast is asked for by WINDOW.** An explosion's effect runs
+    /// for a second or two after it fires, so a viewer at tick <c>n</c> wants everything back to <c>n</c> minus
+    /// that duration — <see cref="ExplosionFeed.Between"/> is that search, and handing out a bare list would put a
+    /// copy of it in every caller.
+    /// </remarks>
+    public ExplosionFeed Explosions { get; private init; } = new();
+
     /// <summary>Every choreographed scene that started playing, in tick order (B351).</summary>
     /// <remarks>
     /// **A start rather than a per-tick state, for the reason <see cref="SceneChoreography"/>
@@ -1563,6 +1572,10 @@ public sealed class DemoTimeline
         // scene has the model that says how long the sequence is.
         PlayerGestureFeed gestures = new();
 
+        // **Every explosion, from the same stream** (B415). A one-shot at a tick rather than a state at every
+        // tick, so it is a list in fire order and not a per-frame sample — see `ExplosionFeed`.
+        ExplosionFeed explosions = new();
+
         List<TimelineFrame> frames = [];
 
         float interval = 0f;
@@ -1886,8 +1899,15 @@ public sealed class DemoTimeline
                     // inside `DoAnimationEvent` (`tf_playeranimstate.cpp:969`) — a reload begun
                     // crouched stays the crouching reload even if the player stands during it.
                     case TempEntitiesMessage effects when effects.BodyBits > 0:
-                        RecordGestures(
-                            decoder, effects, command.Tick * interval, effectClassNames, entities, gestures);
+                        RecordEffects(
+                            decoder,
+                            effects,
+                            command.Tick,
+                            interval,
+                            effectClassNames,
+                            entities,
+                            gestures,
+                            explosions);
                         continue;
 
                     case UpdateStringTableMessage update
@@ -2516,6 +2536,7 @@ public sealed class DemoTimeline
             Roster = everyone,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
+            Explosions = explosions,
             Scenes = choreography,
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
@@ -2592,13 +2613,15 @@ public sealed class DemoTimeline
         return gestures.Count > 0 ? gestures : null;
     }
 
-    /// <summary>Decodes a temp entities body and records any player gestures in it.</summary>
+    /// <summary>Decodes a temp entities body once and offers every effect in it to each feed.</summary>
     /// <param name="decoder">The entity decoder, which knows the effect tables.</param>
     /// <param name="message">The message.</param>
-    /// <param name="seconds">Demo time when it arrived, in seconds.</param>
+    /// <param name="tick">The demo tick the packet arrived on.</param>
+    /// <param name="interval">Seconds per tick, for the feeds that want time rather than ticks.</param>
     /// <param name="classNames">Class id to name, since an effect names its class by id.</param>
     /// <param name="entities">The entity table, for the player's posture at this moment.</param>
-    /// <param name="into">The feed to record into.</param>
+    /// <param name="gestures">The gesture feed.</param>
+    /// <param name="explosions">The explosion feed.</param>
     /// <remarks>
     /// **A body that will not read is skipped rather than fatal**, which is the rule everywhere
     /// else in this project: a demo is salvaged, and a temp entities body is independent of every
@@ -2607,28 +2630,41 @@ public sealed class DemoTimeline
     /// **The posture comes from the entity table**, not from the sampled `ScenePlayer`, because
     /// this runs while the packet is being applied and the sampler has not run yet. It is the same
     /// entity and the same accessors either way.
+    ///
+    /// **Every effect is offered to each feed rather than filtered here** (B415). This used to keep exactly one
+    /// class and `continue` past the rest, which threw away 15,014 of `demostf-cp_process_f12`'s 42,188 temp
+    /// entities — every explosion, tracer, impact and decal in a 26-minute match. Each feed now says for itself
+    /// whether an effect is its business, so adding one is adding a feed rather than editing this filter.
     /// </remarks>
-    private static void RecordGestures(
+    private static void RecordEffects(
         EntityDecoder decoder,
         TempEntitiesMessage message,
-        double seconds,
+        int tick,
+        double interval,
         Dictionary<int, string> classNames,
         EntityStateTable entities,
-        PlayerGestureFeed into)
+        PlayerGestureFeed gestures,
+        ExplosionFeed explosions)
     {
         try
         {
             foreach (DecodedTempEntity effect in decoder.DecodeTempEntities(
                 message.Body.Span, message.Count, message.BodyBits))
             {
-                if (!classNames.TryGetValue(effect.ClassId, out string? className) ||
-                    !string.Equals(
-                        className, PlayerGestureFeed.EventClassName, StringComparison.Ordinal))
+                if (!classNames.TryGetValue(effect.ClassId, out string? className))
                 {
                     continue;
                 }
 
-                into.Record(className, effect, seconds, PostureOf(effect, entities));
+                if (explosions.Record(className, effect, tick))
+                {
+                    continue;
+                }
+
+                if (string.Equals(className, PlayerGestureFeed.EventClassName, StringComparison.Ordinal))
+                {
+                    gestures.Record(className, effect, tick * interval, PostureOf(effect, entities));
+                }
             }
         }
         catch (Exception error)
