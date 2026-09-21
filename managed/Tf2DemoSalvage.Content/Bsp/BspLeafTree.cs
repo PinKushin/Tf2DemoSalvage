@@ -711,14 +711,34 @@ public sealed class BspLeafTree
     public float Sweep(
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
+        float halfExtent) =>
+        SweepSurface(fromX, fromY, fromZ, toX, toY, toZ, halfExtent).Fraction;
+
+    /// <summary><see cref="Sweep"/>, with the texinfo of the brush side it struck — `trace.surface`.</summary>
+    /// <param name="fromX">Where the sweep starts.</param>
+    /// <param name="fromY">Where the sweep starts.</param>
+    /// <param name="fromZ">Where the sweep starts.</param>
+    /// <param name="toX">Where it would end.</param>
+    /// <param name="toY">Where it would end.</param>
+    /// <param name="toZ">Where it would end.</param>
+    /// <param name="halfExtent">Half the box's width; zero for a ray.</param>
+    /// <returns>The fraction, and the struck side's texinfo, −1 when nothing was struck or the sweep began inside.</returns>
+    /// <remarks>
+    /// **The lead side is the one whose plane set the entry fraction** — the latest inward crossing — which is the side
+    /// `CM_ClipBoxToBrush` reports the surface of. A bullet's impact decal and effect are chosen by that surface's
+    /// material (B415), so the answer has to be the brush side and not a face found another way.
+    /// </remarks>
+    public (float Fraction, int Texinfo) SweepSurface(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
         float halfExtent)
     {
         if (IsEmpty || _leaves.IsEmpty)
         {
-            return 1f;
+            return (1f, -1);
         }
 
-        float hit = 1f;
+        TraceHit hit = new() { Fraction = 1f, Texinfo = -1 };
 
         Descend(
             0, 0f, 1f,
@@ -730,7 +750,14 @@ public sealed class BspLeafTree
             ref hit,
             0);
 
-        return hit;
+        return (hit.Fraction, hit.Texinfo);
+    }
+
+    /// <summary>Where a sweep has got to, and the side it struck.</summary>
+    private struct TraceHit
+    {
+        public float Fraction;
+        public int Texinfo;
     }
 
     /// <summary>One step of <see cref="Sweep"/>: clip the segment against this node's plane.</summary>
@@ -749,10 +776,10 @@ public sealed class BspLeafTree
         float wholeFromX, float wholeFromY, float wholeFromZ,
         float wholeToX, float wholeToY, float wholeToZ,
         float halfExtent,
-        ref float hit,
+        ref TraceHit hit,
         int depth)
     {
-        if (depth > MaximumTreeDepth || startFraction >= hit)
+        if (depth > MaximumTreeDepth || startFraction >= hit.Fraction)
         {
             return;
         }
@@ -796,9 +823,10 @@ public sealed class BspLeafTree
             // near end of the span is reported, because a solid leaf entered at fraction f means
             // everything past f is inside.
             if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & ContentsSolid) != 0 &&
-                startFraction < hit)
+                startFraction < hit.Fraction)
             {
-                hit = startFraction;
+                hit.Fraction = startFraction;
+                hit.Texinfo = -1;
             }
 
             return;
@@ -926,7 +954,7 @@ public sealed class BspLeafTree
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
         float halfExtent,
-        ref float hit)
+        ref TraceHit hit)
     {
         ReadOnlySpan<byte> leaves = _leaves.Span;
 
@@ -980,7 +1008,7 @@ public sealed class BspLeafTree
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
         float halfExtent,
-        ref float hit)
+        ref TraceHit hit)
     {
         if (sides <= 0)
         {
@@ -992,6 +1020,7 @@ public sealed class BspLeafTree
 
         float enters = -1f;
         float leaves = 1f;
+        int leadTexinfo = -1;
 
         // Whether the sweep begins outside the brush at all. A sweep that starts inside every plane
         // is already embedded, which is a different answer from hitting a surface on the way.
@@ -1051,8 +1080,15 @@ public sealed class BspLeafTree
 
             if (start > end)
             {
-                // Crossing inwards: the brush is entered at the LATEST such crossing.
-                enters = MathF.Max(enters, (start - DistanceEpsilon) / span);
+                // Crossing inwards: the brush is entered at the LATEST such crossing, and that side is the lead
+                // side whose surface the trace reports.
+                float crossing = (start - DistanceEpsilon) / span;
+
+                if (crossing > enters)
+                {
+                    enters = crossing;
+                    leadTexinfo = BinaryPrimitives.ReadInt16LittleEndian(brushSides[(sideAt + 2)..]);
+                }
             }
             else
             {
@@ -1066,16 +1102,18 @@ public sealed class BspLeafTree
             // Began inside this brush. Valve sets `startsolid` and a fraction of zero, which is the
             // same statement as "it got nowhere". Meaningful again now that the segment handed in
             // is the whole ray rather than a piece of it.
-            hit = 0f;
+            hit.Fraction = 0f;
+            hit.Texinfo = -1;
             return;
         }
 
         // `if (enterfrac < leavefrac && enterfrac >= 0.0f)` — the sweep is inside a convex brush
         // only between the last plane it enters and the first it leaves, and a negative entry means
         // it was already past the surface. The fraction is of the whole ray, so it needs no mapping.
-        if (enters < leaves && enters >= 0f && enters < hit)
+        if (enters < leaves && enters >= 0f && enters < hit.Fraction)
         {
-            hit = enters;
+            hit.Fraction = enters;
+            hit.Texinfo = leadTexinfo;
         }
     }
 

@@ -53,6 +53,13 @@ public sealed class SurfaceFlagTests
             ("SURF_SKIP", SurfaceProperties.Skip),
             ("SURF_NOLIGHT", SurfaceProperties.NoLight),
             ("SURF_BUMPLIGHT", SurfaceProperties.BumpLight),
+
+            // Modelled since B415: decals read SURF_NODECALS. The other three are declared so the enum is the
+            // whole header rather than a subset whose gaps have to be remembered.
+            ("SURF_NOSHADOWS", SurfaceProperties.NoShadows),
+            ("SURF_NODECALS", SurfaceProperties.NoDecals),
+            ("SURF_NOCHOP", SurfaceProperties.NoChop),
+            ("SURF_HITBOX", SurfaceProperties.Hitbox),
         ];
 
         List<string> wrong = [];
@@ -70,38 +77,6 @@ public sealed class SurfaceFlagTests
         }
 
         wrong.ShouldBeEmpty(string.Join("; ", wrong));
-    }
-
-    [Test]
-    public void SurfaceFlags_TheUnmodelledOnes_AreNamed()
-    {
-        // **A gap stated is a decision; a gap unstated is an oversight.** These four are real flags
-        // this project reads past: none of them changes whether a surface is drawn, which is why
-        // ignoring them is defensible — and that sentence is the point of the test.
-        //
-        //   SURF_NOSHADOWS  no shadow casting, and this draws no shadows at all
-        //   SURF_NODECALS   no decals, and overlays are placed by the map rather than chosen here
-        //   SURF_NOCHOP     a vrad subdivision hint, meaningless after compilation
-        //   SURF_HITBOX     collision geometry, never drawn
-        //
-        // If any of them disappears from bspflags.h, this fails and the comment above needs redoing.
-        IReadOnlyDictionary<string, int> engine = Declared();
-
-        string[] ignored = ["SURF_NOSHADOWS", "SURF_NODECALS", "SURF_NOCHOP", "SURF_HITBOX"];
-
-        foreach (string name in ignored)
-        {
-            engine.ShouldContainKey(name);
-        }
-
-        // And none of them collides with one this project does act on, which is the failure that
-        // would actually matter: a bit tested for two meanings.
-        int modelled = Enum.GetValues<SurfaceProperties>().Aggregate(0, (all, flag) => all | (int)flag);
-
-        foreach (string name in ignored)
-        {
-            (modelled & engine[name]).ShouldBe(0, $"{name} overlaps a flag we act on");
-        }
     }
 
     [Test]
