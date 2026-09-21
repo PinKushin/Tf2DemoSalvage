@@ -27118,6 +27118,52 @@ about exactly this, and a spread reconstructed from a wrong constant would put e
 wrong. The weapon script data (`m_nBulletsPerShot`, range, `m_flSpread`) is a separate input and comes from the shipped
 `tf_weapon_*.txt`, which is game data this project already reads.
 
+**Done 2026-09-20: the RNG and the spread.** `UniformRandomStream` is Valve's, settled in `vstdlib.dll`'s disassembly
+and checked against the shipped DLL in process by the `vstdlib-random` probe — 1,800 draws over nine seeds agreeing bit
+for bit. `FireBulletsSpread.Directions` is the direction half of the loop above. Both are written up in
+`docs/findings/57-the-shot-is-a-seed.md`, including the two of Valve's branches that are quoted and deliberately not
+reproduced and the fact that no oracle exists for the spread loop itself.
+
+**Read 2026-09-20 — and it splits the remaining work in two, along a line that was not obvious.**
+
+**Most of these effects need no ray trace at all, because the SERVER already traced.** `CTEWorldDecal` (2,167),
+`CTEDecal` (192), `CTETFExplosion` (2,786), `CTETFBlood` (3,343), `CTEDust`, `CTESparks` and
+`CTEEffectDispatch(Impact)` all carry a world position on the wire — the server traced the bullet or the blast and sent
+the result. So roughly **8,300 of the 15,014 dropped events are drawable from what is already decoded**, with no BSP ray
+cast anywhere.
+
+**Only the hitscan TRACER and its own impacts need one**, because `FX_FireBullets` runs on the client with
+`bDoEffects = true` and re-traces each bullet for itself. That is the expensive half, and it is now the only half that
+needs a subsystem this project does not have.
+
+**What `CTETFExplosion` carries and what the client does with it** (`tf_fx_explosions.cpp:176-240`):
+`m_vecOrigin`, `m_vecNormal`, `m_iWeaponID`, `entindex`, `m_nDefID`, `m_nSound`, `m_iCustomParticleIndex`.
+`TFExplosionCallback` (`:42`) picks the effect in this order —
+
+1. `"ExplosionCore_wall"` to begin with;
+2. the `ParticleEffectNames` string table entry at `m_iCustomParticleIndex`, when that is not `INVALID_STRING_INDEX`;
+3. otherwise the weapon script's `ExplosionWaterEffect` in water, `ExplosionPlayerEffect` when the blast hit a player
+   **or was in mid air**, and `ExplosionEffect` otherwise.
+
+**Mid air is decided by the normal, not by a trace**: `fabs(x) < 0.05 && fabs(y) < 0.05 && fabs(z) < 0.05` means in
+air and the angles are zeroed — *"Cannot use zeros here because we are sending the normal at a smaller bit size"* — and
+otherwise the angles are `VectorAngles(normal)`, which `AngleVectors.Angles` already is. Three weapon IDs are remapped
+before the lookup (`TF_WEAPON_GRENADE_PIPEBOMB`, `_DEMOMAN` and `_PUMPKIN_BOMB` all read the pipebomb launcher's
+script; `TF_WEAPON_FLAMETHROWER_ROCKET` reads the flamethrower's).
+
+**So the weapon scripts are the gate for step 3, and they are the same gate as `m_nBulletsPerShot`.**
+`ReadWeaponDataFromFileForSlot` (`weapon_parse.cpp:270`) opens `scripts/<alias>` where the alias IS the
+`TF_WEAPON_*` name out of `g_aWeaponNames` (`tf_shareddefs.cpp:599`, 109 entries indexed by the wire's `m_iWeaponID`),
+trying `.txt` first and falling back to the ICE-encrypted `.ctx` — the same mechanism `tf_classdata.cpp` uses for the
+player class scripts, which this project already reads.
+
+**And the control points map straight onto what `ParticleEffects` already takes.** The world-space branch of
+`ParticleEffectCallback` (`c_particle_system.cpp:225-243`) is: sort origin and control point 0 at the origin, control
+point 1 at `vStart` (which the origin-and-angles overload sets to the origin as well), and control point 0's
+orientation from `AngleVectors(angles)`. That is one `ParticleControlPoint`. What `ParticleEffects` does NOT have is the
+lifecycle: every effect there is owned by a live entity, and an explosion is a one-shot at a tick that a viewer must be
+able to scrub back to.
+
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
 **The owner, unprompted, while I was measuring something else**: *"for some reason the first person rockets still dont
