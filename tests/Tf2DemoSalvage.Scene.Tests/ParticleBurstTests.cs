@@ -135,6 +135,24 @@ public sealed class ParticleBurstTests
         effects.BurstCount.ShouldBe(0, "a blast that has not fired yet must not be on screen");
     }
 
+    /// <remarks>
+    /// **A burst that has finished while its caller still offers it is kept, finished, rather than retired** — retired,
+    /// the next call finds it missing, builds it again and replays it from its own tick, every frame until the window
+    /// passes it. That cost was filed in B415 as a suspicion from a backgrounded run; it is read here from the code.
+    /// Once it is no longer offered it goes.
+    /// </remarks>
+    [Test]
+    public void Bursts_FinishedButStillOffered_AreKeptUntilTheWindowPassesThem()
+    {
+        ParticleEffects effects = new();
+
+        effects.Bursts([Finished(key: 1, tick: 100)], Interval, null, tick: 110);
+        effects.BurstCount.ShouldBe(1, "a finished burst the caller still offers is kept, not rebuilt next call");
+
+        effects.Bursts([], Interval, null, tick: 111);
+        effects.BurstCount.ShouldBe(0);
+    }
+
     /// <remarks>A demo change forgets every burst, as it forgets every trail.</remarks>
     [Test]
     public void Clear_AfterBursts_ForgetsThem()
@@ -206,6 +224,14 @@ public sealed class ParticleBurstTests
             LongLived,
             new ParticleControlPoint(
                 new Vector3(x, 0f, 0f), Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ),
+            tick);
+
+    /// <summary>A burst of a system with no emitters, which is finished on its first step.</summary>
+    private static ParticleBurst Finished(long key, int tick) =>
+        new(
+            key,
+            LongLived with { Name = "test_finished", Emitters = [] },
+            new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ),
             tick);
 
     /// <summary>A system that emits at no rate for an hour, so it is never finished and never grows.</summary>

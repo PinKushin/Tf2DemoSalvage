@@ -274,9 +274,12 @@ public sealed class ParticleEffects
         }
 
         _burstTick = tick;
+        _offered.Clear();
 
         foreach (ParticleBurst burst in live)
         {
+            _offered.Add(burst.Key);
+
             int wanted = tick - burst.Tick;
 
             if (wanted < 0)
@@ -317,31 +320,40 @@ public sealed class ParticleEffects
         Retire();
     }
 
-    /// <summary>Drops every burst that has run out of particles and will make no more.</summary>
+    /// <summary>Drops every burst that has run out of particles and will make no more, once it is no longer offered.</summary>
     /// <remarks>
     /// **`Finished` and not `Empty`, which is the difference between the two halves of the engine's own
     /// sentence**: *"IsFinished returns true when a system has no particles and won't be creating any more"*
     /// (`particles.h:1119`). A trail can be dropped on emptiness because `Update` has already stopped its
     /// emission by then; a burst has nothing stopping it from outside, so a system whose emitter has a start
     /// time is empty on its first step and must not be thrown away before it emits.
+    ///
+    /// **And not while the caller still offers it.** Dropped then, the next call finds it missing, builds it again
+    /// and replays it from its own tick — every frame, for every finished tracer and explosion in the window (B415).
     /// </remarks>
     private void Retire()
     {
-        List<long>? finished = null;
+        _finished.Clear();
 
         foreach ((long key, RunningBurst running) in _bursts)
         {
-            if (running.Effect.Finished)
+            if (running.Effect.Finished && !_offered.Contains(key))
             {
-                (finished ??= []).Add(key);
+                _finished.Add(key);
             }
         }
 
-        foreach (long key in finished ?? [])
+        foreach (long key in _finished)
         {
             _bursts.Remove(key);
         }
     }
+
+    /// <summary>The keys offered on the last call, reused.</summary>
+    private readonly HashSet<long> _offered = [];
+
+    /// <summary>The keys being retired, reused.</summary>
+    private readonly List<long> _finished = [];
 
     /// <summary>One running one-shot, and how far it has been stepped.</summary>
     private readonly record struct RunningBurst(ParticleEffect Effect, int Stepped);
