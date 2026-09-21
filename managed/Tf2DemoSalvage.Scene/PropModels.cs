@@ -1191,7 +1191,11 @@ public static class PropModels
                     // most models ship none, and `Find` returning null here is how a hat differs
                     // from a player rather than a failure to read one.
                     ReadRagdoll(Find(stem + ".phy"), bones, props, path),
-                    ReadBreakPieces(Find(stem + ".phy"), props, path)));
+                    ReadBreakPieces(Find(stem + ".phy"), props, path),
+
+                    // **What a bullet hits** (B415): `UTIL_PlayerBulletTrace` traces `CONTENTS_HITBOX`, so a
+                    // player is struck by these boxes and not by their hull.
+                    StudioHitboxes.Read(modelFile)));
         }
         catch (InvalidDataException failure)
         {
@@ -2997,6 +3001,7 @@ public static class PropModels
     /// because both come out of the same file in the same read, and fetching the gib list later
     /// would mean opening one model's `.phy` twice.
     /// </param>
+    /// <param name="Hitboxes">The hitbox sets, by <c>m_nHitboxSet</c>, which is what a bullet strikes (B415).</param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -3054,7 +3059,8 @@ public static class PropModels
         // and of the 4,755 that do only 37 declare ragdoll joints — every other one is a single
         // collision solid with nothing to simulate.
         RagdollBody? Ragdoll = null,
-        IReadOnlyList<PhysicsBreakPiece>? BreakPieces = null)
+        IReadOnlyList<PhysicsBreakPiece>? BreakPieces = null,
+        IReadOnlyList<IReadOnlyList<StudioHitbox>>? Hitboxes = null)
     {
         /// <summary>The render bounds for one sequence, in model space.</summary>
         /// <param name="sequence">Which sequence is playing.</param>

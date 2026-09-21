@@ -4256,8 +4256,8 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Every tracer in the window this tick, reused.</summary>
     private readonly List<(int Index, ShotTracer Tracer)> _tracersNow = [];
 
-    /// <summary>Where each tracer was drawn from, by its index in the map's list, fixed at first sight.</summary>
-    private readonly Dictionary<int, (float X, float Y, float Z)> _tracerStarts = [];
+    /// <summary>Where each tracer was drawn from and to, by its index in the map's list, fixed at first sight.</summary>
+    private readonly Dictionary<int, ((float X, float Y, float Z) From, (float X, float Y, float Z) To)> _tracerStarts = [];
 
     /// <summary>Adds a burst for every tracer in the window — `ParticleTracerCallback` (B415).</summary>
     /// <remarks>
@@ -4287,25 +4287,26 @@ internal class MainForm : Form, IFrameSteps
                 continue;
             }
 
-            if (!_tracerStarts.TryGetValue(index, out (float X, float Y, float Z) start))
+            if (!_tracerStarts.TryGetValue(index, out ((float X, float Y, float Z) From, (float X, float Y, float Z) To) path))
             {
                 (float X, float Y, float Z)? muzzle = _models.AttachmentPosition(tracer.Weapon, "muzzle");
 
-                start = muzzle ?? tracer.Start;
+                (float X, float Y, float Z) start = muzzle ?? tracer.Start;
+                path = (start, StruckEnd(tracer));
 
                 // A weapon no pass has posed YET is asked again next frame; only an answer is kept. The first frame
                 // after a load or a seek offers tracers before the model pass has run.
                 if (muzzle is not null || _models.IsPosed(tracer.Weapon))
                 {
-                    _tracerStarts[index] = start;
+                    _tracerStarts[index] = path;
                 }
 
                 if (_renderLog.IsEnabled(LogLevel.Debug))
                 {
-                    float away = MathF.Sqrt(
-                        ((start.X - tracer.Start.X) * (start.X - tracer.Start.X)) +
-                        ((start.Y - tracer.Start.Y) * (start.Y - tracer.Start.Y)) +
-                        ((start.Z - tracer.Start.Z) * (start.Z - tracer.Start.Z)));
+                    float away = Vector3.Distance(
+                        new Vector3(start.X, start.Y, start.Z), new Vector3(tracer.Start.X, tracer.Start.Y, tracer.Start.Z));
+                    float shortened = Vector3.Distance(
+                        new Vector3(path.To.X, path.To.Y, path.To.Z), new Vector3(tracer.End.X, tracer.End.Y, tracer.End.Z));
 
                     _renderLog.LogDebug(
                         "{Message}",
@@ -4313,12 +4314,15 @@ internal class MainForm : Form, IFrameSteps
                             CultureInfo.InvariantCulture,
                             $"tracer {index} (shot {tracer.Shot}, weapon entity {tracer.Weapon}) starts at " +
                             $"{(muzzle is null ? "the bullet origin, no muzzle" : "the muzzle")}, {away:0.0} units from the origin" +
-                            $"{(_models.IsPosed(tracer.Weapon) ? string.Empty : "; weapon not posed yet")}"));
+                            $"{(_models.IsPosed(tracer.Weapon) ? string.Empty : "; weapon not posed yet")}; " +
+                            $"ends {shortened:0.0} units short of the world"));
                 }
             }
 
-            (float pitch, float yaw, float roll) = AngleVectors.Angles(
-                tracer.End.X - start.X, tracer.End.Y - start.Y, tracer.End.Z - start.Z);
+            (float X, float Y, float Z) from = path.From;
+            (float X, float Y, float Z) to = path.To;
+
+            (float pitch, float yaw, float roll) = AngleVectors.Angles(to.X - from.X, to.Y - from.Y, to.Z - from.Z);
 
             (float fx, float fy, float fz) = AngleVectors.Forward(pitch, yaw);
             (float px, float py, float pz) = AngleVectors.Right(pitch, yaw, roll);
@@ -4328,13 +4332,67 @@ internal class MainForm : Form, IFrameSteps
                 TracerKeys + index,
                 definition,
                 new ParticleControlPoint(
-                    new Vector3(start.X, start.Y, start.Z),
+                    new Vector3(from.X, from.Y, from.Z),
                     new Vector3(fx, fy, fz),
                     new Vector3(px, py, pz),
                     new Vector3(qx, qy, qz)),
                 tracer.Tick,
-                ParticleControlPoint.Unoriented(new Vector3(tracer.End.X, tracer.End.Y, tracer.End.Z))));
+                ParticleControlPoint.Unoriented(new Vector3(to.X, to.Y, to.Z))));
         }
+    }
+
+    /// <summary>`MASK_SOLID | CONTENTS_HITBOX`, what `FireBullet` traces with.</summary>
+    private const int BulletMask = 0x0200400B | 0x40000000;
+
+    /// <summary>`LIFE_ALIVE`.</summary>
+    private const int Alive = 0;
+
+    /// <summary>`FL_DUCKING`.</summary>
+    private const int Ducking = 1 << 1;
+
+    /// <summary>Where a tracer's bullet stops once the players are counted — <see cref="PlayerBulletTrace"/>.</summary>
+    /// <remarks>
+    /// The players are the timeline's at the shot's own tick; their hitboxes are posed as this frame's pass posed them,
+    /// which is the tick the tracer is first drawn on. **A player no pass has posed has no hitboxes to hit**, so a bullet
+    /// passes through someone culled from view — whose tracer end is most likely out of view too.
+    /// </remarks>
+    private (float X, float Y, float Z) StruckEnd(ShotTracer tracer)
+    {
+        if (_timeline is not { } timeline || _loaded?.Level is not { } level)
+        {
+            return tracer.End;
+        }
+
+        Vector3 start = new(tracer.Start.X, tracer.Start.Y, tracer.Start.Z);
+        Vector3 reach = new(tracer.Reach.X, tracer.Reach.Y, tracer.Reach.Z);
+        float full = Vector3.Distance(start, reach);
+        float worldFraction = full > 0f
+            ? Vector3.Distance(start, new Vector3(tracer.End.X, tracer.End.Y, tracer.End.Z)) / full
+            : 1f;
+
+        List<BulletTarget> targets = [];
+
+        foreach (ScenePlayer player in timeline.PlayersAt(tracer.Tick))
+        {
+            // `CTraceFilterSimple( this, … )` passes over the shooter; the rest must be alive and present.
+            if (player.EntityIndex != tracer.Shooter && (player.LifeState ?? Alive) == Alive)
+            {
+                targets.Add(new BulletTarget(
+                    player.EntityIndex,
+                    new Vector3(player.X, player.Y, player.Z),
+                    ((player.Flags ?? 0) & Ducking) != 0));
+            }
+        }
+
+        (Vector3 end, _) = PlayerBulletTrace.Clip(
+            start,
+            reach,
+            worldFraction,
+            targets,
+            (entity, from, delta) => _models.TraceHitboxes(entity, from, delta, BulletMask),
+            (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f));
+
+        return (end.X, end.Y, end.Z);
     }
 
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>

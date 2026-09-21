@@ -27202,11 +27202,13 @@ through the viewer's own load: 2,176 shots, **7,957 tracers**, twelve effect nam
 
 **What the tracers still get wrong, each a divergence and each filed here rather than hidden:**
 
-- **They start at the bullet's origin, not the muzzle.** `FireBullet` moves the start to the active weapon's `muzzle`
-  attachment (`tf_player_shared.cpp:10575-10597`, the `!IsDormant()` branch, since `pWpn` is NULL for a demo's shots).
-- **The trace sees the world only.** `UTIL_PlayerBulletTrace` also traces `CONTENTS_HITBOX` and clips to players, and
-  props and brush entities are solid to it; ours stops at brushes and displacements. A bullet that hit a player draws
-  through them to the wall behind.
+- ~~They start at the bullet's origin, not the muzzle.~~ **Fixed 2026-09-21**: the active weapon's `muzzle` attachment,
+  read once when the tracer is first drawn (`EntityModelSet.AttachmentPosition`). A seek that lands mid-flight reads
+  the gun where it is then.
+- ~~The trace sees the world only.~~ **Players fixed 2026-09-21**: `PlayerBulletTrace` is `UTIL_PlayerBulletTrace`,
+  partition, extension, validation and all, against the posed hitboxes (`StudioHitboxes`, `TraceToStudio`). **Still
+  open:** props and brush entities are solid to the engine's trace and not to ours; a player no pass has posed (culled
+  from view) has no hitboxes to hit; and the counter is decided on the world alone.
 - **An item's own `tracer_effect`** (`GetStaticData()->GetTracerEffect( team )`) is not read, so an item that replaces
   its weapon's tracer draws the stock one — and a sniper rifle, whose script has none, draws nothing either way.
 - **`mult_bullets_per_shot`** is an attribute hook on the active weapon that changes the pellet count (the Force-A-Nature,

@@ -15,7 +15,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Weapon">Their active weapon's entity index when the shot arrived, whose `muzzle` the drawn tracer starts from.</param>
 /// <param name="Effect">The particle system, <c>GetTracerType()</c> plus <c>_crit</c>.</param>
 /// <param name="Start">Where the bullet started, `m_vecOrigin` — the fallback when there is no muzzle.</param>
-/// <param name="End">`trace.endpos`, where the bullet stopped.</param>
+/// <param name="End">Where the WORLD stopped the bullet; players are clipped against it later, by the renderer.</param>
+/// <param name="Reach">`vecEnd`, the origin plus the whole range, which the player pass extends.</param>
 public readonly record struct ShotTracer(
     int Shot,
     int Bullet,
@@ -24,7 +25,8 @@ public readonly record struct ShotTracer(
     int Weapon,
     string Effect,
     (float X, float Y, float Z) Start,
-    (float X, float Y, float Z) End);
+    (float X, float Y, float Z) End,
+    (float X, float Y, float Z) Reach);
 
 /// <summary>Which bullets of a demo's shots draw a tracer, and where each ends (B415).</summary>
 /// <remarks>
@@ -47,9 +49,11 @@ public readonly record struct ShotTracer(
 /// `muzzle` attachment, which needs the posed world model and lives with the renderer; <see cref="ShotTracer.Start"/>
 /// is the bullet's own origin, which is what the engine keeps when there is no attachment.
 ///
-/// **Not established:** player hitboxes. `UTIL_PlayerBulletTrace` also traces `CONTENTS_HITBOX` and clips to
-/// players; the sweep a caller hands this is the world alone, so a bullet that struck a player ends at the wall
-/// behind them. Filed in B415.
+/// **Players are the renderer's half.** `UTIL_PlayerBulletTrace` also traces `CONTENTS_HITBOX`, which needs every
+/// player posed at the moment of the shot, so <see cref="ShotTracer.End"/> is the world's answer and the viewer clips
+/// it with <see cref="PlayerBulletTrace"/> when the tracer is first drawn. The counter is decided here, on the world
+/// alone. A player changes it only for a bullet the world would have let run its whole range: that bullet hits the
+/// player (fraction below 1) and counts, where the world alone says it missed. *Not measured* how often that happens.
 /// </remarks>
 public sealed class HitscanTracers
 {
@@ -164,7 +168,8 @@ public sealed class HitscanTracers
                     (
                         shot.Origin.X + ((end.X - shot.Origin.X) * fraction),
                         shot.Origin.Y + ((end.Y - shot.Origin.Y) * fraction),
-                        shot.Origin.Z + ((end.Z - shot.Origin.Z) * fraction))));
+                        shot.Origin.Z + ((end.Z - shot.Origin.Z) * fraction)),
+                    end));
             }
         }
 

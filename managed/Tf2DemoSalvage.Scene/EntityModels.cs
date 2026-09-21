@@ -1230,6 +1230,33 @@ public sealed class EntityModelSet : IModelBodygroups
             : null;
     }
 
+    /// <summary>How far along a ray an entity's posed hitboxes let it get — <c>C_BaseAnimating::TestHitboxes</c>.</summary>
+    /// <param name="entity">The entity, such as a player.</param>
+    /// <param name="start">`ray.m_Start`.</param>
+    /// <param name="delta">`ray.m_Delta`.</param>
+    /// <param name="mask">The trace's contents mask.</param>
+    /// <returns>The fraction, or null when it is not hit, not posed here, or has no hitboxes.</returns>
+    /// <remarks>
+    /// Set 0, which is `m_nHitboxSet` for every TF2 player; the bones as the last pass posed them, which is
+    /// `GetBoneCache` after `SetupBones( …, BONE_USED_BY_HITBOX, … )`.
+    /// </remarks>
+    public float? TraceHitboxes(int entity, System.Numerics.Vector3 start, System.Numerics.Vector3 delta, int mask)
+    {
+        // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
+        // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
+        if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_entityModels.TryGetValue(entity, out string? model) ||
+            !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
+            frames.Hitboxes is not { Count: > 0 } sets ||
+            !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        // Stryker restore all
+        return StudioHitboxes.Trace(sets[0], bone => animating.Bones.Bone(bone).ToArray(), start, delta, mask);
+    }
+
     /// <summary>Whether an entity has been posed by a pass here, so a question about its attachments has an answer.</summary>
     /// <param name="entity">The entity index.</param>
     /// <returns><c>true</c> once a pass has built its skeleton.</returns>
