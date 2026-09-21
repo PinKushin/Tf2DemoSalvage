@@ -367,8 +367,10 @@ public readonly record struct TimelinePhases(
 /// <param name="Tick">The demo tick this was recorded at.</param>
 /// <param name="Players">Every player with a known position.</param>
 /// <param name="RecorderTeam">
-/// The recording player's team at this tick, or <c>null</c> when there is no local player — a
-/// SourceTV recording, where the engine's own <c>pLocalPlayer &amp;&amp;</c> guards fall through.
+/// The local player's team at this tick, or <c>null</c> when no player entity sits at the
+/// recorder's slot, where the engine's own <c>pLocalPlayer &amp;&amp;</c> guards fall through. A
+/// SourceTV recording has a local player, the SourceTV client on the spectator team
+/// (<c>docs/findings/58</c>).
 /// <para>
 /// **Per frame rather than per demo, because a player can switch teams mid-recording.** Everything
 /// that compares against the local player — <c>IsEnemyPlayer</c>, a spawn wall's own team — would
@@ -1063,15 +1065,16 @@ public sealed class DemoTimeline
         return found;
     }
 
-    /// <summary>Which entity the recording was made from, or <c>null</c> for SourceTV.</summary>
+    /// <summary>The local player's entity, or <c>null</c> before <c>svc_ServerInfo</c>.</summary>
     /// <remarks>
     /// <c>svc_ServerInfo</c>'s player slot, plus one: entity indices are one-based and slot zero is
     /// the first player. Named by the demo rather than worked out — a first-person camera needs the
     /// recorder's class to know their eye height, and identifying them by "whichever player moves
     /// like the camera" would be an instrument that agrees with its own hypothesis.
     ///
-    /// A SourceTV recording has no local player. Its <c>PlayerSlot</c> is not meaningful and
-    /// <see cref="HasRecordedView"/> is false, so the viewer spectates a chosen player instead.
+    /// In a SourceTV recording this is the SourceTV client's own <c>CTFPlayer</c>, a spectator,
+    /// which is the engine's local player there too (<c>docs/findings/58</c>). It has no view to
+    /// follow: <see cref="HasRecordedView"/> is false, so the viewer spectates a chosen player instead.
     /// </remarks>
     public int? RecorderEntityIndex { get; private init; }
 
@@ -1212,7 +1215,7 @@ public sealed class DemoTimeline
 
     /// <summary>Whether this demo carries a recorded camera at all.</summary>
     /// <remarks>
-    /// **A SourceTV recording has no local player and leaves <c>democmdinfo_t</c> zeroed**, so the
+    /// **A SourceTV recording's local player is a spectator, and it leaves <c>democmdinfo_t</c> zeroed**, so the
     /// point-of-view camera has nothing to follow and the viewer has to offer something else —
     /// spectating a chosen player, as the engine does. Asked once, because a per-frame null check
     /// cannot tell "not yet" from "never".
@@ -2114,8 +2117,9 @@ public sealed class DemoTimeline
             // searched the partial list and reported every player below the recorder's entity index
             // as friendly, whatever their team.
             //
-            // Null for a SourceTV recording, which has no local player: the engine's switch falls
-            // through to `return false`, so a spectator sees every spy undisguised.
+            // In a SourceTV recording this is the SourceTV client's own team, spectator: the
+            // engine's switch falls through to `return false`, so a spectator sees every spy
+            // undisguised.
             int? recorderTeam =
                 recorderSlot is { } recording
                 && entities.TryGet(recording + 1, out EntityState? recorder)

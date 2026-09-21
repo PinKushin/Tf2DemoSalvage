@@ -140,8 +140,8 @@ public sealed class ExplosionEffects
     /// the item declares none. Asked only for a blast that names an item, where there is a local player.
     /// </param>
     /// <param name="hasLocalPlayer">
-    /// <c>pLocalPlayer</c>. A SourceTV recording has none — see <c>TimelineFrame.RecorderTeam</c> — so there a blast
-    /// naming an item keeps the base sound.
+    /// <c>pLocalPlayer</c>, which is false only when no player entity sits at the recorder's slot. A SourceTV
+    /// recording HAS one, the SourceTV client itself, on the spectator team (`docs/findings/58`).
     /// </param>
     /// <returns>A sound script key, never empty.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="replacement"/> is null.</exception>

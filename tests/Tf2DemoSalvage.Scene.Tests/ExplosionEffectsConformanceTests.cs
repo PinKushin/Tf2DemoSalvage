@@ -179,8 +179,8 @@ public sealed class ExplosionEffectsConformanceTests
     }
 
     /// <remarks>
-    /// **A SourceTV recording has no local player**, so the `pLocalPlayer` guard falls through and a blast that names
-    /// an item keeps the BASE sound — not the item's, and not the script's either, because the script's is only
+    /// **With no local player** the `pLocalPlayer` guard falls through and a blast that names an item keeps the BASE
+    /// sound — not the item's, and not the script's either, because the script's is only
     /// assigned on the `nDefID &lt; 0` branch.
     /// </remarks>
     [Test]

@@ -153,3 +153,4 @@
 - [A measure needs focus](a-measure-needs-focus.md) — 50 ms frames with empty columns is engine_no_focus_sleep.
 - [Mutation box gets maps, never demos](mutation-box-gets-maps-never-demos.md) — maps need all VPKs; synthetic first.
 - [Stryker Safe Mode needs an inline comment](stryker-safe-mode-needs-an-inline-comment.md) — config does nothing; one bad mutant drops the method.
+- [SourceTV has a local player](sourcetv-has-a-local-player.md) — the STV client itself, team 1; what STV lacks is a recorded VIEW.

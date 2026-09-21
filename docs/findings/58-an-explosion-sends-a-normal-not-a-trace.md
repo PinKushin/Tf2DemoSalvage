@@ -383,7 +383,7 @@ the rocket launcher that is `ExplosionCore_wall` where the script's `ExplosionPl
 `ExplosionCore_MidAir`. Looked at, on blast #23 (tick 20634, a rocket into a Scout): the mid-air effect draws at the
 player.
 
-## An explosion's sound is the client's, and a SourceTV recording hears a different one
+## An explosion's sound is the client's, not the demo's
 
 `TFExplosionCallback` plays the blast's sound itself — `C_BaseEntity::EmitSound( filter, SOUND_FROM_WORLD, pszSound,
 &vecOrigin )` with a `CLocalPlayerFilter` (`tf_fx_explosions.cpp:162-163`) — so the server never sends it and no demo
@@ -398,10 +398,29 @@ if ( pWeaponInfo && m_szExplosionSound[0] )
 if ( iWeaponID == TF_WEAPON_PUMPKIN_BOMB ) pszSound = "Halloween.PumpkinExplode";
 ```
 
-**Two consequences that are easy to miss.** A blast naming an item where there is NO local player assigns nothing, so
-it keeps the base sound — not the item's and not the script's. And a SourceTV recording has no local player (the
-timeline's `RecorderTeam` is null there for exactly that reason), so **an STV demo plays the stock explosion for a Black
-Box or an Original** where the same match recorded from a player's point of view plays the item's own.
+**A consequence that is easy to miss.** A blast naming an item where there is NO local player assigns nothing, so
+it keeps the base sound — not the item's and not the script's.
+
+### A SourceTV recording HAS a local player — the first write-up said it did not
+
+This section first said that an STV demo has no local player, and so plays the stock explosion for a Black Box or an
+Original. That was wrong, and it was also told to the owner. It came from prose elsewhere in the project, not from a
+measurement, and the next piece of work disproved it. `ParticleTracerCallback` opens with `if ( !player ) return;`, so
+a hitscan tracer also depends on the answer.
+
+- **Read from source:** `C_BasePlayer::IsHLTV()` is `IsLocalPlayer() && engine->IsHLTV()` (`c_baseplayer.cpp:527`). The
+  HLTV camera runs through it (`:544`, `:645`), so Valve's code expects a local player during SourceTV playback.
+  `s_pLocalPlayer` is whichever player entity has the index `engine->GetLocalPlayer()` (`:823-831`).
+- **Measured:** `demostf-cp_process_f12-2026-08-07` and `tf2-2013-build1729296-stv-cp_foundry` both send
+  `svc_ServerInfo` with player slot 0. Both have a `CTFPlayer` at entity 1: the SourceTV client, `m_iTeamNum 1`
+  (spectator), `m_iClass 0`, observing.
+- **Interpolated:** that `engine->GetLocalPlayer()` is the slot plus one in HLTV playback, as it is in a live game. The
+  engine is closed. Both measured demos agree with it.
+
+**So the code was already right, and only the prose was wrong.** `RecorderTeam` resolves entity `slot + 1`, which gives
+team 1 on both demos, so `hasLocalPlayer` is true. A spectator has no `visuals_red`/`visuals_blu` of its own, so
+`GetBestVisualTeamData` gives it the base `visuals` (next paragraph). **An STV demo therefore plays the item's own
+replacement**, the same as TF2. `RecorderTeam` is null only when no entity sits at that index.
 
 The item's replacement is `CEconItemDefinition::GetWeaponReplacementSound( local team, m_nSound )`: a `sound_<category>`
 key in the item's visuals (`econ_item_schema.cpp:2648`), `special1` being `m_nSound`'s default. The team rule is
