@@ -326,9 +326,6 @@ public static class BspLightmaps
         ReadOnlySpan<byte> faces = BspLumpData
             .ReadStructures(file, header.Lump(BspLumpIndex.Faces), FaceStride, "faces").Span;
 
-        ReadOnlySpan<byte> texinfo = BspLumpData
-            .ReadStructures(file, header.Lump(BspLumpIndex.Texinfo), TexinfoStride, "texinfo").Span;
-
         ReadOnlyMemory<byte> ldr = BspLumpData.Read(file, header.Lump(BspLumpIndex.Lighting));
         ReadOnlyMemory<byte> lighting = ldr.Length > 0 ? ldr : BspLumpData.Read(file, header.Lump(BspLumpIndex.LightingHdr));
 
@@ -341,10 +338,7 @@ public static class BspLightmaps
 
             read[index] = new BspFaceLightLayout(
                 BinaryPrimitives.ReadInt32LittleEndian(face[FaceLightOffset..]),
-                BinaryPrimitives.ReadInt32LittleEndian(face[FaceLuxelSizeOffset..]),
-                BinaryPrimitives.ReadInt32LittleEndian(face[(FaceLuxelSizeOffset + 4)..]),
-                (face[FaceStylesOffset], face[FaceStylesOffset + 1], face[FaceStylesOffset + 2], face[FaceStylesOffset + 3]),
-                IsBumpLit(face, texinfo));
+                (face[FaceStylesOffset], face[FaceStylesOffset + 1], face[FaceStylesOffset + 2], face[FaceStylesOffset + 3]));
         }
 
         return new BspLightSamples(lighting, read);

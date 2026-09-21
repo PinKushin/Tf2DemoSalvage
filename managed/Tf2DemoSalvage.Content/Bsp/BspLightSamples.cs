@@ -5,25 +5,19 @@ namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>One face's lighting layout, as the engine's light read needs it.</summary>
 /// <param name="Offset">`lightofs`, −1 for none.</param>
-/// <param name="ExtentS">`m_LightmapExtents[0]`: luxels across, less one.</param>
-/// <param name="ExtentT">`m_LightmapExtents[1]`.</param>
 /// <param name="Styles">`styles[4]`, 255 for an unused slot.</param>
-/// <param name="Bumped">Whether it carries four sets per style.</param>
-public readonly record struct BspFaceLightLayout(int Offset, int ExtentS, int ExtentT, (byte, byte, byte, byte) Styles, bool Bumped);
+public readonly record struct BspFaceLightLayout(int Offset, (byte, byte, byte, byte) Styles);
 
-/// <summary>A map's raw lightmap samples, read at one luxel as `R_LightVec` reads them (B415).</summary>
+/// <summary>A map's raw lightmap data, read as `R_LightVec` reads it (B415).</summary>
 /// <remarks>
 /// **Raw, not the decoded atlas**, because the atlas is halved and clamped for the renderer's overbright, and the
-/// engine's reader (`engine.dll` `0x1800d37d0`) takes the linear value of the `ColorRGBExp32` sample itself:
-/// `c · power2_n[e + 128]`, where `power2_n` is `2^(i − 128) / 255` (`mathlib/color_conversion.cpp:38`).
+/// engine takes the linear value of a `ColorRGBExp32` itself: `c · power2_n[e + 128]`, where `power2_n` is
+/// `2^(i − 128) / 255` (`mathlib/color_conversion.cpp:38`).
 /// </remarks>
 public sealed class BspLightSamples
 {
     /// <summary>Samples per luxel.</summary>
     private const int SampleBytes = 4;
-
-    /// <summary>`NUM_BUMP_VECTS + 1`.</summary>
-    private const int BumpedSets = 4;
 
     /// <summary>A style slot not in use.</summary>
     private const byte NoStyle = 255;
@@ -48,15 +42,18 @@ public sealed class BspLightSamples
     /// <returns>The layout.</returns>
     public BspFaceLightLayout? Layout(int face) => face >= 0 && face < _faces.Count ? _faces[face] : null;
 
-    /// <summary>The linear light at one luxel.</summary>
+    /// <summary>A face's average light over its styles — the branch `r_avglight 1`, the default, takes.</summary>
     /// <param name="face">The face index.</param>
-    /// <param name="s">The luxel across, from the face's mins.</param>
-    /// <param name="t">The luxel down.</param>
     /// <param name="styles">`bUseLightStyles`: every style the face has, or only the first.</param>
     /// <param name="styleValue">`d_lightstylevalue[ style ] / 264`.</param>
-    /// <returns>The light; black for an unlit face or a luxel outside the lump.</returns>
+    /// <returns>The light; black for an unlit face or an average outside the lump.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="styleValue"/> is null.</exception>
-    public (float R, float G, float B) Linear(int face, int s, int t, bool styles, Func<int, float> styleValue)
+    /// <remarks>
+    /// **The averages sit just before the samples**, one `ColorRGBExp32` per style in reverse: style slot k's is at
+    /// `lightofs − 4 · (k + 1)`. `engine.dll` `0x1800d3990` reads them backwards from the sample pointer while
+    /// `r_avglight` (`"1"`, `FCVAR_CHEAT`) is set; the luxel under the point only matters when it is 0.
+    /// </remarks>
+    public (float R, float G, float B) Average(int face, bool styles, Func<int, float> styleValue)
     {
         ArgumentNullException.ThrowIfNull(styleValue);
 
@@ -65,17 +62,15 @@ public sealed class BspLightSamples
             return default;
         }
 
-        int across = layout.ExtentS + 1;
-        int luxels = across * (layout.ExtentT + 1);
-        int step = luxels * (layout.Bumped ? BumpedSets : 1) * SampleBytes;
-        long at = layout.Offset + ((((long)across * t) + s) * SampleBytes);
         ReadOnlySpan<byte> lump = _lighting.Span;
         (byte a, byte b, byte c, byte d) = layout.Styles;
         ReadOnlySpan<byte> slots = [a, b, c, d];
         (float R, float G, float B) light = default;
 
-        for (int slot = 0; slot < (styles ? slots.Length : 1); slot++, at += step)
+        for (int slot = 0; slot < (styles ? slots.Length : 1); slot++)
         {
+            long at = layout.Offset - ((slot + 1L) * SampleBytes);
+
             if (slots[slot] == NoStyle || at < 0 || at + SampleBytes > lump.Length)
             {
                 break;
