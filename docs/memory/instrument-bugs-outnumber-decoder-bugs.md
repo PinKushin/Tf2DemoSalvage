@@ -786,6 +786,12 @@ the question.
 Second instance the same day: `head -8` on a `simlag` histogram hid the `>=+8` bucket that held a
 third of the mass, and the distribution was misread as "mostly −4 and 0" for one round.
 
+Third, 2026-09-21 (B415): a `sed -n '40493,40520p'` of The Original's `visuals` block in `items_game.txt` showed
+`sound_single_shot`, `sound_burst` and `sound_deploy`, and "it does not replace the explosion" went into a commit
+message and two test remarks. `sound_special1` sat a few lines below the range. A **line range on a KeyValues block
+is a cap too** — the block's own closing brace, or the production reader (`ItemSchema`, via a probe), is what answers
+"does it declare X".
+
 **The rule: never cap a search whose ABSENCE you are about to act on.** Cap the ones you are only
 skimming. If a result must be short, count it first — `grep -c` — and only then print a slice, so a
 truncated list cannot be mistaken for a complete one. A `head` on evidence is a truncated trx total
