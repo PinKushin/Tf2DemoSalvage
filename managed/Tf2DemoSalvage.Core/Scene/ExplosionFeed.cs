@@ -104,14 +104,19 @@ public sealed class ExplosionFeed
     /// <summary>Every blast that fired in a window of ticks, both ends included.</summary>
     /// <param name="fromTick">The first tick to include.</param>
     /// <param name="toTick">The last.</param>
-    /// <param name="into">Cleared, then filled in tick order.</param>
+    /// <param name="into">Cleared, then filled in tick order with each blast and its index in <see cref="All"/>.</param>
     /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
     /// <remarks>
     /// **A range and not a lookup.** A blast's effect runs for a second or two after it fires, so a viewer at tick
     /// <c>n</c> wants everything back to <c>n</c> minus that duration — and it must get nothing rather than the
     /// nearest blast when none fired, or a quiet moment would show the last explosion of the match.
+    ///
+    /// **The INDEX comes back with the blast, because the renderer needs a stable identity for it.** A one-shot
+    /// effect has to be recognised between frames or it restarts every frame, and two rockets landing on one tick
+    /// are two effects. The index into <see cref="All"/> is exact and free; a hash of the blast's own fields would
+    /// be neither.
     /// </remarks>
-    public void Between(int fromTick, int toTick, ICollection<SceneExplosion> into)
+    public void Between(int fromTick, int toTick, ICollection<(int Index, SceneExplosion Blast)> into)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -119,7 +124,7 @@ public sealed class ExplosionFeed
 
         for (int at = FirstFrom(fromTick); at < _blasts.Count && _blasts[at].Tick <= toTick; at++)
         {
-            into.Add(_blasts[at]);
+            into.Add((at, _blasts[at]));
         }
     }
 

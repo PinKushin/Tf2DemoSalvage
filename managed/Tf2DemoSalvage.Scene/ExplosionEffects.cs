@@ -120,6 +120,39 @@ public sealed class ExplosionEffects
         return script.Value(key) is { Length: > 0 } effect ? effect : DefaultEffect;
     }
 
+    /// <summary>Every particle system a demo's explosions could draw.</summary>
+    /// <param name="blasts">Every explosion the demo carried.</param>
+    /// <returns>The distinct system names, including <see cref="DefaultEffect"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="blasts"/> is null.</exception>
+    /// <remarks>
+    /// **What a map load needs to know, and the reason it is a SET rather than one name per blast.** The particle
+    /// manifest's 106 files declare 9,050 systems naming 910 distinct materials; uploading all of those to draw a
+    /// few is not affordable, so `MapAssets` resolves textures for the systems a demo reaches and reads the
+    /// definitions for everything.
+    ///
+    /// **Both branches of every blast, not the one it will take.** `bIsPlayer` needs the struck entity's class,
+    /// which this layer does not have at load time — so a blast contributes both its wall effect and its
+    /// player-or-air effect. Asking only one would leave the other's texture unloaded, and the symptom is an
+    /// explosion that draws for a wall hit and not for an airburst.
+    ///
+    /// **The default is always included**, because a weapon with no script falls to it and a load that had not
+    /// resolved it would draw nothing at all for those.
+    /// </remarks>
+    public IReadOnlyCollection<string> Used(IEnumerable<SceneExplosion> blasts)
+    {
+        ArgumentNullException.ThrowIfNull(blasts);
+
+        HashSet<string> names = new(StringComparer.OrdinalIgnoreCase) { DefaultEffect };
+
+        foreach (SceneExplosion blast in blasts)
+        {
+            names.Add(NameFor(blast, struckPlayer: false));
+            names.Add(NameFor(blast, struckPlayer: true));
+        }
+
+        return names;
+    }
+
     /// <summary>The angles the effect's control point takes.</summary>
     /// <param name="blast">The explosion.</param>
     /// <returns>Pitch, yaw and roll in degrees.</returns>

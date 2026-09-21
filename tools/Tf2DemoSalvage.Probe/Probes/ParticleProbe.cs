@@ -132,6 +132,84 @@ public sealed class ParticleProbe : IProbe
             return;
         }
 
+        // **What the viewer now loads, and what it costs** (B415). `MapAssets` used to open
+        // `particles/rockettrail.pcf` alone, so `explosion.pcf` was absent and every explosion resolved to a
+        // system that had never been read. This walks Valve's own manifest through the same two production calls
+        // `MapAssets` makes — `ParticleManifest.Files` then `ParticleSystems.Read` — and times it, because
+        // "load a hundred files at map load" is a claim about startup that nobody had measured.
+        if (filter.Equals("manifest", StringComparison.OrdinalIgnoreCase))
+        {
+            GameArchives content = GameArchives.Open(game);
+            IReadOnlyList<string> listed = ParticleManifest.Files(content.Read);
+
+            System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
+            Dictionary<string, ParticleSystem> all = new(StringComparer.OrdinalIgnoreCase);
+            int read = 0;
+            long bytesRead = 0;
+            List<string> absent = [];
+
+            foreach (string path in listed)
+            {
+                if (content.Read(path) is not { Length: > 0 } raw)
+                {
+                    absent.Add(path);
+                    continue;
+                }
+
+                read++;
+                bytesRead += raw.Length;
+
+                foreach ((string named, ParticleSystem one) in ParticleSystems.Read(raw))
+                {
+                    if (!all.ContainsKey(named))
+                    {
+                        all[named] = one;
+                    }
+                }
+            }
+
+            clock.Stop();
+
+            // **The MATERIAL count is the number that decides whether eager loading is affordable**, not the
+            // system count: `MapAssets` resolves one texture per distinct material name, and a `.vtf` decode plus
+            // a GPU upload is orders of magnitude dearer than a DMX parse. Counted rather than assumed.
+            HashSet<string> distinct = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (ParticleSystem one in all.Values)
+            {
+                if (ParticleEffects.MaterialOf(one) is { Length: > 0 } material)
+                {
+                    distinct.Add(material);
+                }
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  manifest lists {listed.Count}, {read} read ({bytesRead / 1024d / 1024d:0.0} MB), " +
+                $"{absent.Count} absent, {all.Count} systems, {distinct.Count} distinct materials, " +
+                $"{clock.ElapsedMilliseconds} ms to parse"));
+
+            foreach (string one in absent)
+            {
+                output.WriteLine($"    absent: {one}");
+            }
+
+            // **The names the explosion work needs, asked of the merged set.** Each is a name Valve's code or a
+            // shipped weapon script spells, and an absence here is the whole feature not drawing.
+            foreach (string needed in new[]
+            {
+                "ExplosionCore_Wall", "ExplosionCore_MidAir", "ExplosionCore_MidAir_underwater",
+                "rockettrail", "flaregun_destroyed",
+            })
+            {
+                output.WriteLine(
+                    $"    '{needed}': {(all.ContainsKey(needed) ? "loaded" : "NOT LOADED")}");
+            }
+
+            return;
+        }
+
         // **Which OPERATORS the effects a rocket needs actually use, ranked.** The SDK ships
         // `particles.h` and no operator implementations, so every one is a closed-binary read
         // (B373) — and there is no point starting with the ones TF2 ships but this project never

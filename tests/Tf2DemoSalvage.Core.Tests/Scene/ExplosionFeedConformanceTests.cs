@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Schema;
 using Tf2DemoSalvage.Core.Scene;
@@ -165,12 +166,16 @@ public sealed class ExplosionFeedConformanceTests
             feed.Record(ExplosionFeed.EventClassName, Explosion(weapon: 22), tick);
         }
 
-        List<SceneExplosion> window = [];
+        List<(int Index, SceneExplosion Blast)> window = [];
         feed.Between(250, 251, window);
 
         window.Count.ShouldBe(3, "two at 250 and one at 251, with 100 and 900 outside");
-        window[0].Tick.ShouldBe(250);
-        window[2].Tick.ShouldBe(251);
+        window[0].Blast.Tick.ShouldBe(250);
+        window[2].Blast.Tick.ShouldBe(251);
+
+        // **The index is into `All`, which is what makes it a stable identity between frames.** Off by one and
+        // two blasts share a key, so one explosion of a pair never draws.
+        window.Select(one => one.Index).ShouldBe([1, 2, 3]);
     }
 
     /// <remarks>An empty window is empty rather than the nearest blast — the search is a range, not a lookup.</remarks>
@@ -181,7 +186,7 @@ public sealed class ExplosionFeedConformanceTests
 
         feed.Record(ExplosionFeed.EventClassName, Explosion(weapon: 22), tick: 100);
 
-        List<SceneExplosion> window = [];
+        List<(int Index, SceneExplosion Blast)> window = [];
         feed.Between(200, 300, window);
 
         window.ShouldBeEmpty();

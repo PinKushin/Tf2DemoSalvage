@@ -4157,6 +4157,88 @@ internal class MainForm : Form, IFrameSteps
             _renderLog);
     }
 
+    /// <summary>How long a blast's effect is given before the window stops offering it.</summary>
+    /// <remarks>
+    /// **A bound on the replay, not a lifetime.** A burst runs until its own system says it is finished
+    /// (`ParticleEffect.Finished`), and this only decides how far back the viewer looks when it arrives at a tick
+    /// — which is what a seek costs. Three seconds at 66 ticks; `ExplosionCore_MidAir`'s own emitters run well
+    /// inside that, so nothing is cut short. The same shape as the corpse fade capping a seek's replay
+    /// (`docs/memory/a-parity-rule-may-bound-the-cost.md`).
+    /// </remarks>
+    private const int ExplosionWindowTicks = 200;
+
+    /// <summary>Every blast whose effect should be running this tick, reused to avoid a per-frame allocation.</summary>
+    private readonly List<(int Index, SceneExplosion Blast)> _blastsNow = [];
+
+    /// <summary>The same, as bursts.</summary>
+    private readonly List<ParticleBurst> _burstsNow = [];
+
+    /// <summary>The effect chooser, built once the game's content is known.</summary>
+    private ExplosionEffects? _explosions;
+
+    /// <summary>Starts and steps a one-shot effect for every explosion in the window (B415).</summary>
+    /// <remarks>
+    /// **`CTETFExplosion` is a temp entity, so there is no entity to follow** — the blast happens at a point and
+    /// its effect runs on its own. `ParticleEffects.Bursts` measures each one's age in TICKS, so a seek lands on
+    /// the same picture however the viewer arrived at it.
+    ///
+    /// **A system this map did not upload a texture for draws nothing rather than the chequer**, which is what
+    /// `Build` already does for an unresolved particle material: a missing effect is a missing effect, not a
+    /// missing surface.
+    /// </remarks>
+    private void StepExplosions()
+    {
+        if (_timeline is not { } timeline ||
+            _game?.Archives is not { } archives ||
+            _loaded?.Assets?.ParticleSystemsByName is not { Count: > 0 } systems)
+        {
+            return;
+        }
+
+        _explosions ??= new ExplosionEffects(archives.Read);
+
+        int tick = _transport.CurrentTick;
+
+        timeline.Explosions.Between(tick - ExplosionWindowTicks, tick, _blastsNow);
+
+        _burstsNow.Clear();
+
+        foreach ((int index, SceneExplosion blast) in _blastsNow)
+        {
+            // **`struckPlayer` is false because the struck entity's class is not to hand here**, and saying so is
+            // cheaper than a wrong guess: the mid-air branch already covers most airbursts, and a blast against a
+            // player on a wall takes the wall effect until the entity table is consulted. Recorded in B415.
+            string name = _explosions.NameFor(blast, struckPlayer: false);
+
+            if (!systems.TryGetValue(name, out ParticleSystem? definition))
+            {
+                continue;
+            }
+
+            (float pitch, float yaw, float roll) = ExplosionEffects.AnglesFor(blast);
+
+            (float fx, float fy, float fz) = AngleVectors.Forward(pitch, yaw);
+            (float px, float py, float pz) = AngleVectors.Right(pitch, yaw, roll);
+            (float qx, float qy, float qz) = AngleVectors.Up(pitch, yaw, roll);
+
+            _burstsNow.Add(new ParticleBurst(
+                index,
+                definition,
+                new ParticleControlPoint(
+                    new Vector3(blast.X, blast.Y, blast.Z),
+                    new Vector3(fx, fy, fz),
+                    new Vector3(px, py, pz),
+                    new Vector3(qx, qy, qz)),
+                blast.Tick));
+        }
+
+        _particles.Bursts(
+            _burstsNow,
+            _timeline?.IntervalPerTick ?? (1f / 66f),
+            systems,
+            tick);
+    }
+
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
     /// <param name="viewing">The camera this frame, whose basis the quads face.</param>
     /// <remarks>
@@ -4250,6 +4332,8 @@ internal class MainForm : Form, IFrameSteps
                 _timeline?.IntervalPerTick ?? (1f / 66f),
                 _loaded?.Assets?.ParticleSystemsByName,
                 _transport.CurrentTick);
+
+            StepExplosions();
 
             (float rx, float ry, float rz) = AngleVectors.Right(
                 viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);

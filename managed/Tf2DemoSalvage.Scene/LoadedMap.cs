@@ -152,6 +152,16 @@ public sealed class LoadedMap
                     // argument for one build.
                     spriteMaterials: DemoModels.Sprites(timeline),
 
+                    // **The particle systems this demo's explosions reach** (B415). Definitions for all 9,050
+                    // are read regardless; this is the much smaller set whose TEXTURES get uploaded, and it is
+                    // computed here for the same reason the sprite list is — the timeline is already built, so
+                    // what the demo will ask for is known before anything is drawn.
+                    // A map read with no demo — the map viewer — has no explosions and so wants no
+                    // explosion textures, which is what the empty set asks for.
+                    particleSystemsUsed: timeline is null
+                        ? []
+                        : new ExplosionEffects(game.Archives.Read).Used(timeline.Explosions.All),
+
                     // **A factory rather than finished geometry, because the atlas is packed inside
                     // Load.** A door's faces carry baked lightmap samples in the same atlas as the
                     // wall's, so the geometry cannot be built before it exists (B131).
@@ -159,7 +169,10 @@ public sealed class LoadedMap
                     // Built from the surfaces just read rather than from a second pass over the
                     // file: the models lump names face RANGES, so it needs the same surface list the
                     // world was built from and nothing else.
-                    atlas => BrushModels.Build(
+                    // **Named from here on, because everything before this was positional and a parameter
+                    // inserted above silently shifted these two into each other's slot.** That is the exact
+                    // failure the sprite-list comment predicted; it happened, and naming ends it.
+                    brushModels: atlas => BrushModels.Build(
                         level.BrushModels ?? [],
                         level.Surfaces,
                         atlas,
@@ -178,12 +191,12 @@ public sealed class LoadedMap
                     // **The light cache, for props whose baked lighting is absent or refused**
                     // (B123). Usable here because the level was read above, before any asset is
                     // loaded — the ordering is what makes this a delegate rather than a second pass.
-                    lighting.LightingAt,
+                    lightAt: lighting.LightingAt,
 
                     // **Passed explicitly, and forgetting it is silent (D83).** The parameter
                     // defaults to a null logger so tests need not supply one, which means an
                     // omission here costs every asset line in the run and nothing reports it.
-                    loggers);
+                    loggers: loggers);
             }
 
             Report(level, assets, textureQuality, assetLog);
