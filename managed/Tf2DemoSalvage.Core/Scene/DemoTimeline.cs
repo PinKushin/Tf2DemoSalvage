@@ -1103,6 +1103,9 @@ public sealed class DemoTimeline
     /// <summary>Every hitscan shot the demo carried, in fire order (B415) — asked for by window, like explosions.</summary>
     public ShotFeed Shots { get; private init; } = new();
 
+    /// <summary>Every decal the demo's temp entities carried, in fire order, and the table naming them (B415).</summary>
+    public DecalFeed Decals { get; private init; } = new();
+
     /// <summary>Every choreographed scene that started playing, in tick order (B351).</summary>
     /// <remarks>
     /// **A start rather than a per-tick state, for the reason <see cref="SceneChoreography"/>
@@ -1582,6 +1585,7 @@ public sealed class DemoTimeline
         // tick, so it is a list in fire order and not a per-frame sample — see `ExplosionFeed`.
         ExplosionFeed explosions = new();
         ShotFeed shots = new();
+        DecalFeed decals = new();
 
         List<TimelineFrame> frames = [];
 
@@ -1915,7 +1919,18 @@ public sealed class DemoTimeline
                             entities,
                             gestures,
                             explosions,
-                            shots);
+                            shots,
+                            decals);
+                        continue;
+
+                    // **The decal names**, which `m_nIndex` points into. Both messages, as every precache table needs.
+                    case CreateStringTableMessage { Name: DecalFeed.TableName } decalTable:
+                        decals.Names.Apply(decalTable.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage decalUpdate
+                        when state.StringTableName(decalUpdate.TableId) == DecalFeed.TableName:
+                        decals.Names.Apply(decalUpdate.Entries);
                         continue;
 
                     case UpdateStringTableMessage update
@@ -2547,6 +2562,7 @@ public sealed class DemoTimeline
             Corpses = [.. replaced, .. corpses.Values],
             Explosions = explosions,
             Shots = shots,
+            Decals = decals,
             Scenes = choreography,
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
@@ -2636,6 +2652,7 @@ public sealed class DemoTimeline
     /// <param name="gestures">The gesture feed.</param>
     /// <param name="explosions">The explosion feed.</param>
     /// <param name="shots">The hitscan shot feed.</param>
+    /// <param name="decals">The decal feed.</param>
     /// <remarks>
     /// **A body that will not read is skipped rather than fatal**, which is the rule everywhere
     /// else in this project: a demo is salvaged, and a temp entities body is independent of every
@@ -2659,7 +2676,8 @@ public sealed class DemoTimeline
         EntityStateTable entities,
         PlayerGestureFeed gestures,
         ExplosionFeed explosions,
-        ShotFeed shots)
+        ShotFeed shots,
+        DecalFeed decals)
     {
         try
         {
@@ -2673,7 +2691,8 @@ public sealed class DemoTimeline
                 }
 
                 if (explosions.Record(className, effect, tick, index => IsPlayer(entities, index)) ||
-                    shots.Record(className, effect, tick, index => Shooter(entities, index)))
+                    shots.Record(className, effect, tick, index => Shooter(entities, index)) ||
+                    decals.Record(className, effect, tick))
                 {
                     continue;
                 }
