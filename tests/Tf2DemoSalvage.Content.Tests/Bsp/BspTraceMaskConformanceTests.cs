@@ -61,6 +61,30 @@ public sealed class BspTraceMaskConformanceTests
     }
 
     [Test]
+    public void Trace_IntoTheBrush_ReportsTheEnteredPlanesNormal()
+    {
+        BspTrace trace = World(0x1).Trace(0f, 0f, 100f, 0f, 0f, -100f, halfExtent: 0f);
+
+        trace.Normal.ShouldBe((0f, 0f, 1f));
+        trace.AllSolid.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Trace_WhollyInsideTheBrush_IsAllSolid()
+    {
+        BspTrace trace = World(0x1).Trace(0f, 0f, -10f, 0f, 0f, -50f, halfExtent: 0f);
+
+        trace.AllSolid.ShouldBeTrue();
+        trace.Fraction.ShouldBe(0f);
+    }
+
+    [Test]
+    public void Trace_StartingInsideAndLeaving_IsNotAllSolid()
+    {
+        World(0x1).Trace(0f, 0f, -10f, 0f, 0f, 50f, halfExtent: 0f).AllSolid.ShouldBeFalse();
+    }
+
+    [Test]
     public void SweepSurface_ThroughAnUnmaskedBrush_ReportsNoSurface()
     {
         World(0x20, texinfo: 37).SweepSurface(0f, 0f, 100f, 0f, 0f, -100f, halfExtent: 0f).Texinfo

@@ -733,9 +733,28 @@ public sealed class BspLeafTree
         float toX, float toY, float toZ,
         float halfExtent)
     {
+        BspTrace trace = Trace(fromX, fromY, fromZ, toX, toY, toZ, halfExtent);
+
+        return (trace.Fraction, trace.Texinfo);
+    }
+
+    /// <summary><see cref="Sweep"/>, with everything `trace_t` says about what stopped it.</summary>
+    /// <param name="fromX">Where the sweep starts.</param>
+    /// <param name="fromY">Where the sweep starts.</param>
+    /// <param name="fromZ">Where the sweep starts.</param>
+    /// <param name="toX">Where it would end.</param>
+    /// <param name="toY">Where it would end.</param>
+    /// <param name="toZ">Where it would end.</param>
+    /// <param name="halfExtent">Half the box's width; zero for a ray.</param>
+    /// <returns>The trace; a clear one for a map with no tree.</returns>
+    public BspTrace Trace(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        float halfExtent)
+    {
         if (IsEmpty || _leaves.IsEmpty)
         {
-            return (1f, -1);
+            return new BspTrace(1f, -1, default, false);
         }
 
         TraceHit hit = new() { Fraction = 1f, Texinfo = -1 };
@@ -750,14 +769,19 @@ public sealed class BspLeafTree
             ref hit,
             0);
 
-        return (hit.Fraction, hit.Texinfo);
+        return new BspTrace(hit.Fraction, hit.Texinfo, (hit.NormalX, hit.NormalY, hit.NormalZ), hit.AllSolid);
     }
 
     /// <summary>Where a sweep has got to, and the side it struck.</summary>
+    /// <remarks>`AllSolid` is set by any brush the sweep starts and ends inside, as `CM_ClipBoxToBrush` sets it.</remarks>
     private struct TraceHit
     {
         public float Fraction;
         public int Texinfo;
+        public float NormalX;
+        public float NormalY;
+        public float NormalZ;
+        public bool AllSolid;
     }
 
     /// <summary>One step of <see cref="Sweep"/>: clip the segment against this node's plane.</summary>
@@ -1021,10 +1045,14 @@ public sealed class BspLeafTree
         float enters = -1f;
         float leaves = 1f;
         int leadTexinfo = -1;
+        (float X, float Y, float Z) leadNormal = default;
 
         // Whether the sweep begins outside the brush at all. A sweep that starts inside every plane
         // is already embedded, which is a different answer from hitting a surface on the way.
         bool startsOutside = false;
+
+        // `getout`: whether it ends outside any plane. Starting AND ending inside is `allsolid`.
+        bool getsOut = false;
 
         for (int side = 0; side < sides; side++)
         {
@@ -1059,6 +1087,11 @@ public sealed class BspLeafTree
                 startsOutside = true;
             }
 
+            if (end > 0f)
+            {
+                getsOut = true;
+            }
+
             // Outside this plane for the whole sweep: a convex volume cannot be entered at all.
             if (start > 0f && end >= 0f)
             {
@@ -1088,6 +1121,7 @@ public sealed class BspLeafTree
                 {
                     enters = crossing;
                     leadTexinfo = BinaryPrimitives.ReadInt16LittleEndian(brushSides[(sideAt + 2)..]);
+                    leadNormal = (normalX, normalY, normalZ);
                 }
             }
             else
@@ -1104,6 +1138,7 @@ public sealed class BspLeafTree
             // is the whole ray rather than a piece of it.
             hit.Fraction = 0f;
             hit.Texinfo = -1;
+            hit.AllSolid |= !getsOut;
             return;
         }
 
@@ -1114,6 +1149,7 @@ public sealed class BspLeafTree
         {
             hit.Fraction = enters;
             hit.Texinfo = leadTexinfo;
+            (hit.NormalX, hit.NormalY, hit.NormalZ) = leadNormal;
         }
     }
 
@@ -1306,3 +1342,10 @@ public sealed class BspLeafTree
         return node >= 0 ? -1 : -node - 1;
     }
 }
+
+/// <summary>What a world trace reports — the parts of `trace_t` a brush sweep can answer.</summary>
+/// <param name="Fraction">How far it got, 0 to 1.</param>
+/// <param name="Texinfo">`surface`: the struck brush side's texinfo, or −1.</param>
+/// <param name="Normal">`plane.normal` of the side it entered through; zero when nothing was struck.</param>
+/// <param name="AllSolid">`allsolid`: it began and ended inside one brush.</param>
+public readonly record struct BspTrace(float Fraction, int Texinfo, (float X, float Y, float Z) Normal, bool AllSolid);
