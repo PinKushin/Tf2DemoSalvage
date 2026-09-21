@@ -201,6 +201,13 @@ public sealed class LoadedMap
                     (from, to) => level.Trace(from, to, 0f),
                     impacts);
 
+                // A crossbow bolt's `UTIL_ImpactTrace`, which the client traces itself.
+                BoltImpacts.From(
+                    timeline.Dispatches.All,
+                    timeline.Dispatches.Names.Name,
+                    (from, to) => level.Trace(from, to, 0f),
+                    impacts);
+
                 // Stable, so bullets of one tick keep their fire order.
                 impacts = [.. impacts.OrderBy(static impact => impact.Tick)];
                 decalMaterials.UnionWith(impactDecals.Drawn());

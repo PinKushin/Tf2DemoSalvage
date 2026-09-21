@@ -125,7 +125,8 @@ public sealed class TracerProbe : IProbe
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"{timeline.Dispatches.All.Count} effect dispatches; {impacts.Count(one => one.FromServer)} server impacts on the world"));
+            $"{timeline.Dispatches.All.Count} effect dispatches; {impacts.Count(one => one.FromServer)} server impacts on the world, " +
+            $"{impacts.Count(one => one.BrushOnly)} bolt impacts"));
 
         foreach (IGrouping<(string?, int), SceneEffectDispatch> kind in timeline.Dispatches.All
                      .GroupBy(one => (timeline.Dispatches.Names.Name(one.Name), Math.Sign(one.Entity)))

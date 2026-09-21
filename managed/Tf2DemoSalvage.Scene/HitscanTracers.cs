@@ -45,7 +45,14 @@ public readonly record struct ShotTracer(
 /// material is its struck texinfo's.
 /// </param>
 /// <param name="DamageType">The dispatch's `m_nDamageType`, which `DamageDecal` reads; 0 for a client bullet.</param>
-/// <remarks>**A negative <see cref="Shot"/> is a server dispatch**, `−1 − index` into the dispatch feed: no player judgement is asked of it.</remarks>
+/// <param name="BrushOnly">
+/// A client trace against brushes alone — a crossbow bolt's (<see cref="BoltImpacts"/>): its surface is the texinfo's and
+/// no player is judged.
+/// </param>
+/// <remarks>
+/// **A negative <see cref="Shot"/> is a server dispatch**, `−1 − index` into the dispatch feed: no player judgement is
+/// asked of it. A bolt's is negative too, from −1,000,000, and <see cref="BrushOnly"/> says it is not the server's.
+/// </remarks>
 public readonly record struct ShotImpact(
     int Shot,
     int Bullet,
@@ -58,10 +65,11 @@ public readonly record struct ShotImpact(
     int Texinfo,
     (float X, float Y, float Z) Normal = default,
     int SurfaceProp = -1,
-    int DamageType = 0)
+    int DamageType = 0,
+    bool BrushOnly = false)
 {
     /// <summary>Whether the server sent this impact rather than the client tracing it.</summary>
-    public bool FromServer => Shot < 0;
+    public bool FromServer => Shot < 0 && !BrushOnly;
 }
 
 /// <summary>Which bullets of a demo's shots draw a tracer, and where each ends (B415).</summary>
