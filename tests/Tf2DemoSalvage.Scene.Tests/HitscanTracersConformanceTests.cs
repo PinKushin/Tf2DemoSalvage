@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -33,13 +34,13 @@ public sealed class HitscanTracersConformanceTests
     private const int Red = 2;
     private const int Blue = 3;
 
-    /// <summary>A world that stops every bullet halfway, on texinfo 3.</summary>
-    private static readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), (float Fraction, int Texinfo)> Halfway =
-        static (_, _) => (0.5f, 3);
+    /// <summary>A world that stops every bullet halfway, on texinfo 3, a wall facing back down −X.</summary>
+    private static readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), BspTrace> Halfway =
+        static (_, _) => new BspTrace(0.5f, 3, (-1f, 0f, 0f), false);
 
     /// <summary>A world with nothing in it.</summary>
-    private static readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), (float Fraction, int Texinfo)> Empty =
-        static (_, _) => (1f, -1);
+    private static readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), BspTrace> Empty =
+        static (_, _) => new BspTrace(1f, -1, default, false);
 
     /// <remarks>
     /// **Every bullet the world stops is an impact, tracer or not**: `UTIL_ImpactTrace` sits under
@@ -55,7 +56,7 @@ public sealed class HitscanTracersConformanceTests
 
         impacts.Count.ShouldBe(2);
         (impacts[1] with { End = default, Reach = default })
-            .ShouldBe(new ShotImpact(1, 0, 2, 5, Red, (0f, 0f, 0f), default, default, 3));
+            .ShouldBe(new ShotImpact(1, 0, 2, 5, Red, (0f, 0f, 0f), default, default, 3, (-1f, 0f, 0f)));
         impacts[1].End.X.ShouldBe(500f, 0.001f, "yaw 0 fires down +X; half of 1000");
         impacts[1].Reach.X.ShouldBe(1000f, 0.001f);
     }
@@ -91,7 +92,7 @@ public sealed class HitscanTracersConformanceTests
 
         IReadOnlyList<ShotTracer> tracers = Tracers(Rifle, "bullet_tracer01").Trace(
             [Shot(Rifle, tick: 1), Shot(Rifle, tick: 2)],
-            (_, _) => calls++ == 0 ? (1f, -1) : (0.5f, 3),
+            (from, to) => calls++ == 0 ? Empty(from, to) : Halfway(from, to),
             fixedSpread: false);
 
         tracers.Count.ShouldBe(1);

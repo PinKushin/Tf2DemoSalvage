@@ -143,7 +143,7 @@ public sealed class LoadedMap
             {
                 tracers = new HitscanTracers(game.Archives.Read).Trace(
                     timeline.Shots.All,
-                    (from, to) => level.SweepSurface(from, to, 0f),
+                    (from, to) => level.Trace(from, to, 0f),
                     float.TryParse(
                         timeline.ServerConVars.Value("tf_use_fixed_weaponspreads"),
                         NumberStyles.Float,
@@ -259,7 +259,8 @@ public sealed class LoadedMap
                     // defaults to a null logger so tests need not supply one, which means an
                     // omission here costs every asset line in the run and nothing reports it.
                     loggers: loggers,
-                    decalMaterials: decalMaterials);
+                    decalMaterials: decalMaterials,
+                    effectMaterials: timeline is null ? [] : ImpactEffects.Materials);
             }
 
             Report(level, assets, textureQuality, assetLog);

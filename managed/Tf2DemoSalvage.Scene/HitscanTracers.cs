@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
@@ -38,6 +39,7 @@ public readonly record struct ShotTracer(
 /// <param name="End">`trace.endpos` against the world alone.</param>
 /// <param name="Reach">The origin plus the whole range, for the player pass.</param>
 /// <param name="Texinfo">The struck brush side's texinfo — `trace.surface` — or −1 for terrain, whose surface is not traced.</param>
+/// <param name="Normal">`trace.plane.normal`; zero for terrain.</param>
 public readonly record struct ShotImpact(
     int Shot,
     int Bullet,
@@ -47,7 +49,8 @@ public readonly record struct ShotImpact(
     (float X, float Y, float Z) Start,
     (float X, float Y, float Z) End,
     (float X, float Y, float Z) Reach,
-    int Texinfo);
+    int Texinfo,
+    (float X, float Y, float Z) Normal = default);
 
 /// <summary>Which bullets of a demo's shots draw a tracer, and where each ends (B415).</summary>
 /// <remarks>
@@ -119,14 +122,14 @@ public sealed class HitscanTracers
 
     /// <summary>Every tracer a demo's shots draw, in fire order.</summary>
     /// <param name="shots">Every shot, in fire order — the counter needs all of them.</param>
-    /// <param name="sweep">How far along a segment a bullet gets before something stops it, 0 to 1, and the texinfo it struck.</param>
+    /// <param name="sweep">The world trace along a segment: how far a bullet gets, and what it struck.</param>
     /// <param name="fixedSpread">`IsFixedWeaponSpreadEnabled`: the server's `tf_use_fixed_weaponspreads`.</param>
     /// <param name="impacts">When given, every bullet the world stopped, in fire order.</param>
     /// <returns>The tracers.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public IReadOnlyList<ShotTracer> Trace(
         IReadOnlyList<SceneShot> shots,
-        Func<(float X, float Y, float Z), (float X, float Y, float Z), (float Fraction, int Texinfo)> sweep,
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), BspTrace> sweep,
         bool fixedSpread,
         ICollection<ShotImpact>? impacts = null)
     {
@@ -173,7 +176,8 @@ public sealed class HitscanTracers
                     shot.Origin.Y + (direction.Y * range),
                     shot.Origin.Z + (direction.Z * range));
 
-                (float fraction, int texinfo) = sweep(shot.Origin, end);
+                BspTrace hit = sweep(shot.Origin, end);
+                float fraction = hit.Fraction;
 
                 if (fraction >= 1f)
                 {
@@ -185,7 +189,8 @@ public sealed class HitscanTracers
                     shot.Origin.Y + ((end.Y - shot.Origin.Y) * fraction),
                     shot.Origin.Z + ((end.Z - shot.Origin.Z) * fraction));
 
-                impacts?.Add(new ShotImpact(index, bullet, shot.Tick, shot.Shooter, by.Team, shot.Origin, stopped, end, texinfo));
+                impacts?.Add(new ShotImpact(
+                    index, bullet, shot.Tick, shot.Shooter, by.Team, shot.Origin, stopped, end, hit.Texinfo, hit.Normal));
 
                 if ((count++ % frequency) != 0 || effect is null)
                 {

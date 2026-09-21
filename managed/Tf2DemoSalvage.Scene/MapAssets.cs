@@ -1103,6 +1103,7 @@ public sealed class MapAssets
     /// </param>
     /// <param name="loggers">Where loading reports what it could not use, or null for nowhere.</param>
     /// <param name="decalMaterials">The materials the game's decals draw with — a Subrect's atlas, not the Subrect (B415).</param>
+    /// <param name="effectMaterials">Sprite materials the legacy impact effects draw with, loaded as particle materials.</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
@@ -1128,7 +1129,8 @@ public sealed class MapAssets
         Func<LightmapAtlas, IReadOnlyDictionary<string, PropModels.ModelFrames>>? brushModels = null,
         Func<float, float, float, PointLighting>? lightAt = null,
         ILoggerFactory? loggers = null,
-        IReadOnlyCollection<string>? decalMaterials = null)
+        IReadOnlyCollection<string>? decalMaterials = null,
+        IReadOnlyCollection<string>? effectMaterials = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -1340,6 +1342,31 @@ public sealed class MapAssets
 
         IReadOnlyDictionary<string, EngineSprite> sprites =
             LoadSpriteMaterials(assets, spriteMaterials ?? [], pak, archives, maximumTextureSize);
+
+        // **The legacy impact effects' materials join the particle materials** (B415): flecks, dust and sparks are
+        // sprite quads drawn through the same batches, and a material there is looked up by the same name.
+        Dictionary<string, ParticleMaterial> allParticleMaterials = new(particleMaterials, StringComparer.OrdinalIgnoreCase);
+
+        foreach (string name in effectMaterials ?? [])
+        {
+            if (allParticleMaterials.ContainsKey(name))
+            {
+                continue;
+            }
+
+            VmtMaterial? vmt = ReadVmt(name, pak, archives);
+            (IReadOnlyList<SheetSequence> frames, SpriteBlend how) = Sequences(vmt, pak, archives);
+            float alpha = float.TryParse(
+                vmt?.Value("srgb?$alpha") ?? vmt?.Value("$alpha"),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out float stated)
+                ? stated
+                : 1f;
+
+            allParticleMaterials[name] = new ParticleMaterial(
+                Resolve(assets, name, pak, archives, maximumTextureSize).Texture, frames, how, alpha);
+        }
 
         // The decal materials continue the same table; a name that resolves to no texture is left out and draws nothing.
         Dictionary<string, int> decals = new(StringComparer.OrdinalIgnoreCase);
@@ -1684,7 +1711,7 @@ public sealed class MapAssets
             DetailSpriteSheet = detailSheet,
             RocketTrail = rocketTrail,
             ParticleSystemsByName = particleSystems,
-            ParticleMaterials = particleMaterials,
+            ParticleMaterials = allParticleMaterials,
             SpriteMaterials = sprites,
             DecalMaterials = decals,
             DetailModelNames = detailModelNames,
