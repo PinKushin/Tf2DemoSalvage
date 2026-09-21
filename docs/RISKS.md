@@ -27338,6 +27338,28 @@ trail. **Still divergent:**
 **Also true after a seek:** a following effect replays its missed ticks at the attachment's current
 pose, so a still frame shows a clump where playback shows a trail.
 
+**Built the same day, three more sources:**
+
+- **Weapon muzzle flashes.** The active weapon's `m_nMuzzleFlashParity` changing while it is in view
+  runs `CreateMuzzleFlashEffects`:
+  - It starts the item's `muzzle_flash`, or else the script's `MuzzleFlashParticleEffect`, on
+    `muzzle`.
+  - Rocket-launcher classes also start `rocketbackblast` on `backblast`.
+  - Control: the scattergun flashes 1,523 times on f12, the same as its 1,523 shots.
+- **`CTETFParticleEffect`**, which becomes a `"ParticleEffect"` dispatch. On f12 it is engineers'
+  wrench hits, building explosions and the Machina's rail, 70 in all.
+- **`CTESparks`, `CTEMetalSparks` and `CTEArmorRicochet`**, the last being sparks off a player the
+  sentry hits.
+
+**Looked at**: a glow at a scout's scattergun barrel (`muzzle1.png`), and ricochet sparks
+(`spark2.png`).
+
+**Not built from these**:
+
+- the muzzle-flash MODEL, which no f12 weapon names;
+- the viewmodel's flash in first person;
+- the ricochet sound.
+
 **Not established:** whether the engine's client also starts a full update from zero through
 `RecvTable_DecodeZeros`. The world-impact argument above requires it, but the engine's temp-entity parse was
 not read; the Ghidra engine project was locked.
