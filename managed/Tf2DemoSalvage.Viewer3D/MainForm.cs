@@ -4235,11 +4235,67 @@ internal class MainForm : Form, IFrameSteps
                 blast.Tick));
         }
 
+        AddTracers(tick, systems);
+
         _particles.Bursts(
             _burstsNow,
             _timeline?.IntervalPerTick ?? (1f / 66f),
             systems,
             tick);
+    }
+
+    /// <summary>How long a tracer is offered: its longest trip, 8192 units at 5000 a second, is 1.64 s.</summary>
+    private const int TracerWindowTicks = 120;
+
+    /// <summary>Tracer keys sit above every explosion's, which are their indices in the feed.</summary>
+    private const long TracerKeys = 1L << 32;
+
+    /// <summary>Every tracer in the window this tick, reused.</summary>
+    private readonly List<(int Index, ShotTracer Tracer)> _tracersNow = [];
+
+    /// <summary>Adds a burst for every tracer in the window — `ParticleTracerCallback` (B415).</summary>
+    /// <remarks>
+    /// **Control point 0 is the start and 1 is the end, with 0 facing the end**: `ParticleTracerCallback` takes
+    /// `VectorAngles` of the normalised start-to-end and `ParticleEffectCallback` sets both points and that
+    /// orientation before the effect first simulates.
+    ///
+    /// **The start is the bullet's own origin for now, not the muzzle** — `FireBullet` moves it to the active
+    /// weapon's `muzzle` attachment, which is not wired yet (B415).
+    /// </remarks>
+    private void AddTracers(int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        if (_loaded?.Tracers is not { Count: > 0 } tracers)
+        {
+            return;
+        }
+
+        TickWindow.Between(tracers, static tracer => tracer.Tick, tick - TracerWindowTicks, tick, _tracersNow);
+
+        foreach ((int index, ShotTracer tracer) in _tracersNow)
+        {
+            if (!systems.TryGetValue(tracer.Effect, out ParticleSystem? definition))
+            {
+                continue;
+            }
+
+            (float pitch, float yaw, float roll) = AngleVectors.Angles(
+                tracer.End.X - tracer.Start.X, tracer.End.Y - tracer.Start.Y, tracer.End.Z - tracer.Start.Z);
+
+            (float fx, float fy, float fz) = AngleVectors.Forward(pitch, yaw);
+            (float px, float py, float pz) = AngleVectors.Right(pitch, yaw, roll);
+            (float qx, float qy, float qz) = AngleVectors.Up(pitch, yaw, roll);
+
+            _burstsNow.Add(new ParticleBurst(
+                TracerKeys + index,
+                definition,
+                new ParticleControlPoint(
+                    new Vector3(tracer.Start.X, tracer.Start.Y, tracer.Start.Z),
+                    new Vector3(fx, fy, fz),
+                    new Vector3(px, py, pz),
+                    new Vector3(qx, qy, qz)),
+                tracer.Tick,
+                ParticleControlPoint.Unoriented(new Vector3(tracer.End.X, tracer.End.Y, tracer.End.Z))));
+        }
     }
 
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>

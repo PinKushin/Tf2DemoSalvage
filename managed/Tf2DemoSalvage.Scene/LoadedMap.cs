@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
@@ -63,6 +65,9 @@ public sealed class LoadedMap
     /// <summary>What light this map casts, which the models and the asset loader both ask.</summary>
     public LevelLighting Lighting { get; }
 
+    /// <summary>Every tracer the demo's shots draw on this map, in fire order (B415).</summary>
+    public IReadOnlyList<ShotTracer> Tracers { get; private init; } = [];
+
     /// <summary>What went wrong loading the content, or null when nothing did.</summary>
     public string? Problem { get; }
 
@@ -118,6 +123,31 @@ public sealed class LoadedMap
 
         LevelLighting lighting = LevelLighting.From(level, renderLog);
 
+        // **Every tracer the demo's shots draw, traced once against this map** (B415). The client-wide tracer counter
+        // makes each shot depend on every one before it, so they are answered together, in fire order, here where
+        // both the level and the timeline are to hand — and before the textures, which need the effects' names.
+        IReadOnlyList<ShotTracer> tracers = [];
+
+        if (timeline is not null)
+        {
+            using (renderLog.Time("tracing every shot"))
+            {
+                tracers = new HitscanTracers(game.Archives.Read).Trace(
+                    timeline.Shots.All,
+                    (from, to) => level.Sweep(from, to, 0f),
+                    float.TryParse(
+                        timeline.ServerConVars.Value("tf_use_fixed_weaponspreads"),
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out float fixedSpread) && fixedSpread != 0f);
+            }
+
+            renderLog.LogInformation(
+                "{Message}",
+                $"{tracers.Count.ToString(CultureInfo.InvariantCulture)} tracers from " +
+                $"{timeline.Shots.All.Count.ToString(CultureInfo.InvariantCulture)} shots");
+        }
+
         // **The early `LoadedMap` went with the baked tint** (B219). It existed only so
         // `BrushModels.Build` could call `map.EntityTint` while the geometry was being built —
         // a map constructed purely to answer a question during its own construction. The colours
@@ -160,7 +190,10 @@ public sealed class LoadedMap
                     // explosion textures, which is what the empty set asks for.
                     particleSystemsUsed: timeline is null
                         ? []
-                        : new ExplosionEffects(game.Archives.Read).Used(timeline.Explosions.All),
+                        : [
+                            .. new ExplosionEffects(game.Archives.Read).Used(timeline.Explosions.All),
+                            .. tracers.Select(static tracer => tracer.Effect).Distinct(StringComparer.OrdinalIgnoreCase),
+                        ],
 
                     // **A factory rather than finished geometry, because the atlas is packed inside
                     // Load.** A door's faces carry baked lightmap samples in the same atlas as the
@@ -201,7 +234,7 @@ public sealed class LoadedMap
 
             Report(level, assets, textureQuality, assetLog);
 
-            return new LoadedMap(outline, level, assets, lighting, game, null);
+            return new LoadedMap(outline, level, assets, lighting, game, null) { Tracers = tracers };
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -213,7 +246,7 @@ public sealed class LoadedMap
                 null,
                 lighting,
                 game,
-                "Map content unavailable: " + failure.Message);
+                "Map content unavailable: " + failure.Message) { Tracers = tracers };
         }
     }
 

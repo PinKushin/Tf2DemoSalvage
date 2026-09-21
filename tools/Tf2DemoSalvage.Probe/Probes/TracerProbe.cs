@@ -1,0 +1,107 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+
+using Microsoft.Extensions.Logging.Abstractions;
+
+using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
+
+namespace Tf2DemoSalvage.Probe.Probes;
+
+/// <summary>Every tracer a demo's shots draw on its map, and where to stand to see one (B415).</summary>
+/// <remarks>
+/// **Through `LoadedMap.Read`, the viewer's own load**, so the tracers reported are the list the viewer draws
+/// (B243) — not a second run of `HitscanTracers` that could be fed a different sweep or a different convar.
+///
+/// <code>
+///   tracers &lt;demo&gt; &lt;map&gt; [n]   — the census by effect, then n tracers with a TF2VIEW_CAMERA line each
+/// </code>
+/// </remarks>
+public sealed class TracerProbe : IProbe
+{
+    /// <inheritdoc/>
+    public string Name => "tracers";
+
+    /// <inheritdoc/>
+    public string Summary => "every tracer a demo's shots draw, through the viewer's own map load: tracers <demo> <map> [n]";
+
+    /// <inheritdoc/>
+    public void Run(TextWriter output, IReadOnlyList<string> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        if (arguments.Count < 2)
+        {
+            output.WriteLine("Usage: tracers <demo> <map> [n]");
+            return;
+        }
+
+        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+
+        if (DemoCorpus.Find(arguments[0], output) is not { } path ||
+            locator.FindGameFolder() is not { } folder ||
+            locator.Find(arguments[1]) is not { } mapPath)
+        {
+            output.WriteLine("Demo, game or map not found.");
+            return;
+        }
+
+        int shown = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 5;
+
+        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance);
+
+        IReadOnlyList<ShotTracer> tracers = map.Tracers;
+        IReadOnlyList<SceneShot> shots = timeline.Shots.All;
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{Path.GetFileName(path)}: {shots.Count} shots, {shots.Count(one => one.By is null)} from nobody, " +
+            $"{tracers.Count} tracers"));
+
+        foreach (IGrouping<int, SceneShot> weapon in shots.GroupBy(one => one.WeaponId).OrderByDescending(one => one.Count()))
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  weapon {weapon.Key,3} {TfAlias(weapon.Key),-34} {weapon.Count(),5} shots"));
+        }
+
+        foreach (IGrouping<string, ShotTracer> effect in tracers.GroupBy(one => one.Effect).OrderByDescending(one => one.Count()))
+        {
+            bool loaded = map.Assets?.ParticleSystemsByName?.ContainsKey(effect.Key) ?? false;
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {effect.Key,-32} {effect.Count(),5}  {(loaded ? "definition loaded" : "NO DEFINITION")}"));
+        }
+
+        foreach (ShotTracer tracer in tracers.Take(shown))
+        {
+            (float X, float Y, float Z) delta = (
+                tracer.End.X - tracer.Start.X, tracer.End.Y - tracer.Start.Y, tracer.End.Z - tracer.Start.Z);
+            float length = MathF.Sqrt((delta.X * delta.X) + (delta.Y * delta.Y) + (delta.Z * delta.Z));
+
+            // Stand off to the side of the tracer's midpoint, looking back at it square on.
+            (float X, float Y, float Z) middle = (
+                tracer.Start.X + (delta.X / 2f), tracer.Start.Y + (delta.Y / 2f), tracer.Start.Z + (delta.Z / 2f));
+            (float X, float Y) side = length > 0f ? (-delta.Y / length, delta.X / length) : (1f, 0f);
+            float stand = Math.Clamp(length * 0.6f, 150f, 900f);
+            (float X, float Y, float Z) camera = (middle.X + (side.X * stand), middle.Y + (side.Y * stand), middle.Z + 40f);
+            float yaw = float.RadiansToDegrees(MathF.Atan2(middle.Y - camera.Y, middle.X - camera.X));
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  tick {tracer.Tick} shot {tracer.Shot} bullet {tracer.Bullet} {tracer.Effect} " +
+                $"({tracer.Start.X:0},{tracer.Start.Y:0},{tracer.Start.Z:0}) -> ({tracer.End.X:0},{tracer.End.Y:0},{tracer.End.Z:0}) " +
+                $"{length:0} units; TF2VIEW_CAMERA=\"{camera.X:0} {camera.Y:0} {camera.Z:0} 5 {yaw:0}\""));
+        }
+    }
+
+    private static string TfAlias(int weaponId) => Content.Assets.TfWeaponAliases.Of(weaponId) ?? "?";
+}

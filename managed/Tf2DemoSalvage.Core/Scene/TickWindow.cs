@@ -9,7 +9,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// on afterwards, so both are kept in fire order and asked for by window. The search was written for
 /// <see cref="ExplosionFeed"/> and moved here when the second feed needed it.
 /// </remarks>
-internal static class TickWindow
+public static class TickWindow
 {
     /// <summary>Every item that fired in a window of ticks, both ends included, with its index.</summary>
     /// <typeparam name="T">The event type.</typeparam>
@@ -18,6 +18,7 @@ internal static class TickWindow
     /// <param name="fromTick">The first tick to include.</param>
     /// <param name="toTick">The last.</param>
     /// <param name="into">Cleared, then filled in tick order.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// A binary search for the start rather than a scan: `demostf-cp_process_f12` carries thousands of each kind over
     /// one match, and a viewer asks once a frame.
@@ -25,6 +26,8 @@ internal static class TickWindow
     public static void Between<T>(
         IReadOnlyList<T> items, Func<T, int> tickOf, int fromTick, int toTick, ICollection<(int Index, T Item)> into)
     {
+        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(tickOf);
         ArgumentNullException.ThrowIfNull(into);
 
         into.Clear();
