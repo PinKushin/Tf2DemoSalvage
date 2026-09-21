@@ -67,6 +67,7 @@ public static class ParticleOperators
             new RadiusScale(),
             new AlphaFadeAndDecay(),
             new ColourFade(),
+            new OscillateScalar(),
         ])
         {
             all[one.Named] = one;
@@ -371,7 +372,7 @@ public sealed class AlphaFadeAndDecay : IParticleOperator
     }
 
     /// <summary><c>rcpps</c> — the approximate reciprocal the engine uses here, with no refinement step.</summary>
-    private static float Reciprocal(float value) =>
+    internal static float Reciprocal(float value) =>
         Sse.IsSupported
             ? Sse.ReciprocalScalar(Vector128.CreateScalar(value)).ToScalar()
             : 1f / value;
@@ -436,5 +437,148 @@ public sealed class ColourFade : IParticleOperator
 
             particles.Tint[index] = Vector3.Lerp(particles.TintAtBirth[index], fade, mixed);
         }
+    }
+}
+
+/// <summary><c>Oscillate Scalar</c> — nudges one attribute along a wave, a step at a time (B415).</summary>
+/// <remarks>
+/// **`C_OP_OscillateScalar::Operate`, read out of `client.dll`** (`FUN_107a5220`), with the members its unpack table
+/// names and the defaults it gives them — the trace is in `docs/findings/58`. For a particle whose lifetime is above
+/// zero and whose time lies in <c>[start, end)</c>:
+///
+/// <code>
+/// t     = start/end proportional ? rcp( lifetime ) · age : age
+/// start = r₁₁ · ( start max − start min ) + start min        end likewise with r₁₂
+/// freq  = r₀ · ( freq max − freq min ) + freq min            rate likewise with r₁
+/// arg   = proportional ? rcp( lifetime ) · age · freq · multiplier + phase
+///                      : freq · ( multiplier · curtime + phase )
+/// field = SinEst01( arg ) · ( rate · dt ) + field            ALPHA alone clamped to [0, 1]
+/// </code>
+///
+/// **`SinEst01SIMD` is a parabola, not a sine** (`ssemath.h:3129`): <c>x(4 − 4x)</c> on each half of a period of 2,
+/// with the sign put back from the half and the argument's own sign. The constants are the SDK's, checked in the binary.
+///
+/// **Not reproduced:** the operator's strength (its fade-in and fade-out as an OPERATOR), which is 1 for every effect
+/// this project draws; and fields this store does not hold, which are left alone.
+/// </remarks>
+public sealed class OscillateScalar : IParticleOperator
+{
+    /// <summary>Which table entries the per-particle draws read — the engine's own offsets from the particle's id.</summary>
+    private const int FrequencyDraw = 0;
+
+    /// <summary>The rate's draw.</summary>
+    private const int RateDraw = 1;
+
+    /// <summary>The start time's draw.</summary>
+    private const int StartDraw = 11;
+
+    /// <summary>The end time's draw.</summary>
+    private const int EndDraw = 12;
+
+    /// <summary>Where this operator's draws sit in <see cref="ParticleRandom"/>, clear of every initializer's.</summary>
+    private const int Draws = 3840;
+
+    /// <summary>The attribute index of <c>ALPHA</c>, the one field clamped.</summary>
+    private const int AlphaField = 7;
+
+    /// <inheritdoc/>
+    public string Named => "Oscillate Scalar";
+
+    /// <inheritdoc/>
+    public void Operate(ParticleStore particles, ParticleFunction parameters, float seconds)
+    {
+        ArgumentNullException.ThrowIfNull(particles);
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        int named = (int)parameters.Number("oscillation field", AlphaField);
+
+        float[]? field = named switch
+        {
+            1 => particles.Lifetime,
+            3 => particles.Radius,
+            4 => particles.Rotation,
+            AlphaField => particles.Alpha,
+            8 => particles.Born,
+            10 => particles.TrailLength,
+            _ => null,
+        };
+
+        if (field is null)
+        {
+            return;
+        }
+
+        float rateLeast = (float)parameters.Number("oscillation rate min", 0d);
+        float rateWidth = (float)parameters.Number("oscillation rate max", 0d) - rateLeast;
+        float frequencyLeast = (float)parameters.Number("oscillation frequency min", 1d);
+        float frequencyWidth = (float)parameters.Number("oscillation frequency max", 1d) - frequencyLeast;
+        float startLeast = (float)parameters.Number("start time min", 0d);
+        float startWidth = (float)parameters.Number("start time max", 0d) - startLeast;
+        float endLeast = (float)parameters.Number("end time min", 1d);
+        float endWidth = (float)parameters.Number("end time max", 1d) - endLeast;
+        float multiplier = (float)parameters.Number("oscillation multiplier", 2d);
+        float phase = (float)parameters.Number("oscillation start phase", 0.5d);
+        bool proportional = parameters.Number("proportional 0/1", 1d) != 0d;
+        bool windowProportional = parameters.Number("start/end proportional", 1d) != 0d;
+
+        // Both hoisted out of the loop in the engine, in these operand orders.
+        float clock = (multiplier * particles.Age) + phase;
+
+        for (int index = 0; index < particles.Count; index++)
+        {
+            float lifetime = particles.Lifetime[index];
+            float age = particles.AgeOf(index);
+            int id = particles.Id[index];
+
+            float t = windowProportional ? AlphaFadeAndDecay.Reciprocal(lifetime) * age : age;
+
+            float start = (ParticleRandom.Sample(id, Draws + StartDraw) * startWidth) + startLeast;
+            float end = (ParticleRandom.Sample(id, Draws + EndDraw) * endWidth) + endLeast;
+
+            if (!(lifetime > 0f && start <= t && t < end))
+            {
+                continue;
+            }
+
+            float frequency = (ParticleRandom.Sample(id, Draws + FrequencyDraw) * frequencyWidth) + frequencyLeast;
+            float rate = (ParticleRandom.Sample(id, Draws + RateDraw) * rateWidth) + rateLeast;
+
+            float argument = proportional
+                ? (AlphaFadeAndDecay.Reciprocal(lifetime) * age * frequency * multiplier) + phase
+                : frequency * clock;
+
+            float value = (SinEst01(argument) * (rate * seconds)) + field[index];
+
+            field[index] = named == AlphaField ? MathF.Max(MathF.Min(value, 1f), 0f) : value;
+        }
+    }
+
+    /// <summary><c>SinEst01SIMD</c> — Valve's parabolic sine on a period of 2, one lane of it.</summary>
+    /// <remarks>
+    /// <c>Mod2SIMDPositiveInput</c> finds the even integer at or below <c>|x|</c> by adding 2²³, clearing the lowest
+    /// bit and subtracting 2²³ again (so the add rounds to an integer and the mask makes it even), stepping back by two
+    /// when that rounded up.
+    /// </remarks>
+    private static float SinEst01(float x)
+    {
+        const float TwoToThe23 = 8388608f;
+
+        float magnitude = MathF.Abs(x);
+
+        float even = BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(magnitude + TwoToThe23) & ~1)
+            - TwoToThe23;
+
+        if (even > magnitude)
+        {
+            even -= 2f;
+        }
+
+        float reduced = magnitude - even;
+        bool odd = reduced >= 1f;
+        float within = odd ? reduced - 1f : reduced;
+
+        float estimate = within * (4f - (within * 4f));
+
+        return (x < 0f) != odd ? -estimate : estimate;
     }
 }

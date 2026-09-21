@@ -345,6 +345,30 @@ that died four ticks earlier. The captures above are three and seven ticks after
 read from the SDK for the member order; read from the shipped `.pcf` for Flash_1's values; differential between the
 two captures for the edge.*
 
+## `Oscillate Scalar`, and a sine that is a parabola
+
+The last function on the explosion's path this project did not run: `Explosion_Smoke_1` declares it on field 4,
+ROTATION, with a rate of ±0.8 — a slow wobble on each smoke puff. `C_OP_OscillateScalar::Operate` (`FUN_107a5220`,
+vtable `0x10b581cc`, factory `0x10c34cc0`) is a four-lane SIMD loop; per particle whose lifetime is above zero and
+whose time — a life fraction when `start/end proportional` — lies in `[start, end)`:
+
+```
+arg   = proportional ? age · rcp( lifetime ) · freq · multiplier + phase
+                     : freq · ( multiplier · curtime + phase )
+field = SinEst01( arg ) · ( rate · dt ) + field            ALPHA alone clamped to [0, 1]
+```
+
+with frequency, rate, start and end each a per-particle draw at offsets 0, 1, 11 and 12 from the particle's id. **The
+wave is `SinEst01SIMD`** (`ssemath.h:3129`, every constant checked in the binary), which is the parabola
+`x(4 − 4x)` on each half of a period of 2 — *"sufficient for simple oscillation"*, in Valve's own comment — and not
+the `Sin01SIMD` beside it that blends in a correction. At an argument of 0.25 the three give 0.75, 0.7071 for a true
+sine, and 0.7078; the tests pin the first.
+
+The unpack defaults are not the obvious ones: `oscillation field` defaults to **7** (ALPHA), `oscillation multiplier`
+to 2, `oscillation start phase` to 0.5, and both proportional flags to on.
+
+Nobody has looked at the wobble on screen; a still cannot show it.
+
 ## What is not established
 
 - **Whether the 178 entity-bearing blasts are players.** `bIsPlayer` needs the entity's class, and only the count
@@ -361,7 +385,9 @@ two captures for the edge.*
   Every explosion child declares proxy control point −1, which should mean "off" — *interpolated*, not read.
 - **Whether `m_nRandomSeed` is fixed or varies per effect instance**, which decides whether two identical blasts
   draw identical trail lengths in TF2.
-- **`Oscillate Scalar`**, the one operator on the explosion path still unimplemented (`Explosion_Smoke_1`).
+- **Operator strength** — each operator's own fade in and out (`operator start fadein` and its siblings), which
+  scales what it does. Every explosion child declares zeros, which should mean full strength throughout;
+  *interpolated*, and nothing here evaluates it.
 - **The debris chunks' size and tint.** They draw, and they dominate the picture in a way TF2's do not.
 - **Which `.pcf` the engine actually loads.** `ExplosionCore_` appears in five files —
   `explosion.pcf`, `explosion_high.pcf`, `explosion_dx90_slow.pcf`, `explosion_dx80.pcf` and `bigboom.pcf` — and

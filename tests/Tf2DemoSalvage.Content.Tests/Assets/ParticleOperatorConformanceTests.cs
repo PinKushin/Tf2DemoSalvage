@@ -280,6 +280,99 @@ public sealed class ParticleOperatorConformanceTests
         particles.TintOf(0).X.ShouldBe(127.5f, 0.01d);
     }
 
+    // **`C_OP_OscillateScalar::Operate`, read out of `client.dll`** (`FUN_107a5220`, B415). Each step adds
+    // `rate · dt · SinEst01( arg )` to the chosen field, with `arg = freq · ( multiplier · curtime + phase )`, or
+    // `age · rcp( lifetime ) · freq · multiplier + phase` when proportional. `SinEst01SIMD` (`ssemath.h:3129`) is the
+    // PARABOLA `x(4 − 4x)` over a period of 2, not a sine — so at an argument of 0.25 it gives exactly 0.75, where a
+    // true sine gives 0.7071 and the 0.225-blended `Sin01SIMD` 0.7078.
+    //
+    // Most cases below hold multiplier 1, curtime 1 and phase 0 so the argument IS the frequency, and rate 2 over a
+    // half-second step so the addition IS the sine estimate.
+
+    [TestCase(0.25f, 0.75f)]
+    [TestCase(1.25f, -0.75f)]
+    [TestCase(-0.25f, -0.75f)]
+    [TestCase(2.25f, 0.75f)]
+    public void OscillateScalar_AtAnArgument_AddsTheParabolaNotASine(float argument, float expected)
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 4f);
+        particles.Tick(1f);
+
+        Step(particles, "Oscillate Scalar", Oscillation(field: 4, frequency: argument, proportional: false),
+            seconds: 0.5f, previous: null);
+
+        particles.RotationOf(0).ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **Proportional puts the LIFE FRACTION where the clock was.** Half-way through a two-second life with frequency
+    /// 0.5, the argument is about 0.25 and the estimate about 0.75; read off the clock instead it would be 0.5 and 1.
+    /// The fraction goes through `rcpps`, hence the tolerance.
+    /// </remarks>
+    [Test]
+    public void OscillateScalar_WhenProportional_ReadsTheLifeFraction()
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 2f);
+        particles.Tick(1f);
+
+        Step(particles, "Oscillate Scalar", Oscillation(field: 4, frequency: 0.5d, proportional: true),
+            seconds: 0.5f, previous: null);
+
+        particles.RotationOf(0).ShouldBe(0.75f, 0.001d);
+    }
+
+    [Test]
+    public void OscillateScalar_BeforeItsStartTime_WritesNothing()
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 4f);
+        particles.Tick(1f);
+
+        // A quarter through its life, and the window opens at a half.
+        Step(particles, "Oscillate Scalar", Oscillation(field: 4, frequency: 0.25d, proportional: false, start: 0.5d),
+            seconds: 0.5f, previous: null);
+
+        particles.RotationOf(0).ShouldBe(0f);
+    }
+
+    /// <remarks>ALPHA, field 7 and the default, is the one field clamped to [0, 1] (`MINPS`/`MAXPS` at `0x107a56c8`).</remarks>
+    [Test]
+    public void OscillateScalar_OnAlpha_ClampsToOne()
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 4f);
+        particles.Tick(1f);
+        particles.Fade(0, 0.9f);
+
+        Step(particles, "Oscillate Scalar", Oscillation(field: 7, frequency: 0.25d, proportional: false),
+            seconds: 0.5f, previous: null);
+
+        particles.AlphaOf(0).ShouldBe(1f);
+    }
+
+    /// <summary>`Oscillate Scalar` with rate 2, multiplier 1 and phase 0, and a start/end window as life fractions.</summary>
+    private static Dictionary<string, DmxValue> Oscillation(
+        double field, double frequency, bool proportional, double start = 0d) =>
+        new(StringComparer.Ordinal)
+        {
+            ["oscillation field"] = new DmxValue(DmxAttributeType.Whole, field),
+            ["oscillation rate min"] = new DmxValue(DmxAttributeType.Real, 2d),
+            ["oscillation rate max"] = new DmxValue(DmxAttributeType.Real, 2d),
+            ["oscillation frequency min"] = new DmxValue(DmxAttributeType.Real, frequency),
+            ["oscillation frequency max"] = new DmxValue(DmxAttributeType.Real, frequency),
+            ["oscillation multiplier"] = new DmxValue(DmxAttributeType.Real, 1d),
+            ["oscillation start phase"] = new DmxValue(DmxAttributeType.Real, 0d),
+            ["proportional 0/1"] = new DmxValue(DmxAttributeType.Boolean, proportional ? 1d : 0d),
+            ["start time min"] = new DmxValue(DmxAttributeType.Real, start),
+            ["start time max"] = new DmxValue(DmxAttributeType.Real, start),
+        };
+
     /// <summary>`Explosion_CoreFlash`'s own Alpha Fade and Decay parameters, as the shipped `.pcf` declares them.</summary>
     private static Dictionary<string, DmxValue> CoreFlash() =>
         Windows(startAlpha: 0d, inFrom: 0d, inTo: 0d, outFrom: 0.7d, outTo: 1d, endAlpha: 0d);
@@ -319,6 +412,7 @@ public sealed class ParticleOperatorConformanceTests
         all.ShouldContainKey("Movement Basic");
         all.ShouldContainKey("Lifespan Decay");
         all.ShouldContainKey("Alpha Fade Out Random");
+        all.ShouldContainKey("Oscillate Scalar");
 
         foreach ((string named, IParticleOperator one) in all)
         {
