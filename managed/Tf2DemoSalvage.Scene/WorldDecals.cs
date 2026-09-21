@@ -14,6 +14,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Paged">`InMaterialPage()`: a Subrect, whose 0..1 coordinates are remapped into its atlas.</param>
 /// <param name="PageOffset">`GetMaterialOffset()`, where the window starts in the atlas.</param>
 /// <param name="PageScale">`GetMaterialScale()`, how much of the atlas it spans.</param>
+/// <param name="Draws">The material actually drawn: a Subrect's atlas (<c>$Material</c>), else the decal's own.</param>
 public readonly record struct DecalMaterial(
     string Name,
     int Width,
@@ -21,7 +22,8 @@ public readonly record struct DecalMaterial(
     float DecalScale,
     bool Paged = false,
     (float U, float V) PageOffset = default,
-    (float U, float V) PageScale = default);
+    (float U, float V) PageScale = default,
+    string? Draws = null);
 
 /// <summary>One corner of a drawn decal.</summary>
 /// <param name="Position">In world space, already pushed off the face.</param>
@@ -122,7 +124,98 @@ public readonly record struct DecalNode(int Front, int Back, Vector3 Normal, flo
 public sealed record DecalWorld(
     IReadOnlyList<DecalNode> Nodes,
     IReadOnlyList<IReadOnlyList<int>> LeafFaces,
-    IReadOnlyList<DecalFace?> Faces);
+    IReadOnlyList<DecalFace?> Faces)
+{
+    /// <summary>A world with nothing in it, for a map whose tree would not read.</summary>
+    public static readonly DecalWorld Empty = new([], [], []);
+
+    /// <summary>The decal system's view of a map, built once at load.</summary>
+    /// <param name="tree">The BSP tree.</param>
+    /// <param name="leafFaces">The LEAFFACES lump.</param>
+    /// <param name="surfaces">The world's faces.</param>
+    /// <returns>The world.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **A node the reader cannot resolve becomes one leading to leaf 0 both ways with no faces**, so a malformed tree
+    /// loses decals under that node rather than the walk throwing.
+    /// </remarks>
+    public static DecalWorld From(BspLeafTree tree, BspLeafFaces leafFaces, IReadOnlyList<BspSurface> surfaces)
+    {
+        ArgumentNullException.ThrowIfNull(tree);
+        ArgumentNullException.ThrowIfNull(leafFaces);
+        ArgumentNullException.ThrowIfNull(surfaces);
+
+        DecalNode[] nodes = new DecalNode[tree.NodeCount];
+
+        for (int index = 0; index < nodes.Length; index++)
+        {
+            nodes[index] = tree.Node(index) is { } node
+                ? new DecalNode(
+                    node.Front,
+                    node.Back,
+                    new Vector3(node.NormalX, node.NormalY, node.NormalZ),
+                    node.Distance,
+                    node.FirstFace,
+                    node.FaceCount)
+                : new DecalNode(-1, -1, Vector3.UnitZ, 0f, 0, 0);
+        }
+
+        int[][] leaves = new int[tree.LeafCount][];
+
+        for (int leaf = 0; leaf < leaves.Length; leaf++)
+        {
+            (int first, int count) = tree.LeafFaces(leaf);
+
+            leaves[leaf] = new int[count];
+
+            for (int step = 0; step < count; step++)
+            {
+                leaves[leaf][step] = leafFaces.Face(first + step);
+            }
+        }
+
+        int highest = -1;
+
+        foreach (BspSurface surface in surfaces)
+        {
+            highest = Math.Max(highest, surface.FaceIndex);
+        }
+
+        DecalFace?[] faces = new DecalFace?[highest + 1];
+
+        foreach (BspSurface surface in surfaces)
+        {
+            Vector3[] corners = new Vector3[surface.Vertices.Count];
+
+            for (int corner = 0; corner < corners.Length; corner++)
+            {
+                SurfaceVertex vertex = surface.Vertices[corner];
+
+                corners[corner] = new Vector3(vertex.X, vertex.Y, vertex.Z);
+            }
+
+            Vector4 s = new(surface.TextureS.X, surface.TextureS.Y, surface.TextureS.Z, surface.TextureS.Offset);
+            Vector4 t = new(surface.TextureT.X, surface.TextureT.Y, surface.TextureT.Z, surface.TextureT.Offset);
+            ((int, int) mins, (int, int) extents) = DecalFace.ExtentsOf(corners, s, t);
+
+            faces[surface.FaceIndex] = new DecalFace(
+                surface.FaceIndex,
+                corners,
+                new Vector3(surface.PlaneNormal.X, surface.PlaneNormal.Y, surface.PlaneNormal.Z),
+                surface.PlaneDistance,
+                s,
+                t,
+                mins,
+                extents,
+                surface.OnNode,
+                surface.IsDisplacement,
+                (surface.Flags & SurfaceProperties.NoDecals) != 0,
+                surface.Lighting);
+        }
+
+        return new DecalWorld(nodes, leaves, faces);
+    }
+}
 
 /// <summary>Decals on the world's brushes — the engine's own decal system, out of <c>engine.dll</c> (B415).</summary>
 /// <remarks>
