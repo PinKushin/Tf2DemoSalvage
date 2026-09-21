@@ -289,10 +289,33 @@ public sealed class ParticleEffect
             {
                 run.Operate(Particles, one, seconds);
             }
+            else if (string.Equals(one.Function, MovementLock.Named, StringComparison.Ordinal))
+            {
+                if (!_locks.TryGetValue(one, out MovementLock? locked))
+                {
+                    locked = new MovementLock();
+                    _locks[one] = locked;
+                }
+
+                int number = (int)one.Number("control_point_number", 0d);
+
+                locked.Operate(Particles, one, seconds, PointAt(number, at));
+            }
         }
 
         Particles.Reap();
     }
+
+    /// <summary>Each declared `Movement Lock to Control Point` with its own context, as the engine gives each operator one.</summary>
+    private readonly Dictionary<ParticleFunction, MovementLock> _locks = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Control point <paramref name="number"/> this step: 0 is <paramref name="at"/>, an unset one the origin.</summary>
+    private ParticleControlPoint PointAt(int number, ParticleControlPoint at) => number switch
+    {
+        0 => at,
+        _ when number < _points.Count => _points[number],
+        _ => ParticleControlPoint.Unoriented(Vector3.Zero),
+    };
 
     /// <summary>Advances without emitting, for an effect whose emitter is gone.</summary>
     /// <param name="seconds">How long the step is.</param>

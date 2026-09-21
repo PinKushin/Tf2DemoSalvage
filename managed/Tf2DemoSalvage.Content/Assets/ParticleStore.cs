@@ -323,7 +323,11 @@ public sealed class ParticleStore
     {
         Age += seconds;
         LastStep = seconds;
+        Steps++;
     }
+
+    /// <summary>How many steps the clock has taken, which keys a draw the engine makes afresh every frame.</summary>
+    public int Steps { get; private set; }
 
     /// <summary>Removes every particle that has outlived its duration.</summary>
     /// <returns>How many were removed.</returns>

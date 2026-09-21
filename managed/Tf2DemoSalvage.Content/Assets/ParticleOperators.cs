@@ -460,6 +460,137 @@ public sealed class RotationSpinRoll : IParticleOperator
 }
 
 /// <summary>
+/// <c>Movement Lock to Control Point</c> — carries particles along as their control point moves.
+/// </summary>
+/// <remarks>
+/// **`C_OP_PositionLock::Operate`, read out of `particles.lib`**, with its fields and defaults from its unpack table:
+///
+/// <code>
+/// control_point_number 0, start_fadeout_min/max 1, end_fadeout_min/max 1, both exponents 1, distance fade range 0,
+/// lock rotation 0
+/// first call:  if the stored previous point is the origin, store this one (so the first delta is zero)
+/// delta = ( cp − prev ) · strength;   share = min( now − born, dt ) / dt          // a particle born mid-step
+/// if start_fadeout_min &lt; 1:  per particle, per FRAME:
+///     start = pow( rand, exp·4 fixed / 4 ) · ( start_max − start_min ) + start_min;   end likewise
+///     weight = 1 − clamp( ( clamp( age / life ) − start ) / ( end − start ) )      // else weight = strength
+/// if distance fade range:  d = min( 1, |pos + delta·share − cp| / range );  f = d / ( ( 1 − d ) · 3 + 1 )   // Bias 0.2
+///                          delta ·= 1 − f;  weight = 1 − f · weight
+/// lock rotation:  pos and prev lerp toward ( cur · prev⁻¹ ) · p by weight · share
+/// otherwise:      pos += delta · share · weight-of-the-window;  prev likewise
+/// then store cp as the previous point
+/// </code>
+///
+/// **Stateful, so it is not an <see cref="IParticleOperator"/>**: the engine keeps the previous point in the operator's
+/// per-collection context, and <see cref="ParticleEffect"/> holds one of these per declared function. **The per-frame
+/// draw is keyed, not a stream**: `RandSIMD` draws afresh every frame, which this reproduces by keying the table on the
+/// particle and the store's step count, so a replay gives the same picture. `MatrixInvert` of a 3×4 is its transpose,
+/// as Valve's own assumes orthonormal.
+/// </remarks>
+public sealed class MovementLock
+{
+    /// <summary>The <c>functionName</c> a <c>.pcf</c> uses.</summary>
+    public const string Named = "Movement Lock to Control Point";
+
+    /// <summary>`PreCalcBiasParameter( 0.2 )`: `1 / 0.2 − 2`.</summary>
+    private const float BiasOfAFifth = 3f;
+
+    /// <summary>Which of <see cref="ParticleRandom"/>'s channels the window's two draws take, before the step is added.</summary>
+    private const int StartDraw = 131, EndDraw = 132;
+
+    /// <summary>The point last seen — the context's `m_vPrevPosition` and `m_matPrevTransform`.</summary>
+    private ParticleControlPoint _previous;
+
+    /// <summary>Carries every particle along with the control point's move since the last call.</summary>
+    /// <param name="particles">The live collection.</param>
+    /// <param name="parameters">The declared function.</param>
+    /// <param name="seconds">The collection's step, `m_flDt`.</param>
+    /// <param name="point">The control point it names, where it is now.</param>
+    public void Operate(ParticleStore particles, ParticleFunction parameters, float seconds, ParticleControlPoint point)
+    {
+        ArgumentNullException.ThrowIfNull(particles);
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        if (_previous.At == Vector3.Zero)
+        {
+            _previous = point;
+        }
+
+        float startLeast = (float)parameters.Number("start_fadeout_min", 1d);
+        float startMost = (float)parameters.Number("start_fadeout_max", 1d);
+        int startExponent = (int)((float)parameters.Number("start_fadeout_exponent", 1d) * 4f);
+        float endLeast = (float)parameters.Number("end_fadeout_min", 1d);
+        float endMost = (float)parameters.Number("end_fadeout_max", 1d);
+        int endExponent = (int)((float)parameters.Number("end_fadeout_exponent", 1d) * 4f);
+        float range = (float)parameters.Number("distance fade range", 0d);
+        bool rotate = parameters.Number("lock rotation", 0d) != 0d;
+
+        Vector3 delta = point.At - _previous.At;
+        bool window = startLeast < 1f;
+
+        for (int index = 0; index < particles.Count; index++)
+        {
+            float share = MathF.Min(particles.Age - particles.Born[index], seconds) / seconds;
+            float weight = 1f;
+
+            if (window)
+            {
+                float life = Math.Clamp((particles.Age - particles.Born[index]) / particles.Lifetime[index], 0f, 1f);
+                int id = particles.Id[index] + (particles.Steps * 2);
+                float start = (Power(ParticleRandom.Sample(id, StartDraw), startExponent) * (startMost - startLeast)) + startLeast;
+                float end = (Power(ParticleRandom.Sample(id, EndDraw), endExponent) * (endMost - endLeast)) + endLeast;
+
+                weight = 1f - Math.Clamp((life - start) / (end - start), 0f, 1f);
+
+                if (weight <= 0f)
+                {
+                    continue;
+                }
+            }
+
+            Vector3 moved = delta * share * weight;
+
+            if (range != 0f)
+            {
+                float away = MathF.Min(1f, (particles.Position[index] + moved - point.At).Length() / range);
+                float faded = away / (((1f - away) * BiasOfAFifth) + 1f);
+
+                moved *= 1f - faded;
+                weight = 1f - (faded * weight);
+            }
+
+            if (rotate)
+            {
+                particles.Position[index] = Toward(particles.Position[index], point, weight * share);
+                particles.Previous[index] = Toward(particles.Previous[index], point, weight * share);
+            }
+            else
+            {
+                particles.Position[index] += moved;
+                particles.Previous[index] += moved;
+            }
+        }
+
+        _previous = point;
+    }
+
+    /// <summary>`Pow_FixedPoint_Exponent_SIMD`: <paramref name="value"/> to the power of a quarter-unit exponent.</summary>
+    private static float Power(float value, int quarters) => MathF.Pow(value, quarters / 4f);
+
+    /// <summary>A point lerped by <paramref name="weight"/> toward where `cur · prev⁻¹` puts it.</summary>
+    private Vector3 Toward(Vector3 at, ParticleControlPoint now, float weight)
+    {
+        // A Source matrix's columns are forward, LEFT and up; its inverse is the transpose.
+        Vector3 local = at - _previous.At;
+        Vector3 carried = now.At +
+                          (now.Forward * Vector3.Dot(local, _previous.Forward)) +
+                          (-now.Right * Vector3.Dot(local, -_previous.Right)) +
+                          (now.Up * Vector3.Dot(local, _previous.Up));
+
+        return at + ((carried - at) * weight);
+    }
+}
+
+/// <summary>
 /// <c>Alpha Fade and Decay</c> — the fade a rocket trail actually uses.
 /// </summary>
 /// <remarks>
