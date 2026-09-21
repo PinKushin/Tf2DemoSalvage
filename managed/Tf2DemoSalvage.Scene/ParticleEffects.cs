@@ -295,15 +295,15 @@ public sealed class ParticleEffects
             // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
             if (!_bursts.TryGetValue(burst.Key, out RunningBurst running) || running.Stepped > wanted)
             {
-                running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets), 0);
-
-                if (burst.End is { } end)
-                {
-                    running.Effect.SetControlPoint(1, end);
-                }
+                running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets), 0, false);
             }
 
             // Stryker restore all
+
+            if (burst.End is { } end)
+            {
+                running.Effect.SetControlPoint(1, end);
+            }
 
             // **Counted by the loop, not assigned from `wanted`.** Writing the arithmetic back is what B243
             // warns about and it happened here: with `Stepped = wanted` the step count agreed with the
@@ -313,11 +313,22 @@ public sealed class ParticleEffects
 
             while (taken < wanted)
             {
-                running.Effect.Step(burst.At, seconds);
+                // A stopped effect only fades: its particles live out their lives and no more are born.
+                if (burst.StopTick is { } stop && burst.Tick + taken >= stop)
+                {
+                    running.Effect.Fade(seconds);
+                }
+                else
+                {
+                    running.Effect.Step(burst.At, seconds);
+                }
+
                 taken++;
             }
 
-            _bursts[burst.Key] = running with { Stepped = taken };
+            bool stopped = burst.StopTick is { } stopTick && tick >= stopTick;
+
+            _bursts[burst.Key] = running with { Stepped = taken, Stopped = stopped };
         }
 
         Retire();
@@ -340,7 +351,8 @@ public sealed class ParticleEffects
 
         foreach ((long key, RunningBurst running) in _bursts)
         {
-            if (running.Effect.Finished && !_offered.Contains(key))
+            // A stopped effect whose emitter runs for ever is never FINISHED; stopped and empty lets it go.
+            if ((running.Effect.Finished || (running.Stopped && running.Effect.Empty)) && !_offered.Contains(key))
             {
                 _finished.Add(key);
             }
@@ -359,7 +371,7 @@ public sealed class ParticleEffects
     private readonly List<long> _finished = [];
 
     /// <summary>One running one-shot, and how far it has been stepped.</summary>
-    private readonly record struct RunningBurst(ParticleEffect Effect, int Stepped);
+    private readonly record struct RunningBurst(ParticleEffect Effect, int Stepped, bool Stopped);
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
     /// <param name="eye">Where the camera is — a sprite trail turns about its own length to face it.</param>
@@ -549,11 +561,16 @@ public sealed class ParticleEffects
 /// <param name="Tick">The demo tick it fired on, which is what its age is measured from.</param>
 /// <param name="End">
 /// Control point 1, or null when the effect has none. A tracer's is where its bullet stopped: `ParticleEffectCallback`
-/// sets control point 0 to the muzzle and 1 to the end before the effect first simulates.
+/// sets control point 0 to the muzzle and 1 to the end before the effect first simulates. It is set again on every
+/// call, so a point that follows an entity — a medigun beam's target — follows it.
+/// </param>
+/// <param name="StopTick">
+/// The tick emission stops — `ParticleProp()->StopEmission` — or null for none: from then on the effect only fades.
 /// </param>
 public readonly record struct ParticleBurst(
     long Key,
     ParticleSystem Definition,
     ParticleControlPoint At,
     int Tick,
-    ParticleControlPoint? End = null);
+    ParticleControlPoint? End = null,
+    int? StopTick = null);

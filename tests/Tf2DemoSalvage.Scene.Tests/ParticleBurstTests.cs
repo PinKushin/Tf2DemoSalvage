@@ -218,6 +218,62 @@ public sealed class ParticleBurstTests
         particles.LifetimeOf(0).ShouldBe(0.3f, 0.0001f, "300 units at 1000 a second");
     }
 
+    /// <remarks>
+    /// **A continuous effect can be stopped** — `ParticleProp()->StopEmission`, what a medigun's beam gets when its
+    /// target changes. Its particles live out their lives; no more are born.
+    /// </remarks>
+    [Test]
+    public void Bursts_PastTheirStopTick_EmitNoMore()
+    {
+        ParticleEffects stopped = new();
+        ParticleEffects running = new();
+
+        stopped.Bursts([Emitting(key: 1, tick: 100, stop: 110)], Interval, null, tick: 110);
+        int atStop = stopped.BurstParticles(1)!.Count;
+
+        stopped.Bursts([Emitting(key: 1, tick: 100, stop: 110)], Interval, null, tick: 120);
+        running.Bursts([Emitting(key: 1, tick: 100, stop: null)], Interval, null, tick: 120);
+
+        atStop.ShouldBeGreaterThan(0);
+        stopped.BurstParticles(1)!.Count.ShouldBe(atStop, "nothing was born after the stop, and none has died yet");
+        running.BurstParticles(1)!.Count.ShouldBeGreaterThan(atStop);
+    }
+
+    [Test]
+    public void Bursts_AStoppedBurstNoLongerOfferedOnceEmpty_IsRetired()
+    {
+        // Its emitter runs for ever, so it is never FINISHED; stopped and empty is what lets it go.
+        ParticleEffects effects = new();
+
+        effects.Bursts([Emitting(key: 1, tick: 100, stop: 110)], Interval, null, tick: 110);
+        effects.Bursts([Emitting(key: 1, tick: 100, stop: 110)], Interval, null, tick: 300);
+        effects.Bursts([], Interval, null, tick: 301);
+
+        effects.BurstCount.ShouldBe(0);
+    }
+
+    /// <summary>A burst of a system emitting two particles a tick for ever, each living a second.</summary>
+    private static ParticleBurst Emitting(long key, int tick, int? stop) =>
+        new(
+            key,
+            LongLived with
+            {
+                Name = "test_emitting",
+                Emitters =
+                [
+                    new ParticleFunction(
+                        "emit_continuously",
+                        "emitter",
+                        new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                        {
+                            ["emission_rate"] = new(DmxAttributeType.Real, 132d),
+                        }),
+                ],
+            },
+            new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ),
+            tick,
+            StopTick: stop);
+
     private static ParticleBurst Burst(long key, int tick, float x = 0f) =>
         new(
             key,
