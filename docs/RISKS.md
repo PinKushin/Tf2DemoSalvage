@@ -27310,10 +27310,22 @@ so they draw nothing yet. Sentry muzzle flashes, `Tracer` dispatches, `ParticleE
 
 **Looked at:** a flash at the sentry's barrel, and a thin streak leaving it.
 
-**Not drawn, measured:** `rocketjump_smoke`. It is placed on both feet (logged `placed`), but nothing
-shows. Its flame child comes out 0.08 units wide through the production burst. The system uses four
-particle operators that are not implemented: `Remap Scalar`, `Movement Lock to Control Point`,
-`Rotation Spin Roll` and `Lifetime From Sequence`. Their code is only in `particles.lib`.
+**`rocketjump_smoke` was placed but invisible, and its four missing operators are now built.** They
+were read out of `particles.lib`, which the SDK ships with its symbols intact:
+
+- `C_OP_RemapScalar`
+- `CGeneralSpin`
+- `C_INIT_SequenceLifeTime`
+- `C_OP_PositionLock`
+
+The flame child went from 0.08 units wide to 10.2 at 34 ticks. **Looked at**: `rj4.png`, small
+flames at both of the soldier's feet mid-jump, where there were none. The smoke trail itself is not
+established: a still frame after a seek shows the replayed clump, and only playback can show the
+trail. **Still divergent:**
+
+- `ALPHA2`, which `Remap Scalar` writes and the closed renderer reads, is not held.
+- No operator fade strength is computed; it is taken as 1.
+- `Movement Lock`'s per-frame random is a keyed table draw, not `RandSIMD`'s stream.
 
 **Also not built:** these dispatch features, none of which f12 uses:
 
