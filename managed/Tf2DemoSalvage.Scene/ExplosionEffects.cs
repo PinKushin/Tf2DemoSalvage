@@ -134,10 +134,9 @@ public sealed class ExplosionEffects
     /// few is not affordable, so `MapAssets` resolves textures for the systems a demo reaches and reads the
     /// definitions for everything.
     ///
-    /// **Both branches of every blast, not the one it will take.** `bIsPlayer` needs the struck entity's class,
-    /// which this layer does not have at load time — so a blast contributes both its wall effect and its
-    /// player-or-air effect. Asking only one would leave the other's texture unloaded, and the symptom is an
-    /// explosion that draws for a wall hit and not for an airburst.
+    /// **The branch each blast will take, which is known here**: `bIsPlayer` is resolved when the blast is decoded
+    /// (<see cref="SceneExplosion.StruckPlayer"/>), so the set is exactly what will be asked for rather than both
+    /// branches of every blast.
     ///
     /// **The default is always included**, because a weapon with no script falls to it and a load that had not
     /// resolved it would draw nothing at all for those.
@@ -150,8 +149,7 @@ public sealed class ExplosionEffects
 
         foreach (SceneExplosion blast in blasts)
         {
-            names.Add(NameFor(blast, struckPlayer: false));
-            names.Add(NameFor(blast, struckPlayer: true));
+            names.Add(NameFor(blast, blast.StruckPlayer));
         }
 
         return names;

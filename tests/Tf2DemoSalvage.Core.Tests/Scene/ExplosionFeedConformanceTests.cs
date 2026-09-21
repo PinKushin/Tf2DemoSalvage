@@ -48,7 +48,8 @@ public sealed class ExplosionFeedConformanceTests
         feed.Record(
             ExplosionFeed.EventClassName,
             Explosion(x: 1024f, y: -512f, z: 96f, normal: (0f, 0f, 1f), weapon: 22, entity: 7, custom: 31),
-            tick: 4200).ShouldBeTrue();
+            tick: 4200,
+            NoPlayers).ShouldBeTrue();
 
         SceneExplosion blast = feed.All.ShouldHaveSingleItem();
 
@@ -138,6 +139,64 @@ public sealed class ExplosionFeedConformanceTests
     }
 
     /// <remarks>
+    /// **`bIsPlayer` is asked of the client's entity list when the blast arrives** (`tf_fx_explosions.cpp:62-70`):
+    ///
+    /// <code>
+    /// C_BaseEntity *pEntity = C_BaseEntity::Instance( hEntity );
+    /// if ( pEntity &amp;&amp; pEntity->IsPlayer() ) bIsPlayer = true;
+    /// </code>
+    ///
+    /// It is the one thing on a blast that is NOT on the wire, and it is what makes a direct hit draw the weapon's
+    /// `ExplosionPlayerEffect` instead of its wall effect.
+    /// </remarks>
+    [Test]
+    public void Record_ABlastNamingAPlayer_StruckAPlayer()
+    {
+        ExplosionFeed feed = new();
+
+        feed.Record(ExplosionFeed.EventClassName, Explosion(weapon: 22, entity: 5), tick: 1, isPlayer: index => index == 5);
+
+        feed.All[0].StruckPlayer.ShouldBeTrue();
+    }
+
+    /// <remarks>The control: an entity that is not a player — a sentry, a door — is not a player hit.</remarks>
+    [Test]
+    public void Record_ABlastNamingAnotherEntity_DidNotStrikeAPlayer()
+    {
+        ExplosionFeed feed = new();
+
+        feed.Record(ExplosionFeed.EventClassName, Explosion(weapon: 22, entity: 300), tick: 1, isPlayer: index => index == 5);
+
+        feed.All[0].StruckPlayer.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **"No entity" is never looked up**, in either encoding — `RecvProxy_ExplosionEntIndex` turns both into
+    /// `INVALID_EHANDLE`, whose `Get()` is null. Asked of a table that would say yes to anything, a reader that looked
+    /// up −1 or 2047 anyway would call it a player hit.
+    /// </remarks>
+    [TestCase(SceneExplosion.InvalidEntityIndex)]
+    [TestCase(-1)]
+    public void Record_ABlastNamingNoEntity_AsksNothing(int sent)
+    {
+        ExplosionFeed feed = new();
+        int asked = 0;
+
+        feed.Record(
+            ExplosionFeed.EventClassName,
+            Explosion(weapon: 22, entity: sent),
+            tick: 1,
+            isPlayer: _ =>
+            {
+                asked++;
+                return true;
+            });
+
+        feed.All[0].StruckPlayer.ShouldBeFalse();
+        asked.ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **Every other temp entity class is ignored here rather than mis-read.** The feed is offered every decoded
     /// effect in the packet — blood, decals, dust — and a reader that took them all would place a dust puff's fields
     /// into an explosion's record and draw a blast.
@@ -147,7 +206,7 @@ public sealed class ExplosionFeedConformanceTests
     {
         ExplosionFeed feed = new();
 
-        feed.Record("CTETFBlood", Explosion(weapon: 22), tick: 10).ShouldBeFalse();
+        feed.Record("CTETFBlood", Explosion(weapon: 22), tick: 10, NoPlayers).ShouldBeFalse();
 
         feed.All.ShouldBeEmpty();
     }
@@ -163,7 +222,7 @@ public sealed class ExplosionFeedConformanceTests
 
         foreach (int tick in new[] { 100, 250, 250, 251, 900 })
         {
-            feed.Record(ExplosionFeed.EventClassName, Explosion(weapon: 22), tick);
+            feed.Record(ExplosionFeed.EventClassName, Explosion(weapon: 22), tick, NoPlayers);
         }
 
         List<(int Index, SceneExplosion Blast)> window = [];
@@ -184,7 +243,7 @@ public sealed class ExplosionFeedConformanceTests
     {
         ExplosionFeed feed = new();
 
-        feed.Record(ExplosionFeed.EventClassName, Explosion(weapon: 22), tick: 100);
+        feed.Record(ExplosionFeed.EventClassName, Explosion(weapon: 22), tick: 100, NoPlayers);
 
         List<(int Index, SceneExplosion Blast)> window = [];
         feed.Between(200, 300, window);
@@ -203,10 +262,14 @@ public sealed class ExplosionFeedConformanceTests
         feed.Record(
             ExplosionFeed.EventClassName,
             Explosion(normal: normal, weapon: 22, entity: entity, custom: custom),
-            tick: 1);
+            tick: 1,
+            NoPlayers);
 
         return feed.All[0];
     }
+
+    /// <summary>An entity list with no players in it.</summary>
+    private static readonly Func<int, bool> NoPlayers = static _ => false;
 
     /// <summary>A decoded <c>CTETFExplosion</c> with the fields the send table declares.</summary>
     private static DecodedTempEntity Explosion(

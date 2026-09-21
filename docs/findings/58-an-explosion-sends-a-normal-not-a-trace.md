@@ -369,10 +369,24 @@ to 2, `oscillation start phase` to 0.5, and both proportional flags to on.
 
 Nobody has looked at the wobble on screen; a still cannot show it.
 
+## A direct hit is decided by the client's own entity list
+
+`bIsPlayer` is the one input to the effect choice that is not on the wire: `TFExplosionCallback` asks
+`C_BaseEntity::Instance( hEntity )->IsPlayer()` of whatever occupies `entindex` in the client's list when the blast
+fires (`tf_fx_explosions.cpp:62-70`). It is resolved the same way here — against the entity table as the packet left
+it, which is the same moment because a snapshot writes its entities before its temp entities — and by EXISTENCE, not
+visibility, since the client keeps an entity that has left its PVS and so does this table.
+
+**Measured on `demostf-cp_process_f12`: 118 of the 178 blasts that name an entity name a player.** The other sixty
+are the control — they name something that is not a player. Every one of the 118 used to take the wall branch; for
+the rocket launcher that is `ExplosionCore_wall` where the script's `ExplosionPlayerEffect` is
+`ExplosionCore_MidAir`. Looked at, on blast #23 (tick 20634, a rocket into a Scout): the mid-air effect draws at the
+player.
+
 ## What is not established
 
-- **Whether the 178 entity-bearing blasts are players.** `bIsPlayer` needs the entity's class, and only the count
-  of blasts carrying *an* index has been measured.
+- **The explosion's SOUND.** `TFExplosionCallback` plays the weapon script's `ExplosionSound` from the client
+  (`CLocalPlayerFilter`, `tf_fx_explosions.cpp:131-163`) — so the demo does not carry it, and nothing here plays it.
 - **Water.** `UTIL_PointContents( vecOrigin ) & CONTENTS_WATER` decides `ExplosionWaterEffect`, and this project
   does not evaluate BSP contents at a point.
 - **Whether any recording anywhere sets `m_iCustomParticleIndex`.** One demo says no. It is decoded and carried

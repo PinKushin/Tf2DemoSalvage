@@ -4205,10 +4205,8 @@ internal class MainForm : Form, IFrameSteps
 
         foreach ((int index, SceneExplosion blast) in _blastsNow)
         {
-            // **`struckPlayer` is false because the struck entity's class is not to hand here**, and saying so is
-            // cheaper than a wrong guess: the mid-air branch already covers most airbursts, and a blast against a
-            // player on a wall takes the wall effect until the entity table is consulted. Recorded in B415.
-            string name = _explosions.NameFor(blast, struckPlayer: false);
+            // `bIsPlayer` was resolved against the entity table when the blast arrived, which is when the client asks.
+            string name = _explosions.NameFor(blast, blast.StruckPlayer);
 
             if (!systems.TryGetValue(name, out ParticleSystem? definition))
             {

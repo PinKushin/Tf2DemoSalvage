@@ -56,6 +56,10 @@ public sealed class ExplosionFeed
     /// <param name="className">The class the effect's id resolved to.</param>
     /// <param name="effect">The decoded effect.</param>
     /// <param name="tick">The demo tick its packet arrived on.</param>
+    /// <param name="isPlayer">
+    /// Whether an entity index names a player in the client's entity list right now — <c>IsPlayer()</c> on what
+    /// `C_BaseEntity::Instance` returns for it. Never asked about "no entity".
+    /// </param>
     /// <returns><c>true</c> when it was an explosion and was recorded.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -63,10 +67,11 @@ public sealed class ExplosionFeed
     /// properties are a delta against the class's defaults, so a blast that sends no `m_iCustomParticleIndex` means
     /// `INVALID_STRING_INDEX` rather than nothing — `docs/memory/sentinels-conflate-unknown-with-answer.md`.
     /// </remarks>
-    public bool Record(string className, DecodedTempEntity effect, int tick)
+    public bool Record(string className, DecodedTempEntity effect, int tick, Func<int, bool> isPlayer)
     {
         ArgumentNullException.ThrowIfNull(className);
         ArgumentNullException.ThrowIfNull(effect);
+        ArgumentNullException.ThrowIfNull(isPlayer);
 
         if (!string.Equals(className, EventClassName, StringComparison.Ordinal))
         {
@@ -96,7 +101,10 @@ public sealed class ExplosionFeed
             }
         }
 
-        _blasts.Add(new SceneExplosion(tick, x, y, z, normal, weapon, entity, custom));
+        // `INVALID_EHANDLE.Get()` is null, so "no entity" is never a player and is never looked up.
+        bool struck = entity != SceneExplosion.NoEntity && isPlayer(entity);
+
+        _blasts.Add(new SceneExplosion(tick, x, y, z, normal, weapon, entity, custom, struck));
 
         return true;
     }

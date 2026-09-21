@@ -23,10 +23,15 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// `m_iCustomParticleIndex`, an index into the `ParticleEffectNames` string table which overrides the weapon
 /// script's choice entirely, or <see cref="NoCustomParticle"/>.
 /// </param>
+/// <param name="StruckPlayer">
+/// `bIsPlayer` — whether <see cref="Entity"/> named a player in the client's entity list when the blast arrived
+/// (`tf_fx_explosions.cpp:62-70`). **The one field NOT on the wire**: the client asks its own list, so this is
+/// resolved against the entity table as that packet left it, which is the same moment.
+/// </param>
 /// <remarks>
-/// **Everything here is on the wire and nothing is inferred.** `m_nDefID` and `m_nSound` are decoded and dropped:
-/// they select a replacement SOUND from the item definition (`tf_fx_explosions.cpp:133-152`) and nothing about what
-/// is drawn.
+/// **Everything else here is on the wire and nothing is inferred.** `m_nDefID` and `m_nSound` are decoded and
+/// dropped: they select a replacement SOUND from the item definition (`tf_fx_explosions.cpp:133-152`) and nothing
+/// about what is drawn.
 /// </remarks>
 public readonly record struct SceneExplosion(
     int Tick,
@@ -36,7 +41,8 @@ public readonly record struct SceneExplosion(
     (float X, float Y, float Z) Normal,
     int WeaponId,
     int Entity,
-    int CustomParticleIndex)
+    int CustomParticleIndex,
+    bool StruckPlayer = false)
 {
     /// <summary>What `m_iCustomParticleIndex` is when the blast names no particular effect.</summary>
     /// <remarks>

@@ -2619,7 +2619,10 @@ public sealed class DemoTimeline
     /// <param name="tick">The demo tick the packet arrived on.</param>
     /// <param name="interval">Seconds per tick, for the feeds that want time rather than ticks.</param>
     /// <param name="classNames">Class id to name, since an effect names its class by id.</param>
-    /// <param name="entities">The entity table, for the player's posture at this moment.</param>
+    /// <param name="entities">
+    /// The entity table, for the player's posture at this moment and for whether a blast struck a player. A snapshot
+    /// writes its entities before its temp entities, so the table is as the client's list was when the effect fired.
+    /// </param>
     /// <param name="gestures">The gesture feed.</param>
     /// <param name="explosions">The explosion feed.</param>
     /// <remarks>
@@ -2657,7 +2660,7 @@ public sealed class DemoTimeline
                     continue;
                 }
 
-                if (explosions.Record(className, effect, tick))
+                if (explosions.Record(className, effect, tick, index => IsPlayer(entities, index)))
                 {
                     continue;
                 }
@@ -2675,6 +2678,14 @@ public sealed class DemoTimeline
             // independent of it, and salvaging what is readable is the point of the project.
         }
     }
+
+    /// <summary>`C_BaseEntity::Instance( hEntity )->IsPlayer()` — the entity at an index exists and is a player.</summary>
+    /// <remarks>
+    /// Existence in the table and not visibility: the client's list keeps a dormant entity, and so does this.
+    /// </remarks>
+    private static bool IsPlayer(EntityStateTable entities, int index) =>
+        entities.TryGet(index, out EntityState? entity) &&
+        PlayerClass.Equals(entity.ClassName, StringComparison.Ordinal);
 
     /// <summary>What the player named by a gesture event was doing when it arrived.</summary>
     /// <param name="effect">The gesture event.</param>

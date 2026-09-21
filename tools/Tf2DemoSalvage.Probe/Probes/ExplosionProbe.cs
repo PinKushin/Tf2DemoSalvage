@@ -17,6 +17,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <code>
 ///   explosions &lt;demo&gt;             — the census, by weapon and by surface
 ///   explosions &lt;demo&gt; shots [n]   — n blasts with a TF2VIEW_CAMERA line for each
+///   explosions &lt;demo&gt; hits [n]    — the same, only blasts that struck a player
 /// </code>
 /// </remarks>
 public sealed class ExplosionProbe : IProbe
@@ -26,7 +27,7 @@ public sealed class ExplosionProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "every explosion a demo carries, with a camera for each: explosions <demo> [shots [n]]";
+        "every explosion a demo carries, with a camera for each: explosions <demo> [shots|hits [n]]";
 
     /// <summary>How far back to stand from a blast, in units.</summary>
     /// <remarks>Far enough that `ExplosionCore_MidAir`'s whole plume is in frame rather than filling it.</remarks>
@@ -70,6 +71,7 @@ public sealed class ExplosionProbe : IProbe
             CultureInfo.InvariantCulture,
             $"  {blasts.Count(one => one.InAir)} in mid air, " +
             $"{blasts.Count(one => one.HasEntity)} against an entity, " +
+            $"{blasts.Count(one => one.StruckPlayer)} of those a player, " +
             $"{blasts.Count(one => one.HasCustomParticle)} naming their own particle"));
 
         foreach ((int weapon, int count) in blasts
@@ -82,10 +84,18 @@ public sealed class ExplosionProbe : IProbe
                 $"    weapon {weapon,3} ({Content.Assets.TfWeaponAliases.Of(weapon) ?? "unknown"}): {count}"));
         }
 
-        if (arguments.Count < 2 ||
-            !arguments[1].Equals("shots", StringComparison.OrdinalIgnoreCase))
+        bool hits = arguments.Count >= 2 && arguments[1].Equals("hits", StringComparison.OrdinalIgnoreCase);
+
+        if (!hits && (arguments.Count < 2 ||
+            !arguments[1].Equals("shots", StringComparison.OrdinalIgnoreCase)))
         {
             return;
+        }
+
+        // `hits` aims only at blasts that struck a player, which draw the weapon's player effect.
+        if (hits)
+        {
+            blasts = [.. blasts.Where(one => one.StruckPlayer)];
         }
 
         int wanted = arguments.Count > 2
@@ -124,7 +134,8 @@ public sealed class ExplosionProbe : IProbe
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  #{at} tick {blast.Tick} at ({blast.X:0} {blast.Y:0} {blast.Z:0}) " +
-                $"weapon {blast.WeaponId} {(blast.InAir ? "MID AIR" : "on a surface")}"));
+                $"weapon {blast.WeaponId} {(blast.InAir ? "MID AIR" : "on a surface")}" +
+                $"{(blast.StruckPlayer ? $" HIT PLAYER {blast.Entity}" : string.Empty)}"));
 
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
