@@ -1109,6 +1109,9 @@ public sealed class DemoTimeline
     /// <summary>Every `CTETFBlood`, in fire order (B415).</summary>
     public BloodFeed Blood { get; private init; } = new();
 
+    /// <summary>Every `CTEEffectDispatch`, in fire order, and the table naming them (B415).</summary>
+    public EffectDispatchFeed Dispatches { get; private init; } = new();
+
     /// <summary>Every choreographed scene that started playing, in tick order (B351).</summary>
     /// <remarks>
     /// **A start rather than a per-tick state, for the reason <see cref="SceneChoreography"/>
@@ -1932,6 +1935,16 @@ public sealed class DemoTimeline
                         feeds.Decals.Names.Apply(decalUpdate.Entries);
                         continue;
 
+                    // **The effect names**, which `m_iEffectName` points into.
+                    case CreateStringTableMessage { Name: EffectDispatchFeed.TableName } effectTable:
+                        feeds.Dispatches.Names.Apply(effectTable.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage effectUpdate
+                        when state.StringTableName(effectUpdate.TableId) == EffectDispatchFeed.TableName:
+                        feeds.Dispatches.Names.Apply(effectUpdate.Entries);
+                        continue;
+
                     case UpdateStringTableMessage update
                         when state.StringTableName(update.TableId) == ModelPrecache.TableName:
                         precache.Apply(update.Entries);
@@ -2563,6 +2576,7 @@ public sealed class DemoTimeline
             Shots = feeds.Shots,
             Decals = feeds.Decals,
             Blood = feeds.Blood,
+            Dispatches = feeds.Dispatches,
             Scenes = choreography,
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
