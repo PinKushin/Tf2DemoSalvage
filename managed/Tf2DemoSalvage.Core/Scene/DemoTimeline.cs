@@ -1106,6 +1106,9 @@ public sealed class DemoTimeline
     /// <summary>Every decal the demo's temp entities carried, in fire order, and the table naming them (B415).</summary>
     public DecalFeed Decals { get; private init; } = new();
 
+    /// <summary>Every `CTETFBlood`, in fire order (B415).</summary>
+    public BloodFeed Blood { get; private init; } = new();
+
     /// <summary>Every choreographed scene that started playing, in tick order (B351).</summary>
     /// <remarks>
     /// **A start rather than a per-tick state, for the reason <see cref="SceneChoreography"/>
@@ -1583,9 +1586,7 @@ public sealed class DemoTimeline
 
         // **Every explosion, from the same stream** (B415). A one-shot at a tick rather than a state at every
         // tick, so it is a list in fire order and not a per-frame sample — see `ExplosionFeed`.
-        ExplosionFeed explosions = new();
-        ShotFeed shots = new();
-        DecalFeed decals = new();
+        EffectFeeds feeds = new();
 
         List<TimelineFrame> frames = [];
 
@@ -1918,19 +1919,17 @@ public sealed class DemoTimeline
                             effectClassNames,
                             entities,
                             gestures,
-                            explosions,
-                            shots,
-                            decals);
+                            feeds);
                         continue;
 
                     // **The decal names**, which `m_nIndex` points into. Both messages, as every precache table needs.
                     case CreateStringTableMessage { Name: DecalFeed.TableName } decalTable:
-                        decals.Names.Apply(decalTable.Entries);
+                        feeds.Decals.Names.Apply(decalTable.Entries);
                         continue;
 
                     case UpdateStringTableMessage decalUpdate
                         when state.StringTableName(decalUpdate.TableId) == DecalFeed.TableName:
-                        decals.Names.Apply(decalUpdate.Entries);
+                        feeds.Decals.Names.Apply(decalUpdate.Entries);
                         continue;
 
                     case UpdateStringTableMessage update
@@ -2560,9 +2559,10 @@ public sealed class DemoTimeline
             Roster = everyone,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
-            Explosions = explosions,
-            Shots = shots,
-            Decals = decals,
+            Explosions = feeds.Explosions,
+            Shots = feeds.Shots,
+            Decals = feeds.Decals,
+            Blood = feeds.Blood,
             Scenes = choreography,
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
@@ -2650,9 +2650,7 @@ public sealed class DemoTimeline
     /// writes its entities before its temp entities, so the table is as the client's list was when the effect fired.
     /// </param>
     /// <param name="gestures">The gesture feed.</param>
-    /// <param name="explosions">The explosion feed.</param>
-    /// <param name="shots">The hitscan shot feed.</param>
-    /// <param name="decals">The decal feed.</param>
+    /// <param name="feeds">The one-shot effect feeds.</param>
     /// <remarks>
     /// **A body that will not read is skipped rather than fatal**, which is the rule everywhere
     /// else in this project: a demo is salvaged, and a temp entities body is independent of every
@@ -2675,9 +2673,7 @@ public sealed class DemoTimeline
         Dictionary<int, string> classNames,
         EntityStateTable entities,
         PlayerGestureFeed gestures,
-        ExplosionFeed explosions,
-        ShotFeed shots,
-        DecalFeed decals)
+        EffectFeeds feeds)
     {
         try
         {
@@ -2690,9 +2686,8 @@ public sealed class DemoTimeline
                     continue;
                 }
 
-                if (explosions.Record(className, effect, tick, index => IsPlayer(entities, index)) ||
-                    shots.Record(className, effect, tick, index => Shooter(entities, index)) ||
-                    decals.Record(className, effect, tick))
+                if (feeds.Record(
+                        className, effect, tick, index => IsPlayer(entities, index), index => Shooter(entities, index)))
                 {
                     continue;
                 }

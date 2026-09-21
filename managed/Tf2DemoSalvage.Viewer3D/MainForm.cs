@@ -1448,6 +1448,7 @@ internal class MainForm : Form, IFrameSteps
         _thumbnails.Clear();
         _struckPlayers.Clear();
         _impactEffects.Clear();
+        _bloodBursts.Clear();
 
         // **Every system is told the level is going, in reverse registration order** — Valve's
         // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
@@ -4205,7 +4206,7 @@ internal class MainForm : Form, IFrameSteps
     /// `Build` already does for an unresolved particle material: a missing effect is a missing effect, not a
     /// missing surface.
     /// </remarks>
-    private void StepExplosions()
+    private void StepExplosions(FreeCamera viewing)
     {
         if (_timeline is not { } timeline ||
             _game?.Archives is not { } archives ||
@@ -4250,6 +4251,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         AddTracers(tick, systems);
+        AddBlood(timeline, tick, systems, viewing);
 
         _particles.Bursts(
             _burstsNow,
@@ -4579,6 +4581,69 @@ internal class MainForm : Form, IFrameSteps
         _device.UploadShotDecals(_decalVertices, _decalBatches);
     }
 
+    /// <summary>Blood keys sit above the tracers': two bursts per event, its impact and its spray.</summary>
+    private const long BloodKeys = 2L << 32;
+
+    /// <summary>How long a blood event is offered — a second, well past `blood_spray_red_01`'s own life.</summary>
+    private const int BloodWindowTicks = 66;
+
+    /// <summary>Every blood event in the window this tick, reused.</summary>
+    private readonly List<(int Index, SceneBlood Blood)> _bloodNow = [];
+
+    /// <summary>Each blood event's two bursts, turned against the view it was first seen under.</summary>
+    private readonly Dictionary<int, (BloodBurst Impact, BloodBurst Spray)> _bloodBursts = [];
+
+    /// <summary>Adds the impact puff and spray of every blood event in the window — `TFBloodSprayCallback` (B415).</summary>
+    /// <remarks>
+    /// **The spray is turned against the view when the blood ARRIVES**, as `MainViewOrigin` and `MainViewAngles` are
+    /// read inside the callback: fixed the first time an event is offered, so the camera moving afterwards does not
+    /// swing it. A seek into the window reads the view where it is then. An effect `DispatchParticleEffect` would
+    /// attach to a dormant player is not created; the feed keeps no dormancy, so every event is taken as live.
+    /// </remarks>
+    private void AddBlood(
+        DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems, FreeCamera viewing)
+    {
+        TickWindow.Between(timeline.Blood.All, static blood => blood.Tick, tick - BloodWindowTicks, tick, _bloodNow);
+
+        foreach ((int index, SceneBlood blood) in _bloodNow)
+        {
+            if (!_bloodBursts.TryGetValue(index, out (BloodBurst Impact, BloodBurst Spray) pair))
+            {
+                pair = BloodEffects.For(
+                    blood,
+                    new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
+                    (viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll),
+                    SeededDraw.For(SeededDraw.Of(index, 0, salt: 2)));
+
+                _bloodBursts[index] = pair;
+
+                if (_renderLog.IsEnabled(LogLevel.Debug))
+                {
+                    _renderLog.LogDebug(
+                        "{Message}",
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"blood {index} at tick {blood.Tick} on entity {blood.Entity}: {pair.Impact.System} " +
+                            $"({(systems.ContainsKey(pair.Impact.System) ? "loaded" : "NO DEFINITION")}), {pair.Spray.System} " +
+                            $"({(systems.ContainsKey(pair.Spray.System) ? "loaded" : "NO DEFINITION")})"));
+                }
+            }
+
+            AddBloodBurst(BloodKeys + (index * 2L), pair.Impact, blood.Tick, systems);
+            AddBloodBurst(BloodKeys + (index * 2L) + 1, pair.Spray, blood.Tick, systems);
+        }
+    }
+
+    private void AddBloodBurst(long key, BloodBurst burst, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        if (systems.TryGetValue(burst.System, out ParticleSystem? definition))
+        {
+            // `DispatchParticleEffect( name, origin, angles, … )` passes the origin as `vecStart` too: control point 1.
+            _burstsNow.Add(new ParticleBurst(
+                key, definition, burst.Point, tick, ParticleControlPoint.Unoriented(burst.Point.At)));
+        }
+    }
+
     /// <summary>`MASK_SOLID | CONTENTS_HITBOX`, what `FireBullet` traces with.</summary>
     private const int BulletMask = 0x0200400B | 0x40000000;
 
@@ -4760,7 +4825,7 @@ internal class MainForm : Form, IFrameSteps
                 _loaded?.Assets?.ParticleSystemsByName,
                 _transport.CurrentTick);
 
-            StepExplosions();
+            StepExplosions(viewing);
 
             (float rx, float ry, float rz) = AngleVectors.Right(
                 viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);

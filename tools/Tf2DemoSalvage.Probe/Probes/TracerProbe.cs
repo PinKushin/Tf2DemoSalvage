@@ -120,6 +120,22 @@ public sealed class TracerProbe : IProbe
             output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {group.Key,-40} {group.Count(),6}"));
         }
 
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture, $"{timeline.Blood.All.Count} blood events, {timeline.Blood.All.Count(one => one.IsPlayer)} on players"));
+
+        foreach (SceneBlood blood in timeline.Blood.All.Take(shown))
+        {
+            // 120 units out along the normal — towards the shooter — looking back at the hit.
+            (float X, float Y, float Z) at = (
+                blood.Origin.X + (blood.Normal.X * 120f), blood.Origin.Y + (blood.Normal.Y * 120f), blood.Origin.Z + (blood.Normal.Z * 120f));
+            float yaw = float.RadiansToDegrees(MathF.Atan2(-blood.Normal.Y, -blood.Normal.X));
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  tick {blood.Tick} entity {blood.Entity} at ({blood.Origin.X:0},{blood.Origin.Y:0},{blood.Origin.Z:0}); " +
+                $"TF2VIEW_CAMERA=\"{at.X:0} {at.Y:0} {at.Z:0} 0 {yaw:0}\""));
+        }
+
         foreach ((ShotImpact impact, DecalMaterial? decal) in resolved.Where(one => one.Decal is not null).Take(shown))
         {
             // Back along the bullet 96 units, looking at where it stopped.
