@@ -96,49 +96,39 @@ public sealed class ImpactDecals
     {
         ArgumentNullException.ThrowIfNull(random);
 
+        if (Surface(impact) is not { } surface ||
+            (surface.Flags & (SurfaceProperties.Sky | SurfaceProperties.NoDraw)) != 0)
+        {
+            return null;
+        }
+
+        char gameMaterial = surface.GameMaterial;
+        string group = _emitters.Translate(DecalEmitters.ImpactConcrete, gameMaterial);
+
+        return group.Length > 0 && _emitters.Pick(group, random) is { } file ? _materials.Resolve(file) : null;
+    }
+
+    /// <summary><see cref="For(ShotImpact, Func{float, float, float})"/> with a draw seeded by the bullet — <see cref="SeededDraw"/>.</summary>
+    /// <param name="impact">The bullet.</param>
+    /// <returns>The material, or null.</returns>
+    public DecalMaterial? For(ShotImpact impact) => For(impact, SeededDraw.For(SeededDraw.Of(impact.Shot, impact.Bullet)));
+
+    /// <summary>What `PerformCustomEffects` reads of the struck surface: its game material and its flags.</summary>
+    /// <param name="impact">The bullet.</param>
+    /// <returns>The surface, or null for terrain.</returns>
+    public (char GameMaterial, SurfaceProperties Flags)? Surface(ShotImpact impact)
+    {
         if (impact.Texinfo < 0 || impact.Texinfo >= _texinfo.Count)
         {
             return null;
         }
 
         BspTexinfo surface = _texinfo[impact.Texinfo];
-
-        if ((surface.Flags & (SurfaceProperties.Sky | SurfaceProperties.NoDraw)) != 0)
-        {
-            return null;
-        }
-
         char gameMaterial = surface.Texdata >= 0 && surface.Texdata < _gameMaterials.Length
             ? _gameMaterials[surface.Texdata]
             : '\0';
 
-        string group = _emitters.Translate(DecalEmitters.ImpactConcrete, gameMaterial);
-
-        return group.Length > 0 && _emitters.Pick(group, random) is { } file ? _materials.Resolve(file) : null;
-    }
-
-    /// <summary><see cref="For(ShotImpact, Func{float, float, float})"/> with a draw seeded by the bullet.</summary>
-    /// <param name="impact">The bullet.</param>
-    /// <returns>The material, or null.</returns>
-    /// <remarks>
-    /// **The trade, named:** the engine draws from the client's global uniform stream, whose state depends on every
-    /// draw before it and cannot be reproduced from a demo. A draw seeded by the shot and bullet gives the same hole
-    /// every time the same bullet is replayed — which a seek needs — at the cost of a different, equally valid pick.
-    /// </remarks>
-    public DecalMaterial? For(ShotImpact impact)
-    {
-        uint state = (uint)((impact.Shot * 64) + impact.Bullet) * 2654435761u;
-
-        return For(impact, (least, most) =>
-        {
-            // xorshift32: one step per draw, never zero for a nonzero seed.
-            state = state == 0 ? 1 : state;
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
-
-            return least + ((state >> 8) * (1f / (1 << 24)) * (most - least));
-        });
+        return (gameMaterial, surface.Flags);
     }
 
     /// <summary>Every material an impact could draw with, for loading with the map.</summary>
