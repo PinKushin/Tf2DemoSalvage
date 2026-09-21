@@ -383,6 +383,128 @@ public sealed class ParticleInitializerConformanceTests
         (most - least).ShouldBeGreaterThan(5f, "every particle at one offset is not a draw");
     }
 
+    /// <remarks>
+    /// **`C_INIT_MoveBetweenPoints`, read out of `client.dll`** (B415, `0x107bf510`): the particle is sent from where
+    /// earlier initializers put it towards control point 1 at a drawn speed, and its LIFE is the time the trip takes,
+    /// <c>dist / ( speed + FLT_EPSILON )</c>. That is what makes a tracer end exactly at the wall.
+    /// </remarks>
+    [Test]
+    public void Spawn_MoveBetweenTwoControlPoints_LivesForTheTripAndMovesTowardTheEnd()
+    {
+        const float Step = 1f / 66f;
+
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(MoveBetween(5000d, 5000d)),
+            store,
+            ParticleControlPoint.Unoriented(Vector3.Zero),
+            lives: 1f,
+            seconds: Step,
+            points: [ParticleControlPoint.Unoriented(Vector3.Zero), ParticleControlPoint.Unoriented(new Vector3(1000f, 0f, 0f))]);
+
+        store.Lifetime[index].ShouldBe(1000f / (5000f + 1.1920929E-7f));
+        store.PositionOf(index).ShouldBe(Vector3.Zero);
+        store.Previous[index].X.ShouldBe(-5000f * Step, 0.001f);
+        store.Previous[index].Y.ShouldBe(0f);
+        store.Previous[index].Z.ShouldBe(0f);
+    }
+
+    /// <remarks>An unset control point is the origin, as a collection's are before anything sets them.</remarks>
+    [Test]
+    public void Spawn_MoveBetweenTwoControlPointsWithNoEndPoint_HeadsForTheOrigin()
+    {
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(MoveBetween(5000d, 5000d)),
+            store,
+            ParticleControlPoint.Unoriented(new Vector3(100f, 0f, 0f)),
+            lives: 1f,
+            seconds: 1f / 66f);
+
+        store.Lifetime[index].ShouldBe(100f / (5000f + 1.1920929E-7f));
+        store.Previous[index].X.ShouldBeGreaterThan(100f, "moving toward -X means the previous position is behind, at +X");
+    }
+
+    [Test]
+    public void Spawn_MoveBetweenTwoControlPointsWithASpeedRange_TakesBetweenTheFastestAndSlowestTrip()
+    {
+        ParticleStore store = new();
+        ParticleSystem system = Declaring(MoveBetween(1000d, 4000d));
+        ParticleControlPoint[] points =
+            [ParticleControlPoint.Unoriented(Vector3.Zero), ParticleControlPoint.Unoriented(new Vector3(0f, 400f, 0f))];
+
+        float least = float.MaxValue;
+        float most = float.MinValue;
+
+        for (int one = 0; one < 64; one++)
+        {
+            int index = ParticleSystems.Spawn(
+                system, store, points[0], lives: 1f, seconds: 1f / 66f, points: points);
+
+            float life = store.Lifetime[index];
+
+            life.ShouldBeInRange(0.1f - 0.0001f, 0.4f + 0.0001f);
+
+            least = System.MathF.Min(least, life);
+            most = System.MathF.Max(most, life);
+        }
+
+        (most - least).ShouldBeGreaterThan(0.1f, "every particle at one speed is not a draw");
+    }
+
+    /// <remarks>`end spread` moves the END by a sphere sample of that radius, so the trip is longer or shorter by at most it.</remarks>
+    [Test]
+    public void Spawn_MoveBetweenTwoControlPointsWithAnEndSpread_EndsWithinTheSpread()
+    {
+        ParticleStore store = new();
+        ParticleSystem system = Declaring(MoveBetween(1000d, 1000d, spread: 50d));
+        ParticleControlPoint[] points =
+            [ParticleControlPoint.Unoriented(Vector3.Zero), ParticleControlPoint.Unoriented(new Vector3(0f, 0f, 500f))];
+
+        bool moved = false;
+
+        for (int one = 0; one < 32; one++)
+        {
+            int index = ParticleSystems.Spawn(system, store, points[0], lives: 1f, seconds: 1f / 66f, points: points);
+
+            float trip = store.Lifetime[index] * 1000f;
+
+            trip.ShouldBeInRange(450f - 0.01f, 550f + 0.01f);
+            moved |= System.MathF.Abs(trip - 500f) > 1f;
+        }
+
+        moved.ShouldBeTrue("a spread that never moves the end is not a spread");
+    }
+
+    /// <remarks>
+    /// **A Valve bug, reproduced for the particle it lands on.** With <c>start offset</c> above zero the start is moved
+    /// toward the end, but the write-back puts y and z at <c>+4</c> and <c>+8</c> (<c>0x107bf7c6</c>, <c>0x107bf7d6</c>)
+    /// — the neighbouring particles' x in the four-wide block — instead of <c>+0x10</c> and <c>+0x20</c>. So the particle
+    /// itself keeps its y and z and only its x moves, while the trip is measured from the fully moved start.
+    /// </remarks>
+    [Test]
+    public void Spawn_MoveBetweenTwoControlPointsWithAStartOffset_MovesOnlyXAsTheEngineDoes()
+    {
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(MoveBetween(1000d, 1000d, offset: 10d)),
+            store,
+            ParticleControlPoint.Unoriented(Vector3.Zero),
+            lives: 1f,
+            seconds: 1f / 66f,
+            points: [ParticleControlPoint.Unoriented(Vector3.Zero), ParticleControlPoint.Unoriented(new Vector3(100f, 100f, 0f))]);
+
+        float distance = System.MathF.Sqrt(20000f);
+        float moved = 10f / (distance + 1.1920929E-7f) * 100f;
+
+        store.PositionOf(index).X.ShouldBe(moved, 0.0001f);
+        store.PositionOf(index).Y.ShouldBe(0f);
+        store.Lifetime[index].ShouldBe((distance - 10f) / 1000f, 0.0001f);
+    }
+
     [Test]
     public void SpriteBlending_AddSelf_OutranksAdditive()
     {
@@ -438,6 +560,20 @@ public sealed class ParticleInitializerConformanceTests
                 ["speed_min"] = new DmxValue(DmxAttributeType.Real, speedLeast),
                 ["speed_max"] = new DmxValue(DmxAttributeType.Real, speedMost),
                 ["speed_random_exponent"] = new DmxValue(DmxAttributeType.Real, exponent),
+            });
+
+    /// <summary>`move particles between 2 control points`, ending at control point 1.</summary>
+    private static ParticleFunction MoveBetween(double least, double most, double spread = 0d, double offset = 0d) =>
+        new(
+            "move particles between 2 control points",
+            "tracer",
+            new Dictionary<string, DmxValue>(System.StringComparer.Ordinal)
+            {
+                ["minimum speed"] = new DmxValue(DmxAttributeType.Real, least),
+                ["maximum speed"] = new DmxValue(DmxAttributeType.Real, most),
+                ["end spread"] = new DmxValue(DmxAttributeType.Real, spread),
+                ["start offset"] = new DmxValue(DmxAttributeType.Real, offset),
+                ["end control point"] = new DmxValue(DmxAttributeType.Whole, 1d),
             });
 
     /// <summary>`Position Modify Offset Random` with its four parameters.</summary>

@@ -223,6 +223,33 @@ public sealed class ParticleEffect
         return known;
     }
 
+    /// <summary>Every control point set on this effect by number; slot 0 is rewritten by each <see cref="Step"/>.</summary>
+    private readonly List<ParticleControlPoint> _points = [];
+
+    /// <summary>Sets one control point — <c>CNewParticleEffect::SetControlPoint</c>.</summary>
+    /// <param name="number">Which one; a tracer's end is 1.</param>
+    /// <param name="point">Where it is.</param>
+    /// <remarks>
+    /// **Passed down to every child**, as the engine's own walks `m_Children` (`particles.h:1595`). Points between
+    /// the last one set and this one are the origin, which is what an unset control point is.
+    /// </remarks>
+    public void SetControlPoint(int number, ParticleControlPoint point)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(number);
+
+        while (_points.Count <= number)
+        {
+            _points.Add(ParticleControlPoint.Unoriented(Vector3.Zero));
+        }
+
+        _points[number] = point;
+
+        foreach (ParticleEffect child in Children)
+        {
+            child.SetControlPoint(number, point);
+        }
+    }
+
     /// <summary>Advances the effect one step, emitting at the declared rate.</summary>
     /// <param name="at">Where the emitter is — the rocket's own position.</param>
     /// <param name="seconds">How long the step is.</param>
@@ -319,7 +346,7 @@ public sealed class ParticleEffect
             {
                 _owed -= 1f;
 
-                if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds) < 0)
+                if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds, _points) < 0)
                 {
                     // At `max_particles`. Dropping the owed fraction too, because a system at its
                     // cap has not banked a debt — it simply did not emit.
@@ -381,7 +408,7 @@ public sealed class ParticleEffect
 
         while (born < allowed && owed > 0)
         {
-            if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds) < 0)
+            if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds, _points) < 0)
             {
                 // At `max_particles`: a system at its cap has not banked a debt, it simply did not emit.
                 owed = 0;

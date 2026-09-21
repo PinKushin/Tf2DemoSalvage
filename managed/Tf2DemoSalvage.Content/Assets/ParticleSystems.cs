@@ -146,6 +146,11 @@ public static class ParticleSystems
     /// no velocity, so a speed is written as how far behind the particle its previous position is
     /// put. The engine's own initializers read the collection's step for the same reason.
     /// </param>
+    /// <param name="points">
+    /// Every control point the effect has, by number, where an initializer reads one other than
+    /// <paramref name="point"/> — a tracer's end is control point 1. Null or short means the rest are unset, and an
+    /// unset point is the origin, as a collection's are before anything sets them.
+    /// </param>
     /// <returns>Its index, or -1 when the system is already at <c>max_particles</c>.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -168,7 +173,8 @@ public static class ParticleSystems
         ParticleStore into,
         ParticleControlPoint point,
         float lives,
-        float seconds)
+        float seconds,
+        IReadOnlyList<ParticleControlPoint>? points = null)
     {
         ArgumentNullException.ThrowIfNull(system);
         ArgumentNullException.ThrowIfNull(into);
@@ -330,6 +336,10 @@ public static class ParticleSystems
                     Offset(one, into, index, point);
                     break;
 
+                case "move particles between 2 control points":
+                    MoveBetween(one, into, index, ControlPoint(point, points, (int)one.Number("end control point", 1d)), seconds);
+                    break;
+
                 default:
                     break;
             }
@@ -465,6 +475,83 @@ public static class ParticleSystems
         into.Position[index] += offset;
         into.Previous[index] += offset;
     }
+
+    /// <summary>Sends one new particle toward another control point — <c>move particles between 2 control points</c>.</summary>
+    /// <remarks>
+    /// **`C_INIT_MoveBetweenPoints`, read out of `client.dll`** (B415) — `FUN_107bf510`, the scalar initializer, with
+    /// the members its unpack table names: `minimum speed` +0x2c, `maximum speed` +0x30, `end spread` +0x34,
+    /// `start offset` +0x38, `end control point` +0x3c (defaults "1", "1", "0", "0", "1"). Per particle:
+    ///
+    /// <code>
+    /// end   = GetControlPointAtTime( end control point, CREATION_TIME )
+    /// if ( end spread > 0 )     end += RandomVectorInUnitSphere() · end spread
+    /// delta = end − XYZ;  dist = sqrtss( delta · delta )
+    /// if ( start offset > 0 )   start += delta · offset / ( dist + FLT_EPSILON );  recompute delta, dist
+    /// speed = ( max − min ) · r + min
+    /// LIFE_DURATION = dist / ( speed + FLT_EPSILON )
+    /// PREV_XYZ = XYZ − delta · ( speed / dist ) · dt
+    /// </code>
+    ///
+    /// **The start-offset write-back is a Valve bug, reproduced for the particle it lands on**: x is stored at
+    /// <c>+0</c> but y and z at <c>+4</c> and <c>+8</c> (<c>0x107bf7c6</c>, <c>0x107bf7d6</c>) — the neighbouring
+    /// particles' x in the four-wide block — so this particle's own y and z never move. The neighbours' x being
+    /// overwritten is NOT reproduced; this store is not four-wide. No tracer declares an offset.
+    /// </remarks>
+    private static void MoveBetween(
+        ParticleFunction one, ParticleStore into, int index, ParticleControlPoint end, float seconds)
+    {
+        const float Epsilon = 1.1920929E-7f;
+
+        int id = into.Id[index];
+
+        Vector3 target = end.At;
+        float spread = (float)one.Number("end spread", 0d);
+
+        if (spread > 0f)
+        {
+            target += ParticleRandom.InUnitSphere(id, SpreadDraw).Point * spread;
+        }
+
+        Vector3 start = into.Position[index];
+        Vector3 delta = target - start;
+        float distance = MathF.Sqrt(delta.LengthSquared());
+        float offset = (float)one.Number("start offset", 0d);
+
+        if (offset > 0f)
+        {
+            start += delta * (offset / (distance + Epsilon));
+            delta = target - start;
+            distance = MathF.Sqrt(delta.LengthSquared());
+
+            into.Position[index] = new Vector3(start.X, into.Position[index].Y, into.Position[index].Z);
+        }
+
+        float least = (float)one.Number("minimum speed", 1d);
+        float speed = (((float)one.Number("maximum speed", 1d) - least) * ParticleRandom.Sample(id, MoveSpeedDraw)) + least;
+
+        into.Lifetime[index] = distance / (speed + Epsilon);
+        into.Previous[index] = into.Position[index] - (delta * (speed / distance) * seconds);
+    }
+
+    /// <summary>Control point <paramref name="number"/>, or the origin when it is unset.</summary>
+    private static ParticleControlPoint ControlPoint(
+        ParticleControlPoint zero, IReadOnlyList<ParticleControlPoint>? points, int number)
+    {
+        if (number == 0)
+        {
+            return zero;
+        }
+
+        return points is not null && number > 0 && number < points.Count
+            ? points[number]
+            : ParticleControlPoint.Unoriented(Vector3.Zero);
+    }
+
+    /// <summary>Which table entry <c>move particles between 2 control points</c> draws its speed from.</summary>
+    public const int MoveSpeedDraw = 1792;
+
+    /// <summary>Where its end-spread sphere sample starts — this entry and the two after it.</summary>
+    public const int SpreadDraw = 2304;
 
     /// <summary>
     /// Which table entry <c>Sequence Random</c> reads — an arbitrary constant that only has to

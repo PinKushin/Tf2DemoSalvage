@@ -51,30 +51,39 @@ public sealed class ParticleProbe : IProbe
             ("renderer", system.Renderers),
         ];
 
+        // The definition's own attributes (material, radius, max_particles), which every spawn starts from.
+        output.WriteLine("    definition");
+        PrintParameters(output, system.Parameters, "      ");
+
         foreach ((string kind, IReadOnlyList<ParticleFunction> functions) in kinds)
         {
             foreach (ParticleFunction function in functions)
             {
                 output.WriteLine($"    {kind} {function.Function}");
-
-                foreach ((string parameter, DmxValue value) in function.Parameters
-                    .Where(one => one.Key is not ("functionName" or "name"))
-                    .OrderBy(one => one.Key, StringComparer.Ordinal))
-                {
-                    bool vector = value.Type
-                        is DmxAttributeType.Colour or DmxAttributeType.Vector3
-                        or DmxAttributeType.Vector4 or DmxAttributeType.Angle;
-
-                    string shown = vector
-                        ? string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"({value.Vector.X:0.##} {value.Vector.Y:0.##} {value.Vector.Z:0.##} {value.Vector.W:0.##})")
-                        : value.Text ?? string.Create(
-                            CultureInfo.InvariantCulture, $"{value.Number:0.####}");
-
-                    output.WriteLine($"      {parameter} = {shown} ({value.Type})");
-                }
+                PrintParameters(output, function.Parameters, "      ");
             }
+        }
+    }
+
+    /// <summary>Every scalar, vector or text attribute, sorted; element arrays are skipped.</summary>
+    private static void PrintParameters(TextWriter output, IReadOnlyDictionary<string, DmxValue> parameters, string indent)
+    {
+        foreach ((string parameter, DmxValue value) in parameters
+            .Where(one => one.Key is not ("functionName" or "name") && one.Value.Elements is null)
+            .OrderBy(one => one.Key, StringComparer.Ordinal))
+        {
+            bool vector = value.Type
+                is DmxAttributeType.Colour or DmxAttributeType.Vector3
+                or DmxAttributeType.Vector4 or DmxAttributeType.Angle;
+
+            string shown = vector
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"({value.Vector.X:0.##} {value.Vector.Y:0.##} {value.Vector.Z:0.##} {value.Vector.W:0.##})")
+                : value.Text ?? string.Create(
+                    CultureInfo.InvariantCulture, $"{value.Number:0.####}");
+
+            output.WriteLine($"{indent}{parameter} = {shown} ({value.Type})");
         }
     }
 
