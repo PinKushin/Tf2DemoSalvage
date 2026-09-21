@@ -73,6 +73,7 @@ public sealed class ParticleEffects
     /// `tick − burst.Tick` would agree with the arithmetic rather than with what was done, and the whole question
     /// is whether the stepping matches that arithmetic.
     /// </remarks>
+    // Stryker disable once : removing TryGetValue leaves 'running' undeclared in ternary, CS0165 — B410.
     public int BurstSteps(long key) => _bursts.TryGetValue(key, out RunningBurst running) ? running.Stepped : -1;
 
     /// <summary>Steps every effect, starting one for each projectile that has none.</summary>
@@ -277,10 +278,14 @@ public sealed class ParticleEffects
                 continue;
             }
 
+            // Stryker disable all : 'running' is declared by the TryGetValue before a '||' and read after it, so the
+            // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
             if (!_bursts.TryGetValue(burst.Key, out RunningBurst running) || running.Stepped > wanted)
             {
                 running = new RunningBurst(new ParticleEffect(burst.Definition, others), 0);
             }
+
+            // Stryker restore all
 
             // **Counted by the loop, not assigned from `wanted`.** Writing the arithmetic back is what B243
             // warns about and it happened here: with `Stepped = wanted` the step count agreed with the

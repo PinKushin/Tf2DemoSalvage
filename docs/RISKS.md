@@ -27435,6 +27435,32 @@ deterministic trigger, and there are **303 of them** across `managed/` (Core 35 
 Presentation 12, Audio 4, Viewer3D 3, Logging 2, Render 1, Fonts 1). The definite-assignment shapes add ~143 more across
 core (119 triggers), scene (80), animation (31) and presentation (29).
 
+**2026-09-20 — measured on the box, and it had two consequences nobody predicted.**
+
+*It worked.* Content's Safe Mode triggers went 54 → **0** and Animation's 32 → 3, on the nightly runs.
+
+*It made Content take six hours, and that refused three other jobs.* The methods Safe Mode had been discarding are
+parsers — `Read`, `ReadStructures`, `ReadModelMeshes`, `Validate`, `Payload` — and a mutated loop bound in a parser does
+not fail, it never ends. Timeouts went 83 → **864**, each costing about 70 s (1.5 × the covering tests' time, plus the
+config's 10 s `additional-timeout`, off a 98 s initial run), and Content ran 15:00 → 21:14 holding the box's lock. Scene,
+Presentation and PBJ's `stryker-core` were refused and skipped for the day. Content was moved to 23:30, the one window
+that holds it; the arithmetic and the slot are in `PinKushin/MEASUREMENT-BOX-LOG.md`, 2026-09-20 22:31. **A timeout is a
+detected mutant, so this is real work being done, not waste** — the cost is set by the slowest covering test rather than
+by the mutant, which is the open question.
+
+*And it regressed the same day, in this session's own code.* The three Animation triggers left are all new —
+`IvpSimulation.RemoveContacts` and `Rebuild`, written for B413 — and the day's B415 code added eleven more of the
+same shapes, found by searching the branch's diff for the idioms rather than waiting for a log to name them one method
+at a time. All fourteen now carry the comment. **The rule this adds: any new `is not { } x` guard, any `out` variable
+used after the expression that declares it, and any `||` joining two of them needs the comment IN THE SAME CHANGE** —
+the log finds them a night later, one per method.
+
+*Not established:* the `// Stryker disable once : reason` form logs `ERR  not recognized as a mutator` on every run,
+dozens of lines, because the empty token before the colon is parsed as a mutator name. It still suppresses — the
+counts above prove it — so the error is noise, not a failure. `// Stryker disable once all : reason` is almost
+certainly the clean form, but it has not been A/B'd here the way the range form's `all` was, and changing ~400 sites on
+an untested belief is exactly how the range form's `all` was once wrongly removed.
+
 ### B409 FIXED 2026-09-18: gibs are never simulated — they hold in the air where the player died
 
 **Fixed**: every TF2 gib model is BAKED (no skeleton; measured on `soldiergib00N.mdl`: prop body, `Skinned` null), so the corpse

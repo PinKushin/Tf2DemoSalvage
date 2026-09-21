@@ -500,6 +500,9 @@ public sealed class IvpSimulation
                 IvpCollisionObject otherObject =
                     ReferenceEquals(contact.FirstObject, owner) ? contact.SecondObject : contact.FirstObject;
 
+                // Stryker disable once : a mutant that empties the guard body leaves 'other' unassigned
+                // (CS0165), and Safe Mode then drops every mutation in this method — B410. Measured on the box's
+                // 2026-09-20 animation run, which named RemoveContacts.
                 if (otherObject.Core is not { } other)
                 {
                     continue;
@@ -534,10 +537,16 @@ public sealed class IvpSimulation
     /// </remarks>
     private void Rebuild(IvpContactPoint contact)
     {
+        // Stryker disable all : two mutants break definite assignment here — emptying the guard body, and the
+        // Logical mutator turning '||' into '&&', after which neither 'first' nor 'second' is assigned on the
+        // fall-through (CS0165). Safe Mode then drops every mutation in the method — B410. The range form rather
+        // than 'once', because 'once' reaches only the statement's outermost node and the '||' is inside it.
         if (contact.FirstObject.Core is not { } first || contact.SecondObject.Core is not { } second)
         {
             return;
         }
+
+        // Stryker restore all
 
         (IvpLedgeSide firstSide, IvpLedgeSide secondSide) = ContactSides(contact);
 

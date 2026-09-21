@@ -2651,6 +2651,7 @@ public sealed class DemoTimeline
             foreach (DecodedTempEntity effect in decoder.DecodeTempEntities(
                 message.Body.Span, message.Count, message.BodyBits))
             {
+                // Stryker disable once : a mutated condition leaves 'className' unassigned below, CS0165 — B410.
                 if (!classNames.TryGetValue(effect.ClassId, out string? className))
                 {
                     continue;

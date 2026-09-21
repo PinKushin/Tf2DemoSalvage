@@ -98,11 +98,15 @@ public sealed class ExplosionEffects
                 : DefaultEffect;
         }
 
+        // Stryker disable all : emptying the guard body, or the Logical mutator turning '||' into '&&', leaves
+        // 'alias' or 'script' unassigned on the fall-through (CS0165), and Safe Mode drops the method — B410.
         if (TfWeaponAliases.ForExplosion(blast.WeaponId) is not { } alias ||
             Script(alias) is not { } script)
         {
             return DefaultEffect;
         }
+
+        // Stryker restore all
 
         // Valve's own order, and the `else if` is load-bearing: water is exclusive of the player-or-air branch
         // rather than layered on it, so an underwater blast that hit a player takes the water effect.
@@ -169,6 +173,7 @@ public sealed class ExplosionEffects
     /// <summary>One weapon script, read once whether or not it exists.</summary>
     private WeaponScript? Script(string alias)
     {
+        // Stryker disable once : a mutated condition leaves 'already' unassigned in the body, CS0165 — B410.
         if (_scripts.TryGetValue(alias, out WeaponScript? already))
         {
             return already;

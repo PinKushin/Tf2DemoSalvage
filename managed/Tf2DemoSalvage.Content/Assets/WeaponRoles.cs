@@ -88,6 +88,7 @@ public sealed class WeaponRoles
                 // Plain text first and then the encrypted form, which is the engine's own order in
                 // ReadEncryptedKVFile — a loose .txt is how a mod overrides a weapon. WeaponScript owns
                 // that order and the cipher key, since the explosion effects read the same files (B415).
+                // Stryker disable once : a mutant that empties the guard body leaves 'script' unassigned, CS0165 — B410.
                 if (WeaponScript.Read(readFile, candidate) is not { } script)
                 {
                     continue;

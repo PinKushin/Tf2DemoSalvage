@@ -61,6 +61,7 @@ public static class ParticleManifest
     {
         ArgumentNullException.ThrowIfNull(readFile);
 
+        // Stryker disable once : a mutant that empties the guard body leaves 'manifest' unassigned, CS0165 — B410.
         if (readFile(Path) is not { Length: > 0 } manifest)
         {
             return [];

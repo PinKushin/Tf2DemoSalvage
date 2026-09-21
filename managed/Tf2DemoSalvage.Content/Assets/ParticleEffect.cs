@@ -361,6 +361,7 @@ public sealed class ParticleEffect
             return;
         }
 
+        // Stryker disable once : a mutated condition leaves 'owed' unassigned at its use below, CS0165 — B410.
         if (!_bursts.TryGetValue(emitter, out int owed))
         {
             int count = (int)emitter.Number("num_to_emit", 0d);
@@ -408,11 +409,15 @@ public sealed class ParticleEffect
         {
             foreach (ParticleFunction emitter in System.Emitters)
             {
+                // Stryker disable all : 'owed' is declared by the TryGetValue and read after the '||', so the
+                // Logical mutator's switch declares it twice or leaves it unassigned (CS0128/CS0165) — B410.
                 if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal) &&
                     (!_bursts.TryGetValue(emitter, out int owed) || owed > 0))
                 {
                     return false;
                 }
+
+                // Stryker restore all
             }
 
             return true;

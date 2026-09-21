@@ -2116,6 +2116,7 @@ public sealed class MapAssets
 
         foreach (string path in ParticleManifest.Files(archives.Read))
         {
+            // Stryker disable once : a mutant that empties the guard body leaves 'file' unassigned, CS0165 — B410.
             if (archives.Read(path) is not { Length: > 0 } file)
             {
                 continue;
@@ -2188,10 +2189,14 @@ public sealed class MapAssets
         {
             string name = pending.Dequeue();
 
+            // Stryker disable all : 'one' is declared by the TryGetValue after a '||' and read below, so the
+            // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
             if (!wanted.Add(name) || !systems.TryGetValue(name, out ParticleSystem? one))
             {
                 continue;
             }
+
+            // Stryker restore all
 
             foreach (string child in one.Children)
             {
