@@ -150,7 +150,7 @@
 - [Ask what the request is for](ask-what-the-request-is-for.md) — "splash on boot" meant "let me see boot time".
 - [A picked option is not a voiced decision](a-picked-option-is-not-a-voiced-decision.md) — D183; tag provenance, re-examine picks first.
 - [A parity rule may bound the cost](a-parity-rule-may-bound-the-cost.md) — the corpse fade caps a seek's replay at ~15 s.
-- [A measure needs focus](a-measure-needs-focus.md) — 50 ms frames with empty columns is engine_no_focus_sleep.
+- [A measure needs focus](a-measure-needs-focus.md) — no fps comparisons unless asked; the viewer is often backgrounded.
 - [Mutation box gets maps, never demos](mutation-box-gets-maps-never-demos.md) — maps need all VPKs; synthetic first.
 - [Stryker Safe Mode needs an inline comment](stryker-safe-mode-needs-an-inline-comment.md) — config does nothing; one bad mutant drops the method.
 - [SourceTV has a local player](sourcetv-has-a-local-player.md) — the STV client itself, team 1; what STV lacks is a recorded VIEW.
