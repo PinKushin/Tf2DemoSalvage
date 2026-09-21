@@ -179,6 +179,11 @@ in any public writeup found:
   explosions claim a custom particle effect. The true figure is zero, and the wrong one would have
   made a string table nothing uses into the priority
   ([58](58-an-explosion-sends-a-normal-not-a-trace.md)).
+- **A tracer is a counter and two control points.** One static `tracerCount` for the whole client decides
+  which bullet of a pair draws, so a demo's tracers can only be answered all at once, in fire order.
+  The particle's life is the trip's length over its speed, read out of `client.dll`, whose start-offset
+  branch writes y and z into the neighbouring particles
+  ([59](59-a-tracer-is-a-counter-and-two-points.md)).
 
 ## Conventions used throughout
 

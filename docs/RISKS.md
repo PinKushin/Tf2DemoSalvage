@@ -27193,6 +27193,29 @@ use the trail renderer, and the fade correction is what makes the core flash vis
 alpha for its whole life. The trace, the constants and the wrong readings are in `docs/findings/58`. **Still open
 here:** hitscan tracers (the only half that needs a BSP trace), impacts, decals and blood.
 
+**Built 2026-09-21: hitscan tracers.** `ShotFeed` keeps every `CTEFireBullets` with the shooter captured at arrival;
+`HitscanTracers` rebuilds each pellet (`FireBulletsSpread`, now with the fixed pattern f12's server turns on), traces it
+against the world, runs the client-wide `tracerCount` and names the effect as `GetTracerType` does; `LoadedMap` does
+all of that once at load, and the viewer runs each tracer as a two-control-point burst through the newly read
+`move particles between 2 control points` initializer (`client.dll` `FUN_107bf510`, `docs/findings/59`). On f12,
+through the viewer's own load: 2,176 shots, **7,957 tracers**, twelve effect names, every definition present.
+
+**What the tracers still get wrong, each a divergence and each filed here rather than hidden:**
+
+- **They start at the bullet's origin, not the muzzle.** `FireBullet` moves the start to the active weapon's `muzzle`
+  attachment (`tf_player_shared.cpp:10575-10597`, the `!IsDormant()` branch, since `pWpn` is NULL for a demo's shots).
+- **The trace sees the world only.** `UTIL_PlayerBulletTrace` also traces `CONTENTS_HITBOX` and clips to players, and
+  props and brush entities are solid to it; ours stops at brushes and displacements. A bullet that hit a player draws
+  through them to the wall behind.
+- **An item's own `tracer_effect`** (`GetStaticData()->GetTracerEffect( team )`) is not read, so an item that replaces
+  its weapon's tracer draws the stock one — and a sniper rifle, whose script has none, draws nothing either way.
+- **`mult_bullets_per_shot`** is an attribute hook on the active weapon that changes the pellet count (the Force-A-Nature,
+  for one); the count here is the script's.
+- **The counter starts at zero**, as a fresh client's does. Which bullet of a pair draws depends on everything the
+  client traced before, which no demo records.
+- **An unprecached tracer name** resolves to string-table entry 0 in the engine (`GetParticleSystemIndex` returns 0);
+  here it is looked up by name and skipped when absent.
+
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
 **The owner, unprompted, while I was measuring something else**: *"for some reason the first person rockets still dont
