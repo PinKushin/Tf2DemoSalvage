@@ -189,12 +189,15 @@ public sealed class ExplosionEffectsConformanceTests
             .ShouldBe("BlackBox.Explode");
     }
 
-    /// <remarks>The Original replaces its firing sound and not this one, so its blasts fall to the script.</remarks>
+    /// <remarks>
+    /// The Loose Cannon replaces none of its sounds (the `weapon-sounds` probe: 0 of 16), so its 240 blasts in
+    /// `demostf-cp_process_f12` fall to the script.
+    /// </remarks>
     [Test]
     public void SoundFor_AnItemThatDoesNotReplaceIt_IsTheScriptsSound()
     {
         Effects(RocketLauncherAlias, sound: "Rocket.Explode")
-            .SoundFor(Blast(RocketLauncher, item: 513), NoReplacement)
+            .SoundFor(Blast(RocketLauncher, item: 996), NoReplacement)
             .ShouldBe("Rocket.Explode");
     }
 
