@@ -56,6 +56,8 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// culling"* in Valve's own spelling. That box is what makes a tree walk worth more than a scan of
 /// every leaf: one test rejects a whole subtree.
 /// </remarks>
+/// <param name="FirstFace">`firstface`, offset 24: the first of the faces lying on this node's plane.</param>
+/// <param name="FaceCount">`numfaces`, offset 26. The engine's decal walk tries these faces for a node (B415).</param>
 public readonly record struct BspNode(
     int Front,
     int Back,
@@ -64,7 +66,9 @@ public readonly record struct BspNode(
     float NormalX,
     float NormalY,
     float NormalZ,
-    float Distance);
+    float Distance,
+    int FirstFace = 0,
+    int FaceCount = 0);
 
 public sealed class BspLeafTree
 {
@@ -620,7 +624,9 @@ public sealed class BspLeafTree
             BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]),
             BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]),
             BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]),
-            BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]));
+            BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]),
+            BinaryPrimitives.ReadUInt16LittleEndian(nodes[(at + 24)..]),
+            BinaryPrimitives.ReadUInt16LittleEndian(nodes[(at + 26)..]));
     }
 
     /// <summary>How many leaves the map has.</summary>

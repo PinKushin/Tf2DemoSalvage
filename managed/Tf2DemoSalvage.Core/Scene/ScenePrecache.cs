@@ -29,37 +29,14 @@ public sealed class ScenePrecache
     /// <summary>The table this reads. Updates name their table only by id, not by name.</summary>
     public const string TableName = "Scenes";
 
-    private readonly Dictionary<int, string> _scenes = [];
+    private readonly NameTable _scenes = new();
 
     /// <summary>How many scenes the table has named so far.</summary>
     public int Count => _scenes.Count;
 
-    /// <summary>Records a create or update message's entries.</summary>
+    /// <summary>Records a create or update message's entries — see <see cref="NameTable.Apply"/>.</summary>
     /// <param name="entries">Entries from the message; later ones replace earlier ones.</param>
-    /// <remarks>
-    /// **By the entry's own index, not its position in this list** — an update carries only what
-    /// changed, each entry stating where it belongs, so numbering from zero would rewrite the front
-    /// of the table with whatever happened to change.
-    /// </remarks>
-    public void Apply(IReadOnlyList<StringTableEntry> entries)
-    {
-        if (entries is null)
-        {
-            return;
-        }
-
-        foreach (StringTableEntry entry in entries)
-        {
-            // An entry with no text is a payload-only update to one already named; the scene's
-            // filename does not change.
-            if (entry.Index < 0 || string.IsNullOrEmpty(entry.Text))
-            {
-                continue;
-            }
-
-            _scenes[entry.Index] = entry.Text;
-        }
-    }
+    public void Apply(IReadOnlyList<StringTableEntry> entries) => _scenes.Apply(entries);
 
     /// <summary>The scene an index names.</summary>
     /// <param name="sceneIndex">The entity's <c>m_nSceneStringIndex</c>.</param>
@@ -68,6 +45,5 @@ public sealed class ScenePrecache
     /// **No guard on the number itself**, for the reason <see cref="ModelPrecache.Path"/> gives: a
     /// range check here would be a branch no input can reach, since nothing negative is ever stored.
     /// </remarks>
-    public string? Path(int sceneIndex) =>
-        _scenes.TryGetValue(sceneIndex, out string? scene) ? scene : null;
+    public string? Path(int sceneIndex) => _scenes.Name(sceneIndex);
 }
