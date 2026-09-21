@@ -210,8 +210,8 @@ public static class TfWeaponAliases
     /// <summary>A demoman's sticky, likewise.</summary>
     private const int GrenadeDemoman = 53;
 
-    /// <summary>A Halloween pumpkin, likewise.</summary>
-    private const int PumpkinBomb = 63;
+    /// <summary>A Halloween pumpkin, likewise — and the one weapon whose explosion sound is fixed.</summary>
+    public const int PumpkinBomb = 63;
 
     /// <summary>The detonator's flare, which reads the flamethrower's script.</summary>
     private const int FlamethrowerRocket = 52;

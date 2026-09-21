@@ -28,10 +28,14 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// (`tf_fx_explosions.cpp:62-70`). **The one field NOT on the wire**: the client asks its own list, so this is
 /// resolved against the entity table as that packet left it, which is the same moment.
 /// </param>
+/// <param name="ItemDefinition">
+/// `m_nDefID`, the item that fired it, or <see cref="NoItem"/>. With <paramref name="WeaponSound"/> it picks the
+/// item's replacement for the weapon script's `ExplosionSound` (`tf_fx_explosions.cpp:131-152`); nothing drawn
+/// depends on it.
+/// </param>
+/// <param name="WeaponSound">`m_nSound`, a `WeaponSound_t` — which of the item's replacement sounds to use.</param>
 /// <remarks>
-/// **Everything else here is on the wire and nothing is inferred.** `m_nDefID` and `m_nSound` are decoded and
-/// dropped: they select a replacement SOUND from the item definition (`tf_fx_explosions.cpp:133-152`) and nothing
-/// about what is drawn.
+/// **Everything else here is on the wire and nothing is inferred.**
 /// </remarks>
 public readonly record struct SceneExplosion(
     int Tick,
@@ -42,8 +46,16 @@ public readonly record struct SceneExplosion(
     int WeaponId,
     int Entity,
     int CustomParticleIndex,
-    bool StruckPlayer = false)
+    bool StruckPlayer = false,
+    int ItemDefinition = SceneExplosion.NoItem,
+    int WeaponSound = SceneExplosion.Special1)
 {
+    /// <summary>`m_nDefID` when no item fired the blast — `C_TETFExplosion`'s constructor sets −1.</summary>
+    public const int NoItem = -1;
+
+    /// <summary>`SPECIAL1` in `WeaponSound_t` (`weapon_parse.h`), which the constructor gives `m_nSound`.</summary>
+    public const int Special1 = 11;
+
     /// <summary>What `m_iCustomParticleIndex` is when the blast names no particular effect.</summary>
     /// <remarks>
     /// **65535, and it is NOT −1** — `networkstringtabledefs.h:17` declares

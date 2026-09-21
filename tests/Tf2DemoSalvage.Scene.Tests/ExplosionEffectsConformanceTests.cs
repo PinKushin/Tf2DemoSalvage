@@ -162,15 +162,84 @@ public sealed class ExplosionEffectsConformanceTests
             .ShouldBe((0f, 0f, 0f));
     }
 
+    // **The sound, `tf_fx_explosions.cpp:127-157`, in its own order**:
+    //
+    //     pszSound = "BaseExplosionEffect.Sound";
+    //     if ( pWeaponInfo && m_szExplosionSound[0] )
+    //         if ( nDefID >= 0 ) { if ( pLocalPlayer ) { pszSound = item's replacement; if empty, m_szExplosionSound } }
+    //         else pszSound = m_szExplosionSound;
+    //     if ( iWeaponID == TF_WEAPON_PUMPKIN_BOMB ) pszSound = "Halloween.PumpkinExplode";
+
+    [Test]
+    public void SoundFor_ABlastFromNoItem_IsTheScriptsExplosionSound()
+    {
+        Effects(RocketLauncherAlias, sound: "Rocket.Explode")
+            .SoundFor(Blast(RocketLauncher), NoReplacement)
+            .ShouldBe("Rocket.Explode");
+    }
+
+    /// <remarks>The Black Box's `sound_special1` is `Weapon_RPG_BlackBox.Explode`; `m_nSound` is `SPECIAL1`.</remarks>
+    [Test]
+    public void SoundFor_AnItemThatReplacesIt_IsTheReplacement()
+    {
+        Effects(RocketLauncherAlias, sound: "Rocket.Explode")
+            .SoundFor(
+                Blast(RocketLauncher, item: 228),
+                (item, weaponSound) => item == 228 && weaponSound == SceneExplosion.Special1 ? "BlackBox.Explode" : null)
+            .ShouldBe("BlackBox.Explode");
+    }
+
+    /// <remarks>The Original replaces its firing sound and not this one, so its blasts fall to the script.</remarks>
+    [Test]
+    public void SoundFor_AnItemThatDoesNotReplaceIt_IsTheScriptsSound()
+    {
+        Effects(RocketLauncherAlias, sound: "Rocket.Explode")
+            .SoundFor(Blast(RocketLauncher, item: 513), NoReplacement)
+            .ShouldBe("Rocket.Explode");
+    }
+
+    [Test]
+    public void SoundFor_AWeaponWithNoScript_IsTheBaseSound()
+    {
+        Effects(RocketLauncherAlias, sound: "Rocket.Explode")
+            .SoundFor(Blast(weapon: 0), NoReplacement)
+            .ShouldBe(ExplosionEffects.DefaultSound);
+    }
+
+    /// <remarks>
+    /// **The item is only consulted inside the script's own check**, so a weapon whose script names no explosion
+    /// sound keeps the base one even when the item would replace it.
+    /// </remarks>
+    [Test]
+    public void SoundFor_AScriptWithNoExplosionSound_IgnoresTheItem()
+    {
+        Effects(RocketLauncherAlias, wall: "wall_fx")
+            .SoundFor(Blast(RocketLauncher, item: 228), static (_, _) => "BlackBox.Explode")
+            .ShouldBe(ExplosionEffects.DefaultSound);
+    }
+
+    /// <remarks>Last, and whatever came before: the pumpkin's own sound, though it reads the pipebomb launcher's script.</remarks>
+    [Test]
+    public void SoundFor_APumpkinBomb_IsThePumpkinsSound()
+    {
+        Effects(PipebombLauncher, sound: "Pipe.Explode")
+            .SoundFor(Blast(Content.Assets.TfWeaponAliases.PumpkinBomb), NoReplacement)
+            .ShouldBe("Halloween.PumpkinExplode");
+    }
+
+    /// <summary>An item schema in which nothing replaces anything.</summary>
+    private static readonly Func<int, int, string?> NoReplacement = static (_, _) => null;
+
     /// <summary>An <see cref="ExplosionEffects"/> over one synthetic weapon script.</summary>
     private static ExplosionEffects Effects(
-        string alias, string? wall = null, string? player = null, string? water = null)
+        string alias, string? wall = null, string? player = null, string? water = null, string? sound = null)
     {
         StringBuilder script = new("WeaponData\n{\n");
 
         Append(script, "ExplosionEffect", wall);
         Append(script, "ExplosionPlayerEffect", player);
         Append(script, "ExplosionWaterEffect", water);
+        Append(script, "ExplosionSound", sound);
 
         script.Append("}\n");
 
@@ -192,7 +261,8 @@ public sealed class ExplosionEffectsConformanceTests
     private static SceneExplosion Blast(
         int weapon,
         (float X, float Y, float Z) normal = default,
-        int custom = SceneExplosion.NoCustomParticle) =>
+        int custom = SceneExplosion.NoCustomParticle,
+        int item = SceneExplosion.NoItem) =>
         new(
             Tick: 1,
             X: 0f,
@@ -201,5 +271,6 @@ public sealed class ExplosionEffectsConformanceTests
             Normal: normal,
             WeaponId: weapon,
             Entity: SceneExplosion.NoEntity,
-            CustomParticleIndex: custom);
+            CustomParticleIndex: custom,
+            ItemDefinition: item);
 }

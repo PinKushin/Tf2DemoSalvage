@@ -139,6 +139,26 @@ public sealed class ExplosionFeedConformanceTests
     }
 
     /// <remarks>
+    /// **`m_nDefID` and `m_nSound` choose the blast's SOUND** — an item's replacement for the weapon script's
+    /// `ExplosionSound` (`tf_fx_explosions.cpp:131-152`). Absent from a delta, they are what `C_TETFExplosion`'s
+    /// constructor sets: `m_nDefID = -1` (no item) and `m_nSound = SPECIAL1`, which is 11 in `WeaponSound_t`.
+    /// </remarks>
+    [Test]
+    public void Record_AnItemAndItsSound_AreKeptAndDefaultToNoneAndSpecial1()
+    {
+        ExplosionFeed feed = new();
+
+        feed.Record(ExplosionFeed.EventClassName, Explosion(weapon: 22, definition: 228, sound: 12), tick: 1, NoPlayers);
+        feed.Record(ExplosionFeed.EventClassName, Bare(), tick: 2, NoPlayers);
+
+        feed.All[0].ItemDefinition.ShouldBe(228);
+        feed.All[0].WeaponSound.ShouldBe(12);
+
+        feed.All[1].ItemDefinition.ShouldBe(-1);
+        feed.All[1].WeaponSound.ShouldBe(11);
+    }
+
+    /// <remarks>
     /// **`bIsPlayer` is asked of the client's entity list when the blast arrives** (`tf_fx_explosions.cpp:62-70`):
     ///
     /// <code>
@@ -279,7 +299,9 @@ public sealed class ExplosionFeedConformanceTests
         (float X, float Y, float Z) normal = default,
         int weapon = 0,
         int entity = SceneExplosion.NoEntity,
-        int custom = SceneExplosion.NoCustomParticle) =>
+        int custom = SceneExplosion.NoCustomParticle,
+        int definition = -1,
+        int sound = 11) =>
         new(
             ClassId: 172,
             DelaySeconds: 0f,
@@ -291,10 +313,13 @@ public sealed class ExplosionFeedConformanceTests
                 Vector("m_vecNormal", normal),
                 Int("m_iWeaponID", weapon),
                 Int("entindex", entity),
-                Int("m_nDefID", -1),
-                Int("m_nSound", 0),
+                Int("m_nDefID", definition),
+                Int("m_nSound", sound),
                 Int("m_iCustomParticleIndex", custom),
             ]);
+
+    /// <summary>A <c>CTETFExplosion</c> delta that sends nothing, so every field takes the client's default.</summary>
+    private static DecodedTempEntity Bare() => new(ClassId: 172, DelaySeconds: 0f, Properties: []);
 
     private static DecodedProperty Int(string name, int value) =>
         Declared(name, SendPropType.Int, PropertyValue.FromInt(value));

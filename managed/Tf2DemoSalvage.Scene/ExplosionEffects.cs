@@ -40,13 +40,22 @@ namespace Tf2DemoSalvage.Scene;
 ///   contents at a point. The caller passes `false`, so a blast in water takes the air or wall effect.
 /// - **`GameRules()->TranslateEffectForVisionFilter( "particles", pszEffect )`**, which `TFExplosionCallback`
 ///   applies last. Unread.
-/// - **The sound.** `m_nDefID` and `m_nSound` pick a replacement sound out of the item definition and nothing
-///   about what is drawn.
+///
+/// The same callback also chooses the blast's SOUND — <see cref="SoundFor"/>.
 /// </remarks>
 public sealed class ExplosionEffects
 {
     /// <summary>What every explosion starts as, before a script or a custom index can change it.</summary>
     public const string DefaultEffect = "ExplosionCore_wall";
+
+    /// <summary>What every explosion SOUNDS like before a script or an item changes it.</summary>
+    public const string DefaultSound = "BaseExplosionEffect.Sound";
+
+    /// <summary>`TF_WEAPON_PUMPKIN_BOMB`'s own sound, which overrides everything else.</summary>
+    public const string PumpkinSound = "Halloween.PumpkinExplode";
+
+    /// <summary>`m_szExplosionSound`'s key.</summary>
+    private const string SoundKey = "ExplosionSound";
 
     /// <summary>`m_szExplosionEffect`'s key in the weapon script.</summary>
     private const string WallKey = "ExplosionEffect";
@@ -122,6 +131,48 @@ public sealed class ExplosionEffects
         }
 
         return script.Value(key) is { Length: > 0 } effect ? effect : DefaultEffect;
+    }
+
+    /// <summary>The sound script entry a blast plays — the other half of <c>TFExplosionCallback</c>.</summary>
+    /// <param name="blast">The explosion.</param>
+    /// <param name="replacement">
+    /// <c>CEconItemDefinition::GetWeaponReplacementSound( local team, m_nSound )</c> for an item index, or null when
+    /// the item declares none. Asked only for a blast that names an item.
+    /// </param>
+    /// <returns>A sound script key, never empty.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="replacement"/> is null.</exception>
+    /// <remarks>
+    /// `tf_fx_explosions.cpp:127-157`, in its own order:
+    ///
+    /// <code>
+    /// pszSound = "BaseExplosionEffect.Sound";
+    /// if ( pWeaponInfo &amp;&amp; m_szExplosionSound[0] )
+    ///     if ( nDefID >= 0 ) { if ( pLocalPlayer ) { pszSound = replacement; if empty, m_szExplosionSound; } }
+    ///     else pszSound = m_szExplosionSound;
+    /// if ( iWeaponID == TF_WEAPON_PUMPKIN_BOMB ) pszSound = "Halloween.PumpkinExplode";
+    /// </code>
+    ///
+    /// **Two engine facts are folded in rather than asked.** A demo always has a local player, so `pLocalPlayer`
+    /// is taken as present. And `pItemDef` is never null on a client: `CEconItemSchema::GetItemDefinition` answers
+    /// the schema's `"default"` item for an index it does not know (`econ_item_schema.cpp:6694`), and the shipped
+    /// default declares no visuals — so an unknown index replaces nothing, which is what a null answer says.
+    /// </remarks>
+    public string SoundFor(SceneExplosion blast, Func<int, int, string?> replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+
+        string sound = DefaultSound;
+
+        if (TfWeaponAliases.ForExplosion(blast.WeaponId) is { } alias &&
+            Script(alias)?.Value(SoundKey) is { Length: > 0 } scripted)
+        {
+            sound = blast.ItemDefinition >= 0 &&
+                replacement(blast.ItemDefinition, blast.WeaponSound) is { Length: > 0 } replaced
+                    ? replaced
+                    : scripted;
+        }
+
+        return blast.WeaponId == TfWeaponAliases.PumpkinBomb ? PumpkinSound : sound;
     }
 
     /// <summary>Every particle system a demo's explosions could draw.</summary>

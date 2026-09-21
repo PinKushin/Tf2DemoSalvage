@@ -47,6 +47,12 @@ public sealed class ExplosionFeed
     /// <summary>`m_iCustomParticleIndex`.</summary>
     private const string CustomParticleProperty = "m_iCustomParticleIndex";
 
+    /// <summary>`m_nDefID`.</summary>
+    private const string ItemProperty = "m_nDefID";
+
+    /// <summary>`m_nSound`.</summary>
+    private const string SoundProperty = "m_nSound";
+
     private readonly List<SceneExplosion> _blasts = [];
 
     /// <summary>Every blast recorded, in tick order.</summary>
@@ -85,6 +91,8 @@ public sealed class ExplosionFeed
         int weapon = 0;
         int entity = SceneExplosion.NoEntity;
         int custom = SceneExplosion.NoCustomParticle;
+        int item = SceneExplosion.NoItem;
+        int sound = SceneExplosion.Special1;
 
         foreach (DecodedProperty property in effect.Properties)
         {
@@ -97,6 +105,8 @@ public sealed class ExplosionFeed
                 case WeaponProperty: weapon = (int)property.Value.AsInt; break;
                 case EntityProperty: entity = Entity((int)property.Value.AsInt); break;
                 case CustomParticleProperty: custom = (int)property.Value.AsInt; break;
+                case ItemProperty: item = (int)property.Value.AsInt; break;
+                case SoundProperty: sound = (int)property.Value.AsInt; break;
                 default: break;
             }
         }
@@ -104,7 +114,7 @@ public sealed class ExplosionFeed
         // `INVALID_EHANDLE.Get()` is null, so "no entity" is never a player and is never looked up.
         bool struck = entity != SceneExplosion.NoEntity && isPlayer(entity);
 
-        _blasts.Add(new SceneExplosion(tick, x, y, z, normal, weapon, entity, custom, struck));
+        _blasts.Add(new SceneExplosion(tick, x, y, z, normal, weapon, entity, custom, struck, item, sound));
 
         return true;
     }

@@ -84,6 +84,17 @@ public sealed class ExplosionProbe : IProbe
                 $"    weapon {weapon,3} ({Content.Assets.TfWeaponAliases.Of(weapon) ?? "unknown"}): {count}"));
         }
 
+        // `m_nDefID` and `m_nSound`, which pick an item's replacement explosion sound.
+        foreach ((int item, int sound, int count) in blasts
+            .GroupBy(one => (one.ItemDefinition, one.WeaponSound))
+            .Select(one => (one.Key.ItemDefinition, one.Key.WeaponSound, one.Count()))
+            .OrderByDescending(one => one.Item3))
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    item {item,5} sound {sound,2}: {count}"));
+        }
+
         bool hits = arguments.Count >= 2 && arguments[1].Equals("hits", StringComparison.OrdinalIgnoreCase);
 
         if (!hits && (arguments.Count < 2 ||
