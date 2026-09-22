@@ -5208,7 +5208,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private void DrawDecals(ComPtr<ID3D11DeviceContext> context)
     {
-        if (_decals.Count == 0 || _decalOffset.Handle is null)
+        if ((_decals.Count == 0 && _shotDecals.Count == 0) || _decalOffset.Handle is null)
         {
             return;
         }
@@ -5240,71 +5240,289 @@ internal sealed unsafe class WorldRenderer : IDisposable
         //
         // The engine blends them too - a decal material is translucent, and its alpha is the shape
         // of the stain. Drawn opaque, the transparent surround is painted as solid colour, which
-        // is why the squares had hard edges no decal in the game has.
-        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
-
-        if (_alphaBlend.Handle is not null)
-        {
-            context.OMSetBlendState(_alphaBlend, factor, 0xFFFFFFFF);
-        }
-
+        // is why the squares had hard edges no decal in the game has. The state is set per batch, in
+        // DrawDecalBatch, because a modulating decal wants a different one.
         foreach (WorldBatch batch in _decals)
         {
-            if (batch.MaterialIndex < 0 || batch.MaterialIndex >= _textures.Count)
+            DrawDecalBatch(context, batch);
+        }
+
+        // **The decals the game put there — bullet holes and the demo's own decal events — after the map's overlays**
+        // (B415), from their own buffer because they change while the map plays. *Interpolated order:* both are drawn by
+        // the engine's world pass, and which of the two it draws first was not read.
+        if (_shotDecals.Count > 0 && _shotDecalBuffer.Handle is not null)
+        {
+            uint stride = VertexStride;
+            uint offset = 0;
+
+            context.IASetVertexBuffers(0, 1, ref _shotDecalBuffer, in stride, in offset);
+
+            foreach (WorldBatch batch in _shotDecals)
             {
-                continue;
+                DrawDecalBatch(context, batch);
             }
 
-            ComPtr<ID3D11ShaderResourceView> still =
-                _textures[batch.MaterialIndex].Handle is not null
-                    ? _textures[batch.MaterialIndex]
-                    : _white;
-
-            ComPtr<ID3D11ShaderResourceView> texture = still;
-
-            SetMaterial(context, batch.MaterialIndex, batch.Category);
-
-            // A decal's second texture, on the same rule as everything else: the real one when the
-            // material names it, and the base otherwise so a mix stays an identity.
-            ComPtr<ID3D11ShaderResourceView> second =
-                batch.MaterialIndex < _blendTextures.Count &&
-                _blendTextures[batch.MaterialIndex].Handle is not null
-                    ? _blendTextures[batch.MaterialIndex]
-                    : texture;
-
-            // The same lookup as every other path, for the same reason models needed it: `_white`
-            // is the missing-material chequer, so binding it as a detail paints magenta squares
-            // onto any material whose combine mode is not −1. No decal in the corpus has been seen
-            // to declare one — this is the second instance of one fault, fixed with it rather than
-            // left to be found again from a screenshot.
-            ComPtr<ID3D11ShaderResourceView> stillDetail =
-                batch.MaterialIndex < _details.Count &&
-                _details[batch.MaterialIndex].Handle is not null
-                    ? _details[batch.MaterialIndex]
-                    : _white;
-
-            // **The animated frame outranks the still one** (B342): for a material running
-            // `AnimatedTexture` on `$detail`, the still texture IS frame zero.
-            ComPtr<ID3D11ShaderResourceView> detail =
-                DetailFrame(batch.MaterialIndex, stillDetail);
-
-            ComPtr<ID3D11ShaderResourceView> bump =
-                batch.MaterialIndex < _bumps.Count &&
-                _bumps[batch.MaterialIndex].Handle is not null
-                    ? _bumps[batch.MaterialIndex]
-                    : _white;
-
-            texture = AnimationFrame(batch.MaterialIndex, texture);
-
-            context.PSSetShaderResources(0, 1, ref texture);
-            context.PSSetShaderResources(2, 1, ref second);
-            context.PSSetShaderResources(3, 1, ref detail);
-            context.PSSetShaderResources(4, 1, ref bump);
-            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+            context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
         }
 
         // Back to the ordinary rasteriser, or everything after this is pulled forward too.
         context.RSSetState(Raster(_bothSides));
+    }
+
+    /// <summary>The vertex light a mod2x decal's corners carry so this pipeline reproduces the engine's blend (B415).</summary>
+    /// <remarks>
+    /// **The engine's mod2x multiplies GAMMA values**: `DecalModulate` reads its texture with `EnableSRGBRead( false )`
+    /// and writes with `EnableSRGBWrite( false )`, so the framebuffer's stored value becomes `dst · 2s`, and a texel of
+    /// 128 leaves the wall unchanged. This renderer blends in LINEAR space — the target view is sRGB — and samples the
+    /// texture decoded, so the same equation in linear terms is `dst_lin · (2s)^2.2 = dst_lin · 2^2.2 · s_lin`. The
+    /// blend supplies one factor of two; the shader lights an unlit corner from the white texel at `OverbrightScale`,
+    /// which is another; this carries what is left, `2^2.2 / 2 / 2`.
+    ///
+    /// *Arithmetic, on the sRGB curve's 2.2 approximation.* A texel above about 0.68 would brighten past what an
+    /// unsigned-normalised output can carry and is clamped; a bullet hole's atlas is dark.
+    /// </remarks>
+    public const float ModulateTwiceLight = 1.1486983f;
+
+    /// <summary>The world's placed decals, drawn after the overlays; rebuilt when the decal list changes.</summary>
+    private IReadOnlyList<WorldBatch> _shotDecals = [];
+
+    /// <summary>The placed decals' corners, a dynamic buffer grown as the pool fills.</summary>
+    private ComPtr<ID3D11Buffer> _shotDecalBuffer;
+
+    /// <summary>How many corners <see cref="_shotDecalBuffer"/> holds.</summary>
+    private int _shotDecalCapacity;
+
+    /// <summary>Replaces the world's placed decals — `r_decals` of them at most, so the buffer stays small.</summary>
+    /// <param name="device">Device to grow the buffer on.</param>
+    /// <param name="context">Context to write it through.</param>
+    /// <param name="vertices">Every placed decal's triangles, grouped by material.</param>
+    /// <param name="batches">One run per material, into <paramref name="vertices"/>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void UploadShotDecals(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(batches);
+
+        _shotDecals = vertices.Count == 0 ? [] : batches;
+
+        if (vertices.Count == 0)
+        {
+            return;
+        }
+
+        if (vertices.Count > _shotDecalCapacity)
+        {
+            if (_shotDecalBuffer.Handle is not null)
+            {
+                _shotDecalBuffer.Dispose();
+                _shotDecalBuffer = default;
+            }
+
+            // Doubled, so a filling pool reallocates a handful of times rather than on every new decal.
+            _shotDecalCapacity = Math.Max(vertices.Count, _shotDecalCapacity * 2);
+
+            BufferDesc description = new()
+            {
+                ByteWidth = (uint)(_shotDecalCapacity * VertexStride),
+                Usage = Usage.Dynamic,
+                BindFlags = (uint)BindFlag.VertexBuffer,
+                CPUAccessFlags = (uint)CpuAccessFlag.Write,
+            };
+
+            SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref _shotDecalBuffer));
+        }
+
+        float[] data = Pack(vertices);
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_shotDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = data)
+        {
+            System.Buffer.MemoryCopy(
+                source, mapped.PData, (long)_shotDecalCapacity * VertexStride, sizeof(float) * (long)data.Length);
+        }
+
+        context.Unmap(_shotDecalBuffer, 0);
+    }
+
+    /// <summary>The model decals being drawn, a dynamic buffer shared by every model and grown as needed.</summary>
+    private ComPtr<ID3D11Buffer> _modelDecalBuffer;
+
+    /// <summary>Whether the first model decal draw has been reported.</summary>
+    private bool _reportedModelDecals;
+
+    /// <summary>How many corners <see cref="_modelDecalBuffer"/> holds.</summary>
+    private int _modelDecalCapacity;
+
+    /// <summary>Draws one model's decals, right after the model and with its bones — `CStudioRender::DrawModel`'s order.</summary>
+    /// <param name="device">Device to grow the buffer on.</param>
+    /// <param name="context">The device context; the model's bones must already be set.</param>
+    /// <param name="vertices">The decal's corners: the model's own vertices, carrying the decal's UV and material.</param>
+    /// <param name="batches">One run per decal material, into <paramref name="vertices"/>.</param>
+    /// <param name="bones">How many bones skin the model, or zero.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **The world decal pass's state** — the decal depth bias, tested and never written, and each material's own blend
+    /// (`DrawDecalBatch`) — with the model path's skinning. The caller restores its own depth and raster state after.
+    /// </remarks>
+    public void DrawModelDecals(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches,
+        int bones)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(batches);
+
+        if (vertices.Count == 0 || _decalOffset.Handle is null || _decalDepth.Handle is null)
+        {
+            return;
+        }
+
+        if (vertices.Count > _modelDecalCapacity)
+        {
+            if (_modelDecalBuffer.Handle is not null)
+            {
+                _modelDecalBuffer.Dispose();
+                _modelDecalBuffer = default;
+            }
+
+            _modelDecalCapacity = Math.Max(vertices.Count, _modelDecalCapacity * 2);
+
+            BufferDesc description = new()
+            {
+                ByteWidth = (uint)(_modelDecalCapacity * VertexStride),
+                Usage = Usage.Dynamic,
+                BindFlags = (uint)BindFlag.VertexBuffer,
+                CPUAccessFlags = (uint)CpuAccessFlag.Write,
+            };
+
+            SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref _modelDecalBuffer));
+        }
+
+        float[] data = Pack(vertices);
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_modelDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = data)
+        {
+            System.Buffer.MemoryCopy(
+                source, mapped.PData, (long)_modelDecalCapacity * VertexStride, sizeof(float) * (long)data.Length);
+        }
+
+        context.Unmap(_modelDecalBuffer, 0);
+
+        uint stride = VertexStride;
+        uint offset = 0;
+
+        context.IASetVertexBuffers(0, 1, ref _modelDecalBuffer, in stride, in offset);
+        context.RSSetState(Raster(_decalOffset));
+        context.OMSetDepthStencilState(_decalDepth, 0);
+
+        // Unlit: `DecalModulate` samples its texture and nothing else, so no ambient cube is handed over.
+        SetModel(context, ModelIdentity, bones: bones);
+
+        if (!_reportedModelDecals)
+        {
+            _reportedModelDecals = true;
+
+            WorldBatch first = batches[0];
+
+            _render.LogInformation(
+                "{Message}",
+                $"model decals drawn: {vertices.Count} corners in {batches.Count} runs over {bones} bones; material " +
+                $"{first.MaterialIndex} of {_textures.Count}, modulating {_modulate.GetValueOrDefault(first.MaterialIndex)}, " +
+                $"textured {first.MaterialIndex < _textures.Count && _textures[first.MaterialIndex].Handle is not null}");
+        }
+
+        foreach (WorldBatch batch in batches)
+        {
+            DrawDecalBatch(context, batch);
+        }
+
+        context.RSSetState(Raster(_bothSides));
+    }
+
+    /// <summary>The identity placement a skinned model's decal draws with, its bones carrying it.</summary>
+    private static readonly float[] ModelIdentity = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
+
+    /// <summary>Draws one decal run with its material's textures, in whatever vertex buffer is bound.</summary>
+    private void DrawDecalBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch)
+    {
+        if (batch.MaterialIndex < 0 || batch.MaterialIndex >= _textures.Count)
+        {
+            return;
+        }
+
+        // **Per material, as the shader declares it on bind**: a bullet hole is `DecalModulate`, whose
+        // `BlendFunc( DST_COLOR, SRC_COLOR )` doubles the product (`DecalModulate_dx9.cpp:67`); everything else here
+        // blends by its alpha.
+        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+        ComPtr<ID3D11BlendState> blending = _alphaBlend;
+
+        if (_modulate.TryGetValue(batch.MaterialIndex, out bool twice))
+        {
+            blending = twice ? _modulateTwiceBlend : _modulateBlend;
+        }
+
+        if (blending.Handle is not null)
+        {
+            context.OMSetBlendState(blending, factor, 0xFFFFFFFF);
+        }
+
+        ComPtr<ID3D11ShaderResourceView> still =
+            _textures[batch.MaterialIndex].Handle is not null
+                ? _textures[batch.MaterialIndex]
+                : _white;
+
+        ComPtr<ID3D11ShaderResourceView> texture = still;
+
+        SetMaterial(context, batch.MaterialIndex, batch.Category);
+
+        // A decal's second texture, on the same rule as everything else: the real one when the
+        // material names it, and the base otherwise so a mix stays an identity.
+        ComPtr<ID3D11ShaderResourceView> second =
+            batch.MaterialIndex < _blendTextures.Count &&
+            _blendTextures[batch.MaterialIndex].Handle is not null
+                ? _blendTextures[batch.MaterialIndex]
+                : texture;
+
+        // The same lookup as every other path, for the same reason models needed it: `_white`
+        // is the missing-material chequer, so binding it as a detail paints magenta squares
+        // onto any material whose combine mode is not −1. No decal in the corpus has been seen
+        // to declare one — this is the second instance of one fault, fixed with it rather than
+        // left to be found again from a screenshot.
+        ComPtr<ID3D11ShaderResourceView> stillDetail =
+            batch.MaterialIndex < _details.Count &&
+            _details[batch.MaterialIndex].Handle is not null
+                ? _details[batch.MaterialIndex]
+                : _white;
+
+        // **The animated frame outranks the still one** (B342): for a material running
+        // `AnimatedTexture` on `$detail`, the still texture IS frame zero.
+        ComPtr<ID3D11ShaderResourceView> detail =
+            DetailFrame(batch.MaterialIndex, stillDetail);
+
+        ComPtr<ID3D11ShaderResourceView> bump =
+            batch.MaterialIndex < _bumps.Count &&
+            _bumps[batch.MaterialIndex].Handle is not null
+                ? _bumps[batch.MaterialIndex]
+                : _white;
+
+        texture = AnimationFrame(batch.MaterialIndex, texture);
+
+        context.PSSetShaderResources(0, 1, ref texture);
+        context.PSSetShaderResources(2, 1, ref second);
+        context.PSSetShaderResources(3, 1, ref detail);
+        context.PSSetShaderResources(4, 1, ref bump);
+        context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
     }
 
     private void DrawTranslucent(ComPtr<ID3D11DeviceContext> context)
@@ -5448,6 +5666,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
     {
         ReleaseTextures();
         ReleaseGeometry();
+
+        // Not with the geometry: a resize re-uploads that and keeps the decals the map has gathered.
+        if (_shotDecalBuffer.Handle is not null)
+        {
+            _shotDecalBuffer.Dispose();
+            _shotDecalBuffer = default;
+        }
+
+        _shotDecalCapacity = 0;
+        _shotDecals = [];
     }
 
     private void ReleaseTextures()

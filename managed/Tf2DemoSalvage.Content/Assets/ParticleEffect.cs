@@ -45,6 +45,9 @@ public sealed class ParticleEffect
     /// <summary>The operators this run can apply, by name.</summary>
     private readonly IReadOnlyDictionary<string, IParticleOperator> _operators;
 
+    /// <summary>The sheet this system's material carries, or null.</summary>
+    private readonly IReadOnlyList<SheetSequence>? _sheet;
+
     /// <summary>The fraction of a particle owed from previous steps.</summary>
     private float _owed;
 
@@ -75,6 +78,74 @@ public sealed class ParticleEffect
         }
     }
 
+    /// <summary>Whether this effect has run out of particles AND will make no more.</summary>
+    /// <remarks>
+    /// **Emptiness alone is not finishedness, and the engine says so in the declaration itself**:
+    /// *"IsFinished returns true when a system has no particles and won't be creating any more"*
+    /// (`particles.h:1119`). The second half is what <see cref="Empty"/> cannot answer.
+    ///
+    /// **It matters the moment an emitter has a start time.** `emit_continuously` carries
+    /// `emission_start_time`, so a system that waits before its first particle is empty and unfinished — and a
+    /// caller that dropped it on emptiness would throw it away before it ever emitted, which looks exactly like an
+    /// effect that does not exist.
+    ///
+    /// **Zero duration is forever**, the sentinel <see cref="Step"/> already reads: such a system is never
+    /// finished on its own and is stopped from outside, which is what <see cref="Fade"/> is for.
+    /// </remarks>
+    public bool Finished
+    {
+        get
+        {
+            if (!Empty)
+            {
+                return false;
+            }
+
+            // **A burst that has not fired yet is not finished**, which is the same rule as a steady emitter
+            // with a start time: both are empty and both will emit.
+            if (!BurstsSpent)
+            {
+                return false;
+            }
+
+            foreach (ParticleFunction emitter in System.Emitters)
+            {
+                if (!string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                float duration = (float)emitter.Number("emission_duration", 0d);
+
+                if (duration <= 0f ||
+                    Particles.Age <= (float)emitter.Number("emission_start_time", 0d) + duration)
+                {
+                    return false;
+                }
+            }
+
+            foreach (ParticleEffect child in Children)
+            {
+                if (!child.Finished)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>The steady emitter, named once.</summary>
+    private const string ContinuousEmitter = "emit_continuously";
+
+    /// <summary>The one-shot emitter — what an explosion is made of.</summary>
+    private const string BurstEmitter = "emit_instantaneously";
+
+    /// <summary>Which of <c>ParticleRandom</c>'s channels a burst's own count is drawn from.</summary>
+    /// <remarks>Its own, so a burst's size does not move when a spawn-time random beside it changes.</remarks>
+    private const int BurstCountChannel = 11;
+
     /// <summary>The systems this one runs alongside itself.</summary>
     /// <remarks>
     /// **A child is a full collection, not a decoration.** `rockettrail` declares two —
@@ -90,6 +161,10 @@ public sealed class ParticleEffect
     /// Every system that could be a child, by name, or null for an instance with none. A child is
     /// referred to BY NAME and may live in another file, so the caller resolves rather than this.
     /// </param>
+    /// <param name="sheets">
+    /// The sheet each system's material carries — the collection's `m_Sheet`, which `Lifetime From Sequence` reads — or
+    /// null when none is to hand.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="system"/> is null.</exception>
     /// <remarks>
     /// **A child that cannot be resolved is skipped rather than throwing**, because a `.pcf` names
@@ -100,12 +175,15 @@ public sealed class ParticleEffect
     /// recurse until the stack ran out, at load, on a file this project does not control.
     /// </remarks>
     public ParticleEffect(
-        ParticleSystem system, IReadOnlyDictionary<string, ParticleSystem>? others = null)
+        ParticleSystem system,
+        IReadOnlyDictionary<string, ParticleSystem>? others = null,
+        Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets = null)
     {
         ArgumentNullException.ThrowIfNull(system);
 
         System = system;
         _operators = ParticleOperators.All();
+        _sheet = sheets?.Invoke(system);
 
         List<ParticleEffect> children = [];
 
@@ -115,7 +193,7 @@ public sealed class ParticleEffect
                 !string.Equals(named, system.Name, StringComparison.OrdinalIgnoreCase) &&
                 others.TryGetValue(named, out ParticleSystem? child))
             {
-                children.Add(new ParticleEffect(child, Without(others, system.Name)));
+                children.Add(new ParticleEffect(child, Without(others, system.Name), sheets));
             }
         }
 
@@ -155,6 +233,33 @@ public sealed class ParticleEffect
         return known;
     }
 
+    /// <summary>Every control point set on this effect by number; slot 0 is rewritten by each <see cref="Step"/>.</summary>
+    private readonly List<ParticleControlPoint> _points = [];
+
+    /// <summary>Sets one control point — <c>CNewParticleEffect::SetControlPoint</c>.</summary>
+    /// <param name="number">Which one; a tracer's end is 1.</param>
+    /// <param name="point">Where it is.</param>
+    /// <remarks>
+    /// **Passed down to every child**, as the engine's own walks `m_Children` (`particles.h:1595`). Points between
+    /// the last one set and this one are the origin, which is what an unset control point is.
+    /// </remarks>
+    public void SetControlPoint(int number, ParticleControlPoint point)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(number);
+
+        while (_points.Count <= number)
+        {
+            _points.Add(ParticleControlPoint.Unoriented(Vector3.Zero));
+        }
+
+        _points[number] = point;
+
+        foreach (ParticleEffect child in Children)
+        {
+            child.SetControlPoint(number, point);
+        }
+    }
+
     /// <summary>Advances the effect one step, emitting at the declared rate.</summary>
     /// <param name="at">Where the emitter is — the rocket's own position.</param>
     /// <param name="seconds">How long the step is.</param>
@@ -183,11 +288,101 @@ public sealed class ParticleEffect
             if (_operators.TryGetValue(one.Function, out IParticleOperator? run))
             {
                 run.Operate(Particles, one, seconds);
+
+                if (run is MovementBasic)
+                {
+                    ApplyConstraints(one, at);
+                }
+            }
+            else if (string.Equals(one.Function, MovementLock.Named, StringComparison.Ordinal))
+            {
+                if (!_locks.TryGetValue(one, out MovementLock? locked))
+                {
+                    locked = new MovementLock();
+                    _locks[one] = locked;
+                }
+
+                int number = (int)one.Number("control_point_number", 0d);
+
+                locked.Operate(Particles, one, seconds, PointAt(number, at));
             }
         }
 
         Particles.Reap();
     }
+
+    /// <summary>The control points the constraints see this step, slot 0 the emitter's, reused.</summary>
+    private readonly List<ParticleControlPoint> _constraintPoints = [];
+
+    /// <summary>
+    /// The definition's constraints, as `C_OP_BasicMovement::Operate` runs them after integrating (B396).
+    /// </summary>
+    /// <remarks>
+    /// <code>
+    /// for pass in 0 .. "max constraint passes" (3):
+    ///     for each constraint not yet satisfied this round:  mark it;  if it moved anything, un-mark every other
+    /// </code>
+    /// *Not built:* the "final" constraints the engine runs once after the passes, and every constraint but the path's.
+    /// </remarks>
+    private void ApplyConstraints(ParticleFunction movement, ParticleControlPoint at)
+    {
+        IReadOnlyList<ParticleFunction> constraints = System.Constraints;
+
+        if (constraints.Count == 0)
+        {
+            return;
+        }
+
+        _constraintPoints.Clear();
+        _constraintPoints.AddRange(_points);
+
+        if (_constraintPoints.Count == 0)
+        {
+            _constraintPoints.Add(at);
+        }
+        else
+        {
+            _constraintPoints[0] = at;
+        }
+
+        int passes = (int)movement.Number("max constraint passes", 3d);
+        Span<bool> satisfied = stackalloc bool[constraints.Count];
+
+        for (int pass = 0; pass < passes; pass++)
+        {
+            for (int index = 0; index < constraints.Count; index++)
+            {
+                if (satisfied[index])
+                {
+                    continue;
+                }
+
+                satisfied[index] = true;
+
+                if (Enforce(constraints[index], _constraintPoints))
+                {
+                    satisfied.Clear();
+                    satisfied[index] = true;
+                }
+            }
+        }
+    }
+
+    /// <summary>One constraint's `EnforceConstraint`; false for one this project does not implement.</summary>
+    private bool Enforce(ParticleFunction constraint, IReadOnlyList<ParticleControlPoint> points) =>
+        string.Equals(constraint.Function, PathConstraint.Named, StringComparison.Ordinal) &&
+        PathConstraint.Enforce(Particles, constraint, points);
+
+    /// <summary>Each declared `Movement Lock to Control Point` with its own context, as the engine gives each operator one.</summary>
+    private readonly Dictionary<ParticleFunction, MovementLock> _locks = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Control point <paramref name="number"/> this step: 0 is <paramref name="at"/>, an unset one the origin.</summary>
+    private ParticleControlPoint PointAt(int number, ParticleControlPoint at) => number switch
+    {
+        0 => at,
+        _ when number < _points.Count => _points[number],
+        _ => ParticleControlPoint.Unoriented(Vector3.Zero),
+    };
 
     /// <summary>Advances without emitting, for an effect whose emitter is gone.</summary>
     /// <param name="seconds">How long the step is.</param>
@@ -224,7 +419,13 @@ public sealed class ParticleEffect
     {
         foreach (ParticleFunction emitter in System.Emitters)
         {
-            if (!string.Equals(emitter.Function, "emit_continuously", StringComparison.Ordinal))
+            if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal))
+            {
+                EmitBurst(emitter, at, seconds);
+                continue;
+            }
+
+            if (!string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
             {
                 continue;
             }
@@ -245,7 +446,7 @@ public sealed class ParticleEffect
             {
                 _owed -= 1f;
 
-                if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds) < 0)
+                if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds, _points, _sheet) < 0)
                 {
                     // At `max_particles`. Dropping the owed fraction too, because a system at its
                     // cap has not banked a debt — it simply did not emit.
@@ -256,4 +457,97 @@ public sealed class ParticleEffect
         }
     }
 
+    /// <summary>Emits a burst's particles once, at its own start time — <c>emit_instantaneously</c>.</summary>
+    /// <remarks>
+    /// **An explosion is a burst, and this is most of one.** Six of `ExplosionCore_Wall`'s eight children
+    /// declare this emitter; with only `emit_continuously` implemented, exactly one part of an explosion drew —
+    /// the debris chunks — and a blast on a wall in `cp_process_f12` came out as fifteen hard orange polygons.
+    /// **Seen before it was diagnosed** (B415).
+    ///
+    /// **Its parameters are read from the shipped `.pcf`**, which states what a closed emitter is parameterised
+    /// by (`docs/memory/nothing-is-closed.md`). `Explosion_Smoke_1` declares:
+    ///
+    /// <code>
+    ///   num_to_emit = 8            num_to_emit_minimum = -1
+    ///   emission_start_time = 0    maximum emission per frame = 100
+    /// </code>
+    ///
+    /// **`num_to_emit_minimum` of −1 is "no range", not "emit none"** — the count is exactly `num_to_emit`.
+    /// A non-negative value makes the count a random one in `[minimum, num_to_emit]`, which is why the sentinel
+    /// cannot be read as a bound (`docs/memory/sentinels-conflate-unknown-with-answer.md`).
+    ///
+    /// **The per-frame cap is honoured rather than ignored because TF2's own values are under it.** A system
+    /// asking for more than it may emit in one step carries the rest to the next, so the cap delays a burst
+    /// instead of truncating it. Nothing in the explosion path reaches 100; implementing what the parameter says
+    /// costs three lines and not implementing it is a divergence waiting for a bigger effect.
+    /// </remarks>
+    private void EmitBurst(ParticleFunction emitter, ParticleControlPoint at, float seconds)
+    {
+        if (Particles.Age < (float)emitter.Number("emission_start_time", 0d))
+        {
+            return;
+        }
+
+        // Stryker disable once : a mutated condition leaves 'owed' unassigned at its use below, CS0165 — B410.
+        if (!_bursts.TryGetValue(emitter, out int owed))
+        {
+            int count = (int)emitter.Number("num_to_emit", 0d);
+            int least = (int)emitter.Number("num_to_emit_minimum", -1d);
+
+            // **A minimum of −1 means the count is exact**, and it is what every emitter in the explosion path
+            // declares. A non-negative one makes the count a random draw in `[minimum, num_to_emit]`; the draw
+            // is keyed on the collection's own particle id the way every other spawn-time random is
+            // (`ParticleRandom`), so a burst replayed after a seek reproduces itself.
+            owed = least < 0 || least >= count
+                ? count
+                : ParticleRandom.Whole(Particles.Count, BurstCountChannel, least, count);
+        }
+
+        int allowed = (int)emitter.Number("maximum emission per frame", int.MaxValue);
+        int born = 0;
+
+        while (born < allowed && owed > 0)
+        {
+            if (ParticleSystems.Spawn(System, Particles, at, DefaultLifetime, seconds, _points, _sheet) < 0)
+            {
+                // At `max_particles`: a system at its cap has not banked a debt, it simply did not emit.
+                owed = 0;
+                break;
+            }
+
+            born++;
+            owed--;
+        }
+
+        _bursts[emitter] = owed;
+    }
+
+    /// <summary>What each burst emitter still owes, so it fires once rather than every step.</summary>
+    /// <remarks>
+    /// **Keyed by the emitter, because a system may declare several** and each has its own start time and count.
+    /// A single flag would make the second one silently follow the first.
+    /// </remarks>
+    private readonly Dictionary<ParticleFunction, int> _bursts = [];
+
+    /// <summary>Whether every burst emitter has fired and has nothing left owing.</summary>
+    internal bool BurstsSpent
+    {
+        get
+        {
+            foreach (ParticleFunction emitter in System.Emitters)
+            {
+                // Stryker disable all : 'owed' is declared by the TryGetValue and read after the '||', so the
+                // Logical mutator's switch declares it twice or leaves it unassigned (CS0128/CS0165) — B410.
+                if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal) &&
+                    (!_bursts.TryGetValue(emitter, out int owed) || owed > 0))
+                {
+                    return false;
+                }
+
+                // Stryker restore all
+            }
+
+            return true;
+        }
+    }
 }

@@ -79,6 +79,8 @@ internal static class VphysicsSurfaceData
         }
 
         SurfacePhysicsParams staging = props.GetIVPMaterial(start)?.Physics ?? default;
+        int game = props.GetIVPMaterial(start)?.GameMaterial ?? 0;
+        string? bullet = props.GetIVPMaterial(start)?.BulletImpactSound;
 
         do
         {
@@ -87,10 +89,27 @@ internal static class VphysicsSurfaceData
             switch (key)
             {
                 case "}":
-                    Close(props, name, staging);
+                    Close(props, name, staging, game, bullet);
                     return;
                 case "base":
-                    staging = props.GetIVPMaterial(props.GetSurfaceIndex(value))?.Physics ?? staging;
+                    if (props.GetIVPMaterial(props.GetSurfaceIndex(value)) is { } based)
+                    {
+                        staging = based.Physics;
+                        game = based.GameMaterial;
+                        bullet = based.BulletImpactSound;
+                    }
+
+                    break;
+                case "bulletimpact":
+                    bullet = value;
+                    break;
+
+                // `FUN_180018740`: a one-character value that is not a digit is `toupper`'d — the key parser lowercased it —
+                // and anything else goes through `atoi`, stored as a short.
+                case "gamematerial":
+                    game = value.Length == 1 && (uint)(value[0] - '0') > 9
+                        ? char.ToUpperInvariant(value[0])
+                        : (short)Atoi(value);
                     break;
                 case "friction":
                     staging = staging with { Friction = (float)Atof(value) };
@@ -114,20 +133,50 @@ internal static class VphysicsSurfaceData
         while (at >= 0);
     }
 
-    private static void Close(VphysicsSurfaceProps props, string name, SurfacePhysicsParams staging)
+    private static void Close(VphysicsSurfaceProps props, string name, SurfacePhysicsParams staging, int game, string? bullet)
     {
         int index = props.GetSurfaceIndex(name);
 
         if (index < 0)
         {
-            props.Add(new VphysicsSurface(name, staging, false));
+            props.Add(new VphysicsSurface(name, staging, false) { GameMaterial = game, BulletImpactSound = bullet });
             return;
         }
 
         VphysicsSurface target = props.GetIVPMaterial(index) ??
             throw new InvalidOperationException($"The surface '{name}' closes onto index {index}, which names no surface.");
 
-        props.Replace(target, new VphysicsSurface(target.Name, staging, target.HasSecondFriction));
+        props.Replace(
+            target,
+            new VphysicsSurface(target.Name, staging, target.HasSecondFriction) { GameMaterial = game, BulletImpactSound = bullet });
+    }
+
+    /// <summary>The C runtime's `atoi`: leading whitespace, a sign, digits, stopping at the first other character.</summary>
+    private static int Atoi(string value)
+    {
+        int at = 0;
+
+        while (at < value.Length && char.IsWhiteSpace(value[at]))
+        {
+            at++;
+        }
+
+        bool negative = at < value.Length && value[at] == '-';
+
+        if (at < value.Length && (value[at] == '-' || value[at] == '+'))
+        {
+            at++;
+        }
+
+        long result = 0;
+
+        while (at < value.Length && (uint)(value[at] - '0') <= 9 && result <= int.MaxValue)
+        {
+            result = (result * 10) + (value[at] - '0');
+            at++;
+        }
+
+        return (int)(negative ? -result : result);
     }
 
     /// <summary>A key and its value, lowercased — <c>FUN_18002e6c0</c>. A key of exactly <c>}</c> reads no value.</summary>

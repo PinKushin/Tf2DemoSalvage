@@ -84,7 +84,8 @@ public sealed record DecodedEntity(
 /// <summary>One temp entity — a short-lived effect such as an explosion, tracer or impact.</summary>
 /// <param name="ClassId">Networked class, which says what kind of effect it is.</param>
 /// <param name="DelaySeconds">How long after the message the effect fires.</param>
-/// <param name="Properties">The effect's parameters, read like any entity's.</param>
+/// <param name="Properties">What the WIRE carried for this effect — for re-encoding and the trace, not for reading the
+/// effect. See <see cref="State"/>.</param>
 /// <param name="IsReliable">Whether the message carried this effect as its single reliable event.</param>
 /// <remarks>
 /// No entity index and no serial number: a temp entity is fire-and-forget and never enters the
@@ -95,7 +96,17 @@ public sealed record DecodedTempEntity(
     int ClassId,
     float DelaySeconds,
     IReadOnlyList<DecodedProperty> Properties,
-    bool IsReliable = false);
+    bool IsReliable = false)
+{
+    /// <summary>The effect as the client receives it: every field it holds, in property order.</summary>
+    /// <remarks>
+    /// **An effect that repeats the previous effect's class is a delta against that effect**, so its wire list
+    /// omits every field the two share — a sentry's muzzle flash follows its tracer and carries neither the
+    /// sentry nor the attachment. <see cref="EntityDecoder.DecodeTempEntities"/> lays it over the previous
+    /// state; an effect built any other way is a full update, whose state is what it carries.
+    /// </remarks>
+    public IReadOnlyList<DecodedProperty> State { get; init; } = Properties;
+}
 
 /// <summary>
 /// Walks a <c>svc_PacketEntities</c> body, producing entities and their changed properties.
@@ -626,6 +637,7 @@ public sealed class EntityDecoder : IEntityBaselines
 
         List<DecodedTempEntity> effects = new(effectCount);
         int classId = -1;
+        IReadOnlyList<DecodedProperty> previous = [];
 
         for (int i = 0; i < effectCount; i++)
         {
@@ -633,7 +645,11 @@ public sealed class EntityDecoder : IEntityBaselines
                 ? reader.ReadUInt32(DelayBits) / DelayScale
                 : 0f;
 
-            if (reader.ReadBit())
+            // A class on the wire is a full update, against zero; no class is a delta against the effect before
+            // (`WriteAllDeltaProps( lastEvent->pData, … )`), so its state starts from that effect's.
+            bool full = reader.ReadBit();
+
+            if (full)
             {
                 // Stored one higher than the real id, so that zero can mean "unset" on the wire.
                 classId = (int)reader.ReadUInt32(_classBits) - 1;
@@ -652,8 +668,11 @@ public sealed class EntityDecoder : IEntityBaselines
                 // Stryker restore all
             }
 
-            effects.Add(new DecodedTempEntity(
-                classId, delay, ReadProperties(ref reader, classId), reliable));
+            IReadOnlyList<DecodedProperty> wire = ReadProperties(ref reader, classId);
+            IReadOnlyList<DecodedProperty> state = full || previous.Count == 0 ? wire : BaselineMerge.Overlay(previous, wire);
+
+            effects.Add(new DecodedTempEntity(classId, delay, wire, reliable) { State = state });
+            previous = state;
         }
 
         // The message states its own body length, so a correct reading lands on it. Anything else

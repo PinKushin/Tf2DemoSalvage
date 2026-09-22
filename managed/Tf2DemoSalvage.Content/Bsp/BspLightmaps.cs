@@ -315,6 +315,35 @@ public static class BspLightmaps
         return spans;
     }
 
+    /// <summary>Every face's raw samples, for reading the light at one luxel as the engine does.</summary>
+    /// <param name="file">The map's bytes.</param>
+    /// <returns>The samples.</returns>
+    /// <remarks>The same lump choice as <see cref="Read"/>, so the two agree on which light a map has.</remarks>
+    public static BspLightSamples ReadSamples(ReadOnlyMemory<byte> file)
+    {
+        BspHeader header = BspHeader.Parse(file.Span);
+
+        ReadOnlySpan<byte> faces = BspLumpData
+            .ReadStructures(file, header.Lump(BspLumpIndex.Faces), FaceStride, "faces").Span;
+
+        ReadOnlyMemory<byte> ldr = BspLumpData.Read(file, header.Lump(BspLumpIndex.Lighting));
+        ReadOnlyMemory<byte> lighting = ldr.Length > 0 ? ldr : BspLumpData.Read(file, header.Lump(BspLumpIndex.LightingHdr));
+
+        int count = faces.Length / FaceStride;
+        BspFaceLightLayout[] read = new BspFaceLightLayout[count];
+
+        for (int index = 0; index < count; index++)
+        {
+            ReadOnlySpan<byte> face = faces.Slice(index * FaceStride, FaceStride);
+
+            read[index] = new BspFaceLightLayout(
+                BinaryPrimitives.ReadInt32LittleEndian(face[FaceLightOffset..]),
+                (face[FaceStylesOffset], face[FaceStylesOffset + 1], face[FaceStylesOffset + 2], face[FaceStylesOffset + 3]));
+        }
+
+        return new BspLightSamples(lighting, read);
+    }
+
     /// <summary>Whether a face's texinfo asks for bump lighting.</summary>
     /// <remarks>
     /// <c>SURF_BUMPLIGHT</c>, which vbsp sets from the material rather than from the map author. A

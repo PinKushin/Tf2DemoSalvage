@@ -191,7 +191,28 @@ public sealed class ItemSchema
 
         /// <summary>Whether it is the stock item for its class, from <c>baseitem</c>.</summary>
         public bool IsBaseItem { get; set; }
+
+        /// <summary>Which visuals blocks it declares — "" for `visuals`, then `red`, `blu`, `mvm_boss`.</summary>
+        /// <remarks>
+        /// **Presence is itself an answer**: a team whose block exists uses that block alone
+        /// (`GetBestVisualTeamData`), so a red block that sets no sound hides the base block's sound for red.
+        /// </remarks>
+        public HashSet<string> VisualsSections { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// `sound_&lt;category&gt;` replacements (`econ_item_schema.cpp:2648`), keyed <c>block/category</c> and compared
+        /// without case, as the engine's `Q_stricmp` does for both.
+        /// </summary>
+        public Dictionary<string, string> WeaponSounds { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
+
+    /// <summary>`pWeaponSoundCategories` (`weapon_parse.cpp:20`), indexed by `WeaponSound_t`.</summary>
+    private static readonly string[] WeaponSoundCategories =
+    [
+        "empty", "single_shot", "single_shot_npc", "double_shot", "double_shot_npc", "burst", "reload",
+        "reload_npc", "melee_miss", "melee_hit", "melee_hit_world", "special1", "special2", "special3", "taunt",
+        "deploy",
+    ];
 
     /// <summary>How deep a prefab chain is followed before giving up.</summary>
     /// <remarks>
@@ -256,6 +277,7 @@ public sealed class ItemSchema
         bool inVisuals = false;
         bool inAttached = false;
         bool inBodygroups = false;
+        bool inCustomParticle = false;
         bool attachedIsFestive = false;
         string attachedModel = string.Empty;
         int attachedFlags = AttachedModel.MaskAll;
@@ -333,7 +355,13 @@ public sealed class ItemSchema
                         ? key["visuals_".Length..]
                         : string.Empty;
 
+                    if (inVisuals)
+                    {
+                        entry.VisualsSections.Add(visualsTeam);
+                    }
+
                     inAttached = false;
+                    inCustomParticle = false;
 
                     // The two definition-attribute forms open here; every other depth-3 key closes
                     // both, so a stray pair after the block cannot be swallowed into it.
@@ -370,6 +398,21 @@ public sealed class ItemSchema
                     break;
                 // Stryker restore all
 
+                // **`sound_special1` and its siblings**, one weapon sound each, compared by prefix exactly as
+                // the engine does ("intentionally comparing prefixes", `econ_item_schema.cpp:2648`). Kept per
+                // block, because which block answers depends on the listener's team.
+                case 4 when entry is not null && inVisuals && value is not null
+                    && key.StartsWith("sound_", StringComparison.OrdinalIgnoreCase):
+                    entry.WeaponSounds[visualsTeam + "/" + key["sound_".Length..]] = value;
+                    break;
+
+                // `muzzle_flash` and `tracer_effect` (`econ_item_schema.cpp:2623`), per block for the same reason.
+                case 4 when entry is not null && inVisuals && value is not null
+                    && (key.Equals("muzzle_flash", StringComparison.OrdinalIgnoreCase) ||
+                        key.Equals("tracer_effect", StringComparison.OrdinalIgnoreCase)):
+                    entry.WeaponSounds[visualsTeam + "/" + key] = value;
+                    break;
+
                 // `static_attrs` is flat: the pair IS the attribute.
                 case 4 when entry is not null && inStaticAttrs && value is not null:
                     entry.DefinitionAttributes.Add((key, value));
@@ -400,6 +443,16 @@ public sealed class ItemSchema
                     inBodygroups =
                         key.Equals("player_bodygroups", StringComparison.OrdinalIgnoreCase);
 
+                    inCustomParticle =
+                        key.Equals(CustomParticleKey, StringComparison.OrdinalIgnoreCase);
+
+                    break;
+
+                // **`custom_particlesystem { system … }`**, `iCustomType` 1 (`econ_item_schema.cpp:2533`): the system a
+                // medigun adds beside its beam. Kept per block like the flat keys above.
+                case 5 when entry is not null && inCustomParticle && value is not null
+                    && key.Equals("system", StringComparison.OrdinalIgnoreCase):
+                    entry.WeaponSounds[visualsTeam + "/" + CustomParticleKey] = value;
                     break;
 
                 // **`"hat" "1"` — a body part's name and the state to put it in.** The engine reads
@@ -1208,6 +1261,93 @@ public sealed class ItemSchema
             }
         }
     }
+
+    /// <summary>An item's replacement for one of its weapon's sounds, or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The listener's team — TF2's own numbering, red 2 and blue 3.</param>
+    /// <param name="weaponSound">A `WeaponSound_t`: `SPECIAL1` is 11.</param>
+    /// <returns>The sound script key the item names, or null when it names none.</returns>
+    /// <remarks>
+    /// **`CEconItemDefinition::GetWeaponReplacementSound`** (`econ_item_schema.h:2223`), with
+    /// `GetBestVisualTeamData` (`:2240`) choosing the block: a team with its own `visuals_red`/`visuals_blu` uses
+    /// that block alone, any other team — spectator, whose section `g_TeamVisualSections` leaves null — uses the
+    /// base `visuals`, and an item with no base block answers nothing. Prefabs contribute blocks and keys as the
+    /// engine's prefab merge would, nearest definition winning.
+    ///
+    /// An index the schema does not know answers null here; the engine answers the `"default"` item there
+    /// (`econ_item_schema.cpp:6694`), whose shipped definition has no visuals — the same answer.
+    /// </remarks>
+    public string? WeaponSoundReplacement(int definitionIndex, int team, int weaponSound)
+    {
+        return weaponSound < 0 || weaponSound >= WeaponSoundCategories.Length
+            ? null
+            : Visual(definitionIndex, team, WeaponSoundCategories[weaponSound]);
+    }
+
+    /// <summary>An item's muzzle flash particle system, or null — `CEconItemDefinition::GetMuzzleFlash( team )`.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The weapon's team.</param>
+    /// <returns>The system the item names in place of its script's, or null when it names none.</returns>
+    public string? MuzzleFlash(int definitionIndex, int team) => Visual(definitionIndex, team, "muzzle_flash");
+
+    /// <summary>
+    /// The system an item's `custom_particlesystem` names, or null — the `iCustomType == 1` attached particle
+    /// `CWeaponMedigun::UpdateEffects` creates beside its beam (`tf_weapon_medigun.cpp:2469`).
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The weapon's team.</param>
+    /// <returns>The system, such as <c>medicgun_beam_attrib_overheal_red</c>.</returns>
+    public string? CustomParticle(int definitionIndex, int team) => Visual(definitionIndex, team, CustomParticleKey);
+
+    /// <summary>The visuals block naming an item's custom particle.</summary>
+    private const string CustomParticleKey = "custom_particlesystem";
+
+    /// <summary>An item's weapon class — `item_class`, such as <c>tf_weapon_scattergun</c> — or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The class, which is also its weapon script's name.</returns>
+    public string? ItemClass(int definitionIndex) => Inherited(definitionIndex, entry => entry.ItemClass);
+
+    /// <summary>One key from the visuals block `GetBestVisualTeamData` chooses for a team, prefabs included.</summary>
+    /// <remarks>
+    /// A team with its own `visuals_red`/`visuals_blu` uses that block alone; any other team the base `visuals`; an item
+    /// with no base block answers nothing.
+    /// </remarks>
+    private string? Visual(int definitionIndex, int team, string key)
+    {
+        if (!_items.TryGetValue(definitionIndex, out Entry? item))
+        {
+            return null;
+        }
+
+        string section = team switch
+        {
+            RedTeam => "red",
+            BluTeam => "blu",
+            MvmBossTeam => "mvm_boss",
+            _ => string.Empty,
+        };
+
+        if (!Declares(item, section))
+        {
+            section = string.Empty;
+        }
+
+        if (!Declares(item, section))
+        {
+            return null;
+        }
+
+        string wanted = section + "/" + key;
+
+        return Search(item, entry => entry.WeaponSounds.GetValueOrDefault(wanted), LongestChain);
+    }
+
+    /// <summary>`TEAM_VISUAL_SECTIONS`' last: `visuals_mvm_boss`, MvM's giant robots.</summary>
+    private const int MvmBossTeam = 4;
+
+    /// <summary>Whether an item or its prefabs declare a visuals block.</summary>
+    private bool Declares(Entry item, string section) =>
+        Search(item, entry => entry.VisualsSections.Contains(section) ? "declared" : null, LongestChain) is not null;
 
     /// <summary>Searches an item and then its prefabs, in order, for the first answer.</summary>
     private string? Inherited(int definitionIndex, Func<Entry, string?> ask)

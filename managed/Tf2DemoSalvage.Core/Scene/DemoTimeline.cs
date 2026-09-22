@@ -118,6 +118,10 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// a player who goes to spectator is still ALIVE: liveness cannot distinguish them, and this can.
 /// See <see cref="ScenePlayer.InFirstPersonView"/>.
 /// </param>
+/// <param name="ObserverTarget">
+/// Who the player is observing — <c>m_hObserverTarget</c> — or <c>null</c> for nobody. In-eye, it is whose eyes a POV
+/// recorder is seeing through (B416).
+/// </param>
 /// <param name="Gestures">
 /// The gestures this player has going, one per occupied slot in slot order, or <c>null</c> when
 /// they have none. Filled from the <c>CTEPlayerAnimEvent</c> temp entities the demo carries, which
@@ -197,12 +201,17 @@ public readonly record struct ScenePlayer(
     string? WeaponClass = null,
     int? WeaponItem = null,
     int? ObserverMode = null,
+    int? ObserverTarget = null,
     bool ClientSideAnimated = false,
     IReadOnlyList<SceneGesture>? Gestures = null,
     float HeadScale = 1f,
     float TorsoScale = 1f,
     float HandScale = 1f)
 {
+    /// <summary>`GetMaxHealth()` — the player resource's `m_iMaxHealth`, which `C_TFPlayer` reads; null when not sent.</summary>
+    /// <remarks>A full heal to it clears the player's model decals (`C_TFPlayer::OnDataChanged`, B415).</remarks>
+    public int? MaxHealth { get; init; }
+
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
     /// <c>FL_DUCKING</c>. Null flags mean the recording never said, which is every player but the
@@ -367,8 +376,10 @@ public readonly record struct TimelinePhases(
 /// <param name="Tick">The demo tick this was recorded at.</param>
 /// <param name="Players">Every player with a known position.</param>
 /// <param name="RecorderTeam">
-/// The recording player's team at this tick, or <c>null</c> when there is no local player — a
-/// SourceTV recording, where the engine's own <c>pLocalPlayer &amp;&amp;</c> guards fall through.
+/// The local player's team at this tick, or <c>null</c> when no player entity sits at the
+/// recorder's slot, where the engine's own <c>pLocalPlayer &amp;&amp;</c> guards fall through. A
+/// SourceTV recording has a local player, the SourceTV client on the spectator team
+/// (<c>docs/findings/58</c>).
 /// <para>
 /// **Per frame rather than per demo, because a player can switch teams mid-recording.** Everything
 /// that compares against the local player — <c>IsEnemyPlayer</c>, a spawn wall's own team — would
@@ -1063,15 +1074,16 @@ public sealed class DemoTimeline
         return found;
     }
 
-    /// <summary>Which entity the recording was made from, or <c>null</c> for SourceTV.</summary>
+    /// <summary>The local player's entity, or <c>null</c> before <c>svc_ServerInfo</c>.</summary>
     /// <remarks>
     /// <c>svc_ServerInfo</c>'s player slot, plus one: entity indices are one-based and slot zero is
     /// the first player. Named by the demo rather than worked out — a first-person camera needs the
     /// recorder's class to know their eye height, and identifying them by "whichever player moves
     /// like the camera" would be an instrument that agrees with its own hypothesis.
     ///
-    /// A SourceTV recording has no local player. Its <c>PlayerSlot</c> is not meaningful and
-    /// <see cref="HasRecordedView"/> is false, so the viewer spectates a chosen player instead.
+    /// In a SourceTV recording this is the SourceTV client's own <c>CTFPlayer</c>, a spectator,
+    /// which is the engine's local player there too (<c>docs/findings/58</c>). It has no view to
+    /// follow: <see cref="HasRecordedView"/> is false, so the viewer spectates a chosen player instead.
     /// </remarks>
     public int? RecorderEntityIndex { get; private init; }
 
@@ -1087,6 +1099,42 @@ public sealed class DemoTimeline
     /// recording. Per-tick presence is the next step and needs a lifetime, not just a list.
     /// </remarks>
     public IReadOnlyList<SceneRagdoll> Corpses { get; private init; } = [];
+
+    /// <summary>Every explosion the demo carried, in fire order (B415).</summary>
+    /// <remarks>
+    /// **The feed itself rather than a list, because a blast is asked for by WINDOW.** An explosion's effect runs
+    /// for a second or two after it fires, so a viewer at tick <c>n</c> wants everything back to <c>n</c> minus
+    /// that duration — <see cref="ExplosionFeed.Between"/> is that search, and handing out a bare list would put a
+    /// copy of it in every caller.
+    /// </remarks>
+    public ExplosionFeed Explosions { get; private init; } = new();
+
+    /// <summary>Every hitscan shot the demo carried, in fire order (B415) — asked for by window, like explosions.</summary>
+    public ShotFeed Shots { get; private init; } = new();
+
+    /// <summary>Every decal the demo's temp entities carried, in fire order, and the table naming them (B415).</summary>
+    public DecalFeed Decals { get; private init; } = new();
+
+    /// <summary>Every `CTETFBlood`, in fire order (B415).</summary>
+    public BloodFeed Blood { get; private init; } = new();
+
+    /// <summary>Every `CTEEffectDispatch`, in fire order, and the table naming them (B415).</summary>
+    public EffectDispatchFeed Dispatches { get; private init; } = new();
+
+    /// <summary>Every weapon muzzle flash, in tick order (B415).</summary>
+    public MuzzleFlashFeed MuzzleFlashes { get; private init; } = new();
+
+    /// <summary>Every medigun beam, in the order they started (B396).</summary>
+    public HealBeamFeed HealBeams { get; private init; } = new();
+
+    /// <summary>The medigun's server class — every medigun item is one, the Kritzkrieg and Quick-Fix included.</summary>
+    private const string MedigunClass = "CWeaponMedigun";
+
+    /// <summary>Every `CTETFParticleEffect`, as its `"ParticleEffect"` dispatch, in fire order (B415).</summary>
+    public TfParticleEffectFeed TfParticleEffects { get; private init; } = new();
+
+    /// <summary>Every `CTESparks`, `CTEMetalSparks` and `CTEArmorRicochet`, in fire order (B415).</summary>
+    public SparkFeed Sparks { get; private init; } = new();
 
     /// <summary>Every choreographed scene that started playing, in tick order (B351).</summary>
     /// <remarks>
@@ -1203,7 +1251,7 @@ public sealed class DemoTimeline
 
     /// <summary>Whether this demo carries a recorded camera at all.</summary>
     /// <remarks>
-    /// **A SourceTV recording has no local player and leaves <c>democmdinfo_t</c> zeroed**, so the
+    /// **A SourceTV recording's local player is a spectator, and it leaves <c>democmdinfo_t</c> zeroed**, so the
     /// point-of-view camera has nothing to follow and the viewer has to offer something else —
     /// spectating a chosen player, as the engine does. Asked once, because a per-frame null check
     /// cannot tell "not yet" from "never".
@@ -1563,6 +1611,12 @@ public sealed class DemoTimeline
         // scene has the model that says how long the sequence is.
         PlayerGestureFeed gestures = new();
 
+        // **Every explosion, from the same stream** (B415). A one-shot at a tick rather than a state at every
+        // tick, so it is a list in fire order and not a per-frame sample — see `ExplosionFeed`.
+        EffectFeeds feeds = new();
+        MuzzleFlashFeed muzzleFlashes = new();
+        HealBeamFeed healBeams = new();
+
         List<TimelineFrame> frames = [];
 
         float interval = 0f;
@@ -1886,8 +1940,45 @@ public sealed class DemoTimeline
                     // inside `DoAnimationEvent` (`tf_playeranimstate.cpp:969`) — a reload begun
                     // crouched stays the crouching reload even if the player stands during it.
                     case TempEntitiesMessage effects when effects.BodyBits > 0:
-                        RecordGestures(
-                            decoder, effects, command.Tick * interval, effectClassNames, entities, gestures);
+                        RecordEffects(
+                            decoder,
+                            effects,
+                            command.Tick,
+                            interval,
+                            effectClassNames,
+                            entities,
+                            gestures,
+                            feeds);
+                        continue;
+
+                    // **The decal names**, which `m_nIndex` points into. Both messages, as every precache table needs.
+                    case CreateStringTableMessage { Name: DecalFeed.TableName } decalTable:
+                        feeds.Decals.Names.Apply(decalTable.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage decalUpdate
+                        when state.StringTableName(decalUpdate.TableId) == DecalFeed.TableName:
+                        feeds.Decals.Names.Apply(decalUpdate.Entries);
+                        continue;
+
+                    // **The effect names**, which `m_iEffectName` points into.
+                    case CreateStringTableMessage { Name: EffectDispatchFeed.TableName } effectTable:
+                        feeds.Dispatches.Names.Apply(effectTable.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage effectUpdate
+                        when state.StringTableName(effectUpdate.TableId) == EffectDispatchFeed.TableName:
+                        feeds.Dispatches.Names.Apply(effectUpdate.Entries);
+                        continue;
+
+                    // **The particle system names**, which a `"ParticleEffect"` dispatch's `m_nHitBox` points into.
+                    case CreateStringTableMessage { Name: EffectDispatchFeed.ParticleTableName } particleTable:
+                        feeds.Dispatches.ParticleNames.Apply(particleTable.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage particleUpdate
+                        when state.StringTableName(particleUpdate.TableId) == EffectDispatchFeed.ParticleTableName:
+                        feeds.Dispatches.ParticleNames.Apply(particleUpdate.Entries);
                         continue;
 
                     case UpdateStringTableMessage update
@@ -1926,6 +2017,58 @@ public sealed class DemoTimeline
                     entities.Apply(entity);
 
                     touchedEntities.Add(entity.EntityIndex);
+
+                    if (entity.UpdateType is EntityUpdateType.Leave or EntityUpdateType.Delete)
+                    {
+                        healBeams.Leave(entity.EntityIndex, command.Tick);
+                    }
+
+                    if (combatWeapons.Contains(entity.ClassId) &&
+                        entities.TryGet(entity.EntityIndex, out EntityState? weaponState))
+                    {
+                        if (entity.UpdateType is not (EntityUpdateType.Leave or EntityUpdateType.Delete) &&
+                            string.Equals(weaponState.ClassName, MedigunClass, StringComparison.Ordinal))
+                        {
+                            healBeams.Observe(
+                                entity.EntityIndex,
+                                entity.UpdateType == EntityUpdateType.Enter,
+                                EntityState.Slot(weaponState.Integer(HealBeamFeed.TargetKey)),
+                                weaponState.Integer(HealBeamFeed.ChargeReleaseKey) is 1,
+                                weaponState.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
+                                command.Tick,
+                                weaponState.ItemDefinitionIndex(),
+                                weaponState.Owner());
+                        }
+
+                        muzzleFlashes.Observe(
+                            entity.EntityIndex,
+                            entity.UpdateType == EntityUpdateType.Enter,
+                            isWeapon: true,
+                            weaponState.Integer(MuzzleFlashFeed.ParityKey),
+                            weaponState.ItemDefinitionIndex(),
+                            weaponState.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
+                            command.Tick,
+                            weaponState.Owner());
+                    }
+
+                    // **The first-person flash travels in the VIEWMODEL's own counter** (B415), which the server bumps beside
+                    // the weapon's and sends only to the owner.
+                    if (entities.TryGet(entity.EntityIndex, out EntityState? viewmodelState) &&
+                        viewmodelState.ViewmodelMuzzleFlashParity() is { } viewmodelParity)
+                    {
+                        int? flashing = viewmodelState.ViewmodelWeapon();
+                        EntityState? held = flashing is { } w && entities.TryGet(w, out EntityState? found) ? found : null;
+
+                        muzzleFlashes.ObserveViewmodel(
+                            entity.EntityIndex,
+                            entity.UpdateType == EntityUpdateType.Enter,
+                            viewmodelParity,
+                            flashing,
+                            viewmodelState.ViewmodelOwner(),
+                            held?.ItemDefinitionIndex(),
+                            held?.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
+                            command.Tick);
+                    }
 
                     // **Noticed here, where the cost is proportional to what the demo said**
                     // (B265). An entity is a viewmodel for its whole life, so this asks once per
@@ -2094,8 +2237,9 @@ public sealed class DemoTimeline
             // searched the partial list and reported every player below the recorder's entity index
             // as friendly, whatever their team.
             //
-            // Null for a SourceTV recording, which has no local player: the engine's switch falls
-            // through to `return false`, so a spectator sees every spy undisguised.
+            // In a SourceTV recording this is the SourceTV client's own team, spectator: the
+            // engine's switch falls through to `return false`, so a spectator sees every spy
+            // undisguised.
             int? recorderTeam =
                 recorderSlot is { } recording
                 && entities.TryGet(recording + 1, out EntityState? recorder)
@@ -2331,6 +2475,9 @@ public sealed class DemoTimeline
                     // last weapon over a free-roaming camera.
                     ObserverMode: player.ObserverMode(),
 
+                    // Whose eyes an in-eye observer is in (B416).
+                    ObserverTarget: player.ObserverTarget(),
+
                     // **EF_NODRAW, which is how the engine hides a corpse.** On death the server
                     // spawns a CTFRagdoll and then turns the player off with
                     // `AddEffects( EF_NODRAW | EF_NOSHADOW )` (tf_player.cpp:15637), so the body on
@@ -2437,7 +2584,10 @@ public sealed class DemoTimeline
                     // default rather than a fallback for missing data.
                     HeadScale: player.BoneScales().Head ?? 1f,
                     TorsoScale: player.BoneScales().Torso ?? 1f,
-                    HandScale: player.BoneScales().Hand ?? 1f));
+                    HandScale: player.BoneScales().Hand ?? 1f)
+                {
+                    MaxHealth = resource?.Integer($"m_iMaxHealth.{slot}"),
+                });
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a
@@ -2516,6 +2666,15 @@ public sealed class DemoTimeline
             Roster = everyone,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
+            Explosions = feeds.Explosions,
+            Shots = feeds.Shots,
+            Decals = feeds.Decals,
+            Blood = feeds.Blood,
+            Dispatches = feeds.Dispatches,
+            MuzzleFlashes = muzzleFlashes,
+            HealBeams = healBeams,
+            TfParticleEffects = feeds.TfParticleEffects,
+            Sparks = feeds.Sparks,
             Scenes = choreography,
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
@@ -2592,13 +2751,18 @@ public sealed class DemoTimeline
         return gestures.Count > 0 ? gestures : null;
     }
 
-    /// <summary>Decodes a temp entities body and records any player gestures in it.</summary>
+    /// <summary>Decodes a temp entities body once and offers every effect in it to each feed.</summary>
     /// <param name="decoder">The entity decoder, which knows the effect tables.</param>
     /// <param name="message">The message.</param>
-    /// <param name="seconds">Demo time when it arrived, in seconds.</param>
+    /// <param name="tick">The demo tick the packet arrived on.</param>
+    /// <param name="interval">Seconds per tick, for the feeds that want time rather than ticks.</param>
     /// <param name="classNames">Class id to name, since an effect names its class by id.</param>
-    /// <param name="entities">The entity table, for the player's posture at this moment.</param>
-    /// <param name="into">The feed to record into.</param>
+    /// <param name="entities">
+    /// The entity table, for the player's posture at this moment and for whether a blast struck a player. A snapshot
+    /// writes its entities before its temp entities, so the table is as the client's list was when the effect fired.
+    /// </param>
+    /// <param name="gestures">The gesture feed.</param>
+    /// <param name="feeds">The one-shot effect feeds.</param>
     /// <remarks>
     /// **A body that will not read is skipped rather than fatal**, which is the rule everywhere
     /// else in this project: a demo is salvaged, and a temp entities body is independent of every
@@ -2607,28 +2771,45 @@ public sealed class DemoTimeline
     /// **The posture comes from the entity table**, not from the sampled `ScenePlayer`, because
     /// this runs while the packet is being applied and the sampler has not run yet. It is the same
     /// entity and the same accessors either way.
+    ///
+    /// **Every effect is offered to each feed rather than filtered here** (B415). This used to keep exactly one
+    /// class and `continue` past the rest, which threw away 15,014 of `demostf-cp_process_f12`'s 42,188 temp
+    /// entities — every explosion, tracer, impact and decal in a 26-minute match. Each feed now says for itself
+    /// whether an effect is its business, so adding one is adding a feed rather than editing this filter.
     /// </remarks>
-    private static void RecordGestures(
+    private static void RecordEffects(
         EntityDecoder decoder,
         TempEntitiesMessage message,
-        double seconds,
+        int tick,
+        double interval,
         Dictionary<int, string> classNames,
         EntityStateTable entities,
-        PlayerGestureFeed into)
+        PlayerGestureFeed gestures,
+        EffectFeeds feeds)
     {
         try
         {
             foreach (DecodedTempEntity effect in decoder.DecodeTempEntities(
                 message.Body.Span, message.Count, message.BodyBits))
             {
-                if (!classNames.TryGetValue(effect.ClassId, out string? className) ||
-                    !string.Equals(
-                        className, PlayerGestureFeed.EventClassName, StringComparison.Ordinal))
+                // Stryker disable once : a mutated condition leaves 'className' unassigned below, CS0165 — B410.
+                if (!classNames.TryGetValue(effect.ClassId, out string? className))
                 {
                     continue;
                 }
 
-                into.Record(className, effect, seconds, PostureOf(effect, entities));
+                int fires = FireTick(tick, effect.DelaySeconds, interval);
+
+                if (feeds.Record(
+                        className, effect, fires, index => IsPlayer(entities, index), index => Shooter(entities, index)))
+                {
+                    continue;
+                }
+
+                if (string.Equals(className, PlayerGestureFeed.EventClassName, StringComparison.Ordinal))
+                {
+                    gestures.Record(className, effect, tick * interval, PostureOf(effect, entities));
+                }
             }
         }
         catch (Exception error)
@@ -2637,6 +2818,54 @@ public sealed class DemoTimeline
             // Skipped for the same reason a sounds body is: everything else in this packet is
             // independent of it, and salvaging what is readable is the point of the project.
         }
+    }
+
+    /// <summary>The tick a temp entity FIRES on — `CL_QueueEvent`, read out of `engine.dll` (`0x1801f9bc0`, B415).</summary>
+    /// <param name="arrival">The tick its message arrived on.</param>
+    /// <param name="delay">Its own fire delay, the 8-bit hundredths the message carries.</param>
+    /// <param name="interval">Seconds per tick; non-positive falls back to TF2's.</param>
+    /// <returns>The first tick at or after the moment it fires.</returns>
+    /// <remarks>
+    /// <code>
+    /// fire_delay = now + delay
+    /// if ( cl.m_nMaxClients &gt; 1 || demo playing back )  fire_delay += GetClientInterpAmount()
+    /// </code>
+    /// **So an effect fires one interpolation window late, when the drawn entities have reached the state it was sent
+    /// with.** A server impact lands on the struck player as the client DRAWS it, and a tracer leaves the muzzle where
+    /// the gun is drawn. Fired on arrival, every effect ran ~7 ticks ahead of the entities, and a bullet's decal missed a
+    /// moving player's hitboxes by the distance they cover in 0.1 s. Rounded up, since `CL_FireEvents` fires an event
+    /// on the first frame at or past its time; a tick boundary is at most 15 ms after it.
+    /// </remarks>
+    internal static int FireTick(int arrival, float delay, double interval)
+    {
+        double seconds = interval > 0d ? interval : ScenePropTrack.Tf2TickInterval;
+
+        return arrival + (int)Math.Ceiling(((delay + ScenePropTrack.DefaultInterpolation) / seconds) - 1e-6d);
+    }
+
+    /// <summary>`C_BaseEntity::Instance( hEntity )->IsPlayer()` — the entity at an index exists and is a player.</summary>
+    /// <remarks>
+    /// Existence in the table and not visibility: the client's list keeps a dormant entity, and so does this.
+    /// </remarks>
+    private static bool IsPlayer(EntityStateTable entities, int index) =>
+        entities.TryGet(index, out EntityState? entity) &&
+        PlayerClass.Equals(entity.ClassName, StringComparison.Ordinal);
+
+    /// <summary>`ToTFPlayer( GetBaseEntity( iPlayer ) )` for a shot, with what the tracer asks of it, or null.</summary>
+    private static ShotShooter? Shooter(EntityStateTable entities, int index)
+    {
+        if (!entities.TryGet(index, out EntityState? player) ||
+            !PlayerClass.Equals(player.ClassName, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        int? weapon = player.ActiveWeapon();
+        int? item = weapon is { } held && entities.TryGet(held, out EntityState? holding)
+            ? holding.ItemDefinitionIndex()
+            : null;
+
+        return new ShotShooter(First(player, TeamProperties) ?? 0, weapon, item);
     }
 
     /// <summary>What the player named by a gesture event was doing when it arrived.</summary>
@@ -2673,7 +2902,7 @@ public sealed class DemoTimeline
     {
         int player = 0;
 
-        foreach (DecodedProperty property in effect.Properties)
+        foreach (DecodedProperty property in effect.State)
         {
             if (string.Equals(
                 property.Definition.Property.Name,
@@ -4696,6 +4925,15 @@ public sealed class DemoTimeline
     /// whole recording (`RespawnRoomVisibility`).
     /// </remarks>
     public int? RoundStateAt(double tick) => FrameAt((int)Math.Floor(tick))?.RoundState;
+
+    /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
+    /// <param name="tick">The moment being asked about.</param>
+    /// <returns><see cref="TimelineFrame.RecorderTeam"/> for the frame at or before it.</returns>
+    /// <remarks>
+    /// **Null means a SourceTV recording**, where the engine's own `pLocalPlayer` is null and every guard on it falls
+    /// through — which is how a client-emitted sound such as an explosion's decides whether to ask an item.
+    /// </remarks>
+    public int? RecorderTeamAt(int tick) => FrameAt(tick)?.RecorderTeam;
 
     /// <summary>The most recent frame at or before a tick.</summary>
     /// <remarks>

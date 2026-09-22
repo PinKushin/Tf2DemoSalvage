@@ -1,0 +1,88 @@
+using System.Collections.Generic;
+
+using Tf2DemoSalvage.Core.Scene;
+
+namespace Tf2DemoSalvage.Scene.Tests;
+
+/// <summary><see cref="DecalReplay"/>: decals are state, placed in tick order and replayed from the start on a seek back.</summary>
+public sealed class DecalReplayTests
+{
+    private static readonly DecalMaterial Hole = new("decals/concrete/shot1_subrect", 64, 64, 0.16f);
+
+    /// <summary>Two bullets into the wall at x = 0, ticks 10 and 20, far enough apart not to overlap.</summary>
+    private static readonly ShotImpact[] Impacts =
+    [
+        new(0, 0, 10, 5, 2, (100f, 100f, 100f), (0f, 100f, 100f), (-100f, 100f, 100f), 0),
+        new(1, 0, 20, 5, 2, (100f, 300f, 300f), (0f, 300f, 300f), (-100f, 300f, 300f), 0),
+    ];
+
+    [Test]
+    public void AdvanceTo_BetweenTwoImpacts_PlacesTheFirst()
+    {
+        DecalReplay replay = Replay([]);
+
+        replay.AdvanceTo(15, static _ => false);
+
+        replay.Decals.Count.ShouldBe(1);
+    }
+
+    [Test]
+    public void AdvanceTo_BackwardsPastAnImpact_RemovesIt()
+    {
+        DecalReplay replay = Replay([]);
+
+        replay.AdvanceTo(25, static _ => false);
+        replay.AdvanceTo(15, static _ => false);
+
+        replay.Decals.Count.ShouldBe(1);
+    }
+
+    [Test]
+    public void AdvanceTo_ABulletAPlayerStopped_PlacesNothing()
+    {
+        DecalReplay replay = Replay([]);
+
+        replay.AdvanceTo(25, static impact => impact.Shot == 0);
+
+        replay.Decals.Count.ShouldBe(1);
+    }
+
+    /// <remarks>`C_TEWorldDecal` shoots at `m_vecOrigin`; a `CTEDecal` on the world with no hitbox does the same.</remarks>
+    [Test]
+    public void AdvanceTo_WorldDecalEvents_ArePlaced()
+    {
+        DecalReplay replay = Replay(
+        [
+            new SceneDecal(3, SceneDecalKind.World, (0f, 100f, 400f), default, 0, 0, 7, 0),
+            new SceneDecal(4, SceneDecalKind.Entity, (0f, 400f, 100f), (8f, 400f, 100f), 0, 0, 7, 0),
+        ]);
+
+        replay.AdvanceTo(5, static _ => false);
+
+        replay.Decals.Count.ShouldBe(2);
+    }
+
+    /// <remarks>A static prop (world, hitbox), another entity, and a spray are each a path not built.</remarks>
+    [Test]
+    public void AdvanceTo_DecalsOffTheWorldsBrushes_AreNotPlaced()
+    {
+        DecalReplay replay = Replay(
+        [
+            new SceneDecal(3, SceneDecalKind.Entity, (0f, 100f, 400f), default, 0, 12, 7, 0),
+            new SceneDecal(3, SceneDecalKind.Entity, (0f, 100f, 400f), default, 40, 0, 7, 0),
+            new SceneDecal(3, SceneDecalKind.Player, (0f, 100f, 400f), default, 0, 0, 0, 2),
+        ]);
+
+        replay.AdvanceTo(5, static _ => false);
+
+        replay.Decals.Count.ShouldBe(0);
+    }
+
+    private static DecalReplay Replay(IReadOnlyList<SceneDecal> events) =>
+        new(
+            new WorldDecals(WorldDecalsConformanceTests.Wall()),
+            Impacts,
+            events,
+            static _ => Hole,
+            static index => index == 7 ? Hole : null);
+}

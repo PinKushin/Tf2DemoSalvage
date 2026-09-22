@@ -101,16 +101,38 @@ public sealed record MapLevel(
     /// rather than a change to either.
     /// </remarks>
     public float Sweep(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent) =>
+        SweepSurface(from, to, halfExtent).Fraction;
+
+    /// <summary><see cref="Sweep"/>, with the texinfo of what stopped it — `trace.surface` (B415).</summary>
+    /// <param name="from">Where the box's centre starts.</param>
+    /// <param name="to">Where it would end unobstructed.</param>
+    /// <param name="halfExtent">Half the box's width, on every axis.</param>
+    /// <returns>The fraction, and the struck brush side's texinfo; −1 when nothing, or terrain, stopped it.</returns>
+    /// <remarks>*Not built:* a displacement's surface. Terrain answers where it stops a sweep and not what it is.</remarks>
+    public (float Fraction, int Texinfo) SweepSurface(
         (float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent)
     {
-        float brushes = Leaves is { } tree
-            ? tree.Sweep(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent)
-            : 1f;
+        BspTrace trace = Trace(from, to, halfExtent);
+
+        return (trace.Fraction, trace.Texinfo);
+    }
+
+    /// <summary><see cref="Sweep"/>, with what the brushes say about what stopped it — `trace_t` (B415).</summary>
+    /// <param name="from">Where the box's centre starts.</param>
+    /// <param name="to">Where it would end unobstructed.</param>
+    /// <param name="halfExtent">Half the box's width, on every axis.</param>
+    /// <returns>The trace; terrain that stops it first answers its fraction and no surface.</returns>
+    public BspTrace Trace((float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent)
+    {
+        BspTrace brushes = Leaves is { } tree
+            ? tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent)
+            : new BspTrace(1f, -1, default, false);
 
         float terrain = Displacements.Sweep(
             from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent);
 
-        return MathF.Min(brushes, terrain);
+        return terrain < brushes.Fraction ? new BspTrace(terrain, -1, default, false) : brushes;
     }
 
     /// <summary>How to decide what of this map's world to draw, or null when it cannot be decided.</summary>

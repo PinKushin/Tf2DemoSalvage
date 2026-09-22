@@ -19,6 +19,11 @@ namespace Tf2DemoSalvage.Content.Bsp;
 public readonly record struct BspMaterial(
     string Name, (float Red, float Green, float Blue) Reflectivity, int Width, int Height);
 
+/// <summary>One texinfo's surface: `texinfo_t.flags` and `texinfo_t.texdata`.</summary>
+/// <param name="Flags">The surface's <c>SURF_*</c> flags.</param>
+/// <param name="Texdata">Its index into the texture table, <see cref="BspMaterials.Read"/>.</param>
+public readonly record struct BspTexinfo(SurfaceProperties Flags, int Texdata);
+
 /// <summary>
 /// The material each surface is painted with, as the map states it.
 /// </summary>
@@ -99,6 +104,33 @@ public static class BspMaterials
         }
 
         return names;
+    }
+
+    /// <summary>Reads each texinfo's flags and texdata — what a trace's `surface` carries.</summary>
+    /// <param name="file">The map's bytes.</param>
+    /// <returns>One entry per texinfo, in file order.</returns>
+    /// <exception cref="InvalidDataException">The lump is malformed.</exception>
+    /// <remarks>
+    /// **A brush side names a texinfo, not a face**, so the struck surface of a trace (B415) is answered here rather
+    /// than through <see cref="BspSurfaces"/>, which only reads the texinfos its faces use.
+    /// </remarks>
+    public static IReadOnlyList<BspTexinfo> ReadTexinfo(ReadOnlyMemory<byte> file)
+    {
+        BspHeader header = BspHeader.Parse(file.Span);
+        ReadOnlySpan<byte> texinfo = BspLumpData
+            .ReadStructures(file, header.Lump(BspLumpIndex.Texinfo), TexinfoStride, "texinfo").Span;
+        BspTexinfo[] read = new BspTexinfo[texinfo.Length / TexinfoStride];
+
+        for (int index = 0; index < read.Length; index++)
+        {
+            ReadOnlySpan<byte> record = texinfo.Slice(index * TexinfoStride, TexinfoStride);
+
+            read[index] = new BspTexinfo(
+                (SurfaceProperties)BinaryPrimitives.ReadInt32LittleEndian(record[TexinfoFlagsOffset..]),
+                BinaryPrimitives.ReadInt32LittleEndian(record[TexinfoTexdataOffset..]));
+        }
+
+        return read;
     }
 
     private static string ReadName(

@@ -21,8 +21,6 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 /// </remarks>
 public sealed class BspGeometryTests
 {
-    private const int HeaderSize = BspHeader.SizeBytes;
-
     private const int LumpPlanes = 1;
     private const int LumpVertexes = 3;
     private const int LumpFaces = 7;
@@ -41,29 +39,7 @@ public sealed class BspGeometryTests
             lumps[LumpTexinfo] = Texinfo(SurfaceProperties.None);
         }
 
-        int total = HeaderSize;
-
-        foreach (byte[] payload in lumps.Values)
-        {
-            total += payload.Length;
-        }
-
-        byte[] file = new byte[total];
-        Encoding.ASCII.GetBytes("VBSP").CopyTo(file, 0);
-        BinaryPrimitives.WriteInt32LittleEndian(file.AsSpan(4), 21);
-
-        int at = HeaderSize;
-
-        foreach ((int index, byte[] payload) in lumps)
-        {
-            payload.CopyTo(file, at);
-            int entry = 8 + (index * 16);
-            BinaryPrimitives.WriteInt32LittleEndian(file.AsSpan(entry), at);
-            BinaryPrimitives.WriteInt32LittleEndian(file.AsSpan(entry + 4), payload.Length);
-            at += payload.Length;
-        }
-
-        return file;
+        return SyntheticBsp.Build(lumps);
     }
 
     private static byte[] Vertexes(params (float X, float Y, float Z)[] points)

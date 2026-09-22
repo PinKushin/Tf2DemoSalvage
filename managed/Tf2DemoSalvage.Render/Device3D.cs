@@ -353,6 +353,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // second copy of `EntityModelSet`'s list. After the call rather than before, so a failed upload leaves them to retry.
         foreach (string path in fresh)
         {
+            // **A skinned model's vertices are kept** (B415): a decal is projected onto them when a bullet lands, as
+            // `CStudioRender::AddDecal` reads the model's own mesh. Players are the skinned models, and there are nine.
+            IReadOnlyList<WorldVertex> vertices = _packedModels[path].Vertices;
+
+            if (vertices.Count > 0 && vertices[0].WeightA > 0f)
+            {
+                _skinnedVertices[path] = vertices;
+            }
+
             _packedModels[path] = _packedModels[path] with { Vertices = [] };
         }
     }
@@ -1190,6 +1199,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         paint: instance.Paint,
                         burn: instance.Burn,
                         urine: instance.Urine);
+
+                    // **Its decals straight after it, with its bones still bound** — `CStudioRender::DrawModel` draws a
+                    // model's decal meshes after its own (B415).
+                    if (instance.EntityIndex > 0 &&
+                        ModelDecals?.For(instance.EntityIndex) is { } decals)
+                    {
+                        _world.DrawModelDecals(
+                            _device, _context, decals.Vertices, decals.Batches, instance.Bones?.Count ?? 0);
+                        _context.OMSetDepthStencilState(_depthOn, 0);
+                    }
                 }
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
@@ -1466,6 +1485,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _device, world.Vertices, world.Batches, world.Decals, world.Props);
     }
 
+    /// <summary>The vertex light a mod2x decal's corners carry — the reasoning is on the renderer's own constant.</summary>
+    public const float ModulateTwiceLight = WorldRenderer.ModulateTwiceLight;
+
+    /// <summary>Replaces the decals the game has placed on the world — bullet holes and the demo's decal events (B415).</summary>
+    /// <param name="vertices">Their triangles, grouped by material.</param>
+    /// <param name="batches">One run per material.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    public void UploadShotDecals(IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _world?.UploadShotDecals(_device, _context, vertices, batches);
+    }
+
     /// <summary>How this map decides what of the world to draw, or null to draw all of it.</summary>
     private WorldCulling? _culling;
 
@@ -1566,6 +1599,26 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <c>viewrender.cpp:1426</c>, <c>:2849</c> and <c>:4982</c>, unlike `r_3dsky`'s `GetInt()`.
     /// </remarks>
     public bool DrawSkybox { get; set; } = true;
+
+    /// <summary>The corner light a mod2x decal carries in this pipeline — the world decal pass's figure.</summary>
+    public const float DecalModulateLight = WorldRenderer.ModulateTwiceLight;
+
+    /// <summary>The decals on entities' models, drawn after each model with its bones (B415); null for none.</summary>
+    public ModelDecals? ModelDecals { get; set; }
+
+    /// <summary>Each skinned model's packed vertices, kept for decal projection — see <see cref="SkinnedVertices"/>.</summary>
+    private readonly Dictionary<string, IReadOnlyList<WorldVertex>> _skinnedVertices = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A skinned model's own vertices as uploaded, which its batches index; null for one not held.</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>The vertices, or null.</returns>
+    public IReadOnlyList<WorldVertex>? SkinnedVertices(string modelPath) =>
+        _skinnedVertices.GetValueOrDefault(modelPath);
+
+    /// <summary>A model's batches at its first frame, which index its vertices.</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>Its runs, or empty.</returns>
+    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath) => _world?.ModelBatches(modelPath) ?? [];
 
     /// <summary>Gives the 2D skybox its six faces, replacing whichever it had.</summary>
     /// <param name="faces">
@@ -2338,6 +2391,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // The renderer's buffers went with it, so the slices that fed them must go too — otherwise
         // a path from the previous map resolves to geometry nothing holds any more.
         _packedModels.Clear();
+        _skinnedVertices.Clear();
     }
 
     /// <summary>Whether a textured map is loaded.</summary>

@@ -131,6 +131,10 @@ public static class EngineConVars
         // nothing configured would be. (D:\ghidra-proj, project tf2engine.)
         new("sv_downloadurl", "", Replicated: true, Cheat: false),
 
+        // `tf_fx_shared.cpp:22`. Decides whether a shotgun's pellets follow `g_vecFixedWpnSpreadPellets` or the seed's
+        // random draws (B415) — competitive servers set it, and `demostf-cp_process_f12` sends "1".
+        new("tf_use_fixed_weaponspreads", "0", Replicated: true, Cheat: false),
+
         // Client-only: the watcher's, so the source is their config and the fallback is this.
         // src/game/client/vgui_fpspanel.cpp:28, clientleafsystem.cpp:32, c_baseplayer.cpp:118.
         new("cl_showpos", "0", Replicated: false, Cheat: false),

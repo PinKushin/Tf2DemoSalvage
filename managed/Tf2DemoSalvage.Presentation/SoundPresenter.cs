@@ -134,6 +134,39 @@ public sealed class SoundPresenter(
     /// <summary>Which sounds are due as playback moves, or null before a demo is opened.</summary>
     public SoundSchedule? Schedule { get; set; }
 
+    /// <summary>The soundscripts the game loaded, or null until an install is opened.</summary>
+    /// <remarks>
+    /// **The emitter's own table** — `soundemitterbase` in the engine. `svc_Sounds` arrive already resolved to a
+    /// wave, but a sound the CLIENT emits by script name, an explosion's, is resolved against this (B415).
+    /// </remarks>
+    public SoundScriptCatalog? Scripts { get; set; }
+
+    /// <summary>Sounds the client emitted since the last pass, started by the next.</summary>
+    private readonly List<SceneSound> _emitted = [];
+
+    /// <summary>Plays a sound the client decides as playback reaches it, such as its own bullet's impact (B415).</summary>
+    /// <param name="sound">The sound, started at the next <see cref="Update"/> if its camera gate allows.</param>
+    /// <remarks>A seek before that pass drops it, as it silences everything in flight.</remarks>
+    public void Emit(SceneSound sound) => _emitted.Add(sound);
+
+    /// <summary>Whether a sound's own camera gate lets it start — <see cref="SceneSound.AudibleWithin"/>, strictly within.</summary>
+    /// <param name="sound">The sound.</param>
+    /// <param name="listener">The camera.</param>
+    /// <returns>True for a sound with no gate, or one nearer than its gate.</returns>
+    public static bool InRange(SceneSound sound, (float X, float Y, float Z) listener)
+    {
+        if (sound.AudibleWithin <= 0f)
+        {
+            return true;
+        }
+
+        float x = listener.X - sound.OriginX;
+        float y = listener.Y - sound.OriginY;
+        float z = listener.Z - sound.OriginZ;
+
+        return (x * x) + (y * y) + (z * z) < sound.AudibleWithin * sound.AudibleWithin;
+    }
+
     /// <summary>Brings the audible world up to date for one tick.</summary>
     /// <param name="output">Where sound goes.</param>
     /// <param name="tick">The tick being played.</param>
@@ -211,8 +244,26 @@ public sealed class SoundPresenter(
 
         foreach (SceneSound sound in starting)
         {
+            if (!InRange(sound, listener))
+            {
+                continue;
+            }
+
             Start(output, sound, listener, right, reestablishing);
         }
+
+        if (!schedule.Jumped)
+        {
+            foreach (SceneSound sound in _emitted)
+            {
+                if (InRange(sound, listener))
+                {
+                    Start(output, sound, listener, right, reestablishing: false);
+                }
+            }
+        }
+
+        _emitted.Clear();
 
         return new SoundPhases(
             advanced - began,

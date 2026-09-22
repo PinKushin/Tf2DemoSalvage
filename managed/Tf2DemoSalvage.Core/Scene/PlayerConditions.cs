@@ -49,6 +49,18 @@ public readonly record struct PlayerConditions(int Cond, int Ex, int Ex2, int Ex
     /// <summary><c>TF_COND_DISGUISED</c>, <c>tf_shareddefs.h:693</c>.</summary>
     public const int Disguised = 3;
 
+    /// <summary>`TF_COND_STEALTHED`, a cloaked spy.</summary>
+    public const int Stealthed = 4;
+
+    /// <summary>`TF_COND_INVULNERABLE`, an übercharge.</summary>
+    public const int Invulnerable = 5;
+
+    /// <summary>`CTFPlayerShared::IsStealthed` — `STEALTHED`, `STEALTHED_USER_BUFF` (64) or its fading (66).</summary>
+    public bool IsStealthed => Has(Stealthed) || Has(64) || Has(66);
+
+    /// <summary>`CTFPlayerShared::IsInvulnerable` — `INVULNERABLE`, `_HIDE_UNLESS_DAMAGED` (51), `_USER_BUFF` (52), `_CARD_EFFECT` (57).</summary>
+    public bool IsInvulnerable => Has(Invulnerable) || Has(51) || Has(52) || Has(57);
+
     /// <summary><c>TF_COND_DISGUISING</c>, <c>tf_shareddefs.h:692</c> — mid-disguise, not yet one.</summary>
     public const int Disguising = 2;
 

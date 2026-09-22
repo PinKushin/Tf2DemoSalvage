@@ -172,7 +172,7 @@ public sealed class PlayerGestureFeed
         int? anEvent = null;
         int data = 0;
 
-        foreach (DecodedProperty property in effect.Properties)
+        foreach (DecodedProperty property in effect.State)
         {
             string name = property.Definition.Property.Name;
 

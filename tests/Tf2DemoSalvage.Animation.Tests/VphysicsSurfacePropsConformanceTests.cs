@@ -85,6 +85,24 @@ public sealed class VphysicsSurfacePropsConformanceTests
     }
 
     /// <remarks>
+    /// Slot 5, <c>FUN_1800184a0</c>, read from the disassembly: the same remap past `0x7f`, but **a negative or past-the-end index is
+    /// surface zero rather than none** — which is what a world texture with no `$surfaceprop` resolves to (`CMod_LoadTextures`
+    /// stores `GetSurfaceIndex`'s −1), and what `ParseImpactData` reads the game material of (B415).
+    /// </remarks>
+    [TestCase(-1, 0)]
+    [TestCase(0, 0)]
+    [TestCase(2, 2)]
+    [TestCase(3, 0)]
+    [TestCase(0x80, 0)]
+    [TestCase(0xf000, 2)]
+    public void GetSurfaceData_AnIndexTheBinaryWasAsked_AnswersItsSurface(int index, int surface)
+    {
+        VphysicsSurfaceProps props = Lookups();
+
+        Slot(props, props.GetSurfaceData(index)).ShouldBe(surface);
+    }
+
+    /// <remarks>
     /// **A triangle's index goes through the world table first**: the map `[2, 0xf000, −1, 7]` sends 0 to surface 2, 1 to the
     /// shadow, 2 to `0xffff` — surface zero — and 3 to a surface that does not exist, which falls back to `default`, as the
     /// identity slots 4 and 5 do.

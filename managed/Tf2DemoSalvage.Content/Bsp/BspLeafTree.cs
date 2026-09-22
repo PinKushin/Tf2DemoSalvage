@@ -56,6 +56,8 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// culling"* in Valve's own spelling. That box is what makes a tree walk worth more than a scan of
 /// every leaf: one test rejects a whole subtree.
 /// </remarks>
+/// <param name="FirstFace">`firstface`, offset 24: the first of the faces lying on this node's plane.</param>
+/// <param name="FaceCount">`numfaces`, offset 26. The engine's decal walk tries these faces for a node (B415).</param>
 public readonly record struct BspNode(
     int Front,
     int Back,
@@ -64,7 +66,9 @@ public readonly record struct BspNode(
     float NormalX,
     float NormalY,
     float NormalZ,
-    float Distance);
+    float Distance,
+    int FirstFace = 0,
+    int FaceCount = 0);
 
 public sealed class BspLeafTree
 {
@@ -620,7 +624,9 @@ public sealed class BspLeafTree
             BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]),
             BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]),
             BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]),
-            BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]));
+            BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]),
+            BinaryPrimitives.ReadUInt16LittleEndian(nodes[(at + 24)..]),
+            BinaryPrimitives.ReadUInt16LittleEndian(nodes[(at + 26)..]));
     }
 
     /// <summary>How many leaves the map has.</summary>
@@ -705,14 +711,53 @@ public sealed class BspLeafTree
     public float Sweep(
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
+        float halfExtent) =>
+        SweepSurface(fromX, fromY, fromZ, toX, toY, toZ, halfExtent).Fraction;
+
+    /// <summary><see cref="Sweep"/>, with the texinfo of the brush side it struck — `trace.surface`.</summary>
+    /// <param name="fromX">Where the sweep starts.</param>
+    /// <param name="fromY">Where the sweep starts.</param>
+    /// <param name="fromZ">Where the sweep starts.</param>
+    /// <param name="toX">Where it would end.</param>
+    /// <param name="toY">Where it would end.</param>
+    /// <param name="toZ">Where it would end.</param>
+    /// <param name="halfExtent">Half the box's width; zero for a ray.</param>
+    /// <returns>The fraction, and the struck side's texinfo, −1 when nothing was struck or the sweep began inside.</returns>
+    /// <remarks>
+    /// **The lead side is the one whose plane set the entry fraction** — the latest inward crossing — which is the side
+    /// `CM_ClipBoxToBrush` reports the surface of. A bullet's impact decal and effect are chosen by that surface's
+    /// material (B415), so the answer has to be the brush side and not a face found another way.
+    /// </remarks>
+    public (float Fraction, int Texinfo) SweepSurface(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        float halfExtent)
+    {
+        BspTrace trace = Trace(fromX, fromY, fromZ, toX, toY, toZ, halfExtent);
+
+        return (trace.Fraction, trace.Texinfo);
+    }
+
+    /// <summary><see cref="Sweep"/>, with everything `trace_t` says about what stopped it.</summary>
+    /// <param name="fromX">Where the sweep starts.</param>
+    /// <param name="fromY">Where the sweep starts.</param>
+    /// <param name="fromZ">Where the sweep starts.</param>
+    /// <param name="toX">Where it would end.</param>
+    /// <param name="toY">Where it would end.</param>
+    /// <param name="toZ">Where it would end.</param>
+    /// <param name="halfExtent">Half the box's width; zero for a ray.</param>
+    /// <returns>The trace; a clear one for a map with no tree.</returns>
+    public BspTrace Trace(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
         float halfExtent)
     {
         if (IsEmpty || _leaves.IsEmpty)
         {
-            return 1f;
+            return new BspTrace(1f, -1, default, false);
         }
 
-        float hit = 1f;
+        TraceHit hit = new() { Fraction = 1f, Texinfo = -1 };
 
         Descend(
             0, 0f, 1f,
@@ -724,7 +769,21 @@ public sealed class BspLeafTree
             ref hit,
             0);
 
-        return hit;
+        return new BspTrace(
+            hit.Fraction, hit.Texinfo, (hit.NormalX, hit.NormalY, hit.NormalZ), hit.AllSolid, hit.Distance);
+    }
+
+    /// <summary>Where a sweep has got to, and the side it struck.</summary>
+    /// <remarks>`AllSolid` is set by any brush the sweep starts and ends inside, as `CM_ClipBoxToBrush` sets it.</remarks>
+    private struct TraceHit
+    {
+        public float Fraction;
+        public int Texinfo;
+        public float NormalX;
+        public float NormalY;
+        public float NormalZ;
+        public float Distance;
+        public bool AllSolid;
     }
 
     /// <summary>One step of <see cref="Sweep"/>: clip the segment against this node's plane.</summary>
@@ -743,10 +802,10 @@ public sealed class BspLeafTree
         float wholeFromX, float wholeFromY, float wholeFromZ,
         float wholeToX, float wholeToY, float wholeToZ,
         float halfExtent,
-        ref float hit,
+        ref TraceHit hit,
         int depth)
     {
-        if (depth > MaximumTreeDepth || startFraction >= hit)
+        if (depth > MaximumTreeDepth || startFraction >= hit.Fraction)
         {
             return;
         }
@@ -790,9 +849,10 @@ public sealed class BspLeafTree
             // near end of the span is reported, because a solid leaf entered at fraction f means
             // everything past f is inside.
             if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & ContentsSolid) != 0 &&
-                startFraction < hit)
+                startFraction < hit.Fraction)
             {
-                hit = startFraction;
+                hit.Fraction = startFraction;
+                hit.Texinfo = -1;
             }
 
             return;
@@ -920,7 +980,7 @@ public sealed class BspLeafTree
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
         float halfExtent,
-        ref float hit)
+        ref TraceHit hit)
     {
         ReadOnlySpan<byte> leaves = _leaves.Span;
 
@@ -974,7 +1034,7 @@ public sealed class BspLeafTree
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
         float halfExtent,
-        ref float hit)
+        ref TraceHit hit)
     {
         if (sides <= 0)
         {
@@ -986,10 +1046,16 @@ public sealed class BspLeafTree
 
         float enters = -1f;
         float leaves = 1f;
+        int leadTexinfo = -1;
+        (float X, float Y, float Z) leadNormal = default;
+        float leadDistance = 0f;
 
         // Whether the sweep begins outside the brush at all. A sweep that starts inside every plane
         // is already embedded, which is a different answer from hitting a surface on the way.
         bool startsOutside = false;
+
+        // `getout`: whether it ends outside any plane. Starting AND ending inside is `allsolid`.
+        bool getsOut = false;
 
         for (int side = 0; side < sides; side++)
         {
@@ -1010,10 +1076,10 @@ public sealed class BspLeafTree
             float normalX = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
             float normalY = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
             float normalZ = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
-            float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+            float planeDistance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
 
             // The box pushed into the plane, so a swept box becomes a swept point.
-            distance += halfExtent *
+            float distance = planeDistance + halfExtent *
                 (MathF.Abs(normalX) + MathF.Abs(normalY) + MathF.Abs(normalZ));
 
             float start = (normalX * fromX) + (normalY * fromY) + (normalZ * fromZ) - distance;
@@ -1022,6 +1088,11 @@ public sealed class BspLeafTree
             if (start > 0f)
             {
                 startsOutside = true;
+            }
+
+            if (end > 0f)
+            {
+                getsOut = true;
             }
 
             // Outside this plane for the whole sweep: a convex volume cannot be entered at all.
@@ -1045,8 +1116,17 @@ public sealed class BspLeafTree
 
             if (start > end)
             {
-                // Crossing inwards: the brush is entered at the LATEST such crossing.
-                enters = MathF.Max(enters, (start - DistanceEpsilon) / span);
+                // Crossing inwards: the brush is entered at the LATEST such crossing, and that side is the lead
+                // side whose surface the trace reports.
+                float crossing = (start - DistanceEpsilon) / span;
+
+                if (crossing > enters)
+                {
+                    enters = crossing;
+                    leadTexinfo = BinaryPrimitives.ReadInt16LittleEndian(brushSides[(sideAt + 2)..]);
+                    leadNormal = (normalX, normalY, normalZ);
+                    leadDistance = planeDistance;
+                }
             }
             else
             {
@@ -1060,16 +1140,21 @@ public sealed class BspLeafTree
             // Began inside this brush. Valve sets `startsolid` and a fraction of zero, which is the
             // same statement as "it got nowhere". Meaningful again now that the segment handed in
             // is the whole ray rather than a piece of it.
-            hit = 0f;
+            hit.Fraction = 0f;
+            hit.Texinfo = -1;
+            hit.AllSolid |= !getsOut;
             return;
         }
 
         // `if (enterfrac < leavefrac && enterfrac >= 0.0f)` — the sweep is inside a convex brush
         // only between the last plane it enters and the first it leaves, and a negative entry means
         // it was already past the surface. The fraction is of the whole ray, so it needs no mapping.
-        if (enters < leaves && enters >= 0f && enters < hit)
+        if (enters < leaves && enters >= 0f && enters < hit.Fraction)
         {
-            hit = enters;
+            hit.Fraction = enters;
+            hit.Texinfo = leadTexinfo;
+            (hit.NormalX, hit.NormalY, hit.NormalZ) = leadNormal;
+            hit.Distance = leadDistance;
         }
     }
 
@@ -1262,3 +1347,12 @@ public sealed class BspLeafTree
         return node >= 0 ? -1 : -node - 1;
     }
 }
+
+/// <summary>What a world trace reports — the parts of `trace_t` a brush sweep can answer.</summary>
+/// <param name="Fraction">How far it got, 0 to 1.</param>
+/// <param name="Texinfo">`surface`: the struck brush side's texinfo, or −1.</param>
+/// <param name="Normal">`plane.normal` of the side it entered through; zero when nothing was struck.</param>
+/// <param name="AllSolid">`allsolid`: it began and ended inside one brush.</param>
+/// <param name="Distance">`plane.dist` of that side's plane.</param>
+public readonly record struct BspTrace(
+    float Fraction, int Texinfo, (float X, float Y, float Z) Normal, bool AllSolid, float Distance = 0f);

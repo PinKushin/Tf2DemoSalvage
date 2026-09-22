@@ -56,4 +56,16 @@ public enum SurfaceProperties
 
     /// <summary>Calculate three lightmaps for the surface for bumpmapping.</summary>
     BumpLight = 0x0800,
+
+    /// <summary>Don't receive shadows (`bspflags.h:94`).</summary>
+    NoShadows = 0x1000,
+
+    /// <summary>Don't receive decals (`bspflags.h:95`).</summary>
+    NoDecals = 0x2000,
+
+    /// <summary>Don't subdivide patches on this surface.</summary>
+    NoChop = 0x4000,
+
+    /// <summary>The surface is part of a hitbox.</summary>
+    Hitbox = 0x8000,
 }

@@ -49,13 +49,55 @@ public sealed class BspTraceMaskConformanceTests
             .ShouldBe(1f, 0.01f);
     }
 
+    [Test]
+    public void SweepSurface_AgainstASolidBrush_ReportsTheStruckSidesTexinfo()
+    {
+        // `trace.surface` is the side whose plane set the entry fraction (CM_ClipBoxToBrush); a bullet's decal and
+        // impact effect are chosen by it (B415). 37 is not a default any path could produce.
+        (float fraction, int texinfo) = World(0x1, texinfo: 37).SweepSurface(0f, 0f, 100f, 0f, 0f, -100f, halfExtent: 0f);
+
+        fraction.ShouldBe(0.5f, 0.01f);
+        texinfo.ShouldBe(37);
+    }
+
+    [Test]
+    public void Trace_IntoTheBrush_ReportsTheEnteredPlanesNormal()
+    {
+        BspTrace trace = World(0x1).Trace(0f, 0f, 100f, 0f, 0f, -100f, halfExtent: 0f);
+
+        trace.Normal.ShouldBe((0f, 0f, 1f));
+        trace.AllSolid.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Trace_WhollyInsideTheBrush_IsAllSolid()
+    {
+        BspTrace trace = World(0x1).Trace(0f, 0f, -10f, 0f, 0f, -50f, halfExtent: 0f);
+
+        trace.AllSolid.ShouldBeTrue();
+        trace.Fraction.ShouldBe(0f);
+    }
+
+    [Test]
+    public void Trace_StartingInsideAndLeaving_IsNotAllSolid()
+    {
+        World(0x1).Trace(0f, 0f, -10f, 0f, 0f, 50f, halfExtent: 0f).AllSolid.ShouldBeFalse();
+    }
+
+    [Test]
+    public void SweepSurface_ThroughAnUnmaskedBrush_ReportsNoSurface()
+    {
+        World(0x20, texinfo: 37).SweepSurface(0f, 0f, 100f, 0f, 0f, -100f, halfExtent: 0f).Texinfo
+            .ShouldBe(-1);
+    }
+
     /// <summary>A world of one half-space at z = 0, with the contents given.</summary>
     /// <remarks>
     /// A single brush side suffices: the sweep is outside its plane at the start and inside at the
     /// end, which is the only crossing the clip needs to find. Leaf 1 is below the plane and is the
     /// one that lists the brush.
     /// </remarks>
-    private static BspLeafTree World(int contents)
+    private static BspLeafTree World(int contents, short texinfo = 0)
     {
         byte[] plane = new byte[20];
 
@@ -89,6 +131,7 @@ public sealed class BspTraceMaskConformanceTests
         byte[] brushSides = new byte[8];
 
         BinaryPrimitives.WriteUInt16LittleEndian(brushSides.AsSpan(0), 0);
+        BinaryPrimitives.WriteInt16LittleEndian(brushSides.AsSpan(2), texinfo);
 
         return BspLeafTree.FromCollisionLumps(
             node, plane, leaves, leafBrushes, brushes, brushSides);

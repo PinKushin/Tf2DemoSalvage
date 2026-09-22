@@ -26784,6 +26784,10 @@ test.
 still interpolated, and what would settle it is a capture of the same effect in TF2 beside ours
 (`docs/findings/24-reference-capture.md`).
 
+**Settled 2026-09-20 for `Alpha Fade and Decay` by the disassembly instead, and the interpolation was
+wrong** — `start_alpha` is where a smoothstep fade-in starts, not a held level, and nothing is written
+between the windows. B415; `docs/findings/58-an-explosion-sends-a-normal-not-a-trace.md`.
+
 *Evidence class: measured — the file counts, the 10,456 systems, the 110 distinct operators and
 their ranking, all read through this project's own `DmxFile` over every shipped `.pcf`;
 read-from-source for the attribute layout and the absent implementations.*
@@ -27027,6 +27031,47 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
+### B416 OPEN 2026-09-21: a sound STOP silences the whole (entity, channel); the engine stops one named sound
+
+**Found while settling the CHAN_STATIC half of it, which is fixed** (B415, `AudioOutput.Play`): `S_StartStaticSound`
+takes the first free slot from index 64 (`MAX_DYNAMIC_CHANNELS`) and never compares the source or the channel, so two
+static sounds from one entity both play — the output used to cut the first, and The Original's `CHAN_STATIC`
+explosions from the world cut each other.
+
+**What is still different, read out of `engine.dll` (x64, `snd_dma.cpp`):** `S_AlterChannel` (`FUN_18002aa20`), which
+`SND_STOP` goes through, matches a channel on the source AND the channel AND the sound (`ch->sfx == sfx`), acts on the
+FIRST match and returns — unless flag `0x200` is set, when it takes every channel of the source whatever its channel or
+sound. `IAudioSink.Silence` matches (entity, channel) and stops every voice there, and `SoundSchedule.LiveAt` keeps
+one sound per (entity, channel) for CHAN_STATIC as for every other named channel.
+
+**What would be heard:** only with two static sounds layered on one entity and then a stop naming one of them — ours
+silences both where the engine keeps the other; and a seek re-establishes one of two layered static loops. Rare, which
+is why it is filed rather than done in the same change; it is the same three functions when it is done.
+
+*Evidence class: read from the shipped binary's disassembly; nothing measured.*
+
+### B416 FIXED 2026-09-22: a POV recorder spectating in-eye is still shown from his own eyes
+
+**Fixed the same day, on the owner's direction (D188).** `Followed` answers the recorder's `m_hObserverTarget` in-eye,
+and a POV demo's camera is the recorded view in every mode. The chase camera had been built behind the recorder's
+corpse on every death, which is a second divergence found in the same place. Seen at tick 6470: first person, player
+22's weapon, on the recorded camera.
+
+**Found while wiring the first-person muzzle flash (B415).** In `tf2-2026-pub-pov-clean` from tick 6200,
+the recorder is entity 9, and the demo carries viewmodel muzzle flashes owned by entity 22 at ticks
+6461, 6517, 6570, 6687 and 6764. `CBaseViewModel::ShouldTransmit` (`baseviewmodel.cpp:68-93`) sends a
+viewmodel to its owner, to SourceTV, or to a player whose `GetObserverMode() == OBS_MODE_IN_EYE` and
+whose `GetObserverTarget()` is the owner. So the recorder was watching entity 22 in first person at
+those ticks. TF2 would show 22's eyes, 22's viewmodel and 22's flashes.
+
+**Ours shows the recorder.** `FollowedEntity()` (`_spectator.Followed`) answers the recorder on a POV
+demo whatever `m_hObserverTarget` says. `ObserverModeConformanceTests` already lets `OBS_MODE_IN_EYE`
+count as first person, so the view stays in first person, in the wrong player's eyes.
+
+*Not fixed yet, because it changes the camera the owner sees.* The fix is to follow
+`m_hObserverTarget` in-eye on a POV demo, as `C_BasePlayer::CalcInEyeCamView` does, and to read which
+viewmodel is drawn from the same answer.
+
 ### B415 OPEN 2026-09-20: every temp entity but one is decoded and then dropped — no tracers, impacts, explosions or decals
 
 **The owner, listing what he can see missing**: *"we still dont have the hitscan particle stuff either or explosion
@@ -27088,6 +27133,330 @@ nothing — the failure mode `conditions` was written to catch.
 *Not established*: whether the mix holds on other eras. f12 is one modern competitive match, and the era specimens are
 solo recordings with nobody to shoot at, so they cannot answer it (`docs/memory/era-axis-is-measured.md`). *Evidence
 class: measured on one demo.*
+
+**The hitscan route, read 2026-09-20 — and it has one blocker that is not in the SDK.** `DT_TEFireBullets`
+(`c_tf_fx.cpp:36`) sends `m_vecOrigin`, `m_vecAngles[0]`, `m_vecAngles[1]`, `m_iWeaponID`, `m_iMode`, `m_iSeed`,
+`m_iPlayer`, `m_flSpread` and `m_bCritical` — **no bullet paths at all**. The client reconstructs every shot:
+`PostDataUpdate` zeroes `m_vecAngles.z` and calls `FX_FireBullets(NULL, m_iPlayer + 1, …)` — note the **`+ 1`**, the wire
+carries the player index one below the entity.
+
+`FX_FireBullets` (`tf_fx_shared.cpp`) then, per bullet of `m_nBulletsPerShot`:
+
+```
+RandomSeed( iSeed );                                  // reseeded EVERY bullet
+x = RandomFloat(-v, v) + RandomFloat(-v, v);          // v = 0.5, or mult_spread_scale_first_shot
+y = RandomFloat(-v, v) + RandomFloat(-v, v);          // two draws each — a triangular distribution
+dir = forward + (x · flSpread · right) + (y · flSpread · up);  normalized
+pPlayer->FireBullet( … );
+++iSeed;                                              // the next bullet's seed
+```
+
+with `fireInfo.m_iTracerFreq = 2` for everything except the minigun — **a tracer on every second bullet**, not every one.
+A buckshot weapon with fixed spread takes a table (`g_vecFixedWpnSpreadPellets`) instead of the random draws.
+
+**So the shot is deterministic given the seed, and reproducing it needs Valve's RNG bit for bit.** `CUniformRandomStream`
+(`public/vstdlib/random.h`) holds `m_idum`, `m_iy` and `m_iv[NTAB]` with `NTAB 32` — the shape of Numerical Recipes'
+`ran1`, a Park–Miller generator with a Bays–Durham shuffle. **The header declares the members and not one constant**, and
+`random.cpp` is not in the SDK: vstdlib ships closed. *Next*: settle the multiplier, modulus and shuffle constants in the
+DISASSEMBLY of `vstdlib.dll` rather than assuming the textbook `ran1` values — `docs/memory/nothing-is-closed.md` is
+about exactly this, and a spread reconstructed from a wrong constant would put every tracer somewhere plausible and
+wrong. The weapon script data (`m_nBulletsPerShot`, range, `m_flSpread`) is a separate input and comes from the shipped
+`tf_weapon_*.txt`, which is game data this project already reads.
+
+**Done 2026-09-20: the RNG and the spread.** `UniformRandomStream` is Valve's, settled in `vstdlib.dll`'s disassembly
+and checked against the shipped DLL in process by the `vstdlib-random` probe — 1,800 draws over nine seeds agreeing bit
+for bit. `FireBulletsSpread.Directions` is the direction half of the loop above. Both are written up in
+`docs/findings/57-the-shot-is-a-seed.md`, including the two of Valve's branches that are quoted and deliberately not
+reproduced and the fact that no oracle exists for the spread loop itself.
+
+**Read 2026-09-20 — and it splits the remaining work in two, along a line that was not obvious.**
+
+**Most of these effects need no ray trace at all, because the SERVER already traced.** `CTEWorldDecal` (2,167),
+`CTEDecal` (192), `CTETFExplosion` (2,786), `CTETFBlood` (3,343), `CTEDust`, `CTESparks` and
+`CTEEffectDispatch(Impact)` all carry a world position on the wire — the server traced the bullet or the blast and sent
+the result. So roughly **8,300 of the 15,014 dropped events are drawable from what is already decoded**, with no BSP ray
+cast anywhere.
+
+**Only the hitscan TRACER and its own impacts need one**, because `FX_FireBullets` runs on the client with
+`bDoEffects = true` and re-traces each bullet for itself. That is the expensive half, and it is now the only half that
+needs a subsystem this project does not have.
+
+**What `CTETFExplosion` carries and what the client does with it** (`tf_fx_explosions.cpp:176-240`):
+`m_vecOrigin`, `m_vecNormal`, `m_iWeaponID`, `entindex`, `m_nDefID`, `m_nSound`, `m_iCustomParticleIndex`.
+`TFExplosionCallback` (`:42`) picks the effect in this order —
+
+1. `"ExplosionCore_wall"` to begin with;
+2. the `ParticleEffectNames` string table entry at `m_iCustomParticleIndex`, when that is not `INVALID_STRING_INDEX`;
+3. otherwise the weapon script's `ExplosionWaterEffect` in water, `ExplosionPlayerEffect` when the blast hit a player
+   **or was in mid air**, and `ExplosionEffect` otherwise.
+
+**Mid air is decided by the normal, not by a trace**: `fabs(x) < 0.05 && fabs(y) < 0.05 && fabs(z) < 0.05` means in
+air and the angles are zeroed — *"Cannot use zeros here because we are sending the normal at a smaller bit size"* — and
+otherwise the angles are `VectorAngles(normal)`, which `AngleVectors.Angles` already is. Three weapon IDs are remapped
+before the lookup (`TF_WEAPON_GRENADE_PIPEBOMB`, `_DEMOMAN` and `_PUMPKIN_BOMB` all read the pipebomb launcher's
+script; `TF_WEAPON_FLAMETHROWER_ROCKET` reads the flamethrower's).
+
+**So the weapon scripts are the gate for step 3, and they are the same gate as `m_nBulletsPerShot`.**
+`ReadWeaponDataFromFileForSlot` (`weapon_parse.cpp:270`) opens `scripts/<alias>` where the alias IS the
+`TF_WEAPON_*` name out of `g_aWeaponNames` (`tf_shareddefs.cpp:599`, 109 entries indexed by the wire's `m_iWeaponID`),
+trying `.txt` first and falling back to the ICE-encrypted `.ctx` — the same mechanism `tf_classdata.cpp` uses for the
+player class scripts, which this project already reads.
+
+**And the control points map straight onto what `ParticleEffects` already takes.** The world-space branch of
+`ParticleEffectCallback` (`c_particle_system.cpp:225-243`) is: sort origin and control point 0 at the origin, control
+point 1 at `vStart` (which the origin-and-angles overload sets to the origin as well), and control point 0's
+orientation from `AngleVectors(angles)`. That is one `ParticleControlPoint`. What `ParticleEffects` does NOT have is the
+lifecycle: every effect there is owned by a live entity, and an explosion is a one-shot at a tick that a viewer must be
+able to scrub back to.
+
+**Built 2026-09-20: `render_sprite_trail`, `Trail Length Random`, and a corrected `Alpha Fade and Decay`**, all three
+read out of `client.dll` because the ops ship only in `particles.lib`. Five of `ExplosionCore_Wall`'s eight children
+use the trail renderer, and the fade correction is what makes the core flash visible at all — it was held at zero
+alpha for its whole life. The trace, the constants and the wrong readings are in `docs/findings/58`. **Still open
+here:** hitscan tracers (the only half that needs a BSP trace), impacts, decals and blood.
+
+**Built 2026-09-21: hitscan tracers.** `ShotFeed` keeps every `CTEFireBullets` with the shooter captured at arrival;
+`HitscanTracers` rebuilds each pellet (`FireBulletsSpread`, now with the fixed pattern f12's server turns on), traces it
+against the world, runs the client-wide `tracerCount` and names the effect as `GetTracerType` does; `LoadedMap` does
+all of that once at load, and the viewer runs each tracer as a two-control-point burst through the newly read
+`move particles between 2 control points` initializer (`client.dll` `FUN_107bf510`, `docs/findings/59`). On f12,
+through the viewer's own load: 2,176 shots, **7,957 tracers**, twelve effect names, every definition present.
+
+**What the tracers still get wrong, each a divergence and each filed here rather than hidden:**
+
+- ~~They start at the bullet's origin, not the muzzle.~~ **Fixed 2026-09-21**: the active weapon's `muzzle` attachment,
+  read once when the tracer is first drawn (`EntityModelSet.AttachmentPosition`). A seek that lands mid-flight reads
+  the gun where it is then.
+- ~~The trace sees the world only.~~ **Players fixed 2026-09-21**: `PlayerBulletTrace` is `UTIL_PlayerBulletTrace`,
+  partition, extension, validation and all, against the posed hitboxes (`StudioHitboxes`, `TraceToStudio`). **Still
+  open:** props and brush entities are solid to the engine's trace and not to ours; a player no pass has posed (culled
+  from view) has no hitboxes to hit; and the counter is decided on the world alone.
+- **An item's own `tracer_effect`** (`GetStaticData()->GetTracerEffect( team )`) is not read, so an item that replaces
+  its weapon's tracer draws the stock one — and a sniper rifle, whose script has none, draws nothing either way.
+- **`mult_bullets_per_shot`** is an attribute hook on the active weapon that changes the pellet count (the Force-A-Nature,
+  for one); the count here is the script's.
+- **The counter starts at zero**, as a fresh client's does. Which bullet of a pair draws depends on everything the
+  client traced before, which no demo records.
+- **For the performance pass, unverified:** a burst is offered for its whole window (120 ticks for a tracer, 200 for
+  an explosion), long after its particles are gone. If `ParticleEffects.Bursts` has retired it, the next offer starts it
+  again and replays it from its own tick, every frame. That was suspected from a comparison run while the viewer was in
+  the background, so it has not been measured; it is a reading to check, not a finding.
+- **An unprecached tracer name** resolves to string-table entry 0 in the engine (`GetParticleSystemIndex` returns 0);
+  here it is looked up by name and skipped when absent.
+
+**Built 2026-09-21: world decals — bullet holes and the demo's decal events** (D186; `docs/findings/60`). The engine's
+decal system is ported out of `engine.dll` (`WorldDecals`), every bullet the world stops is an impact carrying its
+struck brush side (`ShotImpact`, `MapLevel.SweepSurface`), `ImpactDecals` runs the client chain from
+`UTIL_ImpactTrace` to `GetDecalIndexForName`, `DecalReplay` shoots them and the `CTEWorldDecal`/world `CTEDecal` events
+in tick order, and they draw in the overlay pass from a dynamic buffer. On f12, through the viewer's own load: **16,359
+impacts, 12,105 with a decal** (concrete 9,431, metal 1,729, dirt 731, glass 194, wood 20), 1,424 on terrain.
+**Looked at**: `decals2.png` — a hole on the blue wall at shot 4's pellet cluster (tick 1654), with no square around
+it once the mod2x blend was corrected.
+
+**What the decals still get wrong or leave out, each filed rather than hidden:**
+
+- **Players are judged only for a bullet met on its own tick.** A seek replays the pool from the start against the world
+  alone, so a bullet a player took leaves a hole in the wall behind them. The engine's rewind re-simulates with every
+  player posed; this would need every player posed at every shot.
+- **The pick is not the engine's.** `GetDecalIndexForName` draws from the client's global random stream, which no demo
+  records; the draw here is seeded by shot and bullet, so a replay gives the same hole every time.
+- **Not built:** displacement decals (1,424 f12 impacts on terrain draw none), brush-entity decals (a door's holes ride
+  the door), static-prop and model decals (`CTEDecal` with a hitbox, blood on a player), sprays (`CTEPlayerDecal`),
+  decal fade, and `ImpactWaterTrace`'s splash for a bullet entering water.
+- **Order within one tick is interpolated**: a decal event is shot before a bullet's; the packet's order is not kept.
+- **`r_decals` is the default, 2048**, not read from the viewer's config.
+- **For the performance pass, unverified:** a backward seek clears and re-shoots every impact up to the tick — sixteen
+  thousand on f12 at the end of the match. Not measured.
+- ~~**The effects half of `Impact` is not built**~~ **Built 2026-09-21, the particles**: see below. The impact and
+  ricochet sounds, and `FX_AffectRagdolls`, are not.
+
+**Built 2026-09-21: the legacy impact effects** (`docs/findings/61`). `cl_new_impact_effects` is `"0"` and no shipped
+config sets it, so `PerformCustomEffects` takes its legacy branch: `FX_DebrisFlecks` for concrete, tile and wood,
+`FX_DustImpact` for dirt and sand, `FX_MetalSpark` and its glow quad for metal and vent, `FX_ElectricSpark` for
+computers. Ported with their emitters (`CSimpleEmitter`, `CDustParticle`, `CFleckParticles`, `CTrailParticles`) and
+`CParticleCollision`; tinted by `GetColorForSurface`, whose three closed pieces were read in `engine.dll` and
+`materialsystem.dll`; stepped per tick by `ImpactEffectRunner`. **Looked at**: `impact1.png`, a grey puff and tan
+flecks at shot 4's hole.
+
+**Built the same day: blood** — `CTETFBlood`'s `blood_impact_red_01` and `blood_spray_red_01`/`_far`, the spray turned
+against the view as `TFBloodSprayCallback` turns it. **Looked at**: `blood4.png`, a red splat at the hit.
+
+**Fixed on the way — read in the code, not measured:** `ParticleEffects.Retire` dropped every finished burst while its
+caller still offered it, so every finished tracer and explosion in the 120- and 200-tick windows was rebuilt and
+replayed from its own tick on every frame. The item above filed as "for the performance pass, unverified" is this.
+
+**What the impact effects and blood still leave out:**
+
+- **Stepped per tick, not per frame.** The engine steps by frame time; stepping by ticks is what makes a seek land
+  on the same picture. A bounce or a decay reached in unequal steps differs slightly.
+- **Draws are seeded, not the engine's stream**, as for decals.
+- **`CFleckParticles` merging is not built**: a fleck emitter within 120 units of an older one joins it and re-runs
+  the older one's collision setup at the new impact.
+- **`GetColorForSurface` is partial**: displacements and static props in `R_LightVec`'s walk, light styles beyond
+  their level-start 264, water surfaces, and a hit on no face (the engine's base colour is then an uninitialised
+  local; zero here).
+- **Blood**: the underwater, birthday, Pyrovision and low-violence variants; dormancy — every event is taken as live.
+- **Not established**: the tan flecks on the blue wall at shot 4 — right if that wall is a concrete material under
+  paint, which was not read. And at blood 34 no player model stands where the blood is: entity 2 is the demo's own
+  player, and whether the free camera should draw it there is not read.
+
+**Fixed 2026-09-21: two decode errors in every temp entity, found through `CTEEffectDispatch`** (`docs/findings/62`).
+
+1. **An effect that omits its class is a delta against the previous effect in the message, not a fresh one.** The
+   wire list was read as the whole effect, so every field the two effects share came back as zero. Measured on f12:
+   all 45 sentry muzzle flashes read entity 0 and attachment 0. Those are exactly the two fields each flash shares
+   with the `Tracer` sent just before it. After the fix they read entity 502 or 407 and attachments 1 or 4, the
+   same as their tracers. `DecodedTempEntity.State` now holds the effect as received, and every feed reads it.
+   `Properties` stays the wire list, for the assembler and the trace.
+2. **An unsent `DT_EffectData` field is a zero received through its proxy, not `CEffectData`'s constructor.** An
+   unsent `entindex` therefore means the world. TF's `ImpactCallback` returns on a null entity
+   (`tf_fx_impacts.cpp:32`), so with the old `INVALID_EHANDLE` default no server impact could ever mark the world.
+   On f12 server impacts on the world went from 0 to 2.
+
+**Server `Impact` dispatches built**: the two world hits trace, place a decal and throw debris, as a shot's
+impact does. **The other 233 on f12 hit players** (entities 2–13, surfaceprop 39): model decals are not built,
+so they draw nothing yet. Sentry muzzle flashes, `Tracer` dispatches, `ParticleEffect` dispatches and
+`TFBoltImpact` are still not drawn.
+
+**Built 2026-09-21, three more dispatches.**
+
+- **Sentry muzzle flashes** (`TF_3rdPersonMuzzleFlashCallback_SentryGun`). Level 1 draws `muzzle_sentry`,
+  2 and 3 draw `muzzle_sentry2`, and the flash follows its barrel.
+- **`"Tracer"`** (`TracerCallback` → `FX_Tracer` → `CFXDiscreetLine` with `tracer_extra` 1). Its
+  start is the attachment, read once. The server's `m_vStart` is the multiplayer sentinel
+  (999, 999, 999).
+- **`"ParticleEffect"`** (`ParticleEffectCallback`). The system name is `m_nHitBox` read into the
+  `ParticleEffectNames` table. A `PATTACH_POINT_FOLLOW` effect is given its attachment's pose every
+  frame. On f12 this is 1,272 `rocketjump_smoke`, 32 `xms_ornament_smash_red` and 5
+  `xms_ornament_glitter`.
+
+**Looked at:** a flash at the sentry's barrel, and a thin streak leaving it.
+
+**`rocketjump_smoke` was placed but invisible, and its four missing operators are now built.** They
+were read out of `particles.lib`, which the SDK ships with its symbols intact:
+
+- `C_OP_RemapScalar`
+- `CGeneralSpin`
+- `C_INIT_SequenceLifeTime`
+- `C_OP_PositionLock`
+
+The flame child went from 0.08 units wide to 10.2 at 34 ticks. **Looked at**: `rj4.png`, small
+flames at both of the soldier's feet mid-jump, where there were none. The smoke trail itself is not
+established: a still frame after a seek shows the replayed clump, and only playback can show the
+trail. **Still divergent:**
+
+- `ALPHA2`, which `Remap Scalar` writes and the closed renderer reads, is not held.
+- No operator fade strength is computed; it is taken as 1.
+- `Movement Lock`'s per-frame random is a keyed table draw, not `RandSIMD`'s stream.
+
+**Also not built:** these dispatch features, none of which f12 uses:
+
+- the origin and root-bone attach types;
+- a following effect's `m_vStart` offset;
+- `PARTICLE_DISPATCH_RESET_PARTICLES`;
+- custom colours;
+- Pyrovision.
+
+**Also true after a seek:** a following effect replays its missed ticks at the attachment's current
+pose, so a still frame shows a clump where playback shows a trail.
+
+**Built the same day, three more sources:**
+
+- **Weapon muzzle flashes.** The active weapon's `m_nMuzzleFlashParity` changing while it is in view
+  runs `CreateMuzzleFlashEffects`:
+  - It starts the item's `muzzle_flash`, or else the script's `MuzzleFlashParticleEffect`, on
+    `muzzle`.
+  - Rocket-launcher classes also start `rocketbackblast` on `backblast`.
+  - Control: the scattergun flashes 1,523 times on f12, the same as its 1,523 shots.
+- **`CTETFParticleEffect`**, which becomes a `"ParticleEffect"` dispatch. On f12 it is engineers'
+  wrench hits, building explosions and the Machina's rail, 70 in all.
+- **`CTESparks`, `CTEMetalSparks` and `CTEArmorRicochet`**, the last being sparks off a player the
+  sentry hits.
+
+**Looked at**: a glow at a scout's scattergun barrel (`muzzle1.png`), and ricochet sparks
+(`spark2.png`).
+
+**Not built from these**:
+
+- the muzzle-flash MODEL, which no f12 weapon names;
+- the viewmodel's flash in first person;
+- the ricochet sound.
+
+**Not established:** whether the engine's client also starts a full update from zero through
+`RecvTable_DecodeZeros`. The world-impact argument above requires it, but the engine's temp-entity parse was
+not read; the Ghidra engine project was locked.
+
+**Built 2026-09-21/22.**
+
+- **The medigun beam, whole.** It has path constraints, `remap initial scalar` and `Position Along Path
+  Random`. The item's `custom_particlesystem` (the overheal beam) draws beside the beam, and `_targeted`
+  follows `hud_medichealtargetmarker`. The machinery beam is unreachable: `IsAllowedToTargetBuildings`
+  returns false.
+- **Temp entities fire one interpolation window late.** `CL_QueueEvent` (engine.dll `0x1801f9bc0`)
+  adds `GetClientInterpAmount()` during demo playback. This fix applies to every effect above. The owner
+  caught it: I had concluded that TF2 also misses moving players with blood.
+- **Blood on players**, from server `Impact`s and from the client's own bullets. It is projected as
+  `CStudioRender::AddDecal` does (studiorender.dll `0x180004c80`): whole triangles on a skinned model,
+  with the `$modelmaterial` swap, the `r_maxmodeldecal` limits and `C_TFPlayer`'s clears. It has been
+  seen drawn.
+- **The arrow a bolt leaves standing**: 133 on f12, one seen in a wall.
+- **Impact sounds**, gated to within 1024 units of the camera. The `Bounce.Shrapnel` ricochet is a dead
+  branch in TF, because no gun's damage type is exactly `DMG_BULLET`.
+
+**Still not built, or divergent:**
+
+- **FIXED 2026-09-22: an out-of-view player took no decal.** `CModelRender::AddDecal` sets up bones on
+  demand, but we read only the skinning the draw pass had left, so 60 hits were refused. That cache also
+  kept the last drawn pose of a player who had left view. `EntityModels.SkinningOf` now runs `SetupBones`
+  itself. Measured on f12 from tick 13800 for 90 s: 44 placed, 0 "no skinned model", and 3 ray misses
+  (the item below). Before the fix: 5 placed and 60 refused.
+- **Blood can land slightly off the mesh.** Hits land 3–18 units outside the server's own hitbox on
+  our pose. This waits on the in-game check: tick 13944 gummo, 14252 abelll, with
+  `entity-impacts <demo> n 13800`.
+- **FIXED 2026-09-22: the wrong sound for a player-stopped client bullet.** It sounded on the wall
+  behind the player. `FireBullet` traces with `CTraceFilterSimple` outside MvM, so the trace stops at any
+  player, and it calls `UTIL_ImpactTrace` only for an entity not on the shooter's team
+  (`tf_player_shared.cpp:10297`, `:10510-10527`). The client's own bullets now leave the load-time
+  schedule, and `StepModelDecals` decides each one at play time:
+  - a bullet an enemy stopped sounds on him, with flesh's `bulletimpact`;
+  - a bullet a teammate stopped makes no sound;
+  - a bullet that met no player sounds on the world, as before.
+
+  They reach the sink through `SoundPresenter.Emit`. On f12 the schedule dropped from 12,518 landings to
+  235, the server's. *Not measured:* no log counts the emitted sounds, so nobody has yet heard whether
+  they play.
+- **Sprays are CLOSED, not missing.** They need the logo `.dat` the client downloaded, and no demo carries
+  it. The owner, 2026-09-22: *"the sprays are fine as long as they will actually show IF a file was
+  actually there … we already looked into them to make sure there was no way to download them, and
+  theires not, and so sprays are just blank for everyone who watched a demo without having played with
+  the person before or watching the match live"*. TF2 draws them blank for such a viewer as well, so
+  drawing one only when the file exists is parity.
+- **The muzzle-flash model is a DEAD BRANCH in TF2, and the correct implementation is none.** Read from
+  the shipped data: the `weapon-script` probe over all 108 weapon ids finds `MuzzleFlashModel` in one
+  script, `TF_WEAPON_MEDIGUN` (`sentry1_muzzle.mdl`, 0.1 s). `CreateMuzzleFlashEffects` runs only from a
+  parity change. The parity is raised by `DoFireEffects` (`tf_weaponbase_gun.cpp:1014`) or
+  `Materialize` (`tf_weaponbase.cpp:2935`). `CWeaponMedigun::PrimaryAttack` (`tf_weapon_medigun.cpp:1752`)
+  calls neither, and `Materialize` runs only for a respawning world weapon, which TF maps do not
+  place. So no weapon that TF2 fires ever draws a flash model.
+- **BUILT 2026-09-22: the first-person viewmodel flash.** `CBasePlayer::DoMuzzleFlash`
+  (`baseplayer_shared.cpp:1771`) bumps each viewmodel's own counter beside the weapon's.
+  `CTFViewModel::ProcessMuzzleFlashEvent` (`tf_viewmodel.cpp:348`) then flashes the owning weapon on
+  `GetAppropriateWorldOrViewModel`: the hands-attached weapon if there is one, else the viewmodel. This
+  happens only when the local player is not drawn, and `CreateMuzzleFlashEffects` returns under
+  `r_drawviewmodel 0`. `MuzzleFlashFeed.ObserveViewmodel` reads `DT_BaseViewModel.m_nMuzzleFlashParity`,
+  which `tf2-2026-pub-pov-clean` sends 966 times.
+
+  Measured there from tick 6200 in first person: the recorder's flashes resolve the viewmodel's `muzzle`.
+  His Original (item 513) starts nothing, because `TF_WEAPON_ROCKETLAUNCHER` names no
+  `MuzzleFlashParticleEffect`. *Not yet seen drawn:* a first-person hitscan flash on screen.
+- **Fixed with it:**
+  - **The recorder's launcher never has a backblast, in any view.** `CTFRocketLauncher` tests
+    `pOwner->IsLocalPlayer()` (`tf_weapon_rocketlauncher.cpp:383`), and ours gave him one in third person.
+  - **An entity that has left the scene has no attachments or hitboxes.** `AttachmentMatrix`,
+    `TraceHitboxes` and `HitboxGap` answered from any pose ever built.
+  - **The viewmodel pass no longer hides world entities from `SkinningOf`.** It re-runs `Simulate` with
+    its own two props, which would have refused every off-screen decal in first person. Each pass's
+    entities are now kept apart (`EntityModels._scenes`).
 
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
@@ -27359,6 +27728,32 @@ log alone just surfaces its next one on the following run. Every `string.Create(
 deterministic trigger, and there are **303 of them** across `managed/` (Core 35 files, Content 51 sites, Scene 12,
 Presentation 12, Audio 4, Viewer3D 3, Logging 2, Render 1, Fonts 1). The definite-assignment shapes add ~143 more across
 core (119 triggers), scene (80), animation (31) and presentation (29).
+
+**2026-09-20 — measured on the box, and it had two consequences nobody predicted.**
+
+*It worked.* Content's Safe Mode triggers went 54 → **0** and Animation's 32 → 3, on the nightly runs.
+
+*It made Content take six hours, and that refused three other jobs.* The methods Safe Mode had been discarding are
+parsers — `Read`, `ReadStructures`, `ReadModelMeshes`, `Validate`, `Payload` — and a mutated loop bound in a parser does
+not fail, it never ends. Timeouts went 83 → **864**, each costing about 70 s (1.5 × the covering tests' time, plus the
+config's 10 s `additional-timeout`, off a 98 s initial run), and Content ran 15:00 → 21:14 holding the box's lock. Scene,
+Presentation and PBJ's `stryker-core` were refused and skipped for the day. Content was moved to 23:30, the one window
+that holds it; the arithmetic and the slot are in `PinKushin/MEASUREMENT-BOX-LOG.md`, 2026-09-20 22:31. **A timeout is a
+detected mutant, so this is real work being done, not waste** — the cost is set by the slowest covering test rather than
+by the mutant, which is the open question.
+
+*And it regressed the same day, in this session's own code.* The three Animation triggers left are all new —
+`IvpSimulation.RemoveContacts` and `Rebuild`, written for B413 — and the day's B415 code added eleven more of the
+same shapes, found by searching the branch's diff for the idioms rather than waiting for a log to name them one method
+at a time. All fourteen now carry the comment. **The rule this adds: any new `is not { } x` guard, any `out` variable
+used after the expression that declares it, and any `||` joining two of them needs the comment IN THE SAME CHANGE** —
+the log finds them a night later, one per method.
+
+*Not established:* the `// Stryker disable once : reason` form logs `ERR  not recognized as a mutator` on every run,
+dozens of lines, because the empty token before the colon is parsed as a mutator name. It still suppresses — the
+counts above prove it — so the error is noise, not a failure. `// Stryker disable once all : reason` is almost
+certainly the clean form, but it has not been A/B'd here the way the range form's `all` was, and changing ~400 sites on
+an untested belief is exactly how the range form's `all` was once wrongly removed.
 
 ### B409 FIXED 2026-09-18: gibs are never simulated — they hold in the air where the player died
 

@@ -35,8 +35,8 @@ public sealed class ModelPrecache
     /// </remarks>
     public const string DynamicTableName = "DynamicModels";
 
-    private readonly Dictionary<int, string> _paths = [];
-    private readonly Dictionary<int, string> _dynamic = [];
+    private readonly NameTable _paths = new();
+    private readonly NameTable _dynamic = new();
 
     /// <summary>Records a create or update message's entries.</summary>
     /// <param name="entries">Entries from the message; later ones replace earlier ones.</param>
@@ -45,7 +45,7 @@ public sealed class ModelPrecache
     /// entries that changed, each stating where it belongs, so numbering them from zero would
     /// rewrite the front of the table with whatever happened to change.
     /// </remarks>
-    public void Apply(IReadOnlyList<StringTableEntry> entries) => Apply(entries, _paths);
+    public void Apply(IReadOnlyList<StringTableEntry> entries) => _paths.Apply(entries);
 
     /// <summary>Records entries from the <c>DynamicModels</c> table.</summary>
     /// <param name="entries">Entries from the message; later ones replace earlier ones.</param>
@@ -54,27 +54,7 @@ public sealed class ModelPrecache
     /// independently: entry 7 of one and entry 7 of the other are different models, and a single
     /// dictionary would have each quietly overwrite the other.
     /// </remarks>
-    public void ApplyDynamic(IReadOnlyList<StringTableEntry> entries) => Apply(entries, _dynamic);
-
-    private static void Apply(IReadOnlyList<StringTableEntry> entries, Dictionary<int, string> into)
-    {
-        if (entries is null)
-        {
-            return;
-        }
-
-        foreach (StringTableEntry entry in entries)
-        {
-            // An entry with no text is a payload-only update to an existing one - the model name
-            // does not change - and an empty name is index zero's placeholder for "no model".
-            if (entry.Index < 0 || string.IsNullOrEmpty(entry.Text))
-            {
-                continue;
-            }
-
-            into[entry.Index] = entry.Text;
-        }
-    }
+    public void ApplyDynamic(IReadOnlyList<StringTableEntry> entries) => _dynamic.Apply(entries);
 
     /// <summary>The model an index names.</summary>
     /// <param name="modelIndex">The entity's <c>m_nModelIndex</c>, already unpacked.</param>
@@ -112,11 +92,10 @@ public sealed class ModelPrecache
     {
         if (modelIndex >= -1)
         {
-            return _paths.TryGetValue(modelIndex, out string? path) ? path : null;
+            return _paths.Name(modelIndex);
         }
 
-        return DynamicSlot(modelIndex) is { } slot &&
-            _dynamic.TryGetValue(slot, out string? loaded) ? loaded : null;
+        return DynamicSlot(modelIndex) is { } slot ? _dynamic.Name(slot) : null;
     }
 
     /// <summary>Which <c>DynamicModels</c> entry a negative model index names, when any.</summary>

@@ -164,6 +164,37 @@ internal static class StudioLayout
     /// </remarks>
     public const int AttachmentMatrixOffset = 12;
 
+    /// <summary>Byte offset of <c>numhitboxsets</c> — between the bone controllers (164) and the local animations (180).</summary>
+    public const int HeaderHitboxSetCountOffset = 172;
+
+    /// <summary>Byte offset of <c>hitboxsetindex</c>.</summary>
+    public const int HeaderHitboxSetIndexOffset = 176;
+
+    /// <summary>Bytes per <c>mstudiohitboxset_t</c>: <c>sznameindex</c>, <c>numhitboxes</c>, <c>hitboxindex</c>.</summary>
+    public const int HitboxSetStride = 12;
+
+    /// <summary>Byte offset of <c>numhitboxes</c> in a set.</summary>
+    public const int HitboxSetCountOffset = 4;
+
+    /// <summary>Byte offset of <c>hitboxindex</c> in a set, relative to the SET.</summary>
+    public const int HitboxSetIndexOffset = 8;
+
+    /// <summary>
+    /// Bytes per <c>mstudiobbox_t</c>: <c>bone</c>, <c>group</c>, <c>bbmin</c>, <c>bbmax</c>, <c>szhitboxnameindex</c>
+    /// and <c>unused[8]</c> — 4 + 4 + 12 + 12 + 4 + 32.
+    /// </summary>
+    public const int HitboxStride = 68;
+
+    /// <summary>Byte offset of <c>bbmin</c> in a hitbox; <c>bbmax</c> follows it.</summary>
+    public const int HitboxMinOffset = 8;
+
+    /// <summary>
+    /// Byte offset of <c>contents</c> in a bone — after <c>poseToBone</c> (96), <c>qAlignment</c> (144), <c>flags</c>,
+    /// <c>proctype</c>, <c>procindex</c>, <c>physicsbone</c> and <c>surfacepropidx</c>. `TraceToStudio` skips a hitbox
+    /// whose bone's contents do not meet the trace's mask.
+    /// </summary>
+    public const int BoneContentsOffset = 180;
+
     /// <summary>Bytes per <c>mstudiobone_t</c>.</summary>
     public const int BoneStride = 216;
 

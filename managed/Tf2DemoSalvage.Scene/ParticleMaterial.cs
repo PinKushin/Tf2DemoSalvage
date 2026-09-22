@@ -10,6 +10,10 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Sheet">Its texture, or null when it did not resolve.</param>
 /// <param name="Sequences">The animation sequences that texture declares, empty when it has none.</param>
 /// <param name="Blend">How it blends, from its own <c>$additive</c> and friends.</param>
+/// <param name="Alpha">
+/// Its own <c>$alpha</c>, which scales every vertex's: `particle/particle_smokegrenade` states <c>srgb?$alpha .27</c>, and
+/// TF2 on the PC takes the sRGB branch. Read for the legacy impact effects (B415); one for a material that states none.
+/// </param>
 /// <remarks>
 /// **One of these per MATERIAL, not per system**, because that is what a draw call costs. A rocket
 /// runs three systems — `rockettrail`, `rockettrail_burst`, `rockettrail_fire` — on three materials,
@@ -18,7 +22,8 @@ namespace Tf2DemoSalvage.Scene;
 public readonly record struct ParticleMaterial(
     MapTexture? Sheet,
     IReadOnlyList<SheetSequence> Sequences,
-    SpriteBlend Blend)
+    SpriteBlend Blend,
+    float Alpha = 1f)
 {
     /// <summary>A material that did not resolve, which draws nothing.</summary>
     public static ParticleMaterial None => new(null, [], SpriteBlend.Translucent);

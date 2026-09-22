@@ -36,6 +36,58 @@ public sealed class ParticleProbe : IProbe
     public string Summary =>
         "the particle files TF2 ships and the systems they declare: particles [system substring]";
 
+    /// <summary>One system's functions, each with every parameter it declares.</summary>
+    /// <remarks>
+    /// **A colour printed as `.Number` reads as zero and says nothing**, which is how `Color Random`'s two
+    /// bounds once came out as unset rather than unprinted — so a vector type is printed as its lanes.
+    /// </remarks>
+    private static void Print(TextWriter output, ParticleSystem system)
+    {
+        List<(string Kind, IReadOnlyList<ParticleFunction> Functions)> kinds =
+        [
+            ("emitter", system.Emitters),
+            ("initializer", system.Initializers),
+            ("operator", system.Operators),
+            ("constraint", system.Constraints),
+            ("renderer", system.Renderers),
+        ];
+
+        // The definition's own attributes (material, radius, max_particles), which every spawn starts from.
+        output.WriteLine("    definition");
+        PrintParameters(output, system.Parameters, "      ");
+
+        foreach ((string kind, IReadOnlyList<ParticleFunction> functions) in kinds)
+        {
+            foreach (ParticleFunction function in functions)
+            {
+                output.WriteLine($"    {kind} {function.Function}");
+                PrintParameters(output, function.Parameters, "      ");
+            }
+        }
+    }
+
+    /// <summary>Every scalar, vector or text attribute, sorted; element arrays are skipped.</summary>
+    private static void PrintParameters(TextWriter output, IReadOnlyDictionary<string, DmxValue> parameters, string indent)
+    {
+        foreach ((string parameter, DmxValue value) in parameters
+            .Where(one => one.Key is not ("functionName" or "name") && one.Value.Elements is null)
+            .OrderBy(one => one.Key, StringComparer.Ordinal))
+        {
+            bool vector = value.Type
+                is DmxAttributeType.Colour or DmxAttributeType.Vector3
+                or DmxAttributeType.Vector4 or DmxAttributeType.Angle;
+
+            string shown = vector
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"({value.Vector.X:0.##} {value.Vector.Y:0.##} {value.Vector.Z:0.##} {value.Vector.W:0.##})")
+                : value.Text ?? string.Create(
+                    CultureInfo.InvariantCulture, $"{value.Number:0.####}");
+
+            output.WriteLine($"{indent}{parameter} = {shown} ({value.Type})");
+        }
+    }
+
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
     {
@@ -129,6 +181,277 @@ public sealed class ParticleProbe : IProbe
 
         if (filter.Length == 0)
         {
+            return;
+        }
+
+        // **One system in full, every function with every parameter.** The `.pcf` is shipped data and states
+        // what a closed renderer or emitter is parameterised by, which is the strongest source short of the
+        // binary (`docs/memory/nothing-is-closed.md`). Reaching for this rather than guessing is how
+        // `emit_instantaneously` was found to be what an explosion actually uses.
+        if (filter.Equals("system", StringComparison.OrdinalIgnoreCase))
+        {
+            if (arguments.Count < 2)
+            {
+                output.WriteLine("Usage: particles system <system name>");
+                return;
+            }
+
+            GameArchives store = GameArchives.Open(game);
+            Dictionary<string, ParticleSystem> everything = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string path in ParticleManifest.Files(store.Read))
+            {
+                if (store.Read(path) is { Length: > 0 } raw)
+                {
+                    foreach ((string one, ParticleSystem declared) in ParticleSystems.Read(raw))
+                    {
+                        everything.TryAdd(one, declared);
+                    }
+                }
+            }
+
+            if (!everything.TryGetValue(arguments[1], out ParticleSystem? asked))
+            {
+                output.WriteLine($"  '{arguments[1]}' is in none of the manifest's files.");
+                return;
+            }
+
+            Print(output, asked);
+
+            foreach (string child in asked.Children)
+            {
+                output.WriteLine($"  --- child '{child}'");
+
+                if (everything.TryGetValue(child, out ParticleSystem? kid))
+                {
+                    Print(output, kid);
+                }
+            }
+
+            return;
+        }
+
+        // **One burst run through the PRODUCTION path, tick by tick** (B415). `ParticleEffects.Bursts` then `Build`,
+        // exactly as `MainForm.StepExplosions` and `DrawParticles` call them, with every child's live count and
+        // every material's corner count printed. Built because a picture of an explosion showed one small streak
+        // where eight children should be drawing, and "which of them is missing" is a count, not a look.
+        //
+        // **Every material is given a stand-in**, so the corner counts say what WOULD be drawn; whether the viewer
+        // resolved a texture for it is a separate question and is printed separately, from the same archives.
+        if (filter.Equals("burst", StringComparison.OrdinalIgnoreCase))
+        {
+            if (arguments.Count < 2)
+            {
+                output.WriteLine("Usage: particles burst <system name> [ticks]");
+                return;
+            }
+
+            GameArchives store = GameArchives.Open(game);
+            Dictionary<string, ParticleSystem> loaded = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string path in ParticleManifest.Files(store.Read))
+            {
+                if (store.Read(path) is { Length: > 0 } raw)
+                {
+                    foreach ((string one, ParticleSystem declared) in ParticleSystems.Read(raw))
+                    {
+                        loaded.TryAdd(one, declared);
+                    }
+                }
+            }
+
+            if (!loaded.TryGetValue(arguments[1], out ParticleSystem? blast))
+            {
+                output.WriteLine($"  '{arguments[1]}' is in none of the manifest's files.");
+                return;
+            }
+
+            int ticks = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 11;
+            const float interval = 1f / 66f;
+
+            // The same object and the same step `ParticleEffects.Bursts` makes, so the counts are production's.
+            ParticleEffect effect = new(blast, loaded);
+            ParticleControlPoint at = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+
+            for (int tick = 0; tick < ticks; tick++)
+            {
+                effect.Step(at, interval);
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"  '{blast.Name}' after {ticks} ticks ({ticks * interval:0.###} s):"));
+
+            foreach (ParticleEffect child in effect.Children)
+            {
+                string material = ParticleEffects.MaterialOf(child.System);
+
+                // The quads each renderer WOULD build, through the production builders `Gather` dispatches to.
+                // Camera 220 units out along +X looking back — the shape of the viewer's own shot.
+                List<string> drawn = [];
+
+                foreach (ParticleFunction renderer in child.System.Renderers)
+                {
+                    List<DetailSpriteVertex> corners = [];
+
+                    if (renderer.Function == "render_animated_sprites")
+                    {
+                        ParticleSprites.Build(
+                            child.Particles, -Vector3.UnitY, Vector3.UnitZ, corners, [],
+                            (float)renderer.Number("animation rate", 1d),
+                            renderer.Number("use animation rate as FPS", 0d) != 0d,
+                            renderer.Number("animation_fit_lifetime", 0d) != 0d);
+                    }
+                    else if (renderer.Function == "render_sprite_trail")
+                    {
+                        ParticleSpriteTrails.Build(
+                            child.Particles, new Vector3(220f, 0f, 0f), corners, [],
+                            (float)renderer.Number("animation rate", 0.1d),
+                            (float)renderer.Number("min length", 0d),
+                            (float)renderer.Number("max length", 2000d),
+                            (float)renderer.Number("length fade in time", 0d));
+                    }
+
+                    drawn.Add(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{renderer.Function} {corners.Count / ParticleSprites.CornersPerParticle} quads"));
+                }
+
+                // A sample of what the live particles actually are, so "drew nothing" can be told apart from
+                // "drew something too small or too faint to see".
+                string first = child.Particles.Count == 0
+                    ? "none alive"
+                    : string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"first: radius {child.Particles.RadiusOf(0):0.##} alpha {child.Particles.AlphaOf(0):0.###} " +
+                        $"trail {child.Particles.TrailLengthOf(0):0.###} " +
+                        $"speed {(child.Particles.PositionOf(0) - child.Particles.PreviousOf(0)).Length() / interval:0.#} u/s " +
+                        $"life {child.Particles.LifetimeOf(0):0.###}");
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    '{child.System.Name}' [{material}] vmt " +
+                    $"{(store.Read("materials/" + material + ".vmt") is { Length: > 0 } ? "found" : "MISSING")}: " +
+                    $"{child.Particles.Count} alive; {string.Join(", ", drawn)}; {first}"));
+            }
+
+            return;
+        }
+
+        // **What the viewer now loads, and what it costs** (B415). `MapAssets` used to open
+        // `particles/rockettrail.pcf` alone, so `explosion.pcf` was absent and every explosion resolved to a
+        // system that had never been read. This walks Valve's own manifest through the same two production calls
+        // `MapAssets` makes — `ParticleManifest.Files` then `ParticleSystems.Read` — and times it, because
+        // "load a hundred files at map load" is a claim about startup that nobody had measured.
+        if (filter.Equals("manifest", StringComparison.OrdinalIgnoreCase))
+        {
+            GameArchives content = GameArchives.Open(game);
+            IReadOnlyList<string> listed = ParticleManifest.Files(content.Read);
+
+            System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
+            Dictionary<string, ParticleSystem> all = new(StringComparer.OrdinalIgnoreCase);
+            int read = 0;
+            long bytesRead = 0;
+            List<string> absent = [];
+
+            foreach (string path in listed)
+            {
+                if (content.Read(path) is not { Length: > 0 } raw)
+                {
+                    absent.Add(path);
+                    continue;
+                }
+
+                read++;
+                bytesRead += raw.Length;
+
+                foreach ((string named, ParticleSystem one) in ParticleSystems.Read(raw))
+                {
+                    if (!all.ContainsKey(named))
+                    {
+                        all[named] = one;
+                    }
+                }
+            }
+
+            clock.Stop();
+
+            // **The MATERIAL count is the number that decides whether eager loading is affordable**, not the
+            // system count: `MapAssets` resolves one texture per distinct material name, and a `.vtf` decode plus
+            // a GPU upload is orders of magnitude dearer than a DMX parse. Counted rather than assumed.
+            HashSet<string> distinct = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (ParticleSystem one in all.Values)
+            {
+                if (ParticleEffects.MaterialOf(one) is { Length: > 0 } material)
+                {
+                    distinct.Add(material);
+                }
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  manifest lists {listed.Count}, {read} read ({bytesRead / 1024d / 1024d:0.0} MB), " +
+                $"{absent.Count} absent, {all.Count} systems, {distinct.Count} distinct materials, " +
+                $"{clock.ElapsedMilliseconds} ms to parse"));
+
+            foreach (string one in absent)
+            {
+                output.WriteLine($"    absent: {one}");
+            }
+
+            // **The names the explosion work needs, asked of the merged set.** Each is a name Valve's code or a
+            // shipped weapon script spells, and an absence here is the whole feature not drawing.
+            foreach (string needed in new[]
+            {
+                "ExplosionCore_Wall", "ExplosionCore_MidAir", "ExplosionCore_MidAir_underwater",
+                "rockettrail", "flaregun_destroyed",
+            })
+            {
+                if (!all.TryGetValue(needed, out ParticleSystem? system))
+                {
+                    output.WriteLine($"    '{needed}': NOT LOADED");
+                    continue;
+                }
+
+                // **The material and the renderer, because a system that loads and draws wrongly looks like a
+                // system that does not load.** An explosion made of hard-edged quads is a blend or a sheet that
+                // did not reach the draw, not a definition that is missing.
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    '{needed}': material '{ParticleEffects.MaterialOf(system)}', " +
+                    $"{system.Renderers.Count} renderers, {system.Children.Count} children, " +
+                    $"{system.Initializers.Count} initializers, {system.Operators.Count} operators"));
+
+                foreach (ParticleFunction renderer in system.Renderers)
+                {
+                    output.WriteLine($"        renderer {renderer.Function}");
+                }
+
+                foreach (string child in system.Children)
+                {
+                    if (!all.TryGetValue(child, out ParticleSystem? kid))
+                    {
+                        output.WriteLine($"        child '{child}' NOT LOADED");
+                        continue;
+                    }
+
+                    // **The RENDERER each child names, because only one of them is implemented.**
+                    // `ParticleEffects.Gather` looks for `render_animated_sprites` and passes null otherwise, so
+                    // a child declaring anything else draws with defaults — whole-texture UVs and no sheet —
+                    // which is exactly what a hard-edged opaque quad looks like.
+                    // **The EMITTER too, because `ParticleEffect.Emit` implements exactly one of them.** An
+                    // explosion is a burst, and `emit_instantaneously` is a different function from
+                    // `emit_continuously` — a child declaring it emits nothing at all here, which looks
+                    // identical to a child whose material failed to resolve.
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"        child '{child}' material '{ParticleEffects.MaterialOf(kid)}'" +
+                        $"  renderers [{string.Join(", ", kid.Renderers.Select(one => one.Function))}]" +
+                        $"  emitters [{string.Join(", ", kid.Emitters.Select(one => one.Function))}]"));
+                }
+            }
+
             return;
         }
 

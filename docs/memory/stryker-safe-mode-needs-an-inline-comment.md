@@ -53,6 +53,17 @@ loop holding the method's only `return` or only assignment never runs (CS0161 / 
 trigger in a method, because Safe Mode removes the rest before they can be reported — so a file fixed
 from the log alone surfaces its next one on the following run. Search for the idiom instead.
 
+**Add the comment in the SAME change that writes the idiom.** On 2026-09-20 the session that fixed B410 wrote fourteen
+new triggers in its own code the same day — `is not { } x` guards, `out` variables read after the expression that
+declares them, and `||` joining two of them. The box found three a night later, one name per method; searching the
+branch's diff for the idioms found all fourteen in one pass: `git diff main -U0 -- managed/ | grep -E "is not \{|out [A-Za-z?<>]+ [a-z]"`.
+
+**Recovered methods can make a run much LONGER, not just its score lower.** Content went 27 min → 6 h 14 min the night
+B410 landed: the recovered methods were parsers, a mutated loop bound in a parser never ends, and 864 mutants ran to a
+~70 s timeout each. It held the box's lock and three other jobs were refused. A timeout is a detected mutant, so the
+work is real — watch the runtime after unmasking, and re-book the slot from the measured number (see
+`PinKushin/MEASUREMENT-BOX-LOG.md`).
+
 See `docs/RISKS.md` B410, and [[instrument-bugs-outnumber-decoder-bugs]] for the general rule that an
 instrument is proved with a control before it is believed — here the control was the filter's own
 "Removed by mutation type filter" counter, which is what showed the setting had applied and still

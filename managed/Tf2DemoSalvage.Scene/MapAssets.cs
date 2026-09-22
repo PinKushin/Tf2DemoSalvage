@@ -895,6 +895,15 @@ public sealed class MapAssets
     public IReadOnlyDictionary<string, EngineSprite> SpriteMaterials
     { get; private init; } = new Dictionary<string, EngineSprite>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The materials the game's decals draw with, by name, at their index in the material table (B415).</summary>
+    /// <remarks>
+    /// **In the world's own table**, after everything else, because a decal draws in the world's overlay pass and binds
+    /// its textures the way an overlay's do. Loaded with the map for the reason every model is: a material added
+    /// during playback would grow the table and re-upload it mid-match.
+    /// </remarks>
+    public IReadOnlyDictionary<string, int> DecalMaterials
+    { get; private init; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
     /// <remarks>
     /// **Read and discarded until 2026-09-06.** `BspDetailProps.Read` has always returned it as the
@@ -1078,6 +1087,10 @@ public sealed class MapAssets
     /// than a model and so resolves by a different route from <paramref name="entityModels"/>.
     /// </param>
     /// <param name="maximumTextureSize">Largest texture edge to decode; zero for full size.</param>
+    /// <param name="particleSystemsUsed">
+    /// The particle systems whose MATERIALS to upload (B415). Definitions for every system the manifest names are
+    /// read regardless; this is the far smaller set the demo actually reaches. Null means the rocket trail alone.
+    /// </param>
     /// <param name="brushModels">
     /// The map's own brush entities, keyed <c>*N</c>, already built from its models lump. Passed
     /// in rather than read here because they are cut from the same surface list the world is built
@@ -1089,6 +1102,8 @@ public sealed class MapAssets
     /// because the caller reads the leaves and ambient samples before any asset is loaded.
     /// </param>
     /// <param name="loggers">Where loading reports what it could not use, or null for nowhere.</param>
+    /// <param name="decalMaterials">The materials the game's decals draw with — a Subrect's atlas, not the Subrect (B415).</param>
+    /// <param name="effectMaterials">Sprite materials the legacy impact effects draw with, loaded as particle materials.</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
@@ -1104,9 +1119,18 @@ public sealed class MapAssets
         // collects them separately and they are resolved as MATERIALS here — the same route a
         // particle's sheet takes, because a sprite is the same thing: one quad and a texture.
         IReadOnlyCollection<string>? spriteMaterials = null,
+
+        // **The particle systems whose materials to upload, which is not all of them** (B415). The manifest's
+        // 106 files declare 9,050 systems naming 910 distinct materials, and a `.vtf` decode plus a GPU upload
+        // each is a load-time cost nothing here can afford — measured with `particles manifest`. The DEFINITIONS
+        // are all read, so any effect can be resolved; only the ones the demo actually reaches get a texture.
+        // Null means the rocket trail alone, which is what this did before explosions existed.
+        IReadOnlyCollection<string>? particleSystemsUsed = null,
         Func<LightmapAtlas, IReadOnlyDictionary<string, PropModels.ModelFrames>>? brushModels = null,
         Func<float, float, float, PointLighting>? lightAt = null,
-        ILoggerFactory? loggers = null)
+        ILoggerFactory? loggers = null,
+        IReadOnlyCollection<string>? decalMaterials = null,
+        IReadOnlyCollection<string>? effectMaterials = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -1314,10 +1338,51 @@ public sealed class MapAssets
         (ParticleSystem? rocketTrail,
          IReadOnlyDictionary<string, ParticleSystem> particleSystems,
          IReadOnlyDictionary<string, ParticleMaterial> particleMaterials) =
-            LoadRocketTrail(assets, pak, archives, maximumTextureSize);
+            LoadRocketTrail(assets, pak, archives, maximumTextureSize, particleSystemsUsed ?? []);
 
         IReadOnlyDictionary<string, EngineSprite> sprites =
             LoadSpriteMaterials(assets, spriteMaterials ?? [], pak, archives, maximumTextureSize);
+
+        // **The legacy impact effects' materials join the particle materials** (B415): flecks, dust and sparks are
+        // sprite quads drawn through the same batches, and a material there is looked up by the same name.
+        Dictionary<string, ParticleMaterial> allParticleMaterials = new(particleMaterials, StringComparer.OrdinalIgnoreCase);
+
+        foreach (string name in effectMaterials ?? [])
+        {
+            if (allParticleMaterials.ContainsKey(name))
+            {
+                continue;
+            }
+
+            VmtMaterial? vmt = ReadVmt(name, pak, archives);
+            (IReadOnlyList<SheetSequence> frames, SpriteBlend how) = Sequences(vmt, pak, archives);
+            float alpha = float.TryParse(
+                vmt?.Value("srgb?$alpha") ?? vmt?.Value("$alpha"),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out float stated)
+                ? stated
+                : 1f;
+
+            allParticleMaterials[name] = new ParticleMaterial(
+                Resolve(assets, name, pak, archives, maximumTextureSize).Texture, frames, how, alpha);
+        }
+
+        // The decal materials continue the same table; a name that resolves to no texture is left out and draws nothing.
+        Dictionary<string, int> decals = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string name in decalMaterials ?? [])
+        {
+            if (!decals.ContainsKey(name) && ResolveProp(name) is { Texture: not null } decal)
+            {
+                decals[name] = table.Count;
+                table.Add(new BspMaterial(name, (1f, 1f, 1f), 0, 0), decal);
+            }
+        }
+
+        assets.LogInformation(
+            "{Message}",
+            $"decal materials: {decalMaterials?.Count ?? 0} asked for, {decals.Count} resolved");
 
         // **Entity models are loaded here, with the map's own props, and that is the point.**
         // Their materials go into the same table, so the textures upload once with everything in
@@ -1646,8 +1711,9 @@ public sealed class MapAssets
             DetailSpriteSheet = detailSheet,
             RocketTrail = rocketTrail,
             ParticleSystemsByName = particleSystems,
-            ParticleMaterials = particleMaterials,
+            ParticleMaterials = allParticleMaterials,
             SpriteMaterials = sprites,
+            DecalMaterials = decals,
             DetailModelNames = detailModelNames,
             EntityModels = models,
             UnimplementedParameters = census,
@@ -2061,37 +2127,73 @@ public sealed class MapAssets
         return null;
     }
 
-    /// <summary>Reads the rocket trail's definition and the material it names (B373).</summary>
+    /// <summary>Reads every particle system the game precaches, and the materials they name (B373, B415).</summary>
     /// <param name="assets">Where the load is reported.</param>
     /// <param name="pak">The map's own embedded files, searched before the game's.</param>
     /// <param name="archives">The install.</param>
     /// <param name="maximumTextureSize">The device's limit, as every other material load takes.</param>
-    /// <returns>The system and its texture, either of which may be null.</returns>
+    /// <param name="used">
+    /// The systems whose materials to resolve, on top of the rocket trail. Their children come with them.
+    /// </param>
+    /// <returns>The rocket trail, every system by name, and every material they need.</returns>
     /// <remarks>
-    /// **Both halves can fail independently and neither takes the map down.** No install means no
-    /// `.pcf`, which is every CI run; a definition that resolves and a material that does not is a
-    /// trail with nothing to draw with. In each case the rocket still draws its model, which is the
-    /// behaviour a missing sprite sheet already has for the grass.
+    /// **Driven by `particles/particles_manifest.txt`, which is Valve's own list.** `GetParticleManifest`
+    /// (`particle_parse.cpp:65`) walks every `"file"` subkey of it and `ParseParticleEffects` (`:94`) reads each
+    /// one. This used to open `particles/rockettrail.pcf` alone, which was right while a rocket's trail was the
+    /// only effect drawn — and meant `explosion.pcf` was absent, so every explosion in a demo resolved to a system
+    /// that had never been loaded.
     ///
-    /// **The material comes from the DEFINITION rather than from a constant here.**
-    /// `rockettrail_!` declares `effects\rocketrailsmoke.vmt`, and reading it means a community
-    /// file replacing the effect is honoured rather than overridden — the same reason the detail
-    /// sheet is read from `worldspawn` instead of assumed.
+    /// **A `!` prefix is a precache marker, not part of the path**, and the engine strips it before reading:
+    /// `if ( pFile[0] == '!' ) pFile++;` (`particle_parse.cpp:130`). Ninety-odd of the hundred entries carry it,
+    /// so a reader that did not strip it would find nothing at all.
+    ///
+    /// **Every half can fail independently and none takes the map down.** No install means no manifest, which is
+    /// every CI run; a file the manifest names and the archives lack is skipped; a definition that resolves with a
+    /// material that does not is an effect with nothing to draw with. In each case the rocket still draws its
+    /// model, which is the behaviour a missing sprite sheet already has for the grass.
+    ///
+    /// **The material comes from each DEFINITION rather than from a constant here.**
+    /// `rockettrail_!` declares `effects\rocketrailsmoke.vmt`, and reading it means a community file replacing the
+    /// effect is honoured rather than overridden — the same reason the detail sheet is read from `worldspawn`.
     /// </remarks>
     private static (
         ParticleSystem? System,
         IReadOnlyDictionary<string, ParticleSystem> Systems,
         IReadOnlyDictionary<string, ParticleMaterial> Materials) LoadRocketTrail(
-        ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize)
+        ILogger assets,
+        PakFile pak,
+        GameArchives archives,
+        int maximumTextureSize,
+        IReadOnlyCollection<string> used)
     {
-        // Stryker disable once : a mutant that empties the guard body leaves 'file'
-        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (archives.Read("particles/rockettrail.pcf") is not { Length: > 0 } file)
+        Dictionary<string, ParticleSystem> systems = new(StringComparer.OrdinalIgnoreCase);
+        int files = 0;
+
+        foreach (string path in ParticleManifest.Files(archives.Read))
+        {
+            // Stryker disable once : a mutant that empties the guard body leaves 'file' unassigned, CS0165 — B410.
+            if (archives.Read(path) is not { Length: > 0 } file)
+            {
+                continue;
+            }
+
+            files++;
+
+            // **Earlier files win, which is the manifest's own order.** `ReadParticleConfigFile` is called down
+            // the list, and a name declared twice keeps whichever the engine saw first.
+            foreach ((string named, ParticleSystem one) in ParticleSystems.Read(file))
+            {
+                if (!systems.ContainsKey(named))
+                {
+                    systems[named] = one;
+                }
+            }
+        }
+
+        if (systems.Count == 0)
         {
             return (null, EmptySystems, EmptyMaterials);
         }
-
-        IReadOnlyDictionary<string, ParticleSystem> systems = ParticleSystems.Read(file);
 
         // The definition's own name carries a suffix in the shipped file, so the base name is tried
         // first and the decorated one after rather than either being assumed.
@@ -2107,27 +2209,55 @@ public sealed class MapAssets
             }
         }
 
-        if (trail is null)
-        {
-            assets.LogInformation(
-                "{Message}", "particles/rockettrail.pcf declares no rockettrail system");
-
-            return (null, EmptySystems, EmptyMaterials);
-        }
-
-        string material = trail.Parameters.TryGetValue("material", out DmxValue named2) &&
+        string material = trail is not null &&
+            trail.Parameters.TryGetValue("material", out DmxValue named2) &&
             named2.Text is { Length: > 0 } declared
             ? declared.Replace('\\', '/').Replace(".vmt", string.Empty, StringComparison.OrdinalIgnoreCase)
             : string.Empty;
 
-        // **Every system in the file, not just the trail**, because a child is named rather than
-        // embedded: `rockettrail` pulls in `rockettrail_burst` and `rockettrail_fire`, each with its
-        // own material, and resolving them at load is what keeps playback free of file reads (D86).
+        // **The materials of the systems this demo REACHES, and not of all 9,050.** Every definition is read
+        // above, so any effect can be resolved by name; a texture, though, is a `.vtf` decode and a GPU upload,
+        // and the manifest's systems name 910 distinct ones — measured with `particles manifest`. Loading them
+        // all would put that on every map load to draw a handful.
+        //
+        // **Each wanted system pulls its CHILDREN with it**, because a child is named rather than embedded:
+        // `rockettrail` declares `rockettrail_burst` and `rockettrail_fire`, each with its own material, and a
+        // rocket without them has smoke and no glow. Resolving them here is what keeps playback free of file
+        // reads (D86).
         Dictionary<string, ParticleMaterial> materials =
             new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (ParticleSystem one in systems.Values)
+        HashSet<string> wanted = new(StringComparer.OrdinalIgnoreCase);
+        Queue<string> pending = new();
+
+        foreach (string one in used)
         {
+            pending.Enqueue(one);
+        }
+
+        if (trail is not null)
+        {
+            pending.Enqueue(trail.Name);
+        }
+
+        while (pending.Count > 0)
+        {
+            string name = pending.Dequeue();
+
+            // Stryker disable all : 'one' is declared by the TryGetValue after a '||' and read below, so the
+            // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
+            if (!wanted.Add(name) || !systems.TryGetValue(name, out ParticleSystem? one))
+            {
+                continue;
+            }
+
+            // Stryker restore all
+
+            foreach (string child in one.Children)
+            {
+                pending.Enqueue(child);
+            }
+
             string named = ParticleEffects.MaterialOf(one);
 
             if (named.Length == 0 || materials.ContainsKey(named))
@@ -2153,11 +2283,11 @@ public sealed class MapAssets
             "{Message}",
             string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
-                $"rocket trail '{trail.Name}': {trail.Operators.Count} operators, " +
-                $"{trail.Children.Count} children, material '{material}' " +
+                $"particles: {files} manifest files, {systems.Count} systems, " +
+                $"{wanted.Count} wanted, {materials.Count} materials; rocket trail " +
+                $"'{trail?.Name ?? "MISSING"}' material '{material}' " +
                 $"{(own.Sheet is null ? "did NOT resolve" : "resolved")}, " +
-                $"{own.Sequences.Count} sheet sequences, {own.Blend} blending; " +
-                $"{materials.Count} particle materials loaded"));
+                $"{own.Sequences.Count} sheet sequences, {own.Blend} blending"));
 
         // Stryker restore all
 
@@ -2285,7 +2415,7 @@ public sealed class MapAssets
     /// returned the patch itself until then, so a patched sprite or particle material reported the
     /// shader `Patch` and read its orientation and its sheet from the wrong file.
     /// </remarks>
-    private static VmtMaterial? ReadVmt(string material, PakFile pak, GameArchives archives)
+    internal static VmtMaterial? ReadVmt(string material, PakFile pak, GameArchives archives)
     {
         if (material.Length == 0)
         {

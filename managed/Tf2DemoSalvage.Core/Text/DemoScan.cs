@@ -328,9 +328,10 @@ internal static class DemoScan
             return string.Empty;
         }
 
-        for (int at = 0; at < effect.Properties.Count; at++)
+        // The state, not the wire: a second dispatch of the same effect omits its unchanged name.
+        for (int at = 0; at < effect.State.Count; at++)
         {
-            DecodedProperty property = effect.Properties[at];
+            DecodedProperty property = effect.State[at];
 
             if (!string.Equals(
                 property.Definition.Property.Name, "m_iEffectName", StringComparison.Ordinal))

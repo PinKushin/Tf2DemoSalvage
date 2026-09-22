@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**135 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**184 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -70,12 +70,12 @@ m_bGlowEnabled, m_hMyWeapons, m_iPowerups
 
 ### DT_BasePlayer
 
-**6 of 19** mentioned.
+**7 of 19** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_flFOVTime, m_flMaxspeed, m_hObserverTarget, m_hUseEntity, m_hVehicle, m_hViewModel, m_hZoomOwner, m_iBonusChallenge, m_iBonusProgress, m_iDefaultFOV, m_iFOV, m_iFOVStart, m_szLastPlaceName
+m_flFOVTime, m_flMaxspeed, m_hUseEntity, m_hVehicle, m_hViewModel, m_hZoomOwner, m_iBonusChallenge, m_iBonusProgress, m_iDefaultFOV, m_iFOV, m_iFOVStart, m_szLastPlaceName
 ```
 
 ### DT_TFPlayer
@@ -147,19 +147,18 @@ Not declared in this SDK.
 | table | unread | declared |
 |---|---|---|
 | `DT_Local` | 33 | 37 |
-| `DT_BaseObject` | 25 | 26 |
-| `DT_TFPlayerResource` | 24 | 26 |
+| `DT_BaseObject` | 24 | 26 |
+| `DT_TFPlayerResource` | 23 | 26 |
 | `DT_TFObjectiveResource` | 20 | 20 |
 | `DT_TFPlayerScoringDataExclusive` | 20 | 20 |
-| `DT_EffectData` | 19 | 21 |
 | `DT_HL2Local` | 19 | 19 |
 | `DT_LocalPlayerExclusive` | 18 | 19 |
 | `DT_SmokeStack` | 18 | 18 |
 | `DT_ScriptIntro` | 17 | 17 |
 | `DT_BaseHumanoid` | 16 | 16 |
-| `DT_RocketTrail` | 15 | 15 |
-| `DT_SmokeTrail` | 15 | 15 |
 | `DT_EnvProjectedTexture` | 14 | 14 |
+| `DT_RocketTrail` | 14 | 15 |
+| `DT_SmokeTrail` | 14 | 15 |
 | `DT_TFPlayerSharedLocal` | 14 | 14 |
 | `DT_DustTrail` | 13 | 13 |
 | `DT_EnvWindShared` | 13 | 13 |
@@ -169,20 +168,21 @@ Not declared in this SDK.
 | `DT_FuncSmokeVolume` | 11 | 11 |
 | `DT_PoseController` | 11 | 11 |
 | `DT_SteamJet` | 11 | 11 |
-| `DT_TEFireBullets` | 11 | 15 |
 | `DT_AI_BaseNPC` | 10 | 11 |
 | `DT_BaseBeam` | 10 | 15 |
-| `DT_EntityDissolve` | 10 | 10 |
 | `DT_PointCamera` | 10 | 10 |
 | `DT_World` | 10 | 10 |
-| `DT_BreakableSurface` | 9 | 9 |
+| `DT_EntityDissolve` | 9 | 10 |
 | `DT_PropCoreBall` | 9 | 9 |
 | `DT_PropScalable` | 9 | 9 |
 | `DT_TFPlayerClassShared` | 9 | 10 |
+| `DT_BreakableSurface` | 8 | 9 |
 | `DT_PointCommentaryNode` | 8 | 8 |
 | `DT_PointWorldText` | 8 | 8 |
 | `DT_SlideshowDisplay` | 8 | 8 |
-| `DT_TEHL2MPFireBullets` | 8 | 10 |
 | `DT_TFPasstimeLogic` | 8 | 8 |
 | `DT_DynamicLight` | 7 | 7 |
 | `DT_EnvTonemapController` | 7 | 7 |
+| `DT_ObjectSentrygun` | 7 | 8 |
+| `DT_SporeExplosion` | 7 | 7 |
+| `DT_SporeTrail` | 7 | 7 |

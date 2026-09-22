@@ -510,3 +510,28 @@ flSpinTimeMultiplier )` (`tf_weapon_minigun.cpp:266`), and it is read through
 
 So a player defaulting to rate 1 is not a gap: it is what the engine leaves it at, confirmed from
 both directions.
+
+## The muzzle flash model is written for one weapon, and that weapon never flashes
+
+`CTFWeaponBase::CreateMuzzleFlashEffects` (`tf_weaponbase.cpp:3113`) can start three things. One of
+them is `C_MuzzleFlashModel` (`tf_fx_muzzleflash.cpp:198`), a model parented to the `muzzle`
+attachment. It holds cycle 0 for 0.2 s, then every 0.075 s it steps its cycle by ±0.2–0.4 and rolls
+to a random angle. The model comes from the weapon script's `MuzzleFlashModel` key. This was filed as
+unbuilt, with the note that no weapon on the f12 demo named one.
+
+**Read from the shipped data instead** (evidence class: shipped data, then published source). The
+`weapon-script` probe over all 108 weapon ids finds the key in exactly one script,
+`TF_WEAPON_MEDIGUN`, which names `models/effects/sentry1_muzzle/sentry1_muzzle.mdl` for 0.1 s. That is
+the sentry's flash, apparently copied into the medigun's script.
+
+**A medigun never reaches it.** A weapon flashes when its `m_nMuzzleFlashParity` changes. Two places
+raise the parity, directly or through the player:
+
+- `CTFWeaponBaseGun::DoFireEffects` (`tf_weaponbase_gun.cpp:1014`). `CWeaponMedigun::PrimaryAttack`
+  (`tf_weapon_medigun.cpp:1752`) replaces the gun's fire path and never calls it.
+- `CTFWeaponBase::Materialize` (`tf_weaponbase.cpp:2935`), when a respawning world weapon reappears.
+  TF maps do not place respawning weapons.
+
+So the only script that names a flash model belongs to a weapon whose parity never moves. The
+correct implementation is none, and the item leaves the list of gaps for the same reason `$modblend`
+did (`12-shader-parity.md`).

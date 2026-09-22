@@ -165,6 +165,38 @@ in any public writeup found:
   count was the instrument**: the census hand-rolled a subset of `MomentScene.Build` without
   `WeaponModels.Resolve`, so every item-resolved weapon read as having no model
   ([56](56-the-item-names-the-model-and-no-track-does.md)).
+- **A hitscan shot is a seed** — `DT_TEFireBullets` sends no bullet paths at all, so every pellet's
+  direction is rebuilt by reseeding Valve's own RNG per bullet. Which meant reading
+  `CUniformRandomStream` out of `vstdlib.dll`'s disassembly, because `random.h` declares `m_idum`,
+  `m_iy` and `m_iv[NTAB]` and not one constant. The priming loop runs forty advances and not
+  thirty-nine, and starting one lower gave a generator that passed every self-consistency test in the
+  suite while disagreeing with the shipped DLL on **1,767 of 1,800 draws** — only an in-process oracle
+  found it ([57](57-the-shot-is-a-seed.md)).
+- **An explosion sends a normal, not a trace** — so "went off in mid air" costs no ray cast: it is
+  `fabs(x) < 0.05 && fabs(y) < 0.05 && fabs(z) < 0.05`, and the send table proves Valve's comment
+  literal, since six bits over `[-1, 1]` cannot represent zero at all. **And the sentinel is 65535**:
+  `INVALID_STRING_INDEX` is `(unsigned short)-1`, so reading it as −1 made 2,492 of one match's 2,786
+  explosions claim a custom particle effect. The true figure is zero, and the wrong one would have
+  made a string table nothing uses into the priority
+  ([58](58-an-explosion-sends-a-normal-not-a-trace.md)).
+- **A tracer is a counter and two control points.** One static `tracerCount` for the whole client decides
+  which bullet of a pair draws, so a demo's tracers can only be answered all at once, in fire order.
+  The particle's life is the trip's length over its speed, read out of `client.dll`, whose start-offset
+  branch writes y and z into the neighbouring particles
+  ([59](59-a-tracer-is-a-counter-and-two-points.md)).
+- **A bullet hole is a translated name.** The world asks for `"Impact.Concrete"` whatever it is, and a table in
+  `decals_subrect.txt` swaps it for the struck surface's group. The surface's material is set per texdata at load, and
+  a texture with no `$surfaceprop` impacts as surface zero rather than nothing. The first holes sat in dark squares
+  because the engine's mod2x multiplies gamma values and this renderer blends linear ones
+  ([60](60-a-bullet-hole-is-a-translated-name.md)).
+- **Debris is the old particle system.** `cl_new_impact_effects` defaults to 0, so dust, flecks and sparks are the
+  hand-written emitters, not PCF. Their colour is a face's average light — `r_avglight` is 1 — times its texture's
+  thumbnail, read out of three closed functions. On the way: every finished burst was being replayed every frame
+  ([61](61-debris-is-the-old-particle-system.md)).
+- **An effect without a class is a delta.** Within one message, an effect that repeats the previous effect's class
+  sends only what differs from it. So a sentry's muzzle flash, sent right after its tracer, omits the sentry and the
+  attachment. Reading the wire list as the whole effect had given every such flash entity 0
+  ([62](62-an-effect-without-a-class-is-a-delta.md)).
 
 ## Conventions used throughout
 

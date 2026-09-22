@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
@@ -63,6 +65,21 @@ public sealed class LoadedMap
     /// <summary>What light this map casts, which the models and the asset loader both ask.</summary>
     public LevelLighting Lighting { get; }
 
+    /// <summary>Every tracer the demo's shots draw on this map, in fire order (B415).</summary>
+    public IReadOnlyList<ShotTracer> Tracers { get; private init; } = [];
+
+    /// <summary>Every bullet the world stopped, in fire order — each a candidate for a decal (B415).</summary>
+    public IReadOnlyList<ShotImpact> Impacts { get; private init; } = [];
+
+    /// <summary>Every arrow a bolt left standing on this map, in tick order (B415).</summary>
+    public IReadOnlyList<StuckArrow> Arrows { get; private init; } = [];
+
+    /// <summary>What decal each impact leaves, or null for a map read without a demo.</summary>
+    public ImpactDecals? ImpactDecals { get; private init; }
+
+    /// <summary>The map's raw lightmap data, which impact debris is tinted by; null for a map read without a demo.</summary>
+    public BspLightSamples? LightSamples { get; private init; }
+
     /// <summary>What went wrong loading the content, or null when nothing did.</summary>
     public string? Problem { get; }
 
@@ -72,6 +89,60 @@ public sealed class LoadedMap
     /// very first frame; taking it afterwards leaves one frame drawn with a pass-through depth.
     /// </remarks>
     public (float Lowest, float Highest)? HeightRange { get; private set; }
+
+    /// <summary>Every medigun beam system the demo's beams can ask for — all six variants, and each item's custom one.</summary>
+    private static HashSet<string> HealBeamSystems(GameContent game, DemoTimeline? timeline)
+    {
+        HashSet<string> used = new(StringComparer.OrdinalIgnoreCase);
+
+        if (timeline is null)
+        {
+            return used;
+        }
+
+        foreach (SceneHealBeam beam in timeline.HealBeams.All)
+        {
+            used.Add(HealBeamFeed.EffectName(beam.Team, beam.ChargeRelease, targeted: false));
+            used.Add(HealBeamFeed.EffectName(beam.Team, beam.ChargeRelease, targeted: true));
+
+            if (beam.Item is { } item && game.Weapons.Items?.CustomParticle(item, beam.Team) is { } custom)
+            {
+                used.Add(custom);
+            }
+        }
+
+        return used;
+    }
+
+    /// <summary>Every particle system a weapon muzzle flash in the demo starts, and the rocket launchers' backblast.</summary>
+    private static HashSet<string> WeaponMuzzleSystems(GameContent game, DemoTimeline? timeline)
+    {
+        HashSet<string> used = new(StringComparer.OrdinalIgnoreCase);
+
+        if (timeline is null)
+        {
+            return used;
+        }
+
+        WeaponMuzzleFlashes muzzles = new(game.Archives.Read, game.Weapons.Items);
+
+        foreach (SceneMuzzleFlash flash in timeline.MuzzleFlashes.All)
+        {
+            WeaponMuzzleFlash what = muzzles.For(flash.Item, flash.Team);
+
+            if (what.Particle is { } particle)
+            {
+                used.Add(particle);
+            }
+
+            if (what.Backblast)
+            {
+                used.Add(WeaponMuzzleFlashes.BackblastSystem);
+            }
+        }
+
+        return used;
+    }
 
     /// <summary>Reads a map and everything drawing it needs.</summary>
     /// <param name="bytes">The whole BSP.</param>
@@ -118,6 +189,85 @@ public sealed class LoadedMap
 
         LevelLighting lighting = LevelLighting.From(level, renderLog);
 
+        // **Every tracer the demo's shots draw, traced once against this map** (B415). The client-wide tracer counter
+        // makes each shot depend on every one before it, so they are answered together, in fire order, here where
+        // both the level and the timeline are to hand — and before the textures, which need the effects' names.
+        IReadOnlyList<ShotTracer> tracers = [];
+        List<ShotImpact> impacts = [];
+        IReadOnlyList<StuckArrow> arrows = [];
+        ImpactDecals? impactDecals = null;
+        BspLightSamples? lightSamples = null;
+        HashSet<string> decalMaterials = new(StringComparer.OrdinalIgnoreCase);
+
+        if (timeline is not null)
+        {
+            using (renderLog.Time("tracing every shot"))
+            {
+                tracers = new HitscanTracers(game.Archives.Read).Trace(
+                    timeline.Shots.All,
+                    (from, to) => level.Trace(from, to, 0f),
+                    float.TryParse(
+                        timeline.ServerConVars.Value("tf_use_fixed_weaponspreads"),
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out float fixedSpread) && fixedSpread != 0f,
+                    impacts);
+            }
+
+            // **Every decal the demo can place, resolved now so their materials load with the map's** (B415): the
+            // impact groups a bullet can draw from, and the names the decalprecache table carries for decal events.
+            using (renderLog.Time("reading the decal system"))
+            {
+                impactDecals = ImpactDecals.Load(bytes, game.Archives, game.Surfaces);
+                lightSamples = BspLightmaps.ReadSamples(bytes);
+
+                // **The server's own impacts join the client's**, in tick order, because the decal pool is one ring
+                // whichever side traced the bullet (a sentry's are the server's).
+                ServerImpacts.From(
+                    timeline.Dispatches.All,
+                    timeline.Dispatches.Names.Name,
+                    (from, to) => level.Trace(from, to, 0f),
+                    impacts);
+
+                // A crossbow bolt's `UTIL_ImpactTrace`, which the client traces itself.
+                BoltImpacts.From(
+                    timeline.Dispatches.All,
+                    timeline.Dispatches.Names.Name,
+                    (from, to) => level.Trace(from, to, 0f),
+                    impacts);
+
+                // The arrow each bolt leaves standing, unless its trace met sky.
+                IReadOnlyList<BspTexinfo> texinfo = BspMaterials.ReadTexinfo(bytes);
+
+                arrows = BoltImpacts.Stuck(
+                    timeline.Dispatches.All,
+                    timeline.Dispatches.Names.Name,
+                    (from, to) => level.Trace(from, to, 0f) is { Fraction: < 1f, Texinfo: >= 0 } hit &&
+                                  hit.Texinfo < texinfo.Count &&
+                                  (texinfo[hit.Texinfo].Flags & SurfaceProperties.Sky) != 0);
+
+                // Stable, so bullets of one tick keep their fire order.
+                impacts = [.. impacts.OrderBy(static impact => impact.Tick)];
+                decalMaterials.UnionWith(impactDecals.Drawn());
+
+                foreach (SceneDecal decal in timeline.Decals.All)
+                {
+                    if (timeline.Decals.Names.Name(decal.Index) is { } name &&
+                        impactDecals.Materials.Resolve(name)?.Draws is { } drawn)
+                    {
+                        decalMaterials.Add(drawn);
+                    }
+                }
+            }
+
+            renderLog.LogInformation(
+                "{Message}",
+                $"{tracers.Count.ToString(CultureInfo.InvariantCulture)} tracers and " +
+                $"{impacts.Count.ToString(CultureInfo.InvariantCulture)} impacts from " +
+                $"{timeline.Shots.All.Count.ToString(CultureInfo.InvariantCulture)} shots; " +
+                $"{decalMaterials.Count.ToString(CultureInfo.InvariantCulture)} decal materials to load");
+        }
+
         // **The early `LoadedMap` went with the baked tint** (B219). It existed only so
         // `BrushModels.Build` could call `map.EntityTint` while the geometry was being built —
         // a map constructed purely to answer a question during its own construction. The colours
@@ -152,6 +302,29 @@ public sealed class LoadedMap
                     // argument for one build.
                     spriteMaterials: DemoModels.Sprites(timeline),
 
+                    // **The particle systems this demo's explosions reach** (B415). Definitions for all 9,050
+                    // are read regardless; this is the much smaller set whose TEXTURES get uploaded, and it is
+                    // computed here for the same reason the sprite list is — the timeline is already built, so
+                    // what the demo will ask for is known before anything is drawn.
+                    // A map read with no demo — the map viewer — has no explosions and so wants no
+                    // explosion textures, which is what the empty set asks for.
+                    particleSystemsUsed: timeline is null
+                        ? []
+                        : [
+                            .. new ExplosionEffects(game.Archives.Read).Used(timeline.Explosions.All),
+                            .. tracers.Select(static tracer => tracer.Effect).Distinct(StringComparer.OrdinalIgnoreCase),
+                            .. BloodEffects.Systems,
+                            .. SentryMuzzleFlash.Systems,
+                            .. HealBeamSystems(game, timeline),
+                            .. WeaponMuzzleSystems(game, timeline),
+                            .. timeline.Dispatches.All
+                                .Where(dispatch => timeline.Dispatches.Names.Name(dispatch.Name) == "ParticleEffect")
+                                .Concat(timeline.TfParticleEffects.All)
+                                .Select(dispatch => timeline.Dispatches.ParticleNames.Name(dispatch.HitBox))
+                                .OfType<string>()
+                                .Distinct(StringComparer.OrdinalIgnoreCase),
+                        ],
+
                     // **A factory rather than finished geometry, because the atlas is packed inside
                     // Load.** A door's faces carry baked lightmap samples in the same atlas as the
                     // wall's, so the geometry cannot be built before it exists (B131).
@@ -159,7 +332,10 @@ public sealed class LoadedMap
                     // Built from the surfaces just read rather than from a second pass over the
                     // file: the models lump names face RANGES, so it needs the same surface list the
                     // world was built from and nothing else.
-                    atlas => BrushModels.Build(
+                    // **Named from here on, because everything before this was positional and a parameter
+                    // inserted above silently shifted these two into each other's slot.** That is the exact
+                    // failure the sprite-list comment predicted; it happened, and naming ends it.
+                    brushModels: atlas => BrushModels.Build(
                         level.BrushModels ?? [],
                         level.Surfaces,
                         atlas,
@@ -178,17 +354,26 @@ public sealed class LoadedMap
                     // **The light cache, for props whose baked lighting is absent or refused**
                     // (B123). Usable here because the level was read above, before any asset is
                     // loaded — the ordering is what makes this a delegate rather than a second pass.
-                    lighting.LightingAt,
+                    lightAt: lighting.LightingAt,
 
                     // **Passed explicitly, and forgetting it is silent (D83).** The parameter
                     // defaults to a null logger so tests need not supply one, which means an
                     // omission here costs every asset line in the run and nothing reports it.
-                    loggers);
+                    loggers: loggers,
+                    decalMaterials: decalMaterials,
+                    effectMaterials: timeline is null ? [] : ImpactEffects.Materials);
             }
 
             Report(level, assets, textureQuality, assetLog);
 
-            return new LoadedMap(outline, level, assets, lighting, game, null);
+            return new LoadedMap(outline, level, assets, lighting, game, null)
+            {
+                Tracers = tracers,
+                Impacts = impacts,
+                Arrows = arrows,
+                ImpactDecals = impactDecals,
+                LightSamples = lightSamples,
+            };
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -200,7 +385,14 @@ public sealed class LoadedMap
                 null,
                 lighting,
                 game,
-                "Map content unavailable: " + failure.Message);
+                "Map content unavailable: " + failure.Message)
+            {
+                Tracers = tracers,
+                Impacts = impacts,
+                Arrows = arrows,
+                ImpactDecals = impactDecals,
+                LightSamples = lightSamples,
+            };
         }
     }
 

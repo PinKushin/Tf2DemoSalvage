@@ -43,6 +43,11 @@ public static class DemoSounds
     /// <param name="game">The installed game's content, or null when it is not available.</param>
     /// <param name="soundscape">Supplies the ambient tracks a map wants.</param>
     /// <param name="audio">The audio log.</param>
+    /// <param name="emitted">
+    /// What the client emits itself — every explosion's and bullet landing's sound, from
+    /// <see cref="DemoSystems.AddEffectSounds(GameContent?, IReadOnlyList{BulletLanding})"/> — which
+    /// the timeline cannot list because no demo message names it. Empty until the schedule has them.
+    /// </param>
     /// <exception cref="ArgumentNullException">A collaborator is null.</exception>
     /// <remarks>
     /// **This was `MainForm.PrecacheSounds`** (B188, D90). Nothing about deciding which sounds a
@@ -74,11 +79,13 @@ public static class DemoSounds
         DemoTimeline? timeline,
         GameContent? game,
         SoundscapeSystem soundscape,
-        ILogger audio)
+        ILogger audio,
+        IReadOnlyList<SceneSound> emitted)
     {
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(soundscape);
         ArgumentNullException.ThrowIfNull(audio);
+        ArgumentNullException.ThrowIfNull(emitted);
 
         if (timeline is null || game is null)
         {
@@ -98,7 +105,10 @@ public static class DemoSounds
             // soundscape is active changes as a player walks and a seek can land anywhere, so being
             // selective would only move the hitch to the next doorway.
             PrecacheResult result = cache.Precache(
-                ToPrecache(timeline.SoundsToPrecache(), soundscape));
+                ToPrecache(
+                    timeline.SoundsToPrecache().Concat(
+                        emitted.Select(sound => sound.Name).Distinct(StringComparer.OrdinalIgnoreCase)),
+                    soundscape));
 
             // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
             // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe

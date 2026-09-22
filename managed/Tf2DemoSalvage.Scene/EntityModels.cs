@@ -632,6 +632,8 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     private void Simulate(IReadOnlyList<SceneProp> props, double seconds)
     {
+        _simulatedSeconds = seconds;
+
         // **Indexed first, because a placement follows its parent chain up** and the chain can
         // point anywhere in the list. This is what CalcAbsolutePosition walks (c_baseentity.cpp:4387).
         _propsByEntity.Clear();
@@ -1178,6 +1180,217 @@ public sealed class EntityModelSet : IModelBodygroups
         _attachments[entity] = resolved;
 
         return resolved;
+    }
+
+    /// <summary>The demo time the last pass simulated to, which an attachment asked between passes is posed at.</summary>
+    private double _simulatedSeconds;
+
+    /// <summary>Where one of an entity's named attachments is — <c>LookupAttachment</c> then <c>GetAttachment</c>.</summary>
+    /// <param name="entity">The entity, such as a player's active weapon.</param>
+    /// <param name="name">The attachment's name; <c>FireBullet</c> asks for <c>muzzle</c>.</param>
+    /// <returns>Its world position, or null when the entity is not posed here or its model has no such point.</returns>
+    /// <remarks>
+    /// **Case-insensitive, and absence is an answer.** `Studio_FindAttachment` compares with `stricmp`, and
+    /// `LookupAttachment` returns 0 for a miss, which `GetAttachment` refuses, so `FireBullet` keeps its own start.
+    /// Resolved through the same per-pass table the worn items use, so a weapon asked twice in one pass costs one
+    /// bone setup — `SetupBones( …, BONE_USED_BY_ATTACHMENT, … )` is what `GetAttachment` runs.
+    /// </remarks>
+    public (float X, float Y, float Z)? AttachmentPosition(int entity, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return Attachment(entity, attachments => Named(attachments, name));
+    }
+
+    /// <summary>Where an entity's attachment is by the engine's own number — `GetAttachment( iAttachment )`, 1-based.</summary>
+    /// <param name="entity">The entity, such as a sentry gun.</param>
+    /// <param name="number">The attachment number a dispatch carries; 0 is none.</param>
+    /// <returns>Its world position, or null when the entity is not posed here or has no such attachment.</returns>
+    public (float X, float Y, float Z)? AttachmentPosition(int entity, int number) =>
+        Attachment(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1);
+
+    /// <summary>An attachment as a particle control point: `PATTACH_POINT_FOLLOW`'s origin and orientation.</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="number">The attachment number, 1-based.</param>
+    /// <returns>The point, or null when the entity is not posed here or has no such attachment.</returns>
+    /// <remarks>
+    /// `MatrixVectors( attachmentToWorld, &amp;forward, &amp;right, &amp;up )`: forward is the matrix's first column, up its third,
+    /// and right the NEGATED second, because a Source matrix's second axis points left.
+    /// </remarks>
+    public ParticleControlPoint? AttachmentPoint(int entity, int number) =>
+        PointOf(AttachmentMatrix(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1));
+
+    /// <summary>A named attachment as a particle control point — `PATTACH_POINT_FOLLOW` on `LookupAttachment( name )`.</summary>
+    /// <param name="entity">The entity, such as a weapon.</param>
+    /// <param name="name">The attachment's name, such as <c>muzzle</c>.</param>
+    /// <returns>The point, or null when the entity is not posed here or its model has no such attachment.</returns>
+    public ParticleControlPoint? AttachmentPoint(int entity, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return PointOf(AttachmentMatrix(entity, attachments => Named(attachments, name)));
+    }
+
+    /// <summary>`Studio_FindAttachment`: the first attachment of that name, compared without case; −1 for none.</summary>
+    private static int Named(IReadOnlyList<StudioAttachment> attachments, string name)
+    {
+        for (int index = 0; index < attachments.Count; index++)
+        {
+            if (string.Equals(attachments[index].Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>An attachment's 3×4 matrix as a control point: forward, the negated left column as right, up.</summary>
+    private static ParticleControlPoint? PointOf(float[]? matrix) =>
+        matrix is null
+            ? null
+            : new ParticleControlPoint(
+                new Vector3(matrix[3], matrix[7], matrix[11]),
+                new Vector3(matrix[0], matrix[4], matrix[8]),
+                new Vector3(-matrix[1], -matrix[5], -matrix[9]),
+                new Vector3(matrix[2], matrix[6], matrix[10]));
+
+    /// <summary>`GetAttachment` for the attachment <paramref name="pick"/> chooses, −1 for none.</summary>
+    private (float X, float Y, float Z)? Attachment(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>
+        AttachmentMatrix(entity, pick) is { } placement ? (placement[3], placement[7], placement[11]) : null;
+
+    /// <summary>The attachment's world matrix, 3×4 row-major, for the attachment <paramref name="pick"/> chooses.</summary>
+    private float[]? AttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick)
+    {
+        // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
+        // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
+        if (InScene(entity) is null ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_entityModels.TryGetValue(entity, out string? model) ||
+            !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
+            frames.Attachments is not { Count: > 0 } attachments)
+        {
+            return null;
+        }
+
+        // Stryker restore all
+        int point = pick(attachments);
+
+        if (point < 0 || !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        return AttachmentsOf(entity, animating, attachments)[point];
+    }
+
+    /// <summary>How far along a ray an entity's posed hitboxes let it get — <c>C_BaseAnimating::TestHitboxes</c>.</summary>
+    /// <param name="entity">The entity, such as a player.</param>
+    /// <param name="start">`ray.m_Start`.</param>
+    /// <param name="delta">`ray.m_Delta`.</param>
+    /// <param name="mask">The trace's contents mask.</param>
+    /// <returns>The fraction, or null when it is not hit, not posed here, or has no hitboxes.</returns>
+    /// <remarks>
+    /// Set 0, which is `m_nHitboxSet` for every TF2 player; the bones as the last pass posed them, which is
+    /// `GetBoneCache` after `SetupBones( …, BONE_USED_BY_HITBOX, … )`.
+    /// </remarks>
+    public float? TraceHitboxes(int entity, System.Numerics.Vector3 start, System.Numerics.Vector3 delta, int mask)
+    {
+        // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
+        // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
+        if (InScene(entity) is null ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_entityModels.TryGetValue(entity, out string? model) ||
+            !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
+            frames.Hitboxes is not { Count: > 0 } sets ||
+            !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        // Stryker restore all
+        return StudioHitboxes.Trace(sets[0], bone => animating.Bones.Bone(bone).ToArray(), start, delta, mask);
+    }
+
+    /// <summary>How far a point lies outside one of an entity's posed hitboxes, in the box's own frame — an instrument.</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="box">The box's index in set 0, as a server `Impact`'s `m_nHitBox` names it.</param>
+    /// <param name="point">The world point, such as the server's hit.</param>
+    /// <returns>The distance from the box's surface, zero inside it, and the offset from its centre in its bone's
+    /// frame; null when the entity or box is not there.</returns>
+    public (float Outside, System.Numerics.Vector3 FromCentre)? HitboxGap(int entity, int box, System.Numerics.Vector3 point)
+    {
+        if (InScene(entity) is null ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_entityModels.TryGetValue(entity, out string? model) ||
+            !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
+            frames.Hitboxes is not { Count: > 0 } sets || box < 0 || box >= sets[0].Count ||
+            !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        StudioHitbox hitbox = sets[0][box];
+        ReadOnlySpan<float> m = animating.Bones.Bone(hitbox.Bone);
+        System.Numerics.Vector3 relative = point - new System.Numerics.Vector3(m[3], m[7], m[11]);
+
+        // Into the bone's frame: the rotation's transpose.
+        System.Numerics.Vector3 local = new(
+            (m[0] * relative.X) + (m[4] * relative.Y) + (m[8] * relative.Z),
+            (m[1] * relative.X) + (m[5] * relative.Y) + (m[9] * relative.Z),
+            (m[2] * relative.X) + (m[6] * relative.Y) + (m[10] * relative.Z));
+
+        System.Numerics.Vector3 clamped = System.Numerics.Vector3.Clamp(local, hitbox.Min, hitbox.Max);
+
+        return (System.Numerics.Vector3.Distance(local, clamped), local - ((hitbox.Min + hitbox.Max) * 0.5f));
+    }
+
+    /// <summary>Each pass's entities as its last run saw them, by pass name — see <see cref="Instances"/>.</summary>
+    private readonly Dictionary<string, Dictionary<int, SceneProp>> _scenes = new(StringComparer.Ordinal);
+
+    /// <summary>The entity as the latest pass that holds it saw it, or null when no pass does — it has left the scene.</summary>
+    private SceneProp? InScene(int entity)
+    {
+        foreach (Dictionary<int, SceneProp> scene in _scenes.Values)
+        {
+            if (scene.TryGetValue(entity, out SceneProp? prop))
+            {
+                return prop;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Whether an entity has been posed by a pass here, so a question about its attachments has an answer.</summary>
+    /// <param name="entity">The entity index.</param>
+    /// <returns><c>true</c> once a pass has built its skeleton.</returns>
+    public bool IsPosed(int entity) => _entities.ContainsKey(entity);
+
+    /// <summary>
+    /// An entity's model, skinning matrices and body as the last pass drew it — the pose `CModelRender::AddDecal` sets up
+    /// bones for when a decal lands (B415); null for an entity not in this pass or with no skinned model.
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The model path, its pose-to-world matrices, `m_nBody` and the model's body parts.</returns>
+    /// <remarks>
+    /// **Posed on demand, drawn or not** — `CModelRender::AddDecal` calls `SetupBones` itself, so a player out of view
+    /// still takes the decal. Reading only what the draw pass left refused 60 of 100 f12 hits and projected the rest of
+    /// an off-screen player's onto the pose he last drew with. `SetupBones` is cached per frame, so a drawn entity costs
+    /// nothing more.
+    /// </remarks>
+    public (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)? SkinningOf(int entity)
+    {
+        if (InScene(entity) is not { } prop ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) ||
+            frames.Skinned is not { } skinned ||
+            !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        return (prop.ModelPath, Skinning(entity, skinned.Bones, animating.Bones), prop.Pose.Body, frames.BodyParts);
     }
 
     /// <summary>Whether an entity is one of the viewmodel pass's own.</summary>
@@ -4290,6 +4503,7 @@ public sealed class EntityModelSet : IModelBodygroups
 
         _entities.Clear();
         _entityModels.Clear();
+        _scenes.Clear();
         _placements.Clear();
         _lightPoints.Clear();
         _drawnPlacements.Clear();
@@ -4741,6 +4955,22 @@ public sealed class EntityModelSet : IModelBodygroups
         SimulateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - simulatedAt;
 
         AdvanceCorpses(props, seconds);
+
+        // **What exists, per pass, kept past the next pass** (B415). `_propsByEntity` is the pass in flight, and the viewmodel
+        // pass replaces the world's; a question asked between frames — a decal's bones, an effect's attachment — must still
+        // find a world entity after the viewmodel pass, and must not find one that has left the scene.
+        if (!_scenes.TryGetValue(pass, out Dictionary<int, SceneProp>? scene))
+        {
+            scene = [];
+            _scenes[pass] = scene;
+        }
+
+        scene.Clear();
+
+        foreach (SceneProp prop in props)
+        {
+            scene[prop.EntityIndex] = prop;
+        }
 
         // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
         // how "all the props went away" became a guessing game: the scene said 14 models, the map

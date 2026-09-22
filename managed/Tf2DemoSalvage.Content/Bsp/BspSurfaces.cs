@@ -71,6 +71,16 @@ public readonly record struct LuxelMapping(
 /// <param name="LuxelWidth">Lightmap samples across, which is size plus one.</param>
 /// <param name="LuxelHeight">Lightmap samples down.</param>
 /// <param name="Lighting">How to light anything lying on this face, such as a decal.</param>
+/// <param name="TextureS">
+/// `textureVecsTexelsPerWorldUnits[0]`, in texels: the engine's decal test projects with it (B415).
+/// </param>
+/// <param name="TextureT">`textureVecsTexelsPerWorldUnits[1]`.</param>
+/// <param name="PlaneNormal">
+/// The PLANE's normal, not flipped for the face's side. The engine's decal basis and push-off read the plane, so a face
+/// on the back of its plane takes a mirrored decal pushed into the wall — reproduced, not corrected.
+/// </param>
+/// <param name="PlaneDistance">That plane's `dist`.</param>
+/// <param name="OnNode">`dface_t.onNode`: the face lies on a node's plane, which the engine's leaf pass skips.</param>
 public sealed record BspSurface(
     int FaceIndex,
     IReadOnlyList<SurfaceVertex> Vertices,
@@ -81,7 +91,12 @@ public sealed record BspSurface(
     int DisplacementIndex,
     int LuxelWidth = 1,
     int LuxelHeight = 1,
-    LuxelMapping Lighting = default)
+    LuxelMapping Lighting = default,
+    (float X, float Y, float Z, float Offset) TextureS = default,
+    (float X, float Y, float Z, float Offset) TextureT = default,
+    (float X, float Y, float Z) PlaneNormal = default,
+    float PlaneDistance = 0f,
+    bool OnNode = false)
 {
     /// <summary>Whether this face is the base quad of a displacement.</summary>
     /// <remarks>
@@ -252,7 +267,12 @@ public static class BspSurfaces
                     luxelMinU,
                     luxelMinV,
                     luxelWidth,
-                    luxelHeight)));
+                    luxelHeight),
+                Row(info, 0),
+                Row(info, 16),
+                ReadNormal(planes, planeIndex, flipped: false),
+                BinaryPrimitives.ReadSingleLittleEndian(planes[((planeIndex * PlaneStride) + 12)..]),
+                face[3] != 0));
         }
 
         return surfaces;

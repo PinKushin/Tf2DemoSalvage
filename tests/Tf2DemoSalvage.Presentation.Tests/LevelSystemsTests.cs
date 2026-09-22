@@ -177,6 +177,20 @@ public sealed class LevelSystemsTests
         soundscape.Catalog.ShouldBeNull();
     }
 
+    /// <remarks>The emitter's soundscripts follow the same rule, and they are what an explosion's sound needs (B415).</remarks>
+    [Test]
+    public void OpenGame_WithNoArchives_LeavesTheSoundScriptsNullRatherThanEmpty()
+    {
+        SoundPresenter sound = Sound();
+
+        new LevelSystems(
+            Scene(), new EntityModelSet(), new SoundCache(NullLogger.Instance),
+            Soundscape(), sound, Appearances(), NullLoggerFactory.Instance)
+            .OpenGame(GameContent.Open(folder: null, NullLoggerFactory.Instance));
+
+        sound.Scripts.ShouldBeNull();
+    }
+
     [Test]
     public void Install_AskedTwice_OpensTheGameOnceAndAnswersTheSameContent()
     {
