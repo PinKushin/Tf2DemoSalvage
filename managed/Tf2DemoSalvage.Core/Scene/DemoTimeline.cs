@@ -2770,8 +2770,10 @@ public sealed class DemoTimeline
                     continue;
                 }
 
+                int fires = FireTick(tick, effect.DelaySeconds, interval);
+
                 if (feeds.Record(
-                        className, effect, tick, index => IsPlayer(entities, index), index => Shooter(entities, index)))
+                        className, effect, fires, index => IsPlayer(entities, index), index => Shooter(entities, index)))
                 {
                     continue;
                 }
@@ -2788,6 +2790,29 @@ public sealed class DemoTimeline
             // Skipped for the same reason a sounds body is: everything else in this packet is
             // independent of it, and salvaging what is readable is the point of the project.
         }
+    }
+
+    /// <summary>The tick a temp entity FIRES on — `CL_QueueEvent`, read out of `engine.dll` (`0x1801f9bc0`, B415).</summary>
+    /// <param name="arrival">The tick its message arrived on.</param>
+    /// <param name="delay">Its own fire delay, the 8-bit hundredths the message carries.</param>
+    /// <param name="interval">Seconds per tick; non-positive falls back to TF2's.</param>
+    /// <returns>The first tick at or after the moment it fires.</returns>
+    /// <remarks>
+    /// <code>
+    /// fire_delay = now + delay
+    /// if ( cl.m_nMaxClients &gt; 1 || demo playing back )  fire_delay += GetClientInterpAmount()
+    /// </code>
+    /// **So an effect fires one interpolation window late, when the drawn entities have reached the state it was sent
+    /// with.** A server impact lands on the struck player as the client DRAWS it, and a tracer leaves the muzzle where
+    /// the gun is drawn. Fired on arrival, every effect ran ~7 ticks ahead of the entities, and a bullet's decal missed a
+    /// moving player's hitboxes by the distance they cover in 0.1 s. Rounded up, since `CL_FireEvents` fires an event
+    /// on the first frame at or past its time; a tick boundary is at most 15 ms after it.
+    /// </remarks>
+    internal static int FireTick(int arrival, float delay, double interval)
+    {
+        double seconds = interval > 0d ? interval : ScenePropTrack.Tf2TickInterval;
+
+        return arrival + (int)Math.Ceiling(((delay + ScenePropTrack.DefaultInterpolation) / seconds) - 1e-6d);
     }
 
     /// <summary>`C_BaseEntity::Instance( hEntity )->IsPlayer()` — the entity at an index exists and is a player.</summary>

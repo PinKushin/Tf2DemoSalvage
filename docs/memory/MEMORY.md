@@ -154,3 +154,4 @@
 - [Mutation box gets maps, never demos](mutation-box-gets-maps-never-demos.md) — maps need all VPKs; synthetic first.
 - [Stryker Safe Mode needs an inline comment](stryker-safe-mode-needs-an-inline-comment.md) — config does nothing; one bad mutant drops the method.
 - [SourceTV has a local player](sourcetv-has-a-local-player.md) — the STV client itself, team 1; what STV lacks is a recorded VIEW.
+- [Never assume Valve is broken](never-assume-valve-is-broken.md) — a gap vs TF2 is our missing branch; temp entities fire an interp window late.

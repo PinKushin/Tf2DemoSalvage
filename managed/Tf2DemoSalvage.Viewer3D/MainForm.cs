@@ -4600,12 +4600,11 @@ internal class MainForm : Form, IFrameSteps
             float away = MathF.Sqrt(
                 ((impact.Origin.X - struck.X) * (impact.Origin.X - struck.X)) + ((impact.Origin.Y - struck.Y) * (impact.Origin.Y - struck.Y)));
 
-            // The server's point is on the player as networked this tick; the hitboxes are posed where it is DRAWN, an
-            // interpolation window behind, so a moving target is missed — as the engine's client misses it (B415).
             return (null, _models.IsPosed(impact.Entity)
                 ? string.Create(
                     CultureInfo.InvariantCulture,
-                    $"the ray misses the hitboxes, the hit {away:0.#} across from the networked origin, {impact.Origin.Z - struck.Z:0.#} up")
+                    $"the ray misses the hitboxes, the hit {away:0.#} across from the networked origin, {impact.Origin.Z - struck.Z:0.#} up; " +
+                    $"hit ({impact.Origin.X:0} {impact.Origin.Y:0} {impact.Origin.Z:0}), drawn head {_models.AttachmentPosition(impact.Entity, "head")}")
                 : "not posed");
         }
 
