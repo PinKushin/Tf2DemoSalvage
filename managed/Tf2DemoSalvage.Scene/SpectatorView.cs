@@ -132,9 +132,18 @@ public sealed class SpectatorView
             return null;
         }
 
-        return eyes.RecordedViewAt(tick) is not null
-            ? eyes.RecorderEntityIndex
-            : Target(tick)?.EntityIndex;
+        if (eyes.RecordedViewAt(tick) is null)
+        {
+            return Target(tick)?.EntityIndex;
+        }
+
+        // **In-eye, the recorder sees through his target's eyes** (B416): the target's body is the one hidden and his
+        // viewmodel the one drawn. `CBaseViewModel::ShouldTransmit` sends the target's viewmodel for exactly this
+        // (`baseviewmodel.cpp:91`). In every other observer mode the recorder names no one whose eyes he is in.
+        return PlayerAt(eyes, tick, eyes.RecorderEntityIndex) is
+            { ObserverMode: ObserverModes.InEye, ObserverTarget: { } target }
+            ? target
+            : eyes.RecorderEntityIndex;
     }
 
     /// <summary>The player whose view is being drawn, as a player rather than an index.</summary>
@@ -451,6 +460,15 @@ public sealed class SpectatorView
     /// </remarks>
     public FreeCamera? Chase(int tick, float aspect, double seconds)
     {
+        // **A POV demo's camera is always the recorded one** (D128, D153, B416). Leaving first person there — a deathcam, a
+        // freezecam, a chase the recorder chose — changes what is drawn in the view, never where the view is. The owner,
+        // 2026-09-22: *"POV demos dont allow you the viewer to change the camera at all it only follows whatever the player
+        // who recorded did."*
+        if (Eyes?.RecordedViewAt(tick) is not null)
+        {
+            return Eye(tick, aspect);
+        }
+
         // **`Viewed` for the same reason `Effective` uses it, and fixing only one would have been
         // worse than fixing neither** (B225). `Effective` falls to third person when the person
         // being watched dies; if this then chased whoever `SpectatorTarget.Choose` picks, a POV

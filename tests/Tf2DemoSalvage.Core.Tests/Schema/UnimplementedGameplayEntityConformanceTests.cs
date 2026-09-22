@@ -165,9 +165,6 @@ public sealed class UnimplementedGameplayEntityConformanceTests
         player.ShouldContain("RecvPropInt		(RECVINFO(m_iObserverMode), 0, RecvProxy_ObserverMode )");
         player.ShouldContain("RecvPropEHandle	(RECVINFO(m_hObserverTarget), RecvProxy_ObserverTarget )");
 
-        Assert.Ignore(
-            "the observer target is not decoded. It is an EHandle, so the serial number has to be " +
-            "checked rather than masked away — masking turns 'nobody' into a legal index, which " +
-            "points the camera at an arbitrary entity instead of reporting no target.");
+        // Decoded since B416, through `EntityState.Slot`: `RenderStateDecodeTests.ObserverTarget_*` pins the invalid handle.
     }
 }

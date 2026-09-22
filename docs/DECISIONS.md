@@ -9157,3 +9157,19 @@ So:
 - **The physics port is finished**, and a host would buy nothing it does not already give.
 - **Licensing is settled by the owner.** What has been read, copied or decompiled has been checked as fair use. The rules
   for where decompiler output lives are about size, as `docs/DECOMPILING.md` already says.
+
+## D188 — a POV demo follows everything the recorder did, including whom he spectated (2026-09-22)
+
+**The owner, on B416** (a POV recorder spectating in-eye was still shown from his own eyes), verbatim: *"POV demos are
+suppose to run the cam the same way tf2 does, meaning you only ever see what the POV player who recorded sees, including
+the cams they choose to use and the player they choose to follow ... basically POV demos dont allow you the viewer to
+change the camera at all it only follows whatever the player who recorded did."*
+
+This extends D128 and D153 from the camera to everything the camera implies:
+
+- **The camera is always the recorded view**, in every observer mode. Leaving first person for the deathcam, a freezecam
+  or a chase changes what is drawn in the view, never where the view is. `SpectatorView.Chase` returns the recorded view
+  on a POV demo. Before this it built a chase camera behind the recorder's corpse, which broke D153 on every death.
+- **In-eye, "me" is the target.** `Followed` answers the recorder's `m_hObserverTarget` when his `m_iObserverMode` is
+  `OBS_MODE_IN_EYE`. So the target's body is the one hidden, and the target's viewmodel and muzzle flashes are drawn.
+  The server sends that viewmodel for exactly this case (`baseviewmodel.cpp:91`).

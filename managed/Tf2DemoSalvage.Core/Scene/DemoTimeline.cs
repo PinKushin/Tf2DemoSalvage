@@ -118,6 +118,10 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// a player who goes to spectator is still ALIVE: liveness cannot distinguish them, and this can.
 /// See <see cref="ScenePlayer.InFirstPersonView"/>.
 /// </param>
+/// <param name="ObserverTarget">
+/// Who the player is observing — <c>m_hObserverTarget</c> — or <c>null</c> for nobody. In-eye, it is whose eyes a POV
+/// recorder is seeing through (B416).
+/// </param>
 /// <param name="Gestures">
 /// The gestures this player has going, one per occupied slot in slot order, or <c>null</c> when
 /// they have none. Filled from the <c>CTEPlayerAnimEvent</c> temp entities the demo carries, which
@@ -197,6 +201,7 @@ public readonly record struct ScenePlayer(
     string? WeaponClass = null,
     int? WeaponItem = null,
     int? ObserverMode = null,
+    int? ObserverTarget = null,
     bool ClientSideAnimated = false,
     IReadOnlyList<SceneGesture>? Gestures = null,
     float HeadScale = 1f,
@@ -2469,6 +2474,9 @@ public sealed class DemoTimeline
                     // not dying, so `LifeState` says nothing about it — and the viewer drew their
                     // last weapon over a free-roaming camera.
                     ObserverMode: player.ObserverMode(),
+
+                    // Whose eyes an in-eye observer is in (B416).
+                    ObserverTarget: player.ObserverTarget(),
 
                     // **EF_NODRAW, which is how the engine hides a corpse.** On death the server
                     // spawns a CTFRagdoll and then turns the player off with

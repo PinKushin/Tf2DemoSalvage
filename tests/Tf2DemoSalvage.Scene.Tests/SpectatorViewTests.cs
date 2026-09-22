@@ -37,6 +37,57 @@ public sealed class SpectatorViewTests
     }
 
     [Test]
+    public void Followed_OnAPovDemoInEye_IsTheObserverTarget()
+    {
+        // **B416.** A recorder spectating in-eye sees through the target's eyes, with the target's viewmodel:
+        // `CBaseViewModel::ShouldTransmit` sends it for `OBS_MODE_IN_EYE` on its owner (`baseviewmodel.cpp:91`).
+        SpectatorView view = View(Eyes(
+            recorder: 7,
+            recorded: true,
+            players: [Player(3), Player(7) with { ObserverMode = ObserverModes.InEye, ObserverTarget = 3, LifeState = 2 }]));
+
+        view.Followed(tick: 100).ShouldBe(3);
+    }
+
+    [Test]
+    public void Followed_OnAPovDemoInAnyOtherObserverMode_IsTheRecorder()
+    {
+        // The control: a target is only followed in-eye. In chase the recorder still names one, and it is not "me".
+        SpectatorView view = View(Eyes(
+            recorder: 7,
+            recorded: true,
+            players: [Player(3), Player(7) with { ObserverMode = ObserverModes.Chase, ObserverTarget = 3, LifeState = 2 }]));
+
+        view.Followed(tick: 100).ShouldBe(7);
+    }
+
+    [Test]
+    public void Effective_OnAPovDemoInEyeOnALivingTarget_IsFirstPerson()
+    {
+        // The recorder is dead and in-eye: TF2 is in first person on the target (`LocalPlayerInFirstPersonView` allows IN_EYE).
+        SpectatorView view = View(Eyes(
+            recorder: 7,
+            recorded: true,
+            players: [Player(3), Player(7) with { ObserverMode = ObserverModes.InEye, ObserverTarget = 3, LifeState = 2 }]));
+
+        view.Effective(tick: 100, CameraMode.FirstPerson).ShouldBe(CameraMode.FirstPerson);
+    }
+
+    [Test]
+    public void Chase_OnAPovDemo_IsTheRecordedCamera()
+    {
+        // **D128, D153 and the owner, 2026-09-22:** a POV demo only ever shows what the recorder saw. With the recorder in
+        // his deathcam the mode leaves first person, and the camera must stay the recorded one, not a chase behind him.
+        SpectatorView view = View(Eyes(
+            recorder: 7,
+            recorded: true,
+            players: [Player(7, x: 500f) with { ObserverMode = ObserverModes.DeathCam, LifeState = 2 }],
+            viewX: 100f));
+
+        view.Chase(tick: 100, aspect: 16f / 9f).ShouldNotBeNull().Origin.X.ShouldBe(100f);
+    }
+
+    [Test]
     public void Followed_OnASourceTvDemo_IsTheChosenPlayer()
     {
         // **The control, and the case that found a real bug.** An STV recording carries no camera,

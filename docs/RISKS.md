@@ -27050,7 +27050,12 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
-### B416 OPEN 2026-09-22: a POV recorder spectating in-eye is still shown from his own eyes
+### B416 FIXED 2026-09-22: a POV recorder spectating in-eye is still shown from his own eyes
+
+**Fixed the same day, on the owner's direction (D188).** `Followed` answers the recorder's `m_hObserverTarget` in-eye,
+and a POV demo's camera is the recorded view in every mode. The chase camera had been built behind the recorder's
+corpse on every death, which is a second divergence found in the same place. Seen at tick 6470: first person, player
+22's weapon, on the recorded camera.
 
 **Found while wiring the first-person muzzle flash (B415).** In `tf2-2026-pub-pov-clean` from tick 6200,
 the recorder is entity 9, and the demo carries viewmodel muzzle flashes owned by entity 22 at ticks

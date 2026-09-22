@@ -2053,11 +2053,16 @@ public sealed class EntityState
     /// someone who never observed, not an unknown — the same rule as <see cref="LifeState"/>, and
     /// the reason a caller must not treat null as "refuse to answer".
     ///
-    /// The companion field <c>m_hObserverTarget</c> is deliberately NOT read: it is an EHandle, and
-    /// masking one down to its index turns "nobody" into entity 2047, which is a legal index. See
-    /// <c>UnimplementedGameplayEntityConformanceTests</c>, which still records that gap.
+    /// The companion field is <see cref="ObserverTarget"/>.
     /// </remarks>
     public int? ObserverMode() => Integer($"{BasePlayerTable}.{ObserverModeProperty}");
+
+    /// <summary>Who the player is observing — <c>m_hObserverTarget</c> — or null for nobody (B416).</summary>
+    /// <remarks>
+    /// An EHandle, so it goes through <see cref="Slot"/>, which tests for the invalid handle before masking; masking first
+    /// turns "nobody" into entity 2047, a legal index.
+    /// </remarks>
+    public int? ObserverTarget() => Slot(Integer($"{BasePlayerTable}.m_hObserverTarget"));
 
     /// <summary>The entity's render colour and alpha, when it says.</summary>
     /// <returns><c>m_clrRender</c> as a packed <c>color32</c>, or <c>null</c> when never sent.</returns>
