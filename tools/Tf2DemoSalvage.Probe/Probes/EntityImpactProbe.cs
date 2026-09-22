@@ -20,7 +20,7 @@ public sealed class EntityImpactProbe : IProbe
     public string Name => "entity-impacts";
 
     /// <inheritdoc/>
-    public string Summary => "the server's impacts on entities (player decals), per entity and by tick: entity-impacts <demo> [n]";
+    public string Summary => "the server's impacts on entities (player decals), per entity and by tick: entity-impacts <demo> [n] [from tick]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -46,8 +46,12 @@ public sealed class EntityImpactProbe : IProbe
             output.WriteLine($"  entity {entity.Key}: {entity.Count()}");
         }
 
-        foreach ((int _, SceneEffectDispatch hit) in impacts.Take(shown))
+        int from = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 0;
+
+        foreach ((int _, SceneEffectDispatch hit) in impacts.Where(one => one.Dispatch.Tick >= from).Take(shown))
         {
+            string who = timeline.Roster.Values.FirstOrDefault(player => player.EntityIndex == hit.Entity).Name ?? "?";
+
             System.Numerics.Vector3 start = new(hit.Start.X, hit.Start.Y, hit.Start.Z);
             System.Numerics.Vector3 at = new(hit.Origin.X, hit.Origin.Y, hit.Origin.Z);
             System.Numerics.Vector3 back = at + (System.Numerics.Vector3.Normalize(start - at) * 80f);
@@ -57,7 +61,7 @@ public sealed class EntityImpactProbe : IProbe
 
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"tick {hit.Tick} entity {hit.Entity} hitbox {hit.HitBox} surfaceprop {hit.SurfaceProp} team {hit.DamageType} at ({at.X:0} {at.Y:0} {at.Z:0})  TF2VIEW_CAMERA=\"{back.X:0} {back.Y:0} {back.Z:0} {pitch:0} {yaw:0}\""));
+                $"tick {hit.Tick} entity {hit.Entity} ({who}) hitbox {hit.HitBox} surfaceprop {hit.SurfaceProp} team {hit.DamageType} at ({at.X:0} {at.Y:0} {at.Z:0})  TF2VIEW_CAMERA=\"{back.X:0} {back.Y:0} {back.Z:0} {pitch:0} {yaw:0}\""));
         }
     }
 }
