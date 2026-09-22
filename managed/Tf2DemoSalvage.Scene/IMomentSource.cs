@@ -199,6 +199,10 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// </remarks>
     public Func<IModelBodygroups?>? Bodygroups { get; set; }
 
+    /// <summary>The arrows bolts left standing, which the map load finds (B415); null before a map is read.</summary>
+    /// <remarks>A supplier read per call, for the reason every other one here is: the map is read on its own schedule.</remarks>
+    public Func<IReadOnlyList<StuckArrow>?>? Arrows { get; set; }
+
 
     /// <inheritdoc />
     public float IntervalPerTick => timeline.IntervalPerTick;
@@ -229,6 +233,12 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
         // A tick that never advances would send every stamp to whichever track happens to be alive
         // at zero, silently.
         _lastTick = tick;
+
+        // **Temp models are drawn by the client like any studio model**, so they join the props after the timeline's.
+        if (Arrows?.Invoke() is { Count: > 0 } arrows)
+        {
+            BoltImpacts.Fill(arrows, tick, timeline.IntervalPerTick, into);
+        }
 
         // **After, because `PropsAt` clears the buffer first.** Corpses are not prop tracks and
         // never reach that walk — see `RagdollProps` for why the layering puts them here.

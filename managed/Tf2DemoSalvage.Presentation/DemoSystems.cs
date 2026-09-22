@@ -166,6 +166,7 @@ public sealed class DemoSystems
                 ClassModels = CorpseModels,
                 Items = CorpseItems,
                 Gibs = Gibs,
+                Arrows = () => Arrows?.Invoke(),
 
                 // **The corpse's own bodygroups** (B395). `_moment.Appearance` is replaced when the
                 // archives open — `PlayerAppearances` fills it on the first moment that can answer
@@ -295,6 +296,9 @@ public sealed class DemoSystems
     /// rather than a graceful degradation.
     /// </remarks>
     public Func<string, IReadOnlyList<PhysicsBreakPiece>>? Gibs { get; set; }
+
+    /// <summary>The arrows the loaded map found bolts leaving (B415), set by whoever owns the map; null before one loads.</summary>
+    public Func<IReadOnlyList<StuckArrow>?>? Arrows { get; set; }
 
     /// <summary>The model set, for a corpse's bodygroup arithmetic (B395).</summary>
     /// <remarks>

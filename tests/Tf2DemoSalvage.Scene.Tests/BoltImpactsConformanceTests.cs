@@ -53,6 +53,47 @@ public sealed class BoltImpactsConformanceTests
         impacts.ShouldBeEmpty();
     }
 
+    [Test]
+    public void Stuck_AnArrow_StandsFiveBackAlongItsFlightWithTheTeamSkin()
+    {
+        // `SpawnTempModel( w_arrow, origin − dir · 5, VectorAngles( dir ), … , 30, FTENT_NONE )`, `m_nSkin = m_nColor`.
+        StuckArrow arrow = BoltImpacts.Stuck(
+            [Bolt((98f, 0f, 0f)) with { Flags = 8, Colour = 1, Normal = (0f, 0.6f, -0.8f) }], Names, static (_, _) => false)
+            .ShouldHaveSingleItem();
+
+        arrow.Model.ShouldBe("models/weapons/w_models/w_arrow.mdl");
+        arrow.At.X.ShouldBe(98f);
+        arrow.At.Y.ShouldBe(-3f, 1e-4f);
+        arrow.At.Z.ShouldBe(4f, 1e-4f);
+        arrow.Yaw.ShouldBe(90f, 1e-3f);
+        arrow.Pitch.ShouldBe(53.1301f, 1e-3f, "pointing down is a positive pitch in Source");
+        arrow.Skin.ShouldBe(1);
+        arrow.Life.ShouldBe(30f);
+    }
+
+    [Test]
+    public void Stuck_ABoltIntoSky_LeavesNoArrow()
+    {
+        // `if ( tr.surface.flags & SURF_SKY ) return;` before anything is made.
+        BoltImpacts.Stuck([Bolt((98f, 0f, 0f)) with { Flags = 8 }], Names, static (_, _) => true).ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Fill_AnArrowPastItsLife_IsGone()
+    {
+        // `FTENT_NONE`: no fade — the model stands until `die` and is removed there.
+        StuckArrow arrow = new(0, 10, "a.mdl", (0f, 0f, 0f), 0f, 0f, 0, 1f, 30f);
+        List<SceneProp> standing = [];
+        List<SceneProp> gone = [];
+
+        BoltImpacts.Fill([arrow], 10 + 1999, 0.015f, standing);
+        // 2,000 ticks of the float 0.015 is 29.9999993 s, still standing; the next tick is past thirty.
+        BoltImpacts.Fill([arrow], 10 + 2001, 0.015f, gone);
+
+        standing.ShouldHaveSingleItem().ModelPath.ShouldBe("a.mdl");
+        gone.ShouldBeEmpty();
+    }
+
     private static string? Names(int index) => index switch
     {
         0 => "TFBoltImpact",

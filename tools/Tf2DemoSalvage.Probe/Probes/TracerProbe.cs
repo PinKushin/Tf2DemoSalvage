@@ -126,7 +126,18 @@ public sealed class TracerProbe : IProbe
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{timeline.Dispatches.All.Count} effect dispatches; {impacts.Count(one => one.FromServer)} server impacts on the world, " +
-            $"{impacts.Count(one => one.BrushOnly)} bolt impacts"));
+            $"{impacts.Count(one => one.BrushOnly)} bolt impacts, {map.Arrows.Count} arrows left standing"));
+
+        foreach (StuckArrow arrow in map.Arrows.Take(shown))
+        {
+            // A camera 40 units behind the arrow's own flight, looking along it.
+            (float fx, float fy, float fz) = AngleVectors.Forward(arrow.Pitch, arrow.Yaw);
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  arrow tick {arrow.Tick} {System.IO.Path.GetFileNameWithoutExtension(arrow.Model)} skin {arrow.Skin} at ({arrow.At.X:0} {arrow.At.Y:0} {arrow.At.Z:0})  " +
+                $"TF2VIEW_CAMERA=\"{arrow.At.X - (fx * 40f):0} {arrow.At.Y - (fy * 40f):0} {arrow.At.Z - (fz * 40f) + 10f:0} {arrow.Pitch + 10f:0} {arrow.Yaw:0}\""));
+        }
 
         foreach (IGrouping<(string?, int), SceneEffectDispatch> kind in timeline.Dispatches.All
                      .GroupBy(one => (timeline.Dispatches.Names.Name(one.Name), Math.Sign(one.Entity)))

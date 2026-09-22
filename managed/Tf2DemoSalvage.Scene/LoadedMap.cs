@@ -71,6 +71,9 @@ public sealed class LoadedMap
     /// <summary>Every bullet the world stopped, in fire order — each a candidate for a decal (B415).</summary>
     public IReadOnlyList<ShotImpact> Impacts { get; private init; } = [];
 
+    /// <summary>Every arrow a bolt left standing on this map, in tick order (B415).</summary>
+    public IReadOnlyList<StuckArrow> Arrows { get; private init; } = [];
+
     /// <summary>What decal each impact leaves, or null for a map read without a demo.</summary>
     public ImpactDecals? ImpactDecals { get; private init; }
 
@@ -191,6 +194,7 @@ public sealed class LoadedMap
         // both the level and the timeline are to hand — and before the textures, which need the effects' names.
         IReadOnlyList<ShotTracer> tracers = [];
         List<ShotImpact> impacts = [];
+        IReadOnlyList<StuckArrow> arrows = [];
         ImpactDecals? impactDecals = null;
         BspLightSamples? lightSamples = null;
         HashSet<string> decalMaterials = new(StringComparer.OrdinalIgnoreCase);
@@ -231,6 +235,16 @@ public sealed class LoadedMap
                     timeline.Dispatches.Names.Name,
                     (from, to) => level.Trace(from, to, 0f),
                     impacts);
+
+                // The arrow each bolt leaves standing, unless its trace met sky.
+                IReadOnlyList<BspTexinfo> texinfo = BspMaterials.ReadTexinfo(bytes);
+
+                arrows = BoltImpacts.Stuck(
+                    timeline.Dispatches.All,
+                    timeline.Dispatches.Names.Name,
+                    (from, to) => level.Trace(from, to, 0f) is { Fraction: < 1f, Texinfo: >= 0 } hit &&
+                                  hit.Texinfo < texinfo.Count &&
+                                  (texinfo[hit.Texinfo].Flags & SurfaceProperties.Sky) != 0);
 
                 // Stable, so bullets of one tick keep their fire order.
                 impacts = [.. impacts.OrderBy(static impact => impact.Tick)];
@@ -356,6 +370,7 @@ public sealed class LoadedMap
             {
                 Tracers = tracers,
                 Impacts = impacts,
+                Arrows = arrows,
                 ImpactDecals = impactDecals,
                 LightSamples = lightSamples,
             };
@@ -374,6 +389,7 @@ public sealed class LoadedMap
             {
                 Tracers = tracers,
                 Impacts = impacts,
+                Arrows = arrows,
                 ImpactDecals = impactDecals,
                 LightSamples = lightSamples,
             };

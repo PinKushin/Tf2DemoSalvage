@@ -1116,6 +1116,8 @@ internal class MainForm : Form, IFrameSteps
         // **Read ONCE per model per install, as precache is once.** This called `BreakPiecesOf` on
         // every frame for every gibbed corpse, which reopened the archive and reparsed the `.phy`
         // each time — measured at 3.5% of a Debug frame, and most of the 3 ms `sample` column.
+        _demoSystems.Arrows = () => _loaded?.Arrows;
+
         _demoSystems.Gibs = model =>
         {
             if (_game is not { } install)
