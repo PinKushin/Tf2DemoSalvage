@@ -9139,3 +9139,21 @@ assistant in between (`docs/memory/a-measure-needs-focus.md`).
 **His premise, recorded because it decides where a later slowdown is looked for first:** a correct port should cost nothing
 extra. The slowdowns found so far were a divergence from the engine, or the wrong C# type: allocating and rebuilding every
 frame where a `Span` or a reused buffer belonged.
+
+## D187 — no interop with Valve's DLLs; the ports stay (2026-09-21)
+
+**The owner asked** whether the viewer could load Valve's own DLLs from the user's TF2 install and call them, rather than
+reverse-engineering and porting what they do. The assistant answered that `vphysics.dll` was the realistic candidate,
+since the probes already call it in process, and that the engine, client, studiorender and material system DLLs cannot be
+hosted outside the engine.
+
+**He closed it**, verbatim: *"We have the physics finished already though,so just forget it, the place it might have
+helped we already got right anyway. And nothing we copied or decomped doesn't fall under fair use, I've checked."*
+
+So:
+
+- **No runtime interop with Valve's binaries.** Loading a DLL in process stays what it is today: an instrument the probes
+  use to check a port, never a production path.
+- **The physics port is finished**, and a host would buy nothing it does not already give.
+- **Licensing is settled by the owner.** What has been read, copied or decompiled has been checked as fair use. The rules
+  for where decompiler output lives are about size, as `docs/DECOMPILING.md` already says.
