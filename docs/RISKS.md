@@ -27364,6 +27364,34 @@ pose, so a still frame shows a clump where playback shows a trail.
 `RecvTable_DecodeZeros`. The world-impact argument above requires it, but the engine's temp-entity parse was
 not read; the Ghidra engine project was locked.
 
+**Built 2026-09-21/22.**
+
+- **The medigun beam, whole.** It has path constraints, `remap initial scalar` and `Position Along Path
+  Random`. The item's `custom_particlesystem` (the overheal beam) draws beside the beam, and `_targeted`
+  follows `hud_medichealtargetmarker`. The machinery beam is unreachable: `IsAllowedToTargetBuildings`
+  returns false.
+- **Temp entities fire one interpolation window late.** `CL_QueueEvent` (engine.dll `0x1801f9bc0`)
+  adds `GetClientInterpAmount()` during demo playback. This fix applies to every effect above. The owner
+  caught it: I had concluded that TF2 also misses moving players with blood.
+- **Blood on players**, from server `Impact`s and from the client's own bullets. It is projected as
+  `CStudioRender::AddDecal` does (studiorender.dll `0x180004c80`): whole triangles on a skinned model,
+  with the `$modelmaterial` swap, the `r_maxmodeldecal` limits and `C_TFPlayer`'s clears. It has been
+  seen drawn.
+- **The arrow a bolt leaves standing**: 133 on f12, one seen in a wall.
+- **Impact sounds**, gated to within 1024 units of the camera. The `Bounce.Shrapnel` ricochet is a dead
+  branch in TF, because no gun's damage type is exactly `DMG_BULLET`.
+
+**Still not built, or divergent:**
+
+- **An out-of-view player takes no decal.** `CModelRender::AddDecal` sets up bones on demand, but we
+  pose only what we draw. This was 60 of 100 f12 hits over 90 s.
+- **Blood can land slightly off the mesh.** Hits land 3–18 units outside the server's own hitbox on
+  our pose. This waits on the in-game check: tick 13944 gummo, 14252 abelll, with
+  `entity-impacts <demo> n 13800`.
+- **The wrong sound for a player-stopped client bullet.** It sounds on the wall behind the player.
+- **Sprays.** They need the logo `.dat` the client downloaded; only one is on this machine.
+- **The muzzle-flash model, and the first-person viewmodel flash.**
+
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 
 **The owner, unprompted, while I was measuring something else**: *"for some reason the first person rockets still dont
