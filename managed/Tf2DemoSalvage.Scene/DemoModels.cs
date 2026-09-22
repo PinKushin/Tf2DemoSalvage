@@ -148,8 +148,12 @@ public static class DemoModels
             }
         }
 
-        // Every arrow model, precached with the weapons: a bolt's temp model is in no track and no table (B415).
-        paths.UnionWith(BoltImpacts.ArrowModels);
+        // Every arrow model, precached with the weapons: a bolt's temp model is in no track and no table (B415). Only
+        // with an install, as the class models are: without one there is nothing to precache from.
+        if (paths.Count > 0)
+        {
+            paths.UnionWith(BoltImpacts.ArrowModels);
+        }
 
         if (timeline is not { } demo)
         {
@@ -260,8 +264,11 @@ public static class DemoModels
             }
         }
 
-        // The arrow models, packed as `Needed` loads them (B195's rule: the two sets must agree).
-        paths.UnionWith(BoltImpacts.ArrowModels);
+        // The arrow models, packed as `Needed` loads them (B195's rule: the two sets must agree), with an install only.
+        if (game.ModelPaths().Any())
+        {
+            paths.UnionWith(BoltImpacts.ArrowModels);
+        }
 
         // **The extra models items hang on themselves**, which appear in no track and in no string
         // table: `attached_models` names them in the item schema, and the entity that carries them
