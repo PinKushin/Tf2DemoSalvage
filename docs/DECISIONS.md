@@ -9160,7 +9160,7 @@ So:
 
 ## D188 — a POV demo follows everything the recorder did, including whom he spectated (2026-09-22)
 
-**The owner, on B416** (a POV recorder spectating in-eye was still shown from his own eyes), verbatim: *"POV demos are
+**The owner, on B417** (a POV recorder spectating in-eye was still shown from his own eyes), verbatim: *"POV demos are
 suppose to run the cam the same way tf2 does, meaning you only ever see what the POV player who recorded sees, including
 the cams they choose to use and the player they choose to follow ... basically POV demos dont allow you the viewer to
 change the camera at all it only follows whatever the player who recorded did."*

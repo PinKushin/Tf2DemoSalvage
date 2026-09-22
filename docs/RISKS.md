@@ -27050,7 +27050,27 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
-### B416 FIXED 2026-09-22: a POV recorder spectating in-eye is still shown from his own eyes
+### B418 OPEN 2026-09-22: removing a corpse leaves its mindists queued, and one fires on a core with no unit
+
+**Found by the new playback UI test** (`Transport_PlayAtEightTimes_AdvancesThroughTwentySecondsOfPlayback`), which plays
+`z1800` at 8x from its start: the viewer dies on
+`InvalidOperationException: A core the impact moved has no snapshot: its state 8, its unit's , immovable False, skips gravity
+False` at `IvpImpactIsland.Grow`, reached from `IvpSimulation.Collide`. Three runs out of three.
+
+**The core has no unit**, and `IvpSimulation.Remove` is the only place that clears one. So the core was already removed, and a
+pair event on one of its mindists fired afterwards. With no unit, `Wake` does nothing, the core stays at state 8,
+`BringToEvent` saves no snapshot, and `Build` grows it.
+
+**The missing step is the engine's fifth** (`docs/findings/51`, *Removing an object*): after the refile, the mindist walk and
+the contact walk, `FUN_180073700` dispatches the core's own vtable slot 0, its destructor. That destructor is unread. Our
+`Remove` carries steps 1 to 4 and relies on the neighbour re-derivation to kill every mindist, which leaves a queued one alive.
+*Next:* read the destructor in the disassembly, port it, and pin it with a conformance test.
+
+**Fixed on the way:** `IvpImpactIsland` tested only bit `0x2` where the engine's guard is `flags & 0x12`. A movable core
+carrying `0x10` (`SkipsGravity`) was grown with no snapshot (`Build_AMovableCoreCarryingBit0x10_IsNeitherGrownNorBroughtToTheEvent`).
+It was not this crash.
+
+### B417 FIXED 2026-09-22: a POV recorder spectating in-eye is still shown from his own eyes
 
 **Fixed the same day, on the owner's direction (D188).** `Followed` answers the recorder's `m_hObserverTarget` in-eye,
 and a POV demo's camera is the recorded view in every mode. The chase camera had been built behind the recorder's

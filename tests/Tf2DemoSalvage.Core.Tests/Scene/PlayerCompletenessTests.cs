@@ -109,7 +109,7 @@ public sealed class PlayerCompletenessTests
         // where TF2 puts a player who goes to spectator.
         ObserverMode: ObserverModes.Roaming,
 
-        // Somebody other than this player, so losing it reads as "nobody" (B416).
+        // Somebody other than this player, so losing it reads as "nobody" (B417).
         ObserverTarget: 9,
 
         // A weapon in hand, and its class — the pair that decides which suffix every body activity

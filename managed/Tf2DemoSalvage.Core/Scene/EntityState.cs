@@ -2057,7 +2057,7 @@ public sealed class EntityState
     /// </remarks>
     public int? ObserverMode() => Integer($"{BasePlayerTable}.{ObserverModeProperty}");
 
-    /// <summary>Who the player is observing — <c>m_hObserverTarget</c> — or null for nobody (B416).</summary>
+    /// <summary>Who the player is observing — <c>m_hObserverTarget</c> — or null for nobody (B417).</summary>
     /// <remarks>
     /// An EHandle, so it goes through <see cref="Slot"/>, which tests for the invalid handle before masking; masking first
     /// turns "nobody" into entity 2047, a legal index.

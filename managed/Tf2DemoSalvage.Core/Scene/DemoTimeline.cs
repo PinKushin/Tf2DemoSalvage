@@ -120,7 +120,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// </param>
 /// <param name="ObserverTarget">
 /// Who the player is observing — <c>m_hObserverTarget</c> — or <c>null</c> for nobody. In-eye, it is whose eyes a POV
-/// recorder is seeing through (B416).
+/// recorder is seeing through (B417).
 /// </param>
 /// <param name="Gestures">
 /// The gestures this player has going, one per occupied slot in slot order, or <c>null</c> when
@@ -2475,7 +2475,7 @@ public sealed class DemoTimeline
                     // last weapon over a free-roaming camera.
                     ObserverMode: player.ObserverMode(),
 
-                    // Whose eyes an in-eye observer is in (B416).
+                    // Whose eyes an in-eye observer is in (B417).
                     ObserverTarget: player.ObserverTarget(),
 
                     // **EF_NODRAW, which is how the engine hides a corpse.** On death the server

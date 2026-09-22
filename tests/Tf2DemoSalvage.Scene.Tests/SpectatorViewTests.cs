@@ -39,7 +39,7 @@ public sealed class SpectatorViewTests
     [Test]
     public void Followed_OnAPovDemoInEye_IsTheObserverTarget()
     {
-        // **B416.** A recorder spectating in-eye sees through the target's eyes, with the target's viewmodel:
+        // **B417.** A recorder spectating in-eye sees through the target's eyes, with the target's viewmodel:
         // `CBaseViewModel::ShouldTransmit` sends it for `OBS_MODE_IN_EYE` on its owner (`baseviewmodel.cpp:91`).
         SpectatorView view = View(Eyes(
             recorder: 7,
