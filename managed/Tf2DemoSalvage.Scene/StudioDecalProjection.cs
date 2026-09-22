@@ -133,6 +133,50 @@ public static class StudioDecalProjection
         return corners;
     }
 
+    /// <summary>A control for a projection that took nothing: vertices facing the shot, those inside the square, and the nearest.</summary>
+    /// <param name="vertices">As for <see cref="Project"/>.</param>
+    /// <param name="poseToWorld">As for <see cref="Project"/>.</param>
+    /// <param name="start">As for <see cref="Project"/>.</param>
+    /// <param name="delta">As for <see cref="Project"/>.</param>
+    /// <param name="radius">As for <see cref="Project"/>.</param>
+    /// <returns>The counts, and the smallest distance from the decal's axis any vertex has.</returns>
+    public static (int Facing, int Inside, float Nearest) Census(
+        IReadOnlyList<WorldVertex> vertices, IReadOnlyList<float[]> poseToWorld, Vector3 start, Vector3 delta, float radius)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(poseToWorld);
+
+        if (Frame(start, delta, Vector3.UnitZ) is not { } decal)
+        {
+            return (0, 0, float.NaN);
+        }
+
+        float[][] toDecal = new float[poseToWorld.Count][];
+
+        for (int bone = 0; bone < poseToWorld.Count; bone++)
+        {
+            toDecal[bone] = Concatenate(decal, poseToWorld[bone]);
+        }
+
+        int facing = 0;
+        int inside = 0;
+        float nearest = float.MaxValue;
+        float scale = radius != 0f ? 1f / radius : 1f;
+
+        foreach (WorldVertex vertex in vertices)
+        {
+            Projected one = Vertex(vertex, toDecal, scale, radius, noPokeThru: false);
+            float u = (one.U - 0.5f) * 2f * radius;
+            float v = (one.V - 0.5f) * 2f * radius;
+
+            nearest = MathF.Min(nearest, MathF.Sqrt((u * u) + (v * v)));
+            facing += one.Facing ? 1 : 0;
+            inside += one.U is >= 0f and <= 1f && one.V is >= 0f and <= 1f ? 1 : 0;
+        }
+
+        return (facing, inside, nearest);
+    }
+
     /// <summary>`ComputePoseToDecal`'s frame: three rows of four, or null when the ray gives no direction.</summary>
     internal static float[]? Frame(Vector3 start, Vector3 delta, Vector3 up)
     {

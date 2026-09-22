@@ -175,7 +175,11 @@ public sealed class PlayerCompletenessTests
         // introduced without being covered.
         HeadScale: 1.5f,
         TorsoScale: 0.5f,
-        HandScale: 2f);
+        HandScale: 2f)
+    {
+        // Above Health, so a heal to it is measurable; null is the default (B415).
+        MaxHealth = 175,
+    };
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>

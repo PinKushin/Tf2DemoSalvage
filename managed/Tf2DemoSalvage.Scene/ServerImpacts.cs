@@ -25,6 +25,44 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public static class ServerImpacts
 {
+    /// <summary>Every server impact on an entity — a player, mostly — in tick order, with its index in the dispatch feed.</summary>
+    /// <param name="dispatches">The dispatch feed, in tick order.</param>
+    /// <param name="name">A dispatch's name by its index in the <c>EffectDispatch</c> table.</param>
+    /// <returns>The dispatches, each beside its index.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static IReadOnlyList<(int Index, SceneEffectDispatch Dispatch)> OnEntities(
+        IReadOnlyList<SceneEffectDispatch> dispatches, Func<int, string?> name)
+    {
+        ArgumentNullException.ThrowIfNull(dispatches);
+        ArgumentNullException.ThrowIfNull(name);
+
+        List<(int, SceneEffectDispatch)> found = [];
+
+        for (int index = 0; index < dispatches.Count; index++)
+        {
+            SceneEffectDispatch dispatch = dispatches[index];
+
+            if (dispatch.Entity > 0 && string.Equals(name(dispatch.Name), ImpactEffect, StringComparison.Ordinal))
+            {
+                found.Add((index, dispatch));
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>`Impact`'s ray against an entity: from `vecStart` to 8 units past `vecOrigin`, bloated by 1.1 — `AddDecal`.</summary>
+    /// <param name="dispatch">The impact.</param>
+    /// <returns>The ray's start and its delta, or null when the shot has no length.</returns>
+    public static (Vector3 Start, Vector3 Delta)? DecalRay(SceneEffectDispatch dispatch)
+    {
+        Vector3 start = new(dispatch.Start.X, dispatch.Start.Y, dispatch.Start.Z);
+        Vector3 shot = new Vector3(dispatch.Origin.X, dispatch.Origin.Y, dispatch.Origin.Z) - start;
+        float length = shot.Length();
+
+        return length > 0f ? (start, shot / length * (length + 8f) * 1.1f) : null;
+    }
+
     /// <summary>The effect name `CBaseEntity::ImpactTrace` dispatches.</summary>
     public const string ImpactEffect = "Impact";
 

@@ -4436,6 +4436,249 @@ internal class MainForm : Form, IFrameSteps
         return true;
     }
 
+    /// <summary>Every entity's model decals, drawn by the device after each model.</summary>
+    private readonly ModelDecals _modelDecals = new() { UnlitLight = Device3D.DecalModulateLight };
+
+    /// <summary>The server's impacts on entities, found once per timeline.</summary>
+    private IReadOnlyList<(int Index, SceneEffectDispatch Dispatch)>? _entityImpacts;
+
+    /// <summary>How far behind the frame an impact may be and still be projected: a frame's worth at any playback rate this runs.</summary>
+    private const int ModelDecalArrivalTicks = 8;
+
+    /// <summary>The tick model decals were last brought up to; a step back clears them.</summary>
+    private int _modelDecalTick = int.MinValue;
+
+    /// <summary>Each player's state at the last step, for the changes that clear its decals.</summary>
+    private readonly Dictionary<int, (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass)> _decalHolders = [];
+
+    /// <summary>Puts every server impact on a player since the last step onto that player's model (B415).</summary>
+    /// <remarks>
+    /// <code>
+    /// ImpactCallback:    m_nDamageType ≠ the entity's team (TF carries the shooter's team there), and not a spy disguised
+    ///                    as that team
+    /// Impact:            GetImpactDecal → DamageDecal → TranslateDecalForGameMaterial → the weighted pick
+    /// C_TFPlayer::AddDecal: nothing while stealthed or disguised; an übercharge ricochets instead
+    /// AddStudioDecal:    ClipRayToEntity( MASK_SHOT ), which tests the hitboxes; a miss places nothing
+    /// CModelRender::AddDecal: radius = max( w, h ) · $decalScale / 2; no `$decalFadeDuration` decal; the bones now
+    /// </code>
+    /// And the clears `C_TFPlayer` makes: a heal to full, an übercharge, a new class (a new model), a cloak, a new
+    /// disguise class. *Not built:* replay on a seek — a step backwards clears every model, and a jump forwards puts only
+    /// the impacts it passes onto the models as they stand at the new tick; the invulnerable ricochet; a building's decal.
+    /// </remarks>
+    private void StepModelDecals(int tick)
+    {
+        if (_device is null || _timeline is not { } timeline ||
+            _loaded is not { ImpactDecals: { } impacts, Assets: { } assets })
+        {
+            return;
+        }
+
+        _device.ModelDecals = _modelDecals;
+
+        if (tick < _modelDecalTick)
+        {
+            _modelDecals.ClearAll();
+            _decalHolders.Clear();
+            _modelDecalTick = tick;
+
+            return;
+        }
+
+        // **Only what arrived just now is projected** — the engine places a decal as its effect arrives, with the bones as
+        // they stand then. After a jump the poses of the ticks passed over were never built, so their impacts are skipped
+        // rather than projected onto a pose they never met.
+        int from = Math.Max(_modelDecalTick, tick - ModelDecalArrivalTicks);
+
+        _modelDecalTick = tick;
+
+        if (from == int.MinValue)
+        {
+            return;
+        }
+
+        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(tick);
+
+        foreach (ScenePlayer player in players)
+        {
+            ClearOnChange(player);
+        }
+
+        if (_entityImpacts is null)
+        {
+            _entityImpacts = ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name);
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(CultureInfo.InvariantCulture, $"model decals: {_entityImpacts.Count} server impacts on entities"));
+        }
+
+        foreach ((int index, SceneEffectDispatch impact) in _entityImpacts)
+        {
+            if (impact.Tick <= from || impact.Tick > tick || Holder(players, impact.Entity) is not { } struck)
+            {
+                continue;
+            }
+
+            (ModelDecalShot? shot, string refused) = ModelDecalFor(index, impact, struck, impacts, assets, _device);
+
+            if (shot is not { } s)
+            {
+                _renderLog.LogDebug(
+                    "{Message}",
+                    string.Create(CultureInfo.InvariantCulture, $"model decal tick {impact.Tick} entity {impact.Entity}: none, {refused}"));
+
+                continue;
+            }
+
+            float scale = s.Decal.DecalScale > 0f ? s.Decal.DecalScale : 1f;
+            float radius = MathF.Max(s.Decal.Width * scale * 0.5f, s.Decal.Height * scale * 0.5f);
+
+            bool placed = _modelDecals.Add(
+                impact.Entity,
+                s.Vertices,
+                s.Bones,
+                s.Start,
+                s.Delta,
+                radius,
+                s.Material,
+                DrawnVertices(_device.ModelBatches(s.Model), s.Vertices.Count, s.Body, s.Parts));
+
+            string census = string.Empty;
+
+            if (!placed)
+            {
+                (int facing, int inside, float nearest) = StudioDecalProjection.Census(s.Vertices, s.Bones, s.Start, s.Delta, radius);
+
+                census = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $" ({facing} of {s.Vertices.Count} vertices face it, {inside} inside the square, the nearest {nearest:0.#} off its axis)");
+            }
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"model decal tick {impact.Tick} entity {impact.Entity} at ({struck.X:0} {struck.Y:0} {struck.Z:0}), shot from " +
+                    $"({impact.Start.X:0} {impact.Start.Y:0} {impact.Start.Z:0}): {s.Decal.ModelMaterial ?? s.Decal.Name} radius {radius:0.##} " +
+                    $"{(placed ? "placed" : "took no triangle")}{census}; {_modelDecals.Count} held"));
+        }
+    }
+
+    /// <summary>Everything one model decal needs once every guard has passed.</summary>
+    private readonly record struct ModelDecalShot(
+        Vector3 Start,
+        Vector3 Delta,
+        string Model,
+        IReadOnlyList<float[]> Bones,
+        int Body,
+        IReadOnlyList<(int Base, int Count)>? Parts,
+        IReadOnlyList<WorldVertex> Vertices,
+        DecalMaterial Decal,
+        int Material);
+
+    /// <summary>The guards between an impact and a decal on the struck model, in the engine's order; the reason when one refuses.</summary>
+    private (ModelDecalShot? Shot, string Refused) ModelDecalFor(
+        int index, SceneEffectDispatch impact, ScenePlayer struck, ImpactDecals impacts, MapAssets assets, Device3D device)
+    {
+        if (impact.DamageType == struck.Team)
+        {
+            return (null, "same team");
+        }
+
+        if (struck.Conditions.IsStealthed || struck.Conditions.Has(PlayerConditions.Disguised) || struck.Conditions.IsInvulnerable)
+        {
+            return (null, "stealthed, disguised or invulnerable");
+        }
+
+        if (ServerImpacts.DecalRay(impact) is not { } ray)
+        {
+            return (null, "no ray");
+        }
+
+        if (_models.TraceHitboxes(impact.Entity, ray.Start, ray.Delta, BulletMask) is null)
+        {
+            float away = MathF.Sqrt(
+                ((impact.Origin.X - struck.X) * (impact.Origin.X - struck.X)) + ((impact.Origin.Y - struck.Y) * (impact.Origin.Y - struck.Y)));
+
+            // The server's point is on the player as networked this tick; the hitboxes are posed where it is DRAWN, an
+            // interpolation window behind, so a moving target is missed — as the engine's client misses it (B415).
+            return (null, _models.IsPosed(impact.Entity)
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"the ray misses the hitboxes, the hit {away:0.#} across from the networked origin, {impact.Origin.Z - struck.Z:0.#} up")
+                : "not posed");
+        }
+
+        if (_models.SkinningOf(impact.Entity) is not { } pose || device.SkinnedVertices(pose.Model) is not { } vertices)
+        {
+            return (null, "no skinned model");
+        }
+
+        if (impacts.ForEntity(impact.SurfaceProp, impact.DamageType, 0, SeededDraw.For(SeededDraw.Of(-1 - index, 0))) is not
+                { Fades: false } decal ||
+            !assets.DecalMaterials.TryGetValue(decal.ModelMaterial ?? decal.Draws ?? decal.Name, out int material))
+        {
+            return (null, "no decal material loaded");
+        }
+
+        return (new ModelDecalShot(
+            ray.Start, ray.Delta, pose.Model, pose.Bones, pose.Body, pose.Parts, vertices, decal, material), string.Empty);
+    }
+
+    /// <summary>The player an impact names, when it is one playing now.</summary>
+    private static ScenePlayer? Holder(IReadOnlyList<ScenePlayer> players, int entity)
+    {
+        foreach (ScenePlayer player in players)
+        {
+            if (player.EntityIndex == entity)
+            {
+                return player;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>`RemoveAllDecals` where `C_TFPlayer` calls it: full heal, übercharge, new model, cloak, new disguise class.</summary>
+    private void ClearOnChange(ScenePlayer player)
+    {
+        (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass) now =
+            (player.Health, player.PlayerClass, player.Conditions.IsStealthed, player.DisguiseClass);
+
+        if (_decalHolders.TryGetValue(player.EntityIndex, out (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass) was))
+        {
+            bool healed = now.Health > was.Health && now.Health >= player.MaxHealth;
+
+            if (healed || player.Conditions.IsInvulnerable || now.PlayerClass != was.PlayerClass ||
+                (now.Stealthed && !was.Stealthed) || now.DisguiseClass != was.DisguiseClass)
+            {
+                _modelDecals.Clear(player.EntityIndex);
+            }
+        }
+
+        _decalHolders[player.EntityIndex] = now;
+    }
+
+    /// <summary>Which of a model's vertices its body number draws, as the model pass chooses body parts.</summary>
+    private static Func<int, bool> DrawnVertices(
+        IReadOnlyList<WorldBatch> batches, int count, int body, IReadOnlyList<(int Base, int Count)>? parts)
+    {
+        bool[] drawn = new bool[count];
+
+        foreach (WorldBatch batch in batches)
+        {
+            bool chosen = parts is null || batch.BodyPart >= parts.Count || parts[batch.BodyPart].Count <= 0 ||
+                          body / Math.Max(1, parts[batch.BodyPart].Base) % parts[batch.BodyPart].Count == batch.BodyModel;
+
+            for (int at = batch.FirstVertex; chosen && at < batch.FirstVertex + batch.VertexCount && at < count; at++)
+            {
+                drawn[at] = true;
+            }
+        }
+
+        return vertex => vertex >= 0 && vertex < drawn.Length && drawn[vertex];
+    }
+
     /// <summary>Starts and steps the debris, dust and sparks of every impact in the window (B415).</summary>
     /// <remarks>
     /// **Only where `Impact` returned true**, as `ImpactCallback` asks: a bullet with a decal on the world, not one a
@@ -5252,6 +5495,7 @@ internal class MainForm : Form, IFrameSteps
 
         // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
         StepDecals(_transport.CurrentTick);
+        StepModelDecals(_transport.CurrentTick);
         StepImpactEffects(_transport.CurrentTick);
         StepSparks(_transport.CurrentTick);
 

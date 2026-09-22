@@ -67,6 +67,23 @@ public sealed class DecalMaterials
             return null;
         }
 
+        if (Sized(name, vmt) is not { } sized)
+        {
+            return null;
+        }
+
+        string? model = vmt.Value("$modelmaterial");
+
+        return sized with
+        {
+            ModelMaterial = string.IsNullOrEmpty(model) ? null : model,
+            Fades = vmt.Value("$decalFadeDuration") is not null,
+        };
+    }
+
+    private DecalMaterial? Sized(string name, VmtMaterial vmt)
+    {
+
         float scale = Number(vmt.Value("$decalscale"), 1f);
 
         if (vmt.Shader.Equals("Subrect", StringComparison.OrdinalIgnoreCase))

@@ -203,6 +203,10 @@ public readonly record struct ScenePlayer(
     float TorsoScale = 1f,
     float HandScale = 1f)
 {
+    /// <summary>`GetMaxHealth()` — the player resource's `m_iMaxHealth`, which `C_TFPlayer` reads; null when not sent.</summary>
+    /// <remarks>A full heal to it clears the player's model decals (`C_TFPlayer::OnDataChanged`, B415).</remarks>
+    public int? MaxHealth { get; init; }
+
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
     /// <c>FL_DUCKING</c>. Null flags mean the recording never said, which is every player but the
@@ -2552,7 +2556,10 @@ public sealed class DemoTimeline
                     // default rather than a fallback for missing data.
                     HeadScale: player.BoneScales().Head ?? 1f,
                     TorsoScale: player.BoneScales().Torso ?? 1f,
-                    HandScale: player.BoneScales().Hand ?? 1f));
+                    HandScale: player.BoneScales().Hand ?? 1f)
+                {
+                    MaxHealth = resource?.Integer($"m_iMaxHealth.{slot}"),
+                });
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a

@@ -125,6 +125,47 @@ public sealed class ImpactDecals
     /// <returns>The material, or null.</returns>
     public DecalMaterial? For(ShotImpact impact) => For(impact, SeededDraw.For(SeededDraw.Of(impact.Shot, impact.Bullet)));
 
+    /// <summary>The decal a bullet leaves on an entity, from the surfaceprop the server named, or null for none.</summary>
+    /// <param name="surfaceProp">The dispatch's `m_nSurfaceProp`.</param>
+    /// <param name="damageType">The dispatch's `m_nDamageType`.</param>
+    /// <param name="renderMode">The struck entity's `m_nRenderMode`.</param>
+    /// <param name="random">`random->RandomFloat( min, max )` for the weighted pick.</param>
+    /// <returns>The material, or null.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="random"/> is null.</exception>
+    /// <remarks>
+    /// `CBaseEntity::DamageDecal` (`baseentity_shared.cpp:708`): nothing for `kRenderTransAlpha`, `"BulletProof"` for any
+    /// other non-normal render mode on glass, `"ManhackCut"` for exactly `DMG_SLASH`, else `"Impact.Concrete"` — then
+    /// `TranslateDecalForGameMaterial` by the surfaceprop's game material, as for the world.
+    /// </remarks>
+    public DecalMaterial? ForEntity(int surfaceProp, int damageType, int renderMode, Func<float, float, float> random)
+    {
+        ArgumentNullException.ThrowIfNull(random);
+
+        const int TransAlpha = 4;
+        const int Normal = 0;
+
+        char material = _surfacePropMaterial(surfaceProp);
+        string decal;
+
+        if (renderMode == TransAlpha)
+        {
+            return null;
+        }
+
+        if (renderMode != Normal && material == 'G')
+        {
+            decal = "BulletProof";
+        }
+        else
+        {
+            decal = damageType == SlashDamage ? "ManhackCut" : DecalEmitters.ImpactConcrete;
+        }
+
+        string group = _emitters.Translate(decal, material);
+
+        return group.Length > 0 && _emitters.Pick(group, random) is { } file ? _materials.Resolve(file) : null;
+    }
+
     /// <summary>What `PerformCustomEffects` reads of the struck surface: its game material and its flags.</summary>
     /// <param name="impact">The bullet.</param>
     /// <returns>The surface, or null for terrain.</returns>
@@ -165,6 +206,12 @@ public sealed class ImpactDecals
 
         foreach (string file in _emitters.Files())
         {
+            // A decal's `$modelmaterial` too, which draws it on a model (B415).
+            if (_materials.Resolve(file)?.ModelMaterial is { } model)
+            {
+                drawn.Add(model);
+            }
+
             if (_materials.Resolve(file)?.Draws is { } name)
             {
                 drawn.Add(name);

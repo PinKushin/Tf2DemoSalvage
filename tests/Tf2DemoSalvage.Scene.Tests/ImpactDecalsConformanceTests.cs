@@ -12,9 +12,10 @@ namespace Tf2DemoSalvage.Scene.Tests;
 public sealed class ImpactDecalsConformanceTests
 {
     private const string Script = """
-        "TranslationData" { "-" "" "C" "Impact.Concrete" "M" "Impact.Metal" }
+        "TranslationData" { "-" "" "C" "Impact.Concrete" "M" "Impact.Metal" "F" "Impact.Flesh" }
         "Impact.Concrete" { "decals/concrete/shot1" "1" }
         "Impact.Metal" { "decals/metal/shot1" "1" }
+        "Impact.Flesh" { "decals/flesh/blood1" "1" }
         """;
 
     private static readonly BspTexinfo[] Texinfo =
@@ -45,9 +46,24 @@ public sealed class ImpactDecalsConformanceTests
     }
 
     [Test]
+    public void ForEntity_AFleshSurfaceprop_IsItsTranslatedGroup()
+    {
+        // `DamageDecal` answers "Impact.Concrete" for a normal entity, translated by the surfaceprop's game material:
+        // surfaceprop 7 is flesh here, and `F` translates to "Impact.Flesh".
+        Decals().ForEntity(7, 0, 0, static (_, _) => 0f).ShouldNotBeNull().Name.ShouldBe("decals/flesh/blood1");
+    }
+
+    [Test]
+    public void ForEntity_ATransAlphaEntity_IsNoDecal()
+    {
+        // `if ( m_nRenderMode == kRenderTransAlpha ) return "";`
+        Decals().ForEntity(7, 0, 4, static (_, _) => 0f).ShouldBeNull();
+    }
+
+    [Test]
     public void Drawn_EveryGroupFile_IsItsDrawnMaterial()
     {
-        Decals().Drawn().ShouldBe(["decals/concrete/shot1", "decals/metal/shot1"], ignoreOrder: true);
+        Decals().Drawn().ShouldBe(["decals/concrete/shot1", "decals/metal/shot1", "decals/flesh/blood1"], ignoreOrder: true);
     }
 
     private static ImpactDecals Decals() =>
@@ -59,7 +75,8 @@ public sealed class ImpactDecalsConformanceTests
                     : null,
                 _ => (64, 64)),
             Texinfo,
-            ['M', 'C', '-']);
+            ['M', 'C', '-'],
+            surfaceProp => surfaceProp == 7 ? 'F' : '\0');
 
     private static ShotImpact Impact(int texinfo) =>
         new(0, 0, 1, 5, 2, (0f, 0f, 0f), (1f, 0f, 0f), (2f, 0f, 0f), texinfo);

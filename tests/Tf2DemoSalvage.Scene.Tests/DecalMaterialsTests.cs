@@ -37,6 +37,17 @@ public sealed class DecalMaterialsTests
     }
 
     [Test]
+    public void Resolve_ASubrectNamingAModelMaterial_CarriesIt()
+    {
+        // `decals/flesh/blood1_subrect` as shipped: `$modelmaterial` is what `CStudioRenderContext::AddDecal` draws with.
+        DecalMaterial blood = Resolver().Resolve("decals/flesh/blood1_subrect").ShouldNotBeNull();
+
+        blood.ModelMaterial.ShouldBe("decals/flesh/blood1");
+        blood.Fades.ShouldBeFalse();
+        Resolver().Resolve("decals/concrete/shot1_subrect")!.Value.ModelMaterial.ShouldBeNull();
+    }
+
+    [Test]
     public void Resolve_AMissingMaterial_IsNull()
     {
         Resolver().Resolve("decals/nothing").ShouldBeNull();
@@ -48,6 +59,8 @@ public sealed class DecalMaterialsTests
         {
             ["materials/decals/concrete/shot1_subrect.vmt"] =
                 "\"Subrect\" { \"$Material\" \"decals/decals_mod2x\" \"$Pos\" \"512 256\" \"$Size\" \"64 64\" \"$decalscale\" 0.16 }",
+            ["materials/decals/flesh/blood1_subrect.vmt"] =
+                "\"Subrect\" { \"$Material\" \"decals/decals_mod2x\" \"$Pos\" \"384 64\" \"$Size\" \"64 64\" \"$decalscale\" 0.1 \"$modelmaterial\" \"decals/flesh/blood1\" }",
             ["materials/decals/decals_mod2x.vmt"] = "\"DecalModulate\" { \"$basetexture\" \"decals/decals_atlas\" }",
             ["materials/decals/plain.vmt"] = "\"LightmappedGeneric\" { \"$basetexture\" \"decals/plain\" \"$decal\" 1 }",
         };

@@ -23,7 +23,17 @@ public readonly record struct DecalMaterial(
     bool Paged = false,
     (float U, float V) PageOffset = default,
     (float U, float V) PageScale = default,
-    string? Draws = null);
+    string? Draws = null)
+{
+    /// <summary>
+    /// `$modelmaterial`, which `CStudioRenderContext::AddDecal` swaps in when the decal lands on a model; null for none,
+    /// when the decal's own material draws there too.
+    /// </summary>
+    public string? ModelMaterial { get; init; }
+
+    /// <summary>Whether the material declares `$decalFadeDuration` — `CModelRender::AddDecal` puts no such decal on a model.</summary>
+    public bool Fades { get; init; }
+}
 
 /// <summary>One corner of a drawn decal.</summary>
 /// <param name="Position">In world space, already pushed off the face.</param>

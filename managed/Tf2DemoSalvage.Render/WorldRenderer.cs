@@ -5353,6 +5353,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The model decals being drawn, a dynamic buffer shared by every model and grown as needed.</summary>
     private ComPtr<ID3D11Buffer> _modelDecalBuffer;
 
+    /// <summary>Whether the first model decal draw has been reported.</summary>
+    private bool _reportedModelDecals;
+
     /// <summary>How many corners <see cref="_modelDecalBuffer"/> holds.</summary>
     private int _modelDecalCapacity;
 
@@ -5425,6 +5428,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         // Unlit: `DecalModulate` samples its texture and nothing else, so no ambient cube is handed over.
         SetModel(context, ModelIdentity, bones: bones);
+
+        if (!_reportedModelDecals)
+        {
+            _reportedModelDecals = true;
+
+            WorldBatch first = batches[0];
+
+            _render.LogInformation(
+                "{Message}",
+                $"model decals drawn: {vertices.Count} corners in {batches.Count} runs over {bones} bones; material " +
+                $"{first.MaterialIndex} of {_textures.Count}, modulating {_modulate.GetValueOrDefault(first.MaterialIndex)}, " +
+                $"textured {first.MaterialIndex < _textures.Count && _textures[first.MaterialIndex].Handle is not null}");
+        }
 
         foreach (WorldBatch batch in batches)
         {
