@@ -4521,49 +4521,87 @@ internal class MainForm : Form, IFrameSteps
                 continue;
             }
 
-            (ModelDecalShot? shot, string refused) = ModelDecalFor(index, impact, struck, impacts, assets, _device);
+            PlaceModelDecal(impact, struck, SeededDraw.For(SeededDraw.Of(-1 - index, 0)), impacts, assets, _device);
+        }
 
-            if (shot is not { } s)
+        // **The client's own bullets, where one ends on an enemy's hitboxes** — `FireBullet` calls `UTIL_ImpactTrace` on
+        // any struck entity not on the shooter's team (`tf_player_shared.cpp:10524`), and `C_BaseEntity::ImpactTrace`
+        // dispatches `"Impact"` with the trace's end, start and surface. *Interpolated:* the surface is `flesh`, what TF2's
+        // player bones declare, rather than read from the struck hitbox's bone.
+        // ponytail: a scan of every landing per frame; a cursor if a demo ever carries far more than f12's 12,518.
+        int flesh = _game?.Surfaces?.GetSurfaceIndex("flesh") ?? -1;
+
+        foreach (ShotImpact bullet in _loaded.Impacts)
+        {
+            if (bullet.FromServer || bullet.BrushOnly || bullet.Tick <= from || bullet.Tick > tick ||
+                StruckEnd(bullet) is not { Struck: { } who } hit ||
+                Holder(players, who) is not { } victim || victim.Team == bullet.Team)
             {
-                _renderLog.LogDebug(
-                    "{Message}",
-                    string.Create(CultureInfo.InvariantCulture, $"model decal tick {impact.Tick} entity {impact.Entity}: none, {refused}"));
-
                 continue;
             }
 
-            float scale = s.Decal.DecalScale > 0f ? s.Decal.DecalScale : 1f;
-            float radius = MathF.Max(s.Decal.Width * scale * 0.5f, s.Decal.Height * scale * 0.5f);
-
-            bool placed = _modelDecals.Add(
-                impact.Entity,
-                s.Vertices,
-                s.Bones,
-                s.Start,
-                s.Delta,
-                radius,
-                s.Material,
-                DrawnVertices(_device.ModelBatches(s.Model), s.Vertices.Count, s.Body, s.Parts));
-
-            string census = string.Empty;
-
-            if (!placed)
-            {
-                (int facing, int inside, float nearest) = StudioDecalProjection.Census(s.Vertices, s.Bones, s.Start, s.Delta, radius);
-
-                census = string.Create(
-                    CultureInfo.InvariantCulture,
-                    $" ({facing} of {s.Vertices.Count} vertices face it, {inside} inside the square, the nearest {nearest:0.#} off its axis)");
-            }
-
-            _renderLog.LogInformation(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"model decal tick {impact.Tick} entity {impact.Entity} at ({struck.X:0} {struck.Y:0} {struck.Z:0}), shot from " +
-                    $"({impact.Start.X:0} {impact.Start.Y:0} {impact.Start.Z:0}): {s.Decal.ModelMaterial ?? s.Decal.Name} radius {radius:0.##} " +
-                    $"{(placed ? "placed" : "took no triangle")}{census}; {_modelDecals.Count} held"));
+            PlaceModelDecal(
+                new SceneEffectDispatch(
+                    bullet.Tick, 0, hit.End, bullet.Start, default, default, 0, 0f, 0, flesh, 0, bullet.DamageType, 0, who, 0),
+                victim,
+                SeededDraw.For(SeededDraw.Of(bullet.Shot, bullet.Bullet)),
+                impacts,
+                assets,
+                _device);
         }
+    }
+
+    /// <summary>Puts one impact's decal on the struck player's model, or logs why not.</summary>
+    private void PlaceModelDecal(
+        SceneEffectDispatch impact,
+        ScenePlayer struck,
+        Func<float, float, float> draw,
+        ImpactDecals impacts,
+        MapAssets assets,
+        Device3D device)
+    {
+        (ModelDecalShot? shot, string refused) = ModelDecalFor(draw, impact, struck, impacts, assets, device);
+
+        if (shot is not { } s)
+        {
+            _renderLog.LogDebug(
+                "{Message}",
+                string.Create(CultureInfo.InvariantCulture, $"model decal tick {impact.Tick} entity {impact.Entity}: none, {refused}"));
+
+            return;
+        }
+
+        float scale = s.Decal.DecalScale > 0f ? s.Decal.DecalScale : 1f;
+        float radius = MathF.Max(s.Decal.Width * scale * 0.5f, s.Decal.Height * scale * 0.5f);
+
+        bool placed = _modelDecals.Add(
+            impact.Entity,
+            s.Vertices,
+            s.Bones,
+            s.Start,
+            s.Delta,
+            radius,
+            s.Material,
+            DrawnVertices(device.ModelBatches(s.Model), s.Vertices.Count, s.Body, s.Parts));
+
+        string census = string.Empty;
+
+        if (!placed)
+        {
+            (int facing, int inside, float nearest) = StudioDecalProjection.Census(s.Vertices, s.Bones, s.Start, s.Delta, radius);
+
+            census = string.Create(
+                CultureInfo.InvariantCulture,
+                $" ({facing} of {s.Vertices.Count} vertices face it, {inside} inside the square, the nearest {nearest:0.#} off its axis)");
+        }
+
+        _renderLog.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"model decal tick {impact.Tick} entity {impact.Entity} at ({struck.X:0} {struck.Y:0} {struck.Z:0}), shot from " +
+                $"({impact.Start.X:0} {impact.Start.Y:0} {impact.Start.Z:0}): {s.Decal.ModelMaterial ?? s.Decal.Name} radius {radius:0.##} " +
+                $"{(placed ? "placed" : "took no triangle")}{census}; {_modelDecals.Count} held"));
     }
 
     /// <summary>Everything one model decal needs once every guard has passed.</summary>
@@ -4580,7 +4618,7 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>The guards between an impact and a decal on the struck model, in the engine's order; the reason when one refuses.</summary>
     private (ModelDecalShot? Shot, string Refused) ModelDecalFor(
-        int index, SceneEffectDispatch impact, ScenePlayer struck, ImpactDecals impacts, MapAssets assets, Device3D device)
+        Func<float, float, float> draw, SceneEffectDispatch impact, ScenePlayer struck, ImpactDecals impacts, MapAssets assets, Device3D device)
     {
         if (impact.DamageType == struck.Team)
         {
@@ -4615,7 +4653,7 @@ internal class MainForm : Form, IFrameSteps
             return (null, "no skinned model");
         }
 
-        if (impacts.ForEntity(impact.SurfaceProp, impact.DamageType, 0, SeededDraw.For(SeededDraw.Of(-1 - index, 0))) is not
+        if (impacts.ForEntity(impact.SurfaceProp, impact.DamageType, 0, draw) is not
                 { Fades: false } decal ||
             !assets.DecalMaterials.TryGetValue(decal.ModelMaterial ?? decal.Draws ?? decal.Name, out int material))
         {
