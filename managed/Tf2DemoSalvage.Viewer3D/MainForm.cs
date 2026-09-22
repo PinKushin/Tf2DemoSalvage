@@ -4604,7 +4604,7 @@ internal class MainForm : Form, IFrameSteps
                 ? string.Create(
                     CultureInfo.InvariantCulture,
                     $"the ray misses the hitboxes, the hit {away:0.#} across from the networked origin, {impact.Origin.Z - struck.Z:0.#} up; " +
-                    $"hit ({impact.Origin.X:0} {impact.Origin.Y:0} {impact.Origin.Z:0}), drawn head {_models.AttachmentPosition(impact.Entity, "head")}")
+                    $"the server's box {impact.HitBox} is {Gap(_models.HitboxGap(impact.Entity, impact.HitBox, new Vector3(impact.Origin.X, impact.Origin.Y, impact.Origin.Z)))}")
                 : "not posed");
         }
 
@@ -4623,6 +4623,14 @@ internal class MainForm : Form, IFrameSteps
         return (new ModelDecalShot(
             ray.Start, ray.Delta, pose.Model, pose.Bones, pose.Body, pose.Parts, vertices, decal, material), string.Empty);
     }
+
+    /// <summary>A hitbox gap as a log fragment.</summary>
+    private static string Gap((float Outside, Vector3 FromCentre)? gap) =>
+        gap is { } g
+            ? string.Create(
+                CultureInfo.InvariantCulture,
+                $"{g.Outside:0.#} outside it, ({g.FromCentre.X:0.#} {g.FromCentre.Y:0.#} {g.FromCentre.Z:0.#}) from its centre in its bone's frame")
+            : "not posed here";
 
     /// <summary>The player an impact names, when it is one playing now.</summary>
     private static ScenePlayer? Holder(IReadOnlyList<ScenePlayer> players, int entity)

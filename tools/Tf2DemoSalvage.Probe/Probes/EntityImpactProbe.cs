@@ -57,7 +57,7 @@ public sealed class EntityImpactProbe : IProbe
 
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"tick {hit.Tick} entity {hit.Entity} surfaceprop {hit.SurfaceProp} team {hit.DamageType} at ({at.X:0} {at.Y:0} {at.Z:0})  TF2VIEW_CAMERA=\"{back.X:0} {back.Y:0} {back.Z:0} {pitch:0} {yaw:0}\""));
+                $"tick {hit.Tick} entity {hit.Entity} hitbox {hit.HitBox} surfaceprop {hit.SurfaceProp} team {hit.DamageType} at ({at.X:0} {at.Y:0} {at.Z:0})  TF2VIEW_CAMERA=\"{back.X:0} {back.Y:0} {back.Z:0} {pitch:0} {yaw:0}\""));
         }
     }
 }

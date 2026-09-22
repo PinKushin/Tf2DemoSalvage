@@ -1310,6 +1310,38 @@ public sealed class EntityModelSet : IModelBodygroups
         return StudioHitboxes.Trace(sets[0], bone => animating.Bones.Bone(bone).ToArray(), start, delta, mask);
     }
 
+    /// <summary>How far a point lies outside one of an entity's posed hitboxes, in the box's own frame — an instrument.</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="box">The box's index in set 0, as a server `Impact`'s `m_nHitBox` names it.</param>
+    /// <param name="point">The world point, such as the server's hit.</param>
+    /// <returns>The distance from the box's surface, zero inside it, and the offset from its centre in its bone's
+    /// frame; null when the entity or box is not there.</returns>
+    public (float Outside, System.Numerics.Vector3 FromCentre)? HitboxGap(int entity, int box, System.Numerics.Vector3 point)
+    {
+        if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_entityModels.TryGetValue(entity, out string? model) ||
+            !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
+            frames.Hitboxes is not { Count: > 0 } sets || box < 0 || box >= sets[0].Count ||
+            !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        StudioHitbox hitbox = sets[0][box];
+        ReadOnlySpan<float> m = animating.Bones.Bone(hitbox.Bone);
+        System.Numerics.Vector3 relative = point - new System.Numerics.Vector3(m[3], m[7], m[11]);
+
+        // Into the bone's frame: the rotation's transpose.
+        System.Numerics.Vector3 local = new(
+            (m[0] * relative.X) + (m[4] * relative.Y) + (m[8] * relative.Z),
+            (m[1] * relative.X) + (m[5] * relative.Y) + (m[9] * relative.Z),
+            (m[2] * relative.X) + (m[6] * relative.Y) + (m[10] * relative.Z));
+
+        System.Numerics.Vector3 clamped = System.Numerics.Vector3.Clamp(local, hitbox.Min, hitbox.Max);
+
+        return (System.Numerics.Vector3.Distance(local, clamped), local - ((hitbox.Min + hitbox.Max) * 0.5f));
+    }
+
     /// <summary>Whether an entity has been posed by a pass here, so a question about its attachments has an answer.</summary>
     /// <param name="entity">The entity index.</param>
     /// <returns><c>true</c> once a pass has built its skeleton.</returns>
