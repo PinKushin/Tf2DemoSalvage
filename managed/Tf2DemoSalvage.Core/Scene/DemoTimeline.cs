@@ -2042,6 +2042,26 @@ public sealed class DemoTimeline
                             weaponState.Integer(MuzzleFlashFeed.ParityKey),
                             weaponState.ItemDefinitionIndex(),
                             weaponState.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
+                            command.Tick,
+                            weaponState.Owner());
+                    }
+
+                    // **The first-person flash travels in the VIEWMODEL's own counter** (B415), which the server bumps beside
+                    // the weapon's and sends only to the owner.
+                    if (entities.TryGet(entity.EntityIndex, out EntityState? viewmodelState) &&
+                        viewmodelState.ViewmodelMuzzleFlashParity() is { } viewmodelParity)
+                    {
+                        int? flashing = viewmodelState.ViewmodelWeapon();
+                        EntityState? held = flashing is { } w && entities.TryGet(w, out EntityState? found) ? found : null;
+
+                        muzzleFlashes.ObserveViewmodel(
+                            entity.EntityIndex,
+                            entity.UpdateType == EntityUpdateType.Enter,
+                            viewmodelParity,
+                            flashing,
+                            viewmodelState.ViewmodelOwner(),
+                            held?.ItemDefinitionIndex(),
+                            held?.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
                             command.Tick);
                     }
 

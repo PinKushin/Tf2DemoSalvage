@@ -27050,6 +27050,23 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
+### B416 OPEN 2026-09-22: a POV recorder spectating in-eye is still shown from his own eyes
+
+**Found while wiring the first-person muzzle flash (B415).** In `tf2-2026-pub-pov-clean` from tick 6200,
+the recorder is entity 9, and the demo carries viewmodel muzzle flashes owned by entity 22 at ticks
+6461, 6517, 6570, 6687 and 6764. `CBaseViewModel::ShouldTransmit` (`baseviewmodel.cpp:68-93`) sends a
+viewmodel to its owner, to SourceTV, or to a player whose `GetObserverMode() == OBS_MODE_IN_EYE` and
+whose `GetObserverTarget()` is the owner. So the recorder was watching entity 22 in first person at
+those ticks. TF2 would show 22's eyes, 22's viewmodel and 22's flashes.
+
+**Ours shows the recorder.** `FollowedEntity()` (`_spectator.Followed`) answers the recorder on a POV
+demo whatever `m_hObserverTarget` says. `ObserverModeConformanceTests` already lets `OBS_MODE_IN_EYE`
+count as first person, so the view stays in first person, in the wrong player's eyes.
+
+*Not fixed yet, because it changes the camera the owner sees.* The fix is to follow
+`m_hObserverTarget` in-eye on a POV demo, as `C_BasePlayer::CalcInEyeCamView` does, and to read which
+viewmodel is drawn from the same answer.
+
 ### B415 OPEN 2026-09-20: every temp entity but one is decoded and then dropped — no tracers, impacts, explosions or decals
 
 **The owner, listing what he can see missing**: *"we still dont have the hitscan particle stuff either or explosion
@@ -27416,7 +27433,25 @@ not read; the Ghidra engine project was locked.
   `Materialize` (`tf_weaponbase.cpp:2935`). `CWeaponMedigun::PrimaryAttack` (`tf_weapon_medigun.cpp:1752`)
   calls neither, and `Materialize` runs only for a respawning world weapon, which TF maps do not
   place. So no weapon that TF2 fires ever draws a flash model.
-- **The first-person viewmodel flash.**
+- **BUILT 2026-09-22: the first-person viewmodel flash.** `CBasePlayer::DoMuzzleFlash`
+  (`baseplayer_shared.cpp:1771`) bumps each viewmodel's own counter beside the weapon's.
+  `CTFViewModel::ProcessMuzzleFlashEvent` (`tf_viewmodel.cpp:348`) then flashes the owning weapon on
+  `GetAppropriateWorldOrViewModel`: the hands-attached weapon if there is one, else the viewmodel. This
+  happens only when the local player is not drawn, and `CreateMuzzleFlashEffects` returns under
+  `r_drawviewmodel 0`. `MuzzleFlashFeed.ObserveViewmodel` reads `DT_BaseViewModel.m_nMuzzleFlashParity`,
+  which `tf2-2026-pub-pov-clean` sends 966 times.
+
+  Measured there from tick 6200 in first person: the recorder's flashes resolve the viewmodel's `muzzle`.
+  His Original (item 513) starts nothing, because `TF_WEAPON_ROCKETLAUNCHER` names no
+  `MuzzleFlashParticleEffect`. *Not yet seen drawn:* a first-person hitscan flash on screen.
+- **Fixed with it:**
+  - **The recorder's launcher never has a backblast, in any view.** `CTFRocketLauncher` tests
+    `pOwner->IsLocalPlayer()` (`tf_weapon_rocketlauncher.cpp:383`), and ours gave him one in third person.
+  - **An entity that has left the scene has no attachments or hitboxes.** `AttachmentMatrix`,
+    `TraceHitboxes` and `HitboxGap` answered from any pose ever built.
+  - **The viewmodel pass no longer hides world entities from `SkinningOf`.** It re-runs `Simulate` with
+    its own two props, which would have refused every off-screen decal in first person. Each pass's
+    entities are now kept apart (`EntityModels._scenes`).
 
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 

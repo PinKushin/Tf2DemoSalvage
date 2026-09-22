@@ -1653,8 +1653,8 @@ public sealed class EntityState
     /// <summary>The counter that fires a muzzle flash — <c>m_nMuzzleFlashParity</c>.</summary>
     /// <remarks>
     /// Two bits, <c>EF_MUZZLEFLASH_BITS</c> (<c>const.h:305</c>), bumped by
-    /// <c>C_BaseAnimating::DoMuzzleFlash</c> (<c>c_baseanimating.cpp:6284</c>). Decoded and not yet
-    /// acted on: nothing here draws a muzzle flash.
+    /// <c>C_BaseAnimating::DoMuzzleFlash</c> (<c>c_baseanimating.cpp:6284</c>). A change is the first-person
+    /// muzzle flash, which <see cref="MuzzleFlashFeed.ObserveViewmodel"/> records (B415).
     /// </remarks>
     public int? ViewmodelMuzzleFlashParity() =>
         Integer($"{ViewModelTable}.m_nMuzzleFlashParity");

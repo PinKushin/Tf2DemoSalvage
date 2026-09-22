@@ -5326,7 +5326,8 @@ internal class MainForm : Form, IFrameSteps
     /// the parity for an entity that is not visible, and a first-person weapon is the viewmodel's business. Nothing
     /// starts unless the model has a `muzzle` attachment; the particle then follows it, as the backblast follows the
     /// weapon's own `backblast`. **No muzzle flash MODEL, as in TF2:** only the medigun's script names one, and nothing
-    /// raises a medigun's parity (B415). **Not built:** the viewmodel's flash in first person.
+    /// raises a medigun's parity (B415). The first-person flash arrives on the viewmodel's own counter and starts on the
+    /// viewmodel — <see cref="FlashPoint"/>.
     /// </remarks>
     private void AddWeaponMuzzleFlashes(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
@@ -5342,25 +5343,69 @@ internal class MainForm : Form, IFrameSteps
 
         foreach ((int index, SceneMuzzleFlash flash) in _weaponFlashesNow)
         {
-            if (_models.AttachmentPoint(flash.Weapon, "muzzle") is not { } muzzle)
+            ParticleControlPoint? point = FlashPoint(flash);
+            WeaponMuzzleFlash what = _weaponMuzzles.For(flash.Item, flash.Team);
+
+            // One line per first-person flash, the first frame it is offered: what started, or why nothing did.
+            if (flash.Viewmodel is not null && _viewmodelFlashesLogged.Add(index))
+            {
+                string where = point is { } p
+                    ? string.Create(CultureInfo.InvariantCulture, $"at ({p.At.X:0} {p.At.Y:0} {p.At.Z:0})")
+                    : string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"no muzzle (first person {_firstPerson}, followed {FollowedEntity()}, owner {flash.Owner})");
+
+                _renderLog.LogInformation(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"viewmodel muzzle flash tick {flash.Tick} weapon {flash.Weapon} item {flash.Item}: particle {what.Particle ?? "none"}, {where}"));
+            }
+
+            if (point is not { } muzzle)
             {
                 continue;
             }
-
-            WeaponMuzzleFlash what = _weaponMuzzles.For(flash.Item, flash.Team);
 
             if (what.Particle is { } particle && systems.TryGetValue(particle, out ParticleSystem? definition))
             {
                 _burstsNow.Add(new ParticleBurst(WeaponFlashKeys + (index * 2L), definition, muzzle, flash.Tick));
             }
 
-            if (what.Backblast &&
+            // "Don't do backblast effects in first person" — the test is `pOwner->IsLocalPlayer()`, so the recorder's own launcher
+            // never has one, in any view (`tf_weapon_rocketlauncher.cpp:383`).
+            if (what.Backblast && flash.Viewmodel is null && flash.Owner != timeline.RecorderEntityIndex &&
                 systems.TryGetValue(WeaponMuzzleFlashes.BackblastSystem, out ParticleSystem? backblast) &&
                 _models.AttachmentPoint(flash.Weapon, WeaponMuzzleFlashes.BackblastAttachment) is { } behind)
             {
                 _burstsNow.Add(new ParticleBurst(WeaponFlashKeys + (index * 2L) + 1, backblast, behind, flash.Tick));
             }
         }
+    }
+
+    /// <summary>The first-person flashes already logged, by their place in the demo's list.</summary>
+    private readonly HashSet<int> _viewmodelFlashesLogged = [];
+
+    /// <summary>Where a flash starts — `GetAppropriateWorldOrViewModel`'s `muzzle` — or null where the engine starts none.</summary>
+    /// <remarks>
+    /// A viewmodel flash (`CTFViewModel::ProcessMuzzleFlashEvent`) shows only in its owner's first-person view, and
+    /// `CreateMuzzleFlashEffects` returns under `r_drawviewmodel 0`. It starts on the weapon attached to the hands when there is
+    /// one, else on the viewmodel itself. A world weapon's flash starts on the weapon, when it is in the scene.
+    /// </remarks>
+    private ParticleControlPoint? FlashPoint(SceneMuzzleFlash flash)
+    {
+        if (flash.Viewmodel is null)
+        {
+            return _models.AttachmentPoint(flash.Weapon, "muzzle");
+        }
+
+        if (!_firstPerson || !_settings.DrawViewmodel || flash.Owner is null || FollowedEntity() != flash.Owner)
+        {
+            return null;
+        }
+
+        return _models.AttachmentPoint(ViewmodelScene.WeaponEntityIndex, "muzzle") ??
+               _models.AttachmentPoint(ViewmodelScene.ArmsEntityIndex, "muzzle");
     }
 
     /// <summary>Dispatched particle keys sit above the muzzle flashes'.</summary>
