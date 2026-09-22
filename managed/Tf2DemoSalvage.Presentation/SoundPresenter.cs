@@ -141,6 +141,14 @@ public sealed class SoundPresenter(
     /// </remarks>
     public SoundScriptCatalog? Scripts { get; set; }
 
+    /// <summary>Sounds the client emitted since the last pass, started by the next.</summary>
+    private readonly List<SceneSound> _emitted = [];
+
+    /// <summary>Plays a sound the client decides as playback reaches it, such as its own bullet's impact (B415).</summary>
+    /// <param name="sound">The sound, started at the next <see cref="Update"/> if its camera gate allows.</param>
+    /// <remarks>A seek before that pass drops it, as it silences everything in flight.</remarks>
+    public void Emit(SceneSound sound) => _emitted.Add(sound);
+
     /// <summary>Whether a sound's own camera gate lets it start — <see cref="SceneSound.AudibleWithin"/>, strictly within.</summary>
     /// <param name="sound">The sound.</param>
     /// <param name="listener">The camera.</param>
@@ -243,6 +251,19 @@ public sealed class SoundPresenter(
 
             Start(output, sound, listener, right, reestablishing);
         }
+
+        if (!schedule.Jumped)
+        {
+            foreach (SceneSound sound in _emitted)
+            {
+                if (InRange(sound, listener))
+                {
+                    Start(output, sound, listener, right, reestablishing: false);
+                }
+            }
+        }
+
+        _emitted.Clear();
 
         return new SoundPhases(
             advanced - began,

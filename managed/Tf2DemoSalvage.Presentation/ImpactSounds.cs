@@ -47,28 +47,48 @@ public static class ImpactSounds
         ArgumentNullException.ThrowIfNull(scripts);
 
         List<SceneSound> sounds = [];
-        UniformRandomStream random = new();
 
         for (int index = 0; index < landings.Count; index++)
         {
-            BulletLanding landing = landings[index];
-
-            random.SetSeed(FirstSeed + index);
-
-            // `random->RandomInt( 1, 10 ) <= 3`, asked only when `Impact` returned true for a bullet.
-            if (landing.Ricochets && random.RandomInt(1, 10) <= 3 &&
-                scripts.TryGetValue(Shrapnel, out SoundScriptEntry bounce) && bounce.Waves.Count > 0)
-            {
-                sounds.Add(ExplosionSounds.FromWorldAt(bounce, random, landing.Tick, landing.At) with { AudibleWithin = AudibleWithin });
-            }
-
-            if (landing.ImpactSound is { } name &&
-                scripts.TryGetValue(name, out SoundScriptEntry impact) && impact.Waves.Count > 0)
-            {
-                sounds.Add(ExplosionSounds.FromWorldAt(impact, random, landing.Tick, landing.At) with { AudibleWithin = AudibleWithin });
-            }
+            sounds.AddRange(For(landings[index], SeedFor(index), scripts));
         }
 
         return sounds;
     }
+
+    /// <summary>One landing's sounds, drawn from its own seed — for a bullet the client decides at play time.</summary>
+    /// <param name="landing">The bullet.</param>
+    /// <param name="seed">Its generator's seed.</param>
+    /// <param name="scripts">Every soundscript entry the game loaded, by name.</param>
+    /// <returns>Its sounds, each gated to the camera.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="scripts"/> is null.</exception>
+    public static IReadOnlyList<SceneSound> For(BulletLanding landing, int seed, IReadOnlyDictionary<string, SoundScriptEntry> scripts)
+    {
+        ArgumentNullException.ThrowIfNull(scripts);
+
+        List<SceneSound> sounds = [];
+        UniformRandomStream random = new();
+
+        random.SetSeed(seed);
+
+        // `random->RandomInt( 1, 10 ) <= 3`, asked only when `Impact` returned true for a bullet.
+        if (landing.Ricochets && random.RandomInt(1, 10) <= 3 &&
+            scripts.TryGetValue(Shrapnel, out SoundScriptEntry bounce) && bounce.Waves.Count > 0)
+        {
+            sounds.Add(ExplosionSounds.FromWorldAt(bounce, random, landing.Tick, landing.At) with { AudibleWithin = AudibleWithin });
+        }
+
+        if (landing.ImpactSound is { } name &&
+            scripts.TryGetValue(name, out SoundScriptEntry impact) && impact.Waves.Count > 0)
+        {
+            sounds.Add(ExplosionSounds.FromWorldAt(impact, random, landing.Tick, landing.At) with { AudibleWithin = AudibleWithin });
+        }
+
+        return sounds;
+    }
+
+    /// <summary>The seed the list form gives its landing at <paramref name="index"/>.</summary>
+    /// <param name="index">The landing's place in its list, or any number unique to a landing emitted alone.</param>
+    /// <returns>The generator's seed.</returns>
+    public static int SeedFor(int index) => FirstSeed + index;
 }

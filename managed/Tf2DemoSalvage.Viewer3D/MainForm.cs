@@ -4529,16 +4529,35 @@ internal class MainForm : Form, IFrameSteps
         // dispatches `"Impact"` with the trace's end, start and surface. *Interpolated:* the surface is `flesh`, what TF2's
         // player bones declare, rather than read from the struck hitbox's bone.
         // ponytail: a scan of every landing per frame; a cursor if a demo ever carries far more than f12's 12,518.
+        //
+        // **Its sound is decided here too, for the same reason** (`tf_player_shared.cpp:10510-10527`): the trace stops at
+        // any player, a teammate included outside MvM (`CTraceFilterSimple`), and only an enemy gets `UTIL_ImpactTrace` — so
+        // a bullet a teammate stopped is silent, an enemy's sounds on him, and only a miss sounds on the world behind.
         int flesh = _game?.Surfaces?.GetSurfaceIndex("flesh") ?? -1;
 
         foreach (ShotImpact bullet in _loaded.Impacts)
         {
-            if (bullet.FromServer || bullet.BrushOnly || bullet.Tick <= from || bullet.Tick > tick ||
-                StruckEnd(bullet) is not { Struck: { } who } hit ||
-                Holder(players, who) is not { } victim || victim.Team == bullet.Team)
+            if (bullet.FromServer || bullet.Tick <= from || bullet.Tick > tick)
             {
                 continue;
             }
+
+            ((float X, float Y, float Z) End, bool Judged, int? Struck) hit = bullet.BrushOnly ? (bullet.End, true, null) : StruckEnd(bullet);
+
+            if (hit.Struck is not { } who)
+            {
+                EmitLanding(bullet, _game?.Surfaces is { } surfaces ? WorldLanding(bullet, impacts, surfaces) : null);
+                continue;
+            }
+
+            if (Holder(players, who) is not { } victim || victim.Team == bullet.Team)
+            {
+                continue;
+            }
+
+            EmitLanding(
+                bullet,
+                new BulletLanding(bullet.Tick, hit.End, _game?.Surfaces?.GetSurfaceData(flesh)?.BulletImpactSound, bullet.DamageType == Bullet));
 
             PlaceModelDecal(
                 new SceneEffectDispatch(
@@ -4666,16 +4685,13 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Where every bullet the loaded map stops lands, for its sounds (B415), in tick order.</summary>
     /// <remarks>
-    /// The world's: a client bullet `UTIL_ImpactTrace` lets through (not sky, not nodraw) and every server impact. An
-    /// entity's: the server's `Impact` dispatches, at their origin with their surfaceprop — `PlayImpactSound` takes the
-    /// server's surfaceprop whenever the client's trace hit the same entity, and its end is the hitbox a few units away.
-    /// The ricochet is offered only to a damage type of exactly `DMG_BULLET`, which no TF gun has: a client bullet's is
-    /// not carried (0 here) and would not match either.
+    /// The world's: every server impact `UTIL_ImpactTrace` lets through (not sky, not nodraw). An entity's: the server's
+    /// `Impact` dispatches, at their origin with their surfaceprop — `PlayImpactSound` takes the server's surfaceprop
+    /// whenever the client's trace hit the same entity, and its end is the hitbox a few units away. The client's own
+    /// bullets are not here: whether a player stopped one is known only once he is posed, so `StepModelDecals` emits them.
     /// </remarks>
     private IReadOnlyList<BulletLanding> BulletLandings()
     {
-        const int Bullet = 1 << 1;
-
         if (_loaded is not { ImpactDecals: { } decals } loaded || _game?.Surfaces is not { } surfaces || _timeline is not { } timeline)
         {
             return [];
@@ -4685,19 +4701,10 @@ internal class MainForm : Form, IFrameSteps
 
         foreach (ShotImpact impact in loaded.Impacts)
         {
-            // *Not built:* a client bullet a player stopped, which the model pass decides at play time, still sounds on
-            // the wall behind him here.
-            if (decals.Surface(impact) is not { } surface ||
-                (surface.Flags & (Tf2DemoSalvage.Content.Bsp.SurfaceProperties.Sky | Tf2DemoSalvage.Content.Bsp.SurfaceProperties.NoDraw)) != 0)
+            if (impact.FromServer && WorldLanding(impact, decals, surfaces) is { } landing)
             {
-                continue;
+                landings.Add(landing);
             }
-
-            landings.Add(new BulletLanding(
-                impact.Tick,
-                impact.End,
-                surfaces.GetSurfaceData(decals.SurfacePropOf(impact))?.BulletImpactSound,
-                impact.DamageType == Bullet));
         }
 
         foreach ((int _, SceneEffectDispatch hit) in ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name))
@@ -4707,6 +4714,38 @@ internal class MainForm : Form, IFrameSteps
         }
 
         return [.. landings.OrderBy(static landing => landing.Tick)];
+    }
+
+    /// <summary>`DMG_BULLET` — the only damage type `ImpactCallback` offers the ricochet, which no TF gun has.</summary>
+    private const int Bullet = 1 << 1;
+
+    /// <summary>A bullet's landing on the world, or null where `UTIL_ImpactTrace` refuses it (sky, nodraw).</summary>
+    private static BulletLanding? WorldLanding(
+        ShotImpact impact, ImpactDecals decals, Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps surfaces)
+    {
+        if (decals.Surface(impact) is not { } surface ||
+            (surface.Flags & (Tf2DemoSalvage.Content.Bsp.SurfaceProperties.Sky | Tf2DemoSalvage.Content.Bsp.SurfaceProperties.NoDraw)) != 0)
+        {
+            return null;
+        }
+
+        return new BulletLanding(
+            impact.Tick,
+            impact.End,
+            surfaces.GetSurfaceData(decals.SurfacePropOf(impact))?.BulletImpactSound,
+            impact.DamageType == Bullet);
+    }
+
+    /// <summary>Plays one of the client's own bullets where it landed (B415).</summary>
+    private void EmitLanding(ShotImpact bullet, BulletLanding? landing)
+    {
+        if (landing is { } l && _sound.Scripts is { } scripts)
+        {
+            foreach (SceneSound sound in ImpactSounds.For(l, ImpactSounds.SeedFor((bullet.Shot * 32) + bullet.Bullet), scripts.Entries))
+            {
+                _sound.Emit(sound);
+            }
+        }
     }
 
     /// <summary>A hitbox gap as a log fragment.</summary>

@@ -27391,7 +27391,18 @@ not read; the Ghidra engine project was locked.
 - **Blood can land slightly off the mesh.** Hits land 3–18 units outside the server's own hitbox on
   our pose. This waits on the in-game check: tick 13944 gummo, 14252 abelll, with
   `entity-impacts <demo> n 13800`.
-- **The wrong sound for a player-stopped client bullet.** It sounds on the wall behind the player.
+- **FIXED 2026-09-22: the wrong sound for a player-stopped client bullet.** It sounded on the wall
+  behind the player. `FireBullet` traces with `CTraceFilterSimple` outside MvM, so the trace stops at any
+  player, and it calls `UTIL_ImpactTrace` only for an entity not on the shooter's team
+  (`tf_player_shared.cpp:10297`, `:10510-10527`). The client's own bullets now leave the load-time
+  schedule, and `StepModelDecals` decides each one at play time:
+  - a bullet an enemy stopped sounds on him, with flesh's `bulletimpact`;
+  - a bullet a teammate stopped makes no sound;
+  - a bullet that met no player sounds on the world, as before.
+
+  They reach the sink through `SoundPresenter.Emit`. On f12 the schedule dropped from 12,518 landings to
+  235, the server's. *Not measured:* no log counts the emitted sounds, so nobody has yet heard whether
+  they play.
 - **Sprays.** They need the logo `.dat` the client downloaded; only one is on this machine.
 - **The muzzle-flash model, and the first-person viewmodel flash.**
 
