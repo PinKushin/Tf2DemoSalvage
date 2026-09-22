@@ -3139,7 +3139,7 @@ internal class MainForm : Form, IFrameSteps
 
         // **Every explosion's sound, which the client emits and no demo carries** (B415). After the map read,
         // because that is what opens the install whose scripts name them.
-        IReadOnlyList<SceneSound> emitted = _demoSystems.AddEffectSounds(_game);
+        IReadOnlyList<SceneSound> emitted = _demoSystems.AddEffectSounds(_game, BulletLandings());
 
         // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
         // so on the async path this finds the work already done.
@@ -4624,6 +4624,51 @@ internal class MainForm : Form, IFrameSteps
 
         return (new ModelDecalShot(
             ray.Start, ray.Delta, pose.Model, pose.Bones, pose.Body, pose.Parts, vertices, decal, material), string.Empty);
+    }
+
+    /// <summary>Where every bullet the loaded map stops lands, for its sounds (B415), in tick order.</summary>
+    /// <remarks>
+    /// The world's: a client bullet `UTIL_ImpactTrace` lets through (not sky, not nodraw) and every server impact. An
+    /// entity's: the server's `Impact` dispatches, at their origin with their surfaceprop — `PlayImpactSound` takes the
+    /// server's surfaceprop whenever the client's trace hit the same entity, and its end is the hitbox a few units away.
+    /// The ricochet is offered only to a damage type of exactly `DMG_BULLET`, which no TF gun has: a client bullet's is
+    /// not carried (0 here) and would not match either.
+    /// </remarks>
+    private IReadOnlyList<BulletLanding> BulletLandings()
+    {
+        const int Bullet = 1 << 1;
+
+        if (_loaded is not { ImpactDecals: { } decals } loaded || _game?.Surfaces is not { } surfaces || _timeline is not { } timeline)
+        {
+            return [];
+        }
+
+        List<BulletLanding> landings = [];
+
+        foreach (ShotImpact impact in loaded.Impacts)
+        {
+            // *Not built:* a client bullet a player stopped, which the model pass decides at play time, still sounds on
+            // the wall behind him here.
+            if (decals.Surface(impact) is not { } surface ||
+                (surface.Flags & (Tf2DemoSalvage.Content.Bsp.SurfaceProperties.Sky | Tf2DemoSalvage.Content.Bsp.SurfaceProperties.NoDraw)) != 0)
+            {
+                continue;
+            }
+
+            landings.Add(new BulletLanding(
+                impact.Tick,
+                impact.End,
+                surfaces.GetSurfaceData(decals.SurfacePropOf(impact))?.BulletImpactSound,
+                impact.DamageType == Bullet));
+        }
+
+        foreach ((int _, SceneEffectDispatch hit) in ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name))
+        {
+            landings.Add(new BulletLanding(
+                hit.Tick, hit.Origin, surfaces.GetSurfaceData(hit.SurfaceProp)?.BulletImpactSound, hit.DamageType == Bullet));
+        }
+
+        return [.. landings.OrderBy(static landing => landing.Tick)];
     }
 
     /// <summary>A hitbox gap as a log fragment.</summary>

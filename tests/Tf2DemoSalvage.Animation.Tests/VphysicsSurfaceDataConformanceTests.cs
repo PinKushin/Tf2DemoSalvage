@@ -81,6 +81,27 @@ public sealed class VphysicsSurfaceDataConformanceTests
         Game("plain").ShouldBe('C');
     }
 
+    [Test]
+    public void ParseSurfaceData_BulletImpact_IsReadAndInherited()
+    {
+        // `bulletimpact` names the sound `PlayImpactSound` plays; `base` copies it, and a block that never sets it keeps
+        // what it started from.
+        VphysicsSurfaceProps props = new([]);
+
+        props.ParseSurfaceData(Encoding.Latin1.GetBytes(
+            "\"default\" { \"bulletimpact\" \"Default.BulletImpact\" } " +
+            "\"metal\" { \"bulletimpact\" \"Metal.BulletImpact\" } " +
+            "\"grate\" { \"base\" \"metal\" } " +
+            "\"plain\" { \"friction\" \"0.5\" }"));
+
+        string? Sound(string name) => props.Surfaces.Single(surface => surface.Name == name).BulletImpactSound;
+
+        // Lowercased as every value `ParseKeyValue` reads; sound scripts are looked up without case.
+        Sound("metal").ShouldBe("metal.bulletimpact");
+        Sound("grate").ShouldBe("metal.bulletimpact");
+        Sound("plain").ShouldBe("default.bulletimpact");
+    }
+
     private static int[] Bits(VphysicsSurface surface) =>
     [
         System.BitConverter.SingleToInt32Bits(surface.Physics.Friction),

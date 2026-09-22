@@ -77,6 +77,7 @@ public sealed class ImpactDecals
         PakFile pak = PakFile.ReadFrom(map);
         IReadOnlyList<BspMaterial> texdata = BspMaterials.Read(map);
         char[] gameMaterials = new char[texdata.Count];
+        int[] surfaceProps = new int[texdata.Count];
 
         for (int index = 0; index < gameMaterials.Length; index++)
         {
@@ -84,6 +85,7 @@ public sealed class ImpactDecals
                 ? surfaces.GetSurfaceIndex(name)
                 : -1;
 
+            surfaceProps[index] = surface;
             gameMaterials[index] = (char)(surfaces.GetSurfaceData(surface)?.GameMaterial ?? 0);
         }
 
@@ -94,7 +96,33 @@ public sealed class ImpactDecals
             DecalMaterials.Over(path => pak.ReadFile(path) ?? archives.Read(path)),
             BspMaterials.ReadTexinfo(map),
             gameMaterials,
-            surfaceProp => (char)(surfaces.GetSurfaceData(surfaceProp)?.GameMaterial ?? 0));
+            surfaceProp => (char)(surfaces.GetSurfaceData(surfaceProp)?.GameMaterial ?? 0))
+        {
+            _surfaceProps = surfaceProps,
+        };
+    }
+
+    /// <summary>Each texdata's surfaceprop index — `CMod_LoadTextures`' `GetSurfaceIndex`, −1 for none.</summary>
+    private int[] _surfaceProps = [];
+
+    /// <summary>The surfaceprop a bullet struck — `trace.surface.surfaceProps`, or the server's own for its impacts.</summary>
+    /// <param name="impact">The bullet.</param>
+    /// <returns>The surface index, −1 when the texture declares none (which reads as surface zero).</returns>
+    public int SurfacePropOf(ShotImpact impact)
+    {
+        if (impact.FromServer)
+        {
+            return impact.SurfaceProp;
+        }
+
+        if (impact.Texinfo < 0 || impact.Texinfo >= _texinfo.Count)
+        {
+            return -1;
+        }
+
+        int texdata = _texinfo[impact.Texinfo].Texdata;
+
+        return texdata >= 0 && texdata < _surfaceProps.Length ? _surfaceProps[texdata] : -1;
     }
 
     /// <summary>The decal a bullet leaves where the world stopped it, or null for none.</summary>

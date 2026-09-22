@@ -40,6 +40,12 @@ public sealed class VphysicsSurface(string name, SurfacePhysicsParams physics, b
     /// what picks a bullet's impact decal and effect (B415). Zero when no block or <c>base</c> ever set one.
     /// </summary>
     public int GameMaterial { get; init; }
+
+    /// <summary>
+    /// `surfacesoundnames_t.bulletImpact`, the <c>bulletimpact</c> key — the script sound `PlayImpactSound` plays where a
+    /// bullet lands (B415). Null when no block or <c>base</c> ever set one.
+    /// </summary>
+    public string? BulletImpactSound { get; init; }
 }
 
 /// <summary>

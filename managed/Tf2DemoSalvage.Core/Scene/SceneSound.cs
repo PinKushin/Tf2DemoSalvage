@@ -65,4 +65,11 @@ public readonly record struct SceneSound(
     float OriginZ,
     bool IsAmbient = false,
     bool IsStop = false,
-    bool FromSignon = false);
+    bool FromSignon = false)
+{
+    /// <summary>
+    /// How near the camera it must start to be played at all, or 0 for anywhere — a gate the CLIENT puts on a sound it
+    /// emits, such as `ImpactCallback`'s `( MainViewOrigin() − vecOrigin ).LengthSqr() &lt; 1024²` (B415).
+    /// </summary>
+    public float AudibleWithin { get; init; }
+}

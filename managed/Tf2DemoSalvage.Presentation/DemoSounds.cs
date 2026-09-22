@@ -44,7 +44,8 @@ public static class DemoSounds
     /// <param name="soundscape">Supplies the ambient tracks a map wants.</param>
     /// <param name="audio">The audio log.</param>
     /// <param name="emitted">
-    /// What the client emits itself — every explosion's sound, from <see cref="DemoSystems.AddEffectSounds"/> — which
+    /// What the client emits itself — every explosion's and bullet landing's sound, from
+    /// <see cref="DemoSystems.AddEffectSounds(GameContent?, IReadOnlyList{BulletLanding})"/> — which
     /// the timeline cannot list because no demo message names it. Empty until the schedule has them.
     /// </param>
     /// <exception cref="ArgumentNullException">A collaborator is null.</exception>

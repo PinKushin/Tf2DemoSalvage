@@ -96,8 +96,17 @@ public sealed class DemoSystems
     /// **The listener's team is the recorder's at each blast**, and a SourceTV recording has none, which is what
     /// makes `TFExplosionCallback` skip an item's replacement there (`ExplosionEffects.SoundFor`).
     /// </remarks>
-    public IReadOnlyList<SceneSound> AddEffectSounds(GameContent? game)
+    public IReadOnlyList<SceneSound> AddEffectSounds(GameContent? game) => AddEffectSounds(game, []);
+
+    /// <summary>As <see cref="AddEffectSounds(GameContent?)"/>, with every bullet's landing sounds too.</summary>
+    /// <param name="game">The install, or null when none is open.</param>
+    /// <param name="landings">Where the demo's bullets land, in tick order — the map's to know.</param>
+    /// <returns>The sounds added.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="landings"/> is null.</exception>
+    public IReadOnlyList<SceneSound> AddEffectSounds(GameContent? game, IReadOnlyList<BulletLanding> landings)
     {
+        ArgumentNullException.ThrowIfNull(landings);
+
         if (game is null || _appearances.Timeline is not { } timeline || _sound.Scripts is not { } scripts)
         {
             return [];
@@ -119,13 +128,17 @@ public sealed class DemoSystems
             },
             scripts.Entries);
 
-        _sound.Schedule = new SoundSchedule(ExplosionSounds.Merged(timeline.Sounds, sounds));
+        IReadOnlyList<SceneSound> impacts = ImpactSounds.For(landings, scripts.Entries);
+        IReadOnlyList<SceneSound> emitted = ExplosionSounds.Merged(sounds, impacts);
+
+        _sound.Schedule = new SoundSchedule(ExplosionSounds.Merged(timeline.Sounds, emitted));
 
         _audioLog.LogInformation(
             "{Message}",
-            $"{sounds.Count} of {timeline.Explosions.All.Count} explosions given a sound");
+            $"{sounds.Count} of {timeline.Explosions.All.Count} explosions given a sound; {impacts.Count} impact sounds from " +
+            $"{landings.Count} landings");
 
-        return sounds;
+        return emitted;
     }
 
     /// <summary>Hands a newly-opened demo to everything that reads one.</summary>

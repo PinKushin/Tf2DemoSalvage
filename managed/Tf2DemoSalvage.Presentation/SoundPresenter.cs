@@ -141,6 +141,24 @@ public sealed class SoundPresenter(
     /// </remarks>
     public SoundScriptCatalog? Scripts { get; set; }
 
+    /// <summary>Whether a sound's own camera gate lets it start — <see cref="SceneSound.AudibleWithin"/>, strictly within.</summary>
+    /// <param name="sound">The sound.</param>
+    /// <param name="listener">The camera.</param>
+    /// <returns>True for a sound with no gate, or one nearer than its gate.</returns>
+    public static bool InRange(SceneSound sound, (float X, float Y, float Z) listener)
+    {
+        if (sound.AudibleWithin <= 0f)
+        {
+            return true;
+        }
+
+        float x = listener.X - sound.OriginX;
+        float y = listener.Y - sound.OriginY;
+        float z = listener.Z - sound.OriginZ;
+
+        return (x * x) + (y * y) + (z * z) < sound.AudibleWithin * sound.AudibleWithin;
+    }
+
     /// <summary>Brings the audible world up to date for one tick.</summary>
     /// <param name="output">Where sound goes.</param>
     /// <param name="tick">The tick being played.</param>
@@ -218,6 +236,11 @@ public sealed class SoundPresenter(
 
         foreach (SceneSound sound in starting)
         {
+            if (!InRange(sound, listener))
+            {
+                continue;
+            }
+
             Start(output, sound, listener, right, reestablishing);
         }
 
