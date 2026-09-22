@@ -27403,8 +27403,20 @@ not read; the Ghidra engine project was locked.
   They reach the sink through `SoundPresenter.Emit`. On f12 the schedule dropped from 12,518 landings to
   235, the server's. *Not measured:* no log counts the emitted sounds, so nobody has yet heard whether
   they play.
-- **Sprays.** They need the logo `.dat` the client downloaded; only one is on this machine.
-- **The muzzle-flash model, and the first-person viewmodel flash.**
+- **Sprays are CLOSED, not missing.** They need the logo `.dat` the client downloaded, and no demo carries
+  it. The owner, 2026-09-22: *"the sprays are fine as long as they will actually show IF a file was
+  actually there … we already looked into them to make sure there was no way to download them, and
+  theires not, and so sprays are just blank for everyone who watched a demo without having played with
+  the person before or watching the match live"*. TF2 draws them blank for such a viewer as well, so
+  drawing one only when the file exists is parity.
+- **The muzzle-flash model is a DEAD BRANCH in TF2, and the correct implementation is none.** Read from
+  the shipped data: the `weapon-script` probe over all 108 weapon ids finds `MuzzleFlashModel` in one
+  script, `TF_WEAPON_MEDIGUN` (`sentry1_muzzle.mdl`, 0.1 s). `CreateMuzzleFlashEffects` runs only from a
+  parity change. The parity is raised by `DoFireEffects` (`tf_weaponbase_gun.cpp:1014`) or
+  `Materialize` (`tf_weaponbase.cpp:2935`). `CWeaponMedigun::PrimaryAttack` (`tf_weapon_medigun.cpp:1752`)
+  calls neither, and `Materialize` runs only for a respawning world weapon, which TF maps do not
+  place. So no weapon that TF2 fires ever draws a flash model.
+- **The first-person viewmodel flash.**
 
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 

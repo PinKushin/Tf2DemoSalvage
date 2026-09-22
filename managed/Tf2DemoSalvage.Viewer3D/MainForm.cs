@@ -5325,8 +5325,8 @@ internal class MainForm : Form, IFrameSteps
     /// **Only for a weapon posed here**, which stands in for `DoAnimationEvents`' own gate: it returns before looking at
     /// the parity for an entity that is not visible, and a first-person weapon is the viewmodel's business. Nothing
     /// starts unless the model has a `muzzle` attachment; the particle then follows it, as the backblast follows the
-    /// weapon's own `backblast`. **Not built:** the muzzle flash MODEL (`C_MuzzleFlashModel`), which no f12 weapon's
-    /// script names, and the viewmodel's flash in first person.
+    /// weapon's own `backblast`. **No muzzle flash MODEL, as in TF2:** only the medigun's script names one, and nothing
+    /// raises a medigun's parity (B415). **Not built:** the viewmodel's flash in first person.
     /// </remarks>
     private void AddWeaponMuzzleFlashes(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
