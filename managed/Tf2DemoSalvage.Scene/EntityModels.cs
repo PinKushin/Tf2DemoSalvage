@@ -1348,23 +1348,30 @@ public sealed class EntityModelSet : IModelBodygroups
     public bool IsPosed(int entity) => _entities.ContainsKey(entity);
 
     /// <summary>
-    /// Each skinned entity's model and skinning matrices as its last instance drew with them. The matrices are
-    /// <see cref="_skinning"/>'s buffers, rewritten each frame, so they are the current pose.
-    /// </summary>
-    private readonly Dictionary<int, (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)> _skinnedDraws = [];
-
-    /// <summary>
     /// An entity's model, skinning matrices and body as the last pass drew it — the pose `CModelRender::AddDecal` sets up
-    /// bones for when a decal lands (B415); null for an entity not drawn skinned.
+    /// bones for when a decal lands (B415); null for an entity not in this pass or with no skinned model.
     /// </summary>
     /// <param name="entity">The entity.</param>
     /// <returns>The model path, its pose-to-world matrices, `m_nBody` and the model's body parts.</returns>
-    public (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)? SkinningOf(int entity) =>
-        _skinnedDraws.TryGetValue(
-            entity,
-            out (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts) skinning)
-            ? skinning
-            : null;
+    /// <remarks>
+    /// **Posed on demand, drawn or not** — `CModelRender::AddDecal` calls `SetupBones` itself, so a player out of view
+    /// still takes the decal. Reading only what the draw pass left refused 60 of 100 f12 hits and projected the rest of
+    /// an off-screen player's onto the pose he last drew with. `SetupBones` is cached per frame, so a drawn entity costs
+    /// nothing more.
+    /// </remarks>
+    public (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)? SkinningOf(int entity)
+    {
+        if (!_propsByEntity.TryGetValue(entity, out SceneProp? prop) ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) ||
+            frames.Skinned is not { } skinned ||
+            !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        return (prop.ModelPath, Skinning(entity, skinned.Bones, animating.Bones), prop.Pose.Body, frames.BodyParts);
+    }
 
     /// <summary>Whether an entity is one of the viewmodel pass's own.</summary>
     /// <remarks>
@@ -5387,11 +5394,6 @@ public sealed class EntityModelSet : IModelBodygroups
                 fx = fx with { Blend = (int)MathF.Round(portalBlend * FullyOpaqueAlpha) };
 
                 PortalWindowsFaded++;
-            }
-
-            if (bones is { Count: > 0 })
-            {
-                _skinnedDraws[prop.EntityIndex] = (prop.ModelPath, bones, prop.Pose.Body, parts?.BodyParts);
             }
 
             into.Add(new ModelInstance(

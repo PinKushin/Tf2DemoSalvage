@@ -4564,7 +4564,7 @@ internal class MainForm : Form, IFrameSteps
 
         if (shot is not { } s)
         {
-            _renderLog.LogDebug(
+            _renderLog.LogInformation(
                 "{Message}",
                 string.Create(CultureInfo.InvariantCulture, $"model decal tick {impact.Tick} entity {impact.Entity}: none, {refused}"));
 

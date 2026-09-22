@@ -27383,8 +27383,11 @@ not read; the Ghidra engine project was locked.
 
 **Still not built, or divergent:**
 
-- **An out-of-view player takes no decal.** `CModelRender::AddDecal` sets up bones on demand, but we
-  pose only what we draw. This was 60 of 100 f12 hits over 90 s.
+- **FIXED 2026-09-22: an out-of-view player took no decal.** `CModelRender::AddDecal` sets up bones on
+  demand, but we read only the skinning the draw pass had left, so 60 hits were refused. That cache also
+  kept the last drawn pose of a player who had left view. `EntityModels.SkinningOf` now runs `SetupBones`
+  itself. Measured on f12 from tick 13800 for 90 s: 44 placed, 0 "no skinned model", and 3 ray misses
+  (the item below). Before the fix: 5 placed and 60 refused.
 - **Blood can land slightly off the mesh.** Hits land 3–18 units outside the server's own hitbox on
   our pose. This waits on the in-game check: tick 13944 gummo, 14252 abelll, with
   `entity-impacts <demo> n 13800`.
