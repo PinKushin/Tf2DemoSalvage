@@ -4538,16 +4538,7 @@ internal class MainForm : Form, IFrameSteps
             ClearOnChange(player);
         }
 
-        if (_entityImpacts is null)
-        {
-            _entityImpacts = ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name);
-
-            _renderLog.LogInformation(
-                "{Message}",
-                string.Create(CultureInfo.InvariantCulture, $"model decals: {_entityImpacts.Count} server impacts on entities"));
-        }
-
-        foreach ((int index, SceneEffectDispatch impact) in _entityImpacts)
+        foreach ((int index, SceneEffectDispatch impact) in EntityImpacts(timeline))
         {
             if (impact.Tick <= from || impact.Tick > tick || Holder(players, impact.Entity) is not { } struck)
             {
@@ -4838,36 +4829,127 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
+        long lookingBack = Stopwatch.GetTimestamp();
         int start = OldestDecalLife(timeline, target);
+        TimeSpan lookback = Stopwatch.GetElapsedTime(lookingBack);
+        TimeSpan skipping = TimeSpan.Zero;
+        TimeSpan building = TimeSpan.Zero;
+        TimeSpan posing = TimeSpan.Zero;
+        (long simulate, long setup, long skin) was = (_models.SimulateTicks, _models.SetupTicks, _models.SkinTicks);
 
         _modelDecals.ClearAll();
         _decalHolders.Clear();
         _modelDecalTick = start;
         _replayingModelDecals = true;
+        _models.HoldsCorpses = true;
 
         long began = Stopwatch.GetTimestamp();
+
+        bool[] needed = ReplayTicks(timeline, start, target);
+        int stepped = 0;
 
         try
         {
             for (int tick = start + 1; tick < target; tick++)
             {
-                ShowMoment(tick);
+                if (!needed[tick - start])
+                {
+                    long skipped = Stopwatch.GetTimestamp();
 
-                // No frustum: `CModelRender::AddDecal` sets up bones for a player whether or not he is in view.
-                _moments.PoseNow();
+                    // Nothing lands here: only the wipes are brought up to date, from the demo without posing anyone.
+                    foreach (ScenePlayer player in timeline.PlayersAt(tick))
+                    {
+                        ClearOnChange(player);
+                    }
+
+                    _modelDecalTick = tick;
+                    skipping += Stopwatch.GetElapsedTime(skipped);
+                    continue;
+                }
+
+                long phase = Stopwatch.GetTimestamp();
+                ShowMoment(tick);
+                building += Stopwatch.GetElapsedTime(phase);
+
+                // Simulated, not drawn: `CModelRender::AddDecal` sets up the struck player's bones itself (`SkinningOf`).
+                phase = Stopwatch.GetTimestamp();
+                _moments.PoseNow(ViewFrustum.Nothing);
+                posing += Stopwatch.GetElapsedTime(phase);
+
                 StepModelDecals(tick);
+                stepped++;
             }
         }
         finally
         {
             _replayingModelDecals = false;
+            _models.HoldsCorpses = false;
         }
 
         _renderLog.LogInformation(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"model decals: a seek to {target} replayed ticks {start}-{target - 1} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms; {_modelDecals.Count} held"));
+                $"model decals: a seek to {target} replayed ticks {start}-{target - 1}, posing {stepped} of them, in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms " +
+                $"(lookback {lookback.TotalMilliseconds:0}, skipped ticks {skipping.TotalMilliseconds:0}, building {building.TotalMilliseconds:0}, " +
+                $"posing {posing.TotalMilliseconds:0} of which simulate {Milliseconds(_models.SimulateTicks - was.simulate):0}, " +
+                $"bones {Milliseconds(_models.SetupTicks - was.setup):0}, skin {Milliseconds(_models.SkinTicks - was.skin):0}; " +
+                $"the rest placing decals); {_modelDecals.Count} held"));
+
+        static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
+    }
+
+    /// <summary>
+    /// How many ticks before a landing the replay poses from, so the sequence transitions the landing sees have run: 16,
+    /// past the 0.2 s `fadeouttime` most sequences blend over. *Interpolated:* a longer fade poses slightly short.
+    /// </summary>
+    private const int ModelDecalWarmupTicks = 16;
+
+    /// <summary>The server's impacts on entities, selected once per demo.</summary>
+    private IReadOnlyList<(int Index, SceneEffectDispatch Dispatch)> EntityImpacts(DemoTimeline timeline)
+    {
+        if (_entityImpacts is null)
+        {
+            _entityImpacts = ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name);
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(CultureInfo.InvariantCulture, $"model decals: {_entityImpacts.Count} server impacts on entities"));
+        }
+
+        return _entityImpacts;
+    }
+
+    /// <summary>Which ticks of a replay must be posed: every bullet or impact landing, with its warm-up before it.</summary>
+    private bool[] ReplayTicks(DemoTimeline timeline, int start, int target)
+    {
+        bool[] needed = new bool[target - start + 1];
+
+        void Land(int tick)
+        {
+            for (int t = Math.Max(start + 1, tick - ModelDecalWarmupTicks); t <= Math.Min(target - 1, tick + ModelDecalArrivalTicks); t++)
+            {
+                needed[t - start] = true;
+            }
+        }
+
+        foreach ((int _, SceneEffectDispatch impact) in EntityImpacts(timeline))
+        {
+            if (impact.Tick > start && impact.Tick < target)
+            {
+                Land(impact.Tick);
+            }
+        }
+
+        foreach (ShotImpact bullet in _loaded?.Impacts ?? [])
+        {
+            if (!bullet.FromServer && !bullet.BrushOnly && bullet.Tick > start && bullet.Tick < target)
+            {
+                Land(bullet.Tick);
+            }
+        }
+
+        return needed;
     }
 
     /// <summary>The latest tick before <paramref name="target"/> at which no decal on anyone playing then could survive.</summary>
