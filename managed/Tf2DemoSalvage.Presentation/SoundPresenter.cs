@@ -394,6 +394,17 @@ public sealed class SoundPresenter(
         _submitted++;
         ReportAudioOutput();
 
+        // **`snd_showstart`, the engine's own instrument** — one line per sound started, so a stretch of a demo can be
+        // compared with the same stretch in TF2 (`snd_showstart 1` with `developer 1` prints each start to the console).
+        if (audio.IsEnabled(LogLevel.Debug))
+        {
+            audio.LogDebug(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"sound start tick {sound.Tick} {sound.Name} : src {sound.EntityIndex} : channel {sound.Channel} : gain {gain:0.###}"));
+        }
+
         output.Play(
             opened,
             left,

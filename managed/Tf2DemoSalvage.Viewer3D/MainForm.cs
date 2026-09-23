@@ -4282,7 +4282,7 @@ internal class MainForm : Form, IFrameSteps
                 blast.Tick));
         }
 
-        AddTracers(tick, systems);
+        AddTracers(tick, systems, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
         AddBlood(timeline, tick, systems, viewing);
         AddSentryMuzzleFlashes(timeline, tick, systems);
         AddParticleDispatches(timeline, tick, systems);
@@ -4320,7 +4320,46 @@ internal class MainForm : Form, IFrameSteps
     /// offered, as the engine reads it once when the shot arrives: re-read every frame, a tracer would follow the gun.
     /// A seek that lands mid-flight reads the gun where it is then, which is the nearest pose there is.
     /// </remarks>
-    private void AddTracers(int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    /// <summary>`g_BulletWhiz.m_nextWhizTime`, in demo seconds.</summary>
+    private double _nextWhizSeconds;
+
+    /// <summary>The demo time a whiz was last asked about, so a seek back can reset the wait.</summary>
+    private double _lastWhizAsked;
+
+    /// <summary>A tracer's near-miss whiz, when it passes the listener and none has played in the last 0.1 s.</summary>
+    private void Whiz(int tick, (float X, float Y, float Z) from, (float X, float Y, float Z) to, Vector3 eye)
+    {
+        if (_replayingModelDecals || _sound.Scripts is not { } scripts)
+        {
+            return;
+        }
+
+        double now = tick * (_timeline?.IntervalPerTick ?? (1f / 66f));
+
+        if (now < _lastWhizAsked)
+        {
+            // A seek back: the timer belongs to a future this playback has not reached.
+            _nextWhizSeconds = 0d;
+        }
+
+        _lastWhizAsked = now;
+
+        Vector3 start = new(from.X, from.Y, from.Z);
+
+        if (now < _nextWhizSeconds || !TracerWhiz.Hears(start, new Vector3(to.X, to.Y, to.Z), eye))
+        {
+            return;
+        }
+
+        if (TracerWhiz.SoundAt(tick, from, scripts.Entries) is { } whiz)
+        {
+            _sound.Emit(whiz);
+        }
+
+        _nextWhizSeconds = now + TracerWhiz.CooldownSeconds;
+    }
+
+    private void AddTracers(int tick, IReadOnlyDictionary<string, ParticleSystem> systems, Vector3 eye)
     {
         if (_loaded?.Tracers is not { Count: > 0 } tracers)
         {
@@ -4358,6 +4397,13 @@ internal class MainForm : Form, IFrameSteps
                 if (muzzle is not null || _models.IsPosed(tracer.Weapon) || judged)
                 {
                     _tracerStarts[index] = path;
+
+                    // `ParticleTracerCallback` → `FX_TracerSound`, once, as the tracer is made; a tracer met by a seek
+                    // was made in a stretch nobody heard.
+                    if (tick - tracer.Tick <= 1)
+                    {
+                        Whiz(tracer.Tick, path.From, path.To, eye);
+                    }
                 }
 
                 if (_renderLog.IsEnabled(LogLevel.Debug))
@@ -4760,12 +4806,24 @@ internal class MainForm : Form, IFrameSteps
             impact.DamageType == Bullet);
     }
 
+    /// <summary>The shot whose pellets are landing now, and the impact sounds it has played.</summary>
+    private readonly ShotSoundGroup _shotSounds = new();
+
     /// <summary>Plays one of the client's own bullets where it landed (B415).</summary>
     private void EmitLanding(ShotImpact bullet, BulletLanding? landing)
     {
         // A seek's replay reaches bullets that landed seconds ago; TF2's fast-forward is heard no more than ours.
         if (!_replayingModelDecals && landing is { } l && _sound.Scripts is { } scripts)
         {
+            // **One shot's pellets share a sound group** (`ImpactSoundGroup`, `tf_fx_shared.cpp:40`): the same impact
+            // sound within 300 units of one this shot already played is not played again.
+            _shotSounds.Start(bullet.Shot);
+
+            if (l.ImpactSound is { } name && !_shotSounds.Allows(name, new Vector3(l.At.X, l.At.Y, l.At.Z)))
+            {
+                return;
+            }
+
             foreach (SceneSound sound in ImpactSounds.For(l, ImpactSounds.SeedFor((bullet.Shot * 32) + bullet.Bullet), scripts.Entries))
             {
                 _sound.Emit(sound);
