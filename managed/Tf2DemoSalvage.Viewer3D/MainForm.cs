@@ -6023,7 +6023,8 @@ internal class MainForm : Form, IFrameSteps
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"bullet tick {bullet.Tick} (shot {bullet.Shot} pellet {bullet.Bullet}): {targets.Count} players, {posed} posed, " +
-                    $"{asked} hitbox tests, {answered} hit; struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}"));
+                    $"{asked} hitbox tests, {answered} hit; struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}; " +
+                    $"from ({start.X:0} {start.Y:0} {start.Z:0}) to ({end.X:0} {end.Y:0} {end.Z:0})"));
         }
 
         return ((end.X, end.Y, end.Z), targets.Count == 0 || posed > 0, struck);
