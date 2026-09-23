@@ -27065,6 +27065,12 @@ a seek. A user who plays and then seeks back keeps the slow frame.
 
 The UI suite that found it no longer plays a demo (D189, reverted; the attempt is on `ref/playback-ui-test`).
 
+**A cause, fixed 2026-09-23:** `ParticleEffects.Update` fades a trail whose rocket is gone only by ticks played
+forward, and a seek plays none — so every trail left running when playback stopped stayed for good and was gathered
+by `Build` on every paused frame; a later rocket reusing the entity index inherited its particles too. A seek back or
+past the 200-tick replay now drops them all, as `Bursts` already did; live rockets replay their own trail. *Not
+measured:* whether that is the whole ~10x — the paused-frame cost after an 8x play and a seek back needs taking again.
+
 ### B419 CLOSED 2026-09-23: the physics port audited for gaps shaped like B418
 
 **Phase 1 read on the real DLL, the same day:** `vphysics-drop` now prints the list. It holds **0 PSI listeners** in a live
