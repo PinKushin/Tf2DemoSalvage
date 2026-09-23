@@ -1545,6 +1545,12 @@ public sealed class EntityModelSet : IModelBodygroups
             return closed;
         }
 
+        if (_restartCycles.Remove(prop.EntityIndex))
+        {
+            _clientCycles[prop.EntityIndex] = (seconds, 0d);
+            return 0d;
+        }
+
         if (!_clientCycles.TryGetValue(prop.EntityIndex, out (double Seconds, double Cycle) last) ||
             Math.Abs(seconds - last.Seconds) > LongestCycleStep)
         {
@@ -4276,9 +4282,60 @@ public sealed class EntityModelSet : IModelBodygroups
             // than as a failed lookup.
             if (chosen >= 0)
             {
+                chosen = MainSequence(prop, chosen);
                 drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
             }
         }
+    }
+
+    /// <summary>Each player's main sequence as `ComputeMainSequence` last left it.</summary>
+    private readonly Dictionary<int, int> _mainSequences = [];
+
+    /// <summary>Players whose next <see cref="Advance"/> starts the cycle at zero.</summary>
+    private readonly HashSet<int> _restartCycles = [];
+
+    /// <summary>The activities the animstate enters or leaves through `RestartMainSequence`: jumping, air-walking, swimming.</summary>
+    private static bool RestartsTheCycle(string activity) =>
+        activity.Contains("_JUMP", StringComparison.OrdinalIgnoreCase) ||
+        activity.Contains("_AIRWALK", StringComparison.OrdinalIgnoreCase) ||
+        activity.Contains("_SWIM", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>`CMultiPlayerAnimState::ComputeMainSequence`'s keep: the current sequence stays while its activity is the one wanted.</summary>
+    /// <remarks>
+    /// <code>
+    /// int animDesired = SelectWeightedSequence( TranslateActivity( idealActivity ) );
+    /// if ( GetSequenceActivity( GetSequence() ) == GetSequenceActivity( animDesired ) ) return;
+    /// ResetSequence( animDesired );
+    /// </code>
+    /// (`multiplayer_animstate.cpp:1168`). A sequence change bumps `m_nResetEventsParity`, which restarts the event walk
+    /// at cycle 0 while the cycle runs on, so the next frame fires every event up to it — the engine's own burst,
+    /// which only an activity change may cause (B172).
+    /// </remarks>
+    private int MainSequence(SceneProp prop, int desired)
+    {
+        if (_mainSequences.TryGetValue(prop.EntityIndex, out int current) &&
+            current != desired &&
+            _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) &&
+            frames.Skinned is { } skinned)
+        {
+            string was = skinned.ActivityOf(current);
+            string wanted = skinned.ActivityOf(desired);
+
+            if (was.Length > 0 && string.Equals(was, wanted, StringComparison.OrdinalIgnoreCase))
+            {
+                return current;
+            }
+
+            // **`RestartMainSequence` — `SetCycle( 0 )` — at every jump, landing and swim edge** (`tf_playeranimstate.cpp`
+            // 1189, 1452, 1459, 1487, 1494, 1503). Everywhere else the cycle runs on through a sequence change.
+            if (RestartsTheCycle(was) || RestartsTheCycle(wanted))
+            {
+                _restartCycles.Add(prop.EntityIndex);
+            }
+        }
+
+        _mainSequences[prop.EntityIndex] = desired;
+        return desired;
     }
 
     /// <summary>Which sequence a player of this model should play.</summary>
@@ -4596,6 +4653,8 @@ public sealed class EntityModelSet : IModelBodygroups
         _inView.Clear();
         _eventStates.Clear();
         _clientCycles.Clear();
+        _mainSequences.Clear();
+        _restartCycles.Clear();
         _fired.Clear();
 
         // Log dedup is per-level too: the next map's missing frames and poses deserve their own

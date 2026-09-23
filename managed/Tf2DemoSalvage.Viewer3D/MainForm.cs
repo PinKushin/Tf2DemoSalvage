@@ -6066,7 +6066,7 @@ internal class MainForm : Form, IFrameSteps
     /// and its footprint is the hull's, which is all a trace straight down can touch. *Interpolated:* `level.Trace`'s own
     /// mask stands in for `MASK_PLAYERSOLID_BRUSHONLY`.
     /// </remarks>
-    private void StepAnimationSounds(int tick)
+    private void StepAnimationSounds(int tick, Vector3 eye)
     {
         if (_replayingModelDecals || _sound.Scripts is not { } scripts || _models.FiredEvents.Count == 0)
         {
@@ -6114,7 +6114,7 @@ internal class MainForm : Form, IFrameSteps
                         string who = stepper is { } s
                             ? string.Create(
                                 CultureInfo.InvariantCulture,
-                                $"speed {s.Speed:0} of max {s.MaxSpeed}, flags {s.Flags}, water {s.WaterLevel}, ground {ground?.Material} {ground?.Right}")
+                                $"speed {s.Speed:0} of max {s.MaxSpeed}, flags {s.Flags}, water {s.WaterLevel}, ground {ground?.Material} {ground?.Right}, {Vector3.Distance(eye, new Vector3(s.X, s.Y, s.Z)):0} from the camera")
                             : "no player at the shown moment";
 
                         _renderLog.LogDebug(
@@ -6198,7 +6198,7 @@ internal class MainForm : Form, IFrameSteps
         // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
         StepDecals(_transport.CurrentTick);
         StepModelDecals(_transport.CurrentTick);
-        StepAnimationSounds(_transport.CurrentTick);
+        StepAnimationSounds(_transport.CurrentTick, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
         StepImpactEffects(_transport.CurrentTick);
         StepSparks(_transport.CurrentTick);
 

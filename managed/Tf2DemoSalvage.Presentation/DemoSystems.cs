@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
@@ -129,7 +130,30 @@ public sealed class DemoSystems
             scripts.Entries);
 
         IReadOnlyList<SceneSound> impacts = ImpactSounds.For(landings, scripts.Entries);
-        IReadOnlyList<SceneSound> emitted = ExplosionSounds.Merged(sounds, impacts);
+        IReadOnlyList<SceneSound> mediguns = MedigunSounds.For(
+            timeline.HealBeams.All,
+            (entity, tick) =>
+            {
+                foreach (ScenePlayer player in timeline.PlayersAt(tick))
+                {
+                    if (player.EntityIndex == entity)
+                    {
+                        return (player.X, player.Y, player.Z);
+                    }
+                }
+
+                return (0f, 0f, 0f);
+            },
+            scripts.Entries,
+            timeline.HealBeams.HealingStops);
+
+        IReadOnlyList<SceneSound> emitted = ExplosionSounds.Merged(ExplosionSounds.Merged(sounds, impacts), mediguns);
+
+        _audioLog.LogInformation(
+            "{Message}",
+            $"{mediguns.Count} medigun sounds from {timeline.HealBeams.All.Count} beams and {timeline.HealBeams.HealingStops.Count} healing stops " +
+            $"(first: {string.Join(' ', timeline.HealBeams.HealingStops.Take(6).Select(stop => $"{stop.Medigun}@{stop.Tick}"))}; " +
+            $"beam ends: {string.Join(' ', timeline.HealBeams.All.Take(6).Select(beam => $"{beam.Medigun}@{beam.End}"))})");
 
         _sound.Schedule = new SoundSchedule(ExplosionSounds.Merged(timeline.Sounds, emitted));
 

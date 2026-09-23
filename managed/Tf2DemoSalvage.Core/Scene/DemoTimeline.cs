@@ -2043,7 +2043,8 @@ public sealed class DemoTimeline
                                 weaponState.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
                                 command.Tick,
                                 weaponState.ItemDefinitionIndex(),
-                                weaponState.Owner());
+                                weaponState.Owner(),
+                                weaponState.Integer(HealBeamFeed.HealingKey) is { } healingBit ? healingBit != 0 : null);
                         }
 
                         muzzleFlashes.Observe(
