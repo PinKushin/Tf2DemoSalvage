@@ -655,10 +655,15 @@ public sealed class MomentScene : IGameSystemPerFrame
         // carries a player's sequence and choosing one needs the model's merged sequence table.
         _models.UpdateClientSideAnimations(_drawn);
 
+        // **The engine's list is every client-animating entity, drawn or not** — the first-person player included, or
+        // he is posed in whatever sequence he last had: standing while the server crouched him, 29 units off his hitboxes.
+        _models.UpdateClientSideAnimations(_undrawn);
+
         // **An old demo's sequence numbers, into today's models** (B380, D160) — after `Add`, which
         // loads the tables they translate into, and before `Instances`, whose `Simulate` advances each
         // cycle by its sequence.
         _models.TranslateEraSequences(_drawn);
+        _models.TranslateEraSequences(_undrawn);
 
         // **`grew` alone is wrong the moment a second demo is opened (B148).** The packed set lives
         // across demos, so after a switch it already holds what the new demo needs and does not grow
