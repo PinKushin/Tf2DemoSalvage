@@ -68,6 +68,8 @@ internal static class Help
           --measure <seconds>        Play for this many seconds OF PLAYBACK, print the mean frame
                                      cost, and exit. Not wall clock: loading a map takes about
                                      twenty seconds and does not count against it.
+          --then-seek <tick>         With --measure: then pause, seek to this tick and measure the
+                                     paused frame as long again (mean ms, phases, live particles).
           +<cvar> <value>            Set a cvar for this run only, as Source does. Anything in
                                      settings.cfg works here: fps_max 0, developer 1, and so on.
 
