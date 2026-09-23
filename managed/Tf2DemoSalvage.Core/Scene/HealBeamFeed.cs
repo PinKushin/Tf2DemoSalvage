@@ -42,6 +42,15 @@ public sealed class HealBeamFeed
     /// <summary>The property the charge travels in.</summary>
     public const string ChargeReleaseKey = "DT_WeaponMedigun.m_bChargeRelease";
 
+    /// <summary>`m_bHealing`, whose fall is when `OnDataChanged` stops the heal sound (`tf_weapon_medigun.cpp:2229`).</summary>
+    public const string HealingKey = "DT_WeaponMedigun.m_bHealing";
+
+    private readonly Dictionary<int, bool> _healing = [];
+    private readonly List<(int Medigun, int Tick)> _healingStops = [];
+
+    /// <summary>Every tick a medigun's `m_bHealing` fell from true to false, in order.</summary>
+    public IReadOnlyList<(int Medigun, int Tick)> HealingStops => _healingStops;
+
     /// <summary>The system `UpdateEffects` creates for a player target (`tf_weapon_medigun.cpp:2419-2454`).</summary>
     /// <param name="team">The medic's team; red is 2, anything else takes the blue branch.</param>
     /// <param name="chargeRelease">`m_bChargeRelease`, which wins over the marker.</param>
@@ -71,9 +80,20 @@ public sealed class HealBeamFeed
     /// <param name="tick">The tick.</param>
     /// <param name="item">Its item definition, or null.</param>
     /// <param name="owner">Its medic's entity, or null.</param>
+    /// <param name="isHealing">`m_bHealing`, or null when not sent.</param>
     public void Observe(
-        int medigun, bool entering, int? target, bool chargeRelease, int team, int tick, int? item = null, int? owner = null)
+        int medigun, bool entering, int? target, bool chargeRelease, int team, int tick, int? item = null, int? owner = null, bool? isHealing = null)
     {
+        if (isHealing is { } now)
+        {
+            if (!now && _healing.TryGetValue(medigun, out bool before) && before)
+            {
+                _healingStops.Add((medigun, tick));
+            }
+
+            _healing[medigun] = now;
+        }
+
         if (!entering &&
             _state.TryGetValue(medigun, out (int? Target, bool ChargeRelease, int Beam) was) &&
             was.Target == target && was.ChargeRelease == chargeRelease)
