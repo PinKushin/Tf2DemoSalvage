@@ -27500,8 +27500,13 @@ not read; the Ghidra engine project was locked.
   `vecOrigin - vecVelocity * frametime` (`tf_projectile_arrow.cpp:553`), not from an eye; `FireBullet`'s
   server `bDoEffects` is false and the melee `UTIL_ImpactTrace` is `CLIENT_DLL`, so neither reaches a demo.
   `m_nDamageType` is 0, so `ImpactCallback` decals a teammate a heal bolt hits (`tf_fx_impacts.cpp:35`), as we
-  do. What remains below is therefore our POSE: measured 2026-09-23 from 13800 for 90 s, 65 placed, 3 ray
-  misses (18.4, 33.4 and 30.2 units outside the server's box — the last two on box 1), 2 no triangle.
+  do. Measured 2026-09-23 from 13800 for 90 s: 65 placed, 3 ray misses, 2 no triangle. **The 3 misses are
+  parity, not pose**: each hit lies 19-26 units across from the player's origin, the edge of his 24-unit hull,
+  because the bolt's trace includes `CONTENTS_MONSTER` and stops on the bounding box. TF2's client traces
+  `vecStart` to 8 units past that point (`fx_impact.cpp:116`) against the hitboxes and misses the body too.
+  The log's "N units outside the server's box" assumed the server hit the body; for a hull hit it did not.
+  *Interpolated:* which `m_nHitBox` a hull hit reports (these read 1 and 14) is not read from the engine.
+  A second divergence was found and fixed on the way: a jump is the jump event, not leaving the ground.
 - **Blood can land slightly off the mesh.** Hits land 3–18 units outside the server's own hitbox on
   our pose. This waits on the in-game check: tick 13944 gummo, 14252 abelll, with
   `entity-impacts <demo> n 13800`.
