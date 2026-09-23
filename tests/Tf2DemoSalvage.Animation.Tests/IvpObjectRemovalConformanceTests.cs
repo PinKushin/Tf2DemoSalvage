@@ -159,6 +159,28 @@ public sealed class IvpObjectRemovalConformanceTests
     }
 
     /// <remarks>
+    /// **The destructor tears down the object's hull manager first** (B418): `FUN_180072e90` opens with `FUN_180094420(object+0x80)`,
+    /// which tells the head listener "manager going away" (slot 2) until none is left. The broad-phase node's slot 2
+    /// (`FUN_18009ec90`) deletes the node (`FUN_18009dae0`), taking it out of the OV tree. Without it the refile that removal
+    /// runs left the node filed, and a neighbour's next broad-phase pass paired with a body that was gone.
+    /// </remarks>
+    [Test]
+    public void Remove_ACoreWithABroadPhaseNode_DeletesTheNodeThroughItsHullManager()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody going, out _);
+        IvpCollisionObject goingObject = going.Objects[0];
+        goingObject.Environment = simulation.Collisions;
+        IvpBroadPhase.Rebuild(simulation.Collisions, goingObject);
+        IvpOvNode node = goingObject.Node.ShouldNotBeNull("the fixture filed a node");
+
+        simulation.Remove(going);
+
+        goingObject.Node.ShouldBeNull("the node was deleted");
+        node.Cell.ShouldBeNull("and is out of the tree");
+        goingObject.Hull.Synapses.Count.ShouldBe(0, "nothing is left filed in a torn-down hull");
+    }
+
+    /// <remarks>
     /// The awake branch's other half: once the neighbour is woken, <c>FUN_1800788b0</c> runs <c>IvpContactRecord::Build</c>,
     /// <see cref="IvpContactPoint.SetMaterials"/> and <c>FUN_180083a60</c> — the weigh, whose output is
     /// <see cref="IvpContactPoint.InverseContactMass"/> at <c>cp+0x60</c>. So a contact that survives the removal is measured

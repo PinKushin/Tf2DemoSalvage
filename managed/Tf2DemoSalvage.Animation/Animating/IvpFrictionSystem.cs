@@ -45,8 +45,9 @@ public sealed class IvpFrictionPair(IvpRigidBody firstCore, IvpRigidBody secondC
     /// </summary>
     /// <remarks>
     /// **Filed by <see cref="IvpFrictionLinking.LinkContactByCore"/>**, once per contact, the first time it links
-    /// into this pair. **Never removed** — the native's own drop (`FUN_180088090`'s bookkeeping when a mindist
-    /// stops colliding) is not ported; see `docs/HANDOFF.md`, item 3.
+    /// into this pair; `FUN_180088090` is that filing (find or create the pair, then append), not a drop. **Removed by
+    /// <see cref="IvpFrictionSystem.RemoveFromPair"/>** inside every contact removal, the pair deleted when it empties.
+    /// *This said "never removed" until 2026-09-23, which sent the physics audit after a gap that was already closed.*
     /// </remarks>
     public IList<IvpContactPoint> Contacts { get; } = [];
 }
@@ -66,9 +67,9 @@ public sealed class IvpFrictionPair(IvpRigidBody firstCore, IvpRigidBody secondC
 /// that answer pulls or leaves a contact pulling. The pushes go into the cores' staged changes, which are committed unless they
 /// add more energy than the heap's allowance.
 ///
-/// *Not carried yet: the filing pass `FUN_1800a9bf0` makes between its sort and its solve — a contact dropped once its gap reaches
+/// The filing pass `FUN_1800a9bf0` makes between its sort and its solve is <see cref="File"/>: a contact dropped once its gap reaches
 /// `block[0x47]` or its record is outside (`FUN_180083e40`), and one moved to the head once its gap passes
-/// `block[0x46] + block[0x43]` with both friction cores flagged — which lands with the filing routines it calls.*
+/// `block[0x46] + block[0x43]` with both friction cores flagged. *This said "not carried yet" after it had landed.*
 /// </remarks>
 public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
 {
@@ -907,8 +908,7 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// !(block[0x47] > cp+0x8c) or record+0x76 == 1 → FUN_180083e40(system, cp)                  COMISS/JBE: a NaN gap drops
     /// </code>
     /// **Its closing speed adds the first core's normal term to its turn term, where the heap's matrix build adds the turn term
-    /// to the normal term**, and it reads the contact's own gap, not a record copy. *Not carried yet: the drop, which lands with
-    /// the filing routines.*
+    /// to the normal term**, and it reads the contact's own gap, not a record copy. The drop is the last step below.
     /// </remarks>
     private void SolveOne(float inverseStep)
     {

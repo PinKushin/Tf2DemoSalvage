@@ -63,6 +63,16 @@ public sealed class IvpOvNode : IIvpHullSynapse
     {
     }
 
+    /// <summary>Slot 2, <c>FUN_18009ec90</c>: the node's slot 4 — its destructor, <see cref="IvpBroadPhase.Delete"/>.</summary>
+    /// <param name="manager">Unread.</param>
+    /// <exception cref="InvalidOperationException">The node has no object, or its object no environment.</exception>
+    public void ManagerDeleted(IvpHullManager manager)
+    {
+        IvpCollisionObject owner = Owner ?? throw new InvalidOperationException("An OV node without an object lost its hull manager.");
+
+        IvpBroadPhase.Delete(owner.Environment ?? throw new InvalidOperationException("An object without an environment lost its hull manager."), this);
+    }
+
     /// <summary>Registers a collision — <c>FUN_18009de20</c>: appended, its first index taken when free, else its second.</summary>
     /// <param name="collision">The collision.</param>
     /// <exception cref="ArgumentNullException"><paramref name="collision"/> is null.</exception>
