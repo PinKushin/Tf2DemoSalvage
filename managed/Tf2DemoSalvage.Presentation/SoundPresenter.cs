@@ -260,6 +260,16 @@ public sealed class SoundPresenter(
                 {
                     Start(output, sound, listener, right, reestablishing: false);
                 }
+                else if (audio.IsEnabled(LogLevel.Debug))
+                {
+                    // Beyond its own camera gate — `ImpactCallback`'s 1024 — so it never starts at all.
+                    audio.LogDebug(
+                        "{Message}",
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"sound out of range tick {sound.Tick} {sound.Name} at ({sound.OriginX:0} {sound.OriginY:0} {sound.OriginZ:0}), " +
+                            $"listener ({listener.X:0} {listener.Y:0} {listener.Z:0})"));
+                }
             }
         }
 
@@ -383,6 +393,16 @@ public sealed class SoundPresenter(
             // discarded here, so a wrong gain curve removes nearly all sound and reports nothing.
             _silenced++;
             ReportAudioOutput();
+
+            if (audio.IsEnabled(LogLevel.Debug))
+            {
+                audio.LogDebug(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"sound silenced tick {sound.Tick} {sound.Name} : src {sound.EntityIndex} : {distance:0} away at soundlevel {sound.SoundLevel}"));
+            }
+
             return;
         }
 

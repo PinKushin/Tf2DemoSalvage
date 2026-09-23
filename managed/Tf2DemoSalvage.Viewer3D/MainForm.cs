@@ -2518,6 +2518,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         ReplayModelDecals((int)tick);
+        _shownTick = tick;
 
         // **`EnsureWeaponRoles()` was called here until 2026-08-26** (B188, D90). It was the last
         // non-view work in the frame path: one line reaching for `_timeline` and `_game` on every
@@ -4326,6 +4327,12 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The demo time a whiz was last asked about, so a seek back can reset the wait.</summary>
     private double _lastWhizAsked;
 
+    /// <summary>The moment <see cref="ShowMoment"/> last showed, fraction included — what the players are posed at.</summary>
+    private double _shownTick;
+
+    /// <summary>The players at that moment, for a bullet's hull test; reused.</summary>
+    private readonly List<ScenePlayer> _shotTargets = [];
+
     /// <summary>A tracer's near-miss whiz, when it passes the listener and none has played in the last 0.1 s.</summary>
     private void Whiz(int tick, (float X, float Y, float Z) from, (float X, float Y, float Z) to, Vector3 eye)
     {
@@ -5959,7 +5966,18 @@ internal class MainForm : Form, IFrameSteps
 
         List<BulletTarget> targets = [];
 
-        foreach (ScenePlayer player in timeline.PlayersAt(bullet.Tick))
+        // **Where the players are DRAWN, the moment their hitboxes were posed at** — `GetCollisionOrigin()` is the
+        // interpolated abs origin, so the collision box and the hitboxes are one entity in one place. The raw origin at
+        // the shot's tick put the hull a running player's 0.12 s ahead of his hitboxes: pellets stopped on a hull his
+        // body had left, and hit a body whose hull said it was elsewhere.
+        _shotTargets.Clear();
+
+        if (_moments.Source is { } source)
+        {
+            source.PlayersAt(_shownTick, _shotTargets, _transport.Playing);
+        }
+
+        foreach (ScenePlayer player in _shotTargets.Count > 0 ? _shotTargets : timeline.PlayersAt(bullet.Tick))
         {
             // `CTraceFilterSimple( this, … )` passes over the shooter; the rest must be alive and present.
             if (player.EntityIndex != bullet.Shooter && (player.LifeState ?? Alive) == Alive)
@@ -6005,7 +6023,8 @@ internal class MainForm : Form, IFrameSteps
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"bullet tick {bullet.Tick} (shot {bullet.Shot} pellet {bullet.Bullet}): {targets.Count} players, {posed} posed, " +
-                    $"{asked} hitbox tests, {answered} hit; struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}"));
+                    $"{asked} hitbox tests, {answered} hit; struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}; " +
+                    $"from ({start.X:0} {start.Y:0} {start.Z:0}) to ({end.X:0} {end.Y:0} {end.Z:0})"));
         }
 
         return ((end.X, end.Y, end.Z), targets.Count == 0 || posed > 0, struck);
