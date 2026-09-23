@@ -227,6 +227,24 @@ public sealed class LaunchOptionsTests
     /// knows when playback actually started.
     /// </remarks>
     [Test]
+    public void Read_WithDemoTimescale_TakesThePlaybackSpeedAndLeavesTheConfigAlone()
+    {
+        // Valve's runtime speed command, which gate phase 3 plays at 8x through (D189); not a saved setting.
+        LaunchOptions read = Read("a.dem", "+demo_timescale", "8");
+
+        read.PlaybackSpeed.ShouldBe(8d);
+        read.Settings.ShouldBe(ViewerSettings.Load());
+        read.Paths.ShouldBe(["a.dem"]);
+    }
+
+    [Test]
+    public void Read_WithANonPositiveDemoTimescale_RefusesIt()
+    {
+        Read("a.dem", "+demo_timescale", "0").PlaybackSpeed.ShouldBeNull();
+        Read("a.dem", "+demo_timescale", "fast").PlaybackSpeed.ShouldBeNull();
+    }
+
+    [Test]
     public void Read_WithMeasure_TakesTheSecondsToRunFor()
     {
         LaunchOptions read = Read("a.dem", "--measure", "45");

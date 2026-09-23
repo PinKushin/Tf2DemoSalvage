@@ -3100,6 +3100,11 @@ internal class MainForm : Form, IFrameSteps
             autoPlay,
             _launch.AutoPlay ? "--autoplay" : $"{AutoPlayVariable} is set");
 
+        if (_launch.PlaybackSpeed is { } speed)
+        {
+            _transport.SetSpeed(speed);
+        }
+
         // **A point-of-view recording opens through the recorder's eyes** (D128). TF2's playback
         // of a POV demo is the recorded view and nothing else, so the free camera this viewer
         // normally starts in does not exist for the demo kind — entering first person at load is

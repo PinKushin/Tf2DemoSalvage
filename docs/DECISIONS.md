@@ -9196,6 +9196,10 @@ measurements behind them.
 B420 (a paused frame staying ~10x dearer after playback, even after seeking back) is a real viewer bug the attempt found,
 filed but not pursued.
 
+**Phase 3 now plays at 8x**, in the owner's words: *"update it to run in fast forward, that was the biggest change between
+the ui test and the gate 3 test, gate 3 is basically playback test suite lol"*. `playback-check.ps1 -Speed` (default 8)
+passes Valve's own `+demo_timescale` to the viewer, which sets the transport's speed slider after the demo opens.
+
 ## D188 — a POV demo follows everything the recorder did, including whom he spectated (2026-09-22)
 
 **The owner, on B417** (a POV recorder spectating in-eye was still shown from his own eyes), verbatim: *"POV demos are
