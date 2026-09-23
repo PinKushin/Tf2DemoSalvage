@@ -141,6 +141,13 @@ public sealed class MomentPresenter
     /// <remarks>For <c>--measure</c>. Read and cleared by the caller so a line is printed once.</remarks>
     public string? LastCost { get; set; }
 
+    /// <summary>
+    /// While true, a moment is built from the players alone — no world prop, projectile, building or worn item. For a
+    /// seek's model-decal replay, which needs only the struck player's bones: his body comes from the player, and his
+    /// sequence from the timeline, so nothing it poses depends on a prop.
+    /// </summary>
+    public bool PlayersOnly { get; set; }
+
     /// <summary>Shows the moment at a tick.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <param name="view">What the window knows and the recording does not.</param>
@@ -199,7 +206,14 @@ public sealed class MomentPresenter
         // **Paused is a different sample, not the same one frozen** (B399): the engine clears
         // `s_bInterpolate` while paused (`c_baseentity.cpp:3226`), so every entity draws its last
         // received position with no `cl_interp` delay. A `--shot` capture is a paused frame.
-        source.PropsAt(tick, _props, view.Followed, view.Playing);
+        if (PlayersOnly)
+        {
+            _props.Clear();
+        }
+        else
+        {
+            source.PropsAt(tick, _props, view.Followed, view.Playing);
+        }
 
         long sampleTicks = Stopwatch.GetTimestamp() - sampledAt;
 
