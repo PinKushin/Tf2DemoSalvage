@@ -27050,6 +27050,26 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
+### B419 OPEN 2026-09-23: the physics port audited for gaps shaped like B418
+
+**The owner, after B418:** *"audit the whole thing after fixing this bug, to find any more like it"*. B418's shape was an
+engine step the port documented as *not carried*, which mattered only once real objects went through it. So the audit
+listed all 75 of the port's own "not carried / not ported / not read" notes and read the ones on paths real ragdolls take.
+
+- **Closed, the notes were stale.** A friction pair's contacts *are* removed (`RemoveFromPair` inside every
+  `RemoveContact`), and the solve's filing pass *is* ported (`IvpFrictionSystem.File`, `FUN_1800a9bf0`, line for line, with
+  `SolveOne`'s drop). Three notes said otherwise, and one named the wrong function: `FUN_180088090` files a contact, it does
+  not drop one. The notes are corrected. *A stale "not carried" is worse than none: it sent this audit after a closed gap
+  while ranking it the highest risk.*
+- **Parity by construction.** vphysics' deferred delete list (`FUN_1800128f0`, flushed on both sides of `Simulate`) holds only
+  objects destroyed during a simulate. The engine deletes at once outside one, and this project removes corpses only between
+  simulates. That holds as long as nothing removes an object from inside a step.
+- **Open: pipeline phase 1.** `IvpEnvironment::RunPipeline` (`FUN_180082560`) walks `env+0x158` (count `+0x152`) last to
+  first, calling each entry's slot 0 with the environment: IVP's PSI listeners. What vphysics registers there for a
+  client environment is unread. *Next:* read the list on the real DLL through the probes, the oracle role D187 keeps.
+- **Harmless, the other ~70:** debugger-only values, fields with no reader, and the ball, phantom and virtual-terrain paths a
+  TF2 ragdoll never takes. Each of those throws rather than guesses.
+
 ### B418 FIXED 2026-09-23: removing a corpse leaves its mindists queued, and one fires on a core with no unit
 
 **Fixed by porting the object's own destructor**, `FUN_180072e90` in `ivp_object.cxx`, reached from `FUN_180073700`'s last step
