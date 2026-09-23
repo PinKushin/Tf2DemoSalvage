@@ -9174,6 +9174,21 @@ reverse this, despite the difficulty"*, meaning back to the port.
 So the port stays and its bugs are ours to chase. **The real DLL keeps one role**: an oracle on an x86-64 Windows machine,
 where a probe runs Valve's code beside ours for a disputed case. Never a production path.
 
+## D189 — the UI suite plays a demo; the merge gate is two phases again (2026-09-23)
+
+**The owner, asking where gate phase 3 came from:** *"why couldnt that be built into the UI tests?"*, then *"the demo doesnt
+have to be f12, the same thing would have happened on any demo, the UI suite just does no playing of the demo, so we can
+just add a playing test to the ui suite"*, and *"one session"*: the shared viewer, not a second process.
+
+So `build/playback-check.ps1` (B408's hang check) is gone, and
+`TransportUiTests.Transport_PlayAtEightTimes_AdvancesThroughTwentySecondsOfPlayback` replaces it:
+- **`z1800`, a real match, not an era specimen.** The owner: *"its a era specimin, z1800 is a real demo"*.
+- **At 8x.** The owner: *"it needed the fast forward to be found"*; its first run found B418.
+- **Speed set through automation, not the ladder or a key.** The owner: *"the playback test is also testing the speed
+  slider, when those should be seperate tests"*.
+
+The gate's third phase is folded into its second.
+
 ## D188 — a POV demo follows everything the recorder did, including whom he spectated (2026-09-22)
 
 **The owner, on B417** (a POV recorder spectating in-eye was still shown from his own eyes), verbatim: *"POV demos are
