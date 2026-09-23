@@ -27,6 +27,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// One viewer serves this whole assembly, so a test that left the readout on would put three lines
 /// of white text into every later capture — including the ones another test counts colours in.
 /// </remarks>
+[Order(UiFixtureOrder.PositionReadout)]
 public sealed class PositionReadoutUiTests
 {
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>

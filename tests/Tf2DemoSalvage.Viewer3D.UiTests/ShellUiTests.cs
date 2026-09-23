@@ -25,6 +25,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// tree. A form constructed in memory demonstrates none of those.
 /// </remarks>
 [TestFixture]
+[Order(UiFixtureOrder.Shell)]
 public sealed class ShellUiTests
 {
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>

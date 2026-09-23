@@ -2131,9 +2131,19 @@ internal class MainForm : Form, IFrameSteps
     /// the view frustum the draw culls against. A frustum built from the free camera while the
     /// picture is drawn through a player's eyes would cull the geometry the viewer is looking at.
     /// </remarks>
+    /// <remarks>
+    /// **Only the active mode's camera is built**, as `C_BasePlayer::CalcView` dispatches to one of `CalcInEyeCamView`,
+    /// `CalcChaseCamView` or `CalcRoamingView`. All three were built every frame, and the chase camera's world sweep then cost
+    /// 16 ms a frame in the free camera: measured paused on `z1800` after the playback UI test, `camera` 1.3 → 16.3 ms,
+    /// which made every automation call after it slow. Building it eagerly also advanced its wall recovery
+    /// (`m_flLastDistance`) on frames that were not chasing.
+    /// </remarks>
     private FreeCamera ViewCameraNow(double seconds) =>
         ViewCamera.Active(
-            _effectiveMode, FirstPersonCamera(), ChaseCamera(seconds), FreeLookCamera());
+            _effectiveMode,
+            _effectiveMode == CameraMode.FirstPerson ? FirstPersonCamera() : null,
+            _effectiveMode == CameraMode.ThirdPerson ? ChaseCamera(seconds) : null,
+            FreeLookCamera());
 
     /// <summary>The camera for the third-person view, or <c>null</c> when there is no target.</summary>
     /// <remarks>

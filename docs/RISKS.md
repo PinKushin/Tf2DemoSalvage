@@ -27050,6 +27050,21 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
+### B420 OPEN 2026-09-23: after playback, a paused frame in the free camera stays ~10x dearer, even after seeking back
+
+**Found by the UI suite's timings** (the owner: *"the tests after the playback ran slow as shit"*). On `z1800` in the free
+camera, the paused frame's `camera` stage cost about 1.5 ms at tick 20000 before any playback, and about 15 ms after 20 s of
+8x playback. **It stayed there after seeking back to tick 20142.** The free camera does not move with playback, so the view
+was the same.
+
+A temporary per-step timer put the time in `DrawParticles`, and not in its first half: while paused, explosions took
+~1.1 ms, the particle update 0, and world decals, model decals, impact effects and sparks ~0.5 ms together, against ~17–19 ms
+for the whole call. What remains is `_particles.Build` and `_sprites.Build`. So playback leaves something behind in the
+particle or sprite state that a backward seek does not clear. *Not established:* what it is, and what the engine clears on
+a seek. A user who plays and then seeks back keeps the slow frame.
+
+The UI suite no longer inherits it: the playback test runs last and seeks back to `ViewerSession.OpeningTick` (D189).
+
 ### B419 CLOSED 2026-09-23: the physics port audited for gaps shaped like B418
 
 **Phase 1 read on the real DLL, the same day:** `vphysics-drop` now prints the list. It holds **0 PSI listeners** in a live

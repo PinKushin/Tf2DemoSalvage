@@ -36,6 +36,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// answers null rather than zero for a missing file, and the first case below proves the reader is
 /// looking at a real log before the others read anything from it.
 /// </remarks>
+[Order(UiFixtureOrder.Wiring)]
 public sealed class WiringUiTests
 {
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>

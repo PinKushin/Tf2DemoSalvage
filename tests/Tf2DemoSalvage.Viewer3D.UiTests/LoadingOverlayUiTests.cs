@@ -10,6 +10,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// used to stay off screen for the whole decode and map read. What it said at launch is read by <see cref="ViewerSession"/>,
 /// because by the time a test runs the load is over.
 /// </remarks>
+[Order(UiFixtureOrder.LoadingOverlay)]
 public sealed class LoadingOverlayUiTests
 {
     [Test]

@@ -32,6 +32,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// camera — has unit coverage and no UI coverage, because this assembly launches one viewer with
 /// one demo and a second launch is the expensive thing the shared session exists to avoid.
 /// </remarks>
+[Order(UiFixtureOrder.FirstPerson)]
 public sealed class FirstPersonUiTests
 {
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
