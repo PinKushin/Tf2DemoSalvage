@@ -530,6 +530,8 @@ public sealed class VphysicsDropProbe : IProbe
 
         using FrictionTrace? friction = FrictionTrace.FromEnvironment(module, output, core);
 
+        PsiListeners(output, module, Marshal.ReadIntPtr(environment + 0x8));
+
         for (int tick = 1; tick <= TotalTicks; tick++)
         {
             friction?.AtTick(tick);
@@ -571,6 +573,32 @@ public sealed class VphysicsDropProbe : IProbe
             }
 
             output.Flush();
+        }
+    }
+
+    /// <summary>
+    /// The IVP environment's PSI listeners, which pipeline phase 1 walks — <c>env+0x158</c>, count <c>+0x152</c> (B419).
+    /// </summary>
+    /// <remarks>
+    /// `IvpEnvironment::RunPipeline` (`FUN_180082560`) calls each entry's slot 0 with the environment, last first. Printed as each
+    /// entry's vtable and slot 0 in the image's own addresses, so they can be decompiled.
+    /// </remarks>
+    private static void PsiListeners(TextWriter output, nint module, nint ivpEnvironment)
+    {
+        int count = (ushort)Marshal.ReadInt16(ivpEnvironment + 0x152);
+        nint list = Marshal.ReadIntPtr(ivpEnvironment + 0x158);
+
+        output.WriteLine($"psi listeners: {count}");
+
+        for (int index = 0; index < count; index++)
+        {
+            nint entry = Marshal.ReadIntPtr(list + (index * nint.Size));
+            nint vtable = Marshal.ReadIntPtr(entry);
+            nint slot0 = Marshal.ReadIntPtr(vtable);
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  [{index}] vtable 0x{(long)(vtable - module) + VphysicsLibrary.ImageBase:x}  slot 0 0x{(long)(slot0 - module) + VphysicsLibrary.ImageBase:x}"));
         }
     }
 

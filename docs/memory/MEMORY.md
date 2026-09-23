@@ -156,4 +156,6 @@
 - [SourceTV has a local player](sourcetv-has-a-local-player.md) — the STV client itself, team 1; what STV lacks is a recorded VIEW.
 - [Never assume Valve is broken](never-assume-valve-is-broken.md) — a gap vs TF2 is our missing branch; temp entities fire an interp window late.
 - [A POV demo follows the recorder in everything](a-pov-demo-follows-the-recorder-in-everything.md) — recorded camera always; in-eye, "me" is his target (D188).
+- [One run at a time](one-run-at-a-time.md) — never loop a viewer or UI test; read each result first.
+- [Play fast to find lifecycle bugs](play-fast-to-find-lifecycle-bugs.md) — z1800 at 8x in the shared session; found B418.
 - [lcor is not in a worktree](lcor-is-not-in-a-worktree.md) — git-ignored; use the main checkout's absolute path.

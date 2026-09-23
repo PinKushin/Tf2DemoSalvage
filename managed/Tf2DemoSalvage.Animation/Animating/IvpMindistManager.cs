@@ -192,6 +192,14 @@ public sealed class IvpMindistHullRecord : IIvpHullSynapse
     public void HullPassed(IvpHullManager manager, float overshoot) =>
         (OnPassed ?? throw new InvalidOperationException("A synapse record never filed far was told its hull passed."))(Mindist, overshoot);
 
+    /// <summary>Slot 2, <c>0x180097580</c>: the mindist deleted through its own slot 0 (B418).</summary>
+    /// <param name="manager">Unread.</param>
+    /// <remarks>
+    /// Read from the bytes, since Ghidra holds no function there: <c>movsx r8, word [rcx+0x30]; add r8, rcx</c> finds the
+    /// mindist from the record's back-offset, then, if it is not null, <c>mov edx, 1; jmp [vtable]</c>.
+    /// </remarks>
+    public void ManagerDeleted(IvpHullManager manager) => Mindist.Delete();
+
     /// <summary>Slot 3, <c>FUN_1800975a0</c>: the difference of the shifts, in float, added to the mindist's <c>+0xa0</c>.</summary>
     /// <param name="valueShift">Minus the manager's value.</param>
     /// <param name="centerShift">Minus the manager's center value.</param>

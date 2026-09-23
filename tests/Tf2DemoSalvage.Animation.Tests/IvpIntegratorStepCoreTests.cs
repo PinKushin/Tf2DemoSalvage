@@ -115,5 +115,7 @@ public sealed class IvpIntegratorStepCoreTests
         public void Rebased(float valueShift, float centerShift)
         {
         }
+
+        public void ManagerDeleted(IvpHullManager manager) => manager.Remove(this);
     }
 }

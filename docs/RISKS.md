@@ -27050,7 +27050,69 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
-### B416 FIXED 2026-09-22: a POV recorder spectating in-eye is still shown from his own eyes
+### B419 CLOSED 2026-09-23: the physics port audited for gaps shaped like B418
+
+**Phase 1 read on the real DLL, the same day:** `vphysics-drop` now prints the list. It holds **0 PSI listeners** in a live
+vphysics environment with a static slab and a dropped body. It is read at the offsets `RunPipeline` uses, off an environment
+pointer whose clock at `+0x188` matches every tick. So phase 1 does nothing there, and not porting it is parity. *Not
+established:* whether a game-side system registers one in TF2's own client environment; nothing this project builds would.
+
+**The owner, after B418:** *"audit the whole thing after fixing this bug, to find any more like it"*. B418's shape was an
+engine step the port documented as *not carried*, which mattered only once real objects went through it. So the audit
+listed all 75 of the port's own "not carried / not ported / not read" notes and read the ones on paths real ragdolls take.
+
+- **Closed, the notes were stale.** A friction pair's contacts *are* removed (`RemoveFromPair` inside every
+  `RemoveContact`), and the solve's filing pass *is* ported (`IvpFrictionSystem.File`, `FUN_1800a9bf0`, line for line, with
+  `SolveOne`'s drop). Three notes said otherwise, and one named the wrong function: `FUN_180088090` files a contact, it does
+  not drop one. The notes are corrected. *A stale "not carried" is worse than none: it sent this audit after a closed gap
+  while ranking it the highest risk.*
+- **Parity by construction.** vphysics' deferred delete list (`FUN_1800128f0`, flushed on both sides of `Simulate`) holds only
+  objects destroyed during a simulate. The engine deletes at once outside one, and this project removes corpses only between
+  simulates. That holds as long as nothing removes an object from inside a step.
+- **Open: pipeline phase 1.** `IvpEnvironment::RunPipeline` (`FUN_180082560`) walks `env+0x158` (count `+0x152`) last to
+  first, calling each entry's slot 0 with the environment: IVP's PSI listeners. What vphysics registers there for a
+  client environment is unread. *Next:* read the list on the real DLL through the probes, the oracle role D187 keeps.
+- **Harmless, the other ~70:** debugger-only values, fields with no reader, and the ball, phantom and virtual-terrain paths a
+  TF2 ragdoll never takes. Each of those throws rather than guesses.
+
+### B418 FIXED 2026-09-23: removing a corpse leaves its mindists queued, and one fires on a core with no unit
+
+**Fixed by porting the object's own destructor**, `FUN_180072e90` in `ivp_object.cxx`, reached from `FUN_180073700`'s last step
+through the polygon's vtable `0x1800fcf30`, slot 0. It does two things, in this order:
+
+1. **The hull manager is torn down** (`FUN_180094420`). The head listener's slot 2 is called until none is left:
+   - the broad-phase node deletes itself (`FUN_18009ec90` → `IvpBroadPhase.Delete`);
+   - a pair watcher is deleted (`FUN_1800b6180`);
+   - a mindist record deletes its mindist (`0x180097580`, read from the raw bytes because Ghidra holds no function there).
+
+   **This was the crash.** `Remove` refiles the object before tearing it down, which re-inserted its node, and without the
+   teardown the node stayed in the OV tree. A neighbour's next broad-phase pass paired with a body that was gone.
+2. **Every mindist still on the object's synapse list is deleted** through its own slot 0.
+
+Confirmed on screen by the owner (*"YES IT GOT THROUGH THE BUFF BANNER!!!! and its not crashing"*) and by the playback UI test:
+`z1800` from tick 3428 to 16468 at 8x in 112.4 s, passed. *The original entry follows.*
+
+### B418 as filed, 2026-09-22
+
+**Found by the new playback UI test** (`Transport_PlayAtEightTimes_AdvancesThroughTwentySecondsOfPlayback`), which plays
+`z1800` at 8x from its start: the viewer dies on
+`InvalidOperationException: A core the impact moved has no snapshot: its state 8, its unit's , immovable False, skips gravity
+False` at `IvpImpactIsland.Grow`, reached from `IvpSimulation.Collide`. Three runs out of three.
+
+**The core has no unit**, and `IvpSimulation.Remove` is the only place that clears one. So the core was already removed, and a
+pair event on one of its mindists fired afterwards. With no unit, `Wake` does nothing, the core stays at state 8,
+`BringToEvent` saves no snapshot, and `Build` grows it.
+
+**The missing step is the engine's fifth** (`docs/findings/51`, *Removing an object*): after the refile, the mindist walk and
+the contact walk, `FUN_180073700` dispatches the core's own vtable slot 0, its destructor. That destructor is unread. Our
+`Remove` carries steps 1 to 4 and relies on the neighbour re-derivation to kill every mindist, which leaves a queued one alive.
+*Next:* read the destructor in the disassembly, port it, and pin it with a conformance test.
+
+**Fixed on the way:** `IvpImpactIsland` tested only bit `0x2` where the engine's guard is `flags & 0x12`. A movable core
+carrying `0x10` (`SkipsGravity`) was grown with no snapshot (`Build_AMovableCoreCarryingBit0x10_IsNeitherGrownNorBroughtToTheEvent`).
+It was not this crash.
+
+### B417 FIXED 2026-09-22: a POV recorder spectating in-eye is still shown from his own eyes
 
 **Fixed the same day, on the owner's direction (D188).** `Followed` answers the recorder's `m_hObserverTarget` in-eye,
 and a POV demo's camera is the recorded view in every mode. The chase camera had been built behind the recorder's

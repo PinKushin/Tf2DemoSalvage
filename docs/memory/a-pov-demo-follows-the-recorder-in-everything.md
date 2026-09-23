@@ -12,6 +12,6 @@ A POV demo never lets the viewer choose the camera. It shows the recorded view (
 "Me" (the hidden body, the drawn viewmodel) is the recorder, or his `m_hObserverTarget` while he is `OBS_MODE_IN_EYE`.
 Deathcam, freezecam and chase change what is drawn, never where the view is. D128, D153, D188.
 
-**Why:** The owner, 2026-09-22: "POV demos dont allow you the viewer to change the camera at all it only follows whatever the player who recorded did." A chase camera built behind a dead recorder, and a first person that stayed in his eyes while he spectated someone, were both divergences (B416).
+**Why:** The owner, 2026-09-22: "POV demos dont allow you the viewer to change the camera at all it only follows whatever the player who recorded did." A chase camera built behind a dead recorder, and a first person that stayed in his eyes while he spectated someone, were both divergences (B417).
 
 **How to apply:** Anything that asks "whose view" on a POV demo goes through `SpectatorView.Followed`. Never build a camera from the recorder's entity on a POV demo. Related: [[sourcetv-has-a-local-player]], [[check-at-the-owners-moment]].

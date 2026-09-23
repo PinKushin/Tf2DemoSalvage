@@ -9158,9 +9158,40 @@ So:
 - **Licensing is settled by the owner.** What has been read, copied or decompiled has been checked as fair use. The rules
   for where decompiler output lives are about size, as `docs/DECOMPILING.md` already says.
 
+**Reopened and settled again, 2026-09-23.** The owner reopened it after the playback UI test found B418, a crash in the
+port's object removal: *"wait would just using the real physics.dll fix all this?"* The case for the DLL was real. It would
+remove this whole class of port bug, and the probes showed it replays deterministically: a box drop and a Soldier collision
+solid landing on a barrel over 660 ticks came out identical across two processes, apart from heap addresses.
+
+**What killed it is the testing the port exists to enable.** The owner: *"CI and the oracle box specifically are why this
+project even decided to go 'cross platform' … I can deal with winforms not working on linux, that doesnt cost all that many
+tests, but everything else i want to be able to be tested really."* TF2 ships `vphysics` only for x86-64, as a Windows
+`.dll` and a Linux `.so`. The measurement boxes are ARM64 Linux, where neither can load, and Stryker would have nothing of
+ours to mutate for physics. The DLL also cannot go in the repo (*"we CANT legally include the physics DLL in the repo"*),
+and fetching the dedicated server in CI covers x86-64 runners only. His ruling: *"that is a good reason to actually
+reverse this, despite the difficulty"*, meaning back to the port.
+
+So the port stays and its bugs are ours to chase. **The real DLL keeps one role**: an oracle on an x86-64 Windows machine,
+where a probe runs Valve's code beside ours for a disputed case. Never a production path.
+
+## D189 — the UI suite plays a demo; the merge gate is two phases again (2026-09-23)
+
+**The owner, asking where gate phase 3 came from:** *"why couldnt that be built into the UI tests?"*, then *"the demo doesnt
+have to be f12, the same thing would have happened on any demo, the UI suite just does no playing of the demo, so we can
+just add a playing test to the ui suite"*, and *"one session"*: the shared viewer, not a second process.
+
+So `build/playback-check.ps1` (B408's hang check) is gone, and
+`TransportUiTests.Transport_PlayAtEightTimes_AdvancesThroughTwentySecondsOfPlayback` replaces it:
+- **`z1800`, a real match, not an era specimen.** The owner: *"its a era specimin, z1800 is a real demo"*.
+- **At 8x.** The owner: *"it needed the fast forward to be found"*; its first run found B418.
+- **Speed set through automation, not the ladder or a key.** The owner: *"the playback test is also testing the speed
+  slider, when those should be seperate tests"*.
+
+The gate's third phase is folded into its second.
+
 ## D188 — a POV demo follows everything the recorder did, including whom he spectated (2026-09-22)
 
-**The owner, on B416** (a POV recorder spectating in-eye was still shown from his own eyes), verbatim: *"POV demos are
+**The owner, on B417** (a POV recorder spectating in-eye was still shown from his own eyes), verbatim: *"POV demos are
 suppose to run the cam the same way tf2 does, meaning you only ever see what the POV player who recorded sees, including
 the cams they choose to use and the player they choose to follow ... basically POV demos dont allow you the viewer to
 change the camera at all it only follows whatever the player who recorded did."*

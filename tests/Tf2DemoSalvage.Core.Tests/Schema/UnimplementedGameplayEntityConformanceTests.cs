@@ -165,6 +165,6 @@ public sealed class UnimplementedGameplayEntityConformanceTests
         player.ShouldContain("RecvPropInt		(RECVINFO(m_iObserverMode), 0, RecvProxy_ObserverMode )");
         player.ShouldContain("RecvPropEHandle	(RECVINFO(m_hObserverTarget), RecvProxy_ObserverTarget )");
 
-        // Decoded since B416, through `EntityState.Slot`: `RenderStateDecodeTests.ObserverTarget_*` pins the invalid handle.
+        // Decoded since B417, through `EntityState.Slot`: `RenderStateDecodeTests.ObserverTarget_*` pins the invalid handle.
     }
 }
