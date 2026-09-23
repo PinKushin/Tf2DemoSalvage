@@ -27050,7 +27050,12 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
-### B419 OPEN 2026-09-23: the physics port audited for gaps shaped like B418
+### B419 CLOSED 2026-09-23: the physics port audited for gaps shaped like B418
+
+**Phase 1 read on the real DLL, the same day:** `vphysics-drop` now prints the list. It holds **0 PSI listeners** in a live
+vphysics environment with a static slab and a dropped body. It is read at the offsets `RunPipeline` uses, off an environment
+pointer whose clock at `+0x188` matches every tick. So phase 1 does nothing there, and not porting it is parity. *Not
+established:* whether a game-side system registers one in TF2's own client environment; nothing this project builds would.
 
 **The owner, after B418:** *"audit the whole thing after fixing this bug, to find any more like it"*. B418's shape was an
 engine step the port documented as *not carried*, which mattered only once real objects went through it. So the audit
