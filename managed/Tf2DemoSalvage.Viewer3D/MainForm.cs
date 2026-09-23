@@ -4687,7 +4687,7 @@ internal class MainForm : Form, IFrameSteps
                 ? string.Create(
                     CultureInfo.InvariantCulture,
                     $"the ray misses the hitboxes, the hit {away:0.#} across from the networked origin, {impact.Origin.Z - struck.Z:0.#} up; " +
-                    $"the server's box {impact.HitBox} is {Gap(_models.HitboxGap(impact.Entity, impact.HitBox, new Vector3(impact.Origin.X, impact.Origin.Y, impact.Origin.Z)))}")
+                    $"the server's box {impact.HitBox} is {Gap(_models.HitboxGap(impact.Entity, impact.HitBox, new Vector3(impact.Origin.X, impact.Origin.Y, impact.Origin.Z)))}; {StateOf(struck)}")
                 : "not posed");
         }
 
@@ -4780,6 +4780,18 @@ internal class MainForm : Form, IFrameSteps
                 CultureInfo.InvariantCulture,
                 $"{g.Outside:0.#} outside it, ({g.FromCentre.X:0.#} {g.FromCentre.Y:0.#} {g.FromCentre.Z:0.#}) from its centre in its bone's frame")
             : "not posed here";
+
+    /// <summary>What a struck player's pose was built from, for a decal that missed him: the questions a 30-unit gap asks.</summary>
+    private string StateOf(ScenePlayer struck)
+    {
+        string crouch = struck.IsCrouched ? "crouched" : "standing";
+        string air = struck.IsAirborne ? "airborne" : "grounded";
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"he is {crouch}, {air}, duck-jump offset {_models.DuckJumpOffsetOf(struck.EntityIndex) ?? 0f:0.#}, " +
+            $"frame {_models.FrameOf(struck.EntityIndex)?.ToString() ?? "none"}");
+    }
 
     /// <summary>The player an impact names, when it is one playing now.</summary>
     private static ScenePlayer? Holder(IReadOnlyList<ScenePlayer> players, int entity)

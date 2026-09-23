@@ -90,19 +90,36 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void AirborneJumps_WhateverElseIsTrue()
+    public void For_JumpingWhateverElseIsTrue_Jumps()
     {
-        // HandleJumping is asked first and returns true, so nothing below it can win. Tested with
-        // crouch and movement both set, because that is the combination that would expose an
-        // implementation ordering the checks by convenience.
-        PlayerActivityState.For(0, Running, waistDeep: false, alive: true)
+        // HandleJumping is asked first and returns true while `m_bJumping`, so nothing below it can win. Tested with
+        // crouch and movement both set, because that is the combination that would expose an implementation ordering
+        // the checks by convenience.
+        PlayerActivityState.For(0, Running, waistDeep: false, alive: true, airborneSeconds: 1f)
             .ShouldBe(PlayerActivity.Jump);
 
-        PlayerActivityState.For(Ducking, Running, waistDeep: false, alive: true)
+        PlayerActivityState.For(Ducking, Running, waistDeep: false, alive: true, airborneSeconds: 1f)
             .ShouldBe(PlayerActivity.Jump);
+    }
 
-        PlayerActivityState.For(0, Still, waistDeep: false, alive: true)
-            .ShouldBe(PlayerActivity.Jump);
+    [Test]
+    public void For_AirborneWithoutAJumpEvent_CrouchesOrRuns()
+    {
+        // **Off the ground is not a jump.** `m_bJumping` is set only by PLAYERANIMEVENT_JUMP
+        // (`multiplayer_animstate.cpp:288`), so a rocket jump or a step off a ledge falls through HandleJumping to
+        // HandleDucking — the tucked crouch — or to HandleMoving. Drawing the jump there put a crouched rocket-jumper's
+        // pelvis 30-45 units from the server's hitbox (f12 ticks 14252, 16756).
+        PlayerActivityState.For(Ducking, Running, waistDeep: false, alive: true, airborneSeconds: null)
+            .ShouldBe(PlayerActivity.CrouchWalk);
+
+        PlayerActivityState.For(Ducking, Still, waistDeep: false, alive: true, airborneSeconds: null)
+            .ShouldBe(PlayerActivity.CrouchIdle);
+
+        PlayerActivityState.For(0, Running, waistDeep: false, alive: true, airborneSeconds: null)
+            .ShouldBe(PlayerActivity.Run);
+
+        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: null)
+            .ShouldBe(PlayerActivity.StandIdle);
     }
 
     [Test]
@@ -164,16 +181,6 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void PlayerActivity_AnUnknownAirborneTime_Floats()
-    {
-        // Null is "cannot tell", not "just left the ground". The float is what a jump spends most
-        // of its time in and is what this drew before the phases existed, so an absent clock keeps
-        // the previous behaviour rather than making every airborne player launch repeatedly.
-        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: null)
-            .ShouldBe(PlayerActivity.Jump);
-    }
-
-    [Test]
     public void PlayerActivity_TheJumpPhases_HaveTheirOwnNames()
     {
         // The land is deliberately not here: ACT_MP_JUMP_LAND is started with
@@ -193,10 +200,10 @@ public sealed class PlayerActivityStateTests
         // HandleJumping clears the jump the moment the water reaches the waist, before it can
         // return true. So a player who leaps into water swims rather than falling with their legs
         // tucked, which is what a naive "not on the ground means jumping" would draw.
-        PlayerActivityState.For(0, Still, waistDeep: true, alive: true)
+        PlayerActivityState.For(0, Still, waistDeep: true, alive: true, airborneSeconds: 1f)
             .ShouldBe(PlayerActivity.SwimIdle);
 
-        PlayerActivityState.For(0, Running, waistDeep: true, alive: true)
+        PlayerActivityState.For(0, Running, waistDeep: true, alive: true, airborneSeconds: 1f)
             .ShouldBe(PlayerActivity.Swim);
     }
 
@@ -209,10 +216,10 @@ public sealed class PlayerActivityStateTests
         // shallow puddle keeps running.
         PlayerActivityState.WaistDeepWaterLevel.ShouldBe(2);
 
-        PlayerActivityState.For(0, Still, waistDeep: false, alive: true)
+        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: 1f)
             .ShouldBe(PlayerActivity.Jump, "feet in water is not swimming; this is still a jump");
 
-        PlayerActivityState.For(0, Still, waistDeep: true, alive: true)
+        PlayerActivityState.For(0, Still, waistDeep: true, alive: true, airborneSeconds: 1f)
             .ShouldBe(PlayerActivity.SwimIdle);
     }
 
