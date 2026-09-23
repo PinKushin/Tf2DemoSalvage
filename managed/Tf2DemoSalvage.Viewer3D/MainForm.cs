@@ -4854,6 +4854,7 @@ internal class MainForm : Form, IFrameSteps
         _modelDecalTick = start;
         _replayingModelDecals = true;
         _models.HoldsCorpses = true;
+        _moments.PlayersOnly = true;
 
         long began = Stopwatch.GetTimestamp();
 
@@ -4896,6 +4897,7 @@ internal class MainForm : Form, IFrameSteps
         {
             _replayingModelDecals = false;
             _models.HoldsCorpses = false;
+            _moments.PlayersOnly = false;
         }
 
         _renderLog.LogInformation(
@@ -4955,7 +4957,8 @@ internal class MainForm : Form, IFrameSteps
 
         foreach (ShotImpact bullet in _loaded?.Impacts ?? [])
         {
-            if (!bullet.FromServer && !bullet.BrushOnly && bullet.Tick > start && bullet.Tick < target)
+            if (!bullet.FromServer && !bullet.BrushOnly && bullet.Tick > start && bullet.Tick < target &&
+                PassesAnEnemy(bullet, timeline.PlayersAt(bullet.Tick)))
             {
                 Land(bullet.Tick);
             }
@@ -4964,11 +4967,95 @@ internal class MainForm : Form, IFrameSteps
         return needed;
     }
 
-    /// <summary>The latest tick before <paramref name="target"/> at which no decal on anyone playing then could survive.</summary>
-    private static int OldestDecalLife(DemoTimeline timeline, int target)
+    /// <summary>How near a bullet's path must come to a player's hull centre to be able to reach his hitboxes, in units.</summary>
+    /// <remarks>
+    /// A player's hitboxes lie inside his hull, whose corners are 53 units from its centre (24 across, 41 up); the rest
+    /// covers a limb or a hat reaching past it. Generous on purpose: a bullet let through is only posed for nothing.
+    /// </remarks>
+    private const float ReachOfAPlayer = 72f;
+
+    /// <summary>
+    /// Whether a bullet's path passes close enough to an enemy to hit his hitboxes — decided from the demo's origins,
+    /// without posing, so the replay poses only for bullets that could leave a decal. `FireBullet` decals only an
+    /// entity not on the shooter's team (`tf_player_shared.cpp:10524`).
+    /// </summary>
+    private static bool PassesAnEnemy(ShotImpact bullet, IReadOnlyList<ScenePlayer> players)
+    {
+        foreach (ScenePlayer player in players)
+        {
+            if (Reaches(bullet, player))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether a bullet could decal this player: he is a living enemy and its path passes within reach of him.</summary>
+    private static bool Reaches(ShotImpact bullet, ScenePlayer player)
+    {
+        if (!player.IsAlive || player.Team == bullet.Team)
+        {
+            return false;
+        }
+
+        Vector3 from = new(bullet.Start.X, bullet.Start.Y, bullet.Start.Z);
+        Vector3 path = new Vector3(bullet.End.X, bullet.End.Y, bullet.End.Z) - from;
+        float length = path.LengthSquared();
+        Vector3 centre = new(player.X, player.Y, player.Z + 41f);
+        float along = length > 0f ? Math.Clamp(Vector3.Dot(centre - from, path) / length, 0f, 1f) : 0f;
+
+        return Vector3.DistanceSquared(from + (path * along), centre) <= ReachOfAPlayer * ReachOfAPlayer;
+    }
+
+    /// <summary>Where a seek's replay must start: just before the earliest landing that could still show on someone.</summary>
+    /// <remarks>
+    /// **A landing matters only if it came after its victim's last wipe** (<see cref="WipesDecals"/>): anything before
+    /// that is gone however it landed. So each player's last wipe is found walking back from the target, then the
+    /// earliest server impact or client bullet that could have reached him after it — less the warm-up its pose needs.
+    /// Players nobody could have hit since their wipe do not hold the replay back at all.
+    /// </remarks>
+    private int OldestDecalLife(DemoTimeline timeline, int target)
     {
         int floor = Math.Max(0, target - ModelDecalLookbackTicks);
+        Dictionary<int, int> wipedAt = LastWipes(timeline, target, floor);
+        int earliest = target;
+
+        foreach ((int _, SceneEffectDispatch impact) in EntityImpacts(timeline))
+        {
+            if (impact.Tick < earliest && impact.Tick < target &&
+                wipedAt.TryGetValue(impact.Entity, out int wiped) && impact.Tick > wiped)
+            {
+                earliest = impact.Tick;
+            }
+        }
+
+        foreach (ShotImpact bullet in _loaded?.Impacts ?? [])
+        {
+            if (bullet.FromServer || bullet.BrushOnly || bullet.Tick >= earliest || bullet.Tick <= floor)
+            {
+                continue;
+            }
+
+            foreach (ScenePlayer player in timeline.PlayersAt(bullet.Tick))
+            {
+                if (wipedAt.TryGetValue(player.EntityIndex, out int wiped) && bullet.Tick > wiped && Reaches(bullet, player))
+                {
+                    earliest = bullet.Tick;
+                    break;
+                }
+            }
+        }
+
+        return Math.Max(floor, earliest - ModelDecalWarmupTicks - 1);
+    }
+
+    /// <summary>Each player's last decal wipe before the target — or the floor, when none is found that far back.</summary>
+    private static Dictionary<int, int> LastWipes(DemoTimeline timeline, int target, int floor)
+    {
         Dictionary<int, ScenePlayer> later = [];
+        Dictionary<int, int> wipedAt = [];
         HashSet<int> open = [];
 
         foreach (ScenePlayer player in timeline.PlayersAt(target))
@@ -4976,6 +5063,7 @@ internal class MainForm : Form, IFrameSteps
             if (player.IsAlive && player.IsPlaying)
             {
                 later[player.EntityIndex] = player;
+                wipedAt[player.EntityIndex] = floor;
                 open.Add(player.EntityIndex);
             }
         }
@@ -4992,18 +5080,14 @@ internal class MainForm : Form, IFrameSteps
                 if (!player.IsAlive || WipesDecals(player, later[player.EntityIndex]))
                 {
                     open.Remove(player.EntityIndex);
-
-                    if (open.Count == 0)
-                    {
-                        return tick;
-                    }
+                    wipedAt[player.EntityIndex] = tick;
                 }
 
                 later[player.EntityIndex] = player;
             }
         }
 
-        return floor;
+        return wipedAt;
     }
 
     /// <summary>Which of a model's vertices its body number draws, as the model pass chooses body parts.</summary>
