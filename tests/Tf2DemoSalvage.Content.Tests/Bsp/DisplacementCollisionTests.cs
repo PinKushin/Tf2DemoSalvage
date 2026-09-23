@@ -205,6 +205,35 @@ public sealed class DisplacementCollisionTests
         fraction.ShouldBe(1f, "eight thousand units above the ground there is no terrain to hit");
     }
 
+    /// <remarks>
+    /// engine.dll `FUN_18016f290`, the displacement half of a trace: a hit names `**displacement**` and takes its
+    /// `surfaceProps` from slot 1 when the struck triangle carries `DISPSURF_FLAG_SURFPROP2`, else slot 0.
+    /// `CDispCollTree::Create` (`dispcoll_common.cpp:379`) sets that flag where the triangle's three vertex alphas sum
+    /// past `DISP_ALPHA_PROP_DELTA`, 382.5 — above 1.5 in alpha scaled to one.
+    /// </remarks>
+    [Test]
+    public void SweepSurface_OntoABlendedTriangle_NamesItsTexdataAndSecondSurfaceProp()
+    {
+        // Two triangles over one square at z = 0: the first painted (alphas 1, 1, 0.6 — sum 2.6), the second not.
+        DisplacementCollision collision = DisplacementCollision.FromTriangles(
+        [
+            (7, (IReadOnlyList<SurfaceVertex>)
+            [
+                new(0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f), new(100f, 0f, 0f, 0f, 0f, 0f, 0f, 1f), new(0f, 100f, 0f, 0f, 0f, 0f, 0f, 0.6f),
+                new(100f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), new(100f, 100f, 0f, 0f, 0f, 0f, 0f, 0f), new(0f, 100f, 0f, 0f, 0f, 0f, 0f, 0.4f),
+            ]),
+        ]);
+
+        (float fraction, int texdata, bool second) = collision.SweepSurface(10f, 10f, 50f, 10f, 10f, -50f, 1f);
+
+        fraction.ShouldBe(0.49f, 0.001f);
+        texdata.ShouldBe(7);
+        second.ShouldBeTrue();
+
+        collision.SweepSurface(90f, 90f, 50f, 90f, 90f, -50f, 1f).SurfaceProp2.ShouldBeFalse();
+        collision.SweepSurface(500f, 500f, 50f, 500f, 500f, -50f, 1f).Texdata.ShouldBe(-1);
+    }
+
     [Test]
     public void Sweep_WithNoDisplacements_IsAlwaysClear()
     {

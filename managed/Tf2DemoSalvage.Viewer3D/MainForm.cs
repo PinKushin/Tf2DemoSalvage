@@ -4807,8 +4807,10 @@ internal class MainForm : Form, IFrameSteps
     private static BulletLanding? WorldLanding(
         ShotImpact impact, ImpactDecals decals, Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps surfaces)
     {
-        if (decals.Surface(impact) is not { } surface ||
-            (surface.Flags & (Tf2DemoSalvage.Content.Bsp.SurfaceProperties.Sky | Tf2DemoSalvage.Content.Bsp.SurfaceProperties.NoDraw)) != 0)
+        // Terrain's `surface.flags` is 0 (engine.dll `FUN_18016f290`): never sky, never nodraw.
+        if (impact.DisplacementTexdata < 0 &&
+            (decals.Surface(impact) is not { } surface ||
+             (surface.Flags & (Tf2DemoSalvage.Content.Bsp.SurfaceProperties.Sky | Tf2DemoSalvage.Content.Bsp.SurfaceProperties.NoDraw)) != 0))
         {
             return null;
         }
@@ -6055,6 +6057,9 @@ internal class MainForm : Form, IFrameSteps
 
     private readonly Footsteps _footsteps = new();
 
+    /// <summary>The last ground trace, for the footstep log.</summary>
+    private BspTrace _lastGround;
+
     /// <summary>Players at the shown moment, for the events that name one; reused.</summary>
     private readonly List<ScenePlayer> _eventPlayers = [];
 
@@ -6114,7 +6119,7 @@ internal class MainForm : Form, IFrameSteps
                         string who = stepper is { } s
                             ? string.Create(
                                 CultureInfo.InvariantCulture,
-                                $"speed {s.Speed:0} of max {s.MaxSpeed}, flags {s.Flags}, water {s.WaterLevel}, ground {ground?.Material} {ground?.Right}, {Vector3.Distance(eye, new Vector3(s.X, s.Y, s.Z)):0} from the camera")
+                                $"speed {s.Speed:0} of max {s.MaxSpeed}, flags {s.Flags}, water {s.WaterLevel}, ground {ground?.Material} {ground?.Right}, {Vector3.Distance(eye, new Vector3(s.X, s.Y, s.Z)):0} from the camera, trace {_lastGround.Fraction:0.000} texinfo {_lastGround.Texinfo} terrain {_lastGround.DisplacementTexdata}")
                             : "no player at the shown moment";
 
                         _renderLog.LogDebug(
@@ -6162,7 +6167,9 @@ internal class MainForm : Form, IFrameSteps
         (float X, float Y, float Z) from = (player.X, player.Y, player.Z + HullHalfWidth);
         BspTrace trace = level.Trace(from, (from.X, from.Y, from.Z - GroundProbe), HullHalfWidth);
 
-        return trace.Fraction >= 1f ? null : SurfaceAt(decals.SurfacePropOfTexinfo(trace.Texinfo));
+        _lastGround = trace;
+
+        return trace.Fraction >= 1f ? null : SurfaceAt(decals.SurfacePropOfTrace(trace));
     }
 
     private StepSurface? NamedSurface(string name) =>

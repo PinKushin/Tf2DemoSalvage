@@ -129,10 +129,12 @@ public sealed record MapLevel(
             ? tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent)
             : new BspTrace(1f, -1, default, false);
 
-        float terrain = Displacements.Sweep(
+        (float terrain, int texdata, bool second) = Displacements.SweepSurface(
             from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent);
 
-        return terrain < brushes.Fraction ? new BspTrace(terrain, -1, default, false) : brushes;
+        return terrain < brushes.Fraction
+            ? new BspTrace(terrain, -1, default, false, DisplacementTexdata: texdata, SurfaceProp2: second)
+            : brushes;
     }
 
     /// <summary>How to decide what of this map's world to draw, or null when it cannot be decided.</summary>
