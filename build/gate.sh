@@ -1933,5 +1933,6 @@ run Tf2DemoSalvage.Rendering.Tests rendering 781
 run Tf2DemoSalvage.Viewer3D.Tests viewer    109
 
 echo
-echo "Phase 2 is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."
-echo "  pwsh run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests   # includes playing z1800 at 8x (B408, B418)"
+echo "Phases 2 and 3 are NOT run here: they take over the desktop and belong inside run-exclusive.ps1."
+echo "  pwsh run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests"
+echo "  pwsh run-exclusive.ps1 pwsh -NoProfile -File build/playback-check.ps1   # plays a real demo (B408)"

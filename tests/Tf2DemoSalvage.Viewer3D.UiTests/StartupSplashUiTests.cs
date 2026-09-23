@@ -6,7 +6,6 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// MPF do just naturally."* The launcher watches the process's top-level windows until the main one appears, and says whether the
 /// splash was among them.
 /// </remarks>
-[Order(UiFixtureOrder.StartupSplash)]
 public sealed class StartupSplashUiTests
 {
     /// <remarks>

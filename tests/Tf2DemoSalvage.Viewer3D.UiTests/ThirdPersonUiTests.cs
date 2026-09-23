@@ -23,7 +23,6 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// third person". A chase camera that still drew the weapon would be the same class of defect as the
 /// one this branch exists to fix, arriving from the opposite direction.
 /// </remarks>
-[Order(UiFixtureOrder.ThirdPerson)]
 public sealed class ThirdPersonUiTests
 {
     private static ViewerApplication Viewer => ViewerSession.App;

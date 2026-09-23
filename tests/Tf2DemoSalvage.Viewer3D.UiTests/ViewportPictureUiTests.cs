@@ -25,7 +25,6 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// so this is a UI test and takes the desktop.
 /// </remarks>
 [TestFixture]
-[Order(UiFixtureOrder.ViewportPicture)]
 public sealed class ViewportPictureUiTests
 {
     /// <summary>Where a viewer launched by this suite writes its captures.</summary>

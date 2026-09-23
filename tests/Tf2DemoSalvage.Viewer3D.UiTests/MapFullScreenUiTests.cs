@@ -27,7 +27,6 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// <c>run-exclusive.ps1</c>.
 /// </remarks>
 [TestFixture]
-[Order(UiFixtureOrder.MapFullScreen)]
 public sealed class MapFullScreenUiTests
 {
     /// <summary>What the viewer logs when it decodes and uploads a map's textures.</summary>

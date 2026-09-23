@@ -45,7 +45,6 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// skip it and a local run would pay about two minutes. That repro is written down in B386 instead of
 /// being bought here. What this test does catch is the B196 class: the option silently doing nothing.
 /// </remarks>
-[Order(UiFixtureOrder.Capture)]
 public sealed class CaptureUiTests
 {
     /// <summary>The cheapest committed specimen that still exercises a real map and a real capture.</summary>

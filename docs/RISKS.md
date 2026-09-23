@@ -27063,7 +27063,7 @@ for the whole call. What remains is `_particles.Build` and `_sprites.Build`. So 
 particle or sprite state that a backward seek does not clear. *Not established:* what it is, and what the engine clears on
 a seek. A user who plays and then seeks back keeps the slow frame.
 
-The UI suite no longer inherits it: the playback test runs last and seeks back to `ViewerSession.OpeningTick` (D189).
+The UI suite that found it no longer plays a demo (D189, reverted; the attempt is on `ref/playback-ui-test`).
 
 ### B419 CLOSED 2026-09-23: the physics port audited for gaps shaped like B418
 

@@ -20,7 +20,6 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// back into.
 /// </remarks>
 [TestFixture]
-[Order(UiFixtureOrder.Transport)]
 public sealed class TransportUiTests
 {
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
