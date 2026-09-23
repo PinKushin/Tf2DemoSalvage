@@ -13,6 +13,11 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <remarks>
 /// **Through `ServerImpacts.OnEntities`, the viewer's own selection** (B243), counted per entity, then the ticks with the
 /// most hits and a camera line placed back along the first one's shot.
+///
+/// **On TF2 these are crossbow bolts, not bullets**: `CTFProjectile_Arrow` traces a "blood mesh decal" from
+/// `vecOrigin - vecVelocity * frametime` (`tf_projectile_arrow.cpp:553`), so the shot is about 31 units long on f12 (median
+/// of 233) and its start is the bolt's, not a shooter's eye. Bullet blood on players is the client's own (`FireBullet`'s
+/// server `bDoEffects` is false).
 /// </remarks>
 public sealed class EntityImpactProbe : IProbe
 {
@@ -61,7 +66,7 @@ public sealed class EntityImpactProbe : IProbe
 
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"tick {hit.Tick} entity {hit.Entity} ({who}) hitbox {hit.HitBox} surfaceprop {hit.SurfaceProp} team {hit.DamageType} at ({at.X:0} {at.Y:0} {at.Z:0})  TF2VIEW_CAMERA=\"{back.X:0} {back.Y:0} {back.Z:0} {pitch:0} {yaw:0}\""));
+                $"tick {hit.Tick} entity {hit.Entity} ({who}) shot {(at - start).Length():0} long, hitbox {hit.HitBox} surfaceprop {hit.SurfaceProp} team {hit.DamageType} at ({at.X:0} {at.Y:0} {at.Z:0})  TF2VIEW_CAMERA=\"{back.X:0} {back.Y:0} {back.Z:0} {pitch:0} {yaw:0}\""));
         }
     }
 }

@@ -27495,6 +27495,13 @@ not read; the Ghidra engine project was locked.
   real TF2 through the `tf2` MCP server: Beleleu at f12 tick 26303. Stock TF2 wipes a player's decals on any
   heal to full (`c_tf_player.cpp:4474`), so 128 of f12's 232 hits show for only ticks — `lasting-blood` finds
   the ones that stay.
+- **The server's entity impacts are crossbow bolts, and their ray is right** (read 2026-09-23). The shot is
+  ~31 units (median of 233 on f12) because `CTFProjectile_Arrow` traces its blood decal from
+  `vecOrigin - vecVelocity * frametime` (`tf_projectile_arrow.cpp:553`), not from an eye; `FireBullet`'s
+  server `bDoEffects` is false and the melee `UTIL_ImpactTrace` is `CLIENT_DLL`, so neither reaches a demo.
+  `m_nDamageType` is 0, so `ImpactCallback` decals a teammate a heal bolt hits (`tf_fx_impacts.cpp:35`), as we
+  do. What remains below is therefore our POSE: measured 2026-09-23 from 13800 for 90 s, 65 placed, 3 ray
+  misses (18.4, 33.4 and 30.2 units outside the server's box — the last two on box 1), 2 no triangle.
 - **Blood can land slightly off the mesh.** Hits land 3–18 units outside the server's own hitbox on
   our pose. This waits on the in-game check: tick 13944 gummo, 14252 abelll, with
   `entity-impacts <demo> n 13800`.
