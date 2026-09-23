@@ -158,4 +158,5 @@
 - [A POV demo follows the recorder in everything](a-pov-demo-follows-the-recorder-in-everything.md) — recorded camera always; in-eye, "me" is his target (D188).
 - [One run at a time](one-run-at-a-time.md) — never loop a viewer or UI test; read each result first.
 - [Play fast to find lifecycle bugs](play-fast-to-find-lifecycle-bugs.md) — z1800 at 8x in the shared session; found B418.
+- [Driving TF2 demo playback](driving-tf2-demo-playback.md) — no rewind; pause kills RCON; jpeg needs a rendered frame.
 - [lcor is not in a worktree](lcor-is-not-in-a-worktree.md) — git-ignored; use the main checkout's absolute path.

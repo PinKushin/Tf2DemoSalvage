@@ -2517,6 +2517,8 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
+        ReplayModelDecals((int)tick);
+
         // **`EnsureWeaponRoles()` was called here until 2026-08-26** (B188, D90). It was the last
         // non-view work in the frame path: one line reaching for `_timeline` and `_game` on every
         // frame, to keep `MomentScene.Appearance` current. `MomentPresenter` asks
@@ -4466,7 +4468,23 @@ internal class MainForm : Form, IFrameSteps
     private int _modelDecalTick = int.MinValue;
 
     /// <summary>Each player's state at the last step, for the changes that clear its decals.</summary>
-    private readonly Dictionary<int, (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass)> _decalHolders = [];
+    private readonly Dictionary<int, ScenePlayer> _decalHolders = [];
+
+    /// <summary>A jump further than this replays the model decals it passed over; a second of demo.</summary>
+    /// <remarks>
+    /// Past the per-frame <see cref="ModelDecalArrivalTicks"/> on purpose: at 8x a frame advances about nine ticks, and
+    /// replaying on every frame of fast playback would redo work the ordinary step already does.
+    /// </remarks>
+    private const int ModelDecalSeekTicks = 66;
+
+    /// <summary>
+    /// How far back a seek's replay may start: two minutes. *Interpolated:* no life in f12 keeps a decal that long (the
+    /// full heal on spawn wipes every one); ponytail: raise it if a demo shows a decal older than this surviving.
+    /// </summary>
+    private const int ModelDecalLookbackTicks = 66 * 120;
+
+    /// <summary>True while a seek replays the ticks it skipped, so nothing heard is emitted and nothing re-enters.</summary>
+    private bool _replayingModelDecals;
 
     /// <summary>Puts every server impact on a player since the last step onto that player's model (B415).</summary>
     /// <remarks>
@@ -4754,7 +4772,8 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Plays one of the client's own bullets where it landed (B415).</summary>
     private void EmitLanding(ShotImpact bullet, BulletLanding? landing)
     {
-        if (landing is { } l && _sound.Scripts is { } scripts)
+        // A seek's replay reaches bullets that landed seconds ago; TF2's fast-forward is heard no more than ours.
+        if (!_replayingModelDecals && landing is { } l && _sound.Scripts is { } scripts)
         {
             foreach (SceneSound sound in ImpactSounds.For(l, ImpactSounds.SeedFor((bullet.Shot * 32) + bullet.Bullet), scripts.Entries))
             {
@@ -4788,21 +4807,109 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`RemoveAllDecals` where `C_TFPlayer` calls it: full heal, übercharge, new model, cloak, new disguise class.</summary>
     private void ClearOnChange(ScenePlayer player)
     {
-        (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass) now =
-            (player.Health, player.PlayerClass, player.Conditions.IsStealthed, player.DisguiseClass);
-
-        if (_decalHolders.TryGetValue(player.EntityIndex, out (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass) was))
+        if (_decalHolders.TryGetValue(player.EntityIndex, out ScenePlayer was) && WipesDecals(was, player))
         {
-            bool healed = now.Health > was.Health && now.Health >= player.MaxHealth;
+            _modelDecals.Clear(player.EntityIndex);
+        }
 
-            if (healed || player.Conditions.IsInvulnerable || now.PlayerClass != was.PlayerClass ||
-                (now.Stealthed && !was.Stealthed) || now.DisguiseClass != was.DisguiseClass)
+        _decalHolders[player.EntityIndex] = player;
+    }
+
+    /// <summary>Whether going from one state of a player to the next makes `C_TFPlayer` call `RemoveAllDecals`.</summary>
+    private static bool WipesDecals(ScenePlayer was, ScenePlayer now) =>
+        (now.Health > was.Health && now.Health >= now.MaxHealth) || now.Conditions.IsInvulnerable ||
+        now.PlayerClass != was.PlayerClass || (now.Conditions.IsStealthed && !was.Conditions.IsStealthed) ||
+        now.DisguiseClass != was.DisguiseClass;
+
+    /// <summary>
+    /// After a seek, runs the scene forward over the ticks it skipped so their impacts land on the poses they met — what
+    /// TF2 does, since it cannot seek at all: it replays the demo up to the tick (`demo_gototick`).
+    /// </summary>
+    /// <remarks>
+    /// **Bounded by the decals that could still be on a model**: the replay starts at the latest tick where every player
+    /// playing at the target had his decals wiped (<see cref="WipesDecals"/>) or was not yet alive, so nothing earlier can
+    /// show. Each tick is a full <see cref="ShowMoment"/> and <see cref="StepModelDecals"/>, the same path playback takes.
+    /// </remarks>
+    private void ReplayModelDecals(int target)
+    {
+        if (_replayingModelDecals || _timeline is not { } timeline || _device is null ||
+            (_modelDecalTick != int.MinValue && target >= _modelDecalTick && target - _modelDecalTick <= ModelDecalSeekTicks))
+        {
+            return;
+        }
+
+        int start = OldestDecalLife(timeline, target);
+
+        _modelDecals.ClearAll();
+        _decalHolders.Clear();
+        _modelDecalTick = start;
+        _replayingModelDecals = true;
+
+        long began = Stopwatch.GetTimestamp();
+
+        try
+        {
+            for (int tick = start + 1; tick < target; tick++)
             {
-                _modelDecals.Clear(player.EntityIndex);
+                ShowMoment(tick);
+
+                // No frustum: `CModelRender::AddDecal` sets up bones for a player whether or not he is in view.
+                _moments.PoseNow();
+                StepModelDecals(tick);
+            }
+        }
+        finally
+        {
+            _replayingModelDecals = false;
+        }
+
+        _renderLog.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"model decals: a seek to {target} replayed ticks {start}-{target - 1} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms; {_modelDecals.Count} held"));
+    }
+
+    /// <summary>The latest tick before <paramref name="target"/> at which no decal on anyone playing then could survive.</summary>
+    private static int OldestDecalLife(DemoTimeline timeline, int target)
+    {
+        int floor = Math.Max(0, target - ModelDecalLookbackTicks);
+        Dictionary<int, ScenePlayer> later = [];
+        HashSet<int> open = [];
+
+        foreach (ScenePlayer player in timeline.PlayersAt(target))
+        {
+            if (player.IsAlive && player.IsPlaying)
+            {
+                later[player.EntityIndex] = player;
+                open.Add(player.EntityIndex);
             }
         }
 
-        _decalHolders[player.EntityIndex] = now;
+        for (int tick = target - 1; tick > floor && open.Count > 0; tick--)
+        {
+            foreach (ScenePlayer player in timeline.PlayersAt(tick))
+            {
+                if (!open.Contains(player.EntityIndex))
+                {
+                    continue;
+                }
+
+                if (!player.IsAlive || WipesDecals(player, later[player.EntityIndex]))
+                {
+                    open.Remove(player.EntityIndex);
+
+                    if (open.Count == 0)
+                    {
+                        return tick;
+                    }
+                }
+
+                later[player.EntityIndex] = player;
+            }
+        }
+
+        return floor;
     }
 
     /// <summary>Which of a model's vertices its body number draws, as the model pass chooses body parts.</summary>

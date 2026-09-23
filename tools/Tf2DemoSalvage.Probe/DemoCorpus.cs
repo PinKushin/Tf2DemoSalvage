@@ -132,6 +132,12 @@ public static class DemoCorpus
     {
         ArgumentNullException.ThrowIfNull(fragment);
 
+        // A path to a file is that file: a worktree has no lcor, so the main checkout's copy is named outright.
+        if (File.Exists(fragment))
+        {
+            return Path.GetFullPath(fragment);
+        }
+
         return Files(log).FirstOrDefault(
             file => Path.GetFileName(file).Contains(fragment, StringComparison.Ordinal));
     }
