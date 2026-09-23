@@ -80,7 +80,7 @@ internal static class VphysicsSurfaceData
 
         SurfacePhysicsParams staging = props.GetIVPMaterial(start)?.Physics ?? default;
         int game = props.GetIVPMaterial(start)?.GameMaterial ?? 0;
-        string? bullet = props.GetIVPMaterial(start)?.BulletImpactSound;
+        SurfaceSoundNames sounds = props.GetIVPMaterial(start)?.Sounds ?? default;
 
         do
         {
@@ -89,19 +89,25 @@ internal static class VphysicsSurfaceData
             switch (key)
             {
                 case "}":
-                    Close(props, name, staging, game, bullet);
+                    Close(props, name, staging, game, sounds);
                     return;
                 case "base":
                     if (props.GetIVPMaterial(props.GetSurfaceIndex(value)) is { } based)
                     {
                         staging = based.Physics;
                         game = based.GameMaterial;
-                        bullet = based.BulletImpactSound;
+                        sounds = based.Sounds;
                     }
 
                     break;
                 case "bulletimpact":
-                    bullet = value;
+                    sounds = sounds with { BulletImpact = value };
+                    break;
+                case "stepleft":
+                    sounds = sounds with { StepLeft = value };
+                    break;
+                case "stepright":
+                    sounds = sounds with { StepRight = value };
                     break;
 
                 // `FUN_180018740`: a one-character value that is not a digit is `toupper`'d — the key parser lowercased it —
@@ -133,13 +139,13 @@ internal static class VphysicsSurfaceData
         while (at >= 0);
     }
 
-    private static void Close(VphysicsSurfaceProps props, string name, SurfacePhysicsParams staging, int game, string? bullet)
+    private static void Close(VphysicsSurfaceProps props, string name, SurfacePhysicsParams staging, int game, SurfaceSoundNames sounds)
     {
         int index = props.GetSurfaceIndex(name);
 
         if (index < 0)
         {
-            props.Add(new VphysicsSurface(name, staging, false) { GameMaterial = game, BulletImpactSound = bullet });
+            props.Add(new VphysicsSurface(name, staging, false) { GameMaterial = game, Sounds = sounds });
             return;
         }
 
@@ -148,7 +154,7 @@ internal static class VphysicsSurfaceData
 
         props.Replace(
             target,
-            new VphysicsSurface(target.Name, staging, target.HasSecondFriction) { GameMaterial = game, BulletImpactSound = bullet });
+            new VphysicsSurface(target.Name, staging, target.HasSecondFriction) { GameMaterial = game, Sounds = sounds });
     }
 
     /// <summary>The C runtime's `atoi`: leading whitespace, a sign, digits, stopping at the first other character.</summary>

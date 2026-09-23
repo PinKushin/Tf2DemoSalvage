@@ -41,12 +41,21 @@ public sealed class VphysicsSurface(string name, SurfacePhysicsParams physics, b
     /// </summary>
     public int GameMaterial { get; init; }
 
+    /// <summary>`surfacesoundnames_t`: the script sounds this surface names, each null when no block or <c>base</c> set it.</summary>
+    public SurfaceSoundNames Sounds { get; init; }
+
     /// <summary>
     /// `surfacesoundnames_t.bulletImpact`, the <c>bulletimpact</c> key — the script sound `PlayImpactSound` plays where a
-    /// bullet lands (B415). Null when no block or <c>base</c> ever set one.
+    /// bullet lands (B415).
     /// </summary>
-    public string? BulletImpactSound { get; init; }
+    public string? BulletImpactSound => Sounds.BulletImpact;
 }
+
+/// <summary>The script sounds a surface names — the keys of `surfacesoundnames_t` this viewer plays.</summary>
+/// <param name="StepLeft">`stepleft`, what `PlayStepSound` plays for the left foot.</param>
+/// <param name="StepRight">`stepright`, for the right.</param>
+/// <param name="BulletImpact">`bulletimpact`, what `PlayImpactSound` plays where a bullet lands.</param>
+public readonly record struct SurfaceSoundNames(string? StepLeft, string? StepRight, string? BulletImpact);
 
 /// <summary>
 /// vphysics' surface properties as IVP's material manager uses them — the manager at <c>180120be8</c> (vtable <c>1800ec560</c>)

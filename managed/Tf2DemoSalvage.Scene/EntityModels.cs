@@ -18,6 +18,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="EntityIndex">Whose animation fired it.</param>
 /// <param name="Event">The event, as the model declares it.</param>
 /// <param name="Origin">Where that entity stands, which is where the engine plays it from.</param>
+/// <param name="Sequence">The sequence the walk crossed it in.</param>
+/// <param name="Cycle">The cycle the walk reached this frame.</param>
 /// <remarks>
 /// **<c>FireEvent( GetAbsOrigin(), GetAbsAngles(), event, options )</c>** — the engine hands the
 /// handler the entity's place along with the event, and for <c>AE_CL_PLAYSOUND</c> that is the
@@ -27,7 +29,9 @@ namespace Tf2DemoSalvage.Scene;
 public readonly record struct FiredAnimationEvent(
     int EntityIndex,
     StudioEvent Event,
-    (float X, float Y, float Z) Origin);
+    (float X, float Y, float Z) Origin,
+    int Sequence = -1,
+    float Cycle = 0f);
 
 /// <summary>One model to draw, where it stands, and the light reaching it.</summary>
 /// <param name="ModelPath">Which packed model to draw.</param>
@@ -618,6 +622,7 @@ public sealed class EntityModelSet : IModelBodygroups
     /// <summary>Brings every entity's animation state up to date, before any bones are built.</summary>
     /// <param name="props">What exists at this tick.</param>
     /// <param name="seconds">Demo time, for advancing cycles.</param>
+    /// <param name="fireEvents">Whether these entities are visible, so `DoAnimationEvents` walks them.</param>
     /// <remarks>
     /// **A separate pass, and it is NOT an ordering pass.** This is the engine's own phase split:
     /// <c>SimulateEntities()</c> runs, then <c>ThreadedBoneSetup()</c>, then rendering
@@ -630,7 +635,7 @@ public sealed class EntityModelSet : IModelBodygroups
     /// that happens. The old code guaranteed that with a sort. This guarantees it by doing all the
     /// state first, which is both simpler and what the engine does.
     /// </remarks>
-    private void Simulate(IReadOnlyList<SceneProp> props, double seconds)
+    private void Simulate(IReadOnlyList<SceneProp> props, double seconds, bool fireEvents = true)
     {
         _simulatedSeconds = seconds;
 
@@ -641,8 +646,18 @@ public sealed class EntityModelSet : IModelBodygroups
         // Resolved attachments belong to this pass's camera, not to the entity — see the field.
         _attachments.Clear();
 
-        // Events are a per-frame answer; the WALK's state is per entity and survives.
-        _fired.Clear();
+        // Events are a per-FRAME answer; the WALK's state is per entity and survives. **Cleared when the time moves, not
+        // per pass**: a frame runs this three times (drawn, undrawn, viewmodel), and clearing per pass left only the
+        // viewmodel's events, so no player's footstep ever reached a listener (B172).
+        // By bits: the question is "the very value this frame handed every pass", not nearness.
+        long frame = BitConverter.DoubleToInt64Bits(seconds);
+
+        if (frame != _firedFrame)
+        {
+            _fired.Clear();
+            _walked.Clear();
+            _firedFrame = frame;
+        }
 
         foreach (SceneProp prop in props)
         {
@@ -724,8 +739,9 @@ public sealed class EntityModelSet : IModelBodygroups
             // an advance rather than one function's detail. The field has been decoded since B237
             // and reaches here on the pose; only the BAKED vertex path multiplied by it, so every
             // skinned entity played at rate 1 whatever the demo said.
+            float[] poseValues = PoseValues(skinned, where, sequence);
             double advanced = prop.ClientSideAnimated
-                ? where.Cycle + (elapsed * skinned.CyclesPerSecond(sequence) * where.PlaybackRate)
+                ? Advance(prop, elapsed, seconds, skinned.BlendedCyclesPerSecond(sequence, poseValues) * where.PlaybackRate)
                 : where.Cycle;
 
             // **Wrapped only if the sequence LOOPS** (`C_BaseAnimating::ClampCycle`,
@@ -773,7 +789,6 @@ public sealed class EntityModelSet : IModelBodygroups
             // matters, because each accumulates onto the result of the last. The sequence being
             // faded out is part of the BODY; a gesture goes over the top of whatever the body
             // settled on (B286).
-            float[] poseValues = PoseValues(skinned, where, sequence);
 
             // **`AddLocalLayers` FIRST, at weight one, because it composes into the sequence's own
             // pose before that pose is blended in** (`bone_setup.cpp:2439`, called with a literal
@@ -814,7 +829,11 @@ public sealed class EntityModelSet : IModelBodygroups
             // The engine's own call site is the same place: `C_BaseAnimating::FrameAdvance` runs
             // the cycle forward and then dispatches, so an event is noticed on the frame the
             // animation reached it rather than on the packet that mentioned the sequence.
-            AnimationEvents(prop, skinned, sequence, phase);
+            if (fireEvents && _walked.Add(prop.EntityIndex))
+            {
+                AnimationEvents(prop, skinned, sequence, phase);
+            }
+
             // Computed once above for the autolayer envelopes and reused here rather than asked
             // twice: the two-pass move_x rescale inside it opens the model.
             posed.PoseValues = poseValues;
@@ -1495,6 +1514,59 @@ public sealed class EntityModelSet : IModelBodygroups
 
     /// <summary>Every client animation event that fired this frame, with where it fired.</summary>
     private readonly List<FiredAnimationEvent> _fired = [];
+
+    /// <summary>
+    /// The entities whose events this frame has walked: `C_BaseAnimating::Simulate` calls `DoAnimationEvents` once per
+    /// entity per frame, and this frame's passes can each hold one entity — walked again under a different sequence, the
+    /// walk restarts and fires every event up to the cycle once more (B172).
+    /// </summary>
+    private readonly HashSet<int> _walked = [];
+
+    /// <summary>Each player's cycle, and the demo time it was advanced to — `m_flCycle` as the client keeps it.</summary>
+    private readonly Dictionary<int, (double Seconds, double Cycle)> _clientCycles = [];
+
+    /// <summary>The longest step <see cref="Advance"/> integrates; past it, a seek, the cycle is recomputed.</summary>
+    private const double LongestCycleStep = 1d;
+
+    /// <summary>`C_BaseAnimating::FrameAdvance`: a client-animated cycle, advanced by this frame's rate.</summary>
+    /// <remarks>
+    /// **Integrated for a player, because a player's rate moves** (B172). `addcycle = flInterval * cyclerate *
+    /// m_flPlaybackRate` each frame (`c_baseanimating.cpp:5493`), and a run's `Studio_CPS` follows the pose parameters.
+    /// `start + elapsed × rate now` jumps the phase whenever the rate changes, which crossed footstep cycles that the
+    /// engine's feet never reach. Everything else keeps the closed form: a viewmodel restarts from its own
+    /// <c>AnimationStartSeconds</c>, and a prop's rate is constant. A seek, or the first frame, starts from the closed form.
+    /// </remarks>
+    private double Advance(SceneProp prop, double elapsed, double seconds, double rate)
+    {
+        double closed = prop.Pose.Cycle + (elapsed * rate);
+
+        if (prop.Pose.Speed is null)
+        {
+            return closed;
+        }
+
+        if (!_clientCycles.TryGetValue(prop.EntityIndex, out (double Seconds, double Cycle) last) ||
+            Math.Abs(seconds - last.Seconds) > LongestCycleStep)
+        {
+            _clientCycles[prop.EntityIndex] = (seconds, closed);
+            return closed;
+        }
+
+        // A frame a hair behind the last holds the cycle: the engine's never runs backwards, and restarting from the closed
+        // form here jumped the phase across a footstep and back, over and over within one tick.
+        if (seconds <= last.Seconds)
+        {
+            return last.Cycle;
+        }
+
+        double cycle = last.Cycle + ((seconds - last.Seconds) * rate);
+
+        _clientCycles[prop.EntityIndex] = (seconds, cycle);
+        return cycle;
+    }
+
+    /// <summary>The bits of the demo time <see cref="_fired"/> belongs to; NaN's before the first frame.</summary>
+    private long _firedFrame = BitConverter.DoubleToInt64Bits(double.NaN);
 
     /// <summary>Every client animation event this frame crossed.</summary>
     /// <remarks>
@@ -2823,6 +2895,15 @@ public sealed class EntityModelSet : IModelBodygroups
             resetEvents: remembered.Parity != prop.Pose.ResetEventsParity,
             into: _firedScratch);
 
+        if (_firedScratch.Count > 0 && _render.IsEnabled(LogLevel.Debug))
+        {
+            _render.LogDebug(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"event walk entity {prop.EntityIndex} model {prop.ModelPath} sequence {remembered.State.Sequence}->{sequence} cycle {remembered.State.PreviousCycle:0.000}->{phase:0.000} parity {remembered.Parity}->{prop.Pose.ResetEventsParity}: {_firedScratch.Count} fired"));
+        }
+
         _eventStates[prop.EntityIndex] = (next, prop.Pose.ResetEventsParity);
 
         foreach (StudioEvent fired in _firedScratch)
@@ -2830,7 +2911,9 @@ public sealed class EntityModelSet : IModelBodygroups
             _fired.Add(new FiredAnimationEvent(
                 prop.EntityIndex,
                 fired,
-                (prop.Pose.X, prop.Pose.Y, prop.Pose.Z)));
+                (prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
+                sequence,
+                phase));
         }
     }
 
@@ -4512,6 +4595,7 @@ public sealed class EntityModelSet : IModelBodygroups
         _skinning.Clear();
         _inView.Clear();
         _eventStates.Clear();
+        _clientCycles.Clear();
         _fired.Clear();
 
         // Log dedup is per-level too: the next map's missing frames and poses deserve their own
@@ -4945,7 +5029,7 @@ public sealed class EntityModelSet : IModelBodygroups
         // pass over EVERY prop, not just the animated ones (B189).
         long simulatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        Simulate(props, seconds);
+        Simulate(props, seconds, fireEvents: !string.Equals(pass, UndrawnPass, StringComparison.Ordinal));
 
         // **After the pass, not during it** (B347). Every barrel in this frame differences against
         // the SAME previous time, which is what one `gpGlobals->frametime` means; advancing it per
@@ -5639,6 +5723,12 @@ public sealed class EntityModelSet : IModelBodygroups
     /// the tally's own line — and two of them agreeing is not enough.
     /// </remarks>
     public const string WorldPass = "world";
+
+    /// <summary>
+    /// The pass for players posed but not drawn — the first-person one. `DoAnimationEvents` returns when
+    /// <c>!IsVisible()</c> (`c_baseanimating.cpp:3569`), so nothing this pass walks fires an event.
+    /// </summary>
+    public const string UndrawnPass = "undrawn";
 
     private readonly HashSet<int> _inView = [];
 

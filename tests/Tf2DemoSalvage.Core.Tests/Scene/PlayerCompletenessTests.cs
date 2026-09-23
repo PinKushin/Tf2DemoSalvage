@@ -178,7 +178,10 @@ public sealed class PlayerCompletenessTests
         // introduced without being covered.
         HeadScale: 1.5f,
         TorsoScale: 0.5f,
-        HandScale: 2f)
+        HandScale: 2f,
+
+        // A scout's 400, where a missing value is null and the step thresholds are zero (B172).
+        MaxSpeed: 400f)
     {
         // Above Health, so a heal to it is measurable; null is the default (B415).
         MaxHealth = 175,

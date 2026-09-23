@@ -1725,6 +1725,32 @@ public static class PropModels
                 additive);
         }
 
+        /// <summary>`Studio_CPS`: a sequence's cycles a second, blended by the pose parameters.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <param name="poseValues">Every pose parameter, normalised.</param>
+        /// <returns>The weighted sum of each blended animation's cycles a second; zero when none animates.</returns>
+        /// <remarks>
+        /// `bone_setup.cpp`: <c>t += (panim[i]->fps / (panim[i]->numframes - 1)) * weight[i]</c> over the animations
+        /// `Studio_SeqAnims` picks, skipping a zero weight. A player's run is a nine-way blend whose corners run at
+        /// different rates, so the one-animation <see cref="CyclesPerSecond(int)"/> stepped the feet at the wrong pace
+        /// (B172).
+        /// </remarks>
+        public float BlendedCyclesPerSecond(int sequence, IReadOnlyList<float> poseValues)
+        {
+            (int group, IReadOnlyList<(int Animation, float Weight)> blend) = BlendedAnimations(sequence, poseValues);
+            float rate = 0f;
+
+            foreach ((int animation, float weight) in blend)
+            {
+                if (weight > 0f)
+                {
+                    rate += StudioAnimation.CyclesPerSecond(Models[group], animation) * weight;
+                }
+            }
+
+            return rate;
+        }
+
         /// <summary>Which animations a sequence blends, and how much each counts.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <param name="poseValues">Every pose parameter, normalised.</param>

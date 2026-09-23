@@ -6041,6 +6041,138 @@ internal class MainForm : Form, IFrameSteps
         return ((end.X, end.Y, end.Z), targets.Count == 0 || posed > 0, struck);
     }
 
+    /// <summary>`AE_CL_PLAYSOUND`, the old-system client event that names a sound script.</summary>
+    private const int PlaySoundEvent = 5004;
+
+    /// <summary>TF2's footstep event, answered by `C_TFPlayer::FireEvent`.</summary>
+    private const int FootstepEvent = 7001;
+
+    /// <summary>`VEC_HULL_MAX.x`: the player hull's half width, the cube `GetGroundSurface` sweeps.</summary>
+    private const float HullHalfWidth = 24f;
+
+    /// <summary>How far `GetGroundSurface` looks down.</summary>
+    private const float GroundProbe = 64f;
+
+    private readonly Footsteps _footsteps = new();
+
+    /// <summary>Players at the shown moment, for the events that name one; reused.</summary>
+    private readonly List<ScenePlayer> _eventPlayers = [];
+
+    /// <summary>The sounds this frame's animation events make: `C_BaseAnimating::FireEvent` and TF2's footstep (B172).</summary>
+    /// <remarks>
+    /// `AE_CL_PLAYSOUND` (`c_baseanimating.cpp:3988`) emits its options from attachment 1, or the origin when the model
+    /// has none. 7001 is `C_TFPlayer::FireEvent` (`c_tf_player.cpp:9066`): the surface a hull trace 64 units down finds
+    /// (`C_BasePlayer::GetGroundSurface`), then <see cref="Footsteps"/>. The cube starts 24 up so its bottom is the hull's
+    /// and its footprint is the hull's, which is all a trace straight down can touch. *Interpolated:* `level.Trace`'s own
+    /// mask stands in for `MASK_PLAYERSOLID_BRUSHONLY`.
+    /// </remarks>
+    private void StepAnimationSounds(int tick)
+    {
+        if (_replayingModelDecals || _sound.Scripts is not { } scripts || _models.FiredEvents.Count == 0)
+        {
+            return;
+        }
+
+        // Filled on the first event that names a player, once per frame.
+        _eventPlayers.Clear();
+
+        foreach (FiredAnimationEvent fired in _models.FiredEvents)
+        {
+            if (_renderLog.IsEnabled(LogLevel.Debug))
+            {
+                _renderLog.LogDebug(
+                    "{Message}",
+                    string.Create(CultureInfo.InvariantCulture, $"animation event tick {tick} entity {fired.EntityIndex}: {fired.Event.Id} {fired.Event.Options} in sequence {fired.Sequence} at cycle {fired.Cycle:0.000}"));
+            }
+
+            switch (fired.Event.Id)
+            {
+                case PlaySoundEvent:
+                    (float X, float Y, float Z) at = _models.AttachmentPoint(fired.EntityIndex, 1) is { } point
+                        ? (point.At.X, point.At.Y, point.At.Z)
+                        : fired.Origin;
+
+                    if (EntitySounds.Emit(tick, fired.EntityIndex, fired.Event.Options, at, scripts.Entries) is { } sound)
+                    {
+                        _sound.Emit(sound);
+                    }
+
+                    break;
+
+                case FootstepEvent:
+                    ScenePlayer? stepper = Stepper(fired.EntityIndex);
+                    StepSurface? ground = stepper is { } p ? GroundSurface(p) : null;
+                    SceneSound? step = stepper is { } q ? _footsteps.Step(tick, q, ground, NamedSurface, scripts.Entries) : null;
+
+                    if (step is { } played)
+                    {
+                        _sound.Emit(played);
+                    }
+
+                    if (_renderLog.IsEnabled(LogLevel.Debug))
+                    {
+                        string who = stepper is { } s
+                            ? string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"speed {s.Speed:0} of max {s.MaxSpeed}, flags {s.Flags}, water {s.WaterLevel}, ground {ground?.Material} {ground?.Right}")
+                            : "no player at the shown moment";
+
+                        _renderLog.LogDebug(
+                            "{Message}",
+                            string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"footstep tick {tick} entity {fired.EntityIndex}: {who}; {(step is { } h ? h.Name : "silent")}"));
+                    }
+
+                    break;
+
+                default:
+                    break;
+            }
+        }
+    }
+
+    /// <summary>The player an event fired on, as drawn at the shown moment.</summary>
+    private ScenePlayer? Stepper(int entity)
+    {
+        if (_eventPlayers.Count == 0 && _moments.Source is { } source)
+        {
+            source.PlayersAt(_shownTick, _eventPlayers, _transport.Playing);
+        }
+
+        foreach (ScenePlayer player in _eventPlayers)
+        {
+            if (player.EntityIndex == entity)
+            {
+                return player;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>`C_BasePlayer::GetGroundSurface`: the surface under the player's hull, or null for none within 64.</summary>
+    private StepSurface? GroundSurface(ScenePlayer player)
+    {
+        if (_loaded is not { Level: { } level, ImpactDecals: { } decals })
+        {
+            return null;
+        }
+
+        (float X, float Y, float Z) from = (player.X, player.Y, player.Z + HullHalfWidth);
+        BspTrace trace = level.Trace(from, (from.X, from.Y, from.Z - GroundProbe), HullHalfWidth);
+
+        return trace.Fraction >= 1f ? null : SurfaceAt(decals.SurfacePropOfTexinfo(trace.Texinfo));
+    }
+
+    private StepSurface? NamedSurface(string name) =>
+        _game?.Surfaces is { } surfaces && surfaces.GetSurfaceIndex(name) is >= 0 and var index ? SurfaceAt(index) : null;
+
+    private StepSurface? SurfaceAt(int index) =>
+        _game?.Surfaces?.GetSurfaceData(index) is { } surface
+            ? new StepSurface(surface.GameMaterial, surface.Sounds.StepLeft, surface.Sounds.StepRight)
+            : null;
+
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
     /// <param name="viewing">The camera this frame, whose basis the quads face.</param>
     /// <remarks>
@@ -6066,6 +6198,7 @@ internal class MainForm : Form, IFrameSteps
         // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
         StepDecals(_transport.CurrentTick);
         StepModelDecals(_transport.CurrentTick);
+        StepAnimationSounds(_transport.CurrentTick);
         StepImpactEffects(_transport.CurrentTick);
         StepSparks(_transport.CurrentTick);
 
