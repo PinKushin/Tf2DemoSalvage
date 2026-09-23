@@ -1892,6 +1892,10 @@ public sealed class EntityState
     /// </remarks>
     public int? WaterLevel() => Integer($"{TfPlayerTable}.{WaterLevelProperty}");
 
+    /// <summary>`m_flMaxspeed`, the player's current top speed — what `GetStepSoundVelocities` scales from.</summary>
+    /// <remarks>`SendPropFloat( SENDINFO( m_flMaxspeed ), 12, SPROP_ROUNDDOWN, 0, 2048 )` on `DT_BasePlayer` (`player.cpp:8182`), sent for everyone.</remarks>
+    public float? MaxSpeed() => Number($"{BasePlayerTable}.m_flMaxspeed");
+
     /// <summary>The entity slot a networked handle names, or null when it names nothing.</summary>
     /// <param name="handle">The raw networked value, or null when the property was never sent.</param>
     /// <returns>The entity index, or <c>null</c> for the invalid handle.</returns>

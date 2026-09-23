@@ -522,7 +522,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         {
             // Its own pass, read after the world's counters, so it is posed and in the scene for a decal but never drawn.
             _models.Instances(
-                _undrawn, _undrawnInstances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, pass: "undrawn");
+                _undrawn, _undrawnInstances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, pass: EntityModelSet.UndrawnPass);
         }
         int posed = _models.Posed;
 

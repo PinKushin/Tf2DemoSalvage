@@ -110,17 +110,20 @@ public sealed class ImpactDecals
     /// <returns>The surface index, −1 when the texture declares none (which reads as surface zero).</returns>
     public int SurfacePropOf(ShotImpact impact)
     {
-        if (impact.FromServer)
-        {
-            return impact.SurfaceProp;
-        }
+        return impact.FromServer ? impact.SurfaceProp : SurfacePropOfTexinfo(impact.Texinfo);
+    }
 
-        if (impact.Texinfo < 0 || impact.Texinfo >= _texinfo.Count)
+    /// <summary>`trace.surface.surfaceProps` for a world trace that hit a texinfo.</summary>
+    /// <param name="texinfo">The texinfo the trace reported.</param>
+    /// <returns>The surface index, −1 when the texture declares none or the texinfo is out of range.</returns>
+    public int SurfacePropOfTexinfo(int texinfo)
+    {
+        if (texinfo < 0 || texinfo >= _texinfo.Count)
         {
             return -1;
         }
 
-        int texdata = _texinfo[impact.Texinfo].Texdata;
+        int texdata = _texinfo[texinfo].Texdata;
 
         return texdata >= 0 && texdata < _surfaceProps.Length ? _surfaceProps[texdata] : -1;
     }

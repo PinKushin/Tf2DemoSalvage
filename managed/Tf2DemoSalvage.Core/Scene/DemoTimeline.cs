@@ -141,6 +141,10 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="HandScale">
 /// <c>m_flHandScale</c>. Scales each hand and every bone below it.
 /// </param>
+/// <param name="MaxSpeed">
+/// <c>m_flMaxspeed</c>, the player's top speed now — what <c>GetStepSoundVelocities</c> scales a walk and a run
+/// from. Null when not sent.
+/// </param>
 /// <param name="ClientSideAnimated">
 /// Whether the client runs this player's animation cycle itself — <c>m_bClientSideAnimation</c>,
 /// one unsigned bit from <c>DT_BaseAnimating</c> (<c>baseanimating.cpp:250</c>).
@@ -206,7 +210,8 @@ public readonly record struct ScenePlayer(
     IReadOnlyList<SceneGesture>? Gestures = null,
     float HeadScale = 1f,
     float TorsoScale = 1f,
-    float HandScale = 1f)
+    float HandScale = 1f,
+    float? MaxSpeed = null)
 {
     /// <summary>`GetMaxHealth()` — the player resource's `m_iMaxHealth`, which `C_TFPlayer` reads; null when not sent.</summary>
     /// <remarks>A full heal to it clears the player's model decals (`C_TFPlayer::OnDataChanged`, B415).</remarks>
@@ -2523,6 +2528,7 @@ public sealed class DemoTimeline
                             : 0d,
                     EyePitch: lookingAt,
                     WaterLevel: player.WaterLevel(),
+                    MaxSpeed: player.MaxSpeed(),
                     ActiveWeapon: player.ActiveWeapon(),
                     WeaponClass: player.ActiveWeapon() is { } held &&
                         entities.TryGet(held, out EntityState? weapon)

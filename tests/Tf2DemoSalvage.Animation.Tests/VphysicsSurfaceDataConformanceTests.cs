@@ -102,6 +102,25 @@ public sealed class VphysicsSurfaceDataConformanceTests
         Sound("plain").ShouldBe("default.bulletimpact");
     }
 
+    [Test]
+    public void ParseSurfaceData_StepSounds_AreReadAndInherited()
+    {
+        // `stepleft` and `stepright` name what `PlayStepSound` plays for each foot (`baseplayer_shared.cpp`); inherited
+        // through `base` like every other sound name.
+        VphysicsSurfaceProps props = new([]);
+
+        props.ParseSurfaceData(Encoding.Latin1.GetBytes(
+            "\"default\" { \"stepleft\" \"Default.StepLeft\" \"steprIght\" \"Default.StepRight\" } " +
+            "\"metal\" { \"stepleft\" \"SolidMetal.StepLeft\" \"stepright\" \"SolidMetal.StepRight\" } " +
+            "\"grate\" { \"base\" \"metal\" } " +
+            "\"plain\" { \"friction\" \"0.5\" }"));
+
+        SurfaceSoundNames Sounds(string name) => props.Surfaces.Single(surface => surface.Name == name).Sounds;
+
+        Sounds("grate").ShouldBe(new SurfaceSoundNames("solidmetal.stepleft", "solidmetal.stepright", null));
+        Sounds("plain").ShouldBe(new SurfaceSoundNames("default.stepleft", "default.stepright", null));
+    }
+
     private static int[] Bits(VphysicsSurface surface) =>
     [
         System.BitConverter.SingleToInt32Bits(surface.Physics.Friction),
