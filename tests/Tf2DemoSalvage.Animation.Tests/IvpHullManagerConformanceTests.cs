@@ -320,6 +320,25 @@ public sealed class IvpHullManagerConformanceTests
         pushed.ShouldAllBe(manager => manager.NextReset == 10);
     }
 
+    [Test]
+    public void DeleteAll_ThreeListeners_TellsEachHeadFirstUntilNoneIsLeft()
+    {
+        // `FUN_180094420` (B418): while the count at +0x3c is not zero, the head's slot 2. The head is the smallest key, so the
+        // listeners are told in key order whatever order they were filed in.
+        List<string> told = [];
+        IvpHullManager manager = new();
+        foreach ((string name, float key) in new[] { ("late", 3f), ("early", 1f), ("middle", 2f) })
+        {
+            Recorder recorder = new(name, told);
+            recorder.HullSlot = manager.Synapses.Add(recorder, key);
+        }
+
+        manager.DeleteAll();
+
+        told.ShouldBe(["early", "middle", "late"]);
+        manager.Synapses.Count.ShouldBe(0);
+    }
+
     /// <summary>A synapse that records what it is told.</summary>
     private sealed class Recorder(string name, List<string> told) : IIvpHullSynapse
     {
@@ -342,6 +361,13 @@ public sealed class IvpHullManagerConformanceTests
         {
             told.Add(name);
             Shifts.Add((valueShift, centerShift));
+        }
+
+        /// <remarks>Takes itself off, as every real listener's slot 2 does by deleting what owns it.</remarks>
+        public void ManagerDeleted(IvpHullManager manager)
+        {
+            told.Add(name);
+            manager.Remove(this);
         }
     }
 }

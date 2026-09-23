@@ -27050,7 +27050,24 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
-### B418 OPEN 2026-09-22: removing a corpse leaves its mindists queued, and one fires on a core with no unit
+### B418 FIXED 2026-09-23: removing a corpse leaves its mindists queued, and one fires on a core with no unit
+
+**Fixed by porting the object's own destructor**, `FUN_180072e90` in `ivp_object.cxx`, reached from `FUN_180073700`'s last step
+through the polygon's vtable `0x1800fcf30`, slot 0. It does two things, in this order:
+
+1. **The hull manager is torn down** (`FUN_180094420`). The head listener's slot 2 is called until none is left:
+   - the broad-phase node deletes itself (`FUN_18009ec90` → `IvpBroadPhase.Delete`);
+   - a pair watcher is deleted (`FUN_1800b6180`);
+   - a mindist record deletes its mindist (`0x180097580`, read from the raw bytes because Ghidra holds no function there).
+
+   **This was the crash.** `Remove` refiles the object before tearing it down, which re-inserted its node, and without the
+   teardown the node stayed in the OV tree. A neighbour's next broad-phase pass paired with a body that was gone.
+2. **Every mindist still on the object's synapse list is deleted** through its own slot 0.
+
+Confirmed on screen by the owner (*"YES IT GOT THROUGH THE BUFF BANNER!!!! and its not crashing"*) and by the playback UI test:
+`z1800` from tick 3428 to 16468 at 8x in 112.4 s, passed. *The original entry follows.*
+
+### B418 as filed, 2026-09-22
 
 **Found by the new playback UI test** (`Transport_PlayAtEightTimes_AdvancesThroughTwentySecondsOfPlayback`), which plays
 `z1800` at 8x from its start: the viewer dies on

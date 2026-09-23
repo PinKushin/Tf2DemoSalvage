@@ -288,11 +288,13 @@ public sealed class TransportUiTests
             SetPlaying(true);
 
             // **The first reading is taken only once the readout is seen MOVING under playback.** Read straight after the
-            // Start press, it said tick 0 and then jumped to 20000, and a first draft passed in 9.1 s on that jump.
+            // Start press, it said tick 0 and then jumped to 20000, and a first draft passed in 9.1 s on that jump. *An upper
+            // bound on the step was tried and failed every run*: at 8x the readout moves hundreds of ticks between polls. A jump
+            // is caught by the wall-clock control at the end instead.
             int seen = Tick() ?? 0;
 
             Retry.WhileFalse(
-                () => Tick() is { } now && now > seen && now < seen + 66,
+                () => Tick() is { } now && now > seen,
                 TimeSpan.FromSeconds(30),
                 throwOnTimeout: true,
                 timeoutMessage: $"playback never started moving from tick {seen}; the readout says " +

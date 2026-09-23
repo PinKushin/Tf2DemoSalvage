@@ -471,6 +471,8 @@ public sealed class IvpSimulation
         // `FUN_1800788b0(core)`.
         RemoveContacts(core);
 
+        // The object's own destructor (`FUN_180072e90`), in its order: the hull manager torn down, then the synapses.
+        collisionObject.Hull.DeleteAll();
         DeleteSynapses(collisionObject);
 
         Objects.Remove(collisionObject);

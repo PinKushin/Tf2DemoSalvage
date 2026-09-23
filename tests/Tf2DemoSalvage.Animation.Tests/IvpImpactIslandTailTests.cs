@@ -111,6 +111,8 @@ public sealed class IvpImpactIslandTailTests
         public void Rebased(float valueShift, float centerShift)
         {
         }
+
+        public void ManagerDeleted(IvpHullManager manager) => manager.Remove(this);
     }
 
     private static (IvpImpactIsland, IvpRigidBody, IvpContactPoint) Island()
