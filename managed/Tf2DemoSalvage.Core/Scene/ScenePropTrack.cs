@@ -976,7 +976,7 @@ public sealed class ScenePropTrack
     /// Derived through <see cref="DelayTicksFor"/> rather than stated, so the reasoning is code
     /// and the tick interval is an input.
     /// </remarks>
-    private int InterpolationDelayTicks { get; set; } = DelayTicksFor(Tf2TickInterval);
+    internal int InterpolationDelayTicks { get; set; } = DelayTicksFor(Tf2TickInterval);
 
     /// <summary>TF2's tick interval, and the fallback when a demo states none.</summary>
     /// <remarks>

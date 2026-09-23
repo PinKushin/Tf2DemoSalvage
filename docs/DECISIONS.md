@@ -9215,3 +9215,16 @@ This extends D128 and D153 from the camera to everything the camera implies:
 - **In-eye, "me" is the target.** `Followed` answers the recorder's `m_hObserverTarget` when his `m_iObserverMode` is
   `OBS_MODE_IN_EYE`. So the target's body is the one hidden, and the target's viewmodel and muzzle flashes are drawn.
   The server sends that viewmodel for exactly this case (`baseviewmodel.cpp:91`).
+
+## D190 — interp is the watcher's setting, read from the config, never a constant (2026-09-23)
+
+*Voiced.* The viewer hardcoded 0.1 s of interpolation, TF2's default. Temp entities fired 7 ticks after arrival where
+TF2, on the owner's config, fired them 1 tick after. The owner: *"that should be hardcoded, thats a changable thing and
+most comp configs go low on it"*. Taken as "should NOT be hardcoded", which the rest of the sentence says. Then: *"comp
+puts cl_updaterate to 66, so that can be set"*.
+
+So `cl_interp`, `cl_interp_ratio` and `cl_updaterate` are read from the viewer's config (`ViewerSettings.Interp`). They
+are bounded by the recording server's `sv_client_min/max_interp_ratio` and `sv_min/maxupdaterate`, as
+`GetClientInterpAmount` bounds them. The result sets both the temp-entity fire tick and every track's draw delay.
+Defaults are read from `engine.dll`'s registrations: `cl_updaterate` "20", `sv_minupdaterate` "10", `sv_maxupdaterate`
+"66". The owner remembered the last one before it was read.

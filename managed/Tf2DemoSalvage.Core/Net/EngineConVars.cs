@@ -109,6 +109,10 @@ public static class EngineConVars
         new("cl_updaterate", "20", Replicated: false, Cheat: false, UserInfo: true),
         new("sv_client_min_interp_ratio", "1", Replicated: true, Cheat: false),
         new("sv_client_max_interp_ratio", "5", Replicated: true, Cheat: false),
+        // engine.dll 0x180009460 / 0x1800093e0: "10" and "66", FCVAR_REPLICATED — the bounds
+        // `CBoundedCvar_UpdateRate` clamps cl_updaterate to.
+        new("sv_minupdaterate", "10", Replicated: true, Cheat: false),
+        new("sv_maxupdaterate", "66", Replicated: true, Cheat: false),
 
         // **The sound curve's parameters** (`SoundGain`). All four read out of `engine.dll`'s own
         // ConVar registrations, which is the only source that has them: the engine-side sound

@@ -1464,6 +1464,7 @@ public sealed class DemoTimeline
     /// Told the fraction of the demo's commands walked — about two hundred times a demo, rising, and exactly <c>1</c> at the end —
     /// or null for no reports. For the viewer's loading screen: an 80-second decode is otherwise 80 seconds of nothing.
     /// </param>
+    /// <param name="client">The viewer's `cl_interp` settings; null for TF2's defaults.</param>
     /// <returns>The timeline, empty when the demo carries no schema or no entities.</returns>
     /// <exception cref="ArgumentException">The file is too short to hold a header.</exception>
     /// <remarks>
@@ -1471,14 +1472,15 @@ public sealed class DemoTimeline
     /// files genuinely have none, and a viewer that refused to open them would be refusing exactly
     /// the salvage cases this project exists for.
     /// </remarks>
-    public static DemoTimeline Build(ReadOnlyMemory<byte> file, Action<double>? progress = null)
+    public static DemoTimeline Build(
+        ReadOnlyMemory<byte> file, Action<double>? progress = null, ClientInterp? client = null)
     {
-        DemoTimeline built = BuildTimeline(file, progress);
+        DemoTimeline built = BuildTimeline(file, progress, client ?? new ClientInterp());
         progress?.Invoke(1d);
         return built;
     }
 
-    private static DemoTimeline BuildTimeline(ReadOnlyMemory<byte> file, Action<double>? progress)
+    private static DemoTimeline BuildTimeline(ReadOnlyMemory<byte> file, Action<double>? progress, ClientInterp client)
     {
         long buildFrom = Stopwatch.GetTimestamp();
         long commandTicks;
@@ -1943,6 +1945,7 @@ public sealed class DemoTimeline
                             effects,
                             command.Tick,
                             interval,
+                            client.Amount(serverConVars),
                             effectClassNames,
                             entities,
                             gestures,
@@ -2654,6 +2657,14 @@ public sealed class DemoTimeline
             sounds.AddRange(ordered);
         }
 
+        // The viewer's own interp (`cl_interp` and friends from its config), under the server's final bounds.
+        int delayTicks = ScenePropTrack.DelayTicksFor(interval, client.Amount(serverConVars));
+
+        foreach (ScenePropTrack track in props.Concat(playerTracks))
+        {
+            track.InterpolationDelayTicks = delayTicks;
+        }
+
         return new DemoTimeline(
             frames, props, playerTracks, recordedViews, viewmodels, fogSamples, sounds, soundscapes,
             director)
@@ -2754,6 +2765,7 @@ public sealed class DemoTimeline
     /// <param name="message">The message.</param>
     /// <param name="tick">The demo tick the packet arrived on.</param>
     /// <param name="interval">Seconds per tick, for the feeds that want time rather than ticks.</param>
+    /// <param name="interpolation">`GetClientInterpAmount()`, in seconds.</param>
     /// <param name="classNames">Class id to name, since an effect names its class by id.</param>
     /// <param name="entities">
     /// The entity table, for the player's posture at this moment and for whether a blast struck a player. A snapshot
@@ -2780,6 +2792,7 @@ public sealed class DemoTimeline
         TempEntitiesMessage message,
         int tick,
         double interval,
+        double interpolation,
         Dictionary<int, string> classNames,
         EntityStateTable entities,
         PlayerGestureFeed gestures,
@@ -2796,7 +2809,7 @@ public sealed class DemoTimeline
                     continue;
                 }
 
-                int fires = FireTick(tick, effect.DelaySeconds, interval);
+                int fires = FireTick(tick, effect.DelaySeconds, interval, interpolation);
 
                 if (feeds.Record(
                         className, effect, fires, index => IsPlayer(entities, index), index => Shooter(entities, index)))
@@ -2822,6 +2835,7 @@ public sealed class DemoTimeline
     /// <param name="arrival">The tick its message arrived on.</param>
     /// <param name="delay">Its own fire delay, the 8-bit hundredths the message carries.</param>
     /// <param name="interval">Seconds per tick; non-positive falls back to TF2's.</param>
+    /// <param name="interpolation">`GetClientInterpAmount()` — the WATCHER's, from the viewer's config.</param>
     /// <returns>The first tick at or after the moment it fires.</returns>
     /// <remarks>
     /// <code>
@@ -2834,11 +2848,12 @@ public sealed class DemoTimeline
     /// moving player's hitboxes by the distance they cover in 0.1 s. Rounded up, since `CL_FireEvents` fires an event
     /// on the first frame at or past its time; a tick boundary is at most 15 ms after it.
     /// </remarks>
-    internal static int FireTick(int arrival, float delay, double interval)
+    internal static int FireTick(
+        int arrival, float delay, double interval, double interpolation = ScenePropTrack.DefaultInterpolation)
     {
         double seconds = interval > 0d ? interval : ScenePropTrack.Tf2TickInterval;
 
-        return arrival + (int)Math.Ceiling(((delay + ScenePropTrack.DefaultInterpolation) / seconds) - 1e-6d);
+        return arrival + (int)Math.Ceiling(((delay + interpolation) / seconds) - 1e-6d);
     }
 
     /// <summary>`C_BaseEntity::Instance( hEntity )->IsPlayer()` — the entity at an index exists and is a player.</summary>

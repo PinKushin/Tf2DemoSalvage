@@ -5,6 +5,7 @@ using System.IO;
 using System.Text;
 
 using Microsoft.Extensions.Logging;
+using Tf2DemoSalvage.Core.Net;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -235,6 +236,15 @@ public sealed record ViewerSettings
     /// it at 400.
     /// </remarks>
     public const string DetailFadeCommand = "cl_detailfade";
+
+    /// <summary>`cl_interp`, default "0.1" (`cdll_bounded_cvars.cpp`).</summary>
+    public const string InterpCommand = "cl_interp";
+
+    /// <summary>`cl_interp_ratio`, default "2".</summary>
+    public const string InterpRatioCommand = "cl_interp_ratio";
+
+    /// <summary>`cl_updaterate`, default "20" (engine.dll, read from its registration).</summary>
+    public const string UpdateRateCommand = "cl_updaterate";
 
     /// <summary>Command name for where screenshots are written.</summary>
     /// <remarks>
@@ -571,6 +581,13 @@ public sealed record ViewerSettings
     /// <summary>How wide the band is that detail props fade across, in world units.</summary>
     /// <remarks>Valve's shipped 400.</remarks>
     public float DetailFade { get; init; } = DefaultDetailFade;
+
+    /// <summary>`cl_interp`, `cl_interp_ratio` and `cl_updaterate` — how far behind the present entities are drawn.</summary>
+    /// <remarks>
+    /// The WATCHER's setting, not the recording's: the owner, *"thats a changable thing and most comp configs go low
+    /// on it"*. TF2's defaults are 0.1 / 2 / 20; a competitive config's 0 / 1 / 66 is one update.
+    /// </remarks>
+    public ClientInterp Interp { get; init; } = new();
 
     /// <summary>Valve's <c>cl_detaildist</c> default.</summary>
     public const float DefaultDetailDistance = 1200f;
@@ -919,6 +936,15 @@ public sealed record ViewerSettings
             settings = settings with { DetailFade = detailFade };
         }
 
+        // Bounded later, against the recording server's limits, exactly as the engine bounds them.
+        settings = settings with
+        {
+            Interp = new ClientInterp(
+                ReadNumber(values, InterpCommand) ?? settings.Interp.Interp,
+                ReadNumber(values, InterpRatioCommand) ?? settings.Interp.Ratio,
+                ReadNumber(values, UpdateRateCommand) ?? settings.Interp.UpdateRate),
+        };
+
         return settings;
     }
 
@@ -1035,6 +1061,13 @@ public sealed record ViewerSettings
             DetailFadeCommand,
             DetailFade.ToString("0.##", CultureInfo.InvariantCulture),
             Math.Abs(DetailFade - Defaults.DetailFade) < 0.005f);
+        text.AppendLine();
+        text.AppendLine("// How far behind the present entities and effects are drawn, as in TF2:");
+        text.AppendLine("// max( cl_interp, cl_interp_ratio / cl_updaterate ). Competitive configs");
+        text.AppendLine("// run 0 / 1 / 66, which is one update rather than the default 0.1 s.");
+        Setting(text, InterpCommand, Interp.Interp.ToString("0.###", CultureInfo.InvariantCulture), Interp.Interp - Defaults.Interp.Interp is < 0.0005f and > -0.0005f);
+        Setting(text, InterpRatioCommand, Interp.Ratio.ToString("0.###", CultureInfo.InvariantCulture), Interp.Ratio - Defaults.Interp.Ratio is < 0.0005f and > -0.0005f);
+        Setting(text, UpdateRateCommand, Interp.UpdateRate.ToString("0.###", CultureInfo.InvariantCulture), Interp.UpdateRate - Defaults.Interp.UpdateRate is < 0.0005f and > -0.0005f);
         text.AppendLine();
         text.AppendLine("// Most frames a second to draw, as in TF2. 0 is uncapped, and uncapped");
         text.AppendLine("// really is uncapped -- there is no engine ceiling. 300 is this viewer's");

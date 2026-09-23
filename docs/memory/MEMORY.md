@@ -159,4 +159,5 @@
 - [One run at a time](one-run-at-a-time.md) — never loop a viewer or UI test; read each result first.
 - [Play fast to find lifecycle bugs](play-fast-to-find-lifecycle-bugs.md) — z1800 at 8x in the shared session; found B418.
 - [Driving TF2 demo playback](driving-tf2-demo-playback.md) — no rewind; pause kills RCON; jpeg needs a rendered frame.
+- [Interp is the watcher's setting](interp-is-the-watchers-setting.md) — D190; from the config, bounded by the server.
 - [lcor is not in a worktree](lcor-is-not-in-a-worktree.md) — git-ignored; use the main checkout's absolute path.

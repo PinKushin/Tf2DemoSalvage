@@ -2693,7 +2693,7 @@ internal class MainForm : Form, IFrameSteps
 
         try
         {
-            return Apply(DecodedDemo.Read(path, _demoLog));
+            return Apply(DecodedDemo.Read(path, _demoLog, interp: _settings.Interp));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -2737,6 +2737,7 @@ internal class MainForm : Form, IFrameSteps
         try
         {
             ILogger demoLog = _demoLog;
+            Core.Net.ClientInterp interp = _settings.Interp;
 
             // **Posted, so a report can arrive after the decode has moved on** — the stage check
             // keeps a late one from dragging the overlay back to "decoding".
@@ -2754,7 +2755,7 @@ internal class MainForm : Form, IFrameSteps
             // window that closes mid-load does not come back to a disposed form afterwards, which
             // is the same crash the map fetch had.
             DecodedDemo decoded = await Task
-                .Run(() => DecodedDemo.Read(path, demoLog, progress.Report), _shutdown.Token)
+                .Run(() => DecodedDemo.Read(path, demoLog, progress.Report, interp), _shutdown.Token)
                 .ConfigureAwait(false);
 
             if (!_loads.IsCurrent(ticket))

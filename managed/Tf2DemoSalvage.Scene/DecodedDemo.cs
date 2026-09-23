@@ -6,6 +6,7 @@ using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Logging;
 
@@ -26,6 +27,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
     /// <param name="path">The demo file.</param>
     /// <param name="demo">Where the decode reports what it found.</param>
     /// <param name="progress">Told the fraction of the timeline decoded, for a loading screen; null for none.</param>
+    /// <param name="interp">The viewer's `cl_interp` settings; null for TF2's defaults.</param>
     /// <returns>The header, and the timeline when one could be built.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -35,7 +37,8 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
     /// the demo ITSELF is not caught here: there is nothing left to show, and the caller decides
     /// what to say about it.
     /// </remarks>
-    public static DecodedDemo Read(string path, ILogger demo, Action<double>? progress = null)
+    public static DecodedDemo Read(
+        string path, ILogger demo, Action<double>? progress = null, ClientInterp? interp = null)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(demo);
@@ -55,7 +58,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
         {
             using (demo.Time("building the position timeline"))
             {
-                timeline = DemoTimeline.Build(File.ReadAllBytes(path), progress);
+                timeline = DemoTimeline.Build(File.ReadAllBytes(path), progress, interp);
             }
 
             // **The columns, because the total alone says nothing about what to fix** (B265). The
