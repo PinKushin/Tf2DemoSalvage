@@ -4724,7 +4724,13 @@ internal class MainForm : Form, IFrameSteps
             return (null, "no ray");
         }
 
-        if (_models.TraceHitboxes(impact.Entity, ray.Start, ray.Delta, BulletMask) is null)
+        // `AddStudioDecal`'s `ClipRayToEntity( ray, MASK_SHOT )`: the hitboxes, then the collision box when they miss —
+        // so a bolt stopped on the hull still tries to decal, as TF2's does.
+        BulletTarget clipped = new(
+            impact.Entity, new Vector3(struck.X, struck.Y, struck.Z), ((struck.Flags ?? 0) & Ducking) != 0);
+
+        if (PlayerBulletTrace.ClipRayToEntity(
+                clipped, ray.Start, ray.Delta, (entity, from, delta) => _models.TraceHitboxes(entity, from, delta, BulletMask)) is null)
         {
             float away = MathF.Sqrt(
                 ((impact.Origin.X - struck.X) * (impact.Origin.X - struck.X)) + ((impact.Origin.Y - struck.Y) * (impact.Origin.Y - struck.Y)));
@@ -5998,7 +6004,7 @@ internal class MainForm : Form, IFrameSteps
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"bullet (shot {bullet.Shot} pellet {bullet.Bullet}): {targets.Count} players, {posed} posed, " +
+                    $"bullet tick {bullet.Tick} (shot {bullet.Shot} pellet {bullet.Bullet}): {targets.Count} players, {posed} posed, " +
                     $"{asked} hitbox tests, {answered} hit; struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}"));
         }
 

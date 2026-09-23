@@ -83,7 +83,7 @@ public static class PlayerBulletTrace
         foreach (BulletTarget player in players)
         {
             if (SegmentHitsBox(start, clipped, player.Origin + HullMin, player.Origin + HullMax) is not null &&
-                hitboxes(player.Entity, start, delta) is { } fraction && fraction < best)
+                ClipRayToEntity(player, start, delta, hitboxes) is { } fraction && fraction < best)
             {
                 best = fraction;
                 struck = player.Entity;
@@ -112,7 +112,7 @@ public static class PlayerBulletTrace
                 continue;
             }
 
-            if (hitboxes(player.Entity, start, extended) is { } fraction && fraction < smallest)
+            if (ClipRayToEntity(player, start, extended, hitboxes) is { } fraction && fraction < smallest)
             {
                 smallest = fraction;
                 chosen = player;
@@ -130,6 +130,25 @@ public static class PlayerBulletTrace
         float reachesPlayer = SegmentHitsBox(hit, towards, target.Origin + HullMin, target.Origin + Top(target)) ?? 1f;
 
         return world(hit, towards) >= reachesPlayer ? (hit, target.Entity) : (clipped, null);
+    }
+
+    /// <summary>
+    /// `CEngineTrace::ClipRayToEntity` against a player with a hitbox mask: his hitboxes, and when they return nothing,
+    /// his collision box — engine.dll `ClipRayToCollideable` (`0x18018f510`) calls `TestHitboxes` (`0x180190a40`) for a
+    /// studio entity and falls through to the `SOLID_BBOX` clip (`0x1801905e0`) when it misses.
+    /// </summary>
+    /// <param name="player">The player.</param>
+    /// <param name="start">`ray.m_Start`.</param>
+    /// <param name="delta">`ray.m_Delta`.</param>
+    /// <param name="hitboxes">His posed hitboxes against the ray.</param>
+    /// <returns>The fraction the ray stops at, or null when it misses both.</returns>
+    public static float? ClipRayToEntity(
+        BulletTarget player, Vector3 start, Vector3 delta, Func<int, Vector3, Vector3, float?> hitboxes)
+    {
+        ArgumentNullException.ThrowIfNull(hitboxes);
+
+        return hitboxes(player.Entity, start, delta) ??
+               SegmentHitsBox(start, start + delta, player.Origin + HullMin, player.Origin + Top(player));
     }
 
     /// <summary>The top of a player's collision hull, ducked or not.</summary>

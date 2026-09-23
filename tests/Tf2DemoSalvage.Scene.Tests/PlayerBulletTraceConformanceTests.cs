@@ -30,6 +30,41 @@ public sealed class PlayerBulletTraceConformanceTests
         end.X.ShouldBe(480f, 0.001f);
     }
 
+    /// <remarks>
+    /// **Missing the hitboxes is not missing the player.** `CEngineTrace::ClipRayToCollideable` (engine.dll
+    /// `0x18018f510`) tests a studio entity's hitboxes when the mask holds `CONTENTS_HITBOX` (`TestHitboxes`,
+    /// `0x180190a40`) and, when they return nothing, clips the ray to its collision box (`0x1801905e0`, `SOLID_BBOX`).
+    /// So a pellet through the hull's corner stops on the player — flesh in TF2 where we had flown on into the sand
+    /// behind (f12 tick 14025, from gummo's eyes). The hull here starts at x = 476.
+    /// </remarks>
+    [Test]
+    public void Clip_ThroughTheHullMissingTheHitboxes_StopsAtTheCollisionBox()
+    {
+        BulletTarget player = new(7, new Vector3(500f, 0f, 0f), Ducked: false);
+
+        (Vector3 end, int? struck) = PlayerBulletTrace.Clip(
+            Start, End, worldFraction: 0.9f, [player], static (_, _, _) => null, Open);
+
+        struck.ShouldBe(7);
+        end.X.ShouldBe(476f, 0.001f);
+    }
+
+    /// <remarks>
+    /// The collision box is the DUCKED hull for a crouching player (`VEC_DUCK_HULL_MAX`, 62 up): a bullet at 70 passes
+    /// over it, though it is inside the standing partition box that lets the pass consider him at all.
+    /// </remarks>
+    [Test]
+    public void Clip_OverADuckedPlayersHullMissingTheHitboxes_FliesOn()
+    {
+        BulletTarget player = new(7, new Vector3(500f, 0f, 0f), Ducked: true);
+
+        (Vector3 end, int? struck) = PlayerBulletTrace.Clip(
+            new Vector3(0f, 0f, 70f), new Vector3(1000f, 0f, 70f), worldFraction: 0.9f, [player], static (_, _, _) => null, Open);
+
+        struck.ShouldBeNull();
+        end.X.ShouldBe(900f, 0.001f);
+    }
+
     [Test]
     public void Clip_NoPlayers_EndsAtTheWorld()
     {
