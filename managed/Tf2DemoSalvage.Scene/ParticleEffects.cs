@@ -138,10 +138,13 @@ public sealed class ParticleEffects
 
         _tick = tick;
 
-        if (advanced <= 0 || advanced > 200)
+        if (advanced < 0 || advanced > 200)
         {
-            // Backwards, unchanged, or a jump too large to replay honestly. A seek is handled by
-            // the per-projectile replay below rather than by stepping every effect through it.
+            // **A seek throws every trail away, as `Bursts` does** (B420): backwards, or too far forwards to replay.
+            // A trail whose rocket is gone fades only by ticks played forward, and a seek plays none — so kept, it
+            // stayed for good and was gathered on every paused frame, and a later rocket reusing its entity index
+            // inherited its particles. The rockets still flying replay their own from where they started, below.
+            _running.Clear();
             advanced = 0;
         }
 

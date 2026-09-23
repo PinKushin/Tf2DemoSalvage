@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -1499,9 +1500,11 @@ public static class PropModels
         /// Building it costs a bone read and a name-keyed remap of the included model, which is far
         /// too much for a draw path and exactly nothing after the first ask.
         /// </remarks>
-        private readonly Dictionary<int, float[]> _boneWeights = [];
+        // **Every lazy cache on a model is concurrent**: the corpse record poses on its own thread from the same loaded
+        // models, so filling one of these while the render thread reads it corrupted the Dictionary (IkFor, f12).
+        private readonly ConcurrentDictionary<int, float[]> _boneWeights = new();
 
-        private readonly Dictionary<int, IReadOnlyList<StudioIkLock>> _locks = [];
+        private readonly ConcurrentDictionary<int, IReadOnlyList<StudioIkLock>> _locks = new();
 
         /// <summary>The autoplay sequence list, built once — see <see cref="AutoplaySequences"/>.</summary>
         /// <remarks>
@@ -1512,19 +1515,19 @@ public static class PropModels
         private List<int>? _autoplay;
 
         /// <summary>One sequence's autolayers, read once — see <see cref="AutoLayersOf"/>.</summary>
-        private readonly Dictionary<int, IReadOnlyList<StudioAutoLayer>> _autoLayers = [];
+        private readonly ConcurrentDictionary<int, IReadOnlyList<StudioAutoLayer>> _autoLayers = new();
 
         /// <summary>The reverse of the merged sequence table, filled on demand.</summary>
-        private readonly Dictionary<(int Group, int Local), int> _relativeSequences = [];
+        private readonly ConcurrentDictionary<(int Group, int Local), int> _relativeSequences = new();
 
         /// <summary>The root model's IK chains, read once — see <see cref="IkChains"/>.</summary>
         private IReadOnlyList<StudioIkChain>? _ikChains;
 
         /// <summary>This model's bones mapped onto each group's, read once per group.</summary>
-        private readonly Dictionary<int, int[]> _boneMaps = [];
+        private readonly ConcurrentDictionary<int, int[]> _boneMaps = new();
 
         /// <summary>Each group's own skeleton, read once.</summary>
-        private readonly Dictionary<int, IReadOnlyList<StudioBone>> _groupBones = [];
+        private readonly ConcurrentDictionary<int, IReadOnlyList<StudioBone>> _groupBones = new();
 
         /// <summary>Where bone remapping reports how well two skeletons matched.</summary>
         /// <remarks>
@@ -1951,10 +1954,10 @@ public static class PropModels
             return read;
         }
 
-        private readonly Dictionary<(int Group, int Animation), IReadOnlyList<StudioIkRule>> _ikRules = [];
+        private readonly ConcurrentDictionary<(int Group, int Animation), IReadOnlyList<StudioIkRule>> _ikRules = new();
 
-        private readonly Dictionary<int, IReadOnlyList<StudioBone>> _bonesByGroup = [];
-        private readonly Dictionary<int, int[]> _remapByGroup = [];
+        private readonly ConcurrentDictionary<int, IReadOnlyList<StudioBone>> _bonesByGroup = new();
+        private readonly ConcurrentDictionary<int, int[]> _remapByGroup = new();
 
         /// <summary>The bones an animation model numbers its own animations against.</summary>
         private IReadOnlyList<StudioBone> BonesOf(int group)

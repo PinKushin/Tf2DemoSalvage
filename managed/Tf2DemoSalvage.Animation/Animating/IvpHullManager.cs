@@ -5,9 +5,8 @@ namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>What a hull manager files: a synapse record, told when its object's hull passes the key it was filed at.</summary>
 /// <remarks>
-/// The two slots of the records' listener table, <c>1800fdea0</c>, that a manager calls. **Slot 2, which deletes the mindist
-/// when the manager is torn down (<c>FUN_180097580</c> from <c>FUN_180094420</c>), is not carried**: nothing here destroys an
-/// object yet.
+/// The three slots of a listener's table that a manager calls. Slot 2 is how an object's destruction reaches everything
+/// filed on it (B418).
 /// </remarks>
 public interface IIvpHullSynapse
 {
@@ -18,6 +17,10 @@ public interface IIvpHullSynapse
     /// <param name="manager">The manager telling it.</param>
     /// <param name="overshoot">The list's minimum less the next PSI's value, which is under zero.</param>
     public void HullPassed(IvpHullManager manager, float overshoot);
+
+    /// <summary>Slot 2: the manager is going away — every implementation deletes its owner, which takes it off the list.</summary>
+    /// <param name="manager">The manager being torn down.</param>
+    public void ManagerDeleted(IvpHullManager manager);
 
     /// <summary>Slot 3: the manager rebased.</summary>
     /// <param name="valueShift">Minus the value, taken off every key.</param>
@@ -191,6 +194,27 @@ public sealed class IvpHullManager
 
         Synapses.Remove(slot);
         synapse.HullSlot = null;
+    }
+
+    /// <summary>Tells every filed listener the manager is going away — <c>FUN_180094420</c>, the object destructor's first step (B418).</summary>
+    /// <remarks>
+    /// <code>
+    /// while ( +0x3c count != 0 )  the entry at +0x28[+0x38] (the head) — its slot 2 (listener, manager)
+    /// </code>
+    /// Each listener's slot 2 deletes what owns it, and that delete takes it off this list; one that stayed would loop the engine.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">A listener stayed filed after being told.</exception>
+    public void DeleteAll()
+    {
+        while (Synapses.TryFirst(out IIvpHullSynapse? head, out _) && head is not null)
+        {
+            head.ManagerDeleted(this);
+
+            if (Synapses.TryFirst(out IIvpHullSynapse? still, out _) && ReferenceEquals(still, head))
+            {
+                throw new InvalidOperationException("A hull listener stayed filed after its manager was deleted, which the engine would loop on.");
+            }
+        }
     }
 
     /// <summary>Takes the value off every key — <c>FUN_180094490</c>.</summary>

@@ -25,6 +25,23 @@ public sealed class IvpImpactIslandBuildTests
     }
 
     [Test]
+    public void Build_AMovableCoreCarryingBit0x10_IsNeitherGrownNorBroughtToTheEvent()
+    {
+        // `FUN_180090700`: "core of cp's first object, unless flags & 0x12: FUN_18008da40", and "pair+0x38, unless flags &
+        // 0x12: push on +0x20". Bit 0x10 is `SkipsGravity`, and `BringToEvent` saves no snapshot for such a core, so growing
+        // it dereferenced a null `core+0x260` — the playback UI test's crash on z1800.
+        (IvpImpactIsland island, IvpImpactEnvironment environment, IvpFrictionPair pair, IvpContactPoint collided) = Collided();
+        IvpRigidBody movable = collided.FirstObject.Core!;
+        movable.SkipsGravity = true;
+        movable.PendingSnapshot = null;
+
+        island.Build(environment, pair, collided, Revalidate.Sides, Revalidate.Materials.Instance, _ => { }, _ => { }, now: 1d);
+
+        island.CoresIntegrated.ShouldBeEmpty();
+        island.CoresAtEvent.ShouldBeEmpty();
+    }
+
+    [Test]
     public void Build_TheOtherContactsOfThePair_AreRevalidatedButNotTheCollidedOne()
     {
         (IvpImpactIsland island, IvpImpactEnvironment environment, IvpFrictionPair pair, IvpContactPoint collided) = Collided();

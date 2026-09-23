@@ -227,6 +227,40 @@ public sealed class LaunchOptionsTests
     /// knows when playback actually started.
     /// </remarks>
     [Test]
+    public void Read_WithDemoTimescale_TakesThePlaybackSpeedAndLeavesTheConfigAlone()
+    {
+        // Valve's runtime speed command, which gate phase 3 plays at 8x through (D189); not a saved setting.
+        LaunchOptions read = Read("a.dem", "+demo_timescale", "8");
+
+        read.PlaybackSpeed.ShouldBe(8d);
+        read.Settings.ShouldBe(ViewerSettings.Load());
+        read.Paths.ShouldBe(["a.dem"]);
+    }
+
+    [Test]
+    public void Read_WithANonPositiveDemoTimescale_RefusesIt()
+    {
+        Read("a.dem", "+demo_timescale", "0").PlaybackSpeed.ShouldBeNull();
+        Read("a.dem", "+demo_timescale", "fast").PlaybackSpeed.ShouldBeNull();
+    }
+
+    [Test]
+    public void Read_WithThenSeek_TakesTheTickToSeekBackTo()
+    {
+        // B420's scenario: play, then pause, seek back and measure the paused frame.
+        LaunchOptions read = Read("a.dem", "--measure", "20", "--then-seek", "20142");
+
+        read.ThenSeek.ShouldBe(20142);
+        read.Paths.ShouldBe(["a.dem"]);
+    }
+
+    [Test]
+    public void Read_WithThenSeekAndNoTick_LeavesItOff()
+    {
+        Read("a.dem", "--then-seek", "soon").ThenSeek.ShouldBeNull();
+    }
+
+    [Test]
     public void Read_WithMeasure_TakesTheSecondsToRunFor()
     {
         LaunchOptions read = Read("a.dem", "--measure", "45");

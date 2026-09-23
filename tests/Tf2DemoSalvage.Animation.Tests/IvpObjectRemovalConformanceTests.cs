@@ -126,6 +126,61 @@ public sealed class IvpObjectRemovalConformanceTests
     }
 
     /// <remarks>
+    /// **The object's own destructor deletes every mindist still on it** (B418). `FUN_180073700` ends by dispatching the
+    /// object's vtable slot 0 (`0x1800fcf30` → `FUN_180073140` → `FUN_180072e90`, `ivp_object.cxx`), which walks the synapse
+    /// list at `object+0x40` and deletes each one's mindist through the mindist's own slot 0, re-reading the head each time.
+    /// Without it a mindist the neighbour walk left alone stays filed, and its queued pair event fires on a core with no unit.
+    /// Flagged `0x3000` so the neighbour walk (`FUN_180086500`) skips it, which isolates the destructor's walk.
+    /// </remarks>
+    [Test]
+    public void Remove_ACoreWithAMindistTheNeighbourWalkSkips_DeletesItAndUnlinksItFromTheNeighbour()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody going, out IvpRigidBody staying);
+        IvpCollisionObject goingObject = going.Objects[0];
+        IvpCollisionObject stayingObject = staying.Objects[0];
+        goingObject.Environment = simulation.Collisions;
+        stayingObject.Environment = simulation.Collisions;
+
+        IvpMindist mindist = new(
+            new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
+            new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Triangle),
+            extraRadius: 0f)
+        {
+            // Exact (state 3 in bits 18–21), as `ContactBetween` files one, and `0x3000` for the walk to skip.
+            Flags = 0xC0000 | 0x3000,
+        };
+
+        simulation.Collisions.MindistManager.LinkExact(mindist, goingObject, stayingObject);
+
+        simulation.Remove(going);
+
+        stayingObject.Synapses.ShouldBeEmpty("the neighbour holds no synapse to a body that is gone");
+        mindist.ListNode.ShouldBeNull("the mindist is off the exact list, so no pair event of it can fire");
+    }
+
+    /// <remarks>
+    /// **The destructor tears down the object's hull manager first** (B418): `FUN_180072e90` opens with `FUN_180094420(object+0x80)`,
+    /// which tells the head listener "manager going away" (slot 2) until none is left. The broad-phase node's slot 2
+    /// (`FUN_18009ec90`) deletes the node (`FUN_18009dae0`), taking it out of the OV tree. Without it the refile that removal
+    /// runs left the node filed, and a neighbour's next broad-phase pass paired with a body that was gone.
+    /// </remarks>
+    [Test]
+    public void Remove_ACoreWithABroadPhaseNode_DeletesTheNodeThroughItsHullManager()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody going, out _);
+        IvpCollisionObject goingObject = going.Objects[0];
+        goingObject.Environment = simulation.Collisions;
+        IvpBroadPhase.Rebuild(simulation.Collisions, goingObject);
+        IvpOvNode node = goingObject.Node.ShouldNotBeNull("the fixture filed a node");
+
+        simulation.Remove(going);
+
+        goingObject.Node.ShouldBeNull("the node was deleted");
+        node.Cell.ShouldBeNull("and is out of the tree");
+        goingObject.Hull.Synapses.Count.ShouldBe(0, "nothing is left filed in a torn-down hull");
+    }
+
+    /// <remarks>
     /// The awake branch's other half: once the neighbour is woken, <c>FUN_1800788b0</c> runs <c>IvpContactRecord::Build</c>,
     /// <see cref="IvpContactPoint.SetMaterials"/> and <c>FUN_180083a60</c> — the weigh, whose output is
     /// <see cref="IvpContactPoint.InverseContactMass"/> at <c>cp+0x60</c>. So a contact that survives the removal is measured

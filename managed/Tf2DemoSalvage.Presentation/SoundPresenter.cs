@@ -141,6 +141,14 @@ public sealed class SoundPresenter(
     /// </remarks>
     public SoundScriptCatalog? Scripts { get; set; }
 
+    /// <summary>Sounds the client emitted since the last pass, started by the next.</summary>
+    private readonly List<SceneSound> _emitted = [];
+
+    /// <summary>Plays a sound the client decides as playback reaches it, such as its own bullet's impact (B415).</summary>
+    /// <param name="sound">The sound, started at the next <see cref="Update"/> if its camera gate allows.</param>
+    /// <remarks>A seek before that pass drops it, as it silences everything in flight.</remarks>
+    public void Emit(SceneSound sound) => _emitted.Add(sound);
+
     /// <summary>Whether a sound's own camera gate lets it start — <see cref="SceneSound.AudibleWithin"/>, strictly within.</summary>
     /// <param name="sound">The sound.</param>
     /// <param name="listener">The camera.</param>
@@ -243,6 +251,29 @@ public sealed class SoundPresenter(
 
             Start(output, sound, listener, right, reestablishing);
         }
+
+        if (!schedule.Jumped)
+        {
+            foreach (SceneSound sound in _emitted)
+            {
+                if (InRange(sound, listener))
+                {
+                    Start(output, sound, listener, right, reestablishing: false);
+                }
+                else if (audio.IsEnabled(LogLevel.Debug))
+                {
+                    // Beyond its own camera gate — `ImpactCallback`'s 1024 — so it never starts at all.
+                    audio.LogDebug(
+                        "{Message}",
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"sound out of range tick {sound.Tick} {sound.Name} at ({sound.OriginX:0} {sound.OriginY:0} {sound.OriginZ:0}), " +
+                            $"listener ({listener.X:0} {listener.Y:0} {listener.Z:0})"));
+                }
+            }
+        }
+
+        _emitted.Clear();
 
         return new SoundPhases(
             advanced - began,
@@ -362,6 +393,16 @@ public sealed class SoundPresenter(
             // discarded here, so a wrong gain curve removes nearly all sound and reports nothing.
             _silenced++;
             ReportAudioOutput();
+
+            if (audio.IsEnabled(LogLevel.Debug))
+            {
+                audio.LogDebug(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"sound silenced tick {sound.Tick} {sound.Name} : src {sound.EntityIndex} : {distance:0} away at soundlevel {sound.SoundLevel}"));
+            }
+
             return;
         }
 
@@ -372,6 +413,17 @@ public sealed class SoundPresenter(
         // travels (B169).
         _submitted++;
         ReportAudioOutput();
+
+        // **`snd_showstart`, the engine's own instrument** — one line per sound started, so a stretch of a demo can be
+        // compared with the same stretch in TF2 (`snd_showstart 1` with `developer 1` prints each start to the console).
+        if (audio.IsEnabled(LogLevel.Debug))
+        {
+            audio.LogDebug(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"sound start tick {sound.Tick} {sound.Name} : src {sound.EntityIndex} : channel {sound.Channel} : gain {gain:0.###}"));
+        }
 
         output.Play(
             opened,

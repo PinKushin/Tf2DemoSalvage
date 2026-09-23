@@ -35,6 +35,11 @@ namespace Tf2DemoSalvage.Presentation;
 /// for an ordinary interactive run.
 /// </param>
 /// <param name="ShowHelp">Whether to print the options and exit without opening anything.</param>
+/// <param name="PlaybackSpeed">The speed <c>+demo_timescale</c> asked for, or null to play at the transport's own.</param>
+/// <param name="ThenSeek">
+/// With <c>--measure</c>: once the measured playback ends, pause, seek to this tick and measure the paused frame for as
+/// long again, printing both (B420's scenario). Null for a single measurement.
+/// </param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
     IReadOnlyList<string> Paths,
@@ -49,7 +54,9 @@ public readonly record struct LaunchOptions(
     bool AutoPlay = false,
     double? MeasureSeconds = null,
     bool ShowHelp = false,
-    bool ThirdPerson = false);
+    bool ThirdPerson = false,
+    double? PlaybackSpeed = null,
+    int? ThenSeek = null);
 
 /// <summary>Reads the viewer's launch options.</summary>
 /// <remarks>
@@ -74,6 +81,9 @@ public readonly record struct LaunchOptions(
 /// </remarks>
 public static class LaunchOptionsReader
 {
+    /// <summary>Valve's demo replay speed command.</summary>
+    public const string DemoTimescaleCommand = "demo_timescale";
+
     /// <summary>Reads the arguments over a starting configuration.</summary>
     /// <param name="arguments">The command line, less the executable.</param>
     /// <param name="settings">The config as loaded, which options override.</param>
@@ -142,6 +152,24 @@ public static class LaunchOptionsReader
                 continue;
             }
 
+            // **`demo_timescale` is Valve's command for demo replay speed**, and a runtime one rather than a saved setting,
+            // so it is read here instead of going on to the config parser. Gate phase 3 plays at 8x through it (D189).
+            if (argument == "+" + DemoTimescaleCommand && pending.Count > 0)
+            {
+                string value = pending.Dequeue();
+
+                if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double speed) && speed > 0)
+                {
+                    read = read with { PlaybackSpeed = speed };
+                }
+                else
+                {
+                    log.LogWarning("{Message}", $"{DemoTimescaleCommand} wants a positive speed; '{value}' is not one");
+                }
+
+                continue;
+            }
+
             if (argument.StartsWith('+') && argument.Length > 1 && pending.Count > 0)
             {
                 string command = argument[1..];
@@ -198,6 +226,22 @@ public static class LaunchOptionsReader
             // hand-driven measurement wrong. A run timed from process start spends its first twenty
             // seconds reading archives and building the map, so a "forty second" measurement was
             // about two seconds of frames. Only the viewer knows when playback began.
+            if (argument == "--then-seek" && pending.Count > 0)
+            {
+                string tick = pending.Dequeue();
+
+                if (int.TryParse(tick, NumberStyles.Integer, CultureInfo.InvariantCulture, out int to) && to >= 0)
+                {
+                    read = read with { ThenSeek = to };
+                }
+                else
+                {
+                    log.LogWarning("{Message}", $"--then-seek wants a tick; '{tick}' is not one");
+                }
+
+                continue;
+            }
+
             if (argument == "--measure" && pending.Count > 0)
             {
                 string seconds = pending.Dequeue();

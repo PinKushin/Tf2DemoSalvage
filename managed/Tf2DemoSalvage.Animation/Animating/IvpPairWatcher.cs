@@ -158,7 +158,7 @@ public sealed class IvpPairWatcher : IvpCollision, IIvpCollisionDelegator
 }
 
 /// <summary>One of a watcher's two hull records, listener table <c>1800feb00</c> (B369).</summary>
-/// <remarks>**Slot 2, which deletes the watcher when its manager goes away (<c>FUN_1800b6180</c>), is not carried**, as for a mindist's records.</remarks>
+/// <remarks>Slot 2, <c>FUN_1800b6180</c>, deletes the watcher when its manager goes away (B418).</remarks>
 public sealed class IvpPairWatcherRecord : IIvpHullSynapse
 {
     private readonly IvpPairWatcher _watcher;
@@ -172,6 +172,10 @@ public sealed class IvpPairWatcherRecord : IIvpHullSynapse
     /// <param name="manager">Unread.</param>
     /// <param name="overshoot">Unread.</param>
     public void HullPassed(IvpHullManager manager, float overshoot) => _watcher.Refresh();
+
+    /// <summary>Slot 2, <c>FUN_1800b6180</c>: the watcher deleted.</summary>
+    /// <param name="manager">Unread.</param>
+    public void ManagerDeleted(IvpHullManager manager) => _watcher.Delete();
 
     /// <summary>Slot 3: nothing.</summary>
     /// <param name="valueShift">Unread.</param>

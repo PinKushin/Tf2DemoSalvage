@@ -2131,9 +2131,19 @@ internal class MainForm : Form, IFrameSteps
     /// the view frustum the draw culls against. A frustum built from the free camera while the
     /// picture is drawn through a player's eyes would cull the geometry the viewer is looking at.
     /// </remarks>
+    /// <remarks>
+    /// **Only the active mode's camera is built**, as `C_BasePlayer::CalcView` dispatches to one of `CalcInEyeCamView`,
+    /// `CalcChaseCamView` or `CalcRoamingView`. All three were built every frame, and the chase camera's world sweep then cost
+    /// 16 ms a frame in the free camera: measured paused on `z1800` after the playback UI test, `camera` 1.3 → 16.3 ms,
+    /// which made every automation call after it slow. Building it eagerly also advanced its wall recovery
+    /// (`m_flLastDistance`) on frames that were not chasing.
+    /// </remarks>
     private FreeCamera ViewCameraNow(double seconds) =>
         ViewCamera.Active(
-            _effectiveMode, FirstPersonCamera(), ChaseCamera(seconds), FreeLookCamera());
+            _effectiveMode,
+            _effectiveMode == CameraMode.FirstPerson ? FirstPersonCamera() : null,
+            _effectiveMode == CameraMode.ThirdPerson ? ChaseCamera(seconds) : null,
+            FreeLookCamera());
 
     /// <summary>The camera for the third-person view, or <c>null</c> when there is no target.</summary>
     /// <remarks>
@@ -2507,6 +2517,9 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
+        ReplayModelDecals((int)tick);
+        _shownTick = tick;
+
         // **`EnsureWeaponRoles()` was called here until 2026-08-26** (B188, D90). It was the last
         // non-view work in the frame path: one line reaching for `_timeline` and `_game` on every
         // frame, to keep `MomentScene.Appearance` current. `MomentPresenter` asks
@@ -2680,7 +2693,7 @@ internal class MainForm : Form, IFrameSteps
 
         try
         {
-            return Apply(DecodedDemo.Read(path, _demoLog));
+            return Apply(DecodedDemo.Read(path, _demoLog, interp: _settings.Interp));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -2724,6 +2737,7 @@ internal class MainForm : Form, IFrameSteps
         try
         {
             ILogger demoLog = _demoLog;
+            Core.Net.ClientInterp interp = _settings.Interp;
 
             // **Posted, so a report can arrive after the decode has moved on** — the stage check
             // keeps a late one from dragging the overlay back to "decoding".
@@ -2741,7 +2755,7 @@ internal class MainForm : Form, IFrameSteps
             // window that closes mid-load does not come back to a disposed form afterwards, which
             // is the same crash the map fetch had.
             DecodedDemo decoded = await Task
-                .Run(() => DecodedDemo.Read(path, demoLog, progress.Report), _shutdown.Token)
+                .Run(() => DecodedDemo.Read(path, demoLog, progress.Report, interp), _shutdown.Token)
                 .ConfigureAwait(false);
 
             if (!_loads.IsCurrent(ticket))
@@ -3089,6 +3103,11 @@ internal class MainForm : Form, IFrameSteps
             _audio,
             autoPlay,
             _launch.AutoPlay ? "--autoplay" : $"{AutoPlayVariable} is set");
+
+        if (_launch.PlaybackSpeed is { } speed)
+        {
+            _transport.SetSpeed(speed);
+        }
 
         // **A point-of-view recording opens through the recorder's eyes** (D128). TF2's playback
         // of a POV demo is the recorded view and nothing else, so the free camera this viewer
@@ -4265,7 +4284,7 @@ internal class MainForm : Form, IFrameSteps
                 blast.Tick));
         }
 
-        AddTracers(tick, systems);
+        AddTracers(tick, systems, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
         AddBlood(timeline, tick, systems, viewing);
         AddSentryMuzzleFlashes(timeline, tick, systems);
         AddParticleDispatches(timeline, tick, systems);
@@ -4303,7 +4322,52 @@ internal class MainForm : Form, IFrameSteps
     /// offered, as the engine reads it once when the shot arrives: re-read every frame, a tracer would follow the gun.
     /// A seek that lands mid-flight reads the gun where it is then, which is the nearest pose there is.
     /// </remarks>
-    private void AddTracers(int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    /// <summary>`g_BulletWhiz.m_nextWhizTime`, in demo seconds.</summary>
+    private double _nextWhizSeconds;
+
+    /// <summary>The demo time a whiz was last asked about, so a seek back can reset the wait.</summary>
+    private double _lastWhizAsked;
+
+    /// <summary>The moment <see cref="ShowMoment"/> last showed, fraction included — what the players are posed at.</summary>
+    private double _shownTick;
+
+    /// <summary>The players at that moment, for a bullet's hull test; reused.</summary>
+    private readonly List<ScenePlayer> _shotTargets = [];
+
+    /// <summary>A tracer's near-miss whiz, when it passes the listener and none has played in the last 0.1 s.</summary>
+    private void Whiz(int tick, (float X, float Y, float Z) from, (float X, float Y, float Z) to, Vector3 eye)
+    {
+        if (_replayingModelDecals || _sound.Scripts is not { } scripts)
+        {
+            return;
+        }
+
+        double now = tick * (_timeline?.IntervalPerTick ?? (1f / 66f));
+
+        if (now < _lastWhizAsked)
+        {
+            // A seek back: the timer belongs to a future this playback has not reached.
+            _nextWhizSeconds = 0d;
+        }
+
+        _lastWhizAsked = now;
+
+        Vector3 start = new(from.X, from.Y, from.Z);
+
+        if (now < _nextWhizSeconds || !TracerWhiz.Hears(start, new Vector3(to.X, to.Y, to.Z), eye))
+        {
+            return;
+        }
+
+        if (TracerWhiz.SoundAt(tick, from, scripts.Entries) is { } whiz)
+        {
+            _sound.Emit(whiz);
+        }
+
+        _nextWhizSeconds = now + TracerWhiz.CooldownSeconds;
+    }
+
+    private void AddTracers(int tick, IReadOnlyDictionary<string, ParticleSystem> systems, Vector3 eye)
     {
         if (_loaded?.Tracers is not { Count: > 0 } tracers)
         {
@@ -4341,6 +4405,13 @@ internal class MainForm : Form, IFrameSteps
                 if (muzzle is not null || _models.IsPosed(tracer.Weapon) || judged)
                 {
                     _tracerStarts[index] = path;
+
+                    // `ParticleTracerCallback` → `FX_TracerSound`, once, as the tracer is made; a tracer met by a seek
+                    // was made in a stretch nobody heard.
+                    if (tick - tracer.Tick <= 1)
+                    {
+                        Whiz(tracer.Tick, path.From, path.To, eye);
+                    }
                 }
 
                 if (_renderLog.IsEnabled(LogLevel.Debug))
@@ -4451,7 +4522,23 @@ internal class MainForm : Form, IFrameSteps
     private int _modelDecalTick = int.MinValue;
 
     /// <summary>Each player's state at the last step, for the changes that clear its decals.</summary>
-    private readonly Dictionary<int, (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass)> _decalHolders = [];
+    private readonly Dictionary<int, ScenePlayer> _decalHolders = [];
+
+    /// <summary>A jump further than this replays the model decals it passed over; a second of demo.</summary>
+    /// <remarks>
+    /// Past the per-frame <see cref="ModelDecalArrivalTicks"/> on purpose: at 8x a frame advances about nine ticks, and
+    /// replaying on every frame of fast playback would redo work the ordinary step already does.
+    /// </remarks>
+    private const int ModelDecalSeekTicks = 66;
+
+    /// <summary>
+    /// How far back a seek's replay may start: two minutes. *Interpolated:* no life in f12 keeps a decal that long (the
+    /// full heal on spawn wipes every one); ponytail: raise it if a demo shows a decal older than this surviving.
+    /// </summary>
+    private const int ModelDecalLookbackTicks = 66 * 120;
+
+    /// <summary>True while a seek replays the ticks it skipped, so nothing heard is emitted and nothing re-enters.</summary>
+    private bool _replayingModelDecals;
 
     /// <summary>Puts every server impact on a player since the last step onto that player's model (B415).</summary>
     /// <remarks>
@@ -4464,8 +4551,8 @@ internal class MainForm : Form, IFrameSteps
     /// CModelRender::AddDecal: radius = max( w, h ) · $decalScale / 2; no `$decalFadeDuration` decal; the bones now
     /// </code>
     /// And the clears `C_TFPlayer` makes: a heal to full, an übercharge, a new class (a new model), a cloak, a new
-    /// disguise class. *Not built:* replay on a seek — a step backwards clears every model, and a jump forwards puts only
-    /// the impacts it passes onto the models as they stand at the new tick; the invulnerable ricochet; a building's decal.
+    /// disguise class. A seek replays what it skipped (<see cref="ReplayModelDecals"/>). *Not built:* the invulnerable
+    /// ricochet; a building's decal.
     /// </remarks>
     private void StepModelDecals(int tick)
     {
@@ -4505,16 +4592,7 @@ internal class MainForm : Form, IFrameSteps
             ClearOnChange(player);
         }
 
-        if (_entityImpacts is null)
-        {
-            _entityImpacts = ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name);
-
-            _renderLog.LogInformation(
-                "{Message}",
-                string.Create(CultureInfo.InvariantCulture, $"model decals: {_entityImpacts.Count} server impacts on entities"));
-        }
-
-        foreach ((int index, SceneEffectDispatch impact) in _entityImpacts)
+        foreach ((int index, SceneEffectDispatch impact) in EntityImpacts(timeline))
         {
             if (impact.Tick <= from || impact.Tick > tick || Holder(players, impact.Entity) is not { } struck)
             {
@@ -4529,16 +4607,35 @@ internal class MainForm : Form, IFrameSteps
         // dispatches `"Impact"` with the trace's end, start and surface. *Interpolated:* the surface is `flesh`, what TF2's
         // player bones declare, rather than read from the struck hitbox's bone.
         // ponytail: a scan of every landing per frame; a cursor if a demo ever carries far more than f12's 12,518.
+        //
+        // **Its sound is decided here too, for the same reason** (`tf_player_shared.cpp:10510-10527`): the trace stops at
+        // any player, a teammate included outside MvM (`CTraceFilterSimple`), and only an enemy gets `UTIL_ImpactTrace` — so
+        // a bullet a teammate stopped is silent, an enemy's sounds on him, and only a miss sounds on the world behind.
         int flesh = _game?.Surfaces?.GetSurfaceIndex("flesh") ?? -1;
 
         foreach (ShotImpact bullet in _loaded.Impacts)
         {
-            if (bullet.FromServer || bullet.BrushOnly || bullet.Tick <= from || bullet.Tick > tick ||
-                StruckEnd(bullet) is not { Struck: { } who } hit ||
-                Holder(players, who) is not { } victim || victim.Team == bullet.Team)
+            if (bullet.FromServer || bullet.Tick <= from || bullet.Tick > tick)
             {
                 continue;
             }
+
+            ((float X, float Y, float Z) End, bool Judged, int? Struck) hit = bullet.BrushOnly ? (bullet.End, true, null) : StruckEnd(bullet);
+
+            if (hit.Struck is not { } who)
+            {
+                EmitLanding(bullet, _game?.Surfaces is { } surfaces ? WorldLanding(bullet, impacts, surfaces) : null);
+                continue;
+            }
+
+            if (Holder(players, who) is not { } victim || victim.Team == bullet.Team)
+            {
+                continue;
+            }
+
+            EmitLanding(
+                bullet,
+                new BulletLanding(bullet.Tick, hit.End, _game?.Surfaces?.GetSurfaceData(flesh)?.BulletImpactSound, bullet.DamageType == Bullet));
 
             PlaceModelDecal(
                 new SceneEffectDispatch(
@@ -4564,7 +4661,7 @@ internal class MainForm : Form, IFrameSteps
 
         if (shot is not { } s)
         {
-            _renderLog.LogDebug(
+            _renderLog.LogInformation(
                 "{Message}",
                 string.Create(CultureInfo.InvariantCulture, $"model decal tick {impact.Tick} entity {impact.Entity}: none, {refused}"));
 
@@ -4635,7 +4732,13 @@ internal class MainForm : Form, IFrameSteps
             return (null, "no ray");
         }
 
-        if (_models.TraceHitboxes(impact.Entity, ray.Start, ray.Delta, BulletMask) is null)
+        // `AddStudioDecal`'s `ClipRayToEntity( ray, MASK_SHOT )`: the hitboxes, then the collision box when they miss —
+        // so a bolt stopped on the hull still tries to decal, as TF2's does.
+        BulletTarget clipped = new(
+            impact.Entity, new Vector3(struck.X, struck.Y, struck.Z), ((struck.Flags ?? 0) & Ducking) != 0);
+
+        if (PlayerBulletTrace.ClipRayToEntity(
+                clipped, ray.Start, ray.Delta, (entity, from, delta) => _models.TraceHitboxes(entity, from, delta, BulletMask)) is null)
         {
             float away = MathF.Sqrt(
                 ((impact.Origin.X - struck.X) * (impact.Origin.X - struck.X)) + ((impact.Origin.Y - struck.Y) * (impact.Origin.Y - struck.Y)));
@@ -4644,7 +4747,7 @@ internal class MainForm : Form, IFrameSteps
                 ? string.Create(
                     CultureInfo.InvariantCulture,
                     $"the ray misses the hitboxes, the hit {away:0.#} across from the networked origin, {impact.Origin.Z - struck.Z:0.#} up; " +
-                    $"the server's box {impact.HitBox} is {Gap(_models.HitboxGap(impact.Entity, impact.HitBox, new Vector3(impact.Origin.X, impact.Origin.Y, impact.Origin.Z)))}")
+                    $"the server's box {impact.HitBox} is {Gap(_models.HitboxGap(impact.Entity, impact.HitBox, new Vector3(impact.Origin.X, impact.Origin.Y, impact.Origin.Z)))}; {StateOf(struck)}")
                 : "not posed");
         }
 
@@ -4666,16 +4769,13 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Where every bullet the loaded map stops lands, for its sounds (B415), in tick order.</summary>
     /// <remarks>
-    /// The world's: a client bullet `UTIL_ImpactTrace` lets through (not sky, not nodraw) and every server impact. An
-    /// entity's: the server's `Impact` dispatches, at their origin with their surfaceprop — `PlayImpactSound` takes the
-    /// server's surfaceprop whenever the client's trace hit the same entity, and its end is the hitbox a few units away.
-    /// The ricochet is offered only to a damage type of exactly `DMG_BULLET`, which no TF gun has: a client bullet's is
-    /// not carried (0 here) and would not match either.
+    /// The world's: every server impact `UTIL_ImpactTrace` lets through (not sky, not nodraw). An entity's: the server's
+    /// `Impact` dispatches, at their origin with their surfaceprop — `PlayImpactSound` takes the server's surfaceprop
+    /// whenever the client's trace hit the same entity, and its end is the hitbox a few units away. The client's own
+    /// bullets are not here: whether a player stopped one is known only once he is posed, so `StepModelDecals` emits them.
     /// </remarks>
     private IReadOnlyList<BulletLanding> BulletLandings()
     {
-        const int Bullet = 1 << 1;
-
         if (_loaded is not { ImpactDecals: { } decals } loaded || _game?.Surfaces is not { } surfaces || _timeline is not { } timeline)
         {
             return [];
@@ -4685,19 +4785,10 @@ internal class MainForm : Form, IFrameSteps
 
         foreach (ShotImpact impact in loaded.Impacts)
         {
-            // *Not built:* a client bullet a player stopped, which the model pass decides at play time, still sounds on
-            // the wall behind him here.
-            if (decals.Surface(impact) is not { } surface ||
-                (surface.Flags & (Tf2DemoSalvage.Content.Bsp.SurfaceProperties.Sky | Tf2DemoSalvage.Content.Bsp.SurfaceProperties.NoDraw)) != 0)
+            if (impact.FromServer && WorldLanding(impact, decals, surfaces) is { } landing)
             {
-                continue;
+                landings.Add(landing);
             }
-
-            landings.Add(new BulletLanding(
-                impact.Tick,
-                impact.End,
-                surfaces.GetSurfaceData(decals.SurfacePropOf(impact))?.BulletImpactSound,
-                impact.DamageType == Bullet));
         }
 
         foreach ((int _, SceneEffectDispatch hit) in ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name))
@@ -4709,6 +4800,51 @@ internal class MainForm : Form, IFrameSteps
         return [.. landings.OrderBy(static landing => landing.Tick)];
     }
 
+    /// <summary>`DMG_BULLET` — the only damage type `ImpactCallback` offers the ricochet, which no TF gun has.</summary>
+    private const int Bullet = 1 << 1;
+
+    /// <summary>A bullet's landing on the world, or null where `UTIL_ImpactTrace` refuses it (sky, nodraw).</summary>
+    private static BulletLanding? WorldLanding(
+        ShotImpact impact, ImpactDecals decals, Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps surfaces)
+    {
+        if (decals.Surface(impact) is not { } surface ||
+            (surface.Flags & (Tf2DemoSalvage.Content.Bsp.SurfaceProperties.Sky | Tf2DemoSalvage.Content.Bsp.SurfaceProperties.NoDraw)) != 0)
+        {
+            return null;
+        }
+
+        return new BulletLanding(
+            impact.Tick,
+            impact.End,
+            surfaces.GetSurfaceData(decals.SurfacePropOf(impact))?.BulletImpactSound,
+            impact.DamageType == Bullet);
+    }
+
+    /// <summary>The shot whose pellets are landing now, and the impact sounds it has played.</summary>
+    private readonly ShotSoundGroup _shotSounds = new();
+
+    /// <summary>Plays one of the client's own bullets where it landed (B415).</summary>
+    private void EmitLanding(ShotImpact bullet, BulletLanding? landing)
+    {
+        // A seek's replay reaches bullets that landed seconds ago; TF2's fast-forward is heard no more than ours.
+        if (!_replayingModelDecals && landing is { } l && _sound.Scripts is { } scripts)
+        {
+            // **One shot's pellets share a sound group** (`ImpactSoundGroup`, `tf_fx_shared.cpp:40`): the same impact
+            // sound within 300 units of one this shot already played is not played again.
+            _shotSounds.Start(bullet.Shot);
+
+            if (l.ImpactSound is { } name && !_shotSounds.Allows(name, new Vector3(l.At.X, l.At.Y, l.At.Z)))
+            {
+                return;
+            }
+
+            foreach (SceneSound sound in ImpactSounds.For(l, ImpactSounds.SeedFor((bullet.Shot * 32) + bullet.Bullet), scripts.Entries))
+            {
+                _sound.Emit(sound);
+            }
+        }
+    }
+
     /// <summary>A hitbox gap as a log fragment.</summary>
     private static string Gap((float Outside, Vector3 FromCentre)? gap) =>
         gap is { } g
@@ -4716,6 +4852,18 @@ internal class MainForm : Form, IFrameSteps
                 CultureInfo.InvariantCulture,
                 $"{g.Outside:0.#} outside it, ({g.FromCentre.X:0.#} {g.FromCentre.Y:0.#} {g.FromCentre.Z:0.#}) from its centre in its bone's frame")
             : "not posed here";
+
+    /// <summary>What a struck player's pose was built from, for a decal that missed him: the questions a 30-unit gap asks.</summary>
+    private string StateOf(ScenePlayer struck)
+    {
+        string crouch = struck.IsCrouched ? "crouched" : "standing";
+        string air = struck.IsAirborne ? "airborne" : "grounded";
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"he is {crouch}, {air}, duck-jump offset {_models.DuckJumpOffsetOf(struck.EntityIndex) ?? 0f:0.#}, " +
+            $"frame {_models.FrameOf(struck.EntityIndex)?.ToString() ?? "none"}");
+    }
 
     /// <summary>The player an impact names, when it is one playing now.</summary>
     private static ScenePlayer? Holder(IReadOnlyList<ScenePlayer> players, int entity)
@@ -4734,21 +4882,284 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`RemoveAllDecals` where `C_TFPlayer` calls it: full heal, übercharge, new model, cloak, new disguise class.</summary>
     private void ClearOnChange(ScenePlayer player)
     {
-        (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass) now =
-            (player.Health, player.PlayerClass, player.Conditions.IsStealthed, player.DisguiseClass);
-
-        if (_decalHolders.TryGetValue(player.EntityIndex, out (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass) was))
+        if (_decalHolders.TryGetValue(player.EntityIndex, out ScenePlayer was) && WipesDecals(was, player))
         {
-            bool healed = now.Health > was.Health && now.Health >= player.MaxHealth;
+            _modelDecals.Clear(player.EntityIndex);
+        }
 
-            if (healed || player.Conditions.IsInvulnerable || now.PlayerClass != was.PlayerClass ||
-                (now.Stealthed && !was.Stealthed) || now.DisguiseClass != was.DisguiseClass)
+        _decalHolders[player.EntityIndex] = player;
+    }
+
+    /// <summary>Whether going from one state of a player to the next makes `C_TFPlayer` call `RemoveAllDecals`.</summary>
+    private static bool WipesDecals(ScenePlayer was, ScenePlayer now) =>
+        (now.Health > was.Health && now.Health >= now.MaxHealth) || now.Conditions.IsInvulnerable ||
+        now.PlayerClass != was.PlayerClass || (now.Conditions.IsStealthed && !was.Conditions.IsStealthed) ||
+        now.DisguiseClass != was.DisguiseClass;
+
+    /// <summary>
+    /// After a seek, runs the scene forward over the ticks it skipped so their impacts land on the poses they met — what
+    /// TF2 does, since it cannot seek at all: it replays the demo up to the tick (`demo_gototick`).
+    /// </summary>
+    /// <remarks>
+    /// **Bounded by the decals that could still be on a model**: the replay starts at the latest tick where every player
+    /// playing at the target had his decals wiped (<see cref="WipesDecals"/>) or was not yet alive, so nothing earlier can
+    /// show. Each tick is a full <see cref="ShowMoment"/> and <see cref="StepModelDecals"/>, the same path playback takes.
+    /// </remarks>
+    private void ReplayModelDecals(int target)
+    {
+        if (_replayingModelDecals || _timeline is not { } timeline || _device is null ||
+            (_modelDecalTick != int.MinValue && target >= _modelDecalTick && target - _modelDecalTick <= ModelDecalSeekTicks))
+        {
+            return;
+        }
+
+        long lookingBack = Stopwatch.GetTimestamp();
+        int start = OldestDecalLife(timeline, target);
+        TimeSpan lookback = Stopwatch.GetElapsedTime(lookingBack);
+        TimeSpan skipping = TimeSpan.Zero;
+        TimeSpan building = TimeSpan.Zero;
+        TimeSpan posing = TimeSpan.Zero;
+        (long simulate, long setup, long skin) was = (_models.SimulateTicks, _models.SetupTicks, _models.SkinTicks);
+
+        _modelDecals.ClearAll();
+        _decalHolders.Clear();
+        _modelDecalTick = start;
+        _replayingModelDecals = true;
+        _models.HoldsCorpses = true;
+        _moments.PlayersOnly = true;
+
+        long began = Stopwatch.GetTimestamp();
+
+        bool[] needed = ReplayTicks(timeline, start, target);
+        int stepped = 0;
+
+        try
+        {
+            for (int tick = start + 1; tick < target; tick++)
             {
-                _modelDecals.Clear(player.EntityIndex);
+                if (!needed[tick - start])
+                {
+                    long skipped = Stopwatch.GetTimestamp();
+
+                    // Nothing lands here: only the wipes are brought up to date, from the demo without posing anyone.
+                    foreach (ScenePlayer player in timeline.PlayersAt(tick))
+                    {
+                        ClearOnChange(player);
+                    }
+
+                    _modelDecalTick = tick;
+                    skipping += Stopwatch.GetElapsedTime(skipped);
+                    continue;
+                }
+
+                long phase = Stopwatch.GetTimestamp();
+                ShowMoment(tick);
+                building += Stopwatch.GetElapsedTime(phase);
+
+                // Simulated, not drawn: `CModelRender::AddDecal` sets up the struck player's bones itself (`SkinningOf`).
+                phase = Stopwatch.GetTimestamp();
+                _moments.PoseNow(ViewFrustum.Nothing);
+                posing += Stopwatch.GetElapsedTime(phase);
+
+                StepModelDecals(tick);
+                stepped++;
+            }
+        }
+        finally
+        {
+            _replayingModelDecals = false;
+            _models.HoldsCorpses = false;
+            _moments.PlayersOnly = false;
+        }
+
+        _renderLog.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"model decals: a seek to {target} replayed ticks {start}-{target - 1}, posing {stepped} of them, in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms " +
+                $"(lookback {lookback.TotalMilliseconds:0}, skipped ticks {skipping.TotalMilliseconds:0}, building {building.TotalMilliseconds:0}, " +
+                $"posing {posing.TotalMilliseconds:0} of which simulate {Milliseconds(_models.SimulateTicks - was.simulate):0}, " +
+                $"bones {Milliseconds(_models.SetupTicks - was.setup):0}, skin {Milliseconds(_models.SkinTicks - was.skin):0}; " +
+                $"the rest placing decals); {_modelDecals.Count} held"));
+
+        static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
+    }
+
+    /// <summary>
+    /// How many ticks before a landing the replay poses from, so the sequence transitions the landing sees have run: 16,
+    /// past the 0.2 s `fadeouttime` most sequences blend over. *Interpolated:* a longer fade poses slightly short.
+    /// </summary>
+    private const int ModelDecalWarmupTicks = 16;
+
+    /// <summary>The server's impacts on entities, selected once per demo.</summary>
+    private IReadOnlyList<(int Index, SceneEffectDispatch Dispatch)> EntityImpacts(DemoTimeline timeline)
+    {
+        if (_entityImpacts is null)
+        {
+            _entityImpacts = ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name);
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(CultureInfo.InvariantCulture, $"model decals: {_entityImpacts.Count} server impacts on entities"));
+        }
+
+        return _entityImpacts;
+    }
+
+    /// <summary>Which ticks of a replay must be posed: every bullet or impact landing, with its warm-up before it.</summary>
+    private bool[] ReplayTicks(DemoTimeline timeline, int start, int target)
+    {
+        bool[] needed = new bool[target - start + 1];
+
+        void Land(int tick)
+        {
+            for (int t = Math.Max(start + 1, tick - ModelDecalWarmupTicks); t <= Math.Min(target - 1, tick + ModelDecalArrivalTicks); t++)
+            {
+                needed[t - start] = true;
             }
         }
 
-        _decalHolders[player.EntityIndex] = now;
+        foreach ((int _, SceneEffectDispatch impact) in EntityImpacts(timeline))
+        {
+            if (impact.Tick > start && impact.Tick < target)
+            {
+                Land(impact.Tick);
+            }
+        }
+
+        foreach (ShotImpact bullet in _loaded?.Impacts ?? [])
+        {
+            if (!bullet.FromServer && !bullet.BrushOnly && bullet.Tick > start && bullet.Tick < target &&
+                PassesAnEnemy(bullet, timeline.PlayersAt(bullet.Tick)))
+            {
+                Land(bullet.Tick);
+            }
+        }
+
+        return needed;
+    }
+
+    /// <summary>How near a bullet's path must come to a player's hull centre to be able to reach his hitboxes, in units.</summary>
+    /// <remarks>
+    /// A player's hitboxes lie inside his hull, whose corners are 53 units from its centre (24 across, 41 up); the rest
+    /// covers a limb or a hat reaching past it. Generous on purpose: a bullet let through is only posed for nothing.
+    /// </remarks>
+    private const float ReachOfAPlayer = 72f;
+
+    /// <summary>
+    /// Whether a bullet's path passes close enough to an enemy to hit his hitboxes — decided from the demo's origins,
+    /// without posing, so the replay poses only for bullets that could leave a decal. `FireBullet` decals only an
+    /// entity not on the shooter's team (`tf_player_shared.cpp:10524`).
+    /// </summary>
+    private static bool PassesAnEnemy(ShotImpact bullet, IReadOnlyList<ScenePlayer> players)
+    {
+        foreach (ScenePlayer player in players)
+        {
+            if (Reaches(bullet, player))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether a bullet could decal this player: he is a living enemy and its path passes within reach of him.</summary>
+    private static bool Reaches(ShotImpact bullet, ScenePlayer player)
+    {
+        if (!player.IsAlive || player.Team == bullet.Team)
+        {
+            return false;
+        }
+
+        Vector3 from = new(bullet.Start.X, bullet.Start.Y, bullet.Start.Z);
+        Vector3 path = new Vector3(bullet.End.X, bullet.End.Y, bullet.End.Z) - from;
+        float length = path.LengthSquared();
+        Vector3 centre = new(player.X, player.Y, player.Z + 41f);
+        float along = length > 0f ? Math.Clamp(Vector3.Dot(centre - from, path) / length, 0f, 1f) : 0f;
+
+        return Vector3.DistanceSquared(from + (path * along), centre) <= ReachOfAPlayer * ReachOfAPlayer;
+    }
+
+    /// <summary>Where a seek's replay must start: just before the earliest landing that could still show on someone.</summary>
+    /// <remarks>
+    /// **A landing matters only if it came after its victim's last wipe** (<see cref="WipesDecals"/>): anything before
+    /// that is gone however it landed. So each player's last wipe is found walking back from the target, then the
+    /// earliest server impact or client bullet that could have reached him after it — less the warm-up its pose needs.
+    /// Players nobody could have hit since their wipe do not hold the replay back at all.
+    /// </remarks>
+    private int OldestDecalLife(DemoTimeline timeline, int target)
+    {
+        int floor = Math.Max(0, target - ModelDecalLookbackTicks);
+        Dictionary<int, int> wipedAt = LastWipes(timeline, target, floor);
+        int earliest = target;
+
+        foreach ((int _, SceneEffectDispatch impact) in EntityImpacts(timeline))
+        {
+            if (impact.Tick < earliest && impact.Tick < target &&
+                wipedAt.TryGetValue(impact.Entity, out int wiped) && impact.Tick > wiped)
+            {
+                earliest = impact.Tick;
+            }
+        }
+
+        foreach (ShotImpact bullet in _loaded?.Impacts ?? [])
+        {
+            if (bullet.FromServer || bullet.BrushOnly || bullet.Tick >= earliest || bullet.Tick <= floor)
+            {
+                continue;
+            }
+
+            foreach (ScenePlayer player in timeline.PlayersAt(bullet.Tick))
+            {
+                if (wipedAt.TryGetValue(player.EntityIndex, out int wiped) && bullet.Tick > wiped && Reaches(bullet, player))
+                {
+                    earliest = bullet.Tick;
+                    break;
+                }
+            }
+        }
+
+        return Math.Max(floor, earliest - ModelDecalWarmupTicks - 1);
+    }
+
+    /// <summary>Each player's last decal wipe before the target — or the floor, when none is found that far back.</summary>
+    private static Dictionary<int, int> LastWipes(DemoTimeline timeline, int target, int floor)
+    {
+        Dictionary<int, ScenePlayer> later = [];
+        Dictionary<int, int> wipedAt = [];
+        HashSet<int> open = [];
+
+        foreach (ScenePlayer player in timeline.PlayersAt(target))
+        {
+            if (player.IsAlive && player.IsPlaying)
+            {
+                later[player.EntityIndex] = player;
+                wipedAt[player.EntityIndex] = floor;
+                open.Add(player.EntityIndex);
+            }
+        }
+
+        for (int tick = target - 1; tick > floor && open.Count > 0; tick--)
+        {
+            foreach (ScenePlayer player in timeline.PlayersAt(tick))
+            {
+                if (!open.Contains(player.EntityIndex))
+                {
+                    continue;
+                }
+
+                if (!player.IsAlive || WipesDecals(player, later[player.EntityIndex]))
+                {
+                    open.Remove(player.EntityIndex);
+                    wipedAt[player.EntityIndex] = tick;
+                }
+
+                later[player.EntityIndex] = player;
+            }
+        }
+
+        return wipedAt;
     }
 
     /// <summary>Which of a model's vertices its body number draws, as the model pass chooses body parts.</summary>
@@ -5286,8 +5697,9 @@ internal class MainForm : Form, IFrameSteps
     /// **Only for a weapon posed here**, which stands in for `DoAnimationEvents`' own gate: it returns before looking at
     /// the parity for an entity that is not visible, and a first-person weapon is the viewmodel's business. Nothing
     /// starts unless the model has a `muzzle` attachment; the particle then follows it, as the backblast follows the
-    /// weapon's own `backblast`. **Not built:** the muzzle flash MODEL (`C_MuzzleFlashModel`), which no f12 weapon's
-    /// script names, and the viewmodel's flash in first person.
+    /// weapon's own `backblast`. **No muzzle flash MODEL, as in TF2:** only the medigun's script names one, and nothing
+    /// raises a medigun's parity (B415). The first-person flash arrives on the viewmodel's own counter and starts on the
+    /// viewmodel — <see cref="FlashPoint"/>.
     /// </remarks>
     private void AddWeaponMuzzleFlashes(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
@@ -5303,25 +5715,69 @@ internal class MainForm : Form, IFrameSteps
 
         foreach ((int index, SceneMuzzleFlash flash) in _weaponFlashesNow)
         {
-            if (_models.AttachmentPoint(flash.Weapon, "muzzle") is not { } muzzle)
+            ParticleControlPoint? point = FlashPoint(flash);
+            WeaponMuzzleFlash what = _weaponMuzzles.For(flash.Item, flash.Team);
+
+            // One line per first-person flash, the first frame it is offered: what started, or why nothing did.
+            if (flash.Viewmodel is not null && _viewmodelFlashesLogged.Add(index))
+            {
+                string where = point is { } p
+                    ? string.Create(CultureInfo.InvariantCulture, $"at ({p.At.X:0} {p.At.Y:0} {p.At.Z:0})")
+                    : string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"no muzzle (first person {_firstPerson}, followed {FollowedEntity()}, owner {flash.Owner})");
+
+                _renderLog.LogInformation(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"viewmodel muzzle flash tick {flash.Tick} weapon {flash.Weapon} item {flash.Item}: particle {what.Particle ?? "none"}, {where}"));
+            }
+
+            if (point is not { } muzzle)
             {
                 continue;
             }
-
-            WeaponMuzzleFlash what = _weaponMuzzles.For(flash.Item, flash.Team);
 
             if (what.Particle is { } particle && systems.TryGetValue(particle, out ParticleSystem? definition))
             {
                 _burstsNow.Add(new ParticleBurst(WeaponFlashKeys + (index * 2L), definition, muzzle, flash.Tick));
             }
 
-            if (what.Backblast &&
+            // "Don't do backblast effects in first person" — the test is `pOwner->IsLocalPlayer()`, so the recorder's own launcher
+            // never has one, in any view (`tf_weapon_rocketlauncher.cpp:383`).
+            if (what.Backblast && flash.Viewmodel is null && flash.Owner != timeline.RecorderEntityIndex &&
                 systems.TryGetValue(WeaponMuzzleFlashes.BackblastSystem, out ParticleSystem? backblast) &&
                 _models.AttachmentPoint(flash.Weapon, WeaponMuzzleFlashes.BackblastAttachment) is { } behind)
             {
                 _burstsNow.Add(new ParticleBurst(WeaponFlashKeys + (index * 2L) + 1, backblast, behind, flash.Tick));
             }
         }
+    }
+
+    /// <summary>The first-person flashes already logged, by their place in the demo's list.</summary>
+    private readonly HashSet<int> _viewmodelFlashesLogged = [];
+
+    /// <summary>Where a flash starts — `GetAppropriateWorldOrViewModel`'s `muzzle` — or null where the engine starts none.</summary>
+    /// <remarks>
+    /// A viewmodel flash (`CTFViewModel::ProcessMuzzleFlashEvent`) shows only in its owner's first-person view, and
+    /// `CreateMuzzleFlashEffects` returns under `r_drawviewmodel 0`. It starts on the weapon attached to the hands when there is
+    /// one, else on the viewmodel itself. A world weapon's flash starts on the weapon, when it is in the scene.
+    /// </remarks>
+    private ParticleControlPoint? FlashPoint(SceneMuzzleFlash flash)
+    {
+        if (flash.Viewmodel is null)
+        {
+            return _models.AttachmentPoint(flash.Weapon, "muzzle");
+        }
+
+        if (!_firstPerson || !_settings.DrawViewmodel || flash.Owner is null || FollowedEntity() != flash.Owner)
+        {
+            return null;
+        }
+
+        return _models.AttachmentPoint(ViewmodelScene.WeaponEntityIndex, "muzzle") ??
+               _models.AttachmentPoint(ViewmodelScene.ArmsEntityIndex, "muzzle");
     }
 
     /// <summary>Dispatched particle keys sit above the muzzle flashes'.</summary>
@@ -5511,7 +5967,18 @@ internal class MainForm : Form, IFrameSteps
 
         List<BulletTarget> targets = [];
 
-        foreach (ScenePlayer player in timeline.PlayersAt(bullet.Tick))
+        // **Where the players are DRAWN, the moment their hitboxes were posed at** — `GetCollisionOrigin()` is the
+        // interpolated abs origin, so the collision box and the hitboxes are one entity in one place. The raw origin at
+        // the shot's tick put the hull a running player's 0.12 s ahead of his hitboxes: pellets stopped on a hull his
+        // body had left, and hit a body whose hull said it was elsewhere.
+        _shotTargets.Clear();
+
+        if (_moments.Source is { } source)
+        {
+            source.PlayersAt(_shownTick, _shotTargets, _transport.Playing);
+        }
+
+        foreach (ScenePlayer player in _shotTargets.Count > 0 ? _shotTargets : timeline.PlayersAt(bullet.Tick))
         {
             // `CTraceFilterSimple( this, … )` passes over the shooter; the rest must be alive and present.
             if (player.EntityIndex != bullet.Shooter && (player.LifeState ?? Alive) == Alive)
@@ -5556,8 +6023,9 @@ internal class MainForm : Form, IFrameSteps
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"bullet (shot {bullet.Shot} pellet {bullet.Bullet}): {targets.Count} players, {posed} posed, " +
-                    $"{asked} hitbox tests, {answered} hit; struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}"));
+                    $"bullet tick {bullet.Tick} (shot {bullet.Shot} pellet {bullet.Bullet}): {targets.Count} players, {posed} posed, " +
+                    $"{asked} hitbox tests, {answered} hit; struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}; " +
+                    $"from ({start.X:0} {start.Y:0} {start.Z:0}) to ({end.X:0} {end.Y:0} {end.Z:0})"));
         }
 
         return ((end.X, end.Y, end.Z), targets.Count == 0 || posed > 0, struck);
@@ -5676,6 +6144,13 @@ internal class MainForm : Form, IFrameSteps
                 new Vector3(rx, ry, rz),
                 new Vector3(ux, uy, uz),
                 _loaded?.Assets?.ParticleMaterials ?? NoParticleMaterials);
+
+            _particleQuads = 0;
+
+            foreach (ParticleBatch built in batches)
+            {
+                _particleQuads += built.Corners.Count / 6;
+            }
 
             // **Entity sprites join the particle batches rather than getting a pass of their own**
             // (B378). A sprite IS a particle with one quad — a texture, a blend and six corners — so
@@ -5881,17 +6356,55 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void FinishMeasuring()
     {
-        Console.WriteLine(
-            string.Create(
+        PrintMeasured(
+            _seekedForMeasure
+                ? string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds paused at {_launch.ThenSeek} after the seek, {_measured.Count} samples")
+                : string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Count} samples"));
+
+        Close();
+    }
+
+    /// <summary>Frames counted into <see cref="_frameSeconds"/> since the last printed measurement.</summary>
+    private int _framesMeasured;
+
+    /// <summary>The measured frames' phases, summed, for a paused measurement that writes no per-second line.</summary>
+    private FramePhases _phasesMeasured;
+
+    /// <summary>The particle quads the last frame built — carried from the batches `Build` returned (B243).</summary>
+    private int _particleQuads;
+
+    /// <summary>Whether <c>--then-seek</c> has already paused and seeked, so the second measurement is running.</summary>
+    private bool _seekedForMeasure;
+
+    /// <summary>Prints one measurement's heading and its per-second lines, the first dropped.</summary>
+    private void PrintMeasured(string heading)
+    {
+        // The frame count beside the seconds: a paused frame writes no per-second line (the rate meter samples only
+        // while the scene rebuilds), so for B420's paused measurement this mean IS the measurement.
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{heading}; {_framesMeasured} frames, mean {(_framesMeasured > 0 ? _frameSeconds * 1000d / _framesMeasured : 0d):0.00} ms"));
+
+        if (_framesMeasured > 0)
+        {
+            // The same phases the per-second line names, as means over every measured frame.
+            double each(double total) => total * 1000d / Stopwatch.Frequency / _framesMeasured;
+            FramePhases sum = _phasesMeasured;
+
+            Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Count} samples"));
+                $"  phases, mean ms: sound {each(sum.Sound):0.00}, camera {each(sum.Camera):0.00}, project {each(sum.Project):0.00}, " +
+                $"advance {each(sum.Advance):0.00}, capture {each(sum.Capture):0.00}, hud {each(sum.Hud):0.00}, draw {each(sum.Draw):0.00}; " +
+                $"particles now: {_particles.Count} trails, {_particles.BurstCount} bursts, {_particleQuads} quads last frame"));
+        }
+
+        _framesMeasured = 0;
+        _phasesMeasured = default;
 
         for (int at = _measured.Count > 1 ? 1 : 0; at < _measured.Count; at++)
         {
             Console.WriteLine("  " + _measured[at]);
         }
-
-        Close();
     }
 
     /// <summary>This frame's <c>cl_showpos</c> subject, gathered from the camera and the demo.</summary>
@@ -6241,6 +6754,16 @@ internal class MainForm : Form, IFrameSteps
         if (onScreen && _wasOnScreen)
         {
             _frameSeconds += _clock.LastFrameSeconds;
+            _framesMeasured++;
+            _phasesMeasured = new FramePhases(
+                _phasesMeasured.Sound + phases.Sound,
+                _phasesMeasured.Camera + phases.Camera,
+                _phasesMeasured.Project + phases.Project,
+                _phasesMeasured.Advance + phases.Advance,
+                _phasesMeasured.Capture + phases.Capture,
+                _phasesMeasured.Hud + phases.Hud,
+                _phasesMeasured.Draw + phases.Draw,
+                _phasesMeasured.Total + phases.Total);
         }
 
         _wasOnScreen = onScreen;
@@ -6267,9 +6790,31 @@ internal class MainForm : Form, IFrameSteps
         // **Counted in seconds of PLAYBACK.** A wall clock would spend the first twenty seconds on
         // archives and the map, so `--measure 40` would be about two seconds of frames — which is
         // exactly the mistake this replaces.
+        if (_launch.MeasureSeconds is not null && !_transport.Playing)
+        {
+            // A paused viewer repaints only when asked; a measurement of the paused frame asks every frame, as a user
+            // moving the free camera does (B420 was measured that way).
+            _viewport.Invalidate();
+        }
+
         if (_launch.MeasureSeconds is { } run && _frameSeconds >= run)
         {
-            FinishMeasuring();
+            if (_launch.ThenSeek is { } back && !_seekedForMeasure)
+            {
+                // B420's scenario: print what playback measured, then pause, seek and measure the paused frame as long.
+                _seekedForMeasure = true;
+                PrintMeasured(string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Count} samples"));
+                _transport.Playing = false;
+                _playback.Seek(back);
+                _transport.ShowTick(back);
+                ShowMoment(back);
+                _frameSeconds = 0d;
+                _measured.Clear();
+            }
+            else
+            {
+                FinishMeasuring();
+            }
         }
 
         // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so

@@ -202,6 +202,13 @@ public sealed class PlayerGestureFeed
 
         AnyRecorded = true;
 
+        // **The jump drives the main sequence, not a layer**: `DoAnimationEvent( PLAYERANIMEVENT_JUMP )` sets
+        // `m_bJumping` and `m_flJumpStartTime` (`multiplayer_animstate.cpp:288`), which HandleJumping then reads.
+        if (which == (int)PlayerAnimEvent.Jump)
+        {
+            _jumpStarted[who] = seconds;
+        }
+
         // **The mapping is asked here, at the moment the event arrives, because it depends on what
         // the player was doing THEN.** A reload started while crouched is a different activity from
         // one started standing, and the engine picks at `DoAnimationEvent` time
@@ -230,6 +237,34 @@ public sealed class PlayerGestureFeed
             trigger.Slot, trigger.ActivityName, trigger.ActivityNumber, trigger.AutoKill, seconds);
 
         return true;
+    }
+
+    /// <summary>Each player's `m_flJumpStartTime` while `m_bJumping` holds, in demo seconds.</summary>
+    private readonly Dictionary<int, double> _jumpStarted = [];
+
+    /// <summary>
+    /// How long a player has been jumping, or null when `m_bJumping` is not set — HandleJumping's clear, applied here:
+    /// back on the ground more than 0.2 s after the jump began, or waist-deep in water (`tf_playeranimstate.cpp:1491`).
+    /// </summary>
+    /// <param name="entityIndex">The player.</param>
+    /// <param name="seconds">Demo time now.</param>
+    /// <param name="onGround">`FL_ONGROUND`.</param>
+    /// <param name="waistDeep">`GetWaterLevel() >= WL_Waist`.</param>
+    /// <returns>Seconds since the jump event, or null.</returns>
+    public double? Jumping(int entityIndex, double seconds, bool onGround, bool waistDeep)
+    {
+        if (!_jumpStarted.TryGetValue(entityIndex, out double started))
+        {
+            return null;
+        }
+
+        if (waistDeep || (onGround && seconds - started > GroundBelievedAfterSeconds))
+        {
+            _jumpStarted.Remove(entityIndex);
+            return null;
+        }
+
+        return Math.Max(0d, seconds - started);
     }
 
     /// <summary>The activity a landing replaces the jump gesture with.</summary>

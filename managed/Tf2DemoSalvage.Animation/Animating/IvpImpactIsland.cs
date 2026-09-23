@@ -131,7 +131,10 @@ public sealed class IvpImpactIsland
         ArgumentNullException.ThrowIfNull(pair);
 
         AddIntegrated(core);
-        (core.PendingSnapshot ?? throw new InvalidOperationException("A core the impact moved has no snapshot.")).Moved = true;
+        (core.PendingSnapshot ?? throw new InvalidOperationException(
+            "A core the impact moved has no snapshot: its state " + core.UnitState + ", its unit's " + core.Unit?.State +
+            ", immovable " + core.Immovable + ", skips gravity " + core.SkipsGravity + ", objects " + core.Objects.Count +
+            " (none: removed; some with no unit: never added).")).Moved = true;
 
         List<IvpFrictionPair> pairs = System.Pairs;
 
@@ -217,17 +220,25 @@ public sealed class IvpImpactIsland
 
         void Enter(IvpRigidBody? objectCore, IvpRigidBody pairCore)
         {
-            if (objectCore is { Immovable: false })
+            if (objectCore is not null && !Pinned(objectCore))
             {
                 Grow(objectCore, pair, sides, materials, now);
             }
 
-            if (!pairCore.Immovable)
+            if (!Pinned(pairCore))
             {
                 AddAtEvent(pairCore);
             }
         }
     }
+
+    /// <summary>The engine's <c>flags &amp; 0x12</c>: immovable (<c>0x2</c>) or <see cref="IvpRigidBody.SkipsGravity"/> (<c>0x10</c>).</summary>
+    /// <remarks>
+    /// **Both bits, where the port tested one.** `FUN_180090700` and `FUN_180090bd0` guard every `FUN_18008da40` with
+    /// `flags &amp; 0x12`. `BringToEvent` saves no snapshot for a 0x10 core, so testing `0x2` alone grew one with a null
+    /// `core+0x260` and crashed playback on `z1800` (found by the playback UI test).
+    /// </remarks>
+    private static bool Pinned(IvpRigidBody core) => core.Immovable || core.SkipsGravity;
 
     /// <summary>Puts back what the loop only brought to the event, and steps what it moved — <c>FUN_1800909d0(block)</c>.</summary>
     /// <param name="environment">The environment: its PSI end, phase, limits, anomaly manager and impact generation.</param>
@@ -389,7 +400,7 @@ public sealed class IvpImpactIsland
         {
             // Stryker disable once : a mutant that empties the guard body leaves 'core'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (cores[slot] is not { Immovable: false } core)
+            if (cores[slot] is not { } core || Pinned(core))
             {
                 continue;
             }

@@ -27050,6 +27050,120 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
+### B420 CLOSED 2026-09-23: after playback, a paused frame in the free camera stays ~10x dearer, even after seeking back
+
+**Closed on a measurement, cause not pinned.** `tf2demoview z1800.dem --tick 20000 --autoplay +demo_timescale 8
+--measure 30 --then-seek 20142`: paused after the seek, 7,323 frames at 4.10 ms mean, `camera` 0.82 ms; the same tick
+with no playback, 4.65-4.73 ms mean, `camera` 0.86 ms. The seek drops the live bursts from 1,504 to 42. The trail leak
+below was real but had no trails to leak in this run, so which of the day's changes cured the UI suite's slider-seek
+reading is not established. **A harness mistake worth knowing:** `--then-seek` first omitted `_transport.ShowTick`, so
+`Bursts` kept being asked for the playback's last tick and 1,634 bursts stayed live at 13.6 ms a frame — B420's exact
+shape, produced by the instrument.
+
+
+**Found by the UI suite's timings** (the owner: *"the tests after the playback ran slow as shit"*). On `z1800` in the free
+camera, the paused frame's `camera` stage cost about 1.5 ms at tick 20000 before any playback, and about 15 ms after 20 s of
+8x playback. **It stayed there after seeking back to tick 20142.** The free camera does not move with playback, so the view
+was the same.
+
+A temporary per-step timer put the time in `DrawParticles`, and not in its first half: while paused, explosions took
+~1.1 ms, the particle update 0, and world decals, model decals, impact effects and sparks ~0.5 ms together, against ~17–19 ms
+for the whole call. What remains is `_particles.Build` and `_sprites.Build`. So playback leaves something behind in the
+particle or sprite state that a backward seek does not clear. *Not established:* what it is, and what the engine clears on
+a seek. A user who plays and then seeks back keeps the slow frame.
+
+The UI suite that found it no longer plays a demo (D189, reverted; the attempt is on `ref/playback-ui-test`).
+
+**A cause, fixed 2026-09-23:** `ParticleEffects.Update` fades a trail whose rocket is gone only by ticks played
+forward, and a seek plays none — so every trail left running when playback stopped stayed for good and was gathered
+by `Build` on every paused frame; a later rocket reusing the entity index inherited its particles too. A seek back or
+past the 200-tick replay now drops them all, as `Bursts` already did; live rockets replay their own trail. *Not
+measured:* whether that is the whole ~10x — the paused-frame cost after an 8x play and a seek back needs taking again.
+
+### B419 CLOSED 2026-09-23: the physics port audited for gaps shaped like B418
+
+**Phase 1 read on the real DLL, the same day:** `vphysics-drop` now prints the list. It holds **0 PSI listeners** in a live
+vphysics environment with a static slab and a dropped body. It is read at the offsets `RunPipeline` uses, off an environment
+pointer whose clock at `+0x188` matches every tick. So phase 1 does nothing there, and not porting it is parity. *Not
+established:* whether a game-side system registers one in TF2's own client environment; nothing this project builds would.
+
+**The owner, after B418:** *"audit the whole thing after fixing this bug, to find any more like it"*. B418's shape was an
+engine step the port documented as *not carried*, which mattered only once real objects went through it. So the audit
+listed all 75 of the port's own "not carried / not ported / not read" notes and read the ones on paths real ragdolls take.
+
+- **Closed, the notes were stale.** A friction pair's contacts *are* removed (`RemoveFromPair` inside every
+  `RemoveContact`), and the solve's filing pass *is* ported (`IvpFrictionSystem.File`, `FUN_1800a9bf0`, line for line, with
+  `SolveOne`'s drop). Three notes said otherwise, and one named the wrong function: `FUN_180088090` files a contact, it does
+  not drop one. The notes are corrected. *A stale "not carried" is worse than none: it sent this audit after a closed gap
+  while ranking it the highest risk.*
+- **Parity by construction.** vphysics' deferred delete list (`FUN_1800128f0`, flushed on both sides of `Simulate`) holds only
+  objects destroyed during a simulate. The engine deletes at once outside one, and this project removes corpses only between
+  simulates. That holds as long as nothing removes an object from inside a step.
+- **Open: pipeline phase 1.** `IvpEnvironment::RunPipeline` (`FUN_180082560`) walks `env+0x158` (count `+0x152`) last to
+  first, calling each entry's slot 0 with the environment: IVP's PSI listeners. What vphysics registers there for a
+  client environment is unread. *Next:* read the list on the real DLL through the probes, the oracle role D187 keeps.
+- **Harmless, the other ~70:** debugger-only values, fields with no reader, and the ball, phantom and virtual-terrain paths a
+  TF2 ragdoll never takes. Each of those throws rather than guesses.
+
+### B418 FIXED 2026-09-23: removing a corpse leaves its mindists queued, and one fires on a core with no unit
+
+**Fixed by porting the object's own destructor**, `FUN_180072e90` in `ivp_object.cxx`, reached from `FUN_180073700`'s last step
+through the polygon's vtable `0x1800fcf30`, slot 0. It does two things, in this order:
+
+1. **The hull manager is torn down** (`FUN_180094420`). The head listener's slot 2 is called until none is left:
+   - the broad-phase node deletes itself (`FUN_18009ec90` → `IvpBroadPhase.Delete`);
+   - a pair watcher is deleted (`FUN_1800b6180`);
+   - a mindist record deletes its mindist (`0x180097580`, read from the raw bytes because Ghidra holds no function there).
+
+   **This was the crash.** `Remove` refiles the object before tearing it down, which re-inserted its node, and without the
+   teardown the node stayed in the OV tree. A neighbour's next broad-phase pass paired with a body that was gone.
+2. **Every mindist still on the object's synapse list is deleted** through its own slot 0.
+
+Confirmed on screen by the owner (*"YES IT GOT THROUGH THE BUFF BANNER!!!! and its not crashing"*) and by the playback UI test:
+`z1800` from tick 3428 to 16468 at 8x in 112.4 s, passed. *The original entry follows.*
+
+### B418 as filed, 2026-09-22
+
+**Found by the new playback UI test** (`Transport_PlayAtEightTimes_AdvancesThroughTwentySecondsOfPlayback`), which plays
+`z1800` at 8x from its start: the viewer dies on
+`InvalidOperationException: A core the impact moved has no snapshot: its state 8, its unit's , immovable False, skips gravity
+False` at `IvpImpactIsland.Grow`, reached from `IvpSimulation.Collide`. Three runs out of three.
+
+**The core has no unit**, and `IvpSimulation.Remove` is the only place that clears one. So the core was already removed, and a
+pair event on one of its mindists fired afterwards. With no unit, `Wake` does nothing, the core stays at state 8,
+`BringToEvent` saves no snapshot, and `Build` grows it.
+
+**The missing step is the engine's fifth** (`docs/findings/51`, *Removing an object*): after the refile, the mindist walk and
+the contact walk, `FUN_180073700` dispatches the core's own vtable slot 0, its destructor. That destructor is unread. Our
+`Remove` carries steps 1 to 4 and relies on the neighbour re-derivation to kill every mindist, which leaves a queued one alive.
+*Next:* read the destructor in the disassembly, port it, and pin it with a conformance test.
+
+**Fixed on the way:** `IvpImpactIsland` tested only bit `0x2` where the engine's guard is `flags & 0x12`. A movable core
+carrying `0x10` (`SkipsGravity`) was grown with no snapshot (`Build_AMovableCoreCarryingBit0x10_IsNeitherGrownNorBroughtToTheEvent`).
+It was not this crash.
+
+### B417 FIXED 2026-09-22: a POV recorder spectating in-eye is still shown from his own eyes
+
+**Fixed the same day, on the owner's direction (D188).** `Followed` answers the recorder's `m_hObserverTarget` in-eye,
+and a POV demo's camera is the recorded view in every mode. The chase camera had been built behind the recorder's
+corpse on every death, which is a second divergence found in the same place. Seen at tick 6470: first person, player
+22's weapon, on the recorded camera.
+
+**Found while wiring the first-person muzzle flash (B415).** In `tf2-2026-pub-pov-clean` from tick 6200,
+the recorder is entity 9, and the demo carries viewmodel muzzle flashes owned by entity 22 at ticks
+6461, 6517, 6570, 6687 and 6764. `CBaseViewModel::ShouldTransmit` (`baseviewmodel.cpp:68-93`) sends a
+viewmodel to its owner, to SourceTV, or to a player whose `GetObserverMode() == OBS_MODE_IN_EYE` and
+whose `GetObserverTarget()` is the owner. So the recorder was watching entity 22 in first person at
+those ticks. TF2 would show 22's eyes, 22's viewmodel and 22's flashes.
+
+**Ours shows the recorder.** `FollowedEntity()` (`_spectator.Followed`) answers the recorder on a POV
+demo whatever `m_hObserverTarget` says. `ObserverModeConformanceTests` already lets `OBS_MODE_IN_EYE`
+count as first person, so the view stays in first person, in the wrong player's eyes.
+
+*Not fixed yet, because it changes the camera the owner sees.* The fix is to follow
+`m_hObserverTarget` in-eye on a POV demo, as `C_BasePlayer::CalcInEyeCamView` does, and to read which
+viewmodel is drawn from the same answer.
+
 ### B415 OPEN 2026-09-20: every temp entity but one is decoded and then dropped — no tracers, impacts, explosions or decals
 
 **The owner, listing what he can see missing**: *"we still dont have the hitscan particle stuff either or explosion
@@ -27383,14 +27497,80 @@ not read; the Ghidra engine project was locked.
 
 **Still not built, or divergent:**
 
-- **An out-of-view player takes no decal.** `CModelRender::AddDecal` sets up bones on demand, but we
-  pose only what we draw. This was 60 of 100 f12 hits over 90 s.
+- **FIXED 2026-09-22: an out-of-view player took no decal.** `CModelRender::AddDecal` sets up bones on
+  demand, but we read only the skinning the draw pass had left, so 60 hits were refused. That cache also
+  kept the last drawn pose of a player who had left view. `EntityModels.SkinningOf` now runs `SetupBones`
+  itself. Measured on f12 from tick 13800 for 90 s: 44 placed, 0 "no skinned model", and 3 ray misses
+  (the item below). Before the fix: 5 placed and 60 refused.
+- **FIXED 2026-09-23: a seek dropped blood, and the followed player took none.** A jump placed only the last
+  eight ticks' impacts, where TF2 (which cannot seek) replays up to the tick; a seek now replays from the
+  oldest surviving decal, posing only near landings and holding corpses (3.7 s for 1,775 ticks on f12). In
+  first person the followed player was never posed, and once posed kept a stale sequence — his head 29 units
+  off the server's hitbox; he is now posed undrawn and his sequence chosen like everyone's. Found by comparing
+  real TF2 through the `tf2` MCP server: Beleleu at f12 tick 26303. Stock TF2 wipes a player's decals on any
+  heal to full (`c_tf_player.cpp:4474`), so 128 of f12's 232 hits show for only ticks — `lasting-blood` finds
+  the ones that stay.
+- **The server's entity impacts are crossbow bolts, and their ray is right** (read 2026-09-23). The shot is
+  ~31 units (median of 233 on f12) because `CTFProjectile_Arrow` traces its blood decal from
+  `vecOrigin - vecVelocity * frametime` (`tf_projectile_arrow.cpp:553`), not from an eye; `FireBullet`'s
+  server `bDoEffects` is false and the melee `UTIL_ImpactTrace` is `CLIENT_DLL`, so neither reaches a demo.
+  `m_nDamageType` is 0, so `ImpactCallback` decals a teammate a heal bolt hits (`tf_fx_impacts.cpp:35`), as we
+  do. Measured 2026-09-23 from 13800 for 90 s: 65 placed, 3 ray misses, 2 no triangle. Each miss lies 19-26
+  units across from the player's origin, the edge of his 24-unit hull, where the bolt's server trace stopped on
+  his bounding box. **WRONG, then corrected the same day:** this said TF2 misses the body too and draws nothing.
+  The decompile says otherwise — `CEngineTrace::ClipRayToCollideable` (engine.dll `0x18018f510`) tests a studio
+  entity's hitboxes under `CONTENTS_HITBOX` and, when they return nothing, clips to its `SOLID_BBOX`
+  (`0x180190a40`, then `0x1801905e0`). So `AddStudioDecal`'s `ClipRayToEntity` hits the hull and TF2 does try
+  the decal; ours refused. Fixed with `PlayerBulletTrace.ClipRayToEntity`, which bullets now use as well.
+  *Interpolated:* which `m_nHitBox` a hull hit reports (these read 1 and 14) is not read from the engine.
+  A second divergence was found and fixed on the way: a jump is the jump event, not leaving the ground.
 - **Blood can land slightly off the mesh.** Hits land 3–18 units outside the server's own hitbox on
   our pose. This waits on the in-game check: tick 13944 gummo, 14252 abelll, with
   `entity-impacts <demo> n 13800`.
-- **The wrong sound for a player-stopped client bullet.** It sounds on the wall behind the player.
-- **Sprays.** They need the logo `.dat` the client downloaded; only one is on this machine.
-- **The muzzle-flash model, and the first-person viewmodel flash.**
+- **FIXED 2026-09-22: the wrong sound for a player-stopped client bullet.** It sounded on the wall
+  behind the player. `FireBullet` traces with `CTraceFilterSimple` outside MvM, so the trace stops at any
+  player, and it calls `UTIL_ImpactTrace` only for an entity not on the shooter's team
+  (`tf_player_shared.cpp:10297`, `:10510-10527`). The client's own bullets now leave the load-time
+  schedule, and `StepModelDecals` decides each one at play time:
+  - a bullet an enemy stopped sounds on him, with flesh's `bulletimpact`;
+  - a bullet a teammate stopped makes no sound;
+  - a bullet that met no player sounds on the world, as before.
+
+  They reach the sink through `SoundPresenter.Emit`. On f12 the schedule dropped from 12,518 landings to
+  235, the server's. *Not measured:* no log counts the emitted sounds, so nobody has yet heard whether
+  they play.
+- **Sprays are CLOSED, not missing.** They need the logo `.dat` the client downloaded, and no demo carries
+  it. The owner, 2026-09-22: *"the sprays are fine as long as they will actually show IF a file was
+  actually there … we already looked into them to make sure there was no way to download them, and
+  theires not, and so sprays are just blank for everyone who watched a demo without having played with
+  the person before or watching the match live"*. TF2 draws them blank for such a viewer as well, so
+  drawing one only when the file exists is parity.
+- **The muzzle-flash model is a DEAD BRANCH in TF2, and the correct implementation is none.** Read from
+  the shipped data: the `weapon-script` probe over all 108 weapon ids finds `MuzzleFlashModel` in one
+  script, `TF_WEAPON_MEDIGUN` (`sentry1_muzzle.mdl`, 0.1 s). `CreateMuzzleFlashEffects` runs only from a
+  parity change. The parity is raised by `DoFireEffects` (`tf_weaponbase_gun.cpp:1014`) or
+  `Materialize` (`tf_weaponbase.cpp:2935`). `CWeaponMedigun::PrimaryAttack` (`tf_weapon_medigun.cpp:1752`)
+  calls neither, and `Materialize` runs only for a respawning world weapon, which TF maps do not
+  place. So no weapon that TF2 fires ever draws a flash model.
+- **BUILT 2026-09-22: the first-person viewmodel flash.** `CBasePlayer::DoMuzzleFlash`
+  (`baseplayer_shared.cpp:1771`) bumps each viewmodel's own counter beside the weapon's.
+  `CTFViewModel::ProcessMuzzleFlashEvent` (`tf_viewmodel.cpp:348`) then flashes the owning weapon on
+  `GetAppropriateWorldOrViewModel`: the hands-attached weapon if there is one, else the viewmodel. This
+  happens only when the local player is not drawn, and `CreateMuzzleFlashEffects` returns under
+  `r_drawviewmodel 0`. `MuzzleFlashFeed.ObserveViewmodel` reads `DT_BaseViewModel.m_nMuzzleFlashParity`,
+  which `tf2-2026-pub-pov-clean` sends 966 times.
+
+  Measured there from tick 6200 in first person: the recorder's flashes resolve the viewmodel's `muzzle`.
+  His Original (item 513) starts nothing, because `TF_WEAPON_ROCKETLAUNCHER` names no
+  `MuzzleFlashParticleEffect`. *Not yet seen drawn:* a first-person hitscan flash on screen.
+- **Fixed with it:**
+  - **The recorder's launcher never has a backblast, in any view.** `CTFRocketLauncher` tests
+    `pOwner->IsLocalPlayer()` (`tf_weapon_rocketlauncher.cpp:383`), and ours gave him one in third person.
+  - **An entity that has left the scene has no attachments or hitboxes.** `AttachmentMatrix`,
+    `TraceHitboxes` and `HitboxGap` answered from any pose ever built.
+  - **The viewmodel pass no longer hides world entities from `SkinningOf`.** It re-runs `Simulate` with
+    its own two props, which would have refused every off-screen decal in first person. Each pass's
+    entities are now kept apart (`EntityModels._scenes`).
 
 ### B414 FIXED 2026-09-20: your own rockets were hidden in your own first-person view
 

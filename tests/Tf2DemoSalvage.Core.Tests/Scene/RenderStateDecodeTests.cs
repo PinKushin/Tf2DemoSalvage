@@ -136,6 +136,15 @@ public sealed class RenderStateDecodeTests
             "absent is reported as absent; ScenePlayer decides that it means OBS_MODE_NONE");
     }
 
+    [Test]
+    public void ObserverTarget_AHandleAndTheInvalidOne_IsItsSlotOrNobody()
+    {
+        // `RecvPropEHandle( RECVINFO(m_hObserverTarget) )` (`c_baseplayer.cpp:301`): the invalid handle is tested before the
+        // mask, or "nobody" becomes entity 2047 (B417).
+        Player(PlayerProperty("m_hObserverTarget", (5 << 11) | 3)).ObserverTarget().ShouldBe(3);
+        Player(PlayerProperty("m_hObserverTarget", EntityState.NoHandle)).ObserverTarget().ShouldBeNull();
+    }
+
     /// <summary>An entity carrying the given <c>DT_BasePlayer</c> properties.</summary>
     private static EntityState Player(params DecodedProperty[] properties)
     {

@@ -18,6 +18,9 @@ param(
     [string]$Demo = 'tools/corpus/local/demostf-cp_process_f12-2026-08-07.dem',
     [int]$Tick = 26578,
     [int]$Seconds = 20,
+    # **At 8x, because fast-forward is what finds lifecycle bugs** (D189): B418's corpse crash was found only once playback
+    # covered minutes of match. Passed to the viewer as Valve's own `+demo_timescale`.
+    [double]$Speed = 8,
     [int]$LimitSeconds = 420
 )
 
@@ -39,7 +42,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $exe = (Resolve-Path 'managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe').Path
 $out = New-TemporaryFile
-$arguments = @((Resolve-Path $Demo).Path, '--tick', "$Tick", '--autoplay', '--measure', "$Seconds")
+$arguments = @((Resolve-Path $Demo).Path, '--tick', "$Tick", '--autoplay', '--measure', "$Seconds", '+demo_timescale', "$Speed")
 $viewer = Start-Process -FilePath $exe -ArgumentList $arguments -RedirectStandardOutput $out.FullName -PassThru
 
 if (-not $viewer.WaitForExit($LimitSeconds * 1000)) {
@@ -83,4 +86,4 @@ if ($rebuilds -lt 1) {
     exit 1
 }
 
-Write-Output "playback-check: $Demo from tick $Tick played $played s in $samples samples ($rebuilds rebuild reports) and exited on its own."
+Write-Output "playback-check: $Demo from tick $Tick at ${Speed}x played $played s in $samples samples ($rebuilds rebuild reports) and exited on its own."

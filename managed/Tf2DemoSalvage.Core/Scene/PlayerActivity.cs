@@ -198,28 +198,25 @@ public static class PlayerActivityState
     {
         bool moving = speed > MovingMinimumSpeed;
 
-        // **Airborne first, and it outranks everything.** The engine tracks a jump explicitly and
-        // clears it once the player has been back on the ground for a fifth of a second; a demo
-        // carries no such event, so this reads the ground flag instead. That is an interpolation,
-        // flagged as one: it agrees with the engine for an ordinary jump and differs for the
-        // moment after landing, where the engine holds the jump a little longer.
-        if ((flags & OnGround) == 0 && !waistDeep && alive)
+        // **HandleJumping first, and it outranks everything** — but it answers only for an air-walk or for
+        // `m_bJumping`, which PLAYERANIMEVENT_JUMP sets (`multiplayer_animstate.cpp:288`). Being off the ground is not a
+        // jump: a rocket jump or a step off a ledge falls through to HandleDucking or HandleMoving below.
+        if (!waistDeep && alive)
         {
             // **Air-walking outranks the jump**, and the engine checks it first inside
             // HandleJumping — a fast-rising player runs in the air rather than tucking. Ducking
             // cancels it there and so here: `( ... ) && !bInDuck`.
-            if (airwalking && (flags & Ducking) == 0)
+            if ((flags & OnGround) == 0 && airwalking && (flags & Ducking) == 0)
             {
                 return PlayerActivity.Airwalk;
             }
 
-            // **The push-off and the float are different animations**, split at half a second since
-            // the jump began. Null means the caller cannot say how long they have been airborne, and
-            // the float is the right answer then: it is what a jump spends most of its time in, and
-            // it is what this project drew before the phases existed.
-            return airborneSeconds is { } airborne && airborne <= JumpStartSeconds
-                ? PlayerActivity.JumpStart
-                : PlayerActivity.Jump;
+            // **The push-off and the float are different animations**, split at half a second since the jump event.
+            // Null means no jump is in force.
+            if (airborneSeconds is { } jumping)
+            {
+                return jumping <= JumpStartSeconds ? PlayerActivity.JumpStart : PlayerActivity.Jump;
+            }
         }
 
         // Then crouching, so a crouching player who is also moving crouch-walks rather than runs.

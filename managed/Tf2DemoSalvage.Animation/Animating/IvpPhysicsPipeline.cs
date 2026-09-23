@@ -216,8 +216,8 @@ public sealed class IvpUnitManager
 /// they collected, phase 4 tells the hull managers the steps pushed, and phases 5 and 6 walk the mindist list — the minimize,
 /// then the scheduler in mode 1.
 ///
-/// *Phase 1, the reverse walk of <c>env+0x158</c> calling each entry's slot 0, is not carried*: what that list holds has not
-/// been read, and it is not the unit controllers, which are phase 2's own business.
+/// **Phase 1, the reverse walk of <c>env+0x158</c> calling each entry's slot 0, is not carried, and that is parity**: it is IVP's
+/// PSI-listener list, and on the real DLL it holds none in a vphysics environment (`vphysics-drop` prints it, B419).
 /// </remarks>
 public static class IvpPhysicsPipeline
 {

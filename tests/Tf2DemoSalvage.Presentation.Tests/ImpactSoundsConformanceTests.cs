@@ -36,6 +36,18 @@ public sealed class ImpactSoundsConformanceTests
     }
 
     [Test]
+    public void For_OneLandingAndItsSeed_MatchesThatLandingInAList()
+    {
+        // The list form seeds landing `i` at FirstSeed + i; one landing given that seed draws the same sounds.
+        BulletLanding[] landings = [.. Enumerable.Range(0, 20).Select(tick => new BulletLanding(tick, default, "Concrete.BulletImpact", Ricochets: true))];
+        Dictionary<string, SoundScriptEntry> scripts = Scripts("Concrete.BulletImpact", "Bounce.Shrapnel");
+
+        SceneSound[] single = [.. landings.SelectMany((landing, index) => ImpactSounds.For(landing, ImpactSounds.SeedFor(index), scripts))];
+
+        single.ShouldBe(ImpactSounds.For(landings, scripts));
+    }
+
+    [Test]
     public void InRange_ASoundGatedTo1024_PlaysNearerAndNotAtOrBeyond()
     {
         // `( MainViewOrigin() - vecOrigin ).LengthSqr() < 1024 * 1024`, strictly.

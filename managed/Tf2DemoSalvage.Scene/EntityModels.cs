@@ -1264,7 +1264,8 @@ public sealed class EntityModelSet : IModelBodygroups
     {
         // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
         // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+        if (InScene(entity) is null ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
             !_entityModels.TryGetValue(entity, out string? model) ||
             !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
             frames.Attachments is not { Count: > 0 } attachments)
@@ -1297,7 +1298,8 @@ public sealed class EntityModelSet : IModelBodygroups
     {
         // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
         // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+        if (InScene(entity) is null ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
             !_entityModels.TryGetValue(entity, out string? model) ||
             !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
             frames.Hitboxes is not { Count: > 0 } sets ||
@@ -1318,7 +1320,8 @@ public sealed class EntityModelSet : IModelBodygroups
     /// frame; null when the entity or box is not there.</returns>
     public (float Outside, System.Numerics.Vector3 FromCentre)? HitboxGap(int entity, int box, System.Numerics.Vector3 point)
     {
-        if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+        if (InScene(entity) is null ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
             !_entityModels.TryGetValue(entity, out string? model) ||
             !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
             frames.Hitboxes is not { Count: > 0 } sets || box < 0 || box >= sets[0].Count ||
@@ -1342,29 +1345,53 @@ public sealed class EntityModelSet : IModelBodygroups
         return (System.Numerics.Vector3.Distance(local, clamped), local - ((hitbox.Min + hitbox.Max) * 0.5f));
     }
 
+    /// <summary>Each pass's entities as its last run saw them, by pass name — see <see cref="Instances"/>.</summary>
+    private readonly Dictionary<string, Dictionary<int, SceneProp>> _scenes = new(StringComparer.Ordinal);
+
+    /// <summary>The entity as the latest pass that holds it saw it, or null when no pass does — it has left the scene.</summary>
+    private SceneProp? InScene(int entity)
+    {
+        foreach (Dictionary<int, SceneProp> scene in _scenes.Values)
+        {
+            if (scene.TryGetValue(entity, out SceneProp? prop))
+            {
+                return prop;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Whether an entity has been posed by a pass here, so a question about its attachments has an answer.</summary>
     /// <param name="entity">The entity index.</param>
     /// <returns><c>true</c> once a pass has built its skeleton.</returns>
     public bool IsPosed(int entity) => _entities.ContainsKey(entity);
 
     /// <summary>
-    /// Each skinned entity's model and skinning matrices as its last instance drew with them. The matrices are
-    /// <see cref="_skinning"/>'s buffers, rewritten each frame, so they are the current pose.
-    /// </summary>
-    private readonly Dictionary<int, (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)> _skinnedDraws = [];
-
-    /// <summary>
     /// An entity's model, skinning matrices and body as the last pass drew it — the pose `CModelRender::AddDecal` sets up
-    /// bones for when a decal lands (B415); null for an entity not drawn skinned.
+    /// bones for when a decal lands (B415); null for an entity not in this pass or with no skinned model.
     /// </summary>
     /// <param name="entity">The entity.</param>
     /// <returns>The model path, its pose-to-world matrices, `m_nBody` and the model's body parts.</returns>
-    public (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)? SkinningOf(int entity) =>
-        _skinnedDraws.TryGetValue(
-            entity,
-            out (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts) skinning)
-            ? skinning
-            : null;
+    /// <remarks>
+    /// **Posed on demand, drawn or not** — `CModelRender::AddDecal` calls `SetupBones` itself, so a player out of view
+    /// still takes the decal. Reading only what the draw pass left refused 60 of 100 f12 hits and projected the rest of
+    /// an off-screen player's onto the pose he last drew with. `SetupBones` is cached per frame, so a drawn entity costs
+    /// nothing more.
+    /// </remarks>
+    public (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)? SkinningOf(int entity)
+    {
+        if (InScene(entity) is not { } prop ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) ||
+            frames.Skinned is not { } skinned ||
+            !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        return (prop.ModelPath, Skinning(entity, skinned.Bones, animating.Bones), prop.Pose.Body, frames.BodyParts);
+    }
 
     /// <summary>Whether an entity is one of the viewmodel pass's own.</summary>
     /// <remarks>
@@ -4476,6 +4503,7 @@ public sealed class EntityModelSet : IModelBodygroups
 
         _entities.Clear();
         _entityModels.Clear();
+        _scenes.Clear();
         _placements.Clear();
         _lightPoints.Clear();
         _drawnPlacements.Clear();
@@ -4927,6 +4955,22 @@ public sealed class EntityModelSet : IModelBodygroups
         SimulateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - simulatedAt;
 
         AdvanceCorpses(props, seconds);
+
+        // **What exists, per pass, kept past the next pass** (B415). `_propsByEntity` is the pass in flight, and the viewmodel
+        // pass replaces the world's; a question asked between frames — a decal's bones, an effect's attachment — must still
+        // find a world entity after the viewmodel pass, and must not find one that has left the scene.
+        if (!_scenes.TryGetValue(pass, out Dictionary<int, SceneProp>? scene))
+        {
+            scene = [];
+            _scenes[pass] = scene;
+        }
+
+        scene.Clear();
+
+        foreach (SceneProp prop in props)
+        {
+            scene[prop.EntityIndex] = prop;
+        }
 
         // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
         // how "all the props went away" became a guessing game: the scene said 14 models, the map
@@ -5389,11 +5433,6 @@ public sealed class EntityModelSet : IModelBodygroups
                 PortalWindowsFaded++;
             }
 
-            if (bones is { Count: > 0 })
-            {
-                _skinnedDraws[prop.EntityIndex] = (prop.ModelPath, bones, prop.Pose.Body, parts?.BodyParts);
-            }
-
             into.Add(new ModelInstance(
                 prop.ModelPath,
                 transform.ToMatrix(),
@@ -5687,6 +5726,10 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     private void AdvanceCorpses(IReadOnlyList<SceneProp> props, double seconds)
     {
+        if (HoldsCorpses)
+        {
+            return;
+        }
         _corpseRequests.Clear();
 
         for (int index = 0; index < props.Count; index++)
@@ -5752,6 +5795,13 @@ public sealed class EntityModelSet : IModelBodygroups
         Simulate(corpses, seconds);
         AdvanceCorpses(corpses, seconds);
     }
+
+    /// <summary>
+    /// While true, passes step no corpse — for a seek's model-decal replay, which poses players at ticks it jumps between
+    /// and would otherwise make the corpse environment catch up across every gap (15.7 of 17.8 s on f12). A bullet cannot
+    /// decal a corpse, and the frame at the target steps them as a seek always has.
+    /// </summary>
+    public bool HoldsCorpses { get; set; }
 
     /// <summary>The moment's corpses, gathered for one advance — kept to be reused rather than allocated per frame.</summary>
     private readonly List<CorpseRequest> _corpseRequests = [];

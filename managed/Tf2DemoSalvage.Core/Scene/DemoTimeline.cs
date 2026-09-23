@@ -118,6 +118,10 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// a player who goes to spectator is still ALIVE: liveness cannot distinguish them, and this can.
 /// See <see cref="ScenePlayer.InFirstPersonView"/>.
 /// </param>
+/// <param name="ObserverTarget">
+/// Who the player is observing — <c>m_hObserverTarget</c> — or <c>null</c> for nobody. In-eye, it is whose eyes a POV
+/// recorder is seeing through (B417).
+/// </param>
 /// <param name="Gestures">
 /// The gestures this player has going, one per occupied slot in slot order, or <c>null</c> when
 /// they have none. Filled from the <c>CTEPlayerAnimEvent</c> temp entities the demo carries, which
@@ -197,6 +201,7 @@ public readonly record struct ScenePlayer(
     string? WeaponClass = null,
     int? WeaponItem = null,
     int? ObserverMode = null,
+    int? ObserverTarget = null,
     bool ClientSideAnimated = false,
     IReadOnlyList<SceneGesture>? Gestures = null,
     float HeadScale = 1f,
@@ -1459,6 +1464,7 @@ public sealed class DemoTimeline
     /// Told the fraction of the demo's commands walked — about two hundred times a demo, rising, and exactly <c>1</c> at the end —
     /// or null for no reports. For the viewer's loading screen: an 80-second decode is otherwise 80 seconds of nothing.
     /// </param>
+    /// <param name="client">The viewer's `cl_interp` settings; null for TF2's defaults.</param>
     /// <returns>The timeline, empty when the demo carries no schema or no entities.</returns>
     /// <exception cref="ArgumentException">The file is too short to hold a header.</exception>
     /// <remarks>
@@ -1466,14 +1472,15 @@ public sealed class DemoTimeline
     /// files genuinely have none, and a viewer that refused to open them would be refusing exactly
     /// the salvage cases this project exists for.
     /// </remarks>
-    public static DemoTimeline Build(ReadOnlyMemory<byte> file, Action<double>? progress = null)
+    public static DemoTimeline Build(
+        ReadOnlyMemory<byte> file, Action<double>? progress = null, ClientInterp? client = null)
     {
-        DemoTimeline built = BuildTimeline(file, progress);
+        DemoTimeline built = BuildTimeline(file, progress, client ?? new ClientInterp());
         progress?.Invoke(1d);
         return built;
     }
 
-    private static DemoTimeline BuildTimeline(ReadOnlyMemory<byte> file, Action<double>? progress)
+    private static DemoTimeline BuildTimeline(ReadOnlyMemory<byte> file, Action<double>? progress, ClientInterp client)
     {
         long buildFrom = Stopwatch.GetTimestamp();
         long commandTicks;
@@ -1616,10 +1623,8 @@ public sealed class DemoTimeline
 
         float interval = 0f;
 
-        // **When each player last left the ground**, so a jump can be split into its push-off and
-        // its float. The engine reads m_flJumpStartTime, set when the jump event arrives; a demo
-        // carries no such event, so this watches FL_ONGROUND clear instead.
-        Dictionary<int, int> leftGroundAt = [];
+        // **The jump clock is not here**: it was FL_ONGROUND clearing, on the claim that a demo carries no jump event.
+        // It does — PLAYERANIMEVENT_JUMP in `CTEPlayerAnimEvent` — and `PlayerGestureFeed.Jumping` keeps it.
 
         // **The last weapon each player was seen holding, for a corpse's bodygroups** (B395).
         // Measured on `demostf-cp_process_f12-2026-08-07`: `m_hActiveWeapon` is readable at the
@@ -1940,6 +1945,7 @@ public sealed class DemoTimeline
                             effects,
                             command.Tick,
                             interval,
+                            client.Amount(serverConVars),
                             effectClassNames,
                             entities,
                             gestures,
@@ -2042,6 +2048,26 @@ public sealed class DemoTimeline
                             weaponState.Integer(MuzzleFlashFeed.ParityKey),
                             weaponState.ItemDefinitionIndex(),
                             weaponState.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
+                            command.Tick,
+                            weaponState.Owner());
+                    }
+
+                    // **The first-person flash travels in the VIEWMODEL's own counter** (B415), which the server bumps beside
+                    // the weapon's and sends only to the owner.
+                    if (entities.TryGet(entity.EntityIndex, out EntityState? viewmodelState) &&
+                        viewmodelState.ViewmodelMuzzleFlashParity() is { } viewmodelParity)
+                    {
+                        int? flashing = viewmodelState.ViewmodelWeapon();
+                        EntityState? held = flashing is { } w && entities.TryGet(w, out EntityState? found) ? found : null;
+
+                        muzzleFlashes.ObserveViewmodel(
+                            entity.EntityIndex,
+                            entity.UpdateType == EntityUpdateType.Enter,
+                            viewmodelParity,
+                            flashing,
+                            viewmodelState.ViewmodelOwner(),
+                            held?.ItemDefinitionIndex(),
+                            held?.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
                             command.Tick);
                     }
 
@@ -2320,9 +2346,20 @@ public sealed class DemoTimeline
 
                 if (player.Flags() is { } stateFlags)
                 {
+                    // **The jump clock is the jump EVENT's** (`m_flJumpStartTime`), not the moment the ground flag
+                    // cleared: a rocket jump or a fall is airborne without jumping, and HandleJumping lets it through to
+                    // the crouch or the run. Null while the interval is unknown, as before.
+                    airborne = interval > 0f &&
+                        gestures.Jumping(
+                            player.EntityIndex,
+                            command.Tick * interval,
+                            (stateFlags & PlayerActivityState.OnGround) != 0,
+                            player.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel) is { } jumping
+                        ? (float)jumping
+                        : null;
+
                     if ((stateFlags & PlayerActivityState.OnGround) != 0)
                     {
-                        leftGroundAt.Remove(player.EntityIndex);
                         airwalkingSince.Remove(player.EntityIndex);
 
                         // **Landing ends the jump gesture, and this is what was missing** (B284).
@@ -2348,17 +2385,6 @@ public sealed class DemoTimeline
                     }
                     else
                     {
-                        if (!leftGroundAt.TryGetValue(player.EntityIndex, out int since))
-                        {
-                            since = command.Tick;
-                            leftGroundAt[player.EntityIndex] = since;
-                        }
-
-                        // Null while the interval is unknown — the first frames arrive before
-                        // net_tick states one, and a zero interval would make every jump read as
-                        // its own first instant for ever.
-                        airborne = interval > 0f ? (command.Tick - since) * interval : null;
-
                         // The engine's threshold, and it latches: once rising this fast the
                         // air-walk holds until the ground flag returns.
                         if (rising is { } climb && climb > PlayerActivityState.AirwalkRiseSpeed)
@@ -2449,6 +2475,9 @@ public sealed class DemoTimeline
                     // not dying, so `LifeState` says nothing about it — and the viewer drew their
                     // last weapon over a free-roaming camera.
                     ObserverMode: player.ObserverMode(),
+
+                    // Whose eyes an in-eye observer is in (B417).
+                    ObserverTarget: player.ObserverTarget(),
 
                     // **EF_NODRAW, which is how the engine hides a corpse.** On death the server
                     // spawns a CTFRagdoll and then turns the player off with
@@ -2628,6 +2657,14 @@ public sealed class DemoTimeline
             sounds.AddRange(ordered);
         }
 
+        // The viewer's own interp (`cl_interp` and friends from its config), under the server's final bounds.
+        int delayTicks = ScenePropTrack.DelayTicksFor(interval, client.Amount(serverConVars));
+
+        foreach (ScenePropTrack track in props.Concat(playerTracks))
+        {
+            track.InterpolationDelayTicks = delayTicks;
+        }
+
         return new DemoTimeline(
             frames, props, playerTracks, recordedViews, viewmodels, fogSamples, sounds, soundscapes,
             director)
@@ -2728,6 +2765,7 @@ public sealed class DemoTimeline
     /// <param name="message">The message.</param>
     /// <param name="tick">The demo tick the packet arrived on.</param>
     /// <param name="interval">Seconds per tick, for the feeds that want time rather than ticks.</param>
+    /// <param name="interpolation">`GetClientInterpAmount()`, in seconds.</param>
     /// <param name="classNames">Class id to name, since an effect names its class by id.</param>
     /// <param name="entities">
     /// The entity table, for the player's posture at this moment and for whether a blast struck a player. A snapshot
@@ -2754,6 +2792,7 @@ public sealed class DemoTimeline
         TempEntitiesMessage message,
         int tick,
         double interval,
+        double interpolation,
         Dictionary<int, string> classNames,
         EntityStateTable entities,
         PlayerGestureFeed gestures,
@@ -2770,7 +2809,7 @@ public sealed class DemoTimeline
                     continue;
                 }
 
-                int fires = FireTick(tick, effect.DelaySeconds, interval);
+                int fires = FireTick(tick, effect.DelaySeconds, interval, interpolation);
 
                 if (feeds.Record(
                         className, effect, fires, index => IsPlayer(entities, index), index => Shooter(entities, index)))
@@ -2796,6 +2835,7 @@ public sealed class DemoTimeline
     /// <param name="arrival">The tick its message arrived on.</param>
     /// <param name="delay">Its own fire delay, the 8-bit hundredths the message carries.</param>
     /// <param name="interval">Seconds per tick; non-positive falls back to TF2's.</param>
+    /// <param name="interpolation">`GetClientInterpAmount()` — the WATCHER's, from the viewer's config.</param>
     /// <returns>The first tick at or after the moment it fires.</returns>
     /// <remarks>
     /// <code>
@@ -2808,11 +2848,12 @@ public sealed class DemoTimeline
     /// moving player's hitboxes by the distance they cover in 0.1 s. Rounded up, since `CL_FireEvents` fires an event
     /// on the first frame at or past its time; a tick boundary is at most 15 ms after it.
     /// </remarks>
-    internal static int FireTick(int arrival, float delay, double interval)
+    internal static int FireTick(
+        int arrival, float delay, double interval, double interpolation = ScenePropTrack.DefaultInterpolation)
     {
         double seconds = interval > 0d ? interval : ScenePropTrack.Tf2TickInterval;
 
-        return arrival + (int)Math.Ceiling(((delay + ScenePropTrack.DefaultInterpolation) / seconds) - 1e-6d);
+        return arrival + (int)Math.Ceiling(((delay + interpolation) / seconds) - 1e-6d);
     }
 
     /// <summary>`C_BaseEntity::Instance( hEntity )->IsPlayer()` — the entity at an index exists and is a player.</summary>
