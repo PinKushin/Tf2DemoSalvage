@@ -2517,6 +2517,8 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
+        ReplayModelDecals((int)tick);
+
         // **`EnsureWeaponRoles()` was called here until 2026-08-26** (B188, D90). It was the last
         // non-view work in the frame path: one line reaching for `_timeline` and `_game` on every
         // frame, to keep `MomentScene.Appearance` current. `MomentPresenter` asks
@@ -4466,7 +4468,23 @@ internal class MainForm : Form, IFrameSteps
     private int _modelDecalTick = int.MinValue;
 
     /// <summary>Each player's state at the last step, for the changes that clear its decals.</summary>
-    private readonly Dictionary<int, (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass)> _decalHolders = [];
+    private readonly Dictionary<int, ScenePlayer> _decalHolders = [];
+
+    /// <summary>A jump further than this replays the model decals it passed over; a second of demo.</summary>
+    /// <remarks>
+    /// Past the per-frame <see cref="ModelDecalArrivalTicks"/> on purpose: at 8x a frame advances about nine ticks, and
+    /// replaying on every frame of fast playback would redo work the ordinary step already does.
+    /// </remarks>
+    private const int ModelDecalSeekTicks = 66;
+
+    /// <summary>
+    /// How far back a seek's replay may start: two minutes. *Interpolated:* no life in f12 keeps a decal that long (the
+    /// full heal on spawn wipes every one); ponytail: raise it if a demo shows a decal older than this surviving.
+    /// </summary>
+    private const int ModelDecalLookbackTicks = 66 * 120;
+
+    /// <summary>True while a seek replays the ticks it skipped, so nothing heard is emitted and nothing re-enters.</summary>
+    private bool _replayingModelDecals;
 
     /// <summary>Puts every server impact on a player since the last step onto that player's model (B415).</summary>
     /// <remarks>
@@ -4479,8 +4497,8 @@ internal class MainForm : Form, IFrameSteps
     /// CModelRender::AddDecal: radius = max( w, h ) · $decalScale / 2; no `$decalFadeDuration` decal; the bones now
     /// </code>
     /// And the clears `C_TFPlayer` makes: a heal to full, an übercharge, a new class (a new model), a cloak, a new
-    /// disguise class. *Not built:* replay on a seek — a step backwards clears every model, and a jump forwards puts only
-    /// the impacts it passes onto the models as they stand at the new tick; the invulnerable ricochet; a building's decal.
+    /// disguise class. A seek replays what it skipped (<see cref="ReplayModelDecals"/>). *Not built:* the invulnerable
+    /// ricochet; a building's decal.
     /// </remarks>
     private void StepModelDecals(int tick)
     {
@@ -4520,16 +4538,7 @@ internal class MainForm : Form, IFrameSteps
             ClearOnChange(player);
         }
 
-        if (_entityImpacts is null)
-        {
-            _entityImpacts = ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name);
-
-            _renderLog.LogInformation(
-                "{Message}",
-                string.Create(CultureInfo.InvariantCulture, $"model decals: {_entityImpacts.Count} server impacts on entities"));
-        }
-
-        foreach ((int index, SceneEffectDispatch impact) in _entityImpacts)
+        foreach ((int index, SceneEffectDispatch impact) in EntityImpacts(timeline))
         {
             if (impact.Tick <= from || impact.Tick > tick || Holder(players, impact.Entity) is not { } struck)
             {
@@ -4754,7 +4763,8 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Plays one of the client's own bullets where it landed (B415).</summary>
     private void EmitLanding(ShotImpact bullet, BulletLanding? landing)
     {
-        if (landing is { } l && _sound.Scripts is { } scripts)
+        // A seek's replay reaches bullets that landed seconds ago; TF2's fast-forward is heard no more than ours.
+        if (!_replayingModelDecals && landing is { } l && _sound.Scripts is { } scripts)
         {
             foreach (SceneSound sound in ImpactSounds.For(l, ImpactSounds.SeedFor((bullet.Shot * 32) + bullet.Bullet), scripts.Entries))
             {
@@ -4788,21 +4798,200 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`RemoveAllDecals` where `C_TFPlayer` calls it: full heal, übercharge, new model, cloak, new disguise class.</summary>
     private void ClearOnChange(ScenePlayer player)
     {
-        (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass) now =
-            (player.Health, player.PlayerClass, player.Conditions.IsStealthed, player.DisguiseClass);
-
-        if (_decalHolders.TryGetValue(player.EntityIndex, out (int? Health, int? PlayerClass, bool Stealthed, int? DisguiseClass) was))
+        if (_decalHolders.TryGetValue(player.EntityIndex, out ScenePlayer was) && WipesDecals(was, player))
         {
-            bool healed = now.Health > was.Health && now.Health >= player.MaxHealth;
+            _modelDecals.Clear(player.EntityIndex);
+        }
 
-            if (healed || player.Conditions.IsInvulnerable || now.PlayerClass != was.PlayerClass ||
-                (now.Stealthed && !was.Stealthed) || now.DisguiseClass != was.DisguiseClass)
+        _decalHolders[player.EntityIndex] = player;
+    }
+
+    /// <summary>Whether going from one state of a player to the next makes `C_TFPlayer` call `RemoveAllDecals`.</summary>
+    private static bool WipesDecals(ScenePlayer was, ScenePlayer now) =>
+        (now.Health > was.Health && now.Health >= now.MaxHealth) || now.Conditions.IsInvulnerable ||
+        now.PlayerClass != was.PlayerClass || (now.Conditions.IsStealthed && !was.Conditions.IsStealthed) ||
+        now.DisguiseClass != was.DisguiseClass;
+
+    /// <summary>
+    /// After a seek, runs the scene forward over the ticks it skipped so their impacts land on the poses they met — what
+    /// TF2 does, since it cannot seek at all: it replays the demo up to the tick (`demo_gototick`).
+    /// </summary>
+    /// <remarks>
+    /// **Bounded by the decals that could still be on a model**: the replay starts at the latest tick where every player
+    /// playing at the target had his decals wiped (<see cref="WipesDecals"/>) or was not yet alive, so nothing earlier can
+    /// show. Each tick is a full <see cref="ShowMoment"/> and <see cref="StepModelDecals"/>, the same path playback takes.
+    /// </remarks>
+    private void ReplayModelDecals(int target)
+    {
+        if (_replayingModelDecals || _timeline is not { } timeline || _device is null ||
+            (_modelDecalTick != int.MinValue && target >= _modelDecalTick && target - _modelDecalTick <= ModelDecalSeekTicks))
+        {
+            return;
+        }
+
+        long lookingBack = Stopwatch.GetTimestamp();
+        int start = OldestDecalLife(timeline, target);
+        TimeSpan lookback = Stopwatch.GetElapsedTime(lookingBack);
+        TimeSpan skipping = TimeSpan.Zero;
+        TimeSpan building = TimeSpan.Zero;
+        TimeSpan posing = TimeSpan.Zero;
+        (long simulate, long setup, long skin) was = (_models.SimulateTicks, _models.SetupTicks, _models.SkinTicks);
+
+        _modelDecals.ClearAll();
+        _decalHolders.Clear();
+        _modelDecalTick = start;
+        _replayingModelDecals = true;
+        _models.HoldsCorpses = true;
+
+        long began = Stopwatch.GetTimestamp();
+
+        bool[] needed = ReplayTicks(timeline, start, target);
+        int stepped = 0;
+
+        try
+        {
+            for (int tick = start + 1; tick < target; tick++)
             {
-                _modelDecals.Clear(player.EntityIndex);
+                if (!needed[tick - start])
+                {
+                    long skipped = Stopwatch.GetTimestamp();
+
+                    // Nothing lands here: only the wipes are brought up to date, from the demo without posing anyone.
+                    foreach (ScenePlayer player in timeline.PlayersAt(tick))
+                    {
+                        ClearOnChange(player);
+                    }
+
+                    _modelDecalTick = tick;
+                    skipping += Stopwatch.GetElapsedTime(skipped);
+                    continue;
+                }
+
+                long phase = Stopwatch.GetTimestamp();
+                ShowMoment(tick);
+                building += Stopwatch.GetElapsedTime(phase);
+
+                // Simulated, not drawn: `CModelRender::AddDecal` sets up the struck player's bones itself (`SkinningOf`).
+                phase = Stopwatch.GetTimestamp();
+                _moments.PoseNow(ViewFrustum.Nothing);
+                posing += Stopwatch.GetElapsedTime(phase);
+
+                StepModelDecals(tick);
+                stepped++;
+            }
+        }
+        finally
+        {
+            _replayingModelDecals = false;
+            _models.HoldsCorpses = false;
+        }
+
+        _renderLog.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"model decals: a seek to {target} replayed ticks {start}-{target - 1}, posing {stepped} of them, in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms " +
+                $"(lookback {lookback.TotalMilliseconds:0}, skipped ticks {skipping.TotalMilliseconds:0}, building {building.TotalMilliseconds:0}, " +
+                $"posing {posing.TotalMilliseconds:0} of which simulate {Milliseconds(_models.SimulateTicks - was.simulate):0}, " +
+                $"bones {Milliseconds(_models.SetupTicks - was.setup):0}, skin {Milliseconds(_models.SkinTicks - was.skin):0}; " +
+                $"the rest placing decals); {_modelDecals.Count} held"));
+
+        static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
+    }
+
+    /// <summary>
+    /// How many ticks before a landing the replay poses from, so the sequence transitions the landing sees have run: 16,
+    /// past the 0.2 s `fadeouttime` most sequences blend over. *Interpolated:* a longer fade poses slightly short.
+    /// </summary>
+    private const int ModelDecalWarmupTicks = 16;
+
+    /// <summary>The server's impacts on entities, selected once per demo.</summary>
+    private IReadOnlyList<(int Index, SceneEffectDispatch Dispatch)> EntityImpacts(DemoTimeline timeline)
+    {
+        if (_entityImpacts is null)
+        {
+            _entityImpacts = ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name);
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(CultureInfo.InvariantCulture, $"model decals: {_entityImpacts.Count} server impacts on entities"));
+        }
+
+        return _entityImpacts;
+    }
+
+    /// <summary>Which ticks of a replay must be posed: every bullet or impact landing, with its warm-up before it.</summary>
+    private bool[] ReplayTicks(DemoTimeline timeline, int start, int target)
+    {
+        bool[] needed = new bool[target - start + 1];
+
+        void Land(int tick)
+        {
+            for (int t = Math.Max(start + 1, tick - ModelDecalWarmupTicks); t <= Math.Min(target - 1, tick + ModelDecalArrivalTicks); t++)
+            {
+                needed[t - start] = true;
             }
         }
 
-        _decalHolders[player.EntityIndex] = now;
+        foreach ((int _, SceneEffectDispatch impact) in EntityImpacts(timeline))
+        {
+            if (impact.Tick > start && impact.Tick < target)
+            {
+                Land(impact.Tick);
+            }
+        }
+
+        foreach (ShotImpact bullet in _loaded?.Impacts ?? [])
+        {
+            if (!bullet.FromServer && !bullet.BrushOnly && bullet.Tick > start && bullet.Tick < target)
+            {
+                Land(bullet.Tick);
+            }
+        }
+
+        return needed;
+    }
+
+    /// <summary>The latest tick before <paramref name="target"/> at which no decal on anyone playing then could survive.</summary>
+    private static int OldestDecalLife(DemoTimeline timeline, int target)
+    {
+        int floor = Math.Max(0, target - ModelDecalLookbackTicks);
+        Dictionary<int, ScenePlayer> later = [];
+        HashSet<int> open = [];
+
+        foreach (ScenePlayer player in timeline.PlayersAt(target))
+        {
+            if (player.IsAlive && player.IsPlaying)
+            {
+                later[player.EntityIndex] = player;
+                open.Add(player.EntityIndex);
+            }
+        }
+
+        for (int tick = target - 1; tick > floor && open.Count > 0; tick--)
+        {
+            foreach (ScenePlayer player in timeline.PlayersAt(tick))
+            {
+                if (!open.Contains(player.EntityIndex))
+                {
+                    continue;
+                }
+
+                if (!player.IsAlive || WipesDecals(player, later[player.EntityIndex]))
+                {
+                    open.Remove(player.EntityIndex);
+
+                    if (open.Count == 0)
+                    {
+                        return tick;
+                    }
+                }
+
+                later[player.EntityIndex] = player;
+            }
+        }
+
+        return floor;
     }
 
     /// <summary>Which of a model's vertices its body number draws, as the model pass chooses body parts.</summary>

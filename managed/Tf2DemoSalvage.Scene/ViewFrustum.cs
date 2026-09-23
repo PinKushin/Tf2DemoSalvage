@@ -130,6 +130,14 @@ public readonly record struct ViewFrustum
     /// </remarks>
     public bool IsBuilt => _planes is not null;
 
+    /// <summary>A view that sees nothing: every entity is simulated and none has bones set up for drawing.</summary>
+    /// <remarks>
+    /// For a seek's replay, which draws nothing and needs a player's bones only when a decal lands on him —
+    /// <c>CModelRender::AddDecal</c> sets them up itself. One plane, zero normal, infinitely far: every box is behind
+    /// it. Not a camera, so it has no six planes to index.
+    /// </remarks>
+    public static ViewFrustum Nothing { get; } = new([new CullPlane(0f, 0f, 0f, float.PositiveInfinity)]);
+
     /// <summary>One of the six planes, in Valve's order.</summary>
     /// <param name="index">Right 0, left 1, top 2, bottom 3, near 4, far 5.</param>
     /// <returns>The plane.</returns>

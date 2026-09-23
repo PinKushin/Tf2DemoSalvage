@@ -5726,6 +5726,10 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     private void AdvanceCorpses(IReadOnlyList<SceneProp> props, double seconds)
     {
+        if (HoldsCorpses)
+        {
+            return;
+        }
         _corpseRequests.Clear();
 
         for (int index = 0; index < props.Count; index++)
@@ -5791,6 +5795,13 @@ public sealed class EntityModelSet : IModelBodygroups
         Simulate(corpses, seconds);
         AdvanceCorpses(corpses, seconds);
     }
+
+    /// <summary>
+    /// While true, passes step no corpse — for a seek's model-decal replay, which poses players at ticks it jumps between
+    /// and would otherwise make the corpse environment catch up across every gap (15.7 of 17.8 s on f12). A bullet cannot
+    /// decal a corpse, and the frame at the target steps them as a seek always has.
+    /// </summary>
+    public bool HoldsCorpses { get; set; }
 
     /// <summary>The moment's corpses, gathered for one advance — kept to be reused rather than allocated per frame.</summary>
     private readonly List<CorpseRequest> _corpseRequests = [];
