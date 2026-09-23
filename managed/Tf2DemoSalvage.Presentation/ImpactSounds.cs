@@ -22,8 +22,11 @@ public readonly record struct BulletLanding(int Tick, (float X, float Y, float Z
 /// if ( bPlaySound )  PlayImpactSound( … )   // the surface's bulletimpact, CLocalPlayerFilter, at the trace's end
 /// </code>
 /// **The camera gate is decided when the sound starts**, so each sound carries it as <see cref="SceneSound.AudibleWithin"/>
-/// rather than being filtered here. `PlayImpactSound` has no route in TF (`g_pImpactSoundRouteFn` is never set), so it is a
-/// plain `EmitSound`. *Interpolated:* the draws, as for explosions — each landing is its own stream of Valve's generator.
+/// rather than being filtered here. **`PlayImpactSound` IS routed in TF, for bullets**: `FX_FireBullets` sets the route to
+/// `ImpactSoundGroup` around every shot (`tf_fx_shared.cpp:226`), which drops a repeat of the same sound within 300 units
+/// in that shot — `ShotSoundGroup`, applied where a client bullet lands. This said the route was never set until a
+/// comparison with TF2 heard 26 impact sounds from us against its 16. *Interpolated:* the draws, as for explosions — each
+/// landing is its own stream of Valve's generator.
 /// </remarks>
 public static class ImpactSounds
 {
