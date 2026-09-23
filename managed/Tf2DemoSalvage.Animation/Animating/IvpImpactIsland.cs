@@ -133,7 +133,8 @@ public sealed class IvpImpactIsland
         AddIntegrated(core);
         (core.PendingSnapshot ?? throw new InvalidOperationException(
             "A core the impact moved has no snapshot: its state " + core.UnitState + ", its unit's " + core.Unit?.State +
-            ", immovable " + core.Immovable + ", skips gravity " + core.SkipsGravity + ".")).Moved = true;
+            ", immovable " + core.Immovable + ", skips gravity " + core.SkipsGravity + ", objects " + core.Objects.Count +
+            " (none: removed; some with no unit: never added).")).Moved = true;
 
         List<IvpFrictionPair> pairs = System.Pairs;
 

@@ -471,7 +471,34 @@ public sealed class IvpSimulation
         // `FUN_1800788b0(core)`.
         RemoveContacts(core);
 
+        DeleteSynapses(collisionObject);
+
         Objects.Remove(collisionObject);
+    }
+
+    /// <summary>Every mindist still on an object deleted — the synapse walk of the object's own destructor (B418).</summary>
+    /// <remarks>
+    /// **Read from the decompiler**: `FUN_180073700` ends by dispatching the object's vtable slot 0 — the polygon's vtable is
+    /// `0x1800fcf30` (assigned in its constructor `FUN_18009f320`), slot 0 `FUN_180073140`, whose body is `FUN_180072e90` in
+    /// `ivp_object.cxx`:
+    /// <code>
+    /// while ( object+0x40 != 0 )  mindist = head + head's short at +0x30;  mindist's slot 0 (delete)
+    /// </code>
+    /// The head is re-read each time because the mindist's own delete takes its records off both objects' lists. **Without
+    /// this** a mindist the neighbour walk left filed kept its queued pair event, which fired on a core with no unit and
+    /// crashed playback of `z1800` at 8x.
+    /// </remarks>
+    private static void DeleteSynapses(IvpCollisionObject collisionObject)
+    {
+        while (collisionObject.Synapses.First is { } head)
+        {
+            head.Value.Mindist.Delete();
+
+            if (ReferenceEquals(collisionObject.Synapses.First, head))
+            {
+                throw new InvalidOperationException("A deleted mindist left its record on the object, which the engine's walk would loop on.");
+            }
+        }
     }
 
     /// <summary>Every contact on a core's objects, told its partner is going — <c>FUN_1800788b0</c>.</summary>

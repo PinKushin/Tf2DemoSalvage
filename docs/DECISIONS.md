@@ -9158,6 +9158,22 @@ So:
 - **Licensing is settled by the owner.** What has been read, copied or decompiled has been checked as fair use. The rules
   for where decompiler output lives are about size, as `docs/DECOMPILING.md` already says.
 
+**Reopened and settled again, 2026-09-23.** The owner reopened it after the playback UI test found B418, a crash in the
+port's object removal: *"wait would just using the real physics.dll fix all this?"* The case for the DLL was real. It would
+remove this whole class of port bug, and the probes showed it replays deterministically: a box drop and a Soldier collision
+solid landing on a barrel over 660 ticks came out identical across two processes, apart from heap addresses.
+
+**What killed it is the testing the port exists to enable.** The owner: *"CI and the oracle box specifically are why this
+project even decided to go 'cross platform' … I can deal with winforms not working on linux, that doesnt cost all that many
+tests, but everything else i want to be able to be tested really."* TF2 ships `vphysics` only for x86-64, as a Windows
+`.dll` and a Linux `.so`. The measurement boxes are ARM64 Linux, where neither can load, and Stryker would have nothing of
+ours to mutate for physics. The DLL also cannot go in the repo (*"we CANT legally include the physics DLL in the repo"*),
+and fetching the dedicated server in CI covers x86-64 runners only. His ruling: *"that is a good reason to actually
+reverse this, despite the difficulty"*, meaning back to the port.
+
+So the port stays and its bugs are ours to chase. **The real DLL keeps one role**: an oracle on an x86-64 Windows machine,
+where a probe runs Valve's code beside ours for a disputed case. Never a production path.
+
 ## D188 — a POV demo follows everything the recorder did, including whom he spectated (2026-09-22)
 
 **The owner, on B417** (a POV recorder spectating in-eye was still shown from his own eyes), verbatim: *"POV demos are

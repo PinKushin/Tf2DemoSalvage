@@ -126,6 +126,39 @@ public sealed class IvpObjectRemovalConformanceTests
     }
 
     /// <remarks>
+    /// **The object's own destructor deletes every mindist still on it** (B418). `FUN_180073700` ends by dispatching the
+    /// object's vtable slot 0 (`0x1800fcf30` → `FUN_180073140` → `FUN_180072e90`, `ivp_object.cxx`), which walks the synapse
+    /// list at `object+0x40` and deletes each one's mindist through the mindist's own slot 0, re-reading the head each time.
+    /// Without it a mindist the neighbour walk left alone stays filed, and its queued pair event fires on a core with no unit.
+    /// Flagged `0x3000` so the neighbour walk (`FUN_180086500`) skips it, which isolates the destructor's walk.
+    /// </remarks>
+    [Test]
+    public void Remove_ACoreWithAMindistTheNeighbourWalkSkips_DeletesItAndUnlinksItFromTheNeighbour()
+    {
+        IvpSimulation simulation = Simulation(out IvpRigidBody going, out IvpRigidBody staying);
+        IvpCollisionObject goingObject = going.Objects[0];
+        IvpCollisionObject stayingObject = staying.Objects[0];
+        goingObject.Environment = simulation.Collisions;
+        stayingObject.Environment = simulation.Collisions;
+
+        IvpMindist mindist = new(
+            new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point),
+            new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Triangle),
+            extraRadius: 0f)
+        {
+            // Exact (state 3 in bits 18–21), as `ContactBetween` files one, and `0x3000` for the walk to skip.
+            Flags = 0xC0000 | 0x3000,
+        };
+
+        simulation.Collisions.MindistManager.LinkExact(mindist, goingObject, stayingObject);
+
+        simulation.Remove(going);
+
+        stayingObject.Synapses.ShouldBeEmpty("the neighbour holds no synapse to a body that is gone");
+        mindist.ListNode.ShouldBeNull("the mindist is off the exact list, so no pair event of it can fire");
+    }
+
+    /// <remarks>
     /// The awake branch's other half: once the neighbour is woken, <c>FUN_1800788b0</c> runs <c>IvpContactRecord::Build</c>,
     /// <see cref="IvpContactPoint.SetMaterials"/> and <c>FUN_180083a60</c> — the weigh, whose output is
     /// <see cref="IvpContactPoint.InverseContactMass"/> at <c>cp+0x60</c>. So a contact that survives the removal is measured
