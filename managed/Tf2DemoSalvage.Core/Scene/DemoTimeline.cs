@@ -1621,10 +1621,8 @@ public sealed class DemoTimeline
 
         float interval = 0f;
 
-        // **When each player last left the ground**, so a jump can be split into its push-off and
-        // its float. The engine reads m_flJumpStartTime, set when the jump event arrives; a demo
-        // carries no such event, so this watches FL_ONGROUND clear instead.
-        Dictionary<int, int> leftGroundAt = [];
+        // **The jump clock is not here**: it was FL_ONGROUND clearing, on the claim that a demo carries no jump event.
+        // It does — PLAYERANIMEVENT_JUMP in `CTEPlayerAnimEvent` — and `PlayerGestureFeed.Jumping` keeps it.
 
         // **The last weapon each player was seen holding, for a corpse's bodygroups** (B395).
         // Measured on `demostf-cp_process_f12-2026-08-07`: `m_hActiveWeapon` is readable at the
@@ -2345,9 +2343,20 @@ public sealed class DemoTimeline
 
                 if (player.Flags() is { } stateFlags)
                 {
+                    // **The jump clock is the jump EVENT's** (`m_flJumpStartTime`), not the moment the ground flag
+                    // cleared: a rocket jump or a fall is airborne without jumping, and HandleJumping lets it through to
+                    // the crouch or the run. Null while the interval is unknown, as before.
+                    airborne = interval > 0f &&
+                        gestures.Jumping(
+                            player.EntityIndex,
+                            command.Tick * interval,
+                            (stateFlags & PlayerActivityState.OnGround) != 0,
+                            player.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel) is { } jumping
+                        ? (float)jumping
+                        : null;
+
                     if ((stateFlags & PlayerActivityState.OnGround) != 0)
                     {
-                        leftGroundAt.Remove(player.EntityIndex);
                         airwalkingSince.Remove(player.EntityIndex);
 
                         // **Landing ends the jump gesture, and this is what was missing** (B284).
@@ -2373,17 +2382,6 @@ public sealed class DemoTimeline
                     }
                     else
                     {
-                        if (!leftGroundAt.TryGetValue(player.EntityIndex, out int since))
-                        {
-                            since = command.Tick;
-                            leftGroundAt[player.EntityIndex] = since;
-                        }
-
-                        // Null while the interval is unknown — the first frames arrive before
-                        // net_tick states one, and a zero interval would make every jump read as
-                        // its own first instant for ever.
-                        airborne = interval > 0f ? (command.Tick - since) * interval : null;
-
                         // The engine's threshold, and it latches: once rising this fast the
                         // air-walk holds until the ground flag returns.
                         if (rising is { } climb && climb > PlayerActivityState.AirwalkRiseSpeed)
