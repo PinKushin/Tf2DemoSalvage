@@ -27487,6 +27487,14 @@ not read; the Ghidra engine project was locked.
   kept the last drawn pose of a player who had left view. `EntityModels.SkinningOf` now runs `SetupBones`
   itself. Measured on f12 from tick 13800 for 90 s: 44 placed, 0 "no skinned model", and 3 ray misses
   (the item below). Before the fix: 5 placed and 60 refused.
+- **FIXED 2026-09-23: a seek dropped blood, and the followed player took none.** A jump placed only the last
+  eight ticks' impacts, where TF2 (which cannot seek) replays up to the tick; a seek now replays from the
+  oldest surviving decal, posing only near landings and holding corpses (3.7 s for 1,775 ticks on f12). In
+  first person the followed player was never posed, and once posed kept a stale sequence — his head 29 units
+  off the server's hitbox; he is now posed undrawn and his sequence chosen like everyone's. Found by comparing
+  real TF2 through the `tf2` MCP server: Beleleu at f12 tick 26303. Stock TF2 wipes a player's decals on any
+  heal to full (`c_tf_player.cpp:4474`), so 128 of f12's 232 hits show for only ticks — `lasting-blood` finds
+  the ones that stay.
 - **Blood can land slightly off the mesh.** Hits land 3–18 units outside the server's own hitbox on
   our pose. This waits on the in-game check: tick 13944 gummo, 14252 abelll, with
   `entity-impacts <demo> n 13800`.

@@ -4497,8 +4497,8 @@ internal class MainForm : Form, IFrameSteps
     /// CModelRender::AddDecal: radius = max( w, h ) · $decalScale / 2; no `$decalFadeDuration` decal; the bones now
     /// </code>
     /// And the clears `C_TFPlayer` makes: a heal to full, an übercharge, a new class (a new model), a cloak, a new
-    /// disguise class. *Not built:* replay on a seek — a step backwards clears every model, and a jump forwards puts only
-    /// the impacts it passes onto the models as they stand at the new tick; the invulnerable ricochet; a building's decal.
+    /// disguise class. A seek replays what it skipped (<see cref="ReplayModelDecals"/>). *Not built:* the invulnerable
+    /// ricochet; a building's decal.
     /// </remarks>
     private void StepModelDecals(int tick)
     {
