@@ -2845,15 +2845,19 @@ public sealed class DemoTimeline
     /// **So an effect fires one interpolation window late, when the drawn entities have reached the state it was sent
     /// with.** A server impact lands on the struck player as the client DRAWS it, and a tracer leaves the muzzle where
     /// the gun is drawn. Fired on arrival, every effect ran ~7 ticks ahead of the entities, and a bullet's decal missed a
-    /// moving player's hitboxes by the distance they cover in 0.1 s. Rounded up, since `CL_FireEvents` fires an event
-    /// on the first frame at or past its time; a tick boundary is at most 15 ms after it.
+    /// moving player's hitboxes by the distance they cover in 0.1 s.
+    ///
+    /// **Rounded DOWN: it fires inside the tick its time falls in.** `CClientState::GetTime` (`0x1800a3020`) is
+    /// `tickcount * interval + m_tickRemainder` outside simulation, so the clock `CL_FireEvents` reads runs between
+    /// ticks. This rounded up once, on the belief that frames saw whole ticks, and fired every effect a tick late —
+    /// f12's scattergun impact at 13850 where TF2 played it at 13849.
     /// </remarks>
     internal static int FireTick(
         int arrival, float delay, double interval, double interpolation = ScenePropTrack.DefaultInterpolation)
     {
         double seconds = interval > 0d ? interval : ScenePropTrack.Tf2TickInterval;
 
-        return arrival + (int)Math.Ceiling(((delay + interpolation) / seconds) - 1e-6d);
+        return arrival + (int)Math.Floor(((delay + interpolation) / seconds) + 1e-6d);
     }
 
     /// <summary>`C_BaseEntity::Instance( hEntity )->IsPlayer()` — the entity at an index exists and is a player.</summary>
