@@ -9174,20 +9174,31 @@ reverse this, despite the difficulty"*, meaning back to the port.
 So the port stays and its bugs are ours to chase. **The real DLL keeps one role**: an oracle on an x86-64 Windows machine,
 where a probe runs Valve's code beside ours for a disputed case. Never a production path.
 
-## D189 — the UI suite plays a demo; the merge gate is two phases again (2026-09-23)
+## D189 — a playback test in the UI suite was tried and reverted; gate phase 3 stays (2026-09-23)
 
-**The owner, asking where gate phase 3 came from:** *"why couldnt that be built into the UI tests?"*, then *"the demo doesnt
-have to be f12, the same thing would have happened on any demo, the UI suite just does no playing of the demo, so we can
-just add a playing test to the ui suite"*, and *"one session"*: the shared viewer, not a second process.
+**Tried:** the owner asked why B408's hang check was a separate gate phase and not part of the UI suite (*"the UI suite
+just does no playing of the demo, so we can just add a playing test to the ui suite"*). A test playing `z1800` at 8x in the
+shared session replaced `build/playback-check.ps1`. Its first run found B418, the removed-corpse crash, which is fixed and
+stays fixed.
 
-So `build/playback-check.ps1` (B408's hang check) is gone, and
-`TransportUiTests.Transport_PlayAtEightTimes_AdvancesThroughTwentySecondsOfPlayback` replaces it:
-- **`z1800`, a real match, not an era specimen.** The owner: *"its a era specimin, z1800 is a real demo"*.
-- **At 8x.** The owner: *"it needed the fast forward to be found"*; its first run found B418.
-- **Speed set through automation, not the ladder or a key.** The owner: *"the playback test is also testing the speed
-  slider, when those should be seperate tests"*.
+**Reverted, in the owner's words:** *"can we just stop, and revert to when we had the 3rd gate, as much as it sucks,
+because that 3rd gate doesnt run in CI, i just dont want to waste too many tokens and time trying to make a playback test
+work in the UI suite, as much as its needed."* A test that plays a demo in the shared session changes the state every
+test after it runs in. Making that safe took fixture ordering, a tick reset with only whole-percent seek resolution, and a
+chase through frame timings. The cost was the time, not the idea.
 
-The gate's third phase is folded into its second.
+**Kept for later, on the owner's direction:** *"do not delete this branch though, i want it for reference because we will
+come back to this, once we have all the physics and hud done and we are ready for beta"*. The whole attempt is branch
+`ref/playback-ui-test` (commit `6b174aad`), pushed to `origin`: the fixture, the ordering, the tick reset and the
+measurements behind them.
+
+**What stays:** B418's destructor port and B419's audit, the `flags & 0x12` guard, and building only the active camera.
+B420 (a paused frame staying ~10x dearer after playback, even after seeking back) is a real viewer bug the attempt found,
+filed but not pursued.
+
+**Phase 3 now plays at 8x**, in the owner's words: *"update it to run in fast forward, that was the biggest change between
+the ui test and the gate 3 test, gate 3 is basically playback test suite lol"*. `playback-check.ps1 -Speed` (default 8)
+passes Valve's own `+demo_timescale` to the viewer, which sets the transport's speed slider after the demo opens.
 
 ## D188 — a POV demo follows everything the recorder did, including whom he spectated (2026-09-22)
 

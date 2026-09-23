@@ -466,10 +466,14 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     /// Shares `StepSpeed`'s shape deliberately — moving the slider rather than holding a speed of its
     /// own, so the thumb, the readout and what is playing cannot disagree.
     /// </remarks>
-    public void ResetSpeed()
+    public void ResetSpeed() => SetSpeed(1d);
+
+    /// <summary>Sets the speed, as the launch option <c>+demo_timescale</c> asks — the slider moved, and playback told.</summary>
+    /// <param name="speed">The speed, clamped by <see cref="TimeScale.From"/>; negative plays in reverse.</param>
+    public void SetSpeed(double speed)
     {
         _suppressSpeedEvent = true;
-        _speedBar.Value = TimeScale.From(1d).Position();
+        _speedBar.Value = TimeScale.From(speed).Position();
         _suppressSpeedEvent = false;
 
         UpdateSpeedLabel();
