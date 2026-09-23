@@ -49,6 +49,26 @@ public sealed class ParticleEffectsTests
     }
 
     /// <remarks>
+    /// **A seek back drops every trail, as the bursts already do** (B420). A trail whose rocket is gone only fades by
+    /// the ticks played forward, and a backward seek plays none, so after playback and a seek back every trail left
+    /// running stayed for good and was gathered on every paused frame — ~10x the frame. TF2 has nothing to keep: its
+    /// backward seek reloads the demo.
+    /// </remarks>
+    [Test]
+    public void Update_ABackwardSeekWithTheRocketGone_DropsItsTrail()
+    {
+        ParticleEffects effects = new();
+
+        effects.Update([Rocket(0f)], Trail(), 1f / 66f, null, 100);
+        effects.Update([Rocket(100f)], Trail(), 1f / 66f, null, 101);
+        effects.Count.ShouldBe(1, "the control: the trail runs while its rocket flies");
+
+        effects.Update([], Trail(), 1f / 66f, null, 50);
+
+        effects.Count.ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **Every renderer a system declares runs**, which is what the engine does with the definition's renderer list.
     /// `Explosion_FlyingEmbers` declares a sprite trail AND an animated sprite, so an ember is a streak with a glowing
     /// head; a `Gather` that stopped at the first match drew half of it. Two renderers over the same particles must
