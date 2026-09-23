@@ -161,6 +161,12 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// </remarks>
     private readonly List<ScenePlayer> _posing = [];
     private readonly List<ModelInstance> _instances = [];
+    /// <summary>The followed player's own model in first person: posed so it can take a decal, never drawn.</summary>
+    private readonly List<SceneProp> _undrawn = [];
+
+    /// <summary>Where the undrawn pass writes its instances, which nothing reads.</summary>
+    private readonly List<ModelInstance> _undrawnInstances = [];
+
     private readonly List<ModelInstance> _viewmodelInstances = [];
 
     private int _lastInstanceCount = -1;
@@ -350,9 +356,22 @@ public sealed class MomentScene : IGameSystemPerFrame
         // **The engine does not draw the player whose eyes you are using**, and cosmetics merge onto
         // their wearer's bones, so the hat goes with them. Without this the first-person view is the
         // inside of the recorder's own model and a hat hanging over the lens.
+        _undrawn.Clear();
+
         if (info.FirstPerson && info.Followed is { } looking)
         {
             ReportFirstPersonKeeps(looking);
+
+            // **Not drawn is not gone** (`C_BasePlayer::ShouldDraw` is false in first person, the entity still animates):
+            // `CModelRender::AddDecal` sets up the followed player's bones when a bullet hits him, so his own model is
+            // kept to be posed, not drawn — his blood is on him when the camera leaves his eyes.
+            foreach (SceneProp prop in _drawn)
+            {
+                if (prop.EntityIndex == looking)
+                {
+                    _undrawn.Add(prop);
+                }
+            }
 
             DrawList.KeepOnly(_drawn, FirstPersonVisibility.Visible(_drawn, looking));
         }
@@ -498,6 +517,13 @@ public sealed class MomentScene : IGameSystemPerFrame
         // above, which are differenced across this call for the same reason.
         int hidden = _models.CulledByVisibility;
         int unjudged = _models.Unjudgeable;
+
+        if (_undrawn.Count > 0)
+        {
+            // Its own pass, read after the world's counters, so it is posed and in the scene for a decal but never drawn.
+            _models.Instances(
+                _undrawn, _undrawnInstances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, pass: "undrawn");
+        }
         int posed = _models.Posed;
 
         // **Where the SOLVER put each corpse, which is the only thing that can aim a camera at
