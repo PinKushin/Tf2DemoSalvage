@@ -5992,6 +5992,7 @@ internal class MainForm : Form, IFrameSteps
 
         int asked = 0;
         int answered = 0;
+        System.Text.StringBuilder hits = new();
 
         (Vector3 end, int? struck) = PlayerBulletTrace.Clip(
             start,
@@ -6004,7 +6005,15 @@ internal class MainForm : Form, IFrameSteps
 
                 float? fraction = _models.TraceHitboxes(entity, from, delta, BulletMask);
 
-                answered += fraction is null ? 0 : 1;
+                if (fraction is { } at)
+                {
+                    answered++;
+                    hits.Append(CultureInfo.InvariantCulture, $" {entity}@{at:0.0000}");
+                }
+                else
+                {
+                    hits.Append(CultureInfo.InvariantCulture, $" {entity} missed");
+                }
 
                 return fraction;
             },
@@ -6024,7 +6033,8 @@ internal class MainForm : Form, IFrameSteps
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"bullet tick {bullet.Tick} (shot {bullet.Shot} pellet {bullet.Bullet}): {targets.Count} players, {posed} posed, " +
-                    $"{asked} hitbox tests, {answered} hit; struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}; " +
+                    $"{asked} hitbox tests, {answered} hit{hits} (world {worldFraction:0.0000}); " +
+                    $"struck {(struck is { } who ? who.ToString(CultureInfo.InvariantCulture) : "nobody")}; " +
                     $"from ({start.X:0} {start.Y:0} {start.Z:0}) to ({end.X:0} {end.Y:0} {end.Z:0})"));
         }
 
