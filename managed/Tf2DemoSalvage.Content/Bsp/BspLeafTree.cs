@@ -1354,5 +1354,16 @@ public sealed class BspLeafTree
 /// <param name="Normal">`plane.normal` of the side it entered through; zero when nothing was struck.</param>
 /// <param name="AllSolid">`allsolid`: it began and ended inside one brush.</param>
 /// <param name="Distance">`plane.dist` of that side's plane.</param>
+/// <param name="DisplacementTexdata">
+/// For terrain, the struck displacement's texdata — `surface.name` is `**displacement**` and its surfaceprop is the
+/// material's; −1 for a brush or nothing (engine.dll `FUN_18016f290`).
+/// </param>
+/// <param name="SurfaceProp2">The struck terrain triangle takes the material's second surfaceprop (`DISPSURF_FLAG_SURFPROP2`).</param>
 public readonly record struct BspTrace(
-    float Fraction, int Texinfo, (float X, float Y, float Z) Normal, bool AllSolid, float Distance = 0f);
+    float Fraction,
+    int Texinfo,
+    (float X, float Y, float Z) Normal,
+    bool AllSolid,
+    float Distance = 0f,
+    int DisplacementTexdata = -1,
+    bool SurfaceProp2 = false);

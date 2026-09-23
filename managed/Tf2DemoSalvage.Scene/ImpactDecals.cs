@@ -78,14 +78,18 @@ public sealed class ImpactDecals
         IReadOnlyList<BspMaterial> texdata = BspMaterials.Read(map);
         char[] gameMaterials = new char[texdata.Count];
         int[] surfaceProps = new int[texdata.Count];
+        int[] secondProps = new int[texdata.Count];
 
         for (int index = 0; index < gameMaterials.Length; index++)
         {
-            int surface = MapAssets.ReadVmt(texdata[index].Name, pak, archives)?.Value("$surfaceprop") is { } name
-                ? surfaces.GetSurfaceIndex(name)
-                : -1;
+            VmtMaterial? vmt = MapAssets.ReadVmt(texdata[index].Name, pak, archives);
+            int surface = vmt?.Value("$surfaceprop") is { } name ? surfaces.GetSurfaceIndex(name) : -1;
 
             surfaceProps[index] = surface;
+
+            // A displacement tree's slot 1: engine.dll `FUN_18016d520` writes `$surfaceprop` into BOTH slots and then
+            // lets `$surfaceprop2`, where the material has one, replace slot 1.
+            secondProps[index] = vmt?.Value("$surfaceprop2") is { } second ? surfaces.GetSurfaceIndex(second) : surface;
             gameMaterials[index] = (char)(surfaces.GetSurfaceData(surface)?.GameMaterial ?? 0);
         }
 
@@ -99,18 +103,48 @@ public sealed class ImpactDecals
             surfaceProp => (char)(surfaces.GetSurfaceData(surfaceProp)?.GameMaterial ?? 0))
         {
             _surfaceProps = surfaceProps,
+            _secondProps = secondProps,
         };
     }
 
     /// <summary>Each texdata's surfaceprop index — `CMod_LoadTextures`' `GetSurfaceIndex`, −1 for none.</summary>
     private int[] _surfaceProps = [];
 
+    /// <summary>Each texdata's `$surfaceprop2` index, −1 for none.</summary>
+    private int[] _secondProps = [];
+
+    /// <summary>`trace.surface.surfaceProps` for a world trace: a brush side's texinfo, or terrain's slot.</summary>
+    /// <param name="trace">The trace.</param>
+    /// <returns>The surface index, −1 for none.</returns>
+    /// <remarks>
+    /// Terrain takes `GetSurfaceProps( SURFPROP2 ? 1 : 0 )` (engine.dll `FUN_18016f290`), the slots holding the
+    /// material's `$surfaceprop` and `$surfaceprop2` — slot 1 falling back to `$surfaceprop` (`FUN_18016d520`).
+    /// </remarks>
+    public int SurfacePropOfTrace(BspTrace trace) =>
+        trace.DisplacementTexdata >= 0
+            ? TerrainProp(trace.DisplacementTexdata, trace.SurfaceProp2)
+            : SurfacePropOfTexinfo(trace.Texinfo);
+
+    private int TerrainProp(int texdata, bool second)
+    {
+        int[] slot = second ? _secondProps : _surfaceProps;
+
+        return texdata < slot.Length ? slot[texdata] : -1;
+    }
+
     /// <summary>The surfaceprop a bullet struck — `trace.surface.surfaceProps`, or the server's own for its impacts.</summary>
     /// <param name="impact">The bullet.</param>
     /// <returns>The surface index, −1 when the texture declares none (which reads as surface zero).</returns>
     public int SurfacePropOf(ShotImpact impact)
     {
-        return impact.FromServer ? impact.SurfaceProp : SurfacePropOfTexinfo(impact.Texinfo);
+        if (impact.FromServer)
+        {
+            return impact.SurfaceProp;
+        }
+
+        return impact.DisplacementTexdata >= 0
+            ? TerrainProp(impact.DisplacementTexdata, impact.SurfaceProp2)
+            : SurfacePropOfTexinfo(impact.Texinfo);
     }
 
     /// <summary>`trace.surface.surfaceProps` for a world trace that hit a texinfo.</summary>

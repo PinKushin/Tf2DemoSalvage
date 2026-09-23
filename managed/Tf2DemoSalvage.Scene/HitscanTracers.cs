@@ -70,6 +70,12 @@ public readonly record struct ShotImpact(
 {
     /// <summary>Whether the server sent this impact rather than the client tracing it.</summary>
     public bool FromServer => Shot < 0 && !BrushOnly;
+
+    /// <summary>For a client bullet stopped by terrain, the displacement's texdata; −1 otherwise (<see cref="Content.Bsp.BspTrace"/>).</summary>
+    public int DisplacementTexdata { get; init; } = -1;
+
+    /// <summary>The struck terrain triangle takes its material's second surfaceprop.</summary>
+    public bool SurfaceProp2 { get; init; }
 }
 
 /// <summary>Which bullets of a demo's shots draw a tracer, and where each ends (B415).</summary>
@@ -210,7 +216,11 @@ public sealed class HitscanTracers
                     shot.Origin.Z + ((end.Z - shot.Origin.Z) * fraction));
 
                 impacts?.Add(new ShotImpact(
-                    index, bullet, shot.Tick, shot.Shooter, by.Team, shot.Origin, stopped, end, hit.Texinfo, hit.Normal));
+                    index, bullet, shot.Tick, shot.Shooter, by.Team, shot.Origin, stopped, end, hit.Texinfo, hit.Normal)
+                {
+                    DisplacementTexdata = hit.DisplacementTexdata,
+                    SurfaceProp2 = hit.SurfaceProp2,
+                });
 
                 if ((count++ % frequency) != 0 || effect is null)
                 {

@@ -80,7 +80,7 @@ public sealed class DisplacementCollision
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(terrain);
 
-        List<Displacement> built = [];
+        List<(int Texdata, IReadOnlyList<SurfaceVertex> Corners)> read = [];
 
         foreach (BspSurface surface in surfaces)
         {
@@ -89,11 +89,9 @@ public sealed class DisplacementCollision
                 continue;
             }
 
-            IReadOnlyList<SurfaceVertex>? corners = null;
-
             try
             {
-                corners = terrain.ReadTriangles(surface);
+                read.Add((surface.MaterialIndex, terrain.ReadTriangles(surface)));
             }
             catch (System.IO.InvalidDataException)
             {
@@ -101,13 +99,34 @@ public sealed class DisplacementCollision
                 // the count is observable through `Count`, so a map that lost terrain says so.
                 continue;
             }
+        }
 
+        return FromTriangles(read);
+    }
+
+    /// <summary>`DISP_ALPHA_PROP_DELTA` (`builddisp.h:25`), 382.5 over three alphas of 0–255, in alpha scaled to one.</summary>
+    private const float SecondPropAlpha = 382.5f / 255f;
+
+    /// <summary>Builds the set from each displacement's texdata and triangle-list corners.</summary>
+    /// <param name="displacements">Each displacement: its material's texdata index and its corners, three per triangle.</param>
+    /// <returns>The set; empty when none has a triangle.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="displacements"/> is null.</exception>
+    public static DisplacementCollision FromTriangles(
+        IEnumerable<(int Texdata, IReadOnlyList<SurfaceVertex> Corners)> displacements)
+    {
+        ArgumentNullException.ThrowIfNull(displacements);
+
+        List<Displacement> built = [];
+
+        foreach ((int texdata, IReadOnlyList<SurfaceVertex>? corners) in displacements)
+        {
             if (corners is null || corners.Count < 3)
             {
                 continue;
             }
 
             DisplacementTriangle[] triangles = new DisplacementTriangle[corners.Count / 3];
+            bool[] second = new bool[triangles.Length];
 
             float minX = float.PositiveInfinity;
             float minY = float.PositiveInfinity;
@@ -125,6 +144,9 @@ public sealed class DisplacementCollision
                 triangles[triangle] = DisplacementTriangle.From(
                     (a.X, a.Y, a.Z), (b.X, b.Y, b.Z), (c.X, c.Y, c.Z));
 
+                // `CDispCollTree::Create`: `flTotalAlpha > DISP_ALPHA_PROP_DELTA` flags `DISPSURF_FLAG_SURFPROP2`.
+                second[triangle] = a.Alpha + b.Alpha + c.Alpha > SecondPropAlpha;
+
                 foreach (SurfaceVertex vertex in (SurfaceVertex[])[a, b, c])
                 {
                     minX = MathF.Min(minX, vertex.X);
@@ -136,7 +158,7 @@ public sealed class DisplacementCollision
                 }
             }
 
-            built.Add(new Displacement(triangles, minX, minY, minZ, maxX, maxY, maxZ));
+            built.Add(new Displacement(triangles, second, texdata, minX, minY, minZ, maxX, maxY, maxZ));
         }
 
         return built.Count == 0 ? Empty : new DisplacementCollision([.. built]);
@@ -161,11 +183,29 @@ public sealed class DisplacementCollision
     public float Sweep(
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
+        float halfExtent) =>
+        SweepSurface(fromX, fromY, fromZ, toX, toY, toZ, halfExtent).Fraction;
+
+    /// <summary><see cref="Sweep"/>, with the surface it stopped on — engine.dll `FUN_18016f290`'s half of `trace_t`.</summary>
+    /// <param name="fromX">Where the box's centre starts.</param>
+    /// <param name="fromY">Where the box's centre starts.</param>
+    /// <param name="fromZ">Where the box's centre starts.</param>
+    /// <param name="toX">Where it would end unobstructed.</param>
+    /// <param name="toY">Where it would end unobstructed.</param>
+    /// <param name="toZ">Where it would end unobstructed.</param>
+    /// <param name="halfExtent">Half the box's width, on every axis.</param>
+    /// <returns>
+    /// The fraction; the struck displacement's texdata, −1 for none; and whether the struck triangle takes the material's
+    /// second surfaceprop (`DISPSURF_FLAG_SURFPROP2`).
+    /// </returns>
+    public (float Fraction, int Texdata, bool SurfaceProp2) SweepSurface(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
         float halfExtent)
     {
         if (_displacements.Length == 0)
         {
-            return 1f;
+            return (1f, -1, false);
         }
 
         // The travel's own box, grown by the sweeping box, so a displacement can be rejected without
@@ -182,6 +222,8 @@ public sealed class DisplacementCollision
         (float X, float Y, float Z) extents = (halfExtent, halfExtent, halfExtent);
 
         float hit = 1f;
+        int texdata = -1;
+        bool second = false;
 
         foreach (Displacement displacement in _displacements)
         {
@@ -192,22 +234,37 @@ public sealed class DisplacementCollision
                 continue;
             }
 
-            foreach (DisplacementTriangle triangle in displacement.Triangles)
+            for (int index = 0; index < displacement.Triangles.Length; index++)
             {
-                hit = DisplacementSweep.Against(start, delta, extents, triangle, hit);
+                float against = DisplacementSweep.Against(start, delta, extents, displacement.Triangles[index], hit);
+
+                if (against < hit)
+                {
+                    hit = against;
+                    texdata = displacement.Texdata;
+                    second = displacement.SecondProp[index];
+                }
             }
         }
 
-        return hit;
+        return (hit, texdata, second);
     }
 
     /// <summary>One displacement surface: its triangles and the box they live in.</summary>
     private sealed class Displacement(
         DisplacementTriangle[] triangles,
+        bool[] secondProp,
+        int texdata,
         float minX, float minY, float minZ,
         float maxX, float maxY, float maxZ)
     {
         public DisplacementTriangle[] Triangles { get; } = triangles;
+
+        /// <summary>Per triangle, `DISPSURF_FLAG_SURFPROP2`.</summary>
+        public bool[] SecondProp { get; } = secondProp;
+
+        /// <summary>The face's texdata, which carries its material's two surfaceprops.</summary>
+        public int Texdata { get; } = texdata;
 
         public float MinX { get; } = minX;
 
