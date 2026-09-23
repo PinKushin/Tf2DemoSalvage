@@ -27050,7 +27050,16 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
-### B420 OPEN 2026-09-23: after playback, a paused frame in the free camera stays ~10x dearer, even after seeking back
+### B420 CLOSED 2026-09-23: after playback, a paused frame in the free camera stays ~10x dearer, even after seeking back
+
+**Closed on a measurement, cause not pinned.** `tf2demoview z1800.dem --tick 20000 --autoplay +demo_timescale 8
+--measure 30 --then-seek 20142`: paused after the seek, 7,323 frames at 4.10 ms mean, `camera` 0.82 ms; the same tick
+with no playback, 4.65-4.73 ms mean, `camera` 0.86 ms. The seek drops the live bursts from 1,504 to 42. The trail leak
+below was real but had no trails to leak in this run, so which of the day's changes cured the UI suite's slider-seek
+reading is not established. **A harness mistake worth knowing:** `--then-seek` first omitted `_transport.ShowTick`, so
+`Bursts` kept being asked for the playback's last tick and 1,634 bursts stayed live at 13.6 ms a frame — B420's exact
+shape, produced by the instrument.
+
 
 **Found by the UI suite's timings** (the owner: *"the tests after the playback ran slow as shit"*). On `z1800` in the free
 camera, the paused frame's `camera` stage cost about 1.5 ms at tick 20000 before any playback, and about 15 ms after 20 s of

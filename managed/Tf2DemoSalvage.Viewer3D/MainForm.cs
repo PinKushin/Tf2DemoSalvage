@@ -5977,6 +5977,13 @@ internal class MainForm : Form, IFrameSteps
                 new Vector3(ux, uy, uz),
                 _loaded?.Assets?.ParticleMaterials ?? NoParticleMaterials);
 
+            _particleQuads = 0;
+
+            foreach (ParticleBatch built in batches)
+            {
+                _particleQuads += built.Corners.Count / 6;
+            }
+
             // **Entity sprites join the particle batches rather than getting a pass of their own**
             // (B378). A sprite IS a particle with one quad — a texture, a blend and six corners — so
             // it goes through the same renderer, and a second pass would agree with this one only
@@ -6181,17 +6188,55 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void FinishMeasuring()
     {
-        Console.WriteLine(
-            string.Create(
+        PrintMeasured(
+            _seekedForMeasure
+                ? string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds paused at {_launch.ThenSeek} after the seek, {_measured.Count} samples")
+                : string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Count} samples"));
+
+        Close();
+    }
+
+    /// <summary>Frames counted into <see cref="_frameSeconds"/> since the last printed measurement.</summary>
+    private int _framesMeasured;
+
+    /// <summary>The measured frames' phases, summed, for a paused measurement that writes no per-second line.</summary>
+    private FramePhases _phasesMeasured;
+
+    /// <summary>The particle quads the last frame built — carried from the batches `Build` returned (B243).</summary>
+    private int _particleQuads;
+
+    /// <summary>Whether <c>--then-seek</c> has already paused and seeked, so the second measurement is running.</summary>
+    private bool _seekedForMeasure;
+
+    /// <summary>Prints one measurement's heading and its per-second lines, the first dropped.</summary>
+    private void PrintMeasured(string heading)
+    {
+        // The frame count beside the seconds: a paused frame writes no per-second line (the rate meter samples only
+        // while the scene rebuilds), so for B420's paused measurement this mean IS the measurement.
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{heading}; {_framesMeasured} frames, mean {(_framesMeasured > 0 ? _frameSeconds * 1000d / _framesMeasured : 0d):0.00} ms"));
+
+        if (_framesMeasured > 0)
+        {
+            // The same phases the per-second line names, as means over every measured frame.
+            double each(double total) => total * 1000d / Stopwatch.Frequency / _framesMeasured;
+            FramePhases sum = _phasesMeasured;
+
+            Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Count} samples"));
+                $"  phases, mean ms: sound {each(sum.Sound):0.00}, camera {each(sum.Camera):0.00}, project {each(sum.Project):0.00}, " +
+                $"advance {each(sum.Advance):0.00}, capture {each(sum.Capture):0.00}, hud {each(sum.Hud):0.00}, draw {each(sum.Draw):0.00}; " +
+                $"particles now: {_particles.Count} trails, {_particles.BurstCount} bursts, {_particleQuads} quads last frame"));
+        }
+
+        _framesMeasured = 0;
+        _phasesMeasured = default;
 
         for (int at = _measured.Count > 1 ? 1 : 0; at < _measured.Count; at++)
         {
             Console.WriteLine("  " + _measured[at]);
         }
-
-        Close();
     }
 
     /// <summary>This frame's <c>cl_showpos</c> subject, gathered from the camera and the demo.</summary>
@@ -6541,6 +6586,16 @@ internal class MainForm : Form, IFrameSteps
         if (onScreen && _wasOnScreen)
         {
             _frameSeconds += _clock.LastFrameSeconds;
+            _framesMeasured++;
+            _phasesMeasured = new FramePhases(
+                _phasesMeasured.Sound + phases.Sound,
+                _phasesMeasured.Camera + phases.Camera,
+                _phasesMeasured.Project + phases.Project,
+                _phasesMeasured.Advance + phases.Advance,
+                _phasesMeasured.Capture + phases.Capture,
+                _phasesMeasured.Hud + phases.Hud,
+                _phasesMeasured.Draw + phases.Draw,
+                _phasesMeasured.Total + phases.Total);
         }
 
         _wasOnScreen = onScreen;
@@ -6567,9 +6622,31 @@ internal class MainForm : Form, IFrameSteps
         // **Counted in seconds of PLAYBACK.** A wall clock would spend the first twenty seconds on
         // archives and the map, so `--measure 40` would be about two seconds of frames — which is
         // exactly the mistake this replaces.
+        if (_launch.MeasureSeconds is not null && !_transport.Playing)
+        {
+            // A paused viewer repaints only when asked; a measurement of the paused frame asks every frame, as a user
+            // moving the free camera does (B420 was measured that way).
+            _viewport.Invalidate();
+        }
+
         if (_launch.MeasureSeconds is { } run && _frameSeconds >= run)
         {
-            FinishMeasuring();
+            if (_launch.ThenSeek is { } back && !_seekedForMeasure)
+            {
+                // B420's scenario: print what playback measured, then pause, seek and measure the paused frame as long.
+                _seekedForMeasure = true;
+                PrintMeasured(string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Count} samples"));
+                _transport.Playing = false;
+                _playback.Seek(back);
+                _transport.ShowTick(back);
+                ShowMoment(back);
+                _frameSeconds = 0d;
+                _measured.Clear();
+            }
+            else
+            {
+                FinishMeasuring();
+            }
         }
 
         // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
