@@ -27066,6 +27066,10 @@ opaque models. Three divergences remain.
   here static props have their own. This differs only past 75 model decals in total.
 - **The ray is interpolated** from `AddStudioDecal`, and so is the clipper; see the finding.
 - **A static-prop decal is unlit, or lit by the white texel.** The prop's own vertex lighting is not carried to it.
+  Measured on f12 (2026-09-24, a count on the viewer's one-time log line): no lit run is held at ticks 20,000 and
+  60,000, and 4 are held at tick 40,000. Every other held run is `DecalModulate`, which the engine draws unlit as well.
+  How `studiorender` lights a lit decal on a static prop (from the colour mesh, or from the ambient cube) has not been
+  read.
 
 The original entry follows.
 
