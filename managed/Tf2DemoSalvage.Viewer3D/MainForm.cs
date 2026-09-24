@@ -5485,9 +5485,24 @@ internal class MainForm : Form, IFrameSteps
             timeline.Decals.All,
             impacts.For,
             index => timeline.Decals.Names.Name(index) is { } name ? impacts.Materials.Resolve(name) : null,
-            loaded.Doors.Of);
+            loaded.Doors.Of,
+            new StaticPropDecalSource(
+                prop => assets.PlacedProps.TryGetValue(prop, out PlacedProp placed) ? placed.InWorld() : null,
+                material => assets.DecalMaterials.TryGetValue(material.ModelMaterial ?? material.Draws ?? material.Name, out int index)
+                    ? index
+                    : -1));
 
         _decalReplay.AdvanceTo(tick, bullet => StruckPlayer(bullet, tick));
+
+        if (!_reportedPropRefusals && _decalReplay.PropRefusals.Count + _decalReplay.PropDecals.Count > 0)
+        {
+            _reportedPropRefusals = true;
+            _renderLog.LogInformation(
+                "{Message}",
+                $"static prop decals by tick {tick}: {loaded.Impacts.Count(impact => impact.StaticProp >= 0 && impact.Tick <= tick)} prop hits due, " +
+                $"{_decalReplay.PropDecals.Count} held; refused " +
+                string.Join("; ", _decalReplay.PropRefusals.Select(static pair => $"{pair.Value} {pair.Key}")));
+        }
 
         // **A decal on a door rides it** (`R_DecalShoot` into the brush model), so a door that moved rebuilds the mesh too.
         Vector3 doorsAt = Vector3.Zero;
@@ -5500,12 +5515,15 @@ internal class MainForm : Form, IFrameSteps
             }
         }
 
-        if (_decalReplay.Decals.Version == _decalVersion && doorsAt == _decalDoorsAt)
+        if (_decalReplay.Decals.Version == _decalVersion &&
+            _decalReplay.PropDecals.Version == _propDecalVersion &&
+            doorsAt == _decalDoorsAt)
         {
             return;
         }
 
         _decalVersion = _decalReplay.Decals.Version;
+        _propDecalVersion = _decalReplay.PropDecals.Version;
         _decalDoorsAt = doorsAt;
         _decalReplay.Decals.Placed(_placedDecals);
 
@@ -5515,7 +5533,7 @@ internal class MainForm : Form, IFrameSteps
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"decals rebuilt at {tick}: {_placedDecals.Count} placed, {_placedDecals.Count(static placed => placed.Entity >= 0)} on brush entities"));
+                    $"decals rebuilt at {tick}: {_placedDecals.Count} placed, {_placedDecals.Count(static placed => placed.Entity >= 0)} on brush entities, {_decalReplay.PropDecals.Count} on static props {string.Join(",", _decalReplay.PropDecals.Models)}"));
 
             foreach (PlacedDecal placed in _placedDecals.Where(static placed => placed.Entity >= 0))
             {
@@ -5527,21 +5545,67 @@ internal class MainForm : Form, IFrameSteps
             }
         }
 
+        Func<int, float?> unlit = index => index < assets.Shaders.Count &&
+                                           string.Equals(assets.Shaders[index], "DecalModulate", StringComparison.OrdinalIgnoreCase)
+            ? Device3D.ModulateTwiceLight
+            : null;
+
         DecalMesh.Build(
             _placedDecals,
             material => material.Draws is { } drawn && assets.DecalMaterials.TryGetValue(drawn, out int index) ? index : -1,
-            index => index < assets.Shaders.Count &&
-                     string.Equals(assets.Shaders[index], "DecalModulate", StringComparison.OrdinalIgnoreCase)
-                ? Device3D.ModulateTwiceLight
-                : null,
+            unlit,
             assets.Lightmaps.Rectangles,
             _decalVertices,
             _decalBatches,
             entity => loaded.Doors.Of(entity, tick)?.Origin,
             _entityDecalBatches);
 
+        // **A static prop's decals draw with the prop** (B421): already in the world, after the world's own decals.
+        foreach (int prop in _decalReplay.PropDecals.Models)
+        {
+            if (_decalReplay.PropDecals.For(prop) is not { } held)
+            {
+                continue;
+            }
+
+            if (!_reportedPropDecal)
+            {
+                _reportedPropDecal = true;
+
+                WorldVertex corner = held.Vertices[0];
+
+                _renderLog.LogInformation(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"first static prop decal at tick {tick}, prop {prop}: corner ({corner.X:0} {corner.Y:0} {corner.Depth:0}), material {held.Batches[0].MaterialIndex}"));
+            }
+
+            foreach (WorldBatch batch in held.Batches)
+            {
+                float light = unlit(batch.MaterialIndex) ?? 1f;
+                int first = _decalVertices.Count;
+
+                for (int at = batch.FirstVertex; at < batch.FirstVertex + batch.VertexCount; at++)
+                {
+                    _decalVertices.Add(held.Vertices[at] with { Red = light, Green = light, Blue = light });
+                }
+
+                _entityDecalBatches.Add(batch with { FirstVertex = first });
+            }
+        }
+
         _device.UploadShotDecals(_decalVertices, _decalBatches, _entityDecalBatches);
     }
+
+    /// <summary>The static props' decal pool version last uploaded.</summary>
+    private int _propDecalVersion = -1;
+
+    /// <summary>Whether the first static prop decal's place has been logged, the control that they are made at all.</summary>
+    private bool _reportedPropDecal;
+
+    /// <summary>Whether the static prop decals' refusals have been logged.</summary>
+    private bool _reportedPropRefusals;
 
     /// <summary>The summed origins of the doors carrying decals when the mesh was last built.</summary>
     private Vector3 _decalDoorsAt;

@@ -232,7 +232,7 @@ public sealed class LoadedMap
 
             renderLog.LogInformation(
                 "{Message}",
-                $"{impacts.Count(static impact => impact.StudioSurfaceProp >= 0).ToString(CultureInfo.InvariantCulture)} of {impacts.Count.ToString(CultureInfo.InvariantCulture)} client bullets stopped on a static prop, {impacts.Count(static impact => impact.BrushEntity >= 0).ToString(CultureInfo.InvariantCulture)} on a door; {doors.Count.ToString(CultureInfo.InvariantCulture)} door tracks traced");
+                $"{impacts.Count(static impact => impact.StaticProp >= 0).ToString(CultureInfo.InvariantCulture)} of {impacts.Count.ToString(CultureInfo.InvariantCulture)} client bullets stopped on a static prop, {impacts.Count(static impact => impact.BrushEntity >= 0).ToString(CultureInfo.InvariantCulture)} on a door; {doors.Count.ToString(CultureInfo.InvariantCulture)} door tracks traced");
 
             foreach (ShotImpact onDoor in impacts.Where(static impact => impact.BrushEntity >= 0).Take(3))
             {

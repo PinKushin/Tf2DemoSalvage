@@ -122,7 +122,7 @@ public sealed class ImpactDecals
     /// </remarks>
     public int SurfacePropOfTrace(BspTrace trace)
     {
-        if (trace.StudioSurfaceProp >= 0)
+        if (trace.StaticProp >= 0)
         {
             return trace.StudioSurfaceProp;
         }
@@ -149,7 +149,7 @@ public sealed class ImpactDecals
             return impact.SurfaceProp;
         }
 
-        if (impact.StudioSurfaceProp >= 0)
+        if (impact.StaticProp >= 0)
         {
             return impact.StudioSurfaceProp;
         }
@@ -253,6 +253,13 @@ public sealed class ImpactDecals
     /// </remarks>
     public (char GameMaterial, SurfaceProperties Flags)? Surface(ShotImpact impact)
     {
+        // A static prop's `**studio**` surface: no flags, and the model's `$surfaceprop` — −1 for none, which reads as
+        // surface zero (B421).
+        if (!impact.FromServer && impact.StaticProp >= 0)
+        {
+            return (_surfacePropMaterial(impact.StudioSurfaceProp), SurfaceProperties.None);
+        }
+
         if (impact.Texinfo < 0 || impact.Texinfo >= _texinfo.Count)
         {
             return null;

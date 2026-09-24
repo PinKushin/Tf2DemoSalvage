@@ -67,6 +67,32 @@ Through the viewer's own load (`tracers` probe; `demostf-cp_process_f12-2026-08-
 
 The rest of the 4,254 with no decal are the terrain hits, sky and nodraw surfaces, and surfaces marked `-`.
 
+## A hole in a static prop is a model decal, cut to its square
+
+Added 2026-09-24 (B421). **A bullet that stops on a static prop never reaches the world's decal code.** `Impact()`
+(`fx_impact.cpp:149`) sends a hit on entity 0 with a nonzero hitbox to `staticpropmgr->AddDecalToStaticProp` alone.
+Until then the viewer shot a world decal at the hit point instead. That clipped a dent onto whatever brushes lay within
+its radius, often the wall behind the prop.
+
+On a prop, the decal goes through `CStudioRender::AddDecal`, the same function a player's decal uses. That function has
+a path that player decals never take: for a one-bone model with no flexes, each triangle is **cut** to the decal's
+square rather than kept whole. The static-prop call also passes `noPokeThru`. Read out of `studiorender.dll`
+(`0x18000b690`), that makes a corner count only when **|row2 · pos + t| < radius, measured from the ray's start**.
+
+**That depth test is the thing to understand.** Fed the bullet's own ray, which starts at the shooter, it refuses every
+triangle. The published half of the same shape is `C_BaseEntity::AddStudioDecal` (`c_baseentity.cpp:3640`). It traces
+the model first, then builds a `betterRay` from the hit point one unit into the face before calling `AddDecal` with
+`noPokeThru`. The viewer does the same for a prop. *Interpolated:* `CStaticPropMgr::AddDecalToStaticProp` is engine code
+that has not been read, and neither has the clipper itself. The cut is Sutherland–Hodgman over U, then V.
+
+**An instrument bug on the way.** The first count of "bullets that stopped on a static prop" asked whether the hit
+carried the model's `$surfaceprop`. That gave 505 of 16,531. The real number is 834: 329 props' models declare no
+`$surfaceprop`, which `GetSurfaceData` reads as surface zero. Those props had been silently falling through to world
+decals, because every "is this a prop" test asked the surfaceprop instead of the prop index.
+
+By tick 30,000 on f12, 187 prop hits are due and 75 decals are held (the `1.5 × r_maxmodeldecal` cap). Three hits took
+no triangle. A container's face shows holes at tick 30,000 and none at tick 3,000 from the same camera.
+
 ## Not established
 
 What is not built, and every divergence, is listed under B415 in `docs/RISKS.md`. The largest are displacement decals,

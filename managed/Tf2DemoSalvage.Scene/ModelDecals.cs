@@ -37,6 +37,12 @@ public sealed class ModelDecals
     /// <summary>How many decals are held across every model.</summary>
     public int Count => _age.Count;
 
+    /// <summary>Changes whenever a decal is kept or cleared, so an unchanged pool costs its reader nothing.</summary>
+    public int Version { get; private set; }
+
+    /// <summary>The keys of every model holding decals.</summary>
+    public IEnumerable<int> Models => _byEntity.Keys;
+
     /// <summary>Projects one decal onto a model and keeps it — `CModelRender::AddDecal` → `CStudioRender::AddDecal`.</summary>
     /// <param name="entity">The entity whose model takes it.</param>
     /// <param name="model">The model's packed vertices, a triangle list.</param>
@@ -61,15 +67,7 @@ public sealed class ModelDecals
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(poseToWorld);
 
-        if (_age.Count >= MaximumPerModel * 1.5)
-        {
-            Retire(_age.First!.Value);
-        }
-
-        if (_byEntity.TryGetValue(entity, out List<Decal>? held) && held.Count >= MaximumPerModel)
-        {
-            Retire((entity, held[0]));
-        }
+        RetireForOneMore(entity);
 
         IReadOnlyList<StudioDecalCorner> corners = StudioDecalProjection.Project(
             model, poseToWorld, start, delta, Vector3.UnitZ, radius, noPokeThru: false, drawn);
@@ -85,17 +83,73 @@ public sealed class ModelDecals
         {
             StudioDecalCorner corner = corners[index];
 
-            vertices[index] = model[corner.Vertex] with
-            {
-                U = corner.U,
-                V = corner.V,
-                LightU = 0f,
-                LightV = 0f,
-                Red = UnlitLight,
-                Green = UnlitLight,
-                Blue = UnlitLight,
-            };
+            vertices[index] = Unlit(model[corner.Vertex] with { U = corner.U, V = corner.V });
         }
+
+        Keep(entity, material, vertices);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Projects one decal onto a one-bone model already placed in the world — a static prop, whose `AddDecal` takes the
+    /// clipped path with `noPokeThru` (<see cref="StudioDecalProjection.ProjectClipped"/>).
+    /// </summary>
+    /// <param name="key">The model's key in this pool.</param>
+    /// <param name="model">The model's vertices in the world, a triangle list.</param>
+    /// <param name="start">The ray's start.</param>
+    /// <param name="delta">The ray's length and direction.</param>
+    /// <param name="radius">Half the decal's larger side, scaled by `$decalScale`.</param>
+    /// <param name="material">The drawn material's table index.</param>
+    /// <returns>Whether any triangle took the decal.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
+    public bool AddClipped(int key, IReadOnlyList<WorldVertex> model, Vector3 start, Vector3 delta, float radius, int material)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        RetireForOneMore(key);
+
+        IReadOnlyList<WorldVertex> corners = StudioDecalProjection.ProjectClipped(
+            model, start, delta, Vector3.UnitZ, radius, noPokeThru: true);
+
+        if (corners.Count == 0)
+        {
+            return false;
+        }
+
+        WorldVertex[] vertices = new WorldVertex[corners.Count];
+
+        for (int index = 0; index < corners.Count; index++)
+        {
+            vertices[index] = Unlit(corners[index]);
+        }
+
+        Keep(key, material, vertices);
+
+        return true;
+    }
+
+    private WorldVertex Unlit(WorldVertex corner) =>
+        corner with { LightU = 0f, LightV = 0f, Red = UnlitLight, Green = UnlitLight, Blue = UnlitLight };
+
+    /// <summary>`AddDecal`'s first two limits: the oldest of any model past 1.5 · r_maxmodeldecal, then this model's past it.</summary>
+    private void RetireForOneMore(int entity)
+    {
+        if (_age.Count >= MaximumPerModel * 1.5)
+        {
+            Retire(_age.First!.Value);
+        }
+
+        if (_byEntity.TryGetValue(entity, out List<Decal>? held) && held.Count >= MaximumPerModel)
+        {
+            Retire((entity, held[0]));
+        }
+    }
+
+    /// <summary>Keeps one projected decal, retiring this model's oldest while its material holds too many corners.</summary>
+    private void Keep(int entity, int material, WorldVertex[] vertices)
+    {
+        _byEntity.TryGetValue(entity, out List<Decal>? held);
 
         if (held is null)
         {
@@ -113,8 +167,7 @@ public sealed class ModelDecals
         held.Add(decal);
         _age.AddLast((entity, decal));
         _built.Remove(entity);
-
-        return true;
+        Version++;
     }
 
     /// <summary>`RemoveAllDecals` on one entity's model.</summary>
@@ -139,6 +192,8 @@ public sealed class ModelDecals
 
             node = next;
         }
+
+        Version++;
     }
 
     /// <summary>Every model's decals gone — a seek backwards, or a new map.</summary>
@@ -147,6 +202,7 @@ public sealed class ModelDecals
         _byEntity.Clear();
         _age.Clear();
         _built.Clear();
+        Version++;
     }
 
     /// <summary>One entity's decals as corners and one run per decal material, or null for none.</summary>

@@ -86,6 +86,12 @@ public sealed class StaticPropCollisionConformanceTests
         props.Trace(From, To).ShouldNotBeNull().Fraction.ShouldBe((100f - 39.370079f) / 200f, 1e-5f);
     }
 
+    /// <remarks>`trace.hitbox` is the prop's lump index plus one, so the non-solid props before it still count.</remarks>
+    [Test]
+    public void Trace_APropAfterNonSolidOnes_ReportsItsLumpIndex() =>
+        StaticPropCollision.From([Prop(0f) with { Solid = 0 }, Prop(0f) with { Solid = 0 }, Prop(0f)], _ => Collide(), _ => 7)
+            .Trace(From, To).ShouldNotBeNull().Prop.ShouldBe(2);
+
     [Test]
     public void Trace_ALinePassingAbove_MissesIt() =>
         Props(yaw: 0f).Trace((0f, 0f, 10f), (200f, 0f, 10f)).ShouldBeNull();

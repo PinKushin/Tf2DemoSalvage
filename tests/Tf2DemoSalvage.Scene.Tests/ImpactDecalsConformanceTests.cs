@@ -45,6 +45,24 @@ public sealed class ImpactDecalsConformanceTests
         Decals().For(Impact(texinfo), static (_, _) => 0f).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// A static prop's surface is `**studio**`, whose flags are zero and whose surfaceprop is the model's `$surfaceprop`:
+    /// the world's `DamageDecal` answer, translated by that surfaceprop's game material.
+    /// </remarks>
+    [Test]
+    public void For_AStaticProp_IsTranslatedByItsModelsSurfaceprop()
+    {
+        Decals().For(Impact(-1) with { StudioSurfaceProp = 7, StaticProp = 0 }, static (_, _) => 0f)
+            .ShouldNotBeNull().Name.ShouldBe("decals/flesh/blood1");
+    }
+
+    /// <remarks>A model with no `$surfaceprop` is surface −1, which `GetSurfaceData` reads as surface zero: not terrain.</remarks>
+    [Test]
+    public void For_AStaticPropWithNoSurfaceprop_IsTheDefaultSurfacesDecal()
+    {
+        Decals().For(Impact(-1) with { StaticProp = 0 }, static (_, _) => 0f).ShouldNotBeNull().Name.ShouldBe("decals/concrete/shot1");
+    }
+
     [Test]
     public void ForEntity_AFleshSurfaceprop_IsItsTranslatedGroup()
     {

@@ -82,6 +82,9 @@ public readonly record struct ShotImpact(
 
     /// <summary>For a client bullet stopped by a brush entity's own model, such as a door, its entity index; −1 otherwise.</summary>
     public int BrushEntity { get; init; } = -1;
+
+    /// <summary>For a client bullet stopped by a static prop, its index in the map's lump; −1 otherwise.</summary>
+    public int StaticProp { get; init; } = -1;
 }
 
 /// <summary>Which bullets of a demo's shots draw a tracer, and where each ends (B415).</summary>
@@ -246,6 +249,7 @@ public sealed class HitscanTracers
                     SurfaceProp2 = hit.SurfaceProp2,
                     StudioSurfaceProp = hit.StudioSurfaceProp,
                     BrushEntity = hit.BrushEntity,
+                    StaticProp = hit.StaticProp,
                 });
 
                 if ((count++ % frequency) != 0 || effect is null)

@@ -6,6 +6,11 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
 
+/// <summary>What a static prop's decal needs from the loaded map (B421).</summary>
+/// <param name="Mesh">A prop's triangles in the world by its lump index, or null for one not drawn.</param>
+/// <param name="Material">A decal's drawn model material's table index — its `$modelmaterial` — or −1 when not loaded.</param>
+public sealed record StaticPropDecalSource(Func<int, IReadOnlyList<WorldVertex>?> Mesh, Func<DecalMaterial, int> Material);
+
 /// <summary>The world's decals at a tick: every bullet impact and decal event before it, shot in order (B415).</summary>
 /// <remarks>
 /// **Decals are state, not one-shots**: the pool at a tick is the result of every shot before it, oldest pushed out
@@ -34,6 +39,9 @@ public sealed class DecalReplay
     /// <param name="brushOf">
     /// Where the brush entity an impact stopped on stood at its tick, or null — a door's model is shot in its own frame.
     /// </param>
+    /// <param name="props">
+    /// A static prop's triangles in the world and a decal's drawn model material, or null to leave props bare (B421).
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public DecalReplay(
         WorldDecals decals,
@@ -41,8 +49,11 @@ public sealed class DecalReplay
         IReadOnlyList<SceneDecal> events,
         Func<ShotImpact, DecalMaterial?> impactMaterial,
         Func<int, DecalMaterial?> eventMaterial,
-        Func<int, int, SolidBrush?>? brushOf = null)
+        Func<int, int, SolidBrush?>? brushOf = null,
+        StaticPropDecalSource? props = null)
     {
+        _props = props;
+
         ArgumentNullException.ThrowIfNull(decals);
         ArgumentNullException.ThrowIfNull(impacts);
         ArgumentNullException.ThrowIfNull(events);
@@ -58,9 +69,13 @@ public sealed class DecalReplay
     }
 
     private readonly Func<int, int, SolidBrush?>? _brushOf;
+    private readonly StaticPropDecalSource? _props;
 
     /// <summary>The pool.</summary>
     public WorldDecals Decals { get; }
+
+    /// <summary>The static props' decals, keyed by the prop's lump index — `CStudioRender`'s lists (B421).</summary>
+    public ModelDecals PropDecals { get; } = new();
 
     /// <summary>Shoots everything up to and including a tick, first clearing the pool when the tick went backwards.</summary>
     /// <param name="tick">The tick now shown.</param>
@@ -76,6 +91,7 @@ public sealed class DecalReplay
         if (tick < _tick)
         {
             Decals.Clear();
+            PropDecals.ClearAll();
             _impact = 0;
             _event = 0;
         }
@@ -95,8 +111,22 @@ public sealed class DecalReplay
             {
                 ShotImpact impact = _impacts[_impact++];
 
+                if (struckPlayer(impact) || _impactMaterial(impact) is not { } material)
+                {
+                    if (impact.StaticProp >= 0)
+                    {
+                        PropRefusals["player or no decal material"] = PropRefusals.GetValueOrDefault("player or no decal material") + 1;
+                    }
+
+                    continue;
+                }
+
                 // A static prop's hit goes to `AddDecalToStaticProp` alone — never into the brushes behind it.
-                if (impact.StudioSurfaceProp < 0 && !struckPlayer(impact) && _impactMaterial(impact) is { } material)
+                if (impact.StaticProp >= 0)
+                {
+                    ShootProp(impact, material);
+                }
+                else
                 {
                     Vector3 end = new(impact.End.X, impact.End.Y, impact.End.Z);
 
@@ -116,6 +146,48 @@ public sealed class DecalReplay
             }
         }
     }
+
+    /// <remarks>
+    /// `fx_impact.cpp`'s `Impact` calls `AddDecalToStaticProp( vecStart, traceExt, hitbox − 1, decal, doTrace: true )`.
+    /// *Interpolated from `C_BaseEntity::AddStudioDecal`* (`c_baseentity.cpp:3640`), the published half of the same
+    /// shape — trace the model, then `betterRay` from the hit one unit into the face with `noPokeThru` — since
+    /// `CStaticPropMgr::AddDecalToStaticProp` is engine code not read: without a start at the face, `noPokeThru`'s depth
+    /// test (`studiorender.dll` `0x18000b690`, |depth| &lt; radius from the ray's start) would refuse every triangle. The
+    /// delta is bloated by 1.1 as `AddDecal` bloats a player's (<see cref="ServerImpacts.DecalRay"/>).
+    /// </remarks>
+    private void ShootProp(ShotImpact impact, DecalMaterial material)
+    {
+        if (_props is not null && RefusalOfProp(_props, impact, material) is { } refused)
+        {
+            PropRefusals[refused] = PropRefusals.GetValueOrDefault(refused) + 1;
+        }
+    }
+
+    /// <summary>Places a static prop's decal, or says why not.</summary>
+    private string? RefusalOfProp(StaticPropDecalSource props, ShotImpact impact, DecalMaterial material)
+    {
+        if (props.Mesh(impact.StaticProp) is not { } mesh)
+        {
+            return "prop not drawn";
+        }
+
+        if (props.Material(material) is not (>= 0 and var index))
+        {
+            return $"model material not loaded: {material.ModelMaterial ?? material.Draws ?? material.Name}";
+        }
+
+        float scale = material.DecalScale > 0f ? material.DecalScale : 1f;
+        float radius = MathF.Max(material.Width, material.Height) * scale * 0.5f;
+        Vector3 normal = new(impact.Normal.X, impact.Normal.Y, impact.Normal.Z);
+
+        return PropDecals.AddClipped(
+            impact.StaticProp, mesh, new Vector3(impact.End.X, impact.End.Y, impact.End.Z), -normal * 1.1f, radius, index)
+            ? null
+            : "took no triangle";
+    }
+
+    /// <summary>Why static prop hits placed no decal, counted by reason — the control that a missing decal was refused.</summary>
+    public Dictionary<string, int> PropRefusals { get; } = [];
 
     /// <remarks>
     /// `C_TEWorldDecal` shoots at its origin; `C_TEDecal` on the world with no hitbox reaches `AddBrushModelDecal`, which

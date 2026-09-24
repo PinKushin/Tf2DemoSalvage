@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -65,6 +66,35 @@ public readonly record struct PropVertex(
     // −1 for anything with no skin table to index: brush entities, and any geometry not built
     // from a `.mdl`. It can then never match a swap entry, which is what those want.
     int MaterialSlot = -1);
+
+/// <summary>One static prop: its model's own corners, shared by every placement of the model, and how it was placed.</summary>
+/// <param name="Corners">The model's corners in its own space, a triangle list.</param>
+/// <param name="Transform">Its placement.</param>
+/// <remarks>
+/// **The model's corners, not the baked ones**: the world-space copies are let go once uploaded (B407), and keeping one list
+/// per model rather than per placement is the engine's own arrangement — a static prop is a model instance and a matrix.
+/// </remarks>
+public readonly record struct PlacedProp(IReadOnlyList<PropVertex> Corners, PropTransform Transform)
+{
+    /// <summary>The prop's triangles in the world, normals turned with it — what a decal projects onto.</summary>
+    /// <returns>The triangles, with z in <see cref="WorldVertex.Depth"/>.</returns>
+    public WorldVertex[] InWorld()
+    {
+        WorldVertex[] placed = new WorldVertex[Corners.Count];
+
+        for (int at = 0; at < placed.Length; at++)
+        {
+            PropVertex corner = Corners[at];
+            (float x, float y, float z) = Transform.Apply(corner.X, corner.Y, corner.Z);
+            (float nx, float ny, float nz) = Transform.Rotate(corner.NormalX, corner.NormalY, corner.NormalZ);
+            Vector3 normal = Vector3.Normalize(new Vector3(nx, ny, nz));
+
+            placed[at] = new WorldVertex(x, y, z, 0f, 0f, 0f, 0f, 1f, NormalX: normal.X, NormalY: normal.Y, NormalZ: normal.Z);
+        }
+
+        return placed;
+    }
+}
 
 /// <summary>
 /// The models a map places, loaded and put where the map says.
@@ -140,6 +170,7 @@ public static class PropModels
     /// <param name="lightAt">
     /// The light reaching a point, used for props whose baked vertex lighting is absent or refused.
     /// </param>
+    /// <param name="placedAt">Filled with each placed prop's corners, by its lump index, for its decals (B421).</param>
     /// <param name="props">
     /// Where loading reports what it refused, and what it could not paint. <b>Required, and first,
     /// so that a caller cannot omit it</b> — see the remarks.
@@ -184,7 +215,8 @@ public static class PropModels
         MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load,
         ICollection<string>? refusedLighting = null,
-        Func<float, float, float, PointLighting>? lightAt = null)
+        Func<float, float, float, PointLighting>? lightAt = null,
+        IDictionary<int, PlacedProp>? placedAt = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(pak);
@@ -317,6 +349,8 @@ public static class PropModels
             AmbientCube? cube = lighting.Colours is null
                 ? lightAt?.Invoke(placement.X, placement.Y, placement.Z).Cube
                 : null;
+
+            placedAt?.Add(index, new PlacedProp(model.Corners, transform));
 
             for (int at = 0; at < model.Corners.Count; at++)
             {
