@@ -27,7 +27,8 @@ public sealed class IvpFrictionPair(IvpRigidBody firstCore, IvpRigidBody secondC
     public IvpRigidBody SecondCore { get; } = secondCore;
 
     /// <summary>When the pair last collided — <c>+0x28</c>, written by <c>FUN_18008ef60</c> with <c>env+0x188</c>.</summary>
-    public double LastImpact { get; internal set; }
+    /// <remarks>The constructor, <c>FUN_1800830d0</c>, starts it at <c>0xc08f400000000000</c>, −1000: a first impact's gap reads as long.</remarks>
+    public double LastImpact { get; internal set; } = -1000d;
 
     /// <summary>The work banked against this pair and paid back as damping — the float at <c>+0x30</c>, zero when made.</summary>
     /// <remarks>

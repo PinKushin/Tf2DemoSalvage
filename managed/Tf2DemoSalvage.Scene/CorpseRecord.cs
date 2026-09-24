@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Threading;
@@ -61,6 +62,15 @@ public sealed class CorpseRecord
         }
     }
 
+    /// <summary>Each tick's physics impact sounds, as the corpses' frames played them (B172); written by the pass, read by the renderer.</summary>
+    private readonly ConcurrentDictionary<int, PhysicsImpactSound[]> _impactSounds = [];
+
+    /// <summary>The impact sounds the corpses' physics frame at a tick played — `PlayImpactSounds`' list for that frame.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The sounds, empty past <see cref="Reached"/> or for a quiet tick.</returns>
+    public IReadOnlyList<PhysicsImpactSound> ImpactSoundsAt(int tick) =>
+        tick <= Reached && _impactSounds.TryGetValue(tick, out PhysicsImpactSound[]? heard) ? heard : [];
+
     /// <summary>The last tick every corpse's pose has been recorded for, or <see cref="int.MinValue"/> before the first.</summary>
     public int Reached => Volatile.Read(ref _reached);
 
@@ -110,6 +120,19 @@ public sealed class CorpseRecord
         models.Corpses.CreateWorld = createWorld;
         models.Corpses.Surfaces = surfaces;
 
+        // Gathered per tick and published whole, before `Reached` passes it, like the poses.
+        Dictionary<int, List<PhysicsImpactSound>> pending = [];
+
+        models.Corpses.ImpactHeard = (tick, sound) =>
+        {
+            if (!pending.TryGetValue(tick, out List<PhysicsImpactSound>? heard))
+            {
+                pending[tick] = heard = [];
+            }
+
+            heard.Add(sound);
+        };
+
         int first = int.MaxValue;
         int last = int.MinValue;
         List<SceneProp> all = [];
@@ -148,6 +171,12 @@ public sealed class CorpseRecord
                 Store(models.Corpses, corpse, tick);
             }
 
+            foreach ((int heardAt, List<PhysicsImpactSound> heard) in pending)
+            {
+                _impactSounds[heardAt] = [.. heard];
+            }
+
+            pending.Clear();
             Volatile.Write(ref _reached, tick);
         }
     }

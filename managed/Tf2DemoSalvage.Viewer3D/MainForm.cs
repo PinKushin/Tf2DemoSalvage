@@ -6137,6 +6137,41 @@ internal class MainForm : Form, IFrameSteps
         }
     }
 
+    /// <summary>The last tick whose corpse impact sounds were played.</summary>
+    private int _corpseSoundTick = int.MinValue;
+
+    /// <summary>A corpse's physics impacts — `CCollisionEvent::PostCollision` and `PlayImpactSounds`, recorded per tick (B172).</summary>
+    /// <remarks>
+    /// Read from the background record, which played each physics frame's list at its end. A seek plays nothing it skipped, as
+    /// playback past it would not. ponytail: a tick the record has not reached yet is passed over silently; the record is
+    /// seconds ahead of playback once a demo has loaded.
+    /// </remarks>
+    private void StepCorpseSounds(int tick)
+    {
+        int from = _corpseSoundTick;
+        _corpseSoundTick = tick;
+
+        if (_replayingModelDecals || tick <= from || tick - from > CorpseSoundCatchUp ||
+            _models.Corpses.Record is not { } record || _sound.Scripts is not { } scripts)
+        {
+            return;
+        }
+
+        for (int at = from + 1; at <= tick; at++)
+        {
+            foreach (Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound impact in record.ImpactSoundsAt(at))
+            {
+                if (PhysicsImpactSounds.For(at, impact, _models.Corpses.Surfaces, scripts.Entries) is { } sound)
+                {
+                    _sound.Emit(sound);
+                }
+            }
+        }
+    }
+
+    /// <summary>The most ticks one frame plays corpse impacts across; past it the frame was a seek.</summary>
+    private const int CorpseSoundCatchUp = 16;
+
     /// <summary>The player an event fired on, as drawn at the shown moment.</summary>
     private ScenePlayer? Stepper(int entity)
     {
@@ -6206,6 +6241,7 @@ internal class MainForm : Form, IFrameSteps
         StepDecals(_transport.CurrentTick);
         StepModelDecals(_transport.CurrentTick);
         StepAnimationSounds(_transport.CurrentTick, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
+        StepCorpseSounds(_transport.CurrentTick);
         StepImpactEffects(_transport.CurrentTick);
         StepSparks(_transport.CurrentTick);
 

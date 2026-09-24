@@ -44,6 +44,9 @@ public sealed class VphysicsSurface(string name, SurfacePhysicsParams physics, b
     /// <summary>`surfacesoundnames_t`: the script sounds this surface names, each null when no block or <c>base</c> set it.</summary>
     public SurfaceSoundNames Sounds { get; init; }
 
+    /// <summary>`surfaceaudioparams_t`'s impact half.</summary>
+    public SurfaceAudio Audio { get; init; }
+
     /// <summary>
     /// `surfacesoundnames_t.bulletImpact`, the <c>bulletimpact</c> key — the script sound `PlayImpactSound` plays where a
     /// bullet lands (B415).
@@ -55,7 +58,20 @@ public sealed class VphysicsSurface(string name, SurfacePhysicsParams physics, b
 /// <param name="StepLeft">`stepleft`, what `PlayStepSound` plays for the left foot.</param>
 /// <param name="StepRight">`stepright`, for the right.</param>
 /// <param name="BulletImpact">`bulletimpact`, what `PlayImpactSound` plays where a bullet lands.</param>
-public readonly record struct SurfaceSoundNames(string? StepLeft, string? StepRight, string? BulletImpact);
+public readonly record struct SurfaceSoundNames(string? StepLeft, string? StepRight, string? BulletImpact)
+{
+    /// <summary>`impacthard`, what `PlayImpactSounds` plays for a physics impact.</summary>
+    public string? ImpactHard { get; init; }
+
+    /// <summary>`impactsoft`, played instead when the struck surface is too soft or the impact too slow.</summary>
+    public string? ImpactSoft { get; init; }
+}
+
+/// <summary>`surfaceaudioparams_t`, the parts `PlayImpactSounds` reads.</summary>
+/// <param name="HardnessFactor">`audiohardnessfactor` — `hardnessFactor`.</param>
+/// <param name="HardThreshold">`impacthardthreshold` — `hardThreshold`.</param>
+/// <param name="HardVelocityThreshold">`audiohardminvelocity` — `hardVelocityThreshold`.</param>
+public readonly record struct SurfaceAudio(float HardnessFactor, float HardThreshold, float HardVelocityThreshold);
 
 /// <summary>
 /// vphysics' surface properties as IVP's material manager uses them — the manager at <c>180120be8</c> (vtable <c>1800ec560</c>)
