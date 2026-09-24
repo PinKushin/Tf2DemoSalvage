@@ -74,6 +74,26 @@ public sealed class ItemSchemaConformanceTests
         item.ShouldNotContainKey("model_player");
     }
 
+    /// <remarks>
+    /// `GetMedigunType` hooks `set_weapon_mode` from 0. On the shipped file the stock Medi Gun (29) and the Kritzkrieg (35)
+    /// carry none — the Kritzkrieg's difference is `set_charge_type`, which the loop does not read — and the Quick-Fix (411)
+    /// gives 2 and the Vaccinator (998) 3, each through an attribute named "lunchbox adds minicrits" whose format is additive.
+    /// </remarks>
+    [TestCase(29, 0f)]
+    [TestCase(35, 0f)]
+    [TestCase(411, 2f)]
+    [TestCase(998, 3f)]
+    public void HookValue_TheShippedMediguns_GiveTheirWeaponModes(int item, float mode)
+    {
+        if (!File.Exists(SchemaPath))
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        ItemSchema.Read(File.ReadAllBytes(SchemaPath)).HookValue(item, "set_weapon_mode", 0f).ShouldBe(mode);
+    }
+
     [Test]
     public void WeaponPrefab_CarriesTheModelAndTheAttachFlag()
     {

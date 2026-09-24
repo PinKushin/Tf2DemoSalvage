@@ -246,6 +246,12 @@ public sealed class ItemSchema
     /// <summary>Definition indices whose value is an integer in the 32-bit union, not a float.</summary>
     private readonly HashSet<int> _attributeStoredAsInteger = [];
 
+    /// <summary>Each attribute definition's <c>attribute_class</c>, the name a hook asks for.</summary>
+    private readonly Dictionary<int, string> _attributeClass = [];
+
+    /// <summary>Each attribute definition's <c>description_format</c>, which decides how a hook applies it.</summary>
+    private readonly Dictionary<int, string> _attributeFormat = [];
+
     private ItemSchema()
     {
     }
@@ -338,6 +344,14 @@ public sealed class ItemSchema
                         && value != "0")
                     {
                         read._attributeStoredAsInteger.Add(attributeDefinition);
+                    }
+                    else if (string.Equals(key, "attribute_class", StringComparison.OrdinalIgnoreCase))
+                    {
+                        read._attributeClass[attributeDefinition] = value;
+                    }
+                    else if (string.Equals(key, "description_format", StringComparison.OrdinalIgnoreCase))
+                    {
+                        read._attributeFormat[attributeDefinition] = value;
                     }
 
                     break;
@@ -1217,6 +1231,44 @@ public sealed class ItemSchema
         CollectDefinitionAttributes(item, found, seen, LongestChain);
 
         return found;
+    }
+
+    /// <summary>`CALL_ATTRIB_HOOK_FLOAT` over an item definition's attributes.</summary>
+    /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
+    /// <param name="attributeClass">The hook's class, such as <c>set_weapon_mode</c>.</param>
+    /// <param name="initial">The value the caller starts from.</param>
+    /// <returns>The value after every matching attribute is applied.</returns>
+    /// <remarks>
+    /// `ApplyAttribute` (`econ/attribute_manager.cpp:580`) by the attribute's <c>description_format</c>: a percentage
+    /// multiplies, an additive or particle index adds, a lookup-table or killstreak index replaces, `value_is_or` sets bits,
+    /// and any other format replaces. *Not carried:* the attributes an item's own instance sends on the wire.
+    /// </remarks>
+    public float HookValue(int definitionIndex, string attributeClass, float initial)
+    {
+        ArgumentNullException.ThrowIfNull(attributeClass);
+
+        float value = initial;
+
+        foreach (EconAttributeValue attribute in DefinitionAttributesFor(definitionIndex))
+        {
+            if (!_attributeClass.TryGetValue(attribute.DefinitionIndex, out string? named) ||
+                !string.Equals(named, attributeClass, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            float modifier = _attributeStoredAsInteger.Contains(attribute.DefinitionIndex) ? attribute.AsInteger : attribute.Value;
+
+            value = _attributeFormat.GetValueOrDefault(attribute.DefinitionIndex) switch
+            {
+                "value_is_percentage" or "value_is_inverted_percentage" => value * modifier,
+                "value_is_additive" or "value_is_additive_percentage" or "value_is_particle_index" => value + modifier,
+                "value_is_or" => (int)value | (int)modifier,
+                _ => modifier,
+            };
+        }
+
+        return value;
     }
 
     /// <summary>Gathers definition attributes, nearest declaration winning per name.</summary>
