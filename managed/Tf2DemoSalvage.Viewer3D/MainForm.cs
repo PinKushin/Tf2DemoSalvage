@@ -4747,13 +4747,13 @@ internal class MainForm : Form, IFrameSteps
             return (null, "no ray");
         }
 
-        // `AddStudioDecal`'s `ClipRayToEntity( ray, MASK_SHOT )`: the hitboxes, then the collision box when they miss —
-        // so a bolt stopped on the hull still tries to decal, as TF2's does.
+        // `AddStudioDecal`'s `ClipRayToEntity( ray, MASK_SHOT )`: `MASK_SHOT` holds `CONTENTS_HITBOX`, so the hitboxes, and a
+        // miss is a miss — the collision box answers only for a player whose hitboxes could not be tested. *This read "the
+        // box when they miss" until 2026-09-24*, and decaled bolts that stopped on the hull where TF2 draws nothing.
         BulletTarget clipped = new(
             impact.Entity, new Vector3(struck.X, struck.Y, struck.Z), ((struck.Flags ?? 0) & Ducking) != 0);
 
-        if (PlayerBulletTrace.ClipRayToEntity(
-                clipped, ray.Start, ray.Delta, (entity, from, delta) => _models.TraceHitboxes(entity, from, delta, BulletMask)) is null)
+        if (PlayerBulletTrace.ClipRayToEntity(clipped, ray.Start, ray.Delta, HitboxesOrUntested) is not { } decalAt || decalAt >= 1f)
         {
             float away = MathF.Sqrt(
                 ((impact.Origin.X - struck.X) * (impact.Origin.X - struck.X)) + ((impact.Origin.Y - struck.Y) * (impact.Origin.Y - struck.Y)));
@@ -5962,6 +5962,15 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`FL_DUCKING`.</summary>
     private const int Ducking = 1 << 1;
 
+    /// <summary>A player's hitboxes against a ray, as <see cref="PlayerBulletTrace.ClipRayToEntity"/> asks for them.</summary>
+    /// <remarks>
+    /// **A miss is a full-length trace, 1, not "untested"**: `ClipRayToHitboxes` (engine.dll `0x180190a40`) returns true for
+    /// any line against a model with hitboxes, so the engine never falls to the collision box after missing them. Only a
+    /// player no pass posed — whose hitboxes this viewer cannot test — answers null, for the box to stand in.
+    /// </remarks>
+    private float? HitboxesOrUntested(int entity, Vector3 from, Vector3 delta) =>
+        _models.TraceHitboxes(entity, from, delta, BulletMask) ?? (_models.IsPosed(entity) ? 1f : null);
+
     /// <summary>Where a tracer's bullet stops once the players are counted — <see cref="PlayerBulletTrace"/>.</summary>
     /// <remarks>
     /// The players are the timeline's at the shot's own tick; their hitboxes are posed as this frame's pass posed them,
@@ -6020,16 +6029,16 @@ internal class MainForm : Form, IFrameSteps
             {
                 asked++;
 
-                float? fraction = _models.TraceHitboxes(entity, from, delta, BulletMask);
+                float? fraction = HitboxesOrUntested(entity, from, delta);
 
-                if (fraction is { } at)
+                if (fraction is { } at && at < 1f)
                 {
                     answered++;
                     hits.Append(CultureInfo.InvariantCulture, $" {entity}@{at:0.0000}");
                 }
                 else
                 {
-                    hits.Append(CultureInfo.InvariantCulture, $" {entity} missed");
+                    hits.Append(CultureInfo.InvariantCulture, $" {entity} {(fraction is null ? "untested" : "missed")}");
                 }
 
                 return fraction;

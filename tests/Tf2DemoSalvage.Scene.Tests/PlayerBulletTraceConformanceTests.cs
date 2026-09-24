@@ -31,14 +31,31 @@ public sealed class PlayerBulletTraceConformanceTests
     }
 
     /// <remarks>
-    /// **Missing the hitboxes is not missing the player.** `CEngineTrace::ClipRayToCollideable` (engine.dll
-    /// `0x18018f510`) tests a studio entity's hitboxes when the mask holds `CONTENTS_HITBOX` (`TestHitboxes`,
-    /// `0x180190a40`) and, when they return nothing, clips the ray to its collision box (`0x1801905e0`, `SOLID_BBOX`).
-    /// So a pellet through the hull's corner stops on the player — flesh in TF2 where we had flown on into the sand
-    /// behind (f12 tick 14025, from gummo's eyes). The hull here starts at x = 476.
+    /// **Missing the hitboxes IS missing the player.** `CEngineTrace::ClipRayToCollideable` (engine.dll `0x18018f510`)
+    /// falls through to the collision box (`0x1801905e0`) only when `ClipRayToHitboxes` (`0x180190a40`) returns false —
+    /// and that returns true for any line against a model with hitboxes, having copied the ray's full length into the
+    /// trace when nothing was hit (`TestHitboxes`, `c_baseanimating.cpp`: false only with no studio header, no hitbox set
+    /// or a swept box). *This test used to assert the opposite*: the bbox fallback was read as "when they miss", which
+    /// played an extra flesh impact at f12 tick 13790 where TF2 played none.
     /// </remarks>
     [Test]
-    public void Clip_ThroughTheHullMissingTheHitboxes_StopsAtTheCollisionBox()
+    public void Clip_ThroughTheHullMissingTheHitboxes_FliesOn()
+    {
+        BulletTarget player = new(7, new Vector3(500f, 0f, 0f), Ducked: false);
+
+        (Vector3 end, int? struck) = PlayerBulletTrace.Clip(
+            Start, End, worldFraction: 0.9f, [player], static (_, _, _) => 1f, Open);
+
+        struck.ShouldBeNull();
+        end.X.ShouldBe(900f, 0.001f);
+    }
+
+    /// <remarks>
+    /// A player no pass posed has no hitboxes this viewer can test, where TF2 would set his bones up on demand; the
+    /// collision box stands in. *Interpolated.* The hull here starts at x = 476.
+    /// </remarks>
+    [Test]
+    public void Clip_ThroughTheHullOfAnUnposedPlayer_StopsAtTheCollisionBox()
     {
         BulletTarget player = new(7, new Vector3(500f, 0f, 0f), Ducked: false);
 
@@ -158,7 +175,7 @@ public sealed class PlayerBulletTraceConformanceTests
         struck.ShouldBeNull();
     }
 
-    /// <summary>A world where only one entity has hitboxes, struck at a fixed fraction of whatever ray is asked.</summary>
+    /// <summary>One entity's hitboxes struck at a fixed fraction of whatever ray is asked; everyone else's missed.</summary>
     private static Func<int, Vector3, Vector3, float?> Hitbox(int entity, float fraction) =>
-        (asked, _, _) => asked == entity ? fraction : null;
+        (asked, _, _) => asked == entity ? fraction : 1f;
 }

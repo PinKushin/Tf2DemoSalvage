@@ -27517,12 +27517,16 @@ not read; the Ghidra engine project was locked.
   `m_nDamageType` is 0, so `ImpactCallback` decals a teammate a heal bolt hits (`tf_fx_impacts.cpp:35`), as we
   do. Measured 2026-09-23 from 13800 for 90 s: 65 placed, 3 ray misses, 2 no triangle. Each miss lies 19-26
   units across from the player's origin, the edge of his 24-unit hull, where the bolt's server trace stopped on
-  his bounding box. **WRONG, then corrected the same day:** this said TF2 misses the body too and draws nothing.
-  The decompile says otherwise — `CEngineTrace::ClipRayToCollideable` (engine.dll `0x18018f510`) tests a studio
-  entity's hitboxes under `CONTENTS_HITBOX` and, when they return nothing, clips to its `SOLID_BBOX`
-  (`0x180190a40`, then `0x1801905e0`). So `AddStudioDecal`'s `ClipRayToEntity` hits the hull and TF2 does try
-  the decal; ours refused. Fixed with `PlayerBulletTrace.ClipRayToEntity`, which bullets now use as well.
-  *Interpolated:* which `m_nHitBox` a hull hit reports (these read 1 and 14) is not read from the engine.
+  his bounding box. **This said TF2 misses the body too and draws nothing, and that was RIGHT.** It was
+  "corrected" the same day, wrongly, to: `CEngineTrace::ClipRayToCollideable` (engine.dll `0x18018f510`) tests a
+  studio entity's hitboxes under `CONTENTS_HITBOX` and clips to its `SOLID_BBOX` when they return nothing. That
+  misread the return. **Read in full 2026-09-24:** the box clip (`0x1801905e0`) runs only when `ClipRayToHitboxes`
+  (`0x180190a40`) returns 0. That happens for a swept ray, or when `TestHitboxes` returns false because there is no
+  studio header or no hitbox set. A line that misses the hitboxes returns 1 with the ray's full length and no
+  entity. `AddStudioDecal` clips with `MASK_SHOT`, which holds `CONTENTS_HITBOX`, so a bolt ray that misses the
+  hitboxes draws nothing in TF2. The same misreading had given client bullets a box fallback, which played an
+  extra flesh impact at f12 13790. Both paths now treat a hitbox miss as a miss, and use the box only for a player
+  no pass posed (*interpolated*: TF2 would set up his bones on demand).
   A second divergence was found and fixed on the way: a jump is the jump event, not leaving the ground.
 - **Blood can land slightly off the mesh.** Hits land 3–18 units outside the server's own hitbox on
   our pose. This waits on the in-game check: tick 13944 gummo, 14252 abelll, with
