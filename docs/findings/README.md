@@ -197,6 +197,10 @@ in any public writeup found:
   sends only what differs from it. So a sentry's muzzle flash, sent right after its tracer, omits the sentry and the
   attachment. Reading the wire list as the whole effect had given every such flash entity 0
   ([62](62-an-effect-without-a-class-is-a-delta.md)).
+- **An impact sound is a frame's list.** vphysics merges a frame's impacts by surface before it plays them, and a frame
+  can cross several ticks, so the number of sounds depends on the frame rate. TF2's reference ran at about 16 fps. Four
+  defects were in the way, one of them a friction solve that treated every body as one kilogram
+  ([63](63-an-impact-sound-is-a-frames-list.md)).
 
 ## Conventions used throughout
 
