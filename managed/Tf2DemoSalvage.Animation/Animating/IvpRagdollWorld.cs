@@ -399,11 +399,107 @@ public sealed class IvpRagdollWorld
 #pragma warning restore S1244
         {
             Simulation.Advance(environment.RebaseBase + (double)((float)environment.Step * FixedStepCount));
+        }
+        else
+        {
+            _fixedStep = false;
+            Simulation.Advance(Simulation.Now + (double)deltaTime);
+        }
+
+        ReportFriction();
+    }
+
+    /// <summary>`CPhysicsEnvironment::Simulate`'s scale from IVP's energy to the game's, `1550.0032` — one over a metre in inches, squared.</summary>
+    private const float EnergyToGame = 1550.0032f;
+
+    /// <summary>The least energy a second, in IVP's units per unit of inverse mass, that is reported at all.</summary>
+    private const float QuietestFriction = 0.05f;
+
+    /// <summary>`+0x28` on the environment's object list: when friction was last reported, as a float.</summary>
+    private float _frictionReportedAt;
+
+    /// <summary>What the last <see cref="Simulate"/> reported to `IPhysicsCollisionEvent::Friction`, in order.</summary>
+    private readonly List<PhysicsFriction> _frictions = [];
+
+    /// <summary>The friction the last <see cref="Simulate"/> reported; clears it.</summary>
+    /// <returns>Each report, its energy in the game's units.</returns>
+    public IReadOnlyList<PhysicsFriction> TakeFrictions()
+    {
+        if (_frictions.Count == 0)
+        {
+            return [];
+        }
+
+        PhysicsFriction[] taken = [.. _frictions];
+        _frictions.Clear();
+        return taken;
+    }
+
+    /// <summary>The friction reports at the end of `CPhysicsEnvironment::Simulate` (read from the disassembly, 2026-09-23).</summary>
+    /// <remarks>
+    /// <code>
+    /// now = (float)env+0x198;  elapsed = now − list+0x28;  if !(elapsed ≥ (float)env+0x108) → nothing, the energy waits
+    /// perSecond = elapsed ≠ 0 ? 1 / elapsed : 0;  list+0x28 = now
+    /// each object with CALLBACK_GLOBAL_FRICTION, each friction contact whose other object has it too:
+    ///   e = contact+0x7c;  if e ≠ 0:  e ·= perSecond · core+0x4c (inverse mass)
+    ///                                 if e > 0.05:  Friction( object, e · 1550.0032, its surfaceprop, the other's )
+    ///                                 contact+0x7c = 0
+    /// </code>
+    /// `+0x7c` is <see cref="IvpContactPoint.SlideExcess"/>: the slide the clamps threw away, which is energy lost to friction.
+    /// *Interpolated:* only the ragdolls' own bodies report here. The binary walks every object, and a static one's zero inverse
+    /// mass would clear a contact's energy unreported if it came first; TF2 plays corpse scrapes, so the bone is the reporter.
+    /// </remarks>
+    private void ReportFriction()
+    {
+        IvpImpactEnvironment environment = Simulation.Environment;
+        float now = (float)environment.RebaseBase;
+        float elapsed = now - _frictionReportedAt;
+
+        if (!((float)environment.Step <= elapsed))
+        {
             return;
         }
 
-        _fixedStep = false;
-        Simulation.Advance(Simulation.Now + (double)deltaTime);
+#pragma warning disable S1244 // the binary's own test: a zero interval divides by nothing.
+        float perSecond = elapsed != 0f ? 1f / elapsed : 0f;
+#pragma warning restore S1244
+        _frictionReportedAt = now;
+
+        foreach ((IvpRigidBody body, (IvpRagdoll Ragdoll, int Element) owner) in _owners)
+        {
+            if (body.FrictionInfo is not { } friction)
+            {
+                continue;
+            }
+
+            foreach (IvpContactPoint contact in friction.Contacts)
+            {
+                float excess = contact.SlideExcess;
+
+#pragma warning disable S1244 // `FUN_1800863c0`'s result against 0.0, exactly.
+                if (excess == 0f)
+#pragma warning restore S1244
+                {
+                    continue;
+                }
+
+                float energy = excess * perSecond * body.InverseMass;
+
+                if (energy > QuietestFriction)
+                {
+                    // `+0x44` on the object for its own surface; the other's is the struck ledge's material when it has one
+                    // (`IvpLedgeTopology::MaterialIndex`), which the contact's record already resolved, else that object's.
+                    bool first = contact.FirstObject.Core == body;
+                    IIvpMaterial? own = (first ? contact.FirstObject : contact.SecondObject).Material;
+                    IIvpMaterial? hit = (first ? contact.Record?.SecondMaterial : contact.Record?.FirstMaterial) ??
+                        (first ? contact.SecondObject : contact.FirstObject).Material;
+
+                    _frictions.Add(new PhysicsFriction(owner.Ragdoll, energy * EnergyToGame, SurfaceIndex(own), SurfaceIndex(hit)));
+                }
+
+                contact.SlideExcess = 0f;
+            }
+        }
     }
 
     /// <summary>`CCollisionEvent::PostCollision`'s gate: a pair must have been apart this long, in seconds.</summary>
@@ -559,6 +655,13 @@ public static class PhysicsImpactSoundList
         list.Add(impact with { ImpactSpeed = impactSpeed });
     }
 }
+
+/// <summary>One `IPhysicsCollisionEvent::Friction` call: a ragdoll's part sliding on something.</summary>
+/// <param name="Ragdoll">Whose part it was — the game data the client reaches the entity through.</param>
+/// <param name="Energy">The energy lost to friction a second, in the game's units.</param>
+/// <param name="SurfaceProps">The sliding part's surface property.</param>
+/// <param name="SurfacePropsHit">What it slides on.</param>
+public readonly record struct PhysicsFriction(IvpRagdoll Ragdoll, float Energy, int SurfaceProps, int SurfacePropsHit);
 
 /// <summary>One of a frame's physics impact sounds — `physicssound::impactsound_t` — or one raw `ObjectSound` before merging.</summary>
 /// <param name="SurfaceProps">The sounding object's surface, whose `impacthard`/`impactsoft` plays.</param>

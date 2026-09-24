@@ -37,6 +37,13 @@ public readonly record struct CorpseRequest(
     (float X, float Y, float Z)? Spin = null,
     (Vector3 Origin, float Yaw)? Spawn = null);
 
+/// <summary>One `IPhysicsCollisionEvent::Friction` for a corpse: which one, how hard, and the two surfaces.</summary>
+/// <param name="Entity">The corpse's entity index.</param>
+/// <param name="Energy">The energy lost to friction a second, in the game's units.</param>
+/// <param name="SurfaceProps">The sliding part's surface property.</param>
+/// <param name="SurfacePropsHit">What it slides on.</param>
+public readonly record struct CorpseFriction(int Entity, float Energy, int SurfaceProps, int SurfacePropsHit);
+
 /// <summary>
 /// The client's physics environment for corpses — one <see cref="IvpRagdollWorld"/> holding the map and every corpse, stepped by the
 /// demo's clock (B58, D146, D172, D179).
@@ -84,6 +91,9 @@ public sealed class CorpsePhysics
 
     /// <summary>Told each physics impact sound a step played, with the tick the step reached; null for none (B172).</summary>
     public Action<int, PhysicsImpactSound>? ImpactHeard { get; set; }
+
+    /// <summary>Told each `IPhysicsCollisionEvent::Friction` a step reported, with the tick the step reached; null for none.</summary>
+    public Action<int, CorpseFriction>? FrictionHeard { get; set; }
 
     /// <summary>The game's surfaces, for the friction a corpse collides with, when <see cref="CreateWorld"/> is not set.</summary>
     public VphysicsSurfaceProps Surfaces { get; set; } = new([]);
@@ -145,13 +155,32 @@ public sealed class CorpsePhysics
         long from = Math.Max((long)_heardTick, (long)tick - HearingCatchUp);
         _heardTick = tick;
 
-        for (long at = from + 1; at <= tick && ImpactHeard is not null; at++)
+        for (long at = from + 1; at <= tick; at++)
         {
-            foreach (PhysicsImpactSound sound in record.ImpactSoundsAt((int)at))
+            foreach (CorpseFriction friction in FrictionHeard is null ? [] : record.FrictionsAt((int)at))
             {
-                ImpactHeard((int)at, sound);
+                FrictionHeard!((int)at, friction);
+            }
+
+            foreach (PhysicsImpactSound sound in ImpactHeard is null ? [] : record.ImpactSoundsAt((int)at))
+            {
+                ImpactHeard!((int)at, sound);
             }
         }
+    }
+
+    /// <summary>The entity a running ragdoll is — the game data `Friction` reaches the entity through.</summary>
+    private int? EntityOf(IvpRagdoll ragdoll)
+    {
+        foreach ((int entity, (IvpRagdoll running, _)) in _running)
+        {
+            if (running == ragdoll)
+            {
+                return entity;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Forgets the environment — a new demo, or a map change.</summary>
@@ -248,6 +277,14 @@ public sealed class CorpsePhysics
             foreach (PhysicsImpactSound sound in world.TakeImpactSounds())
             {
                 ImpactHeard?.Invoke(_worldTick, sound);
+            }
+
+            foreach (PhysicsFriction friction in world.TakeFrictions())
+            {
+                if (FrictionHeard is not null && EntityOf(friction.Ragdoll) is { } entity)
+                {
+                    FrictionHeard(_worldTick, new CorpseFriction(entity, friction.Energy, friction.SurfaceProps, friction.SurfacePropsHit));
+                }
             }
 
             _heardTick = _worldTick;

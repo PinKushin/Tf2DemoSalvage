@@ -130,6 +130,18 @@ internal static class VphysicsSurfaceData
             case "audiohardminvelocity":
                 audio = audio with { HardVelocityThreshold = (float)Atof(value) };
                 break;
+            case "scraperough":
+                sounds = sounds with { ScrapeRough = value };
+                break;
+            case "scrapesmooth":
+                sounds = sounds with { ScrapeSmooth = value };
+                break;
+            case "audioroughnessfactor":
+                audio = audio with { RoughnessFactor = (float)Atof(value) };
+                break;
+            case "scraperoughthreshold":
+                audio = audio with { RoughThreshold = (float)Atof(value) };
+                break;
 
             // `FUN_180018740`: a one-character value that is not a digit is `toupper`'d — the key parser lowercased it —
             // and anything else goes through `atoi`, stored as a short.

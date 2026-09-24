@@ -123,6 +123,28 @@ public sealed class VphysicsSurfaceDataConformanceTests
         flesh.Audio.ShouldBe(new SurfaceAudio(HardnessFactor: 0.25f, HardThreshold: 0.5f, HardVelocityThreshold: 500f));
     }
 
+    /// <remarks>
+    /// `PhysFrictionSound` (`physics_shared.cpp:982`) plays `scraperough`, or `scrapesmooth` when the struck surface's
+    /// `audioroughnessfactor` is under this one's `scraperoughthreshold` — the four key names as `FUN_180018740` compares them.
+    /// </remarks>
+    [Test]
+    public void ParseSurfaceData_ScrapeSoundsAndRoughness_AreReadAndInherited()
+    {
+        VphysicsSurfaceProps props = new([]);
+
+        props.ParseSurfaceData(Encoding.Latin1.GetBytes(
+            "\"default\" { \"scraperough\" \"Default.ScrapeRough\" \"scrapesmooth\" \"Default.ScrapeSmooth\" " +
+            "\"audioRoughnessFactor\" \"1.0\" \"scrapeRoughThreshold\" \"0.5\" } " +
+            "\"flesh\" { \"scraperough\" \"Flesh.ScrapeRough\" \"audioroughnessfactor\" \"0.1\" }"));
+
+        VphysicsSurface flesh = props.Surfaces.Single(surface => surface.Name == "flesh");
+
+        flesh.Sounds.ScrapeRough.ShouldBe("flesh.scraperough");
+        flesh.Sounds.ScrapeSmooth.ShouldBe("default.scrapesmooth");
+        flesh.Audio.RoughnessFactor.ShouldBe(0.1f);
+        flesh.Audio.RoughThreshold.ShouldBe(0.5f);
+    }
+
     [Test]
     public void ParseSurfaceData_StepSounds_AreReadAndInherited()
     {
