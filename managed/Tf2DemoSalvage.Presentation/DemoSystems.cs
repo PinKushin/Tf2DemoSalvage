@@ -145,7 +145,10 @@ public sealed class DemoSystems
                 return (0f, 0f, 0f);
             },
             scripts.Entries,
-            timeline.HealBeams.HealingStops);
+            timeline.HealBeams.HealingStops,
+
+            // `GetMedigunType`: `CALL_ATTRIB_HOOK_INT( iMode, set_weapon_mode )` from 0.
+            item => (int)(items?.HookValue(item, "set_weapon_mode", 0f) ?? 0f));
 
         IReadOnlyList<SceneSound> emitted = ExplosionSounds.Merged(ExplosionSounds.Merged(sounds, impacts), mediguns);
 
