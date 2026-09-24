@@ -93,6 +93,10 @@ decals, because every "is this a prop" test asked the surfaceprop instead of the
 By tick 30,000 on f12, 187 prop hits are due and 75 decals are held (the `1.5 × r_maxmodeldecal` cap). Three hits took
 no triangle. A container's face shows holes at tick 30,000 and none at tick 3,000 from the same camera.
 
+**A metal door takes concrete holes, and that is right.** `red_sewer_door_2` (`*141`) is painted
+`props/metaldoor01_192`, whose VMT declares no `$surfaceprop` (`vmt` probe, 2026-09-24). Its surface is therefore surface
+zero, and `Impact.Concrete` goes untranslated. The texture looks metal, but the decal follows the material's declaration.
+
 ## Not established
 
 What is not built, and every divergence, is listed under B415 in `docs/RISKS.md`. The largest are displacement decals,
