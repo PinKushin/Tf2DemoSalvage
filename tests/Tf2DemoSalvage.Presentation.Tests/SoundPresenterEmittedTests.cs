@@ -120,6 +120,8 @@ public sealed class SoundPresenterEmittedTests
 
         public bool SetGain(int entity, int channel, float gain) => false;
 
+        public bool SetPitch(int entity, int channel, float pitch) => false;
+
         public void SilenceAll()
         {
             Played.Clear();

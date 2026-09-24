@@ -205,6 +205,8 @@ public sealed class SoundscapeSystemTests
             return true;
         }
 
+        public bool SetPitch(int entity, int channel, float pitch) => true;
+
         public void Silence(int entity, int channel) => Silenced.Add((entity, channel));
 
         public void SilenceAll() => Silenced.Add((AllEntities, AllChannels));

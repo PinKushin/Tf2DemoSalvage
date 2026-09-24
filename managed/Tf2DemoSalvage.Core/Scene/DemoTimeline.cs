@@ -1916,7 +1916,11 @@ public sealed class DemoTimeline
                                 sound.OriginZ,
                                 sound.IsAmbient,
                                 (sound.Flags & SoundDecoder.StopFlag) != 0,
-                                command.Type == DemoCommandType.Signon));
+                                command.Type == DemoCommandType.Signon)
+                            {
+                                ChangesVolume = (sound.Flags & SoundDecoder.ChangeVolumeFlag) != 0,
+                                ChangesPitch = (sound.Flags & SoundDecoder.ChangePitchFlag) != 0,
+                            });
                         }
 
                         continue;

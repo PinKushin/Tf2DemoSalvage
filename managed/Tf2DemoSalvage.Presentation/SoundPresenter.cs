@@ -327,6 +327,24 @@ public sealed class SoundPresenter(
         // metal_box_scrape_rough_loop four, )ambient/machine_hum six. Unhonoured, each loop runs the
         // length of its file, which the owner heard as "gate sounds are either playing too slow or
         // just playing too long".
+        // **`SND_CHANGE_VOL` / `SND_CHANGE_PITCH` alter the sound where it plays** — `S_StartSound` hands them to
+        // `S_AlterChannel`, which matches entity, channel and sound — and only fall through to a start when nothing matched.
+        // Started afresh, a server's scrape or door loop restarted from its first sample on every volume update.
+        if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) && loops.Alter(sound))
+        {
+            if (sound.ChangesVolume && loops.GainAt(sound.EntityIndex, sound.Channel, listener) is { } altered)
+            {
+                output.SetGain(sound.EntityIndex, sound.Channel, altered);
+            }
+
+            if (sound.ChangesPitch)
+            {
+                output.SetPitch(sound.EntityIndex, sound.Channel, sound.Pitch > 0 ? sound.Pitch / 100f : 1f);
+            }
+
+            return;
+        }
+
         if (sound.IsStop)
         {
             output.Silence(sound.EntityIndex, sound.Channel);

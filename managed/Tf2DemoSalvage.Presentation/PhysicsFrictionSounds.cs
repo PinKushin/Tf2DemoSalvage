@@ -20,8 +20,8 @@ namespace Tf2DemoSalvage.Presentation;
 ///                    last update = last effect = now
 /// UpdateFrictionSounds, each frame after the simulation: a loop not updated in the last 0.1 s stops
 /// </code>
-/// (`game/client/physics.cpp:661-730, 976-1022`; `physics_shared.cpp:982`). *Not carried:* the loop's volume and pitch
-/// ramps once it plays — `SoundChangeVolume`/`SoundChangePitch` over 0.1 s — since a started sound here keeps its level.
+/// (`game/client/physics.cpp:661-730, 976-1022`; `physics_shared.cpp:982`). A playing loop's later scrapes change its volume
+/// and pitch through `SND_CHANGE_VOL`/`SND_CHANGE_PITCH`. *Not carried:* the envelope's 0.1 s ramp to them.
 /// </remarks>
 public sealed class PhysicsFrictionSounds
 {
@@ -154,6 +154,22 @@ public sealed class PhysicsFrictionSounds
 
             started = sound with { Channel = BodyChannel, Volume = sound.Volume * volume };
             playing = new Slot(friction.Entity, started.Value, time, time);
+        }
+        else if (EntitySounds.Emit(tick, friction.Entity, name, at(friction.Entity, tick), scripts) is { } drawn &&
+                 scripts.TryGetValue(name, out SoundScriptEntry entry))
+        {
+            // `SoundChangeVolume( params.volume · v )` and `SoundChangePitch( v · (high − low) + low )` on the loop already
+            // playing, sent as the engine's whole-percent pitch. *Not carried:* the 0.1 s ramp; the change is immediate.
+            float pitch = (volume * (entry.Pitch.High - entry.Pitch.Low)) + entry.Pitch.Low;
+
+            started = playing.Playing with
+            {
+                Tick = tick,
+                Volume = drawn.Volume * volume,
+                Pitch = (int)pitch,
+                ChangesVolume = true,
+                ChangesPitch = true,
+            };
         }
 
         _slots[index] = playing with { LastUpdate = time, LastEffect = time };

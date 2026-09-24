@@ -58,5 +58,14 @@ The first attempt took the sliding surface from the contact's record, and most c
 through as surface −1 and were dropped. The binary reads the object's own surface at `+0x44`.
 
 *Interpolated:* only ragdoll bodies report. The binary walks every object. If a static object came first, its zero inverse mass
-would clear a contact's energy before anything reported it, and TF2 does play corpse scrapes. *Not carried:* the loop's volume
-and pitch ramps once it is playing.
+would clear a contact's energy before anything reported it, and TF2 does play corpse scrapes.
+
+## A volume change is not a start
+
+Updating a playing loop needed `SND_CHANGE_VOL` and `SND_CHANGE_PITCH`, and the decoder had been dropping both flags. It turned
+any sound carrying them into a fresh start. `S_StartSound` passes such a sound to `S_AlterChannel`, which finds the channel
+already playing that sound on that entity and channel and changes it in place. Only when nothing matches does it start the
+sound. So every volume update the server sent for a loop, such as a door moving or a physics prop scraping, had been restarting
+that loop from its first sample. The flags are now carried through `SceneSound`, the presenter alters the playing loop, and the
+scrape loop sends its own updates the same way. *Arithmetic from the source*, with a sabotaged presenter as the control. *Not
+carried:* the envelope's 0.1 s ramp; the change is immediate.
