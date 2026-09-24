@@ -3340,7 +3340,10 @@ replay, and `CTFPlayerAnimState` has to be emulated rather than read. So even wi
 right sequence is a separate emulation problem. Ordered: reach the data, skin on the GPU, then
 emulate the choice.
 
-## B58 — jiggle bones and ragdolls, neither of which is rigid-body physics — jiggle DONE, the ragdoll SOLVER done, nothing DRAWS with it
+## B58 — jiggle bones and ragdolls, neither of which is rigid-body physics — jiggle DONE, ragdolls simulated AND drawn
+
+**Heading corrected 2026-09-24:** "nothing DRAWS with it" stopped being true with the updates below. Corpses are posed
+from `CorpsePhysics` (2026-09-15), and they make impact and scrape sounds from the same simulation.
 
 **Update 2026-09-15: a corpse is simulated whether or not it is drawn — the divergence
 `CorpsePhysics.SimulatesOnlyWhatIsDrawn` filed is closed.** The engine keeps a client ragdoll in
@@ -21497,7 +21500,12 @@ the player under its own guard; the `RagdollSpawn` sequence, which needs the mod
 further down the render path; the cosmetics, whose `m_hRagWearables` IS networked as eight ehandles;
 and the gold, ice and zombie overrides.
 
-### B316 OPEN 2026-09-04: a corpse stands upright, and `RagdollSpawn` is the wrong branch to fix it with
+### B316 CLOSED: a corpse stands upright, and `RagdollSpawn` is the wrong branch to fix it with
+
+**Closed 2026-09-24 on its own terms.** The entry was left open for one thing, the client's ragdoll simulation (B58).
+That now runs: `CorpsePhysics` steps every corpse through the ported vphysics environment, whether or not it is
+drawn, and the corpse is posed from its bodies. What remains is how accurately the simulation is solved (B306, the
+contact manifold). That is not this entry's question. The original entry follows.
 
 **2026-09-09 — the SYMPTOM this was filed for is gone, and what remains open is the simulation.**
 `EntityModelSet.CorpseSequence` now takes the copy branch this entry identified: the death sequence by
