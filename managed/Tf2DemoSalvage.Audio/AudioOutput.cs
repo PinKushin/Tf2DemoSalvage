@@ -44,7 +44,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     private readonly List<Voice> _playing = [];
 
     /// <summary>One sound in flight.</summary>
-    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel);
+    /// <remarks>`Samples` names the sound it plays, as the engine's `ch->sfx` does — one cached decode per name.</remarks>
+    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel, ReadOnlyMemory<float> Samples);
 
     /// <summary>
     /// <c>CHAN_AUTO</c>, <c>soundflags.h</c>: the engine allocates a free channel rather than a
@@ -256,7 +257,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _al.SourcePlay(source);
 
-        _playing.Add(new Voice(source, buffer, entity, channel));
+        _playing.Add(new Voice(source, buffer, entity, channel, sample.Samples));
     }
 
     /// <summary>Re-attenuates a sound that is already playing.</summary>
@@ -382,7 +383,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         for (int index = _playing.Count - 1; index >= 0; index--)
         {
-            (uint source, uint buffer, _, _) = _playing[index];
+            (uint source, uint buffer, _, _, _) = _playing[index];
 
             _al.GetSourceProperty(source, GetSourceInteger.SourceState, out int state);
 
@@ -416,7 +417,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        foreach ((uint source, uint buffer, _, _) in _playing)
+        foreach ((uint source, uint buffer, _, _, _) in _playing)
         {
             _al.SourceStop(source);
             _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
@@ -493,6 +494,28 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <inheritdoc/>
     void IAudioSink.Silence(int entity, int channel) => Stop(entity, channel);
+
+    /// <inheritdoc/>
+    void IAudioSink.Silence(int entity, int channel, SoundSample sample)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        // The first match, and only it — `S_AlterChannel` returns after acting on one channel.
+        int index = _playing.FindIndex(voice => voice.Entity == entity && voice.Channel == channel && voice.Samples.Equals(sample.Samples));
+
+        if (index < 0)
+        {
+            return;
+        }
+
+        Voice found = _playing[index];
+
+        _al.SourceStop(found.Source);
+        _al.SetSourceProperty(found.Source, SourceInteger.Buffer, 0);
+        _al.DeleteSource(found.Source);
+        _al.DeleteBuffer(found.Buffer);
+        _playing.RemoveAt(index);
+    }
 
     /// <inheritdoc/>
     void IAudioSink.SilenceAll() => StopAll();

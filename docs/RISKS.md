@@ -27031,7 +27031,13 @@ not the same eye. Naming the player on both sides is the next step for `tools/tf
 difference from two pictures that were never comparable is the same fault as believing an instrument
 without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
-### B416 OPEN 2026-09-21: a sound STOP silences the whole (entity, channel); the engine stops one named sound
+### B416 CLOSED 2026-09-24: a sound STOP silences the whole (entity, channel); the engine stops one named sound
+
+**Closed.** A stop now resolves its name to the cached sample and silences the first voice on the (entity, channel)
+playing that sample (`IAudioSink.Silence(entity, channel, sample)`). A stop naming another sound, or one that cannot
+load, stops nothing, and the loop tracker forgets a channel only when the names match. `SND_IGNORE_NAME` (the `0x200`
+branch) and `SND_STOP_LOOPING` are not honoured, because no code in the published game DLL sets either one. A seek's
+re-establishing of layered static loops is unchanged (`SoundSchedule.LiveAt`). The original entry follows.
 
 **Found while settling the CHAN_STATIC half of it, which is fixed** (B415, `AudioOutput.Play`): `S_StartStaticSound`
 takes the first free slot from index 64 (`MAX_DYNAMIC_CHANNELS`) and never compares the source or the channel, so two

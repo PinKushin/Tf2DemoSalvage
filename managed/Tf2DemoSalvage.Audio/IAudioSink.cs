@@ -71,4 +71,10 @@ public interface IAudioSink
     /// <c>Stop</c> and implements this explicitly.
     /// </remarks>
     public void Silence(int entity, int channel);
+
+    /// <summary>Silences the first voice playing one sound on a channel — `SND_STOP` through `S_AlterChannel` (B416).</summary>
+    /// <param name="entity">Which entity.</param>
+    /// <param name="channel">Which channel.</param>
+    /// <param name="sample">The sound, matched as the engine matches `ch->sfx`: the cached sample for its name.</param>
+    public void Silence(int entity, int channel, SoundSample sample);
 }
