@@ -94,22 +94,36 @@ public sealed class StaticPropCollision
     /// <param name="from">The line's start.</param>
     /// <param name="to">Its end.</param>
     /// <returns>The hit.</returns>
-    public StaticPropHit? Trace((float X, float Y, float Z) from, (float X, float Y, float Z) to)
+    public StaticPropHit? Trace((float X, float Y, float Z) from, (float X, float Y, float Z) to) => Trace(from, to, 0f);
+
+    /// <summary>The nearest prop a box swept along a line meets, or null when it meets none.</summary>
+    /// <param name="from">The box centre's start.</param>
+    /// <param name="to">Its end.</param>
+    /// <param name="halfExtent">Half the box's width on every axis; zero for a line.</param>
+    /// <returns>The hit.</returns>
+    /// <remarks>
+    /// **The box against a convex hull is the line against their Minkowski sum**: each face plane pushed out by the box's support
+    /// along its normal, `h·(|nx|+|ny|+|nz|)`, and the hull's own axis-aligned bounds pushed out by `h` as six bevel planes — the
+    /// planes a BSP brush carries for the same reason. *Interpolated:* vphysics' `TraceBox` sweeps exactly; the edge-against-edge
+    /// bevels that would make this exact are not added, so a box can stop a hair early where a hull edge meets a box edge.
+    /// </remarks>
+    public StaticPropHit? Trace((float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent)
     {
         Vector3 start = new(from.X, from.Y, from.Z);
         Vector3 delta = new Vector3(to.X, to.Y, to.Z) - start;
+        Vector3 grow = new(MathF.Abs(halfExtent));
         StaticPropHit? nearest = null;
 
         foreach (Prop prop in _props)
         {
-            if (Box(start, delta, prop.Min, prop.Max) is not { } reaches || reaches > (nearest?.Fraction ?? 1f))
+            if (Box(start, delta, prop.Min - grow, prop.Max + grow) is not { } reaches || reaches > (nearest?.Fraction ?? 1f))
             {
                 continue;
             }
 
             foreach (Hull hull in prop.Hulls)
             {
-                if (Clip(start, delta, hull) is { } hit && hit.Fraction < (nearest?.Fraction ?? 1f))
+                if (Clip(start, delta, hull, grow.X) is { } hit && hit.Fraction < (nearest?.Fraction ?? 1f))
                 {
                     nearest = new StaticPropHit(hit.Fraction, hit.Normal, prop.SurfaceProp);
                 }
@@ -200,15 +214,38 @@ public sealed class StaticPropCollision
         into.Add(new Hull(min, max, [.. planes]));
     }
 
-    /// <summary>A line against one convex hull: the latest entry before the earliest exit.</summary>
-    private static (float Fraction, Vector3 Normal)? Clip(Vector3 start, Vector3 delta, Hull hull)
+    /// <summary>The six axis bevels: ±x, ±y, ±z.</summary>
+    private static readonly Vector3[] Axes =
+    [
+        Vector3.UnitX, -Vector3.UnitX, Vector3.UnitY, -Vector3.UnitY, Vector3.UnitZ, -Vector3.UnitZ,
+    ];
+
+    /// <summary>A line against one convex hull grown by a box: the latest entry before the earliest exit.</summary>
+    private static (float Fraction, Vector3 Normal)? Clip(Vector3 start, Vector3 delta, Hull hull, float halfExtent)
     {
         float enter = 0f;
         float leave = 1f;
         Vector3 normal = Vector3.Zero;
+        int faces = hull.Planes.Length;
+        int bevels = halfExtent > 0f ? Axes.Length : 0;
 
-        foreach (Plane plane in hull.Planes)
+        for (int index = 0; index < faces + bevels; index++)
         {
+            Plane plane;
+
+            if (index < faces)
+            {
+                Plane face = hull.Planes[index];
+                Vector3 n = face.Normal;
+                plane = new Plane(n, face.D + (halfExtent * (MathF.Abs(n.X) + MathF.Abs(n.Y) + MathF.Abs(n.Z))));
+            }
+            else
+            {
+                Vector3 axis = Axes[index - faces];
+                float reach = Vector3.Dot(axis, Vector3.Dot(axis, Vector3.One) > 0f ? hull.Max : hull.Min);
+                plane = new Plane(axis, reach + halfExtent);
+            }
+
             float distance = Vector3.Dot(plane.Normal, start) - plane.D;
             float along = Vector3.Dot(plane.Normal, delta);
 

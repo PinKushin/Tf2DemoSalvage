@@ -136,9 +136,8 @@ public sealed record MapLevel(
             ? new BspTrace(terrain, -1, default, false, DisplacementTexdata: texdata, SurfaceProp2: second)
             : brushes;
 
-        // A line meets the static props too — `CONTENTS_SOLID`, through `CTraceFilterSimple` (StaticPropCollision). *A swept box
-        // does not yet.*
-        return halfExtent == 0f && StaticProps.Trace(from, to) is { } prop && prop.Fraction < world.Fraction
+        // The static props too — `CONTENTS_SOLID`, through `CTraceFilterSimple` (StaticPropCollision), a line or a box.
+        return StaticProps.Trace(from, to, halfExtent) is { } prop && prop.Fraction < world.Fraction
             ? new BspTrace(prop.Fraction, -1, (prop.Normal.X, prop.Normal.Y, prop.Normal.Z), false, StudioSurfaceProp: prop.SurfaceProp)
             : world;
     }
