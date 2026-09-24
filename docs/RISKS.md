@@ -27502,6 +27502,13 @@ not read; the Ghidra engine project was locked.
   kept the last drawn pose of a player who had left view. `EntityModels.SkinningOf` now runs `SetupBones`
   itself. Measured on f12 from tick 13800 for 90 s: 44 placed, 0 "no skinned model", and 3 ray misses
   (the item below). Before the fix: 5 placed and 60 refused.
+- **CLOSED 2026-09-24, not a divergence: the medigun detach "2–3 ticks early".** f12 medigun 589: the demo drops
+  `m_hHealingTarget`, `m_bHealing` and `m_bAttacking` together at tick 26992, and `OnDataChanged`'s not-healing branch
+  runs `StopHealSound( true, false, false )`, whose `Play` starts the detach patch at once (`soundenvelope.cpp`), so
+  we detach at 26992. The TF2 capture labelled it 26995, but those labels are the last `demo_debug` packet line
+  before each `snd_showstart` print, and a frame processes packets in bursts. The capture contradicts itself: medigun
+  408's start labelled 26993 has mixer time 1868.293 and the detach labelled 26995 has 1868.466 — 11 ticks apart,
+  not 2. A tick comparison needs a better clock than those labels before it can show a gap this small.
 - **FIXED 2026-09-23: a seek dropped blood, and the followed player took none.** A jump placed only the last
   eight ticks' impacts, where TF2 (which cannot seek) replays up to the tick; a seek now replays from the
   oldest surviving decal, posing only near landings and holding corpses (3.7 s for 1,775 ticks on f12). In
