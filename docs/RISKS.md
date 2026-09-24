@@ -25670,7 +25670,13 @@ differs.
 **Evidence class: read-from-source** for the layout; **measured** over 234 maps, with a control, for
 the contents.
 
-## B306 — a box tumbling on a slope spins up without cause: no real multi-point contact manifold
+## B306 — a box tumbling on a slope spins up without cause: no real multi-point contact manifold — CLOSED
+
+**Closed 2026-09-24 by the owner:** *"wait thats done, we spent all last week doing that"*. The week of 2026-09-14 ported
+vphysics' own driver, and the viewer's corpses have run on it since `706f71c6` (B369, D172, D179). That port includes the
+pair mindist refresh (`FUN_180096680`, the narrow phase this entry named) and the pair watcher, each compared with the
+shipped DLL by the `vphysics-pair-mindists` and `vphysics-pair-watcher` probes. The heading was never updated. The history
+below is kept as it was written.
 
 `Simulate_WithATerrainSlope_StopsOnTheSurfaceBeneathIt` — a two-unit cube dropped on a 1-in-10
 slope, friction coefficient 1.0 (ten times what a static hold needs) — must come to rest
