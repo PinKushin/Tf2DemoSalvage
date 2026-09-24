@@ -232,7 +232,16 @@ public sealed class LoadedMap
 
             renderLog.LogInformation(
                 "{Message}",
-                $"{impacts.Count(static impact => impact.StudioSurfaceProp >= 0).ToString(CultureInfo.InvariantCulture)} of {impacts.Count.ToString(CultureInfo.InvariantCulture)} client bullets stopped on a static prop; {doors.Count.ToString(CultureInfo.InvariantCulture)} doors traced");
+                $"{impacts.Count(static impact => impact.StudioSurfaceProp >= 0).ToString(CultureInfo.InvariantCulture)} of {impacts.Count.ToString(CultureInfo.InvariantCulture)} client bullets stopped on a static prop, {impacts.Count(static impact => impact.BrushEntity >= 0).ToString(CultureInfo.InvariantCulture)} on a door; {doors.Count.ToString(CultureInfo.InvariantCulture)} door tracks traced");
+
+            foreach (ShotImpact onDoor in impacts.Where(static impact => impact.BrushEntity >= 0).Take(3))
+            {
+                renderLog.LogDebug(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"bullet on door {onDoor.BrushEntity} at tick {onDoor.Tick}: ({onDoor.End.X:0} {onDoor.End.Y:0} {onDoor.End.Z:0}) from ({onDoor.Start.X:0} {onDoor.Start.Y:0} {onDoor.Start.Z:0})"));
+            }
 
             // **Every decal the demo can place, resolved now so their materials load with the map's** (B415): the
             // impact groups a bullet can draw from, and the names the decalprecache table carries for decal events.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -16,6 +17,11 @@ public static class DecalMesh
     /// <param name="lightmaps">Where each face's lightmap sits in the atlas, by face index.</param>
     /// <param name="vertices">Cleared, then filled.</param>
     /// <param name="batches">Cleared, then filled: one run per material.</param>
+    /// <param name="entityOrigin">Where a brush entity carrying decals stands now, or null when it is gone.</param>
+    /// <param name="entityBatches">
+    /// Cleared, then filled with the runs of decals on brush entities, which draw with their entity after the world's —
+    /// `R_DrawBrushModel` draws a model's decals right after its surfaces; null folds them into <paramref name="batches"/>.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **A lit decal takes the light of the face it lies on**, its corners remapped into that face's atlas rectangle as
@@ -29,7 +35,9 @@ public static class DecalMesh
         Func<int, float?> unlit,
         IReadOnlyList<AtlasRect> lightmaps,
         ICollection<WorldVertex> vertices,
-        ICollection<WorldBatch> batches)
+        ICollection<WorldBatch> batches,
+        Func<int, Vector3?>? entityOrigin = null,
+        ICollection<WorldBatch>? entityBatches = null)
     {
         ArgumentNullException.ThrowIfNull(decals);
         ArgumentNullException.ThrowIfNull(materialIndex);
@@ -40,6 +48,7 @@ public static class DecalMesh
 
         vertices.Clear();
         batches.Clear();
+        entityBatches?.Clear();
 
         List<int> order = [];
         Dictionary<int, List<PlacedDecal>> byMaterial = [];
@@ -62,37 +71,65 @@ public static class DecalMesh
             group.Add(decal);
         }
 
-        foreach (int material in order)
+        // The world's decals, then the brush entities' — into their own runs when the caller draws those with the entities.
+        foreach ((bool onEntity, ICollection<WorldBatch> into) in new[] { (false, batches), (true, entityBatches ?? batches) })
         {
-            int first = vertices.Count;
-            float? white = unlit(material);
-            float light = white ?? 1f;
-
-            foreach (PlacedDecal decal in byMaterial[material])
+            foreach (int material in order)
             {
-                AtlasRect face = white is null && decal.Face >= 0 && decal.Face < lightmaps.Count
-                    ? lightmaps[decal.Face]
-                    : default;
-                IReadOnlyList<DecalVertex> polygon = decal.Polygon;
+                int first = vertices.Count;
+                float? white = unlit(material);
 
-                // A fan: the clip keeps the polygon convex.
-                for (int corner = 1; corner + 1 < polygon.Count; corner++)
+                foreach (PlacedDecal decal in byMaterial[material])
                 {
-                    vertices.Add(Corner(polygon[0], face, light));
-                    vertices.Add(Corner(polygon[corner], face, light));
-                    vertices.Add(Corner(polygon[corner + 1], face, light));
+                    if (decal.Entity >= 0 == onEntity)
+                    {
+                        Fan(decal, white, lightmaps, entityOrigin, vertices);
+                    }
+                }
+
+                if (vertices.Count > first)
+                {
+                    into.Add(new WorldBatch(material, first, vertices.Count - first, Category: SurfaceCategory.Overlay));
                 }
             }
-
-            batches.Add(new WorldBatch(material, first, vertices.Count - first, Category: SurfaceCategory.Overlay));
         }
     }
 
-    private static WorldVertex Corner(DecalVertex corner, AtlasRect face, float light) =>
+    /// <summary>One placed decal as a triangle fan — the clip keeps the polygon convex.</summary>
+    private static void Fan(
+        PlacedDecal decal, float? white, IReadOnlyList<AtlasRect> lightmaps, Func<int, Vector3?>? entityOrigin, ICollection<WorldVertex> vertices)
+    {
+        // A decal on a brush entity is in its model's frame and draws where the entity now stands; one whose entity is gone
+        // draws nothing.
+        Vector3 offset = Vector3.Zero;
+
+        if (decal.Entity >= 0)
+        {
+            if (entityOrigin?.Invoke(decal.Entity) is not { } origin)
+            {
+                return;
+            }
+
+            offset = origin;
+        }
+
+        float light = white ?? 1f;
+        AtlasRect face = white is null && decal.Face >= 0 && decal.Face < lightmaps.Count ? lightmaps[decal.Face] : default;
+        IReadOnlyList<DecalVertex> polygon = decal.Polygon;
+
+        for (int corner = 1; corner + 1 < polygon.Count; corner++)
+        {
+            vertices.Add(Corner(polygon[0], face, light, offset));
+            vertices.Add(Corner(polygon[corner], face, light, offset));
+            vertices.Add(Corner(polygon[corner + 1], face, light, offset));
+        }
+    }
+
+    private static WorldVertex Corner(DecalVertex corner, AtlasRect face, float light, Vector3 offset) =>
         new(
-            corner.Position.X,
-            corner.Position.Y,
-            corner.Position.Z,
+            corner.Position.X + offset.X,
+            corner.Position.Y + offset.Y,
+            corner.Position.Z + offset.Z,
             corner.U,
             corner.V,
             face.U + (Math.Clamp(corner.LightU, 0f, 1f) * face.Width),

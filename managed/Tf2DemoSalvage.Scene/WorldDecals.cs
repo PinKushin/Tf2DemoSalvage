@@ -48,7 +48,11 @@ public readonly record struct DecalVertex(Vector3 Position, float U, float V, fl
 /// <param name="Face">The face it lies on, by face index.</param>
 /// <param name="Material">What it draws.</param>
 /// <param name="Polygon">The clipped polygon, convex, in the face's winding.</param>
-public sealed record PlacedDecal(int Slot, int Face, DecalMaterial Material, IReadOnlyList<DecalVertex> Polygon);
+public sealed record PlacedDecal(int Slot, int Face, DecalMaterial Material, IReadOnlyList<DecalVertex> Polygon)
+{
+    /// <summary>The brush entity it rides, −1 for the world; its polygon is then in that model's frame, drawn at its origin.</summary>
+    public int Entity { get; init; } = -1;
+}
 
 /// <summary>A face as the decal system sees it.</summary>
 /// <param name="Index">Its index in the faces lump.</param>
@@ -341,7 +345,7 @@ public sealed class WorldDecals
         {
             if (decal is not null)
             {
-                into.Add(new PlacedDecal(decal.Slot, decal.Face.Index, decal.Material, decal.Polygon));
+                into.Add(new PlacedDecal(decal.Slot, decal.Face.Index, decal.Material, decal.Polygon) { Entity = decal.Entity });
             }
         }
     }
@@ -359,7 +363,19 @@ public sealed class WorldDecals
     /// <summary>`R_DecalShoot` on the world model, with no direction axis and no flags.</summary>
     /// <param name="material">The decal's material.</param>
     /// <param name="position">The decal's centre, in world space.</param>
-    public void Shoot(DecalMaterial material, Vector3 position)
+    public void Shoot(DecalMaterial material, Vector3 position) => Shoot(material, position, 0, -1);
+
+    /// <summary>`R_DecalShoot` on a brush model: the walk from its own head node, the position in its own frame.</summary>
+    /// <param name="material">The decal's material.</param>
+    /// <param name="position">The decal's centre, in the model's frame — the world position less the entity's origin.</param>
+    /// <param name="headNode">The model's head node; 0 for the world.</param>
+    /// <param name="entity">The entity the decal rides; −1 for the world.</param>
+    /// <remarks>
+    /// `R_DecalShoot( textureIndex, entity, model, position, … )` transforms the position into the model's space and walks
+    /// `model->nodes + headnode` (`R_DecalNode`); the decal then draws with the entity. A door's faces are in the faces lump,
+    /// compiled about its origin, and no world leaf lists them.
+    /// </remarks>
+    public void Shoot(DecalMaterial material, Vector3 position, int headNode, int entity)
     {
         if (_world.Nodes.Count == 0 || material.Width <= 0 || material.Height <= 0)
         {
@@ -376,9 +392,12 @@ public sealed class WorldDecals
             radius *= scale;
         }
 
-        Shot shot = new(material, position, radius, inverse, (int)(material.Width / inverse), (int)(material.Height / inverse));
+        Shot shot = new(material, position, radius, inverse, (int)(material.Width / inverse), (int)(material.Height / inverse))
+        {
+            Entity = entity,
+        };
 
-        Walk(0, shot);
+        Walk(headNode, shot);
     }
 
     /// <summary>The node walk, `0x180117d90`.</summary>
@@ -497,7 +516,10 @@ public sealed class WorldDecals
             scaledT,
             Vector3.Dot(scaledS, shot.Position),
             Vector3.Dot(scaledT, shot.Position),
-            shot.Inverse);
+            shot.Inverse)
+        {
+            Entity = shot.Entity,
+        };
 
         _slots[slot] = decal;
         _dynamic++;
@@ -776,6 +798,9 @@ public sealed class WorldDecals
     private sealed record Shot(DecalMaterial Material, Vector3 Position, float Radius, float Inverse, int Width, int Height)
     {
         public HashSet<int> Decaled { get; } = [];
+
+        /// <summary>The brush entity whose model is shot, −1 for the world.</summary>
+        public int Entity { get; init; } = -1;
     }
 
     /// <summary>A live decal: where it sits and how it is mapped.</summary>
@@ -783,5 +808,8 @@ public sealed class WorldDecals
         int Slot, DecalFace Face, DecalMaterial Material, Vector3 S, Vector3 T, float Dx, float Dy, float Inverse)
     {
         public IReadOnlyList<DecalVertex> Polygon { get; set; } = [];
+
+        /// <summary>The brush entity it rides, −1 for the world; its polygon is then in that model's own frame.</summary>
+        public int Entity { get; init; } = -1;
     }
 }

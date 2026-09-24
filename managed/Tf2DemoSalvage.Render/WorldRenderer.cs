@@ -5286,6 +5286,42 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The world's placed decals, drawn after the overlays; rebuilt when the decal list changes.</summary>
     private IReadOnlyList<WorldBatch> _shotDecals = [];
 
+    /// <summary>The placed decals on brush entities, in the same buffer, drawn after the props pass that draws those entities.</summary>
+    private IReadOnlyList<WorldBatch> _shotEntityDecals = [];
+
+    /// <summary>
+    /// The decals on brush entities, after the entities — `R_DrawBrushModel` draws a model's decals right after its surfaces, so
+    /// a door drawn in the model pass would cover them if they went with the world's. The caller restores its own depth state.
+    /// </summary>
+    /// <param name="context">The device context, after the opaque models.</param>
+    public void DrawEntityDecals(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_shotEntityDecals.Count == 0 || _shotDecalBuffer.Handle is null || _decalOffset.Handle is null || _decalDepth.Handle is null)
+        {
+            return;
+        }
+
+        // Their corners are already where the entity stands, so no model transform — and no ambient cube, so a lit one
+        // keeps the lightmap.
+        SetModel(context, ModelIdentity);
+
+        context.RSSetState(Raster(_decalOffset));
+        context.OMSetDepthStencilState(_decalDepth, 0);
+
+        uint stride = VertexStride;
+        uint offset = 0;
+
+        context.IASetVertexBuffers(0, 1, ref _shotDecalBuffer, in stride, in offset);
+
+        foreach (WorldBatch batch in _shotEntityDecals)
+        {
+            DrawDecalBatch(context, batch);
+        }
+
+        context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
+        context.RSSetState(Raster(_bothSides));
+    }
+
     /// <summary>The placed decals' corners, a dynamic buffer grown as the pool fills.</summary>
     private ComPtr<ID3D11Buffer> _shotDecalBuffer;
 
@@ -5297,17 +5333,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="context">Context to write it through.</param>
     /// <param name="vertices">Every placed decal's triangles, grouped by material.</param>
     /// <param name="batches">One run per material, into <paramref name="vertices"/>.</param>
+    /// <param name="entityBatches">The runs on brush entities, into <paramref name="vertices"/>, drawn after the props pass.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void UploadShotDecals(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         IReadOnlyList<WorldVertex> vertices,
-        IReadOnlyList<WorldBatch> batches)
+        IReadOnlyList<WorldBatch> batches,
+        IReadOnlyList<WorldBatch> entityBatches)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
+        ArgumentNullException.ThrowIfNull(entityBatches);
 
         _shotDecals = vertices.Count == 0 ? [] : batches;
+        _shotEntityDecals = vertices.Count == 0 ? [] : entityBatches;
 
         if (vertices.Count == 0)
         {

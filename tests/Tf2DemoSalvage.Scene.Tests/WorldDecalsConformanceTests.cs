@@ -151,6 +151,29 @@ public sealed class WorldDecalsConformanceTests
         et.ShouldBe(8 - 2);
     }
 
+    /// <remarks>
+    /// `R_DecalShoot` into a brush model walks `model->nodes + headnode`, in the model's own frame. Here node 0 is the world,
+    /// with no faces, and node 1 is a door's model holding the wall: a shot down the world's tree finds nothing, and one
+    /// down the door's lands on its face and rides the door's entity.
+    /// </remarks>
+    [Test]
+    public void Shoot_IntoABrushModelsHeadNode_LandsOnItsFaceAndRidesTheEntity()
+    {
+        DecalWorld wall = Wall();
+        DecalWorld world = new(
+            [new DecalNode(-1, -2, Vector3.UnitZ, -10000f, 0, 0), wall.Nodes[0]],
+            wall.LeafFaces,
+            wall.Faces);
+
+        WorldDecals decals = new(world);
+
+        decals.Shoot(Hole, new Vector3(0f, 100f, 100f));
+        Placed(decals).ShouldBeEmpty();
+
+        decals.Shoot(Hole, new Vector3(0f, 100f, 100f), headNode: 1, entity: 42);
+        Placed(decals).ShouldHaveSingleItem().Entity.ShouldBe(42);
+    }
+
     private static List<PlacedDecal> Placed(WorldDecals decals)
     {
         List<PlacedDecal> placed = [];

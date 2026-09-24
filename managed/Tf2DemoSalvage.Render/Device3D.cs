@@ -1211,6 +1211,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                     }
                 }
 
+                // Bullet holes on doors, after the doors (`R_DrawBrushModel`'s order).
+                _world.DrawEntityDecals(_context);
+
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
                 // visor and a cloaked spy all have to blend against what is behind them, so they
                 // can only be drawn once that has been drawn — which is the same reason the world
@@ -1491,12 +1494,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Replaces the decals the game has placed on the world — bullet holes and the demo's decal events (B415).</summary>
     /// <param name="vertices">Their triangles, grouped by material.</param>
     /// <param name="batches">One run per material.</param>
+    /// <param name="entityBatches">The runs on brush entities, drawn with them after the world's.</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
-    public void UploadShotDecals(IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches)
+    public void UploadShotDecals(
+        IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches, IReadOnlyList<WorldBatch> entityBatches)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        _world?.UploadShotDecals(_device, _context, vertices, batches);
+        _world?.UploadShotDecals(_device, _context, vertices, batches, entityBatches);
     }
 
     /// <summary>How this map decides what of the world to draw, or null to draw all of it.</summary>

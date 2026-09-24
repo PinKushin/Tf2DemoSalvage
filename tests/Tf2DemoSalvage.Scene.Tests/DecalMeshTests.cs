@@ -54,7 +54,21 @@ public sealed class DecalMeshTests
         batches.ShouldBeEmpty();
     }
 
-    private static (List<WorldVertex> Vertices, List<WorldBatch> Batches) Build(IReadOnlyList<PlacedDecal> decals)
+    [Test]
+    public void Build_ADecalOnABrushEntity_DrawsWhereTheEntityStandsNow()
+    {
+        (List<WorldVertex> vertices, _) = Build([Quad(0, Hole) with { Entity = 42 }], entity => entity == 42 ? new Vector3(500f, 0f, 10f) : null);
+
+        // The quad's third corner, (1, 1, 0) in the model's frame, at the door's origin.
+        (vertices[2].X, vertices[2].Y, vertices[2].Depth).ShouldBe((501f, 1f, 10f));
+    }
+
+    [Test]
+    public void Build_ADecalOnABrushEntityThatIsGone_DrawsNothing() =>
+        Build([Quad(0, Hole) with { Entity = 42 }], _ => null).Vertices.ShouldBeEmpty();
+
+    private static (List<WorldVertex> Vertices, List<WorldBatch> Batches) Build(
+        IReadOnlyList<PlacedDecal> decals, System.Func<int, Vector3?>? entityOrigin = null)
     {
         List<WorldVertex> vertices = [];
         List<WorldBatch> batches = [];
@@ -70,7 +84,8 @@ public sealed class DecalMeshTests
             index => index == 7 ? 1.25f : null,
             Lightmaps,
             vertices,
-            batches);
+            batches,
+            entityOrigin);
 
         return (vertices, batches);
     }

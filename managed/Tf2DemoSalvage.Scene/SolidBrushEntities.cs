@@ -11,7 +11,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <summary>A brush entity a trace meets: its model's head node, where it stands, and whether it has moved.</summary>
 /// <param name="HeadNode">`dmodel_t::headnode`, the root of the entity's own subtree.</param>
 /// <param name="Origin">`m_vecOrigin` at the tick: the model's geometry is compiled about it.</param>
-public readonly record struct SolidBrush(int HeadNode, Vector3 Origin);
+/// <param name="Entity">Its entity index, which a decal on it rides.</param>
+public readonly record struct SolidBrush(int HeadNode, Vector3 Origin, int Entity = -1);
 
 /// <summary>The brush entities a bullet can stop on, where each stands at a tick.</summary>
 /// <remarks>
@@ -72,10 +73,27 @@ public sealed class SolidBrushEntities
         {
             if (track.Alive(tick) && track.AtKeyframe(tick) is { } pose)
             {
-                standing.Add(new SolidBrush(headNode, new Vector3(pose.X, pose.Y, pose.Z)));
+                standing.Add(new SolidBrush(headNode, new Vector3(pose.X, pose.Y, pose.Z), track.EntityIndex));
             }
         }
 
         return standing;
+    }
+
+    /// <summary>One brush entity where it stands at a tick, or null when it is not there then.</summary>
+    /// <param name="entity">The entity index.</param>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The brush.</returns>
+    public SolidBrush? Of(int entity, int tick)
+    {
+        foreach ((ScenePropTrack track, int headNode) in _brushes)
+        {
+            if (track.EntityIndex == entity && track.Alive(tick) && track.AtKeyframe(tick) is { } pose)
+            {
+                return new SolidBrush(headNode, new Vector3(pose.X, pose.Y, pose.Z), entity);
+            }
+        }
+
+        return null;
     }
 }
