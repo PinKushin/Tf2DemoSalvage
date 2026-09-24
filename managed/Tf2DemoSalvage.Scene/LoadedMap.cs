@@ -395,6 +395,20 @@ public sealed class LoadedMap
 
             Report(level, assets, textureQuality, assetLog);
 
+            // What a static prop's decal keeps alive (B421): each placed model's own corners, once per model.
+            HashSet<PropShape> kept = new(ReferenceEqualityComparer.Instance);
+
+            foreach (PlacedProp placed in assets.PlacedProps.Values)
+            {
+                kept.Add(placed.Shape);
+            }
+
+            assetLog.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"static prop decals keep {kept.Count} models' shapes, {kept.Sum(static shape => shape.Positions.Length)} corners, for {assets.PlacedProps.Count} placements"));
+
             return new LoadedMap(outline, level, assets, lighting, game, null)
             {
                 Tracers = tracers,
