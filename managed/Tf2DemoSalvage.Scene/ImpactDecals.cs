@@ -120,10 +120,17 @@ public sealed class ImpactDecals
     /// Terrain takes `GetSurfaceProps( SURFPROP2 ? 1 : 0 )` (engine.dll `FUN_18016f290`), the slots holding the
     /// material's `$surfaceprop` and `$surfaceprop2` — slot 1 falling back to `$surfaceprop` (`FUN_18016d520`).
     /// </remarks>
-    public int SurfacePropOfTrace(BspTrace trace) =>
-        trace.DisplacementTexdata >= 0
+    public int SurfacePropOfTrace(BspTrace trace)
+    {
+        if (trace.StudioSurfaceProp >= 0)
+        {
+            return trace.StudioSurfaceProp;
+        }
+
+        return trace.DisplacementTexdata >= 0
             ? TerrainProp(trace.DisplacementTexdata, trace.SurfaceProp2)
             : SurfacePropOfTexinfo(trace.Texinfo);
+    }
 
     private int TerrainProp(int texdata, bool second)
     {
@@ -140,6 +147,11 @@ public sealed class ImpactDecals
         if (impact.FromServer)
         {
             return impact.SurfaceProp;
+        }
+
+        if (impact.StudioSurfaceProp >= 0)
+        {
+            return impact.StudioSurfaceProp;
         }
 
         return impact.DisplacementTexdata >= 0

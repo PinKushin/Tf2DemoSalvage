@@ -76,6 +76,9 @@ public readonly record struct ShotImpact(
 
     /// <summary>The struck terrain triangle takes its material's second surfaceprop.</summary>
     public bool SurfaceProp2 { get; init; }
+
+    /// <summary>For a client bullet stopped by a static prop, the model's `$surfaceprop` index; −1 otherwise.</summary>
+    public int StudioSurfaceProp { get; init; } = -1;
 }
 
 /// <summary>Which bullets of a demo's shots draw a tracer, and where each ends (B415).</summary>
@@ -220,6 +223,7 @@ public sealed class HitscanTracers
                 {
                     DisplacementTexdata = hit.DisplacementTexdata,
                     SurfaceProp2 = hit.SurfaceProp2,
+                    StudioSurfaceProp = hit.StudioSurfaceProp,
                 });
 
                 if ((count++ % frequency) != 0 || effect is null)

@@ -187,6 +187,14 @@ public sealed class LoadedMap
             level = MapLevel.Read(bytes, assetLog);
         }
 
+        // **Before the shots are traced**, since a bullet stops on a solid static prop as it stops on a brush.
+        using (assetLog.Time("reading the static props' collision"))
+        {
+            level = level with { StaticProps = IvpMapWorld.StaticProps(bytes, game, game.Surfaces, assetLog) };
+        }
+
+        assetLog.LogInformation("{Message}", $"{level.StaticProps.Count.ToString(CultureInfo.InvariantCulture)} solid static props for traces");
+
         LevelLighting lighting = LevelLighting.From(level, renderLog);
 
         // **Every tracer the demo's shots draw, traced once against this map** (B415). The client-wide tracer counter
@@ -213,6 +221,10 @@ public sealed class LoadedMap
                         out float fixedSpread) && fixedSpread != 0f,
                     impacts);
             }
+
+            renderLog.LogInformation(
+                "{Message}",
+                $"{impacts.Count(static impact => impact.StudioSurfaceProp >= 0).ToString(CultureInfo.InvariantCulture)} of {impacts.Count.ToString(CultureInfo.InvariantCulture)} client bullets stopped on a static prop");
 
             // **Every decal the demo can place, resolved now so their materials load with the map's** (B415): the
             // impact groups a bullet can draw from, and the names the decalprecache table carries for decal events.

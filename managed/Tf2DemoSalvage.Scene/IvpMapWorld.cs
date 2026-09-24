@@ -153,6 +153,58 @@ public static class IvpMapWorld
         };
     }
 
+    /// <summary>The map's solid static props as a line trace meets them (<see cref="StaticPropCollision"/>).</summary>
+    /// <param name="map">The map's bytes.</param>
+    /// <param name="game">The install, for the props' models, or null for none.</param>
+    /// <param name="surfaces">The game's surfaces, which name each model's `$surfaceprop`.</param>
+    /// <param name="log">Where a model that will not read is reported.</param>
+    /// <returns>The props.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="surfaces"/> or <paramref name="log"/> is null.</exception>
+    public static StaticPropCollision StaticProps(ReadOnlyMemory<byte> map, GameContent? game, VphysicsSurfaceProps surfaces, ILogger log)
+    {
+        ArgumentNullException.ThrowIfNull(surfaces);
+        ArgumentNullException.ThrowIfNull(log);
+
+        PakFile pak = PakFile.ReadFrom(map);
+        Dictionary<string, IvpStaticPropCollide?> collides = new(StringComparer.OrdinalIgnoreCase);
+
+        return StaticPropCollision.From(
+            BspStaticProps.Read(map),
+            model =>
+            {
+                if (!collides.TryGetValue(model, out IvpStaticPropCollide? found))
+                {
+                    collides[model] = found = FirstSolid(model, file => Read(pak, game, file, log), log);
+                }
+
+                return found;
+            },
+            model => ModelSurfaceProp(Read(pak, game, model, log)) is { } name ? surfaces.GetSurfaceIndex(name) : -1);
+    }
+
+    /// <summary>`studiohdr_t::pszSurfaceProp()`: the name at the offset in <c>surfacepropindex</c>, <c>+0x134</c>.</summary>
+    /// <remarks>The offset engine.dll's `ClipRayToCollideable` reads (`0x18018f510`); `public/studio.h:2304`.</remarks>
+    internal static string? ModelSurfaceProp(byte[]? model)
+    {
+        const int SurfacePropIndex = 0x134;
+
+        if (model is null || model.Length < SurfacePropIndex + 4)
+        {
+            return null;
+        }
+
+        int at = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(model.AsSpan(SurfacePropIndex));
+
+        if (at <= 0 || at >= model.Length)
+        {
+            return null;
+        }
+
+        int end = Array.IndexOf(model, (byte)0, at);
+
+        return System.Text.Encoding.ASCII.GetString(model, at, (end < 0 ? model.Length : end) - at);
+    }
+
     /// <summary>Reads a game file, the map's own pakfile first — the order the engine's search path gives them.</summary>
     /// <remarks>
     /// **A malformed archive entry costs one prop its collision, not the map its load**, and is reported; a missing file is the

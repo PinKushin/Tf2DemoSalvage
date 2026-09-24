@@ -1359,6 +1359,9 @@ public sealed class BspLeafTree
 /// material's; −1 for a brush or nothing (engine.dll `FUN_18016f290`).
 /// </param>
 /// <param name="SurfaceProp2">The struck terrain triangle takes the material's second surfaceprop (`DISPSURF_FLAG_SURFPROP2`).</param>
+/// <param name="StudioSurfaceProp">
+/// For a static prop, `**studio**`'s surface index — the model's `$surfaceprop`; −1 for a brush, terrain or nothing.
+/// </param>
 public readonly record struct BspTrace(
     float Fraction,
     int Texinfo,
@@ -1366,4 +1369,5 @@ public readonly record struct BspTrace(
     bool AllSolid,
     float Distance = 0f,
     int DisplacementTexdata = -1,
-    bool SurfaceProp2 = false);
+    bool SurfaceProp2 = false,
+    int StudioSurfaceProp = -1);
