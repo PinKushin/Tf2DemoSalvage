@@ -120,7 +120,7 @@ public static class IvpTangentialSolve
             row.X * core.InverseInertia.X * axisFactors.X,
             row.Y * core.InverseInertia.Y * axisFactors.Y,
             row.Z * core.InverseInertia.Z * axisFactors.Z,
-            row.W * axisFactors.W);
+            row.W * core.InverseMass * axisFactors.W);
 
         float diagonal = (row.X * massRow.X) + (row.Y * massRow.Y) + (row.Z * massRow.Z) + (row.W * massRow.W);
 
@@ -173,7 +173,10 @@ public static class IvpTangentialSolve
             core.AngularVelocity.Z + (rows.Axis0.MassRow.Z * scaled0) + (rows.Axis1.MassRow.Z * scaled1));
     }
 
-    /// <summary>One core's off-diagonal contribution to the 2×2 tangential system — <c>dot(Axis0.MassRow, Axis1.Row)</c>.</summary>
+    /// <summary>
+    /// One core's off-diagonal contribution to the 2×2 tangential system — <c>dot(Axis0.MassRow, Axis1.Row)</c> over x, y
+    /// and z only; `BuildJacobian` never reads the linear lane here, since perpendicular axes cancel it.
+    /// </summary>
     /// <param name="rows">The core's own rows from <see cref="BuildJacobian"/>, or null for a static side.</param>
     /// <returns>The contribution, zero for a static side.</returns>
     /// <remarks>
@@ -190,8 +193,7 @@ public static class IvpTangentialSolve
 
         return (value.Axis0.MassRow.X * value.Axis1.Row.X) +
             (value.Axis0.MassRow.Y * value.Axis1.Row.Y) +
-            (value.Axis0.MassRow.Z * value.Axis1.Row.Z) +
-            (value.Axis0.MassRow.W * value.Axis1.Row.W);
+            (value.Axis0.MassRow.Z * value.Axis1.Row.Z);
     }
 
     /// <summary>The 2×2 tangential system for a contact — both cores' diagonals and cross terms, summed.</summary>
@@ -417,6 +419,27 @@ public static class IvpTangentialSolve
     public static (float Work, (float Span, float CrossSpan)? Impulse) SolveContact(IvpContactPoint point, float step, float inverseStep)
     {
         ArgumentNullException.ThrowIfNull(point);
+
+        Traced?.Invoke(point, false);
+
+        try
+        {
+            return SolveContactTraced(point, step, inverseStep);
+        }
+        finally
+        {
+            Traced?.Invoke(point, true);
+        }
+    }
+
+    /// <summary>
+    /// For the `ivp-phy-drop` probe only: told each contact before (false) and after (true) its solve — the same two moments
+    /// `vphysics-drop`'s <c>TF2VPHYSICS_PROBE_TRACE_FRICTION</c> hook reads the binary's <c>FUN_1800857c0</c> at.
+    /// </summary>
+    internal static Action<IvpContactPoint, bool>? Traced { get; set; }
+
+    private static (float Work, (float Span, float CrossSpan)? Impulse) SolveContactTraced(IvpContactPoint point, float step, float inverseStep)
+    {
 
         IvpContactRecord record = point.Record ?? throw new InvalidOperationException("A contact with no record was solved.");
         double clipBudget = point.NormalPush * point.Friction * step;

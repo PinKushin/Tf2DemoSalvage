@@ -529,12 +529,14 @@ public sealed class VphysicsDropProbe : IProbe
         GetVelocityDelegate getVelocity = VCall<GetVelocityDelegate>(dynamicObject, ObjectGetVelocitySlot);
 
         using FrictionTrace? friction = FrictionTrace.FromEnvironment(module, output, core);
+        using CollisionTrace? collisions = CollisionTrace.FromEnvironment(module, output);
 
         PsiListeners(output, module, Marshal.ReadIntPtr(environment + 0x8));
 
         for (int tick = 1; tick <= TotalTicks; tick++)
         {
             friction?.AtTick(tick);
+            collisions?.AtTick(tick);
             simulate(environment, Timestep);
 
             if (tick % every != 0)
@@ -599,6 +601,47 @@ public sealed class VphysicsDropProbe : IProbe
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  [{index}] vtable 0x{(long)(vtable - module) + VphysicsLibrary.ImageBase:x}  slot 0 0x{(long)(slot0 - module) + VphysicsLibrary.ImageBase:x}"));
+        }
+    }
+
+    /// <summary>
+    /// Opt-in (<c>TF2VPHYSICS_PROBE_TRACE_COLLISIONS=1</c>): every post-collision the global listener sees — <c>FUN_180016aa0</c>
+    /// called through, then its <c>vcollisionevent_t</c> read back: <c>isCollision</c> (<c>+0x68</c>), <c>deltaCollisionTime</c>
+    /// (<c>+0x6c</c>) and <c>collisionSpeed</c> (<c>+0x70</c>). The oracle for the port's <c>IvpCollisionEvent</c> (B172).
+    /// </summary>
+    private sealed class CollisionTrace : IDisposable
+    {
+        private const long PostCollisionAddress = 0x180016aa0;
+
+        private readonly Action<string> _write;
+        private readonly VphysicsHook<PostCollisionDelegate> _post;
+        private int _tick;
+
+        private CollisionTrace(nint module, TextWriter output)
+        {
+            _write = output.WriteLine;
+            _post = new VphysicsHook<PostCollisionDelegate>(module, PostCollisionAddress, Post);
+        }
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void PostCollisionDelegate(nint listener, nint collision);
+
+        public static CollisionTrace? FromEnvironment(nint module, TextWriter output) =>
+            Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_TRACE_COLLISIONS") is null ? null : new CollisionTrace(module, output);
+
+        public void AtTick(int tick) => _tick = tick;
+
+        public void Dispose() => _post.Dispose();
+
+        private void Post(nint listener, nint collision)
+        {
+            _post.CallThrough(original => original(listener, collision));
+
+            _write(string.Create(
+                CultureInfo.InvariantCulture,
+                $"COLLISION tick {_tick} isCollision {Marshal.ReadByte(listener + 0x68)} " +
+                $"dt {BitConverter.Int32BitsToSingle(Marshal.ReadInt32(listener + 0x6c)):R} " +
+                $"speed {BitConverter.Int32BitsToSingle(Marshal.ReadInt32(listener + 0x70)):R}"));
         }
     }
 
