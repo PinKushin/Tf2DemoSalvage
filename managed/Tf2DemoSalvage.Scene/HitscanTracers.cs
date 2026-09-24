@@ -162,6 +162,24 @@ public sealed class HitscanTracers
         bool fixedSpread,
         ICollection<ShotImpact>? impacts = null)
     {
+        ArgumentNullException.ThrowIfNull(sweep);
+
+        return Trace(shots, (_, from, to) => sweep(from, to), fixedSpread, impacts);
+    }
+
+    /// <summary>As <see cref="Trace(IReadOnlyList{SceneShot}, Func{ValueTuple{float, float, float}, ValueTuple{float, float, float}, BspTrace}, bool, ICollection{ShotImpact}?)"/>, the sweep told each shot's tick — for what moves, such as a door.</summary>
+    /// <param name="shots">Every shot, in fire order.</param>
+    /// <param name="sweep">The world trace at a tick along a segment.</param>
+    /// <param name="fixedSpread">`IsFixedWeaponSpreadEnabled`.</param>
+    /// <param name="impacts">When given, every bullet the world stopped, in fire order.</param>
+    /// <returns>The tracers.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public IReadOnlyList<ShotTracer> Trace(
+        IReadOnlyList<SceneShot> shots,
+        Func<int, (float X, float Y, float Z), (float X, float Y, float Z), BspTrace> sweep,
+        bool fixedSpread,
+        ICollection<ShotImpact>? impacts = null)
+    {
         ArgumentNullException.ThrowIfNull(shots);
         ArgumentNullException.ThrowIfNull(sweep);
 
@@ -205,7 +223,7 @@ public sealed class HitscanTracers
                     shot.Origin.Y + (direction.Y * range),
                     shot.Origin.Z + (direction.Z * range));
 
-                BspTrace hit = sweep(shot.Origin, end);
+                BspTrace hit = sweep(shot.Tick, shot.Origin, end);
                 float fraction = hit.Fraction;
 
                 if (fraction >= 1f)

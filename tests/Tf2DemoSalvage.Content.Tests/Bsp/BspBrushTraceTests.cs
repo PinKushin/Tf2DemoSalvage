@@ -51,6 +51,37 @@ public sealed class BspBrushTraceTests
             "them Sweep falls back to stopping at node planes rather than at brushes");
     }
 
+    /// <remarks>
+    /// **A brush entity's model is its own subtree**: `CM_TransformedBoxTrace( ray, model->headnode, … )` walks from the
+    /// submodel's head node, and the world tree (node 0) does not contain it. Door `*125` on cp_process (`red_sewer_door_2`) is
+    /// the one TF2's pellets rang metal on at f12 tick 13849: a line through the middle of its box, along the thin axis,
+    /// passes the world and stops on the door.
+    /// </remarks>
+    [Test]
+    public void Trace_ThroughADoorsBox_PassesTheWorldAndStopsOnTheDoorsOwnHeadNode()
+    {
+        if (!File.Exists(Map))
+        {
+            Assert.Ignore("the map is not installed");
+            return;
+        }
+
+        byte[] bytes = File.ReadAllBytes(Map);
+        BspLeafTree tree = BspLeafTree.Read(bytes);
+        BspModel door = BspModels.Read(bytes)[125];
+
+        float x = (door.Minimum.X + door.Maximum.X) / 2f;
+        float y = (door.Minimum.Y + door.Maximum.Y) / 2f;
+        float z = (door.Minimum.Z + door.Maximum.Z) / 2f;
+        bool thinAlongX = door.Maximum.X - door.Minimum.X < door.Maximum.Y - door.Minimum.Y;
+        (float dx, float dy) = thinAlongX ? (64f, 0f) : (0f, 64f);
+
+        BspTrace alone = tree.Trace(x - dx, y - dy, z, x + dx, y + dy, z, 0f, door.HeadNode);
+
+        alone.Fraction.ShouldBeLessThan(1f, "the line crosses the door's own brushes");
+        alone.Fraction.ShouldBeGreaterThan(0f);
+    }
+
     [Test]
     public void Sweep_DownFromASpawnPoint_StopsAlmostAtOnce()
     {

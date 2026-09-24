@@ -143,6 +143,42 @@ public sealed record MapLevel(
             : world;
     }
 
+    /// <summary><see cref="Trace(ValueTuple{float, float, float}, ValueTuple{float, float, float}, float)"/>, with brush entities too.</summary>
+    /// <param name="from">Where the box's centre starts.</param>
+    /// <param name="to">Where it would end unobstructed.</param>
+    /// <param name="halfExtent">Half the box's width, on every axis.</param>
+    /// <param name="brushes">The brush entities standing at the trace's moment (<see cref="SolidBrushEntities"/>).</param>
+    /// <returns>The nearest trace.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="brushes"/> is null.</exception>
+    public BspTrace Trace(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent, IReadOnlyList<SolidBrush> brushes)
+    {
+        ArgumentNullException.ThrowIfNull(brushes);
+
+        BspTrace nearest = Trace(from, to, halfExtent);
+
+        if (Leaves is not { } tree)
+        {
+            return nearest;
+        }
+
+        foreach (SolidBrush brush in brushes)
+        {
+            BspTrace entity = tree.Trace(
+                from.X - brush.Origin.X, from.Y - brush.Origin.Y, from.Z - brush.Origin.Z,
+                to.X - brush.Origin.X, to.Y - brush.Origin.Y, to.Z - brush.Origin.Z,
+                halfExtent,
+                brush.HeadNode);
+
+            if (entity.Fraction < nearest.Fraction)
+            {
+                nearest = entity;
+            }
+        }
+
+        return nearest;
+    }
+
     /// <summary>The solid static props a line meets, set once their models are read; empty until then.</summary>
     public StaticPropCollision StaticProps { get; init; } = StaticPropCollision.Empty;
 

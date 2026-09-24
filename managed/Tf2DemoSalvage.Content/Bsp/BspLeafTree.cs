@@ -750,7 +750,25 @@ public sealed class BspLeafTree
     public BspTrace Trace(
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
-        float halfExtent)
+        float halfExtent) =>
+        Trace(fromX, fromY, fromZ, toX, toY, toZ, halfExtent, 0);
+
+    /// <summary><see cref="Trace(float, float, float, float, float, float, float)"/> from a submodel's own head node.</summary>
+    /// <param name="fromX">Where the sweep starts, in the model's frame.</param>
+    /// <param name="fromY">Where the sweep starts.</param>
+    /// <param name="fromZ">Where the sweep starts.</param>
+    /// <param name="toX">Where it would end.</param>
+    /// <param name="toY">Where it would end.</param>
+    /// <param name="toZ">Where it would end.</param>
+    /// <param name="halfExtent">Half the box's width; zero for a ray.</param>
+    /// <param name="headNode">The model's root — 0 for the world, `dmodel_t::headnode` for a brush entity's model.</param>
+    /// <returns>The trace.</returns>
+    /// <remarks>`CM_TransformedBoxTrace( ray, headnode, … )`: a brush entity's model is its own subtree, absent from the world's.</remarks>
+    public BspTrace Trace(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        float halfExtent,
+        int headNode)
     {
         if (IsEmpty || _leaves.IsEmpty)
         {
@@ -760,7 +778,7 @@ public sealed class BspLeafTree
         TraceHit hit = new() { Fraction = 1f, Texinfo = -1 };
 
         Descend(
-            0, 0f, 1f,
+            headNode, 0f, 1f,
             fromX, fromY, fromZ,
             toX, toY, toZ,
             fromX, fromY, fromZ,
