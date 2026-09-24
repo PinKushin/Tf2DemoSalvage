@@ -97,6 +97,10 @@ public static class IvpMindistCollide
 
         IvpFrictionPair pair = system.PairFor(coreA, coreB)
             ?? throw new InvalidOperationException("A contact linked by core has no pair for its cores.");
+
+        // The collision event's `d_time_since_last_collision`: `(float)( env+0x188 − pair+0x28 )`, read before the store.
+        float sinceLast = (float)(now - pair.LastImpact);
+
         pair.LastImpact = now;
 
         IvpImpactSolver solver = IvpImpactSolver.Enter(environment, contact, [coreA, coreB], contact.PushOut(environment));
@@ -111,6 +115,8 @@ public static class IvpMindistCollide
         new IvpImpactIsland(system).Build(environment, pair, contact, sides, materials, minimize, reschedule, now);
 
         record.RelativeVelocity = relative;
+
+        environment.Collided?.Invoke(IvpCollisionEvent.From(record, sinceLast));
 
         return solver;
 

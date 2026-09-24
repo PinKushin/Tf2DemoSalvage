@@ -82,6 +82,9 @@ public sealed class CorpsePhysics
     /// </remarks>
     public Func<float, IvpRagdollWorld>? CreateWorld { get; set; }
 
+    /// <summary>Told each physics impact sound a step played, with the tick the step reached; null for none (B172).</summary>
+    public Action<int, PhysicsImpactSound>? ImpactHeard { get; set; }
+
     /// <summary>The game's surfaces, for the friction a corpse collides with, when <see cref="CreateWorld"/> is not set.</summary>
     public VphysicsSurfaceProps Surfaces { get; set; } = new([]);
 
@@ -215,6 +218,12 @@ public sealed class CorpsePhysics
             world.Simulate(interval);
             _worldTick++;
             Steps++;
+
+            // `PlayImpactSounds` at the frame's end: drained always, so a world nobody listens to holds no list.
+            foreach (PhysicsImpactSound sound in world.TakeImpactSounds())
+            {
+                ImpactHeard?.Invoke(_worldTick, sound);
+            }
 
             foreach ((int entity, (IvpRagdoll ragdoll, _)) in _running)
             {

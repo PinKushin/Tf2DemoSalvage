@@ -78,74 +78,102 @@ internal static class VphysicsSurfaceData
             start = props.GetSurfaceIndex(DefaultName);
         }
 
-        SurfacePhysicsParams staging = props.GetIVPMaterial(start)?.Physics ?? default;
-        int game = props.GetIVPMaterial(start)?.GameMaterial ?? 0;
-        SurfaceSoundNames sounds = props.GetIVPMaterial(start)?.Sounds ?? default;
+        Staged staged = Staged.Of(props.GetIVPMaterial(start));
 
         do
         {
             (string key, string value) = ParseKeyValue(text, ref at);
 
-            switch (key)
+            if (key == "}")
             {
-                case "}":
-                    Close(props, name, staging, game, sounds);
-                    return;
-                case "base":
-                    if (props.GetIVPMaterial(props.GetSurfaceIndex(value)) is { } based)
-                    {
-                        staging = based.Physics;
-                        game = based.GameMaterial;
-                        sounds = based.Sounds;
-                    }
-
-                    break;
-                case "bulletimpact":
-                    sounds = sounds with { BulletImpact = value };
-                    break;
-                case "stepleft":
-                    sounds = sounds with { StepLeft = value };
-                    break;
-                case "stepright":
-                    sounds = sounds with { StepRight = value };
-                    break;
-
-                // `FUN_180018740`: a one-character value that is not a digit is `toupper`'d — the key parser lowercased it —
-                // and anything else goes through `atoi`, stored as a short.
-                case "gamematerial":
-                    game = value.Length == 1 && (uint)(value[0] - '0') > 9
-                        ? char.ToUpperInvariant(value[0])
-                        : (short)Atoi(value);
-                    break;
-                case "friction":
-                    staging = staging with { Friction = (float)Atof(value) };
-                    break;
-                case "elasticity":
-                    staging = staging with { Elasticity = (float)Atof(value) };
-                    break;
-                case "density":
-                    staging = staging with { Density = (float)Atof(value) };
-                    break;
-                case "thickness":
-                    staging = staging with { Thickness = (float)Atof(value) };
-                    break;
-                case "dampening":
-                    staging = staging with { Dampening = (float)Atof(value) };
-                    break;
-                default:
-                    break;
+                Close(props, name, staged);
+                return;
             }
+
+            staged = Apply(props, staged, key, value);
         }
         while (at >= 0);
     }
 
-    private static void Close(VphysicsSurfaceProps props, string name, SurfacePhysicsParams staging, int game, SurfaceSoundNames sounds)
+    /// <summary>One key of a block applied to the surface being parsed.</summary>
+    private static Staged Apply(VphysicsSurfaceProps props, Staged staged, string key, string value)
+    {
+        SurfaceSoundNames sounds = staged.Sounds;
+        SurfaceAudio audio = staged.Audio;
+        SurfacePhysicsParams physics = staged.Physics;
+
+        switch (key)
+        {
+            case "base":
+                return props.GetIVPMaterial(props.GetSurfaceIndex(value)) is { } based ? Staged.Of(based) : staged;
+            case "bulletimpact":
+                sounds = sounds with { BulletImpact = value };
+                break;
+            case "stepleft":
+                sounds = sounds with { StepLeft = value };
+                break;
+            case "stepright":
+                sounds = sounds with { StepRight = value };
+                break;
+            case "impacthard":
+                sounds = sounds with { ImpactHard = value };
+                break;
+            case "impactsoft":
+                sounds = sounds with { ImpactSoft = value };
+                break;
+            case "audiohardnessfactor":
+                audio = audio with { HardnessFactor = (float)Atof(value) };
+                break;
+            case "impacthardthreshold":
+                audio = audio with { HardThreshold = (float)Atof(value) };
+                break;
+            case "audiohardminvelocity":
+                audio = audio with { HardVelocityThreshold = (float)Atof(value) };
+                break;
+
+            // `FUN_180018740`: a one-character value that is not a digit is `toupper`'d — the key parser lowercased it —
+            // and anything else goes through `atoi`, stored as a short.
+            case "gamematerial":
+                return staged with
+                {
+                    Game = value.Length == 1 && (uint)(value[0] - '0') > 9 ? char.ToUpperInvariant(value[0]) : (short)Atoi(value),
+                };
+            case "friction":
+                physics = physics with { Friction = (float)Atof(value) };
+                break;
+            case "elasticity":
+                physics = physics with { Elasticity = (float)Atof(value) };
+                break;
+            case "density":
+                physics = physics with { Density = (float)Atof(value) };
+                break;
+            case "thickness":
+                physics = physics with { Thickness = (float)Atof(value) };
+                break;
+            case "dampening":
+                physics = physics with { Dampening = (float)Atof(value) };
+                break;
+            default:
+                break;
+        }
+
+        return staged with { Sounds = sounds, Audio = audio, Physics = physics };
+    }
+
+    /// <summary>A block's surface as it is being parsed: what `base` copies and a key replaces.</summary>
+    private readonly record struct Staged(SurfacePhysicsParams Physics, int Game, SurfaceSoundNames Sounds, SurfaceAudio Audio)
+    {
+        public static Staged Of(VphysicsSurface? surface) =>
+            surface is null ? default : new(surface.Physics, surface.GameMaterial, surface.Sounds, surface.Audio);
+    }
+
+    private static void Close(VphysicsSurfaceProps props, string name, Staged staged)
     {
         int index = props.GetSurfaceIndex(name);
 
         if (index < 0)
         {
-            props.Add(new VphysicsSurface(name, staging, false) { GameMaterial = game, Sounds = sounds });
+            props.Add(new VphysicsSurface(name, staged.Physics, false) { GameMaterial = staged.Game, Sounds = staged.Sounds, Audio = staged.Audio });
             return;
         }
 
@@ -154,7 +182,12 @@ internal static class VphysicsSurfaceData
 
         props.Replace(
             target,
-            new VphysicsSurface(target.Name, staging, target.HasSecondFriction) { GameMaterial = game, Sounds = sounds });
+            new VphysicsSurface(target.Name, staged.Physics, target.HasSecondFriction)
+            {
+                GameMaterial = staged.Game,
+                Sounds = staged.Sounds,
+                Audio = staged.Audio,
+            });
     }
 
     /// <summary>The C runtime's `atoi`: leading whitespace, a sign, digits, stopping at the first other character.</summary>

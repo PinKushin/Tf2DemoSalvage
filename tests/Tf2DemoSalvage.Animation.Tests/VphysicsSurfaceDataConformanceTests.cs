@@ -102,6 +102,27 @@ public sealed class VphysicsSurfaceDataConformanceTests
         Sound("plain").ShouldBe("default.bulletimpact");
     }
 
+    /// <remarks>
+    /// `physicssound::PlayImpactSounds` (`vphysics_sound.h:40`) picks `impacthard` or `impactsoft` by the struck surface's
+    /// `audiohardnessfactor` against this one's `impacthardthreshold`, and by `audiohardminvelocity`.
+    /// </remarks>
+    [Test]
+    public void ParseSurfaceData_ImpactSoundsAndAudio_AreReadAndInherited()
+    {
+        VphysicsSurfaceProps props = new([]);
+
+        props.ParseSurfaceData(Encoding.Latin1.GetBytes(
+            "\"default\" { \"impacthard\" \"Default.ImpactHard\" \"impactsoft\" \"Default.ImpactSoft\" " +
+            "\"audiohardnessfactor\" \"1.0\" \"impactHardThreshold\" \"0.5\" \"audioHardMinVelocity\" \"0\" } " +
+            "\"flesh\" { \"impacthard\" \"Flesh.ImpactHard\" \"audiohardnessfactor\" \"0.25\" \"audioHardMinVelocity\" \"500\" }"));
+
+        VphysicsSurface flesh = props.Surfaces.Single(surface => surface.Name == "flesh");
+
+        flesh.Sounds.ImpactHard.ShouldBe("flesh.impacthard");
+        flesh.Sounds.ImpactSoft.ShouldBe("default.impactsoft");
+        flesh.Audio.ShouldBe(new SurfaceAudio(HardnessFactor: 0.25f, HardThreshold: 0.5f, HardVelocityThreshold: 500f));
+    }
+
     [Test]
     public void ParseSurfaceData_StepSounds_AreReadAndInherited()
     {
@@ -119,6 +140,7 @@ public sealed class VphysicsSurfaceDataConformanceTests
 
         Sounds("grate").ShouldBe(new SurfaceSoundNames("solidmetal.stepleft", "solidmetal.stepright", null));
         Sounds("plain").ShouldBe(new SurfaceSoundNames("default.stepleft", "default.stepright", null));
+        Sounds("plain").ImpactHard.ShouldBeNull();
     }
 
     private static int[] Bits(VphysicsSurface surface) =>

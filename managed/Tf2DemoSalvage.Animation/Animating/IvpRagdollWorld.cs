@@ -84,6 +84,8 @@ public sealed class IvpRagdollWorld
             RestCheckCountdown = 15,
         };
 
+        environment.Collided = PostCollision;
+
         Simulation = new IvpSimulation(environment, ivpGravity, _random.Next)
         {
             ShouldCollide = ShouldCollide,
@@ -404,6 +406,108 @@ public sealed class IvpRagdollWorld
         Simulation.Advance(Simulation.Now + (double)deltaTime);
     }
 
+    /// <summary>`CCollisionEvent::PostCollision`'s gate: a pair must have been apart this long, in seconds.</summary>
+    private const float SoundGap = 0.1f;
+
+    /// <summary>…and be closing this fast, in inches a second.</summary>
+    private const float SoundSpeed = 70f;
+
+    /// <summary>`ObjectSound`'s full-volume speed, 320 inches a second, squared.</summary>
+    private const float FullVolumeSpeedSquared = 320f * 320f;
+
+    /// <summary>`AddImpactSound`'s heuristic: past this many sounds in one frame, every impact merges.</summary>
+    private const int MergeEverythingPast = 4;
+
+    /// <summary>`CPhysicsSystem::m_impactSounds`: this frame's impact sounds, played when it ends.</summary>
+    private readonly List<PhysicsImpactSound> _impactSounds = [];
+
+    /// <summary>The impact sounds the last <see cref="Simulate"/> made, in the order `PlayImpactSounds` plays them; clears them.</summary>
+    /// <returns>The sounds.</returns>
+    /// <remarks>`CPhysicsSystem::PhysicsSimulate` ends with `physicssound::PlayImpactSounds( m_impactSounds )` (`physics.cpp:473`).</remarks>
+    public IReadOnlyList<PhysicsImpactSound> TakeImpactSounds()
+    {
+        if (_impactSounds.Count == 0)
+        {
+            return [];
+        }
+
+        // `PlayImpactSounds` walks the list from the back.
+        PhysicsImpactSound[] taken = [.. _impactSounds];
+        Array.Reverse(taken);
+        _impactSounds.Clear();
+        return taken;
+    }
+
+    /// <summary>`CCollisionEvent::PostCollision` (`game/client/physics.cpp:513`): a fast enough impact sounds on both objects.</summary>
+    private void PostCollision(IvpCollisionEvent collision)
+    {
+        if (!(collision.DeltaCollisionTime > SoundGap && collision.CollisionSpeed > SoundSpeed))
+        {
+            return;
+        }
+
+        ObjectSound(collision.FirstObject, collision.FirstMaterial, collision.SecondMaterial, collision.CollisionSpeed);
+        ObjectSound(collision.SecondObject, collision.SecondMaterial, collision.FirstMaterial, collision.CollisionSpeed);
+    }
+
+    /// <summary>`CCollisionEvent::ObjectSound` (`physics.cpp:488`) into `physicssound::AddImpactSound` (`vphysics_sound.h:82`).</summary>
+    private void ObjectSound(IvpCollisionObject? subject, IIvpMaterial? material, IIvpMaterial? hit, float collisionSpeed)
+    {
+        // `!pObject || pObject->IsStatic()`, then `pGameData`: only a corpse's parts carry game data here.
+        if (subject?.Core is not { Immovable: false } core || !_owners.ContainsKey(core))
+        {
+            return;
+        }
+
+        float speed = collisionSpeed * collisionSpeed;
+        int surfaceProps = SurfaceIndex(material);
+
+        if (surfaceProps < 0)
+        {
+            return;
+        }
+
+        float volume = MathF.Min(speed * (1f / FullVolumeSpeedSquared), 1f);
+        int surfacePropsHit = SurfaceIndex(hit);
+        float impactSpeed = speed + 1e-4f;
+
+        for (int index = _impactSounds.Count - 1; index >= 0; index--)
+        {
+            PhysicsImpactSound sound = _impactSounds[index];
+
+            if (surfaceProps == sound.SurfaceProps || _impactSounds.Count > MergeEverythingPast)
+            {
+                if (volume > sound.Volume)
+                {
+                    sound = sound with { Origin = SourcePositionOf(core), SurfacePropsHit = surfacePropsHit };
+                }
+
+                _impactSounds[index] = sound with
+                {
+                    Volume = sound.Volume + volume,
+                    ImpactSpeed = MathF.Max(impactSpeed, sound.ImpactSpeed),
+                };
+
+                return;
+            }
+        }
+
+        _impactSounds.Add(new PhysicsImpactSound(surfaceProps, surfacePropsHit, volume, impactSpeed, SourcePositionOf(core)));
+    }
+
+    private int SurfaceIndex(IIvpMaterial? material) =>
+        material is VphysicsSurface surface ? Surfaces.GetSurfaceIndex(surface.Name) : -1;
+
+    /// <summary>`IPhysicsObject::GetPosition`: where an object's origin stands now, in Source units.</summary>
+    internal Vector3 SourcePositionOf(IvpRigidBody body)
+    {
+        ((double X, double Y, double Z) position, (double X, double Y, double Z, double W) rotation) = body.TransformAt(Simulation.Now);
+        (double X, double Y, double Z) origin = IvpMatrix.FromRotation(rotation, position).ToWorld(body.ObjectOffset);
+        (float x, float y, float z) = IvpTransform.SourcePosition((float)origin.X, (float)origin.Y, (float)origin.Z);
+
+        return new Vector3(x, y, z);
+    }
+
     /// <summary>Files a core as one ragdoll's element, for the rules — the object's game data and game index.</summary>
     internal void Own(IvpRigidBody core, IvpRagdoll ragdoll, int element) =>
         _owners[core] = (ragdoll, element);
@@ -442,6 +546,14 @@ public sealed class IvpRagdollWorld
         return (contents & MaskSolid) != 0;
     }
 }
+
+/// <summary>One of a frame's physics impact sounds — `physicssound::impactsound_t`.</summary>
+/// <param name="SurfaceProps">The sounding object's surface, whose `impacthard`/`impactsoft` plays.</param>
+/// <param name="SurfacePropsHit">What it struck, whose hardness picks between them.</param>
+/// <param name="Volume">The summed volume, clamped to one when played.</param>
+/// <param name="ImpactSpeed">The largest speed, which is SQUARED — `ObjectSound` passes `speed²` on as `impactSpeed`.</param>
+/// <param name="Origin">Where the loudest impact's object stood, in Source units.</param>
+public readonly record struct PhysicsImpactSound(int SurfaceProps, int SurfacePropsHit, float Volume, float ImpactSpeed, Vector3 Origin);
 
 /// <summary>What a static prop's model gives <c>CreatePolyObjectStatic</c>: its first solid and that solid's surface property.</summary>
 /// <param name="Surface">The first solid's compact surface.</param>

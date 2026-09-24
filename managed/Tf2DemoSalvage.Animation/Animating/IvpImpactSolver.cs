@@ -6,6 +6,12 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// <summary>The environment's fields the impact solver reads and writes (B369).</summary>
 public sealed class IvpImpactEnvironment
 {
+    /// <summary>
+    /// The global collision listener — vphysics' `CPhysicsListenerCollision`, installed in `CPhysicsEnvironment`'s constructor
+    /// (`env+0xa8`) and told of every impact after it is solved; null for none.
+    /// </summary>
+    public Action<IvpCollisionEvent>? Collided { get; set; }
+
     /// <summary>The reciprocal of the PSI step, <c>env+0x110</c>, which the spin limit narrows to float.</summary>
     public required double InverseStep { get; init; }
 

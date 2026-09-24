@@ -132,4 +132,5 @@
 - [Interp is the watcher's setting](interp-is-the-watchers-setting.md) — D190; from the config, bounded by the server.
 - [Compare with the same camera](compare-with-the-same-camera.md) — the impact gate is 1024 from the camera; STV has no getpos.
 - [Verify origin/main after a push](verify-origin-main-after-push.md) — a detached main checkout swallows merges silently.
+- [A `with` switch expression can hang the compiler](a-with-switch-expression-can-hang-the-compiler.md) — csc 7+ min; a stuck project build is the edit.
 - [lcor is not in a worktree](lcor-is-not-in-a-worktree.md) — git-ignored; use the main checkout's absolute path.
