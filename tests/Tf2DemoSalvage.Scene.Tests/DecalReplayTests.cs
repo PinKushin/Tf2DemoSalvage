@@ -91,7 +91,8 @@ public sealed class DecalReplayTests
 
         replay.AdvanceTo(15, static _ => false);
 
-        (IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches) = replay.PropDecals.For(4).ShouldNotBeNull();
+        (IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches) =
+            replay.PropDecals.For(DecalReplay.StaticPropKey(4)).ShouldNotBeNull();
         vertices.Count.ShouldBe(6);
         batches[0].MaterialIndex.ShouldBe(9);
         System.MathF.Abs(vertices[0].Y).ShouldBe(5.12f, 1e-4f);
@@ -99,6 +100,41 @@ public sealed class DecalReplayTests
         replay.AdvanceTo(5, static _ => false);
 
         replay.PropDecals.Count.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// `CStudioRender` holds ONE pool for every model, static props and entities alike, so a prop's decal shares the
+    /// `1.5 · r_maxmodeldecal` limit with a player's — and a seek back replays the props' without touching the entities'.
+    /// </remarks>
+    [Test]
+    public void AdvanceTo_BackwardsWithASharedPool_ClearsOnlyThePropsDecals()
+    {
+        ModelDecals pool = new();
+        WorldVertex[] face =
+        [
+            new(0f, -100f, -100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+            new(0f, 100f, -100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+            new(0f, 0f, 100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+        ];
+
+        pool.AddClipped(7, face, System.Numerics.Vector3.Zero, new System.Numerics.Vector3(-1.1f, 0f, 0f), 4f, 1).ShouldBeTrue();
+
+        DecalReplay replay = new(
+            new WorldDecals(WorldDecalsConformanceTests.Wall()),
+            [Impacts[0] with { StaticProp = 4, End = (0f, 0f, 0f), Normal = (1f, 0f, 0f) }],
+            [],
+            static _ => Hole,
+            static _ => null,
+            props: new StaticPropDecalSource(prop => prop == 4 ? face : null, static _ => 9),
+            propDecals: pool);
+
+        replay.AdvanceTo(15, static _ => false);
+        pool.Count.ShouldBe(2);
+
+        replay.AdvanceTo(5, static _ => false);
+
+        pool.Count.ShouldBe(1);
+        pool.For(7).ShouldNotBeNull();
     }
 
     /// <remarks>`C_TEWorldDecal` shoots at `m_vecOrigin`; a `CTEDecal` on the world with no hitbox does the same.</remarks>

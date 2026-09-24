@@ -27062,8 +27062,11 @@ is why it is filed rather than done in the same change; it is the same three fun
 of the trace, and the decal is cut to its square on the model's own triangles, placed in the world. It draws after the
 opaque models. Three divergences remain.
 
-- **The pool is not shared.** The engine keeps one `CStudioRender` pool for static props and entity models together;
-  here static props have their own. This differs only past 75 model decals in total.
+- **~~The pool is not shared.~~ Shared, 2026-09-24.** There is one `ModelDecals` for static props and entities, as
+  `CStudioRender` keeps. Props are held under negative keys, and each replay clears only its own side on a seek. A seek's
+  model-decal replay advances the prop replay tick by tick, so the pool retires its oldest in the order the decals
+  landed. This mattered on f12: the props' share alone reaches 75 by tick 20,000. At tick 30,000 the pool holds 75, over
+  15 props and entity 4, whose blood from ticks 29,883 to 29,990 survives as the newest decals.
 - **The ray is interpolated** from `AddStudioDecal`, and so is the clipper; see the finding.
 - **A static-prop decal is unlit, or lit by the white texel.** The prop's own vertex lighting is not carried to it.
   Measured on f12 (2026-09-24, a count on the viewer's one-time log line): no lit run is held at ticks 20,000 and

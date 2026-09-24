@@ -196,6 +196,22 @@ public sealed class ModelDecals
         Version++;
     }
 
+    /// <summary>Every decal of the models whose keys match gone — one caller's share of a shared pool, on a seek.</summary>
+    /// <param name="key">Which keys to clear.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
+    public void ClearWhere(Func<int, bool> key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        foreach (int entity in new List<int>(_byEntity.Keys))
+        {
+            if (key(entity))
+            {
+                Clear(entity);
+            }
+        }
+    }
+
     /// <summary>Every model's decals gone — a seek backwards, or a new map.</summary>
     public void ClearAll()
     {

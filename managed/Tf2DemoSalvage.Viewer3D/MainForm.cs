@@ -4581,7 +4581,8 @@ internal class MainForm : Form, IFrameSteps
 
         if (tick < _modelDecalTick)
         {
-            _modelDecals.ClearAll();
+            // Entities' only: the static props' share of the pool is the decal replay's to rebuild (B421).
+            _modelDecals.ClearWhere(static key => !DecalReplay.IsStaticPropKey(key));
             _decalHolders.Clear();
             _modelDecalTick = tick;
 
@@ -4938,7 +4939,7 @@ internal class MainForm : Form, IFrameSteps
         TimeSpan posing = TimeSpan.Zero;
         (long simulate, long setup, long skin) was = (_models.SimulateTicks, _models.SetupTicks, _models.SkinTicks);
 
-        _modelDecals.ClearAll();
+        _modelDecals.ClearWhere(static key => !DecalReplay.IsStaticPropKey(key));
         _decalHolders.Clear();
         _modelDecalTick = start;
         _replayingModelDecals = true;
@@ -4949,6 +4950,13 @@ internal class MainForm : Form, IFrameSteps
 
         bool[] needed = ReplayTicks(timeline, start, target);
         int stepped = 0;
+
+        // **The props' decals up to the window first, and then tick by tick with the players'** (B421): the pool is
+        // shared and retires its oldest, so the two must arrive in the order they landed. A player judged only on his own
+        // tick is the world's answer here, as a replay's always is.
+        DecalReplay? props = DecalReplayOf();
+
+        props?.AdvanceTo(start, static _ => false);
 
         try
         {
@@ -4964,6 +4972,7 @@ internal class MainForm : Form, IFrameSteps
                         ClearOnChange(player);
                     }
 
+                    props?.AdvanceTo(tick, static _ => false);
                     _modelDecalTick = tick;
                     skipping += Stopwatch.GetElapsedTime(skipped);
                     continue;
@@ -4978,6 +4987,7 @@ internal class MainForm : Form, IFrameSteps
                 _moments.PoseNow(ViewFrustum.Nothing);
                 posing += Stopwatch.GetElapsedTime(phase);
 
+                props?.AdvanceTo(tick, bullet => StruckPlayer(bullet, tick));
                 StepModelDecals(tick);
                 stepped++;
             }
@@ -5472,36 +5482,21 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void StepDecals(int tick)
     {
-        if (_device is null ||
-            _timeline is not { } timeline ||
-            _loaded is not { Assets: { } assets, ImpactDecals: { } impacts } loaded)
+        if (_device is null || _loaded is not { Assets: { } assets } loaded || DecalReplayOf() is not { } replay)
         {
             return;
         }
 
-        _decalReplay ??= new DecalReplay(
-            new WorldDecals(DecalWorldOf(loaded)),
-            loaded.Impacts,
-            timeline.Decals.All,
-            impacts.For,
-            index => timeline.Decals.Names.Name(index) is { } name ? impacts.Materials.Resolve(name) : null,
-            loaded.Doors.Of,
-            new StaticPropDecalSource(
-                prop => assets.PlacedProps.TryGetValue(prop, out PlacedProp placed) ? placed.InWorld() : null,
-                material => assets.DecalMaterials.TryGetValue(material.ModelMaterial ?? material.Draws ?? material.Name, out int index)
-                    ? index
-                    : -1));
+        replay.AdvanceTo(tick, bullet => StruckPlayer(bullet, tick));
 
-        _decalReplay.AdvanceTo(tick, bullet => StruckPlayer(bullet, tick));
-
-        if (!_reportedPropRefusals && _decalReplay.PropRefusals.Count + _decalReplay.PropDecals.Count > 0)
+        if (!_reportedPropRefusals && replay.PropRefusals.Count + replay.PropDecals.Count > 0)
         {
             _reportedPropRefusals = true;
             _renderLog.LogInformation(
                 "{Message}",
                 $"static prop decals by tick {tick}: {loaded.Impacts.Count(impact => impact.StaticProp >= 0 && impact.Tick <= tick)} prop hits due, " +
-                $"{_decalReplay.PropDecals.Count} held; refused " +
-                string.Join("; ", _decalReplay.PropRefusals.Select(static pair => $"{pair.Value} {pair.Key}")));
+                $"{replay.PropDecals.Models.Count(DecalReplay.IsStaticPropKey)} props and {replay.PropDecals.Models.Count(static key => key >= 0)} entities decaled, {replay.PropDecals.Count} model decals held in all; refused " +
+                string.Join("; ", replay.PropRefusals.Select(static pair => $"{pair.Value} {pair.Key}")));
         }
 
         // **A decal on a door rides it** (`R_DecalShoot` into the brush model), so a door that moved rebuilds the mesh too.
@@ -5515,17 +5510,17 @@ internal class MainForm : Form, IFrameSteps
             }
         }
 
-        if (_decalReplay.Decals.Version == _decalVersion &&
-            _decalReplay.PropDecals.Version == _propDecalVersion &&
+        if (replay.Decals.Version == _decalVersion &&
+            replay.PropDecals.Version == _propDecalVersion &&
             doorsAt == _decalDoorsAt)
         {
             return;
         }
 
-        _decalVersion = _decalReplay.Decals.Version;
-        _propDecalVersion = _decalReplay.PropDecals.Version;
+        _decalVersion = replay.Decals.Version;
+        _propDecalVersion = replay.PropDecals.Version;
         _decalDoorsAt = doorsAt;
-        _decalReplay.Decals.Placed(_placedDecals);
+        replay.Decals.Placed(_placedDecals);
 
         if (_renderLog.IsEnabled(LogLevel.Debug))
         {
@@ -5533,7 +5528,7 @@ internal class MainForm : Form, IFrameSteps
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"decals rebuilt at {tick}: {_placedDecals.Count} placed, {_placedDecals.Count(static placed => placed.Entity >= 0)} on brush entities, {_decalReplay.PropDecals.Count} on static props {string.Join(",", _decalReplay.PropDecals.Models)}"));
+                    $"decals rebuilt at {tick}: {_placedDecals.Count} placed, {_placedDecals.Count(static placed => placed.Entity >= 0)} on brush entities, {replay.PropDecals.Count} model decals held, props {string.Join(",", replay.PropDecals.Models.Where(DecalReplay.IsStaticPropKey))}"));
 
             foreach (PlacedDecal placed in _placedDecals.Where(static placed => placed.Entity >= 0))
             {
@@ -5561,9 +5556,9 @@ internal class MainForm : Form, IFrameSteps
             _entityDecalBatches);
 
         // **A static prop's decals draw with the prop** (B421): already in the world, after the world's own decals.
-        foreach (int prop in _decalReplay.PropDecals.Models)
+        foreach (int prop in replay.PropDecals.Models)
         {
-            if (_decalReplay.PropDecals.For(prop) is not { } held)
+            if (!DecalReplay.IsStaticPropKey(prop) || replay.PropDecals.For(prop) is not { } held)
             {
                 continue;
             }
@@ -5596,6 +5591,31 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _device.UploadShotDecals(_decalVertices, _decalBatches, _entityDecalBatches);
+    }
+
+    /// <summary>The world's decal replay, made on first use once a map and a timeline are loaded.</summary>
+    private DecalReplay? DecalReplayOf()
+    {
+        if (_timeline is not { } timeline || _loaded is not { Assets: { } assets, ImpactDecals: { } impacts } loaded)
+        {
+            return null;
+        }
+
+        return _decalReplay ??= new DecalReplay(
+            new WorldDecals(DecalWorldOf(loaded)),
+            loaded.Impacts,
+            timeline.Decals.All,
+            impacts.For,
+            index => timeline.Decals.Names.Name(index) is { } name ? impacts.Materials.Resolve(name) : null,
+            loaded.Doors.Of,
+            new StaticPropDecalSource(
+                prop => assets.PlacedProps.TryGetValue(prop, out PlacedProp placed) ? placed.InWorld() : null,
+                material => assets.DecalMaterials.TryGetValue(material.ModelMaterial ?? material.Draws ?? material.Name, out int index)
+                    ? index
+                    : -1),
+
+            // **One pool for every model**, as `CStudioRender` keeps: a prop's decal and a player's share the limits.
+            _modelDecals);
     }
 
     /// <summary>The static props' decal pool version last uploaded.</summary>
