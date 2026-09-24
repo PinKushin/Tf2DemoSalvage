@@ -93,16 +93,19 @@ public sealed class IvpTangentialSolveConformanceTests
     }
 
     /// <remarks>
-    /// Halving the inverse inertia halves the mass row's x/y/z, since the row itself is unchanged — but the diagonal is
-    /// `dot(Row, MassRow)`, and the `w = 1` lane is untouched by inverse inertia on either side, so it still contributes
-    /// `1×1 = 1` on top of the halved `y×y` term (`1 × 0.5 = 0.5`), for `1.5`, not a plain half of the unscaled `2`.
+    /// Halving the inverse inertia halves the mass row's x/y/z, since the row itself is unchanged. **The mass row's `w` is
+    /// the core's inverse mass, `+0x4c`** — `IvpRigidBody::BuildJacobian` (<c>0x18009d010</c>) writes `param_5[3]` from
+    /// `core+0x4c` against the row's constant `1.0` — so the diagonal is the halved `y×y` term (`0.5`) plus the inverse
+    /// mass (`0.25`), for `0.75`. *This lane used to be a constant 1*, which made every light or heavy body's friction
+    /// act as if it weighed one unit: the barrel drop's tick 18 friction spun the barrel where the binary slid it.
     /// </remarks>
     [Test]
-    public void BuildJacobian_AHalvedInverseInertia_HalvesTheXyzTermButNotTheWLane()
+    public void BuildJacobian_AHalvedInverseInertia_HalvesTheXyzTermAndTheWLaneIsTheInverseMass()
     {
         IvpRigidBody core = new()
         {
             InverseInertia = (0.5f, 0.5f, 0.5f),
+            InverseMass = 0.25f,
             CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d)),
         };
 
@@ -110,8 +113,9 @@ public sealed class IvpTangentialSolveConformanceTests
             IvpTangentialSolve.BuildJacobian(core, (0f, 0f, 1f), (1f, 0f, 0f), (0f, 1f, 0f), (1f, 1f, 1f, 1f));
 
         rows.ShouldNotBeNull();
-        rows.Value.Axis0.MassRow.ShouldBe((0f, 0.5f, 0f, 1f));
-        rows.Value.Axis0.Diagonal.ShouldBe(1.5f);
+        rows.Value.Axis0.Row.ShouldBe((0f, 1f, 0f, 1f));
+        rows.Value.Axis0.MassRow.ShouldBe((0f, 0.5f, 0f, 0.25f));
+        rows.Value.Axis0.Diagonal.ShouldBe(0.75f);
     }
 
     [Test]
@@ -169,15 +173,19 @@ public sealed class IvpTangentialSolveConformanceTests
     [Test]
     public void CrossTerm_NoRows_IsZero() => IvpTangentialSolve.CrossTerm(null).ShouldBe(0f);
 
-    /// <remarks><c>dot(Axis0.MassRow, Axis1.Row)</c>, read straight off <c>BuildJacobian</c>'s own accumulation.</remarks>
+    /// <remarks>
+    /// <c>dot(Axis0.MassRow, Axis1.Row)</c> over **x, y and z only**: <c>BuildJacobian</c>'s `param_1[0x1f]` sums
+    /// `param_5[4..6] · param_4[0..2]` and never reads either `w`. The linear lane cancels because the two axes are
+    /// perpendicular; the port summed it anyway and added `1` to every cross term.
+    /// </remarks>
     [Test]
-    public void CrossTerm_TwoRows_IsTheDotOfTheFirstMassRowAndTheSecondRow()
+    public void CrossTerm_TwoRows_IsTheXyzDotOfTheFirstMassRowAndTheSecondRow()
     {
         IvpJacobianRow axis0 = new((0f, 0f, 0f, 0f), (1f, 2f, 3f, 4f), 0f);
         IvpJacobianRow axis1 = new((5f, 6f, 7f, 8f), (0f, 0f, 0f, 0f), 0f);
 
-        // 1*5 + 2*6 + 3*7 + 4*8 = 5 + 12 + 21 + 32 = 70.
-        IvpTangentialSolve.CrossTerm((axis0, axis1)).ShouldBe(70f);
+        // 1*5 + 2*6 + 3*7 = 38; the w lanes (4*8) are not read.
+        IvpTangentialSolve.CrossTerm((axis0, axis1)).ShouldBe(38f);
     }
 
     /// <remarks>With only one side movable, the system is exactly that side's own diagonals and cross term.</remarks>

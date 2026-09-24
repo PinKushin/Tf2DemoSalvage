@@ -6151,7 +6151,9 @@ internal class MainForm : Form, IFrameSteps
         int from = _corpseSoundTick;
         _corpseSoundTick = tick;
 
-        if (_replayingModelDecals || tick <= from || tick - from > CorpseSoundCatchUp ||
+        // **In long**: `from` starts at int.MinValue, where `tick - from` overflows negative, passed this guard, and the
+        // first frame walked two billion ticks — a 17 s freeze on every f12 open (gate phase 3, 2026-09-23).
+        if (_replayingModelDecals || tick <= from || (long)tick - from > CorpseSoundCatchUp ||
             _models.Corpses.Record is not { } record || _sound.Scripts is not { } scripts)
         {
             return;

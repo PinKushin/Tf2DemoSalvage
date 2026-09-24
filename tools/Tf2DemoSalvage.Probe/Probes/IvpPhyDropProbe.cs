@@ -153,8 +153,61 @@ public sealed class IvpPhyDropProbe : IProbe
                     : string.Empty));
         }
 
+        // The same line `vphysics-drop` prints under TF2VPHYSICS_PROBE_TRACE_COLLISIONS, for a diff.
+        int collisionTick = 0;
+
+        if (Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_TRACE_COLLISIONS") is not null)
+        {
+            Action<IvpCollisionEvent>? listener = world.Simulation.Environment.Collided;
+
+            world.Simulation.Environment.Collided = collision =>
+            {
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"COLLISION tick {collisionTick} isCollision 1 dt {collision.DeltaCollisionTime:R} speed {collision.CollisionSpeed:R}"));
+                listener?.Invoke(collision);
+            };
+        }
+
+        // `vphysics-drop`'s TF2VPHYSICS_PROBE_TRACE_FRICTION=first-last lines, for a diff: the dropped core's `+0x140`/`+0x130`.
+        if (Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_TRACE_FRICTION") is { } window)
+        {
+            string[] bounds = window.Split('-');
+            int firstTraced = int.Parse(bounds[0], CultureInfo.InvariantCulture);
+            int lastTraced = int.Parse(bounds[^1], CultureInfo.InvariantCulture);
+            IvpRigidBody traced = dynamicRagdoll.Bodies[0];
+
+            IvpTangentialSolve.Traced = (contact, after) =>
+            {
+                if (collisionTick < firstTraced || collisionTick > lastTraced)
+                {
+                    return;
+                }
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"TANGENTIAL {(after ? "out" : "in ")} tick {collisionTick} push={contact.NormalPush:R} " +
+                    $"slide=({contact.Slide.Span:R}, {contact.Slide.CrossSpan:R}) " +
+                    $"v=({traced.Velocity.X:R}, {traced.Velocity.Y:R}, {traced.Velocity.Z:R}) " +
+                    $"w=({traced.AngularVelocity.X:R}, {traced.AngularVelocity.Y:R}, {traced.AngularVelocity.Z:R})"));
+
+                if (!after && contact.Record is { } record)
+                {
+                    (double along0, double along1) = IvpTangentialSolve.RelativeVelocity(
+                        record.FirstCore, record.FirstArm, record.SecondCore, record.SecondArm, record.Span, record.CrossSpan);
+
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"  axes span={record.Span} cross={record.CrossSpan} normal={record.Normal} " +
+                        $"arms first={record.FirstArm} (static {record.FirstCore is null}) second={record.SecondArm} (static {record.SecondCore is null}) " +
+                        $"relative=({along0:R}, {along1:R})"));
+                }
+            };
+        }
+
         for (int tick = 1; tick <= Ticks; tick++)
         {
+            collisionTick = tick;
             world.Simulate(Step);
             dynamicRagdoll.CheckSettle(Step);
 
