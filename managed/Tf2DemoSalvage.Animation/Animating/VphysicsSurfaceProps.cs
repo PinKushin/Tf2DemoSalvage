@@ -65,13 +65,26 @@ public readonly record struct SurfaceSoundNames(string? StepLeft, string? StepRi
 
     /// <summary>`impactsoft`, played instead when the struck surface is too soft or the impact too slow.</summary>
     public string? ImpactSoft { get; init; }
+
+    /// <summary>`scraperough`, the loop `PhysFrictionSound` plays while the surface slides.</summary>
+    public string? ScrapeRough { get; init; }
+
+    /// <summary>`scrapesmooth`, played instead when the struck surface is smoother than this one's threshold.</summary>
+    public string? ScrapeSmooth { get; init; }
 }
 
-/// <summary>`surfaceaudioparams_t`, the parts `PlayImpactSounds` reads.</summary>
+/// <summary>`surfaceaudioparams_t`, the parts `PlayImpactSounds` and `PhysFrictionSound` read.</summary>
 /// <param name="HardnessFactor">`audiohardnessfactor` — `hardnessFactor`.</param>
 /// <param name="HardThreshold">`impacthardthreshold` — `hardThreshold`.</param>
 /// <param name="HardVelocityThreshold">`audiohardminvelocity` — `hardVelocityThreshold`.</param>
-public readonly record struct SurfaceAudio(float HardnessFactor, float HardThreshold, float HardVelocityThreshold);
+public readonly record struct SurfaceAudio(float HardnessFactor, float HardThreshold, float HardVelocityThreshold)
+{
+    /// <summary>`audioroughnessfactor` — `roughnessFactor`, how rough this surface is to something sliding on it.</summary>
+    public float RoughnessFactor { get; init; }
+
+    /// <summary>`scraperoughthreshold` — `roughThreshold`: a struck surface rougher than this scrapes rough.</summary>
+    public float RoughThreshold { get; init; }
+}
 
 /// <summary>
 /// vphysics' surface properties as IVP's material manager uses them — the manager at <c>180120be8</c> (vtable <c>1800ec560</c>)

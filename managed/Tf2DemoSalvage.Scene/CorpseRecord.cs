@@ -71,6 +71,15 @@ public sealed class CorpseRecord
     public IReadOnlyList<PhysicsImpactSound> ImpactSoundsAt(int tick) =>
         tick <= Reached && _impactSounds.TryGetValue(tick, out PhysicsImpactSound[]? heard) ? heard : [];
 
+    /// <summary>Each tick's `Friction` reports, written by the pass and read by the renderer.</summary>
+    private readonly ConcurrentDictionary<int, CorpseFriction[]> _frictions = [];
+
+    /// <summary>The `Friction` reports the corpses' physics made at a tick.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The reports, empty past <see cref="Reached"/> or for a still tick.</returns>
+    public IReadOnlyList<CorpseFriction> FrictionsAt(int tick) =>
+        tick <= Reached && _frictions.TryGetValue(tick, out CorpseFriction[]? heard) ? heard : [];
+
     /// <summary>The last tick every corpse's pose has been recorded for, or <see cref="int.MinValue"/> before the first.</summary>
     public int Reached => Volatile.Read(ref _reached);
 
@@ -133,6 +142,18 @@ public sealed class CorpseRecord
             heard.Add(sound);
         };
 
+        Dictionary<int, List<CorpseFriction>> pendingFrictions = [];
+
+        models.Corpses.FrictionHeard = (tick, friction) =>
+        {
+            if (!pendingFrictions.TryGetValue(tick, out List<CorpseFriction>? heard))
+            {
+                pendingFrictions[tick] = heard = [];
+            }
+
+            heard.Add(friction);
+        };
+
         int first = int.MaxValue;
         int last = int.MinValue;
         List<SceneProp> all = [];
@@ -177,6 +198,13 @@ public sealed class CorpseRecord
             }
 
             pending.Clear();
+
+            foreach ((int heardAt, List<CorpseFriction> heard) in pendingFrictions)
+            {
+                _frictions[heardAt] = [.. heard];
+            }
+
+            pendingFrictions.Clear();
             Volatile.Write(ref _reached, tick);
         }
     }

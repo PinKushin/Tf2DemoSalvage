@@ -2899,6 +2899,8 @@ internal class MainForm : Form, IFrameSteps
         // **The corpse pass says what it heard, whichever path posed the corpse** — f12's 26990 death played none after a seek to
         // 26960, when only the record was read.
         _heardCorpseSounds.Clear();
+        _heardCorpseFrictions.Clear();
+        _models.Corpses.FrictionHeard = (tick, friction) => _heardCorpseFrictions.Add((tick, friction));
         _models.Corpses.ImpactHeard = (tick, sound) =>
         {
             if (!_heardCorpseSounds.TryGetValue(tick, out List<Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound>? heard))
@@ -6156,6 +6158,18 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`CPhysicsSystem::m_impactSounds`: this frame's merged list; reused.</summary>
     private readonly List<Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound> _corpseFrameSounds = [];
 
+    /// <summary>`Friction` reports the corpse pass raised this frame, in order.</summary>
+    private readonly List<(int Tick, CorpseFriction Friction)> _heardCorpseFrictions = [];
+
+    /// <summary>The corpses' scrape loops (`friction_t`).</summary>
+    private readonly PhysicsFrictionSounds _frictionSounds = new();
+
+    /// <summary>`gpGlobals->curtime` for the scrape loops: the demo time the frames have covered.</summary>
+    private double _frictionClock;
+
+    /// <summary>The tick the scrape loops last stepped at; a step back is a seek, which forgets them.</summary>
+    private int _frictionTick = int.MinValue;
+
     /// <summary>A corpse's physics impacts — `CCollisionEvent::PostCollision` and `PlayImpactSounds`, per tick (B172).</summary>
     /// <remarks>
     /// **One source: what <see cref="CorpsePhysics.ImpactHeard"/> raised**, from whichever path posed the corpse. Reading the
@@ -6194,7 +6208,62 @@ internal class MainForm : Form, IFrameSteps
 
         // Consumed; a seek backwards leaves nothing ahead of it to play.
         _heardCorpseSounds.Clear();
+        StepCorpseScrapes(tick);
     }
+
+    /// <summary>The corpses' scrape loops for this frame — `Friction` reports in, stale loops out (<see cref="PhysicsFrictionSounds"/>).</summary>
+    private void StepCorpseScrapes(int tick)
+    {
+        if (tick < _frictionTick)
+        {
+            _frictionSounds.Clear();
+        }
+
+        _frictionTick = tick;
+        _frictionClock += _demoFrameSeconds;
+
+        List<CorpseFriction> frictions = [];
+
+        foreach ((int at, CorpseFriction friction) in _heardCorpseFrictions)
+        {
+            if (at <= tick && at > tick - CorpsePhysics.HearingCatchUp)
+            {
+                frictions.Add(friction);
+            }
+        }
+
+        _heardCorpseFrictions.Clear();
+
+        if (frictions.Count > 0 && _renderLog.IsEnabled(LogLevel.Debug))
+        {
+            _renderLog.LogDebug(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"corpse friction at {tick} (clock {_frictionClock:0.###}): {string.Join(", ", frictions.Select(static friction => $"{friction.Entity} {friction.Energy:0.#} {friction.SurfaceProps}/{friction.SurfacePropsHit}"))}"));
+        }
+
+        if (_replayingModelDecals || _sound.Scripts is not { } scripts || _models.Corpses.Surfaces is not { } surfaces)
+        {
+            return;
+        }
+
+        foreach (SceneSound sound in _frictionSounds.Step(tick, _frictionClock, frictions, CorpseAt, surfaces, scripts.Entries))
+        {
+            if (_renderLog.IsEnabled(LogLevel.Debug))
+            {
+                _renderLog.LogDebug(
+                    "{Message}",
+                    string.Create(CultureInfo.InvariantCulture, $"corpse scrape {(sound.IsStop ? "stop" : "start")} at {tick}: {sound.EntityIndex} {sound.Name} volume {sound.Volume:0.###}"));
+            }
+
+            _sound.Emit(sound);
+        }
+    }
+
+    /// <summary>Where a corpse's root body is, for a sound it starts; the origin when it is not simulated.</summary>
+    private (float X, float Y, float Z) CorpseAt(int entity, int tick) =>
+        _models.Corpses.Roots.TryGetValue(entity, out Vector3 root) ? (root.X, root.Y, root.Z) : default;
 
     /// <summary>The player an event fired on, as drawn at the shown moment.</summary>
     private ScenePlayer? Stepper(int entity)
