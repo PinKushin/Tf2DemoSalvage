@@ -415,15 +415,11 @@ public sealed class IvpRagdollWorld
     /// <summary>`ObjectSound`'s full-volume speed, 320 inches a second, squared.</summary>
     private const float FullVolumeSpeedSquared = 320f * 320f;
 
-    /// <summary>`AddImpactSound`'s heuristic: past this many sounds in one frame, every impact merges.</summary>
-    private const int MergeEverythingPast = 4;
-
-    /// <summary>`CPhysicsSystem::m_impactSounds`: this frame's impact sounds, played when it ends.</summary>
+    /// <summary>Each `ObjectSound` the last <see cref="Simulate"/> heard, unmerged, in the order they were heard.</summary>
     private readonly List<PhysicsImpactSound> _impactSounds = [];
 
-    /// <summary>The impact sounds the last <see cref="Simulate"/> made, in the order `PlayImpactSounds` plays them; clears them.</summary>
-    /// <returns>The sounds.</returns>
-    /// <remarks>`CPhysicsSystem::PhysicsSimulate` ends with `physicssound::PlayImpactSounds( m_impactSounds )` (`physics.cpp:473`).</remarks>
+    /// <summary>The impacts the last <see cref="Simulate"/> heard, raw and in order, for <see cref="PhysicsImpactSoundList"/>; clears them.</summary>
+    /// <returns>The impacts, each with `ObjectSound`'s volume and squared speed, before `AddImpactSound`'s bias.</returns>
     public IReadOnlyList<PhysicsImpactSound> TakeImpactSounds()
     {
         if (_impactSounds.Count == 0)
@@ -431,9 +427,7 @@ public sealed class IvpRagdollWorld
             return [];
         }
 
-        // `PlayImpactSounds` walks the list from the back.
         PhysicsImpactSound[] taken = [.. _impactSounds];
-        Array.Reverse(taken);
         _impactSounds.Clear();
         return taken;
     }
@@ -468,31 +462,10 @@ public sealed class IvpRagdollWorld
         }
 
         float volume = MathF.Min(speed * (1f / FullVolumeSpeedSquared), 1f);
-        int surfacePropsHit = SurfaceIndex(hit);
-        float impactSpeed = speed + 1e-4f;
 
-        for (int index = _impactSounds.Count - 1; index >= 0; index--)
-        {
-            PhysicsImpactSound sound = _impactSounds[index];
-
-            if (surfaceProps == sound.SurfaceProps || _impactSounds.Count > MergeEverythingPast)
-            {
-                if (volume > sound.Volume)
-                {
-                    sound = sound with { Origin = SourcePositionOf(core), SurfacePropsHit = surfacePropsHit };
-                }
-
-                _impactSounds[index] = sound with
-                {
-                    Volume = sound.Volume + volume,
-                    ImpactSpeed = MathF.Max(impactSpeed, sound.ImpactSpeed),
-                };
-
-                return;
-            }
-        }
-
-        _impactSounds.Add(new PhysicsImpactSound(surfaceProps, surfacePropsHit, volume, impactSpeed, SourcePositionOf(core)));
+        // **Raised raw, in order, and merged by whoever ends the FRAME** — `AddImpactSound`'s list lives across every tick one
+        // client frame simulates, so merging per tick here played two to three times TF2's count on f12 (2026-09-23).
+        _impactSounds.Add(new PhysicsImpactSound(surfaceProps, SurfaceIndex(hit), volume, speed, SourcePositionOf(core)));
     }
 
     private int SurfaceIndex(IIvpMaterial? material) =>
@@ -547,7 +520,47 @@ public sealed class IvpRagdollWorld
     }
 }
 
-/// <summary>One of a frame's physics impact sounds — `physicssound::impactsound_t`.</summary>
+/// <summary>`physicssound::soundlist_t` — one client frame's impact sounds, merged as they arrive (`vphysics_sound.h:82`).</summary>
+public static class PhysicsImpactSoundList
+{
+    /// <summary>`AddImpactSound`'s heuristic: past this many sounds in one frame, every impact merges.</summary>
+    private const int MergeEverythingPast = 4;
+
+    /// <summary>`physicssound::AddImpactSound`: merges an impact into the frame's list, or appends it.</summary>
+    /// <param name="list">The frame's list.</param>
+    /// <param name="impact">One `ObjectSound`, its speed squared and unbiased.</param>
+    /// <remarks>
+    /// Searched from the back; a same-surface entry, or any once more than four are listed, takes it. **Louder than the entry's
+    /// running volume** moves the entry to this impact's place and hit surface. `PlayImpactSounds` then walks the list from the back.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="list"/> is null.</exception>
+    public static void Add(IList<PhysicsImpactSound> list, PhysicsImpactSound impact)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+
+        float impactSpeed = impact.ImpactSpeed + 1e-4f;
+
+        for (int index = list.Count - 1; index >= 0; index--)
+        {
+            PhysicsImpactSound sound = list[index];
+
+            if (impact.SurfaceProps == sound.SurfaceProps || list.Count > MergeEverythingPast)
+            {
+                if (impact.Volume > sound.Volume)
+                {
+                    sound = sound with { Origin = impact.Origin, SurfacePropsHit = impact.SurfacePropsHit };
+                }
+
+                list[index] = sound with { Volume = sound.Volume + impact.Volume, ImpactSpeed = MathF.Max(impactSpeed, sound.ImpactSpeed) };
+                return;
+            }
+        }
+
+        list.Add(impact with { ImpactSpeed = impactSpeed });
+    }
+}
+
+/// <summary>One of a frame's physics impact sounds — `physicssound::impactsound_t` — or one raw `ObjectSound` before merging.</summary>
 /// <param name="SurfaceProps">The sounding object's surface, whose `impacthard`/`impactsoft` plays.</param>
 /// <param name="SurfacePropsHit">What it struck, whose hardness picks between them.</param>
 /// <param name="Volume">The summed volume, clamped to one when played.</param>

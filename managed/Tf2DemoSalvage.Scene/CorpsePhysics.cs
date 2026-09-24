@@ -130,6 +130,30 @@ public sealed class CorpsePhysics
     /// <summary>For each corpse that left the world, when, with how many contacts, and the highest place it had touched.</summary>
     public IReadOnlyDictionary<int, (int Tick, int Contacts, (double X, double Y, double Z) At)> Fell => _fell;
 
+    /// <summary>The most recent ticks a recorded frame's impacts are raised across; older ones were a seek, and are not heard.</summary>
+    public const int HearingCatchUp = 16;
+
+    /// <summary>The last tick whose impacts were raised, from the record or the live world.</summary>
+    private int _heardTick = int.MinValue;
+
+    /// <summary>
+    /// Raises the record's impacts for the ticks shown since the last — **one listener whichever path posed the corpse**, since a
+    /// seek puts playback ahead of the record and the viewer then crosses from the live replay to the record mid-death.
+    /// </summary>
+    private void HearRecorded(CorpseRecord record, int tick)
+    {
+        long from = Math.Max((long)_heardTick, (long)tick - HearingCatchUp);
+        _heardTick = tick;
+
+        for (long at = from + 1; at <= tick && ImpactHeard is not null; at++)
+        {
+            foreach (PhysicsImpactSound sound in record.ImpactSoundsAt((int)at))
+            {
+                ImpactHeard((int)at, sound);
+            }
+        }
+    }
+
     /// <summary>Forgets the environment — a new demo, or a map change.</summary>
     public void Clear()
     {
@@ -167,6 +191,7 @@ public sealed class CorpsePhysics
 
         if (Record is { } record && tick <= record.Reached && ShowRecorded(record, corpses, tick, seconds))
         {
+            HearRecorded(record, tick);
             return;
         }
 
@@ -224,6 +249,8 @@ public sealed class CorpsePhysics
             {
                 ImpactHeard?.Invoke(_worldTick, sound);
             }
+
+            _heardTick = _worldTick;
 
             foreach ((int entity, (IvpRagdoll ragdoll, _)) in _running)
             {

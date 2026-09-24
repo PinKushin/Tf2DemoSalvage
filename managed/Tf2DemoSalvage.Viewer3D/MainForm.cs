@@ -2895,6 +2895,19 @@ internal class MainForm : Form, IFrameSteps
 
         CorpseRecord record = new(corpses);
         _models.Corpses.Record = record;
+
+        // **The corpse pass says what it heard, whichever path posed the corpse** — f12's 26990 death played none after a seek to
+        // 26960, when only the record was read.
+        _heardCorpseSounds.Clear();
+        _models.Corpses.ImpactHeard = (tick, sound) =>
+        {
+            if (!_heardCorpseSounds.TryGetValue(tick, out List<Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound>? heard))
+            {
+                _heardCorpseSounds[tick] = heard = [];
+            }
+
+            heard.Add(sound);
+        };
         _corpseRecording = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
 
         Func<string, PropModels.ModelFrames?> geometry = _models.Geometry;
@@ -6137,42 +6150,51 @@ internal class MainForm : Form, IFrameSteps
         }
     }
 
-    /// <summary>The last tick whose corpse impact sounds were played.</summary>
-    private int _corpseSoundTick = int.MinValue;
+    /// <summary>Impacts the corpse pass raised this frame, by tick — from the record or the live replay, whichever posed them.</summary>
+    private readonly Dictionary<int, List<Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound>> _heardCorpseSounds = [];
 
-    /// <summary>A corpse's physics impacts — `CCollisionEvent::PostCollision` and `PlayImpactSounds`, recorded per tick (B172).</summary>
+    /// <summary>`CPhysicsSystem::m_impactSounds`: this frame's merged list; reused.</summary>
+    private readonly List<Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound> _corpseFrameSounds = [];
+
+    /// <summary>A corpse's physics impacts — `CCollisionEvent::PostCollision` and `PlayImpactSounds`, per tick (B172).</summary>
     /// <remarks>
-    /// Read from the background record, which played each physics frame's list at its end. A seek plays nothing it skipped, as
-    /// playback past it would not. ponytail: a tick the record has not reached yet is passed over silently; the record is
-    /// seconds ahead of playback once a demo has loaded.
+    /// **One source: what <see cref="CorpsePhysics.ImpactHeard"/> raised**, from whichever path posed the corpse. Reading the
+    /// record here as well lost every impact of f12's 26990 death after a seek, where playback crosses from the live replay to the
+    /// record mid-death (2026-09-23). Only the last <see cref="CorpsePhysics.HearingCatchUp"/> ticks play — a rebuild replays
+    /// from the death, and those are older than any frame.
     /// </remarks>
     private void StepCorpseSounds(int tick)
     {
-        int from = _corpseSoundTick;
-        _corpseSoundTick = tick;
-
-        // **In long**: `from` starts at int.MinValue, where `tick - from` overflows negative, passed this guard, and the
-        // first frame walked two billion ticks — a 17 s freeze on every f12 open (gate phase 3, 2026-09-23).
-        if (_replayingModelDecals || tick <= from || (long)tick - from > CorpseSoundCatchUp ||
-            _models.Corpses.Record is not { } record || _sound.Scripts is not { } scripts)
+        if (!_replayingModelDecals && _sound.Scripts is { } scripts)
         {
-            return;
-        }
+            // **One list for the frame**, as `CPhysicsSystem::PhysicsSimulate` keeps `m_impactSounds` across every tick its
+            // `Simulate( frametime )` crosses and plays it once — merged per tick instead, f12 played 29 impacts to TF2's 12.
+            _corpseFrameSounds.Clear();
 
-        for (int at = from + 1; at <= tick; at++)
-        {
-            foreach (Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound impact in record.ImpactSoundsAt(at))
+            foreach (int at in _heardCorpseSounds.Keys.Order())
             {
-                if (PhysicsImpactSounds.For(at, impact, _models.Corpses.Surfaces, scripts.Entries) is { } sound)
+                if (at <= tick && at > tick - CorpsePhysics.HearingCatchUp)
+                {
+                    foreach (Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound impact in _heardCorpseSounds[at])
+                    {
+                        Tf2DemoSalvage.Animation.Animating.PhysicsImpactSoundList.Add(_corpseFrameSounds, impact);
+                    }
+                }
+            }
+
+            // `PlayImpactSounds` walks the list from the back.
+            for (int index = _corpseFrameSounds.Count - 1; index >= 0; index--)
+            {
+                if (PhysicsImpactSounds.For(tick, _corpseFrameSounds[index], _models.Corpses.Surfaces, scripts.Entries) is { } sound)
                 {
                     _sound.Emit(sound);
                 }
             }
         }
-    }
 
-    /// <summary>The most ticks one frame plays corpse impacts across; past it the frame was a seek.</summary>
-    private const int CorpseSoundCatchUp = 16;
+        // Consumed; a seek backwards leaves nothing ahead of it to play.
+        _heardCorpseSounds.Clear();
+    }
 
     /// <summary>The player an event fired on, as drawn at the shown moment.</summary>
     private ScenePlayer? Stepper(int entity)
