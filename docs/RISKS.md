@@ -28050,6 +28050,10 @@ too, and the retry's map read resets the set. Live heap during f12 playback 4,29
 What remains is mostly what playback reads: decoded sounds (633 MB), the timeline's poses, players and gestures (~1.6 GB), and
 the source model frames (546 MB) that later packs read.
 
+**Added 2026-09-24, and kept small:** decals on static props (B421) need each placed model's triangles after the baked copies
+are released. They keep one `PropShape` per model, holding positions and normals only. On f12 that is 138 models and 534,249
+corners, about 13 MB. Whole `PropVertex`es would have been about 50 MB (the load's `static prop decals keep` line).
+
 ### B406 FIXED 2026-09-19: cosmetics not rooting to the player
 
 **The owner, watching `cp_process_f12` after B408's fix:** *"We do still have cosmetics not properly rooting to the player

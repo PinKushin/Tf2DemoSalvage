@@ -67,26 +67,55 @@ public readonly record struct PropVertex(
     // from a `.mdl`. It can then never match a swap entry, which is what those want.
     int MaterialSlot = -1);
 
-/// <summary>One static prop: its model's own corners, shared by every placement of the model, and how it was placed.</summary>
-/// <param name="Corners">The model's corners in its own space, a triangle list.</param>
+/// <summary>A model's triangles as a decal needs them: each corner's position and normal, in the model's own space.</summary>
+/// <param name="Positions">Corner positions, a triangle list.</param>
+/// <param name="Normals">Corner normals, one per position.</param>
+public sealed record PropShape(Vector3[] Positions, Vector3[] Normals)
+{
+    /// <summary>The shape of a model's corners.</summary>
+    /// <param name="corners">The corners.</param>
+    /// <returns>The shape.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="corners"/> is null.</exception>
+    public static PropShape Of(IReadOnlyList<PropVertex> corners)
+    {
+        ArgumentNullException.ThrowIfNull(corners);
+
+        Vector3[] positions = new Vector3[corners.Count];
+        Vector3[] normals = new Vector3[corners.Count];
+
+        for (int at = 0; at < corners.Count; at++)
+        {
+            PropVertex corner = corners[at];
+            positions[at] = new Vector3(corner.X, corner.Y, corner.Z);
+            normals[at] = new Vector3(corner.NormalX, corner.NormalY, corner.NormalZ);
+        }
+
+        return new PropShape(positions, normals);
+    }
+}
+
+/// <summary>One static prop: its model's shape, shared by every placement of the model, and how it was placed.</summary>
+/// <param name="Shape">The model's corners in its own space.</param>
 /// <param name="Transform">Its placement.</param>
 /// <remarks>
-/// **The model's corners, not the baked ones**: the world-space copies are let go once uploaded (B407), and keeping one list
-/// per model rather than per placement is the engine's own arrangement — a static prop is a model instance and a matrix.
+/// **The model's corners, not the baked ones**: the world-space copies are let go once uploaded (B407), and keeping one
+/// shape per model rather than per placement is the engine's own arrangement — a static prop is a model instance and a
+/// matrix. Positions and normals only: 138 models on f12, 534,249 corners, about 13 MB where whole `PropVertex`es were 50.
 /// </remarks>
-public readonly record struct PlacedProp(IReadOnlyList<PropVertex> Corners, PropTransform Transform)
+public readonly record struct PlacedProp(PropShape Shape, PropTransform Transform)
 {
     /// <summary>The prop's triangles in the world, normals turned with it — what a decal projects onto.</summary>
     /// <returns>The triangles, with z in <see cref="WorldVertex.Depth"/>.</returns>
     public WorldVertex[] InWorld()
     {
-        WorldVertex[] placed = new WorldVertex[Corners.Count];
+        WorldVertex[] placed = new WorldVertex[Shape.Positions.Length];
 
         for (int at = 0; at < placed.Length; at++)
         {
-            PropVertex corner = Corners[at];
-            (float x, float y, float z) = Transform.Apply(corner.X, corner.Y, corner.Z);
-            (float nx, float ny, float nz) = Transform.Rotate(corner.NormalX, corner.NormalY, corner.NormalZ);
+            Vector3 position = Shape.Positions[at];
+            Vector3 corner = Shape.Normals[at];
+            (float x, float y, float z) = Transform.Apply(position.X, position.Y, position.Z);
+            (float nx, float ny, float nz) = Transform.Rotate(corner.X, corner.Y, corner.Z);
             Vector3 normal = Vector3.Normalize(new Vector3(nx, ny, nz));
 
             placed[at] = new WorldVertex(x, y, z, 0f, 0f, 0f, 0f, 1f, NormalX: normal.X, NormalY: normal.Y, NormalZ: normal.Z);
@@ -255,6 +284,7 @@ public static class PropModels
         Dictionary<string, LoadedModel?> loaded = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, int> materialIndices = new(StringComparer.OrdinalIgnoreCase);
         List<PropVertex> world = [];
+        Dictionary<string, PropShape> shapes = new(StringComparer.OrdinalIgnoreCase);
 
         int placed = 0;
         int skipped = 0;
@@ -350,7 +380,15 @@ public static class PropModels
                 ? lightAt?.Invoke(placement.X, placement.Y, placement.Z).Cube
                 : null;
 
-            placedAt?.Add(index, new PlacedProp(model.Corners, transform));
+            if (placedAt is not null)
+            {
+                if (!shapes.TryGetValue(placement.Model, out PropShape? shape))
+                {
+                    shapes[placement.Model] = shape = PropShape.Of(model.Corners);
+                }
+
+                placedAt.Add(index, new PlacedProp(shape, transform));
+            }
 
             for (int at = 0; at < model.Corners.Count; at++)
             {
