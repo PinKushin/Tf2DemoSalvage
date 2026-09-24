@@ -209,11 +209,16 @@ public sealed class LoadedMap
 
         if (timeline is not null)
         {
+            // The doors a bullet stops on, where each stood at the shot's tick.
+            SolidBrushEntities doors = level.BrushModels is { } models
+                ? SolidBrushEntities.From(timeline.Props, models)
+                : SolidBrushEntities.None;
+
             using (renderLog.Time("tracing every shot"))
             {
                 tracers = new HitscanTracers(game.Archives.Read).Trace(
                     timeline.Shots.All,
-                    (from, to) => level.Trace(from, to, 0f),
+                    (tick, from, to) => level.Trace(from, to, 0f, doors.At(tick)),
                     float.TryParse(
                         timeline.ServerConVars.Value("tf_use_fixed_weaponspreads"),
                         NumberStyles.Float,
@@ -224,7 +229,7 @@ public sealed class LoadedMap
 
             renderLog.LogInformation(
                 "{Message}",
-                $"{impacts.Count(static impact => impact.StudioSurfaceProp >= 0).ToString(CultureInfo.InvariantCulture)} of {impacts.Count.ToString(CultureInfo.InvariantCulture)} client bullets stopped on a static prop");
+                $"{impacts.Count(static impact => impact.StudioSurfaceProp >= 0).ToString(CultureInfo.InvariantCulture)} of {impacts.Count.ToString(CultureInfo.InvariantCulture)} client bullets stopped on a static prop; {doors.Count.ToString(CultureInfo.InvariantCulture)} doors traced");
 
             // **Every decal the demo can place, resolved now so their materials load with the map's** (B415): the
             // impact groups a bullet can draw from, and the names the decalprecache table carries for decal events.
