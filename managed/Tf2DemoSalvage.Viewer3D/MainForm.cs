@@ -6296,13 +6296,14 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`C_BasePlayer::GetGroundSurface`: the surface under the player's hull, or null for none within 64.</summary>
     private StepSurface? GroundSurface(ScenePlayer player)
     {
-        if (_loaded is not { Level: { } level, ImpactDecals: { } decals })
+        if (_loaded is not { Level: { } level, ImpactDecals: { } decals } loaded)
         {
             return null;
         }
 
+        // `MASK_PLAYERSOLID_BRUSHONLY` keeps brush entities — a door underfoot is ground.
         (float X, float Y, float Z) from = (player.X, player.Y, player.Z + HullHalfWidth);
-        BspTrace trace = level.Trace(from, (from.X, from.Y, from.Z - GroundProbe), HullHalfWidth);
+        BspTrace trace = level.Trace(from, (from.X, from.Y, from.Z - GroundProbe), HullHalfWidth, loaded.Doors.At(_transport.CurrentTick));
 
         _lastGround = trace;
 

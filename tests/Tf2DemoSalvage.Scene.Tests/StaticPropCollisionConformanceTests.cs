@@ -71,6 +71,21 @@ public sealed class StaticPropCollisionConformanceTests
         Props(yaw: 45f).Trace((0f, 43.5f, 0f), (200f, 43.5f, 0f), halfExtent: 8f).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **A ledge's point array can be shared with its siblings** (`ladder001`'s ten ledges index one array), so points the
+    /// ledge's own triangles never name must not decide which way is outward or how far it reaches. Here the box's array
+    /// carries a far point at x = +50 m that no triangle uses: taken into the middle, it turned every face normal inward
+    /// on its side and a box far from the prop started "inside" it — 189 of 267 footsteps on f12.
+    /// </remarks>
+    [Test]
+    public void Trace_ALedgeWithUnusedSharedPoints_IsBoundedByItsOwnTriangles()
+    {
+        StaticPropCollision props = StaticPropCollision.From([Prop(0f)], _ => Collide(unused: new Vector3(50f, 0f, 0f)), _ => 7);
+
+        props.Trace((1000f, 0f, 0f), (1000f, 0f, -100f), halfExtent: 24f).ShouldBeNull();
+        props.Trace(From, To).ShouldNotBeNull().Fraction.ShouldBe((100f - 39.370079f) / 200f, 1e-5f);
+    }
+
     [Test]
     public void Trace_ALinePassingAbove_MissesIt() =>
         Props(yaw: 0f).Trace((0f, 0f, 10f), (200f, 0f, 10f)).ShouldBeNull();
@@ -84,7 +99,7 @@ public sealed class StaticPropCollisionConformanceTests
     private static BspStaticProp Prop(float yaw) =>
         new("models/props/box.mdl", 100f, 0f, 0f, 0f, yaw, 0f, 1f, Solid: 6);
 
-    private static IvpStaticPropCollide Collide()
+    private static IvpStaticPropCollide Collide(Vector3? unused = null)
     {
         List<Vector3> points = [];
 
@@ -106,6 +121,11 @@ public sealed class StaticPropCollisionConformanceTests
             (0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
             (0, 2, 6), (0, 6, 4), (1, 3, 7), (1, 7, 5),
         ];
+
+        if (unused is { } far)
+        {
+            points.Add(far);
+        }
 
         PhysicsLedge ledge = new(points, triangles, [], [], [], Vector3.Zero, 1.1f);
 
