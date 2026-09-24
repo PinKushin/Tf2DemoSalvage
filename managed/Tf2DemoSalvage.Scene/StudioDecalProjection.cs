@@ -39,7 +39,7 @@ public readonly record struct StudioDecalCorner(int Vertex, float U, float V);
 /// **A skinned model's decal is whole triangles of the model**, never cut: the clipped path that makes new corners
 /// runs only for a one-bone model with no flexes (`numbones &gt; 1 || numflexdesc != 0` turns it off). So a decal rides
 /// the same vertices the model draws and is skinned by the same bones, which is what keeps it on a moving player.
-/// *Not built:* that clipped path, which no player takes.
+/// That clipped path, which no player takes and every static prop does, is <see cref="ProjectClipped"/> (B421).
 /// </remarks>
 public static class StudioDecalProjection
 {
@@ -132,6 +132,113 @@ public static class StudioDecalProjection
 
         return corners;
     }
+
+    /// <summary>Projects one decal onto a one-bone model already placed in the world — the clipped path.</summary>
+    /// <param name="vertices">The model's vertices in the world, a triangle list, with z in <see cref="WorldVertex.Depth"/>.</param>
+    /// <param name="start">The ray's start.</param>
+    /// <param name="delta">The ray's length and direction.</param>
+    /// <param name="up">The decal's up.</param>
+    /// <param name="radius">Half the decal's size.</param>
+    /// <param name="noPokeThru">Whether depth bounds the decal as well.</param>
+    /// <returns>New corners, three per triangle, with the decal's UV and the face's interpolated position and normal.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="vertices"/> is null.</exception>
+    /// <remarks>
+    /// A triangle is accepted by the same facing, depth and outcode tests as <see cref="Project"/>, then cut to the decal's
+    /// unit square and fanned. *Interpolated:* the cut is Sutherland–Hodgman against U = 0, U = 1, V = 0, V = 1 in that
+    /// order, carrying position and normal linearly; `studiorender.dll`'s clipper has not been read.
+    /// </remarks>
+    public static IReadOnlyList<WorldVertex> ProjectClipped(
+        IReadOnlyList<WorldVertex> vertices, Vector3 start, Vector3 delta, Vector3 up, float radius, bool noPokeThru)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+
+        List<WorldVertex> corners = [];
+
+        if (Frame(start, delta, up) is not { } decal)
+        {
+            return corners;
+        }
+
+        float[][] toDecal = [decal];
+        float scale = radius != 0f ? 1f / radius : 1f;
+
+        for (int first = 0; first + 2 < vertices.Count; first += 3)
+        {
+            List<WorldVertex> polygon = [];
+            bool facing = true;
+            bool inDepth = false;
+            int all = ~0;
+
+            for (int corner = 0; corner < 3; corner++)
+            {
+                WorldVertex vertex = vertices[first + corner] with { WeightA = 0f, WeightB = 0f, WeightC = 0f, BoneA = 0f };
+                Projected one = Vertex(vertex, toDecal, scale, radius, noPokeThru);
+
+                facing &= one.Facing;
+                inDepth |= one.InDepth;
+                all &= Outcode(one.U, one.V);
+                polygon.Add(vertex with { U = one.U, V = one.V });
+            }
+
+            if (!facing || !inDepth || all != 0)
+            {
+                continue;
+            }
+
+            polygon = ClipCorners(polygon, static p => p.U, 0f, keepAbove: true);
+            polygon = ClipCorners(polygon, static p => p.U, 1f, keepAbove: false);
+            polygon = ClipCorners(polygon, static p => p.V, 0f, keepAbove: true);
+            polygon = ClipCorners(polygon, static p => p.V, 1f, keepAbove: false);
+
+            for (int corner = 1; corner + 1 < polygon.Count; corner++)
+            {
+                corners.Add(polygon[0]);
+                corners.Add(polygon[corner]);
+                corners.Add(polygon[corner + 1]);
+            }
+        }
+
+        return corners;
+    }
+
+    private static List<WorldVertex> ClipCorners(
+        List<WorldVertex> polygon, Func<WorldVertex, float> axis, float edge, bool keepAbove)
+    {
+        List<WorldVertex> kept = [];
+
+        for (int index = 0; index < polygon.Count; index++)
+        {
+            WorldVertex from = polygon[index];
+            WorldVertex to = polygon[(index + 1) % polygon.Count];
+            float fromSide = keepAbove ? axis(from) - edge : edge - axis(from);
+            float toSide = keepAbove ? axis(to) - edge : edge - axis(to);
+
+            if (fromSide >= 0f)
+            {
+                kept.Add(from);
+            }
+
+            if ((fromSide >= 0f) != (toSide >= 0f))
+            {
+                kept.Add(Lerp(from, to, fromSide / (fromSide - toSide)));
+            }
+        }
+
+        return kept;
+    }
+
+    private static WorldVertex Lerp(WorldVertex a, WorldVertex b, float t) =>
+        a with
+        {
+            X = a.X + ((b.X - a.X) * t),
+            Y = a.Y + ((b.Y - a.Y) * t),
+            Depth = a.Depth + ((b.Depth - a.Depth) * t),
+            U = a.U + ((b.U - a.U) * t),
+            V = a.V + ((b.V - a.V) * t),
+            NormalX = a.NormalX + ((b.NormalX - a.NormalX) * t),
+            NormalY = a.NormalY + ((b.NormalY - a.NormalY) * t),
+            NormalZ = a.NormalZ + ((b.NormalZ - a.NormalZ) * t),
+        };
 
     /// <summary>A control for a projection that took nothing: vertices facing the shot, those inside the square, and the nearest.</summary>
     /// <param name="vertices">As for <see cref="Project"/>.</param>

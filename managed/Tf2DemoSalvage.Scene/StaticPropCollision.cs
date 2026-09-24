@@ -12,7 +12,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Fraction">How far along the line.</param>
 /// <param name="Normal">The struck face's outward normal.</param>
 /// <param name="SurfaceProp">The prop model's own `$surfaceprop`, as a surface index — `trace.surface.surfaceProps`.</param>
-public readonly record struct StaticPropHit(float Fraction, Vector3 Normal, int SurfaceProp);
+/// <param name="Prop">The prop's index in the map's lump — the engine's `hitbox − 1`.</param>
+public readonly record struct StaticPropHit(float Fraction, Vector3 Normal, int SurfaceProp, int Prop = -1);
 
 /// <summary>The map's solid static props as a line trace meets them.</summary>
 /// <remarks>
@@ -21,7 +22,8 @@ public readonly record struct StaticPropHit(float Fraction, Vector3 Normal, int 
 /// becomes `**studio**` with `GetSurfaceIndex( studiohdr->pszSurfaceProp() )` (`studiohdr+0x134`), the MDL's `$surfaceprop`, not the
 /// `.phy`'s. A static prop has `CONTENTS_SOLID` and `CTraceFilterSimple` passes it, so bullets meet props as they meet brushes.
 /// A line against a convex ledge is the plane clip over its triangles, which `TraceBox` answers for a zero-extent ray.
-/// *Not carried:* `SOLID_BBOX` (2) props, a swept box against a prop, and decals on a prop.
+/// The hit names the prop by its lump index, the engine's `hitbox − 1`, which is what a decal on it is keyed by (B421).
+/// *Not carried:* `SOLID_BBOX` (2) props.
 /// </remarks>
 public sealed class StaticPropCollision
 {
@@ -53,8 +55,10 @@ public sealed class StaticPropCollision
 
         List<Prop> made = [];
 
-        foreach (BspStaticProp prop in props)
+        for (int index = 0; index < props.Count; index++)
         {
+            BspStaticProp prop = props[index];
+
             if (prop.Solid != SolidVphysics || collide(prop.Model) is not { } found)
             {
                 continue;
@@ -84,7 +88,7 @@ public sealed class StaticPropCollision
                 max = Vector3.Max(max, hull.Max);
             }
 
-            made.Add(new Prop(min, max, [.. hulls], surfaceProp(prop.Model)));
+            made.Add(new Prop(min, max, [.. hulls], surfaceProp(prop.Model), index));
         }
 
         return new StaticPropCollision([.. made]);
@@ -125,7 +129,7 @@ public sealed class StaticPropCollision
             {
                 if (Clip(start, delta, hull, grow.X) is { } hit && hit.Fraction < (nearest?.Fraction ?? 1f))
                 {
-                    nearest = new StaticPropHit(hit.Fraction, hit.Normal, prop.SurfaceProp);
+                    nearest = new StaticPropHit(hit.Fraction, hit.Normal, prop.SurfaceProp, prop.Index);
                 }
             }
         }
@@ -332,5 +336,5 @@ public sealed class StaticPropCollision
 
     private readonly record struct Hull(Vector3 Min, Vector3 Max, Plane[] Planes);
 
-    private readonly record struct Prop(Vector3 Min, Vector3 Max, Hull[] Hulls, int SurfaceProp);
+    private readonly record struct Prop(Vector3 Min, Vector3 Max, Hull[] Hulls, int SurfaceProp, int Index);
 }

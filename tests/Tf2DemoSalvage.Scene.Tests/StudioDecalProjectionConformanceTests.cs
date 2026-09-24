@@ -66,6 +66,49 @@ public sealed class StudioDecalProjectionConformanceTests
         corners[0].U.ShouldBe(0.75f);
     }
 
+    /// <remarks>
+    /// A one-bone model takes the clipped path: a triangle covering the whole decal is cut down to the decal's square,
+    /// and the square's four corners come back as a fan of two triangles, each at the point on the face it covers.
+    /// </remarks>
+    [Test]
+    public void ProjectClipped_ATriangleCoveringTheDecal_IsCutToItsSquare()
+    {
+        IReadOnlyList<WorldVertex> corners = Clipped([Corner(0f, -100f, -100f), Corner(0f, 100f, -100f), Corner(0f, 0f, 100f)]);
+
+        corners.Count.ShouldBe(6);
+
+        foreach (WorldVertex corner in corners)
+        {
+            // U = y / 4 · 0.5 + 0.5 and V = z / 4 · 0.5 + 0.5, each exactly 0 or 1 at a square corner.
+            corner.U.ShouldBe(System.MathF.Round(corner.U), 1e-5f);
+            corner.V.ShouldBe(System.MathF.Round(corner.V), 1e-5f);
+            System.MathF.Round(corner.U).ShouldBeInRange(0f, 1f);
+            System.MathF.Round(corner.V).ShouldBeInRange(0f, 1f);
+            corner.Y.ShouldBe((corner.U * 8f) - 4f, 1e-4f);
+            corner.Depth.ShouldBe((corner.V * 8f) - 4f, 1e-4f);
+            corner.NormalX.ShouldBe(1f, 1e-6f);
+        }
+    }
+
+    [Test]
+    public void ProjectClipped_ATriangleWhollyInsideTheDecal_IsKeptAsItIs()
+    {
+        IReadOnlyList<WorldVertex> corners = Clipped([Corner(0f, 2f, 0f), Corner(0f, 0f, 2f), Corner(0f, -2f, -2f)]);
+
+        corners.Count.ShouldBe(3);
+        (corners[2].Y, corners[2].U, corners[2].V).ShouldBe((-2f, 0.25f, 0.25f));
+    }
+
+    /// <remarks>`0x18000b690`: with `noPokeThru`, a corner is in depth only when |row2 · pos + t| &lt; radius.</remarks>
+    [Test]
+    public void ProjectClipped_AFaceBeyondTheDecalsDepth_TakesNothing() =>
+        Clipped([Corner(-20f, 2f, 0f), Corner(-20f, 0f, 2f), Corner(-20f, -2f, -2f)]).ShouldBeEmpty();
+
+    /// <summary>The better ray `AddStudioDecal` builds from a trace: from the hit point one unit into the face, bloated.</summary>
+    private static IReadOnlyList<WorldVertex> Clipped(WorldVertex[] vertices) =>
+        StudioDecalProjection.ProjectClipped(
+            vertices, Vector3.Zero, new Vector3(-1.1f, 0f, 0f), Vector3.UnitZ, radius: 4f, noPokeThru: true);
+
     private static IReadOnlyList<StudioDecalCorner> Project(WorldVertex[] vertices) =>
         StudioDecalProjection.Project(
             vertices, [Identity], new Vector3(100f, 0f, 0f), new Vector3(-110f, 0f, 0f), Vector3.UnitZ, radius: 4f, noPokeThru: false);

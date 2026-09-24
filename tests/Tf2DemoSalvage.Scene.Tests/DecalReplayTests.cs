@@ -47,6 +47,60 @@ public sealed class DecalReplayTests
         replay.Decals.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// `Impact()` (`fx_impact.cpp:149`): entity 0 with a nonzero hitbox is a static prop, and goes to
+    /// `AddDecalToStaticProp` alone — never into the brushes behind it.
+    /// </remarks>
+    [Test]
+    public void AdvanceTo_ABulletAStaticPropStopped_PlacesNoWorldDecal()
+    {
+        DecalReplay replay = new(
+            new WorldDecals(WorldDecalsConformanceTests.Wall()),
+            // A prop whose model declares no `$surfaceprop` is a prop all the same.
+            [Impacts[0] with { StaticProp = 4 }, Impacts[1]],
+            [],
+            static _ => Hole,
+            static _ => null);
+
+        replay.AdvanceTo(25, static _ => false);
+
+        replay.Decals.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// The bullet stops on prop 4's face at x = 0, which faces +x; the decal is cut to its 64 · 0.16 = 10.24 square and
+    /// held under the prop's lump index, and a seek back takes it away with the world's.
+    /// </remarks>
+    [Test]
+    public void AdvanceTo_ABulletAStaticPropStopped_DecalsTheProp()
+    {
+        WorldVertex[] face =
+        [
+            new(0f, -100f, -100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+            new(0f, 100f, -100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+            new(0f, 0f, 100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+        ];
+
+        DecalReplay replay = new(
+            new WorldDecals(WorldDecalsConformanceTests.Wall()),
+            [Impacts[0] with { StudioSurfaceProp = 3, StaticProp = 4, End = (0f, 0f, 0f), Normal = (1f, 0f, 0f) }],
+            [],
+            static _ => Hole,
+            static _ => null,
+            props: new StaticPropDecalSource(prop => prop == 4 ? face : null, static _ => 9));
+
+        replay.AdvanceTo(15, static _ => false);
+
+        (IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches) = replay.PropDecals.For(4).ShouldNotBeNull();
+        vertices.Count.ShouldBe(6);
+        batches[0].MaterialIndex.ShouldBe(9);
+        System.MathF.Abs(vertices[0].Y).ShouldBe(5.12f, 1e-4f);
+
+        replay.AdvanceTo(5, static _ => false);
+
+        replay.PropDecals.Count.ShouldBe(0);
+    }
+
     /// <remarks>`C_TEWorldDecal` shoots at `m_vecOrigin`; a `CTEDecal` on the world with no hitbox does the same.</remarks>
     [Test]
     public void AdvanceTo_WorldDecalEvents_ArePlaced()

@@ -138,7 +138,7 @@ public sealed record MapLevel(
 
         // The static props too — `CONTENTS_SOLID`, through `CTraceFilterSimple` (StaticPropCollision), a line or a box.
         return StaticProps.Trace(from, to, halfExtent) is { } prop && prop.Fraction < world.Fraction
-            ? new BspTrace(prop.Fraction, -1, (prop.Normal.X, prop.Normal.Y, prop.Normal.Z), false, StudioSurfaceProp: prop.SurfaceProp)
+            ? new BspTrace(prop.Fraction, -1, (prop.Normal.X, prop.Normal.Y, prop.Normal.Z), false, StudioSurfaceProp: prop.SurfaceProp, StaticProp: prop.Prop)
             : world;
     }
 
