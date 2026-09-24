@@ -133,14 +133,16 @@ public static class PlayerBulletTrace
     }
 
     /// <summary>
-    /// `CEngineTrace::ClipRayToEntity` against a player with a hitbox mask: his hitboxes, and when they return nothing,
-    /// his collision box — engine.dll `ClipRayToCollideable` (`0x18018f510`) calls `TestHitboxes` (`0x180190a40`) for a
-    /// studio entity and falls through to the `SOLID_BBOX` clip (`0x1801905e0`) when it misses.
+    /// `CEngineTrace::ClipRayToEntity` against a player with a hitbox mask: his hitboxes, and his collision box only when
+    /// they could not be tested — engine.dll `ClipRayToCollideable` (`0x18018f510`) falls through to the `SOLID_BBOX` clip
+    /// (`0x1801905e0`) only when `ClipRayToHitboxes` (`0x180190a40`) returns false, which a line against a model with
+    /// hitboxes never does. A MISS is a full-length answer, 1 or more.
     /// </summary>
     /// <param name="player">The player.</param>
     /// <param name="start">`ray.m_Start`.</param>
     /// <param name="delta">`ray.m_Delta`.</param>
-    /// <param name="hitboxes">His posed hitboxes against the ray.</param>
+    /// <param name="hitboxes">His posed hitboxes against the ray: the fraction, 1 or more for a miss, or null when they
+    /// could not be tested — a player no pass posed, for whom the box stands in (*interpolated*).</param>
     /// <returns>The fraction the ray stops at, or null when it misses both.</returns>
     public static float? ClipRayToEntity(
         BulletTarget player, Vector3 start, Vector3 delta, Func<int, Vector3, Vector3, float?> hitboxes)
