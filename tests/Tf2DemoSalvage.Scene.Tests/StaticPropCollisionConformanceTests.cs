@@ -42,6 +42,36 @@ public sealed class StaticPropCollisionConformanceTests
     }
 
     [Test]
+    public void Trace_ABoxSweptInto_StopsItsHalfWidthSooner()
+    {
+        // A 16-wide box's leading face touches the prop 8 units before its centre would.
+        Props(yaw: 0f).Trace(From, To, halfExtent: 8f).ShouldNotBeNull().Fraction.ShouldBe((100f - 39.370079f - 8f) / 200f, 1e-5f);
+    }
+
+    [Test]
+    public void Trace_ABoxPassingAboveByLessThanItsHalfWidth_IsStopped()
+    {
+        // The prop's top is at z = 3.937; a box centred 10 up with half-width 8 reaches down to 2.
+        Props(yaw: 0f).Trace((0f, 0f, 10f), (200f, 0f, 10f), halfExtent: 8f).ShouldNotBeNull();
+    }
+
+    [Test]
+    public void Trace_ABoxClearOfThePropByMoreThanItsHalfWidth_MissesIt()
+    {
+        // The prop reaches y = 9.84; a box centred at y = 19 with half-width 8 reaches down to 11.
+        Props(yaw: 0f).Trace((0f, 19f, 0f), (200f, 19f, 0f), halfExtent: 8f).ShouldBeNull();
+    }
+
+    [Test]
+    public void Trace_ABoxPastAYawedPropsCorner_MissesWhereTheFacePlanesAloneWouldStopIt()
+    {
+        // Yawed 45°, the prop is a diamond in x-y. A box whose corner comes near the diamond's side corner but not onto
+        // it is cut by the pushed-out face planes' intersection unless the axis bevels bound it: the diamond's y reach is
+        // (39.37 + 9.84)·sin 45° = 34.80, so a box centred at y = 43.5 with half-width 8 clears it by 0.7.
+        Props(yaw: 45f).Trace((0f, 43.5f, 0f), (200f, 43.5f, 0f), halfExtent: 8f).ShouldBeNull();
+    }
+
+    [Test]
     public void Trace_ALinePassingAbove_MissesIt() =>
         Props(yaw: 0f).Trace((0f, 0f, 10f), (200f, 0f, 10f)).ShouldBeNull();
 
