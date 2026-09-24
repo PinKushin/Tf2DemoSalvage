@@ -31742,7 +31742,12 @@ matters here.
 *Evidence class: read-from-source, `c_tf_player.cpp` at both sites; the claim about our own body
 value is read from `RagdollProps.cs` and `ScenePropTrack.ScenePose`.*
 
-### B396 OPEN 2026-09-11: no healing beam is drawn
+### B396 CLOSED: no healing beam is drawn
+
+**Closed by work that never came back to this entry**, found open on 2026-09-24. `HealBeamFeed` decodes the beam, and
+`MainForm.AddHealBeams` draws `medicgun_beam_*` as a two-control-point particle system. The commits are `39cb03c6`
+(the beam, its path constraints and initial remaps), `abb589a3` (its drips) and `b48ebbc3` (the custom beam particle
+and the targeted beam). The original entry follows.
 
 **Reported by the owner in the same message as B395.** Bundled with the rocket/ball report but a
 different mechanism entirely: a healing beam is not a networked projectile, and this project has
