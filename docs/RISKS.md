@@ -27050,6 +27050,22 @@ is why it is filed rather than done in the same change; it is the same three fun
 
 *Evidence class: read from the shipped binary's disassembly; nothing measured.*
 
+### B421 OPEN 2026-09-24: bullet decals on static props are not built
+
+`Impact()` in `fx_impact.cpp:149` sends a hit on entity 0 with a nonzero hitbox — a static prop — to
+`staticpropmgr->AddDecalToStaticProp` alone, and never into the world's brushes. Until 2026-09-24 `DecalReplay` sent a client bullet that stopped on a
+static prop to `WorldDecals.Shoot` at the impact point, which clips the decal onto whatever brushes lie within its
+radius, so a dent could appear on the wall or floor behind a prop. That half is fixed: a static-prop hit
+(`ShotImpact.StudioSurfaceProp >= 0`) no longer places a world decal (`DecalReplayTests`).
+
+**Still missing:** the decal on the prop itself. It needs the struck prop's index carried out of
+`StaticPropCollision.Trace` (today `StaticPropHit` holds only the surfaceprop), the prop model's bind-space triangles
+and its transform for `StudioDecalProjection.Project`, the shared `r_maxmodeldecal` pool in `ModelDecals`, and a
+draw after the static prop runs. Static props are baked into the world vertex buffer, so their decal corners must be
+transformed to world space when placed.
+
+*Evidence class: read from published source (`fx_impact.cpp`, `c_te_decal.cpp:135`); the fall-through read in our code.*
+
 ### B420 CLOSED 2026-09-23: after playback, a paused frame in the free camera stays ~10x dearer, even after seeking back
 
 **Closed on a measurement, cause not pinned.** `tf2demoview z1800.dem --tick 20000 --autoplay +demo_timescale 8

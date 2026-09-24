@@ -95,7 +95,8 @@ public sealed class DecalReplay
             {
                 ShotImpact impact = _impacts[_impact++];
 
-                if (!struckPlayer(impact) && _impactMaterial(impact) is { } material)
+                // A static prop's hit goes to `AddDecalToStaticProp` alone — never into the brushes behind it.
+                if (impact.StudioSurfaceProp < 0 && !struckPlayer(impact) && _impactMaterial(impact) is { } material)
                 {
                     Vector3 end = new(impact.End.X, impact.End.Y, impact.End.Z);
 

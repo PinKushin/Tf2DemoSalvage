@@ -47,6 +47,25 @@ public sealed class DecalReplayTests
         replay.Decals.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// `Impact()` (`fx_impact.cpp:149`): entity 0 with a nonzero hitbox is a static prop, and goes to
+    /// `AddDecalToStaticProp` alone — never into the brushes behind it.
+    /// </remarks>
+    [Test]
+    public void AdvanceTo_ABulletAStaticPropStopped_PlacesNoWorldDecal()
+    {
+        DecalReplay replay = new(
+            new WorldDecals(WorldDecalsConformanceTests.Wall()),
+            [Impacts[0] with { StudioSurfaceProp = 3 }, Impacts[1]],
+            [],
+            static _ => Hole,
+            static _ => null);
+
+        replay.AdvanceTo(25, static _ => false);
+
+        replay.Decals.Count.ShouldBe(1);
+    }
+
     /// <remarks>`C_TEWorldDecal` shoots at `m_vecOrigin`; a `CTEDecal` on the world with no hitbox does the same.</remarks>
     [Test]
     public void AdvanceTo_WorldDecalEvents_ArePlaced()
