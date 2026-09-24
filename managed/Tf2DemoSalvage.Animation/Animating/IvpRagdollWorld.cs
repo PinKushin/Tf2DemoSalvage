@@ -585,8 +585,12 @@ public sealed class IvpRagdollWorld
     /// <remarks>
     /// **In the engine's order, for what this world holds**: one corpse's own parts answer its <c>collisionrules</c>; two corpses'
     /// parts never collide, <c>cl_ragdoll_collide</c> being <c>"0"</c>; a static solid collides with a corpse only if its contents
-    /// meet the corpse's <c>MASK_SOLID</c> (a corpse's own objects are <c>CONTENTS_SOLID</c>, inside the world's mask). *The game
-    /// rules' collision groups between a corpse and the world are not carried*: debris against the world collides.
+    /// meet the corpse's <c>MASK_SOLID</c> (a corpse's own objects are <c>CONTENTS_SOLID</c>, inside the world's mask). **The game
+    /// rules pass every corpse against the world, so they need no test here.** The world's objects are <c>COLLISION_GROUP_NONE</c>,
+    /// which sorts first. With NONE as <c>collisionGroup0</c>, none of <c>CGameRules::ShouldCollide</c>'s refusals can fire
+    /// (<c>gamerules.cpp:703-744</c>: debris refuses only as group 0, and interactive only against a group other than NONE), and
+    /// neither can <c>CTFGameRules::ShouldCollide</c>'s (<c>tf_gamerules.cpp:18000</c>: every refusal names a group 0 other than
+    /// NONE, or a respawn room as group 1).
     /// </remarks>
     private bool ShouldCollide(IvpCollisionObject first, IvpCollisionObject second)
     {
