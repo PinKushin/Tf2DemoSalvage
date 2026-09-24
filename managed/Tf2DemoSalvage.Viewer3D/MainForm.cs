@@ -5484,17 +5484,48 @@ internal class MainForm : Form, IFrameSteps
             loaded.Impacts,
             timeline.Decals.All,
             impacts.For,
-            index => timeline.Decals.Names.Name(index) is { } name ? impacts.Materials.Resolve(name) : null);
+            index => timeline.Decals.Names.Name(index) is { } name ? impacts.Materials.Resolve(name) : null,
+            loaded.Doors.Of);
 
         _decalReplay.AdvanceTo(tick, bullet => StruckPlayer(bullet, tick));
 
-        if (_decalReplay.Decals.Version == _decalVersion)
+        // **A decal on a door rides it** (`R_DecalShoot` into the brush model), so a door that moved rebuilds the mesh too.
+        Vector3 doorsAt = Vector3.Zero;
+
+        foreach (PlacedDecal placed in _placedDecals)
+        {
+            if (placed.Entity >= 0 && loaded.Doors.Of(placed.Entity, tick) is { } door)
+            {
+                doorsAt += door.Origin;
+            }
+        }
+
+        if (_decalReplay.Decals.Version == _decalVersion && doorsAt == _decalDoorsAt)
         {
             return;
         }
 
         _decalVersion = _decalReplay.Decals.Version;
+        _decalDoorsAt = doorsAt;
         _decalReplay.Decals.Placed(_placedDecals);
+
+        if (_renderLog.IsEnabled(LogLevel.Debug))
+        {
+            _renderLog.LogDebug(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"decals rebuilt at {tick}: {_placedDecals.Count} placed, {_placedDecals.Count(static placed => placed.Entity >= 0)} on brush entities"));
+
+            foreach (PlacedDecal placed in _placedDecals.Where(static placed => placed.Entity >= 0))
+            {
+                Vector3 at = placed.Polygon[0].Position + (loaded.Doors.Of(placed.Entity, tick)?.Origin ?? Vector3.Zero);
+
+                _renderLog.LogDebug(
+                    "{Message}",
+                    string.Create(CultureInfo.InvariantCulture, $"decal on entity {placed.Entity}, face {placed.Face}: corner at ({at.X:0} {at.Y:0} {at.Z:0})"));
+            }
+        }
 
         DecalMesh.Build(
             _placedDecals,
@@ -5505,10 +5536,18 @@ internal class MainForm : Form, IFrameSteps
                 : null,
             assets.Lightmaps.Rectangles,
             _decalVertices,
-            _decalBatches);
+            _decalBatches,
+            entity => loaded.Doors.Of(entity, tick)?.Origin,
+            _entityDecalBatches);
 
-        _device.UploadShotDecals(_decalVertices, _decalBatches);
+        _device.UploadShotDecals(_decalVertices, _decalBatches, _entityDecalBatches);
     }
+
+    /// <summary>The summed origins of the doors carrying decals when the mesh was last built.</summary>
+    private Vector3 _decalDoorsAt;
+
+    /// <summary>The decal runs on brush entities, drawn after them; reused.</summary>
+    private readonly List<WorldBatch> _entityDecalBatches = [];
 
     /// <summary>Blood keys sit above the tracers': two bursts per event, its impact and its spray.</summary>
     private const long BloodKeys = 2L << 32;

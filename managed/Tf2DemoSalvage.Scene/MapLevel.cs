@@ -171,7 +171,7 @@ public sealed record MapLevel(
 
             if (entity.Fraction < nearest.Fraction)
             {
-                nearest = entity;
+                nearest = entity with { BrushEntity = brush.Entity };
             }
         }
 

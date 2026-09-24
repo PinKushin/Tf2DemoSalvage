@@ -1380,6 +1380,7 @@ public sealed class BspLeafTree
 /// <param name="StudioSurfaceProp">
 /// For a static prop, `**studio**`'s surface index — the model's `$surfaceprop`; −1 for a brush, terrain or nothing.
 /// </param>
+/// <param name="BrushEntity">The brush entity whose own model stopped it, such as a door; −1 for the world.</param>
 public readonly record struct BspTrace(
     float Fraction,
     int Texinfo,
@@ -1388,4 +1389,5 @@ public readonly record struct BspTrace(
     float Distance = 0f,
     int DisplacementTexdata = -1,
     bool SurfaceProp2 = false,
-    int StudioSurfaceProp = -1);
+    int StudioSurfaceProp = -1,
+    int BrushEntity = -1);

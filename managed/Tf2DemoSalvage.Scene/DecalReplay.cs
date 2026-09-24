@@ -31,13 +31,17 @@ public sealed class DecalReplay
     /// <param name="events">Every decal temp entity, in tick order.</param>
     /// <param name="impactMaterial">The decal a bullet leaves, or null for none.</param>
     /// <param name="eventMaterial">A <c>decalprecache</c> index's material, or null.</param>
+    /// <param name="brushOf">
+    /// Where the brush entity an impact stopped on stood at its tick, or null — a door's model is shot in its own frame.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public DecalReplay(
         WorldDecals decals,
         IReadOnlyList<ShotImpact> impacts,
         IReadOnlyList<SceneDecal> events,
         Func<ShotImpact, DecalMaterial?> impactMaterial,
-        Func<int, DecalMaterial?> eventMaterial)
+        Func<int, DecalMaterial?> eventMaterial,
+        Func<int, int, SolidBrush?>? brushOf = null)
     {
         ArgumentNullException.ThrowIfNull(decals);
         ArgumentNullException.ThrowIfNull(impacts);
@@ -50,7 +54,10 @@ public sealed class DecalReplay
         _events = events;
         _impactMaterial = impactMaterial;
         _eventMaterial = eventMaterial;
+        _brushOf = brushOf;
     }
+
+    private readonly Func<int, int, SolidBrush?>? _brushOf;
 
     /// <summary>The pool.</summary>
     public WorldDecals Decals { get; }
@@ -90,7 +97,16 @@ public sealed class DecalReplay
 
                 if (!struckPlayer(impact) && _impactMaterial(impact) is { } material)
                 {
-                    Decals.Shoot(material, new Vector3(impact.End.X, impact.End.Y, impact.End.Z));
+                    Vector3 end = new(impact.End.X, impact.End.Y, impact.End.Z);
+
+                    if (impact.BrushEntity >= 0 && _brushOf?.Invoke(impact.BrushEntity, impact.Tick) is { } brush)
+                    {
+                        Decals.Shoot(material, end - brush.Origin, brush.HeadNode, brush.Entity);
+                    }
+                    else
+                    {
+                        Decals.Shoot(material, end);
+                    }
                 }
             }
             else
