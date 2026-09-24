@@ -345,10 +345,16 @@ public sealed class SoundPresenter(
             return;
         }
 
+        // **A stop names its sound** (B416): `S_AlterChannel` stops the first channel playing THAT sound on the entity and
+        // channel, so a stop naming another sound, or one that cannot load, stops nothing.
         if (sound.IsStop)
         {
-            output.Silence(sound.EntityIndex, sound.Channel);
-            loops.Forget(sound.EntityIndex, sound.Channel);
+            if (sound.Name.Length > 0 && sample(sound.Name) is { } named)
+            {
+                output.Silence(sound.EntityIndex, sound.Channel, named);
+                loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
+            }
+
             return;
         }
 

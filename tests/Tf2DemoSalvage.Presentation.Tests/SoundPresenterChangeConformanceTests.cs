@@ -49,6 +49,28 @@ public sealed class SoundPresenterChangeConformanceTests
         sink.Played.ShouldBe([Loop, Other]);
     }
 
+    /// <remarks>
+    /// `SND_STOP` goes through `S_AlterChannel` too (B416, engine.dll `FUN_18002aa20`): it stops the first channel playing
+    /// THAT sound on the entity and channel, and nothing else there.
+    /// </remarks>
+    [Test]
+    public void Update_AStop_SilencesOnlyTheSoundItNames()
+    {
+        Recording sink = Run(Sound(50, Loop, volume: 1f), Sound(55, Loop, volume: 1f) with { IsStop = true });
+
+        sink.Stopped.ShouldBe([(Entity, Channel, Loop)]);
+        sink.Silenced.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Update_AStopNamingASoundThatCannotLoad_StopsNothing()
+    {
+        Recording sink = Run(Sound(50, Loop, volume: 1f), Sound(55, "missing.wav", volume: 1f) with { IsStop = true });
+
+        sink.Stopped.ShouldBeEmpty();
+        sink.Silenced.ShouldBeEmpty();
+    }
+
     private static Recording Run(params SceneSound[] sounds)
     {
         Dictionary<string, SoundSample> samples = new(StringComparer.Ordinal)
@@ -107,6 +129,16 @@ public sealed class SoundPresenterChangeConformanceTests
 
         public int Reclaim() => 0;
 
-        public void Silence(int entity, int channel) => _playing.Remove((entity, channel));
+        public List<(int Entity, int Channel)> Silenced { get; } = [];
+
+        public List<(int Entity, int Channel, string Sound)> Stopped { get; } = [];
+
+        public void Silence(int entity, int channel)
+        {
+            Silenced.Add((entity, channel));
+            _playing.Remove((entity, channel));
+        }
+
+        public void Silence(int entity, int channel, SoundSample sample) => Stopped.Add((entity, channel, nameOf(sample)));
     }
 }

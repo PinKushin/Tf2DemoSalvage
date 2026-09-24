@@ -133,5 +133,10 @@ public sealed class SoundPresenterEmittedTests
         {
             // Nothing is tracked per channel here, and no stop is scheduled in these tests.
         }
+
+        public void Silence(int entity, int channel, SoundSample sample)
+        {
+            // As above.
+        }
     }
 }

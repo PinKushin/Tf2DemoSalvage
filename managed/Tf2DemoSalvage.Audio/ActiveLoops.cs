@@ -97,6 +97,16 @@ public sealed class ActiveLoops
     /// <returns>Whether anything was being followed there.</returns>
     public bool Forget(int entity, int channel) => _loops.Remove((entity, channel));
 
+    /// <summary>Stops following a channel's loop only when it plays the named sound — a `SND_STOP` naming it (B416).</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="channel">The channel.</param>
+    /// <param name="name">The sound the stop names.</param>
+    /// <returns>Whether that loop was being followed.</returns>
+    public bool Forget(int entity, int channel, string name) =>
+        _loops.TryGetValue((entity, channel), out Loop loop) &&
+        string.Equals(loop.Name, name, StringComparison.OrdinalIgnoreCase) &&
+        _loops.Remove((entity, channel));
+
     /// <summary>Forgets everything, for a seek or a new demo.</summary>
     /// <remarks>
     /// A seek silences the sink, so the loops it was following are no longer playing. Keeping them
