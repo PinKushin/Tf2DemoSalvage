@@ -31,7 +31,8 @@ public sealed class ActiveLoops
     /// <param name="X">Where it is, in world units.</param>
     /// <param name="Y">Where it is.</param>
     /// <param name="Z">Where it is.</param>
-    private readonly record struct Loop(float Volume, int SoundLevel, float X, float Y, float Z);
+    /// <param name="Name">What it plays, which `S_AlterChannel` matches as well as the channel.</param>
+    private readonly record struct Loop(float Volume, int SoundLevel, float X, float Y, float Z, string Name);
 
     /// <summary>Keyed the way the engine keys a playing sound: one per entity per channel.</summary>
     private readonly Dictionary<(int Entity, int Channel), Loop> _loops = [];
@@ -49,7 +50,45 @@ public sealed class ActiveLoops
     public void Track(SceneSound sound)
     {
         _loops[(sound.EntityIndex, sound.Channel)] =
-            new Loop(sound.Volume, sound.SoundLevel, sound.OriginX, sound.OriginY, sound.OriginZ);
+            new Loop(sound.Volume, sound.SoundLevel, sound.OriginX, sound.OriginY, sound.OriginZ, sound.Name);
+    }
+
+    /// <summary>`S_AlterChannel`: finds the loop playing a sound on its entity's channel, and takes its new volume if it changes one.</summary>
+    /// <param name="sound">A sound carrying `SND_CHANGE_VOL` or `SND_CHANGE_PITCH`.</param>
+    /// <returns>Whether that loop was playing — when it was not, the engine starts the sound instead.</returns>
+    public bool Alter(SceneSound sound)
+    {
+        if (!_loops.TryGetValue((sound.EntityIndex, sound.Channel), out Loop loop) ||
+            !string.Equals(loop.Name, sound.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (sound.ChangesVolume)
+        {
+            _loops[(sound.EntityIndex, sound.Channel)] = loop with { Volume = sound.Volume };
+        }
+
+        return true;
+    }
+
+    /// <summary>What a tracked loop is attenuated to from a listener, or null when none plays there.</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="channel">The channel.</param>
+    /// <param name="listener">The listener, in world units.</param>
+    /// <returns>The gain.</returns>
+    public float? GainAt(int entity, int channel, (float X, float Y, float Z) listener)
+    {
+        if (!_loops.TryGetValue((entity, channel), out Loop loop))
+        {
+            return null;
+        }
+
+        float dx = loop.X - listener.X;
+        float dy = loop.Y - listener.Y;
+        float dz = loop.Z - listener.Z;
+
+        return loop.Volume * SoundGain.AtDistance(loop.SoundLevel, MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz)));
     }
 
     /// <summary>Stops following whatever was on a channel.</summary>

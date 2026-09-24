@@ -298,6 +298,32 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         return found;
     }
 
+    /// <summary>Changes a playing sound's rate — `SND_CHANGE_PITCH`, which `S_AlterChannel` applies in place.</summary>
+    /// <param name="entity">The entity the sound belongs to.</param>
+    /// <param name="channel">The channel it is playing on.</param>
+    /// <param name="pitch">The rate, 1 unshifted.</param>
+    /// <returns>Whether a voice was found and updated.</returns>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    public bool SetPitch(int entity, int channel, float pitch)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        bool found = false;
+
+        foreach (Voice voice in _playing)
+        {
+            if (voice.Entity != entity || voice.Channel != channel)
+            {
+                continue;
+            }
+
+            _al.SetSourceProperty(voice.Source, SourceFloat.Pitch, pitch);
+            found = true;
+        }
+
+        return found;
+    }
+
     /// <summary>Silences whatever an entity is playing on a channel.</summary>
     /// <param name="entity">The entity the sound belongs to.</param>
     /// <param name="channel">The channel, from <c>soundflags.h</c>.</param>
@@ -461,6 +487,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <inheritdoc/>
     bool IAudioSink.SetGain(int entity, int channel, float gain) => SetGain(entity, channel, gain);
+
+    /// <inheritdoc/>
+    bool IAudioSink.SetPitch(int entity, int channel, float pitch) => SetPitch(entity, channel, pitch);
 
     /// <inheritdoc/>
     void IAudioSink.Silence(int entity, int channel) => Stop(entity, channel);

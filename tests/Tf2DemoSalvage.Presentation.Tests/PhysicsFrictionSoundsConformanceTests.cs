@@ -91,6 +91,19 @@ public sealed class PhysicsFrictionSoundsConformanceTests
     }
 
     [Test]
+    public void Step_AScrapeAfterHalfASecond_ChangesThePlayingLoopsVolumeAndPitch()
+    {
+        // `SoundChangeVolume( patch, params.volume · v )` and `SoundChangePitch( patch, v · (high − low) + low )`: with the
+        // script's pitch 90..110 and v = (3875 / 15500)² = 0.0625, the pitch is 91.25, sent as the engine's whole percent.
+        PhysicsFrictionSounds sounds = new();
+        SceneSound loop = sounds.Step(100, 1.0, [Scrape(7750f)], At, Surfaces, Scripts(pitch: new SoundRange(90f, 110f))).Single();
+
+        SceneSound changed = sounds.Step(135, 1.51, [Scrape(3875f)], At, Surfaces, Scripts(pitch: new SoundRange(90f, 110f))).Single();
+
+        changed.ShouldBe(loop with { Tick = 135, Volume = 0.05f, Pitch = 91, ChangesVolume = true, ChangesPitch = true });
+    }
+
+    [Test]
     public void Step_ANinthCorpse_FindsNoSlot()
     {
         PhysicsFrictionSounds sounds = new();
@@ -111,14 +124,14 @@ public sealed class PhysicsFrictionSoundsConformanceTests
         return props;
     }
 
-    private static Dictionary<string, SoundScriptEntry> Scripts() => new(StringComparer.OrdinalIgnoreCase)
+    private static Dictionary<string, SoundScriptEntry> Scripts(SoundRange? pitch = null) => new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Flesh.ScrapeRough"] = Entry("Flesh.ScrapeRough", "physics/flesh/rough.wav"),
-        ["Flesh.ScrapeSmooth"] = Entry("Flesh.ScrapeSmooth", "physics/flesh/smooth.wav"),
-        ["Stone.ScrapeRough"] = Entry("Stone.ScrapeRough", "physics/stone/rough.wav"),
-        ["Stone.ScrapeSmooth"] = Entry("Stone.ScrapeSmooth", "physics/stone/smooth.wav"),
+        ["Flesh.ScrapeRough"] = Entry("Flesh.ScrapeRough", "physics/flesh/rough.wav", pitch),
+        ["Flesh.ScrapeSmooth"] = Entry("Flesh.ScrapeSmooth", "physics/flesh/smooth.wav", pitch),
+        ["Stone.ScrapeRough"] = Entry("Stone.ScrapeRough", "physics/stone/rough.wav", pitch),
+        ["Stone.ScrapeSmooth"] = Entry("Stone.ScrapeSmooth", "physics/stone/smooth.wav", pitch),
     };
 
-    private static SoundScriptEntry Entry(string name, string wave) =>
-        new(name, 1, new SoundRange(0.8f, 0.8f), new SoundRange(100f, 100f), 75, [wave]);
+    private static SoundScriptEntry Entry(string name, string wave, SoundRange? pitch) =>
+        new(name, 1, new SoundRange(0.8f, 0.8f), pitch ?? new SoundRange(100f, 100f), 75, [wave]);
 }

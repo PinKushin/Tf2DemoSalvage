@@ -191,6 +191,12 @@ public static class SoundDecoder
     /// <summary><c>SND_STOP</c>: a stop carries none of the fields that describe playback.</summary>
     internal const int StopFlag = 1 << 2;
 
+    /// <summary><c>SND_CHANGE_VOL</c> (`soundflags.h:118`): alter the playing sound's volume.</summary>
+    internal const int ChangeVolumeFlag = 1 << 0;
+
+    /// <summary><c>SND_CHANGE_PITCH</c>: alter the playing sound's pitch.</summary>
+    internal const int ChangePitchFlag = 1 << 1;
+
     /// <summary>Bias the engine applies so precision is lost only on large skip-aheads.</summary>
     internal const float DelayOffset = 0.100f;
 

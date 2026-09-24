@@ -72,4 +72,10 @@ public readonly record struct SceneSound(
     /// emits, such as `ImpactCallback`'s `( MainViewOrigin() − vecOrigin ).LengthSqr() &lt; 1024²` (B415).
     /// </summary>
     public float AudibleWithin { get; init; }
+
+    /// <summary>`SND_CHANGE_VOL`: changes the volume of this sound where it already plays, rather than starting it again.</summary>
+    public bool ChangesVolume { get; init; }
+
+    /// <summary>`SND_CHANGE_PITCH`: changes the pitch of this sound where it already plays.</summary>
+    public bool ChangesPitch { get; init; }
 }

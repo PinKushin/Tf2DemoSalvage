@@ -43,6 +43,13 @@ public interface IAudioSink
     /// <returns>Whether anything was playing there to change.</returns>
     public bool SetGain(int entity, int channel, float gain);
 
+    /// <summary>Changes a playing sound's playback rate — `SND_CHANGE_PITCH`.</summary>
+    /// <param name="entity">Which entity.</param>
+    /// <param name="channel">Which channel.</param>
+    /// <param name="pitch">The new rate, 1 unshifted.</param>
+    /// <returns>Whether anything was playing there to change.</returns>
+    public bool SetPitch(int entity, int channel, float pitch);
+
     /// <summary>Silences everything at once, for a seek.</summary>
     /// <remarks>
     /// **A seek silences the world rather than fading it.** Sounds are scheduled from the timeline
