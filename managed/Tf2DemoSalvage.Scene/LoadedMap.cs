@@ -80,6 +80,9 @@ public sealed class LoadedMap
     /// <summary>The map's raw lightmap data, which impact debris is tinted by; null for a map read without a demo.</summary>
     public BspLightSamples? LightSamples { get; private init; }
 
+    /// <summary>The demo's solid brush entities, for traces that meet them where they stand; none without a demo.</summary>
+    public SolidBrushEntities Doors { get; private init; } = SolidBrushEntities.None;
+
     /// <summary>What went wrong loading the content, or null when nothing did.</summary>
     public string? Problem { get; }
 
@@ -207,13 +210,13 @@ public sealed class LoadedMap
         BspLightSamples? lightSamples = null;
         HashSet<string> decalMaterials = new(StringComparer.OrdinalIgnoreCase);
 
+        // The doors a trace meets, where each stood at its tick — a bullet, and the ground under a footstep.
+        SolidBrushEntities doors = timeline is not null && level.BrushModels is { } models
+            ? SolidBrushEntities.From(timeline.Props, models)
+            : SolidBrushEntities.None;
+
         if (timeline is not null)
         {
-            // The doors a bullet stops on, where each stood at the shot's tick.
-            SolidBrushEntities doors = level.BrushModels is { } models
-                ? SolidBrushEntities.From(timeline.Props, models)
-                : SolidBrushEntities.None;
-
             using (renderLog.Time("tracing every shot"))
             {
                 tracers = new HitscanTracers(game.Archives.Read).Trace(
@@ -390,6 +393,7 @@ public sealed class LoadedMap
                 Arrows = arrows,
                 ImpactDecals = impactDecals,
                 LightSamples = lightSamples,
+                Doors = doors,
             };
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
@@ -409,6 +413,7 @@ public sealed class LoadedMap
                 Arrows = arrows,
                 ImpactDecals = impactDecals,
                 LightSamples = lightSamples,
+                Doors = doors,
             };
         }
     }

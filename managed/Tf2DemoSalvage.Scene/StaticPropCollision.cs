@@ -169,16 +169,32 @@ public sealed class StaticPropCollision
             return;
         }
 
+        // **Only the points this ledge's triangles name**: the array can be shared with sibling ledges, and a point outside
+        // this ledge taken into its middle turns faces inward — 189 of 267 f12 footsteps started "inside" a prop that way.
         Vector3[] points = new Vector3[ledge.Points.Count];
+        HashSet<int> used = [];
+
+        foreach ((int a, int b, int c) in ledge.Triangles)
+        {
+            used.Add(a);
+            used.Add(b);
+            used.Add(c);
+        }
+
+        if (used.Count == 0)
+        {
+            return;
+        }
+
         Vector3 centre = Vector3.Zero;
 
-        for (int index = 0; index < points.Length; index++)
+        foreach (int index in used)
         {
             points[index] = place(ledge.Points[index]);
             centre += points[index];
         }
 
-        centre /= points.Length;
+        centre /= used.Count;
 
         List<Plane> planes = [];
 
@@ -202,13 +218,13 @@ public sealed class StaticPropCollision
             planes.Add(new Plane(normal, Vector3.Dot(normal, points[a])));
         }
 
-        Vector3 min = points[0];
-        Vector3 max = points[0];
+        Vector3 min = new(float.MaxValue);
+        Vector3 max = new(float.MinValue);
 
-        foreach (Vector3 point in points)
+        foreach (int index in used)
         {
-            min = Vector3.Min(min, point);
-            max = Vector3.Max(max, point);
+            min = Vector3.Min(min, points[index]);
+            max = Vector3.Max(max, points[index]);
         }
 
         into.Add(new Hull(min, max, [.. planes]));
