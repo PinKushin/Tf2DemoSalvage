@@ -42,6 +42,10 @@ public sealed class DecalReplay
     /// <param name="props">
     /// A static prop's triangles in the world and a decal's drawn model material, or null to leave props bare (B421).
     /// </param>
+    /// <param name="propDecals">
+    /// The model decal pool, shared with entities as `CStudioRender`'s is; null for one of its own. Props are held under
+    /// <see cref="StaticPropKey"/>.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public DecalReplay(
         WorldDecals decals,
@@ -50,9 +54,11 @@ public sealed class DecalReplay
         Func<ShotImpact, DecalMaterial?> impactMaterial,
         Func<int, DecalMaterial?> eventMaterial,
         Func<int, int, SolidBrush?>? brushOf = null,
-        StaticPropDecalSource? props = null)
+        StaticPropDecalSource? props = null,
+        ModelDecals? propDecals = null)
     {
         _props = props;
+        PropDecals = propDecals ?? new ModelDecals();
 
         ArgumentNullException.ThrowIfNull(decals);
         ArgumentNullException.ThrowIfNull(impacts);
@@ -74,8 +80,18 @@ public sealed class DecalReplay
     /// <summary>The pool.</summary>
     public WorldDecals Decals { get; }
 
-    /// <summary>The static props' decals, keyed by the prop's lump index — `CStudioRender`'s lists (B421).</summary>
-    public ModelDecals PropDecals { get; } = new();
+    /// <summary>The model decal pool the static props' decals go into, under <see cref="StaticPropKey"/> (B421).</summary>
+    public ModelDecals PropDecals { get; }
+
+    /// <summary>A static prop's key in the model decal pool: negative, so it never meets an entity index.</summary>
+    /// <param name="prop">The prop's index in the map's lump.</param>
+    /// <returns>The key.</returns>
+    public static int StaticPropKey(int prop) => -2 - prop;
+
+    /// <summary>Whether a pool key is a static prop's.</summary>
+    /// <param name="key">The key.</param>
+    /// <returns>True for a <see cref="StaticPropKey"/>.</returns>
+    public static bool IsStaticPropKey(int key) => key <= -2;
 
     /// <summary>Shoots everything up to and including a tick, first clearing the pool when the tick went backwards.</summary>
     /// <param name="tick">The tick now shown.</param>
@@ -91,7 +107,7 @@ public sealed class DecalReplay
         if (tick < _tick)
         {
             Decals.Clear();
-            PropDecals.ClearAll();
+            PropDecals.ClearWhere(IsStaticPropKey);
             _impact = 0;
             _event = 0;
         }
@@ -181,7 +197,7 @@ public sealed class DecalReplay
         Vector3 normal = new(impact.Normal.X, impact.Normal.Y, impact.Normal.Z);
 
         return PropDecals.AddClipped(
-            impact.StaticProp, mesh, new Vector3(impact.End.X, impact.End.Y, impact.End.Z), -normal * 1.1f, radius, index)
+            StaticPropKey(impact.StaticProp), mesh, new Vector3(impact.End.X, impact.End.Y, impact.End.Z), -normal * 1.1f, radius, index)
             ? null
             : "took no triangle";
     }
