@@ -233,7 +233,7 @@ public static class IvpMapWorld
         {
             if (surface.IsDisplacement && surface.DisplacementIndex >= 0 && surface.DisplacementIndex < terrain.Count)
             {
-                byIndex[surface.DisplacementIndex] = terrain.ReadCollisionTree(surface);
+                byIndex[surface.DisplacementIndex] = terrain.ReadCollisionTree(surface) is { } read ? (read.Tree, read.NoPhysics) : null;
             }
         }
 

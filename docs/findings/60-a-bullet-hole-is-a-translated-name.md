@@ -165,8 +165,31 @@ tests `(flags & 0x10812) == 0`: water, displacement, nodraw and node. So a shot 
 zero. The engine sets the water flag from the material; the viewer uses the texinfo's `SURF_WARP`, which vbsp gives
 water faces — **an interpolation**, not read. Test: `SurfaceColourConformanceTests.At_AShotIntoWater_IsBlack`.
 
-Still not built: displacements and static props, which `R_LightVec` reaches through a leaf call (`0x1800d3640`) not
-yet read, and animated light styles.
+### Displacements: after the walk, and they add
+
+**Read from the binary.** Each leaf the walk enters appends its displacements to a list, once each (`0x1800d3640`, a
+frame stamp). After the walk `R_LightVec` (`0x1800d40a0`) ray-tests every listed displacement through `CDispInfo`'s
+slot `0x78` (`0x1800c2dd0`), which is `AABBTree_Ray` (`dispcoll_common.cpp:564`, published) over the collision tree,
+from the ray's start to the nearest fraction taken so far — **the same limit the brush faces set**. On a hit it:
+
+- **adds** the luxel under the hit (`0x1800d37d0`: `samples + dt·smax + ds`, each style's map `smax·tmax` on, four
+  times that when bumped) to the light the brush faces already added. The brush light is not cleared.
+- takes the hit's face and a texture coordinate from `0x1800bfc90`: the hit's grid position, barycentric over its
+  triangle, then bilinear over the base face's corners.
+
+`ds` and `dt` are the lightmap coordinate times the page size minus the face's page offset and a half. Displacement
+lightmap coordinates run from luxel centre to luxel centre, so this is `column · (smax − 1)`, truncated. The first test
+aimed at an exact grid vertex, and float error truncated 3 to 2. A shot at a vertex can land either side in the engine
+too.
+
+Static props never reach `R_LightVec`. `GetColorForSurface` (`c_impact_effects.cpp:110`) sends a prop hit to
+`staticpropmgr->GetStaticPropMaterialColorAndLighting`, which is not built here yet.
+
+**Interpolated:** the engine builds each leaf's displacement list at load, and the builder was not found. Here each
+displacement's collision box is pushed down the tree, in displacement order. The order only matters to a ray that
+meets two displacements, because each hit adds its light.
+
+Still not built: animated light styles, and the static-prop colour.
 
 ## Not established
 

@@ -76,10 +76,57 @@ public sealed class BspLightSamples
                 break;
             }
 
-            ReadOnlySpan<byte> sample = lump.Slice((int)at, SampleBytes);
-            float scale = MathF.ScaleB(1f, (sbyte)sample[3]) / 255f * styleValue(slots[slot]);
+            light = Add(light, lump.Slice((int)at, SampleBytes), styleValue(slots[slot]));
+        }
 
-            light = (light.R + (sample[0] * scale), light.G + (sample[1] * scale), light.B + (sample[2] * scale));
+        return light;
+    }
+
+    /// <summary>A `ColorRGBExp32`'s linear value times a style's, added: `c · 2^e / 255 · value`.</summary>
+    private static (float R, float G, float B) Add((float R, float G, float B) light, ReadOnlySpan<byte> sample, float value)
+    {
+        float scale = MathF.ScaleB(1f, (sbyte)sample[3]) / 255f * value;
+
+        return (light.R + (sample[0] * scale), light.G + (sample[1] * scale), light.B + (sample[2] * scale));
+    }
+
+    /// <summary>The light of one luxel over a face's styles — `engine.dll` `0x1800d37d0`, what a displacement hit adds.</summary>
+    /// <param name="face">The face index.</param>
+    /// <param name="s">The luxel across, `ds`.</param>
+    /// <param name="t">Down, `dt`.</param>
+    /// <param name="width">`smax`, luxels across.</param>
+    /// <param name="height">`tmax`, luxels down.</param>
+    /// <param name="bumped">Whether the face has bumped lightmaps, so each style holds four maps.</param>
+    /// <param name="styles">`bUseLightStyles`: every style the face has, or only the first.</param>
+    /// <param name="styleValue">`d_lightstylevalue[ style ] / 264`.</param>
+    /// <returns>The light; black for an unlit face or a luxel outside the lump.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="styleValue"/> is null.</exception>
+    /// <remarks>Each style's map follows the last, `smax · tmax` samples on, times four when bumped.</remarks>
+    public (float R, float G, float B) Luxel(
+        int face, int s, int t, int width, int height, bool bumped, bool styles, Func<int, float> styleValue)
+    {
+        ArgumentNullException.ThrowIfNull(styleValue);
+
+        if (Layout(face) is not { Offset: >= 0 } layout)
+        {
+            return default;
+        }
+
+        ReadOnlySpan<byte> lump = _lighting.Span;
+        (byte a, byte b, byte c, byte d) = layout.Styles;
+        ReadOnlySpan<byte> slots = [a, b, c, d];
+        long stride = (long)width * height * (bumped ? 4 : 1) * SampleBytes;
+        long at = layout.Offset + ((((long)t * width) + s) * SampleBytes);
+        (float R, float G, float B) light = default;
+
+        for (int slot = 0; slot < (styles ? slots.Length : 1); slot++, at += stride)
+        {
+            if (slots[slot] == NoStyle || at < 0 || at + SampleBytes > lump.Length)
+            {
+                break;
+            }
+
+            light = Add(light, lump.Slice((int)at, SampleBytes), styleValue(slots[slot]));
         }
 
         return light;

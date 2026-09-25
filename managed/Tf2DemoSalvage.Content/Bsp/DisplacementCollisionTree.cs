@@ -37,6 +37,12 @@ public sealed class DisplacementCollisionTree
     /// <summary>Every triangle's vertex indices — <c>m_aTris</c>.</summary>
     public IReadOnlyList<(int A, int B, int C)> Triangles { get; }
 
+    /// <summary>The base face's four corners, the grid's start corner first: rows run from 0 to 1, columns from 0 to 3.</summary>
+    public IReadOnlyList<Vector3> Corners { get; private init; } = [];
+
+    /// <summary>Grid vertices a side, <c>2^power + 1</c>.</summary>
+    public int Side { get; private init; }
+
     /// <summary>Builds the tree over a displacement.</summary>
     /// <param name="points">The base face's four corners, already rotated so the grid's start corner is first.</param>
     /// <param name="power">The displacement's power, 2 to 4.</param>
@@ -80,7 +86,7 @@ public sealed class DisplacementCollisionTree
             nodes[index] = (new Vector3[4], new Vector3[4]);
         }
 
-        DisplacementCollisionTree tree = new(vertices, triangles, nodes, leaves);
+        DisplacementCollisionTree tree = new(vertices, triangles, nodes, leaves) { Corners = [.. points], Side = side };
         tree.Boxes(0, out Vector3 mins, out Vector3 maxs);
 
         // AABBTree_CalcBounds: "Bloat a little."
