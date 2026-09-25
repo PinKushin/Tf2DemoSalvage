@@ -174,6 +174,86 @@ public sealed class WorldDecalsConformanceTests
         Placed(decals).ShouldHaveSingleItem().Entity.ShouldBe(42);
     }
 
+    /// <remarks>
+    /// A displacement takes its own path (`CDispInfo`, slot 8 `0x1800c6c50`, fragments at draw in `0x1800c2490`): each of its
+    /// triangles is clipped to the decal's square and pushed 0.1 along the TRIANGLE's normal, and its lightmap coordinate
+    /// is the displacement's own, carried through the clip. The shot lands on the diagonal of the two triangles, so the
+    /// square comes back as two fragments.
+    /// </remarks>
+    [Test]
+    public void Shoot_OntoADisplacement_ClipsItsTrianglesToTheSquare()
+    {
+        WorldDecals decals = new(Ground());
+
+        decals.Shoot(Hole, new Vector3(256f, 256f, 1f));
+
+        List<PlacedDecal> placed = Placed(decals);
+
+        placed.Count.ShouldBe(2);
+        placed.ShouldAllBe(fragment => fragment.Face == 1 && fragment.Slot == placed[0].Slot);
+
+        List<DecalVertex> corners = [.. placed.SelectMany(static fragment => fragment.Polygon)];
+
+        corners.ShouldAllBe(corner => MathF.Abs(corner.Position.Z - 0.1f) < 1e-4f);
+        corners.Min(static corner => corner.Position.X).ShouldBe(256f - 5.12f, 0.01f);
+        corners.Max(static corner => corner.Position.X).ShouldBe(256f + 5.12f, 0.01f);
+        corners.Min(static corner => corner.U).ShouldBe(0f, 1e-4f);
+        corners.Max(static corner => corner.U).ShouldBe(1f, 1e-4f);
+
+        // The lightmap coordinate is the displacement's own, x / 512, carried through the clip.
+        corners.ShouldAllBe(corner => MathF.Abs(corner.LightU - (corner.Position.X / 512f)) < 1e-4f);
+    }
+
+    /// <remarks>
+    /// The decal pass culls back faces, so a fragment must be wound about the surface's normal as a brush face's decal is,
+    /// whichever way the displacement's own triangles are wound: here they are wound downward, the way ours are drawn.
+    /// </remarks>
+    [Test]
+    public void Shoot_OntoADisplacementWoundDownward_WindsItsFragmentsUp()
+    {
+        WorldDecals decals = new(Ground(downward: true));
+
+        decals.Shoot(Hole, new Vector3(256f, 256f, 1f));
+
+        List<PlacedDecal> placed = Placed(decals);
+
+        placed.ShouldNotBeEmpty();
+
+        foreach (PlacedDecal fragment in placed)
+        {
+            // The polygon's signed area about +z, summed over every edge: a clip can leave three corners in a line.
+            IReadOnlyList<DecalVertex> polygon = fragment.Polygon;
+            float area = 0f;
+
+            for (int corner = 0; corner < polygon.Count; corner++)
+            {
+                Vector3 from = polygon[corner].Position;
+                Vector3 to = polygon[(corner + 1) % polygon.Count].Position;
+
+                area += (from.X * to.Y) - (to.X * from.Y);
+            }
+
+            area.ShouldBeGreaterThan(0f);
+        }
+    }
+
+    /// <remarks>
+    /// `0x1800c6c50`: a displacement holds 31 decals; the 32nd evicts its oldest. The shots are 20 units apart, too far for
+    /// the overlap pass to replace one with another.
+    /// </remarks>
+    [Test]
+    public void Shoot_ThirtyTwoOntoOneDisplacement_KeepsThirtyOne()
+    {
+        WorldDecals decals = new(Ground());
+
+        for (int shot = 0; shot < 32; shot++)
+        {
+            decals.Shoot(Hole, new Vector3(20f + (20f * (shot % 16)), 20f + (40f * (shot / 16)), 1f));
+        }
+
+        Placed(decals).Select(static fragment => fragment.Slot).Distinct().Count().ShouldBe(31);
+    }
+
     private static List<PlacedDecal> Placed(WorldDecals decals)
     {
         List<PlacedDecal> placed = [];
@@ -181,6 +261,37 @@ public sealed class WorldDecalsConformanceTests
         decals.Placed(placed);
 
         return placed;
+    }
+
+    /// <summary>
+    /// <see cref="Wall"/> and a flat 512-unit displacement floor at z = 0 on face 1, two triangles split along x = y, its
+    /// lightmap coordinates x / 512 and y / 512.
+    /// </summary>
+    private static DecalWorld Ground(bool downward = false)
+    {
+        DecalWorld wall = Wall();
+        Vector3[] corners = [new(0f, 0f, 0f), new(512f, 0f, 0f), new(512f, 512f, 0f), new(0f, 512f, 0f)];
+        Vector4 s = new(1f, 0f, 0f, 0f);
+        Vector4 t = new(0f, -1f, 0f, 0f);
+        ((int, int) mins, (int, int) extents) = DecalFace.ExtentsOf(corners, s, t);
+        DecalFace floor = new(1, corners, Vector3.UnitZ, 0f, s, t, mins, extents, false, true, false, default);
+
+        static DisplacementCorner At(float x, float y) => new(new Vector3(x, y, 0f), x / 512f, y / 512f);
+
+        return wall with
+        {
+            Faces = [wall.Faces[0], floor],
+            Displacements =
+            [
+                new DecalDisplacement(
+                    1,
+                    Vector3.Zero,
+                    new Vector3(512f, 512f, 0f),
+                    downward
+                        ? [At(0f, 0f), At(512f, 512f), At(512f, 0f), At(0f, 0f), At(0f, 512f), At(512f, 512f)]
+                        : [At(0f, 0f), At(512f, 0f), At(512f, 512f), At(0f, 0f), At(512f, 512f), At(0f, 512f)]),
+            ],
+        };
     }
 
     /// <summary>One node on the plane x = 0, holding one 512-unit wall face; both children are empty leaves.</summary>
