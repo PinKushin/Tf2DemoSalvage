@@ -1990,6 +1990,7 @@ internal class MainForm : Form, IFrameSteps
                 break;
 
             case OpeningStep.Capture when _opening.TakeShotPath() is { } path:
+                Pick();
                 CaptureViewport(path);
                 BeginInvoke(Close);
                 break;
@@ -2571,6 +2572,117 @@ internal class MainForm : Form, IFrameSteps
     // team has not arrived is drawn grey rather than guessed at, because a wrong team colour is
     // worse than none — it is read as information. `MapOverview` still holds that mapping for
     // whatever draws markers next.
+
+    /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — a debugging instrument.</summary>
+    /// <remarks>
+    /// Casts the camera's ray through the pixel (<see cref="FreeCamera.RayThrough"/>) and logs the world's hit, brushes and
+    /// static props, then every drawn model whose origin lies near the ray, nearest the ray first. Built to name a glow seen
+    /// on screen without guessing a camera to fly to it.
+    /// </remarks>
+    private void Pick()
+    {
+        if (Environment.GetEnvironmentVariable("TF2VIEW_PICK") is not { } asked ||
+            asked.Split(' ', StringSplitOptions.RemoveEmptyEntries) is not [{ } xs, { } ys] ||
+            !float.TryParse(xs, NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
+            !float.TryParse(ys, NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
+            _lastViewing is not { } viewing)
+        {
+            return;
+        }
+
+        (float dx, float dy, float dz) = viewing.RayThrough(px, py, _viewport.ClientSize.Width, _viewport.ClientSize.Height);
+        Vector3 eye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
+        Vector3 ray = new(dx, dy, dz);
+        System.Text.StringBuilder report = new();
+
+        report.Append(CultureInfo.InvariantCulture, $"pick ({px} {py}) from ({eye.X:0} {eye.Y:0} {eye.Z:0}) along ({dx:0.000} {dy:0.000} {dz:0.000}): ");
+
+        if (_loaded?.Level is { } level)
+        {
+            Vector3 end = eye + (ray * 16000f);
+            BspTrace hit = level.Trace((eye.X, eye.Y, eye.Z), (end.X, end.Y, end.Z), 0f);
+
+            float wall = hit.Fraction * 16000f;
+            Vector3 at = eye + (ray * wall);
+
+            string? Owner(ParticleEffect effect) =>
+                Enumerable.Range(0, effect.Particles.Count).Any(i => Vector3.Distance(effect.Particles.PositionOf(i), at) < 100f)
+                    ? effect.System.Name
+                    : effect.Children.Select(Owner).FirstOrDefault(static name => name is not null);
+
+            report.Append(CultureInfo.InvariantCulture, $"world at {wall:0} units ({at.X:0} {at.Y:0} {at.Z:0}) texinfo {hit.Texinfo} static prop {hit.StaticProp}; ");
+
+            foreach (ParticleBurst burst in _burstsNow)
+            {
+                // Only a burst with particles near the ray's hit, within 100 units, named down to the child that owns them.
+                if (_particles.BurstEffect(burst.Key) is not { } effect || Owner(effect) is not { } owner)
+                {
+                    continue;
+                }
+
+                report.Append(CultureInfo.InvariantCulture, $"{{burst {burst.Definition.Name} child {owner} key {burst.Key} tick {burst.Tick} stop {burst.StopTick} at ({burst.At.At.X:0} {burst.At.At.Y:0} {burst.At.At.Z:0})}} ");
+            }
+        }
+
+        foreach ((SceneProp prop, float along, float off) in (_moment.Drawn ?? [])
+            .Select(prop =>
+            {
+                Vector3 origin = new(prop.Pose.X, prop.Pose.Y, prop.Pose.Z);
+                float along = Vector3.Dot(origin - eye, ray);
+
+                return (prop, along, off: Vector3.Distance(origin, eye + (ray * along)));
+            })
+            .Where(static seen => seen.along > 0f && seen.off < 128f)
+            .OrderBy(static seen => seen.off)
+            .Take(8))
+        {
+            report.Append(CultureInfo.InvariantCulture, $"[{prop.ModelPath} entity {prop.EntityIndex} kind {prop.Kind} {along:0} along, {off:0} off] ");
+        }
+
+        // Every particle and sprite quad whose projected centre lands within 24 pixels of the pick.
+        float[] m = viewing.ToMatrix();
+        int width = _viewport.ClientSize.Width;
+        int height = _viewport.ClientSize.Height;
+
+        foreach (ParticleBatch batch in _lastParticles)
+        {
+            string named = _loaded?.Assets?.ParticleMaterials?.FirstOrDefault(pair => pair.Value.Equals(batch.Material)).Key ??
+                           _loaded?.Assets?.SpriteMaterials?.FirstOrDefault(pair => pair.Value.Material.Equals(batch.Material)).Key ?? "?";
+
+            for (int i = 0; i + 5 < batch.Corners.Count; i += 6)
+            {
+                Vector3 centre = Vector3.Zero;
+
+                for (int c = 0; c < 6; c++)
+                {
+                    centre += new Vector3(batch.Corners[i + c].X, batch.Corners[i + c].Y, batch.Corners[i + c].Z);
+                }
+
+                centre /= 6f;
+                float w = (centre.X * m[3]) + (centre.Y * m[7]) + (centre.Z * m[11]) + m[15];
+
+                if (w <= 0f)
+                {
+                    continue;
+                }
+
+                float sx = (((centre.X * m[0]) + (centre.Y * m[4]) + (centre.Z * m[8]) + m[12]) / w + 1f) * 0.5f * width;
+                float sy = (1f - (((centre.X * m[1]) + (centre.Y * m[5]) + (centre.Z * m[9]) + m[13]) / w)) * 0.5f * height;
+
+                if (MathF.Abs(sx - px) < 24f && MathF.Abs(sy - py) < 24f)
+                {
+                    DetailSpriteVertex first = batch.Corners[i];
+
+                    report.Append(CultureInfo.InvariantCulture, $"<quad {named} centre ({centre.X:0} {centre.Y:0} {centre.Z:0}) at ({sx:0} {sy:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00}) blend {batch.Material.Blend}> ");
+                }
+            }
+        }
+
+        _renderLog.LogInformation("{Message}", report.ToString());
+    }
+
+    /// <summary>The camera the last frame was set up with, for <see cref="Pick"/>.</summary>
+    private FreeCamera? _lastViewing;
 
     /// <summary>Writes the next drawn frame to a PNG.</summary>
     /// <param name="path">Where to write it.</param>
@@ -4209,6 +4321,8 @@ internal class MainForm : Form, IFrameSteps
         // `CViewRender::SetUpView` computes the view once and everything downstream reads it.
         FreeCamera viewing = ViewCameraNow(_demoFrameSeconds);
 
+        _lastViewing = viewing;
+
         long deviceAt = Stopwatch.GetTimestamp();
 
         _device.SetCamera(viewing, _menu.SurfaceColours.Checked);
@@ -5371,6 +5485,18 @@ internal class MainForm : Form, IFrameSteps
             if (corners.Count > 0 && materials.TryGetValue(name, out ParticleMaterial material))
             {
                 all.Add(new ParticleBatch(corners, material));
+
+                // What each impact material drew and where, so a glow seen on screen can be named from the log.
+                if (_renderLog.IsEnabled(LogLevel.Debug))
+                {
+                    DetailSpriteVertex first = corners[0];
+
+                    _renderLog.LogDebug(
+                        "{Message}",
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"impact batch {name} at {_transport.CurrentTick}: {corners.Count / 6} quads, first corner ({first.X:0} {first.Y:0} {first.Z:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00})"));
+                }
             }
         }
 
@@ -6685,6 +6811,20 @@ internal class MainForm : Form, IFrameSteps
             foreach (ParticleBatch built in batches)
             {
                 _particleQuads += built.Corners.Count / 6;
+
+                // What each particle material drew and where, so a glow seen on screen can be named from the log.
+                if (_renderLog.IsEnabled(LogLevel.Debug) && built.Corners.Count > 0)
+                {
+                    string named = _loaded?.Assets?.ParticleMaterials?
+                        .FirstOrDefault(pair => pair.Value.Equals(built.Material)).Key ?? "?";
+                    DetailSpriteVertex first = built.Corners[0];
+
+                    _renderLog.LogDebug(
+                        "{Message}",
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"particle batch {named} at {_transport.CurrentTick}: {built.Corners.Count / 6} quads, first corner ({first.X:0} {first.Y:0} {first.Z:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00})"));
+                }
             }
 
             // **Entity sprites join the particle batches rather than getting a pass of their own**
@@ -6705,12 +6845,15 @@ internal class MainForm : Form, IFrameSteps
                 // **The occlusion gate: the engine's line-of-sight fallback** (`GlowSight`,
                 // `c_pixel_visibility.cpp:825`). This was `_ => true`, which drew a lamp's halo through
                 // the roof above it; the owner saw it in the pyro's view on `koth_harvest_final`.
-                glow => _loaded?.Level.Leaves is not { } tree ||
+                //
+                // **Brushes AND static props**, as `MASK_OPAQUE` is: on `koth_harvest_final` a lamp's halo sits under
+                // a roof of `corrugated_metal` props, and a brush-only trace went straight through it.
+                glow => _loaded?.Level is not { } level ||
                         GlowSight.Visible(
                             new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
                             new Vector3(ahead, across, above),
                             glow,
-                            (from, to) => tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, 0f).Fraction >= 1f));
+                            (from, to) => level.Trace((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f).Fraction >= 1f));
 
             // **The value the builder USED, carried here rather than recounted** (B243). A picture
             // can only show a glow the camera happens to face, so the count is what says the pass
@@ -6734,9 +6877,13 @@ internal class MainForm : Form, IFrameSteps
         }
 
         batches = WithImpactEffects(batches, viewing);
+        _lastParticles = batches;
 
         _device.SetParticles(batches);
     }
+
+    /// <summary>The particle batches the last frame drew, for <see cref="Pick"/>.</summary>
+    private IReadOnlyList<ParticleBatch> _lastParticles = [];
 
     /// <summary>The effects running for this demo.</summary>
     private readonly ParticleEffects _particles = new();

@@ -224,6 +224,28 @@ public sealed class FreeCamera
         };
     }
 
+    /// <summary>The unit direction from this camera through a pixel of a viewport — the pick ray.</summary>
+    /// <param name="x">The pixel's column.</param>
+    /// <param name="y">Its row, from the top.</param>
+    /// <param name="width">The viewport's width in pixels.</param>
+    /// <param name="height">Its height.</param>
+    /// <returns>The direction, normalised.</returns>
+    /// <remarks>Horizontal field of view, as <see cref="FieldOfView"/> is; the vertical follows from the pixel aspect.</remarks>
+    public (float X, float Y, float Z) RayThrough(float x, float y, int width, int height)
+    {
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = Basis();
+
+        float across = MathF.Tan(FieldOfView * (MathF.PI / 360f)) * ((2f * (x + 0.5f) / width) - 1f);
+        float down = MathF.Tan(FieldOfView * (MathF.PI / 360f)) * height / width * (1f - (2f * (y + 0.5f) / height));
+
+        float dx = forward.X + (right.X * across) + (up.X * down);
+        float dy = forward.Y + (right.Y * across) + (up.Y * down);
+        float dz = forward.Z + (right.Z * across) + (up.Z * down);
+        float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+        return (dx / length, dy / length, dz / length);
+    }
+
     /// <summary>This camera's axes, as <c>AngleVectors</c> builds them.</summary>
     /// <returns>Forward, right and up — Valve's three, in Valve's order.</returns>
     /// <remarks>

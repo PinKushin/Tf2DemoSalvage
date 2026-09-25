@@ -86,6 +86,13 @@ public sealed class ParticleEffects
     public ParticleStore? BurstParticles(long key) =>
         _bursts.TryGetValue(key, out RunningBurst running) ? running.Effect.Particles : null;
 
+    /// <summary>One running burst's effect, children included, for the viewer's pixel pick.</summary>
+    /// <param name="key">The caller's key for it.</param>
+    /// <returns>The effect, or null when no burst has that key.</returns>
+    // Stryker disable once : removing TryGetValue leaves 'running' undeclared in ternary, CS0165 — B410.
+    public ParticleEffect? BurstEffect(long key) =>
+        _bursts.TryGetValue(key, out RunningBurst running) ? running.Effect : null;
+
     /// <summary>Steps every effect, starting one for each projectile that has none.</summary>
     /// <param name="projectiles">
     /// The live projectiles this tick: where each is, where it STARTED, and how many ticks ago
