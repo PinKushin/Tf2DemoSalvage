@@ -86,10 +86,29 @@ public sealed class SurfaceColour
 
         (float r, float g, float b) = _thumbnail(face.Texdata) is { } image ? Sample(image, walk.S, walk.T) : default;
 
-        return (Gamma(walk.Light.X) * r, Gamma(walk.Light.Y) * g, Gamma(walk.Light.Z) * b);
-
-        static float Gamma(float linear) => MathF.Pow(linear, 1f / 2.2f);
+        return Final(walk.Light, (r, g, b));
     }
+
+    /// <summary>`GetColorForSurface` for a trace that stopped on a static prop.</summary>
+    /// <param name="lighting">The model lighting at the hit.</param>
+    /// <param name="sun">The sun there, or null.</param>
+    /// <param name="end">`trace.endpos`.</param>
+    /// <param name="normal">`trace.plane.normal`.</param>
+    /// <returns>The colour, gamma-corrected.</returns>
+    /// <remarks>
+    /// `GetStaticPropMaterialColorAndLighting` (`engine.dll` `0x1802051e0`) hands the prop's model to
+    /// `GetModelMaterialColorAndLighting` (`0x1801c9f10`), whose studio branch sets the base colour to a flat 0.5 gray, not the
+    /// model's material, and the light to
+    /// <see cref="StudioPointLighting"/> at the hit along its normal.
+    /// </remarks>
+    public static (float R, float G, float B) OfStaticProp(PointLighting lighting, SunLight? sun, Vector3 end, Vector3 normal) =>
+        Final(StudioPointLighting.At(lighting, sun, end, normal), (0.5f, 0.5f, 0.5f));
+
+    /// <summary>`pow( diffuse, 1/2.2 ) · base`, per channel.</summary>
+    private static (float R, float G, float B) Final(Vector3 light, (float R, float G, float B) colour) =>
+        (Gamma(light.X) * colour.R, Gamma(light.Y) * colour.G, Gamma(light.Z) * colour.B);
+
+    private static float Gamma(float linear) => MathF.Pow(linear, 1f / 2.2f);
 
     /// <summary>`CTexture::GetLowResColorSample`: bilinear over the thumbnail, wrapping, bytes over 255.</summary>
     /// <param name="image">The thumbnail.</param>

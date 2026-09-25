@@ -5245,16 +5245,21 @@ internal class MainForm : Form, IFrameSteps
 
                 Vector3 start = new(impact.Start.X, impact.Start.Y, impact.Start.Z);
                 Vector3 end = new(impact.End.X, impact.End.Y, impact.End.Z);
+                Vector3 normal = new(impact.Normal.X, impact.Normal.Y, impact.Normal.Z);
 
                 return ImpactEffects.Perform(
                     surface.GameMaterial,
                     surface.Flags,
                     end,
-                    new Vector3(impact.Normal.X, impact.Normal.Y, impact.Normal.Z),
+                    normal,
                     Vector3.Normalize(end - start),
                     () =>
                     {
-                        (float r, float g, float b) = ColourOf(loaded, samples, assets).At(start, end);
+                        // `GetColorForSurface`: a static prop asks the prop manager, the world asks `R_LightVec`.
+                        (float r, float g, float b) = impact.StaticProp >= 0
+                            ? SurfaceColour.OfStaticProp(
+                                loaded.Lighting.LightingAt(end.X, end.Y, end.Z), loaded.Lighting.SunAt(end.X, end.Y, end.Z), end, normal)
+                            : ColourOf(loaded, samples, assets).At(start, end);
 
                         return new Vector3(r, g, b);
                     },
