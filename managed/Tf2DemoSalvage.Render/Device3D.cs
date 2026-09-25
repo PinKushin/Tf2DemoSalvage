@@ -2402,6 +2402,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Whether a textured map is loaded.</summary>
     public bool HasWorld => _world?.HasMap ?? false;
 
+    /// <summary>Uploads the lightmap atlas's rebuilt regions, when a light style changed.</summary>
+    /// <param name="pixels">The whole atlas.</param>
+    /// <param name="width">Its width in texels.</param>
+    /// <param name="regions">What was rebuilt.</param>
+    public void UpdateLightmap(byte[] pixels, int width, IReadOnlyList<AtlasRegion> regions) =>
+        _world?.UpdateLightmap(_context, pixels, width, regions);
+
     /// <summary>Whether the swap chain currently owns the display exclusively.</summary>
     public bool IsExclusiveFullScreen { get; private set; }
 

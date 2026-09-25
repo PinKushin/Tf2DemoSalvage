@@ -1447,6 +1447,7 @@ internal class MainForm : Form, IFrameSteps
         _decalVersion = -1;
         _decalWorld = null;
         _surfaceColour = null;
+        _lightStyles = new();
         _thumbnails.Clear();
         _struckPlayers.Clear();
         _impactEffects.Clear();
@@ -5212,6 +5213,47 @@ internal class MainForm : Form, IFrameSteps
         return vertex => vertex >= 0 && vertex < drawn.Length && drawn[vertex];
     }
 
+    /// <summary>Each light style's value at this tick, and the world's lightmaps rebuilt where one changed.</summary>
+    /// <remarks>
+    /// `R_AnimateLight` (`engine.dll` `0x1800d3ec0`) once a frame from the `lightstyles` table, then each face answering
+    /// to a changed style rebuilt and uploaded, as `R_BuildLightMap` rebuilds a face whose style was stamped. The time is
+    /// the tick's, so a seek lands on the same step however it was reached.
+    /// </remarks>
+    private void StepLightStyles(int tick)
+    {
+        if (_device is null || _timeline is not { } timeline || _loaded?.Assets is not { } assets)
+        {
+            return;
+        }
+
+        for (int style = 0; style < LightStyleValues.Count; style++)
+        {
+            _lightStyles.Set(style, timeline.LightStyles.PatternAt(style, tick));
+        }
+
+        IReadOnlyList<int> changed = _lightStyles.Advance(tick * timeline.IntervalPerTick);
+
+        _lightmapRegions.Clear();
+        assets.Lightmaps.Recompose(_lightStyles.Scale, changed, _lightmapRegions);
+        _device.UpdateLightmap(assets.Lightmaps.Pixels, assets.Lightmaps.Width, _lightmapRegions);
+
+        // Once per style change past the first frame, so a toggle is visible in the log with what it rebuilt.
+        if (_lightmapRegions.Count > 0 && _renderLog.IsEnabled(LogLevel.Information))
+        {
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"light styles at {tick}: {changed.Count} changed ({string.Join(",", changed.Take(8))}), {_lightmapRegions.Count} lightmaps rebuilt"));
+        }
+    }
+
+    /// <summary>Every light style's value, animated once a frame.</summary>
+    private LightStyleValues _lightStyles = new();
+
+    /// <summary>The atlas regions rebuilt this frame, reused.</summary>
+    private readonly List<AtlasRegion> _lightmapRegions = [];
+
     /// <summary>Starts and steps the debris, dust and sparks of every impact in the window (B415).</summary>
     /// <remarks>
     /// **Only where `Impact` returned true**, as `ImpactCallback` asks: a bullet with a decal on the world, not one a
@@ -5475,7 +5517,10 @@ internal class MainForm : Form, IFrameSteps
             }
 
             return thumbnail;
-        });
+        })
+        {
+            StyleScale = style => _lightStyles.Scale(style),
+        };
 
     /// <summary>The pool version last uploaded, so an unchanged pool costs nothing.</summary>
     private int _decalVersion = -1;
@@ -6528,6 +6573,8 @@ internal class MainForm : Form, IFrameSteps
         {
             return;
         }
+
+        StepLightStyles(_transport.CurrentTick);
 
         // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
         StepDecals(_transport.CurrentTick);

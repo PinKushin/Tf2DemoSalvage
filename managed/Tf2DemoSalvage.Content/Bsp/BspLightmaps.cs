@@ -493,10 +493,10 @@ public static class BspLightmaps
     /// <param name="face">The face's 56 bytes.</param>
     /// <returns>The count, at least one for a lit face.</returns>
     /// <remarks>
-    /// A face's samples are repeated once per active style — a flickering light stores every state.
-    /// Only the first set is drawn here, which is the map's normal appearance; the rest matter only
-    /// for animated lights, which a demo overview has no use for. The count is still needed to walk
-    /// past them when reading anything that follows.
+    /// A face's samples are repeated once per active style — a flickering or switchable light stores
+    /// its own lightmap. <see cref="BspFaceLighting.Styles"/> carries them, and the face is drawn as
+    /// their sum by each style's running value (<see cref="Compose"/>). The count also walks past them
+    /// when reading anything that follows.
     /// </remarks>
     public static int StyleCount(ReadOnlySpan<byte> face)
     {

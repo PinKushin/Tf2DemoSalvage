@@ -7102,6 +7102,41 @@ internal sealed unsafe class WorldRenderer : IDisposable
         return view;
     }
 
+    /// <summary>Uploads the lightmap atlas's rebuilt regions — faces whose light styles changed — and remakes its mips.</summary>
+    /// <param name="context">The device context.</param>
+    /// <param name="pixels">The whole atlas, four bytes a texel.</param>
+    /// <param name="width">The atlas's width in texels.</param>
+    /// <param name="regions">The regions rebuilt since the last upload.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void UpdateLightmap(
+        ComPtr<ID3D11DeviceContext> context, byte[] pixels, int width, IReadOnlyList<AtlasRegion> regions)
+    {
+        ArgumentNullException.ThrowIfNull(pixels);
+        ArgumentNullException.ThrowIfNull(regions);
+
+        if (regions.Count == 0 || _lightmap.Handle is null)
+        {
+            return;
+        }
+
+        ComPtr<ID3D11Resource> texture = default;
+
+        _lightmap.GetResource(ref texture);
+
+        fixed (byte* atlas = pixels)
+        {
+            foreach ((int x, int y, int regionWidth, int regionHeight) in regions)
+            {
+                Box box = new((uint)x, (uint)y, 0u, (uint)(x + regionWidth), (uint)(y + regionHeight), 1u);
+
+                context.UpdateSubresource(texture, 0, in box, atlas + (((y * width) + x) * 4), (uint)(width * 4), 0u);
+            }
+        }
+
+        context.GenerateMips(_lightmap);
+        texture.Dispose();
+    }
+
     /// <summary>Uploads a baked reflection's six faces as a cube texture.</summary>
     /// <remarks>
     /// **The faces go up in file order because that order is already D3D's.** Valve's names read

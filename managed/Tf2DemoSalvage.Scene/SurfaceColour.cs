@@ -39,7 +39,7 @@ public sealed record SurfaceThumbnail(byte[] Rgba, int Width, int Height, int Ma
 /// (`0x1800d3640`), and each is then ray-tested up to the nearest fraction taken so far. A hit ADDS the luxel under it
 /// to whatever the brush faces added, and its face and texture coordinate replace theirs.
 ///
-/// **Not built:** light styles other than their level-start value of 264. Static props never reach here —
+/// **Each style is scaled by its running value** (<see cref="StyleScale"/>). Static props never reach here —
 /// `GetColorForSurface` sends a prop hit to `GetStaticPropMaterialColorAndLighting` instead. When no face takes the
 /// ray, or the face has no thumbnail, the engine's base colour is an uninitialised local; zero is used.
 /// </remarks>
@@ -64,6 +64,9 @@ public sealed class SurfaceColour
         _samples = samples;
         _thumbnail = thumbnail;
     }
+
+    /// <summary>`d_lightstylevalue[ style ] / 264`: what each style's light is scaled by; one, as stored, unless set.</summary>
+    public Func<int, float> StyleScale { get; init; } = static _ => 1f;
 
     /// <summary>`GetColorForSurface` for a world trace from <paramref name="start"/> that stopped at <paramref name="end"/>.</summary>
     /// <param name="start">`trace.startpos`.</param>
@@ -342,7 +345,7 @@ public sealed class SurfaceColour
                      image.MappingHeight;
         }
 
-        (float r, float g, float b) = _samples.Average(face.Index, styles: true, static _ => 1f);
+        (float r, float g, float b) = _samples.Average(face.Index, styles: true, StyleScale);
 
         walk.Light += new Vector3(r, g, b);
 
@@ -408,7 +411,7 @@ public sealed class SurfaceColour
             lighting.Height,
             (face.Flags & SurfaceProperties.BumpLight) != 0,
             styles: true,
-            static _ => 1f);
+            StyleScale);
 
         walk.Light += new Vector3(red, green, blue);
 
