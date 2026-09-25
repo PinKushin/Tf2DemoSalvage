@@ -70,6 +70,48 @@ public sealed class ImpactEffectRunnerTests
         runner.Count.ShouldBe(0);
     }
 
+    /// <remarks>
+    /// Two bursts of flecks ten units apart, two ticks apart: the second joins the first's emitter on its own tick, which
+    /// needs every effect stepped together rather than each caught up alone. Seeking back before the second starts the
+    /// first alone again.
+    /// </remarks>
+    [Test]
+    public void Advance_TwoNearbyBurstsTwoTicksApart_ShareOneEmitter()
+    {
+        List<ImpactEffect> spawned = [];
+        ImpactEffectRunner runner = new();
+        (int, int, int)[] live = [(0, 100, 1), (1, 102, 2)];
+
+        runner.Advance(live, 110, Interval, (index, _) => Record(spawned, Burst(new Vector3(10f * index, 0f, 0f))), Nothing);
+
+        spawned[0].Emitters[0].Particles.Count.ShouldBe(2);
+        spawned[1].Emitters.ShouldBeEmpty();
+
+        spawned.Clear();
+        runner.Advance(live, 101, Interval, (index, _) => Record(spawned, Burst(new Vector3(10f * index, 0f, 0f))), Nothing);
+
+        spawned.Count.ShouldBe(1);
+        spawned[0].Emitters[0].Particles.Count.ShouldBe(1);
+    }
+
+    private static ImpactEffect Record(List<ImpactEffect> into, ImpactEffect effect)
+    {
+        into.Add(effect);
+        return effect;
+    }
+
+    /// <summary>One fleck that lives an hour, in an emitter boxed about its spawn.</summary>
+    private static ImpactEffect Burst(Vector3 spawn)
+    {
+        ImpactEffect effect = new();
+        ImpactEmitter emitter = new(ImpactEmitterKind.Fleck) { Mins = spawn - new Vector3(5f), Maxs = spawn + new Vector3(5f) };
+
+        emitter.Particles.Add(new ImpactParticle("m", spawn, Vector3.Zero, 3600f));
+        effect.Emitters.Add(emitter);
+
+        return effect;
+    }
+
     /// <summary>An effect with one particle that lives an hour.</summary>
     private static ImpactEffect Lasting()
     {

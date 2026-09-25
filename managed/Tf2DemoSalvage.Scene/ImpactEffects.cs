@@ -166,7 +166,8 @@ public static class ImpactEffects
 
         // `trace->endpos + trace->plane.normal * 1.0`; the end is the origin.
         Vector3 spawn = origin + normal;
-        ImpactEmitter emitter = new(ImpactEmitterKind.Fleck);
+        // `CFleckParticles::Create( "FX_DebrisFlecks", spawnOffset, Vector( 5, 5, 5 ) )`: the box the merge list grows.
+        ImpactEmitter emitter = new(ImpactEmitterKind.Fleck) { Mins = spawn - new Vector3(5f), Maxs = spawn + new Vector3(5f) };
 
         // `FLECK_ANGULAR_SPRAY − iScale · 0.2`, at least 0.2; `FLECK_GRAVITY` 800, `FLECK_DAMPEN` 0.3.
         emitter.Collision.Setup(spawn, normal, minimumSpeed, maximumSpeed, 800f, 0.3f, trace);

@@ -27444,8 +27444,12 @@ replayed from its own tick on every frame. The item above filed as "for the perf
 - **Stepped per tick, not per frame.** The engine steps by frame time; stepping by ticks is what makes a seek land
   on the same picture. A bounce or a decay reached in unequal steps differs slightly.
 - **Draws are seeded, not the engine's stream**, as for decals.
-- **`CFleckParticles` merging is not built**: a fleck emitter within 120 units of an older one joins it and re-runs
-  the older one's collision setup at the new impact.
+- ~~**`CFleckParticles` merging is not built**~~ **Built 2026-09-24** (`FleckMerge`, `fx_fleck.cpp:99-145`). A new burst
+  joins the newest live `FX_DebrisFlecks` emitter whose box, grown by the new spawn ± 5, stays under 120 across. That
+  emitter's collision is set up again at the new spawn, so its older flecks bounce off the newer impact's planes. To
+  allow it, `ImpactEffectRunner` now steps every effect together tick by tick and starts each on its own tick, instead of
+  catching each one up alone. A backward seek, or a jump past everything running, starts again from the first impact
+  still offered.
 - **`GetColorForSurface` is partial**: displacements and static props in `R_LightVec`'s walk, light styles beyond
   their level-start 264, water surfaces, and a hit on no face (the engine's base colour is then an uninitialised
   local; zero here).
