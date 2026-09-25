@@ -6702,13 +6702,15 @@ internal class MainForm : Form, IFrameSteps
                 new Vector3(ahead, across, above),
                 _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites,
 
-                // **The occlusion gate, and it is NOT the engine's.** `PixelVisibility_FractionVisible`
-                // is a GPU query that returns a FRACTION, degenerating to a line trace from the eye
-                // when there is no query handle (`c_pixel_visibility.cpp:825`). This project has
-                // neither, so a glow is lit whenever it is in the world at all — which means one
-                // behind a pillar stays lit where TF2 hides it. Named here and in B378 rather than
-                // left to be discovered from a screenshot.
-                _ => true);
+                // **The occlusion gate: the engine's line-of-sight fallback** (`GlowSight`,
+                // `c_pixel_visibility.cpp:825`). This was `_ => true`, which drew a lamp's halo through
+                // the roof above it; the owner saw it in the pyro's view on `koth_harvest_final`.
+                glow => _loaded?.Level.Leaves is not { } tree ||
+                        GlowSight.Visible(
+                            new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
+                            new Vector3(ahead, across, above),
+                            glow,
+                            (from, to) => tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, 0f).Fraction >= 1f));
 
             // **The value the builder USED, carried here rather than recounted** (B243). A picture
             // can only show a glow the camera happens to face, so the count is what says the pass
