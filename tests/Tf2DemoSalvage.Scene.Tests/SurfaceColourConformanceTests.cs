@@ -88,6 +88,20 @@ public sealed class SurfaceColourConformanceTests
         Floor(noRay: true).At(new Vector3(50f, 18f, 50f), new Vector3(50f, 18f, 0f)).ShouldBe((0f, 0f, 0f));
     }
 
+    /// <summary>
+    /// `GetColorForSurface` sends a prop hit to `GetStaticPropMaterialColorAndLighting` (`c_impact_effects.cpp:111`), whose
+    /// studio branch (`engine.dll` `0x1801c9f10`) gives a flat 0.5 gray base, not the material's.
+    /// </summary>
+    /// <remarks>A cube whose upper face is 0.25: that to the 1/2.2, times 0.5.</remarks>
+    [Test]
+    public void OfStaticProp_AnUpwardHit_IsItsLightToTheGammaTimesHalf()
+    {
+        AmbientCube cube = new(default, default, default, default, (0.25f, 0.25f, 0.25f), default);
+
+        SurfaceColour.OfStaticProp(PointLighting.Bounce(cube), null, Vector3.Zero, Vector3.UnitZ).R
+            .ShouldBe(MathF.Pow(0.25f, 1f / 2.2f) * 0.5f, 1e-6f);
+    }
+
     [Test]
     public void Sample_BetweenTexels_IsBilinearAndWraps()
     {

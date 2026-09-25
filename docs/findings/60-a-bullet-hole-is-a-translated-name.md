@@ -182,8 +182,26 @@ lightmap coordinates run from luxel centre to luxel centre, so this is `column �
 aimed at an exact grid vertex, and float error truncated 3 to 2. A shot at a vertex can land either side in the engine
 too.
 
+### Static props: flat gray, lit like a model
+
 Static props never reach `R_LightVec`. `GetColorForSurface` (`c_impact_effects.cpp:110`) sends a prop hit to
-`staticpropmgr->GetStaticPropMaterialColorAndLighting`, which is not built here yet.
+`staticpropmgr->GetStaticPropMaterialColorAndLighting`. **Read from the binaries:**
+
+- The client prop manager's vtable slot 9 (`engine.dll` `0x1802051e0`) forwards the prop's model, origin and angles to
+  `modelinfo->GetModelMaterialColorAndLighting` (`0x1801c9f10`). A prop index out of range gives light 0 and colour 1.
+- For a studio model that function **does not read the material at all**. The base colour is a flat `(0.5, 0.5, 0.5)`.
+  The light is a lightcache state at `trace.endpos` (`LightcacheGet`, flags `0xf`), passed with `trace.plane.normal` to
+  `IStudioRender::ComputeLighting` (`studiorender.dll` `0x180020bd0`, vtable slot 37).
+- `ComputeLighting` (`0x180020c80`) adds the ambient cube as each normal component squared times the face on its side,
+  with a zero component taking the negative face. It then adds up to four lights at `colour · max(n·Δ̂, 0) · falloff`.
+  The falloff is `1 / (c + l·d + q·d²)`, with `FLT_EPSILON` standing in for a missing constant term. It is zero only
+  once `d² > range²`: the boundary is **kept**, unlike mathlib's strict cull.
+
+So a fleck off a crate is the lighting at the hit, gamma-corrected, times one half, whatever the crate is made of.
+Built as `SurfaceColour.OfStaticProp` over `StudioPointLighting`, fed by the same `LevelLighting` answers a model is
+drawn with. **Interpolated:** the sun is added as a directional light where it reaches, as the model draw adds it; the
+lightcache's own light list was not read. **Not built:** a spotlight's cone (`0x180021b20`), because `LocalLight`
+carries none. The model draw lacks the cone too.
 
 **Interpolated:** the engine builds each leaf's displacement list at load, and the builder was not found. Here each
 displacement's collision box is pushed down the tree, in displacement order. The order only matters to a ray that
