@@ -272,6 +272,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // own idiom: `PixelShaderDoLightingLinear` unpacks its fourth light out of the .w
             // channels of the first three for exactly this reason.
             float4 localLightFalloff[4];
+
+            // **A spotlight's cone — Valve's `LightInfo.dir` and `spotParams`** (common_vs_fxc.h:112).
+            // Direction xyz is which way it points; w is 1 for a spot and 0 for a point light, the
+            // `dir.w` type code `VertexAttenInternal` lerps on. Spot x is the exponent, z the outer
+            // cosine and w one over the inner less the outer.
+            float4 localLightDirection[4];
+            float4 localLightSpot[4];
         };
 
         // **Per material rather than per frame.** A detail texture's scale, strength and combine
@@ -580,9 +587,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         // **One local light's attenuation at a world point — Valve's VertexAttenInternal.**
-        // `common_vs_fxc.h:762`, minus the spot cone and the directional bypass: the sun travels
-        // its own path here and a spotlight's cone is not decoded yet, so both would be dead code
-        // pretending to be parity.
+        // `common_vs_fxc.h:762`, minus the directional bypass: the sun travels its own path here, so
+        // that branch would be dead code pretending to be parity.
         //
         // Returns zero for a light beyond its range. Valve does not cull in the shader at all,
         // because `LightDesc_t::ComputeLightAtPoints` culled on the CPU before the light was
@@ -606,9 +612,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
             }
 
             // `1 / dot( atten.xyz, vDist )` where vDist is dst(dist2, 1/dist) = (1, d, d²).
-            return 1.0f / dot(
+            float distanceAtten = 1.0f / dot(
                 localLightFalloff[lamp].xyz,
                 float3(1.0f, sqrt(distanceSquared), distanceSquared));
+
+            // Spot attenuation, then "select between point and spot" on the type code.
+            float cosTheta = dot(localLightDirection[lamp].xyz, -toLamp * rsqrt(distanceSquared));
+            float spotAtten = (cosTheta - localLightSpot[lamp].z) * localLightSpot[lamp].w;
+            spotAtten = saturate(pow(max(0.0001f, spotAtten), localLightSpot[lamp].x));
+
+            return lerp(distanceAtten, distanceAtten * spotAtten, localLightDirection[lamp].w);
         }
 
         VsOut VsMain(VsIn input)
@@ -3854,6 +3867,29 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 contents[falloff] = lamp.Constant;
                 contents[falloff + 1] = lamp.Linear;
                 contents[falloff + 2] = lamp.Quadratic;
+
+                if (lamp.Spot)
+                {
+                    int direction = LocalLightBase + (LocalLightSlots * 12) + (slot * 4);
+                    int spot = LocalLightBase + (LocalLightSlots * 16) + (slot * 4);
+                    float spread = lamp.SpotInner - lamp.SpotOuter;
+
+                    contents[direction] = lamp.Direction.X;
+                    contents[direction + 1] = lamp.Direction.Y;
+                    contents[direction + 2] = lamp.Direction.Z;
+                    contents[direction + 3] = 1f;
+
+                    // **An exponent of 0 goes up as 1.** Both Valve CPU paths that could be read skip the
+                    // power for 0 as for 1 (`engine.dll` 0x1800efbf0, `studiorender.dll` 0x180021b20); what
+                    // shaderapi uploads for it was not found, and `pow( x, 0 )` would light the whole
+                    // outside of the cone. 137 of 45,586 spotlights on the installed maps carry 0.
+                    contents[spot] = lamp.SpotExponent == 0f ? 1f : lamp.SpotExponent;
+                    contents[spot + 2] = lamp.SpotOuter;
+
+                    // `LightDesc_t::RecalculateDerivedValues` (lightdesc.cpp:25): a hard edge rather than
+                    // a division by nothing.
+                    contents[spot + 3] = spread > 1.0e-10f ? 1f / spread : 1f;
+                }
             }
         }
 
@@ -3882,7 +3918,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// grew two of three arrays and turned the scene into a strobe.
     /// </remarks>
     private const int ModelConstants =
-        16 + (6 * 4) + 4 + 4 + 4 + 4 + (LocalLightSlots * 4 * 3);
+        16 + (6 * 4) + 4 + 4 + 4 + 4 + (LocalLightSlots * 4 * 5);
 
     /// <summary>How many local lights a model draw carries, matching the engine's four.</summary>
     private const int LocalLightSlots = 4;
