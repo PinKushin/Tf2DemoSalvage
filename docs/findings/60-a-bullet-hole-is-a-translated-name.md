@@ -135,6 +135,27 @@ caught it.
 Measured on f12: 1,286 client bullets stop on terrain; by tick 1600 six decals lie on displacements (35 fragments),
 one of them the first terrain bullet's hole at tick 1538.
 
+## A decal that declares a fade never fades on the world
+
+Read 2026-09-24 from engine.dll (x64). Twenty shipped materials declare `$decalFadeDuration`, among them `scorchfade`,
+the `splash` decals and `redglowfade`. `scorchfade` is precached in ten of the owner's demos. The engine carries the whole
+fade mechanism:
+
+- `R_DecalCreate` (`0x1801168b0`) sets flag `0x100` when the decal info's duration (`+0x40`) is positive. It stores the
+  duration at `+0x4c` and the start time at `+0x50`, which is the info's offset (`+0x44`) plus the tick clock
+  (`0x1800a3020`: tick count × interval, plus the interpolation fraction when not paused).
+- The brush draw (`0x18011d4c0`) scales the decal colour's alpha by `clamp(1 − (now − start) / duration, 0, 1)`. A
+  negative duration fades in, as `(start − now) / duration`.
+- `0x180115d70` removes the decal once `now ≥ start + duration`, after drawing it that frame.
+
+**None of it runs for a world decal.** `R_DecalShoot` (`0x180118730`) builds the decal info on its stack and zeroes the
+eight bytes at `+0x40` (`local_78 = 0`). It reads `$decalScale` and never reads `$decalFadeDuration`. It is the only
+caller of the node walk (`0x180117d90`), and the walk is the only way to `R_DecalCreate`. So the flag is never set, and a
+`scorchfade` on a wall stays until the pool retires it.
+
+The one place that reads `$decalFadeDuration` is the model-decal add (`0x1800edc60`), which refuses such a material
+outright. The viewer already does the same (`DecalMaterial.Fades`). *Read from the binary; no capture compared.*
+
 ## Not established
 
 What is not built, and every divergence, is listed under B415 in `docs/RISKS.md`. The largest are displacement decals,
