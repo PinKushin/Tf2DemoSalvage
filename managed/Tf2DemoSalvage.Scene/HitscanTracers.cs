@@ -85,6 +85,15 @@ public readonly record struct ShotImpact(
 
     /// <summary>For a client bullet stopped by a static prop, its index in the map's lump; −1 otherwise.</summary>
     public int StaticProp { get; init; } = -1;
+
+    /// <summary>
+    /// For a client bullet that began out of water and stopped in it, where it entered the water; null otherwise. Such a
+    /// bullet takes no impact effects — no decal, no impact sound — and splashes instead (<see cref="BulletWater"/>).
+    /// </summary>
+    public (float X, float Y, float Z)? WaterEntry { get; init; }
+
+    /// <summary>The splash's particle system when <see cref="WaterEntry"/> is set.</summary>
+    public string? Splash { get; init; }
 }
 
 /// <summary>Which bullets of a demo's shots draw a tracer, and where each ends (B415).</summary>
@@ -123,7 +132,7 @@ public sealed class HitscanTracers
     private const int DefaultTracerFrequency = 4;
 
     /// <summary>`TF_WEAPON_MINIGUN`.</summary>
-    private const int MinigunId = 18;
+    private const int MinigunId = BulletWater.MinigunId;
 
     /// <summary>`TF_TEAM_RED`.</summary>
     private const int RedTeam = 2;

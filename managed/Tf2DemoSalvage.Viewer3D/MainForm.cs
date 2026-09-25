@@ -4301,6 +4301,7 @@ internal class MainForm : Form, IFrameSteps
 
         AddTracers(tick, systems, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
         AddBlood(timeline, tick, systems, viewing);
+        AddSplashes(tick, systems);
         AddSentryMuzzleFlashes(timeline, tick, systems);
         AddParticleDispatches(timeline, tick, systems);
         AddWeaponMuzzleFlashes(timeline, tick, systems);
@@ -4632,7 +4633,8 @@ internal class MainForm : Form, IFrameSteps
 
         foreach (ShotImpact bullet in _loaded.Impacts)
         {
-            if (bullet.FromServer || bullet.Tick <= from || bullet.Tick > tick)
+            // Into water: a splash and nothing else — no impact sound, no decal on whoever stood in it (`BulletWater`).
+            if (bullet.FromServer || bullet.WaterEntry is not null || bullet.Tick <= from || bullet.Tick > tick)
             {
                 continue;
             }
@@ -5233,7 +5235,10 @@ internal class MainForm : Form, IFrameSteps
             timeline.IntervalPerTick,
             (_, impact, random) =>
             {
-                if (StruckPlayer(impact, tick) || impacts.For(impact) is null || impacts.Surface(impact) is not { } surface)
+                if (impact.WaterEntry is not null ||
+                    StruckPlayer(impact, tick) ||
+                    impacts.For(impact) is null ||
+                    impacts.Surface(impact) is not { } surface)
                 {
                     return null;
                 }
@@ -5661,6 +5666,36 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Blood keys sit above the tracers': two bursts per event, its impact and its spray.</summary>
     private const long BloodKeys = 2L << 32;
+
+    /// <summary>Splash keys sit above the heal beams': one per bullet into water.</summary>
+    private const long SplashKeys = 8L << 32;
+
+    /// <summary>The impacts in the splashes' window this tick, reused.</summary>
+    private readonly List<(int Index, ShotImpact Impact)> _splashesNow = [];
+
+    /// <summary>
+    /// Starts a splash where each bullet in the window entered water — `ImpactWaterTrace`'s `tf_gunshotsplash`, which
+    /// `TFSplashCallbackHelper` draws as its particle system at that point with the world's axes (`tf_fx_impacts.cpp:141`).
+    /// </summary>
+    private void AddSplashes(int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        if (_loaded is not { } loaded)
+        {
+            return;
+        }
+
+        TickWindow.Between(loaded.Impacts, static impact => impact.Tick, tick - BloodWindowTicks, tick, _splashesNow);
+
+        foreach ((int index, ShotImpact impact) in _splashesNow)
+        {
+            if (impact.WaterEntry is { } entry && impact.Splash is { } name && systems.TryGetValue(name, out ParticleSystem? definition))
+            {
+                Vector3 at = new(entry.X, entry.Y, entry.Z);
+
+                _burstsNow.Add(new ParticleBurst(SplashKeys + index, definition, ParticleControlPoint.Unoriented(at), impact.Tick));
+            }
+        }
+    }
 
     /// <summary>How long a blood event is offered — a second, well past `blood_spray_red_01`'s own life.</summary>
     private const int BloodWindowTicks = 66;

@@ -230,6 +230,19 @@ public sealed class LoadedMap
                     impacts);
             }
 
+            // **A bullet into water splashes and does nothing else** (`FireBullet`, `tf_player_shared.cpp:10513`).
+            IReadOnlyList<SceneShot> shots = timeline.Shots.All;
+            IReadOnlyList<ShotImpact> wetted = BulletWater.Mark(
+                impacts,
+                impact => impact.Shot < shots.Count ? shots[impact.Shot].WeaponId : 0,
+                (x, y, z) => level.Leaves?.ContentsAt(x, y, z) ?? 0);
+
+            impacts = [.. wetted];
+
+            renderLog.LogInformation(
+                "{Message}",
+                $"{impacts.Count(static impact => impact.WaterEntry is not null).ToString(CultureInfo.InvariantCulture)} client bullets entered water; {WaterLeaves(level).ToString(CultureInfo.InvariantCulture)} of {(level.Leaves?.LeafCount ?? 0).ToString(CultureInfo.InvariantCulture)} leaves are water or slime");
+
             renderLog.LogInformation(
                 "{Message}",
                 $"{impacts.Count(static impact => impact.StaticProp >= 0).ToString(CultureInfo.InvariantCulture)} of {impacts.Count.ToString(CultureInfo.InvariantCulture)} client bullets stopped on a static prop, {impacts.Count(static impact => impact.BrushEntity >= 0).ToString(CultureInfo.InvariantCulture)} on a door; {doors.Count.ToString(CultureInfo.InvariantCulture)} door tracks traced");
@@ -361,6 +374,7 @@ public sealed class LoadedMap
                                 .Select(dispatch => timeline.Dispatches.ParticleNames.Name(dispatch.HitBox))
                                 .OfType<string>()
                                 .Distinct(StringComparer.OrdinalIgnoreCase),
+                            .. BulletWater.Systems,
                         ],
 
                     // **A factory rather than finished geometry, because the atlas is packed inside
@@ -448,6 +462,24 @@ public sealed class LoadedMap
                 Doors = doors,
             };
         }
+    }
+
+    /// <summary>How many of the map's leaves hold water or slime — the control that a water count of zero is an answer.</summary>
+    private static int WaterLeaves(MapLevel level)
+    {
+        if (level.Leaves is not { } tree)
+        {
+            return 0;
+        }
+
+        int wet = 0;
+
+        for (int leaf = 0; leaf < tree.LeafCount; leaf++)
+        {
+            wet += (tree.Contents(leaf) & (BspLeafTree.ContentsWater | BspLeafTree.ContentsSlime)) != 0 ? 1 : 0;
+        }
+
+        return wet;
     }
 
     /// <summary>Builds the drawable world, in world space.</summary>
