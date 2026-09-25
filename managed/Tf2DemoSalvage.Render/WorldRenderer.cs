@@ -1574,7 +1574,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         Upload(device, context, texture);
 
     private static ComPtr<ID3D11ShaderResourceView> Upload(
-        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapTexture? texture)
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        MapTexture? texture,
+        MaterialSampler sampler = MaterialSampler.BaseTexture)
     {
         if (texture is not { } present)
         {
@@ -1593,7 +1596,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // protects nothing and costs the alpha that decals and translucent materials need to blend
         // with. A decal drawn against a flattened alpha paints its whole quad as solid colour,
         // which is what made the patch under a health pack look like a placeholder marker.
-        return CreateTexture(device, context, present.Width, present.Height, present.Image);
+        return CreateTexture(
+            device, context, present.Width, present.Height, present.Image, SamplerSrgb.ReadsAsSrgb(sampler));
     }
 
     /// <summary>Builds the missing-material chequer: magenta and black, like the engine's.</summary>
@@ -2693,7 +2697,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
             MapBump? bump = index < assets.Bumps.Count ? assets.Bumps[index] : null;
 
             _details.Add(detail is { } present ? Upload(device, context, present.Texture) : default);
-            _bumps.Add(bump is { } mapped ? Upload(device, context, mapped.Texture) : default);
+            // **Not sRGB**: an ssbump texel is three light weights and a normal map is a direction (SamplerSrgb).
+            _bumps.Add(bump is { } mapped ? Upload(device, context, mapped.Texture, MaterialSampler.Bump) : default);
 
             // **Mode -1 is "no detail", and it has to be a value rather than an absence.** The
             // shader reads the same constant buffer for every draw, so a material without a detail
@@ -3106,7 +3111,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             assets.Lightmaps.Width,
             assets.Lightmaps.Height,
             TextureImage.Rgba(assets.Lightmaps.Pixels),
-            srgb: false);
+            SamplerSrgb.ReadsAsSrgb(MaterialSampler.Lightmap));
 
         // Counted, because "we now skip additive materials" is a capability and this is the output.
         _render.LogInformation(
