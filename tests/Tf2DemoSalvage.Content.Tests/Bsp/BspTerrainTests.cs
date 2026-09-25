@@ -76,7 +76,7 @@ public sealed class BspTerrainTests
 
         foreach (BspSurface surface in _displacements)
         {
-            (DisplacementCollisionTree tree, _) = terrain.ReadCollisionTree(surface).ShouldNotBeNull();
+            (DisplacementCollisionTree tree, _, _) = terrain.ReadCollisionTree(surface).ShouldNotBeNull();
 
             foreach (SurfaceVertex drawn in terrain.ReadTriangles(surface))
             {

@@ -139,6 +139,12 @@ public readonly record struct DisplacementCorner(Vector3 Position, float LightU,
 /// <param name="Triangles">Its drawn triangles, three corners each, as the world renderer draws them.</param>
 public sealed record DecalDisplacement(int Face, Vector3 Mins, Vector3 Maxs, IReadOnlyList<DisplacementCorner> Triangles);
 
+/// <summary>A displacement as a ray sees it: its parent face and its collision tree (B415).</summary>
+/// <param name="Face">Its parent face's index.</param>
+/// <param name="Tree">`CDispCollTree`.</param>
+/// <param name="NoRay">`SURF_NORAY_COLL`: `AABBTree_Ray` refuses every ray.</param>
+public sealed record RayDisplacement(int Face, DisplacementCollisionTree Tree, bool NoRay);
+
 /// <summary>A BSP node as the decal walk sees it.</summary>
 /// <param name="Front">Child 0; negative is a leaf, <c>-(leaf + 1)</c>.</param>
 /// <param name="Back">Child 1.</param>
@@ -162,6 +168,16 @@ public sealed record DecalWorld(
 
     /// <summary>The world's displacements, which take their own path (`SURFDRAW_HAS_DISP`).</summary>
     public IReadOnlyList<DecalDisplacement> Displacements { get; init; } = [];
+
+    /// <summary>The world's displacements' collision trees, by displacement order.</summary>
+    public IReadOnlyList<RayDisplacement> RayDisplacements { get; init; } = [];
+
+    /// <summary>Each leaf's displacements, as indices into <see cref="RayDisplacements"/> — the leaf's `dispListStart`.</summary>
+    /// <remarks>
+    /// **Interpolated:** the engine builds these at load and the builder was not found; here each displacement's box is
+    /// pushed down the tree, in displacement order. The order only matters to a ray that meets two displacements.
+    /// </remarks>
+    public IReadOnlyList<IReadOnlyList<int>> LeafDisplacements { get; init; } = [];
 
     /// <summary>The decal system's view of a map, built once at load.</summary>
     /// <param name="tree">The BSP tree.</param>
@@ -251,7 +267,88 @@ public sealed record DecalWorld(
                 surface.MaterialIndex);
         }
 
-        return new DecalWorld(nodes, leaves, faces) { Displacements = DisplacementsOf(surfaces, terrain) };
+        List<RayDisplacement> rays = RaysOf(surfaces, terrain);
+
+        return new DecalWorld(nodes, leaves, faces)
+        {
+            Displacements = DisplacementsOf(surfaces, terrain),
+            RayDisplacements = rays,
+            LeafDisplacements = Link(nodes, leaves.Length, rays),
+        };
+    }
+
+    /// <summary>Each displacement's collision tree, in the order its faces come.</summary>
+    private static List<RayDisplacement> RaysOf(IReadOnlyList<BspSurface> surfaces, BspTerrain? terrain)
+    {
+        List<RayDisplacement> rays = [];
+
+        foreach (BspSurface surface in surfaces)
+        {
+            if (terrain is not null && surface.IsDisplacement && terrain.ReadCollisionTree(surface) is { } read)
+            {
+                rays.Add(new RayDisplacement(surface.FaceIndex, read.Tree, read.NoRay));
+            }
+        }
+
+        return rays;
+    }
+
+    /// <summary>Each leaf's displacements: every one whose box reaches it, in displacement order.</summary>
+    private static List<int>[] Link(DecalNode[] nodes, int leafCount, List<RayDisplacement> rays)
+    {
+        List<int>[] lists = new List<int>[leafCount];
+
+        for (int leaf = 0; leaf < leafCount; leaf++)
+        {
+            lists[leaf] = [];
+        }
+
+        for (int index = 0; index < rays.Count; index++)
+        {
+            if (nodes.Length > 0)
+            {
+                Down(0, rays[index].Tree.Mins, rays[index].Tree.Maxs, index);
+            }
+        }
+
+        return lists;
+
+        void Down(int node, Vector3 mins, Vector3 maxs, int index)
+        {
+            while (node >= 0)
+            {
+                if (node >= nodes.Length)
+                {
+                    return;
+                }
+
+                DecalNode plane = nodes[node];
+                Vector3 centre = (mins + maxs) * 0.5f;
+                float reach = Vector3.Dot(Vector3.Abs(plane.Normal), maxs - centre);
+                float distance = Vector3.Dot(plane.Normal, centre) - plane.Distance;
+
+                if (distance >= reach)
+                {
+                    node = plane.Front;
+                }
+                else if (distance <= -reach)
+                {
+                    node = plane.Back;
+                }
+                else
+                {
+                    Down(plane.Front, mins, maxs, index);
+                    node = plane.Back;
+                }
+            }
+
+            int leaf = -node - 1;
+
+            if (leaf < lists.Length && (lists[leaf].Count == 0 || lists[leaf][^1] != index))
+            {
+                lists[leaf].Add(index);
+            }
+        }
     }
 
     /// <summary>Each displacement's drawn triangles — the same tessellation the world renderer draws — and its bounds.</summary>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Bsp;
@@ -34,9 +35,13 @@ public sealed record SurfaceThumbnail(byte[] Rgba, int Width, int Height, int Ma
 /// flag from the material; here a texinfo's `SURF_WARP` (`bspflags.h`, `0x0008`), which vbsp gives water faces, stands
 /// in for it — an interpolation.
 ///
-/// **Not built:** displacements and static props (`R_LightVec` also tests them) and light styles other than their
-/// level-start value of 264. When no face takes the ray, or the face has no thumbnail, the engine's base colour is an
-/// uninitialised local; zero is used.
+/// **Displacements come after the walk** (`0x1800d40a0`): each leaf the walk enters lists its displacements
+/// (`0x1800d3640`), and each is then ray-tested up to the nearest fraction taken so far. A hit ADDS the luxel under it
+/// to whatever the brush faces added, and its face and texture coordinate replace theirs.
+///
+/// **Not built:** light styles other than their level-start value of 264. Static props never reach here —
+/// `GetColorForSurface` sends a prop hit to `GetStaticPropMaterialColorAndLighting` instead. When no face takes the
+/// ray, or the face has no thumbnail, the engine's base colour is an uninitialised local; zero is used.
 /// </remarks>
 public sealed class SurfaceColour
 {
@@ -67,8 +72,14 @@ public sealed class SurfaceColour
     public (float R, float G, float B) At(Vector3 start, Vector3 end)
     {
         Walk walk = new(start, (end - start) * 1.1f);
+        DecalFace? found = _world.Nodes.Count == 0 ? null : Node(0, 0f, 1f, ref walk);
 
-        if (_world.Nodes.Count == 0 || Node(0, 0f, 1f, ref walk) is not { } face)
+        foreach (int index in walk.Displacements)
+        {
+            found = Displacement(_world.RayDisplacements[index], ref walk) ?? found;
+        }
+
+        if (found is not { } face)
         {
             return default;
         }
@@ -192,6 +203,18 @@ public sealed class SurfaceColour
             return null;
         }
 
+        // `0x1800d3640`: the leaf's displacements join the walk's list, each once.
+        if (leaf < _world.LeafDisplacements.Count)
+        {
+            foreach (int index in _world.LeafDisplacements[leaf])
+            {
+                if (!walk.Displacements.Contains(index))
+                {
+                    walk.Displacements.Add(index);
+                }
+            }
+        }
+
         DecalFace? found = null;
 
         foreach (int index in _world.LeafFaces[leaf])
@@ -310,6 +333,107 @@ public sealed class SurfaceColour
             (row.X * p.X) + (row.Y * p.Y) + (row.Z * p.Z) + row.Offset;
     }
 
+    /// <summary>
+    /// A displacement the walk listed: `CDispInfo`'s ray test (`0x1800c2dd0`, `AABBTree_Ray`) over the ray up to the
+    /// nearest fraction taken so far, then, on a hit, the luxel under it (`0x1800d37d0`) and the texture coordinate
+    /// (`0x1800bfc90`).
+    /// </summary>
+    private DecalFace? Displacement(RayDisplacement displacement, ref Walk walk)
+    {
+        if (displacement.NoRay || Face(displacement.Face) is not { } face)
+        {
+            return null;
+        }
+
+        DisplacementCollisionTree tree = displacement.Tree;
+        Vector3 delta = walk.Delta * walk.Best;
+        float nearest = 1f;
+        (int A, int B, int C) hit = default;
+        (float U, float V) at = default;
+        bool struck = false;
+
+        // `AABBTree_TreeTrisRayBarycentricTest` (`dispcoll_common.cpp:598`): each triangle as ( 0, 2, 1 ), strictly nearer.
+        foreach ((int a, int b, int c) in tree.Triangles)
+        {
+            if (Barycentric(walk.Start, delta, tree.Vertices[a], tree.Vertices[c], tree.Vertices[b]) is { } found &&
+                found.U >= 0f && found.V >= 0f && found.U + found.V <= 1f &&
+                found.T > 0f && found.T < nearest)
+            {
+                nearest = found.T;
+                hit = (a, b, c);
+                at = (found.U, found.V);
+                struck = true;
+            }
+        }
+
+        if (!struck)
+        {
+            return null;
+        }
+
+        walk.Best *= nearest;
+
+        // The hit's place on the grid, from its three corners' ( column, row ) as `P = v0 + u·( v1 − v0 ) + v·( v2 − v0 )`
+        // over ( a, c, b ).
+        int side = tree.Side;
+        float span = side - 1;
+        float column = Grid(hit.A % side, hit.C % side, hit.B % side) / span;
+        float row = Grid(hit.A / side, hit.C / side, hit.B / side) / span;
+        LuxelMapping lighting = face.Lighting;
+
+        (float red, float green, float blue) = _samples.Luxel(
+            face.Index,
+            (int)(column * (lighting.Width - 1)),
+            (int)(row * (lighting.Height - 1)),
+            lighting.Width,
+            lighting.Height,
+            (face.Flags & SurfaceProperties.BumpLight) != 0,
+            styles: true,
+            static _ => 1f);
+
+        walk.Light += new Vector3(red, green, blue);
+
+        if (_thumbnail(face.Texdata) is { MappingWidth: > 0, MappingHeight: > 0 } image && tree.Corners.Count == 4)
+        {
+            IReadOnlyList<Vector3> corners = tree.Corners;
+            Vector3 flat = Vector3.Lerp(
+                Vector3.Lerp(corners[0], corners[1], row), Vector3.Lerp(corners[3], corners[2], row), column);
+
+            walk.S = (Vector3.Dot(new Vector3(face.TextureS.X, face.TextureS.Y, face.TextureS.Z), flat) + face.TextureS.W) /
+                     image.MappingWidth;
+            walk.T = (Vector3.Dot(new Vector3(face.TextureT.X, face.TextureT.Y, face.TextureT.Z), flat) + face.TextureT.W) /
+                     image.MappingHeight;
+        }
+
+        return face;
+
+        float Grid(int first, int second, int third) => first + (at.U * (second - first)) + (at.V * (third - first));
+    }
+
+    /// <summary>`ComputeIntersectionBarycentricCoordinates` (`collisionutils.cpp:140`) for a ray, no box offset.</summary>
+    private static (float U, float V, float T)? Barycentric(Vector3 start, Vector3 delta, Vector3 v1, Vector3 v2, Vector3 v3)
+    {
+        Vector3 edge1 = v2 - v1;
+        Vector3 edge2 = v3 - v1;
+        Vector3 dirCrossEdge2 = Vector3.Cross(delta, edge2);
+        float denom = Vector3.Dot(dirCrossEdge2, edge1);
+
+        if (MathF.Abs(denom) < 1e-6f)
+        {
+            return null;
+        }
+
+        denom = 1f / denom;
+
+        Vector3 org = start - v1;
+        float u = Vector3.Dot(dirCrossEdge2, org) * denom;
+        Vector3 orgCrossEdge1 = Vector3.Cross(org, edge1);
+        float v = Vector3.Dot(orgCrossEdge1, delta) * denom;
+        float t = Vector3.Dot(orgCrossEdge1, edge2) * denom;
+
+        return t is < 0f or > 1f ? null : (u, v, t);
+    }
+
     private DecalFace? Face(int index) =>
         index >= 0 && index < _world.Faces.Count ? _world.Faces[index] : null;
 
@@ -318,6 +442,7 @@ public sealed class SurfaceColour
     {
         public readonly Vector3 Start = start;
         public readonly Vector3 Delta = delta;
+        public readonly List<int> Displacements = [];
         public float Best = 1f;
         public Vector3 Light;
         public float S;

@@ -58,6 +58,36 @@ public sealed class SurfaceColourConformanceTests
             .ShouldBe((0f, 0f, 0f));
     }
 
+    /// <summary>
+    /// `R_LightVec` (`0x1800d40a0`) ray-tests each displacement its leaves list (`0x1800d3640`) through
+    /// `CDispCollTree::AABBTree_Ray` (`dispcoll_common.cpp:564`) and, on a hit, adds the luxel under it (`0x1800d37d0`:
+    /// `samples + ( dt · smax + ds )`, ds and dt truncated) and takes the texture coordinate bilinear over the base
+    /// face's corners (`0x1800bfc90`).
+    /// </summary>
+    /// <remarks>
+    /// A flat 64-unit floor, power 2, five luxels a side. The shot lands at x 50, y 18: 0.78 across the columns (x) and
+    /// 0.28 down the rows (y), so luxel ( 3.125, 1.125 ) truncated to ( 3, 1 ) — whose sample is 200 at exponent −3 — and
+    /// texture s 0.78125, 0.5625 of the way from the thumbnail's red texel round to its black one.
+    /// </remarks>
+    [Test]
+    public void At_AShotIntoADisplacement_TakesTheLuxelUnderTheHit()
+    {
+        (float r, float g, float b) = Floor().At(new Vector3(50f, 18f, 50f), new Vector3(50f, 18f, 0f));
+
+        float lit = MathF.Pow(200f * MathF.ScaleB(1f, -3) / 255f, 1f / 2.2f);
+
+        r.ShouldBe(lit * 0.4375f, 1e-5f);
+        g.ShouldBe(0f);
+        b.ShouldBe(0f);
+    }
+
+    /// <summary>`AABBTree_Ray` returns at once for a displacement flagged `SURF_NORAY_COLL` (`dispcoll_common.cpp:569`).</summary>
+    [Test]
+    public void At_ADisplacementThatTakesNoRays_IsBlack()
+    {
+        Floor(noRay: true).At(new Vector3(50f, 18f, 50f), new Vector3(50f, 18f, 0f)).ShouldBe((0f, 0f, 0f));
+    }
+
     [Test]
     public void Sample_BetweenTexels_IsBilinearAndWraps()
     {
@@ -68,6 +98,36 @@ public sealed class SurfaceColourConformanceTests
 
         // A negative coordinate wraps as `s + ( 1 − (int)s )`.
         SurfaceColour.Sample(two, -0.25f, 0f).R.ShouldBe(0.5f, 1e-6f);
+    }
+
+    /// <summary>A flat displacement on z = 0, rows along y and columns along x, in the one leaf the tree has.</summary>
+    private static SurfaceColour Floor(bool noRay = false)
+    {
+        Vector3[] corners = [new(0f, 0f, 0f), new(0f, 64f, 0f), new(64f, 64f, 0f), new(64f, 0f, 0f)];
+        DisplacementCollisionTree tree = DisplacementCollisionTree.Build(corners, 2, new (Vector3, float)[25]);
+        LuxelMapping lighting = new((1f / 16f, 0f, 0f, 0f), (0f, 1f / 16f, 0f, 0f), 0, 0, 5, 5);
+
+        DecalFace face = new(
+            0, corners, Vector3.UnitZ, 0f, new Vector4(1f, 0f, 0f, 0f), new Vector4(0f, 1f, 0f, 0f),
+            (0, 0), (64, 64), false, true, false, lighting, SurfaceProperties.None, 0);
+
+        DecalWorld world = new([new DecalNode(-1, -1, Vector3.UnitX, 1000f, 0, 0)], [[]], [face])
+        {
+            RayDisplacements = [new RayDisplacement(0, tree, noRay)],
+            LeafDisplacements = [[0]],
+        };
+
+        // One style, 25 luxels; luxel ( 3, 1 ) is sample 1 · 5 + 3.
+        byte[] lump = new byte[25 * 4];
+
+        lump[(8 * 4) + 0] = 200;
+        lump[(8 * 4) + 3] = unchecked((byte)(sbyte)-3);
+
+        BspLightSamples samples = new(lump, [new BspFaceLightLayout(0, (0, 255, 255, 255))]);
+
+        return new SurfaceColour(world, samples, texdata => texdata == 0
+            ? new SurfaceThumbnail([0, 0, 0, 255, 255, 0, 0, 255], 2, 1, 64, 64)
+            : null);
     }
 
     private static SurfaceColour Colour(SurfaceProperties flags = SurfaceProperties.None)

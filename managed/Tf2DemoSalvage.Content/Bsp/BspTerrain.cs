@@ -219,7 +219,10 @@ public sealed class BspTerrain
 
     /// <summary>Reads one face's displacement as the engine's collision tree, and whether it is excluded from physics.</summary>
     /// <param name="surface">A surface whose <c>DisplacementIndex</c> is not -1.</param>
-    /// <returns>The tree, and whether <c>SURF_NOPHYSICS_COLL</c> is set; null for a face that is not a displacement.</returns>
+    /// <returns>
+    /// The tree, and whether <c>SURF_NOPHYSICS_COLL</c> and <c>SURF_NORAY_COLL</c> (<c>0x8</c>) are set; null for a face that is not a
+    /// displacement.
+    /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="surface"/> is null.</exception>
     /// <exception cref="InvalidDataException">The displacement's data is malformed.</exception>
     /// <remarks>
@@ -228,7 +231,7 @@ public sealed class BspTerrain
     /// <c>minTess</c> with its high bit set carries <c>SURF_NOPHYSICS_COLL</c> (<c>0x2</c>, `builddisp.h:737`), which the engine's
     /// loader (`engine.dll` `FUN_18016f6d0`) tests before it makes a virtual mesh.
     /// </remarks>
-    public (DisplacementCollisionTree Tree, bool NoPhysics)? ReadCollisionTree(BspSurface surface)
+    public (DisplacementCollisionTree Tree, bool NoPhysics, bool NoRay)? ReadCollisionTree(BspSurface surface)
     {
         ArgumentNullException.ThrowIfNull(surface);
 
@@ -285,9 +288,9 @@ public sealed class BspTerrain
         DisplacementCollisionTree tree = DisplacementCollisionTree.Build(
             [.. Array.ConvertAll(corners, corner => new System.Numerics.Vector3(corner.X, corner.Y, corner.Z))], power, field);
 
-        bool noPhysics = (minTess & int.MinValue) != 0 && (minTess & 0x2) != 0;
+        bool flagged = (minTess & int.MinValue) != 0;
 
-        return (tree, noPhysics);
+        return (tree, flagged && (minTess & 0x2) != 0, flagged && (minTess & 0x8) != 0);
     }
 
     /// <summary>Rotates a quad so the corner nearest a point comes first.</summary>
