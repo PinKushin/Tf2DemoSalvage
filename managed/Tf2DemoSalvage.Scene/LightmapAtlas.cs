@@ -13,6 +13,13 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Height">Height.</param>
 public readonly record struct AtlasRect(float U, float V, float Width, float Height);
 
+/// <summary>A region of the atlas that changed, in texels.</summary>
+/// <param name="X">Left.</param>
+/// <param name="Y">Top.</param>
+/// <param name="Width">Width.</param>
+/// <param name="Height">Height.</param>
+public readonly record struct AtlasRegion(int X, int Y, int Width, int Height);
+
 /// <summary>
 /// Every face's baked lighting packed into one texture.
 /// </summary>
@@ -55,18 +62,81 @@ public sealed class LightmapAtlas
     /// </remarks>
     private const int Padding = 1;
 
+    /// <summary>Each face lit by more than style 0: where it sits, and its style layers.</summary>
+    private readonly List<(int X, int Y, int SetWidth, int Height, int Sets, IReadOnlyList<BspStyleLayer> Layers)> _styled;
+
     private LightmapAtlas(
         int width,
         int height,
         byte[] pixels,
         IReadOnlyList<AtlasRect> rectangles,
-        IReadOnlyList<float> directionalSteps)
+        IReadOnlyList<float> directionalSteps,
+        List<(int X, int Y, int SetWidth, int Height, int Sets, IReadOnlyList<BspStyleLayer> Layers)> styled)
     {
         Width = width;
         Height = height;
         Pixels = pixels;
         Rectangles = rectangles;
         DirectionalSteps = directionalSteps;
+        _styled = styled;
+    }
+
+    /// <summary>Rebuilds every styled face that answers to a changed style — `R_BuildLightMap` for a stamped style.</summary>
+    /// <param name="scale">Each style's value over 264.</param>
+    /// <param name="changed">The styles whose values changed.</param>
+    /// <param name="dirty">Each rebuilt face's region, added to, for upload.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void Recompose(Func<int, float> scale, IReadOnlyCollection<int> changed, ICollection<AtlasRegion> dirty)
+    {
+        ArgumentNullException.ThrowIfNull(scale);
+        ArgumentNullException.ThrowIfNull(changed);
+        ArgumentNullException.ThrowIfNull(dirty);
+
+        if (changed.Count == 0)
+        {
+            return;
+        }
+
+        byte[] row = [];
+
+        foreach ((int x, int y, int setWidth, int height, int sets, IReadOnlyList<BspStyleLayer> layers) in _styled)
+        {
+            if (!Answers(layers, changed))
+            {
+                continue;
+            }
+
+            if (row.Length != setWidth * height * 4)
+            {
+                row = new byte[setWidth * height * 4];
+            }
+
+            for (int set = 0; set < sets; set++)
+            {
+                BspLightmaps.Compose(layers, set, scale, row);
+
+                for (int line = 0; line < height; line++)
+                {
+                    row.AsSpan(line * setWidth * 4, setWidth * 4)
+                        .CopyTo(Pixels.AsSpan((((y + line) * Width) + x + (set * setWidth)) * 4));
+                }
+            }
+
+            dirty.Add(new AtlasRegion(x, y, setWidth * sets, height));
+        }
+
+        static bool Answers(IReadOnlyList<BspStyleLayer> layers, IReadOnlyCollection<int> changed)
+        {
+            foreach (BspStyleLayer layer in layers)
+            {
+                if (changed.Contains(layer.Style))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 
     /// <summary>How far along to step for each directional lightmap, in texture coordinates.</summary>
@@ -183,10 +253,17 @@ public sealed class LightmapAtlas
         pixels[(WhiteTexel * 4) + 2] = 255;
         pixels[(WhiteTexel * 4) + 3] = 255;
 
+        List<(int, int, int, int, int, IReadOnlyList<BspStyleLayer>)> styled = [];
+
         foreach ((int face, int x, int y, int _, int height) in placements)
         {
             int setWidth = lightmaps[face].Width;
             int set = 0;
+
+            if (lighting[face].Styles.Count > 0)
+            {
+                styled.Add((x, y, setWidth, height, 1 + lighting[face].Directional.Count, lighting[face].Styles));
+            }
 
             // Set 0 first, then each directional set one lightmap further along, which is the
             // order the shader's stepped coordinates expect to find them in.
@@ -218,6 +295,6 @@ public sealed class LightmapAtlas
             steps[face] = steps[face] / atlasWidth;
         }
 
-        return new LightmapAtlas(atlasWidth, atlasHeight, pixels, rectangles, steps);
+        return new LightmapAtlas(atlasWidth, atlasHeight, pixels, rectangles, steps, styled);
     }
 }
