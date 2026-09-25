@@ -36,7 +36,7 @@ public sealed class PropLightingSpaceProbe
 
         for (int index = 0; index < props.Count && read < 150; index++)
         {
-            foreach (string path in StudioVertexLighting.PathsFor(index))
+            foreach (string path in StudioVertexLighting.PathsFor(index, BspMapFlags.Read(bytes)))
             {
                 if (pak.ReadFile(path) is not { } file || file.Length < 40)
                 {

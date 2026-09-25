@@ -294,6 +294,9 @@ public static class PropModels
         // acceptable state on a map this project claims to read; see RejectedPropLighting.
         List<string> refused = [];
 
+        // Which `.vhv` the engine reads, if any, is the map's to say (StudioVertexLighting.PathsFor).
+        uint mapFlags = BspMapFlags.Read(map);
+
         for (int index = 0; index < placements.Count; index++)
         {
             BspStaticProp placement = placements[index];
@@ -321,7 +324,7 @@ public static class PropModels
 
             PropTransform transform = new(placement);
 
-            PropLighting lighting = Lighting(props, pak, placed: index, model.Checksum);
+            PropLighting lighting = Lighting(props, pak, placed: index, model.Checksum, mapFlags);
 
             if (lighting.Colours is null)
             {
@@ -505,9 +508,9 @@ public static class PropModels
     /// counts it.
     /// </remarks>
     // The logger is a parameter because this is static (D83).
-    private static PropLighting Lighting(ILogger props, PakFile pak, int placed, int checksum)
+    private static PropLighting Lighting(ILogger props, PakFile pak, int placed, int checksum, uint mapFlags)
     {
-        foreach (string path in StudioVertexLighting.PathsFor(placed))
+        foreach (string path in StudioVertexLighting.PathsFor(placed, mapFlags))
         {
             byte[]? file;
 

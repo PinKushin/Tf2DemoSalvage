@@ -31,7 +31,7 @@ public sealed class PropBrightnessProbe
 
         for (int index = 0; index < props.Count; index++)
         {
-            foreach (string vhv in StudioVertexLighting.PathsFor(index))
+            foreach (string vhv in StudioVertexLighting.PathsFor(index, BspMapFlags.Read(map)))
             {
                 if (pak.ReadFile(vhv) is not { } file || file.Length < 8)
                 {

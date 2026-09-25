@@ -197,30 +197,33 @@ public static class StudioVertexLighting
         return byMesh;
     }
 
-    /// <summary>Where a placement's lighting lives inside the map's pakfile.</summary>
+    /// <summary>Where a placement's lighting lives inside the map's pakfile: one name, or none.</summary>
     /// <param name="propIndex">The placement's position in the static prop lump.</param>
-    /// <returns>The paths to try, in order.</returns>
+    /// <param name="mapFlags">The map's `LUMP_MAP_FLAGS` (<see cref="Bsp.BspMapFlags"/>).</param>
+    /// <returns>Nothing when the map declares no bake; otherwise the one file the engine reads.</returns>
     /// <remarks>
-    /// **LDR first, because that is what the engine does in the mode this renders.** Valve's
-    /// static prop manager chooses by the renderer's HDR type rather than by availability:
-    /// <c>sp_&lt;n&gt;.vhv</c> in LDR and <c>sp_hdr_&lt;n&gt;.vhv</c> in HDR. A map compiled for
-    /// both carries both, and the two hold DIFFERENT values — HDR lighting is authored brighter
-    /// and expects a tone-mapping pass this viewer does not do, so preferring it produces washed
-    /// out props while looking like a plausible choice.
+    /// **`engine.dll` 0x1800f4760, the static prop lighting load**, gated by the flags 0x1800ffa10 reads from lump 59:
+    /// no `.vhv` unless `flags &amp; 3`; `sp_hdr_%d%s.vhv` when HDR is on and the HDR bake bit is set; `sp_%d%s.vhv`
+    /// otherwise. One name and no fallback — a missing file is runtime lighting, as a checksum mismatch is. TF2's
+    /// default is HDR, and so is this viewer's.
     ///
-    /// The HDR file remains a fallback rather than being refused: a map compiled HDR-only still
-    /// has lighting, and slightly wrong lighting beats none.
+    /// **This used to try LDR first, then HDR, on the claim that HDR "is authored brighter and expects a tone-mapping
+    /// pass".** Measured on `koth_harvest_final` by the `vhv-pair` probe: all 652 pairs hold identical colours.
     /// </remarks>
-    public static IEnumerable<string> PathsFor(int propIndex)
+    public static IEnumerable<string> PathsFor(int propIndex, uint mapFlags)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(propIndex);
+
+        if ((mapFlags & (Bsp.BspMapFlags.BakedStaticPropLightingNonHdr | Bsp.BspMapFlags.BakedStaticPropLightingHdr)) == 0)
+        {
+            yield break;
+        }
 
         // Stryker disable once : the String mutator wraps the interpolated literal in a ternary
         // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
         // then drops every mutation in this method — B410.
-        yield return string.Create(CultureInfo.InvariantCulture, $"sp_{propIndex}.vhv");
-
-        // Stryker disable once : the same String-mutator/CS1620 shape as the LDR path above.
-        yield return string.Create(CultureInfo.InvariantCulture, $"sp_hdr_{propIndex}.vhv");
+        yield return (mapFlags & Bsp.BspMapFlags.BakedStaticPropLightingHdr) != 0
+            ? string.Create(CultureInfo.InvariantCulture, $"sp_hdr_{propIndex}.vhv")
+            : string.Create(CultureInfo.InvariantCulture, $"sp_{propIndex}.vhv");
     }
 }
