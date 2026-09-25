@@ -53,6 +53,10 @@ public readonly record struct TextureImage(
     public bool IsBlockCompressed => Format is
         VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha or VtfFormat.Dxt3 or VtfFormat.Dxt5;
 
+    /// <summary>Whether the GPU samples these bytes as they are, with the file's own mip chain.</summary>
+    /// <remarks>Block compression, and the half floats of an HDR cubemap bake (B149).</remarks>
+    public bool IsNative => IsBlockCompressed || Format is VtfFormat.Rgba16161616F;
+
     /// <summary>Expands the largest level to RGBA, for a caller that has to read texels.</summary>
     /// <param name="width">The image's width.</param>
     /// <param name="height">Its height.</param>
@@ -73,7 +77,7 @@ public readonly record struct TextureImage(
     /// to put it, because **CI has no GPU**. A verification that cannot run where the suite runs is
     /// not a verification. The owner put it plainly: *"no it has to be cpu, the ci has no gpu"*.
     /// </remarks>
-    public byte[] ToRgba(int width, int height) => IsBlockCompressed
+    public byte[] ToRgba(int width, int height) => IsNative
         ? VtfTexture.Expand(Top.Span, Format, width, height)
         : Top.ToArray();
 }

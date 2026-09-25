@@ -51,6 +51,7 @@ public sealed class ImageFormatConformanceTests
             ("IMAGE_FORMAT_DXT3", VtfFormat.Dxt3),
             ("IMAGE_FORMAT_DXT5", VtfFormat.Dxt5),
             ("IMAGE_FORMAT_DXT1_ONEBITALPHA", VtfFormat.Dxt1OneBitAlpha),
+            ("IMAGE_FORMAT_RGBA16161616F", VtfFormat.Rgba16161616F),
         ];
 
         List<string> wrong = [];
@@ -89,7 +90,7 @@ public sealed class ImageFormatConformanceTests
     [Test]
     public void ImageFormats_TheUndecodedOnes_AreTheMajority()
     {
-        // **A coverage statement, and an honest one.** Eight of forty is what this reader handles,
+        // **A coverage statement, and an honest one.** Nine of forty — RGBA16161616F joined for the HDR cubemap bakes — is what this reader handles,
         // and the gap is deliberate: TF2's own content is overwhelmingly DXT1 and DXT5, so the rest
         // are unimplemented rather than missing. Naming the count keeps that a decision.
         //
@@ -101,7 +102,7 @@ public sealed class ImageFormatConformanceTests
 
         int declared = Declared().Values.Count(value => value >= 0);
 
-        handled.ShouldBe(8);
+        handled.ShouldBe(9);
         declared.ShouldBeGreaterThan(30);
     }
 

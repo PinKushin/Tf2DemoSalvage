@@ -313,6 +313,12 @@ public sealed class CubemapLoadingTests
     /// </remarks>
     private static int ExpectedBytes(MapTexture face)
     {
+        // The HDR bake TF2 loads (CubemapFile): four half floats a texel.
+        if (face.Image.Format is VtfFormat.Rgba16161616F)
+        {
+            return face.Width * face.Height * 8;
+        }
+
         if (!face.Image.IsBlockCompressed)
         {
             return face.Width * face.Height * 4;

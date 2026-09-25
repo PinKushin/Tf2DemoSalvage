@@ -6874,7 +6874,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         TextureImage image,
         bool srgb = true)
     {
-        return image.IsBlockCompressed
+        return image.IsNative
             ? CreateBlockTexture(device, width, height, image, srgb)
             : CreatePixelTexture(device, context, width, height, image.Top.Span, srgb);
     }
@@ -7057,6 +7057,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     internal static Silk.NET.DXGI.Format BlockFormat(VtfFormat format, bool srgb) => format switch
     {
+        // An HDR bake is linear light; there is no sRGB half-float format and none is wanted.
+        VtfFormat.Rgba16161616F => Silk.NET.DXGI.Format.FormatR16G16B16A16Float,
+
         VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha => srgb
             ? Silk.NET.DXGI.Format.FormatBC1UnormSrgb
             : Silk.NET.DXGI.Format.FormatBC1Unorm,
@@ -7084,6 +7087,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
     {
         int blockBytes = format is VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha ? 8 : 16;
         int levelWidth = Math.Max(1, width >> level);
+
+        // Half floats are a row of texels, eight bytes each, not a row of 4x4 blocks.
+        if (format is VtfFormat.Rgba16161616F)
+        {
+            return levelWidth * 8;
+        }
 
         return Math.Max(1, (levelWidth + 3) / 4) * blockBytes;
     }
@@ -7212,7 +7221,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // heavy, and they break easily, so they need to be on the gpu like valve has them."*
         TextureImage first = cubeFaces[0].Image;
 
-        if (first.IsBlockCompressed)
+        if (first.IsNative)
         {
             return UploadCompressedCube(device, size, cubeFaces);
         }

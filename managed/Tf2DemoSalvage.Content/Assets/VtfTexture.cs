@@ -55,6 +55,14 @@ public enum VtfFormat
     /// Found by <c>ImageFormatConformanceTests</c> the first time it ran.
     /// </remarks>
     Dxt1OneBitAlpha = 20,
+
+    /// <summary>Four half floats a texel, linear light: the format of an HDR cubemap bake.</summary>
+    /// <remarks>
+    /// **What TF2 reflects at its default `mat_hdr_level 2`**: vbsp packs `c&lt;x&gt;_&lt;y&gt;_&lt;z&gt;.hdr.vtf` beside the LDR
+    /// bake, and this is its format (`pak` probe, `koth_harvest_final`). Kept as bytes for the GPU, which samples
+    /// half floats natively, as DXT is (B149).
+    /// </remarks>
+    Rgba16161616F = 24,
 }
 
 /// <summary>
@@ -319,7 +327,8 @@ public sealed class VtfTexture
     {
         get
         {
-            if (IsBlockCompressed)
+            // Half floats are handed over as blocks are: the GPU samples both as stored.
+            if (IsBlockCompressed || (Format is VtfFormat.Rgba16161616F && Levels.Count > 0))
             {
                 return new TextureImage(Format, Levels);
             }
@@ -681,8 +690,9 @@ public sealed class VtfTexture
             // Stryker restore all
         }
 
+        // Half floats pass through as blocks do: the GPU samples both natively.
         bool blocks = !expand && format is
-            VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha or VtfFormat.Dxt3 or VtfFormat.Dxt5;
+            VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha or VtfFormat.Dxt3 or VtfFormat.Dxt5 or VtfFormat.Rgba16161616F;
 
         if (blocks)
         {
@@ -737,6 +747,7 @@ public sealed class VtfTexture
     {
         VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha => BlockCount(width, height) * 8,
         VtfFormat.Dxt3 or VtfFormat.Dxt5 => BlockCount(width, height) * 16,
+        VtfFormat.Rgba16161616F => width * height * 8,
         VtfFormat.Rgba8888 or VtfFormat.Bgra8888 => width * height * 4,
         VtfFormat.Rgb888 or VtfFormat.Bgr888 => width * height * 3,
         _ => throw new InvalidDataException($"VTF format {format} has no known size."),
@@ -806,6 +817,17 @@ public sealed class VtfTexture
 
             case VtfFormat.Dxt5:
                 DecodeDxt(source, pixels, width, height, blockBytes: 16, hasAlphaBlock: true, dxt5: true);
+                break;
+
+            // Linear light clamped to a byte, for a caller reading texels; drawing keeps the halves (Read).
+            case VtfFormat.Rgba16161616F:
+                for (int channel = 0; channel < width * height * 4; channel++)
+                {
+                    float linear = (float)BinaryPrimitives.ReadHalfLittleEndian(source[(channel * 2)..]);
+
+                    pixels[channel] = (byte)Math.Clamp(linear * 255f, 0f, 255f);
+                }
+
                 break;
 
             default:
@@ -979,7 +1001,11 @@ public sealed class VtfTexture
         13 => VtfFormat.Dxt1,
         14 => VtfFormat.Dxt3,
         15 => VtfFormat.Dxt5,
-        26 => VtfFormat.Dxt1OneBitAlpha,
+
+        // By the enum rather than by a second literal: this said 26, `IMAGE_FORMAT_UVLX8888`, after the enum was
+        // corrected to 20, so a real one-bit-alpha texture was refused and a UVLX one would have decoded as DXT1.
+        (int)VtfFormat.Dxt1OneBitAlpha => VtfFormat.Dxt1OneBitAlpha,
+        (int)VtfFormat.Rgba16161616F => VtfFormat.Rgba16161616F,
         _ => VtfFormat.Unknown,
     };
 }

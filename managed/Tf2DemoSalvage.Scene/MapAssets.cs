@@ -2067,13 +2067,12 @@ public sealed class MapAssets
 
         foreach (BspCubemap placement in placements)
         {
-            string path = "materials/" + BspCubemaps.TextureName(mapName, placement) + ".vtf";
-
             // Stryker disable all : a mutant that empties the guard body leaves 'file' unassigned
             // at the CubeFaces call below (CS0165), and Safe Mode then drops every mutation in
             // this method — B410. The range form rather than 'disable once', which reaches only
             // the 'if' and left this one still triggering — the use is several statements later.
-            if (pak.ReadFile(path) is not { } file)
+            // The HDR bake first, as TF2 loads it at its default HDR level (CubemapFile).
+            if (CubemapFile.Find(BspCubemaps.TextureName(mapName, placement), pak.ReadFile) is not { } file)
             {
                 // **Expected on some maps rather than a defect.** `Cubemap_AddUnreferencedCubemaps`
                 // keeps an env_cubemap entity in the lump even when nothing reflects it, and a map
@@ -2100,7 +2099,7 @@ public sealed class MapAssets
         assets.LogInformation(
             "{Message}",
             $"ASKED FOR {placements.Count} baked cubemaps of {mapName}; " +
-            $"HAVE {loaded.Count} decoded; " +
+            $"HAVE {loaded.Count} decoded, as {string.Join('/', loaded.Select(cube => cube.Faces[0].Image.Format).Distinct())}; " +
             $"MISSING {absent} unpacked, {refused} that would not decode");
 
         return loaded;
@@ -2870,11 +2869,12 @@ public sealed class MapAssets
 
             // Stryker disable once : a mutant that empties the guard body leaves 'file'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Find("materials/" + bare + ".vtf") is not { } file)
+            // The HDR bake first, as TF2 loads it at its default HDR level (CubemapFile).
+            if (CubemapFile.Find(bare, Find) is not { } file)
             {
                 assets.LogWarning(
                     "{Message}",
-                    $"cubemap materials/{bare}.vtf, named by materials/{materialName}.vmt, was not found");
+                    $"cubemap materials/{bare}.vtf, named by materials/{materialName}.vmt, was not found, nor its .hdr bake");
 
                 return null;
             }
