@@ -15,6 +15,27 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class FreeCameraTests
 {
+    /// <remarks>
+    /// The pick ray through a pixel, checked against the projection the renderer draws with: a point along the ray
+    /// must land back on that pixel. The two are independent code, so each is the other's control.
+    /// </remarks>
+    [TestCase(10f, 20f)]
+    [TestCase(520f, 152f)]
+    [TestCase(983f, 550f)]
+    public void RayThrough_APixel_ProjectsBackOntoThatPixel(float px, float py)
+    {
+        FreeCamera camera = new()
+        {
+            Origin = (473f, 1444f, 245.5f), Angles = (3.18f, -93.61f, 0f), FieldOfView = 90f, Aspect = 984f / 551f,
+        };
+
+        (float dx, float dy, float dz) = camera.RayThrough(px, py, 984, 551);
+        (float x, float y, float _) = Project(camera, 473f + (dx * 500f), 1444f + (dy * 500f), 245.5f + (dz * 500f));
+
+        ((x + 1f) * 0.5f * 984f).ShouldBe(px + 0.5f, 0.05f);
+        ((1f - y) * 0.5f * 551f).ShouldBe(py + 0.5f, 0.05f);
+    }
+
     /// <summary>Where a world point lands in normalised device coordinates.</summary>
     private static (float X, float Y, float Z) Project(
         FreeCamera camera, float x, float y, float z)
