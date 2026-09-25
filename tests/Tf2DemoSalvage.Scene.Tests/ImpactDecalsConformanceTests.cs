@@ -56,6 +56,17 @@ public sealed class ImpactDecalsConformanceTests
             .ShouldNotBeNull().Name.ShouldBe("decals/flesh/blood1");
     }
 
+    /// <remarks>
+    /// Terrain's surface is `**displacement**`: flags zero (`FUN_18016f290`), and its material's surfaceprop slot — none in
+    /// this fixture, which reads as surface zero and so leaves `Impact.Concrete` untranslated.
+    /// </remarks>
+    [Test]
+    public void For_ADisplacement_IsItsSurfacepropsDecal()
+    {
+        Decals().For(Impact(-1) with { DisplacementTexdata = 0 }, static (_, _) => 0f)
+            .ShouldNotBeNull().Name.ShouldBe("decals/concrete/shot1");
+    }
+
     /// <remarks>A model with no `$surfaceprop` is surface −1, which `GetSurfaceData` reads as surface zero: not terrain.</remarks>
     [Test]
     public void For_AStaticPropWithNoSurfaceprop_IsTheDefaultSurfacesDecal()

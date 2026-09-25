@@ -4495,7 +4495,7 @@ internal class MainForm : Form, IFrameSteps
 
     private DecalWorld DecalWorldOf(LoadedMap loaded) =>
         _decalWorld ??= loaded.Level.Leaves is { } tree && loaded.Level.LeafFaces is { } leafFaces
-            ? DecalWorld.From(tree, leafFaces, loaded.Level.Surfaces)
+            ? DecalWorld.From(tree, leafFaces, loaded.Level.Surfaces, loaded.Level.Terrain)
             : DecalWorld.Empty;
 
     /// <summary>Whether a player stopped this bullet — judged only on its own tick, and remembered.</summary>
@@ -5522,6 +5522,28 @@ internal class MainForm : Form, IFrameSteps
         _decalDoorsAt = doorsAt;
         replay.Decals.Placed(_placedDecals);
 
+        // What the displacement path placed (B415): the first time any terrain bullet is due, the fragments on displacements.
+        if (!_reportedTerrainDecals && loaded.Impacts.Any(impact => impact.DisplacementTexdata >= 0 && impact.Tick <= tick))
+        {
+            _reportedTerrainDecals = true;
+
+            DecalWorld world = DecalWorldOf(loaded);
+            List<PlacedDecal> onTerrain = [.. _placedDecals.Where(placed =>
+                placed.Face >= 0 && placed.Face < world.Faces.Count && world.Faces[placed.Face] is { Displacement: true })];
+
+            // A bullet's own hole where there is one, the control that the impact path reaches terrain.
+            PlacedDecal? shown = onTerrain.Find(static placed => placed.Material.Name.Contains("shot", StringComparison.OrdinalIgnoreCase)) ??
+                (onTerrain.Count > 0 ? onTerrain[0] : null);
+            Vector3 first = shown?.Polygon[0].Position ?? Vector3.Zero;
+            Vector3 plane = shown is not null && world.Faces[shown.Face] is { } parent ? parent.PlaneNormal : Vector3.Zero;
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"terrain decals at {tick}: {onTerrain.Count} fragments of {onTerrain.Select(static placed => placed.Slot).Distinct().Count()} decals, over {world.Displacements.Count} displacements; the first at ({first.X:0.00} {first.Y:0.00} {first.Z:0.00}) on a face whose plane is ({plane.X:0.00} {plane.Y:0.00} {plane.Z:0.00}); materials {string.Join(", ", onTerrain.Select(static placed => placed.Material.Name).Distinct())}; {loaded.Impacts.Count(impact => impact.DisplacementTexdata >= 0 && impact.Tick <= tick)} terrain bullets due"));
+        }
+
         if (_renderLog.IsEnabled(LogLevel.Debug))
         {
             _renderLog.LogDebug(
@@ -5623,6 +5645,9 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Whether the first static prop decal's place has been logged, the control that they are made at all.</summary>
     private bool _reportedPropDecal;
+
+    /// <summary>Whether the terrain decals' first count has been logged.</summary>
+    private bool _reportedTerrainDecals;
 
     /// <summary>Whether the static prop decals' refusals have been logged.</summary>
     private bool _reportedPropRefusals;

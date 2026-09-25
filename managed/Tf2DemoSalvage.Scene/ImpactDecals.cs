@@ -260,6 +260,12 @@ public sealed class ImpactDecals
             return (_surfacePropMaterial(impact.StudioSurfaceProp), SurfaceProperties.None);
         }
 
+        // Terrain's `**displacement**` surface: flags zero (`FUN_18016f290`), and its material's surfaceprop slot.
+        if (!impact.FromServer && impact.DisplacementTexdata >= 0)
+        {
+            return (_surfacePropMaterial(TerrainProp(impact.DisplacementTexdata, impact.SurfaceProp2)), SurfaceProperties.None);
+        }
+
         if (impact.Texinfo < 0 || impact.Texinfo >= _texinfo.Count)
         {
             return null;

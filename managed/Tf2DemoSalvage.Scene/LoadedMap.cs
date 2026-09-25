@@ -234,6 +234,15 @@ public sealed class LoadedMap
                 "{Message}",
                 $"{impacts.Count(static impact => impact.StaticProp >= 0).ToString(CultureInfo.InvariantCulture)} of {impacts.Count.ToString(CultureInfo.InvariantCulture)} client bullets stopped on a static prop, {impacts.Count(static impact => impact.BrushEntity >= 0).ToString(CultureInfo.InvariantCulture)} on a door; {doors.Count.ToString(CultureInfo.InvariantCulture)} door tracks traced");
 
+            if (impacts.FirstOrDefault(static impact => impact.DisplacementTexdata >= 0) is { Shot: >= 0 } onTerrain)
+            {
+                renderLog.LogInformation(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{impacts.Count(static impact => impact.DisplacementTexdata >= 0)} client bullets stopped on terrain; the first at tick {onTerrain.Tick}: ({onTerrain.End.X:0} {onTerrain.End.Y:0} {onTerrain.End.Z:0})"));
+            }
+
             foreach (ShotImpact onDoor in impacts.Where(static impact => impact.BrushEntity >= 0).Take(3))
             {
                 renderLog.LogDebug(

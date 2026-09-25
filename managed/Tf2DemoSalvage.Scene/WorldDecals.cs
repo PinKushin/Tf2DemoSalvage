@@ -126,6 +126,19 @@ public sealed record DecalFace(
     }
 }
 
+/// <summary>One corner of a displacement's drawn triangles.</summary>
+/// <param name="Position">In world space.</param>
+/// <param name="LightU">Its lightmap coordinate across its parent face, 0 to 1.</param>
+/// <param name="LightV">Down.</param>
+public readonly record struct DisplacementCorner(Vector3 Position, float LightU, float LightV);
+
+/// <summary>A displacement as the decal system sees it: its parent face, its bounds, and the triangles it draws.</summary>
+/// <param name="Face">Its parent face's index.</param>
+/// <param name="Mins">Its bounding box's low corner.</param>
+/// <param name="Maxs">Its high corner.</param>
+/// <param name="Triangles">Its drawn triangles, three corners each, as the world renderer draws them.</param>
+public sealed record DecalDisplacement(int Face, Vector3 Mins, Vector3 Maxs, IReadOnlyList<DisplacementCorner> Triangles);
+
 /// <summary>A BSP node as the decal walk sees it.</summary>
 /// <param name="Front">Child 0; negative is a leaf, <c>-(leaf + 1)</c>.</param>
 /// <param name="Back">Child 1.</param>
@@ -147,17 +160,22 @@ public sealed record DecalWorld(
     /// <summary>A world with nothing in it, for a map whose tree would not read.</summary>
     public static readonly DecalWorld Empty = new([], [], []);
 
+    /// <summary>The world's displacements, which take their own path (`SURFDRAW_HAS_DISP`).</summary>
+    public IReadOnlyList<DecalDisplacement> Displacements { get; init; } = [];
+
     /// <summary>The decal system's view of a map, built once at load.</summary>
     /// <param name="tree">The BSP tree.</param>
     /// <param name="leafFaces">The LEAFFACES lump.</param>
     /// <param name="surfaces">The world's faces.</param>
+    /// <param name="terrain">The map's displacements, whose drawn triangles their decals are cut from; null for none.</param>
     /// <returns>The world.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **A node the reader cannot resolve becomes one leading to leaf 0 both ways with no faces**, so a malformed tree
     /// loses decals under that node rather than the walk throwing.
     /// </remarks>
-    public static DecalWorld From(BspLeafTree tree, BspLeafFaces leafFaces, IReadOnlyList<BspSurface> surfaces)
+    public static DecalWorld From(
+        BspLeafTree tree, BspLeafFaces leafFaces, IReadOnlyList<BspSurface> surfaces, BspTerrain? terrain = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(leafFaces);
@@ -233,7 +251,51 @@ public sealed record DecalWorld(
                 surface.MaterialIndex);
         }
 
-        return new DecalWorld(nodes, leaves, faces);
+        return new DecalWorld(nodes, leaves, faces) { Displacements = DisplacementsOf(surfaces, terrain) };
+    }
+
+    /// <summary>Each displacement's drawn triangles — the same tessellation the world renderer draws — and its bounds.</summary>
+    private static List<DecalDisplacement> DisplacementsOf(IReadOnlyList<BspSurface> surfaces, BspTerrain? terrain)
+    {
+        List<DecalDisplacement> displacements = [];
+
+        if (terrain is null)
+        {
+            return displacements;
+        }
+
+        foreach (BspSurface surface in surfaces)
+        {
+            if (!surface.IsDisplacement)
+            {
+                continue;
+            }
+
+            IReadOnlyList<SurfaceVertex> drawn = terrain.ReadTriangles(surface);
+
+            if (drawn.Count < 3)
+            {
+                continue;
+            }
+
+            DisplacementCorner[] corners = new DisplacementCorner[drawn.Count];
+            Vector3 low = new(float.MaxValue);
+            Vector3 high = new(float.MinValue);
+
+            for (int index = 0; index < corners.Length; index++)
+            {
+                SurfaceVertex vertex = drawn[index];
+                Vector3 at = new(vertex.X, vertex.Y, vertex.Z);
+
+                corners[index] = new DisplacementCorner(at, vertex.LightU, vertex.LightV);
+                low = Vector3.Min(low, at);
+                high = Vector3.Max(high, at);
+            }
+
+            displacements.Add(new DecalDisplacement(surface.FaceIndex, low, high, corners));
+        }
+
+        return displacements;
     }
 }
 
@@ -343,7 +405,19 @@ public sealed class WorldDecals
 
         foreach (Decal? decal in _slots)
         {
-            if (decal is not null)
+            if (decal is null)
+            {
+                continue;
+            }
+
+            if (decal.Fragments is { } fragments)
+            {
+                foreach (IReadOnlyList<DecalVertex> fragment in fragments)
+                {
+                    into.Add(new PlacedDecal(decal.Slot, decal.Face.Index, decal.Material, fragment));
+                }
+            }
+            else
             {
                 into.Add(new PlacedDecal(decal.Slot, decal.Face.Index, decal.Material, decal.Polygon) { Entity = decal.Entity });
             }
@@ -398,7 +472,186 @@ public sealed class WorldDecals
         };
 
         Walk(headNode, shot);
+
+        if (entity < 0)
+        {
+            OntoDisplacements(shot);
+        }
     }
+
+    /// <summary>`CDispInfo` holds this many decals, and the next evicts its oldest — `0x1800c6c50`'s `0x1f`.</summary>
+    private const int DecalsPerDisplacement = 31;
+
+    /// <summary>A clipped displacement fragment keeps at most this many corners — `0x1800c2490`.</summary>
+    private const int FragmentCorners = 6;
+
+    /// <summary>
+    /// The leaf pass's displacement half, `0x1801175c0`: each displacement whose bounds meet the decal's cube, once per
+    /// shot, to the face test with its extent test off (`0x180118d70`, flag 1) and on to `R_DecalCreate`'s displacement path.
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* the engine reaches a displacement only through a leaf the node walk visits; every displacement is
+    /// tested here, and the bounds test and the per-triangle depth test decide which of them take the decal.
+    /// </remarks>
+    private void OntoDisplacements(Shot shot)
+    {
+        float r = shot.Radius;
+        Vector3 at = shot.Position;
+
+        foreach (DecalDisplacement displacement in _world.Displacements)
+        {
+            if (FaceAt(displacement.Face) is not { RefusesDecals: false } face || shot.Decaled.Contains(face.Index))
+            {
+                continue;
+            }
+
+            Vector3 low = displacement.Mins;
+            Vector3 high = displacement.Maxs;
+
+            if (at.X - r < high.X && low.X < at.X + r && at.Y - r < high.Y && low.Y < at.Y + r && at.Z - r < high.Z &&
+                low.Z < at.Z + r)
+            {
+                (Vector3 s, Vector3 t) = Basis(face.PlaneNormal);
+
+                CreateOnDisplacement(face, displacement, shot, s, t);
+            }
+        }
+    }
+
+    /// <summary>
+    /// `R_DecalCreate` with its displacement flag, `0x1801168b0`: no polygon clip; the decal links to the displacement
+    /// (`0x1800c6c50`), which holds 31 and drops its oldest, and the fragments are its triangles cut to the square.
+    /// </summary>
+    /// <remarks>A decal whose fragments come to nothing still holds its slot: only the brush path removes an empty one.</remarks>
+    private void CreateOnDisplacement(DecalFace face, DecalDisplacement displacement, Shot shot, Vector3 s, Vector3 t)
+    {
+        if (Overlapping(face, shot, s, t) is { } older)
+        {
+            Remove(older);
+        }
+
+        int slot = Slot();
+        float perS = shot.Inverse / shot.Material.Width;
+        float perT = shot.Inverse / shot.Material.Height;
+        Vector3 scaledS = s * perS;
+        Vector3 scaledT = t * perT;
+
+        Decal decal = new(
+            slot,
+            face,
+            shot.Material,
+            scaledS,
+            scaledT,
+            Vector3.Dot(scaledS, shot.Position),
+            Vector3.Dot(scaledT, shot.Position),
+            shot.Inverse);
+
+        _slots[slot] = decal;
+        _dynamic++;
+
+        if (!_byFace.TryGetValue(face.Index, out List<Decal>? onFace))
+        {
+            onFace = [];
+            _byFace[face.Index] = onFace;
+        }
+
+        if (onFace.Count >= DecalsPerDisplacement)
+        {
+            Remove(onFace[0]);
+        }
+
+        decal.Fragments = Cut(displacement, decal, shot);
+        onFace.Add(decal);
+        shot.Decaled.Add(face.Index);
+        Version++;
+    }
+
+    /// <summary>
+    /// `0x1800c2490`, per triangle: its normal from two edges; refused unless the decal's centre stands less than the radius
+    /// in front of it (one-sided); the corners mapped as a brush face's are, the lightmap coordinate carried along; clipped
+    /// by `0x1800bcbd0`, at most six corners kept, each pushed 0.1 along the triangle's normal.
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* the engine first marks the quads of the displacement's grid whose four corners' decal coordinates
+    /// overlap the square (`0x1800c1400`), then cuts only those quads' triangles. Every triangle is cut here instead; the
+    /// marking passes every triangle the clip would keep, so only its cost differs.
+    /// </remarks>
+    private static List<IReadOnlyList<DecalVertex>> Cut(DecalDisplacement displacement, Decal decal, Shot shot)
+    {
+        List<IReadOnlyList<DecalVertex>> fragments = [];
+        IReadOnlyList<DisplacementCorner> corners = displacement.Triangles;
+
+        for (int first = 0; first + 2 < corners.Count; first += 3)
+        {
+            DisplacementCorner a = corners[first];
+            DisplacementCorner b = corners[first + 1];
+            DisplacementCorner c = corners[first + 2];
+            Vector3 cross = Vector3.Cross(b.Position - a.Position, c.Position - a.Position);
+
+            if (cross.LengthSquared() == 0f)
+            {
+                continue;
+            }
+
+            // Our triangles are wound the other way from Valve's; the normal is the side the parent face faces.
+            Vector3 normal = Vector3.Normalize(cross);
+            bool reversed = Vector3.Dot(normal, decal.Face.PlaneNormal) < 0f;
+
+            if (reversed)
+            {
+                normal = -normal;
+            }
+
+            if (!(Vector3.Dot(shot.Position - a.Position, normal) < shot.Radius))
+            {
+                continue;
+            }
+
+            // **Wound about the normal, as a brush face's decal is** — the decal pass culls back faces, and a fragment wound
+            // the other way is never drawn.
+            List<ClipCorner> polygon = reversed
+                ? [Corner(a, decal), Corner(c, decal), Corner(b, decal)]
+                : [Corner(a, decal), Corner(b, decal), Corner(c, decal)];
+
+            polygon = ClipToSquare(polygon);
+
+            if (polygon.Count == 0)
+            {
+                continue;
+            }
+
+            if (polygon.Count > FragmentCorners)
+            {
+                polygon.RemoveRange(FragmentCorners, polygon.Count - FragmentCorners);
+            }
+
+            List<DecalVertex> placed = new(polygon.Count);
+
+            foreach (ClipCorner corner in polygon)
+            {
+                (float u, float v) = Paged(decal.Material, corner.U, corner.V);
+
+                placed.Add(new DecalVertex(corner.P + (normal * PushOff), u, v, corner.LightU, corner.LightV));
+            }
+
+            fragments.Add(placed);
+        }
+
+        return fragments;
+    }
+
+    private static ClipCorner Corner(DisplacementCorner corner, Decal decal) =>
+        new(
+            corner.Position,
+            Vector3.Dot(decal.S, corner.Position) + (0.5f - decal.Dx),
+            Vector3.Dot(decal.T, corner.Position) + (0.5f - decal.Dy),
+            corner.LightU,
+            corner.LightV);
+
+    private static (float U, float V) Paged(DecalMaterial material, float u, float v) =>
+        material.Paged
+            ? ((u * material.PageScale.U) + material.PageOffset.U, (v * material.PageScale.V) + material.PageOffset.V)
+            : (u, v);
 
     /// <summary>The node walk, `0x180117d90`.</summary>
     private void Walk(int child, Shot shot)
@@ -696,32 +949,26 @@ public sealed class WorldDecals
     /// <summary>The clip, `0x1800bd520` then `0x1800bcbd0`.</summary>
     private static List<DecalVertex> Clip(DecalFace face, Decal decal)
     {
-        List<(Vector3 P, float U, float V)> polygon = new(face.Vertices.Count);
+        List<ClipCorner> polygon = new(face.Vertices.Count);
 
         foreach (Vector3 corner in face.Vertices)
         {
-            polygon.Add((
+            polygon.Add(new ClipCorner(
                 corner,
                 Vector3.Dot(decal.S, corner) + (0.5f - decal.Dx),
-                Vector3.Dot(decal.T, corner) + (0.5f - decal.Dy)));
+                Vector3.Dot(decal.T, corner) + (0.5f - decal.Dy),
+                0f,
+                0f));
         }
 
-        polygon = Edge(polygon, static p => p.V < 1f, static (a, b) => (1f - a.V) / (b.V - a.V));
-        polygon = Edge(polygon, static p => p.U > 0f, static (a, b) => (0f - a.U) / (b.U - a.U));
-        polygon = Edge(polygon, static p => p.U < 1f, static (a, b) => (1f - a.U) / (b.U - a.U));
-        polygon = Edge(polygon, static p => p.V > 0f, static (a, b) => (0f - a.V) / (b.V - a.V));
+        polygon = ClipToSquare(polygon);
 
         List<DecalVertex> placed = new(polygon.Count);
 
-        foreach ((Vector3 p, float u, float v) in polygon)
+        foreach (ClipCorner corner in polygon)
         {
-            Vector3 lifted = p + (face.PlaneNormal * PushOff);
-
-            (float mappedU, float mappedV) = decal.Material.Paged
-                ? ((u * decal.Material.PageScale.U) + decal.Material.PageOffset.U,
-                   (v * decal.Material.PageScale.V) + decal.Material.PageOffset.V)
-                : (u, v);
-
+            Vector3 lifted = corner.P + (face.PlaneNormal * PushOff);
+            (float mappedU, float mappedV) = Paged(decal.Material, corner.U, corner.V);
             (float lightU, float lightV) = face.Lighting.Project(lifted.X, lifted.Y, lifted.Z);
 
             placed.Add(new DecalVertex(lifted, mappedU, mappedV, lightU, lightV));
@@ -730,32 +977,45 @@ public sealed class WorldDecals
         return placed;
     }
 
-    /// <summary>One Sutherland–Hodgman edge, in the binary's own order: the previous corner, then this one.</summary>
-    private static List<(Vector3 P, float U, float V)> Edge(
-        List<(Vector3 P, float U, float V)> polygon,
-        Func<(Vector3 P, float U, float V), bool> inside,
-        Func<(Vector3 P, float U, float V), (Vector3 P, float U, float V), float> crossing)
+    /// <summary>The four edges of `0x1800bcbd0`, in its order: v &lt; 1, u &gt; 0, u &lt; 1, v &gt; 0, each strict.</summary>
+    private static List<ClipCorner> ClipToSquare(List<ClipCorner> polygon)
     {
-        List<(Vector3 P, float U, float V)> kept = new(polygon.Count + 1);
+        polygon = Edge(polygon, static p => p.V < 1f, static (a, b) => (1f - a.V) / (b.V - a.V));
+        polygon = Edge(polygon, static p => p.U > 0f, static (a, b) => (0f - a.U) / (b.U - a.U));
+        polygon = Edge(polygon, static p => p.U < 1f, static (a, b) => (1f - a.U) / (b.U - a.U));
+
+        return Edge(polygon, static p => p.V > 0f, static (a, b) => (0f - a.V) / (b.V - a.V));
+    }
+
+    /// <summary>A corner being clipped: its position, decal coordinates, and a lightmap coordinate carried along.</summary>
+    private readonly record struct ClipCorner(Vector3 P, float U, float V, float LightU, float LightV);
+
+    /// <summary>One Sutherland–Hodgman edge, in the binary's own order: the previous corner, then this one.</summary>
+    private static List<ClipCorner> Edge(
+        List<ClipCorner> polygon, Func<ClipCorner, bool> inside, Func<ClipCorner, ClipCorner, float> crossing)
+    {
+        List<ClipCorner> kept = new(polygon.Count + 1);
 
         for (int index = 0; index < polygon.Count; index++)
         {
-            (Vector3 P, float U, float V) current = polygon[index];
-            (Vector3 P, float U, float V) previous = polygon[(index + polygon.Count - 1) % polygon.Count];
+            ClipCorner current = polygon[index];
+            ClipCorner previous = polygon[(index + polygon.Count - 1) % polygon.Count];
 
             bool currentIn = inside(current);
             bool previousIn = inside(previous);
 
             if (currentIn != previousIn)
             {
-                (Vector3 P, float U, float V) from = currentIn ? previous : current;
-                (Vector3 P, float U, float V) to = currentIn ? current : previous;
+                ClipCorner from = currentIn ? previous : current;
+                ClipCorner to = currentIn ? current : previous;
                 float f = crossing(from, to);
 
-                kept.Add((
+                kept.Add(new ClipCorner(
                     from.P + ((to.P - from.P) * f),
                     from.U + ((to.U - from.U) * f),
-                    from.V + ((to.V - from.V) * f)));
+                    from.V + ((to.V - from.V) * f),
+                    from.LightU + ((to.LightU - from.LightU) * f),
+                    from.LightV + ((to.LightV - from.LightV) * f)));
             }
 
             if (currentIn)
@@ -808,6 +1068,9 @@ public sealed class WorldDecals
         int Slot, DecalFace Face, DecalMaterial Material, Vector3 S, Vector3 T, float Dx, float Dy, float Inverse)
     {
         public IReadOnlyList<DecalVertex> Polygon { get; set; } = [];
+
+        /// <summary>On a displacement, one clipped polygon per triangle it covers; null on a brush face.</summary>
+        public IReadOnlyList<IReadOnlyList<DecalVertex>>? Fragments { get; set; }
 
         /// <summary>The brush entity it rides, −1 for the world; its polygon is then in that model's own frame.</summary>
         public int Entity { get; init; } = -1;
