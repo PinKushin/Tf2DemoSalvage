@@ -7686,6 +7686,12 @@ and `WorldRenderer.UpdateLightmap` uploads those regions and remakes the mips. T
 takes the same values. On `koth_harvest_event` the first frame rebuilt 4,200 lightmaps and the toggle at tick 1560
 rebuilt 540, with no slow frame.
 
+**The world lights answer to the same styles (follow-up, same day).** `dworldlight_t.style` (offset 44) was never read.
+The lightcache multiplies each world light's falloff by `d_lightstylevalue[style]/264` before ranking it and before the
+minimum-light cull (`engine.dll` `0x1801b8e20`, and the same in `0x1801b9570`). So a model under a switched-off lamp was
+still lit by it. `LocalLights` now scales the falloff it ranks by and the colour it hands on. `ModelLighting`'s cache
+takes a version that `MainForm` raises when a changed style is one a world light answers to.
+
 **Interpolated:** the time is the tick's, `tick × interval`. The engine's clock (`0x1800a3020`) runs between ticks
 too, which can move a flicker's step by up to a tick.
 

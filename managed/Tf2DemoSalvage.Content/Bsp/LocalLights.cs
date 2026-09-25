@@ -153,12 +153,15 @@ public static class LocalLights
     /// <param name="x">World position being lit.</param>
     /// <param name="y">World position being lit.</param>
     /// <param name="z">World position being lit.</param>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
     /// <returns>The cube with direct light added to each face.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
     public static AmbientCube AddTo(
-        AmbientCube cube, IReadOnlyList<BspWorldLight> lights, float x, float y, float z)
+        AmbientCube cube, IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Func<int, float>? styleScale = null)
     {
         ArgumentNullException.ThrowIfNull(lights);
+
+        Func<int, float> style = styleScale ?? Steady;
 
         if (lights.Count == 0)
         {
@@ -172,7 +175,7 @@ public static class LocalLights
         Span<int> chosen = stackalloc int[MaximumLocalLights];
         Span<float> strengths = stackalloc float[MaximumLocalLights];
 
-        int count = Choose(lights, x, y, z, chosen, strengths);
+        int count = Choose(lights, x, y, z, chosen, strengths, style);
 
         if (count == 0)
         {
@@ -180,13 +183,16 @@ public static class LocalLights
         }
 
         return new AmbientCube(
-            Face(cube.PositiveX, lights, chosen, count, x, y, z, 1f, 0f, 0f),
-            Face(cube.NegativeX, lights, chosen, count, x, y, z, -1f, 0f, 0f),
-            Face(cube.PositiveY, lights, chosen, count, x, y, z, 0f, 1f, 0f),
-            Face(cube.NegativeY, lights, chosen, count, x, y, z, 0f, -1f, 0f),
-            Face(cube.PositiveZ, lights, chosen, count, x, y, z, 0f, 0f, 1f),
-            Face(cube.NegativeZ, lights, chosen, count, x, y, z, 0f, 0f, -1f));
+            Face(cube.PositiveX, lights, chosen, count, x, y, z, 1f, 0f, 0f, style),
+            Face(cube.NegativeX, lights, chosen, count, x, y, z, -1f, 0f, 0f, style),
+            Face(cube.PositiveY, lights, chosen, count, x, y, z, 0f, 1f, 0f, style),
+            Face(cube.NegativeY, lights, chosen, count, x, y, z, 0f, -1f, 0f, style),
+            Face(cube.PositiveZ, lights, chosen, count, x, y, z, 0f, 0f, 1f, style),
+            Face(cube.NegativeZ, lights, chosen, count, x, y, z, 0f, 0f, -1f, style));
     }
+
+    /// <summary>Every style at its stored value.</summary>
+    private static readonly Func<int, float> Steady = static _ => 1f;
 
     /// <summary>The strongest lights at a point, as the engine's <c>locallight[]</c> would hold.</summary>
     /// <param name="lights">Every world light the map carries.</param>
@@ -194,6 +200,7 @@ public static class LocalLights
     /// <param name="y">World position being lit.</param>
     /// <param name="z">World position being lit.</param>
     /// <param name="into">Where to put them; at most <see cref="MaximumLocalLights"/> are written.</param>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
     /// <returns>How many were written.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="into"/> is too short.</exception>
@@ -217,9 +224,11 @@ public static class LocalLights
     /// runtime, which is what this returns them for.
     /// </remarks>
     public static int Strongest(
-        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into)
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into, Func<int, float>? styleScale = null)
     {
         ArgumentNullException.ThrowIfNull(lights);
+
+        Func<int, float> style = styleScale ?? Steady;
 
         if (into.Length < MaximumLocalLights)
         {
@@ -230,19 +239,20 @@ public static class LocalLights
         Span<int> chosen = stackalloc int[MaximumLocalLights];
         Span<float> strengths = stackalloc float[MaximumLocalLights];
 
-        int count = Choose(lights, x, y, z, chosen, strengths);
+        int count = Choose(lights, x, y, z, chosen, strengths, style);
 
         for (int slot = 0; slot < count; slot++)
         {
             BspWorldLight light = lights[chosen[slot]];
 
             (float constant, float linear, float quadratic) = Normalised(light);
+            float scale = IntensityScale * style(light.Style);
 
             into[slot] = new LocalLight(
                 light.Origin.X, light.Origin.Y, light.Origin.Z,
-                light.Intensity.Red * IntensityScale,
-                light.Intensity.Green * IntensityScale,
-                light.Intensity.Blue * IntensityScale,
+                light.Intensity.Red * scale,
+                light.Intensity.Green * scale,
+                light.Intensity.Blue * scale,
                 constant, linear, quadratic,
                 light.Radius,
                 light.Normal,
@@ -260,7 +270,8 @@ public static class LocalLights
         IReadOnlyList<BspWorldLight> lights,
         float x, float y, float z,
         Span<int> chosen,
-        Span<float> strengths)
+        Span<float> strengths,
+        Func<int, float> style)
     {
         int count = 0;
 
@@ -273,7 +284,7 @@ public static class LocalLights
                 continue;
             }
 
-            float falloff = Falloff(light, x, y, z);
+            float falloff = Falloff(light, x, y, z, style);
 
             if (falloff <= 0f)
             {
@@ -331,7 +342,15 @@ public static class LocalLights
     /// <summary>
     /// Distance falloff, as <c>LightDesc_t::ComputeLightAtPoints</c> computes it.
     /// </summary>
-    private static float Falloff(BspWorldLight light, float x, float y, float z)
+    /// <remarks>
+    /// **Times the light's style value over 264**, as the lightcache multiplies it before ranking (`engine.dll`
+    /// `0x1801b8e20`): a switchable lamp turned off falls to nothing and is never chosen.
+    /// </remarks>
+    private static float Falloff(BspWorldLight light, float x, float y, float z, Func<int, float> style) =>
+        Distance(light, x, y, z) * style(light.Style);
+
+    /// <summary>The distance falloff alone.</summary>
+    private static float Distance(BspWorldLight light, float x, float y, float z)
     {
         float dx = light.Origin.X - x;
         float dy = light.Origin.Y - y;
@@ -395,7 +414,8 @@ public static class LocalLights
         ReadOnlySpan<int> chosen,
         int count,
         float x, float y, float z,
-        float normalX, float normalY, float normalZ)
+        float normalX, float normalY, float normalZ,
+        Func<int, float> style)
     {
         float red = face.Red;
         float green = face.Green;
@@ -439,7 +459,7 @@ public static class LocalLights
                 }
             }
 
-            float scale = strength * Falloff(light, x, y, z) * IntensityScale;
+            float scale = strength * Falloff(light, x, y, z, style) * IntensityScale;
 
             red += scale * light.Intensity.Red;
             green += scale * light.Intensity.Green;

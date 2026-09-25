@@ -34,6 +34,31 @@ public sealed class LocalLightsTests
             .ShouldBe((true, (0f, 0f, -1f), 0.9f, 0.5f, 2f));
     }
 
+    /// <summary>
+    /// The lightcache multiplies a world light's falloff by `d_lightstylevalue[ wl->style ] / 264` before ranking it
+    /// (`engine.dll` `0x1801b8e20`): a switchable lamp turned off (`'a'`, 0) lights nothing, and one at half value
+    /// arrives at half its colour.
+    /// </summary>
+    [Test]
+    public void Strongest_ALightOnASwitchedOffStyle_IsNotChosen()
+    {
+        BspWorldLight lamp = new((0f, 0f, 100f), (1f, 1f, 1f), (0f, 0f, -1f), WorldLightKind.Point, 1f, Style: 32);
+        LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
+
+        LocalLights.Strongest([lamp], 0f, 0f, 0f, into, static style => style == 32 ? 0f : 1f).ShouldBe(0);
+    }
+
+    [Test]
+    public void Strongest_ALightOnAHalfValueStyle_CarriesHalfItsColour()
+    {
+        BspWorldLight lamp = new((0f, 0f, 100f), (1f, 1f, 1f), (0f, 0f, -1f), WorldLightKind.Point, 1f, Style: 5);
+        LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
+
+        LocalLights.Strongest([lamp], 0f, 0f, 0f, into, static style => style == 5 ? 0.5f : 1f);
+
+        into[0].Red.ShouldBe(0.5f);
+    }
+
     /// <summary>A point light carries no cone.</summary>
     [Test]
     public void Strongest_APointLight_IsNotASpot()

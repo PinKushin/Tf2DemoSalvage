@@ -70,6 +70,10 @@ internal static class BspStructLayout
     /// <summary>Bytes per <c>dworldlight_t</c>.</summary>
     public const int WorldLightStride = 88;
 
+    /// <summary>Where <c>dworldlight_t.style</c> sits: the light style the light answers to.</summary>
+    /// <remarks>After <c>origin</c>, <c>intensity</c>, <c>normal</c>, <c>cluster</c> and <c>type</c>: 12 + 12 + 12 + 4 + 4.</remarks>
+    public const int WorldLightStyleOffset = 44;
+
     /// <summary>Where <c>dworldlight_t.stopdot</c> sits: the start of a spotlight's penumbra.</summary>
     public const int WorldLightStopDotOffset = 48;
 

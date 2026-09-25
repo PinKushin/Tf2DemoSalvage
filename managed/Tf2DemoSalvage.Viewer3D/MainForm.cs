@@ -5233,6 +5233,16 @@ internal class MainForm : Form, IFrameSteps
 
         IReadOnlyList<int> changed = _lightStyles.Advance(tick * timeline.IntervalPerTick);
 
+        // The world lights answer to the same values (`0x1801b8e20`), so a model under a switched lamp samples again.
+        LevelLighting lighting = _loaded.Lighting;
+
+        lighting.StyleScale ??= style => _lightStyles.Scale(style);
+
+        if (changed.Count > 0 && lighting.Answers(changed))
+        {
+            _models.LightsChanged();
+        }
+
         _lightmapRegions.Clear();
         assets.Lightmaps.Recompose(_lightStyles.Scale, changed, _lightmapRegions);
         _device.UpdateLightmap(assets.Lightmaps.Pixels, assets.Lightmaps.Width, _lightmapRegions);
