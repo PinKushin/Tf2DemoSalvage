@@ -22,8 +22,9 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// c_shotgun     $envmaptint [.05 .05 .05]     no mask
 /// </code>
 ///
-/// **And all 43 of this map's placed cubemaps are `Dxt1`**, which is LDR — a texel cannot exceed
-/// white. So the reflection this material asks for can move a channel by at most `0.085 * 255`,
+/// **And all 43 of this map's placed LDR cubemaps are `Dxt1`**, where a texel cannot exceed white.
+/// The HDR bake TF2 loads at its default level is half floats and can (`CubemapFile`); the ceiling
+/// below is the LDR one, and on this map the measured swing sits far under it either way. So the reflection this material asks for can move a channel by at most `0.085 * 255`,
 /// about **22 levels of 255**, and a term that small is not something anyone notices, let alone
 /// something whose removal makes a weapon "look right".
 ///
@@ -93,10 +94,14 @@ public sealed class WeaponReflectionStrengthTests
         // **The control, and `> 0` is not strong enough for it.** The first run of this test drew
         // the weapon at `(1, 0, 0)` — near black, because a dim ambient cube was supplied and the
         // shader's full-brightness path was therefore skipped — and a sum of 1 cleared a `> 0`
-        // control while the swing measured nothing. A drawn, textured model at full brightness is
-        // far above this; a black one is far below.
+        // control while the swing measured nothing. A black one is far below 10.
+        //
+        // **It was 30, and 30 was set against a reflection that was too bright.** The cube was the
+        // LDR bake, gamma-encoded, read as linear; the HDR bake TF2 actually loads (CubemapFile) is
+        // dimmer in the mid-tones, and c_shotgun's dark albedo plus a 0.05 tint of it measures
+        // (15, 8, 7) — drawn, and exactly 30. Measured by putting the LDR bake first again: it passes.
         (facingCamera.R + facingCamera.G + facingCamera.B).ShouldBeGreaterThan(
-            30, "the model must be visibly drawn before its reflection can be measured");
+            10, "the model must be visibly drawn before its reflection can be measured");
 
         ((float)swing).ShouldBeLessThan(
             ceiling,

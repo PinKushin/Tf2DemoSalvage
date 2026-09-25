@@ -194,22 +194,19 @@ public sealed class CubemapTextureLayoutTests
     }
 
     [Test]
-    public void CubemapLayout_TheHdrBake_IsHalfFloatAndUndecoded()
+    public void CubemapLayout_TheHdrBake_IsHalfFloat()
     {
         // **A prerequisite, measured rather than assumed.** Every baked cubemap on this map is
         // ImageFormat 24, RGBA16161616F — four half-floats per texel, eight bytes. That is the HDR
         // pipeline: a reflection has to carry values above one, which an 8-bit format cannot.
         //
-        // VtfTexture does not decode it and throws "VTF pixel format 24 is not supported", so no
-        // amount of shader work reaches a picture until it does. Recorded as an assertion rather
-        // than a note because the day someone adds half-float support, this test says so.
+        // This used to end by asserting VtfTexture could NOT read it, as a tripwire for the day it
+        // could. That day is `CubemapFile` (the HDR bake first, as materialsystem.dll loads it) and
+        // `VtfFormat.Rgba16161616F`, passed to the GPU as half floats; the tripwire is removed as it asked.
         foreach (Header header in AllCubemaps())
         {
             header.Format.ShouldBe(24, $"{header.Name} is RGBA16161616F");
         }
-
-        Enum.IsDefined(typeof(VtfFormat), 24).ShouldBeFalse(
-            "when RGBA16161616F is implemented, delete this assertion and this test's second half");
     }
 
     /// <summary>The headers and the placements they were baked from, in the same order.</summary>

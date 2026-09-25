@@ -327,7 +327,8 @@ public sealed class VtfTexture
     {
         get
         {
-            if (IsBlockCompressed)
+            // Half floats are handed over as blocks are: the GPU samples both as stored.
+            if (IsBlockCompressed || (Format is VtfFormat.Rgba16161616F && Levels.Count > 0))
             {
                 return new TextureImage(Format, Levels);
             }
