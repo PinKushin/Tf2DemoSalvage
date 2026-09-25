@@ -76,8 +76,8 @@ public sealed class LocalLightSelectionTests
     {
         List<BspWorldLight> lights =
         [
-            Lamp(100f, 0f, 0f, intensity: 1f),
-            Lamp(400f, 0f, 0f, intensity: 100f),
+            Lamp(100f, 0f, 0f, intensity: 1000f),
+            Lamp(400f, 0f, 0f, intensity: 100000f),
         ];
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
@@ -180,7 +180,12 @@ public sealed class LocalLightSelectionTests
         });
     }
 
-    private static BspWorldLight Lamp(float x, float y, float z, float intensity = 1f) =>
+    /// <remarks>
+    /// **A lamp bright enough to survive `r_worldlightmin` (0.0002) at 600 units**: 1,000 over 600² is 0.0028. At the
+    /// intensity of one these once carried, every lamp past 70 units falls below it and the lightcache drops it — which
+    /// is the engine's behaviour, not what a ranking test is about.
+    /// </remarks>
+    private static BspWorldLight Lamp(float x, float y, float z, float intensity = 1000f) =>
         new()
         {
             Origin = (x, y, z),

@@ -59,6 +59,22 @@ public sealed class LocalLightsTests
         into[0].Red.ShouldBe(0.5f);
     }
 
+    /// <summary>
+    /// `r_worldlightmin` (`"0.0002"`, `engine.dll` `0x180010110`): the lightcache drops a light whose brightest channel
+    /// times its falloff falls below it (`0x1801b8e20`). A constant-attenuation lamp of 0.0001 is dropped; 0.0003 is kept.
+    /// </summary>
+    [Test]
+    public void Strongest_ALightBelowTheWorldLightMinimum_IsNotChosen()
+    {
+        LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
+
+        LocalLights.Strongest([Dim(0.0001f)], 0f, 0f, 0f, into).ShouldBe(0);
+        LocalLights.Strongest([Dim(0.0003f)], 0f, 0f, 0f, into).ShouldBe(1);
+
+        static BspWorldLight Dim(float red) =>
+            new((0f, 0f, 100f), (red, 0f, 0f), (0f, 0f, -1f), WorldLightKind.Point, 1f);
+    }
+
     /// <summary>A point light carries no cone.</summary>
     [Test]
     public void Strongest_APointLight_IsNotASpot()
