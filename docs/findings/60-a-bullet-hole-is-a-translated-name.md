@@ -156,6 +156,18 @@ caller of the node walk (`0x180117d90`), and the walk is the only way to `R_Deca
 The one place that reads `$decalFadeDuration` is the model-decal add (`0x1800edc60`), which refuses such a material
 outright. The viewer already does the same (`DecalMaterial.Fades`). *Read from the binary; no capture compared.*
 
+## `GetColorForSurface` gains water, stays short on displacements, static props and light styles
+
+Added 2026-09-25. `SurfaceColour.At` (`GetColorForSurface`, `c_impact_effects.cpp:96`, published) tints the flecks.
+Its walk reproduces `R_LightVec` (`engine.dll` `0x1800d4b00`), and it skipped only sky. **Read from the binary:** the
+node pass tests `(flags & 4) == 0` and `(flags >> 16 & 1) == 0` — sky and `SURFDRAW_WATERSURFACE` — and the leaf pass
+tests `(flags & 0x10812) == 0`: water, displacement, nodraw and node. So a shot into water takes no face and gets
+zero. The engine sets the water flag from the material; the viewer uses the texinfo's `SURF_WARP`, which vbsp gives
+water faces — **an interpolation**, not read. Test: `SurfaceColourConformanceTests.At_AShotIntoWater_IsBlack`.
+
+Still not built: displacements and static props, which `R_LightVec` reaches through a leaf call (`0x1800d3640`) not
+yet read, and animated light styles.
+
 ## Not established
 
 What is not built, and every divergence, is listed under B415 in `docs/RISKS.md`. The largest are displacement decals,

@@ -48,6 +48,16 @@ public sealed class SurfaceColourConformanceTests
         Colour().At(new Vector3(100f, 600f, 256f), new Vector3(0f, 600f, 256f)).ShouldBe((0f, 0f, 0f));
     }
 
+    /// <summary>
+    /// `R_LightVec` (`0x1800d4b00`) skips `SURFDRAW_WATERSURFACE` in both passes; a texinfo's `SURF_WARP` stands in for it.
+    /// </summary>
+    [Test]
+    public void At_AShotIntoWater_IsBlack()
+    {
+        Colour(SurfaceProperties.Warp).At(new Vector3(100f, 256f, 256f), new Vector3(0f, 256f, 256f))
+            .ShouldBe((0f, 0f, 0f));
+    }
+
     [Test]
     public void Sample_BetweenTexels_IsBilinearAndWraps()
     {
