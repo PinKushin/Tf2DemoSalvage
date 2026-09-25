@@ -114,6 +114,9 @@ public static class LocalLights
     /// </remarks>
     private const float AttenuationEpsilon = 0.001f;
 
+    /// <summary>`r_worldlightmin`'s default, `"0.0002"` (`engine.dll` `0x180010110`).</summary>
+    private const float WorldLightMinimum = 0.0002f;
+
     /// <summary>Brings a world light's intensity into the ambient cube's scale.</summary>
     /// <remarks>
     /// **One, because the lump and the cube are already in the same units.** vrad works in 0–255
@@ -295,6 +298,12 @@ public static class LocalLights
             // does not displace a floodlight just beyond it.
             float strength = falloff * Math.Max(
                 light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue));
+
+            // `r_worldlightmin`: the lightcache drops a light this faint before ranking it (`engine.dll` `0x1801b8e20`).
+            if (strength < WorldLightMinimum)
+            {
+                continue;
+            }
 
             Insert(chosen, strengths, ref count, index, strength);
         }
