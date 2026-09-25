@@ -82,46 +82,73 @@ public sealed class ImpactEffectRunner
         ArgumentNullException.ThrowIfNull(spawn);
         ArgumentNullException.ThrowIfNull(trace);
 
-        if (tick < _tick)
-        {
-            _running.Clear();
-        }
-
-        _tick = tick;
         _offered.Clear();
+        _due.Clear();
 
         foreach ((int index, int at, int seed) in live)
         {
-            int wanted = tick - at;
-
-            if (wanted < 0)
+            if (at <= tick)
             {
-                continue;
+                _offered.Add(index);
+                _due.Add((at, index, seed));
             }
-
-            _offered.Add(index);
-
-            // Stryker disable all : 'running' is declared by the TryGetValue before a '||' and read after it, so the
-            // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
-            if (!_running.TryGetValue(index, out Running running) || running.Stepped > wanted)
-            {
-                Func<float, float, float> random = SeededDraw.For(seed);
-
-                running = new Running(spawn(index, random), 0, random);
-            }
-
-            // Stryker restore all
-
-            int taken = running.Stepped;
-
-            while (taken < wanted)
-            {
-                running.Effect?.Step(seconds, trace, running.Random);
-                taken++;
-            }
-
-            _running[index] = running with { Stepped = taken };
         }
+
+        _due.Sort();
+
+        // **Every effect is stepped together, tick by tick, and each is started on its own tick** — a new burst of flecks
+        // joins one already running near it (`FleckMerge`), so an effect is no longer a function of its own impact alone.
+        // A backward seek, or a jump past everything running, starts again from the first impact still offered.
+        if (tick < _tick || _running.Count == 0 || tick - _simulated > RestartTicks)
+        {
+            _running.Clear();
+            _order.Clear();
+            _spawned.Clear();
+            _simulated = _due.Count > 0 ? _due[0].Tick - 1 : tick;
+        }
+
+        _tick = tick;
+
+        int next = 0;
+
+        while (next < _due.Count && _due[next].Tick <= _simulated)
+        {
+            next++;
+        }
+
+        for (int at = _simulated + 1; at <= tick; at++)
+        {
+            foreach (int index in _order)
+            {
+                Running running = _running[index];
+
+                running.Effect?.Step(seconds, trace, running.Random);
+                _running[index] = running with { Stepped = running.Stepped + 1 };
+            }
+
+            for (; next < _due.Count && _due[next].Tick == at; next++)
+            {
+                (int _, int index, int seed) = _due[next];
+
+                if (!_spawned.Add(index))
+                {
+                    continue;
+                }
+
+                Func<float, float, float> random = SeededDraw.For(seed);
+                ImpactEffect? effect = spawn(index, random);
+
+                if (effect is not null)
+                {
+                    FleckMerge.Join(effect, Newest());
+                }
+
+                _running[index] = new Running(effect, 0, random);
+                _order.Add(index);
+            }
+        }
+
+        _simulated = tick;
 
         _retiring.Clear();
 
@@ -136,8 +163,36 @@ public sealed class ImpactEffectRunner
         foreach (int index in _retiring)
         {
             _running.Remove(index);
+            _order.Remove(index);
         }
     }
+
+    /// <summary>The running effects, newest first — the merge list's order, since each new emitter goes at its head.</summary>
+    private IEnumerable<ImpactEffect> Newest()
+    {
+        for (int each = _order.Count - 1; each >= 0; each--)
+        {
+            if (_running[_order[each]].Effect is { } effect)
+            {
+                yield return effect;
+            }
+        }
+    }
+
+    /// <summary>A jump further than this past what is running starts again rather than stepping through the gap.</summary>
+    private const int RestartTicks = 400;
+
+    /// <summary>The effects in the order they started.</summary>
+    private readonly List<int> _order = [];
+
+    /// <summary>Every event already started since the last restart, finished or not, so none is started twice.</summary>
+    private readonly HashSet<int> _spawned = [];
+
+    /// <summary>This call's offered events, by tick then index.</summary>
+    private readonly List<(int Tick, int Index, int Seed)> _due = [];
+
+    /// <summary>The tick every running effect has been stepped to.</summary>
+    private int _simulated = int.MinValue;
 
     /// <summary>Adds every held effect's particles and quads to their materials' corners.</summary>
     /// <param name="eye">The camera's position.</param>
@@ -167,7 +222,10 @@ public sealed class ImpactEffectRunner
     public void Clear()
     {
         _running.Clear();
+        _order.Clear();
+        _spawned.Clear();
         _tick = int.MinValue;
+        _simulated = int.MinValue;
     }
 
     /// <summary>One impact's effect, how far it has been stepped, and its draws.</summary>

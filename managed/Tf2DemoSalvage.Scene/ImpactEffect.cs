@@ -22,8 +22,14 @@ public sealed class ImpactEmitter(ImpactEmitterKind kind)
     /// <summary>The particles.</summary>
     public IList<ImpactParticle> Particles { get; } = new List<ImpactParticle>();
 
-    /// <summary>`m_ParticleCollision`, for flecks and trails.</summary>
-    public ImpactParticleCollision Collision { get; } = new();
+    /// <summary>`m_ParticleCollision`, for flecks and trails; a merged fleck emitter takes the newest burst's (<see cref="FleckMerge"/>).</summary>
+    public ImpactParticleCollision Collision { get; internal set; } = new();
+
+    /// <summary>A fleck emitter's bounding box's low corner — the binding's box, grown by every burst merged into it.</summary>
+    public Vector3 Mins { get; set; }
+
+    /// <summary>Its high corner.</summary>
+    public Vector3 Maxs { get; set; }
 
     /// <summary>`bitsPARTICLE_TRAIL_COLLIDE`: a trail keeps its planes only with it.</summary>
     public bool Collides { get; set; }
