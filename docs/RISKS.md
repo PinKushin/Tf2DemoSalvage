@@ -27413,7 +27413,8 @@ it once the mod2x blend was corrected.
   the out-of-view fix below). Still not built: sprays (`CTEPlayerDecal`), decal fade, and
   `ImpactWaterTrace`'s splash for a bullet entering water.
 - **Order within one tick is interpolated**: a decal event is shot before a bullet's; the packet's order is not kept.
-- **`r_decals` is the default, 2048**, not read from the viewer's config.
+- ~~**`r_decals` is the default, 2048**, not read from the viewer's config.~~ **Read from the config, 2026-09-24**
+  (`ViewerSettings.Decals`, `DecalsCvarConformanceTests`), and the pool keeps the engine's floor of 64.
 - **For the performance pass, unverified:** a backward seek clears and re-shoots every impact up to the tick — sixteen
   thousand on f12 at the end of the match. Not measured.
 - ~~**The effects half of `Impact` is not built**~~ **Built 2026-09-21, the particles**: see below. The impact and

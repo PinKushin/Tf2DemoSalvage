@@ -5624,7 +5624,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         return _decalReplay ??= new DecalReplay(
-            new WorldDecals(DecalWorldOf(loaded)),
+            new WorldDecals(DecalWorldOf(loaded), _settings.Decals),
             loaded.Impacts,
             timeline.Decals.All,
             impacts.For,
