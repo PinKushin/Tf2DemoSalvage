@@ -136,3 +136,4 @@
 - [lcor is not in a worktree](lcor-is-not-in-a-worktree.md) — git-ignored; use the main checkout's absolute path.
 - [A reference count can depend on fps](a-reference-count-can-depend-on-fps.md) — per-frame lists; compare at the same +fps_max.
 - [A RISKS heading can be stale](a-risks-heading-can-be-stale.md) — B396/B316/B306 were done; check git log and probes first.
+- [Keep packages current](keep-packages-current.md) — latest always, majors too; hold back only for a security reason (D191).

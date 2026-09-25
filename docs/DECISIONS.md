@@ -9228,3 +9228,24 @@ are bounded by the recording server's `sv_client_min/max_interp_ratio` and `sv_m
 `GetClientInterpAmount` bounds them. The result sets both the temp-entity fire tick and every track's draw delay.
 Defaults are read from `engine.dll`'s registrations: `cl_updaterate` "20", `sv_minupdaterate` "10", `sv_maxupdaterate`
 "66". The owner remembered the last one before it was read.
+
+## D191 — packages are kept current; nothing is pinned back without a security reason (2026-09-25)
+
+The owner, on updating the NuGet packages and build tools: *"nothing should be pinned really, things need to be kept up
+to date, unless theres reason to think the new update is not secure and has some zero day"*.
+
+So every package moves to its latest release when checked, including a major version (NLayer 2 → 3, benchmark-only).
+A version is held back only for a known security problem in the newer release, and that reason is written beside the
+pin in `Directory.Packages.props`. Holding Silk.NET's packages to one shared version is not pinning: they move
+together, to the latest. On 2026-09-25 the update was Sonar 10.34, Microsoft.Extensions and System.* 10.0.12, the test
+SDK 18.10.1, NUnit.Analyzers 4.15, CsCheck 4.9.1 and NLayer 3.0. `dotnet list package --vulnerable` reported none.
+
+**Why newer is the safer default, in the owner's words:** *"a new update is never going to have much security
+docmentation, but if the buisness is trustworthy and has a history of not having regressions, like microsoft we can be
+pretty sure the update is better than the version we are on, we might want to audit open source packages, but those are
+pretty routinely audited and for the tools and checkers at least, the security vuln would be the program itself, not
+something any other threat actor could use really"*. So:
+- A trusted publisher with a record of few regressions, such as Microsoft: update without waiting for documentation.
+- Open-source packages: audit where warranted, though they are routinely audited already.
+- Build tools, analyzers and test tooling: a flaw is exposure of this program alone, not a route an outside attacker
+  could use, so they carry the least risk of all.

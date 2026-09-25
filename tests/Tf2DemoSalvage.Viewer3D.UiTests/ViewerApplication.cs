@@ -268,12 +268,36 @@ internal sealed partial class ViewerApplication : IDisposable
     /// > because we are not comparing them to a golden image. i need the manual SS's"*
     ///
     /// So a test's captures go to a temporary folder of their own, where they can evict nothing but
-    /// each other, and the folder is deleted when the viewer is. **They are not compared against a
-    /// golden image**, so nothing is lost by discarding them — the assertion is that a capture was
-    /// written at all, which the file's existence answers before it goes.
+    /// each other. **They are not compared against a golden image**, so nothing is lost by discarding
+    /// them — the assertion is that a capture was written at all.
+    ///
+    /// **Kept until the NEXT run, not deleted when the viewer closes.** The owner presses the
+    /// screenshot key while watching the suite, to catch something only visible in a camera
+    /// transition, and those land here too — a viewer cannot tell a hand's key press from a test's.
+    /// Deleting at the end wiped every one of them (2026-09-25). One fixed folder, emptied as a run
+    /// starts, keeps the last run's shots and bounds the disk to one run's worth.
     /// </remarks>
-    private static readonly string TestCaptureFolder = Path.Combine(
-        Path.GetTempPath(), "tf2ds-ui-captures", Guid.NewGuid().ToString("N"));
+    private static readonly string TestCaptureFolder = LastRunFolder();
+
+    /// <summary>The fixed capture folder, emptied once per test run.</summary>
+    private static string LastRunFolder()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), "tf2ds-ui-captures", "last-run");
+
+        try
+        {
+            if (Directory.Exists(folder))
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            Log($"could not empty {folder}: {failure.Message}");
+        }
+
+        return folder;
+    }
 
     /// <summary>Where this run's captures land, for the tests that read them back.</summary>
     /// <remarks>
@@ -955,23 +979,7 @@ internal sealed partial class ViewerApplication : IDisposable
 
         _automation.Dispose();
 
-        // **The captures this run wrote, thrown away.** They are not compared against a golden
-        // image, so the only claim any test makes about them is that one was written — which the
-        // assertion has already checked by the time this runs. Keeping them would put test output
-        // back in competition with hand-taken screenshots, which is the thing this folder exists to
-        // prevent.
-        try
-        {
-            if (Directory.Exists(TestCaptureFolder))
-            {
-                Directory.Delete(TestCaptureFolder, recursive: true);
-            }
-        }
-        catch (Exception failure) when (
-            failure is IOException or UnauthorizedAccessException)
-        {
-            Log($"could not remove {TestCaptureFolder}: {failure.Message}");
-        }
+        // The captures stay until the next run empties the folder — see TestCaptureFolder.
         _application.Dispose();
     }
 
