@@ -249,11 +249,17 @@ public static class BspAmbientLight
     {
         BspHeader header = BspHeader.Parse(file.Span);
 
-        ReadOnlySpan<byte> samples = BspLumpData
-            .Read(file, header.Lump(BspLumpIndex.LeafAmbientLighting)).Span;
+        // **The HDR pair when the map has it**, as `Mod_LoadLeafs` (`engine.dll` 0x180102300) reads at TF2's default HDR
+        // level: lumps 55 and 51 when 55 is non-empty, else 56 and 52. vrad bakes the HDR set from `_lightHDR`.
+        ReadOnlySpan<byte> hdrSamples = BspLumpData.Read(file, header.Lump(BspLumpIndex.LeafAmbientLightingHdr)).Span;
+        bool hdr = !hdrSamples.IsEmpty;
+
+        ReadOnlySpan<byte> samples = hdr
+            ? hdrSamples
+            : BspLumpData.Read(file, header.Lump(BspLumpIndex.LeafAmbientLighting)).Span;
 
         ReadOnlySpan<byte> indices = BspLumpData
-            .Read(file, header.Lump(BspLumpIndex.LeafAmbientIndex)).Span;
+            .Read(file, header.Lump(hdr ? BspLumpIndex.LeafAmbientIndexHdr : BspLumpIndex.LeafAmbientIndex)).Span;
 
         if (samples.IsEmpty)
         {

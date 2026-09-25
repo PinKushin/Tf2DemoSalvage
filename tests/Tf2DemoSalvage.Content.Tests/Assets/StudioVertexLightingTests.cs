@@ -40,6 +40,19 @@ public sealed class StudioVertexLightingTests
         _props = BspStaticProps.Read(_map);
     }
 
+    /// <remarks>
+    /// `engine.dll` 0x1800f4760 (static prop lighting load) reads `LUMP_MAP_FLAGS` (59) through 0x1800ffa10: no
+    /// `.vhv` at all unless a bake is declared (`flags &amp; 3`), `sp_hdr_%d%s.vhv` when HDR is on and bit 2
+    /// (`LVLFLAGS_BAKED_STATIC_PROP_LIGHTING_HDR`) is set, `sp_%d%s.vhv` otherwise. One name, no fallback.
+    /// </remarks>
+    [TestCase(7u, 0u, null)]
+    [TestCase(7u, 1u, "sp_7.vhv")]
+    [TestCase(7u, 2u, "sp_hdr_7.vhv")]
+    [TestCase(7u, 3u, "sp_hdr_7.vhv")]
+    [TestCase(7u, 4u, null)]
+    public void PathsFor_EachMapFlagsValue_IsTheEnginesOneName(uint index, uint mapFlags, string? expected) =>
+        StudioVertexLighting.PathsFor((int)index, mapFlags).SingleOrDefault().ShouldBe(expected);
+
     [Test]
     public void TheMapsPakfile_CarriesLightingForItsProps()
     {
@@ -49,7 +62,7 @@ public sealed class StudioVertexLightingTests
 
         for (int index = 0; index < _props.Count; index++)
         {
-            if (StudioVertexLighting.PathsFor(index).Any(path => _pak.ReadFile(path) is not null))
+            if (StudioVertexLighting.PathsFor(index, BspMapFlags.Read(_map)).Any(path => _pak.ReadFile(path) is not null))
             {
                 found++;
             }
@@ -198,7 +211,7 @@ public sealed class StudioVertexLightingTests
                 continue;
             }
 
-            foreach (string path in StudioVertexLighting.PathsFor(index))
+            foreach (string path in StudioVertexLighting.PathsFor(index, BspMapFlags.Read(_map)))
             {
                 if (_pak.ReadFile(path) is not { } file)
                 {
@@ -265,7 +278,7 @@ public sealed class StudioVertexLightingTests
     private IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>>? Lighting(
         int index, int checksum)
     {
-        foreach (string path in StudioVertexLighting.PathsFor(index))
+        foreach (string path in StudioVertexLighting.PathsFor(index, BspMapFlags.Read(_map)))
         {
             if (_pak.ReadFile(path) is { } file)
             {

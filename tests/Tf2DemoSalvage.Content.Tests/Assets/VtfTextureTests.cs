@@ -30,6 +30,44 @@ public sealed class VtfTextureTests
     }
 
     [Test]
+    public void Read_FormatTwenty_IsDxt1WithOneBitAlpha()
+    {
+        // `IMAGE_FORMAT_DXT1_ONEBITALPHA` is 20 by position in `imageformat.h`. The enum was corrected from 26 and the
+        // reader's own number map was not, so every real one-bit-alpha texture was refused as unknown.
+        byte[] file = Vtf(VtfFormat.Dxt1OneBitAlpha, width: 4, height: 4, mips: 1, images: Dxt1Block(0xF800, 0, 0));
+
+        VtfTexture texture = VtfTexture.Read(file);
+
+        texture.Format.ShouldBe(VtfFormat.Dxt1OneBitAlpha);
+        texture.Levels[0].Length.ShouldBe(8);
+    }
+
+    [Test]
+    public void Read_FormatTwentySix_IsRefused()
+    {
+        // 26 is `IMAGE_FORMAT_UVLX8888`, four bytes a texel: decoding it as DXT1 reads a picture out of the wrong bytes.
+        byte[] file = Vtf(VtfFormat.Dxt1, width: 4, height: 4, mips: 1, images: new byte[64]);
+
+        BinaryPrimitives.WriteInt32LittleEndian(file.AsSpan(52), 26);
+
+        Should.Throw<InvalidDataException>(() => VtfTexture.Read(file));
+    }
+
+    [Test]
+    public void Read_Rgba16161616F_KeepsTheHalfFloatsUntouched()
+    {
+        // An HDR cubemap bake, `c<x>_<y>_<z>.hdr.vtf`, is format 24: eight bytes a texel, four halves. The GPU samples
+        // half floats natively, so the reader hands the bytes over as it does DXT blocks (B149). 2.0 is 0x4000.
+        byte[] texel = [0x00, 0x40, 0x00, 0x3C, 0x00, 0x38, 0x00, 0x3C];
+        byte[] file = Vtf(VtfFormat.Rgba16161616F, width: 1, height: 1, mips: 1, images: texel);
+
+        VtfTexture texture = VtfTexture.Read(file);
+
+        texture.Format.ShouldBe(VtfFormat.Rgba16161616F);
+        texture.Levels[0].ToArray().ShouldBe(texel);
+    }
+
+    [Test]
     public void Decode_Bgra_SwapsToRgba()
     {
         // BGRA is the common uncompressed format, and the swap is the whole content of reading it.

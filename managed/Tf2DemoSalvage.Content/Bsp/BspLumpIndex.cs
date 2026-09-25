@@ -63,6 +63,9 @@ internal static class BspLumpIndex
     /// <summary>The lights the map was compiled with, including the sun.</summary>
     public const int WorldLights = 15;
 
+    /// <summary>`LUMP_WORLDLIGHTS_HDR`: the same records, intensities from each light's `_lightHDR`.</summary>
+    public const int WorldLightsHdr = 54;
+
     /// <summary>Face indices per leaf.</summary>
     public const int LeafFaces = 16;
 

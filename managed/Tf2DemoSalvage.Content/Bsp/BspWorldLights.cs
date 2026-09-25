@@ -101,7 +101,10 @@ public static class BspWorldLights
     {
         BspHeader header = BspHeader.Parse(file.Span);
 
-        ReadOnlySpan<byte> lump = BspLumpData.Read(file, header.Lump(BspLumpIndex.WorldLights)).Span;
+        // **`LUMP_WORLDLIGHTS_HDR` when the map has it**, as `CModelLoader_Map_LoadModel` (`engine.dll` 0x1800ffc30) loads
+        // at TF2's default HDR level; vrad writes its intensities from each light's `_lightHDR`.
+        ReadOnlySpan<byte> hdr = BspLumpData.Read(file, header.Lump(BspLumpIndex.WorldLightsHdr)).Span;
+        ReadOnlySpan<byte> lump = hdr.IsEmpty ? BspLumpData.Read(file, header.Lump(BspLumpIndex.WorldLights)).Span : hdr;
 
         if (lump.IsEmpty)
         {

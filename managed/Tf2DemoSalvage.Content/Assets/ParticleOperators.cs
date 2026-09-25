@@ -391,6 +391,7 @@ public sealed class RemapScalar : IParticleOperator
     /// <summary>The stream an output field names, or null for one the store does not hold.</summary>
     internal static float[]? Written(ParticleStore particles, int field) => field switch
     {
+        LifeDuration => particles.Lifetime,
         Radius => particles.Radius,
         Rotation => particles.Rotation,
         Alpha => particles.Alpha,
@@ -401,7 +402,6 @@ public sealed class RemapScalar : IParticleOperator
     /// <summary>One particle's value of an input field, or null for one the store does not hold.</summary>
     internal static float? Read(ParticleStore particles, int field, int index) => field switch
     {
-        LifeDuration => particles.Lifetime[index],
         CreationTime => particles.Born[index],
         _ => Written(particles, field)?[index],
     };

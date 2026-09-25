@@ -1574,7 +1574,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         Upload(device, context, texture);
 
     private static ComPtr<ID3D11ShaderResourceView> Upload(
-        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapTexture? texture)
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        MapTexture? texture,
+        bool srgb = true)
     {
         if (texture is not { } present)
         {
@@ -1593,7 +1596,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // protects nothing and costs the alpha that decals and translucent materials need to blend
         // with. A decal drawn against a flattened alpha paints its whole quad as solid colour,
         // which is what made the patch under a health pack look like a placeholder marker.
-        return CreateTexture(device, context, present.Width, present.Height, present.Image);
+        return CreateTexture(
+            device, context, present.Width, present.Height, present.Image, srgb);
     }
 
     /// <summary>Builds the missing-material chequer: magenta and black, like the engine's.</summary>
@@ -2511,9 +2515,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // **Every animated detail texture, once each** (B342). Keyed by path because thousands of
         // materials share one file, so this loop runs a handful of times where a per-material
         // upload would run thousands.
+        // Read raw or through the curve by the first material that animates it (SamplerSrgb.DetailReadsAsSrgb).
+        // ponytail: one read per file; a file animated by both a mod2x and an additive material would need two uploads.
+        Dictionary<string, bool> detailSrgb = new(StringComparer.OrdinalIgnoreCase);
+
+        for (int index = 0; index < assets.DetailAnimations.Count; index++)
+        {
+            if (assets.DetailAnimations[index] is { } animated &&
+                index < assets.Details.Count && assets.Details[index] is { } uses &&
+                index < assets.Shaders.Count)
+            {
+                detailSrgb.TryAdd(animated, SamplerSrgb.DetailReadsAsSrgb(assets.Shaders[index], uses.Mode));
+            }
+        }
+
         foreach ((string path, IReadOnlyList<MapTexture> frames) in assets.AnimatedDetails)
         {
-            _detailAnimations[path] = [.. frames.Select(frame => Upload(device, context, frame))];
+            bool srgb = detailSrgb.GetValueOrDefault(path, true);
+
+            _detailAnimations[path] = [.. frames.Select(frame => Upload(device, context, frame, srgb))];
         }
 
         _flatWhite = CreateTexture(
@@ -2692,8 +2712,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
             MapDetail? detail = assets.Details[index];
             MapBump? bump = index < assets.Bumps.Count ? assets.Bumps[index] : null;
 
-            _details.Add(detail is { } present ? Upload(device, context, present.Texture) : default);
-            _bumps.Add(bump is { } mapped ? Upload(device, context, mapped.Texture) : default);
+            // **Raw for mod2x**, so its 0.5 grey doubles to a neutral (SamplerSrgb.DetailReadsAsSrgb).
+            string shader = index < assets.Shaders.Count ? assets.Shaders[index] : string.Empty;
+
+            _details.Add(detail is { } present
+                ? Upload(device, context, present.Texture, SamplerSrgb.DetailReadsAsSrgb(shader, present.Mode))
+                : default);
+            // **Not sRGB**: an ssbump texel is three light weights and a normal map is a direction (SamplerSrgb).
+            _bumps.Add(bump is { } mapped ? Upload(device, context, mapped.Texture, SamplerSrgb.ReadsAsSrgb(MaterialSampler.Bump)) : default);
 
             // **Mode -1 is "no detail", and it has to be a value rather than an absence.** The
             // shader reads the same constant buffer for every draw, so a material without a detail
@@ -2878,7 +2904,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 index < assets.PhongExponentMaps.Count ? assets.PhongExponentMaps[index] : null;
 
             _phongExponentMaps.Add(
-                exponentMap is { } exponents ? Upload(device, context, exponents) : default);
+                exponentMap is { } exponents
+                    ? Upload(device, context, exponents, SamplerSrgb.ReadsAsSrgb(MaterialSampler.PhongExponent))
+                    : default);
 
             // The rim, which only exists inside phong. Its exponent defaults to 4 rather than the
             // highlight's 5, so the resting value is its own.
@@ -2887,7 +2915,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // constant buffer is sized in whole float4s and that slot was spare.
             MapTexture? warp = index < assets.LightWarps.Count ? assets.LightWarps[index] : null;
 
-            _lightWarps.Add(warp is { } ramp ? Upload(device, context, ramp) : default);
+            _lightWarps.Add(warp is { } ramp
+                ? Upload(device, context, ramp, SamplerSrgb.ReadsAsSrgb(MaterialSampler.DiffuseWarp))
+                : default);
 
             float hasLightWarp = warp is null ? 0f : 1f;
 
@@ -2899,7 +2929,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             MapTexture? illumMask =
                 index < assets.SelfIllumMasks.Count ? assets.SelfIllumMasks[index] : null;
 
-            _selfIllumMasks.Add(illumMask is { } mask ? Upload(device, context, mask) : default);
+            _selfIllumMasks.Add(illumMask is { } mask
+                ? Upload(device, context, mask, SamplerSrgb.ReadsAsSrgb(MaterialSampler.SelfIllumMask))
+                : default);
 
             float hasSelfIllumMask = illumMask is null ? 0f : 1f;
 
@@ -3106,7 +3138,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             assets.Lightmaps.Width,
             assets.Lightmaps.Height,
             TextureImage.Rgba(assets.Lightmaps.Pixels),
-            srgb: false);
+            SamplerSrgb.ReadsAsSrgb(MaterialSampler.Lightmap));
 
         // Counted, because "we now skip additive materials" is a capability and this is the output.
         _render.LogInformation(
@@ -6842,7 +6874,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         TextureImage image,
         bool srgb = true)
     {
-        return image.IsBlockCompressed
+        return image.IsNative
             ? CreateBlockTexture(device, width, height, image, srgb)
             : CreatePixelTexture(device, context, width, height, image.Top.Span, srgb);
     }
@@ -7025,6 +7057,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     internal static Silk.NET.DXGI.Format BlockFormat(VtfFormat format, bool srgb) => format switch
     {
+        // An HDR bake is linear light; there is no sRGB half-float format and none is wanted.
+        VtfFormat.Rgba16161616F => Silk.NET.DXGI.Format.FormatR16G16B16A16Float,
+
         VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha => srgb
             ? Silk.NET.DXGI.Format.FormatBC1UnormSrgb
             : Silk.NET.DXGI.Format.FormatBC1Unorm,
@@ -7052,6 +7087,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
     {
         int blockBytes = format is VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha ? 8 : 16;
         int levelWidth = Math.Max(1, width >> level);
+
+        // Half floats are a row of texels, eight bytes each, not a row of 4x4 blocks.
+        if (format is VtfFormat.Rgba16161616F)
+        {
+            return levelWidth * 8;
+        }
 
         return Math.Max(1, (levelWidth + 3) / 4) * blockBytes;
     }
@@ -7180,7 +7221,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // heavy, and they break easily, so they need to be on the gpu like valve has them."*
         TextureImage first = cubeFaces[0].Image;
 
-        if (first.IsBlockCompressed)
+        if (first.IsNative)
         {
             return UploadCompressedCube(device, size, cubeFaces);
         }

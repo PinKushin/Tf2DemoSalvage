@@ -63,14 +63,11 @@ public sealed class EntitySpriteBatches
     /// `m_flGlowProxySize`, which returns a FRACTION and makes a glow dissolve smoothly as it goes
     /// behind a pillar. Without a query handle it degenerates to
     /// <c>GlowSightDistance( position, true ) &gt; 0.0f ? 1.0f : 0.0f</c> — a line trace from the eye,
-    /// all or nothing (`c_pixel_visibility.cpp:825`). **This project has neither**: no occlusion query
-    /// and no world line trace, so the caller supplies a test built from the frustum and the PVS,
-    /// which is what `C_TFRagdoll::IsRagdollVisible` uses for a corpse (`c_tf_player.cpp:1350`) and is
-    /// the nearest thing that exists here. It is asked only of a glow, because only `GlowBlend` asks.
+    /// all or nothing (`c_pixel_visibility.cpp:825`). The caller supplies that trace
+    /// (<see cref="GlowSight"/>). It is asked only of a glow, because only `GlowBlend` asks.
     ///
-    /// The visible consequence, stated so nobody has to rediscover it: a glow behind a pillar in the
-    /// same visleaf stays lit where TF2 would hide it, and one that TF2 dissolves gradually pops here.
-    /// B378 carries this as the open half, and B391 the depth test that waits on it.
+    /// The visible consequence of having no query: a glow that TF2 dissolves gradually as it goes
+    /// behind a pillar pops here. B378 carries this as the open half.
     /// </remarks>
     public IReadOnlyList<ParticleBatch> Build(
         IReadOnlyList<SceneProp> props,

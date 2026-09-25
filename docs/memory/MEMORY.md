@@ -136,4 +136,8 @@
 - [lcor is not in a worktree](lcor-is-not-in-a-worktree.md) — git-ignored; use the main checkout's absolute path.
 - [A reference count can depend on fps](a-reference-count-can-depend-on-fps.md) — per-frame lists; compare at the same +fps_max.
 - [A RISKS heading can be stale](a-risks-heading-can-be-stale.md) — B396/B316/B306 were done; check git log and probes first.
+- [A test demo is not demo repair](a-test-demo-is-not-demo-repair.md) — a throwaway synthetic demo for a golden shot; D1 is a different product.
+- [Defaults are highest quality](defaults-are-highest-quality.md) — TF2's high tier by default; performance modes downgrade.
+- [A parent branch defers the gate](parent-branch-defers-the-gate.md) — chained fixes merge into a parent; gate once, to main.
 - [Keep packages current](keep-packages-current.md) — latest always, majors too; hold back only for a security reason (D191).
+- [Read the HDR set](read-the-hdr-set.md) — TF2 default is HDR; every paired lighting input reads its HDR half; sRGB only for pictures.
