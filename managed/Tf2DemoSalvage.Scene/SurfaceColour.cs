@@ -29,10 +29,14 @@ public sealed record SurfaceThumbnail(byte[] Rgba, int Width, int Height, int Ma
 /// - **`GetColorForSurface`** itself (`c_impact_effects.cpp:96`, published): `pow( diffuse, 1/2.2 ) · base`, the ray
 ///   run to 1.1 times the distance to the hit.
 ///
-/// **Not built:** displacements and static props (`R_LightVec` also tests them), light styles other than their
-/// level-start value of 264, and water surfaces (their draw flag is set from the material, which is not read here).
-/// When no face takes the ray, or the face has no thumbnail, the engine's base colour is an uninitialised local; zero
-/// is used.
+/// **Water is skipped in both passes.** The node pass tests `SURFDRAW_SKY | SURFDRAW_WATERSURFACE` (`0x4`, `0x10000`)
+/// and the leaf pass `0x10812` (water, displacement, nodraw, node), read from `0x1800d4b00`. The engine sets the water
+/// flag from the material; here a texinfo's `SURF_WARP` (`bspflags.h`, `0x0008`), which vbsp gives water faces, stands
+/// in for it — an interpolation.
+///
+/// **Not built:** displacements and static props (`R_LightVec` also tests them) and light styles other than their
+/// level-start value of 264. When no face takes the ray, or the face has no thumbnail, the engine's base colour is an
+/// uninitialised local; zero is used.
 /// </remarks>
 public sealed class SurfaceColour
 {
@@ -168,7 +172,7 @@ public sealed class SurfaceColour
             for (int each = 0; each < plane.FaceCount; each++)
             {
                 if (Face(plane.FirstFace + each) is { } face &&
-                    (face.Flags & (SurfaceProperties.Sky | SurfaceProperties.Sky2D)) == 0 &&
+                    (face.Flags & (SurfaceProperties.Sky | SurfaceProperties.Sky2D | SurfaceProperties.Warp)) == 0 &&
                     Takes(face, middle, ref walk))
                 {
                     return face;
@@ -195,7 +199,7 @@ public sealed class SurfaceColour
             if (Face(index) is not { } face ||
                 face.OnNode ||
                 face.Displacement ||
-                (face.Flags & SurfaceProperties.NoDraw) != 0)
+                (face.Flags & (SurfaceProperties.NoDraw | SurfaceProperties.Warp)) != 0)
             {
                 continue;
             }
