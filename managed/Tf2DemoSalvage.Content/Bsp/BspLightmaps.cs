@@ -114,30 +114,16 @@ public static class BspLightmaps
     /// <returns>One entry per face, empty where the face is unlit.</returns>
     /// <exception cref="InvalidDataException">A face's samples fall outside the lighting lump.</exception>
     /// <remarks>
-    /// **The LDR lump is used when the map has one, and that is a deliberate reversal.** A map
-    /// compiled for both carries LDR in lump 8 and HDR in lump 53, and preferring HDR seemed
-    /// obviously right — TF2 runs in HDR by default.
-    ///
-    /// It produced a map washed out to white. The two forms are scaled differently: an LDR sample
-    /// is meant to be multiplied by two on the way out, which is what Source's own shaders do and
-    /// what this project's shader does, while an HDR sample already carries that range in its
-    /// exponent. Applying the LDR convention to HDR data doubles something that was not halved.
-    ///
-    /// So LDR is the lump that matches the renderer, and HDR is the fallback for a map that has
-    /// only that one. Rendering HDR properly needs a tone map rather than a multiply, and that is
-    /// worth doing when there is a reason to — not before.
+    /// **The HDR pair, as TF2 draws at its default HDR level** — see <see cref="Lit"/>. This used to prefer LDR, on
+    /// the grounds that HDR "produced a map washed out to white"; the HDR fallback it kept read lump 53 through lump
+    /// 7's offsets, and the two lightings measure identical on `koth_harvest_final` (the `lighting-lumps` probe,
+    /// ratio 1.000 on 8,433 faces), so the wash-out was never the data.
     /// </remarks>
     public static IReadOnlyList<BspLightmap> Read(ReadOnlyMemory<byte> file)
     {
-        BspHeader header = BspHeader.Parse(file.Span);
-
-        ReadOnlySpan<byte> faces = BspLumpData
-            .ReadStructures(file, header.Lump(BspLumpIndex.Faces), FaceStride, "faces").Span;
-
-        ReadOnlyMemory<byte> ldr = BspLumpData.Read(file, header.Lump(BspLumpIndex.Lighting));
-        ReadOnlySpan<byte> lighting = ldr.Length > 0
-            ? ldr.Span
-            : BspLumpData.Read(file, header.Lump(BspLumpIndex.LightingHdr)).Span;
+        (ReadOnlyMemory<byte> facesLump, ReadOnlyMemory<byte> lightingLump) = Lit(file);
+        ReadOnlySpan<byte> faces = facesLump.Span;
+        ReadOnlySpan<byte> lighting = lightingLump.Span;
 
         int count = faces.Length / FaceStride;
         List<BspLightmap> lightmaps = new(count);
@@ -214,16 +200,12 @@ public static class BspLightmaps
     {
         BspHeader header = BspHeader.Parse(file.Span);
 
-        ReadOnlySpan<byte> faces = BspLumpData
-            .ReadStructures(file, header.Lump(BspLumpIndex.Faces), FaceStride, "faces").Span;
-
         ReadOnlySpan<byte> texinfo = BspLumpData
             .ReadStructures(file, header.Lump(BspLumpIndex.Texinfo), TexinfoStride, "texinfo").Span;
 
-        ReadOnlyMemory<byte> ldr = BspLumpData.Read(file, header.Lump(BspLumpIndex.Lighting));
-        ReadOnlySpan<byte> lighting = ldr.Length > 0
-            ? ldr.Span
-            : BspLumpData.Read(file, header.Lump(BspLumpIndex.LightingHdr)).Span;
+        (ReadOnlyMemory<byte> facesLump, ReadOnlyMemory<byte> lightingLump) = Lit(file);
+        ReadOnlySpan<byte> faces = facesLump.Span;
+        ReadOnlySpan<byte> lighting = lightingLump.Span;
 
         int count = faces.Length / FaceStride;
         List<BspFaceLighting> read = new(count);
@@ -421,13 +403,8 @@ public static class BspLightmaps
     /// <remarks>The same lump choice as <see cref="Read"/>, so the two agree on which light a map has.</remarks>
     public static BspLightSamples ReadSamples(ReadOnlyMemory<byte> file)
     {
-        BspHeader header = BspHeader.Parse(file.Span);
-
-        ReadOnlySpan<byte> faces = BspLumpData
-            .ReadStructures(file, header.Lump(BspLumpIndex.Faces), FaceStride, "faces").Span;
-
-        ReadOnlyMemory<byte> ldr = BspLumpData.Read(file, header.Lump(BspLumpIndex.Lighting));
-        ReadOnlyMemory<byte> lighting = ldr.Length > 0 ? ldr : BspLumpData.Read(file, header.Lump(BspLumpIndex.LightingHdr));
+        (ReadOnlyMemory<byte> facesLump, ReadOnlyMemory<byte> lighting) = Lit(file);
+        ReadOnlySpan<byte> faces = facesLump.Span;
 
         int count = faces.Length / FaceStride;
         BspFaceLightLayout[] read = new BspFaceLightLayout[count];
@@ -511,6 +488,25 @@ public static class BspLightmaps
         }
 
         return Math.Max(1, styles);
+    }
+
+    /// <summary>The faces and the lighting they index, as the engine pairs them at TF2's default HDR level.</summary>
+    /// <param name="file">The map's bytes.</param>
+    /// <returns>`LUMP_FACES_HDR` (58) when non-empty, else `LUMP_FACES`; `LUMP_LIGHTING_HDR` (53) when non-empty, else `LUMP_LIGHTING`.</returns>
+    /// <remarks>
+    /// **The pair matters, not only the lighting.** An HDR face's `lightofs` indexes the HDR lighting; reading lump 53
+    /// through lump 7's offsets — the old fallback — only works while vrad happened to lay both out alike. vrad bakes
+    /// the HDR pair from the lights' `_lightHDR`, which a map may set apart from `_light`; TF2 draws that one by default.
+    /// </remarks>
+    private static (ReadOnlyMemory<byte> Faces, ReadOnlyMemory<byte> Lighting) Lit(ReadOnlyMemory<byte> file)
+    {
+        BspHeader header = BspHeader.Parse(file.Span);
+        ReadOnlyMemory<byte> hdrFaces = BspLumpData.ReadStructures(file, header.Lump(BspLumpIndex.FacesHdr), FaceStride, "HDR faces");
+        ReadOnlyMemory<byte> hdrLighting = BspLumpData.Read(file, header.Lump(BspLumpIndex.LightingHdr));
+
+        return (
+            hdrFaces.Length > 0 ? hdrFaces : BspLumpData.ReadStructures(file, header.Lump(BspLumpIndex.Faces), FaceStride, "faces"),
+            hdrLighting.Length > 0 ? hdrLighting : BspLumpData.Read(file, header.Lump(BspLumpIndex.Lighting)));
     }
 
     /// <summary>Turns <c>ColorRGBExp32</c> samples into ordinary sRGB pixels.</summary>

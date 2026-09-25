@@ -11,7 +11,23 @@ desktop resolution and downscaling.
 
 ---
 
-## 1. The game must run LDR, and it is not a preference — **CONFIRMED**
+## 1. The game must run LDR, and it is not a preference — **SUPERSEDED 2026-09-25**
+
+> **Superseded.** The viewer now reads the HDR set, as TF2 does at its default `mat_hdr_level 2`:
+> lightmaps from lumps 58/53, leaf ambient from 55/51, world lights from 54, cubemaps from
+> `.hdr.vtf`, and static prop lighting from `sp_hdr_<n>.vhv` when lump 59 declares it. Each choice
+> was read out of `engine.dll` / `materialsystem.dll` (the function names are in
+> `BspLightmaps.Lit`, `HdrLumpChoiceConformanceTests`, `CubemapFile` and
+> `StudioVertexLighting.PathsFor`).
+>
+> **The premise below did not survive measurement.** On `koth_harvest_final` the two lightmap
+> lumps decode to identical light (`lighting-lumps` probe: ratio 1.000 on all 8,433 lit faces) and
+> all 652 `.vhv` pairs are identical (`vhv-pair` probe). The "washed out" HDR attempt applied LDR's
+> ×2 to data it then read through the LDR faces' offsets. A TF2 capture at `mat_hdr_level 2` with
+> `mat_force_tonemap_scale 1` matched the `mat_hdr_level 0` capture on the roof it was taken for.
+> Auto-exposure (§2) still argues for forcing the tonemap scale in a reference capture.
+>
+> Kept below as written, because the wrong conclusion is part of the record.
 
 *Evidence class: read from this project's own source, plus the map measurement in
 `RENDERING_NOTES.md` §6.*
