@@ -384,6 +384,13 @@ public static class ParticleSystems
             }
         }
 
+        // **`CopyInitialAttributeValues` runs after EVERY initializer** (`particles.h:1265`), so the spawn values an operator
+        // scales from are the final ones. `muzzle_shotgun_flash` remaps its radius after `Radius Random`, and a copy taken
+        // inside that initializer kept 32 while the particle was 8.
+        into.RadiusAtBirth[index] = into.Radius[index];
+        into.TintAtBirth[index] = into.Tint[index];
+        into.AlphaAtBirth[index] = into.Alpha[index];
+
         return index;
     }
 
