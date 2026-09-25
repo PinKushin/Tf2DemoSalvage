@@ -4578,6 +4578,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _device.ModelDecals = _modelDecals;
+        _modelDecals.PerModel = _settings.MaxModelDecals;
 
         if (tick < _modelDecalTick)
         {
@@ -5624,7 +5625,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         return _decalReplay ??= new DecalReplay(
-            new WorldDecals(DecalWorldOf(loaded)),
+            new WorldDecals(DecalWorldOf(loaded), _settings.Decals),
             loaded.Impacts,
             timeline.Decals.All,
             impacts.For,
