@@ -4578,6 +4578,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _device.ModelDecals = _modelDecals;
+        _modelDecals.PerModel = _settings.MaxModelDecals;
 
         if (tick < _modelDecalTick)
         {

@@ -34,6 +34,9 @@ public sealed class ModelDecals
     /// <summary>A mod2x decal's corner light, so this pipeline reproduces the engine's blend — the renderer's own figure.</summary>
     public float UnlitLight { get; init; } = 1f;
 
+    /// <summary>`r_maxmodeldecal`, read from the viewer's config: each model's cap, and 1.5 times it the pool's.</summary>
+    public int PerModel { get; set; } = MaximumPerModel;
+
     /// <summary>How many decals are held across every model.</summary>
     public int Count => _age.Count;
 
@@ -135,12 +138,12 @@ public sealed class ModelDecals
     /// <summary>`AddDecal`'s first two limits: the oldest of any model past 1.5 · r_maxmodeldecal, then this model's past it.</summary>
     private void RetireForOneMore(int entity)
     {
-        if (_age.Count >= MaximumPerModel * 1.5)
+        if (_age.Count >= PerModel * 1.5)
         {
             Retire(_age.First!.Value);
         }
 
-        if (_byEntity.TryGetValue(entity, out List<Decal>? held) && held.Count >= MaximumPerModel)
+        if (_byEntity.TryGetValue(entity, out List<Decal>? held) && held.Count >= PerModel)
         {
             Retire((entity, held[0]));
         }

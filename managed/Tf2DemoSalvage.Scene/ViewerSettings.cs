@@ -599,6 +599,12 @@ public sealed record ViewerSettings
     /// <summary>Command name for the dynamic decal pool's size.</summary>
     public const string DecalsCommand = "r_decals";
 
+    /// <summary>`r_maxmodeldecal`: each model's decal cap, and 1.5 times it the model pool's.</summary>
+    public int MaxModelDecals { get; init; } = ModelDecals.MaximumPerModel;
+
+    /// <summary>Command name for the model decal cap.</summary>
+    public const string MaxModelDecalCommand = "r_maxmodeldecal";
+
     /// <summary>Valve's <c>cl_detaildist</c> default.</summary>
     public const float DefaultDetailDistance = 1200f;
 
@@ -951,6 +957,11 @@ public sealed record ViewerSettings
             settings = settings with { Decals = (int)decals };
         }
 
+        if (ReadNumber(values, MaxModelDecalCommand) is { } modelDecals)
+        {
+            settings = settings with { MaxModelDecals = (int)modelDecals };
+        }
+
         // Bounded later, against the recording server's limits, exactly as the engine bounds them.
         settings = settings with
         {
@@ -1080,6 +1091,12 @@ public sealed record ViewerSettings
         text.AppendLine("// How many bullet holes and scorches the world holds before the oldest go, as in");
         text.AppendLine("// TF2 (read at map load; never fewer than 64).");
         Setting(text, DecalsCommand, Decals.ToString(CultureInfo.InvariantCulture), Decals == Defaults.Decals);
+        text.AppendLine("// How many a player, a corpse or a prop holds; all models together hold 1.5 times this.");
+        Setting(
+            text,
+            MaxModelDecalCommand,
+            MaxModelDecals.ToString(CultureInfo.InvariantCulture),
+            MaxModelDecals == Defaults.MaxModelDecals);
         text.AppendLine();
         text.AppendLine("// How far behind the present entities and effects are drawn, as in TF2:");
         text.AppendLine("// max( cl_interp, cl_interp_ratio / cl_updaterate ). Competitive configs");
