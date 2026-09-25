@@ -27463,9 +27463,9 @@ replayed from its own tick on every frame. The item above filed as "for the perf
   allow it, `ImpactEffectRunner` now steps every effect together tick by tick and starts each on its own tick, instead of
   catching each one up alone. A backward seek, or a jump past everything running, starts again from the first impact
   still offered.
-- **`GetColorForSurface` is partial**: displacements and static props in `R_LightVec`'s walk, light styles beyond
-  their level-start 264, water surfaces, and a hit on no face (the engine's base colour is then an uninitialised
-  local; zero here).
+- **`GetColorForSurface` is partial**: light styles beyond their level-start 264, and a hit on no face (the engine's
+  base colour is then an uninitialised local; zero here). Water, displacements and static props were built 2026-09-25
+  (`docs/findings/60-a-bullet-hole-is-a-translated-name.md`). Leaf displacement lists are interpolated.
 - **Blood**: the underwater, birthday, Pyrovision and low-violence variants; dormancy — every event is taken as live.
 - **Not established**: the tan flecks on the blue wall at shot 4 — right if that wall is a concrete material under
   paint, which was not read. And at blood 34 no player model stands where the blood is: entity 2 is the demo's own

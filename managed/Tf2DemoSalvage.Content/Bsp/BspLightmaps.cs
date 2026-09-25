@@ -69,7 +69,19 @@ public readonly record struct BspFaceLighting(
 {
     /// <summary>Whether the face carries directional lighting.</summary>
     public bool IsBumped => Directional.Count > 0;
+
+    /// <summary>Every style slot's samples, for a face lit by anything but style 0 alone; empty otherwise.</summary>
+    /// <remarks>
+    /// <see cref="Flat"/> and <see cref="Directional"/> are slot 0 as it is stored. A face with styles draws as their sum
+    /// by the styles' current values — <see cref="BspLightmaps.Compose"/> — which only a running light style can decide.
+    /// </remarks>
+    public IReadOnlyList<BspStyleLayer> Styles { get; init; } = [];
 }
+
+/// <summary>One style slot's lighting for one face: the style it answers to, and its linear samples per bump set.</summary>
+/// <param name="Style">The light style, `dface_t.styles[k]`.</param>
+/// <param name="Sets">Per bump set, three floats a luxel: the stored byte times two to its exponent.</param>
+public sealed record BspStyleLayer(byte Style, IReadOnlyList<float[]> Sets);
 
 public static class BspLightmaps
 {
@@ -248,10 +260,98 @@ public static class BspLightmaps
                 directional.Add(Set(lighting, offset, set, luxels, sets, width, height, index));
             }
 
-            read.Add(new BspFaceLighting(flat, directional));
+            read.Add(new BspFaceLighting(flat, directional)
+            {
+                Styles = Layers(face, lighting, offset, luxels, sets, index),
+            });
         }
 
         return read;
+    }
+
+    /// <summary>
+    /// A face's lighting as `R_BuildLightMap` builds it: each style slot's samples times its style's value over 264,
+    /// summed, then stored as every lightmap here is.
+    /// </summary>
+    /// <param name="layers">The face's <see cref="BspFaceLighting.Styles"/>.</param>
+    /// <param name="set">Which bump set.</param>
+    /// <param name="scale">`d_lightstylevalue[ style ] / 264`.</param>
+    /// <param name="into">Four bytes a luxel.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static void Compose(IReadOnlyList<BspStyleLayer> layers, int set, Func<int, float> scale, Span<byte> into)
+    {
+        ArgumentNullException.ThrowIfNull(layers);
+        ArgumentNullException.ThrowIfNull(scale);
+
+        int luxels = into.Length / 4;
+
+        for (int luxel = 0; luxel < luxels; luxel++)
+        {
+            float red = 0f;
+            float green = 0f;
+            float blue = 0f;
+
+            foreach (BspStyleLayer layer in layers)
+            {
+                float value = scale(layer.Style);
+                float[] samples = layer.Sets[set];
+
+                red += samples[luxel * 3] * value;
+                green += samples[(luxel * 3) + 1] * value;
+                blue += samples[(luxel * 3) + 2] * value;
+            }
+
+            into[luxel * 4] = Overbright(red);
+            into[(luxel * 4) + 1] = Overbright(green);
+            into[(luxel * 4) + 2] = Overbright(blue);
+            into[(luxel * 4) + 3] = 255;
+        }
+    }
+
+    /// <summary>Every style slot's linear samples, or none for a face lit by style 0 alone.</summary>
+    private static List<BspStyleLayer> Layers(
+        ReadOnlySpan<byte> face, ReadOnlySpan<byte> lighting, int offset, int luxels, int sets, int index)
+    {
+        List<BspStyleLayer> layers = [];
+
+        if (face[FaceStylesOffset] == 0 && face[FaceStylesOffset + 1] == NoStyle)
+        {
+            return layers;
+        }
+
+        for (int slot = 0; slot < 4 && face[FaceStylesOffset + slot] != NoStyle; slot++)
+        {
+            List<float[]> perSet = new(sets);
+
+            for (int set = 0; set < sets; set++)
+            {
+                long at = SetOffset(offset, slot, set, luxels, sets);
+
+                if (at < 0 || at + ((long)luxels * SampleBytes) > lighting.Length)
+                {
+                    throw new InvalidDataException(
+                        $"Face {index} needs style slot {slot} set {set} at {at} of {lighting.Length}.");
+                }
+
+                float[] linear = new float[luxels * 3];
+
+                for (int luxel = 0; luxel < luxels; luxel++)
+                {
+                    ReadOnlySpan<byte> sample = lighting.Slice((int)at + (luxel * SampleBytes), SampleBytes);
+                    float exponent = MathF.Pow(2f, (sbyte)sample[3]);
+
+                    linear[luxel * 3] = sample[0] * exponent;
+                    linear[(luxel * 3) + 1] = sample[1] * exponent;
+                    linear[(luxel * 3) + 2] = sample[2] * exponent;
+                }
+
+                perSet.Add(linear);
+            }
+
+            layers.Add(new BspStyleLayer(face[FaceStylesOffset + slot], perSet));
+        }
+
+        return layers;
     }
 
     /// <summary>Where each lit face's lighting begins, and how many bytes it occupies.</summary>
