@@ -7664,6 +7664,31 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B422 — the world drew no light styles — FIXED 2026-09-25
+
+**What was wrong.** The lightmap reader decoded each face's first style slot and nothing else. Its comment filed that as
+a choice: *"the rest matter only for animated lights, which a demo overview has no use for"*. Measured with the
+`face-styles` probe over 234 installed maps: switchable styles (32 and up) light faces on 47 maps, 39,280 faces for
+style 32 alone, and animated styles (1–12) on 8. A face whose only style is switchable was drawn fully lit while its
+light was off. The `lightstyles` probe on `koth_harvest_event` shows styles 32–43 toggling 80 times during play.
+
+**What the engine does, read from `engine.dll`:**
+- `R_AnimateLight` (`0x1800d3ec0`) reads each of 64 styles' pattern from the `lightstyles` string table's user data. An
+  empty one gives 256; otherwise `(pattern[(int)(time·10) % len] − 'a')·22`, so `'m'` is 264, a scale of one. A value
+  that changed stamps the style.
+- Each face answering to a stamped style is rebuilt as the sum over its style slots of samples × value/264
+  (`R_BuildLightMap`).
+
+**Built:** `BspFaceLighting.Styles` carries every slot's linear samples for all bump sets. `BspLightmaps.Compose` sums
+them and stores them as every lightmap is stored. `LightStyleFeed` keeps the table's history by tick, so a seek lands
+on the same step. `LightStyleValues` is `R_AnimateLight`. `LightmapAtlas.Recompose` rebuilds the answering faces,
+and `WorldRenderer.UpdateLightmap` uploads those regions and remakes the mips. The flecks' tint (`SurfaceColour`)
+takes the same values. On `koth_harvest_event` the first frame rebuilt 4,200 lightmaps and the toggle at tick 1560
+rebuilt 540, with no slow frame.
+
+**Interpolated:** the time is the tick's, `tick × interval`. The engine's clock (`0x1800a3020`) runs between ticks
+too, which can move a flicker's step by up to a tick.
+
 ### B122 — a spotlight's cosine term is missing from the falloff — FIXED
 
 **Follow-up, fixed 2026-09-25: the per-light path had no cone at all.** B122 fixed `LocalLights.Cone`, which only the
@@ -27463,9 +27488,9 @@ replayed from its own tick on every frame. The item above filed as "for the perf
   allow it, `ImpactEffectRunner` now steps every effect together tick by tick and starts each on its own tick, instead of
   catching each one up alone. A backward seek, or a jump past everything running, starts again from the first impact
   still offered.
-- **`GetColorForSurface` is partial**: displacements and static props in `R_LightVec`'s walk, light styles beyond
-  their level-start 264, water surfaces, and a hit on no face (the engine's base colour is then an uninitialised
-  local; zero here).
+- **`GetColorForSurface` is partial**: light styles beyond their level-start 264, and a hit on no face (the engine's
+  base colour is then an uninitialised local; zero here). Water, displacements and static props were built 2026-09-25
+  (`docs/findings/60-a-bullet-hole-is-a-translated-name.md`). Leaf displacement lists are interpolated.
 - **Blood**: the underwater, birthday, Pyrovision and low-violence variants; dormancy — every event is taken as live.
 - **Not established**: the tan flecks on the blue wall at shot 4 — right if that wall is a concrete material under
   paint, which was not read. And at blood 34 no player model stands where the blood is: entity 2 is the demo's own

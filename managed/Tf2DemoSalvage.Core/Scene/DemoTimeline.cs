@@ -1120,6 +1120,9 @@ public sealed class DemoTimeline
     /// <summary>Every decal the demo's temp entities carried, in fire order, and the table naming them (B415).</summary>
     public DecalFeed Decals { get; private init; } = new();
 
+    /// <summary>Every light style's pattern over the demo, from the <c>lightstyles</c> table.</summary>
+    public LightStyleFeed LightStyles { get; private init; } = new();
+
     /// <summary>Every `CTETFBlood`, in fire order (B415).</summary>
     public BloodFeed Blood { get; private init; } = new();
 
@@ -1679,6 +1682,7 @@ public sealed class DemoTimeline
         HashSet<int> airwalkingSince = [];
 
         ModelPrecache precache = new();
+        LightStyleFeed lightStyles = new();
         int protocol = header.NetworkProtocol;
 
         // **The sounds the recording plays, and the table that names them.** Both are needed
@@ -1989,6 +1993,19 @@ public sealed class DemoTimeline
                     case UpdateStringTableMessage particleUpdate
                         when state.StringTableName(particleUpdate.TableId) == EffectDispatchFeed.ParticleTableName:
                         feeds.Dispatches.ParticleNames.Apply(particleUpdate.Entries);
+                        continue;
+
+                    // **The light style patterns**, which animate the world's switchable and flickering lights.
+                    case CreateStringTableMessage { Name: LightStyleFeed.TableName } styleTable:
+                        lightStyles.Apply(styleTable.Entries, tick: null);
+                        continue;
+
+                    case UpdateStringTableMessage styleUpdate
+                        when state.StringTableName(styleUpdate.TableId) == LightStyleFeed.TableName:
+                        // A signon packet's tick is not a playback tick (`koth_harvest_event` stamps its creation
+                        // 7,170), so what arrives there holds from the start.
+                        lightStyles.Apply(
+                            styleUpdate.Entries, command.Type == DemoCommandType.Signon ? null : command.Tick);
                         continue;
 
                     case UpdateStringTableMessage update
@@ -2689,6 +2706,7 @@ public sealed class DemoTimeline
             Explosions = feeds.Explosions,
             Shots = feeds.Shots,
             Decals = feeds.Decals,
+            LightStyles = lightStyles,
             Blood = feeds.Blood,
             Dispatches = feeds.Dispatches,
             MuzzleFlashes = muzzleFlashes,
