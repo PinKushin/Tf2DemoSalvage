@@ -18,6 +18,34 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 /// </remarks>
 public sealed class LocalLightsTests
 {
+    /// <summary>
+    /// A spotlight handed on as a local light keeps its cone — `dworldlight_t`'s `normal`, `stopdot`, `stopdot2` and
+    /// `exponent` — so the draw can take `VertexAttenInternal`'s spot term (`common_vs_fxc.h:785`).
+    /// </summary>
+    [Test]
+    public void Strongest_ASpotlight_CarriesItsDirectionAndCone()
+    {
+        BspWorldLight spot = new((0f, 0f, 100f), (1f, 1f, 1f), (0f, 0f, -1f), WorldLightKind.Spotlight, 1f, 0f, 0f, 0f, 0.9f, 0.5f, 2f);
+        LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
+
+        LocalLights.Strongest([spot], 0f, 0f, 0f, into).ShouldBe(1);
+
+        (into[0].Spot, into[0].Direction, into[0].SpotInner, into[0].SpotOuter, into[0].SpotExponent)
+            .ShouldBe((true, (0f, 0f, -1f), 0.9f, 0.5f, 2f));
+    }
+
+    /// <summary>A point light carries no cone.</summary>
+    [Test]
+    public void Strongest_APointLight_IsNotASpot()
+    {
+        BspWorldLight point = new((0f, 0f, 100f), (1f, 1f, 1f), (0f, 0f, -1f), WorldLightKind.Point, 1f);
+        LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
+
+        LocalLights.Strongest([point], 0f, 0f, 0f, into);
+
+        into[0].Spot.ShouldBeFalse();
+    }
+
     /// <summary>An unlit cube, so a face's value is the light this class added and nothing else.</summary>
     private static AmbientCube Black => default;
 

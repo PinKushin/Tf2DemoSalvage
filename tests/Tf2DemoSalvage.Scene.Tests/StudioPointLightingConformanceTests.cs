@@ -1,3 +1,4 @@
+using System;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Bsp;
@@ -70,6 +71,38 @@ public sealed class StudioPointLightingConformanceTests
 
         StudioPointLighting.At(PointLighting.None, sun, Vector3.Zero, Vector3.UnitZ).X.ShouldBe(2f, 1e-5f);
     }
+
+    /// <remarks>
+    /// `0x180021b20`: a spotlight 100 up, pointing down, lighting a point 100 along x — 0.7071 off its axis, inside the
+    /// penumbra between an inner cosine of 0.9 and an outer of 0.5. The fringe `( 0.7071 − 0.5 ) / 0.4` is squared by the
+    /// exponent, then taken with the normal's cosine 0.7071 and a falloff of one.
+    /// </remarks>
+    [Test]
+    public void At_ASpotlightsPenumbra_ScalesByTheFringeToItsExponent()
+    {
+        float fringe = (MathF.Sqrt(0.5f) - 0.5f) / 0.4f;
+
+        StudioPointLighting.At(Lit(Spot(exponent: 2f)), null, new Vector3(100f, 0f, 0f), Vector3.UnitZ).X
+            .ShouldBe(MathF.Sqrt(0.5f) * fringe * fringe, 1e-4f);
+    }
+
+    /// <remarks>An exponent of 0 skips the power, as 1 does: the fringe is taken as it is.</remarks>
+    [Test]
+    public void At_ASpotlightWithExponentZero_TakesTheFringeLinearly()
+    {
+        StudioPointLighting.At(Lit(Spot(exponent: 0f)), null, new Vector3(100f, 0f, 0f), Vector3.UnitZ).X
+            .ShouldBe(MathF.Sqrt(0.5f) * ((MathF.Sqrt(0.5f) - 0.5f) / 0.4f), 1e-4f);
+    }
+
+    /// <remarks>200 along x is 0.447 off the axis, past the outer cosine of 0.5.</remarks>
+    [Test]
+    public void At_APointOutsideTheSpotlightsCone_TakesNothing()
+    {
+        StudioPointLighting.At(Lit(Spot(exponent: 1f)), null, new Vector3(200f, 0f, 0f), Vector3.UnitZ).X.ShouldBe(0f);
+    }
+
+    private static LocalLight Spot(float exponent) =>
+        new(0f, 0f, 100f, 1f, 0f, 0f, 1f, 0f, 0f, 0f, (0f, 0f, -1f), 0.9f, 0.5f, exponent, Spot: true);
 
     private static PointLighting Lit(LocalLight light) => new(default, [light]);
 }

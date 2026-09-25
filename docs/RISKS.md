@@ -7666,6 +7666,19 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ### B122 — a spotlight's cosine term is missing from the falloff — FIXED
 
+**Follow-up, fixed 2026-09-25: the per-light path had no cone at all.** B122 fixed `LocalLights.Cone`, which only the
+cube fold uses. A model is drawn with `LightingAt`'s four `LocalLight`s, which carried no direction or cone, and the
+vertex shader's `LampAttenuation` said so: *"a spotlight's cone is not decoded yet"*. Every model near a spotlight was
+lit as if by a point light. `LocalLight` now carries `normal`, `stopdot`, `stopdot2` and `exponent`, and the shader takes
+`VertexAttenInternal`'s spot term (`common_vs_fxc.h:785`, published): `saturate(pow(max(1e-4, (cos − outer) ·
+1/(inner − outer)), exponent))`. The CPU path (`StudioPointLighting`, `studiorender.dll` `0x180021b20`) takes studiorender's
+own form, which is zero at or outside the outer cone.
+
+**One reading chosen, and it can be falsified by looking:** a spot with `_exponent 0` goes up as exponent 1. Both Valve
+CPU paths that were read (`engine.dll` `0x1800efbf0`, `studiorender.dll` `0x180021b20`) skip the power for 0 exactly as
+for 1. The value shaderapi uploads for it was not found, and a literal `pow(x, 0)` would light the whole outside of the
+cone. The `spot-exponents` probe counts 137 such lights among 45,586 spotlights on 234 installed maps.
+
 **Fixed 2026-08-20**, `Cone` now returns `dot2 * fringe`. Measured on the same frame:
 
 ```

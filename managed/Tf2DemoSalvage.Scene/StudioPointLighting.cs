@@ -16,7 +16,7 @@ namespace Tf2DemoSalvage.Scene;
 ///
 /// **The lights are <see cref="LevelLighting.LightingAt"/>'s**, the ones a model is drawn with, and the sun is added
 /// as a directional light where <see cref="LevelLighting.SunAt"/> gives one — the same inputs the model draw takes.
-/// A spotlight's cone (`0x180021b20`) is not applied, because <see cref="LocalLight"/> does not carry one.
+/// A spotlight also takes its cone (`0x180021b20`).
 /// </remarks>
 public static class StudioPointLighting
 {
@@ -52,7 +52,13 @@ public static class StudioPointLighting
 
             float falloff = 1f / ((local.Constant == 0f ? AbsentConstant : local.Constant) +
                                   (local.Linear * MathF.Sqrt(squared)) + (local.Quadratic * squared));
-            float dot = MathF.Max(Vector3.Dot(normal, delta / MathF.Sqrt(squared + DirectionEpsilon)), 0f);
+            Vector3 direction = delta / MathF.Sqrt(squared + DirectionEpsilon);
+            float dot = MathF.Max(Vector3.Dot(normal, direction), 0f);
+
+            if (local.Spot)
+            {
+                dot *= Cone(local, direction);
+            }
 
             light += new Vector3(local.Red, local.Green, local.Blue) * (dot * falloff);
         }
@@ -68,5 +74,28 @@ public static class StudioPointLighting
         return light;
 
         static Vector3 Face((float Red, float Green, float Blue) face) => new(face.Red, face.Green, face.Blue);
+    }
+
+    /// <summary>
+    /// `0x180021b20`'s cone: full inside the inner cosine, dark at or outside the outer, and between them the fringe
+    /// `( cos − outer ) / ( inner − outer )`, raised to the exponent unless that is 0 or 1.
+    /// </summary>
+    private static float Cone(LocalLight spot, Vector3 toLight)
+    {
+        float along = -Vector3.Dot(toLight, new Vector3(spot.Direction.X, spot.Direction.Y, spot.Direction.Z));
+
+        if (along <= spot.SpotOuter)
+        {
+            return 0f;
+        }
+
+        if (along >= spot.SpotInner)
+        {
+            return 1f;
+        }
+
+        float fringe = (along - spot.SpotOuter) / (spot.SpotInner - spot.SpotOuter);
+
+        return spot.SpotExponent is 0f or 1f ? fringe : MathF.Pow(fringe, spot.SpotExponent);
     }
 }

@@ -44,21 +44,31 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// <param name="Linear">The <c>a1</c>.</param>
 /// <param name="Quadratic">The <c>a2</c>.</param>
 /// <param name="Range">Beyond this the light is cut off; zero means no cutoff.</param>
+/// <param name="Direction">Which way a spotlight points, `dworldlight_t.normal`.</param>
+/// <param name="SpotInner">`stopdot`: the cosine inside which a spotlight is at full strength.</param>
+/// <param name="SpotOuter">`stopdot2`: the cosine outside which it is dark.</param>
+/// <param name="SpotExponent">`exponent`: shapes the penumbra between the two.</param>
+/// <param name="Spot">Whether it is a spotlight; the cone is read only then.</param>
 /// <remarks>
 /// **The attenuation terms are normalised on the way out**, so a consumer never has to know about
 /// vrad's all-zero rule. A light with all three below `EQUAL_EPSILON` leaves here with
 /// <c>Constant = 1</c>, which is what vrad writes and what stops a reciprocal running to infinity —
 /// a mistake this project made once and measured as a luminance of ∞ at four capture points.
 ///
-/// **No light TYPE**, because only the kinds that attenuate reach here. The sun is directional and
-/// travels its own path; `emit_surface` is resolved into the lightmaps and the leaf cube at compile
-/// time. <see cref="LocalLights.IsLocal"/> is where that is decided and why.
+/// **Point or spot, and nothing else**, because only the kinds that attenuate reach here. The sun is
+/// directional and travels its own path; `emit_surface` is resolved into the lightmaps and the leaf cube
+/// at compile time. <see cref="LocalLights.IsLocal"/> is where that is decided and why.
 /// </remarks>
 public readonly record struct LocalLight(
     float X, float Y, float Z,
     float Red, float Green, float Blue,
     float Constant, float Linear, float Quadratic,
-    float Range);
+    float Range,
+    (float X, float Y, float Z) Direction = default,
+    float SpotInner = 0f,
+    float SpotOuter = 0f,
+    float SpotExponent = 0f,
+    bool Spot = false);
 
 /// <summary>Everything lighting a point: the bounce cube, and the direct lights near it.</summary>
 /// <param name="Cube">The leaf's ambient cube — bounce, plus the dim surface lights vrad folded in.</param>
@@ -234,7 +244,12 @@ public static class LocalLights
                 light.Intensity.Green * IntensityScale,
                 light.Intensity.Blue * IntensityScale,
                 constant, linear, quadratic,
-                light.Radius);
+                light.Radius,
+                light.Normal,
+                light.StopDot,
+                light.StopDot2,
+                light.Exponent,
+                light.Kind == WorldLightKind.Spotlight);
         }
 
         return count;
