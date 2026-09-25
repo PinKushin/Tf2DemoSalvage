@@ -5371,6 +5371,18 @@ internal class MainForm : Form, IFrameSteps
             if (corners.Count > 0 && materials.TryGetValue(name, out ParticleMaterial material))
             {
                 all.Add(new ParticleBatch(corners, material));
+
+                // What each impact material drew and where, so a glow seen on screen can be named from the log.
+                if (_renderLog.IsEnabled(LogLevel.Debug))
+                {
+                    DetailSpriteVertex first = corners[0];
+
+                    _renderLog.LogDebug(
+                        "{Message}",
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"impact batch {name} at {_transport.CurrentTick}: {corners.Count / 6} quads, first corner ({first.X:0} {first.Y:0} {first.Z:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00})"));
+                }
             }
         }
 
@@ -6685,6 +6697,20 @@ internal class MainForm : Form, IFrameSteps
             foreach (ParticleBatch built in batches)
             {
                 _particleQuads += built.Corners.Count / 6;
+
+                // What each particle material drew and where, so a glow seen on screen can be named from the log.
+                if (_renderLog.IsEnabled(LogLevel.Debug) && built.Corners.Count > 0)
+                {
+                    string named = _loaded?.Assets?.ParticleMaterials?
+                        .FirstOrDefault(pair => pair.Value.Equals(built.Material)).Key ?? "?";
+                    DetailSpriteVertex first = built.Corners[0];
+
+                    _renderLog.LogDebug(
+                        "{Message}",
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"particle batch {named} at {_transport.CurrentTick}: {built.Corners.Count / 6} quads, first corner ({first.X:0} {first.Y:0} {first.Z:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00})"));
+                }
             }
 
             // **Entity sprites join the particle batches rather than getting a pass of their own**
