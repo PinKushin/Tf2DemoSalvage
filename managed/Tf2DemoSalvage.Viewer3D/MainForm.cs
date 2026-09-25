@@ -2605,7 +2605,23 @@ internal class MainForm : Form, IFrameSteps
             float wall = hit.Fraction * 16000f;
             Vector3 at = eye + (ray * wall);
 
+            string? Owner(ParticleEffect effect) =>
+                Enumerable.Range(0, effect.Particles.Count).Any(i => Vector3.Distance(effect.Particles.PositionOf(i), at) < 100f)
+                    ? effect.System.Name
+                    : effect.Children.Select(Owner).FirstOrDefault(static name => name is not null);
+
             report.Append(CultureInfo.InvariantCulture, $"world at {wall:0} units ({at.X:0} {at.Y:0} {at.Z:0}) texinfo {hit.Texinfo} static prop {hit.StaticProp}; ");
+
+            foreach (ParticleBurst burst in _burstsNow)
+            {
+                // Only a burst with particles near the ray's hit, within 100 units, named down to the child that owns them.
+                if (_particles.BurstEffect(burst.Key) is not { } effect || Owner(effect) is not { } owner)
+                {
+                    continue;
+                }
+
+                report.Append(CultureInfo.InvariantCulture, $"{{burst {burst.Definition.Name} child {owner} key {burst.Key} tick {burst.Tick} stop {burst.StopTick} at ({burst.At.At.X:0} {burst.At.At.Y:0} {burst.At.At.Z:0})}} ");
+            }
         }
 
         foreach ((SceneProp prop, float along, float off) in (_moment.Drawn ?? [])
