@@ -68,7 +68,10 @@ public sealed class ModelLighting
     /// without ever refreshing.
     /// </remarks>
     private readonly record struct LitAt(
-        int X, int Y, int Z, AmbientCube Light, SunLight? Sun, IReadOnlyList<LocalLight> Locals);
+        int X, int Y, int Z, AmbientCube Light, SunLight? Sun, IReadOnlyList<LocalLight> Locals, int Version);
+
+    /// <summary>Raised when the lights themselves changed — a light style a world light answers to — so every model samples again.</summary>
+    public int Version { get; set; }
 
     private readonly Dictionary<int, LitAt> _lit = [];
 
@@ -102,7 +105,7 @@ public sealed class ModelLighting
     /// and a held pose interpolates to a bit-identical <c>ScenePose</c> — so an entity that has not
     /// moved produces the identical point and one that has moved at all produces a different one.
     /// Keyed on the entity as well, because two models can stand in one place and must not share a
-    /// slot. Map lights never move, so nothing else can invalidate this.
+    /// slot. Map lights never move; a light style they answer to can change, which <see cref="Version"/> carries.
     /// </remarks>
     public ModelLight For(
         SceneProp prop,
@@ -140,7 +143,7 @@ public sealed class ModelLighting
         IReadOnlyList<LocalLight> locals;
 
         if (_lit.TryGetValue(prop.EntityIndex, out LitAt cached) &&
-            cached.X == bitsX && cached.Y == bitsY && cached.Z == bitsZ)
+            cached.X == bitsX && cached.Y == bitsY && cached.Z == bitsZ && cached.Version == Version)
         {
             light = cached.Light;
             sun = cached.Sun;
@@ -154,7 +157,7 @@ public sealed class ModelLighting
             sun = sunAt?.Invoke(x, y, z);
             locals = sampled.Locals;
 
-            _lit[prop.EntityIndex] = new LitAt(bitsX, bitsY, bitsZ, sampled.Cube, sun, locals);
+            _lit[prop.EntityIndex] = new LitAt(bitsX, bitsY, bitsZ, sampled.Cube, sun, locals, Version);
         }
 
         Ticks += Stopwatch.GetTimestamp() - started;

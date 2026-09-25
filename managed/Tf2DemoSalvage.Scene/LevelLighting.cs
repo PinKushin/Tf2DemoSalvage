@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
@@ -52,6 +53,29 @@ public sealed class LevelLighting
     /// version simply stops remembering places it will never report.
     /// </remarks>
     private readonly HashSet<(int X, int Y, int Z)> _reportedLightTerms = [];
+
+    /// <summary>Each light style's value over 264, which the world lights are scaled by; one for every style unless set.</summary>
+    /// <remarks>The lightcache multiplies a world light's falloff by it before ranking (`engine.dll` `0x1801b8e20`).</remarks>
+    public Func<int, float>? StyleScale { get; set; }
+
+    /// <summary>Whether any of these styles is one a world light answers to — whether model lighting must be sampled again.</summary>
+    /// <param name="styles">Styles whose values changed.</param>
+    /// <returns>True when a world light's brightness changed with them.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="styles"/> is null.</exception>
+    public bool Answers(IReadOnlyCollection<int> styles)
+    {
+        ArgumentNullException.ThrowIfNull(styles);
+
+        foreach (BspWorldLight light in _worldLights)
+        {
+            if (styles.Contains(light.Style))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>How many places to report light terms for before falling silent.</summary>
     /// <remarks>Public so the test asserts against this value rather than a copy of it.</remarks>
@@ -152,7 +176,7 @@ public sealed class LevelLighting
         // see LightingAt, which hands the nearest four to the shader instead so they can shade
         // against a normal. A caller must take one or the other: the engine adds the cube and the
         // local lights, so a light in both is counted twice.
-        AmbientCube lit = LocalLights.AddTo(bounced, _worldLights, x, y, z);
+        AmbientCube lit = LocalLights.AddTo(bounced, _worldLights, x, y, z, StyleScale);
 
         // **The two terms reported apart, because one number cannot say which is missing.** Every
         // model on z1800 sampled between 0.09 and 0.12 in a room with three ceiling lamps overhead,
@@ -206,7 +230,7 @@ public sealed class LevelLighting
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
 
-        int found = LocalLights.Strongest(_worldLights, x, y, z, nearest);
+        int found = LocalLights.Strongest(_worldLights, x, y, z, nearest, StyleScale);
 
         if (found == 0)
         {

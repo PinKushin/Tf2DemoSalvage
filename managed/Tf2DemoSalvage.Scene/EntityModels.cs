@@ -344,6 +344,9 @@ public sealed class EntityModelSet : IModelBodygroups
         set => _lighting.Ticks = value;
     }
 
+    /// <summary>Tells every model its light changed without it moving — a light style a world light answers to.</summary>
+    public void LightsChanged() => _lighting.Version++;
+
     /// <summary>What <c>SetupBones</c> has cost, ever — the pose itself and any merge it drives.</summary>
     /// <remarks>
     /// **The last split in the pose phase, and every earlier one came back flat** (B189). On a

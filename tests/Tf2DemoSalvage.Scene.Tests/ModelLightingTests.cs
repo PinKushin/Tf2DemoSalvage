@@ -34,6 +34,20 @@ public sealed class ModelLightingTests
         sampler.Calls.ShouldBe(1);
     }
 
+    /// <remarks>A switchable lamp turned off changes a standing model's light: the version says so.</remarks>
+    [Test]
+    public void For_AStandingModelAfterTheLightsChanged_IsSampledAgain()
+    {
+        CountingSampler sampler = new();
+        ModelLighting lighting = new(Origin, new RecordingLogger());
+
+        lighting.For(Prop(entity: 4, x: 100f), sampler.At, null);
+        lighting.Version++;
+        lighting.For(Prop(entity: 4, x: 100f), sampler.At, null);
+
+        sampler.Calls.ShouldBe(2);
+    }
+
     [Test]
     public void For_AModelThatMoved_IsSampledAgain()
     {
