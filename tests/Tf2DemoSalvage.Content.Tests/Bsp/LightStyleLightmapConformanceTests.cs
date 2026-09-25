@@ -53,6 +53,52 @@ public sealed class LightStyleLightmapConformanceTests
         off[0].ShouldBe(BspLightmaps.ReadAll(Map((0, 255, 255, 255), red: 64))[0].Flat.Pixels.Span[0]);
     }
 
+    /// <remarks>
+    /// At TF2's default HDR level the engine lights faces from `LUMP_LIGHTING_HDR` (53) through `LUMP_FACES_HDR` (58), each
+    /// taken whenever it is non-empty, and `LUMP_LIGHTING`/`LUMP_FACES` only otherwise. The HDR pair here says red 100 at
+    /// offset 4; the LDR pair says 64 at offset 0. Stored halved for the shader's overbright: 50 against 32.
+    /// </remarks>
+    [Test]
+    public void ReadAll_AMapCarryingBothLightings_IsLitByTheHdrPair()
+    {
+        byte[] map = HdrMap();
+
+        BspLightmaps.ReadAll(map)[0].Flat.Pixels.Span[0].ShouldBe((byte)50);
+        BspLightmaps.Read(map)[0].Pixels.Span[0].ShouldBe((byte)50);
+    }
+
+    [Test]
+    public void ReadAll_AMapWithOnlyLdrLighting_IsLitByIt()
+    {
+        BspLightmaps.ReadAll(Map((0, 255, 255, 255)))[0].Flat.Pixels.Span[0].ShouldBe((byte)32);
+    }
+
+    /// <summary>One face, one luxel, lit red 64 by the LDR pair and red 100 by the HDR pair at a different offset.</summary>
+    private static byte[] HdrMap()
+    {
+        byte[] Face(int offset)
+        {
+            byte[] face = new byte[56];
+
+            (face[16], face[17], face[18], face[19]) = ((byte)0, (byte)255, (byte)255, (byte)255);
+            BinaryPrimitives.WriteInt32LittleEndian(face.AsSpan(20), offset);
+
+            return face;
+        }
+
+        return SyntheticBsp.Build(new Dictionary<int, byte[]>
+        {
+            [TexinfoLump] = new byte[72],
+            [FacesLump] = Face(0),
+            [LightingLump] = [64, 0, 0, 0],
+            [FacesHdrLump] = Face(4),
+            [LightingHdrLump] = [0, 0, 0, 0, 100, 0, 0, 0],
+        });
+    }
+
+    private const int FacesHdrLump = 58;
+    private const int LightingHdrLump = 53;
+
     /// <summary>One unbumped face, one luxel, lit by the given style slots: red 64 for the first, 40 for the second.</summary>
     private static byte[] Map((byte, byte, byte, byte) styles, byte red = 64)
     {
