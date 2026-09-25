@@ -137,6 +137,22 @@ public sealed class DecalReplayTests
         pool.For(7).ShouldNotBeNull();
     }
 
+    /// <remarks>A bullet into water takes `ImpactWaterTrace` and none of the regular impact effects, a decal included.</remarks>
+    [Test]
+    public void AdvanceTo_ABulletThatEnteredWater_PlacesNoDecal()
+    {
+        DecalReplay replay = new(
+            new WorldDecals(WorldDecalsConformanceTests.Wall()),
+            [Impacts[0] with { WaterEntry = (50f, 100f, 100f), Splash = BulletWater.SplashSystem }, Impacts[1]],
+            [],
+            static _ => Hole,
+            static _ => null);
+
+        replay.AdvanceTo(25, static _ => false);
+
+        replay.Decals.Count.ShouldBe(1);
+    }
+
     /// <remarks>`C_TEWorldDecal` shoots at `m_vecOrigin`; a `CTEDecal` on the world with no hitbox does the same.</remarks>
     [Test]
     public void AdvanceTo_WorldDecalEvents_ArePlaced()

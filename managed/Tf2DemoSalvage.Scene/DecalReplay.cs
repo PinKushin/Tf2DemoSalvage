@@ -127,6 +127,12 @@ public sealed class DecalReplay
             {
                 ShotImpact impact = _impacts[_impact++];
 
+                // Into water: `ImpactWaterTrace`'s splash and none of the regular effects (`BulletWater`).
+                if (impact.WaterEntry is not null)
+                {
+                    continue;
+                }
+
                 if (struckPlayer(impact) || _impactMaterial(impact) is not { } material)
                 {
                     if (impact.StaticProp >= 0)

@@ -458,6 +458,30 @@ public sealed class BspLeafTree
     /// <returns>The area, or −1 when the point is outside the tree.</returns>
     public int AreaAt(float x, float y, float z) => Area(LeafAt(x, y, z));
 
+    /// <summary>`CONTENTS_WATER`.</summary>
+    public const int ContentsWater = 0x20;
+
+    /// <summary>`CONTENTS_SLIME`.</summary>
+    public const int ContentsSlime = 0x10;
+
+    /// <summary>A point's contents on the world — its leaf's <c>contents</c>, the first <c>int</c> of <c>dleaf_t</c>.</summary>
+    /// <param name="x">World position.</param>
+    /// <param name="y">World position.</param>
+    /// <param name="z">World position.</param>
+    /// <returns>The contents bits, or zero when there is no such leaf.</returns>
+    public int ContentsAt(float x, float y, float z) => Contents(LeafAt(x, y, z));
+
+    /// <summary>A leaf's <c>contents</c>, the first <c>int</c> of <c>dleaf_t</c>.</summary>
+    /// <param name="leaf">The leaf index.</param>
+    /// <returns>The contents bits, or zero when there is no such leaf.</returns>
+    public int Contents(int leaf)
+    {
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+        int at = leaf * _leafStride;
+
+        return leaf < 0 || at + 4 > leaves.Length ? 0 : BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]);
+    }
+
     /// <summary>A leaf's FLAGS — the other seven bits of the field <see cref="Area"/> reads.</summary>
     /// <param name="leaf">The leaf index, as <see cref="LeafAt"/> returns.</param>
     /// <returns>The flags, or zero when there is no such leaf.</returns>
