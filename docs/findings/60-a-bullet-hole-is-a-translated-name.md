@@ -97,6 +97,44 @@ no triangle. A container's face shows holes at tick 30,000 and none at tick 3,00
 `props/metaldoor01_192`, whose VMT declares no `$surfaceprop` (`vmt` probe, 2026-09-24). Its surface is therefore surface
 zero, and `Impact.Concrete` goes untranslated. The texture looks metal, but the decal follows the material's declaration.
 
+## A hole in terrain is cut from the triangles the world draws
+
+Read from engine.dll (x64). The leaf pass `0x1801175c0` walks each leaf's displacements: a displacement whose parent
+surface refuses decals (flag 0x4000) or that this shot already tagged is skipped; one whose bounding box overlaps the
+decal's cube (centre ± radius, strict) goes to the face test `0x180118d70` with a flag of 1, which skips the
+texture-extent rejection a brush face gets and calls `R_DecalCreate` `0x1801168b0` with the same flag.
+
+With that flag, `R_DecalCreate` skips the brush polygon clip; the decal still takes a slot from the shared `r_decals`
+pool, and the older-decal overlap pass still runs. Linking it (`0x1801166a0`) hands it to the displacement object:
+CDispInfo, constructed by `0x1800c7340`, vtable `0x18038d8b8`, slot 8 = `0x1800c6c50`.
+
+`0x1800c6c50`: a displacement holds at most 31 decals (0x1f) and drops its oldest to take another. It builds the
+decal's texture basis with the same routine brush decals use (`0x1800bd1c0`), then walks the displacement's quad tree
+(`0x1800c1400`) marking, in a per-decal bitmask, each quad whose four corners' decal coordinates (u = S·p − dS + 0.5, v
+likewise) overlap the unit square [0, 1] (constants 0x18035c93c = 1.0, 0x18035d4b4 = 0.5). No depth limit is applied at
+this point.
+
+At draw (`0x1800c4a90` → `0x1800c64b0` → `0x1800c2490`), each marked quad emits the triangles the displacement's own
+render mesh uses for it. Per triangle: its normal from two edges; refused unless dot(decal centre − first corner,
+normal) is less than the radius (one-sided); corners mapped as for a brush face; the lightmap coordinate copied from
+the displacement's own vertices; clipped by the same four-edge clip brush decals use (`0x1800bcbd0`: v < 1, u > 0, u <
+1, v > 0); at most six corners kept; each corner pushed 0.1 along the triangle's normal (the clip's own push,
+`DAT_18035dd2c`, given the triangle normal instead of a face plane).
+
+In the viewer (interpolated where noted): every displacement is bounds-tested rather than only those in visited
+leaves, and every triangle is clipped rather than only those of marked quads; the marking passes every triangle the
+clip would keep, so only cost differs. The fragments are cut from the same tessellated triangles the world renderer
+draws.
+
+Found on the way, measured: the first build placed terrain decals and none were drawn. The decal pass culls back
+faces, and the viewer's displacement triangles are wound the opposite way from Valve's; brush decals keep the BSP's
+winding. Fragments are now wound about the surface normal, and a test pins it. Also, a mark in the first screenshots
+was read as a decal and was the terrain texture, which a capture at an earlier tick showed; a control frame is what
+caught it.
+
+Measured on f12: 1,286 client bullets stop on terrain; by tick 1600 six decals lie on displacements (35 fragments),
+one of them the first terrain bullet's hole at tick 1538.
+
 ## Not established
 
 What is not built, and every divergence, is listed under B415 in `docs/RISKS.md`. The largest are displacement decals,

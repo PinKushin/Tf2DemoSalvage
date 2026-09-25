@@ -27406,9 +27406,11 @@ it once the mod2x blend was corrected.
   player posed; this would need every player posed at every shot.
 - **The pick is not the engine's.** `GetDecalIndexForName` draws from the client's global random stream, which no demo
   records; the draw here is seeded by shot and bullet, so a replay gives the same hole every time.
-- **Not built:** displacement decals (1,424 f12 impacts on terrain draw none), brush-entity decals (a door's holes ride
-  the door), static-prop and model decals (`CTEDecal` with a hitbox, blood on a player), sprays (`CTEPlayerDecal`),
-  decal fade, and `ImpactWaterTrace`'s splash for a bullet entering water.
+- ~~**Not built:** displacement decals (1,424 f12 impacts on terrain draw none), brush-entity decals (a door's holes ride
+  the door), static-prop and model decals (`CTEDecal` with a hitbox, blood on a player)~~ **displacement decals BUILT
+  2026-09-24** (see finding 60), **brush-entity decals BUILT 2026-09-24** (a door's decals ride the door),
+  **static-prop decals BUILT 2026-09-24** (B421). Still not built: sprays (`CTEPlayerDecal`), decal fade, and
+  `ImpactWaterTrace`'s splash for a bullet entering water.
 - **Order within one tick is interpolated**: a decal event is shot before a bullet's; the packet's order is not kept.
 - **`r_decals` is the default, 2048**, not read from the viewer's config.
 - **For the performance pass, unverified:** a backward seek clears and re-shoots every impact up to the tick — sixteen
