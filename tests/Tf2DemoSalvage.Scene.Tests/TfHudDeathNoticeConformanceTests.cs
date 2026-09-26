@@ -162,6 +162,51 @@ public sealed class TfHudDeathNoticeConformanceTests
     }
 
     [Test]
+    public void StreakUpdated_AFifthKill_ShowsTheFirstTierInTeamAndTierColours()
+    {
+        TfHudDeathNotice feed = Fed(Death(attacker: 12, victim: 14, weapon: "scattergun", killStreakTotal: 5));
+        TfStreakNotice banner = feed.Streak!;
+
+        (banner.CurrentStreakCount, banner.CurrentStreakType).ShouldBe((5, TfStreakType.Kills));
+        banner.Text.ShouldBe("\u0002Scout\u0001 is on a \u0003spree\u0001 (5)");
+        banner.ColorChanges.ShouldBe(
+        [
+            (0, ((byte)153, (byte)204, (byte)255, (byte)120)),
+            (6, ((byte)235, (byte)226, (byte)202, (byte)120)),
+            (16, ((byte)112, (byte)176, (byte)74, (byte)120)),
+            (22, ((byte)235, (byte)226, (byte)202, (byte)120)),
+        ]);
+    }
+
+    [TestCase(4, 0)]
+    [TestCase(6, 0)]
+    [TestCase(25, 25)]
+    public void StreakUpdated_OffAMilestone_ShowsNothing(int streak, int shown) =>
+        Fed(Death(attacker: 12, victim: 14, weapon: "scattergun", killStreakTotal: streak)).Streak!.CurrentStreakCount.ShouldBe(shown);
+
+    [Test]
+    public void StreakEnded_TenOrMore_NamesBothSides() =>
+        Fed(Death(attacker: 12, victim: 14, weapon: "scattergun", killStreakVictim: 12)).Streak!.Text.ShouldBe("Scout ended Pyro's 12");
+
+    [Test]
+    public void Paint_PastTheDisplayTime_HidesTheBannerAndForgetsTheStreak()
+    {
+        TfHudDeathNotice feed = Fed(Death(attacker: 12, victim: 14, weapon: "scattergun", killStreakTotal: 5));
+        TfStreakNotice banner = feed.Streak!;
+        HudViewport viewport = (HudViewport)feed.Parent!;
+
+        // Shown at realtime 0 plus half a second for tier 1: still there at 3.4, gone after 3.5.
+        viewport.Think(new HudState(true, true, 0, 1, true, RealTime: 3.4f));
+        banner.Paint(new TextRecorder(), viewport.Context!);
+        banner.CurrentStreakCount.ShouldBe(5);
+
+        viewport.Think(new HudState(true, true, 0, 1, true, RealTime: 3.6f));
+        banner.Paint(new TextRecorder(), viewport.Context!);
+
+        (banner.Visible, banner.CurrentStreakCount).ShouldBe((false, 0));
+    }
+
+    [Test]
     public void TfCustomKills_EveryValue_IsValves()
     {
         RequireTheSdk();
@@ -229,7 +274,8 @@ public sealed class TfHudDeathNoticeConformanceTests
         return feed;
     }
 
-    private static HudGameEvent Death(int attacker, int victim, string weapon, int assister = -1, int deathFlags = 0, int damageBits = 0) =>
+    private static HudGameEvent Death(
+        int attacker, int victim, string weapon, int assister = -1, int deathFlags = 0, int damageBits = 0, int killStreakTotal = 0, int killStreakVictim = 0) =>
         Fire("player_death", new()
         {
             ["userid"] = victim,
@@ -238,6 +284,8 @@ public sealed class TfHudDeathNoticeConformanceTests
             ["weapon"] = weapon,
             ["death_flags"] = deathFlags,
             ["damagebits"] = damageBits,
+            ["kill_streak_total"] = killStreakTotal,
+            ["kill_streak_victim"] = killStreakVictim,
         });
 
     private static HudGameEvent Fire(string name, Dictionary<string, object?> values, SceneGameRules rules = default)
@@ -301,6 +349,9 @@ public sealed class TfHudDeathNoticeConformanceTests
             ["DeathMsg_Fall"] = "fell to a clumsy, painful death",
             ["Msg_Captured"] = "captured",
             ["Msg_Captured_Multiple"] = "captured",
+            ["Msg_KillStreak1"] = "\u0002%s1\u0001 is on a \u0003spree\u0001 (%s2)",
+            ["Msg_KillStreak5"] = "%s1 still going (%s2)",
+            ["Msg_KillStreakEnd"] = "%s1 ended %s2's %s3",
         };
 
         return new VguiContext(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english")

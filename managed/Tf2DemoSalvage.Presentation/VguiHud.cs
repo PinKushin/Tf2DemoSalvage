@@ -75,7 +75,7 @@ public sealed class VguiHud
         // Events are dispatched as their packets are read, before the frame's think and paint.
         foreach (HudGameEvent fired in events ?? [])
         {
-            DeathNotice.HandleGameEvent(fired);
+            DeathNotice.HandleGameEvent(fired with { RealTime = state.RealTime });
         }
 
         Viewport.Think(state);
