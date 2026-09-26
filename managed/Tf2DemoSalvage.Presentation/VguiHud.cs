@@ -34,7 +34,11 @@ public sealed class VguiHud
         Weapon = new TfHudWeapon(Viewport);
         Crosshair = new TfHudCrosshair(Viewport);
         SpectatorTargetId = new TfSpectatorTargetId(Viewport);
+        MatchStatus = new TfHudMatchStatus(Viewport);
     }
+
+    /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
+    public TfHudMatchStatus MatchStatus { get; }
 
     /// <summary>`CSpectatorTargetID`.</summary>
     public TfSpectatorTargetId SpectatorTargetId { get; }
@@ -91,10 +95,19 @@ public sealed class VguiHud
         foreach (HudGameEvent fired in events ?? [])
         {
             DeathNotice.HandleGameEvent(fired with { RealTime = state.RealTime });
+            MatchStatus.TimePanel.HandleGameEvent(fired);
         }
 
         Viewport.Think(state);
         VguiLayout.SolveTraverse(Viewport, _context);
+
+        // A seek lands where the game, skipping forward through every packet, would have had the last
+        // `teamplay_update_timer`; the feed replays only a short window, so the panels it sets are brought up to date here.
+        // **Interpolated:** they are set from this tick's rules, where the game used the rules at that event.
+        if (reset)
+        {
+            MatchStatus.TimePanel.RefreshExtraTimePanels();
+        }
         Viewport.PaintTraverse(_host.List, _context);
     }
 }

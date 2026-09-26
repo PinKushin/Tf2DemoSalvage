@@ -68,13 +68,14 @@ public class VguiEditablePanel : VguiPanel
     /// <param name="path">The `.res` file.</param>
     /// <param name="context">The scheme, screen and filesystem.</param>
     /// <remarks>A missing file is an empty one: `BuildGroup::LoadControlSettings` only prints "not found".</remarks>
-    public void LoadControlSettings(string path, VguiContext context)
+    /// <param name="conditions">`pConditions`: the condition blocks to promote, such as `if_match`.</param>
+    public void LoadControlSettings(string path, VguiContext context, IReadOnlyList<string>? conditions = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         Func<string, byte[]?> read = context.Read ?? (_ => null);
 
-        LoadControlSettings(KeyValuesTree.Load(read(path) ?? [], path, read), context);
+        LoadControlSettings(KeyValuesTree.Load(read(path) ?? [], path, read), context, conditions);
     }
 
     /// <summary>`SetDialogVariable( name, const char * )`.</summary>

@@ -84,7 +84,9 @@ public sealed class HudProbe : IProbe
 
         output.WriteLine($"animation sequences: {hud.Viewport.Animations.SequenceCount}, running: {hud.Viewport.Animations.ActiveAnimationCount}");
         output.WriteLine($"icons: {hud.Viewport.Icons?.Count ?? 0}; death notices: {hud.DeathNotice.Notices.Count}");
-        output.WriteLine($"target id: {hud.SpectatorTargetId.TargetIndex} '{hud.SpectatorTargetId.TargetName}' / '{hud.SpectatorTargetId.TargetData}' shown {hud.SpectatorTargetId.Visible}");
+        output.WriteLine(
+            $"round timer: {hud.MatchStatus.TimePanel.TimerIndex} '{hud.MatchStatus.TimePanel.TimeValue.Text}' shown {hud.MatchStatus.TimePanel.Visible} (match status shown {hud.MatchStatus.Visible})");
+        output.WriteLine($"target id:{hud.SpectatorTargetId.TargetIndex} '{hud.SpectatorTargetId.TargetName}' / '{hud.SpectatorTargetId.TargetData}' shown {hud.SpectatorTargetId.Visible}");
 
         foreach (DeathNoticeItem notice in hud.DeathNotice.Notices)
         {

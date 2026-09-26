@@ -34,6 +34,9 @@ public class VguiScalableImagePanel : VguiPanel
     /// <inheritdoc/>
     public override string ClassName => "ScalableImagePanel";
 
+    /// <summary>`m_pszImageName` as `SetImage` was given it — without the `vgui/` prefix — or null for none.</summary>
+    public string? ImageName => _imageName?["vgui/".Length..];
+
     /// <summary>`SetImage`: `vgui/` and the name, or none for an empty one.</summary>
     /// <param name="imageName">The image.</param>
     public void SetImage(string imageName)
