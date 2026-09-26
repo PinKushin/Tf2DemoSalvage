@@ -528,23 +528,16 @@ run Tf2DemoSalvage.Cli.Tests      cli        74
 # Linux measurement boxes — which is half the reason the sink left the viewer at all.
 run Tf2DemoSalvage.Logging.Tests  logging    17
 
-# 7: the GDI glyph rasteriser (D84). Only what genuinely needs a real font — that a face produces
-# ink, that a space has none and still advances, and that the scheme's `outline` reaches the pixels.
-# Everything about a HUD that is arithmetic is tested in Content.Tests against a fake rasteriser.
+# 4: GdiVgui, the GDI half of CWin32Font (vguimatsurface.dll). Only what needs a real face — that
+# EnumFontFamiliesExA tells a family from an invented one, that an antialiased glyph comes from the
+# GGO_GRAY8 path (partial alpha, which ExtTextOut at Arial's gasp sizes never gives), that the
+# ExtTextOut path weighs its bitmap into alpha, and that an outline rings the ink. Every rule over
+# GDI's answers is tested in Scene.Tests against a fake.
 #
-# The space test earned its place immediately: StringFormat.GenericTypographic does not measure
-# trailing spaces and a lone space is entirely trailing, so every space in every HUD string had a
-# zero advance. Invisible to every other test here, because they all measure glyphs with ink.
-#
-# Skips rather than measuring a fallback when Lucida Console is absent. GDI substitutes a default
-# face for a missing family instead of failing, so without the skip these would pass having measured
-# a font nobody asked for.
-#
-# **The floor cannot see that**, and it is worth knowing rather than assuming otherwise: this script
-# reads `total` from the .trx, which counts skipped tests. Seven skips satisfy a floor of seven. That
-# is the standing hazard in docs/memory/read-the-trx-total-not-the-console.md#a-skip-is-not-a-pass-or-a-failure, not a new one — the
-# skip protects the MEANING of a pass, and the floor protects the count. Neither covers the other.
-run Tf2DemoSalvage.Fonts.Tests    fonts       7
+# **Lowered from 7 on 2026-09-26, by deletion:** GdiGlyphRasteriser and its seven tests went with the
+# System.Drawing overlay it served, replaced by the ported CWin32Font (D180 — unread by production is
+# dead). Arial is on every Windows, so nothing here skips.
+run Tf2DemoSalvage.Fonts.Tests    fonts       4
 
 # 15: the bone pipeline's denominator (B182) and the tests for the instrument that produces it.
 #

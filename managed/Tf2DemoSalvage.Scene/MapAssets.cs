@@ -2492,6 +2492,21 @@ public sealed class MapAssets
             parsed.SpriteBlending);
     }
 
+    /// <summary>A VGUI material's texture, as `CMatSystemSurface::DrawSetTextureFile` finds it.</summary>
+    /// <param name="assets">Where an unresolved material is reported.</param>
+    /// <param name="material">The name under `materials/`, such as `vgui/hud/8x800corner1`.</param>
+    /// <param name="pak">The loaded map's pakfile — on the engine's search path like any other — or an empty one.</param>
+    /// <param name="archives">The install.</param>
+    /// <param name="maximumTextureSize">The decode cap.</param>
+    /// <returns>The texture, or null when the material does not resolve.</returns>
+    public static MapTexture? ResolveVguiMaterial(ILogger assets, string material, PakFile pak, GameArchives archives, int maximumTextureSize)
+    {
+        ArgumentNullException.ThrowIfNull(assets);
+        ArgumentNullException.ThrowIfNull(material);
+
+        return Resolve(assets, material, pak, archives, maximumTextureSize).Texture;
+    }
+
     private static ResolvedMaterial Resolve(
         ILogger assets,
         string materialName,

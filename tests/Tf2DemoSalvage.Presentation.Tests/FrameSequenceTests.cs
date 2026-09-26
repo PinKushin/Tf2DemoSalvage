@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-using Tf2DemoSalvage.Render;
+using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 
@@ -152,7 +152,7 @@ public sealed class FrameSequenceTests
     /// <summary>Records which stage ran when, and can make one of them slow.</summary>
     private sealed class RecordingSteps : IFrameSteps
     {
-        private readonly List<HudQuad> _overlay = [];
+        private readonly VguiDrawList _overlay = new(_ => (0, 0));
 
         /// <summary>The stages that ran, in order.</summary>
         public List<string> Ran { get; } = [];
@@ -161,10 +161,10 @@ public sealed class FrameSequenceTests
         public string? SlowStage { get; init; }
 
         /// <summary>What <see cref="BuildOverlay"/> returned.</summary>
-        public IReadOnlyList<HudQuad>? Built { get; private set; }
+        public VguiDrawList? Built { get; private set; }
 
         /// <summary>What <see cref="Draw"/> was given.</summary>
-        public IReadOnlyList<HudQuad>? Drawn { get; private set; }
+        public VguiDrawList? Drawn { get; private set; }
 
         public void Simulate() => Mark("Simulate");
 
@@ -176,14 +176,14 @@ public sealed class FrameSequenceTests
 
         public void TakeShot() => Mark("TakeShot");
 
-        public IReadOnlyList<HudQuad> BuildOverlay()
+        public VguiDrawList? BuildOverlay()
         {
             Mark("BuildOverlay");
             Built = _overlay;
             return _overlay;
         }
 
-        public void Draw(IReadOnlyList<HudQuad> overlay)
+        public void Draw(VguiDrawList? overlay)
         {
             Mark("Draw");
             Drawn = overlay;

@@ -115,7 +115,8 @@ public sealed class GameArchives
                 {
                     if (File.Exists(entry.Path))
                     {
-                        sources.Add((string.Empty, VpkArchive.Open(entry.Path)));
+                        // The archive's own path is kept for WithoutCustom; reads go through the archive.
+                        sources.Add((entry.Path, VpkArchive.Open(entry.Path)));
                     }
                 }
                 else if (Directory.Exists(entry.Path))
@@ -150,6 +151,19 @@ public sealed class GameArchives
         return new GameArchives(sources);
     }
 
+    /// <summary>The same search path without anything under a `custom` folder: what Valve ships, alone.</summary>
+    /// <returns>A view over the stock sources.</returns>
+    /// <remarks>
+    /// **For parity, never for the viewer.** The viewer searches `custom/` first on purpose (D91) — a user's HUD is meant to
+    /// win. A reference for what TF2 draws by default must not see it: the owner's own install carries his HUD and his
+    /// config (`docs/memory/modern-tf2-is-not-a-stock-reference.md`).
+    /// </remarks>
+    public GameArchives WithoutCustom() =>
+        new(_sources.Where(static source => !IsCustom(source.Path)));
+
+    private static bool IsCustom(string path) =>
+        path.Replace('\\', '/').Contains("/custom/", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Every path the ARCHIVES declare, for a measurement over what the game ships.</summary>
     /// <returns>Each packed path, in no particular order; duplicates across archives are possible.</returns>
     /// <remarks>
@@ -177,6 +191,33 @@ public sealed class GameArchives
                 yield return path;
             }
         }
+    }
+
+    /// <summary>`RelativePathToFullPath`: the first LOOSE copy of a file, in search order.</summary>
+    /// <param name="path">Path such as <c>resource/tf2.ttf</c>.</param>
+    /// <returns>The file's full path on disk, or null when no folder has it — a packed copy has no path to give.</returns>
+    /// <remarks>For an API that needs a real file, such as `AddFontResourceExA`; everything else reads through <see cref="Read"/>.</remarks>
+    public string? FullPathOnDisk(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        foreach ((string folder, VpkArchive? archive) in _sources)
+        {
+            if (archive is not null)
+            {
+                continue;
+            }
+
+            // Joined, then checked to be inside the folder, as Read does (D32).
+            string candidate = Path.GetFullPath(Path.Combine(folder, path));
+
+            if (candidate.StartsWith(Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Finds a file, searching every source in the order the game declares.</summary>

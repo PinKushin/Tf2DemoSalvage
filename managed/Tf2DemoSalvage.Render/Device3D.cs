@@ -92,7 +92,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Draws HUD text, once an atlas has been given to it (D84).</summary>
-    private HudRenderer? _hud;
+    private VguiRenderer? _vgui;
+    private Func<string, MapTexture?>? _vguiResolve;
+
+    /// <summary>How the VGUI surface finds a material's texture — the install plus the loaded map's pakfile.</summary>
+    /// <param name="resolve">A material name under `materials/` to its texture, null when it does not resolve.</param>
+    public void SetVguiResolver(Func<string, MapTexture?> resolve)
+    {
+        ArgumentNullException.ThrowIfNull(resolve);
+
+        // A new resolver can answer differently (a new map's pakfile), so what the old one uploaded goes.
+        _vgui?.Dispose();
+        _vgui = null;
+        _vguiResolve = resolve;
+    }
 
     private int _width;
     private int _height;
@@ -926,28 +939,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _phong);
     }
 
-    /// <summary>Gives the HUD its glyph atlas, replacing whichever one it had.</summary>
-    /// <param name="pixels">RGBA, <c>width * height * 4</c> bytes, row-major.</param>
-    /// <param name="width">Atlas width in pixels.</param>
-    /// <param name="height">Atlas height in pixels.</param>
-    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
-    /// <remarks>
-    /// **Separate from drawing because an atlas is built once and drawn every frame.** Rasterising
-    /// a hundred glyphs and packing them is startup work; uploading it per frame would be the same
-    /// mistake as re-decompressing a lump per resize
-    /// (`docs/memory/per-item-apis-hide-quadratic-reads.md`).
-    ///
-    /// The renderer is created on the first call rather than with the device, so a session that
-    /// never turns a HUD element on never compiles the shaders.
-    /// </remarks>
-    public void SetHudAtlas(ReadOnlySpan<byte> pixels, int width, int height)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        _hud ??= HudRenderer.Create(_device);
-        _hud.SetAtlas(_device, pixels, width, height);
-    }
-
     /// <summary>Clears, draws the map and the players, and presents.</summary>
     /// <param name="red">Clear colour, red channel.</param>
     /// <param name="green">Clear colour, green channel.</param>
@@ -963,8 +954,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <param name="viewmodelCamera">
     /// The projection that pass uses, or null when there is nothing to draw in it.
     /// </param>
-    /// <param name="hud">
-    /// HUD quads in screen pixels, or null to draw none. Requires <see cref="SetHudAtlas"/>.
+    /// <param name="vgui">
+    /// The VGUI surface's draw list for this frame, drawn over everything, or null to draw none. Requires
+    /// <see cref="SetVguiResolver"/>.
     /// </param>
     /// <remarks>
     /// The map goes down first so the players draw over it. There is no depth buffer and none is
@@ -991,7 +983,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         IReadOnlyList<ModelInstance>? models = null,
         IReadOnlyList<ModelInstance>? viewmodels = null,
         float[]? viewmodelCamera = null,
-        IReadOnlyList<HudQuad>? hud = null)
+        VguiDrawList? vgui = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(points);
@@ -1369,16 +1361,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // Last, so it is over everything, with depth off because a HUD is not in the world. Before
         // Present, so it lands in the presented frame and therefore in an F12 capture, which reads
         // the back buffer afterwards.
-        if (hud is { Count: > 0 } && _hud is { HasAtlas: true })
+        if (vgui is { Quads.Count: > 0 } && _vguiResolve is not null)
         {
-            Viewport hudViewport = new(0f, 0f, _width, _height, 0f, 1f);
-            _context.RSSetViewports(1, in hudViewport);
+            Viewport vguiViewport = new(0f, 0f, _width, _height, 0f, 1f);
+            _context.RSSetViewports(1, in vguiViewport);
             _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
             _context.OMSetDepthStencilState(_depthOff, 0);
 
-            _hud.Draw(_device, _context, hud, _width, _height);
+            _vgui ??= VguiRenderer.Create(_device, _context);
+            _vgui.Draw(_device, _context, vgui, _vguiResolve, _width, _height);
 
-            // The HUD sets an alpha blend and the world expects none, so it is put back rather than
+            // VGUI sets an alpha blend and the world expects none, so it is put back rather than
             // left for whatever draws first next frame to discover.
             WorldRenderer.ResetBlend(_context);
         }
@@ -3219,7 +3212,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _context.Flush();
 
         _world?.Dispose();
-        _hud?.Dispose();
+        _vgui?.Dispose();
         _points?.Dispose();
         _worldLines?.Dispose();
         _detailSprites?.Dispose();

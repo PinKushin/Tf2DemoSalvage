@@ -8,3 +8,6 @@
 // `using System;`, which collides with a global using of the same namespace and fails the build
 // under Zero Warnings as CS8933.
 global using Tf2DemoSalvage.Scene;
+
+// The VGUI surface's quads, which Device3D takes and VguiRenderer draws.
+global using Tf2DemoSalvage.Scene.Hud;

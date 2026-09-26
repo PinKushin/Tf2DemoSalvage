@@ -1,0 +1,11 @@
+# Scoped to the GDI adapter only. Nothing here relaxes a rule for the rest of the solution.
+
+[*.cs]
+
+# S6640: "Avoid using this unsafe code block."
+#
+# GdiVgui calls EnumFontFamiliesExA, which reports each family through a callback: an unmanaged function
+# pointer and a pointer to the flag it sets. That is the API's own shape — `CWin32Font::Create` makes the same
+# call — and there is no safe formulation of it. Disabled for this project and nowhere else, as Render and Audio
+# do for theirs.
+dotnet_diagnostic.S6640.severity = none

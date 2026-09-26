@@ -39,7 +39,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// `pos` and `ang` are showing. Folding it into the mode would report zero for a moving player
 /// whenever the camera is the subject, which in this viewer is the ordinary case.
 ///
-/// **It lives beside <see cref="ToolsPanel"/> because that is where Valve keeps it** — one panel,
+/// **It lives beside <see cref="FpsPanel"/> because that is where Valve keeps it** — one panel,
 /// `CFPSPanel`, draws the frame rate and this, and `ShouldDraw` returns true when EITHER convar is
 /// on. Ours composes them into the same block for the same reason.
 ///

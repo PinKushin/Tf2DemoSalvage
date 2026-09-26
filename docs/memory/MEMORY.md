@@ -140,4 +140,7 @@
 - [Defaults are highest quality](defaults-are-highest-quality.md) — TF2's high tier by default; performance modes downgrade.
 - [A parent branch defers the gate](parent-branch-defers-the-gate.md) — chained fixes merge into a parent; gate once, to main.
 - [Keep packages current](keep-packages-current.md) — latest always, majors too; hold back only for a security reason (D191).
+- [clangd on the SDK](clangd-on-the-sdk.md) — open a file first, then search; query a method if a class misses.
+- [Modern TF2 is not a stock reference](modern-tf2-is-not-a-stock-reference.md) — his custom HUD and cfg; era clients are stock.
+- [Auto-exposure settles](auto-exposure-settles.md) — D192; on by default, captures wait; HUDs before post-processing.
 - [Read the HDR set](read-the-hdr-set.md) — TF2 default is HDR; every paired lighting input reads its HDR half; sRGB only for pictures.
