@@ -99,6 +99,45 @@ public sealed class MapLevelSweepTests
         both.ShouldBe(terrainOnly, 0.000001, "the combined sweep must take the shorter of the two");
     }
 
+    /// <remarks>
+    /// **`MASK_SOLID_BRUSHONLY` leaves out props, not terrain.** The legacy impact particles collide through it
+    /// (`CParticleCollision`), and a displacement is `CONTENTS_SOLID` to it. Handed the BSP tree alone, flecks on
+    /// harvest's terrain fell through the ground: measured 125 units under the red spawn's floor.
+    /// </remarks>
+    [Test]
+    public void TraceBrushOnly_DroppedOntoTerrain_IsStoppedWhereTheBspTreeIsNot()
+    {
+        MapLevel level = MapLevel.Read(MapCache.Bytes(Terrain), NullLogger.Instance);
+        float terrainOnly = 1f;
+        float brushOnly = 1f;
+
+        foreach (BspSurface surface in level.Surfaces.Where(each => each.IsDisplacement).Take(400))
+        {
+            if (level.Terrain.ShouldNotBeNull().ReadTriangles(surface) is not { Count: > 0 } corners)
+            {
+                continue;
+            }
+
+            (float X, float Y, float Z) from = (corners[0].X, corners[0].Y, corners[0].Z + 64f);
+            (float X, float Y, float Z) to = (corners[0].X, corners[0].Y, corners[0].Z - 16f);
+
+            float brushes = level.Leaves!.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, 0f).Fraction;
+            float terrain = level.Displacements.Sweep(from.X, from.Y, from.Z, to.X, to.Y, to.Z, 0f);
+
+            if (brushes < 1f || terrain >= 1f)
+            {
+                continue;
+            }
+
+            terrainOnly = terrain;
+            brushOnly = level.TraceBrushOnly(from, to, 0f).Fraction;
+            break;
+        }
+
+        terrainOnly.ShouldBeLessThan(1f, "no column had brushes clear and terrain solid");
+        brushOnly.ShouldBe(terrainOnly, 0.000001);
+    }
+
     [Test]
     public void Sweep_IntoABrushWall_IsStillStoppedByTheBrush()
     {

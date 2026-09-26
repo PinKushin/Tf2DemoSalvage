@@ -196,16 +196,16 @@ public sealed class DisplacementCollision
     /// <param name="halfExtent">Half the box's width, on every axis.</param>
     /// <returns>
     /// The fraction; the struck displacement's texdata, −1 for none; and whether the struck triangle takes the material's
-    /// second surfaceprop (`DISPSURF_FLAG_SURFPROP2`).
+    /// second surfaceprop (`DISPSURF_FLAG_SURFPROP2`); and the struck triangle's plane, `trace.plane.normal` and `.dist`.
     /// </returns>
-    public (float Fraction, int Texdata, bool SurfaceProp2) SweepSurface(
+    public (float Fraction, int Texdata, bool SurfaceProp2, (float X, float Y, float Z) Normal, float Distance) SweepSurface(
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
         float halfExtent)
     {
         if (_displacements.Length == 0)
         {
-            return (1f, -1, false);
+            return (1f, -1, false, default, 0f);
         }
 
         // The travel's own box, grown by the sweeping box, so a displacement can be rejected without
@@ -224,6 +224,8 @@ public sealed class DisplacementCollision
         float hit = 1f;
         int texdata = -1;
         bool second = false;
+        (float X, float Y, float Z) normal = default;
+        float distance = 0f;
 
         foreach (Displacement displacement in _displacements)
         {
@@ -243,11 +245,13 @@ public sealed class DisplacementCollision
                     hit = against;
                     texdata = displacement.Texdata;
                     second = displacement.SecondProp[index];
+                    normal = displacement.Triangles[index].Normal;
+                    distance = displacement.Triangles[index].Distance;
                 }
             }
         }
 
-        return (hit, texdata, second);
+        return (hit, texdata, second, normal, distance);
     }
 
     /// <summary>One displacement surface: its triangles and the box they live in.</summary>
