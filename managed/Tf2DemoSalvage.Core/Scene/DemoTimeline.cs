@@ -1360,6 +1360,9 @@ public sealed class DemoTimeline
     public IReadOnlyDictionary<int, PlayerInfo> Roster { get; private init; } =
         new Dictionary<int, PlayerInfo>();
 
+    /// <summary>Every named game event but `hltv_chase`, in stream order — what the HUD's listeners hear.</summary>
+    public IReadOnlyList<SceneGameEvent> GameEvents { get; private init; } = [];
+
     /// <summary>Which entity a person named on the command line is.</summary>
     /// <param name="who">A player name, a user id, or an entity index.</param>
     /// <returns>The entity index to spectate, or null when nobody matches.</returns>
@@ -1822,6 +1825,10 @@ public sealed class DemoTimeline
         Dictionary<int, PlayerInfo> bySlot = [];
         Dictionary<int, PlayerInfo> everyone = [];
 
+        // The game events, each sharing one copy of the roster until the roster next changes.
+        List<SceneGameEvent> gameEvents = [];
+        IReadOnlyDictionary<int, PlayerInfo>? rosterAtEvent = null;
+
         int walked = 0;
         int reportEvery = Math.Max(1, commands.Count / ProgressReports);
 
@@ -1919,6 +1926,14 @@ public sealed class DemoTimeline
                         director.Add((command.Tick, DirectorShot.From(chase.Values, director.Count > 0 ? director[^1].Shot : null)));
                         continue;
 
+                    // **Every other event, for the HUD's listeners** — the death notices first. The
+                    // roster goes with it as it stands now, because the listener resolves user ids and
+                    // names while handling the event and a slot can hold someone else later.
+                    case GameEventMessage { Name: { } eventName } gameEvent:
+                        rosterAtEvent ??= new Dictionary<int, PlayerInfo>(bySlot);
+                        gameEvents.Add(new SceneGameEvent(command.Tick, eventName, gameEvent.Values, rosterAtEvent));
+                        continue;
+
                     case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
                         BaselineBuilder.Apply(create.Entries, decoder);
                         continue;
@@ -1949,11 +1964,13 @@ public sealed class DemoTimeline
                     // a later joiner silently loses the first occupant from the former.
                     case CreateStringTableMessage { Name: RosterBuilder.TableName } roster:
                         RosterBuilder.Apply(roster.Entries, bySlot, everyone);
+                        rosterAtEvent = null;
                         continue;
 
                     case UpdateStringTableMessage rosterUpdate
                         when state.StringTableName(rosterUpdate.TableId) == RosterBuilder.TableName:
                         RosterBuilder.Apply(rosterUpdate.Entries, bySlot, everyone);
+                        rosterAtEvent = null;
                         continue;
 
                     // **Which compiled scene each `m_nSceneStringIndex` names**, and the only thing
@@ -2800,6 +2817,7 @@ public sealed class DemoTimeline
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
             Roster = everyone,
+            GameEvents = gameEvents,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             Explosions = feeds.Explosions,
