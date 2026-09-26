@@ -5490,12 +5490,13 @@ internal class MainForm : Form, IFrameSteps
                 if (_renderLog.IsEnabled(LogLevel.Debug))
                 {
                     DetailSpriteVertex first = corners[0];
+                    DetailSpriteVertex lowest = corners.MinBy(static corner => corner.Z);
 
                     _renderLog.LogDebug(
                         "{Message}",
                         string.Create(
                             CultureInfo.InvariantCulture,
-                            $"impact batch {name} at {_transport.CurrentTick}: {corners.Count / 6} quads, first corner ({first.X:0} {first.Y:0} {first.Z:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00})"));
+                            $"impact batch {name} at {_transport.CurrentTick}: {corners.Count / 6} quads, first corner ({first.X:0} {first.Y:0} {first.Z:0}), lowest ({lowest.X:0} {lowest.Y:0} {lowest.Z:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00})"));
                 }
             }
         }
@@ -5631,11 +5632,9 @@ internal class MainForm : Form, IFrameSteps
             trace);
     }
 
-    /// <summary>The brushes-only world trace the legacy particles collide with — `MASK_SOLID_BRUSHONLY`.</summary>
+    /// <summary>The world trace the legacy particles collide with — `MASK_SOLID_BRUSHONLY`, terrain included.</summary>
     private static Func<Vector3, Vector3, BspTrace> WorldTrace(MapLevel level) =>
-        level.Leaves is { } tree
-            ? (from, to) => tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, 0f)
-            : static (_, _) => new BspTrace(1f, -1, default, false);
+        (from, to) => level.TraceBrushOnly((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f);
 
     private SurfaceColour ColourOf(LoadedMap loaded, BspLightSamples samples, MapAssets assets) =>
         _surfaceColour ??= new SurfaceColour(DecalWorldOf(loaded), samples, texdata =>
