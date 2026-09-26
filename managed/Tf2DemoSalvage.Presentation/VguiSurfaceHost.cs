@@ -89,6 +89,7 @@ public sealed class VguiSurfaceHost(
         {
             Surface = List,
             Localize = Localize.Find,
+            Read = read,
         };
     }
 

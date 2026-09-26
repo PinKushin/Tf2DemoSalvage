@@ -36,4 +36,7 @@ public sealed record VguiContext(
 
     /// <summary>`g_pVGuiLocalize->Find` without the `#`, or null where nothing is localised.</summary>
     public Func<string, string?>? Localize { get; init; }
+
+    /// <summary>The filesystem a panel's own `LoadControlSettings( "resource/UI/…" )` reads, or null where nothing does.</summary>
+    public Func<string, byte[]?>? Read { get; init; }
 }

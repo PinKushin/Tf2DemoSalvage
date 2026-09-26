@@ -9,7 +9,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// `ApplySettings` (:183): `drawcolor` (sscanf of three or more, else the scheme's, else nothing), `src_corner_*` in
 /// texels, `draw_corner_*` in pixels — scaled on a proportional panel — and `image` under `vgui/`. `PerformLayout` (:228)
 /// makes the source corners a fraction of the texture. `PaintBackground` (:78) draws each of the nine as a
-/// `DrawTexturedPolygon` quad; every coordinate is a whole number, so the axis-aligned sub-rectangle draws the same.
+/// `DrawTexturedPolygon` quad.
 /// </remarks>
 public class VguiScalableImagePanel : VguiPanel
 {
@@ -101,7 +101,7 @@ public class VguiScalableImagePanel : VguiPanel
                 float uvw = edgeColumn ? _cornerWidthPercent : Math.Max(1f - (2f * _cornerWidthPercent), 0f);
                 float drawW = edgeColumn ? _cornerWidth : Math.Max(0, Wide - (2 * _cornerWidth));
 
-                surface.DrawTexturedSubRect((int)x, (int)y, (int)(x + drawW), (int)(y + drawH), uvx, uvy, uvx + uvw, uvy + uvh);
+                surface.DrawTexturedQuad(x, y, x + drawW, y + drawH, uvx, uvy, uvx + uvw, uvy + uvh);
                 x += drawW;
                 uvx += uvw;
             }

@@ -156,6 +156,16 @@ public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize,
     public void DrawTexturedRect(int x0, int y0, int x1, int y1) => DrawTexturedSubRect(x0, y0, x1, y1, 0f, 0f, 1f, 1f);
 
     /// <inheritdoc/>
+    /// <remarks>Nothing at zero draw alpha; the corners at the offset plus the float positions; clipped like the rest.</remarks>
+    public void DrawTexturedQuad(float x0, float y0, float x1, float y1, float s0, float t0, float s1, float t1)
+    {
+        if (_color.Alpha != 0)
+        {
+            Add(_texture, x0, y0, x1, y1, s0, t0, s1, t1, (_color.Alpha, _color.Alpha, _color.Alpha, _color.Alpha), interpolate: true);
+        }
+    }
+
+    /// <inheritdoc/>
     public void DrawTexturedSubRect(int x0, int y0, int x1, int y1, float s0, float t0, float s1, float t1)
     {
         if (_color.Alpha != 0)
@@ -299,15 +309,15 @@ public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize,
 
     /// <summary>Translates, clips (0x1800039a0) and records one quad.</summary>
     private void Add(
-        string? texture, int x0, int y0, int x1, int y1, float s0, float t0, float s1, float t1, (byte, byte, byte, byte) alphas, bool interpolate) =>
+        string? texture, float x0, float y0, float x1, float y1, float s0, float t0, float s1, float t1, (byte, byte, byte, byte) alphas, bool interpolate) =>
         Add(texture, x0, y0, x1, y1, s0, t0, s1, t1, (_color.Red, _color.Green, _color.Blue), alphas, interpolate, additive: false);
 
     private void Add(
         string? texture,
-        int x0,
-        int y0,
-        int x1,
-        int y1,
+        float x0,
+        float y0,
+        float x1,
+        float y1,
         float s0,
         float t0,
         float s1,

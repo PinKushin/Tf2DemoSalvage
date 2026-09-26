@@ -9,7 +9,11 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="HideHud">The local player's `m_Local.m_iHideHUD`, or `hidehud` when that is set.</param>
 /// <param name="Health">The local player's health.</param>
 /// <param name="Alive">`IsAlive()`.</param>
-public readonly record struct HudState(bool InGame, bool HasLocalPlayer, int HideHud, int Health, bool Alive);
+/// <param name="MaxHealth">`GetMaxHealth()`: the player resource's `m_iMaxHealth` for the local player.</param>
+/// <param name="MaxBuffedHealth">`m_Shared.GetMaxBuffedHealth()`.</param>
+/// <param name="CurTime">`gpGlobals->curtime`, which element thinks are throttled by.</param>
+public readonly record struct HudState(
+    bool InGame, bool HasLocalPlayer, int HideHud, int Health, bool Alive, int MaxHealth = 0, int MaxBuffedHealth = 0, float CurTime = 0f);
 
 /// <summary>`CHudElement` (game/client/hud.cpp): a HUD panel that hides by the player's `HIDEHUD` bits.</summary>
 public interface IHudElement
@@ -89,10 +93,31 @@ public sealed class HudViewport : VguiEditablePanel
         : base(null, "CBaseViewport") =>
         Proportional = true;
 
+    /// <summary>This frame's game state — what an element's `OnThink` reads of the local player and `gpGlobals`.</summary>
+    public HudState State { get; private set; }
+
+    /// <summary>The viewport a panel sits under, for its `OnThink` to read <see cref="State"/>; null when it has none.</summary>
+    /// <param name="panel">The panel.</param>
+    /// <returns>The viewport.</returns>
+    public static HudViewport? Of(VguiPanel panel)
+    {
+        for (VguiPanel? at = panel; at is not null; at = at.Parent)
+        {
+            if (at is HudViewport viewport)
+            {
+                return viewport;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>`CHud::Think`: every element's panel shown or hidden by its `ShouldDraw`.</summary>
     /// <param name="state">The game state.</param>
     public void Think(HudState state)
     {
+        State = state;
+
         foreach (IHudElement element in _elements)
         {
             if (element is VguiPanel panel)
