@@ -149,4 +149,25 @@ public sealed class PointOfViewCameraTests
             aspect: 4f / 3f)
             .Aspect.ShouldBe(4f / 3f, 0.001f);
     }
+
+    [Test]
+    public void WithFieldOfView_AnEyeCamera_ChangesTheFieldOfViewAndNothingElse()
+    {
+        // `CalcInEyeCamView` and `CalcChaseCamView` both end with `fov = GetFOV()`
+        // (c_baseplayer.cpp:1609, :1751), so an eye camera takes the view's field of view too.
+        FreeCamera eye = new()
+        {
+            Origin = (1f, 2f, 3f),
+            Angles = (4f, 5f, 6f),
+            NearZ = 8f,
+            FarZ = 9f,
+            Aspect = 4f / 3f,
+            FieldOfView = 90f,
+        };
+
+        FreeCamera narrowed = eye.WithFieldOfView(70f);
+
+        (narrowed.FieldOfView, narrowed.Origin, narrowed.Angles, narrowed.NearZ, narrowed.FarZ, narrowed.Aspect)
+            .ShouldBe((70f, (1f, 2f, 3f), (4f, 5f, 6f), 8f, 9f, 4f / 3f));
+    }
 }

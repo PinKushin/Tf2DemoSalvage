@@ -2166,7 +2166,7 @@ internal class MainForm : Form, IFrameSteps
     /// it, so two independent choices would let the modes drift apart.
     /// </remarks>
     private FreeCamera? ChaseCamera(double seconds) =>
-        _spectator.Chase(_transport.CurrentTick, Aspect, seconds);
+        _spectator.Chase(_transport.CurrentTick, Aspect, seconds)?.WithFieldOfView(_settings.FieldOfView);
 
     /// <summary>Demo time the last drawn frame covered: zero while paused.</summary>
     private double _demoFrameSeconds;
@@ -2429,8 +2429,12 @@ internal class MainForm : Form, IFrameSteps
             : 16f / 9f;
 
     /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
+    /// <remarks>
+    /// **The field of view is the view's, as in the free camera**: `CalcInEyeCamView` and `CalcChaseCamView` both end with
+    /// `fov = GetFOV()` (c_baseplayer.cpp:1609, :1751). Both cameras were built at the compiled-in 90 and ignored the setting.
+    /// </remarks>
     private FreeCamera? FirstPersonCamera() =>
-        _spectator.Eye(_transport.CurrentTick, Aspect);
+        _spectator.Eye(_transport.CurrentTick, Aspect)?.WithFieldOfView(_settings.FieldOfView);
 
     /// <summary>The free camera, placed by the controller if nothing has placed it yet.</summary>
     /// <remarks>
