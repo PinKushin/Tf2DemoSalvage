@@ -6981,7 +6981,9 @@ internal class MainForm : Form, IFrameSteps
 
         if (!ReferenceEquals(_hudArchivesOf, _game) || !string.Equals(_hudArchivesFor, _chosenHud, StringComparison.Ordinal))
         {
-            (_hudArchives, _hudArchivesOf, _hudArchivesFor) = (_game.Archives.WithHud(_chosenHud), _game, _chosenHud);
+            _hudArchives = _game.Archives.WithHud(_chosenHud);
+            _hudArchivesOf = _game;
+            _hudArchivesFor = _chosenHud;
         }
 
         return _hudArchives;
