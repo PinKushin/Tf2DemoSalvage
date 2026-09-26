@@ -46,7 +46,7 @@ public sealed class TfHealthPanel(VguiPanel? parent, string? name) : VguiPanel(p
 /// other; hiding the glow stops both. **Not modelled yet:** the condition icons (every one is hidden each think until
 /// conditions are read), the Halloween wheel and the player level.
 /// </remarks>
-public sealed class TfHudPlayerHealth : VguiEditablePanel
+public class TfHudPlayerHealth : VguiEditablePanel
 {
     private const string ResFile = "resource/UI/HudPlayerHealth.res";
 
@@ -75,6 +75,7 @@ public sealed class TfHudPlayerHealth : VguiEditablePanel
     private int _health = -1;
     private AnimState _animState;
     private int _maxHealth;
+    private TfExLabel? _playerLevel;
 
     /// <summary>`CTFHudPlayerHealth( parent, name )`: its children made up front, so the `.res` finds them by name.</summary>
     /// <param name="parent">The parent.</param>
@@ -102,14 +103,38 @@ public sealed class TfHudPlayerHealth : VguiEditablePanel
     /// <summary>`m_pHealthImageBG`.</summary>
     public VguiImagePanel HealthImageBackground => _healthImageBg;
 
+    /// <summary>`m_bBuilding`: `SetBuilding` — the building background shown beside the cross, for a target ID of a building.</summary>
+    public bool Building { get; set; }
+
+    /// <summary>`GetResFilename`.</summary>
+    protected virtual string ResFilename => ResFile;
+
     /// <inheritdoc/>
     public override void ApplySchemeSettings(VguiContext context)
     {
-        LoadControlSettings(ResFile, context);
+        LoadControlSettings(ResFilename, context);
         _bonusOrigin = (_healthBonusImage.X, _healthBonusImage.Y, _healthBonusImage.Wide, _healthBonusImage.Tall);
         _nextThink = 0f;
         base.ApplySchemeSettings(context);
-        _buildingHealthImageBg.Visible = false;
+        _buildingHealthImageBg.Visible = Building;
+        _playerLevel = FindChildByName("PlayerStatusPlayerLevel") as TfExLabel;
+    }
+
+    /// <summary>`SetLevel` (:870): the level label shown with the number, or hidden below 0.</summary>
+    /// <param name="level">The level, or -1.</param>
+    public void SetLevel(int level)
+    {
+        if (_playerLevel is not { } label)
+        {
+            return;
+        }
+
+        if (level >= 0)
+        {
+            label.SetText(level.ToString(System.Globalization.CultureInfo.InvariantCulture), null);
+        }
+
+        label.Visible = level >= 0;
     }
 
     /// <summary>`OnThink`: every 0.05 s, the local player's health, and the condition icons off.</summary>
@@ -171,7 +196,7 @@ public sealed class TfHudPlayerHealth : VguiEditablePanel
         else
         {
             _healthImageBg.Visible = true;
-            _buildingHealthImageBg.Visible = false;
+            _buildingHealthImageBg.Visible = Building;
             float warning = GetFloat("HealthDeathWarning");
 
             if (_health > _maxHealth)
@@ -266,6 +291,22 @@ public sealed class TfHudPlayerHealth : VguiEditablePanel
         None,
         Bonus,
         Dying,
+    }
+}
+
+/// <summary>`CTFSpectatorGUIHealth` (vgui/tf_spectatorgui.h:28): the health panel as the target ID holds it — its own `.res`, and no think.</summary>
+/// <param name="parent">The parent.</param>
+/// <param name="name">The name.</param>
+public sealed class TfSpectatorGuiHealth(VguiPanel? parent, string? name) : TfHudPlayerHealth(parent, name)
+{
+    /// <inheritdoc/>
+    protected override string ResFilename => "resource/UI/SpectatorGUIHealth.res";
+
+    /// <inheritdoc/>
+    /// <remarks>"Do nothing. We're just preventing the base health panel from updating."</remarks>
+    protected override void OnThink()
+    {
+        // The target ID sets this panel's health itself; the local player's must not overwrite it.
     }
 }
 

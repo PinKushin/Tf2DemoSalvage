@@ -235,6 +235,8 @@ public static class VguiControlFactory
         // client.dll's own, registered by its `DECLARE_BUILD_FACTORY` at load.
         ["CExLabel"] = () => new TfExLabel(null, null),
         ["CTFImagePanel"] = () => new TfImagePanel(null, null),
+        ["CIconPanel"] = () => new VguiIconPanel(null, null),
+        ["CAvatarImagePanel"] = () => new VguiAvatarImagePanel(null, null),
     };
 
     /// <summary>`InstancePanel`: a new control of that class, or null when none is registered.</summary>

@@ -7019,6 +7019,11 @@ internal class MainForm : Form, IFrameSteps
         if (_hudHooks is null && _game.Weapons.Items is { } items)
         {
             _hudHooks = new AttributeHooks(items);
+
+            // `CEconItemView::GetItemName`, under the HUD's own localisation.
+            _vguiHud.Viewport.ItemName = (definition, quality) => definition is { } index
+                ? TfItemName.Generate(items, index, quality, token => _vguiHud.Viewport.Context?.Localize?.Invoke(token))
+                : null;
         }
 
         int hudTick = _transport.CurrentTick;
@@ -7036,12 +7041,30 @@ internal class MainForm : Form, IFrameSteps
 
         // `GetFOV()` is the view's field of view: `demo_fov_override`, else `fov_desired`, as the settings already resolve.
         // **Not modelled:** `m_iFOV`, the server's zoom, which a sniper's scope sets.
-        _vguiHud.Frame(
-            HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks) with
+        HudState hudState = HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks) with
+        {
+            RealTime = (float)_vguiClock.Elapsed.TotalSeconds,
+            Fov = _settings.FieldOfView,
+        };
+
+        // **On SourceTV the local player's observer mode and target are the HLTV camera's** (`C_BasePlayer::GetObserverMode`,
+        // c_baseplayer.cpp:645): this viewer's camera — first person is in-eye, the shoulder camera chase, free roaming.
+        if (_timeline is { HasRecordedView: false })
+        {
+            hudState = hudState with
             {
-                RealTime = (float)_vguiClock.Elapsed.TotalSeconds,
-                Fov = _settings.FieldOfView,
-            },
+                ObserverMode = _effectiveMode switch
+                {
+                    CameraMode.FirstPerson => Core.Scene.ObserverModes.InEye,
+                    CameraMode.ThirdPerson => Core.Scene.ObserverModes.Chase,
+                    _ => Core.Scene.ObserverModes.Roaming,
+                },
+                ObserverTarget = _followingAPlayer ? _spectator.Followed(hudTick) ?? 0 : 0,
+            };
+        }
+
+        _vguiHud.Frame(
+            hudState,
             hudEvents,
             hudReset);
         _vguiTools.Frame(

@@ -33,7 +33,11 @@ public sealed class VguiHud
         // **Interpolated:** the game's element order comes from its factory list, which the SDK does not fix.
         Weapon = new TfHudWeapon(Viewport);
         Crosshair = new TfHudCrosshair(Viewport);
+        SpectatorTargetId = new TfSpectatorTargetId(Viewport);
     }
+
+    /// <summary>`CSpectatorTargetID`.</summary>
+    public TfSpectatorTargetId SpectatorTargetId { get; }
 
     /// <summary>`CHudTFCrosshair`.</summary>
     public TfHudCrosshair Crosshair { get; }
