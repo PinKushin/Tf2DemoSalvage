@@ -582,6 +582,117 @@ internal static class SyntheticPlayer
                     Body: body)));
     }
 
+    /// <summary>
+    /// The recorder beside the rules the time panel reads, all set, a `CTFObjectiveResource` naming timer 42 for the HUD,
+    /// and that `CTeamRoundTimer`.
+    /// </summary>
+    /// <param name="paused">`m_bTimerPaused`.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithRoundTimer(bool paused)
+    {
+        const int RulesClassId = 1;
+        const int ObjectiveClassId = 2;
+        const int TimerClassId = 3;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables =
+        [
+            .. baseline.Tables,
+            new SendTable(
+                "DT_TeamplayRoundBasedRules",
+                NeedsDecoder: true,
+                [
+                    UnsignedInt("m_bInWaitingForPlayers", bits: 1), UnsignedInt("m_bInOvertime", bits: 1),
+                    UnsignedInt("m_bInSetup", bits: 1), UnsignedInt("m_bStopWatch", bits: 1),
+                ]),
+            new SendTable(
+                "DT_TFGameRules",
+                NeedsDecoder: true,
+                [UnsignedInt("m_nGameType", bits: 4), UnsignedInt("m_bPlayingKoth", bits: 1), UnsignedInt("m_bShowMatchSummary", bits: 1)]),
+            new SendTable(
+                "DT_TFGameRulesProxy",
+                NeedsDecoder: true,
+                [Table("teamplayroundbased_gamerules_data", "DT_TeamplayRoundBasedRules"), Table("tf_gamerules_data", "DT_TFGameRules")]),
+            new SendTable("DT_BaseTeamObjectiveResource", NeedsDecoder: true, [UnsignedInt("m_iTimerToShowInHUD", bits: 11)]),
+            new SendTable("DT_TFObjectiveResource", NeedsDecoder: true, [Table("baseclass", "DT_BaseTeamObjectiveResource")]),
+            new SendTable(
+                "DT_TeamRoundTimer",
+                NeedsDecoder: true,
+                [
+                    UnsignedInt("m_bTimerPaused", bits: 1), NoScaleFloat("m_flTimeRemaining"), NoScaleFloat("m_flTimerEndTime"),
+                    Int("m_nTimerMaxLength", bits: 32), UnsignedInt("m_bIsDisabled", bits: 1), UnsignedInt("m_bShowInHUD", bits: 1),
+                    Int("m_nTimerLength", bits: 32), Int("m_nSetupTimeLength", bits: 32), Int("m_nState", bits: 32),
+                    UnsignedInt("m_bShowTimeRemaining", bits: 1), UnsignedInt("m_bInCaptureWatchState", bits: 1),
+                    UnsignedInt("m_bStopWatchTimer", bits: 1), NoScaleFloat("m_flTotalTime"),
+                ]),
+        ];
+
+        DemoSchema schema = new(
+            tables,
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(RulesClassId, "CTFGameRulesProxy", "DT_TFGameRulesProxy"),
+                new ServerClass(ObjectiveClassId, "CTFObjectiveResource", "DT_TFObjectiveResource"),
+                new ServerClass(TimerClassId, "CTeamRoundTimer", "DT_TeamRoundTimer"),
+            ]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+            Entity(decoder, RulesClassId, 40, new Dictionary<string, PropertyValue>
+            {
+                ["m_bInWaitingForPlayers"] = PropertyValue.FromInt(1),
+                ["m_bInOvertime"] = PropertyValue.FromInt(1),
+                ["m_bInSetup"] = PropertyValue.FromInt(1),
+                ["m_bStopWatch"] = PropertyValue.FromInt(1),
+                ["m_nGameType"] = PropertyValue.FromInt(4),
+                ["m_bPlayingKoth"] = PropertyValue.FromInt(1),
+                ["m_bShowMatchSummary"] = PropertyValue.FromInt(1),
+            }),
+            Entity(decoder, TimerClassId, 42, new Dictionary<string, PropertyValue>
+            {
+                ["m_bTimerPaused"] = PropertyValue.FromInt(paused ? 1 : 0),
+                ["m_flTimeRemaining"] = PropertyValue.FromFloat(95.5f),
+                ["m_flTimerEndTime"] = PropertyValue.FromFloat(300.25f),
+                ["m_nTimerMaxLength"] = PropertyValue.FromInt(600),
+                ["m_bIsDisabled"] = PropertyValue.FromInt(0),
+                ["m_bShowInHUD"] = PropertyValue.FromInt(1),
+                ["m_nTimerLength"] = PropertyValue.FromInt(240),
+                ["m_nSetupTimeLength"] = PropertyValue.FromInt(60),
+                ["m_nState"] = PropertyValue.FromInt(1),
+                ["m_bShowTimeRemaining"] = PropertyValue.FromInt(1),
+                ["m_bInCaptureWatchState"] = PropertyValue.FromInt(0),
+                ["m_bStopWatchTimer"] = PropertyValue.FromInt(0),
+                ["m_flTotalTime"] = PropertyValue.FromFloat(12.5f),
+            }),
+            Entity(decoder, ObjectiveClassId, 43, new Dictionary<string, PropertyValue> { ["m_iTimerToShowInHUD"] = PropertyValue.FromInt(42) }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
     /// <summary>A decoder over the default schema, which the encoder also needs.</summary>
     public static EntityDecoder Decoder()
     {
@@ -1498,6 +1609,10 @@ internal static class SyntheticPlayer
 
     private static SendProperty Float(string name, float low, float high, int bits) =>
         new(SendPropType.Float, name, 0, string.Empty, low, high, bits, 0);
+
+    // `SendPropTime` is `SPROP_NOSCALE` (1 << 2): the float's 32 bits as they are.
+    private static SendProperty NoScaleFloat(string name) =>
+        new(SendPropType.Float, name, 1 << 2, string.Empty, 0f, 0f, 32, 0);
 
     private static SendProperty VectorXy(string name, int bits) =>
         new(SendPropType.VectorXY, name, 0, string.Empty, -16384f, 16384f, bits, 0);
