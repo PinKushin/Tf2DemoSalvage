@@ -93,6 +93,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     /// <summary>Draws HUD text, once an atlas has been given to it (D84).</summary>
     private HudRenderer? _hud;
+    private VguiRenderer? _vgui;
+    private Func<string, MapTexture?>? _vguiResolve;
+
+    /// <summary>How the VGUI surface finds a material's texture — the install plus the loaded map's pakfile.</summary>
+    /// <param name="resolve">A material name under `materials/` to its texture, null when it does not resolve.</param>
+    public void SetVguiResolver(Func<string, MapTexture?> resolve)
+    {
+        ArgumentNullException.ThrowIfNull(resolve);
+
+        // A new resolver can answer differently (a new map's pakfile), so what the old one uploaded goes.
+        _vgui?.Dispose();
+        _vgui = null;
+        _vguiResolve = resolve;
+    }
 
     private int _width;
     private int _height;
@@ -966,6 +980,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <param name="hud">
     /// HUD quads in screen pixels, or null to draw none. Requires <see cref="SetHudAtlas"/>.
     /// </param>
+    /// <param name="vgui">
+    /// The VGUI surface's quads for this frame, drawn before <paramref name="hud"/>, or null to draw none. Requires
+    /// <see cref="SetVguiResolver"/>.
+    /// </param>
     /// <remarks>
     /// The map goes down first so the players draw over it. There is no depth buffer and none is
     /// wanted: for a flat overhead view the draw order IS the layering, and it is one fewer
@@ -991,7 +1009,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         IReadOnlyList<ModelInstance>? models = null,
         IReadOnlyList<ModelInstance>? viewmodels = null,
         float[]? viewmodelCamera = null,
-        IReadOnlyList<HudQuad>? hud = null)
+        IReadOnlyList<HudQuad>? hud = null,
+        IReadOnlyList<VguiQuad>? vgui = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(points);
@@ -1369,6 +1388,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // Last, so it is over everything, with depth off because a HUD is not in the world. Before
         // Present, so it lands in the presented frame and therefore in an F12 capture, which reads
         // the back buffer afterwards.
+        if (vgui is { Count: > 0 } && _vguiResolve is not null)
+        {
+            Viewport vguiViewport = new(0f, 0f, _width, _height, 0f, 1f);
+            _context.RSSetViewports(1, in vguiViewport);
+            _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+            _context.OMSetDepthStencilState(_depthOff, 0);
+
+            _vgui ??= VguiRenderer.Create(_device, _context);
+            _vgui.Draw(_device, _context, vgui, _vguiResolve, _width, _height);
+            WorldRenderer.ResetBlend(_context);
+        }
+
         if (hud is { Count: > 0 } && _hud is { HasAtlas: true })
         {
             Viewport hudViewport = new(0f, 0f, _width, _height, 0f, 1f);
@@ -3220,6 +3251,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _world?.Dispose();
         _hud?.Dispose();
+        _vgui?.Dispose();
         _points?.Dispose();
         _worldLines?.Dispose();
         _detailSprites?.Dispose();
