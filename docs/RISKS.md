@@ -7664,6 +7664,27 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B423 — a model was lit at its own point, not at its light cache cell — FIXED 2026-09-25
+
+**What the engine does, read from `engine.dll`.** `LightcacheGet` (`0x1801b9cd0`) keys model lighting on a
+32 × 32 × 128 cell and the point's leaf. With `r_lightcachecenter` at its default of `"1"` (`0x18000ff90`), a new entry
+is placed by `0x1801b6860`:
+- the cell's centre (`cell·32 + 16`, and `cell·128 + 64` in z; cells floor), if it is outside `MASK_OPAQUE` and a world
+  trace from the point reaches it;
+- else the centre at the point's own height, if a trace reaches that;
+- else the point itself.
+
+The ambient cube is sampled there, from the point's own leaf (`0x1801b8270` takes both), and so are the lights. Models
+in one cell share one light.
+
+**Built:** `LightCacheCell`, which `LevelLighting.LightingAt` and `SunAt` use. Its traces are `MASK_OPAQUE` world
+traces through `MapLevel.TraceBrushOnly`, so terrain stops them as it stops the engine's.
+
+**Not built:** a first trace that STARTS in solid returns the point at once in `0x1801b6860` (`local_71`), without the
+point-height attempt; our trace does not report `startsolid`, so that case tries the second trace. And the cache's memory. An entry placed at the point itself, the last fallback, is lit where the first
+model to miss stood, and later models in that cell reuse it. Here each model uses its own point in that case. The
+entry capacity, and the eviction it forces, is not reproduced either.
+
 ### B422 — the world drew no light styles — FIXED 2026-09-25
 
 **What was wrong.** The lightmap reader decoded each face's first style slot and nothing else. Its comment filed that as

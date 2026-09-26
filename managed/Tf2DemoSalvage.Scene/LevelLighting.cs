@@ -77,6 +77,32 @@ public sealed class LevelLighting
         return false;
     }
 
+    /// <summary>`MASK_OPAQUE`: solid, opaque and moveable contents, which `0x1801b6860` keeps a cell centre out of.</summary>
+    private const int MaskOpaque = 0x4081;
+
+    /// <summary>Where the light cache lights a model standing at a point — <see cref="LightCacheCell"/>.</summary>
+    /// <remarks>
+    /// The traces are `0x1801b6860`'s: `MASK_OPAQUE`, world only, so they meet terrain (<see cref="_reaches"/>). Without a
+    /// reach test — a light source built without a level — the point is lit where it stands.
+    /// </remarks>
+    private (float X, float Y, float Z) CachePoint(float x, float y, float z)
+    {
+        if (_leaves is not { } tree || _reaches is not { } reaches)
+        {
+            return (x, y, z);
+        }
+
+        System.Numerics.Vector3 at = LightCacheCell.Position(
+            new System.Numerics.Vector3(x, y, z),
+            point => (tree.ContentsAt(point.X, point.Y, point.Z) & MaskOpaque) != 0,
+            (from, to) => reaches((from.X, from.Y, from.Z), (to.X, to.Y, to.Z)));
+
+        return (at.X, at.Y, at.Z);
+    }
+
+    /// <summary>Whether a `MASK_OPAQUE` world trace between two points is clear; see the constructor.</summary>
+    private readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? _reaches;
+
     /// <summary>How many places to report light terms for before falling silent.</summary>
     /// <remarks>Public so the test asserts against this value rather than a copy of it.</remarks>
     public const int LightTermReportLimit = 40;
@@ -91,6 +117,10 @@ public sealed class LevelLighting
     /// Whether a world-only trace between two points strikes sky first (<see cref="MapLevel.StrikesSky"/>); without
     /// one no point sees the sun.
     /// </param>
+    /// <param name="reaches">
+    /// Whether a `MASK_OPAQUE` world trace between two points is clear, for placing the light cache's cell point
+    /// (<see cref="LightCacheCell"/>); without one a model is lit where it stands.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument other than the map data is null.</exception>
     public LevelLighting(
         BspLeafTree? leaves,
@@ -98,8 +128,10 @@ public sealed class LevelLighting
         IReadOnlyList<BspWorldLight> worldLights,
         BspWorldLight? sun,
         ILogger render,
-        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? strikesSky = null)
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? strikesSky = null,
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? reaches = null)
     {
+        _reaches = reaches;
         ArgumentNullException.ThrowIfNull(ambient);
         ArgumentNullException.ThrowIfNull(worldLights);
         ArgumentNullException.ThrowIfNull(render);
@@ -143,7 +175,13 @@ public sealed class LevelLighting
         ArgumentNullException.ThrowIfNull(level);
 
         return new LevelLighting(
-            level.Leaves, level.Ambient, level.WorldLights, level.Sun, render, level.StrikesSky);
+            level.Leaves,
+            level.Ambient,
+            level.WorldLights,
+            level.Sun,
+            render,
+            level.StrikesSky,
+            (from, to) => level.TraceBrushOnly(from, to, 0f, MaskOpaque).Fraction >= 1f);
     }
 
     /// <summary>The ambient light at a world position.</summary>
@@ -229,7 +267,10 @@ public sealed class LevelLighting
             return PointLighting.None;
         }
 
+        // The entry is keyed on the point's own leaf and lit at its cell's point (`0x1801b8270` takes both).
         int leaf = tree.LeafAt(x, y, z);
+
+        (x, y, z) = CachePoint(x, y, z);
 
         AmbientCube bounced = leaf >= 0 && leaf < _ambient.Count
             ? _ambient[leaf].At(x, y, z)
@@ -293,6 +334,8 @@ public sealed class LevelLighting
         {
             return null;
         }
+
+        (x, y, z) = CachePoint(x, y, z);
 
         (float X, float Y, float Z) toward = (
             x - (sun.Normal.X * SkyTraceLength),
