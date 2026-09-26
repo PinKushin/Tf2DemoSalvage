@@ -115,7 +115,8 @@ public sealed class GameArchives
                 {
                     if (File.Exists(entry.Path))
                     {
-                        sources.Add((string.Empty, VpkArchive.Open(entry.Path)));
+                        // The archive's own path is kept for WithoutCustom; reads go through the archive.
+                        sources.Add((entry.Path, VpkArchive.Open(entry.Path)));
                     }
                 }
                 else if (Directory.Exists(entry.Path))
@@ -149,6 +150,19 @@ public sealed class GameArchives
 
         return new GameArchives(sources);
     }
+
+    /// <summary>The same search path without anything under a `custom` folder: what Valve ships, alone.</summary>
+    /// <returns>A view over the stock sources.</returns>
+    /// <remarks>
+    /// **For parity, never for the viewer.** The viewer searches `custom/` first on purpose (D91) — a user's HUD is meant to
+    /// win. A reference for what TF2 draws by default must not see it: the owner's own install carries his HUD and his
+    /// config (`docs/memory/modern-tf2-is-not-a-stock-reference.md`).
+    /// </remarks>
+    public GameArchives WithoutCustom() =>
+        new(_sources.Where(static source => !IsCustom(source.Path)));
+
+    private static bool IsCustom(string path) =>
+        path.Replace('\\', '/').Contains("/custom/", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Every path the ARCHIVES declare, for a measurement over what the game ships.</summary>
     /// <returns>Each packed path, in no particular order; duplicates across archives are possible.</returns>
