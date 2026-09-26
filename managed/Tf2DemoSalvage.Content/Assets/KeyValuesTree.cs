@@ -106,6 +106,28 @@ public sealed class KeyValuesTree
         return null;
     }
 
+    /// <summary>`FindKey( name, true )`: the first sub-key with this name, compared without case, created when absent.</summary>
+    /// <param name="name">The key.</param>
+    /// <returns>The key.</returns>
+    public KeyValuesTree FindOrCreate(string name)
+    {
+        if (Find(name) is { } found)
+        {
+            return found;
+        }
+
+        KeyValuesTree created = new(name);
+
+        _children.Add(created);
+
+        return created;
+    }
+
+    /// <summary>`SetString`: the named sub-key's value, the key created when absent.</summary>
+    /// <param name="name">The key.</param>
+    /// <param name="value">Its value.</param>
+    public void SetString(string name, string? value) => FindOrCreate(name).Value = value ?? string.Empty;
+
     /// <summary>Loads a file and returns its first root, empty when it has none.</summary>
     /// <param name="bytes">The file.</param>
     /// <param name="resourceName">Its path, which `#base` and `#include` are resolved beside.</param>
