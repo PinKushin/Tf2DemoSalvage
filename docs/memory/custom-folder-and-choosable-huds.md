@@ -14,7 +14,10 @@ The owner, 2026-08-25, while the field of view was being made config-settable:
 > user will be allowed to just import huds too, so they dont have to find our folders to put it in
 > the right place."
 
-Recorded as **D91**. **It is an AFTER-PARITY goal** — *"its a after parity goal, but it might effect
+Recorded as **D91**. **D193 (2026-09-26) sets the default: TF2's stock HUD.** A custom HUD is chosen — imported, taken
+from the user's `tf/custom`, or picked from our own custom folder — never picked up because it is installed. The HUD
+reads `GameArchives.WithoutCustom()`, so every test runs against Valve's defaults; the owner's HUD lacks things the stock
+one has and adds a crosshair it does not. **It is an AFTER-PARITY goal** — *"its a after parity goal, but it might effect
 some earlier design decisions, so it needs to be kept in mind"* — so it is not work in flight. It is
 written down because the settings and asset code being built now must not make it impossible.
 
