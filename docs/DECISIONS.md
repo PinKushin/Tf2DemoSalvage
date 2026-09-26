@@ -9293,3 +9293,7 @@ So:
   put in the cfg folder, so we have to actually check both"*. So huds live under `custom/`, and **configs are looked for
   in both `custom/` and `cfg/`**, as TF2 players place them in either.
 - `WithoutCustom` was documented "for parity, never for the viewer"; that half was wrong and is corrected.
+- **The choice is an input, not a hardcoded stock view** — the owner asked whether hardcoding `WithoutCustom` would
+  stop huds being switched, and it would have. The HUD reads `GameArchives.WithHud(choice)`: the chosen HUD's folder or
+  `.vpk` above the stock files, stock alone when nothing is chosen, remade when the choice changes. `--hud <path>` sets
+  it at launch today; the picker will set it at runtime.

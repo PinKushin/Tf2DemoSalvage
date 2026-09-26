@@ -295,6 +295,17 @@ public sealed class LaunchOptionsTests
     }
 
     [Test]
+    public void Read_WithHud_ChoosesThatHudAndOpensTheDemo()
+    {
+        LaunchOptions read = Read("a.dem", "--hud", "C:/huds/myhud");
+
+        (read.Hud, read.Paths.Count).ShouldBe(("C:/huds/myhud", 1));
+    }
+
+    [Test]
+    public void Read_WithoutHud_ChoosesNone() => Read("a.dem").Hud.ShouldBeNull("the stock HUD (D193)");
+
+    [Test]
     public void Read_WithoutHelp_DoesNotAskForTheList()
     {
         Read("a.dem").ShowHelp.ShouldBeFalse();
