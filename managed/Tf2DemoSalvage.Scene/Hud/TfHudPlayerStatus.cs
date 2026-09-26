@@ -42,8 +42,9 @@ public sealed class TfHealthPanel(VguiPanel? parent, string? name) : VguiPanel(p
 /// (:942) runs `SetHealth` every 0.05 s of `curtime`. `SetHealth` (:736) sets the fraction, hides the backgrounds at no
 /// health, grows the bonus image with overheal or with health under `HealthDeathWarning` of the maximum (then tinted
 /// `HealthDeathWarningColor`, as is the cross), and sets `Health` and `MaxHealth` — the maximum only when at least 5 is
-/// missing. **Not modelled yet:** the pulse animations it starts (the animation controller), the condition icons (every
-/// one is hidden each think until conditions are read), the Halloween wheel and the player level.
+/// missing. Entering overheal starts `HudHealthBonusPulse`, entering the warning `HudHealthDyingPulse`, each stopping the
+/// other; hiding the glow stops both. **Not modelled yet:** the condition icons (every one is hidden each think until
+/// conditions are read), the Halloween wheel and the player level.
 /// </remarks>
 public sealed class TfHudPlayerHealth : VguiEditablePanel
 {
@@ -72,6 +73,7 @@ public sealed class TfHudPlayerHealth : VguiEditablePanel
     private float _nextThink;
     private float _lastCurTime;
     private int _health = -1;
+    private AnimState _animState;
     private int _maxHealth;
 
     /// <summary>`CTFHudPlayerHealth( parent, name )`: its children made up front, so the `.res` finds them by name.</summary>
@@ -176,12 +178,26 @@ public sealed class TfHudPlayerHealth : VguiEditablePanel
             {
                 float boostMax = maxBuffedHealth - _maxHealth;
 
+                if (_bonusOrigin.Wide != -1 && _animState != AnimState.Bonus)
+                {
+                    Animate("HudHealthDyingPulseStop");
+                    Animate("HudHealthBonusPulse");
+                    _animState = AnimState.Bonus;
+                }
+
                 ShowBonus((255, 255, 255, 255), Math.Min((_health - _maxHealth) / boostMax, 1f));
             }
             else if (_health < _maxHealth * warning)
             {
                 float boostMax = _maxHealth * warning;
                 (byte, byte, byte, byte) colour = GetColor("HealthDeathWarningColor");
+
+                if (_bonusOrigin.Wide != -1 && _animState != AnimState.Dying)
+                {
+                    Animate("HudHealthBonusPulseStop");
+                    Animate("HudHealthDyingPulse");
+                    _animState = AnimState.Dying;
+                }
 
                 ShowBonus(colour, (boostMax - _health) / boostMax);
                 HealthImage.FgColor = colour;
@@ -236,6 +252,20 @@ public sealed class TfHudPlayerHealth : VguiEditablePanel
         }
 
         _healthBonusImage.Visible = false;
+        Animate("HudHealthBonusPulseStop");
+        Animate("HudHealthDyingPulseStop");
+        _animState = AnimState.None;
+    }
+
+    /// <summary>`g_pClientMode->GetViewportAnimationController()->StartAnimationSequence( this, name )`.</summary>
+    private void Animate(string sequence) => HudViewport.Of(this)?.Animations.StartAnimationSequence(this, sequence);
+
+    /// <summary>`m_iAnimState`.</summary>
+    private enum AnimState
+    {
+        None,
+        Bonus,
+        Dying,
     }
 }
 

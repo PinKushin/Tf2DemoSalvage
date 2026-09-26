@@ -64,6 +64,21 @@ demo carries for each of the recorder's weapons and wearables (`m_hMyWeapons`, a
 stored under its `lengthproxy` path rather than a flat name). A weapon's hook skips the owner's other weapons —
 "Don't allow weapons to provide to other weapons being carried by the same person" (attribute_manager.cpp:467).
 
+## Three things the animation controller does that its code does not say
+
+`AnimationController.cpp` is published, and three behaviours in it are not what they look like:
+
+- **An animated int never starts where it was.** `GetValue` reads a non-built-in variable through `RequestInfo` and
+  keeps only a float or a colour; an int or bool variable reports as `TYPE_INT`, so the animation starts from 0.
+- **A duplicated event keeps its first definition,** under a comment that says "replacing the old one". The loop removes
+  the new sequence — which changes nothing anyway, because every lookup already stops at the first of a name.
+- **`Bias` never caches.** mathlib's `Bias` keeps `lastAmt` to skip a `log`, and never assigns it, so the exponent is
+  recomputed every call — except for an amount of exactly -1, which matches the stale -1 and reuses the previous
+  exponent.
+
+The stock manifest's two scripts declare 311 events; 309 parse, and the two missing are `[$X360]` variants of
+`WeaponUsesClips` and `WeaponDoesNotUseClips`. *Read from published source, counted on the shipped files.*
+
 ## Custom HUDs are ordinary `.res` files
 
 The owner's custom HUD draws its crosshair as a `CExLabel` created from `ControlName` in `hudlayout.res`, with a font

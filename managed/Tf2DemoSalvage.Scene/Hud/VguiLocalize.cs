@@ -208,31 +208,8 @@ public sealed class VguiLocalize(string language)
             return string.Equals(name, current, StringComparison.OrdinalIgnoreCase) != negated;
         }
 
-        return Platform(condition);
-    }
-
-    /// <summary>`EvaluateConditional` on Windows, off the Deck: a `!` anywhere after the bracket inverts.</summary>
-    private static bool Platform(string condition)
-    {
-        string text = condition.StartsWith('[') ? condition[1..] : condition;
-        bool negated = text.StartsWith('!');
-
-        if (text.Contains("$DECK", StringComparison.OrdinalIgnoreCase) || text.Contains("$X360", StringComparison.OrdinalIgnoreCase))
-        {
-            return negated;
-        }
-
-        if (text.Contains("$WIN32", StringComparison.OrdinalIgnoreCase) || text.Contains("$WINDOWS", StringComparison.OrdinalIgnoreCase))
-        {
-            return !negated;
-        }
-
-        if (text.Contains("$OSX", StringComparison.OrdinalIgnoreCase) || text.Contains("$LINUX", StringComparison.OrdinalIgnoreCase))
-        {
-            return negated;
-        }
-
-        return negated && text.Contains("$POSIX", StringComparison.OrdinalIgnoreCase);
+        // vgui2.dll's own copy (0x18001e920) is tier1's, test for test.
+        return Content.Assets.KeyValuesTree.EvaluateConditional(condition);
     }
 
     /// <summary>0x1800192e0: whitespace skipped, then a quoted token with `\n` and `\"` escaped, or up to whitespace.</summary>

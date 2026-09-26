@@ -57,6 +57,7 @@ public sealed class HudProbe : IProbe
         host.BeginFrame(1920, 1080);
         hud.Frame(state with { CurTime = state.CurTime + 0.1f });
 
+        output.WriteLine($"animation sequences: {hud.Viewport.Animations.SequenceCount}, running: {hud.Viewport.Animations.ActiveAnimationCount}");
         output.WriteLine("panels (name, class, x y wide tall, visible, bg):");
         Describe(output, hud.Viewport, 1);
         output.WriteLine($"quads: {host.List.Quads.Count}");

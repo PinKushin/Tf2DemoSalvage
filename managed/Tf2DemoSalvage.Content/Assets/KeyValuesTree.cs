@@ -365,6 +365,17 @@ public sealed class KeyValuesTree
         ("$OSX", false), ("$LINUX", false), ("$POSIX", false),
     ];
 
+    /// <summary>`EvaluateConditional` (tier1/KeyValues.cpp:2218), on a Windows PC — the one KeyValues, the animation scripts and
+    /// the localisation files share.</summary>
+    /// <param name="condition">The token, such as `[$WIN32]` or `[!$X360]`.</param>
+    /// <returns>Whether it holds.</returns>
+    public static bool EvaluateConditional(string condition)
+    {
+        ArgumentNullException.ThrowIfNull(condition);
+
+        return Holds(condition);
+    }
+
     /// <summary>`EvaluateConditional`, on a Windows PC.</summary>
     private static bool Holds(string condition)
     {

@@ -44,6 +44,10 @@ public sealed class VguiHud
         {
             _context = _host.LoadScheme(SchemePath);
             (Viewport.Wide, Viewport.Tall) = (_host.Wide, _host.Tall);
+            Viewport.Context = _context;
+
+            // `CBaseViewport::ReloadScheme`: the animation scripts, then the layout.
+            Viewport.LoadHudAnimations(_context);
             Viewport.LoadControlSettings(LayoutPath, _context);
             Viewport.InvalidateLayout(reloadScheme: true);
         }
