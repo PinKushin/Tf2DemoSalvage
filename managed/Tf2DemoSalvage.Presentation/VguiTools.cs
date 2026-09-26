@@ -115,8 +115,8 @@ public sealed class VguiTools
         VguiFontManager manager = new(_gdi);
         VguiSchemeFonts fonts = VguiSchemeFonts.Load(root, manager, _fullPath, _language, tall);
 
-        _context = new VguiContext(scheme, VguiBorders.Load(root, scheme, tall), root.FindOrCreate("Fonts"), wide, tall, _language, fonts);
         _list = new VguiDrawList(TextureSize, manager);
+        _context = new VguiContext(scheme, VguiBorders.Load(root, scheme, tall), root.FindOrCreate("Fonts"), wide, tall, _language, fonts) { Surface = _list };
 
         // A resolution change reloads every panel's scheme — and `CFPSPanel::ApplySchemeSettings` calls `ComputeSize`.
         _root.InvalidateLayout(reloadScheme: true);

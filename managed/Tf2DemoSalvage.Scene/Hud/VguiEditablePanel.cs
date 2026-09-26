@@ -172,6 +172,7 @@ public static class VguiControlFactory
     {
         ["Panel"] = () => new VguiPanel(null, null),
         ["EditablePanel"] = () => new VguiEditablePanel(null, null),
+        ["Label"] = () => new VguiLabel(null, null),
     };
 
     /// <summary>`InstancePanel`: a new control of that class, or null when none is registered.</summary>
