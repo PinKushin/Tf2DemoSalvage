@@ -23,4 +23,27 @@ public sealed class HudHealthFieldsTests
         (recorder.EntityHealth, recorder.HideHud, recorder.MaxHealth, recorder.MaxHealthForBuffing).ShouldBe((88, 2058, 175, 176));
         recorder.Health.ShouldBe(99, "the resource's, which is a different number on purpose");
     }
+
+    [Test]
+    public void PlayersAt_TheRecordersLoadout_IsWeaponsThenWearablesUpToTheVectorsLength()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoWithLoadout([(5, 200), (6, 199)], [(8, 30000)], staleWearable: 9));
+
+        ScenePlayer recorder = timeline.PlayersAt(100).Single(player => player.EntityIndex == 1);
+
+        recorder.Items.ShouldNotBeNull();
+        recorder.Items.Select(item => (item.EntityIndex, item.DefinitionIndex, item.IsWeapon))
+            .ShouldBe([(5, (int?)200, true), (6, (int?)199, true), (8, (int?)30000, false)]);
+    }
+
+    [Test]
+    public void PlayersAt_TheActiveWeaponsClip_IsTheWireValueLessOne()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithLoadout([(5, 200)], []));
+
+        ScenePlayer recorder = timeline.PlayersAt(100).Single(player => player.EntityIndex == 1);
+
+        (recorder.ActiveWeapon, recorder.WeaponClip1).ShouldBe(((int?)5, (int?)4), "RecvProxy_IntSubOne");
+    }
 }

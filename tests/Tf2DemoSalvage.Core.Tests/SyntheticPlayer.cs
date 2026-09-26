@@ -330,6 +330,117 @@ internal static class SyntheticPlayer
                 slot => Int(slot.ToString("D3", CultureInfo.InvariantCulture), bits: bits)),
         ]);
 
+    /// <summary>The recorder (entity 1) holding weapons and wearing wearables, each an item with a definition index.</summary>
+    /// <param name="weapons">Each weapon: its entity slot and item definition, in `m_hMyWeapons` order.</param>
+    /// <param name="wearables">Each wearable, in `m_hMyWearables` order.</param>
+    /// <param name="staleWearable">A wearable handle left in the vector past its length, which must not be read.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithLoadout((int Entity, int Definition)[] weapons, (int Entity, int Definition)[] wearables, int? staleWearable = null)
+    {
+        ArgumentNullException.ThrowIfNull(weapons);
+        ArgumentNullException.ThrowIfNull(wearables);
+
+        const int ItemClassId = 1;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_BasePlayer"
+                    ? table with
+                    {
+                        Properties =
+                        [
+                            .. table.Properties,
+                            Table("m_hMyWeapons", "m_hMyWeapons"),
+                            Table("m_hMyWearables", "_ST_m_hMyWearables_8"),
+                            Table("bcc", "DT_BaseCombatCharacter"),
+                        ],
+                    }
+                    : table);
+        }
+
+        tables.Add(new SendTable("m_hMyWeapons", NeedsDecoder: true,
+            [.. Enumerable.Range(0, 48).Select(slot => UnsignedInt(slot.ToString("D3", CultureInfo.InvariantCulture), bits: 21))]));
+        // As `SendPropUtlVector` builds it: the length under a `lengthproxy` member, then the elements.
+        tables.Add(new SendTable("_ST_m_hMyWearables_8", NeedsDecoder: true,
+        [
+            Table("lengthproxy", "_LPT_m_hMyWearables_8"),
+            .. Enumerable.Range(0, 8).Select(slot => UnsignedInt(slot.ToString("D3", CultureInfo.InvariantCulture), bits: 21)),
+        ]));
+        tables.Add(new SendTable("_LPT_m_hMyWearables_8", NeedsDecoder: true, [UnsignedInt("lengthprop8", bits: 4)]));
+        tables.Add(new SendTable("DT_ScriptCreatedItem", NeedsDecoder: true, [UnsignedInt("m_iItemDefinitionIndex", bits: 16)]));
+        tables.Add(new SendTable("DT_BaseCombatCharacter", NeedsDecoder: true, [UnsignedInt("m_hActiveWeapon", bits: 21)]));
+        tables.Add(new SendTable("DT_LocalWeaponData", NeedsDecoder: true, [UnsignedInt("m_iClip1", bits: 8)]));
+        tables.Add(new SendTable("DT_TestItem", NeedsDecoder: true, [Table("m_Item", "DT_ScriptCreatedItem"), Table("local", "DT_LocalWeaponData")]));
+
+        DemoSchema schema = new(tables, [.. baseline.ServerClasses, new ServerClass(ItemClassId, "CTFScatterGun", "DT_TestItem")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        Dictionary<string, PropertyValue> player = new()
+        {
+            ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+            ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+            ["m_lifeState"] = PropertyValue.FromInt(0),
+            ["_LPT_m_hMyWearables_8.lengthprop8"] = PropertyValue.FromInt(wearables.Length),
+        };
+
+        if (weapons.Length > 0)
+        {
+            player["DT_BaseCombatCharacter.m_hActiveWeapon"] = LoadoutHandle(weapons[0].Entity);
+        }
+
+        for (int slot = 0; slot < weapons.Length; slot++)
+        {
+            player[$"m_hMyWeapons.{slot:D3}"] = LoadoutHandle(weapons[slot].Entity);
+        }
+
+        for (int slot = 0; slot < wearables.Length; slot++)
+        {
+            player[$"_ST_m_hMyWearables_8.{slot:D3}"] = LoadoutHandle(wearables[slot].Entity);
+        }
+
+        if (staleWearable is { } stale)
+        {
+            player[$"_ST_m_hMyWearables_8.{wearables.Length:D3}"] = LoadoutHandle(stale);
+        }
+
+        List<DecodedEntity> entities = [Entity(decoder, PlayerClassId, 1, player)];
+
+        foreach ((int entity, int definition) in weapons.Concat(wearables).OrderBy(item => item.Entity))
+        {
+            // Every weapon's clip is 5 on the wire: `SendProxy_IntAddOne` of a clip of 4.
+            entities.Add(Entity(decoder, ItemClassId, entity, new Dictionary<string, PropertyValue>
+            {
+                ["DT_ScriptCreatedItem.m_iItemDefinitionIndex"] = PropertyValue.FromInt(definition),
+                ["DT_LocalWeaponData.m_iClip1"] = PropertyValue.FromInt(5),
+            }));
+        }
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
+    /// <summary>A handle: the slot with a serial above it — `NUM_ENT_ENTRY_BITS` is 11 — so the decoder has to mask.</summary>
+    private static PropertyValue LoadoutHandle(int entity) => PropertyValue.FromInt(entity | (7 << 11));
+
     /// <summary>The recorder (slot 0, entity 1) with what the HUD reads: its own health, its `m_iHideHUD`, the resource's maxima.</summary>
     /// <param name="health">`DT_BasePlayer.m_iHealth`.</param>
     /// <param name="hideHud">`DT_Local.m_iHideHUD`.</param>

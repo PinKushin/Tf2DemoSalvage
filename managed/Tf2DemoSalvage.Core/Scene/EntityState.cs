@@ -409,6 +409,9 @@ public sealed class EntityState
 
     private readonly Dictionary<string, PropertyValue> _properties = new(StringComparer.Ordinal);
 
+    // The path-shaped key `m_hMyWearables`' size arrived under, once seen.
+    private string? _wearableLengthKey;
+
     internal EntityState(int entityIndex, int classId, int serialNumber, string? className)
     {
         EntityIndex = entityIndex;
@@ -1882,6 +1885,60 @@ public sealed class EntityState
     /// </remarks>
     public int? ActiveWeapon() =>
         Slot(Integer($"{CombatCharacterTable}.{ActiveWeaponProperty}"));
+
+    /// <summary>`m_hMyWeapons`: every weapon the player carries, as entity slots, in array order.</summary>
+    /// <returns>The slots; empty when none were sent.</returns>
+    /// <remarks>`SendPropArray3( m_hMyWeapons )` on `DT_BaseCombatCharacter`, `MAX_WEAPONS` (48) elements.</remarks>
+    public IReadOnlyList<int> MyWeapons()
+    {
+        List<int> weapons = [];
+
+        for (int element = 0; element < 48; element++)
+        {
+            if (Slot(Integer($"m_hMyWeapons.{element:D3}")) is { } weapon)
+            {
+                weapons.Add(weapon);
+            }
+        }
+
+        return weapons;
+    }
+
+    /// <summary>`m_hMyWearables`: every wearable the player has, as entity slots, up to the vector's length.</summary>
+    /// <returns>The slots; empty when none were sent.</returns>
+    /// <remarks>
+    /// `SendPropUtlVector( m_hMyWearables, 8 )` on `DT_BasePlayer`: its elements under `_ST_m_hMyWearables_8`, its size
+    /// under that table's `lengthproxy` member. An element at or past the size is a stale slot. The size's key is found
+    /// once per entity and kept, because it carries the path above it.
+    /// </remarks>
+    public IReadOnlyList<int> MyWearables()
+    {
+        // The size travels under the vector's `lengthproxy` member, so it is stored by PATH (B234), not by flat name.
+        if (_wearableLengthKey is null)
+        {
+            foreach (string key in _properties.Keys)
+            {
+                if (key.EndsWith("m_hMyWearables.lengthproxy.lengthprop8", StringComparison.Ordinal))
+                {
+                    _wearableLengthKey = key;
+                    break;
+                }
+            }
+        }
+
+        int length = _wearableLengthKey is { } lengthKey && _properties.TryGetValue(lengthKey, out PropertyValue sent) ? (int)sent.AsInt : 0;
+        List<int> wearables = [];
+
+        for (int element = 0; element < Math.Min(length, 8); element++)
+        {
+            if (Slot(Integer($"_ST_m_hMyWearables_8.{element:D3}")) is { } wearable)
+            {
+                wearables.Add(wearable);
+            }
+        }
+
+        return wearables;
+    }
 
     /// <summary>How deep in water the player is: 0 dry, 1 feet, 2 waist, 3 eyes.</summary>
     /// <returns>The level, or <c>null</c> when the recording never said.</returns>

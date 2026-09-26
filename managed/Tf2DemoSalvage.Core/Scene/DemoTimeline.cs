@@ -226,6 +226,21 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_Local.m_iHideHUD` — sent to the player it belongs to, so the recorder's alone; an observer's is `HIDEHUD_HEALTH`.</summary>
     public int? HideHud { get; init; }
 
+    /// <summary>The active weapon's `m_iClip1` — `DT_LocalWeaponData`, so the recorder's alone; -1 for a weapon with no clip.</summary>
+    public int? WeaponClip1 { get; init; }
+
+    /// <summary>The active weapon's `m_iPrimaryAmmoType` — `DT_LocalWeaponData`; -1 for none.</summary>
+    public int? WeaponPrimaryAmmoType { get; init; }
+
+    /// <summary>`m_iAmmo` by ammo type, or null when never sent.</summary>
+    public IReadOnlyList<int>? Ammo { get; init; }
+
+    /// <summary>What the player carries and wears, with each item's attributes — the recorder's alone; null otherwise.</summary>
+    public IReadOnlyList<SceneItem>? Items { get; init; }
+
+    /// <summary>The player's own `m_AttributeList` — what `CAttributeContainerPlayer` applies first; null when empty.</summary>
+    public IReadOnlyList<EconAttributeValue>? OwnAttributes { get; init; }
+
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
     /// <c>FL_DUCKING</c>. Null flags mean the recording never said, which is every player but the
@@ -662,6 +677,67 @@ public sealed class DemoTimeline
         "DT_BaseEntity.m_iTeamNum",
         "DT_BaseCombatCharacter.m_iTeamNum",
     ];
+
+    /// <summary>An item entity's wire attribute inputs.</summary>
+    /// <remarks>
+    /// `INVALID_ITEM_ID` is `(itemid_t)-1` (`econ_item_constants.h:443`): both networked halves all-ones. Never-sent reads
+    /// as invalid, which routes an era demo — no econ system at all — to the definition's own attributes at resolve time.
+    /// </remarks>
+    private static EconAttributeWire EconWire(EntityState state)
+    {
+        long? high = state.Integer("DT_ScriptCreatedItem.m_iItemIDHigh");
+        long? low = state.Integer("DT_ScriptCreatedItem.m_iItemIDLow");
+
+        return new EconAttributeWire(
+            state.EconAttributes(EconAttributeList.Local),
+            state.EconAttributes(EconAttributeList.NetworkedForDemos),
+            high is { } h && low is { } l && !(h == uint.MaxValue && l == uint.MaxValue));
+    }
+
+    /// <summary>The items a player carries and wears — the attribute providers `ProvideTo` registers — or null for none.</summary>
+    /// <remarks>Weapons first, then wearables; `m_hMyWeapons` is local-only, so only the recorder's arrive.</remarks>
+    private static List<SceneItem>? CarriedItems(EntityState player, EntityStateTable entities)
+    {
+        IReadOnlyList<int> weapons = player.MyWeapons();
+
+        if (weapons.Count == 0)
+        {
+            return null;
+        }
+
+        List<SceneItem> items = [];
+
+        foreach ((IReadOnlyList<int> slots, bool isWeapon) in new[] { (weapons, true), (player.MyWearables(), false) })
+        {
+            foreach (int slot in slots)
+            {
+                if (entities.TryGet(slot, out EntityState? item))
+                {
+                    items.Add(new SceneItem(slot, item.ClassName, item.ItemDefinitionIndex(), EconWire(item), isWeapon));
+                }
+            }
+        }
+
+        return items;
+    }
+
+    /// <summary>`m_iAmmo`, sent to its owner alone (`DT_BCCLocalPlayerExclusive`); null when this player's never arrived.</summary>
+    private static int[]? AmmoCounts(EntityState player)
+    {
+        // `MAX_AMMO_SLOTS` is 32 (shareddefs.h); TF uses the first seven, `TF_AMMO_COUNT`.
+        int[]? counts = null;
+
+        for (int slot = 0; slot < 32; slot++)
+        {
+            if (player.Integer($"m_iAmmo.{slot:D3}") is { } count)
+            {
+                counts ??= new int[32];
+                counts[slot] = count;
+            }
+        }
+
+        return counts;
+    }
 
     private static readonly string[] HealthProperties =
     [
@@ -2628,6 +2704,17 @@ public sealed class DemoTimeline
                     MaxHealthForBuffing = resource?.Integer($"m_iMaxBuffedHealth.{slot}"),
                     EntityHealth = player.Integer("DT_BasePlayer.m_iHealth"),
                     HideHud = player.Integer("DT_Local.m_iHideHUD"),
+                    // `SendPropIntWithMinusOneFlag`: sent through `SendProxy_IntAddOne`, so the wire holds the clip plus one
+                    // and `RecvProxy_IntSubOne` takes it off (sendproxy.cpp:39, recvproxy.cpp:26) — -1, no clip, sends 0.
+                    WeaponClip1 = player.ActiveWeapon() is { } clipped && entities.TryGet(clipped, out EntityState? clipWeapon)
+                        ? clipWeapon.Integer("DT_LocalWeaponData.m_iClip1") - 1
+                        : null,
+                    WeaponPrimaryAmmoType = player.ActiveWeapon() is { } typed && entities.TryGet(typed, out EntityState? typedWeapon)
+                        ? typedWeapon.Integer("DT_LocalWeaponData.m_iPrimaryAmmoType")
+                        : null,
+                    Ammo = AmmoCounts(player),
+                    Items = CarriedItems(player, entities),
+                    OwnAttributes = player.EconAttributes(EconAttributeList.Local) is { Count: > 0 } own ? own : null,
                 });
             }
 
@@ -3780,19 +3867,7 @@ public sealed class DemoTimeline
                 continue;
             }
 
-            // `INVALID_ITEM_ID` is `(itemid_t)-1` (`econ_item_constants.h:443`): both networked
-            // halves all-ones. Never-sent reads as invalid, which routes an era demo — no econ
-            // system at all — to the definition's own attributes at resolve time.
-            long? high = state.Integer("DT_ScriptCreatedItem.m_iItemIDHigh");
-            long? low = state.Integer("DT_ScriptCreatedItem.m_iItemIDLow");
-
-            bool validId = high is { } h && low is { } l
-                && !(h == uint.MaxValue && l == uint.MaxValue);
-
-            track.Econ = new EconAttributeWire(
-                state.EconAttributes(EconAttributeList.Local),
-                state.EconAttributes(EconAttributeList.NetworkedForDemos),
-                validId);
+            track.Econ = EconWire(state);
 
             break;
         }

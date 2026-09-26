@@ -1,6 +1,7 @@
 using System;
 
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene;
 using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Presentation;
@@ -18,7 +19,9 @@ public static class HudStates
     /// `GetMaxBuffedHealth` (tf_player_shared.cpp:2235) the resource's `m_iMaxBuffedHealth` × `tf_max_health_boost`
     /// (1.5, `FCVAR_DEVELOPMENTONLY`, so fixed on retail) floored to a 5. `curtime` is the tick times the interval.
     /// </remarks>
-    public static HudState For(DemoTimeline? timeline, int tick)
+    /// <param name="scripts">The weapon and class scripts, or null where no install is open.</param>
+    /// <param name="hooks">The attribute hooks, or null likewise.</param>
+    public static HudState For(DemoTimeline? timeline, int tick, TfWeaponData? scripts = null, AttributeHooks? hooks = null)
     {
         if (timeline is null)
         {
@@ -34,7 +37,7 @@ public static class HudStates
         {
             if (player.EntityIndex == recorder)
             {
-                return From(player, tick);
+                return From(player, tick, scripts, hooks);
             }
         }
 
@@ -45,8 +48,10 @@ public static class HudStates
     /// <param name="local">The local player.</param>
     /// <param name="tick">The tick.</param>
     /// <returns>The state.</returns>
+    /// <param name="scripts">The weapon and class scripts, or null — then no ammo is known.</param>
+    /// <param name="hooks">The attribute hooks, or null likewise.</param>
     /// <remarks>An unsent maximum is `TF_HEALTH_UNDEFINED`, 1, as `GetArrayValue` answers.</remarks>
-    public static HudState From(ScenePlayer local, int tick)
+    public static HudState From(ScenePlayer local, int tick, TfWeaponData? scripts = null, AttributeHooks? hooks = null)
     {
         int buffing = local.MaxHealthForBuffing ?? 1;
 
@@ -58,6 +63,9 @@ public static class HudStates
             Alive: (local.LifeState ?? 0) == 0,
             MaxHealth: local.MaxHealth ?? 1,
             MaxBuffedHealth: (int)MathF.Floor(buffing * 1.5f / 5f) * 5,
-            CurTime: (float)(tick * ScenePropTrack.Tf2TickInterval));
+            CurTime: (float)(tick * ScenePropTrack.Tf2TickInterval),
+            Team: local.Team ?? 0,
+            Ammo: scripts is not null && hooks is not null ? TfAmmo.For(local, scripts, hooks) : default,
+            ActiveWeapon: local.ActiveWeapon ?? 0);
     }
 }
