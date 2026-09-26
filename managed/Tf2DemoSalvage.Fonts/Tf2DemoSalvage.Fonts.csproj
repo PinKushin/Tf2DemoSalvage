@@ -31,6 +31,8 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>Tf2DemoSalvage.Fonts</RootNamespace>
     <UseWindowsForms>false</UseWindowsForms>
+    <!-- GdiVgui: EnumFontFamiliesExA calls back through an unmanaged function pointer. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -43,6 +45,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
+    <!-- IVguiGdi is declared with the portable VGUI in Scene; this is its Windows adapter. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
   </ItemGroup>
 
 </Project>
