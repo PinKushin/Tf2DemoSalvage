@@ -715,10 +715,10 @@ public class VguiPanel
     /// <returns>The value.</returns>
     public string? GetString(string name) => (string?)Var(name);
 
-    /// <summary>An animation variable's value as a font.</summary>
+    /// <summary>An animation variable's value as a font handle.</summary>
     /// <param name="name">The script name.</param>
-    /// <returns>The value.</returns>
-    public VguiFont? GetFont(string name) => (VguiFont?)Var(name);
+    /// <returns>The handle, or null for handle 0.</returns>
+    public VguiFontAmalgam? GetFont(string name) => (VguiFontAmalgam?)Var(name);
 
     private object? Var(string name) =>
         (FindAnimationVar(name) ?? throw new ArgumentException($"{ClassName} declares no animation variable {name}.", nameof(name))).Value;

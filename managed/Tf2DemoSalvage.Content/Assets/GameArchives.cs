@@ -193,6 +193,33 @@ public sealed class GameArchives
         }
     }
 
+    /// <summary>`RelativePathToFullPath`: the first LOOSE copy of a file, in search order.</summary>
+    /// <param name="path">Path such as <c>resource/tf2.ttf</c>.</param>
+    /// <returns>The file's full path on disk, or null when no folder has it — a packed copy has no path to give.</returns>
+    /// <remarks>For an API that needs a real file, such as `AddFontResourceExA`; everything else reads through <see cref="Read"/>.</remarks>
+    public string? FullPathOnDisk(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        foreach ((string folder, VpkArchive? archive) in _sources)
+        {
+            if (archive is not null)
+            {
+                continue;
+            }
+
+            // Joined, then checked to be inside the folder, as Read does (D32).
+            string candidate = Path.GetFullPath(Path.Combine(folder, path));
+
+            if (candidate.StartsWith(Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Finds a file, searching every source in the order the game declares.</summary>
     /// <param name="path">Path such as <c>materials/concrete/x.vmt</c>.</param>
     /// <returns>The bytes, or null.</returns>

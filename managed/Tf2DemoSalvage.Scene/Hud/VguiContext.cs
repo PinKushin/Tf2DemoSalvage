@@ -9,7 +9,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="ScreenWide">`ISurface::GetScreenSize` wide.</param>
 /// <param name="ScreenTall">`ISurface::GetScreenSize` tall — also the scheme's sizing height, as the HUD's scheme has no sizing panel.</param>
 /// <param name="Language">The game's language, for font minimums.</param>
-public sealed record VguiContext(VguiScheme Scheme, VguiBorders Borders, KeyValuesTree Fonts, int ScreenWide, int ScreenTall, string Language)
+/// <param name="SchemeFonts">The scheme's font handles, or null where nothing draws text.</param>
+public sealed record VguiContext(
+    VguiScheme Scheme, VguiBorders Borders, KeyValuesTree Fonts, int ScreenWide, int ScreenTall, string Language, VguiSchemeFonts? SchemeFonts = null)
 {
     /// <summary>`GetProportionalScaledValueEx`.</summary>
     /// <param name="value">A value authored at 480 tall.</param>
@@ -24,6 +26,6 @@ public sealed record VguiContext(VguiScheme Scheme, VguiBorders Borders, KeyValu
     /// <summary>`IScheme::GetFont`.</summary>
     /// <param name="name">The font's name.</param>
     /// <param name="proportional">Whether the proportional handle is asked for.</param>
-    /// <returns>The glyph set, or null when the scheme has none that fits.</returns>
-    public VguiFont? GetFont(string name, bool proportional) => VguiFonts.Resolve(Fonts, name, proportional, ScreenTall, Language);
+    /// <returns>The handle, or null — handle 0 — when the scheme has none.</returns>
+    public VguiFontAmalgam? GetFont(string name, bool proportional) => SchemeFonts?.GetFont(name, proportional);
 }
