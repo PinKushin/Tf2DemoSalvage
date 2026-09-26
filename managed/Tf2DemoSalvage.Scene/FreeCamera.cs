@@ -81,6 +81,19 @@ public sealed class FreeCamera
     /// <summary>Viewport width over height.</summary>
     public float Aspect { get; init; } = 16f / 9f;
 
+    /// <summary>This camera with another field of view: `fov = GetFOV()`, which every `CalcView` branch ends with.</summary>
+    /// <param name="fieldOfView">Degrees.</param>
+    /// <returns>A copy.</returns>
+    public FreeCamera WithFieldOfView(float fieldOfView) => new()
+    {
+        Origin = Origin,
+        Angles = Angles,
+        FieldOfView = fieldOfView,
+        NearZ = NearZ,
+        FarZ = FarZ,
+        Aspect = Aspect,
+    };
+
     /// <summary>A camera a fixed distance from a point, looking at it.</summary>
     /// <param name="focus">What to look at, in world units.</param>
     /// <param name="pitch">Degrees below horizontal; 90 looks straight down.</param>

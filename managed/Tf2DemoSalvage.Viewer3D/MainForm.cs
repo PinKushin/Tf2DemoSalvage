@@ -2166,7 +2166,20 @@ internal class MainForm : Form, IFrameSteps
     /// it, so two independent choices would let the modes drift apart.
     /// </remarks>
     private FreeCamera? ChaseCamera(double seconds) =>
-        _spectator.Chase(_transport.CurrentTick, Aspect, seconds);
+        _spectator.Chase(_transport.CurrentTick, Aspect, seconds)?.WithFieldOfView(ViewFovNow().World);
+
+    /// <summary>The view's field of view this frame — <see cref="SpectatorView.Fov"/>, which every camera takes.</summary>
+    /// <remarks>
+    /// `curtime` is the SERVER's — `m_flFOVTime` is stamped on its clock — so the tick is the last `net_Tick`.
+    /// **Interpolated:** the tick's own time, where the engine's render clock sits between ticks.
+    /// </remarks>
+    private ViewFov ViewFovNow()
+    {
+        int tick = _transport.CurrentTick;
+        float interval = _timeline is { IntervalPerTick: > 0f } timeline ? timeline.IntervalPerTick : (float)ScenePropTrack.Tf2TickInterval;
+
+        return _spectator.Fov(tick, _effectiveMode, _settings.DemoFovOverride, (_timeline?.ServerTickAt(tick) ?? tick) * interval);
+    }
 
     /// <summary>Demo time the last drawn frame covered: zero while paused.</summary>
     private double _demoFrameSeconds;
@@ -2429,8 +2442,12 @@ internal class MainForm : Form, IFrameSteps
             : 16f / 9f;
 
     /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
+    /// <remarks>
+    /// **The field of view is the view's, as in the free camera**: `CalcInEyeCamView` and `CalcChaseCamView` both end with
+    /// `fov = GetFOV()` (c_baseplayer.cpp:1609, :1751). Both cameras were built at the compiled-in 90 and ignored the setting.
+    /// </remarks>
     private FreeCamera? FirstPersonCamera() =>
-        _spectator.Eye(_transport.CurrentTick, Aspect);
+        _spectator.Eye(_transport.CurrentTick, Aspect)?.WithFieldOfView(ViewFovNow().World);
 
     /// <summary>The free camera, placed by the controller if nothing has placed it yet.</summary>
     /// <remarks>
@@ -2444,7 +2461,7 @@ internal class MainForm : Form, IFrameSteps
         // the viewer runs, and a field of view latched at construction would ignore it — which is
         // the shape of no-op this project keeps catching: the setting exists, the config is read,
         // and nothing downstream asks.
-        _freeCamera.FieldOfView = _settings.FieldOfView;
+        _freeCamera.FieldOfView = ViewFovNow().World;
 
         return _freeCamera.Camera(
             Math.Max(1, _viewport.ClientSize.Width) / (float)Math.Max(1, _viewport.ClientSize.Height),
@@ -2537,7 +2554,9 @@ internal class MainForm : Form, IFrameSteps
                 _firstPerson,
                 FollowedEntity(),
                 _firstPerson ? FirstPersonCamera() : null,
-                _settings.ViewmodelFieldOfView,
+
+                // `fovViewmodel`: the setting moved by however far the view is from `default_fov` (view.cpp:725).
+                ViewFovNow().Viewmodel(_settings.ViewmodelFieldOfView),
 
                 // **`r_drawviewmodel`, which the viewer never read until B166.** It travels beside
                 // the field of view because they are the same kind of thing: a setting the watcher
@@ -7039,12 +7058,13 @@ internal class MainForm : Form, IFrameSteps
         _vguiHud.Viewport.Scripts = _hudScripts;
         _vguiHud.Crosshair.Settings = _settings.Crosshair;
 
-        // `GetFOV()` is the view's field of view: `demo_fov_override`, else `fov_desired`, as the settings already resolve.
-        // **Not modelled:** `m_iFOV`, the server's zoom, which a sniper's scope sets.
+        // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
+        // eye, where `GetFOV` follows the HLTV camera's target.
+        // **Interpolated:** SourceTV out of eye gives the view's too, where the engine asks the SourceTV client's own.
         HudState hudState = HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks) with
         {
             RealTime = (float)_vguiClock.Elapsed.TotalSeconds,
-            Fov = _settings.FieldOfView,
+            Fov = ViewFovNow().World,
         };
 
         // **On SourceTV the local player's observer mode and target are the HLTV camera's** (`C_BasePlayer::GetObserverMode`,

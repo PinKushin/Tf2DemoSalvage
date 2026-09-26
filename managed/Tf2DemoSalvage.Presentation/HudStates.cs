@@ -54,6 +54,11 @@ public static class HudStates
             LocalIndex = timeline.RecorderEntityIndex ?? 0,
             Players = players,
             Names = Names(timeline),
+
+            // The server's clock, which a timer's end time is on: the last `net_Tick`.
+            ServerTime = (timeline.ServerTickAt(tick) ?? tick) * interval,
+            RoundState = timeline.RoundStateAt(tick),
+            RoundTimers = timeline.RoundTimersAt(tick),
         };
     }
 

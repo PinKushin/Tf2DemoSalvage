@@ -257,6 +257,21 @@ public readonly record struct ScenePlayer(
     /// </summary>
     public (float Charge, int Quality, int? Definition)? Medigun { get; init; }
 
+    /// <summary>`m_iFOV` (player.cpp:8186, sent to everyone): the zoomed field of view, 0 for none.</summary>
+    public int? Fov { get; init; }
+
+    /// <summary>`m_iFOVStart` (:8187): where a zoom lerps from.</summary>
+    public int? FovStart { get; init; }
+
+    /// <summary>`m_flFOVTime` (:8188): when the zoom began.</summary>
+    public float? FovTime { get; init; }
+
+    /// <summary>`m_Local.m_flFOVRate`: how long the zoom takes — `DT_Local`, so the recorder's alone.</summary>
+    public float? FovRate { get; init; }
+
+    /// <summary>`m_iDefaultFOV` (:8189): the player's `fov_desired`, clamped to 75..90 by the server (tf_gamerules.cpp:10275).</summary>
+    public int? DefaultFov { get; init; }
+
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
     /// <c>FL_DUCKING</c>. Null flags mean the recording never said, which is every player but the
@@ -436,12 +451,19 @@ public readonly record struct TimelinePhases(
 /// game rules entity. <c>GR_STATE_TEAM_WIN</c> is 5.
 /// </param>
 /// <param name="Rules">The game rules the client's HUD tests at this tick.</param>
+/// <param name="ServerTick">
+/// The last `net_Tick` — the server's `gpGlobals->tickcount`, the clock networked times such as `m_flFOVTime` are on — or
+/// null before one arrived.
+/// </param>
+/// <param name="RoundTimers">Every `team_round_timer`, or null when there is none.</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
     int? RecorderTeam = null,
     int? RoundState = null,
-    SceneGameRules Rules = default);
+    SceneGameRules Rules = default,
+    int? ServerTick = null,
+    IReadOnlyList<SceneRoundTimer>? RoundTimers = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -449,7 +471,41 @@ public readonly record struct TimelineFrame(
 /// Lakeside, 4 Hightower, 5 Doomsday.</param>
 /// <param name="PlayerDestruction">Whether a `CTFPlayerDestructionLogic` exists — the only logic whose `GetType()` is
 /// `TYPE_PLAYER_DESTRUCTION`.</param>
-public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenScenario, bool PlayerDestruction);
+public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenScenario, bool PlayerDestruction)
+{
+    /// <summary>`TF_GAMETYPE_ARENA` (tf_shareddefs.h:283).</summary>
+    public const int GameTypeArena = 4;
+
+    /// <summary>`IsInWaitingForPlayers()`: `m_bInWaitingForPlayers` (teamplayroundbased_gamerules.cpp:108).</summary>
+    public bool WaitingForPlayers { get; init; }
+
+    /// <summary>`InOvertime()`: `m_bInOvertime` (:110).</summary>
+    public bool Overtime { get; init; }
+
+    /// <summary>`InSetup()`: `m_bInSetup` (:111).</summary>
+    public bool Setup { get; init; }
+
+    /// <summary>`m_bStopWatch` (:120).</summary>
+    public bool StopWatch { get; init; }
+
+    /// <summary>`m_nGameType` (tf_gamerules.cpp:1486); `IsInArenaMode()` is <see cref="GameTypeArena"/>.</summary>
+    public int GameType { get; init; }
+
+    /// <summary>`IsInKothMode()`: `m_bPlayingKoth` (:1507).</summary>
+    public bool Koth { get; init; }
+
+    /// <summary>`ShowMatchSummary()`: `m_bShowMatchSummary` (:1540).</summary>
+    public bool ShowMatchSummary { get; init; }
+
+    /// <summary>`ObjectiveResource()->GetTimerToShowInHUD()`: `m_iTimerToShowInHUD` (team_objectiveresource.cpp:25), 0 for none.</summary>
+    public int TimerToShowInHud { get; init; }
+
+    /// <summary>`GetBlueKothRoundTimer()`: `m_hBlueKothTimer`'s entity index (tf_gamerules.cpp:1513), or null.</summary>
+    public int? BlueKothTimer { get; init; }
+
+    /// <summary>`GetRedKothRoundTimer()`: `m_hRedKothTimer`'s entity index (:1512), or null.</summary>
+    public int? RedKothTimer { get; init; }
+}
 
 /// <summary>One corpse, as <c>DT_TFRagdoll</c> describes it.</summary>
 /// <param name="EntityIndex">Its entity slot.</param>
@@ -705,6 +761,42 @@ public sealed class DemoTimeline
 
     /// <summary>`IMPLEMENT_NETWORKCLASS_ALIASED( TFPlayerDestructionLogic, … )` (tf_logic_player_destruction.cpp:54).</summary>
     private const string PlayerDestructionClass = "CTFPlayerDestructionLogic";
+
+    /// <summary>The objective resource, which names the timer the HUD shows.</summary>
+    private const string ObjectiveResourceClass = "CTFObjectiveResource";
+
+    /// <summary>A `team_round_timer`.</summary>
+    private const string RoundTimerClass = "CTeamRoundTimer";
+
+    /// <summary>Every round timer, as the time panel reads it; null when there is none, which costs no allocation.</summary>
+    private static List<SceneRoundTimer>? RoundTimers(EntityStateTable entities)
+    {
+        List<SceneRoundTimer>? timers = null;
+
+        foreach (EntityState timer in entities.OfClass(RoundTimerClass))
+        {
+            (timers ??= []).Add(new SceneRoundTimer(timer.EntityIndex)
+            {
+                Paused = timer.Integer("DT_TeamRoundTimer.m_bTimerPaused") is > 0,
+                TimeRemaining = timer.Number("DT_TeamRoundTimer.m_flTimeRemaining") ?? 0f,
+                EndTime = timer.Number("DT_TeamRoundTimer.m_flTimerEndTime") ?? 0f,
+                MaxLength = timer.Integer("DT_TeamRoundTimer.m_nTimerMaxLength") ?? 0,
+                Disabled = timer.Integer("DT_TeamRoundTimer.m_bIsDisabled") is > 0,
+                ShowInHud = timer.Integer("DT_TeamRoundTimer.m_bShowInHUD") is > 0,
+                Length = timer.Integer("DT_TeamRoundTimer.m_nTimerLength") ?? 0,
+                SetupLength = timer.Integer("DT_TeamRoundTimer.m_nSetupTimeLength") ?? 0,
+
+                // The constructor's `RT_STATE_NORMAL` (teamplay_round_timer.cpp:227) until the state is sent.
+                State = timer.Integer("DT_TeamRoundTimer.m_nState") ?? SceneRoundTimer.StateNormal,
+                ShowTimeRemaining = timer.Integer("DT_TeamRoundTimer.m_bShowTimeRemaining") is > 0,
+                CaptureWatch = timer.Integer("DT_TeamRoundTimer.m_bInCaptureWatchState") is > 0,
+                StopWatch = timer.Integer("DT_TeamRoundTimer.m_bStopWatchTimer") is > 0,
+                TotalTime = timer.Number("DT_TeamRoundTimer.m_flTotalTime") ?? 0f,
+            });
+        }
+
+        return timers;
+    }
 
 
     private static readonly string[] TeamProperties =
@@ -2794,6 +2886,11 @@ public sealed class DemoTimeline
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
                     KillStreak = player.Integer("m_nStreaks.000"),
                     Medigun = MedigunOf(player, entities),
+                    Fov = player.Integer("DT_BasePlayer.m_iFOV"),
+                    FovStart = player.Integer("DT_BasePlayer.m_iFOVStart"),
+                    FovTime = player.Number("DT_BasePlayer.m_flFOVTime"),
+                    FovRate = player.Number("DT_Local.m_flFOVRate"),
+                    DefaultFov = player.Integer("DT_BasePlayer.m_iDefaultFOV"),
                 });
             }
 
@@ -2810,16 +2907,31 @@ public sealed class DemoTimeline
             SceneGameRules rules = new(
                 gameRules?.Integer(MannVsMachineProperty) is > 0,
                 gameRules?.Integer(HalloweenScenarioProperty) ?? 0,
-                entities.OfClass(PlayerDestructionClass).Any());
+                entities.OfClass(PlayerDestructionClass).Any())
+            {
+                WaitingForPlayers = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bInWaitingForPlayers") is > 0,
+                Overtime = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bInOvertime") is > 0,
+                Setup = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bInSetup") is > 0,
+                StopWatch = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bStopWatch") is > 0,
+                GameType = gameRules?.Integer("DT_TFGameRules.m_nGameType") ?? 0,
+                Koth = gameRules?.Integer("DT_TFGameRules.m_bPlayingKoth") is > 0,
+                ShowMatchSummary = gameRules?.Integer("DT_TFGameRules.m_bShowMatchSummary") is > 0,
+                BlueKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hBlueKothTimer")),
+                RedKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hRedKothTimer")),
+                TimerToShowInHud = entities.OfClass(ObjectiveResourceClass).FirstOrDefault()?.Integer("DT_BaseTeamObjectiveResource.m_iTimerToShowInHUD") ?? 0,
+            };
+
+            int? serverTick = entities.PacketTick > 0 ? entities.PacketTick : null;
+            IReadOnlyList<SceneRoundTimer>? roundTimers = RoundTimers(entities);
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers));
         }
 
         Backfill(frames);
@@ -5147,6 +5259,14 @@ public sealed class DemoTimeline
     /// <param name="tick">The tick.</param>
     /// <returns>The rules.</returns>
     public SceneGameRules RulesAt(int tick) => FrameAt(tick)?.Rules ?? default;
+
+    /// <summary>The server's tick at a demo tick — the last `net_Tick` — or null before one arrived.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public int? ServerTickAt(int tick) => FrameAt(tick)?.ServerTick;
+
+    /// <summary>Every `team_round_timer` at a tick.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public IReadOnlyList<SceneRoundTimer> RoundTimersAt(int tick) => FrameAt(tick)?.RoundTimers ?? [];
 
     /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
     /// <param name="tick">The moment being asked about.</param>
