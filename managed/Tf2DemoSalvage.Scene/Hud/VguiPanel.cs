@@ -62,6 +62,7 @@ public class VguiPanel
     private readonly Dictionary<string, (byte, byte, byte, byte)> _colourOverrides = new(StringComparer.Ordinal);
     private bool _needsDefaultSettings = true;
     private short _zPos;
+    private VguiBorder? _border;
     private VguiPanel? _pinSibling;
     private bool _proportional;
 
@@ -71,6 +72,14 @@ public class VguiPanel
     public VguiPanel(VguiPanel? parent, string? name)
     {
         Name = name ?? string.Empty;
+
+        // Panel.h:937 — `Init` sets alpha 255 and the rest zero; the texture ids stay -1 until the defaults pass.
+        DeclareAnimationVar("alpha", VguiPanelVarType.Real, "255", 255f);
+        DeclareAnimationVar("PaintBackgroundType", VguiPanelVarType.Whole, "0");
+        DeclareAnimationVar("Texture1", VguiPanelVarType.TextureId, "vgui/hud/8x800corner1");
+        DeclareAnimationVar("Texture2", VguiPanelVarType.TextureId, "vgui/hud/8x800corner2");
+        DeclareAnimationVar("Texture3", VguiPanelVarType.TextureId, "vgui/hud/8x800corner3");
+        DeclareAnimationVar("Texture4", VguiPanelVarType.TextureId, "vgui/hud/8x800corner4");
         SetParent(parent);
     }
 
@@ -207,8 +216,27 @@ public class VguiPanel
     /// <summary>`PAINT_BORDER_ENABLED`, on by default.</summary>
     public bool PaintBorderEnabled { get; set; } = true;
 
-    /// <summary>`GetBorder`.</summary>
-    public VguiBorder? Border { get; set; }
+    /// <summary>`PAINT_ENABLED`, on by default.</summary>
+    public bool PaintEnabled { get; set; } = true;
+
+    /// <summary>`RoundedCorners`: `PANEL_ROUND_CORNER_*` bits, all four by default.</summary>
+    public int RoundedCorners { get; set; } = 0xF;
+
+    /// <summary>`SetBorder` / `GetBorder`: setting one takes its inset and its background type, clamped to 0..2.</summary>
+    public VguiBorder? Border
+    {
+        get => _border;
+        set
+        {
+            _border = value;
+            Inset = value?.GetInset() ?? default;
+
+            if (value is not null)
+            {
+                SetAnimationValue("PaintBackgroundType", Math.Clamp(value.BackgroundType, 0, 2));
+            }
+        }
+    }
 
     /// <summary>`GetFgColor`.</summary>
     public (byte Red, byte Green, byte Blue, byte Alpha) FgColor { get; set; }
@@ -333,6 +361,11 @@ public class VguiPanel
             Border = context.Borders.Get(borderName);
         }
 
+        if (Int(block, "RoundedCorners", -1) is var rounded and >= 0)
+        {
+            RoundedCorners = rounded;
+        }
+
         if (block.Find("fieldName")?.Value is { } fieldName)
         {
             Name = fieldName;
@@ -362,8 +395,249 @@ public class VguiPanel
     /// <param name="scriptName">The key, matched case-insensitively.</param>
     /// <param name="type">The converter.</param>
     /// <param name="defaultValue">The default, converted on the first `ApplySettings`.</param>
-    protected void DeclareAnimationVar(string scriptName, VguiPanelVarType type, string defaultValue) =>
-        _animationVars.Add(new AnimationVar(scriptName, type, defaultValue));
+    /// <param name="initial">The value before the defaults pass — what the constructor leaves; zero when not given.</param>
+    protected void DeclareAnimationVar(string scriptName, VguiPanelVarType type, string defaultValue, object? initial = null) =>
+        _animationVars.Add(new AnimationVar(scriptName, type, defaultValue) { Value = initial ?? Zero(type) });
+
+    /// <summary>Sets an animation variable by name — what a `.res` key, the animation controller or code does.</summary>
+    /// <param name="name">The script name.</param>
+    /// <param name="value">The value, of the variable's type.</param>
+    public void SetAnimationValue(string name, object? value) =>
+        (FindAnimationVar(name) ?? throw new ArgumentException($"{ClassName} declares no animation variable {name}.", nameof(name))).Value = value;
+
+    private static object? Zero(VguiPanelVarType type) => type switch
+    {
+        VguiPanelVarType.Real or VguiPanelVarType.ProportionalFloat => 0f,
+        VguiPanelVarType.Bool => false,
+        VguiPanelVarType.Color => ((byte)0, (byte)0, (byte)0, (byte)0),
+        VguiPanelVarType.Text => string.Empty,
+        VguiPanelVarType.Font or VguiPanelVarType.TextureId => null,
+        _ => 0,
+    };
+
+    /// <summary>`PaintTraverse` (Panel.cpp:1128).</summary>
+    /// <param name="surface">The surface.</param>
+    /// <param name="context">The scheme manager's scale.</param>
+    /// <param name="repaint">Whether this panel draws; its children are traversed either way.</param>
+    public void PaintTraverse(IVguiSurface surface, VguiContext context, bool repaint = true)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        if (!Visible)
+        {
+            return;
+        }
+
+        float oldAlpha = surface.AlphaMultiplier;
+        float newAlpha = oldAlpha * GetFloat("alpha") * 1.0f / 255.0f;
+        (int x0, int y0, int x1, int y1) = ClipRect;
+
+        if (x1 <= x0 || y1 <= y0)
+        {
+            repaint = false;
+        }
+
+        surface.AlphaMultiplier = newAlpha;
+
+        VguiBorder? border = PaintBorderEnabled ? Border : null;
+        bool borderFirst = Border?.PaintFirst ?? false;
+
+        if (borderFirst && repaint && border is not null)
+        {
+            surface.PushMakeCurrent(this, false);
+            border.Paint(surface, this, context);
+            surface.PopMakeCurrent(this);
+        }
+
+        if (repaint)
+        {
+            if (PaintBackgroundEnabled)
+            {
+                surface.PushMakeCurrent(this, false);
+                PaintBackground(surface, context);
+                surface.PopMakeCurrent(this);
+            }
+
+            if (PaintEnabled)
+            {
+                surface.PushMakeCurrent(this, true);
+                Paint(surface, context);
+                surface.PopMakeCurrent(this);
+            }
+        }
+
+        foreach (VguiPanel child in _children)
+        {
+            if (child.Visible)
+            {
+                child.PaintTraverse(surface, context, repaint);
+            }
+        }
+
+        if (repaint && !borderFirst && border is not null)
+        {
+            surface.PushMakeCurrent(this, false);
+            border.Paint(surface, this, context);
+            surface.PopMakeCurrent(this);
+        }
+
+        surface.AlphaMultiplier = oldAlpha;
+    }
+
+    /// <summary>`Paint`: empty on purpose — a control draws its content here.</summary>
+    /// <param name="surface">The surface, made current with the inset.</param>
+    /// <param name="context">The scheme manager's scale.</param>
+    public virtual void Paint(IVguiSurface surface, VguiContext context)
+    {
+    }
+
+    /// <summary>`PaintBackground` (Panel.cpp:1301), by `PaintBackgroundType`.</summary>
+    /// <param name="surface">The surface, made current without inset.</param>
+    /// <param name="context">The scheme manager's scale.</param>
+    public virtual void PaintBackground(IVguiSurface surface, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        switch (GetInt("PaintBackgroundType"))
+        {
+            case 1:
+                DrawTexturedBox(surface, 0, 0, Wide, Tall, BgColor);
+                break;
+            case 2:
+                DrawBox(surface, context, 0, 0, Wide, Tall, BgColor);
+                break;
+            case 3:
+                DrawBoxFade(surface, context, 0, 0, Wide, Tall, BgColor, 255, 0, horizontal: true);
+                break;
+            default:
+                surface.DrawSetColor(BgColor);
+                surface.DrawFilledRect(0, 0, Wide, Tall);
+                break;
+        }
+    }
+
+    /// <summary>`GetCornerTextureSize` (Panel.cpp:6412).</summary>
+    private (int Wide, int Tall) CornerTextureSize(VguiContext context)
+    {
+        if (GetString("Texture1") is null)
+        {
+            return (0, 0);
+        }
+
+        // "Do not use the scheme for this, so it's screen space that affects the rounding always."
+        int size = Proportional ? Math.Max(context.Scale(8) / 2, 8) : 8;
+
+        return (size, size);
+    }
+
+    /// <summary>`DrawTexturedBox` (Panel.cpp:6674).</summary>
+    private void DrawTexturedBox(IVguiSurface surface, int x, int y, int wide, int tall, (byte, byte, byte, byte) color)
+    {
+        if (GetString("Texture1") is not { } texture)
+        {
+            return;
+        }
+
+        surface.DrawSetColor(color);
+        surface.DrawSetTexture(texture);
+        surface.DrawTexturedRect(x, y, x + wide, y + tall);
+    }
+
+    /// <summary>`DrawBox` (Panel.cpp:6438): three strips, then each corner rounded by its texture or filled square.</summary>
+    private void DrawBox(IVguiSurface surface, VguiContext context, int x, int y, int wide, int tall, (byte, byte, byte, byte) color)
+    {
+        if (CornerTextures() is not { } textures)
+        {
+            return;
+        }
+
+        (int cornerWide, int cornerTall) = CornerTextureSize(context);
+
+        surface.DrawSetColor(color);
+        surface.DrawFilledRect(x + cornerWide, y, x + wide - cornerWide, y + cornerTall);
+        surface.DrawFilledRect(x, y + cornerTall, x + wide, y + tall - cornerTall);
+        surface.DrawFilledRect(x + cornerWide, y + tall - cornerTall, x + wide - cornerWide, y + tall);
+
+        Corner(surface, 0x1, textures[0], x, y, x + cornerWide, y + cornerTall);
+        Corner(surface, 0x2, textures[1], x + wide - cornerWide, y, x + wide, y + cornerTall);
+        Corner(surface, 0x4, textures[3], x, y + tall - cornerTall, x + cornerWide, y + tall);
+        Corner(surface, 0x8, textures[2], x + wide - cornerWide, y + tall - cornerTall, x + wide, y + tall);
+    }
+
+    private void Corner(IVguiSurface surface, int bit, string texture, int x0, int y0, int x1, int y1)
+    {
+        if ((RoundedCorners & bit) != 0)
+        {
+            surface.DrawSetTexture(texture);
+            surface.DrawTexturedRect(x0, y0, x1, y1);
+        }
+        else
+        {
+            surface.DrawFilledRect(x0, y0, x1, y1);
+        }
+    }
+
+    /// <summary>`DrawBoxFade` (Panel.cpp:6525), not hollow.</summary>
+    private void DrawBoxFade(
+        IVguiSurface surface, VguiContext context, int x, int y, int wide, int tall, (byte, byte, byte, byte Alpha) color, int alpha0, int alpha1, bool horizontal)
+    {
+        if (CornerTextures() is not { } textures || surface.AlphaMultiplier == 0f)
+        {
+            return;
+        }
+
+        (int cornerWide, int cornerTall) = CornerTextureSize(context);
+
+        surface.DrawSetColor(color);
+
+        if (!horizontal)
+        {
+            surface.DrawFilledRectFade(x + cornerWide, y, x + wide - cornerWide, y + cornerTall, alpha0, alpha0, horizontal);
+            surface.DrawFilledRectFade(x, y + cornerTall, x + wide, y + tall - cornerTall, alpha0, alpha1, horizontal);
+            surface.DrawFilledRectFade(x + cornerWide, y + tall - cornerTall, x + wide - cornerWide, y + tall, alpha1, alpha1, horizontal);
+        }
+        else
+        {
+            surface.DrawFilledRectFade(x, y + cornerTall, x + cornerWide, y + tall - cornerTall, alpha0, alpha0, horizontal);
+            surface.DrawFilledRectFade(x + cornerWide, y, x + wide - cornerWide, y + tall, alpha0, alpha1, horizontal);
+            surface.DrawFilledRectFade(x + wide - cornerWide, y + cornerTall, x + wide, y + tall - cornerTall, alpha1, alpha1, horizontal);
+        }
+
+        float oldAlpha = color.Alpha;
+        (byte, byte, byte, byte) first = color with { Alpha = (byte)(int)(oldAlpha * (alpha0 / 255.0f)) };
+        (byte, byte, byte, byte) second = color with { Alpha = (byte)(int)(oldAlpha * (alpha1 / 255.0f)) };
+
+        surface.DrawSetColor(first);
+        surface.DrawSetTexture(textures[0]);
+        surface.DrawTexturedRect(x, y, x + cornerWide, y + cornerTall);
+
+        if (!horizontal)
+        {
+            surface.DrawSetTexture(textures[1]);
+            surface.DrawTexturedRect(x + wide - cornerWide, y, x + wide, y + cornerTall);
+            surface.DrawSetColor(second);
+            surface.DrawSetTexture(textures[2]);
+            surface.DrawTexturedRect(x + wide - cornerWide, y + tall - cornerTall, x + wide, y + tall);
+            surface.DrawSetTexture(textures[3]);
+            surface.DrawTexturedRect(x, y + tall - cornerTall, x + cornerWide, y + tall);
+        }
+        else
+        {
+            surface.DrawSetTexture(textures[3]);
+            surface.DrawTexturedRect(x, y + tall - cornerTall, x + cornerWide, y + tall);
+            surface.DrawSetColor(second);
+            surface.DrawSetTexture(textures[1]);
+            surface.DrawTexturedRect(x + wide - cornerWide, y, x + wide, y + cornerTall);
+            surface.DrawSetTexture(textures[2]);
+            surface.DrawTexturedRect(x + wide - cornerWide, y + tall - cornerTall, x + wide, y + tall);
+        }
+    }
+
+    /// <summary>`Texture1`..`Texture4`, or null when any is unset — every box draw checks all four.</summary>
+    private string[]? CornerTextures() =>
+        GetString("Texture1") is { } one && GetString("Texture2") is { } two && GetString("Texture3") is { } three && GetString("Texture4") is { } four
+            ? [one, two, three, four]
+            : null;
 
     /// <summary>An animation variable's value as a float.</summary>
     /// <param name="name">The script name.</param>

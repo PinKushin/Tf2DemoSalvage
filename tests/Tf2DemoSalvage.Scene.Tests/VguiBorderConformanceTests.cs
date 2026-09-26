@@ -28,7 +28,7 @@ public sealed class VguiBorderConformanceTests
             }
             """).Get("Frame")!;
 
-        border.Inset.ShouldBe([1, 2, 3, 4]);
+        border.GetInset().ShouldBe((1, 2, 3, 4));
         border.BackgroundType.ShouldBe(2);
         border.ProportionalScalar.ShouldBe(1f);
         border.Side(VguiLineBorder.Left).ShouldBe([
@@ -133,7 +133,7 @@ public sealed class VguiBorderConformanceTests
             "Frame" { "inset" "9" }
             """).Get("Frame")!;
 
-        border.Inset.ShouldBe([9, 2, 3, 4]);
+        border.GetInset().ShouldBe((9, 2, 3, 4));
         border.Side(VguiLineBorder.Top).Count.ShouldBe(1, "a side the later block omits is kept");
     }
 
