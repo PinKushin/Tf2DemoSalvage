@@ -112,6 +112,19 @@ public abstract class VguiBorder
     /// <summary>`backgroundtype`: `IBorder::backgroundtype_e`.</summary>
     public int BackgroundType { get; private protected set; }
 
+    /// <summary>`PaintFirst`: whether `PaintTraverse` paints it before the background rather than after the children.</summary>
+    public virtual bool PaintFirst => false;
+
+    /// <summary>`GetInset`: what `Panel::SetBorder` copies to the panel. Only a line border sets one.</summary>
+    /// <returns>Left, top, right, bottom.</returns>
+    public virtual (int Left, int Top, int Right, int Bottom) GetInset() => default;
+
+    /// <summary>`Paint( VPANEL )`, with the panel made current without inset.</summary>
+    /// <param name="surface">The surface.</param>
+    /// <param name="panel">The panel it borders.</param>
+    /// <param name="context">The scheme manager's scale.</param>
+    public abstract void Paint(IVguiSurface surface, VguiPanel panel, VguiContext context);
+
     /// <summary>`ApplySchemeSettings`.</summary>
     internal abstract void Apply(KeyValuesTree block, VguiScheme scheme, int screenTall);
 
@@ -126,9 +139,9 @@ public abstract class VguiBorder
 
 /// <summary>One line of a line border's side.</summary>
 /// <param name="Color">`color`, resolved through the scheme; transparent black when unresolved.</param>
-/// <param name="OffsetX">`offset`'s first number.</param>
-/// <param name="OffsetY">`offset`'s second number.</param>
-public readonly record struct VguiBorderLine((byte Red, byte Green, byte Blue, byte Alpha) Color, int OffsetX, int OffsetY);
+/// <param name="StartOffset">`offset`'s first number: line thicknesses trimmed from the side's start.</param>
+/// <param name="EndOffset">`offset`'s second number: trimmed from its end.</param>
+public readonly record struct VguiBorderLine((byte Red, byte Green, byte Blue, byte Alpha) Color, int StartOffset, int EndOffset);
 
 /// <summary>`vgui::Border` — lines per side (`ApplySchemeSettings` at 0x1800025e0).</summary>
 public sealed class VguiLineBorder : VguiBorder
@@ -150,11 +163,61 @@ public sealed class VguiLineBorder : VguiBorder
     private readonly int[] _inset = new int[4];
     private readonly VguiBorderLine[][] _sides = [[], [], [], []];
 
-    /// <summary>`inset`: left, top, right, bottom.</summary>
-    public IReadOnlyList<int> Inset => _inset;
-
     /// <summary>`proportional_scalar`.</summary>
     public float ProportionalScalar { get; private set; } = 1f;
+
+    /// <inheritdoc/>
+    public override (int Left, int Top, int Right, int Bottom) GetInset() => (_inset[0], _inset[1], _inset[2], _inset[3]);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// `Border::Paint( VPANEL )` (0x180002b80): the thickness is `GetProportionalScaledValueEx( proportional_scalar ×
+    /// 1000 ) / 1000` when that reaches 2000, else 1; then `Paint2( 0, 0, wide, tall, -1, 0, 0, thickness )` (0x1800027b0),
+    /// each side's lines stepping one pixel inward and trimmed by their offsets times the thickness.
+    /// </remarks>
+    public override void Paint(IVguiSurface surface, VguiPanel panel, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(panel);
+        ArgumentNullException.ThrowIfNull(context);
+
+        int scaled = context.Scale((int)(ProportionalScalar * 1000f));
+        int thickness = scaled >= 2000 ? scaled / 1000 : 1;
+        int x1 = panel.Wide;
+        int y1 = panel.Tall;
+
+        for (int index = 0; index < _sides[Left].Length; index++)
+        {
+            VguiBorderLine line = _sides[Left][index];
+
+            surface.DrawSetColor(line.Color);
+            surface.DrawFilledRect(index, thickness * line.StartOffset, index + thickness, y1 - (thickness * line.EndOffset));
+        }
+
+        for (int index = 0; index < _sides[Top].Length; index++)
+        {
+            VguiBorderLine line = _sides[Top][index];
+
+            surface.DrawSetColor(line.Color);
+            surface.DrawFilledRect(thickness * line.StartOffset, index, x1 - (thickness * line.EndOffset), index + thickness);
+        }
+
+        for (int index = 0; index < _sides[Right].Length; index++)
+        {
+            VguiBorderLine line = _sides[Right][index];
+
+            surface.DrawSetColor(line.Color);
+            surface.DrawFilledRect(x1 - index - thickness, thickness * line.StartOffset, x1 - index, y1 - (thickness * line.EndOffset));
+        }
+
+        for (int index = 0; index < _sides[Bottom].Length; index++)
+        {
+            VguiBorderLine line = _sides[Bottom][index];
+
+            surface.DrawSetColor(line.Color);
+            surface.DrawFilledRect(thickness * line.StartOffset, y1 - index - thickness, x1 - (thickness * line.EndOffset), y1 - index);
+        }
+    }
 
     /// <summary>A side's lines, outermost first.</summary>
     /// <param name="side"><see cref="Left"/>, <see cref="Top"/>, <see cref="Right"/> or <see cref="Bottom"/>.</param>
@@ -207,7 +270,50 @@ public sealed class VguiImageBorder : VguiBorder
     public bool Tiled { get; private set; }
 
     /// <summary>`paintfirst`, default on.</summary>
-    public bool PaintFirst { get; private set; }
+    public override bool PaintFirst => _paintFirst;
+
+    private bool _paintFirst;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// `ImageBorder::Paint` (0x1800033f0): white; stretched over the panel, or tiled at the texture's own size from the
+    /// origin to past the far edges, which the clip cuts.
+    /// </remarks>
+    public override void Paint(IVguiSurface surface, VguiPanel panel, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(panel);
+
+        if (Image is null)
+        {
+            return;
+        }
+
+        surface.DrawSetColor((255, 255, 255, 255));
+        surface.DrawSetTexture(Image);
+
+        if (!Tiled)
+        {
+            surface.DrawTexturedRect(0, 0, panel.Wide, panel.Tall);
+            return;
+        }
+
+        (int tileWide, int tileTall) = surface.DrawGetTextureSize(Image);
+
+        // A texture that did not load has no size, and the engine's loops would never end; nothing draws.
+        if (tileWide <= 0 || tileTall <= 0)
+        {
+            return;
+        }
+
+        for (int y = 0; y < panel.Tall; y += tileTall)
+        {
+            for (int x = 0; x < panel.Wide; x += tileWide)
+            {
+                surface.DrawTexturedRect(x, y, x + tileWide, y + tileTall);
+            }
+        }
+    }
 
     /// <inheritdoc/>
     internal override void Apply(KeyValuesTree block, VguiScheme scheme, int screenTall)
@@ -215,7 +321,7 @@ public sealed class VguiImageBorder : VguiBorder
         BackgroundType = Int(block, "backgroundtype", 0);
         Tiled = Int(block, "tiled", 0) != 0;
         Image = ImagePath(block);
-        PaintFirst = Int(block, "paintfirst", 1) != 0;
+        _paintFirst = Int(block, "paintfirst", 1) != 0;
     }
 }
 
@@ -243,10 +349,57 @@ public sealed class VguiScalableImageBorder : VguiBorder
     public string? Image { get; private set; }
 
     /// <summary>`paintfirst`, default on.</summary>
-    public bool PaintFirst { get; private set; }
+    public override bool PaintFirst => _paintFirst;
 
     /// <summary>`color`, resolved through the scheme; opaque white when absent or empty.</summary>
     public (byte Red, byte Green, byte Blue, byte Alpha) Color { get; private set; }
+
+    private bool _paintFirst;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// `ScalableImageBorder::Paint` (0x18000c290): rows and columns of corner, middle, corner. A corner's texture share
+    /// is `src_corner / texture size` (0 for a texture with no size), computed at `ApplySchemeSettings` in the engine and
+    /// here from the texture the surface loaded.
+    /// </remarks>
+    public override void Paint(IVguiSurface surface, VguiPanel panel, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(panel);
+
+        if (Image is null)
+        {
+            return;
+        }
+
+        (int textureWide, int textureTall) = surface.DrawGetTextureSize(Image);
+        float cornerU = textureWide < 1 ? 0f : (float)SourceCornerWidth / textureWide;
+        float cornerV = textureTall < 1 ? 0f : (float)SourceCornerHeight / textureTall;
+
+        surface.DrawSetColor(Color);
+        surface.DrawSetTexture(Image);
+
+        int y = 0;
+        float t = 0f;
+
+        for (int row = 0; row < 3; row++)
+        {
+            bool edgeRow = row != 1;
+            int rowTall = edgeRow ? DrawCornerHeight : Math.Max(panel.Tall - (DrawCornerHeight * 2), 0);
+            float rowV = edgeRow ? cornerV : Math.Max(1f - (cornerV + cornerV), 0f);
+            float bottomV = rowV + t;
+            int bottom = rowTall + y;
+            int middleRight = DrawCornerWidth + Math.Max(panel.Wide - (DrawCornerWidth * 2), 0);
+            float middleU = cornerU + Math.Max(1f - (cornerU + cornerU), 0f);
+
+            surface.DrawTexturedSubRect(0, y, DrawCornerWidth, bottom, 0f, t, cornerU, bottomV);
+            surface.DrawTexturedSubRect(DrawCornerWidth, y, middleRight, bottom, cornerU, t, middleU, bottomV);
+            surface.DrawTexturedSubRect(middleRight, y, middleRight + DrawCornerWidth, bottom, middleU, t, middleU + cornerU, bottomV);
+
+            y = bottom;
+            t = bottomV;
+        }
+    }
 
     /// <inheritdoc/>
     internal override void Apply(KeyValuesTree block, VguiScheme scheme, int screenTall)
@@ -259,7 +412,7 @@ public sealed class VguiScalableImageBorder : VguiBorder
         DrawCornerHeight = PanelLayout.ProportionalScaled(Int(block, "draw_corner_height", 0), screenTall);
         DrawCornerWidth = PanelLayout.ProportionalScaled(Int(block, "draw_corner_width", 0), screenTall);
         Image = ImagePath(block);
-        PaintFirst = Int(block, "paintfirst", 1) != 0;
-        Color = block.Find("color")?.Value is { Length: > 0 } name ? scheme.GetColor(name, white) : white;
+        _paintFirst = Int(block, "paintfirst", 1) != 0;
+        Color =block.Find("color")?.Value is { Length: > 0 } name ? scheme.GetColor(name, white) : white;
     }
 }
