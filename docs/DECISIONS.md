@@ -9282,5 +9282,9 @@ So:
 - **A custom HUD is opt-in**: imported, taken from the user's `tf/custom`, or none — chosen, with the stock HUD the
   default. A picker over the huds in the program's own custom folder, hot-swapped if possible, is the intended shape
   (D91's choosable huds, unchanged).
-- **Corrects an assumption of mine, not a decision of his**: `WithoutCustom` was documented "for parity, never for the
-  viewer — a user's HUD is meant to win". Nothing he said supported the second half.
+- **A user's HUD is meant to win — at the user's choice.** The owner, clarifying: *"well a users hud "is meant to win"
+  but its at the users choice, so they dont have to constantly delete huds from the programs custom folder, I figure
+  the viewer can be a good way for people to compare huds too."* Several huds can sit in the custom folder at once and
+  the chosen one is drawn; the stock HUD is what is drawn when none is chosen, and what tests read. Comparing huds is a
+  use the picker should serve.
+- `WithoutCustom` was documented "for parity, never for the viewer"; that half was wrong and is corrected.

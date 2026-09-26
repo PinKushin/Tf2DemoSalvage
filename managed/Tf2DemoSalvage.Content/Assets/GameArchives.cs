@@ -154,8 +154,8 @@ public sealed class GameArchives
     /// <summary>The same search path without anything under a `custom` folder: what Valve ships, alone.</summary>
     /// <returns>A view over the stock sources.</returns>
     /// <remarks>
-    /// **The HUD's default, and every test's.** The viewer's HUD starts from TF2's stock HUD and a custom one is chosen, never
-    /// picked up from `custom/` (D193); a reference for what TF2 draws by default must not see the owner's install, which
+    /// **The HUD's default, and every test's.** The viewer's HUD is TF2's stock HUD until the user chooses one, which then
+    /// wins — so several can sit in `custom/` without being deleted to switch (D193); a reference for what TF2 draws by default must not see the owner's install, which
     /// carries his HUD and his config (`docs/memory/modern-tf2-is-not-a-stock-reference.md`).
     /// </remarks>
     public GameArchives WithoutCustom() =>
