@@ -264,6 +264,23 @@ public sealed class VguiPaintConformanceTests
 
         public (int Wide, int Tall) DrawGetTextureSize(string texture) => (64, 64);
 
+        public void DrawSetTextFont(VguiFontAmalgam font) => Calls.Add("font");
+
+        public void DrawSetTextColor((byte Red, byte Green, byte Blue, byte Alpha) color) =>
+            Calls.Add($"text color {color.Red} {color.Green} {color.Blue} {color.Alpha}");
+
+        public void DrawSetTextPos(int x, int y) => Calls.Add(string.Create(CultureInfo.InvariantCulture, $"text pos {x} {y}"));
+
+        public (int X, int Y) DrawGetTextPos() => (0, 0);
+
+        public void DrawUnicodeChar(char character, VguiFontDrawType drawType = VguiFontDrawType.Default) => Calls.Add($"char {character}");
+
+        public void DrawPrintText(string text, VguiFontDrawType drawType = VguiFontDrawType.Default) => Calls.Add($"print {text}");
+
+        public int GetFontTall(VguiFontAmalgam font) => 0;
+
+        public (int A, int B, int C) GetCharAbcWide(VguiFontAmalgam font, char character) => (0, 0, 0);
+
         private static string Rect(string kind, int x0, int y0, int x1, int y1) =>
             string.Create(CultureInfo.InvariantCulture, $"{kind} {x0} {y0} {x1} {y1}");
     }

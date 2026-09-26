@@ -20,6 +20,9 @@ public sealed class VguiFontAmalgam
     /// <summary>The widest `tmMaxCharWidth` added.</summary>
     public int MaxWidth { get; private set; }
 
+    /// <summary>The first font — what `IsFontAdditive` (0x18001c510) and the underline test (0x18001c640) ask.</summary>
+    public VguiWin32Font? First => _fonts.Count == 0 ? null : _fonts[0].Font;
+
     /// <summary>`GetFontHeight`: the FIRST font's height; the maximum only when there is none.</summary>
     public int Height => _fonts.Count == 0 ? MaxHeight : _fonts[0].Font.Height;
 
