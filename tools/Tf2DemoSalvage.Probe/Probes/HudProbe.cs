@@ -68,6 +68,14 @@ public sealed class HudProbe : IProbe
 
         hud.Viewport.Scripts = new TfWeaponData(archives.Read);
 
+        if (archives.Read("scripts/items/items_game.txt") is { } itemsGame)
+        {
+            ItemSchema names = ItemSchema.Read(itemsGame);
+            hud.Viewport.ItemName = (definition, quality) => definition is { } index
+                ? TfItemName.Generate(names, index, quality, token => hud.Viewport.Context?.Localize?.Invoke(token))
+                : null;
+        }
+
         // Two frames: a panel's scheme pass runs children first, so what a parent's `.res` sets reaches them on the next.
         host.BeginFrame(1920, 1080);
         hud.Frame(state, events, reset: true);

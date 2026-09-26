@@ -7019,6 +7019,11 @@ internal class MainForm : Form, IFrameSteps
         if (_hudHooks is null && _game.Weapons.Items is { } items)
         {
             _hudHooks = new AttributeHooks(items);
+
+            // `CEconItemView::GetItemName`, under the HUD's own localisation.
+            _vguiHud.Viewport.ItemName = (definition, quality) => definition is { } index
+                ? TfItemName.Generate(items, index, quality, token => _vguiHud.Viewport.Context?.Localize?.Invoke(token))
+                : null;
         }
 
         int hudTick = _transport.CurrentTick;
