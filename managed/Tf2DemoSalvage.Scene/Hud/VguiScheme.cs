@@ -86,38 +86,8 @@ public sealed class VguiScheme
     /// <summary>`sscanf( text, "%d %d %d %d" )` into zeroed ints: how many were read, and the four.</summary>
     private static (int Count, int Red, int Green, int Blue, int Alpha) ScanColour(string text)
     {
-        int[] values = new int[4];
-        int count = 0;
-        ReadOnlySpan<char> rest = text;
-
-        while (count < 4)
-        {
-            rest = rest.TrimStart();
-
-            int length = 0;
-
-            if (length < rest.Length && rest[length] is '-' or '+')
-            {
-                length++;
-            }
-
-            int digits = length;
-
-            while (length < rest.Length && char.IsAsciiDigit(rest[length]))
-            {
-                length++;
-            }
-
-            if (length == digits)
-            {
-                break;
-            }
-
-            values[count++] = PanelLayout.Atoi(rest[..length]);
-            rest = rest[length..];
-
-            // The format's literal space matches any run of white space, including none.
-        }
+        Span<int> values = stackalloc int[4];
+        int count = PanelLayout.ScanInts(text, values);
 
         return (count, values[0], values[1], values[2], values[3]);
     }

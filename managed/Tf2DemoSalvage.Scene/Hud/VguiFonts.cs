@@ -167,14 +167,11 @@ public static class VguiFonts
     /// <summary>`sscanf( yres, "%d %d" )` into zeroed ints.</summary>
     private static (int Low, int High) Range(string? text)
     {
-        if (text is null)
-        {
-            return (0, 0);
-        }
+        Span<int> values = stackalloc int[2];
 
-        string[] parts = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        PanelLayout.ScanInts(text, values);
 
-        return (parts.Length > 0 ? PanelLayout.Atoi(parts[0]) : 0, parts.Length > 1 ? PanelLayout.Atoi(parts[1]) : 0);
+        return (values[0], values[1]);
     }
 
     /// <summary>`KeyValues::GetInt` on a string value: `atoi`.</summary>
