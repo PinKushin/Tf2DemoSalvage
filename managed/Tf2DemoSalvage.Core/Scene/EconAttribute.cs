@@ -97,6 +97,14 @@ public sealed record EconAttributeWire(
     }
 }
 
+/// <summary>One item a player carries or wears — an attribute provider.</summary>
+/// <param name="EntityIndex">Its entity slot.</param>
+/// <param name="ClassName">Its server class, such as `CTFScatterGun`, or null when the class table did not name it.</param>
+/// <param name="DefinitionIndex">`m_iItemDefinitionIndex`, or null when unsent.</param>
+/// <param name="Wire">Its networked attribute inputs.</param>
+/// <param name="IsWeapon">Whether it came from `m_hMyWeapons` — `PROVIDER_WEAPON`, which never provides to another weapon.</param>
+public sealed record SceneItem(int EntityIndex, string? ClassName, int? DefinitionIndex, EconAttributeWire Wire, bool IsWeapon);
+
 /// <summary>Resolving which attribute list answers, as the engine resolves it.</summary>
 public static class EconAttributes
 {

@@ -454,6 +454,22 @@ public class VguiPanel
         }
     }
 
+    /// <summary>`FindChildByName( name, bRecurseDown = false )` (Panel.cpp): a direct child, the name compared without case.</summary>
+    /// <param name="name">The child's name.</param>
+    /// <returns>The child, or null.</returns>
+    public VguiPanel? FindChildByName(string name)
+    {
+        foreach (VguiPanel child in _children)
+        {
+            if (string.Equals(child.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return child;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>`REGISTER_COLOR_AS_OVERRIDABLE`: a `.res` key that sets this colour and wins over the scheme afterwards.</summary>
     /// <param name="key">The script name, such as `fgcolor_override`.</param>
     /// <param name="set">What the colour sets.</param>

@@ -69,9 +69,24 @@ public sealed class WeaponScript
             : null;
     }
 
-    /// <summary>One key's value.</summary>
-    /// <param name="key">The key, without quotes; matched case-insensitively as Valve's reader does.</param>
-    /// <returns>The value, or <c>null</c> when the script does not declare it.</returns>
+    /// <summary>One key of the script's top block, as `pKeyValuesData->GetString( key )` reads it.</summary>
+    /// <param name="key">The key; matched case-insensitively as Valve's reader does.</param>
+    /// <returns>The value, or <c>null</c> when the block does not declare it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
-    public string? Value(string key) => ScriptKeyValue.First(_text, key);
+    /// <remarks>
+    /// **Parsed as KeyValues, not scanned for a quoted pair.** The shipped scripts write some keys bare —
+    /// `clip_size 4` in `tf_weapon_rocketlauncher` — which a quoted-pair scan never finds; and a key only in a nested
+    /// block (`SoundData`, `TextureData`) is not the top block's, which a scan would have answered with.
+    /// </remarks>
+    public string? Value(string key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        _tree ??= KeyValuesTree.Load(_text, Name, _ => null);
+
+        return _tree.Find(key) is { Children.Count: 0 } found ? found.Value : null;
+    }
+
+    /// <summary>The parsed script, on first use.</summary>
+    private KeyValuesTree? _tree;
 }

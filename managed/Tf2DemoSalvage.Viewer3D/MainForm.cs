@@ -4115,6 +4115,12 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The client's HUD viewport under `ClientScheme.res`; null until the game's files are open.</summary>
     private VguiHud? _vguiHud;
 
+    /// <summary>The weapon and class scripts the HUD's ammo reads; null until the game's files are open.</summary>
+    private TfWeaponData? _hudScripts;
+
+    /// <summary>`CALL_ATTRIB_HOOK_*` over `items_game.txt`; null until the schema is loaded.</summary>
+    private AttributeHooks? _hudHooks;
+
     /// <summary>Seconds since the window opened, for VGUI's 250 ms ticks.</summary>
     private readonly Stopwatch _vguiClock = Stopwatch.StartNew();
 
@@ -6974,7 +6980,14 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _vguiHost.BeginFrame(_viewport.ClientSize.Width, _viewport.ClientSize.Height);
-        _vguiHud.Frame(HudStates.For(_timeline, _transport.CurrentTick));
+        _hudScripts ??= new TfWeaponData(path => _game?.Archives.Read(path));
+
+        if (_hudHooks is null && _game.Weapons.Items is { } items)
+        {
+            _hudHooks = new AttributeHooks(items);
+        }
+
+        _vguiHud.Frame(HudStates.For(_timeline, _transport.CurrentTick, _hudScripts, _hudHooks));
         _vguiTools.Frame(
             _vguiClock.Elapsed.TotalSeconds,
             _clock.LastFrameSeconds,

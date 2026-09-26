@@ -12,8 +12,21 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="MaxHealth">`GetMaxHealth()`: the player resource's `m_iMaxHealth` for the local player.</param>
 /// <param name="MaxBuffedHealth">`m_Shared.GetMaxBuffedHealth()`.</param>
 /// <param name="CurTime">`gpGlobals->curtime`, which element thinks are throttled by.</param>
+/// <param name="Team">The local player's team: 0 unassigned, 1 spectator, 2 RED, 3 BLU.</param>
+/// <param name="Ammo">What the ammo element reads of the active weapon.</param>
+/// <param name="ActiveWeapon">The active weapon's entity slot, or 0 for none.</param>
 public readonly record struct HudState(
-    bool InGame, bool HasLocalPlayer, int HideHud, int Health, bool Alive, int MaxHealth = 0, int MaxBuffedHealth = 0, float CurTime = 0f);
+    bool InGame,
+    bool HasLocalPlayer,
+    int HideHud,
+    int Health,
+    bool Alive,
+    int MaxHealth = 0,
+    int MaxBuffedHealth = 0,
+    float CurTime = 0f,
+    int Team = 0,
+    TfAmmoState Ammo = default,
+    int ActiveWeapon = 0);
 
 /// <summary>`CHudElement` (game/client/hud.cpp): a HUD panel that hides by the player's `HIDEHUD` bits.</summary>
 public interface IHudElement
@@ -87,6 +100,7 @@ public static class HudVisibility
 public sealed class HudViewport : VguiEditablePanel
 {
     private readonly List<IHudElement> _elements = [];
+    private bool _teamSent;
 
     /// <summary>`CBaseViewport()`: named, and proportional from the start.</summary>
     public HudViewport()
@@ -116,6 +130,13 @@ public sealed class HudViewport : VguiEditablePanel
     /// <param name="state">The game state.</param>
     public void Think(HudState state)
     {
+        // `localplayer_changeteam`, which every `CTFImagePanel` listens for (tf_imagepanel.cpp:79).
+        if (state.Team != State.Team || !_teamSent)
+        {
+            _teamSent = true;
+            SetLocalTeam(this, state.Team);
+        }
+
         State = state;
 
         foreach (IHudElement element in _elements)
@@ -124,6 +145,19 @@ public sealed class HudViewport : VguiEditablePanel
             {
                 panel.Visible = element.ShouldDraw(state);
             }
+        }
+    }
+
+    private static void SetLocalTeam(VguiPanel panel, int team)
+    {
+        if (panel is TfImagePanel image)
+        {
+            image.LocalTeam = team;
+        }
+
+        foreach (VguiPanel child in panel.Children)
+        {
+            SetLocalTeam(child, team);
         }
     }
 

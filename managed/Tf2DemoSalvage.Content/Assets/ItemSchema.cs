@@ -1243,13 +1243,22 @@ public sealed class ItemSchema
     /// multiplies, an additive or particle index adds, a lookup-table or killstreak index replaces, `value_is_or` sets bits,
     /// and any other format replaces. *Not carried:* the attributes an item's own instance sends on the wire.
     /// </remarks>
-    public float HookValue(int definitionIndex, string attributeClass, float initial)
+    public float HookValue(int definitionIndex, string attributeClass, float initial) =>
+        Apply(DefinitionAttributesFor(definitionIndex), attributeClass, initial);
+
+    /// <summary>`CEconItemAttributeIterator_ApplyAttributeFloat` over one list: each attribute of the hook's class, applied.</summary>
+    /// <param name="attributes">The attributes, as one item or player resolves them.</param>
+    /// <param name="attributeClass">The hook's class.</param>
+    /// <param name="initial">The value so far.</param>
+    /// <returns>The value after the list.</returns>
+    public float Apply(IEnumerable<EconAttributeValue> attributes, string attributeClass, float initial)
     {
+        ArgumentNullException.ThrowIfNull(attributes);
         ArgumentNullException.ThrowIfNull(attributeClass);
 
         float value = initial;
 
-        foreach (EconAttributeValue attribute in DefinitionAttributesFor(definitionIndex))
+        foreach (EconAttributeValue attribute in attributes)
         {
             if (!_attributeClass.TryGetValue(attribute.DefinitionIndex, out string? named) ||
                 !string.Equals(named, attributeClass, StringComparison.OrdinalIgnoreCase))

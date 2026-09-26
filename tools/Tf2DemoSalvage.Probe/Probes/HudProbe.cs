@@ -31,18 +31,23 @@ public sealed class HudProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         bool custom = arguments.Contains("custom");
+        GameArchives all = GameArchives.Open(new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder());
+        GameArchives archives = custom ? all : all.WithoutCustom();
         HudState state = arguments.Contains("playing") ? new HudState(true, true, 0, 60, true, 125, 185, 1f) : default;
 
         // `hud <demo> <tick>`: the state HudStates reads there — the production route — instead of a made-up one.
         if (arguments.Count >= 2 && arguments[0].EndsWith(".dem", StringComparison.OrdinalIgnoreCase))
         {
+            ItemSchema? items = archives.Read("scripts/items/items_game.txt") is { } schema ? ItemSchema.Read(schema) : null;
+
             state = HudStates.For(
-                Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(arguments[0])), int.Parse(arguments[1], CultureInfo.InvariantCulture));
+                Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(arguments[0])),
+                int.Parse(arguments[1], CultureInfo.InvariantCulture),
+                new TfWeaponData(archives.Read),
+                items is null ? null : new AttributeHooks(items));
         }
 
         output.WriteLine($"state: {state}");
-        GameArchives all = GameArchives.Open(new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder());
-        GameArchives archives = custom ? all : all.WithoutCustom();
         VguiSurfaceHost host = new(archives.Read, archives.FullPathOnDisk, new NoFonts(), _ => (64, 64));
         VguiHud hud = new(host);
 

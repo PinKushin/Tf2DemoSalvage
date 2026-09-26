@@ -24,7 +24,11 @@ public sealed class VguiHud
     {
         _host = host ?? throw new System.ArgumentNullException(nameof(host));
         PlayerStatus = new TfHudPlayerStatus(Viewport);
+        WeaponAmmo = new TfHudWeaponAmmo(Viewport);
     }
+
+    /// <summary>`CTFHudWeaponAmmo`.</summary>
+    public TfHudWeaponAmmo WeaponAmmo { get; }
 
     /// <summary>`CBaseViewport`, which the elements are parented to.</summary>
     public HudViewport Viewport { get; } = new();

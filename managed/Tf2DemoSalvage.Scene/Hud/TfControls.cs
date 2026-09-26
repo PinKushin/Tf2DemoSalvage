@@ -79,6 +79,12 @@ public sealed class TfImagePanel(VguiPanel? parent, string? name) : VguiScalable
             _teamBg[team] = block.Find(string.Create(CultureInfo.InvariantCulture, $"teambg_{team}"))?.Value ?? string.Empty;
         }
 
+        // The constructor's `GetLocalPlayer()->GetTeamNumber()`: a panel a `.res` makes now reads the team now.
+        if (HudViewport.Of(this) is { } viewport)
+        {
+            _localTeam = viewport.State.Team;
+        }
+
         base.ApplySettings(block, context);
         UpdateBGImage();
     }
