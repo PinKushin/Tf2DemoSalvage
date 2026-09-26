@@ -127,6 +127,32 @@ public sealed class KeyValuesTreeConformanceTests
         roots.Select(root => root.Name).ShouldBe(["First", "Second", "Extra"]);
     }
 
+    /// <remarks>
+    /// `KeyValues::ProcessResolutionKeys` (`KeyValues.cpp:2996`): a key whose name ENDS in the suffix, compared without
+    /// case, replaces the plain key in its block and takes its name, at every depth. `_minmode_wide` does not match
+    /// `_minmode`, because the suffix must be the whole tail.
+    /// </remarks>
+    [Test]
+    public void ProcessResolutionKeys_MinMode_ReplacesThePlainKeysAtEveryDepth()
+    {
+        KeyValuesTree root = Load("""
+            Root
+            {
+                "xpos"          "10"
+                "xpos_minmode"  "5"
+                "ypos_minmode_wide" "7"
+                Child { "tall" "3" "TALL_MINMODE" "1" }
+            }
+            """);
+
+        root.ProcessResolutionKeys("_minmode");
+
+        root.Find("xpos")!.Value.ShouldBe("5");
+        root.Children.Count(child => child.Name == "xpos").ShouldBe(1);
+        root.Find("ypos_minmode_wide").ShouldNotBeNull();
+        root.Find("Child")!.Find("tall")!.Value.ShouldBe("1");
+    }
+
     private static KeyValuesTree Load(string text, string resource = "test.res", Dictionary<string, string>? files = null) =>
         KeyValuesTree.Load(
             Encoding.UTF8.GetBytes(text),

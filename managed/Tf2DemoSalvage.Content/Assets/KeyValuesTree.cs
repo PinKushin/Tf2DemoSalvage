@@ -41,7 +41,48 @@ public sealed class KeyValuesTree
     }
 
     /// <summary>The key.</summary>
-    public string Name { get; }
+    public string Name { get; private set; }
+
+    /// <summary>`KeyValues::ProcessResolutionKeys`: suffixed keys replace the plain ones, at every depth.</summary>
+    /// <param name="suffix">The suffix, such as `_minmode`; null does nothing, as on PC for the resolution key.</param>
+    /// <remarks>
+    /// `KeyValues.cpp:2996`. Each child recurses first; then a child whose name ends in the suffix (compared without case,
+    /// and only as the whole tail — `_lodef` must not match `_lodef_wide`) removes the first key with the plain name
+    /// (`FindKey`, without case) and takes that name.
+    /// </remarks>
+    public void ProcessResolutionKeys(string? suffix)
+    {
+        if (suffix is null || _children.Count == 0)
+        {
+            return;
+        }
+
+        // `pSubKey = pSubKey->GetNextKey()`: the walk continues after the child just processed, wherever a removal left it.
+        int next = 0;
+
+        while (next < _children.Count)
+        {
+            KeyValuesTree child = _children[next];
+
+            child.ProcessResolutionKeys(suffix);
+
+            int at = child.Name.IndexOf(suffix, StringComparison.OrdinalIgnoreCase);
+
+            if (at >= 0 && string.Equals(child.Name[at..], suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                string plain = child.Name[..at];
+
+                if (Find(plain) is { } original)
+                {
+                    _children.Remove(original);
+                }
+
+                child.Name = plain;
+            }
+
+            next = _children.IndexOf(child) + 1;
+        }
+    }
 
     /// <summary>The value, or null for a block.</summary>
     public string? Value { get; private set; }
