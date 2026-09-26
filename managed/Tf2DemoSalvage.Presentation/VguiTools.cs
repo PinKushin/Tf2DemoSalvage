@@ -1,6 +1,5 @@
 using System;
 
-using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Presentation;
@@ -9,7 +8,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <remarks>
 /// A full-screen root with no background, under the platform scheme `resource/SourceScheme.res`, which is where
 /// `DefaultFixedOutline` is declared. Each frame: sample the meter, pass the tick, `SolveTraverse`, `PaintTraverse` into
-/// a draw list the renderer draws. A new screen size reloads the scheme's fonts, as the engine does on a resolution change.
+/// the host's draw list. A new screen size loads the scheme again, as the engine does on a resolution change.
 /// **The tick** is `ivgui()->AddTickSignal( panel, 250 )`: `OnTick` runs once 250 ms have passed since the last.
 /// </remarks>
 public sealed class VguiTools
@@ -17,28 +16,16 @@ public sealed class VguiTools
     private const string SchemePath = "resource/SourceScheme.res";
     private const double TickSeconds = 0.25;
 
-    private readonly Func<string, byte[]?> _read;
-    private readonly Func<string, string?> _fullPath;
-    private readonly IVguiGdi _gdi;
-    private readonly string _language;
+    private readonly VguiSurfaceHost _host;
     private readonly VguiPanel _root = new(null, "ToolsPanel") { PaintBackgroundEnabled = false };
     private VguiContext? _context;
-    private VguiDrawList? _list;
     private double _nextTick = double.NaN;
 
     /// <summary>Makes the tools root and the frame-rate panel on it.</summary>
-    /// <param name="read">Reads a game file by path.</param>
-    /// <param name="fullPath">A game path to the loose file on disk, for custom fonts.</param>
-    /// <param name="gdi">The GDI adapter fonts are made through.</param>
-    /// <param name="textureSize">A material's texture size, for the draw list.</param>
-    /// <param name="language">The game's language.</param>
-    public VguiTools(Func<string, byte[]?> read, Func<string, string?> fullPath, IVguiGdi gdi, Func<string, (int Wide, int Tall)> textureSize, string language = "english")
+    /// <param name="host">The surface the tools panel shares with the other roots.</param>
+    public VguiTools(VguiSurfaceHost host)
     {
-        _read = read ?? throw new ArgumentNullException(nameof(read));
-        _fullPath = fullPath ?? throw new ArgumentNullException(nameof(fullPath));
-        _gdi = gdi ?? throw new ArgumentNullException(nameof(gdi));
-        TextureSize = textureSize ?? throw new ArgumentNullException(nameof(textureSize));
-        _language = language;
+        _host = host ?? throw new ArgumentNullException(nameof(host));
         Fps = new FpsPanel(_root);
     }
 
@@ -51,33 +38,30 @@ public sealed class VguiTools
     /// <summary>The most recent reading, drawn or not — what <see cref="FrameRateLog"/> reports.</summary>
     public FpsReading? LastReading { get; private set; }
 
-    private Func<string, (int Wide, int Tall)> TextureSize { get; }
-
-    /// <summary>Lays out and paints this frame.</summary>
-    /// <param name="wide">The screen's width.</param>
-    /// <param name="tall">Its height.</param>
+    /// <summary>Lays out and paints this frame into the host's list, begun already.</summary>
     /// <param name="realtime">Seconds since the viewer started, for the tick.</param>
     /// <param name="frameSeconds">How long the previous frame took.</param>
     /// <param name="mode">`cl_showfps`.</param>
     /// <param name="position">`cl_showpos` and what it reads.</param>
     /// <param name="mapName">The open map without its extension, or null.</param>
-    /// <returns>The frame's draw list.</returns>
-    public VguiDrawList Frame(int wide, int tall, double realtime, double frameSeconds, int mode, PositionReadout position, string? mapName)
+    public void Frame(double realtime, double frameSeconds, int mode, PositionReadout position, string? mapName)
     {
         Meter.Mode = mode;
         LastReading = Meter.Sample(frameSeconds);
 
-        if (_context is null || _list is null || _context.ScreenWide != wide || _context.ScreenTall != tall)
+        if (_context is null || !ReferenceEquals(_context.Surface, _host.List))
         {
-            Reload(wide, tall);
+            _context = _host.LoadScheme(SchemePath);
+
+            // A resolution change reloads every panel's scheme — and `CFPSPanel::ApplySchemeSettings` calls `ComputeSize`.
+            _root.InvalidateLayout(reloadScheme: true);
         }
 
-        VguiContext context = _context!;
-        VguiDrawList list = _list!;
+        VguiContext context = _context;
 
-        if ((_root.Wide, _root.Tall) != (wide, tall))
+        if ((_root.Wide, _root.Tall) != (_host.Wide, _host.Tall))
         {
-            (_root.Wide, _root.Tall) = (wide, tall);
+            (_root.Wide, _root.Tall) = (_host.Wide, _host.Tall);
 
             // `CFPSPanel::OnScreenSizeChanged` (vgui_fpspanel.cpp:103): measured again whether shown or not.
             Fps.ComputeSize();
@@ -102,23 +86,6 @@ public sealed class VguiTools
         }
 
         VguiLayout.SolveTraverse(_root, context);
-        list.Clear();
-        _root.PaintTraverse(list, context);
-
-        return list;
-    }
-
-    private void Reload(int wide, int tall)
-    {
-        KeyValuesTree root = _read(SchemePath) is { } bytes ? KeyValuesTree.Load(bytes, SchemePath, _read) : KeyValuesTree.Load([], SchemePath, _read);
-        VguiScheme scheme = VguiScheme.Load(root);
-        VguiFontManager manager = new(_gdi);
-        VguiSchemeFonts fonts = VguiSchemeFonts.Load(root, manager, _fullPath, _language, tall);
-
-        _context = new VguiContext(scheme, VguiBorders.Load(root, scheme, tall), root.FindOrCreate("Fonts"), wide, tall, _language, fonts);
-        _list = new VguiDrawList(TextureSize, manager);
-
-        // A resolution change reloads every panel's scheme — and `CFPSPanel::ApplySchemeSettings` calls `ComputeSize`.
-        _root.InvalidateLayout(reloadScheme: true);
+        _root.PaintTraverse(_host.List, context);
     }
 }

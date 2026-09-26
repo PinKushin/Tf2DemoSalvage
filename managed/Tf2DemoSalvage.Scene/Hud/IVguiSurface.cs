@@ -112,6 +112,12 @@ public interface IVguiSurface
     /// <param name="character">The character.</param>
     /// <returns>Leading, glyph and trailing widths.</returns>
     public (int A, int B, int C) GetCharAbcWide(VguiFontAmalgam font, char character);
+
+    /// <summary>`GetCharacterWidth`.</summary>
+    /// <param name="font">The handle.</param>
+    /// <param name="character">The character.</param>
+    /// <returns>The advance; 0 for a control character.</returns>
+    public int GetCharacterWidth(VguiFontAmalgam font, char character);
 }
 
 /// <summary>`FontDrawType_t`.</summary>

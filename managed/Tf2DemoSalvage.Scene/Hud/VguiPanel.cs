@@ -60,6 +60,7 @@ public class VguiPanel
     private readonly List<VguiPanel> _children = [];
     private readonly List<AnimationVar> _animationVars = [];
     private readonly Dictionary<string, (byte, byte, byte, byte)> _colourOverrides = new(StringComparer.Ordinal);
+    private readonly List<(string Key, Action<(byte, byte, byte, byte)> Set)> _overridableColors = [];
     private bool _needsDefaultSettings = true;
 
     // `Init` sets NEEDS_LAYOUT and NEEDS_SCHEME_UPDATE.
@@ -84,6 +85,8 @@ public class VguiPanel
         DeclareAnimationVar("Texture2", VguiPanelVarType.TextureId, "vgui/hud/8x800corner2");
         DeclareAnimationVar("Texture3", VguiPanelVarType.TextureId, "vgui/hud/8x800corner3");
         DeclareAnimationVar("Texture4", VguiPanelVarType.TextureId, "vgui/hud/8x800corner4");
+        RegisterColorAsOverridable("fgcolor_override", color => FgColor = color);
+        RegisterColorAsOverridable("bgcolor_override", color => BgColor = color);
         SetParent(parent);
     }
 
@@ -377,8 +380,11 @@ public class VguiPanel
 
         PinTo(block.Find("pin_to_sibling")?.Value, block.Find("pin_corner_to_sibling")?.Value, block.Find("pin_to_sibling_corner")?.Value);
 
-        ApplyColourOverride(block, "fgcolor_override", context);
-        ApplyColourOverride(block, "bgcolor_override", context);
+        foreach ((string key, _) in _overridableColors)
+        {
+            ApplyColourOverride(block, key, context);
+        }
+
         ApplyOverridableColors();
     }
 
@@ -447,6 +453,11 @@ public class VguiPanel
             child.InvalidateLayout(reloadScheme: true);
         }
     }
+
+    /// <summary>`REGISTER_COLOR_AS_OVERRIDABLE`: a `.res` key that sets this colour and wins over the scheme afterwards.</summary>
+    /// <param name="key">The script name, such as `fgcolor_override`.</param>
+    /// <param name="set">What the colour sets.</param>
+    protected void RegisterColorAsOverridable(string key, Action<(byte, byte, byte, byte)> set) => _overridableColors.Add((key, set));
 
     /// <summary>`PerformLayout`: empty — a control places its parts here.</summary>
     protected virtual void PerformLayout()
@@ -889,14 +900,12 @@ public class VguiPanel
     /// <summary>`ApplyOverridableColors`.</summary>
     private void ApplyOverridableColors()
     {
-        if (_colourOverrides.TryGetValue("fgcolor_override", out (byte, byte, byte, byte) fg))
+        foreach ((string key, Action<(byte, byte, byte, byte)> set) in _overridableColors)
         {
-            FgColor = fg;
-        }
-
-        if (_colourOverrides.TryGetValue("bgcolor_override", out (byte, byte, byte, byte) bg))
-        {
-            BgColor = bg;
+            if (_colourOverrides.TryGetValue(key, out (byte, byte, byte, byte) color))
+            {
+                set(color);
+            }
         }
     }
 

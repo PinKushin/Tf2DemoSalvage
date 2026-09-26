@@ -1,3 +1,5 @@
+using System;
+
 using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Scene.Hud;
@@ -28,4 +30,10 @@ public sealed record VguiContext(
     /// <param name="proportional">Whether the proportional handle is asked for.</param>
     /// <returns>The handle, or null — handle 0 — when the scheme has none.</returns>
     public VguiFontAmalgam? GetFont(string name, bool proportional) => SchemeFonts?.GetFont(name, proportional);
+
+    /// <summary>`vgui::surface()` as a panel measures with it outside `Paint` — text sizes in `ApplySchemeSettings` and `PerformLayout`.</summary>
+    public IVguiSurface? Surface { get; init; }
+
+    /// <summary>`g_pVGuiLocalize->Find` without the `#`, or null where nothing is localised.</summary>
+    public Func<string, string?>? Localize { get; init; }
 }
