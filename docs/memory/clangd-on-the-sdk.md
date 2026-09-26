@@ -5,6 +5,10 @@ metadata:
   type: reference
 ---
 
+**SDK `.cpp`/`.h` lookups go through clangd, not grep/sed** — owner, 2026-09-26: *".cpp files should be going
+through clang not grep btw"*. Symbol source (`get_symbol_source`), callers, overrides and references come from
+clangd; grep on the SDK is only for prose, string literals and ConVar names.
+
 The `mcp__clangd__*` tools (agent-lsp over `C:\Program Files\LLVM\bin\clangd.exe`) cover `F:/src/source-sdk-2013/src`:
 `compile_commands.json` there has 2,604 entries — all 276 `game/client/tf/*.cpp` included — and the background index
 (`src/.cache/clangd/index`, ~4,900 shards) is already built.
