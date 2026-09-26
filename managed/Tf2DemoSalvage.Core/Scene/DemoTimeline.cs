@@ -499,6 +499,12 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
 
     /// <summary>`ObjectiveResource()->GetTimerToShowInHUD()`: `m_iTimerToShowInHUD` (team_objectiveresource.cpp:25), 0 for none.</summary>
     public int TimerToShowInHud { get; init; }
+
+    /// <summary>`GetBlueKothRoundTimer()`: `m_hBlueKothTimer`'s entity index (tf_gamerules.cpp:1513), or null.</summary>
+    public int? BlueKothTimer { get; init; }
+
+    /// <summary>`GetRedKothRoundTimer()`: `m_hRedKothTimer`'s entity index (:1512), or null.</summary>
+    public int? RedKothTimer { get; init; }
 }
 
 /// <summary>One corpse, as <c>DT_TFRagdoll</c> describes it.</summary>
@@ -2910,6 +2916,8 @@ public sealed class DemoTimeline
                 GameType = gameRules?.Integer("DT_TFGameRules.m_nGameType") ?? 0,
                 Koth = gameRules?.Integer("DT_TFGameRules.m_bPlayingKoth") is > 0,
                 ShowMatchSummary = gameRules?.Integer("DT_TFGameRules.m_bShowMatchSummary") is > 0,
+                BlueKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hBlueKothTimer")),
+                RedKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hRedKothTimer")),
                 TimerToShowInHud = entities.OfClass(ObjectiveResourceClass).FirstOrDefault()?.Integer("DT_BaseTeamObjectiveResource.m_iTimerToShowInHUD") ?? 0,
             };
 

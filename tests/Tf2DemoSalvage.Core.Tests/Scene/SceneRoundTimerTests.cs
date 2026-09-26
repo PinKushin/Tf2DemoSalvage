@@ -35,6 +35,7 @@ public sealed class SceneRoundTimerTests
 
         (rules.WaitingForPlayers, rules.Overtime, rules.Setup, rules.StopWatch, rules.GameType, rules.Koth, rules.ShowMatchSummary, rules.TimerToShowInHud)
             .ShouldBe((true, true, true, true, 4, true, true, 42));
+        (rules.BlueKothTimer, rules.RedKothTimer).ShouldBe((42, (int?)null));
     }
 
     [TestCase(false, 300.25f, 100f, 200.25f)]

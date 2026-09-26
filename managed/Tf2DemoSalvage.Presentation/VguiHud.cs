@@ -35,7 +35,11 @@ public sealed class VguiHud
         Crosshair = new TfHudCrosshair(Viewport);
         SpectatorTargetId = new TfSpectatorTargetId(Viewport);
         MatchStatus = new TfHudMatchStatus(Viewport);
+        KothTimeStatus = new TfHudKothTimeStatus(Viewport);
     }
+
+    /// <summary>`CTFHudKothTimeStatus`.</summary>
+    public TfHudKothTimeStatus KothTimeStatus { get; }
 
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
     public TfHudMatchStatus MatchStatus { get; }
@@ -96,6 +100,8 @@ public sealed class VguiHud
         {
             DeathNotice.HandleGameEvent(fired with { RealTime = state.RealTime });
             MatchStatus.TimePanel.HandleGameEvent(fired);
+            KothTimeStatus.BluePanel.HandleGameEvent(fired);
+            KothTimeStatus.RedPanel.HandleGameEvent(fired);
         }
 
         Viewport.Think(state);
@@ -107,6 +113,8 @@ public sealed class VguiHud
         if (reset)
         {
             MatchStatus.TimePanel.RefreshExtraTimePanels();
+            KothTimeStatus.BluePanel.RefreshExtraTimePanels();
+            KothTimeStatus.RedPanel.RefreshExtraTimePanels();
         }
         Viewport.PaintTraverse(_host.List, _context);
     }

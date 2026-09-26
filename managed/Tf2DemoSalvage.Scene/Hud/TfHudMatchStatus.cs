@@ -167,6 +167,9 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
     /// <summary>`ShouldUseMatchHUD()`, as the parent decided it.</summary>
     public bool UseMatchHud { get; set; } = true;
 
+    /// <summary>`m_nTeam` (`SetTeam`): whose timer this is in KOTH — RED's panel is RED, every other `TEAM_UNASSIGNED`.</summary>
+    public int Team { get; set; }
+
     /// <inheritdoc/>
     public override void ApplySchemeSettings(VguiContext context)
     {
@@ -343,7 +346,7 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
         _deltaHead = (_deltaHead + 1) % NumTimerDeltaItems;
     }
 
-    /// <summary>`SetTeamBackground` (:327): the local team's background — the timer's owner's in KOTH, which is BLU here.</summary>
+    /// <summary>`SetTeamBackground` (:327): the local team's background — in KOTH outside waiting for players, `m_nTeam`'s.</summary>
     private void SetTeamBackground(HudState state)
     {
         if (_timerBg is null)
@@ -351,8 +354,7 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
             return;
         }
 
-        // In KOTH, outside waiting for players, the background follows `m_nTeam`, which this element's timer never sets.
-        int team = !state.Rules.Koth || state.Rules.WaitingForPlayers ? state.Team : 0;
+        int team = !state.Rules.Koth || state.Rules.WaitingForPlayers ? state.Team : Team;
 
         _timerBg.SetImage(team == TeamRed ? "../hud/objectives_timepanel_red_bg" : "../hud/objectives_timepanel_blue_bg");
     }
