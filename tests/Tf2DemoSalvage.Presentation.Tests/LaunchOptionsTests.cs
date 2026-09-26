@@ -122,10 +122,21 @@ public sealed class LaunchOptionsTests
         // the config file uses (D69, D70) — so every setting is settable here for free.
         ViewerSettings before = ViewerSettings.Load();
 
-        LaunchOptions read = Read("+fov_desired", "75");
+        LaunchOptions read = Read("+demo_fov_override", "75");
 
-        read.Settings.FieldOfView.ShouldBe(75f);
+        read.Settings.DemoFovOverride.ShouldBe(75f);
         read.Settings.ShouldNotBe(before, "the command line must override the config it was given");
+    }
+
+    [Test]
+    public void Read_DemoFovOverrideZero_TurnsTheOverrideOff() =>
+        Read("+demo_fov_override", "0").Settings.DemoFovOverride.ShouldBe(0f);
+
+    [Test]
+    public void Read_FovDesired_ChangesNothing()
+    {
+        // Userinfo the server turns into `m_iDefaultFOV` (tf_gamerules.cpp:10275); playback has no server (D194).
+        Read("+fov_desired", "75").Settings.DemoFovOverride.ShouldBe(ViewerSettings.Load().DemoFovOverride);
     }
 
     [Test]

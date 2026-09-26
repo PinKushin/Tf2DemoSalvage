@@ -340,12 +340,6 @@ public sealed record ViewerSettings
     /// <inheritdoc cref="SmallestDemoViewmodelFieldOfView"/>
     public const float LargestDemoViewmodelFieldOfView = 179.9f;
 
-    /// <summary>Command name for the player's world field of view.</summary>
-    /// <remarks>
-    /// What a real config sets, so a pasted one works (D69).
-    /// </remarks>
-    public const string FieldOfViewCommand = "fov_desired";
-
     /// <summary>Command name for the field of view used while playing a demo.</summary>
     /// <remarks>
     /// **Valve's own cvar for exactly this program's job**, and finding it was the point of
@@ -353,9 +347,9 @@ public sealed record ViewerSettings
     /// FCVAR_DONTRECORD, "If nonzero, this value will be used to override FOV during demo
     /// playback." )` — <c>c_baseplayer.cpp:120</c>.
     ///
-    /// **It wins over <see cref="FieldOfViewCommand"/> when nonzero, which is the engine's own
+    /// **It wins over everything when above zero, zoom included, which is the engine's own
     /// precedence** (<c>:2438</c>): the engine asks whether a demo is playing and the override is
-    /// greater than zero, and only then uses it.
+    /// greater than zero, and only then uses it. `fov_desired` has no effect on playback at all.
     /// </remarks>
     public const string DemoFieldOfViewCommand = "demo_fov_override";
 
@@ -680,20 +674,19 @@ public sealed record ViewerSettings
     /// <summary>The crosshair's cvars, at TF2's defaults until a config says otherwise.</summary>
     public CrosshairSettings Crosshair { get; init; } = new();
 
-    /// <summary>The world field of view, in degrees.</summary>
+    /// <summary>`demo_fov_override`, in degrees; zero or less for none.</summary>
     /// <remarks>
     /// **Settable because the game lets a player set it, which is the whole rule** (D69,
-    /// <c>docs/findings/13-settings-parity.md</c>). It was compiled in three separate places before
-    /// — <see cref="FreeCamera.FieldOfView"/>, <c>OverheadPlacement.For</c>'s default and the call
-    /// site — so the choice belonged to nobody. The owner's point when this came up: *"that is
+    /// <c>docs/findings/13-settings-parity.md</c>). The owner's point when this came up: *"that is
     /// exactly why i want our settings to be settable from a config file, it makes changing them and
     /// changing defaults free"*.
     ///
-    /// Two names are honoured and the demo one wins, which is the engine's own precedence — see
-    /// <see cref="DemoFieldOfViewCommand"/>. Clamped to 10..90, the range the engine allows a demo
-    /// to be watched at.
+    /// **Stored as set and clamped where it is used**, as the engine stores the cvar and clamps inside `GetFOV`
+    /// (`PlayerFov.Get`). Zero turns it off, and then the view is the recorded player's own: `m_iFOV` while zoomed, else
+    /// `m_iDefaultFOV` (D194). `fov_desired` is not read — it is userinfo the server turns into `m_iDefaultFOV`, and
+    /// playback has no server.
     /// </remarks>
-    public float FieldOfView { get; init; } = DefaultFieldOfView;
+    public float DemoFovOverride { get; init; } = DefaultFieldOfView;
 
     /// <summary>Whether to present in step with the display's refresh.</summary>
     /// <remarks>
@@ -876,28 +869,10 @@ public sealed record ViewerSettings
             },
         };
 
-        // **Both names, and the demo one wins, which is the engine's own precedence.** A config
-        // pasted from TF2 sets `fov_desired`; `demo_fov_override` exists specifically to override
-        // FOV during demo playback and the engine prefers it when nonzero
-        // (`c_baseplayer.cpp:2438`). This viewer is always in the demo case, so honouring only one
-        // would either ignore a real config or ignore the setting made for exactly this program.
-        //
-        // Clamped rather than refused, like the viewmodel above: 10..90 is what
-        // `clamp( demo_fov_override.GetFloat(), 10.0f, 90.0f )` allows (`:2444`).
-        if (ReadNumber(values, FieldOfViewCommand) is { } desiredFov)
+        // `demo_fov_override` as set, zero included: `GetFOV` clamps it only once it is above zero (`c_baseplayer.cpp:2438`).
+        if (ReadNumber(values, DemoFieldOfViewCommand) is { } demoFov)
         {
-            settings = settings with
-            {
-                FieldOfView = Math.Clamp(desiredFov, MinimumFieldOfView, MaximumFieldOfView),
-            };
-        }
-
-        if (ReadNumber(values, DemoFieldOfViewCommand) is { } demoFov and > 0f)
-        {
-            settings = settings with
-            {
-                FieldOfView = Math.Clamp(demoFov, MinimumFieldOfView, MaximumFieldOfView),
-            };
+            settings = settings with { DemoFovOverride = demoFov };
         }
 
         // **A string, so it is read from the dictionary rather than through Read.** Every other
@@ -1160,15 +1135,15 @@ public sealed record ViewerSettings
             // through two decimal places. An exact comparison would call 70 "chosen" after a save.
             Math.Abs(ViewmodelFieldOfView - Defaults.ViewmodelFieldOfView) < 0.005f);
         text.AppendLine();
-        text.AppendLine("// Field of view for the world, in degrees. The game allows 10 to 90 while");
-        text.AppendLine("// a demo plays and defaults to 75 in live play; this viewer defaults to 90,");
-        text.AppendLine("// which is the widest the game itself will watch a demo at and what most");
-        text.AppendLine("// players use. `demo_fov_override` overrides this when set, as in game.");
+        text.AppendLine("// Field of view for the world while a demo plays, in degrees, clamped to");
+        text.AppendLine("// 10..90 as in game. This viewer defaults to 90. Set 0 to watch through the");
+        text.AppendLine("// recorded player's own field of view instead, scope zoom included; the");
+        text.AppendLine("// game's default is 0. `fov_desired` does nothing in demo playback.");
         Setting(
             text,
-            FieldOfViewCommand,
-            FieldOfView.ToString("0.##", CultureInfo.InvariantCulture),
-            Math.Abs(FieldOfView - Defaults.FieldOfView) < 0.005f);
+            DemoFieldOfViewCommand,
+            DemoFovOverride.ToString("0.##", CultureInfo.InvariantCulture),
+            Math.Abs(DemoFovOverride - Defaults.DemoFovOverride) < 0.005f);
         text.AppendLine();
         text.AppendLine("// Where screenshots go. Empty writes them beside this file's folder.");
         text.AppendLine("// Point it at another drive to keep a long history without spending the");

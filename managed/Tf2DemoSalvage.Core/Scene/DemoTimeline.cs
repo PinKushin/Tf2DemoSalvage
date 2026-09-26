@@ -257,6 +257,21 @@ public readonly record struct ScenePlayer(
     /// </summary>
     public (float Charge, int Quality, int? Definition)? Medigun { get; init; }
 
+    /// <summary>`m_iFOV` (player.cpp:8186, sent to everyone): the zoomed field of view, 0 for none.</summary>
+    public int? Fov { get; init; }
+
+    /// <summary>`m_iFOVStart` (:8187): where a zoom lerps from.</summary>
+    public int? FovStart { get; init; }
+
+    /// <summary>`m_flFOVTime` (:8188): when the zoom began.</summary>
+    public float? FovTime { get; init; }
+
+    /// <summary>`m_Local.m_flFOVRate`: how long the zoom takes — `DT_Local`, so the recorder's alone.</summary>
+    public float? FovRate { get; init; }
+
+    /// <summary>`m_iDefaultFOV` (:8189): the player's `fov_desired`, clamped to 75..90 by the server (tf_gamerules.cpp:10275).</summary>
+    public int? DefaultFov { get; init; }
+
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
     /// <c>FL_DUCKING</c>. Null flags mean the recording never said, which is every player but the
@@ -436,12 +451,17 @@ public readonly record struct TimelinePhases(
 /// game rules entity. <c>GR_STATE_TEAM_WIN</c> is 5.
 /// </param>
 /// <param name="Rules">The game rules the client's HUD tests at this tick.</param>
+/// <param name="ServerTick">
+/// The last `net_Tick` — the server's `gpGlobals->tickcount`, the clock networked times such as `m_flFOVTime` are on — or
+/// null before one arrived.
+/// </param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
     int? RecorderTeam = null,
     int? RoundState = null,
-    SceneGameRules Rules = default);
+    SceneGameRules Rules = default,
+    int? ServerTick = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -2794,6 +2814,11 @@ public sealed class DemoTimeline
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
                     KillStreak = player.Integer("m_nStreaks.000"),
                     Medigun = MedigunOf(player, entities),
+                    Fov = player.Integer("DT_BasePlayer.m_iFOV"),
+                    FovStart = player.Integer("DT_BasePlayer.m_iFOVStart"),
+                    FovTime = player.Number("DT_BasePlayer.m_flFOVTime"),
+                    FovRate = player.Number("DT_Local.m_flFOVRate"),
+                    DefaultFov = player.Integer("DT_BasePlayer.m_iDefaultFOV"),
                 });
             }
 
@@ -2812,14 +2837,16 @@ public sealed class DemoTimeline
                 gameRules?.Integer(HalloweenScenarioProperty) ?? 0,
                 entities.OfClass(PlayerDestructionClass).Any());
 
+            int? serverTick = entities.PacketTick > 0 ? entities.PacketTick : null;
+
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick));
         }
 
         Backfill(frames);
@@ -5147,6 +5174,10 @@ public sealed class DemoTimeline
     /// <param name="tick">The tick.</param>
     /// <returns>The rules.</returns>
     public SceneGameRules RulesAt(int tick) => FrameAt(tick)?.Rules ?? default;
+
+    /// <summary>The server's tick at a demo tick — the last `net_Tick` — or null before one arrived.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public int? ServerTickAt(int tick) => FrameAt(tick)?.ServerTick;
 
     /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
     /// <param name="tick">The moment being asked about.</param>

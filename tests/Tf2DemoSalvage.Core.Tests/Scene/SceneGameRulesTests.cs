@@ -12,6 +12,10 @@ public sealed class SceneGameRulesTests
             .ShouldBe(new SceneGameRules(MannVsMachine: true, HalloweenScenario: 4, PlayerDestruction: false));
 
     [Test]
+    public void ServerTickAt_AfterANetTick_IsTheServersTickNotTheDemos() =>
+        DemoTimeline.Build(SyntheticPlayer.DemoAtServerTick(tick: 66, serverTick: 13_557)).ServerTickAt(66).ShouldBe(13_557);
+
+    [Test]
     public void RulesAt_WithAPlayerDestructionLogic_SaysSo() =>
         DemoTimeline.Build(SyntheticPlayer.DemoWithGameRules(mannVsMachine: false, halloweenScenario: 0, playerDestruction: true))
             .RulesAt(100)
