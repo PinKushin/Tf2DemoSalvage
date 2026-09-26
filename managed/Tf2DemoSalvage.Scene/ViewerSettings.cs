@@ -677,6 +677,9 @@ public sealed record ViewerSettings
     /// </summary>
     public bool HealTargetMarker { get; init; }
 
+    /// <summary>The crosshair's cvars, at TF2's defaults until a config says otherwise.</summary>
+    public CrosshairSettings Crosshair { get; init; } = new();
+
     /// <summary>The world field of view, in degrees.</summary>
     /// <remarks>
     /// **Settable because the game lets a player set it, which is the whole rule** (D69,
@@ -853,6 +856,25 @@ public sealed record ViewerSettings
         {
             settings = settings with { HealTargetMarker = marker != 0 };
         }
+
+        // **The crosshair's cvars, from the user's own config** (D69): colour, scale, a custom file, and the two switches.
+        // Read, not written, like `mat_phong` — they belong to the config that set them.
+        CrosshairSettings crosshair = settings.Crosshair;
+
+        settings = settings with
+        {
+            Crosshair = crosshair with
+            {
+                Enabled = Read(values, "crosshair") ?? crosshair.Enabled,
+                Observer = Read(values, "cl_observercrosshair") ?? crosshair.Observer,
+                Red = Read(values, "cl_crosshair_red") ?? crosshair.Red,
+                Green = Read(values, "cl_crosshair_green") ?? crosshair.Green,
+                Blue = Read(values, "cl_crosshair_blue") ?? crosshair.Blue,
+                Scale = ReadNumber(values, "cl_crosshair_scale") ?? crosshair.Scale,
+                File = values.GetValueOrDefault("cl_crosshair_file") ?? crosshair.File,
+                NoCrosshairOnScopeZoom = Read(values, "tf_hud_no_crosshair_on_scope_zoom") ?? crosshair.NoCrosshairOnScopeZoom,
+            },
+        };
 
         // **Both names, and the demo one wins, which is the engine's own precedence.** A config
         // pasted from TF2 sets `fov_desired`; `demo_fov_override` exists specifically to override
@@ -1211,3 +1233,22 @@ public sealed record ViewerSettings
             ? number
             : null;
 }
+
+/// <summary>The crosshair's cvars, each at its TF2 default.</summary>
+/// <param name="Enabled">`crosshair` (hud_crosshair.cpp:32): 1.</param>
+/// <param name="Observer">`cl_observercrosshair` (:33): 1 — a crosshair while roaming as a spectator.</param>
+/// <param name="Red">`cl_crosshair_red` (tf_hud_crosshair.cpp:23): 200.</param>
+/// <param name="Green">`cl_crosshair_green`: 200.</param>
+/// <param name="Blue">`cl_crosshair_blue`: 200.</param>
+/// <param name="Scale">`cl_crosshair_scale` (:29): 32, the size the art is drawn at.</param>
+/// <param name="File">`cl_crosshair_file` (:27): empty for each weapon's own crosshair, else a `vgui/crosshairs/` material.</param>
+/// <param name="NoCrosshairOnScopeZoom">`tf_hud_no_crosshair_on_scope_zoom` (clientmode_tf.cpp:598): 0.</param>
+public sealed record CrosshairSettings(
+    int Enabled = 1,
+    int Observer = 1,
+    int Red = 200,
+    int Green = 200,
+    int Blue = 200,
+    float Scale = 32f,
+    string File = "",
+    int NoCrosshairOnScopeZoom = 0);

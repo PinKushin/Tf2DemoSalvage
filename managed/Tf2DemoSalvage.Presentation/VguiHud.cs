@@ -28,7 +28,18 @@ public sealed class VguiHud
         PlayerStatus = new TfHudPlayerStatus(Viewport);
         WeaponAmmo = new TfHudWeaponAmmo(Viewport);
         DeathNotice = new TfHudDeathNotice(Viewport);
+
+        // The weapon element first, so the icon it picks is the one the crosshair paints in the same frame.
+        // **Interpolated:** the game's element order comes from its factory list, which the SDK does not fix.
+        Weapon = new TfHudWeapon(Viewport);
+        Crosshair = new TfHudCrosshair(Viewport);
     }
+
+    /// <summary>`CHudTFCrosshair`.</summary>
+    public TfHudCrosshair Crosshair { get; }
+
+    /// <summary>`CHudWeapon`.</summary>
+    public TfHudWeapon Weapon { get; }
 
     /// <summary>`CTFHudDeathNotice`.</summary>
     public TfHudDeathNotice DeathNotice { get; }

@@ -18,6 +18,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="Rules">`TFGameRules()` as the HUD reads it.</param>
 /// <param name="RealTime">`gpGlobals->realtime`: wall-clock seconds, which demo speed and pause do not change.</param>
 /// <param name="ObserverMode">The local player's `GetObserverMode()`.</param>
+/// <param name="WeaponClass">The active weapon's server class, or null with none.</param>
+/// <param name="PlayerClass">The local player's class, 0 with none.</param>
+/// <param name="Conditions">The local player's conditions.</param>
+/// <param name="Fov">`GetFOV()` — the field of view the view is drawn at.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -32,7 +36,11 @@ public readonly record struct HudState(
     int ActiveWeapon = 0,
     Core.Scene.SceneGameRules Rules = default,
     float RealTime = 0f,
-    int ObserverMode = 0);
+    int ObserverMode = 0,
+    string? WeaponClass = null,
+    int PlayerClass = 0,
+    Core.Scene.PlayerConditions Conditions = default,
+    float Fov = 90f);
 
 /// <summary>`CHudElement` (game/client/hud.cpp): a HUD panel that hides by the player's `HIDEHUD` bits.</summary>
 public interface IHudElement
@@ -123,6 +131,9 @@ public sealed class HudViewport : VguiEditablePanel
 
     /// <summary>`gHUD`'s icons, loaded once (`CHud::Init`'s `m_bHudTexturesLoaded`), or null before the first scheme.</summary>
     public HudTextures? Icons { get; set; }
+
+    /// <summary>The weapon and class scripts, for what a weapon's script tells the HUD; null where no install is open.</summary>
+    public TfWeaponData? Scripts { get; set; }
 
     /// <summary>The context this frame runs under — what `OnThink` hands the controller.</summary>
     public VguiContext? Context { get; set; }

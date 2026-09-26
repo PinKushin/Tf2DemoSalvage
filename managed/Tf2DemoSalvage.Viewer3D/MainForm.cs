@@ -7031,8 +7031,17 @@ internal class MainForm : Form, IFrameSteps
             hudEvents = HudEventFeed.Resolve(hudTimeline, crossed, _demo?.MapName ?? string.Empty, _hudHooks);
         }
 
+        _vguiHud.Viewport.Scripts = _hudScripts;
+        _vguiHud.Crosshair.Settings = _settings.Crosshair;
+
+        // `GetFOV()` is the view's field of view: `demo_fov_override`, else `fov_desired`, as the settings already resolve.
+        // **Not modelled:** `m_iFOV`, the server's zoom, which a sniper's scope sets.
         _vguiHud.Frame(
-            HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks) with { RealTime = (float)_vguiClock.Elapsed.TotalSeconds },
+            HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks) with
+            {
+                RealTime = (float)_vguiClock.Elapsed.TotalSeconds,
+                Fov = _settings.FieldOfView,
+            },
             hudEvents,
             hudReset);
         _vguiTools.Frame(

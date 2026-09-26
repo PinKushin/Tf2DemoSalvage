@@ -199,16 +199,17 @@ public sealed class HudTextures
     public HudTexture? GetIcon(string name) => _icons.GetValueOrDefault(name);
 
     /// <summary>`LoadHudTextures` of one file, without the extension.</summary>
-    private static List<HudTexture> Read(Func<string, byte[]?> read, string path)
+    private static IReadOnlyList<HudTexture> Read(Func<string, byte[]?> read, string path) =>
+        read(path + ".txt") is { } bytes ? Parse(KeyValuesTree.Load(bytes, path + ".txt", name => read(name))) : [];
+
+    /// <summary>`LoadHudTextures`' body over a file already read: its `TextureFileRefs` and `TextureData`.</summary>
+    /// <param name="root">The file's root — a HUD texture file, or a weapon script, whose `TextureData` holds its icons.</param>
+    /// <returns>The icons, in file order.</returns>
+    public static IReadOnlyList<HudTexture> Parse(KeyValuesTree root)
     {
+        ArgumentNullException.ThrowIfNull(root);
+
         List<HudTexture> list = [];
-
-        if (read(path + ".txt") is not { } bytes)
-        {
-            return list;
-        }
-
-        KeyValuesTree root = KeyValuesTree.Load(bytes, path + ".txt", name => read(name));
         List<(string Key, string Prefix)> references = [("file", string.Empty)];
 
         foreach (KeyValuesTree reference in root.Find("TextureFileRefs")?.Children ?? [])
@@ -249,10 +250,53 @@ public sealed class HudTextures
         return list;
     }
 
+    /// <summary>`AddUnsearchableHudIconToList` (hud.cpp:738): kept under a name made from its file and rectangle — or font and character — so two weapons naming the same sprite share one.</summary>
+    /// <param name="texture">The icon a weapon script defined.</param>
+    /// <param name="context">The HUD's context, for a font icon's measurement.</param>
+    /// <returns>The icon held under that name.</returns>
+    public HudTexture AddUnsearchable(HudTexture texture, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+        ArgumentNullException.ThrowIfNull(context);
+
+        (int left, int top, int right, int bottom) = texture.Rc;
+        string composed = texture.RenderUsingFont
+            ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{texture.TextureFile}_c{(int)(sbyte)texture.CharacterInFont}")
+            : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{texture.TextureFile}_{left}_{top}_{right}_{bottom}");
+
+        if (GetIcon(composed) is { } held)
+        {
+            return held;
+        }
+
+        HudTexture added = new()
+        {
+            ShortName = composed,
+            TextureFile = texture.TextureFile,
+            RenderUsingFont = texture.RenderUsingFont,
+            CharacterInFont = texture.CharacterInFont,
+            Rc = texture.Rc,
+        };
+
+        _icons[composed] = added;
+        SetUp(added, context);
+
+        return added;
+    }
+
     /// <summary>`AddSearchableHudIconToList`, with `SetupNewHudTexture`'s font measurement.</summary>
     private void AddSearchable(HudTexture texture, VguiContext context)
     {
-        if (!_icons.TryAdd(texture.ShortName, texture) || !texture.RenderUsingFont)
+        if (_icons.TryAdd(texture.ShortName, texture))
+        {
+            SetUp(texture, context);
+        }
+    }
+
+    /// <summary>`SetupNewHudTexture` (hud.cpp:708) for a font icon: its font, and its size measured now and never again.</summary>
+    private static void SetUp(HudTexture texture, VguiContext context)
+    {
+        if (!texture.RenderUsingFont)
         {
             return;
         }
