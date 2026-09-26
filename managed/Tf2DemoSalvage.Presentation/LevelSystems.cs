@@ -255,6 +255,11 @@ public sealed class LevelSystems
         _soundscape.Leaves = map.Level.Leaves;
         _soundscape.Visibility = map.Level.Visibility;
 
+        // `soundscape.cpp:271`'s trace: brushes and terrain, the soundscape's mask.
+        MapLevel level = map.Level;
+        _soundscape.LineOfSight = (from, to) =>
+            level.TraceBrushOnly(from, to, 0f, SoundscapeSystem.LineOfSightMask).Fraction >= 1f;
+
         foreach (IGameSystem system in _systems)
         {
             system.LevelInitPreEntity();
