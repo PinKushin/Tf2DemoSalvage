@@ -429,8 +429,24 @@ public class VguiPanel
         OnThink();
     }
 
-    /// <summary>`InvalidateLayout`: lay out again at the next think.</summary>
-    public void InvalidateLayout() => _needsLayout = true;
+    /// <summary>`InvalidateLayout( layoutNow = false, reloadScheme )`: lay out again at the next think.</summary>
+    /// <param name="reloadScheme">Whether this panel and every child applies its scheme again, too.</param>
+    public void InvalidateLayout(bool reloadScheme = false)
+    {
+        _needsLayout = true;
+
+        if (!reloadScheme)
+        {
+            return;
+        }
+
+        _needsSchemeUpdate = true;
+
+        foreach (VguiPanel child in _children)
+        {
+            child.InvalidateLayout(reloadScheme: true);
+        }
+    }
 
     /// <summary>`PerformLayout`: empty — a control places its parts here.</summary>
     protected virtual void PerformLayout()
