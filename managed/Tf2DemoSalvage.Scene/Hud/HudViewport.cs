@@ -102,10 +102,56 @@ public sealed class HudViewport : VguiEditablePanel
     private readonly List<IHudElement> _elements = [];
     private bool _teamSent;
 
-    /// <summary>`CBaseViewport()`: named, and proportional from the start.</summary>
+    private const string AnimationManifest = "scripts/hudanimations_manifest.txt";
+
+    /// <summary>`CBaseViewport()`: named, proportional from the start, and its animation controller made.</summary>
     public HudViewport()
-        : base(null, "CBaseViewport") =>
+        : base(null, "CBaseViewport")
+    {
         Proportional = true;
+        Animations = new VguiAnimationController(this);
+    }
+
+    /// <summary>`m_pAnimController` — `GetViewportAnimationController()`.</summary>
+    public VguiAnimationController Animations { get; }
+
+    /// <summary>The context this frame runs under — what `OnThink` hands the controller.</summary>
+    public VguiContext? Context { get; set; }
+
+    /// <summary>`LoadHudAnimations` (baseviewport.cpp): each `file` in the manifest, the first wiping what was loaded.</summary>
+    /// <param name="context">The scheme, screen and filesystem.</param>
+    /// <returns>Whether the manifest was found.</returns>
+    public bool LoadHudAnimations(VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Read?.Invoke(AnimationManifest) is not { } bytes)
+        {
+            return false;
+        }
+
+        bool clear = true;
+
+        foreach (Content.Assets.KeyValuesTree entry in Content.Assets.KeyValuesTree.Load(bytes, AnimationManifest, context.Read).Children)
+        {
+            if (string.Equals(entry.Name, "file", StringComparison.OrdinalIgnoreCase))
+            {
+                Animations.SetScriptFile(this, entry.Value ?? string.Empty, clear, context);
+                clear = false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>`CBaseViewport::OnThink`: the animations run at `curtime`.</summary>
+    protected override void OnThink()
+    {
+        if (Context is { } context)
+        {
+            Animations.UpdateAnimations(State.CurTime, context);
+        }
+    }
 
     /// <summary>This frame's game state — what an element's `OnThink` reads of the local player and `gpGlobals`.</summary>
     public HudState State { get; private set; }

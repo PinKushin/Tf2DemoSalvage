@@ -292,6 +292,29 @@ public static class PanelLayout
         return int.TryParse(text[..length], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int value) ? value : 0;
     }
 
+    /// <summary>`sscanf( text, "%f %f ..." )`: reads up to <c>values.Length</c> floats, stopping at a token with no number at its start.</summary>
+    /// <param name="text">The text.</param>
+    /// <param name="values">Where the floats go; those not read are left.</param>
+    /// <returns>How many were read.</returns>
+    internal static int ScanFloats(string text, Span<float> values)
+    {
+        string[] parts = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        int count = 0;
+
+        while (count < Math.Min(parts.Length, values.Length))
+        {
+            if (parts[count][0] is not ('.' or '-' or '+') && !char.IsAsciiDigit(parts[count][0]))
+            {
+                break;
+            }
+
+            values[count] = Atof(parts[count]);
+            count++;
+        }
+
+        return count;
+    }
+
     /// <summary>`sscanf( text, "%d %d ..." )`: reads up to <c>values.Length</c> integers, writing only those it reads.</summary>
     /// <returns>How many were read.</returns>
     internal static int ScanInts(ReadOnlySpan<char> text, Span<int> values)

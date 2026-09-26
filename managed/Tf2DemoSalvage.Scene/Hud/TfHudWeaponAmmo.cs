@@ -8,7 +8,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// `AmmoInReserve`, and a clipless one shows `Ammo` alone (the reserve), each set only when a number or the weapon
 /// changed. The low-ammo image shows, red, when clip plus reserve falls under round(40% of the most that can be held),
 /// grown by `(threshold − total) / threshold × 5` each way — `hud_lowammowarning_threshold` and `…maxposadjust`, both
-/// `FCVAR_DEVELOPMENTONLY` and so fixed. **Not modelled yet:** the `HudLowAmmoPulse` animation it starts.
+/// `FCVAR_DEVELOPMENTONLY` and so fixed; showing it starts `HudLowAmmoPulse`, hiding it `HudLowAmmoPulseStop`.
 /// </remarks>
 public sealed class TfHudWeaponAmmo : VguiEditablePanel, IHudElement
 {
@@ -171,6 +171,7 @@ public sealed class TfHudWeaponAmmo : VguiEditablePanel, IHudElement
         (image.X, image.Y, image.Wide, image.Tall) = _lowAmmoOrigin;
         image.Visible = true;
         image.FgColor = (255, 0, 0, 255);
+        HudViewport.Of(this)?.Animations.StartAnimationSequence(this, "HudLowAmmoPulse");
     }
 
     private void SizeLowAmmoIndicator(float current, float max)
@@ -195,5 +196,6 @@ public sealed class TfHudWeaponAmmo : VguiEditablePanel, IHudElement
 
         (image.X, image.Y, image.Wide, image.Tall) = _lowAmmoOrigin;
         image.Visible = false;
+        HudViewport.Of(this)?.Animations.StartAnimationSequence(this, "HudLowAmmoPulseStop");
     }
 }
