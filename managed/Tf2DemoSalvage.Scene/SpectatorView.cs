@@ -95,6 +95,16 @@ public readonly record struct SpectatorSwitch(bool Switched, string Message);
 /// <param name="Status">The short line for the status bar.</param>
 public readonly record struct CameraRefusal(string Message, string Status);
 
+/// <summary>The view's field of view and `default_fov` beside it.</summary>
+/// <param name="World">`CViewSetup::fov`.</param>
+/// <param name="Default">`default_fov`.</param>
+public readonly record struct ViewFov(float World, int Default)
+{
+    /// <summary>`fovViewmodel = GetViewModelFOV() - ( default_fov - fov )` (view.cpp:725): the viewmodel follows a zoom.</summary>
+    /// <param name="viewmodelFov">`GetViewModelFOV()`.</param>
+    public float Viewmodel(float viewmodelFov) => viewmodelFov - (Default - World);
+}
+
 public sealed class SpectatorView
 {
     private readonly ILogger _spectate;
@@ -604,6 +614,58 @@ public sealed class SpectatorView
             Ducking(target),
             aspect);
     }
+
+    /// <summary>`C_HLTVCamera::m_flFOV`: 90 from `Reset` (hltvcamera.cpp:92), then whatever the last in-eye view set.</summary>
+    private float _roamingFov = PlayerFov.RulesDefault;
+
+    /// <summary>The view's field of view — `CViewSetup::fov` as `CViewRender::SetUpViews` (view.cpp:628) leaves it.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="mode">The camera the view is through.</param>
+    /// <param name="demoOverride">`demo_fov_override`; zero or less for none.</param>
+    /// <param name="curTime">`gpGlobals->curtime`, for the recorder's zoom lerp.</param>
+    /// <returns>The field of view, and `default_fov` beside it.</returns>
+    /// <remarks>
+    /// `default_fov` is set from the local player's `m_iDefaultFOV` each frame (`CViewRender::OnRenderStart`, view.cpp:509)
+    /// and is where the view starts. A point-of-view demo's every `CalcView` branch then takes the recorder's `GetFOV()`, and
+    /// so does the free camera, which is `cl_demoviewoverride` moving that same view. SourceTV runs `C_HLTVCamera::CalcView`
+    /// instead: in-eye takes the target's `GetFOV()` into `m_flFOV`, roaming reads `m_flFOV` back, and chase — or in-eye on a
+    /// dead target, which hands over to chase — never writes the field of view at all.
+    ///
+    /// **Interpolated:** `default_fov` is 75, its cvar default, before the local player's `m_iDefaultFOV` has arrived.
+    /// </remarks>
+    public ViewFov Fov(int tick, CameraMode mode, float demoOverride, float curTime)
+    {
+        if (Eyes is not { } eyes)
+        {
+            return new ViewFov(DefaultFovCvar, DefaultFovCvar);
+        }
+
+        ScenePlayer? ByIndex(int index) => PlayerAt(eyes, tick, index);
+
+        ScenePlayer? local = PlayerAt(eyes, tick, eyes.RecorderEntityIndex);
+        int defaultFov = local?.DefaultFov ?? DefaultFovCvar;
+
+        if (eyes.HasRecordedView)
+        {
+            return new ViewFov(
+                local is { } recorder ? PlayerFov.Get(recorder, ByIndex, isLocal: true, demoOverride, curTime) : defaultFov,
+                defaultFov);
+        }
+
+        switch (mode)
+        {
+            case CameraMode.FirstPerson when Target(tick) is { IsAlive: true } target:
+                _roamingFov = PlayerFov.Get(target, ByIndex, isLocal: false, demoOverride, curTime);
+                return new ViewFov(_roamingFov, defaultFov);
+            case CameraMode.Free:
+                return new ViewFov(_roamingFov, defaultFov);
+            default:
+                return new ViewFov(defaultFov, defaultFov);
+        }
+    }
+
+    /// <summary>`ConVar default_fov( "default_fov", "75", FCVAR_CHEAT )` (clientmode_tf.cpp:113).</summary>
+    private const int DefaultFovCvar = 75;
 
     /// <summary>One player at a tick, by entity index.</summary>
     /// <remarks>

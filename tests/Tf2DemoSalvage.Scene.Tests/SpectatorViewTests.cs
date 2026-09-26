@@ -281,6 +281,72 @@ public sealed class SpectatorViewTests
         view.Cycle(tick: 100, reverse: false).Message.ShouldContain("2 on the roster");
     }
 
+    [Test]
+    public void Fov_OnAPovDemo_IsTheRecordersGetFov()
+    {
+        // `CalcPlayerView` ends with `fov = GetFOV()`, and `OnRenderStart` sets `default_fov` from `m_iDefaultFOV`.
+        ViewFov fov = View(Eyes(7, true, [Zoomed(7) with { DefaultFov = 80 }])).Fov(100, CameraMode.FirstPerson, 0f, 0f);
+
+        fov.ShouldBe(new ViewFov(20f, 80));
+    }
+
+    [Test]
+    public void Fov_OnAPovDemoInTheFreeCamera_IsStillTheRecordersFov() =>
+        View(Eyes(7, true, [Zoomed(7)])).Fov(100, CameraMode.Free, 0f, 0f).World.ShouldBe(20f);
+
+    [Test]
+    public void Fov_WithDemoFovOverride_IsTheOverride() =>
+        View(Eyes(7, true, [Zoomed(7)])).Fov(100, CameraMode.FirstPerson, 70f, 0f).World.ShouldBe(70f);
+
+    [Test]
+    public void Fov_OnASourceTvDemoInEye_IsTheTargetsFovAndTheLocalDefault()
+    {
+        // `C_HLTVCamera::CalcInEyeCamView` takes `pPlayer->GetFOV()`; the local player here is the SourceTV client.
+        SpectatorView view = View(Eyes(1, false, [Player(1) with { DefaultFov = 75, Team = 1 }, Zoomed(3)]));
+        view.Spectating = 3;
+
+        view.Fov(100, CameraMode.FirstPerson, 0f, 0f).ShouldBe(new ViewFov(20f, 75));
+    }
+
+    [Test]
+    public void Fov_OnASourceTvDemoChasing_IsDefaultFovNotTheZoom()
+    {
+        // `C_HLTVCamera::CalcChaseCamView` never writes `fov`, so the view keeps `default_fov`.
+        SpectatorView view = View(Eyes(1, false, [Player(1) with { DefaultFov = 75, Team = 1 }, Zoomed(3)]));
+        view.Spectating = 3;
+
+        view.Fov(100, CameraMode.ThirdPerson, 0f, 0f).World.ShouldBe(75f);
+    }
+
+    [Test]
+    public void Fov_OnASourceTvDemoInEyeOnADeadTarget_IsDefaultFov()
+    {
+        // Dead, `CalcInEyeCamView` hands over to `CalcChaseCamView`, which leaves the field of view alone.
+        SpectatorView view = View(Eyes(1, false, [Player(1) with { DefaultFov = 75, Team = 1 }, Zoomed(3) with { LifeState = 2 }]));
+        view.Spectating = 3;
+
+        view.Fov(100, CameraMode.FirstPerson, 0f, 0f).World.ShouldBe(75f);
+    }
+
+    [Test]
+    public void Fov_OnASourceTvDemoRoaming_Is90UntilAnInEyeViewThenKeepsIt()
+    {
+        // `m_flFOV`: 90 from `C_HLTVCamera::Reset`, then whatever the last in-eye view set; `CalcRoamingView` reads it back.
+        SpectatorView view = View(Eyes(1, false, [Player(1) with { DefaultFov = 75, Team = 1 }, Zoomed(3)]));
+        view.Spectating = 3;
+
+        float before = view.Fov(100, CameraMode.Free, 0f, 0f).World;
+        view.Fov(100, CameraMode.FirstPerson, 0f, 0f);
+
+        (before, view.Fov(100, CameraMode.Free, 0f, 0f).World).ShouldBe((90f, 20f));
+    }
+
+    [Test]
+    public void Viewmodel_ZoomedFromTheDefault_NarrowsByTheSameAmount() =>
+        new ViewFov(70f, 90).Viewmodel(54f).ShouldBe(34f);
+
+    private static ScenePlayer Zoomed(int entity) => Player(entity) with { Fov = 20, DefaultFov = 90 };
+
     private static SpectatorView View(IEyeSource eyes) =>
         new(new RecordingLogger()) { Eyes = eyes };
 

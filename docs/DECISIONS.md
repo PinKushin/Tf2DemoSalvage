@@ -9297,3 +9297,21 @@ So:
   stop huds being switched, and it would have. The HUD reads `GameArchives.WithHud(choice)`: the chosen HUD's folder or
   `.vpk` above the stock files, stock alone when nothing is chosen, remade when the choice changes. `--hud <path>` sets
   it at launch today; the picker will set it at runtime.
+
+## D194 — the view's field of view is `GetFOV`, exactly; `demo_fov_override` is its own setting (2026-09-26)
+
+**Decision.** Every camera takes the field of view the engine's demo playback would: `demo_fov_override` when above
+zero (clamped 10..90), otherwise the recorded player's `GetFOV()` — `m_iFOV` while zoomed, lerped on the recorder's own
+`m_flFOVRate`, else `m_iDefaultFOV`. SourceTV follows `C_HLTVCamera`: in-eye the target's `GetFOV()`, chase
+`default_fov`, roaming the last in-eye value (90 before one). The viewmodel moves with it
+(`fovViewmodel = viewmodel_fov - (default_fov - fov)`). `fov_desired` is no longer read: it is userinfo the server
+turns into `m_iDefaultFOV`, and playback has no server. `demo_fov_override` keeps D91's default of 90; 0 turns it off.
+
+**The owner's direction.** After being told that D91's default override hides scope zoom, as it does in TF2, the owner
+said *"and create the override setting to"*. Asked whether an override of 0 should fall back to the watcher's
+`fov_desired` or to the demo's `m_iDefaultFOV`, the owner said *"do it how valve does, like ive said 100 times 100%
+valve parity everywhere"*.
+
+**What it replaced.** One `FieldOfView` setting read from both `fov_desired` and `demo_fov_override`. Only the free
+camera used it; the in-eye and chase cameras sat at a compiled-in 90 until the commit before this one. Scope zoom was
+never applied.

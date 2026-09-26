@@ -617,6 +617,20 @@ internal static class SyntheticPlayer
     public static byte[] Demo(
         OriginTable origin,
         int tick,
+        params (int EntityIndex, IReadOnlyDictionary<string, PropertyValue> Values)[] players) =>
+        Demo(origin, tick, serverTick: null, players);
+
+    /// <summary>A demo whose snapshot follows a `net_Tick` naming the server's own tick.</summary>
+    /// <param name="tick">The demo's tick for the snapshot.</param>
+    /// <param name="serverTick">`gpGlobals->tickcount` on the recording server.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoAtServerTick(int tick, int serverTick) =>
+        Demo(OriginTable.NonLocal, tick, serverTick, (1, new Dictionary<string, PropertyValue>()));
+
+    private static byte[] Demo(
+        OriginTable origin,
+        int tick,
+        int? serverTick,
         params (int EntityIndex, IReadOnlyDictionary<string, PropertyValue> Values)[] players)
     {
         ArgumentNullException.ThrowIfNull(players);
@@ -660,23 +674,23 @@ internal static class SyntheticPlayer
         }
 
         byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+        PacketEntitiesMessage snapshot = new(
+            MaxEntries: 64,
+            IsDelta: false,
+            DeltaFromTick: null,
+            BaselineIndex: false,
+            UpdatedEntries: entities.Count,
+            LengthBits: bits,
+            UpdateBaseline: false,
+            Body: body);
 
         return SyntheticDemo.From(
             SyntheticDemo.DefaultProtocol,
             SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
             SyntheticDemo.DataTables(schema),
-            SyntheticDemo.Packet(
-                SyntheticDemo.DefaultProtocol,
-                tick,
-                new PacketEntitiesMessage(
-                    MaxEntries: 64,
-                    IsDelta: false,
-                    DeltaFromTick: null,
-                    BaselineIndex: false,
-                    UpdatedEntries: entities.Count,
-                    LengthBits: bits,
-                    UpdateBaseline: false,
-                    Body: body)));
+            serverTick is { } server
+                ? SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick, new NetTickMessage(server, 0, 0), snapshot)
+                : SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick, snapshot));
     }
 
     /// <summary>

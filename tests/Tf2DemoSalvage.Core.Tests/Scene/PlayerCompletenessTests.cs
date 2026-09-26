@@ -201,6 +201,13 @@ public sealed class PlayerCompletenessTests
         DisguiseHealth = 90,
         KillStreak = 4,
         Medigun = (0.5f, 6, 29),
+
+        // `GetFOV`'s inputs: a sniper zooming from 90 to 20 over 0.1 s, begun at 12.5 s. Zero is each one's "unset".
+        Fov = 20,
+        FovStart = 90,
+        FovTime = 12.5f,
+        FovRate = 0.1f,
+        DefaultFov = 85,
     };
 
     /// <summary>Every property of a type that a test can read.</summary>
