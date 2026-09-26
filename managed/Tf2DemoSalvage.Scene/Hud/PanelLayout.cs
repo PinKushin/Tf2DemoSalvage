@@ -14,7 +14,6 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// multiplies by the `atof`, `s` multiplies the panel's current size. C's `atoi`/`atof` and float-to-int truncation are kept.
 ///
 /// **The proportional scale is passed in** — `scheme()->GetProportionalScaledValueEx` is in the closed `vgui2.dll`.
-/// **Not built yet:** the `o` form (one axis from the other), which needs the scheme's inverse scale as well.
 /// </remarks>
 public static class PanelLayout
 {
@@ -46,26 +45,84 @@ public static class PanelLayout
         return position;
     }
 
-    /// <summary>`ComputeWide` or `ComputeTall`, for every form but `o`.</summary>
-    /// <param name="input">The `wide` or `tall` string, or null when the file names none.</param>
-    /// <param name="current">The panel's current size, kept when there is no string.</param>
-    /// <param name="parentSize">The parent's (or screen's) size along this axis.</param>
+    /// <summary>`GetProportionalNormalizedValue`: a screen value back to 480 tall.</summary>
+    /// <param name="value">The value in screen pixels.</param>
+    /// <param name="tall">The screen's height in pixels.</param>
+    /// <returns>`(int)(480f * value / tall)` — `vgui2.dll` 0x18000d460, single precision, truncating toward zero.</returns>
+    public static int ProportionalNormalized(int value, int tall) => (int)((float)ProportionalBaseTall * value / tall);
+
+    /// <summary>`ComputeWide` then `ComputeTall`, as `Panel::ApplySettings` (:4406) calls them.</summary>
+    /// <param name="wide">The `wide` string, or null when the file names none.</param>
+    /// <param name="tall">The `tall` string, or null when the file names none.</param>
+    /// <param name="currentWide">The panel's current wide, kept when there is no string.</param>
+    /// <param name="currentTall">The panel's current tall, kept when there is no string.</param>
+    /// <param name="parentWide">The parent's (or screen's) wide.</param>
+    /// <param name="parentTall">The parent's (or screen's) tall.</param>
     /// <param name="proportional">Whether the panel is proportional.</param>
     /// <param name="scale">`GetProportionalScaledValueEx`.</param>
+    /// <param name="normalize">`GetProportionalNormalizedValue` — the default scheme's, not the panel's, for `o`.</param>
     /// <returns>The size.</returns>
-    public static int Size(string? input, int current, int parentSize, bool proportional, Func<int, int> scale)
+    /// <remarks>
+    /// `o` sizes one axis from the other: the other is computed (as `0` if it is `o` too, with Valve's warning), normalized
+    /// when proportional, then scaled — **whether or not the panel is proportional** — and multiplied by the `atof`.
+    /// </remarks>
+    public static (int Wide, int Tall) Sizes(
+        string? wide,
+        string? tall,
+        int currentWide,
+        int currentTall,
+        int parentWide,
+        int parentTall,
+        bool proportional,
+        Func<int, int> scale,
+        Func<int, int> normalize)
     {
         ArgumentNullException.ThrowIfNull(scale);
+        ArgumentNullException.ThrowIfNull(normalize);
 
-        if (input is null)
+        Axis wideAxis = new(wide, currentWide, parentWide);
+        Axis tallAxis = new(tall, currentTall, parentTall);
+
+        return (
+            Size(wideAxis, tallAxis, false, proportional, scale, normalize),
+            Size(tallAxis, wideAxis, false, proportional, scale, normalize));
+    }
+
+    private readonly record struct Axis(string? Input, int Current, int ParentSize);
+
+    private static int Size(Axis target, Axis opposite, bool computingOther, bool proportional, Func<int, int> scale, Func<int, int> normalize)
+    {
+        Axis axis = target;
+        Axis other = opposite;
+
+        if (axis.Input is null)
         {
-            return current;
+            return axis.Current;
         }
 
-        ReadOnlySpan<char> text = input;
+        ReadOnlySpan<char> text = axis.Input;
+        int current = axis.Current;
+        int parentSize = axis.ParentSize;
         bool full = false;
         bool ofParent = false;
         bool ofSelf = false;
+
+        if (text.Length > 0 && char.ToLowerInvariant(text[0]) == 'o')
+        {
+            if (computingOther)
+            {
+                return 0;
+            }
+
+            int fromOther = Size(other, axis, true, proportional, scale, normalize);
+
+            if (proportional)
+            {
+                fromOther = normalize(fromOther);
+            }
+
+            return (int)(scale(fromOther) * Atof(text[1..]));
+        }
 
         if (text.Length > 0 && char.ToLowerInvariant(text[0]) == 'f')
         {

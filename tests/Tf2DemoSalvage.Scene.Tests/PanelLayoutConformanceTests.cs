@@ -52,12 +52,43 @@ public sealed class PanelLayoutConformanceTests
     [TestCase("p0.5", (1000 - 0) / 2)]
     [TestCase("s2", 80)]
     public void Wide_EachForm_IsComputeWide(string input, int expected) =>
-        PanelLayout.Size(input, current: 40, parentSize: 1000, proportional: true, Double).ShouldBe(expected);
+        Sizes(input, null).Wide.ShouldBe(expected);
 
     [Test]
     public void Wide_AProportionalFraction_ScalesAtoiThenMultipliesByAtof()
     {
         // `wide = scale( atoi("p0.5") ) ...`: atoi of "0.5" is 0, so the scaled value is 0 and the fill is the parent's.
-        PanelLayout.Size("p0.5", current: 40, parentSize: 1000, proportional: true, Double).ShouldBe(500);
+        Sizes("p0.5", null).Wide.ShouldBe(500);
     }
+
+    /// <remarks>`o`: the other axis computed, normalized when proportional, then scaled and multiplied by the `atof`.</remarks>
+    [TestCase("o1", "100", 200, 200)]
+    [TestCase("o0.5", "100", 100, 200)]
+    [TestCase("o1", null, 40, 40)]
+    [TestCase("f10", "o2", 980, 1960)]
+    public void Sizes_TheOForm_IsTheOtherAxisRescaled(string wide, string? tall, int expectedWide, int expectedTall) =>
+        Sizes(wide, tall).ShouldBe((expectedWide, expectedTall));
+
+    [Test]
+    public void Sizes_TheOFormOnAPanelNotProportional_IsStillScaled()
+    {
+        // Only the normalize is gated on `IsProportional`; `GetProportionalScaledValueEx` runs regardless (:8747).
+        PanelLayout.Sizes("o1", "100", 40, 40, 1000, 1000, proportional: false, Double, Halve).ShouldBe((200, 100));
+    }
+
+    [Test]
+    public void Sizes_BothAxesTheOForm_AreZero() =>
+        Sizes("o1", "o1").ShouldBe((0, 0));
+
+    /// <remarks>`vgui2.dll` 0x18000d460: `(int)((float)480 * (float)value / (float)screenTall)`, single precision.</remarks>
+    [TestCase(22, 1080, 9)]
+    [TestCase(1080, 1080, 480)]
+    [TestCase(-11, 1080, -4)]
+    public void ProportionalNormalized_AtAScreenTall_Is480OverTallTimesTheValueTruncated(int value, int tall, int expected) =>
+        PanelLayout.ProportionalNormalized(value, tall).ShouldBe(expected);
+
+    private static int Halve(int value) => value / 2;
+
+    private static (int Wide, int Tall) Sizes(string? wide, string? tall) =>
+        PanelLayout.Sizes(wide, tall, currentWide: 40, currentTall: 40, 1000, 1000, proportional: true, Double, Halve);
 }
