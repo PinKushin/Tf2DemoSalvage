@@ -99,31 +99,48 @@ public sealed class LevelLightingTests
         AmbientCube.Luminance(lighting.ComputeLighting(0f, 0f, 100f)).ShouldBeGreaterThan(0f);
     }
 
+    /// <remarks>
+    /// The light cache's skylight test (`engine.dll` 0x1801b8e20): from the point, `57016.32` along the light's reversed
+    /// normal, world only, and the light counts when that trace strikes `SURF_SKY`.
+    /// </remarks>
     [Test]
-    public void SunAt_UnderOpenSky_IsTheSun()
+    public void SunAt_UnderOpenSky_IsTheSunTracedAsTheEngineTracesIt()
     {
-        // Leaf 2 above the plane is empty, so the trace upward reaches the sky.
-        LevelLighting lighting = Lit(sun: Sky());
+        ((float X, float Y, float Z) From, (float X, float Y, float Z) To) asked = default;
+
+        LevelLighting lighting = new(
+            leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
+            ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
+            worldLights: [],
+            sun: Sky(),
+            new RecordingLogger(),
+            strikesSky: (from, to) =>
+            {
+                asked = (from, to);
+                return true;
+            });
 
         SunLight? sun = lighting.SunAt(0f, 0f, -100f);
 
         sun.ShouldNotBeNull();
         sun.Value.Red.ShouldBe(0.9f);
+        asked.From.ShouldBe((0f, 0f, -100f));
+        asked.To.ShouldBe((0f, 0f, -100f + 57016.32f));
     }
 
     [Test]
-    public void SunAt_UnderSolid_IsNull()
+    public void SunAt_WhereTheTraceMissesSky_IsNull()
     {
         // **The control, and Valve's parenthesis made real.** `bspfile.h` defines a sky light as a
         // "directional light with no falloff (surface must trace to SKY texture)" — without the
-        // trace the sun lights the inside of every building, which is worse than the shade it was
-        // added to fix. Same sun, same query point; only the solid above it differs.
+        // trace the sun lights the inside of every building. Same sun, same point; only the trace's answer differs.
         LevelLighting lighting = new(
-            leaves: OneSplit(above: 1, below: 0, solidLeaf: 1),
+            leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
             ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
             worldLights: [],
             sun: Sky(),
-            new RecordingLogger());
+            new RecordingLogger(),
+            strikesSky: static (_, _) => false);
 
         lighting.SunAt(0f, 0f, -100f).ShouldBeNull();
     }

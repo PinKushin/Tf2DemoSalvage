@@ -103,23 +103,6 @@ public sealed class BspLeafTree
     internal const int MaskSolid =
         ContentsSolid | ContentsMoveable | ContentsWindow | ContentsGrate;
 
-    /// <summary>How far to look for the sky before giving up, in world units.</summary>
-    /// <remarks>
-    /// A TF2 map fits comfortably inside this; a ray that has travelled it without meeting solid
-    /// has left the world. Bounded rather than unbounded so a malformed tree cannot spin.
-    /// </remarks>
-    private const float SkyReach = 16384f;
-
-    /// <summary>How far apart the trace samples, in world units.</summary>
-    /// <remarks>
-    /// **Sampled rather than a true plane-by-plane sweep, and this is where it can be wrong.** A
-    /// solid thinner than this between a point and the sky is missed, and the point is treated as
-    /// lit. Sixteen units is half the thickness of the thinnest wall a mapper would build and a
-    /// quarter of TF2's grid, so the case is rare; it is stated rather than hidden because a
-    /// missed occluder shows as one object lit indoors, which reads as a lighting bug.
-    /// </remarks>
-    private const float SkyStep = 16f;
-
     private readonly ReadOnlyMemory<byte> _nodes;
     private readonly ReadOnlyMemory<byte> _planes;
     private readonly ReadOnlyMemory<byte> _leaves;
@@ -221,62 +204,6 @@ public sealed class BspLeafTree
             BspLumpData.Read(file, header.Lump(BspLumpIndex.BrushSides)));
     }
 
-    /// <summary>Whether a point can see the sky along a direction.</summary>
-    /// <param name="x">World position.</param>
-    /// <param name="y">World position.</param>
-    /// <param name="z">World position.</param>
-    /// <param name="towardsX">Direction to look, which for the sun is away from its normal.</param>
-    /// <param name="towardsY">Direction to look.</param>
-    /// <param name="towardsZ">Direction to look.</param>
-    /// <returns><c>true</c> when nothing solid stands in the way.</returns>
-    /// <remarks>
-    /// **Valve's parenthesis, made real.** <c>bspfile.h</c> describes a sky light as a
-    /// "directional light with no falloff (surface must trace to SKY texture)" — the trace is not
-    /// an optimisation, it is the difference between sunlight and a sun that shines through
-    /// ceilings.
-    ///
-    /// Answers true when the map has no leaves to test, since a viewer that decided everything was
-    /// in shadow would be worse than one that lit everything: the first hides the map, the second
-    /// merely flatters it.
-    /// </remarks>
-    public bool SeesSky(float x, float y, float z, float towardsX, float towardsY, float towardsZ)
-    {
-        if (_leaves.IsEmpty || IsEmpty)
-        {
-            return true;
-        }
-
-        ReadOnlySpan<byte> leaves = _leaves.Span;
-
-        // Started clear of the surface the model stands on, which is otherwise the first thing the
-        // trace hits: a pack sitting on the floor is a point on a solid plane.
-        for (float distance = SkyStep; distance <= SkyReach; distance += SkyStep)
-        {
-            int leaf = LeafAt(
-                x + (towardsX * distance),
-                y + (towardsY * distance),
-                z + (towardsZ * distance));
-
-            if (leaf < 0)
-            {
-                return true;
-            }
-
-            int at = leaf * _leafStride;
-
-            if (at + 4 > leaves.Length)
-            {
-                return true;
-            }
-
-            if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & ContentsSolid) != 0)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
 
     /// <summary>Whether nothing solid stands between two points.</summary>
     /// <param name="fromX">Where the segment starts, in world units.</param>
@@ -295,19 +222,16 @@ public sealed class BspLeafTree
     ///
     /// **Sampled rather than clipped, and that is an approximation with a known failure.** A real
     /// trace splits the segment against each BSP plane; this walks it and asks which leaf each step
-    /// lands in, exactly as <see cref="SeesSky"/> does. A wall thinner than the step can be tunnelled
+    /// lands in. A wall thinner than the step can be tunnelled
     /// through, reporting clear when the engine would report blocked — which for a soundscape means
     /// hearing the room next door.
     ///
-    /// **The step is therefore finer than the sky trace's**, 4 units against 16: Source walls are
-    /// commonly 8 units and occasionally less, and the sky trace can afford to be coarse because
-    /// ceilings are thick. The cost is bounded by the caller rather than here — soundscape selection
-    /// runs a few times a second and stops at the first entity that qualifies, not once per frame
-    /// per entity.
+    /// **The step is 4 units**: Source walls are commonly 8 units and occasionally less. The cost is
+    /// bounded by the caller rather than here — soundscape selection runs a few times a second and
+    /// stops at the first entity that qualifies, not once per frame per entity.
     ///
-    /// **True when the map has no leaves**, matching <see cref="SeesSky"/>: a viewer that decided
-    /// everything was blocked would report silence everywhere, which is a worse failure than
-    /// occasionally hearing through a wall.
+    /// **True when the map has no leaves**: a viewer that decided everything was blocked would
+    /// report silence everywhere, which is a worse failure than occasionally hearing through a wall.
     /// </remarks>
     public bool IsClear(
         float fromX, float fromY, float fromZ,
@@ -710,9 +634,9 @@ public sealed class BspLeafTree
     /// <param name="halfExtent">Half the width of the box being swept; zero for a bare ray.</param>
     /// <returns>The fraction of the way it got, 0 to 1, where 1 means nothing was in the way.</returns>
     /// <remarks>
-    /// **A real plane-by-plane clip, unlike <see cref="IsClear"/> and <see cref="SeesSky"/>.** Those
-    /// two SAMPLE the segment at fixed steps and say so in their own remarks, which is why both can
-    /// tunnel through a thin wall and why neither can report a distance. This walks the tree and
+    /// **A real plane-by-plane clip, unlike <see cref="IsClear"/>.** That one SAMPLES the segment at
+    /// fixed steps and says so in its own remarks, which is why it can tunnel through a thin wall and
+    /// cannot report a distance. This walks the tree and
     /// splits the segment against each node's plane, so it finds the first solid surface exactly and
     /// answers WHERE, not merely whether.
     ///

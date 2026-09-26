@@ -142,6 +142,22 @@ public sealed record MapLevel(
             : brushes;
     }
 
+    /// <summary>The map's texinfo, which says what a trace's struck brush side is — `SURF_SKY` among it.</summary>
+    public IReadOnlyList<BspTexinfo> Texinfo { get; init; } = [];
+
+    /// <summary>Whether a world-only trace strikes sky before anything else.</summary>
+    /// <param name="from">Where the trace starts.</param>
+    /// <param name="to">Where it would end.</param>
+    /// <returns>True when the first thing struck is a brush side whose texinfo carries `SURF_SKY`.</returns>
+    /// <remarks>
+    /// **The light cache's skylight test** (`engine.dll` 0x1801b8e20): `TRACE_WORLD_ONLY`, `MASK_OPAQUE`, then
+    /// `tr.surface.flags &amp; SURF_SKY`. Terrain is world and is not sky, so a hillside shades what lies behind it.
+    /// </remarks>
+    public bool StrikesSky((float X, float Y, float Z) from, (float X, float Y, float Z) to) =>
+        TraceBrushOnly(from, to, 0f) is { Fraction: < 1f, Texinfo: >= 0 } hit &&
+        hit.Texinfo < Texinfo.Count &&
+        (Texinfo[hit.Texinfo].Flags & SurfaceProperties.Sky) != 0;
+
     /// <summary><see cref="Sweep"/>, with what the brushes say about what stopped it — `trace_t` (B415).</summary>
     /// <param name="from">Where the box's centre starts.</param>
     /// <param name="to">Where it would end unobstructed.</param>
@@ -362,7 +378,10 @@ public sealed record MapLevel(
             // **Unguarded like the surfaces and the lighting**, because a map whose vertex normals
             // will not read is malformed in the same way — and unlike the decals, nothing degrades
             // gracefully without them once something does consume them (D93).
-            BspVertexNormals.Read(bytes));
+            BspVertexNormals.Read(bytes))
+        {
+            Texinfo = BspMaterials.ReadTexinfo(bytes),
+        };
 
         return level;
     }

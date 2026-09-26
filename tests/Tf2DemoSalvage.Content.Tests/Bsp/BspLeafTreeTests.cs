@@ -58,34 +58,6 @@ public sealed class BspLeafTreeTests
         tree.LeafAt(0f, 0f, 0f).ShouldBe(-1);
     }
 
-    [Test]
-    public void APointUnderSolid_CannotSeeTheSky()
-    {
-        // **Valve's parenthesis is the whole feature.** A sky light is a "directional light with
-        // no falloff (surface must trace to SKY texture)", so without the trace the sun shines
-        // through every ceiling and lights the inside of every building.
-        //
-        // The observer stands in leaf 0, which is empty, with solid leaf 1 above the plane.
-        // Looking up must find the solid and report shade.
-        BspLeafTree tree = OneSplit(above: 1, below: 0, solidLeaf: 1);
-
-        tree.SeesSky(0f, 0f, -100f, 0f, 0f, 1f).ShouldBeFalse();
-    }
-
-    [Test]
-    public void APointUnderOpenSky_CanSeeIt()
-    {
-        // The control: the same observer, with an EMPTY leaf above instead. Without it a test
-        // could pass against a trace that always reports shade, which would darken the whole map
-        // uniformly and read as a lighting choice rather than a broken trace.
-        //
-        // The first version of this control put the observer inside the solid leaf itself, which
-        // is not "under open sky" at all - the fixture, not the trace, was wrong.
-        BspLeafTree tree = OneSplit(above: 2, below: 0, solidLeaf: 1);
-
-        tree.SeesSky(0f, 0f, -100f, 0f, 0f, 1f).ShouldBeTrue();
-    }
-
     /// <remarks>
     /// **The engine puts a renderable in EVERY leaf its bounds touch**, which is what
     /// `CClientLeafSystem::InsertIntoTree` walks the tree to do, and why

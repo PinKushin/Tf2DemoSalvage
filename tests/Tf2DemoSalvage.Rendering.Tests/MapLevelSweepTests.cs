@@ -138,6 +138,41 @@ public sealed class MapLevelSweepTests
         brushOnly.ShouldBe(terrainOnly, 0.000001);
     }
 
+    /// <remarks>
+    /// The light cache's skylight test (`engine.dll` 0x1801b8e20): a `TRACE_WORLD_ONLY` `MASK_OPAQUE` trace, and the
+    /// light counts only if `tr.surface.flags &amp; SURF_SKY`. Terrain is world and is not sky, so a ray that meets a
+    /// hillside first is shaded — where the old leaf-stepping test walked through the hill to open air.
+    /// </remarks>
+    [Test]
+    public void StrikesSky_UpFromTheGroundAndDownIntoIt_AnswerEachWay()
+    {
+        MapLevel level = MapLevel.Read(MapCache.Bytes(Terrain), NullLogger.Instance);
+        int up = 0;
+        int down = 0;
+
+        foreach (BspSurface surface in level.Surfaces.Where(each => each.IsDisplacement).Take(200))
+        {
+            if (level.Terrain.ShouldNotBeNull().ReadTriangles(surface) is not { Count: > 0 } corners)
+            {
+                continue;
+            }
+
+            (float X, float Y, float Z) ground = (corners[0].X, corners[0].Y, corners[0].Z + 8f);
+
+            // The control: straight down from just above terrain strikes terrain, never sky.
+            level.StrikesSky(ground, (ground.X, ground.Y, ground.Z - 57016.32f)).ShouldBeFalse();
+            down++;
+
+            if (level.StrikesSky(ground, (ground.X, ground.Y, ground.Z + 57016.32f)))
+            {
+                up++;
+            }
+        }
+
+        down.ShouldBeGreaterThan(0);
+        up.ShouldBeGreaterThan(down / 2, "cp_badlands' terrain is mostly under open sky");
+    }
+
     [Test]
     public void Sweep_IntoABrushWall_IsStillStoppedByTheBrush()
     {
