@@ -9287,4 +9287,9 @@ So:
   the viewer can be a good way for people to compare huds too."* Several huds can sit in the custom folder at once and
   the chosen one is drawn; the stock HUD is what is drawn when none is chosen, and what tests read. Comparing huds is a
   use the picker should serve.
+- **What a player imports or copies in lands in OUR `custom/` folder**, subfolders allowed. The owner: *"id rather huds
+  players "import" or copy into our program be in the custom folder, we can sub folder, but tf2 players are use to
+  putting anything cutom like huds and configs, in the custom folder now, although cfgs can also technically just be
+  put in the cfg folder, so we have to actually check both"*. So huds live under `custom/`, and **configs are looked for
+  in both `custom/` and `cfg/`**, as TF2 players place them in either.
 - `WithoutCustom` was documented "for parity, never for the viewer"; that half was wrong and is corrected.

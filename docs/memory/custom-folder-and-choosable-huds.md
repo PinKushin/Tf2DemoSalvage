@@ -16,7 +16,8 @@ The owner, 2026-08-25, while the field of view was being made config-settable:
 
 Recorded as **D91**. **D193 (2026-09-26) sets the default: TF2's stock HUD.** A custom HUD is chosen — imported, taken
 from the user's `tf/custom`, or picked from our own custom folder — never picked up because it is installed; once chosen it wins, so huds need not be deleted to switch, and the viewer
-doubles as a way to compare huds. The HUD
+doubles as a way to compare huds. Imported or copied huds and configs go in OUR `custom/` folder (subfolders fine), as
+TF2 players expect; configs must be looked for in both `custom/` and `cfg/`. The HUD
 reads `GameArchives.WithoutCustom()`, so every test runs against Valve's defaults; the owner's HUD lacks things the stock
 one has and adds a crosshair it does not. **It is an AFTER-PARITY goal** — *"its a after parity goal, but it might effect
 some earlier design decisions, so it needs to be kept in mind"* — so it is not work in flight. It is
