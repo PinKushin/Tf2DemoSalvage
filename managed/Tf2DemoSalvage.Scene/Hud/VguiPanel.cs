@@ -61,6 +61,8 @@ public class VguiPanel
     private readonly List<AnimationVar> _animationVars = [];
     private readonly Dictionary<string, (byte, byte, byte, byte)> _colourOverrides = new(StringComparer.Ordinal);
     private bool _needsDefaultSettings = true;
+    private short _zPos;
+    private VguiPanel? _pinSibling;
     private bool _proportional;
 
     /// <summary>`Panel( parent, panelName )`: `Init( 0, 0, 64, 24 )`, then the name, then the parent.</summary>
@@ -96,8 +98,87 @@ public class VguiPanel
     /// <summary>Tall; 24 until set.</summary>
     public int Tall { get; set; } = 24;
 
-    /// <summary>`zpos`: paint order among siblings.</summary>
-    public int ZPos { get; set; }
+    /// <summary>`zpos`: paint order among siblings, kept as a `short`.</summary>
+    /// <remarks>
+    /// `VPanel_SetZPos` (vgui2.dll 0x18001c610) stores it and bubbles the panel through the parent's children, past a
+    /// neighbour only while strictly out of order.
+    /// </remarks>
+    public int ZPos
+    {
+        get => _zPos;
+        set
+        {
+            _zPos = (short)value;
+
+            if (Parent is null)
+            {
+                return;
+            }
+
+            List<VguiPanel> siblings = Parent._children;
+            int index = siblings.IndexOf(this);
+
+            while (index > 0 && siblings[index - 1]._zPos > _zPos)
+            {
+                (siblings[index - 1], siblings[index]) = (siblings[index], siblings[index - 1]);
+                index--;
+            }
+
+            while (index < siblings.Count - 1 && siblings[index + 1]._zPos < _zPos)
+            {
+                (siblings[index + 1], siblings[index]) = (siblings[index], siblings[index + 1]);
+                index++;
+            }
+        }
+    }
+
+    /// <summary>`GetInset`: left, top, right, bottom.</summary>
+    public (int Left, int Top, int Right, int Bottom) Inset { get; set; }
+
+    /// <summary>`GetAbsPos` X, as the last solve left it.</summary>
+    public int AbsX { get; internal set; }
+
+    /// <summary>`GetAbsPos` Y, as the last solve left it.</summary>
+    public int AbsY { get; internal set; }
+
+    /// <summary>`GetClipRect`: left, top, right, bottom in screen pixels, as the last solve left it.</summary>
+    public (int X0, int Y0, int X1, int Y1) ClipRect { get; internal set; }
+
+    /// <summary>The sibling `pin_to_sibling` resolved to — cached once found, as `m_pinSibling` is.</summary>
+    internal VguiPanel? PinSibling
+    {
+        get
+        {
+            if (_pinSibling is null && PinToSibling is { } name)
+            {
+                _pinSibling = FindSiblingByName(name);
+            }
+
+            return _pinSibling;
+        }
+    }
+
+    /// <summary>`PinToSibling`: a new name drops the cached sibling; the same name keeps it.</summary>
+    /// <param name="sibling">The sibling's name, or null to unpin.</param>
+    /// <param name="ownCorner">`pin_corner_to_sibling`, as `GetPinCornerFromString` reads it.</param>
+    /// <param name="siblingCorner">`pin_to_sibling_corner`, likewise.</param>
+    public void PinTo(string? sibling, string? ownCorner, string? siblingCorner)
+    {
+        PinCornerToSibling = PinCornerFromString(ownCorner);
+        PinToSiblingCorner = PinCornerFromString(siblingCorner);
+
+        if (_pinSibling is not null && sibling is not null && string.Equals(PinToSibling, sibling, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        PinToSibling = sibling;
+        _pinSibling = null;
+    }
+
+    /// <summary>`FindSiblingByName`: the parent's children in paint order, case-insensitive — this panel included.</summary>
+    private VguiPanel? FindSiblingByName(string name) =>
+        Parent?._children.Find(sibling => string.Equals(sibling.Name, name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>`IsVisible`.</summary>
     public bool Visible { get; set; } = true;
@@ -257,9 +338,7 @@ public class VguiPanel
             Name = fieldName;
         }
 
-        PinToSibling = block.Find("pin_to_sibling")?.Value;
-        PinCornerToSibling = PinCornerFromString(block.Find("pin_corner_to_sibling")?.Value);
-        PinToSiblingCorner = PinCornerFromString(block.Find("pin_to_sibling_corner")?.Value);
+        PinTo(block.Find("pin_to_sibling")?.Value, block.Find("pin_corner_to_sibling")?.Value, block.Find("pin_to_sibling_corner")?.Value);
 
         ApplyColourOverride(block, "fgcolor_override", context);
         ApplyColourOverride(block, "bgcolor_override", context);
