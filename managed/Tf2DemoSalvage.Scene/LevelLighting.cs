@@ -87,13 +87,18 @@ public sealed class LevelLighting
     /// <param name="worldLights">Every light the compiler recorded, not only the sun.</param>
     /// <param name="sun">The single directional light, when the map has one.</param>
     /// <param name="render">Where the light terms are reported.</param>
+    /// <param name="strikesSky">
+    /// Whether a world-only trace between two points strikes sky first (<see cref="MapLevel.StrikesSky"/>); without
+    /// one no point sees the sun.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument other than the map data is null.</exception>
     public LevelLighting(
         BspLeafTree? leaves,
         IReadOnlyList<AmbientSamples> ambient,
         IReadOnlyList<BspWorldLight> worldLights,
         BspWorldLight? sun,
-        ILogger render)
+        ILogger render,
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? strikesSky = null)
     {
         ArgumentNullException.ThrowIfNull(ambient);
         ArgumentNullException.ThrowIfNull(worldLights);
@@ -104,7 +109,14 @@ public sealed class LevelLighting
         _worldLights = worldLights;
         _sun = sun;
         _render = render;
+        _strikesSky = strikesSky;
     }
+
+    /// <summary>The skylight's visibility trace; see the constructor.</summary>
+    private readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? _strikesSky;
+
+    /// <summary>How far the light cache traces toward a skylight: `engine.dll` 0x1801b8e20's constant.</summary>
+    private const float SkyTraceLength = 57016.32f;
 
     /// <summary>The light a map that has not been read casts, which is none.</summary>
     /// <param name="render">Where the light terms would be reported.</param>
@@ -131,7 +143,7 @@ public sealed class LevelLighting
         ArgumentNullException.ThrowIfNull(level);
 
         return new LevelLighting(
-            level.Leaves, level.Ambient, level.WorldLights, level.Sun, render);
+            level.Leaves, level.Ambient, level.WorldLights, level.Sun, render, level.StrikesSky);
     }
 
     /// <summary>The ambient light at a world position.</summary>
@@ -271,16 +283,23 @@ public sealed class LevelLighting
     /// that condition it lights the inside of every building, which is worse than the shade this
     /// is meant to fix.
     ///
-    /// Traced towards the sun, which is against the direction its light travels.
+    /// **The engine's trace** (`engine.dll` 0x1801b8e20): from the point, <see cref="SkyTraceLength"/> against the light's
+    /// normal, `TRACE_WORLD_ONLY` and `MASK_OPAQUE`, and the light counts only when it strikes `SURF_SKY`. This used to
+    /// step through leaves until one was solid and call open air sky — which walked through every hillside.
     /// </remarks>
     public SunLight? SunAt(float x, float y, float z)
     {
-        if (_sun is not { } sun || _leaves is not { } tree)
+        if (_sun is not { } sun || _strikesSky is not { } strikesSky)
         {
             return null;
         }
 
-        if (!tree.SeesSky(x, y, z, -sun.Normal.X, -sun.Normal.Y, -sun.Normal.Z))
+        (float X, float Y, float Z) toward = (
+            x - (sun.Normal.X * SkyTraceLength),
+            y - (sun.Normal.Y * SkyTraceLength),
+            z - (sun.Normal.Z * SkyTraceLength));
+
+        if (!strikesSky((x, y, z), toward))
         {
             return null;
         }
