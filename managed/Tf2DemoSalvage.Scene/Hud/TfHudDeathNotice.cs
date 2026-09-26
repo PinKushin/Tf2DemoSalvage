@@ -23,6 +23,9 @@ public sealed record HudGameEvent(
     string MapName,
     int LocalVisionFlags)
 {
+    /// <summary>`gpGlobals->realtime` when it was handled — the frame's wall clock, which the streak banner runs on.</summary>
+    public float RealTime { get; init; }
+
     /// <summary>`MAX_PLAYERS` for TF (shareddefs.h:255).</summary>
     public const int MaxPlayers = 101;
 
@@ -270,7 +273,16 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
         _iconKillStreakDNeg = icons?.GetIcon("leaderboard_streak_dneg");
         _iconDuckStreak = icons?.GetIcon("eotl_duck");
         _iconDuckStreakDNeg = icons?.GetIcon("eotl_duck_dneg");
+
+        // `m_pStreakNotice = new CTFStreakNotice( "KillStreakNotice" )`, a sibling on the viewport.
+        if (Streak is null && Parent is { } viewport)
+        {
+            Streak = new TfStreakNotice(viewport);
+        }
     }
+
+    /// <summary>`m_pStreakNotice`, made at the first scheme pass.</summary>
+    public TfStreakNotice? Streak { get; private set; }
 
     /// <summary>`CTFHudDeathNotice::FireGameEvent` (tf_hud_deathnotice.cpp:758), then the base's (hud_basedeathnotice.cpp:399).</summary>
     /// <param name="fired">The event and the world it fired in.</param>
@@ -281,7 +293,13 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
         SceneGameEvent e = fired.Event;
 
         // `duck_xp_level_up` goes to the streak notice alone.
-        if (e.Name == "duck_xp_level_up" || NoticeTime == 0f)
+        if (e.Name == "duck_xp_level_up")
+        {
+            AddStreakMsg(fired, TfStreakType.DuckLevelUp, fired.LocalPlayerIndex, e.GetInt("level"), 1);
+            return;
+        }
+
+        if (NoticeTime == 0f)
         {
             return;
         }
@@ -1103,6 +1121,61 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
             item.PreKillerText = VguiLocalize.ConstructString(Find("#Duck_Streak"), InfoChars, count);
             item.IconPostKillerName = item.LocalPlayerInvolved ? _iconDuckStreakDNeg : _iconDuckStreak;
         }
+
+        // "Check to see if we want a extra notification" (tf_hud_deathnotice.cpp:1219), kills then ducks.
+        bool assister = fired.Player(assisterIndex) is not null;
+        bool victimPresent = fired.Player(victimIndex) is not null;
+        int killStreakAssist = e.GetInt("kill_streak_assist");
+        int killStreakVictim = e.GetInt("kill_streak_victim");
+
+        AddStreakMsg(fired, TfStreakType.Kills, killerIndex, e.GetInt("kill_streak_total"), 1);
+
+        if (assister && killStreakAssist > 1)
+        {
+            AddStreakMsg(fired, TfStreakType.Kills, assisterIndex, killStreakAssist, 1);
+        }
+
+        if (victimPresent && killStreakVictim > 2)
+        {
+            AddStreakEndedMsg(fired, TfStreakType.Kills, killerIndex, victimIndex, killStreakVictim);
+        }
+
+        int duckStreakAssist = e.GetInt("duck_streak_assist");
+        int duckStreakVictim = e.GetInt("duck_streak_victim");
+
+        AddStreakMsg(fired, TfStreakType.Ducks, killerIndex, duckStreakTotal, ducksThisKill);
+
+        if (assister && duckStreakAssist > 0 && ducksThisKill != 0)
+        {
+            AddStreakMsg(fired, TfStreakType.Ducks, assisterIndex, duckStreakAssist, ducksThisKill);
+        }
+
+        if (victimPresent && duckStreakVictim > 2)
+        {
+            AddStreakEndedMsg(fired, TfStreakType.Ducks, killerIndex, victimIndex, duckStreakVictim);
+        }
+    }
+
+    /// <summary>`AddStreakMsg` (tf_hud_deathnotice.cpp:1547): past the type's minimum and with a display time, to the banner.</summary>
+    private void AddStreakMsg(HudGameEvent fired, TfStreakType type, int player, int streak, int increment)
+    {
+        if (Streak is not { } banner || streak < TfStreakNotice.MinStreakForType(type, fired.Rules.MannVsMachine) || banner.DisplayTime <= 0)
+        {
+            return;
+        }
+
+        banner.StreakUpdated(type, player, streak, increment, fired, fired.RealTime);
+    }
+
+    /// <summary>`AddStreakEndedMsg` (tf_hud_deathnotice.cpp:1563).</summary>
+    private void AddStreakEndedMsg(HudGameEvent fired, TfStreakType type, int killer, int victim, int streak)
+    {
+        if (Streak is not { } banner || streak < TfStreakNotice.MinStreakForType(type, fired.Rules.MannVsMachine) || banner.DisplayTime <= 0)
+        {
+            return;
+        }
+
+        banner.StreakEnded(type, killer, victim, streak, fired, fired.RealTime);
     }
 
     // EHorriblePyroVisionHack's first-byte values (tf_shareddefs.h:1867).

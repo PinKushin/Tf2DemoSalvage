@@ -199,6 +199,24 @@ public sealed class VguiTextImage : VguiImage
         return (Math.Max(wide, maxWide), tall);
     }
 
+    private readonly List<(int Index, (byte, byte, byte, byte) Color)> _colorChanges = [];
+
+    /// <summary>`m_ColorChangeStream`, by index.</summary>
+    public IReadOnlyList<(int Index, (byte, byte, byte, byte) Color)> ColorChanges => _colorChanges;
+
+    /// <summary>`ClearColorChangeStream`.</summary>
+    public void ClearColorChangeStream() => _colorChanges.Clear();
+
+    /// <summary>`AddColorChange` (TextImage.cpp:973): into a vector sorted by index.</summary>
+    /// <param name="color">The colour from this character on.</param>
+    /// <param name="index">The character it starts at.</param>
+    public void AddColorChange((byte, byte, byte, byte) color, int index)
+    {
+        int at = _colorChanges.FindIndex(change => change.Index > index);
+
+        _colorChanges.Insert(at < 0 ? _colorChanges.Count : at, (index, color));
+    }
+
     /// <inheritdoc/>
     public override void Paint(IVguiSurface surface)
     {
@@ -223,6 +241,7 @@ public sealed class VguiTextImage : VguiImage
         surface.DrawSetTextFont(font);
 
         int lineHeight = surface.GetFontTall(font);
+        int nextColorChange = 0;
         float x = CenterWrap && _lineIndents.Count > 0 ? _lineIndents[0] : 0f;
         int y = 0;
         int indent = 0;
@@ -233,6 +252,13 @@ public sealed class VguiTextImage : VguiImage
         while (++index < Text.Length)
         {
             char character = AllCaps ? char.ToUpperInvariant(Text[index]) : Text[index];
+
+            // TextImage.cpp:368: the next change, checked at every character — even one skipped below.
+            if (nextColorChange < _colorChanges.Count && _colorChanges[nextColorChange].Index == index)
+            {
+                surface.DrawSetTextColor(_colorChanges[nextColorChange].Color);
+                nextColorChange++;
+            }
 
             if (character == '\r' || character <= 8)
             {

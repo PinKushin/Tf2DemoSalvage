@@ -70,6 +70,7 @@ public static class HudStates
             CurTime: (float)(tick * ScenePropTrack.Tf2TickInterval),
             Team: local.Team ?? 0,
             Ammo: scripts is not null && hooks is not null ? TfAmmo.For(local, scripts, hooks) : default,
-            ActiveWeapon: local.ActiveWeapon ?? 0);
+            ActiveWeapon: local.ActiveWeapon ?? 0,
+            ObserverMode: local.ObserverMode ?? 0);
     }
 }

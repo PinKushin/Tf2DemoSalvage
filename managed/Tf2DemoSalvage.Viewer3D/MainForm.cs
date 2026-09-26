@@ -7000,7 +7000,10 @@ internal class MainForm : Form, IFrameSteps
             hudEvents = HudEventFeed.Resolve(hudTimeline, crossed, _demo?.MapName ?? string.Empty, _hudHooks);
         }
 
-        _vguiHud.Frame(HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks), hudEvents, hudReset);
+        _vguiHud.Frame(
+            HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks) with { RealTime = (float)_vguiClock.Elapsed.TotalSeconds },
+            hudEvents,
+            hudReset);
         _vguiTools.Frame(
             _vguiClock.Elapsed.TotalSeconds,
             _clock.LastFrameSeconds,
