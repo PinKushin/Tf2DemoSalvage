@@ -127,10 +127,12 @@ public sealed record MapLevel(
     /// **"Brush only" leaves out props, not terrain** — a displacement is `CONTENTS_SOLID`. The legacy impact particles
     /// collide through this (`CParticleCollision`); handed the BSP tree alone they fell through harvest's ground.
     /// </remarks>
-    public BspTrace TraceBrushOnly((float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent)
+    /// <param name="mask">The brush contents that stop it; terrain is `CONTENTS_SOLID` and stops any mask that includes that.</param>
+    public BspTrace TraceBrushOnly(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent, int mask = BspLeafTree.MaskSolid)
     {
         BspTrace brushes = Leaves is { } tree
-            ? tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent)
+            ? tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent, 0, mask)
             : new BspTrace(1f, -1, default, false);
 
         (float terrain, int texdata, bool second, (float X, float Y, float Z) normal, float distance) =

@@ -52,6 +52,7 @@ public sealed class SoundscapeSystem(
         Placements = null;
         Leaves = null;
         Visibility = null;
+        LineOfSight = null;
 
         Clear();
     }
@@ -101,6 +102,18 @@ public sealed class SoundscapeSystem(
 
     /// <summary>The map's PVS, so a soundscape behind a wall does not reach the listener.</summary>
     public BspVisibility? Visibility { get; set; }
+
+    /// <summary>`MASK_SOLID_BRUSHONLY | MASK_WATER`: what `CEnvSoundscape::UpdateForPlayer` traces with (`soundscape.cpp:271`).</summary>
+    /// <remarks>`MASK_SOLID_BRUSHONLY` is `0x400b` and `MASK_WATER` `0x4030` (`bspflags.h`).</remarks>
+    public const int LineOfSightMask = 0x400b | 0x4030;
+
+    /// <summary>Whether nothing in <see cref="LineOfSightMask"/> stands between two points, or null before a map is read.</summary>
+    /// <remarks>
+    /// **Supplied by whoever holds the level**, because the engine's trace meets terrain too, and terrain is not in the
+    /// leaf tree. This asked the tree alone, in four-unit samples, until 2026-09-25 — through every hillside, and past
+    /// any water surface between a soundscape and the listener.
+    /// </remarks>
+    public Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? LineOfSight { get; set; }
 
     /// <summary>Forgets every voice, for a seek.</summary>
     /// <remarks>
@@ -179,8 +192,7 @@ public sealed class SoundscapeSystem(
             listener.X,
             listener.Y,
             listener.Z,
-            (from, to) => Leaves is not { } leaves ||
-                leaves.IsClear(from.X, from.Y, from.Z, to.X, to.Y, to.Z),
+            (from, to) => LineOfSight is not { } clear || clear(from, to),
             _mixer.Current,
 
             // **The listener is the camera, which is already at eye height** — the engine tests at
