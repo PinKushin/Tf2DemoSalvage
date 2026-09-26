@@ -12,6 +12,19 @@ public sealed class PanelLayoutConformanceTests
 {
     private static int Double(int value) => value * 2;
 
+    /// <remarks>
+    /// `vgui2.dll` 0x18000d590 (`CSchemeManager_GetProportionalScaledValue`, renamed in `tf2vgui2.gpr`):
+    /// `(int)((double)screenTall / (double)baseTall * value)`, the base from `ISurface::GetProportionalBase` —
+    /// `vguimatsurface.dll` stores 640 and 480 (`mov [rdx],0x280; mov [r8],0x1e0`, the one such pair in the file).
+    /// </remarks>
+    [TestCase(10, 480, 10)]
+    [TestCase(10, 1080, 22)]
+    [TestCase(-5, 1080, -11)]
+    [TestCase(250, 720, 375)]
+    [TestCase(7, 1440, 21)]
+    public void ProportionalScaled_AtAScreenTall_IsTallOver480TimesTheValueTruncated(int value, int tall, int expected) =>
+        PanelLayout.ProportionalScaled(value, tall).ShouldBe(expected);
+
     [TestCase("10", 20)]
     [TestCase("r10", 1000 - 20)]
     [TestCase("c-50", 500 - 100)]
