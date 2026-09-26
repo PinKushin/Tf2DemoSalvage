@@ -35,6 +35,7 @@ public sealed class TfWeaponData(Func<string, byte[]?> read)
 
     private readonly Dictionary<(string ServerClass, int PlayerClass), (int MaxClip1, int PrimaryAmmo, bool NamesAmmo)> _weapons = [];
     private readonly Dictionary<int, int[]> _ammoMax = [];
+    private readonly Dictionary<(string ServerClass, int PlayerClass), (bool DrawCrosshair, IReadOnlyList<Hud.HudTexture> Icons)> _hud = [];
 
     /// <summary>A weapon's script: its `clip_size` and its primary ammo type.</summary>
     /// <param name="serverClass">The weapon's server class, such as `CTFScatterGun`.</param>
@@ -73,6 +74,44 @@ public sealed class TfWeaponData(Func<string, byte[]?> read)
         }
 
         _weapons[key] = found;
+
+        return found;
+    }
+
+    /// <summary>What the HUD reads of a weapon's script: `m_bDrawCrosshair` and the `TextureData` icons.</summary>
+    /// <param name="serverClass">The weapon's server class.</param>
+    /// <param name="playerClass">Who holds it.</param>
+    /// <returns>
+    /// `DrawCrosshair` (tf_weapon_parse.cpp:78, `GetInt( "DrawCrosshair", 1 ) > 0`) and the script's icons as
+    /// `LoadWeaponSprites` reads them (weapons_resource.cpp:111); true and none when no script is found.
+    /// </returns>
+    public (bool DrawCrosshair, IReadOnlyList<Hud.HudTexture> Icons) WeaponHud(string serverClass, int? playerClass)
+    {
+        ArgumentNullException.ThrowIfNull(serverClass);
+
+        (string, int) key = (serverClass, playerClass ?? 0);
+
+        if (_hud.TryGetValue(key, out (bool, IReadOnlyList<Hud.HudTexture>) known))
+        {
+            return known;
+        }
+
+        (bool DrawCrosshair, IReadOnlyList<Hud.HudTexture> Icons) found = (true, []);
+
+        foreach (string candidate in WeaponScriptName.Candidates(serverClass, playerClass))
+        {
+            if (WeaponScript.Read(read, candidate) is not { } script)
+            {
+                continue;
+            }
+
+            KeyValuesTree data = KeyValuesTree.Load(script.Text.ToArray(), candidate, _ => null);
+
+            found = (Int(data.Find("DrawCrosshair")?.Value, 1) > 0, Hud.HudTextures.Parse(data));
+            break;
+        }
+
+        _hud[key] = found;
 
         return found;
     }

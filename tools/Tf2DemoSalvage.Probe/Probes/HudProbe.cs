@@ -54,6 +54,8 @@ public sealed class HudProbe : IProbe
         VguiSurfaceHost host = new(archives.Read, archives.FullPathOnDisk, new NoFonts(), _ => (64, 64));
         VguiHud hud = new(host);
 
+        hud.Viewport.Scripts = new TfWeaponData(archives.Read);
+
         // Two frames: a panel's scheme pass runs children first, so what a parent's `.res` sets reaches them on the next.
         host.BeginFrame(1920, 1080);
         hud.Frame(state, events, reset: true);
