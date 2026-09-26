@@ -236,6 +236,7 @@ public static class VguiControlFactory
         ["CExLabel"] = () => new TfExLabel(null, null),
         ["CTFImagePanel"] = () => new TfImagePanel(null, null),
         ["CIconPanel"] = () => new VguiIconPanel(null, null),
+        ["CTFProgressBar"] = () => new TfProgressBar(null, null),
         ["CAvatarImagePanel"] = () => new VguiAvatarImagePanel(null, null),
     };
 

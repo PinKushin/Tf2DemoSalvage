@@ -53,14 +53,20 @@ internal sealed class TextRecorder : IVguiSurface
     public void DrawTexturedPolygon(ReadOnlySpan<VguiVertex> vertices)
     {
         List<string> corners = [];
+        List<string> textured = [];
 
         foreach (VguiVertex vertex in vertices)
         {
             corners.Add(Text($"{vertex.X},{vertex.Y}"));
+            textured.Add(Text($"{vertex.X:0.##},{vertex.Y:0.##}/{vertex.S:0.###},{vertex.T:0.###}"));
         }
 
         Calls.Add("polygon " + string.Join(" ", corners));
+        Polygons.Add(string.Join(" ", textured));
     }
+
+    /// <summary>Each polygon's corners with their texture coordinates, rounded: "50,0/0.5,0 100,0/1,0".</summary>
+    public List<string> Polygons { get; } = [];
 
     public (int Wide, int Tall) DrawGetTextureSize(string texture) => (64, 64);
 
