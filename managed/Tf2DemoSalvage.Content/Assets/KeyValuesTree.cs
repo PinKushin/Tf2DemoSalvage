@@ -128,6 +128,31 @@ public sealed class KeyValuesTree
     /// <param name="value">Its value.</param>
     public void SetString(string name, string? value) => FindOrCreate(name).Value = value ?? string.Empty;
 
+    /// <summary>`SetStringValue`: this key's own value.</summary>
+    /// <param name="value">The value.</param>
+    public void SetValue(string value) => Value = value;
+
+    /// <summary>`AddSubKey( other->MakeCopy() )`: a deep copy of another key, appended.</summary>
+    /// <param name="other">The key to copy.</param>
+    public void AddCopy(KeyValuesTree other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        _children.Add(Copy(other));
+    }
+
+    private static KeyValuesTree Copy(KeyValuesTree source)
+    {
+        KeyValuesTree copy = new(source.Name, source.Value);
+
+        foreach (KeyValuesTree child in source._children)
+        {
+            copy._children.Add(Copy(child));
+        }
+
+        return copy;
+    }
+
     /// <summary>Loads a file and returns its first root, empty when it has none.</summary>
     /// <param name="bytes">The file.</param>
     /// <param name="resourceName">Its path, which `#base` and `#include` are resolved beside.</param>
