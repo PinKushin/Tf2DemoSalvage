@@ -9249,3 +9249,16 @@ something any other threat actor could use really"*. So:
 - Open-source packages: audit where warranted, though they are routinely audited already.
 - Build tools, analyzers and test tooling: a flaw is exposure of this program alone, not a route an outside attacker
   could use, so they carry the least risk of all.
+
+## D192 — HUDs before more lighting; auto-exposure stays on, and captures wait for it to settle (2026-09-25)
+
+Asked whether to build TF2's HDR post-processing (bloom, auto-exposure, colour correction; `viewpostprocess.cpp`)
+and whether auto-exposure should be switchable off for comparison captures, the owner said: *"the auto exposer settles
+after a few seconds so, no need to turn it off, just make sure the scene has settled, which ive honestly never seen it
+not settle so idk wtf you are even talking about, but id rather start huds before worryying about more lighting"*.
+
+So:
+- **The HUD comes next**; post-processing waits behind it.
+- **When auto-exposure is built it is on, as TF2's default is**, with no off switch added for captures. A comparison
+  capture waits for the exposure to settle, in TF2 and here alike. The worry that it makes a still depend on where the
+  camera looked a moment earlier only holds for the first seconds after a cut, which settling removes.
