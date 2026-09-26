@@ -50,7 +50,7 @@ public interface IVguiSurface
 
     /// <summary>`DrawSetTexture` of the texture `DrawSetTextureFile` named — a material path under `materials/`.</summary>
     /// <param name="texture">The material, such as `vgui/hud/8x800corner1`.</param>
-    public void DrawSetTexture(string texture);
+    public void DrawSetTexture(string? texture);
 
     /// <summary>`DrawTexturedPolygon` (vguimatsurface 0x18000d640) of the one shape a HUD panel passes it: an axis-aligned quad.</summary>
     /// <param name="x0">Left, in panel pixels — a fraction is kept, not rounded.</param>

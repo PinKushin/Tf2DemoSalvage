@@ -15,6 +15,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="Team">The local player's team: 0 unassigned, 1 spectator, 2 RED, 3 BLU.</param>
 /// <param name="Ammo">What the ammo element reads of the active weapon.</param>
 /// <param name="ActiveWeapon">The active weapon's entity slot, or 0 for none.</param>
+/// <param name="Rules">`TFGameRules()` as the HUD reads it.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -26,7 +27,8 @@ public readonly record struct HudState(
     float CurTime = 0f,
     int Team = 0,
     TfAmmoState Ammo = default,
-    int ActiveWeapon = 0);
+    int ActiveWeapon = 0,
+    Core.Scene.SceneGameRules Rules = default);
 
 /// <summary>`CHudElement` (game/client/hud.cpp): a HUD panel that hides by the player's `HIDEHUD` bits.</summary>
 public interface IHudElement

@@ -159,7 +159,7 @@ public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize,
     }
 
     /// <inheritdoc/>
-    public void DrawSetTexture(string texture) => _texture = texture;
+    public void DrawSetTexture(string? texture) => _texture = texture;
 
     /// <inheritdoc/>
     public void DrawTexturedRect(int x0, int y0, int x1, int y1) => DrawTexturedSubRect(x0, y0, x1, y1, 0f, 0f, 1f, 1f);

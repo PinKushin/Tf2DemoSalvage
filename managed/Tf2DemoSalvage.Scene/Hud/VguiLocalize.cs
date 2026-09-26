@@ -88,6 +88,61 @@ public sealed class VguiLocalize(string language)
         return output.ToString();
     }
 
+    /// <summary>`ConstructString_safe( dest, format, n, … )`: `%s1`–`%s9` replaced (tier1/ilocalize.cpp:47).</summary>
+    /// <param name="format">The format, or null — which writes an empty string.</param>
+    /// <param name="bufferChars">The destination's size in characters, the terminator included.</param>
+    /// <param name="parameters">The arguments; at most nine.</param>
+    /// <returns>The string.</returns>
+    /// <remarks>
+    /// A `%s` is read only while three characters remain. Its third character is the index: past the arguments, the `%` is
+    /// copied and the scan moves on one; below `1`, or above `:` — "Bad format string" — the output ends there.
+    /// </remarks>
+    public static string ConstructString(string? format, int bufferChars, params string?[] parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        const int MaxArguments = 9;
+
+        if (bufferChars < 1 || format is null || parameters.Length > MaxArguments)
+        {
+            return string.Empty;
+        }
+
+        System.Text.StringBuilder output = new();
+        int room = bufferChars;
+        int at = 0;
+
+        while (at < format.Length && format[at] != '\0' && room > 1)
+        {
+            if (format.Length - at >= 3 && format[at] == '%' && format[at + 1] == 's')
+            {
+                int index = format[at + 2] - '0' - 1;
+
+                if (index is < 0 or > MaxArguments)
+                {
+                    return output.ToString();
+                }
+
+                if (index < parameters.Length)
+                {
+                    string parameter = parameters[index] ?? "(null)";
+                    int size = Math.Min(parameter.Length, room - 1);
+
+                    output.Append(parameter, 0, size);
+                    room -= size;
+                    at += 3;
+                    continue;
+                }
+            }
+
+            output.Append(format[at]);
+            room--;
+            at++;
+        }
+
+        return output.ToString();
+    }
+
     /// <summary>`AddFile`.</summary>
     /// <param name="path">The file, which may hold `%language%`.</param>
     /// <param name="read">Reads a game path, or null when it is absent.</param>

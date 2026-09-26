@@ -4115,6 +4115,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The client's HUD viewport under `ClientScheme.res`; null until the game's files are open.</summary>
     private VguiHud? _vguiHud;
 
+    // Which game events the HUD has heard, so each fires once as playback crosses it.
+    private readonly HudEventFeed _hudEvents = new();
+
     /// <summary>The weapon and class scripts the HUD's ammo reads; null until the game's files are open.</summary>
     private TfWeaponData? _hudScripts;
 
@@ -6987,7 +6990,17 @@ internal class MainForm : Form, IFrameSteps
             _hudHooks = new AttributeHooks(items);
         }
 
-        _vguiHud.Frame(HudStates.For(_timeline, _transport.CurrentTick, _hudScripts, _hudHooks));
+        int hudTick = _transport.CurrentTick;
+        IReadOnlyList<HudGameEvent>? hudEvents = null;
+        bool hudReset = false;
+
+        if (_timeline is { } hudTimeline)
+        {
+            (hudReset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed) = _hudEvents.Advance(hudTimeline, hudTick);
+            hudEvents = HudEventFeed.Resolve(hudTimeline, crossed, _demo?.MapName ?? string.Empty, _hudHooks);
+        }
+
+        _vguiHud.Frame(HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks), hudEvents, hudReset);
         _vguiTools.Frame(
             _vguiClock.Elapsed.TotalSeconds,
             _clock.LastFrameSeconds,

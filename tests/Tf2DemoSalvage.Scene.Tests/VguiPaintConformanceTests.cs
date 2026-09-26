@@ -255,7 +255,7 @@ public sealed class VguiPaintConformanceTests
 
         public void DrawOutlinedRect(int x0, int y0, int x1, int y1) => Calls.Add(Rect("outline", x0, y0, x1, y1));
 
-        public void DrawSetTexture(string texture) => Calls.Add($"texture {texture}");
+        public void DrawSetTexture(string? texture) => Calls.Add($"texture {texture}");
 
         public void DrawTexturedRect(int x0, int y0, int x1, int y1) => Calls.Add(Rect("textured", x0, y0, x1, y1));
 

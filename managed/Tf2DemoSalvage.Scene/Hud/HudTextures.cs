@@ -133,6 +133,19 @@ public sealed class HudTexture
         return Font is null ? 0 : surface.GetCharacterWidth(Font, CharacterInFont);
     }
 
+    /// <summary>`EffectiveHeight` (hud.cpp:693): scaled and truncated; a font icon answers `GetFontAscent` — the ascent of the font drawing its character.</summary>
+    /// <param name="scale">The scale.</param>
+    /// <returns>The height.</returns>
+    public int EffectiveHeight(float scale)
+    {
+        if (!RenderUsingFont)
+        {
+            return (int)(Height * scale);
+        }
+
+        return Font?.GetFontForChar(CharacterInFont)?.Ascent ?? 0;
+    }
+
     /// <summary>`texCoords`: half a texel in from each edge of `rc` (hud.cpp:728).</summary>
     private (float S0, float T0, float S1, float T1) TexCoords(IVguiSurface surface)
     {
