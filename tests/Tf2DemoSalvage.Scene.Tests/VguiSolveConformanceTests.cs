@@ -49,7 +49,7 @@ public sealed class VguiSolveConformanceTests
         VguiPanel parent = new(null, "Parent") { X = 10, Y = 20, Wide = 100, Tall = 100, Inset = (1, 2, 3, 4) };
         VguiPanel child = new(parent, "Child") { X = 5, Y = 6, Wide = 20, Tall = 20 };
 
-        VguiLayout.SolveTraverse(parent);
+        VguiLayout.InternalSolveTraverse(parent);
 
         (child.AbsX, child.AbsY).ShouldBe((16, 28));
     }
@@ -60,7 +60,7 @@ public sealed class VguiSolveConformanceTests
         VguiPanel parent = new(null, "Parent") { Wide = 100, Tall = 100, Inset = (0, 0, 3, 4) };
         VguiPanel child = new(parent, "Child") { X = 90, Y = 90, Wide = 20, Tall = 20 };
 
-        VguiLayout.SolveTraverse(parent);
+        VguiLayout.InternalSolveTraverse(parent);
 
         child.ClipRect.ShouldBe((90, 90, 97, 96));
     }
@@ -70,7 +70,7 @@ public sealed class VguiSolveConformanceTests
     {
         (VguiPanel sibling, VguiPanel pinned) = Pair("PIN_TOPLEFT", "PIN_TOPRIGHT", x: 5, y: 3);
 
-        VguiLayout.SolveTraverse(sibling.Parent!);
+        VguiLayout.InternalSolveTraverse(sibling.Parent!);
 
         (pinned.AbsX, pinned.AbsY).ShouldBe((145, 47), "x from the right edge onward; y above the sibling's top");
     }
@@ -80,7 +80,7 @@ public sealed class VguiSolveConformanceTests
     {
         (VguiPanel sibling, VguiPanel pinned) = Pair("PIN_TOPRIGHT", "PIN_TOPLEFT", x: 5, y: 0);
 
-        VguiLayout.SolveTraverse(sibling.Parent!);
+        VguiLayout.InternalSolveTraverse(sibling.Parent!);
 
         pinned.AbsX.ShouldBe(100 - 30 - 5);
     }
@@ -90,7 +90,7 @@ public sealed class VguiSolveConformanceTests
     {
         (VguiPanel sibling, VguiPanel pinned) = Pair("PIN_CENTER_TOP", "PIN_CENTER_BOTTOM", x: 0, y: 2);
 
-        VguiLayout.SolveTraverse(sibling.Parent!);
+        VguiLayout.InternalSolveTraverse(sibling.Parent!);
 
         (pinned.AbsX, pinned.AbsY).ShouldBe((100 + 20 - 15, 50 + 20 + 2));
     }
