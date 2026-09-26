@@ -4115,6 +4115,10 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The client's HUD viewport under `ClientScheme.res`; null until the game's files are open.</summary>
     private VguiHud? _vguiHud;
 
+    // The HUD's stock view of the install, and the install it was made from.
+    private GameArchives? _hudArchives;
+    private GameContent? _hudArchivesOf;
+
     // Which game events the HUD has heard, so each fires once as playback crosses it.
     private readonly HudEventFeed _hudEvents = new();
 
@@ -6959,6 +6963,22 @@ internal class MainForm : Form, IFrameSteps
     /// headless case nobody watches. The HUD's state is `default` — not in game, so every element hidden — until the
     /// first element that reads the local player lands.
     /// </remarks>
+    /// <summary>The files the HUD reads: the install without `custom/`, made once per install (D193).</summary>
+    private GameArchives? HudArchives()
+    {
+        if (_game is null)
+        {
+            return null;
+        }
+
+        if (!ReferenceEquals(_hudArchivesOf, _game))
+        {
+            (_hudArchives, _hudArchivesOf) = (_game.Archives.WithoutCustom(), _game);
+        }
+
+        return _hudArchives;
+    }
+
     public VguiDrawList? BuildOverlay()
     {
         // A scheme read before the install is open is empty, and an empty scheme's `Panel.BgColor` falls back to opaque
@@ -6968,9 +6988,10 @@ internal class MainForm : Form, IFrameSteps
             return null;
         }
 
+        // TF2's stock HUD by default (D193): a HUD in `custom/` is the user's to choose, not one the viewer picks up.
         _vguiHost ??= new VguiSurfaceHost(
-            path => _game?.Archives.Read(path),
-            path => _game?.Archives.FullPathOnDisk(path),
+            path => HudArchives()?.Read(path),
+            path => HudArchives()?.FullPathOnDisk(path),
             _gdi,
             material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0));
         _vguiHud ??= new VguiHud(_vguiHost);
@@ -6983,7 +7004,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _vguiHost.BeginFrame(_viewport.ClientSize.Width, _viewport.ClientSize.Height);
-        _hudScripts ??= new TfWeaponData(path => _game?.Archives.Read(path));
+        _hudScripts ??= new TfWeaponData(path => HudArchives()?.Read(path));
 
         if (_hudHooks is null && _game.Weapons.Items is { } items)
         {
@@ -7016,7 +7037,7 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>
     private MapTexture? ResolveVguiMaterial(string material) =>
-        _game?.Archives is { } archives
+        HudArchives() is { } archives
             ? MapAssets.ResolveVguiMaterial(_renderLog, material, PakFile.Read(ReadOnlyMemory<byte>.Empty), archives, MaximumVguiTextureSize)
             : null;
 
