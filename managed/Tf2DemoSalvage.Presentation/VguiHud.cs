@@ -46,6 +46,9 @@ public sealed class VguiHud
             (Viewport.Wide, Viewport.Tall) = (_host.Wide, _host.Tall);
             Viewport.Context = _context;
 
+            // `CHud::Init` loads the icons once, so a font icon keeps the size it measured at the first screen.
+            Viewport.Icons ??= HudTextures.Load(_context);
+
             // `CBaseViewport::ReloadScheme`: the animation scripts, then the layout.
             Viewport.LoadHudAnimations(_context);
             Viewport.LoadControlSettings(LayoutPath, _context);

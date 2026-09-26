@@ -21,6 +21,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="AlphaBottomRight">Alpha at the bottom-right corner.</param>
 /// <param name="AlphaBottomLeft">Alpha at the bottom-left corner.</param>
 /// <param name="Additive">Whether it blends additively whatever its texture's material says — an additive font's glyph.</param>
+/// <param name="Triangle">Set for one triangle of a polygon's fan: its three corners replace the rectangle, at <paramref name="AlphaTopLeft"/>.</param>
 public readonly record struct VguiQuad(
     string? Texture,
     float X0,
@@ -38,7 +39,15 @@ public readonly record struct VguiQuad(
     byte AlphaTopRight,
     byte AlphaBottomRight,
     byte AlphaBottomLeft,
-    bool Additive = false);
+    bool Additive = false,
+    (VguiVertex A, VguiVertex B, VguiVertex C)? Triangle = null);
+
+/// <summary>`vgui::Vertex_t`: a position and a texture coordinate.</summary>
+/// <param name="X">X.</param>
+/// <param name="Y">Y.</param>
+/// <param name="S">Texture S.</param>
+/// <param name="T">Texture T.</param>
+public readonly record struct VguiVertex(float X, float Y, float S, float T);
 
 /// <summary>`CMatSystemSurface`'s draw calls, collected as screen-space quads in paint order — the portable half of the surface.</summary>
 /// <remarks>
@@ -172,6 +181,82 @@ public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize,
         {
             Add(_texture, x0, y0, x1, y1, s0, t0, s1, t1, (_color.Alpha, _color.Alpha, _color.Alpha, _color.Alpha), interpolate: true);
         }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// 0x18000d640 with clipping: nothing at zero draw alpha; the corners translated, then clipped by 0x180003520 — top,
+    /// bottom, left, right in turn (0x180002c30, 0x180002630, 0x180002840, 0x180002a40), each skipped below three corners
+    /// and each with its own form of the crossing — and drawn as a fan when three or more survive.
+    /// </remarks>
+    public void DrawTexturedPolygon(ReadOnlySpan<VguiVertex> vertices)
+    {
+        if (vertices.IsEmpty || _color.Alpha == 0)
+        {
+            return;
+        }
+
+        List<VguiVertex> polygon = new(vertices.Length);
+
+        foreach (VguiVertex vertex in vertices)
+        {
+            polygon.Add(vertex with { X = _offsetX + vertex.X, Y = _offsetY + vertex.Y });
+        }
+
+        float left = _clip.X0;
+        float top = _clip.Y0;
+        float right = _clip.X1;
+        float bottom = _clip.Y1;
+
+        polygon = ClipStage(polygon, vertex => top <= vertex.Y, (previous, current) => (top - previous.Y) / (current.Y - previous.Y));
+        polygon = ClipStage(polygon, vertex => vertex.Y < bottom, (previous, current) => (previous.Y - bottom) / (previous.Y - current.Y));
+        polygon = ClipStage(polygon, vertex => left <= vertex.X, (previous, current) => (previous.X - left) / (previous.X - current.X));
+        polygon = ClipStage(polygon, vertex => vertex.X < right, (previous, current) => (right - previous.X) / (current.X - previous.X));
+
+        for (int index = 1; index + 1 < polygon.Count; index++)
+        {
+            _quads.Add(new VguiQuad(
+                _texture, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, _color.Red, _color.Green, _color.Blue,
+                _color.Alpha, _color.Alpha, _color.Alpha, _color.Alpha, Triangle: (polygon[0], polygon[index], polygon[index + 1])));
+        }
+    }
+
+    /// <summary>One Sutherland–Hodgman stage: a crossing where the edge is crossed, then each inside corner; under three corners, untouched.</summary>
+    private static List<VguiVertex> ClipStage(List<VguiVertex> polygon, Func<VguiVertex, bool> inside, Func<VguiVertex, VguiVertex, float> crossing)
+    {
+        if (polygon.Count < 3)
+        {
+            return polygon;
+        }
+
+        List<VguiVertex> output = new(polygon.Count + 4);
+        VguiVertex previous = polygon[^1];
+        bool previousInside = inside(previous);
+
+        foreach (VguiVertex current in polygon)
+        {
+            bool currentInside = inside(current);
+
+            if (currentInside != previousInside)
+            {
+                float at = crossing(previous, current);
+
+                output.Add(new VguiVertex(
+                    ((current.X - previous.X) * at) + previous.X,
+                    ((current.Y - previous.Y) * at) + previous.Y,
+                    ((current.S - previous.S) * at) + previous.S,
+                    ((current.T - previous.T) * at) + previous.T));
+            }
+
+            if (currentInside)
+            {
+                output.Add(current);
+            }
+
+            (previous, previousInside) = (current, currentInside);
+        }
+
+        return output;
     }
 
     /// <inheritdoc/>

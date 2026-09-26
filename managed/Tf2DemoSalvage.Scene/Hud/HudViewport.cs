@@ -115,6 +115,9 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>`m_pAnimController` — `GetViewportAnimationController()`.</summary>
     public VguiAnimationController Animations { get; }
 
+    /// <summary>`gHUD`'s icons, loaded once (`CHud::Init`'s `m_bHudTexturesLoaded`), or null before the first scheme.</summary>
+    public HudTextures? Icons { get; set; }
+
     /// <summary>The context this frame runs under — what `OnThink` hands the controller.</summary>
     public VguiContext? Context { get; set; }
 

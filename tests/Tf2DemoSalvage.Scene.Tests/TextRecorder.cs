@@ -50,6 +50,18 @@ internal sealed class TextRecorder : IVguiSurface
     /// <summary>Each textured sub-rectangle or quad with its texture coordinates: "0 0 8 8 uv 0 0 0.25 0.25".</summary>
     public List<string> SubRects { get; } = [];
 
+    public void DrawTexturedPolygon(ReadOnlySpan<VguiVertex> vertices)
+    {
+        List<string> corners = [];
+
+        foreach (VguiVertex vertex in vertices)
+        {
+            corners.Add(Text($"{vertex.X},{vertex.Y}"));
+        }
+
+        Calls.Add("polygon " + string.Join(" ", corners));
+    }
+
     public (int Wide, int Tall) DrawGetTextureSize(string texture) => (64, 64);
 
     public void DrawSetTextFont(VguiFontAmalgam font) => Calls.Add("font");
