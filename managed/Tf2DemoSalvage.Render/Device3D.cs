@@ -1656,7 +1656,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _skyTextures.Add(WorldRenderer.UploadTexture(_device, _context, face));
         }
 
-        _skybox.SetFaces(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_skyTextures));
+        _skybox.SetFaces(
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_skyTextures),
+            [.. faces.Select(static face => face?.BaseTransform)]);
     }
 
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _skyTextures = [];

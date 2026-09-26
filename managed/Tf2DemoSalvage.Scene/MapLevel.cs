@@ -118,6 +118,48 @@ public sealed record MapLevel(
         return (trace.Fraction, trace.Texinfo);
     }
 
+    /// <summary>`MASK_SOLID_BRUSHONLY`: brushes and terrain, no props.</summary>
+    /// <param name="from">Where the box's centre starts.</param>
+    /// <param name="to">Where it would end unobstructed.</param>
+    /// <param name="halfExtent">Half the box's width, on every axis.</param>
+    /// <returns>The trace; terrain that stops it first answers its fraction and its texdata.</returns>
+    /// <remarks>
+    /// **"Brush only" leaves out props, not terrain** — a displacement is `CONTENTS_SOLID`. The legacy impact particles
+    /// collide through this (`CParticleCollision`); handed the BSP tree alone they fell through harvest's ground.
+    /// </remarks>
+    /// <param name="mask">The brush contents that stop it; terrain is `CONTENTS_SOLID` and stops any mask that includes that.</param>
+    public BspTrace TraceBrushOnly(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent, int mask = BspLeafTree.MaskSolid)
+    {
+        BspTrace brushes = Leaves is { } tree
+            ? tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent, 0, mask)
+            : new BspTrace(1f, -1, default, false);
+
+        (float terrain, int texdata, bool second, (float X, float Y, float Z) normal, float distance) =
+            Displacements.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent);
+
+        // The struck triangle's plane, which `CBaseSimpleCollision::TestForPlane` builds a particle's collision plane from.
+        return terrain < brushes.Fraction
+            ? new BspTrace(terrain, -1, normal, false, distance, DisplacementTexdata: texdata, SurfaceProp2: second)
+            : brushes;
+    }
+
+    /// <summary>The map's texinfo, which says what a trace's struck brush side is — `SURF_SKY` among it.</summary>
+    public IReadOnlyList<BspTexinfo> Texinfo { get; init; } = [];
+
+    /// <summary>Whether a world-only trace strikes sky before anything else.</summary>
+    /// <param name="from">Where the trace starts.</param>
+    /// <param name="to">Where it would end.</param>
+    /// <returns>True when the first thing struck is a brush side whose texinfo carries `SURF_SKY`.</returns>
+    /// <remarks>
+    /// **The light cache's skylight test** (`engine.dll` 0x1801b8e20): `TRACE_WORLD_ONLY`, `MASK_OPAQUE`, then
+    /// `tr.surface.flags &amp; SURF_SKY`. Terrain is world and is not sky, so a hillside shades what lies behind it.
+    /// </remarks>
+    public bool StrikesSky((float X, float Y, float Z) from, (float X, float Y, float Z) to) =>
+        TraceBrushOnly(from, to, 0f) is { Fraction: < 1f, Texinfo: >= 0 } hit &&
+        hit.Texinfo < Texinfo.Count &&
+        (Texinfo[hit.Texinfo].Flags & SurfaceProperties.Sky) != 0;
+
     /// <summary><see cref="Sweep"/>, with what the brushes say about what stopped it — `trace_t` (B415).</summary>
     /// <param name="from">Where the box's centre starts.</param>
     /// <param name="to">Where it would end unobstructed.</param>
@@ -125,16 +167,7 @@ public sealed record MapLevel(
     /// <returns>The trace; terrain that stops it first answers its fraction and no surface.</returns>
     public BspTrace Trace((float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent)
     {
-        BspTrace brushes = Leaves is { } tree
-            ? tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent)
-            : new BspTrace(1f, -1, default, false);
-
-        (float terrain, int texdata, bool second) = Displacements.SweepSurface(
-            from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent);
-
-        BspTrace world = terrain < brushes.Fraction
-            ? new BspTrace(terrain, -1, default, false, DisplacementTexdata: texdata, SurfaceProp2: second)
-            : brushes;
+        BspTrace world = TraceBrushOnly(from, to, halfExtent);
 
         // The static props too — `CONTENTS_SOLID`, through `CTraceFilterSimple` (StaticPropCollision), a line or a box.
         return StaticProps.Trace(from, to, halfExtent) is { } prop && prop.Fraction < world.Fraction
@@ -347,7 +380,10 @@ public sealed record MapLevel(
             // **Unguarded like the surfaces and the lighting**, because a map whose vertex normals
             // will not read is malformed in the same way — and unlike the decals, nothing degrades
             // gracefully without them once something does consume them (D93).
-            BspVertexNormals.Read(bytes));
+            BspVertexNormals.Read(bytes))
+        {
+            Texinfo = BspMaterials.ReadTexinfo(bytes),
+        };
 
         return level;
     }

@@ -176,10 +176,16 @@ public sealed unsafe class SkyboxRenderer : IDisposable
     /// property returning the array would hand out a mutable reference to state this type draws
     /// from every frame.
     /// </remarks>
-    public void SetFaces(ReadOnlySpan<ComPtr<ID3D11ShaderResourceView>> faces)
+    /// <param name="transforms">Each face's `$basetexturetransform`, or null for none — applied as `sky_vs20.fxc` applies it.</param>
+    public void SetFaces(
+        ReadOnlySpan<ComPtr<ID3D11ShaderResourceView>> faces,
+        System.Collections.Generic.IReadOnlyList<TextureTransform?>? transforms = null)
     {
         _faces = faces.Length == SkyboxGeometry.Faces ? faces.ToArray() : [];
+        _transforms = transforms is { Count: SkyboxGeometry.Faces } given ? [.. given] : new TextureTransform?[SkyboxGeometry.Faces];
     }
+
+    private TextureTransform?[] _transforms = new TextureTransform?[SkyboxGeometry.Faces];
 
     /// <summary>Whether there is a sky to draw.</summary>
     public bool HasSky => _faces.Length == SkyboxGeometry.Faces;
@@ -227,11 +233,13 @@ public sealed unsafe class SkyboxRenderer : IDisposable
         {
             foreach (SkyboxGeometry.Corner corner in SkyboxGeometry.Face(face, reach))
             {
+                (float u, float v) = SkySurface.Coordinate((corner.U, corner.V), _transforms[face]);
+
                 vertices[at++] = corner.X + eye.X;
                 vertices[at++] = corner.Y + eye.Y;
                 vertices[at++] = corner.Z + eye.Z;
-                vertices[at++] = corner.U;
-                vertices[at++] = corner.V;
+                vertices[at++] = u;
+                vertices[at++] = v;
             }
         }
 

@@ -96,7 +96,8 @@ public sealed class SoundscapeSelectionConformanceTests
         // test for a change made months after he ran it.
         SoundscapePlacement? chosen = map.Placements.Choose(
             x, y, z,
-            (from, to) => map.Leaves.IsClear(from.X, from.Y, from.Z, to.X, to.Y, to.Z),
+            // The tree half of the viewer's trace (`soundscape.cpp:271`'s mask); terrain is the level's to add.
+            (from, to) => map.Leaves.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, 0f, 0, SoundscapeSystem.LineOfSightMask).Fraction >= 1f,
             current: null,
             listenerCluster: map.Leaves.ClusterAt(x, y, z),
             visibility: map.Pvs);

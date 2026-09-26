@@ -1822,9 +1822,11 @@ public sealed class MapAssets
                 return [];
             }
 
+            VmtMaterial? material = vmt is null ? null : VmtMaterial.Parse(vmt);
+
             // Stryker disable once : a mutant that empties the guard body leaves 'texture'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (vmt is null || VmtMaterial.Parse(vmt).PrimaryTexture is not { } texture)
+            if (material?.PrimaryTexture is not { } texture)
             {
                 assets.LogWarning(
                     "the sky material {Name} is missing or names no texture", materials[face]);
@@ -1832,11 +1834,18 @@ public sealed class MapAssets
                 return [];
             }
 
+            // **The HDR face, as `Sky_HDR_DX9` draws it at TF2's default level** (SkySurface): `$hdrcompressedTexture`,
+            // RGBS decoded to linear light. The LDR `$basetexture` is the fallback for a sky that ships none.
             // **Both archives again, and for the same map.** A community sky's VMT and its VTF are
             // packed together, so finding the material in the pak and then looking for its texture
             // only in the game's VPKs would fail on the second half of every custom sky.
-            faces[face] = LoadPackedTexture(
-                assets, archives, pak, maximumTextureSize, $"materials/{texture}.vtf");
+            MapTexture? read = material.Value("$hdrcompressedtexture") is { } compressed &&
+                               LoadRgbsSky(assets, archives, pak, maximumTextureSize, $"materials/{compressed}.vtf") is { } hdr
+                ? hdr
+                : LoadPackedTexture(assets, archives, pak, maximumTextureSize, $"materials/{texture}.vtf");
+
+            // `$basetexturetransform`, which `sky_vs20.fxc` applies to the face's coordinate: harvest's sides stretch v by two.
+            faces[face] = read is { } loaded ? loaded with { BaseTransform = Transform(material.BaseTextureTransform) } : null;
 
             if (faces[face] is null)
             {
@@ -1862,8 +1871,9 @@ public sealed class MapAssets
                 ", ",
                 Array.ConvertAll(
                     faces,
+                    // The format the loader USED says whether the HDR face was taken (Rgba16161616F) or the LDR one.
                     face => face is { } present
-                        ? $"{present.Width}x{present.Height}"
+                        ? $"{present.Width}x{present.Height} {present.Image.Format}"
                         : "missing")));
 
         return faces;
@@ -1940,7 +1950,28 @@ public sealed class MapAssets
     /// TF2's content entirely.
     /// </remarks>
     private static MapTexture? LoadPackedTexture(
-        ILogger assets, GameArchives archives, PakFile pak, int maximumTextureSize, string path)
+        ILogger assets, GameArchives archives, PakFile pak, int maximumTextureSize, string path) =>
+        DecodePacked(assets, archives, pak, path, file => MapTexture.Of(VtfTexture.Read(file, maximumTextureSize)));
+
+    /// <summary>An HDR sky face: an RGBS texture decoded to linear half floats (<see cref="SkySurface.DecodeRgbs"/>).</summary>
+    private static MapTexture? LoadRgbsSky(
+        ILogger assets, GameArchives archives, PakFile pak, int maximumTextureSize, string path) =>
+        DecodePacked(assets, archives, pak, path, file =>
+        {
+            VtfTexture decoded = VtfTexture.Decode(file, maximumTextureSize);
+
+            return new MapTexture(
+                decoded.Width,
+                decoded.Height,
+                decoded.MappingWidth,
+                decoded.MappingHeight,
+                new TextureImage(VtfFormat.Rgba16161616F, [SkySurface.DecodeRgbs(decoded.Pixels)]),
+                IsTransparent: false);
+        });
+
+    /// <summary>Reads a texture from the map's own archive first, then the game's, and decodes it; null when it will not.</summary>
+    private static MapTexture? DecodePacked(
+        ILogger assets, GameArchives archives, PakFile pak, string path, Func<byte[], MapTexture> decode)
     {
         byte[]? file;
 
@@ -1961,9 +1992,7 @@ public sealed class MapAssets
 
         try
         {
-            VtfTexture decoded = VtfTexture.Read(file, maximumTextureSize);
-
-            return MapTexture.Of(decoded);
+            return decode(file);
         }
         catch (InvalidDataException failure)
         {

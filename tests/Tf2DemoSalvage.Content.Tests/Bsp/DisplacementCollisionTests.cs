@@ -224,11 +224,16 @@ public sealed class DisplacementCollisionTests
             ]),
         ]);
 
-        (float fraction, int texdata, bool second) = collision.SweepSurface(10f, 10f, 50f, 10f, 10f, -50f, 1f);
+        (float fraction, int texdata, bool second, (float X, float Y, float Z) normal, _) =
+            collision.SweepSurface(10f, 10f, 50f, 10f, 10f, -50f, 1f);
 
         fraction.ShouldBe(0.49f, 0.001f);
         texdata.ShouldBe(7);
         second.ShouldBeTrue();
+
+        // `trace.plane.normal`, which `CBaseSimpleCollision::TestForPlane` builds a collision plane from. A zero normal
+        // here made every terrain plane degenerate, and bullet flecks fell through harvest's ground.
+        normal.ShouldBe((0f, 0f, 1f));
 
         collision.SweepSurface(90f, 90f, 50f, 90f, 90f, -50f, 1f).SurfaceProp2.ShouldBeFalse();
         collision.SweepSurface(500f, 500f, 50f, 500f, 500f, -50f, 1f).Texdata.ShouldBe(-1);

@@ -19,9 +19,9 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 /// than tolerance: a box of half-extent 6 sweeping the same 200 units stops with its face on the
 /// plane, at z = 6, which is (100 − 6) / 200 = 0.47.
 ///
-/// This is the measurement <see cref="BspLeafTree.IsClear"/> cannot make. That one samples in
-/// four-unit steps and answers a bool; the chase camera needs a distance, and a sampled walk can
-/// tunnel through a thin wall besides.
+/// This is the measurement the sampled line-of-sight tests it replaced could not make: they stepped
+/// along the segment and answered a bool, where the chase camera needs a distance, and a sampled walk
+/// can tunnel through a thin wall besides.
 /// </remarks>
 public sealed class BspSweepTests
 {
@@ -30,6 +30,18 @@ public sealed class BspSweepTests
     {
         Floor().Sweep(0f, 0f, 100f, 0f, 0f, -100f, halfExtent: 0f)
             .ShouldBe(0.5f, 0.001f);
+    }
+
+    /// <remarks>
+    /// `CM_TraceToLeaf` clips only the brushes whose contents meet the trace's mask. The floor brush is
+    /// `CONTENTS_SOLID`; a mask of `CONTENTS_WATER` alone (0x20) must pass straight through it — the control
+    /// that the mask is read at all, where the default is `MASK_SOLID`.
+    /// </remarks>
+    [Test]
+    public void Trace_WithAMaskTheBrushDoesNotMeet_PassesThroughIt()
+    {
+        Floor().Trace(0f, 0f, 100f, 0f, 0f, -100f, 0f, 0, mask: 0x20).Fraction.ShouldBe(1f);
+        Floor().Trace(0f, 0f, 100f, 0f, 0f, -100f, 0f, 0, mask: BspLeafTree.MaskSolid).Fraction.ShouldBe(0.5f, 0.001f);
     }
 
     [Test]

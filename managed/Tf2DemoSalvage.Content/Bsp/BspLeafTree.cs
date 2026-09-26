@@ -100,25 +100,8 @@ public sealed class BspLeafTree
     /// through glass and grates — surfaces the engine stops at — and through the brushes of moving
     /// entities, which on a TF2 map means doors and lifts.
     /// </remarks>
-    internal const int MaskSolid =
+    public const int MaskSolid =
         ContentsSolid | ContentsMoveable | ContentsWindow | ContentsGrate;
-
-    /// <summary>How far to look for the sky before giving up, in world units.</summary>
-    /// <remarks>
-    /// A TF2 map fits comfortably inside this; a ray that has travelled it without meeting solid
-    /// has left the world. Bounded rather than unbounded so a malformed tree cannot spin.
-    /// </remarks>
-    private const float SkyReach = 16384f;
-
-    /// <summary>How far apart the trace samples, in world units.</summary>
-    /// <remarks>
-    /// **Sampled rather than a true plane-by-plane sweep, and this is where it can be wrong.** A
-    /// solid thinner than this between a point and the sky is missed, and the point is treated as
-    /// lit. Sixteen units is half the thickness of the thinnest wall a mapper would build and a
-    /// quarter of TF2's grid, so the case is rare; it is stated rather than hidden because a
-    /// missed occluder shows as one object lit indoors, which reads as a lighting bug.
-    /// </remarks>
-    private const float SkyStep = 16f;
 
     private readonly ReadOnlyMemory<byte> _nodes;
     private readonly ReadOnlyMemory<byte> _planes;
@@ -220,159 +203,6 @@ public sealed class BspLeafTree
             BspLumpData.Read(file, header.Lump(BspLumpIndex.Brushes)),
             BspLumpData.Read(file, header.Lump(BspLumpIndex.BrushSides)));
     }
-
-    /// <summary>Whether a point can see the sky along a direction.</summary>
-    /// <param name="x">World position.</param>
-    /// <param name="y">World position.</param>
-    /// <param name="z">World position.</param>
-    /// <param name="towardsX">Direction to look, which for the sun is away from its normal.</param>
-    /// <param name="towardsY">Direction to look.</param>
-    /// <param name="towardsZ">Direction to look.</param>
-    /// <returns><c>true</c> when nothing solid stands in the way.</returns>
-    /// <remarks>
-    /// **Valve's parenthesis, made real.** <c>bspfile.h</c> describes a sky light as a
-    /// "directional light with no falloff (surface must trace to SKY texture)" — the trace is not
-    /// an optimisation, it is the difference between sunlight and a sun that shines through
-    /// ceilings.
-    ///
-    /// Answers true when the map has no leaves to test, since a viewer that decided everything was
-    /// in shadow would be worse than one that lit everything: the first hides the map, the second
-    /// merely flatters it.
-    /// </remarks>
-    public bool SeesSky(float x, float y, float z, float towardsX, float towardsY, float towardsZ)
-    {
-        if (_leaves.IsEmpty || IsEmpty)
-        {
-            return true;
-        }
-
-        ReadOnlySpan<byte> leaves = _leaves.Span;
-
-        // Started clear of the surface the model stands on, which is otherwise the first thing the
-        // trace hits: a pack sitting on the floor is a point on a solid plane.
-        for (float distance = SkyStep; distance <= SkyReach; distance += SkyStep)
-        {
-            int leaf = LeafAt(
-                x + (towardsX * distance),
-                y + (towardsY * distance),
-                z + (towardsZ * distance));
-
-            if (leaf < 0)
-            {
-                return true;
-            }
-
-            int at = leaf * _leafStride;
-
-            if (at + 4 > leaves.Length)
-            {
-                return true;
-            }
-
-            if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & ContentsSolid) != 0)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /// <summary>Whether nothing solid stands between two points.</summary>
-    /// <param name="fromX">Where the segment starts, in world units.</param>
-    /// <param name="fromY">Where the segment starts.</param>
-    /// <param name="fromZ">Where the segment starts.</param>
-    /// <param name="toX">Where it ends.</param>
-    /// <param name="toY">Where it ends.</param>
-    /// <param name="toZ">Where it ends.</param>
-    /// <returns><c>true</c> when the segment is unobstructed.</returns>
-    /// <remarks>
-    /// **Valve's own test for which soundscape a listener is in.**
-    /// <c>CEnvSoundscape::UpdateForPlayer</c> (<c>soundscape.cpp:271</c>) traces from the entity to
-    /// the player and accepts it only when <c>tr.fraction == 1 &amp;&amp; !tr.startsolid</c>. The
-    /// mask is <c>MASK_SOLID_BRUSHONLY|MASK_WATER</c> — **brushes only, no props** — which is why a
-    /// leaf test suffices here and a prop-aware trace is not needed.
-    ///
-    /// **Sampled rather than clipped, and that is an approximation with a known failure.** A real
-    /// trace splits the segment against each BSP plane; this walks it and asks which leaf each step
-    /// lands in, exactly as <see cref="SeesSky"/> does. A wall thinner than the step can be tunnelled
-    /// through, reporting clear when the engine would report blocked — which for a soundscape means
-    /// hearing the room next door.
-    ///
-    /// **The step is therefore finer than the sky trace's**, 4 units against 16: Source walls are
-    /// commonly 8 units and occasionally less, and the sky trace can afford to be coarse because
-    /// ceilings are thick. The cost is bounded by the caller rather than here — soundscape selection
-    /// runs a few times a second and stops at the first entity that qualifies, not once per frame
-    /// per entity.
-    ///
-    /// **True when the map has no leaves**, matching <see cref="SeesSky"/>: a viewer that decided
-    /// everything was blocked would report silence everywhere, which is a worse failure than
-    /// occasionally hearing through a wall.
-    /// </remarks>
-    public bool IsClear(
-        float fromX, float fromY, float fromZ,
-        float toX, float toY, float toZ)
-    {
-        if (_leaves.IsEmpty || IsEmpty)
-        {
-            return true;
-        }
-
-        float dx = toX - fromX;
-        float dy = toY - fromY;
-        float dz = toZ - fromZ;
-
-        float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
-
-        if (!float.IsFinite(length) || length <= SegmentStep)
-        {
-            return true;
-        }
-
-        ReadOnlySpan<byte> leaves = _leaves.Span;
-
-        float stepX = dx / length;
-        float stepY = dy / length;
-        float stepZ = dz / length;
-
-        // **Both ends are skipped, and each for its own reason.** The far end is the listener, who
-        // is never inside solid; the near end is the entity, which map authors routinely place
-        // flush against a surface — starting on it would report every soundscape blocked, which is
-        // what `!tr.startsolid` exists to distinguish in the engine.
-        for (float distance = SegmentStep; distance < length; distance += SegmentStep)
-        {
-            int leaf = LeafAt(
-                fromX + (stepX * distance),
-                fromY + (stepY * distance),
-                fromZ + (stepZ * distance));
-
-            if (leaf < 0)
-            {
-                continue;
-            }
-
-            int at = leaf * _leafStride;
-
-            if (at + 4 > leaves.Length)
-            {
-                continue;
-            }
-
-            if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & ContentsSolid) != 0)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /// <summary>How finely a line-of-sight segment is sampled, in world units.</summary>
-    /// <remarks>
-    /// Four rather than the sky trace's sixteen, because this one has to notice walls rather than
-    /// ceilings. See <see cref="IsClear"/> for what a step too coarse costs.
-    /// </remarks>
-    private const float SegmentStep = 4f;
 
     /// <summary>Which visibility cluster a leaf belongs to, or −1 when it belongs to none.</summary>
     /// <param name="leaf">The leaf index, as <see cref="LeafAt"/> returns.</param>
@@ -710,9 +540,8 @@ public sealed class BspLeafTree
     /// <param name="halfExtent">Half the width of the box being swept; zero for a bare ray.</param>
     /// <returns>The fraction of the way it got, 0 to 1, where 1 means nothing was in the way.</returns>
     /// <remarks>
-    /// **A real plane-by-plane clip, unlike <see cref="IsClear"/> and <see cref="SeesSky"/>.** Those
-    /// two SAMPLE the segment at fixed steps and say so in their own remarks, which is why both can
-    /// tunnel through a thin wall and why neither can report a distance. This walks the tree and
+    /// **A real plane-by-plane clip**, where the two sampled line-of-sight tests this file used to carry
+    /// (for the sun and for soundscapes) stepped along the segment and could tunnel through a thin wall. This walks the tree and
     /// splits the segment against each node's plane, so it finds the first solid surface exactly and
     /// answers WHERE, not merely whether.
     ///
@@ -787,19 +616,21 @@ public sealed class BspLeafTree
     /// <param name="halfExtent">Half the box's width; zero for a ray.</param>
     /// <param name="headNode">The model's root — 0 for the world, `dmodel_t::headnode` for a brush entity's model.</param>
     /// <returns>The trace.</returns>
+    /// <param name="mask">The contents a brush must have to stop it — `MASK_SOLID` unless a caller's engine trace says otherwise.</param>
     /// <remarks>`CM_TransformedBoxTrace( ray, headnode, … )`: a brush entity's model is its own subtree, absent from the world's.</remarks>
     public BspTrace Trace(
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
         float halfExtent,
-        int headNode)
+        int headNode,
+        int mask = MaskSolid)
     {
         if (IsEmpty || _leaves.IsEmpty)
         {
             return new BspTrace(1f, -1, default, false);
         }
 
-        TraceHit hit = new() { Fraction = 1f, Texinfo = -1 };
+        TraceHit hit = new() { Fraction = 1f, Texinfo = -1, Mask = mask };
 
         Descend(
             headNode, 0f, 1f,
@@ -826,6 +657,9 @@ public sealed class BspLeafTree
         public float NormalZ;
         public float Distance;
         public bool AllSolid;
+
+        /// <summary>The contents a brush must have to be clipped against.</summary>
+        public int Mask;
     }
 
     /// <summary>One step of <see cref="Sweep"/>: clip the segment against this node's plane.</summary>
@@ -890,7 +724,7 @@ public sealed class BspLeafTree
             // it stops at the node plane bounding the solid rather than at the brush inside it. The
             // near end of the span is reported, because a solid leaf entered at fraction f means
             // everything past f is inside.
-            if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & ContentsSolid) != 0 &&
+            if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & hit.Mask) != 0 &&
                 startFraction < hit.Fraction)
             {
                 hit.Fraction = startFraction;
@@ -1060,7 +894,7 @@ public sealed class BspLeafTree
             int sides = BinaryPrimitives.ReadInt32LittleEndian(brushes[(brushAt + 4)..]);
             int contents = BinaryPrimitives.ReadInt32LittleEndian(brushes[(brushAt + 8)..]);
 
-            if ((contents & MaskSolid) == 0)
+            if ((contents & hit.Mask) == 0)
             {
                 continue;
             }
