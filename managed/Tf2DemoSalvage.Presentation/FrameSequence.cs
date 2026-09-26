@@ -1,8 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 
-using Tf2DemoSalvage.Render;
+using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Presentation;
 
@@ -45,13 +44,13 @@ public interface IFrameSteps
     /// </remarks>
     public void TakeShot();
 
-    /// <summary>Build the overlay quads for this frame.</summary>
-    /// <returns>The quads, in draw order.</returns>
-    public IReadOnlyList<HudQuad> BuildOverlay();
+    /// <summary>Lay out and paint this frame's VGUI.</summary>
+    /// <returns>The draw list, or null when there is no surface yet.</returns>
+    public VguiDrawList? BuildOverlay();
 
     /// <summary>Draw the frame.</summary>
-    /// <param name="overlay">The quads from <see cref="BuildOverlay"/>.</param>
-    public void Draw(IReadOnlyList<HudQuad> overlay);
+    /// <param name="overlay">The draw list from <see cref="BuildOverlay"/>.</param>
+    public void Draw(VguiDrawList? overlay);
 }
 
 /// <summary>Runs one frame's stages in the engine's order, and times each of them.</summary>
@@ -105,7 +104,7 @@ public static class FrameSequence
         long capture = Time(steps.TakeShot);
 
         long hudAt = Stopwatch.GetTimestamp();
-        IReadOnlyList<HudQuad> overlay = steps.BuildOverlay();
+        VguiDrawList? overlay = steps.BuildOverlay();
         long hud = Stopwatch.GetTimestamp() - hudAt;
 
         long draw = Time(() => steps.Draw(overlay));

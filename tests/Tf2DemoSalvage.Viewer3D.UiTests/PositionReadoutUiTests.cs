@@ -13,10 +13,10 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// <remarks>
 /// **The third test level, and only it can fail when the wiring is absent**
 /// (<c>docs/memory/output-level-assertion-or-it-is-not-done.md#three-test-levels-and-the-third-is-missing</c>). `PositionReadoutConformance
-/// Tests` proves the three lines say what the engine says, and `ToolsPanelTests` proves they stack
+/// Tests` proves the three lines say what the engine says, and `FpsPanelTests` proves they stack
 /// below the frame rate. Neither can tell whether the menu item reaches the settings, whether the
-/// settings reach `ReadPosition`, whether that reaches the panel, or whether the panel's quads
-/// reach the frame — six links, every one of which is the kind that has shipped silently here
+/// settings reach `ReadPosition`, whether that reaches `CFPSPanel`, or whether its VGUI draw list
+/// reaches the frame — six links, every one of which is the kind that has shipped silently here
 /// before.
 ///
 /// **Asserted on the PICTURE as well as on the log**, and the pair is the point. The log line

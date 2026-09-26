@@ -31,6 +31,7 @@ using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Logging;
+using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Viewer3D;
 
@@ -4098,56 +4099,21 @@ internal class MainForm : Form, IFrameSteps
     // `gpGlobals->absoluteframetime` (`vgui_fpspanel.cpp:166`), the same quantity
     // `CalcDemoViewOverride` flies its demo camera by (`view.cpp:153`).
 
-    // `_fpsMeter` was here until 2026-08-25. The meter belongs to `ToolsPanel` now, which composes
-    // the whole readout — the mode, the sampling, the map name and Valve's placement — and needs no
-    // window to do it (B188, D90).
+    /// <summary>GDI, as VGUI's fonts reach it — the one Windows-bound piece of the surface (the Fonts project).</summary>
+    private readonly GdiVgui _gdi = new();
 
-    /// <summary>The overlay font's glyphs, packed; null until the overlay is first wanted.</summary>
+    /// <summary>The engine's tools panel and `CFPSPanel` on it, drawn through VGUI; null until the game's files are open.</summary>
     /// <remarks>
-    /// **Built lazily, because most sessions never turn a HUD element on.** Rasterising a hundred
-    /// glyphs is cheap but not free, and it needs a device to upload to — which does not exist until
-    /// the viewport panel has a window handle.
+    /// **Its scheme is `platform/resource/SourceScheme.res`, read live from the install**, which D85's table allows:
+    /// that file is Valve-shipped game content, not user content under `tf/custom/`.
     /// </remarks>
-    private GlyphAtlas? _hudAtlas;
+    private VguiTools? _vguiTools;
 
-    /// <summary>Every character the HUD atlas carries: printable ASCII.</summary>
-    /// <remarks>
-    /// **Enough for the frame rate meter and not enough for a scoreboard**, which is a limit worth
-    /// stating rather than discovering. Player names are UTF-8 and routinely are not ASCII at all —
-    /// `docs/memory/international-names-are-required.md` — so B175 will need the atlas built from
-    /// the characters actually present, or built on demand. The meter's own text is digits, letters
-    /// and punctuation, all of which are here.
-    /// </remarks>
-    private const string HudCharacters =
-        " !\"#$%&'()*+,-./0123456789:;<=>?@" +
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`" +
-        "abcdefghijklmnopqrstuvwxyz{|}~";
+    /// <summary>Seconds since the window opened, for VGUI's 250 ms ticks.</summary>
+    private readonly Stopwatch _vguiClock = Stopwatch.StartNew();
 
-    /// <summary>
-    /// The font TF2 draws its frame rate meter with.
-    /// </summary>
-    /// <remarks>
-    /// **Read from `platform/Resource/SourceScheme.res`, which is where `DefaultFixedOutline`
-    /// actually lives** — not `tf/resource/ClientScheme.res` and not hl2's, which is why every
-    /// Source game's meter looks the same:
-    ///
-    /// <code>
-    /// "DefaultFixedOutline" { "1" { "name" "Lucida Console" "tall" "10" "weight" "0" "outline" "1" } }
-    /// </code>
-    ///
-    /// **A constant rather than a live read of the game's folder, and that is D85 rather than
-    /// laziness.** TF2's files are an import SOURCE, not something this viewer reads in place, so
-    /// reading a scheme out of the install at startup would be the exact pattern that decision was
-    /// written to stop. Once importing exists, a user's own scheme replaces this; until then it is
-    /// Valve's values, cited.
-    /// </remarks>
-    private static readonly SchemeFont MeterFont = new()
-    {
-        Name = "Lucida Console",
-        Tall = 10,
-        Weight = 0,
-        Outline = true,
-    };
+    /// <summary>The device the VGUI resolver was last handed to.</summary>
+    private Device3D? _vguiResolverDevice;
 
     // **The three phase totals were here until 2026-08-25.** They are `FrameLedger.Sampled`,
     // `.Posed` and `.Drawing` (B188, D90) — accumulators and a format string, with no window in any
@@ -6970,42 +6936,44 @@ internal class MainForm : Form, IFrameSteps
     // went with it: `CBaseEntity::PrecacheSound` asserts "too late" rather than merely preferring
     // early (`SoundEmitterSystem.cpp:1497`), which is a fact about the engine, not about a window.
 
-    /// <summary>This frame's screen-space overlay, which is the frame-rate meter and nothing else.</summary>
-    /// <returns>Quads in screen pixels, empty when there is nothing to draw.</returns>
+    /// <summary>This frame's VGUI: the tools panel, and `CFPSPanel` on it.</summary>
+    /// <returns>The draw list.</returns>
     /// <remarks>
-    /// **All that is left here is the atlas and the viewport width** (D90). Composing the readout —
-    /// the mode, the sampling, the map name, Valve's placement — is <see cref="ToolsPanel"/>;
-    /// rasterising a font is the one genuinely platform-bound part, because ours is GDI and a Linux
-    /// port swaps it for FreeType (D84).
-    ///
-    /// **This was called <c>BuildHud</c> and the name was wrong.** Source's meter is
-    /// <c>CFPSPanel : vgui::Panel</c> on <c>PANEL_TOOLS</c> (<c>vgui_int.cpp:209</c>), not a
-    /// <c>CHudElement</c> — so a method named for the HUD that returns the fps readout would have
-    /// had to split the moment a real HUD element existed. The <c>HudQuad</c> and
-    /// <c>HudRenderer</c> names in <c>Render</c> name the screen-space LAYER and are correct.
+    /// Everything but the window size, the clock and the settings is <see cref="VguiTools"/> (D90). The meter is sampled
+    /// every frame, drawn or not, because the frame-rate log reports it in exactly the headless case nobody watches.
     /// </remarks>
-    public IReadOnlyList<HudQuad> BuildOverlay()
+    public VguiDrawList? BuildOverlay()
     {
-        _overlayQuads.Mode = _settings.ShowFrameRate;
-        _overlayQuads.Position = ReadPosition();
+        _vguiTools ??= new VguiTools(
+            path => _game?.Archives.Read(path),
+            path => _game?.Archives.FullPathOnDisk(path),
+            _gdi,
+            material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0));
 
-        if (_overlayQuads.NeedsAtlas)
+        if (_device is { } device && !ReferenceEquals(device, _vguiResolverDevice))
         {
-            EnsureOverlayAtlas();
+            device.SetVguiResolver(ResolveVguiMaterial);
+            _vguiResolverDevice = device;
         }
 
-        IReadOnlyList<HudQuad> quads = _overlayQuads.Quads(
-            _hudAtlas, _viewport.ClientSize.Width, _demo?.MapName, _clock.LastFrameSeconds);
-
-        // **Logged once a second whatever the overlay is doing**, because the on-screen meter can
-        // only be read by somebody watching and a headless run has nobody. Until this existed the
-        // viewer's only frame-cost instrument was `StallReport`'s 30 ms threshold, which is silent
-        // about every rate above 33 fps — so "no slow frames" and "600 fps" produced identical logs.
-        return quads;
+        return _vguiTools.Frame(
+            _viewport.ClientSize.Width,
+            _viewport.ClientSize.Height,
+            _vguiClock.Elapsed.TotalSeconds,
+            _clock.LastFrameSeconds,
+            _settings.ShowFrameRate,
+            ReadPosition(),
+            _demo?.MapName);
     }
 
-    /// <summary>The frame-rate readout, which owns everything about it except the glyphs.</summary>
-    private readonly ToolsPanel _overlayQuads = new();
+    /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>
+    private MapTexture? ResolveVguiMaterial(string material) =>
+        _game?.Archives is { } archives
+            ? MapAssets.ResolveVguiMaterial(_renderLog, material, PakFile.Read(ReadOnlyMemory<byte>.Empty), archives, MaximumVguiTextureSize)
+            : null;
+
+    /// <summary>The decode cap for VGUI textures, which are small and never want reducing.</summary>
+    private const int MaximumVguiTextureSize = 4096;
 
     /// <summary>Writes the frame rate to the log once a second.</summary>
     private readonly FrameRateLog _frameRateLog = new();
@@ -7133,50 +7101,6 @@ internal class MainForm : Form, IFrameSteps
             watched is { } player ? (player.X, player.Y, player.Z) : default,
             watched is { } angles ? (0f, angles.Yaw, 0f) : default,
             watched?.Speed ?? 0f);
-    }
-
-    /// <summary>Rasterises the overlay font and gives it to the device, once.</summary>
-    /// <remarks>
-    /// **Called when the overlay is first wanted rather than at startup**, so a session that never
-    /// switches it on never pays for it and never compiles the overlay shaders.
-    ///
-    /// **Stays in the view, and it is the one piece here that genuinely must.** <c>GdiGlyphRasteriser</c>
-    /// is Windows — a Linux frontend supplies FreeType instead, which is exactly the seam D84 put
-    /// behind <c>IGlyphRasteriser</c> in the portable project.
-    ///
-    /// A failure costs the overlay and nothing else. A viewer that refuses to play a demo because a
-    /// font would not rasterise has its priorities backwards — the same argument the file logger is
-    /// built around.
-    /// </remarks>
-    private void EnsureOverlayAtlas()
-    {
-        if (_hudAtlas is not null || _device is null)
-        {
-            return;
-        }
-
-        try
-        {
-            using GdiGlyphRasteriser rasteriser = new();
-
-            GlyphAtlas atlas = GlyphAtlas.Build(rasteriser, MeterFont, HudCharacters);
-
-            _device.SetHudAtlas(atlas.Pixels, atlas.Width, atlas.Height);
-            _hudAtlas = atlas;
-
-            _renderLog.LogDebug(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"hud font {MeterFont.Name} {MeterFont.Tall}px" +
-                    $"{(MeterFont.Outline ? " outlined" : string.Empty)}: " +
-                    $"{HudCharacters.Length} glyphs in a {atlas.Width}x{atlas.Height} atlas"));
-        }
-        catch (Exception failure) when (
-            failure is InvalidOperationException or ArgumentException or ExternalException)
-        {
-            _renderLog.LogWarning(failure, "rasterising the hud font");
-        }
     }
 
     /// <summary>Flies the camera by however long the last frame took.</summary>
@@ -7451,7 +7375,7 @@ internal class MainForm : Form, IFrameSteps
 
         _wasOnScreen = onScreen;
 
-        if (_frameRateLog.Report(_overlayQuads.LastReading, phases, _frameSeconds) is { } rate)
+        if (_frameRateLog.Report(_vguiTools?.LastReading, phases, _frameSeconds) is { } rate)
         {
             _renderLog.LogInformation("{Message}", rate);
 
@@ -7624,8 +7548,8 @@ internal class MainForm : Form, IFrameSteps
     public void TakeShot() => TakeAutomaticShot();
 
     /// <summary>Draw the frame.</summary>
-    /// <param name="overlay">The quads built for this frame.</param>
-    public void Draw(IReadOnlyList<HudQuad> overlay) =>
+    /// <param name="overlay">The VGUI built for this frame.</param>
+    public void Draw(VguiDrawList? overlay) =>
         _device?.DrawFrame(
             BackgroundRed,
             BackgroundGreen,
@@ -8455,6 +8379,10 @@ internal class MainForm : Form, IFrameSteps
                 // owns them and disposes them beside the code that built them (B188, D90).
                 Releasing("menu");
                 _menu.Dispose();
+
+                // VGUI's GDI fonts, DCs and bitmaps: after the device, which no longer draws them.
+                Releasing("vgui gdi");
+                _gdi.Dispose();
 
                 _renderLog.LogInformation("{Message}", "shutdown: every member released");
             }
