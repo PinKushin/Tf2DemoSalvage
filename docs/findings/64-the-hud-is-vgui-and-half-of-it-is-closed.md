@@ -38,6 +38,16 @@ files exist, not to change the fallback. A `hud` probe — the production `VguiH
 ruled out the layout. One logged frame of the viewer showed a single fill the size of the window. *Measured, with a
 control shot taken with the HUD switched off.*
 
+## Whose health the HUD shows, and when it shows none
+
+The first health number the viewer drew on f12 was "1". f12 is a SourceTV recording, and there the local player is the
+SourceTV client itself: entity 1, team 1, `lifeState` 2, `m_iHealth` 1. The game does not draw that 1, because
+`StartObserverMode` sets `m_Local.m_iHideHUD = HIDEHUD_HEALTH` (player.cpp:2298), and the demo carries it: 2058 on
+every tick sampled. The HUD reads the player's own `m_iHealth`, not the player resource's (which the scoreboard reads).
+`GetMaxBuffedHealth` is the resource's `m_iMaxBuffedHealth` — "actually m_iMaxHealthForBuffing, but we can't fix it now
+because of demos" (c_tf_playerresource.h:81) — times 1.5, floored to a multiple of 5. On the 2013 POV specimen at tick
+1000 the recorder is at 125 of 125 with `m_iHideHUD` 2050, and the viewer draws 125. *Measured on the corpus.*
+
 ## Custom HUDs are ordinary `.res` files
 
 The owner's custom HUD draws its crosshair as a `CExLabel` created from `ControlName` in `hudlayout.res`, with a font

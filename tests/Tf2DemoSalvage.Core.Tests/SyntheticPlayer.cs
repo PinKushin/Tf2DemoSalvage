@@ -322,13 +322,87 @@ internal static class SyntheticPlayer
     }
 
     /// <summary>One of Valve's generated array sub-tables: properties named 000, 001, …</summary>
-    private static SendTable ArrayTable(string name) => new(
+    private static SendTable ArrayTable(string name, int bits = 5) => new(
         name,
         NeedsDecoder: true,
         [
             .. Enumerable.Range(0, ResourceSlots).Select(
-                slot => Int(slot.ToString("D3", CultureInfo.InvariantCulture), bits: 5)),
+                slot => Int(slot.ToString("D3", CultureInfo.InvariantCulture), bits: bits)),
         ]);
+
+    /// <summary>The recorder (slot 0, entity 1) with what the HUD reads: its own health, its `m_iHideHUD`, the resource's maxima.</summary>
+    /// <param name="health">`DT_BasePlayer.m_iHealth`.</param>
+    /// <param name="hideHud">`DT_Local.m_iHideHUD`.</param>
+    /// <param name="maxHealth">The resource's `m_iMaxHealth` for the recorder.</param>
+    /// <param name="maxBuffedHealth">The resource's `m_iMaxBuffedHealth`, which is the buffing base.</param>
+    /// <param name="residentHealth">The resource's own `m_iHealth`, which the scoreboard reads and the HUD does not.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithHudHealth(int health, int hideHud, int maxHealth, int maxBuffedHealth, int residentHealth)
+    {
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_BasePlayer"
+                    ? table with { Properties = [.. table.Properties, Int("m_iHealth", bits: 10), Table("localdata", "DT_Local")] }
+                    : table);
+        }
+
+        tables.Add(new SendTable("DT_Local", NeedsDecoder: true, [Int("m_iHideHUD", bits: 14)]));
+        tables.Add(ArrayTable("m_iHealth", bits: 10));
+        tables.Add(ArrayTable("m_iMaxHealth", bits: 10));
+        tables.Add(ArrayTable("m_iMaxBuffedHealth", bits: 10));
+        tables.Add(new SendTable("DT_TFPlayerResource", NeedsDecoder: true,
+        [
+            Table("m_iHealth", "m_iHealth"),
+            Table("m_iMaxHealth", "m_iMaxHealth"),
+            Table("m_iMaxBuffedHealth", "m_iMaxBuffedHealth"),
+        ]));
+
+        DemoSchema schema = new(
+            tables, [.. baseline.ServerClasses, new ServerClass(ResourceClassId, "CTFPlayerResource", "DT_TFPlayerResource")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+        const string Slot = "001";
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+                ["m_iHealth"] = PropertyValue.FromInt(health),
+                ["m_iHideHUD"] = PropertyValue.FromInt(hideHud),
+            }),
+            Entity(decoder, ResourceClassId, ResourceEntityIndex, new Dictionary<string, PropertyValue>
+            {
+                [$"m_iHealth.{Slot}"] = PropertyValue.FromInt(residentHealth),
+                [$"m_iMaxHealth.{Slot}"] = PropertyValue.FromInt(maxHealth),
+                [$"m_iMaxBuffedHealth.{Slot}"] = PropertyValue.FromInt(maxBuffedHealth),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
 
     /// <summary>A decoder over the default schema, which the encoder also needs.</summary>
     public static EntityDecoder Decoder()

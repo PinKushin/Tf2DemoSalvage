@@ -64,6 +64,19 @@ public class VguiEditablePanel : VguiPanel
         InvalidateLayout();
     }
 
+    /// <summary>`LoadControlSettings( resourceName )`: the file read through the context, `#base` merged.</summary>
+    /// <param name="path">The `.res` file.</param>
+    /// <param name="context">The scheme, screen and filesystem.</param>
+    /// <remarks>A missing file is an empty one: `BuildGroup::LoadControlSettings` only prints "not found".</remarks>
+    public void LoadControlSettings(string path, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        Func<string, byte[]?> read = context.Read ?? (_ => null);
+
+        LoadControlSettings(KeyValuesTree.Load(read(path) ?? [], path, read), context);
+    }
+
     /// <summary>`SetDialogVariable( name, const char * )`.</summary>
     /// <param name="name">The variable.</param>
     /// <param name="value">Its value.</param>

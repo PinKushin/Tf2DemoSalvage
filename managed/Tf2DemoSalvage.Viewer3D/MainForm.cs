@@ -6974,7 +6974,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _vguiHost.BeginFrame(_viewport.ClientSize.Width, _viewport.ClientSize.Height);
-        _vguiHud.Frame(default);
+        _vguiHud.Frame(HudStates.For(_timeline, _transport.CurrentTick));
         _vguiTools.Frame(
             _vguiClock.Elapsed.TotalSeconds,
             _clock.LastFrameSeconds,

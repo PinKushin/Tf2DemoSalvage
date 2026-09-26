@@ -185,6 +185,9 @@ public sealed class PlayerCompletenessTests
     {
         // Above Health, so a heal to it is measurable; null is the default (B415).
         MaxHealth = 175,
+        MaxHealthForBuffing = 176,
+        EntityHealth = 88,
+        HideHud = 8,
     };
 
     /// <summary>Every property of a type that a test can read.</summary>

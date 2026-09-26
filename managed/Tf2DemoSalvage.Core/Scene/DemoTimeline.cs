@@ -217,6 +217,15 @@ public readonly record struct ScenePlayer(
     /// <remarks>A full heal to it clears the player's model decals (`C_TFPlayer::OnDataChanged`, B415).</remarks>
     public int? MaxHealth { get; init; }
 
+    /// <summary>`GetMaxHealthForBuffing()` — the resource's `m_iMaxBuffedHealth`, misnamed ("we can't fix it now because of demos").</summary>
+    public int? MaxHealthForBuffing { get; init; }
+
+    /// <summary>`GetHealth()` — the player's own `m_iHealth`, which the HUD reads; <see cref="Health"/> prefers the resource's.</summary>
+    public int? EntityHealth { get; init; }
+
+    /// <summary>`m_Local.m_iHideHUD` — sent to the player it belongs to, so the recorder's alone; an observer's is `HIDEHUD_HEALTH`.</summary>
+    public int? HideHud { get; init; }
+
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
     /// <c>FL_DUCKING</c>. Null flags mean the recording never said, which is every player but the
@@ -2616,6 +2625,9 @@ public sealed class DemoTimeline
                     HandScale: player.BoneScales().Hand ?? 1f)
                 {
                     MaxHealth = resource?.Integer($"m_iMaxHealth.{slot}"),
+                    MaxHealthForBuffing = resource?.Integer($"m_iMaxBuffedHealth.{slot}"),
+                    EntityHealth = player.Integer("DT_BasePlayer.m_iHealth"),
+                    HideHud = player.Integer("DT_Local.m_iHideHUD"),
                 });
             }
 
