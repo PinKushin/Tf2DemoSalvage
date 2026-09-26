@@ -923,6 +923,7 @@ internal class MainForm : Form, IFrameSteps
 
         _settings = _launch.Settings;
         _spectator.Spectating = _launch.Spectate;
+        _chosenHud = _launch.Hud;
 
         // **`--look` and `--zoom` were parsed here and read by nobody** (B226). D98 removed the
         // orthographic camera they were written for and kept the fields with a note saying what
@@ -4118,6 +4119,7 @@ internal class MainForm : Form, IFrameSteps
     // The HUD's stock view of the install, and the install it was made from.
     private GameArchives? _hudArchives;
     private GameContent? _hudArchivesOf;
+    private string? _hudArchivesFor;
 
     // Which game events the HUD has heard, so each fires once as playback crosses it.
     private readonly HudEventFeed _hudEvents = new();
@@ -6963,7 +6965,13 @@ internal class MainForm : Form, IFrameSteps
     /// headless case nobody watches. The HUD's state is `default` — not in game, so every element hidden — until the
     /// first element that reads the local player lands.
     /// </remarks>
-    /// <summary>The files the HUD reads: the install without `custom/`, made once per install (D193).</summary>
+    /// <summary>
+    /// The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193). `--hud` sets it at launch; the
+    /// picker over our `custom/` folder will set it at runtime, and the HUD's files are remade on the next frame.
+    /// </summary>
+    private readonly string? _chosenHud;
+
+    /// <summary>The files the HUD reads: the chosen HUD over the stock files, remade when the install or the choice changes.</summary>
     private GameArchives? HudArchives()
     {
         if (_game is null)
@@ -6971,9 +6979,9 @@ internal class MainForm : Form, IFrameSteps
             return null;
         }
 
-        if (!ReferenceEquals(_hudArchivesOf, _game))
+        if (!ReferenceEquals(_hudArchivesOf, _game) || !string.Equals(_hudArchivesFor, _chosenHud, StringComparison.Ordinal))
         {
-            (_hudArchives, _hudArchivesOf) = (_game.Archives.WithoutCustom(), _game);
+            (_hudArchives, _hudArchivesOf, _hudArchivesFor) = (_game.Archives.WithHud(_chosenHud), _game, _chosenHud);
         }
 
         return _hudArchives;

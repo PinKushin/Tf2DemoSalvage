@@ -65,6 +65,8 @@ internal static class Help
           --look <x> <y>             Point the overhead camera at a world position.
           --zoom <factor>            Overhead camera zoom.
           --colours                  Draw surface categories instead of textures.
+          --hud <folder or .vpk>     Draw this HUD, laid out as in tf/custom. Without it the
+                                     HUD is TF2's stock one; tf/custom is not read for it.
           --measure <seconds>        Play for this many seconds OF PLAYBACK, print the mean frame
                                      cost, and exit. Not wall clock: loading a map takes about
                                      twenty seconds and does not count against it.
