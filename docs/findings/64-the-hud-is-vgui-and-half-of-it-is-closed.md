@@ -38,6 +38,55 @@ files exist, not to change the fallback. A `hud` probe — the production `VguiH
 ruled out the layout. One logged frame of the viewer showed a single fill the size of the window. *Measured, with a
 control shot taken with the HUD switched off.*
 
+## Whose health the HUD shows, and when it shows none
+
+The first health number the viewer drew on f12 was "1". f12 is a SourceTV recording, and there the local player is the
+SourceTV client itself: entity 1, team 1, `lifeState` 2, `m_iHealth` 1. The game does not draw that 1, because
+`StartObserverMode` sets `m_Local.m_iHideHUD = HIDEHUD_HEALTH` (player.cpp:2298), and the demo carries it: 2058 on
+every tick sampled. The HUD reads the player's own `m_iHealth`, not the player resource's (which the scoreboard reads).
+`GetMaxBuffedHealth` is the resource's `m_iMaxBuffedHealth` — "actually m_iMaxHealthForBuffing, but we can't fix it now
+because of demos" (c_tf_playerresource.h:81) — times 1.5, floored to a multiple of 5. On the 2013 POV specimen at tick
+1000 the recorder is at 125 of 125 with `m_iHideHUD` 2050, and the viewer draws 125. *Measured on the corpus.*
+
+## The clip arrives one too high, and scripts write keys bare
+
+The first ammo reading on the 2013 POV specimen was a 7-round scattergun. `m_iClip1` is
+`SendPropIntWithMinusOneFlag`, which sends through `SendProxy_IntAddOne` (sendproxy.cpp:39) so that -1, "no clip", fits
+an unsigned field; the client's `RecvProxy_IntSubOne` (recvproxy.cpp:26) takes the one back off. The wire said 7, the
+game shows 6. *Read from published source, measured on the corpus.*
+
+The same session found that `WeaponScript.Value` could not read the rocket launcher's clip at all: its script says
+`clip_size 4` without quotes, which KeyValues accepts and a quoted-pair scan never matches. Every weapon script is now
+read as KeyValues, and only the top block's keys answer — a scan would also have answered with a key from `SoundData`.
+
+Max clip and max ammo go through the attribute system (`CALL_ATTRIB_HOOK_INT`), which reads the item attributes the
+demo carries for each of the recorder's weapons and wearables (`m_hMyWeapons`, and `m_hMyWearables`, whose size is
+stored under its `lengthproxy` path rather than a flat name). A weapon's hook skips the owner's other weapons —
+"Don't allow weapons to provide to other weapons being carried by the same person" (attribute_manager.cpp:467).
+
+**SourceTV is handed the owner-only table too — the prediction was wrong.** `SendProxy_SendLocalWeaponDataTable`
+(basecombatweapon_shared.cpp:2739) sets its recipients to the owner alone, so the expectation, written into a marker
+test for months, was that an STV recording would lack `m_iClip1` and a POV one of the same session would have it. On the
+2011 koth_viaduct pair both carry it: the STV file holds the owner's clip on 40 of 51 sampled ticks, and SourceTV's own
+spectator slot holds none. The recipient filter is applied per client by the closed engine, and the SourceTV client is
+evidently not filtered by it. *Measured on the corpus* (`AudienceSplitCorpusTests`); the engine-side reason is
+*interpolated* and unread. What an STV viewer's HUD shows for an in-eye target therefore has the data it needs.
+
+## Three things the animation controller does that its code does not say
+
+`AnimationController.cpp` is published, and three behaviours in it are not what they look like:
+
+- **An animated int never starts where it was.** `GetValue` reads a non-built-in variable through `RequestInfo` and
+  keeps only a float or a colour; an int or bool variable reports as `TYPE_INT`, so the animation starts from 0.
+- **A duplicated event keeps its first definition,** under a comment that says "replacing the old one". The loop removes
+  the new sequence — which changes nothing anyway, because every lookup already stops at the first of a name.
+- **`Bias` never caches.** mathlib's `Bias` keeps `lastAmt` to skip a `log`, and never assigns it, so the exponent is
+  recomputed every call — except for an amount of exactly -1, which matches the stale -1 and reuses the previous
+  exponent.
+
+The stock manifest's two scripts declare 311 events; 309 parse, and the two missing are `[$X360]` variants of
+`WeaponUsesClips` and `WeaponDoesNotUseClips`. *Read from published source, counted on the shipped files.*
+
 ## Custom HUDs are ordinary `.res` files
 
 The owner's custom HUD draws its crosshair as a `CExLabel` created from `ControlName` in `hudlayout.res`, with a font

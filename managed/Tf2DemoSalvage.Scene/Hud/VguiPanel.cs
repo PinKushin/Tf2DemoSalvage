@@ -62,6 +62,8 @@ public class VguiPanel
     private readonly Dictionary<string, (byte, byte, byte, byte)> _colourOverrides = new(StringComparer.Ordinal);
     private readonly List<(string Key, Action<(byte, byte, byte, byte)> Set)> _overridableColors = [];
     private bool _needsDefaultSettings = true;
+    private int _wide = 64;
+    private int _tall = 24;
 
     // `Init` sets NEEDS_LAYOUT and NEEDS_SCHEME_UPDATE.
     private bool _needsLayout = true;
@@ -109,10 +111,34 @@ public class VguiPanel
     public int Y { get; set; }
 
     /// <summary>Wide; 64 until set.</summary>
-    public int Wide { get; set; } = 64;
+    /// <remarks>A change is `OnSizeChanged` (Panel.cpp), which invalidates the layout.</remarks>
+    public int Wide
+    {
+        get => _wide;
+        set
+        {
+            if (_wide != value)
+            {
+                _wide = value;
+                _needsLayout = true;
+            }
+        }
+    }
 
     /// <summary>Tall; 24 until set.</summary>
-    public int Tall { get; set; } = 24;
+    /// <remarks>A change is `OnSizeChanged` (Panel.cpp), which invalidates the layout.</remarks>
+    public int Tall
+    {
+        get => _tall;
+        set
+        {
+            if (_tall != value)
+            {
+                _tall = value;
+                _needsLayout = true;
+            }
+        }
+    }
 
     /// <summary>`zpos`: paint order among siblings, kept as a `short`.</summary>
     /// <remarks>
@@ -454,10 +480,39 @@ public class VguiPanel
         }
     }
 
+    /// <summary>`FindChildByName( name, bRecurseDown )` (Panel.cpp): each child in order, and with recursion its subtree before the next.</summary>
+    /// <param name="name">The child's name, compared without case.</param>
+    /// <param name="recurseDown">Whether to search below the direct children.</param>
+    /// <returns>The panel, or null.</returns>
+    /// <remarks>The engine caches answers by name; a cached miss is dropped and searched again, so the cache changes nothing.</remarks>
+    public VguiPanel? FindChildByName(string name, bool recurseDown = false)
+    {
+        foreach (VguiPanel child in _children)
+        {
+            if (string.Equals(child.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return child;
+            }
+
+            if (recurseDown && child.FindChildByName(name, recurseDown: true) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>`REGISTER_COLOR_AS_OVERRIDABLE`: a `.res` key that sets this colour and wins over the scheme afterwards.</summary>
     /// <param name="key">The script name, such as `fgcolor_override`.</param>
     /// <param name="set">What the colour sets.</param>
     protected void RegisterColorAsOverridable(string key, Action<(byte, byte, byte, byte)> set) => _overridableColors.Add((key, set));
+
+    /// <summary>The `DialogVariables` message: nothing, unless a control maps it.</summary>
+    /// <param name="variables">The sending panel's dialog variables, as strings.</param>
+    public virtual void OnDialogVariablesChanged(IReadOnlyDictionary<string, string> variables)
+    {
+    }
 
     /// <summary>`PerformLayout`: empty — a control places its parts here.</summary>
     protected virtual void PerformLayout()
@@ -482,6 +537,77 @@ public class VguiPanel
     /// <param name="value">The value, of the variable's type.</param>
     public void SetAnimationValue(string name, object? value) =>
         (FindAnimationVar(name) ?? throw new ArgumentException($"{ClassName} declares no animation variable {name}.", nameof(name))).Value = value;
+
+    /// <summary>`RequestInfo` (Panel.cpp:5448): this panel's animation variable of that name, else its parent's.</summary>
+    /// <param name="name">The variable, compared without case.</param>
+    /// <param name="context">The scheme, for proportional values.</param>
+    /// <returns>Whether any panel up the chain answered, and what its converter's `GetData` put in — null when it put nothing.</returns>
+    /// <remarks>
+    /// Each converter's `GetData`: a float as a float, a proportional float or int normalised back to 480 tall, an int
+    /// or bool as an int, a colour as a colour, a string, font or texture as a string. The position and size
+    /// converters assert and put nothing, yet the request still counts as answered.
+    /// </remarks>
+    public (bool Answered, VguiKeyValue? Value) RequestInfo(string name, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (FindAnimationVar(name) is not { } variable)
+        {
+            return Parent?.RequestInfo(name, context) ?? (false, null);
+        }
+
+        VguiKeyValue? value = variable.Type switch
+        {
+            VguiPanelVarType.Real => VguiKeyValue.FromReal((float)variable.Value!),
+            VguiPanelVarType.ProportionalFloat => VguiKeyValue.FromReal(context.Normalize((int)(float)variable.Value!)),
+            VguiPanelVarType.Whole => new VguiKeyValue(VguiKeyValueType.Whole, Whole: (int)variable.Value!),
+            VguiPanelVarType.ProportionalInt => new VguiKeyValue(VguiKeyValueType.Whole, Whole: context.Normalize((int)variable.Value!)),
+            VguiPanelVarType.Bool => new VguiKeyValue(VguiKeyValueType.Whole, Whole: (bool)variable.Value! ? 1 : 0),
+            VguiPanelVarType.Color => VguiKeyValue.FromColour(((byte, byte, byte, byte))variable.Value!),
+            VguiPanelVarType.Text => new VguiKeyValue(VguiKeyValueType.Text, Text: (string?)variable.Value ?? string.Empty),
+            VguiPanelVarType.TextureId => new VguiKeyValue(VguiKeyValueType.Text, Text: (string?)variable.Value ?? string.Empty),
+            VguiPanelVarType.Font => new VguiKeyValue(VguiKeyValueType.Text),
+            _ => null,
+        };
+
+        return (true, value);
+    }
+
+    /// <summary>`SetInfo` (Panel.cpp:5466): this panel's animation variable set through its converter; never the parent's.</summary>
+    /// <param name="name">The variable, compared without case.</param>
+    /// <param name="value">The value, of whatever type the sender set.</param>
+    /// <param name="context">The scheme, screen and fonts.</param>
+    /// <returns>Whether this panel has the variable.</returns>
+    /// <remarks>
+    /// Each converter's `SetData` reads the value as its own type: a float or int through `GetFloat`/`GetInt` (a colour
+    /// reading 0), a proportional one scaled; a colour from the value's `GetString` as a scheme colour name, or its
+    /// `GetColor` when that string is empty — so a float sent to a colour becomes the name "255.000000", which is no
+    /// colour; a string, font, texture, position or size from `GetString`.
+    /// </remarks>
+    public bool SetInfo(string name, VguiKeyValue value, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (FindAnimationVar(name) is not { } variable)
+        {
+            return false;
+        }
+
+        variable.Value = variable.Type switch
+        {
+            VguiPanelVarType.Real => value.AsReal,
+            VguiPanelVarType.ProportionalFloat => (float)context.Scale((int)value.AsReal),
+            VguiPanelVarType.Whole => value.AsWhole,
+            VguiPanelVarType.ProportionalInt => context.Scale(value.AsWhole),
+            VguiPanelVarType.Bool => value.AsWhole != 0,
+            VguiPanelVarType.Color => value.AsText is { Length: > 0 } colourName
+                ? context.Scheme.GetColor(colourName, default)
+                : value.AsColour,
+            _ => Convert(variable, value.AsText, context),
+        };
+
+        return true;
+    }
 
     private static object? Zero(VguiPanelVarType type) => type switch
     {
@@ -875,19 +1001,8 @@ public class VguiPanel
         if (text.Length > 0 && (text[0] == '.' || char.IsAsciiDigit(text[0])))
         {
             // `sscanf( "%f %f %f %f" )` into zeroed floats, each cast to `unsigned char`.
-            float[] channels = new float[4];
-            string[] parts = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-
-            for (int index = 0; index < Math.Min(parts.Length, 4); index++)
-            {
-                // `%f` fails on a token with no number at its start, and the scan stops there.
-                if (parts[index][0] is not ('.' or '-' or '+') && !char.IsAsciiDigit(parts[index][0]))
-                {
-                    break;
-                }
-
-                channels[index] = PanelLayout.Atof(parts[index]);
-            }
+            Span<float> channels = stackalloc float[4];
+            PanelLayout.ScanFloats(text, channels);
 
             _colourOverrides[key] = ((byte)channels[0], (byte)channels[1], (byte)channels[2], (byte)channels[3]);
         }

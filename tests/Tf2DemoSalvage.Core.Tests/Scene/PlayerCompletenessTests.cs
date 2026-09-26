@@ -185,6 +185,16 @@ public sealed class PlayerCompletenessTests
     {
         // Above Health, so a heal to it is measurable; null is the default (B415).
         MaxHealth = 175,
+        MaxHealthForBuffing = 176,
+        EntityHealth = 88,
+        HideHud = 8,
+
+        // A part-empty clip, and the HUD's ammo inputs — each null when not carried (STV).
+        WeaponClip1 = 5,
+        WeaponPrimaryAmmoType = 2,
+        Ammo = [0, 32, 16],
+        Items = [new SceneItem(40, "CTFWearable", 30, new EconAttributeWire([], [], HasValidItemId: true), IsWeapon: false)],
+        OwnAttributes = [new EconAttributeValue(54, 0x3F000000)],
     };
 
     /// <summary>Every property of a type that a test can read.</summary>

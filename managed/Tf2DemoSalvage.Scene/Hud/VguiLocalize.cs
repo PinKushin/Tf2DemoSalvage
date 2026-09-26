@@ -42,6 +42,52 @@ public sealed class VguiLocalize(string language)
     /// <returns>The string, or null when no file named it.</returns>
     public string? Find(string key) => _strings.GetValueOrDefault(key);
 
+    /// <summary>`ConstructString` with variables (0x180025320): `%name%` replaced, `[unknown]` for an unset one.</summary>
+    /// <param name="format">The localised string.</param>
+    /// <param name="variables">The variables, or null — then every name stays as written.</param>
+    /// <returns>The string.</returns>
+    /// <remarks>
+    /// `%%` is one `%`; `%s` and a digit is copied as written; a `%` with no closing `%` is copied. A name is at most 31
+    /// characters, and the result at most 4095 (the label's 4096-character buffer).
+    /// </remarks>
+    public static string ConstructString(string format, IReadOnlyDictionary<string, string>? variables)
+    {
+        ArgumentNullException.ThrowIfNull(format);
+
+        System.Text.StringBuilder output = new();
+        int index = 0;
+
+        while (index < format.Length && output.Length < ValueLength - 1)
+        {
+            char character = format[index];
+
+            if (character == '%' && index + 1 < format.Length && format[index + 1] == '%')
+            {
+                output.Append('%');
+                index += 2;
+                continue;
+            }
+
+            bool positional = character == '%' && index + 2 < format.Length && format[index + 1] == 's' && char.IsAsciiDigit(format[index + 2]);
+            int close = character == '%' && !positional && variables is not null ? format.IndexOf('%', index + 1) : -1;
+
+            if (close < 0)
+            {
+                output.Append(character);
+                index++;
+                continue;
+            }
+
+            string name = format[(index + 1)..close];
+            string value = variables!.GetValueOrDefault(name[..Math.Min(name.Length, 31)]) ?? "[unknown]";
+
+            output.Append(value.AsSpan(0, Math.Min(value.Length, ValueLength - 1 - output.Length)));
+            index = close + 1;
+        }
+
+        return output.ToString();
+    }
+
     /// <summary>`AddFile`.</summary>
     /// <param name="path">The file, which may hold `%language%`.</param>
     /// <param name="read">Reads a game path, or null when it is absent.</param>
@@ -162,31 +208,8 @@ public sealed class VguiLocalize(string language)
             return string.Equals(name, current, StringComparison.OrdinalIgnoreCase) != negated;
         }
 
-        return Platform(condition);
-    }
-
-    /// <summary>`EvaluateConditional` on Windows, off the Deck: a `!` anywhere after the bracket inverts.</summary>
-    private static bool Platform(string condition)
-    {
-        string text = condition.StartsWith('[') ? condition[1..] : condition;
-        bool negated = text.StartsWith('!');
-
-        if (text.Contains("$DECK", StringComparison.OrdinalIgnoreCase) || text.Contains("$X360", StringComparison.OrdinalIgnoreCase))
-        {
-            return negated;
-        }
-
-        if (text.Contains("$WIN32", StringComparison.OrdinalIgnoreCase) || text.Contains("$WINDOWS", StringComparison.OrdinalIgnoreCase))
-        {
-            return !negated;
-        }
-
-        if (text.Contains("$OSX", StringComparison.OrdinalIgnoreCase) || text.Contains("$LINUX", StringComparison.OrdinalIgnoreCase))
-        {
-            return negated;
-        }
-
-        return negated && text.Contains("$POSIX", StringComparison.OrdinalIgnoreCase);
+        // vgui2.dll's own copy (0x18001e920) is tier1's, test for test.
+        return Content.Assets.KeyValuesTree.EvaluateConditional(condition);
     }
 
     /// <summary>0x1800192e0: whitespace skipped, then a quoted token with `\n` and `\"` escaped, or up to whitespace.</summary>

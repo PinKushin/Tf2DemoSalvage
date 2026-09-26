@@ -27,6 +27,9 @@ public class VguiEditablePanel : VguiPanel
     /// <inheritdoc/>
     public override string ClassName => "EditablePanel";
 
+    // `m_pDialogVariables`, made on first use; `KeyValues` names compare without case.
+    private Dictionary<string, string>? _dialogVariables;
+
     /// <summary>`skip_autoresize`.</summary>
     public bool SkipAutoResize { get; private set; }
 
@@ -57,6 +60,59 @@ public class VguiEditablePanel : VguiPanel
         }
 
         OwnGroup.ApplySettings(resource, context);
+        ForceSubPanelsToUpdateWithNewDialogVariables();
+        InvalidateLayout();
+    }
+
+    /// <summary>`LoadControlSettings( resourceName )`: the file read through the context, `#base` merged.</summary>
+    /// <param name="path">The `.res` file.</param>
+    /// <param name="context">The scheme, screen and filesystem.</param>
+    /// <remarks>A missing file is an empty one: `BuildGroup::LoadControlSettings` only prints "not found".</remarks>
+    public void LoadControlSettings(string path, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        Func<string, byte[]?> read = context.Read ?? (_ => null);
+
+        LoadControlSettings(KeyValuesTree.Load(read(path) ?? [], path, read), context);
+    }
+
+    /// <summary>`SetDialogVariable( name, const char * )`.</summary>
+    /// <param name="name">The variable.</param>
+    /// <param name="value">Its value.</param>
+    public void SetDialogVariable(string name, string value)
+    {
+        _dialogVariables ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _dialogVariables[name] = value;
+        ForceSubPanelsToUpdateWithNewDialogVariables();
+    }
+
+    /// <summary>`SetDialogVariable( name, int )`: read back as its decimal digits.</summary>
+    /// <param name="name">The variable.</param>
+    /// <param name="value">Its value.</param>
+    public void SetDialogVariable(string name, int value) =>
+        SetDialogVariable(name, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+    /// <summary>`SetDialogVariable( name, float )`: `KeyValues::GetWString` prints a float as `%f`.</summary>
+    /// <param name="name">The variable.</param>
+    /// <param name="value">Its value.</param>
+    public void SetDialogVariable(string name, float value) =>
+        SetDialogVariable(name, value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture));
+
+    /// <summary>`ForceSubPanelsToUpdateWithNewDialogVariables` (EditablePanel.cpp:1036): this panel and its direct children.</summary>
+    private void ForceSubPanelsToUpdateWithNewDialogVariables()
+    {
+        if (_dialogVariables is null)
+        {
+            return;
+        }
+
+        OnDialogVariablesChanged(_dialogVariables);
+
+        foreach (VguiPanel child in Children)
+        {
+            child.OnDialogVariablesChanged(_dialogVariables);
+        }
     }
 
     /// <inheritdoc/>

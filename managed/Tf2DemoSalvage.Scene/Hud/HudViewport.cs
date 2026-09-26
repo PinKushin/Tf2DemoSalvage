@@ -9,7 +9,24 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="HideHud">The local player's `m_Local.m_iHideHUD`, or `hidehud` when that is set.</param>
 /// <param name="Health">The local player's health.</param>
 /// <param name="Alive">`IsAlive()`.</param>
-public readonly record struct HudState(bool InGame, bool HasLocalPlayer, int HideHud, int Health, bool Alive);
+/// <param name="MaxHealth">`GetMaxHealth()`: the player resource's `m_iMaxHealth` for the local player.</param>
+/// <param name="MaxBuffedHealth">`m_Shared.GetMaxBuffedHealth()`.</param>
+/// <param name="CurTime">`gpGlobals->curtime`, which element thinks are throttled by.</param>
+/// <param name="Team">The local player's team: 0 unassigned, 1 spectator, 2 RED, 3 BLU.</param>
+/// <param name="Ammo">What the ammo element reads of the active weapon.</param>
+/// <param name="ActiveWeapon">The active weapon's entity slot, or 0 for none.</param>
+public readonly record struct HudState(
+    bool InGame,
+    bool HasLocalPlayer,
+    int HideHud,
+    int Health,
+    bool Alive,
+    int MaxHealth = 0,
+    int MaxBuffedHealth = 0,
+    float CurTime = 0f,
+    int Team = 0,
+    TfAmmoState Ammo = default,
+    int ActiveWeapon = 0);
 
 /// <summary>`CHudElement` (game/client/hud.cpp): a HUD panel that hides by the player's `HIDEHUD` bits.</summary>
 public interface IHudElement
@@ -83,22 +100,110 @@ public static class HudVisibility
 public sealed class HudViewport : VguiEditablePanel
 {
     private readonly List<IHudElement> _elements = [];
+    private bool _teamSent;
 
-    /// <summary>`CBaseViewport()`: named, and proportional from the start.</summary>
+    private const string AnimationManifest = "scripts/hudanimations_manifest.txt";
+
+    /// <summary>`CBaseViewport()`: named, proportional from the start, and its animation controller made.</summary>
     public HudViewport()
-        : base(null, "CBaseViewport") =>
+        : base(null, "CBaseViewport")
+    {
         Proportional = true;
+        Animations = new VguiAnimationController(this);
+    }
+
+    /// <summary>`m_pAnimController` — `GetViewportAnimationController()`.</summary>
+    public VguiAnimationController Animations { get; }
+
+    /// <summary>The context this frame runs under — what `OnThink` hands the controller.</summary>
+    public VguiContext? Context { get; set; }
+
+    /// <summary>`LoadHudAnimations` (baseviewport.cpp): each `file` in the manifest, the first wiping what was loaded.</summary>
+    /// <param name="context">The scheme, screen and filesystem.</param>
+    /// <returns>Whether the manifest was found.</returns>
+    public bool LoadHudAnimations(VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Read?.Invoke(AnimationManifest) is not { } bytes)
+        {
+            return false;
+        }
+
+        bool clear = true;
+
+        foreach (Content.Assets.KeyValuesTree entry in Content.Assets.KeyValuesTree.Load(bytes, AnimationManifest, context.Read).Children)
+        {
+            if (string.Equals(entry.Name, "file", StringComparison.OrdinalIgnoreCase))
+            {
+                Animations.SetScriptFile(this, entry.Value ?? string.Empty, clear, context);
+                clear = false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>`CBaseViewport::OnThink`: the animations run at `curtime`.</summary>
+    protected override void OnThink()
+    {
+        if (Context is { } context)
+        {
+            Animations.UpdateAnimations(State.CurTime, context);
+        }
+    }
+
+    /// <summary>This frame's game state — what an element's `OnThink` reads of the local player and `gpGlobals`.</summary>
+    public HudState State { get; private set; }
+
+    /// <summary>The viewport a panel sits under, for its `OnThink` to read <see cref="State"/>; null when it has none.</summary>
+    /// <param name="panel">The panel.</param>
+    /// <returns>The viewport.</returns>
+    public static HudViewport? Of(VguiPanel panel)
+    {
+        for (VguiPanel? at = panel; at is not null; at = at.Parent)
+        {
+            if (at is HudViewport viewport)
+            {
+                return viewport;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>`CHud::Think`: every element's panel shown or hidden by its `ShouldDraw`.</summary>
     /// <param name="state">The game state.</param>
     public void Think(HudState state)
     {
+        // `localplayer_changeteam`, which every `CTFImagePanel` listens for (tf_imagepanel.cpp:79).
+        if (state.Team != State.Team || !_teamSent)
+        {
+            _teamSent = true;
+            SetLocalTeam(this, state.Team);
+        }
+
+        State = state;
+
         foreach (IHudElement element in _elements)
         {
             if (element is VguiPanel panel)
             {
                 panel.Visible = element.ShouldDraw(state);
             }
+        }
+    }
+
+    private static void SetLocalTeam(VguiPanel panel, int team)
+    {
+        if (panel is TfImagePanel image)
+        {
+            image.LocalTeam = team;
+        }
+
+        foreach (VguiPanel child in panel.Children)
+        {
+            SetLocalTeam(child, team);
         }
     }
 

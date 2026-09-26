@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 using Tf2DemoSalvage.Content.Assets;
 
@@ -97,6 +98,20 @@ public class VguiLabel : VguiPanel
         InvalidateLayout();
     }
 
+    /// <inheritdoc/>
+    /// <remarks>`OnDialogVariablesChanged` (Label.cpp:338): only a text found as a token is rebuilt.</remarks>
+    public override void OnDialogVariablesChanged(IReadOnlyDictionary<string, string> variables)
+    {
+        if (_textImage.UnlocalizedFormat is { } format)
+        {
+            // `Label::SetText( const wchar_t * )`.
+            _textImage.SetConstructedText(VguiLocalize.ConstructString(format, variables));
+            _autoWideDirty = _autoWideToContents;
+            _autoTallDirty = _autoTallToContents;
+            InvalidateLayout();
+        }
+    }
+
     /// <summary>`SetTextInset`: the draw width is the label less the x inset.</summary>
     /// <param name="x">The x inset.</param>
     /// <param name="y">The y inset.</param>
@@ -136,7 +151,14 @@ public class VguiLabel : VguiPanel
         _context = context;
         base.ApplySettings(block, context);
 
-        if (block.Find("labelText")?.Value is { } labelText)
+        if (block.Find("labelText")?.Value is { Length: > 1 } variable && variable[0] == '%' && variable[^1] == '%')
+        {
+            // A variable: `AddString( "var_%name%", "%name%" )` then `SetText( "#var_%name%" )` (Label.cpp:1150).
+            string token = "var_" + variable;
+
+            SetText("#" + token, key => key == token ? variable : context.Localize?.Invoke(key));
+        }
+        else if (block.Find("labelText")?.Value is { } labelText)
         {
             SetText(labelText, context.Localize);
         }

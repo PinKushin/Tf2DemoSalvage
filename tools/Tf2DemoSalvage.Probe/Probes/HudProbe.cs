@@ -31,15 +31,33 @@ public sealed class HudProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         bool custom = arguments.Contains("custom");
-        HudState state = arguments.Contains("playing") ? new HudState(true, true, 0, 125, true) : default;
         GameArchives all = GameArchives.Open(new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder());
         GameArchives archives = custom ? all : all.WithoutCustom();
+        HudState state = arguments.Contains("playing") ? new HudState(true, true, 0, 60, true, 125, 185, 1f) : default;
+
+        // `hud <demo> <tick>`: the state HudStates reads there — the production route — instead of a made-up one.
+        if (arguments.Count >= 2 && arguments[0].EndsWith(".dem", StringComparison.OrdinalIgnoreCase))
+        {
+            ItemSchema? items = archives.Read("scripts/items/items_game.txt") is { } schema ? ItemSchema.Read(schema) : null;
+
+            state = HudStates.For(
+                Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(arguments[0])),
+                int.Parse(arguments[1], CultureInfo.InvariantCulture),
+                new TfWeaponData(archives.Read),
+                items is null ? null : new AttributeHooks(items));
+        }
+
+        output.WriteLine($"state: {state}");
         VguiSurfaceHost host = new(archives.Read, archives.FullPathOnDisk, new NoFonts(), _ => (64, 64));
         VguiHud hud = new(host);
 
+        // Two frames: a panel's scheme pass runs children first, so what a parent's `.res` sets reaches them on the next.
         host.BeginFrame(1920, 1080);
         hud.Frame(state);
+        host.BeginFrame(1920, 1080);
+        hud.Frame(state with { CurTime = state.CurTime + 0.1f });
 
+        output.WriteLine($"animation sequences: {hud.Viewport.Animations.SequenceCount}, running: {hud.Viewport.Animations.ActiveAnimationCount}");
         output.WriteLine("panels (name, class, x y wide tall, visible, bg):");
         Describe(output, hud.Viewport, 1);
         output.WriteLine($"quads: {host.List.Quads.Count}");
