@@ -187,6 +187,9 @@ public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize,
     public (int A, int B, int C) GetCharAbcWide(VguiFontAmalgam font, char character) => Fonts.GetCharAbcWide(font, character);
 
     /// <inheritdoc/>
+    public int GetCharacterWidth(VguiFontAmalgam font, char character) => Fonts.GetCharacterWidth(font, character);
+
+    /// <inheritdoc/>
     /// <remarks>
     /// `DrawGetUnicodeCharRenderInfo` (0x18000ab20) then `DrawRenderCharFromInfo` (0x18000c940): nothing at zero text
     /// alpha or without a font; the quad at pen + a (pen − a + … for an underlined font), `b + 2` wide (plus a + c when

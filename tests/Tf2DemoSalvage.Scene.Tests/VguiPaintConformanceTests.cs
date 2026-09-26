@@ -281,6 +281,8 @@ public sealed class VguiPaintConformanceTests
 
         public (int A, int B, int C) GetCharAbcWide(VguiFontAmalgam font, char character) => (0, 0, 0);
 
+        public int GetCharacterWidth(VguiFontAmalgam font, char character) => 0;
+
         private static string Rect(string kind, int x0, int y0, int x1, int y1) =>
             string.Create(CultureInfo.InvariantCulture, $"{kind} {x0} {y0} {x1} {y1}");
     }

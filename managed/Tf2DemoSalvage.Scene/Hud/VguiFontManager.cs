@@ -195,6 +195,24 @@ public sealed class VguiFontManager(IVguiGdi gdi)
         return font.GetFontForChar(character) is { } drawn ? drawn.GetCharAbcWidths(character) : (0, font.MaxWidth, 0);
     }
 
+    /// <summary>`GetCharacterWidth` (0x180016b40): 0 for a control character (`iswcntrl`), else a + b + c.</summary>
+    /// <param name="font">The handle.</param>
+    /// <param name="character">The character.</param>
+    /// <returns>The advance.</returns>
+    public int GetCharacterWidth(VguiFontAmalgam font, char character)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+
+        if (char.IsControl(character) || !_handles.Contains(font))
+        {
+            return 0;
+        }
+
+        (int a, int b, int c) = GetCharAbcWide(font, character);
+
+        return a + b + c;
+    }
+
     /// <summary>`GetFontTall`.</summary>
     /// <param name="font">The handle.</param>
     /// <returns>The first font's height; 0 for a handle this manager did not make.</returns>
