@@ -35,8 +35,14 @@ internal sealed class TextRecorder : IVguiSurface
 
     public void DrawTexturedRect(int x0, int y0, int x1, int y1) => Calls.Add(Text($"textured {x0} {y0} {x1} {y1}"));
 
-    public void DrawTexturedSubRect(int x0, int y0, int x1, int y1, float s0, float t0, float s1, float t1) =>
+    public void DrawTexturedSubRect(int x0, int y0, int x1, int y1, float s0, float t0, float s1, float t1)
+    {
         Calls.Add(Text($"subrect {x0} {y0} {x1} {y1}"));
+        SubRects.Add(Text($"{x0} {y0} {x1} {y1} uv {s0} {t0} {s1} {t1}"));
+    }
+
+    /// <summary>Each textured sub-rectangle with its texture coordinates: "0 0 8 8 uv 0 0 0.25 0.25".</summary>
+    public List<string> SubRects { get; } = [];
 
     public (int Wide, int Tall) DrawGetTextureSize(string texture) => (64, 64);
 
