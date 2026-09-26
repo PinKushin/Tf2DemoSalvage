@@ -81,12 +81,24 @@ public sealed class VguiTextImage : VguiImage
     public void SetText(string? text, Func<string, string?>? localize)
     {
         text ??= string.Empty;
+        UnlocalizedFormat = null;
 
         if (text.StartsWith('#') && localize?.Invoke(text[1..]) is { } localised)
         {
             text = localised;
+            UnlocalizedFormat = localised;
         }
 
+        SetConstructedText(text);
+    }
+
+    /// <summary>`m_unlocalizedTextSymbol`'s string: what a `#token` text was found as, else null.</summary>
+    public string? UnlocalizedFormat { get; private set; }
+
+    /// <summary>`SetText( const wchar_t *, bClearUnlocalizedSymbol = false )`: the text, the symbol kept.</summary>
+    /// <param name="text">The text.</param>
+    public void SetConstructedText(string text)
+    {
         Text = text;
         _lineBreaks.Clear();
         _lineIndents.Clear();

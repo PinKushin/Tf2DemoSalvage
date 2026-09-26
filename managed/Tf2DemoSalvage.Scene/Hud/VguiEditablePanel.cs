@@ -27,6 +27,9 @@ public class VguiEditablePanel : VguiPanel
     /// <inheritdoc/>
     public override string ClassName => "EditablePanel";
 
+    // `m_pDialogVariables`, made on first use; `KeyValues` names compare without case.
+    private Dictionary<string, string>? _dialogVariables;
+
     /// <summary>`skip_autoresize`.</summary>
     public bool SkipAutoResize { get; private set; }
 
@@ -57,6 +60,46 @@ public class VguiEditablePanel : VguiPanel
         }
 
         OwnGroup.ApplySettings(resource, context);
+        ForceSubPanelsToUpdateWithNewDialogVariables();
+        InvalidateLayout();
+    }
+
+    /// <summary>`SetDialogVariable( name, const char * )`.</summary>
+    /// <param name="name">The variable.</param>
+    /// <param name="value">Its value.</param>
+    public void SetDialogVariable(string name, string value)
+    {
+        _dialogVariables ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _dialogVariables[name] = value;
+        ForceSubPanelsToUpdateWithNewDialogVariables();
+    }
+
+    /// <summary>`SetDialogVariable( name, int )`: read back as its decimal digits.</summary>
+    /// <param name="name">The variable.</param>
+    /// <param name="value">Its value.</param>
+    public void SetDialogVariable(string name, int value) =>
+        SetDialogVariable(name, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+    /// <summary>`SetDialogVariable( name, float )`: `KeyValues::GetWString` prints a float as `%f`.</summary>
+    /// <param name="name">The variable.</param>
+    /// <param name="value">Its value.</param>
+    public void SetDialogVariable(string name, float value) =>
+        SetDialogVariable(name, value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture));
+
+    /// <summary>`ForceSubPanelsToUpdateWithNewDialogVariables` (EditablePanel.cpp:1036): this panel and its direct children.</summary>
+    private void ForceSubPanelsToUpdateWithNewDialogVariables()
+    {
+        if (_dialogVariables is null)
+        {
+            return;
+        }
+
+        OnDialogVariablesChanged(_dialogVariables);
+
+        foreach (VguiPanel child in Children)
+        {
+            child.OnDialogVariablesChanged(_dialogVariables);
+        }
     }
 
     /// <inheritdoc/>
