@@ -18,6 +18,15 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// </remarks>
 public static class PanelLayout
 {
+    /// <summary>`ISurface::GetProportionalBase`'s height: `vguimatsurface.dll` stores 640 by 480.</summary>
+    private const double ProportionalBaseTall = 480.0;
+
+    /// <summary>`GetProportionalScaledValue`: a value authored at 480 tall, at a real one.</summary>
+    /// <param name="value">The value as a `.res` file writes it.</param>
+    /// <param name="tall">The screen's (or the scheme's sizing panel's) height in pixels.</param>
+    /// <returns>`(int)((double)tall / 480.0 * value)` — `vgui2.dll` 0x18000d590, truncating toward zero.</returns>
+    public static int ProportionalScaled(int value, int tall) => (int)(tall / ProportionalBaseTall * value);
+
     /// <summary>`ComputePos`, with `OP_SET`: a panel's x or y.</summary>
     /// <param name="input">The `xpos` or `ypos` string, or null when the file names none.</param>
     /// <param name="current">Where the panel already is, kept when there is no string.</param>
