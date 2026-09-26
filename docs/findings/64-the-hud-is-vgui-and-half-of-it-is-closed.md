@@ -64,6 +64,14 @@ demo carries for each of the recorder's weapons and wearables (`m_hMyWeapons`, a
 stored under its `lengthproxy` path rather than a flat name). A weapon's hook skips the owner's other weapons —
 "Don't allow weapons to provide to other weapons being carried by the same person" (attribute_manager.cpp:467).
 
+**SourceTV is handed the owner-only table too — the prediction was wrong.** `SendProxy_SendLocalWeaponDataTable`
+(basecombatweapon_shared.cpp:2739) sets its recipients to the owner alone, so the expectation, written into a marker
+test for months, was that an STV recording would lack `m_iClip1` and a POV one of the same session would have it. On the
+2011 koth_viaduct pair both carry it: the STV file holds the owner's clip on 40 of 51 sampled ticks, and SourceTV's own
+spectator slot holds none. The recipient filter is applied per client by the closed engine, and the SourceTV client is
+evidently not filtered by it. *Measured on the corpus* (`AudienceSplitCorpusTests`); the engine-side reason is
+*interpolated* and unread. What an STV viewer's HUD shows for an in-eye target therefore has the data it needs.
+
 ## Three things the animation controller does that its code does not say
 
 `AnimationController.cpp` is published, and three behaviours in it are not what they look like:

@@ -131,20 +131,14 @@ public sealed class AudienceSplitConformanceTests
         // this is systemic.
         uses.ShouldBeGreaterThan(5);
 
-        // The gap, with its control, so this marker fails when the split is modelled (D45).
-        // `SendProxy_SendLocalWeaponDataTable` is the name Valve gives the mechanism; anything of
-        // ours that models it will carry that concept by name.
+        // Modelled: the HUD reads the clip from `LocalWeaponData` (ScenePlayer.WeaponClip1). The
+        // parity half — a POV and an STV demo of the same session disagree — is
+        // `CorpusAudienceSplitTests` in Corpus.Tests.
         SchemaGap.AnyProductionAssemblyMentions(SchemaGap.KnownPresent).ShouldBeTrue(
             "the search cannot find a name that is demonstrably compiled in");
 
-        SchemaGap.AnyProductionAssemblyMentions("LocalWeaponData").ShouldBeFalse(
-            "the audience split is now modelled — replace this marker with a parity test, and "
-            + "check an STV demo and a POV demo of the SAME session disagree where they should");
-
-        Assert.Ignore(
-            $"the audience split is not modelled. {uses} uses of the local-send proxy across " +
-            "shared game code — this is a general mechanism, so every one of them is a field an " +
-            "STV recording sees differently from the player's own.");
+        SchemaGap.AnyProductionAssemblyMentions("LocalWeaponData").ShouldBeTrue(
+            "the local weapon table is no longer read by name");
     }
 
     /// <summary>Counts non-overlapping occurrences of a literal.</summary>
