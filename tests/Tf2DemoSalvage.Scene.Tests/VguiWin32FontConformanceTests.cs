@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -120,61 +118,5 @@ public sealed class VguiWin32FontConformanceTests
         int at = ((y * wide) + x) * 4;
 
         return (rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]);
-    }
-
-    private sealed class FakeGdi : IVguiGdi
-    {
-        public bool Known { get; init; } = true;
-
-        public (int A, int B, int C)? Abc { get; init; } = (1, 10, 2);
-
-        public int? Extent { get; set; }
-
-        public VguiGrayGlyph? Gray { get; init; }
-
-        public (byte Blue, byte Green, byte Red) Colour { get; init; }
-
-        public (int Wide, int Tall) Bitmap { get; private set; }
-
-        public int Quality { get; private set; }
-
-        public int Charset { get; private set; }
-
-        public bool Drawn { get; private set; }
-
-        public int PenX { get; private set; }
-
-        public bool AddFontResource(string path) => true;
-
-        public bool FamilyExists(string family) => Known;
-
-        public VguiGdiFont? CreateFont(string face, int tall, int weight, bool italic, bool underline, bool strikeout, int charset, int quality)
-        {
-            (Quality, Charset) = (quality, charset);
-
-            return new VguiGdiFont(face, 20, 16, 12);
-        }
-
-        public void CreateBitmap(VguiGdiFont font, int wide, int tall) => Bitmap = (wide, tall);
-
-        public (int A, int B, int C)? GetCharAbcWidths(VguiGdiFont font, char character) => Abc;
-
-        public int? GetTextExtent(VguiGdiFont font, char character) => Extent;
-
-        public VguiGrayGlyph? GetGlyphOutlineGray8(VguiGdiFont font, int character) => Gray;
-
-        public byte[] DrawGlyph(VguiGdiFont font, char character, int penX, int clearWide, int clearTall)
-        {
-            (Drawn, PenX) = (true, penX);
-
-            List<byte> bytes = [];
-
-            for (int pixel = 0; pixel < Bitmap.Wide * Bitmap.Tall; pixel++)
-            {
-                bytes.AddRange([Colour.Blue, Colour.Green, Colour.Red, 0]);
-            }
-
-            return [.. bytes];
-        }
     }
 }
