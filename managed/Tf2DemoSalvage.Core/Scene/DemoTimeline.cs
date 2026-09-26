@@ -419,11 +419,21 @@ public readonly record struct TimelinePhases(
 /// <c>m_iRoundState</c> from the game rules at this tick, or <c>null</c> when the demo carries no
 /// game rules entity. <c>GR_STATE_TEAM_WIN</c> is 5.
 /// </param>
+/// <param name="Rules">The game rules the client's HUD tests at this tick.</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
     int? RecorderTeam = null,
-    int? RoundState = null);
+    int? RoundState = null,
+    SceneGameRules Rules = default);
+
+/// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
+/// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
+/// <param name="HalloweenScenario">`m_halloweenScenario`, which `IsHalloweenScenario` compares (tf_gamerules.h:1549): 3 is
+/// Lakeside, 4 Hightower, 5 Doomsday.</param>
+/// <param name="PlayerDestruction">Whether a `CTFPlayerDestructionLogic` exists — the only logic whose `GetType()` is
+/// `TYPE_PLAYER_DESTRUCTION`.</param>
+public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenScenario, bool PlayerDestruction);
 
 /// <summary>One corpse, as <c>DT_TFRagdoll</c> describes it.</summary>
 /// <param name="EntityIndex">Its entity slot.</param>
@@ -670,6 +680,15 @@ public sealed class DemoTimeline
 
     /// <summary>Where the round state is, flattened.</summary>
     private const string RoundStateProperty = "DT_TeamplayRoundBasedRules.m_iRoundState";
+
+    /// <summary>`m_bPlayingMannVsMachine` (tf_gamerules.cpp:1517), reached like the round through the proxy.</summary>
+    private const string MannVsMachineProperty = "DT_TFGameRules.m_bPlayingMannVsMachine";
+
+    /// <summary>`m_halloweenScenario` (tf_gamerules.cpp:1531).</summary>
+    private const string HalloweenScenarioProperty = "DT_TFGameRules.m_halloweenScenario";
+
+    /// <summary>`IMPLEMENT_NETWORKCLASS_ALIASED( TFPlayerDestructionLogic, … )` (tf_logic_player_destruction.cpp:54).</summary>
+    private const string PlayerDestructionClass = "CTFPlayerDestructionLogic";
 
 
     private static readonly string[] TeamProperties =
@@ -1360,6 +1379,9 @@ public sealed class DemoTimeline
     public IReadOnlyDictionary<int, PlayerInfo> Roster { get; private init; } =
         new Dictionary<int, PlayerInfo>();
 
+    /// <summary>Every named game event but `hltv_chase`, in stream order — what the HUD's listeners hear.</summary>
+    public IReadOnlyList<SceneGameEvent> GameEvents { get; private init; } = [];
+
     /// <summary>Which entity a person named on the command line is.</summary>
     /// <param name="who">A player name, a user id, or an entity index.</param>
     /// <returns>The entity index to spectate, or null when nobody matches.</returns>
@@ -1822,6 +1844,10 @@ public sealed class DemoTimeline
         Dictionary<int, PlayerInfo> bySlot = [];
         Dictionary<int, PlayerInfo> everyone = [];
 
+        // The game events, each sharing one copy of the roster until the roster next changes.
+        List<SceneGameEvent> gameEvents = [];
+        IReadOnlyDictionary<int, PlayerInfo>? rosterAtEvent = null;
+
         int walked = 0;
         int reportEvery = Math.Max(1, commands.Count / ProgressReports);
 
@@ -1919,6 +1945,14 @@ public sealed class DemoTimeline
                         director.Add((command.Tick, DirectorShot.From(chase.Values, director.Count > 0 ? director[^1].Shot : null)));
                         continue;
 
+                    // **Every other event, for the HUD's listeners** — the death notices first. The
+                    // roster goes with it as it stands now, because the listener resolves user ids and
+                    // names while handling the event and a slot can hold someone else later.
+                    case GameEventMessage { Name: { } eventName } gameEvent:
+                        rosterAtEvent ??= new Dictionary<int, PlayerInfo>(bySlot);
+                        gameEvents.Add(new SceneGameEvent(command.Tick, eventName, gameEvent.Values, rosterAtEvent));
+                        continue;
+
                     case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
                         BaselineBuilder.Apply(create.Entries, decoder);
                         continue;
@@ -1949,11 +1983,13 @@ public sealed class DemoTimeline
                     // a later joiner silently loses the first occupant from the former.
                     case CreateStringTableMessage { Name: RosterBuilder.TableName } roster:
                         RosterBuilder.Apply(roster.Entries, bySlot, everyone);
+                        rosterAtEvent = null;
                         continue;
 
                     case UpdateStringTableMessage rosterUpdate
                         when state.StringTableName(rosterUpdate.TableId) == RosterBuilder.TableName:
                         RosterBuilder.Apply(rosterUpdate.Entries, bySlot, everyone);
+                        rosterAtEvent = null;
                         continue;
 
                     // **Which compiled scene each `m_nSceneStringIndex` names**, and the only thing
@@ -2726,17 +2762,21 @@ public sealed class DemoTimeline
             // `teamplayroundbased_gamerules_data` — confirmed present in a modern demo's own
             // schema. Null when the demo has no such entity, which every pre-2009 era specimen
             // does not.
-            int? roundState = entities.OfClass(GameRulesClass).FirstOrDefault()?
-                .Integer(RoundStateProperty);
+            EntityState? gameRules = entities.OfClass(GameRulesClass).FirstOrDefault();
+            int? roundState = gameRules?.Integer(RoundStateProperty);
+            SceneGameRules rules = new(
+                gameRules?.Integer(MannVsMachineProperty) is > 0,
+                gameRules?.Integer(HalloweenScenarioProperty) ?? 0,
+                entities.OfClass(PlayerDestructionClass).Any());
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules));
         }
 
         Backfill(frames);
@@ -2800,6 +2840,7 @@ public sealed class DemoTimeline
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
             Roster = everyone,
+            GameEvents = gameEvents,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             Explosions = feeds.Explosions,
@@ -5058,6 +5099,11 @@ public sealed class DemoTimeline
     /// whole recording (`RespawnRoomVisibility`).
     /// </remarks>
     public int? RoundStateAt(double tick) => FrameAt((int)Math.Floor(tick))?.RoundState;
+
+    /// <summary>The game rules the HUD tests, at a tick; the defaults before the first frame.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The rules.</returns>
+    public SceneGameRules RulesAt(int tick) => FrameAt(tick)?.Rules ?? default;
 
     /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
     /// <param name="tick">The moment being asked about.</param>

@@ -9262,3 +9262,38 @@ So:
 - **When auto-exposure is built it is on, as TF2's default is**, with no off switch added for captures. A comparison
   capture waits for the exposure to settle, in TF2 and here alike. The worry that it makes a still depend on where the
   camera looked a moment earlier only holds for the first seconds after a cut, which settling removes.
+
+## D193 — the HUD defaults to TF2's stock HUD; a custom HUD is chosen, and tests never read one (2026-09-26)
+
+The viewer's HUD read the whole install, `tf/custom` included, so it drew the owner's own HUD — and so did the UI suite,
+which launches that viewer. He found out when a run showed a HUD crosshair, which the stock HUD does not have. The
+owner: *"exclude fucking custom from tests, wtf, i told you when starting this fucking feature, we were allowing custom
+huds, but noy USING MINE since it is not real parity, it is missing things that the normal hud has, and has some shit,
+the default hud doesnt like the hud crosshair. you were suppose to build this, to allow customization, but be tested,
+against valve defaults, and start with valve defaults, part of the reason some people might use this, is so they dont
+have to watch demos with their actual in game hud, or to make frag videos, which need a different hud, so we can allow
+the user to import a hud to us, or use the one from their custom folder since we are using stuff in the tf folder
+anyway, or use the default, but we should default to tf2's default, and we will probably allow you to hotswap huds, if
+we can, like make a menu where any hud found in our programs custom folder can be picked."*
+
+So:
+- **The HUD reads the install without `custom/`** — its scheme, layout, scripts, animations, fonts and materials alike
+  (`GameArchives.WithoutCustom`). Everything a test drives is therefore Valve's default.
+- **A custom HUD is opt-in**: imported, taken from the user's `tf/custom`, or none — chosen, with the stock HUD the
+  default. A picker over the huds in the program's own custom folder, hot-swapped if possible, is the intended shape
+  (D91's choosable huds, unchanged).
+- **A user's HUD is meant to win — at the user's choice.** The owner, clarifying: *"well a users hud "is meant to win"
+  but its at the users choice, so they dont have to constantly delete huds from the programs custom folder, I figure
+  the viewer can be a good way for people to compare huds too."* Several huds can sit in the custom folder at once and
+  the chosen one is drawn; the stock HUD is what is drawn when none is chosen, and what tests read. Comparing huds is a
+  use the picker should serve.
+- **What a player imports or copies in lands in OUR `custom/` folder**, subfolders allowed. The owner: *"id rather huds
+  players "import" or copy into our program be in the custom folder, we can sub folder, but tf2 players are use to
+  putting anything cutom like huds and configs, in the custom folder now, although cfgs can also technically just be
+  put in the cfg folder, so we have to actually check both"*. So huds live under `custom/`, and **configs are looked for
+  in both `custom/` and `cfg/`**, as TF2 players place them in either.
+- `WithoutCustom` was documented "for parity, never for the viewer"; that half was wrong and is corrected.
+- **The choice is an input, not a hardcoded stock view** — the owner asked whether hardcoding `WithoutCustom` would
+  stop huds being switched, and it would have. The HUD reads `GameArchives.WithHud(choice)`: the chosen HUD's folder or
+  `.vpk` above the stock files, stock alone when nothing is chosen, remade when the choice changes. `--hud <path>` sets
+  it at launch today; the picker will set it at runtime.

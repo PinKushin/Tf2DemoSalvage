@@ -87,6 +87,16 @@ public class VguiLabel : VguiPanel
     /// <summary>The text as the image holds it — localised.</summary>
     public string Text => _textImage.Text;
 
+    /// <summary>`GetTextImage`.</summary>
+    public VguiTextImage TextImage => _textImage;
+
+    /// <summary>`GetFont` / `SetFont` (Label.cpp): the text image's font.</summary>
+    public VguiFontAmalgam? TextFont
+    {
+        get => _textImage.Font;
+        set => _textImage.Font = value;
+    }
+
     /// <summary>`SetText`.</summary>
     /// <param name="text">The text, or a `#` token.</param>
     /// <param name="localize">The localisation lookup, or null.</param>

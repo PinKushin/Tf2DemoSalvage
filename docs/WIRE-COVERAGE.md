@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**185 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**189 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -60,12 +60,12 @@ Not declared in this SDK.
 
 ### DT_BaseCombatCharacter
 
-**1 of 4** mentioned.
+**2 of 4** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_bGlowEnabled, m_hMyWeapons, m_iPowerups
+m_bGlowEnabled, m_iPowerups
 ```
 
 ### DT_BasePlayer
@@ -146,14 +146,14 @@ Not declared in this SDK.
 
 | table | unread | declared |
 |---|---|---|
-| `DT_Local` | 33 | 37 |
+| `DT_Local` | 32 | 37 |
 | `DT_BaseObject` | 24 | 26 |
-| `DT_TFPlayerResource` | 23 | 26 |
+| `DT_TFPlayerResource` | 22 | 26 |
 | `DT_TFObjectiveResource` | 20 | 20 |
 | `DT_TFPlayerScoringDataExclusive` | 20 | 20 |
 | `DT_HL2Local` | 19 | 19 |
-| `DT_LocalPlayerExclusive` | 18 | 19 |
 | `DT_SmokeStack` | 18 | 18 |
+| `DT_LocalPlayerExclusive` | 17 | 19 |
 | `DT_ScriptIntro` | 17 | 17 |
 | `DT_BaseHumanoid` | 16 | 16 |
 | `DT_EnvProjectedTexture` | 14 | 14 |

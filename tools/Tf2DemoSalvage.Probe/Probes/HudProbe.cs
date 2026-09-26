@@ -34,17 +34,20 @@ public sealed class HudProbe : IProbe
         GameArchives all = GameArchives.Open(new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder());
         GameArchives archives = custom ? all : all.WithoutCustom();
         HudState state = arguments.Contains("playing") ? new HudState(true, true, 0, 60, true, 125, 185, 1f) : default;
+        IReadOnlyList<HudGameEvent> events = [];
 
-        // `hud <demo> <tick>`: the state HudStates reads there — the production route — instead of a made-up one.
+        // `hud <demo> <tick>`: the state HudStates reads there — the production route — instead of a made-up one — and the
+        // game events a seek to that tick replays, as the viewer's feed delivers them.
         if (arguments.Count >= 2 && arguments[0].EndsWith(".dem", StringComparison.OrdinalIgnoreCase))
         {
             ItemSchema? items = archives.Read("scripts/items/items_game.txt") is { } schema ? ItemSchema.Read(schema) : null;
+            AttributeHooks? hooks = items is null ? null : new AttributeHooks(items);
+            Tf2DemoSalvage.Core.Scene.DemoTimeline timeline = Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(arguments[0]));
+            int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
 
-            state = HudStates.For(
-                Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(arguments[0])),
-                int.Parse(arguments[1], CultureInfo.InvariantCulture),
-                new TfWeaponData(archives.Read),
-                items is null ? null : new AttributeHooks(items));
+            state = HudStates.For(timeline, tick, new TfWeaponData(archives.Read), hooks);
+            events = HudEventFeed.Resolve(timeline, new HudEventFeed().Advance(timeline, tick).Events, Path.GetFileNameWithoutExtension(arguments[0]), hooks);
+            output.WriteLine($"events replayed: {events.Count}");
         }
 
         output.WriteLine($"state: {state}");
@@ -53,11 +56,18 @@ public sealed class HudProbe : IProbe
 
         // Two frames: a panel's scheme pass runs children first, so what a parent's `.res` sets reaches them on the next.
         host.BeginFrame(1920, 1080);
-        hud.Frame(state);
+        hud.Frame(state, events, reset: true);
         host.BeginFrame(1920, 1080);
         hud.Frame(state with { CurTime = state.CurTime + 0.1f });
 
         output.WriteLine($"animation sequences: {hud.Viewport.Animations.SequenceCount}, running: {hud.Viewport.Animations.ActiveAnimationCount}");
+        output.WriteLine($"icons: {hud.Viewport.Icons?.Count ?? 0}; death notices: {hud.DeathNotice.Notices.Count}");
+
+        foreach (DeathNoticeItem notice in hud.DeathNotice.Notices)
+        {
+            output.WriteLine(
+                $"  {notice.KillerName} [{notice.IconDeath?.ShortName ?? notice.Icon}{(notice.Crit ? " crit" : string.Empty)}] {notice.InfoText} {notice.VictimName}");
+        }
         output.WriteLine("panels (name, class, x y wide tall, visible, bg):");
         Describe(output, hud.Viewport, 1);
         output.WriteLine($"quads: {host.List.Quads.Count}");

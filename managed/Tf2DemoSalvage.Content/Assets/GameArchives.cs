@@ -154,12 +154,49 @@ public sealed class GameArchives
     /// <summary>The same search path without anything under a `custom` folder: what Valve ships, alone.</summary>
     /// <returns>A view over the stock sources.</returns>
     /// <remarks>
-    /// **For parity, never for the viewer.** The viewer searches `custom/` first on purpose (D91) — a user's HUD is meant to
-    /// win. A reference for what TF2 draws by default must not see it: the owner's own install carries his HUD and his
-    /// config (`docs/memory/modern-tf2-is-not-a-stock-reference.md`).
+    /// **The HUD's default, and every test's.** The viewer's HUD is TF2's stock HUD until the user chooses one, which then
+    /// wins — so several can sit in `custom/` without being deleted to switch (D193); a reference for what TF2 draws by default must not see the owner's install, which
+    /// carries his HUD and his config (`docs/memory/modern-tf2-is-not-a-stock-reference.md`).
     /// </remarks>
     public GameArchives WithoutCustom() =>
         new(_sources.Where(static source => !IsCustom(source.Path)));
+
+    /// <summary>The HUD's view: the chosen HUD — a folder or a `.vpk` — searched first, then the stock files (D193).</summary>
+    /// <param name="hud">The chosen HUD's folder or archive, or null for TF2's stock HUD.</param>
+    /// <returns>The view.</returns>
+    /// <remarks>
+    /// A HUD installs the way a `tf/custom` entry does — `resource/`, `scripts/`, `materials/` at its root — so it is one
+    /// source placed where the game places custom content: above everything it overrides. Nothing else under `custom/` is
+    /// searched, so choosing one HUD never mixes in another. A HUD that cannot be opened leaves the stock HUD.
+    /// </remarks>
+    public GameArchives WithHud(string? hud)
+    {
+        GameArchives stock = WithoutCustom();
+
+        if (hud is null)
+        {
+            return stock;
+        }
+
+        try
+        {
+            if (Directory.Exists(hud))
+            {
+                return new GameArchives([(hud, null), .. stock._sources]);
+            }
+
+            if (File.Exists(hud) && hud.EndsWith(".vpk", StringComparison.OrdinalIgnoreCase))
+            {
+                return new GameArchives([(hud, VpkArchive.Open(hud)), .. stock._sources]);
+            }
+        }
+        catch (Exception failure) when (failure is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            // A damaged HUD archive costs the HUD, not the viewer: the stock one draws.
+        }
+
+        return stock;
+    }
 
     private static bool IsCustom(string path) =>
         path.Replace('\\', '/').Contains("/custom/", StringComparison.OrdinalIgnoreCase);

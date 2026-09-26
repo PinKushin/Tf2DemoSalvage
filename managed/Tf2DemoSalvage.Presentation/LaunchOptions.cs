@@ -40,6 +40,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// With <c>--measure</c>: once the measured playback ends, pause, seek to this tick and measure the paused frame for as
 /// long again, printing both (B420's scenario). Null for a single measurement.
 /// </param>
+/// <param name="Hud">The HUD to draw — a folder or `.vpk` laid out as in `tf/custom` — or null for TF2's stock HUD (D193).</param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
     IReadOnlyList<string> Paths,
@@ -56,7 +57,8 @@ public readonly record struct LaunchOptions(
     bool ShowHelp = false,
     bool ThirdPerson = false,
     double? PlaybackSpeed = null,
-    int? ThenSeek = null);
+    int? ThenSeek = null,
+    string? Hud = null);
 
 /// <summary>Reads the viewer's launch options.</summary>
 /// <remarks>
@@ -126,6 +128,14 @@ public static class LaunchOptionsReader
                 }
 
                 log.LogWarning("{Message}", $"--look {x} {y} is not a position; ignoring it");
+                continue;
+            }
+
+            // **Which HUD to draw, chosen rather than picked up from `custom/`** (D193): the stock HUD unless one is named,
+            // so a player can keep several and compare them without deleting any.
+            if (argument == "--hud" && pending.Count > 0)
+            {
+                read = read with { Hud = pending.Dequeue() };
                 continue;
             }
 
