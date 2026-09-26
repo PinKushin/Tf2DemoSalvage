@@ -459,6 +459,12 @@ public class VguiPanel
     /// <param name="set">What the colour sets.</param>
     protected void RegisterColorAsOverridable(string key, Action<(byte, byte, byte, byte)> set) => _overridableColors.Add((key, set));
 
+    /// <summary>The `DialogVariables` message: nothing, unless a control maps it.</summary>
+    /// <param name="variables">The sending panel's dialog variables, as strings.</param>
+    public virtual void OnDialogVariablesChanged(IReadOnlyDictionary<string, string> variables)
+    {
+    }
+
     /// <summary>`PerformLayout`: empty — a control places its parts here.</summary>
     protected virtual void PerformLayout()
     {

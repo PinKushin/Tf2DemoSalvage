@@ -42,6 +42,52 @@ public sealed class VguiLocalize(string language)
     /// <returns>The string, or null when no file named it.</returns>
     public string? Find(string key) => _strings.GetValueOrDefault(key);
 
+    /// <summary>`ConstructString` with variables (0x180025320): `%name%` replaced, `[unknown]` for an unset one.</summary>
+    /// <param name="format">The localised string.</param>
+    /// <param name="variables">The variables, or null — then every name stays as written.</param>
+    /// <returns>The string.</returns>
+    /// <remarks>
+    /// `%%` is one `%`; `%s` and a digit is copied as written; a `%` with no closing `%` is copied. A name is at most 31
+    /// characters, and the result at most 4095 (the label's 4096-character buffer).
+    /// </remarks>
+    public static string ConstructString(string format, IReadOnlyDictionary<string, string>? variables)
+    {
+        ArgumentNullException.ThrowIfNull(format);
+
+        System.Text.StringBuilder output = new();
+        int index = 0;
+
+        while (index < format.Length && output.Length < ValueLength - 1)
+        {
+            char character = format[index];
+
+            if (character == '%' && index + 1 < format.Length && format[index + 1] == '%')
+            {
+                output.Append('%');
+                index += 2;
+                continue;
+            }
+
+            bool positional = character == '%' && index + 2 < format.Length && format[index + 1] == 's' && char.IsAsciiDigit(format[index + 2]);
+            int close = character == '%' && !positional && variables is not null ? format.IndexOf('%', index + 1) : -1;
+
+            if (close < 0)
+            {
+                output.Append(character);
+                index++;
+                continue;
+            }
+
+            string name = format[(index + 1)..close];
+            string value = variables!.GetValueOrDefault(name[..Math.Min(name.Length, 31)]) ?? "[unknown]";
+
+            output.Append(value.AsSpan(0, Math.Min(value.Length, ValueLength - 1 - output.Length)));
+            index = close + 1;
+        }
+
+        return output.ToString();
+    }
+
     /// <summary>`AddFile`.</summary>
     /// <param name="path">The file, which may hold `%language%`.</param>
     /// <param name="read">Reads a game path, or null when it is absent.</param>
