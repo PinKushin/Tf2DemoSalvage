@@ -198,6 +198,39 @@ public sealed class GameArchives
         return stock;
     }
 
+    /// <summary>`V_RemoveDotSlashes` (tier1/strtools.cpp:2315) with `/`: separators unified, empty and `.` segments dropped, each `..` taking the directory before it.</summary>
+    /// <param name="path">A game path.</param>
+    /// <returns>The path, or null where a `..` has no directory to take — the engine's `false`.</returns>
+    public static string? RemoveDotSlashes(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+
+        List<string> segments = [];
+
+        foreach (string segment in path.Replace('\\', '/').Split('/'))
+        {
+            if (segment is "" or ".")
+            {
+                continue;
+            }
+
+            if (segment == "..")
+            {
+                if (segments.Count == 0)
+                {
+                    return null;
+                }
+
+                segments.RemoveAt(segments.Count - 1);
+                continue;
+            }
+
+            segments.Add(segment);
+        }
+
+        return string.Join('/', segments);
+    }
+
     private static bool IsCustom(string path) =>
         path.Replace('\\', '/').Contains("/custom/", StringComparison.OrdinalIgnoreCase);
 
@@ -264,6 +297,15 @@ public sealed class GameArchives
     public byte[]? Read(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        // `CBaseFileSystem::FixUpPath` runs `V_RemoveDotSlashes` on every open: the stock HUD's `vgui/../hud/health_bg`
+        // is found as `hud/health_bg`, and a path climbing above the root is found nowhere.
+        if (RemoveDotSlashes(path) is not { } fixedPath)
+        {
+            return null;
+        }
+
+        path = fixedPath;
 
         foreach ((string folder, VpkArchive? archive) in _sources)
         {
