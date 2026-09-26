@@ -515,6 +515,73 @@ internal static class SyntheticPlayer
                     Body: body)));
     }
 
+    /// <summary>The recorder beside a `CTFGameRulesProxy` holding the two rules the HUD tests, and optionally a player-destruction logic.</summary>
+    /// <param name="mannVsMachine">`m_bPlayingMannVsMachine`.</param>
+    /// <param name="halloweenScenario">`m_halloweenScenario`.</param>
+    /// <param name="playerDestruction">Whether a `CTFPlayerDestructionLogic` exists.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithGameRules(bool mannVsMachine, int halloweenScenario, bool playerDestruction)
+    {
+        const int RulesClassId = 1;
+        const int LogicClassId = 2;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables =
+        [
+            .. baseline.Tables,
+            new SendTable("DT_TFGameRules", NeedsDecoder: true, [UnsignedInt("m_bPlayingMannVsMachine", bits: 1), Int("m_halloweenScenario", bits: 4)]),
+            new SendTable("DT_TFGameRulesProxy", NeedsDecoder: true, [Table("tf_gamerules_data", "DT_TFGameRules")]),
+            new SendTable("DT_TFPlayerDestructionLogic", NeedsDecoder: true, [Int("m_nMaxPoints", bits: 8)]),
+        ];
+
+        DemoSchema schema = new(
+            tables,
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(RulesClassId, "CTFGameRulesProxy", "DT_TFGameRulesProxy"),
+                new ServerClass(LogicClassId, "CTFPlayerDestructionLogic", "DT_TFPlayerDestructionLogic"),
+            ]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+            Entity(decoder, RulesClassId, 40, new Dictionary<string, PropertyValue>
+            {
+                ["m_bPlayingMannVsMachine"] = PropertyValue.FromInt(mannVsMachine ? 1 : 0),
+                ["m_halloweenScenario"] = PropertyValue.FromInt(halloweenScenario),
+            }),
+        ];
+
+        if (playerDestruction)
+        {
+            entities.Add(Entity(decoder, LogicClassId, 41, new Dictionary<string, PropertyValue> { ["m_nMaxPoints"] = PropertyValue.FromInt(5) }));
+        }
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
     /// <summary>A decoder over the default schema, which the encoder also needs.</summary>
     public static EntityDecoder Decoder()
     {

@@ -419,11 +419,21 @@ public readonly record struct TimelinePhases(
 /// <c>m_iRoundState</c> from the game rules at this tick, or <c>null</c> when the demo carries no
 /// game rules entity. <c>GR_STATE_TEAM_WIN</c> is 5.
 /// </param>
+/// <param name="Rules">The game rules the client's HUD tests at this tick.</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
     int? RecorderTeam = null,
-    int? RoundState = null);
+    int? RoundState = null,
+    SceneGameRules Rules = default);
+
+/// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
+/// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
+/// <param name="HalloweenScenario">`m_halloweenScenario`, which `IsHalloweenScenario` compares (tf_gamerules.h:1549): 3 is
+/// Lakeside, 4 Hightower, 5 Doomsday.</param>
+/// <param name="PlayerDestruction">Whether a `CTFPlayerDestructionLogic` exists — the only logic whose `GetType()` is
+/// `TYPE_PLAYER_DESTRUCTION`.</param>
+public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenScenario, bool PlayerDestruction);
 
 /// <summary>One corpse, as <c>DT_TFRagdoll</c> describes it.</summary>
 /// <param name="EntityIndex">Its entity slot.</param>
@@ -670,6 +680,15 @@ public sealed class DemoTimeline
 
     /// <summary>Where the round state is, flattened.</summary>
     private const string RoundStateProperty = "DT_TeamplayRoundBasedRules.m_iRoundState";
+
+    /// <summary>`m_bPlayingMannVsMachine` (tf_gamerules.cpp:1517), reached like the round through the proxy.</summary>
+    private const string MannVsMachineProperty = "DT_TFGameRules.m_bPlayingMannVsMachine";
+
+    /// <summary>`m_halloweenScenario` (tf_gamerules.cpp:1531).</summary>
+    private const string HalloweenScenarioProperty = "DT_TFGameRules.m_halloweenScenario";
+
+    /// <summary>`IMPLEMENT_NETWORKCLASS_ALIASED( TFPlayerDestructionLogic, … )` (tf_logic_player_destruction.cpp:54).</summary>
+    private const string PlayerDestructionClass = "CTFPlayerDestructionLogic";
 
 
     private static readonly string[] TeamProperties =
@@ -2743,17 +2762,21 @@ public sealed class DemoTimeline
             // `teamplayroundbased_gamerules_data` — confirmed present in a modern demo's own
             // schema. Null when the demo has no such entity, which every pre-2009 era specimen
             // does not.
-            int? roundState = entities.OfClass(GameRulesClass).FirstOrDefault()?
-                .Integer(RoundStateProperty);
+            EntityState? gameRules = entities.OfClass(GameRulesClass).FirstOrDefault();
+            int? roundState = gameRules?.Integer(RoundStateProperty);
+            SceneGameRules rules = new(
+                gameRules?.Integer(MannVsMachineProperty) is > 0,
+                gameRules?.Integer(HalloweenScenarioProperty) ?? 0,
+                entities.OfClass(PlayerDestructionClass).Any());
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules));
         }
 
         Backfill(frames);
@@ -5076,6 +5099,11 @@ public sealed class DemoTimeline
     /// whole recording (`RespawnRoomVisibility`).
     /// </remarks>
     public int? RoundStateAt(double tick) => FrameAt((int)Math.Floor(tick))?.RoundState;
+
+    /// <summary>The game rules the HUD tests, at a tick; the defaults before the first frame.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The rules.</returns>
+    public SceneGameRules RulesAt(int tick) => FrameAt(tick)?.Rules ?? default;
 
     /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
     /// <param name="tick">The moment being asked about.</param>
