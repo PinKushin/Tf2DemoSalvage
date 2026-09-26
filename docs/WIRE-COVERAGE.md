@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**192 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**201 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -70,12 +70,12 @@ m_bGlowEnabled, m_iPowerups
 
 ### DT_BasePlayer
 
-**8 of 19** mentioned.
+**12 of 19** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_flFOVTime, m_hUseEntity, m_hVehicle, m_hViewModel, m_hZoomOwner, m_iBonusChallenge, m_iBonusProgress, m_iDefaultFOV, m_iFOV, m_iFOVStart, m_szLastPlaceName
+m_hUseEntity, m_hVehicle, m_hViewModel, m_hZoomOwner, m_iBonusChallenge, m_iBonusProgress, m_szLastPlaceName
 ```
 
 ### DT_TFPlayer
@@ -146,7 +146,7 @@ Not declared in this SDK.
 
 | table | unread | declared |
 |---|---|---|
-| `DT_Local` | 32 | 37 |
+| `DT_Local` | 31 | 37 |
 | `DT_BaseObject` | 24 | 26 |
 | `DT_TFPlayerResource` | 22 | 26 |
 | `DT_TFObjectiveResource` | 20 | 20 |
@@ -154,8 +154,8 @@ Not declared in this SDK.
 | `DT_HL2Local` | 19 | 19 |
 | `DT_SmokeStack` | 18 | 18 |
 | `DT_LocalPlayerExclusive` | 17 | 19 |
-| `DT_ScriptIntro` | 17 | 17 |
 | `DT_BaseHumanoid` | 16 | 16 |
+| `DT_ScriptIntro` | 16 | 17 |
 | `DT_EnvProjectedTexture` | 14 | 14 |
 | `DT_RocketTrail` | 14 | 15 |
 | `DT_SmokeTrail` | 14 | 15 |
