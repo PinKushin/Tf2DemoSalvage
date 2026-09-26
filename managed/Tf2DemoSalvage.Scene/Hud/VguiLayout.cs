@@ -23,9 +23,20 @@ public static class VguiLayout
         (0f, 0f), (1f, 0f), (0f, 1f), (1f, 1f), (0.5f, 0f), (1f, 0.5f), (0.5f, 1f), (0f, 0.5f),
     ];
 
-    /// <summary>Solves a panel, then each child in paint order.</summary>
+    /// <summary>`CMatSystemSurface::SolveTraverse` (vguimatsurface.dll 0x1800134c0): scheme settings, think, solve.</summary>
+    /// <param name="panel">The root of the tree.</param>
+    /// <param name="context">The scheme and screen.</param>
+    /// <param name="forceApplySchemeSettings">Whether invisible children get their scheme too.</param>
+    public static void SolveTraverse(VguiPanel panel, VguiContext context, bool forceApplySchemeSettings = false)
+    {
+        SchemeSettingsTraverse(panel, context, forceApplySchemeSettings);
+        ThinkTraverse(panel);
+        InternalSolveTraverse(panel);
+    }
+
+    /// <summary>`InternalSolveTraverse` (0x180010c10): solves a panel, then each visible child in paint order.</summary>
     /// <param name="panel">The root of the tree to solve.</param>
-    public static void SolveTraverse(VguiPanel panel)
+    public static void InternalSolveTraverse(VguiPanel panel)
     {
         ArgumentNullException.ThrowIfNull(panel);
 
@@ -33,7 +44,40 @@ public static class VguiLayout
 
         foreach (VguiPanel child in panel.Children)
         {
-            SolveTraverse(child);
+            if (child.Visible)
+            {
+                InternalSolveTraverse(child);
+            }
+        }
+    }
+
+    /// <summary>`InternalSchemeSettingsTraverse` (0x1800109e0): visible children (all, when forced) first, then the panel.</summary>
+    private static void SchemeSettingsTraverse(VguiPanel panel, VguiContext context, bool force)
+    {
+        ArgumentNullException.ThrowIfNull(panel);
+
+        foreach (VguiPanel child in panel.Children)
+        {
+            if (force || child.Visible)
+            {
+                SchemeSettingsTraverse(child, context, force);
+            }
+        }
+
+        panel.PerformApplySchemeSettings(context);
+    }
+
+    /// <summary>`InternalThinkTraverse` (0x180010d90): the panel thinks, then each visible child.</summary>
+    private static void ThinkTraverse(VguiPanel panel)
+    {
+        panel.Think();
+
+        foreach (VguiPanel child in panel.Children)
+        {
+            if (child.Visible)
+            {
+                ThinkTraverse(child);
+            }
         }
     }
 

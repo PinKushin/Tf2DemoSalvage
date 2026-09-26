@@ -61,6 +61,10 @@ public class VguiPanel
     private readonly List<AnimationVar> _animationVars = [];
     private readonly Dictionary<string, (byte, byte, byte, byte)> _colourOverrides = new(StringComparer.Ordinal);
     private bool _needsDefaultSettings = true;
+
+    // `Init` sets NEEDS_LAYOUT and NEEDS_SCHEME_UPDATE.
+    private bool _needsLayout = true;
+    private bool _needsSchemeUpdate = true;
     private short _zPos;
     private VguiBorder? _border;
     private VguiPanel? _pinSibling;
@@ -388,7 +392,54 @@ public class VguiPanel
 
         FgColor = context.Scheme.GetColor("Panel.FgColor", white);
         BgColor = context.Scheme.GetColor("Panel.BgColor", white);
+        _needsSchemeUpdate = false;
         ApplyOverridableColors();
+    }
+
+    /// <summary>`PerformApplySchemeSettings` (Panel.cpp): the defaults if still pending, then the scheme once.</summary>
+    /// <param name="context">The scheme.</param>
+    public void PerformApplySchemeSettings(VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (_needsDefaultSettings)
+        {
+            InitDefaultValues(context);
+        }
+
+        if (!_needsSchemeUpdate)
+        {
+            return;
+        }
+
+        ApplySchemeSettings(context);
+        ApplyOverridableColors();
+    }
+
+    /// <summary>`Think`: a visible panel lays out when it needs to, then `OnThink`.</summary>
+    public void Think()
+    {
+        if (Visible && _needsLayout && !_needsSchemeUpdate)
+        {
+            // `InternalPerformLayout`: never before the scheme is applied.
+            _needsLayout = false;
+            PerformLayout();
+        }
+
+        OnThink();
+    }
+
+    /// <summary>`InvalidateLayout`: lay out again at the next think.</summary>
+    public void InvalidateLayout() => _needsLayout = true;
+
+    /// <summary>`PerformLayout`: empty — a control places its parts here.</summary>
+    protected virtual void PerformLayout()
+    {
+    }
+
+    /// <summary>`OnThink`: empty — a control updates itself each frame here.</summary>
+    protected virtual void OnThink()
+    {
     }
 
     /// <summary>Declares a `CPanelAnimationVar`: a value a `.res` key and the animation controller both set by name.</summary>

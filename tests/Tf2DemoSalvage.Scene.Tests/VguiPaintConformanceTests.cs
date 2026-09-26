@@ -26,7 +26,7 @@ public sealed class VguiPaintConformanceTests
         _ = new VguiPanel(parent, "Child") { BgColor = (2, 2, 2, 255), Wide = 10, Tall = 5 };
         RecordingSurface surface = new();
 
-        VguiLayout.SolveTraverse(parent);
+        VguiLayout.InternalSolveTraverse(parent);
         parent.PaintTraverse(surface, context);
 
         surface.Calls.ShouldBe([
@@ -104,7 +104,7 @@ public sealed class VguiPaintConformanceTests
         _ = new VguiPanel(parent, "Child");
         RecordingSurface surface = new();
 
-        VguiLayout.SolveTraverse(parent);
+        VguiLayout.InternalSolveTraverse(parent);
         parent.PaintTraverse(surface, Context());
 
         surface.Calls.ShouldBeEmpty();
@@ -117,7 +117,7 @@ public sealed class VguiPaintConformanceTests
         _ = new VguiPanel(parent, "Child");
         RecordingSurface surface = new();
 
-        VguiLayout.SolveTraverse(parent);
+        VguiLayout.InternalSolveTraverse(parent);
         parent.PaintTraverse(surface, Context());
 
         surface.Calls.ShouldNotContain(call => call.StartsWith("fill", System.StringComparison.Ordinal));
@@ -135,7 +135,7 @@ public sealed class VguiPaintConformanceTests
             "Parent" { "alpha" "127.5" }
             "Child" { "alpha" "51" }
             """), context);
-        VguiLayout.SolveTraverse(parent);
+        VguiLayout.InternalSolveTraverse(parent);
         parent.PaintTraverse(surface, context);
 
         surface.Multipliers["Child"].ShouldBe(127.5f / 255f * 51f / 255f, 1e-6f);
