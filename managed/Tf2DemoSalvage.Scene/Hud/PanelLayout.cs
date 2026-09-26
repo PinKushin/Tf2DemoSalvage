@@ -235,6 +235,43 @@ public static class PanelLayout
         return int.TryParse(text[..length], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int value) ? value : 0;
     }
 
+    /// <summary>`sscanf( text, "%d %d ..." )`: reads up to <c>values.Length</c> integers, writing only those it reads.</summary>
+    /// <returns>How many were read.</returns>
+    internal static int ScanInts(ReadOnlySpan<char> text, Span<int> values)
+    {
+        int count = 0;
+
+        while (count < values.Length)
+        {
+            // The format's literal space matches any run of white space, including none.
+            text = text.TrimStart();
+
+            int length = 0;
+
+            if (length < text.Length && text[length] is '-' or '+')
+            {
+                length++;
+            }
+
+            int digits = length;
+
+            while (length < text.Length && char.IsAsciiDigit(text[length]))
+            {
+                length++;
+            }
+
+            if (length == digits)
+            {
+                break;
+            }
+
+            values[count++] = Atoi(text[..length]);
+            text = text[length..];
+        }
+
+        return count;
+    }
+
     /// <summary>C's `atof`: the longest prefix that reads as a decimal number, else zero.</summary>
     internal static float Atof(ReadOnlySpan<char> text)
     {
