@@ -102,6 +102,58 @@ public sealed class VguiDrawListConformanceTests
         (list.Quads[3].X0, list.Quads[3].Y0, list.Quads[3].X1, list.Quads[3].Y1).ShouldBe((19f, 21f, 20f, 27f));
     }
 
+    [Test]
+    public void DrawTexturedPolygon_Inside_IsAFanFromTheFirstCorner()
+    {
+        VguiDrawList list = Current(out _, useInset: false);
+
+        list.DrawSetColor((1, 2, 3, 200));
+        list.DrawTexturedPolygon([new(0, 0, 0, 0), new(10, 0, 1, 0), new(10, 10, 1, 1), new(0, 10, 0, 1)]);
+
+        list.Quads.Count.ShouldBe(2);
+        list.Quads[0].Triangle.ShouldBe((new VguiVertex(10, 20, 0, 0), new VguiVertex(20, 20, 1, 0), new VguiVertex(20, 30, 1, 1)));
+        list.Quads[1].Triangle.ShouldBe((new VguiVertex(10, 20, 0, 0), new VguiVertex(20, 30, 1, 1), new VguiVertex(10, 30, 0, 1)));
+        list.Quads[1].AlphaTopLeft.ShouldBe((byte)200);
+    }
+
+    [Test]
+    public void DrawTexturedPolygon_AcrossTheLeftEdge_IsCutWithItsTextureCoordinates()
+    {
+        VguiDrawList list = Current(out _, useInset: false);
+
+        list.DrawSetColor((1, 2, 3, 255));
+        list.DrawTexturedPolygon([new(-10, 0, 0, 0), new(10, 0, 1, 0), new(10, 10, 1, 1)]);
+
+        // The last corner is inside, so the cut into the first comes first: the fan starts at the crossing.
+        list.Quads.Count.ShouldBe(2);
+        list.Quads[0].Triangle.ShouldBe((new VguiVertex(10, 25, 0.5f, 0.5f), new VguiVertex(10, 20, 0.5f, 0), new VguiVertex(20, 20, 1, 0)));
+        list.Quads[1].Triangle.ShouldBe((new VguiVertex(10, 25, 0.5f, 0.5f), new VguiVertex(20, 20, 1, 0), new VguiVertex(20, 30, 1, 1)));
+    }
+
+    [Test]
+    public void DrawTexturedPolygon_OnTheBottomEdge_IsOutside()
+    {
+        VguiDrawList list = Current(out _, useInset: false);
+
+        list.DrawSetColor((1, 2, 3, 255));
+
+        // Panel-local y 30 is the clip's bottom, 50: a polygon lying on it keeps no area and draws nothing.
+        list.DrawTexturedPolygon([new(0, 30, 0, 0), new(10, 30, 0, 0), new(10, 40, 0, 0)]);
+
+        list.Quads.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void DrawTexturedPolygon_AtZeroAlpha_DrawsNothing()
+    {
+        VguiDrawList list = Current(out _, useInset: false);
+
+        list.DrawSetColor((1, 2, 3, 0));
+        list.DrawTexturedPolygon([new(0, 0, 0, 0), new(10, 0, 0, 0), new(10, 10, 0, 0)]);
+
+        list.Quads.ShouldBeEmpty();
+    }
+
     /// <summary>A list with a 50 × 30 panel at (10, 20), inset (2, 3, 4, 5), made current.</summary>
     private static VguiDrawList Current(out VguiPanel panel, bool useInset)
     {

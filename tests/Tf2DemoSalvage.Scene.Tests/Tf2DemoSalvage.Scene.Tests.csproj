@@ -38,6 +38,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
+    <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
   <!--

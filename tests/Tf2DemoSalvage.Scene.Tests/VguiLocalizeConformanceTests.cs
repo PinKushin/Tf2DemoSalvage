@@ -101,4 +101,15 @@ public sealed class VguiLocalizeConformanceTests
     }
 
     private static byte[] Utf16(string text) => [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(text)];
+
+    [TestCase("KILL STREAK %s1", "KILL STREAK 5")]
+    [TestCase("%s2 then %s1", "%s2 then 5", TestName = "ConstructString_AnIndexPastTheArguments_IsCopied")]
+    [TestCase("stop %s here", "stop ", TestName = "ConstructString_ABadIndex_EndsTheOutput")]
+    [TestCase("ends %s", "ends %s", TestName = "ConstructString_APercentSWithTwoLeft_IsCopied")]
+    public void ConstructString_Positional_ReplacesByIndex(string format, string expected) =>
+        VguiLocalize.ConstructString(format, 32, "5").ShouldBe(expected);
+
+    [Test]
+    public void ConstructString_Positional_StopsAtTheBufferLessItsTerminator() =>
+        VguiLocalize.ConstructString("%s1!", 4, "abcdef").ShouldBe("abc");
 }

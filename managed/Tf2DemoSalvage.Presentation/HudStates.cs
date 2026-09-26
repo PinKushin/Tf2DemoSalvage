@@ -28,20 +28,24 @@ public static class HudStates
             return default;
         }
 
-        if (timeline.RecorderEntityIndex is not { } recorder)
-        {
-            return new HudState(InGame: true, HasLocalPlayer: false, HideHud: 0, Health: 0, Alive: false);
-        }
+        HudState state = new(InGame: true, HasLocalPlayer: false, HideHud: 0, Health: 0, Alive: false);
 
-        foreach (ScenePlayer player in timeline.PlayersAt(tick))
+        if (timeline.RecorderEntityIndex is { } recorder)
         {
-            if (player.EntityIndex == recorder)
+            foreach (ScenePlayer player in timeline.PlayersAt(tick))
             {
-                return From(player, tick, scripts, hooks);
+                if (player.EntityIndex == recorder)
+                {
+                    state = From(player, tick, scripts, hooks);
+                    break;
+                }
             }
         }
 
-        return new HudState(InGame: true, HasLocalPlayer: false, HideHud: 0, Health: 0, Alive: false);
+        // The recording server's own interval — the clock the event feed stamps notices with.
+        float interval = timeline.IntervalPerTick > 0f ? timeline.IntervalPerTick : (float)ScenePropTrack.Tf2TickInterval;
+
+        return state with { CurTime = tick * interval, Rules = timeline.RulesAt(tick) };
     }
 
     /// <summary>The state for a local player at a tick.</summary>

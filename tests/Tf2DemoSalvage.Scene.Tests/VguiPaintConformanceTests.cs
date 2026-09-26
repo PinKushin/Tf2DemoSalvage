@@ -255,7 +255,7 @@ public sealed class VguiPaintConformanceTests
 
         public void DrawOutlinedRect(int x0, int y0, int x1, int y1) => Calls.Add(Rect("outline", x0, y0, x1, y1));
 
-        public void DrawSetTexture(string texture) => Calls.Add($"texture {texture}");
+        public void DrawSetTexture(string? texture) => Calls.Add($"texture {texture}");
 
         public void DrawTexturedRect(int x0, int y0, int x1, int y1) => Calls.Add(Rect("textured", x0, y0, x1, y1));
 
@@ -264,6 +264,8 @@ public sealed class VguiPaintConformanceTests
 
         public void DrawTexturedQuad(float x0, float y0, float x1, float y1, float s0, float t0, float s1, float t1) =>
             Calls.Add(string.Create(CultureInfo.InvariantCulture, $"quad {x0} {y0} {x1} {y1} {s0} {t0} {s1} {t1}"));
+
+        public void DrawTexturedPolygon(System.ReadOnlySpan<VguiVertex> vertices) => Calls.Add($"polygon {vertices.Length}");
 
         public (int Wide, int Tall) DrawGetTextureSize(string texture) => (64, 64);
 

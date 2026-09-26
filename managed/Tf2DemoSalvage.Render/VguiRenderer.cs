@@ -245,6 +245,19 @@ internal sealed unsafe class VguiRenderer : IDisposable
             float green = quad.Green / 255f;
             float blue = quad.Blue / 255f;
 
+            // A polygon's fan triangle, then a degenerate one so every item stays six vertices.
+            if (quad.Triangle is ({ } a, { } b, { } c))
+            {
+                foreach (Scene.Hud.VguiVertex corner in (ReadOnlySpan<Scene.Hud.VguiVertex>)[a, b, c, a, a, a])
+                {
+                    Append(
+                        data, ref at, (corner.X / viewportWidth * 2f) - 1f, 1f - (corner.Y / viewportHeight * 2f), corner.S, corner.T,
+                        red, green, blue, quad.AlphaTopLeft);
+                }
+
+                continue;
+            }
+
             // (tl, tr, br) and (tl, br, bl).
             Append(data, ref at, left, top, quad.S0, quad.T0, red, green, blue, quad.AlphaTopLeft);
             Append(data, ref at, right, top, quad.S1, quad.T0, red, green, blue, quad.AlphaTopRight);
