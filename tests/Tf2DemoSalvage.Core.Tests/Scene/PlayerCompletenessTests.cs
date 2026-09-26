@@ -195,6 +195,12 @@ public sealed class PlayerCompletenessTests
         Ammo = [0, 32, 16],
         Items = [new SceneItem(40, "CTFWearable", 30, new EconAttributeWire([], [], HasValidItemId: true), IsWeapon: false)],
         OwnAttributes = [new EconAttributeValue(54, 0x3F000000)],
+
+        // The target ID's inputs: a disguise worn as player 7 at 90 health, a kill streak, and a half-charged unique medigun.
+        DisguiseTarget = 7,
+        DisguiseHealth = 90,
+        KillStreak = 4,
+        Medigun = (0.5f, 6, 29),
     };
 
     /// <summary>Every property of a type that a test can read.</summary>

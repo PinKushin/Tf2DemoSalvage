@@ -241,6 +241,22 @@ public readonly record struct ScenePlayer(
     /// <summary>The player's own `m_AttributeList` — what `CAttributeContainerPlayer` applies first; null when empty.</summary>
     public IReadOnlyList<EconAttributeValue>? OwnAttributes { get; init; }
 
+    /// <summary>`m_Shared.m_hDisguiseTarget` (tf_player_shared.cpp:581, sent to everyone): whom a spy is disguised as, or null.</summary>
+    public int? DisguiseTarget { get; init; }
+
+    /// <summary>`m_Shared.m_iDisguiseHealth` (:582): the health a disguise shows.</summary>
+    public int? DisguiseHealth { get; init; }
+
+    /// <summary>`m_Shared.m_nStreaks[ kTFStreak_Kills ]` (:604): the kill streak.</summary>
+    public int? KillStreak { get; init; }
+
+    /// <summary>
+    /// The medigun among the weapons that arrived — `Weapon_OwnsThisID( TF_WEAPON_MEDIGUN )` over `m_hMyWeapons` — as its
+    /// `m_flChargeLevel`, `m_iEntityQuality` and definition; null when none arrived, which for anyone but the recorder is
+    /// every point-of-view demo.
+    /// </summary>
+    public (float Charge, int Quality, int? Definition)? Medigun { get; init; }
+
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
     /// <c>FL_DUCKING</c>. Null flags mean the recording never said, which is every player but the
@@ -711,6 +727,29 @@ public sealed class DemoTimeline
             state.EconAttributes(EconAttributeList.Local),
             state.EconAttributes(EconAttributeList.NetworkedForDemos),
             high is { } h && low is { } l && !(h == uint.MaxValue && l == uint.MaxValue));
+    }
+
+    /// <summary>`MedicGetChargeLevel`'s medigun (tf_player_shared.cpp:13038): the first `CWeaponMedigun` in `m_hMyWeapons`.</summary>
+    /// <remarks>
+    /// The charge is sent twice — `DT_LocalTFWeaponMedigunData` to the owner, the 12-bit `DT_TFWeaponMedigunDataNonLocal` to
+    /// everyone else (tf_weapon_medigun.cpp:124, :135) — into one member; the non-local table is declared second, so where
+    /// both arrive it is the value left.
+    /// </remarks>
+    private static (float Charge, int Quality, int? Definition)? MedigunOf(EntityState player, EntityStateTable entities)
+    {
+        foreach (int slot in player.MyWeapons())
+        {
+            if (entities.TryGet(slot, out EntityState? weapon) && weapon.ClassName == "CWeaponMedigun")
+            {
+                float charge = weapon.Number("DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel")
+                    ?? weapon.Number("DT_LocalTFWeaponMedigunData.m_flChargeLevel")
+                    ?? 0f;
+
+                return (charge, weapon.Integer("DT_ScriptCreatedItem.m_iEntityQuality") ?? 0, weapon.ItemDefinitionIndex());
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The items a player carries and wears — the attribute providers `ProvideTo` registers — or null for none.</summary>
@@ -2751,6 +2790,10 @@ public sealed class DemoTimeline
                     Ammo = AmmoCounts(player),
                     Items = CarriedItems(player, entities),
                     OwnAttributes = player.EconAttributes(EconAttributeList.Local) is { Count: > 0 } own ? own : null,
+                    DisguiseTarget = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseTarget")),
+                    DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
+                    KillStreak = player.Integer("m_nStreaks.000"),
+                    Medigun = MedigunOf(player, entities),
                 });
             }
 

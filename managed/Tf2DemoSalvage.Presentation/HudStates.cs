@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene;
@@ -29,10 +30,11 @@ public static class HudStates
         }
 
         HudState state = new(InGame: true, HasLocalPlayer: false, HideHud: 0, Health: 0, Alive: false);
+        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(tick);
 
         if (timeline.RecorderEntityIndex is { } recorder)
         {
-            foreach (ScenePlayer player in timeline.PlayersAt(tick))
+            foreach (ScenePlayer player in players)
             {
                 if (player.EntityIndex == recorder)
                 {
@@ -45,7 +47,31 @@ public static class HudStates
         // The recording server's own interval — the clock the event feed stamps notices with.
         float interval = timeline.IntervalPerTick > 0f ? timeline.IntervalPerTick : (float)ScenePropTrack.Tf2TickInterval;
 
-        return state with { CurTime = tick * interval, Rules = timeline.RulesAt(tick) };
+        return state with
+        {
+            CurTime = tick * interval,
+            Rules = timeline.RulesAt(tick),
+            LocalIndex = timeline.RecorderEntityIndex ?? 0,
+            Players = players,
+            Names = Names(timeline),
+        };
+    }
+
+    /// <summary>`GetPlayerName` by entity index: the `userinfo` name of whoever last held the slot.</summary>
+    /// <remarks>
+    /// **Interpolated:** the roster keeps every player by user id, and a slot two players held in turn answers with the
+    /// later one throughout; the game names whoever holds it at the moment asked.
+    /// </remarks>
+    private static Dictionary<int, string> Names(DemoTimeline timeline)
+    {
+        Dictionary<int, string> names = [];
+
+        foreach (Core.Net.PlayerInfo player in timeline.Roster.Values)
+        {
+            names[player.EntityIndex] = player.Name;
+        }
+
+        return names;
     }
 
     /// <summary>The state for a local player at a tick.</summary>
@@ -71,6 +97,10 @@ public static class HudStates
             Team: local.Team ?? 0,
             Ammo: scripts is not null && hooks is not null ? TfAmmo.For(local, scripts, hooks) : default,
             ActiveWeapon: local.ActiveWeapon ?? 0,
-            ObserverMode: local.ObserverMode ?? 0);
+            ObserverMode: local.ObserverMode ?? 0,
+            ObserverTarget: local.ObserverTarget ?? 0,
+            WeaponClass: local.WeaponClass,
+            PlayerClass: local.PlayerClass ?? 0,
+            Conditions: local.Conditions);
     }
 }

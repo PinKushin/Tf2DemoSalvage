@@ -104,6 +104,12 @@ public sealed class ItemSchema
         /// <summary>The entity class it is, such as <c>tf_weapon_scattergun</c>.</summary>
         public string? ItemClass { get; set; }
 
+        /// <summary>The <c>item_name</c> key: a localisation token, or the raw name when it has none.</summary>
+        public string? ItemName { get; set; }
+
+        /// <summary>The <c>propername</c> key, read with <c>GetInt</c>.</summary>
+        public string? ProperName { get; set; }
+
         /// <summary>Its <c>attached_models</c> and <c>attached_models_festive</c>, in schema order.</summary>
         public List<AttachedModel> AttachedModels { get; } = [];
 
@@ -1368,6 +1374,16 @@ public sealed class ItemSchema
     /// <returns>The class, which is also its weapon script's name.</returns>
     public string? ItemClass(int definitionIndex) => Inherited(definitionIndex, entry => entry.ItemClass);
 
+    /// <summary><c>GetItemBaseName</c>: <c>GetString( "item_name", "" )</c> (econ_item_schema.cpp:3132), prefabs included.</summary>
+    /// <returns>Empty for a definition without the key — never null, "to ensure we can sort" — and null for no definition.</returns>
+    public string? ItemBaseName(int definitionIndex) =>
+        _items.ContainsKey(definitionIndex) ? Inherited(definitionIndex, entry => entry.ItemName) ?? string.Empty : null;
+
+    /// <summary><c>HasProperName</c>: <c>GetInt( "propername", 0 ) != 0</c> (econ_item_schema.cpp:3168), prefabs included.</summary>
+    public bool HasProperName(int definitionIndex) =>
+        int.TryParse(Inherited(definitionIndex, entry => entry.ProperName), NumberStyles.Integer, CultureInfo.InvariantCulture, out int proper)
+        && proper != 0;
+
     /// <summary>One key from the visuals block `GetBestVisualTeamData` chooses for a team, prefabs included.</summary>
     /// <remarks>
     /// A team with its own `visuals_red`/`visuals_blu` uses that block alone; any other team the base `visuals`; an item
@@ -1504,6 +1520,18 @@ public sealed class ItemSchema
         if (string.Equals(key, "item_class", StringComparison.OrdinalIgnoreCase))
         {
             entry.ItemClass = value;
+            return;
+        }
+
+        if (string.Equals(key, "item_name", StringComparison.OrdinalIgnoreCase))
+        {
+            entry.ItemName = value;
+            return;
+        }
+
+        if (string.Equals(key, "propername", StringComparison.OrdinalIgnoreCase))
+        {
+            entry.ProperName = value;
             return;
         }
 
