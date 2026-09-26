@@ -4109,6 +4109,12 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private VguiTools? _vguiTools;
 
+    /// <summary>The surface, font manager and strings every VGUI root shares; null until the game's files are open.</summary>
+    private VguiSurfaceHost? _vguiHost;
+
+    /// <summary>The client's HUD viewport under `ClientScheme.res`; null until the game's files are open.</summary>
+    private VguiHud? _vguiHud;
+
     /// <summary>Seconds since the window opened, for VGUI's 250 ms ticks.</summary>
     private readonly Stopwatch _vguiClock = Stopwatch.StartNew();
 
@@ -6936,19 +6942,30 @@ internal class MainForm : Form, IFrameSteps
     // went with it: `CBaseEntity::PrecacheSound` asserts "too late" rather than merely preferring
     // early (`SoundEmitterSystem.cpp:1497`), which is a fact about the engine, not about a window.
 
-    /// <summary>This frame's VGUI: the tools panel, and `CFPSPanel` on it.</summary>
+    /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
     /// <returns>The draw list.</returns>
     /// <remarks>
-    /// Everything but the window size, the clock and the settings is <see cref="VguiTools"/> (D90). The meter is sampled
-    /// every frame, drawn or not, because the frame-rate log reports it in exactly the headless case nobody watches.
+    /// Everything but the window size, the clock and the settings is <see cref="VguiHud"/> and <see cref="VguiTools"/>
+    /// (D90). The meter is sampled every frame, drawn or not, because the frame-rate log reports it in exactly the
+    /// headless case nobody watches. The HUD's state is `default` — not in game, so every element hidden — until the
+    /// first element that reads the local player lands.
     /// </remarks>
     public VguiDrawList? BuildOverlay()
     {
-        _vguiTools ??= new VguiTools(
+        // A scheme read before the install is open is empty, and an empty scheme's `Panel.BgColor` falls back to opaque
+        // white — the viewport would fill the screen with it and keep it, since only a new size loads the scheme again.
+        if (_game is null)
+        {
+            return null;
+        }
+
+        _vguiHost ??= new VguiSurfaceHost(
             path => _game?.Archives.Read(path),
             path => _game?.Archives.FullPathOnDisk(path),
             _gdi,
             material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0));
+        _vguiHud ??= new VguiHud(_vguiHost);
+        _vguiTools ??= new VguiTools(_vguiHost);
 
         if (_device is { } device && !ReferenceEquals(device, _vguiResolverDevice))
         {
@@ -6956,14 +6973,16 @@ internal class MainForm : Form, IFrameSteps
             _vguiResolverDevice = device;
         }
 
-        return _vguiTools.Frame(
-            _viewport.ClientSize.Width,
-            _viewport.ClientSize.Height,
+        _vguiHost.BeginFrame(_viewport.ClientSize.Width, _viewport.ClientSize.Height);
+        _vguiHud.Frame(default);
+        _vguiTools.Frame(
             _vguiClock.Elapsed.TotalSeconds,
             _clock.LastFrameSeconds,
             _settings.ShowFrameRate,
             ReadPosition(),
             _demo?.MapName);
+
+        return _vguiHost.List;
     }
 
     /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>

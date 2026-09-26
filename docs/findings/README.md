@@ -201,6 +201,10 @@ in any public writeup found:
   can cross several ticks, so the number of sounds depends on the frame rate. TF2's reference ran at about 16 fps. Four
   defects were in the way, one of them a friction solve that treated every body as one kilogram
   ([63](63-an-impact-sound-is-a-frames-list.md)).
+- **The HUD is VGUI, and half of it is closed.** The controls are published, but the panel tree, scheme, surface, fonts
+  and localisation live in `vgui2.dll` and `vguimatsurface.dll`. Among the findings: a localisation conditional's `!`
+  is read in two places and one never sees it, and an empty scheme paints the screen white
+  ([64](64-the-hud-is-vgui-and-half-of-it-is-closed.md)).
 
 ## Conventions used throughout
 

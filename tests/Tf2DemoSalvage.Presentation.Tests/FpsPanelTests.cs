@@ -22,17 +22,17 @@ public sealed class FpsPanelTests
     [Test]
     public void Frame_BeforeTheFirstTick_DrawsNothing()
     {
-        VguiTools tools = Tools();
+        Rig tools = Tools();
 
-        tools.Frame(Wide, Tall, 0.0, Frame, FpsMeter.Instantaneous, default, "cp_process_f12");
+        tools.Draw(Wide, Tall, 0.0, Frame, FpsMeter.Instantaneous, default, "cp_process_f12");
 
-        tools.Frame(Wide, Tall, 0.1, Frame, FpsMeter.Instantaneous, default, "cp_process_f12").Quads.ShouldBeEmpty();
+        tools.Draw(Wide, Tall, 0.1, Frame, FpsMeter.Instantaneous, default, "cp_process_f12").Quads.ShouldBeEmpty();
     }
 
     [Test]
     public void Frame_AfterATickWithTheMeterOn_DrawsItsLineAtTheTopOfThePanel()
     {
-        VguiTools tools = Tools();
+        Rig tools = Tools();
         VguiDrawList list = Shown(tools, FpsMeter.Instantaneous, default);
 
         list.Quads.ShouldNotBeEmpty();
@@ -45,7 +45,7 @@ public sealed class FpsPanelTests
     [Test]
     public void Frame_WithEverythingOff_StaysHidden()
     {
-        VguiTools tools = Tools();
+        Rig tools = Tools();
 
         Shown(tools, FpsMeter.Hidden, default).Quads.ShouldBeEmpty();
         tools.Fps.Visible.ShouldBeFalse();
@@ -66,9 +66,9 @@ public sealed class FpsPanelTests
     [Test]
     public void Frame_OnAScreenNarrowerThanThePanel_PutsItOffTheLeftEdgeAsTf2Does()
     {
-        VguiTools tools = Tools();
+        Rig tools = Tools();
 
-        tools.Frame(200, Tall, 0.0, Frame, FpsMeter.Instantaneous, default, null);
+        tools.Draw(200, Tall, 0.0, Frame, FpsMeter.Instantaneous, default, null);
 
         tools.Fps.X.ShouldBe(200 - FpsPanel.PanelWidth);
     }
@@ -76,15 +76,15 @@ public sealed class FpsPanelTests
     private static PositionReadout Somewhere => new(PositionReadout.View, (1802f, -679f, 373f), (0f, 90f, 0f), default, default, 0f);
 
     /// <summary>Past the first frame (which the meter never draws) and past the first tick.</summary>
-    private static VguiDrawList Shown(VguiTools tools, int mode, PositionReadout position)
+    private static VguiDrawList Shown(Rig tools, int mode, PositionReadout position)
     {
-        tools.Frame(Wide, Tall, 0.0, Frame, mode, position, "cp_process_f12");
-        tools.Frame(Wide, Tall, 0.3, Frame, mode, position, "cp_process_f12");
+        tools.Draw(Wide, Tall, 0.0, Frame, mode, position, "cp_process_f12");
+        tools.Draw(Wide, Tall, 0.3, Frame, mode, position, "cp_process_f12");
 
-        return tools.Frame(Wide, Tall, 0.31, Frame, mode, position, "cp_process_f12");
+        return tools.Draw(Wide, Tall, 0.31, Frame, mode, position, "cp_process_f12");
     }
 
-    private static VguiTools Tools()
+    private static Rig Tools()
     {
         byte[] scheme = Encoding.UTF8.GetBytes("""
             Scheme
@@ -96,7 +96,23 @@ public sealed class FpsPanelTests
             }
             """);
 
-        return new VguiTools(path => path == "resource/SourceScheme.res" ? scheme : null, _ => null, new SolidGdi(), _ => (0, 0));
+        VguiSurfaceHost host = new(path => path == "resource/SourceScheme.res" ? scheme : null, _ => null, new SolidGdi(), _ => (0, 0));
+
+        return new Rig(host, new VguiTools(host));
+    }
+
+    /// <summary>The tools panel on its own surface, a frame at a time, as `MainForm.BuildOverlay` drives it.</summary>
+    private sealed class Rig(VguiSurfaceHost host, VguiTools tools)
+    {
+        public FpsPanel Fps => tools.Fps;
+
+        public VguiDrawList Draw(int wide, int tall, double realtime, double frameSeconds, int mode, PositionReadout position, string? mapName)
+        {
+            host.BeginFrame(wide, tall);
+            tools.Frame(realtime, frameSeconds, mode, position, mapName);
+
+            return host.List;
+        }
     }
 
     /// <summary>A GDI whose every glyph is a solid block, 6 wide in a 10-tall font: placement, not shapes, is under test.</summary>
