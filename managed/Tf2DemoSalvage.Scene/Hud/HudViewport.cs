@@ -26,6 +26,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="ObserverTarget">`GetObserverTarget()`'s entity index, 0 with none — the HLTV camera's on SourceTV.</param>
 /// <param name="Players">Every player at this tick — `cl_entitylist` for the elements that look others up.</param>
 /// <param name="Names">`GetPlayerName` by entity index.</param>
+/// <param name="ServerTime">`gpGlobals->curtime` on the server's clock — the one networked times such as a timer's end are on.</param>
+/// <param name="RoundState">`State_Get()`: `m_iRoundState`, or null with no game rules.</param>
+/// <param name="RoundTimers">Every `team_round_timer`.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -48,8 +51,29 @@ public readonly record struct HudState(
     int LocalIndex = 0,
     int ObserverTarget = 0,
     IReadOnlyList<Core.Scene.ScenePlayer>? Players = null,
-    IReadOnlyDictionary<int, string>? Names = null)
+    IReadOnlyDictionary<int, string>? Names = null,
+    float ServerTime = 0f,
+    int? RoundState = null,
+    IReadOnlyList<Core.Scene.SceneRoundTimer>? RoundTimers = null)
 {
+    /// <summary>`GR_STATE_STALEMATE` (teamplayroundbased_gamerules.h:69).</summary>
+    public const int RoundStateStalemate = 7;
+
+    /// <summary>A `team_round_timer` by entity index, or null — `ClientEntityList().GetEnt` cast to `CTeamRoundTimer`.</summary>
+    /// <param name="index">The entity index.</param>
+    public Core.Scene.SceneRoundTimer? RoundTimer(int index)
+    {
+        foreach (Core.Scene.SceneRoundTimer timer in RoundTimers ?? [])
+        {
+            if (timer.EntityIndex == index)
+            {
+                return timer;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>`cl_entitylist->GetEnt` for a player: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>
     /// <returns>The player.</returns>
@@ -109,6 +133,9 @@ public static class HudVisibility
 
     /// <summary>`HIDEHUD_TARGET_ID` (shareddefs.h:224).</summary>
     public const int HideTargetId = 1 << 16;
+
+    /// <summary>`HIDEHUD_MATCH_STATUS`.</summary>
+    public const int HideMatchStatus = 1 << 17;
 
     /// <summary>`CHud::IsHidden` (hud.cpp:951).</summary>
     /// <param name="state">The game state.</param>
