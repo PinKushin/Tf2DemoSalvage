@@ -24,13 +24,23 @@ so a real TF2 HUD (stock or `tf/custom`) loads and draws exactly as the game doe
 | Panel tree from `.res` | `VguiPanel.cs`, `VguiEditablePanel.cs` | `Panel::ApplySettings`, `BuildGroup` |
 | Animation variables | `VguiPanel.DeclareAnimationVar` | `CPanelAnimationVar` converters |
 | Z-order, absolute position, sibling pins, clip | `VguiLayout.cs`, `VguiPanel.ZPos` | `VPanel_SetZPos`, `VPanel_Solve` |
+| Scheme / think / solve passes | `VguiLayout.SolveTraverse` | `CMatSystemSurface_SolveTraverse` (vguimatsurface) |
+| Painting, backgrounds, border paints | `VguiPanel.PaintTraverse`, `VguiBorders.cs` | Panel.cpp:1128, `Border_Paint2` and kin |
+| The surface's draw rules | `VguiDrawList.cs` (portable) | `PushMakeCurrent`, `DrawSetColor`, `ClipRect` |
+| Drawing it | `Render/VguiRenderer.cs`, `Device3D.DrawFrame( vgui: )` | UnlitGeneric `$vertexalpha` |
+
+`vguimatsurface.dll` is imported: project `tf2vguimatsurface`, MCP on port 8093
+(`D:\ghidra-proj\ghidra-mcp-vguimatsurface.bat`, pmux session `ghidra-vguimatsurface`).
 
 ## Next, in order
 
-1. **Painting**: a surface interface (`DrawSetColor`, filled/outlined rect, textured rect, text) and `PaintTraverse`
-   (Panel.cpp:1128 — border-first, background, `Paint`, children, border-last), `PaintBackground` types, the three
-   border `Paint`s. Then the Render adapter over `HudRenderer`, replacing the old `SchemeFont` path (D180).
-2. **Controls**: Label, ImagePanel, ScalableImagePanel, then TF's `CExLabel`, `CTFImagePanel`, `CExButton`.
+1. **Text**: the surface's font calls (`DrawSetTextFont`, `DrawUnicodeChar`, `GetCharABCwide`, `GetFontTall`) from
+   vguimatsurface, TF2's own `.ttf`s loaded from `CustomFontFiles` (GDI finds only installed families today), then
+   `Label`/`TextImage`. Then retire `HudRenderer`, `HudText` and `SchemeFont` by porting the FPS meter as the VGUI
+   panel it is (`CFPSPanel`) — D180.
+2. **Controls**: ImagePanel, ScalableImagePanel, then TF's `CExLabel`, `CTFImagePanel`, `CExButton`.
+   The viewer's HUD root (`MainForm` → `Device3D.SetVguiResolver` + `DrawFrame( vgui: )`) lands with the first element,
+   and with it the first output-level assertion.
 3. **`hudlayout.res`** and `CHudElement` (the viewport's elements by name, `ShouldDraw`).
 4. **Elements with demo data**: health, ammo, killfeed, timer, crosshair, target ID, and the rest.
 5. **`AnimationController`**: `scripts/hudanimations_manifest.txt`, events fired by the elements.
