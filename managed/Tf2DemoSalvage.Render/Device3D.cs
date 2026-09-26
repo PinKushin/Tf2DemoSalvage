@@ -981,7 +981,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// HUD quads in screen pixels, or null to draw none. Requires <see cref="SetHudAtlas"/>.
     /// </param>
     /// <param name="vgui">
-    /// The VGUI surface's quads for this frame, drawn before <paramref name="hud"/>, or null to draw none. Requires
+    /// The VGUI surface's draw list for this frame, drawn before <paramref name="hud"/>, or null to draw none. Requires
     /// <see cref="SetVguiResolver"/>.
     /// </param>
     /// <remarks>
@@ -1010,7 +1010,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         IReadOnlyList<ModelInstance>? viewmodels = null,
         float[]? viewmodelCamera = null,
         IReadOnlyList<HudQuad>? hud = null,
-        IReadOnlyList<VguiQuad>? vgui = null)
+        VguiDrawList? vgui = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(points);
@@ -1388,7 +1388,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // Last, so it is over everything, with depth off because a HUD is not in the world. Before
         // Present, so it lands in the presented frame and therefore in an F12 capture, which reads
         // the back buffer afterwards.
-        if (vgui is { Count: > 0 } && _vguiResolve is not null)
+        if (vgui is { Quads.Count: > 0 } && _vguiResolve is not null)
         {
             Viewport vguiViewport = new(0f, 0f, _width, _height, 0f, 1f);
             _context.RSSetViewports(1, in vguiViewport);

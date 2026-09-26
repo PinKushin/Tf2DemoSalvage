@@ -48,6 +48,9 @@ internal sealed unsafe class VguiRenderer : IDisposable
     private readonly Dictionary<string, (ComPtr<ID3D11ShaderResourceView> View, bool Additive)> _textures =
         new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly Dictionary<string, (ComPtr<ID3D11ShaderResourceView> View, int Version)> _pages =
+        new(StringComparer.Ordinal);
+
     private ComPtr<ID3D11VertexShader> _vertexShader;
     private ComPtr<ID3D11PixelShader> _pixelShader;
     private ComPtr<ID3D11InputLayout> _layout;
@@ -145,20 +148,24 @@ internal sealed unsafe class VguiRenderer : IDisposable
     /// <summary>Draws the quads into the bound render target.</summary>
     /// <param name="device">The device, for textures and the vertex buffer.</param>
     /// <param name="context">The context.</param>
-    /// <param name="quads">The draw list's quads, in paint order.</param>
+    /// <param name="list">The draw list: its quads in paint order, and the glyph pages they sample.</param>
     /// <param name="resolve">A material name to its texture, null when it does not resolve.</param>
     /// <param name="viewportWidth">Render target width.</param>
     /// <param name="viewportHeight">Render target height.</param>
     public void Draw(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
-        IReadOnlyList<VguiQuad> quads,
+        VguiDrawList list,
         Func<string, MapTexture?> resolve,
         int viewportWidth,
         int viewportHeight)
     {
-        ArgumentNullException.ThrowIfNull(quads);
+        ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(resolve);
+
+        IReadOnlyList<VguiQuad> quads = list.Quads;
+
+        UploadPages(device, context, list.Pages);
 
         if (quads.Count == 0 || viewportWidth <= 0 || viewportHeight <= 0)
         {
@@ -185,14 +192,19 @@ internal sealed unsafe class VguiRenderer : IDisposable
         while (start < quads.Count)
         {
             string? texture = quads[start].Texture;
+            bool forcedAdditive = quads[start].Additive;
             int end = start + 1;
 
-            while (end < quads.Count && string.Equals(quads[end].Texture, texture, StringComparison.OrdinalIgnoreCase))
+            while (end < quads.Count
+                && string.Equals(quads[end].Texture, texture, StringComparison.OrdinalIgnoreCase)
+                && quads[end].Additive == forcedAdditive)
             {
                 end++;
             }
 
-            (ComPtr<ID3D11ShaderResourceView> view, bool additive) = texture is null ? (_white, false) : Texture(device, context, texture, resolve);
+            (ComPtr<ID3D11ShaderResourceView> view, bool additive) = Source(device, context, texture, resolve);
+
+            additive |= forcedAdditive;
 
             if (view.Handle is not null)
             {
@@ -255,6 +267,41 @@ internal sealed unsafe class VguiRenderer : IDisposable
         data[at++] = green;
         data[at++] = blue;
         data[at++] = alpha / 255f;
+    }
+
+    /// <summary>What a run samples: the white texel for a fill, a glyph page, or a material.</summary>
+    private (ComPtr<ID3D11ShaderResourceView> View, bool Additive) Source(
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, string? texture, Func<string, MapTexture?> resolve)
+    {
+        if (texture is null)
+        {
+            return (_white, false);
+        }
+
+        return _pages.TryGetValue(texture, out (ComPtr<ID3D11ShaderResourceView> View, int Version) page)
+            ? (page.View, false)
+            : Texture(device, context, texture, resolve);
+    }
+
+    /// <summary>Each glyph page uploaded, and uploaded again when a glyph was added since.</summary>
+    private void UploadPages(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        IReadOnlyDictionary<string, (int Wide, int Tall, byte[] Rgba, int Version)> pages)
+    {
+        foreach ((string name, (int wide, int tall, byte[] rgba, int version)) in pages)
+        {
+            if (_pages.TryGetValue(name, out (ComPtr<ID3D11ShaderResourceView> View, int Version) held) && held.Version == version)
+            {
+                continue;
+            }
+
+            held.View.Dispose();
+
+            MapTexture texture = new(wide, tall, wide, tall, TextureImage.Rgba(rgba), IsTransparent: true);
+
+            _pages[name] = (WorldRenderer.UploadTexture(device, context, texture), version);
+        }
     }
 
     /// <summary>A material's view, uploaded once; an unresolved material is remembered as absent and draws nothing.</summary>
@@ -341,6 +388,11 @@ internal sealed unsafe class VguiRenderer : IDisposable
     public void Dispose()
     {
         foreach ((ComPtr<ID3D11ShaderResourceView> view, _) in _textures.Values)
+        {
+            view.Dispose();
+        }
+
+        foreach ((ComPtr<ID3D11ShaderResourceView> view, _) in _pages.Values)
         {
             view.Dispose();
         }

@@ -74,4 +74,55 @@ public interface IVguiSurface
     /// <param name="texture">The material.</param>
     /// <returns>Its size in texels; zero when it did not load.</returns>
     public (int Wide, int Tall) DrawGetTextureSize(string texture);
+
+    /// <summary>`DrawSetTextFont`.</summary>
+    /// <param name="font">The font handle.</param>
+    public void DrawSetTextFont(VguiFontAmalgam font);
+
+    /// <summary>`DrawSetTextColor`: alpha is scaled by the multiplier when set.</summary>
+    /// <param name="color">The colour.</param>
+    public void DrawSetTextColor((byte Red, byte Green, byte Blue, byte Alpha) color);
+
+    /// <summary>`DrawSetTextPos`, relative to the panel made current.</summary>
+    /// <param name="x">X.</param>
+    /// <param name="y">Y.</param>
+    public void DrawSetTextPos(int x, int y);
+
+    /// <summary>`DrawGetTextPos`.</summary>
+    /// <returns>The pen.</returns>
+    public (int X, int Y) DrawGetTextPos();
+
+    /// <summary>`DrawUnicodeChar`.</summary>
+    /// <param name="character">The character.</param>
+    /// <param name="drawType">`FontDrawType_t`.</param>
+    public void DrawUnicodeChar(char character, VguiFontDrawType drawType = VguiFontDrawType.Default);
+
+    /// <summary>`DrawPrintText`.</summary>
+    /// <param name="text">The text.</param>
+    /// <param name="drawType">`FontDrawType_t`.</param>
+    public void DrawPrintText(string text, VguiFontDrawType drawType = VguiFontDrawType.Default);
+
+    /// <summary>`GetFontTall`.</summary>
+    /// <param name="font">The handle.</param>
+    /// <returns>Its height.</returns>
+    public int GetFontTall(VguiFontAmalgam font);
+
+    /// <summary>`GetCharABCwide`.</summary>
+    /// <param name="font">The handle.</param>
+    /// <param name="character">The character.</param>
+    /// <returns>Leading, glyph and trailing widths.</returns>
+    public (int A, int B, int C) GetCharAbcWide(VguiFontAmalgam font, char character);
+}
+
+/// <summary>`FontDrawType_t`.</summary>
+public enum VguiFontDrawType
+{
+    /// <summary>`FONT_DRAW_DEFAULT`: additive when the font is.</summary>
+    Default,
+
+    /// <summary>`FONT_DRAW_NONADDITIVE`.</summary>
+    NonAdditive,
+
+    /// <summary>`FONT_DRAW_ADDITIVE`.</summary>
+    Additive,
 }
