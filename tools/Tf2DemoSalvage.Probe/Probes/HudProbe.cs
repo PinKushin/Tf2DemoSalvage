@@ -46,6 +46,18 @@ public sealed class HudProbe : IProbe
             int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
 
             state = HudStates.For(timeline, tick, new TfWeaponData(archives.Read), hooks);
+
+            // `spectate <entity>`: SourceTV's in-eye camera on that player, as the viewer's first-person camera sets it.
+            int spectate = arguments.ToList().IndexOf("spectate");
+
+            if (spectate >= 0 && spectate + 1 < arguments.Count)
+            {
+                state = state with
+                {
+                    ObserverMode = Tf2DemoSalvage.Core.Scene.ObserverModes.InEye,
+                    ObserverTarget = int.Parse(arguments[spectate + 1], CultureInfo.InvariantCulture),
+                };
+            }
             events = HudEventFeed.Resolve(timeline, new HudEventFeed().Advance(timeline, tick).Events, Path.GetFileNameWithoutExtension(arguments[0]), hooks);
             output.WriteLine($"events replayed: {events.Count}");
         }
@@ -64,6 +76,7 @@ public sealed class HudProbe : IProbe
 
         output.WriteLine($"animation sequences: {hud.Viewport.Animations.SequenceCount}, running: {hud.Viewport.Animations.ActiveAnimationCount}");
         output.WriteLine($"icons: {hud.Viewport.Icons?.Count ?? 0}; death notices: {hud.DeathNotice.Notices.Count}");
+        output.WriteLine($"target id: {hud.SpectatorTargetId.TargetIndex} '{hud.SpectatorTargetId.TargetName}' / '{hud.SpectatorTargetId.TargetData}' shown {hud.SpectatorTargetId.Visible}");
 
         foreach (DeathNoticeItem notice in hud.DeathNotice.Notices)
         {

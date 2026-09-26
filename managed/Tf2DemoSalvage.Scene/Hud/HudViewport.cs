@@ -22,6 +22,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="PlayerClass">The local player's class, 0 with none.</param>
 /// <param name="Conditions">The local player's conditions.</param>
 /// <param name="Fov">`GetFOV()` — the field of view the view is drawn at.</param>
+/// <param name="LocalIndex">The local player's entity index, 0 with none.</param>
+/// <param name="ObserverTarget">`GetObserverTarget()`'s entity index, 0 with none — the HLTV camera's on SourceTV.</param>
+/// <param name="Players">Every player at this tick — `cl_entitylist` for the elements that look others up.</param>
+/// <param name="Names">`GetPlayerName` by entity index.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -40,7 +44,28 @@ public readonly record struct HudState(
     string? WeaponClass = null,
     int PlayerClass = 0,
     Core.Scene.PlayerConditions Conditions = default,
-    float Fov = 90f);
+    float Fov = 90f,
+    int LocalIndex = 0,
+    int ObserverTarget = 0,
+    IReadOnlyList<Core.Scene.ScenePlayer>? Players = null,
+    IReadOnlyDictionary<int, string>? Names = null)
+{
+    /// <summary>`cl_entitylist->GetEnt` for a player: the one at that index, or null.</summary>
+    /// <param name="index">The entity index.</param>
+    /// <returns>The player.</returns>
+    public Core.Scene.ScenePlayer? Player(int index)
+    {
+        foreach (Core.Scene.ScenePlayer player in Players ?? [])
+        {
+            if (player.EntityIndex == index)
+            {
+                return player;
+            }
+        }
+
+        return null;
+    }
+}
 
 /// <summary>`CHudElement` (game/client/hud.cpp): a HUD panel that hides by the player's `HIDEHUD` bits.</summary>
 public interface IHudElement
@@ -81,6 +106,9 @@ public static class HudVisibility
 
     /// <summary>`HIDEHUD_CROSSHAIR`.</summary>
     public const int HideCrosshair = 1 << 8;
+
+    /// <summary>`HIDEHUD_TARGET_ID` (shareddefs.h:224).</summary>
+    public const int HideTargetId = 1 << 16;
 
     /// <summary>`CHud::IsHidden` (hud.cpp:951).</summary>
     /// <param name="state">The game state.</param>
@@ -131,6 +159,9 @@ public sealed class HudViewport : VguiEditablePanel
 
     /// <summary>`gHUD`'s icons, loaded once (`CHud::Init`'s `m_bHudTexturesLoaded`), or null before the first scheme.</summary>
     public HudTextures? Icons { get; set; }
+
+    /// <summary>An item's full name as its description shows it, by definition and quality — or null where nothing names items.</summary>
+    public Func<int?, int, string?>? ItemName { get; set; }
 
     /// <summary>The weapon and class scripts, for what a weapon's script tells the HUD; null where no install is open.</summary>
     public TfWeaponData? Scripts { get; set; }
