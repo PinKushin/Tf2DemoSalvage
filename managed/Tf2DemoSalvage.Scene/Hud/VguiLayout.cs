@@ -56,8 +56,12 @@ public static class VguiLayout
     {
         ArgumentNullException.ThrowIfNull(panel);
 
-        foreach (VguiPanel child in panel.Children)
+        // By index, the count read each time: a scheme pass can add a panel — the death notice makes its streak banner
+        // there — and an appended child is then visited in the same pass rather than invalidating the walk.
+        for (int i = 0; i < panel.Children.Count; i++)
         {
+            VguiPanel child = panel.Children[i];
+
             if (force || child.Visible)
             {
                 SchemeSettingsTraverse(child, context, force);
