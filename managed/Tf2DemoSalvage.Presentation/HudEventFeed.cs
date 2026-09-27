@@ -27,11 +27,26 @@ public sealed class HudEventFeed
     /// <param name="timeline">The demo.</param>
     /// <param name="tick">The tick now shown.</param>
     /// <returns>Whether this is a seek, and the events in order.</returns>
-    public (bool Reset, IReadOnlyList<SceneGameEvent> Events) Advance(DemoTimeline timeline, int tick)
+    /// <remarks>The chat's user messages ride the same window: `demo_gototick` reads their packets too.</remarks>
+    public (bool Reset, IReadOnlyList<SceneGameEvent> Events, IReadOnlyList<SceneUserMessage> UserMessages) Advance(DemoTimeline timeline, int tick)
     {
         ArgumentNullException.ThrowIfNull(timeline);
 
-        return Advance(timeline.GameEvents, Interval(timeline), tick);
+        int? last = _lastTick;
+        (bool reset, IReadOnlyList<SceneGameEvent> events) = Advance(timeline.GameEvents, Interval(timeline), tick);
+        int windowTicks = (int)MathF.Ceiling(Window / Interval(timeline));
+        int from = reset ? tick - windowTicks : last!.Value;
+        List<SceneUserMessage> messages = [];
+
+        foreach (SceneUserMessage message in timeline.UserMessages)
+        {
+            if (message.Tick > from && message.Tick <= tick)
+            {
+                messages.Add(message);
+            }
+        }
+
+        return (reset, events, messages);
     }
 
     /// <summary>The events to deliver this frame from a stream, and whether the HUD must be emptied first.</summary>

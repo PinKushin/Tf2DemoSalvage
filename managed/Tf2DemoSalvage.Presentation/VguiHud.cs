@@ -17,6 +17,7 @@ public sealed class VguiHud
 {
     private const string SchemePath = "resource/ClientScheme.res";
     private const string LayoutPath = "scripts/HudLayout.res";
+    private const string ChatSchemePath = "resource/ChatScheme.res";
 
     private readonly VguiSurfaceHost _host;
     private VguiContext? _context;
@@ -37,14 +38,18 @@ public sealed class VguiHud
         SpectatorTargetId = new TfSpectatorTargetId(Viewport);
         MatchStatus = new TfHudMatchStatus(Viewport);
         KothTimeStatus = new TfHudKothTimeStatus(Viewport);
+        Chat = new TfHudChat(Viewport);
     }
+
+    /// <summary>`CHudChat`.</summary>
+    public TfHudChat Chat { get; }
 
     /// <summary>`CTFHudKothTimeStatus`.</summary>
     public TfHudKothTimeStatus KothTimeStatus { get; }
 
     /// <summary>Every event any element's `ListenForGameEvent` asked for — the only ones the feed resolves.</summary>
     public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(
-        [.. TfHudDeathNotice.ListensFor, .. TfHudTimeStatus.ListensFor],
+        [.. TfHudDeathNotice.ListensFor, .. TfHudTimeStatus.ListensFor, .. TfHudChat.ListensFor],
         StringComparer.Ordinal);
 
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
@@ -75,13 +80,20 @@ public sealed class VguiHud
     /// <param name="state">What `CHud::IsHidden` reads.</param>
     /// <param name="events">The game events fired since the last frame, or null for none.</param>
     /// <param name="reset">Whether this frame follows a seek — `VidInit` empties the feed first.</param>
-    public void Frame(HudState state, IReadOnlyList<HudGameEvent>? events = null, bool reset = false)
+    /// <param name="userMessages">The chat's user messages read since the last frame, or null for none.</param>
+    public void Frame(HudState state, IReadOnlyList<HudGameEvent>? events = null, bool reset = false, IReadOnlyList<Core.Scene.SceneUserMessage>? userMessages = null)
     {
+        // `system()->GetCurrentTime()`, which a `RichText` fades on.
+        VguiRichText.HudClock = state.RealTime;
+
         if (_context is null || !ReferenceEquals(_context.Surface, _host.List))
         {
             _context = _host.LoadScheme(SchemePath);
             (Viewport.Wide, Viewport.Tall) = (_host.Wide, _host.Tall);
             Viewport.Context = _context;
+
+            // The chat's own scheme, which `CBaseHudChat` loads and sets on itself and its history (hud_basechat.cpp:611).
+            Chat.SchemeContext = _host.LoadScheme(ChatSchemePath);
 
             // `CHud::Init` loads the icons once, so a font icon keeps the size it measured at the first screen.
             Viewport.Icons ??= HudTextures.Load(_context);
@@ -116,6 +128,17 @@ public sealed class VguiHud
                 KothTimeStatus.BluePanel.HandleGameEvent(fired);
                 KothTimeStatus.RedPanel.HandleGameEvent(fired);
             }
+
+            if (TfHudChat.ListensFor.Contains(fired.Event.Name))
+            {
+                Chat.HandleGameEvent(fired.Event, state);
+            }
+        }
+
+        // `HOOK_HUD_MESSAGE`: the chat's user messages, as they are read.
+        foreach (Core.Scene.SceneUserMessage message in userMessages ?? [])
+        {
+            Chat.HandleUserMessage(message, state);
         }
 
         Viewport.Think(state);
