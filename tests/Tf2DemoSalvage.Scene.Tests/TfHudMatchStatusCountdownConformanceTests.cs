@@ -41,11 +41,26 @@ public sealed class TfHudMatchStatusCountdownConformanceTests
         ((VguiLabel)status.FindChildByName("CountdownLabel")!).Text.ShouldBe("%countdown%", "the format is unset, never substituted");
     }
 
-    private static HudGameEvent RestartTimer(int time)
+    [TestCase(0, 0)]
+    [TestCase(1, 1)]
+    public void HandleGameEvent_TenSecondsLeft_ShowsTheCountdownOnlyAfterTheFirstRound(int roundsPlayed, int expectedAnimations)
+    {
+        // `case 10:` (tf_hud_match_status.cpp:629): `GetRoundsPlayed() == 0` takes the match-start doors, else the 2D countdown.
+        TfHudMatchStatus status = Built();
+        HudViewport viewport = (HudViewport)status.Parent!;
+        VguiContext context = viewport.Context!;
+
+        viewport.Animations.SetScriptFile(viewport, "scripts/countdown.txt", wipeAll: true, context).ShouldBeTrue();
+        status.HandleGameEvent(RestartTimer(10, new SceneGameRules(false, 0, false) { RoundsPlayed = roundsPlayed }));
+
+        viewport.Animations.ActiveAnimationCount.ShouldBe(expectedAnimations);
+    }
+
+    private static HudGameEvent RestartTimer(int time, SceneGameRules rules = default)
     {
         SceneGameEvent restart = new(0, "restart_timer_time", new Dictionary<string, object?> { ["time"] = time }, new Dictionary<int, Core.Net.PlayerInfo>());
 
-        return new HudGameEvent(restart, 10f, [], 1, default, "cp_test", 0);
+        return new HudGameEvent(restart, 10f, [], 1, rules, "cp_test", 0);
     }
 
     private static TfHudMatchStatus Built(bool useMatchHud = true)
@@ -63,6 +78,7 @@ public sealed class TfHudMatchStatusCountdownConformanceTests
     {
         Dictionary<string, byte[]> files = new()
         {
+            ["scripts/countdown.txt"] = Encoding.UTF8.GetBytes("event HudMatchStatus_ShowCountdown\n{\n\tAnimate CountdownLabel Alpha 255 Linear 0.0 0.5\n}\n"),
             ["resource/UI/HudMatchStatus.res"] = Encoding.UTF8.GetBytes("""
                 "Resource/UI/HudMatchStatus.res"
                 {

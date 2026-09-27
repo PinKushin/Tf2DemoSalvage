@@ -142,7 +142,7 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 
         if (fired.Event.Name == "restart_timer_time")
         {
-            HandleCountdown(fired.Event.GetInt("time"));
+            HandleCountdown(fired.Event.GetInt("time"), fired.Rules.RoundsPlayed);
         }
 
         // `teamplay_round_start`: `ShowRoundSign` when rounds have already been played — out of scope, so nothing 2D
@@ -151,13 +151,13 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 
     /// <summary>`HandleCountdown` (:614), minus `ShowRoundSign` and `ShowMatchStartDoors` — both 3D model panels.</summary>
     /// <param name="time">`event->GetInt( "time" )`: seconds left on the restart countdown.</param>
-    private void HandleCountdown(int time)
+    /// <param name="roundsPlayed">`TFGameRules()->GetRoundsPlayed()`.</param>
+    private void HandleCountdown(int time, int roundsPlayed)
     {
         SetDialogVariable("countdown", time);
 
-        // `case 10:` — the doors branch (`GetRoundsPlayed() == 0`) is 3D and out of scope; the `else` is the 2D one.
-        // `GetRoundsPlayed` is not decoded, so this plays for every round rather than only rounds after the first.
-        if (time == 10)
+        // `case 10:` — on the first round `ShowMatchStartDoors`, a 3D model panel not modelled here; after it the 2D countdown.
+        if (time == 10 && roundsPlayed != 0)
         {
             HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudMatchStatus_ShowCountdown");
         }
