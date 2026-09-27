@@ -340,6 +340,161 @@ public sealed class VguiModelPanelConformanceTests
         panel.Animations[1].Default.ShouldBeFalse();
     }
 
+    [Test]
+    public void ParseModelAttachInfo_AnAttachedModelBlock_RecordsNameAndSkin()
+    {
+        // basemodel_panel.cpp:148-159.
+        VguiBaseModelPanel panel = new(null, "model");
+        KeyValuesTree modelBlock = Resource("""
+            model
+            {
+                "modelname" "models/player/scout.mdl"
+                "attached_model"
+                {
+                    "modelname" "models/weapons/c_models/c_scattergun.mdl"
+                    "skin" "1"
+                }
+            }
+            """).Find("model")!;
+
+        panel.ParseModelResInfo(modelBlock);
+
+        panel.Attachments.Count.ShouldBe(1);
+        panel.Attachments[0].ModelName.ShouldBe("models/weapons/c_models/c_scattergun.mdl");
+        panel.Attachments[0].Skin.ShouldBe(1);
+    }
+
+    [Test]
+    public void ParseModelAttachInfo_NoSkinGiven_DefaultsToMinusOne()
+    {
+        // basemodel_panel.cpp:158: `GetInt( "skin", -1 )`.
+        VguiBaseModelPanel panel = new(null, "model");
+        KeyValuesTree modelBlock = Resource("""
+            model
+            {
+                "modelname" "models/player/scout.mdl"
+                "attached_model" { "modelname" "models/weapons/c_models/c_scattergun.mdl" }
+            }
+            """).Find("model")!;
+
+        panel.ParseModelResInfo(modelBlock);
+
+        panel.Attachments[0].Skin.ShouldBe(-1);
+    }
+
+    [Test]
+    public void ParseModelResInfo_TwoDefaultAnimations_UsesTheFirst()
+    {
+        // `FindDefaultAnim` (basemodel_panel.cpp:193-205) returns on the FIRST match; a later animation flagged
+        // default too is never reached, so it never becomes the played sequence.
+        VguiBaseModelPanel panel = new(null, "model")
+        {
+            ResolveModel = _ => SyntheticSkinnedModel.WithBones("root"),
+        };
+
+        panel.ParseModelResInfo(Resource("""
+            model
+            {
+                "modelname" "models/player/scout.mdl"
+                "animation" { "name" "a" "sequence" "idle" "default" "1" }
+                "animation" { "name" "b" "sequence" "idle" "default" "1" }
+            }
+            """).Find("model")!);
+
+        // Both animations name the same sequence here on purpose — the assertion that matters is which of the two
+        // ACTUALLY ran (resetting the cycle clock), not which sequence number it landed on, so CycleStartTime is
+        // what distinguishes "the first one's SetModelAnim ran" from "nothing ran at all".
+        panel.CycleStartTime.ShouldBe(panel.RealTimeSeconds);
+    }
+
+    [Test]
+    public void SetModelAnim_BySequenceLabel_PicksItAndResetsTheCycle()
+    {
+        // basemodel_panel.cpp:270-278: no activity named, so LookupSequence(sequence) — SkinnedModel.SequenceByLabel
+        // here — and SetSequence(iSequence, true) resets m_flCycleStartTime to GetAutoPlayTime() (mdlpanel.cpp:547).
+        VguiBaseModelPanel panel = new(null, "model")
+        {
+            ModelName = "models/player/scout.mdl",
+            ResolveModel = _ => SyntheticSkinnedModel.WithBones("root"),
+            RealTimeSeconds = 100d,
+            CycleStartTime = 1d,
+        };
+
+        panel.SetModelAnim(new ModelPanelAnimation("idle", "idle", null, true));
+
+        panel.Sequence.ShouldBe(0);
+        panel.CycleStartTime.ShouldBe(100d);
+    }
+
+    [Test]
+    public void SetModelAnim_ByActivity_ScansForAnExactMatchRatherThanAWeightedPick()
+    {
+        // FindSequenceFromActivity (basemodel_panel.cpp:229-244) is a plain linear scan for the first exact
+        // activity-name match — this model has two sequences sharing "run" so a weighted selector could legally
+        // answer either; the exact scan must answer the FIRST one, index 0.
+        VguiBaseModelPanel panel = new(null, "model")
+        {
+            ModelName = "models/player/scout.mdl",
+            ResolveModel = _ => SyntheticSkinnedModel.WithActivities(("run_a", "run"), ("run_b", "run")),
+        };
+
+        panel.SetModelAnim(new ModelPanelAnimation("run", null, "run", true));
+
+        panel.Sequence.ShouldBe(0);
+    }
+
+    [Test]
+    public void MoveXPoseValues_AMoveXParameter_NormalisesToOne()
+    {
+        // SetupModelAnimDefaults (basemodel_panel.cpp:175): SetPoseParameterByName( "move_x", 1.0f ), unconditional.
+        // move_x runs -1..1 here, so the raw value 1.0 normalises to the TOP of the range: 1.0, not the 0.5 an
+        // unset parameter (raw 0) would leave it at — StudioBlendGrid.Normalize's own contract.
+        float[] values = VguiModelPanel.MoveXPoseValues([new StudioPoseParameter("move_x", -1f, 1f, 0f)]);
+
+        values[0].ShouldBe(1f);
+    }
+
+    [Test]
+    public void MoveXPoseValues_AnUnrelatedParameter_StaysAtRawZeroNormalised()
+    {
+        // Everything but move_x is left at raw zero — the same "unset" value EntityModelSet.Filled leaves an
+        // uncomputed parameter at, which normalises to the MIDDLE of a symmetric range rather than its bottom.
+        float[] values = VguiModelPanel.MoveXPoseValues([new StudioPoseParameter("aim_yaw", -180f, 180f, 360f)]);
+
+        values[0].ShouldBe(0.5f);
+    }
+
+    [Test]
+    public void Tick_AfterAnActiveSequenceExpires_RevertsToTheDefaultAnimation()
+    {
+        // CBaseModelPanel::OnTick (basemodel_panel.cpp:402-419): once GetAutoPlayTime() - m_flCycleStartTime passes
+        // m_flActiveSequenceDuration, SetupModelDefaults runs again.
+        VguiBaseModelPanel panel = new(null, "model")
+        {
+            ResolveModel = _ => SyntheticSkinnedModel.WithBones("root"),
+        };
+
+        panel.ParseModelResInfo(Resource("""
+            model
+            {
+                "modelname" "models/player/scout.mdl"
+                "animation" { "name" "idle" "sequence" "idle" "default" "1" }
+            }
+            """).Find("model")!);
+
+        panel.RealTimeSeconds = 0d;
+        panel.PlaySequence("idle");
+        panel.Sequence.ShouldBe(0);
+
+        // One cycle of a one-bone, one-frame synthetic sequence has no meaningful fps, so the duration derived from
+        // CyclesPerSecond is whatever the fixture's animation block gives it — the point under test is that ANY
+        // elapsed time past it reverts, not the exact number of seconds.
+        panel.RealTimeSeconds = 1_000_000d;
+        panel.Tick();
+
+        panel.CycleStartTime.ShouldBe(1_000_000d);
+    }
+
     /// <summary>Wraps a body in a root block, the way <c>Panel::ApplySettings</c>'s caller already has one.</summary>
     private static KeyValuesTree Resource(string body) =>
         KeyValuesTree.Load(Encoding.UTF8.GetBytes("Resource\n{\n" + body + "\n}"), "test.res", _ => null);

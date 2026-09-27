@@ -21,6 +21,16 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="Default">Whether this is the one played until something else is picked.</param>
 public readonly record struct ModelPanelAnimation(string Name, string? Sequence, string? Activity, bool Default);
 
+/// <summary>One <c>attached_model</c> block under a <see cref="VguiModelPanel"/>'s <c>model</c> block.</summary>
+/// <remarks>
+/// <c>CBaseModelPanel::ParseModelAttachInfo</c> (<c>basemodel_panel.cpp:148-159</c>): a second model named beside
+/// the root's own, with its own skin. Parsed here; drawing it is <c>CTFPlayerModelPanel</c>'s wearables/weapon
+/// concern (step 4), not this step's.
+/// </remarks>
+/// <param name="ModelName">The attached model's path.</param>
+/// <param name="Skin">Its skin, or −1 for its default (<c>GetInt( "skin", -1 )</c>, :158).</param>
+public readonly record struct ModelPanelAttachment(string ModelName, int Skin);
+
 /// <summary>
 /// <c>CPotteryWheelPanel</c> + <c>CMDLPanel</c> + <c>CBaseModelPanel</c>'s portable half: a panel that draws one root
 /// model, with merged models bone-merged onto it, under its own camera and lights.
@@ -228,6 +238,7 @@ public class VguiModelPanel : VguiPanel
         {
             rootPose.Sequence = Sequence >= 0 ? Sequence : 0;
             rootPose.EntityTransform ??= Identity3x4;
+            rootPose.PoseValues = MoveXPoseValues(rootModel.PoseParameters);
         }
 
         root.SetupBones(FullBoneMask, CycleTime);
@@ -269,6 +280,26 @@ public class VguiModelPanel : VguiPanel
         };
 
         surface.Paint3D(0, 0, Wide, Tall, camera.ToMatrix(), models);
+    }
+
+    /// <summary><c>SetupModelAnimDefaults</c> (<c>basemodel_panel.cpp:175</c>): <c>SetPoseParameterByName( "move_x",
+    /// 1.0f )</c>, unconditional — "so the run activity works" — before it even checks whether the model has any
+    /// authored animations. Everything else stays at raw zero, normalised, exactly as an unset pose parameter is
+    /// stored (`EntityModelSet.Filled`'s own comment, <c>EntityModels.cs:6157</c>).</summary>
+    public static float[] MoveXPoseValues(IReadOnlyList<StudioPoseParameter> parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        float[] values = new float[parameters.Count];
+
+        for (int index = 0; index < values.Length; index++)
+        {
+            values[index] = StudioBlendGrid.Normalize(
+                parameters[index],
+                string.Equals(parameters[index].Name, "move_x", StringComparison.OrdinalIgnoreCase) ? 1f : 0f);
+        }
+
+        return values;
     }
 
     /// <summary>This panel's own posing entry for one model path — <see cref="EntityModelSet.EntityFor"/>'s shape, keyed
@@ -364,7 +395,31 @@ public class VguiBaseModelPanel : VguiModelPanel
     /// <summary><c>m_BMPResData.m_aAnimations</c> (<c>ParseModelAnimInfo</c>, <c>basemodel_panel.cpp:122</c>).</summary>
     public IReadOnlyList<ModelPanelAnimation> Animations => _animations;
 
+    /// <summary><c>m_BMPResData.m_aAttachModels</c> (<c>ParseModelAttachInfo</c>, <c>basemodel_panel.cpp:148</c>).</summary>
+    public IReadOnlyList<ModelPanelAttachment> Attachments => _attachments;
+
     private readonly List<ModelPanelAnimation> _animations = [];
+    private readonly List<ModelPanelAttachment> _attachments = [];
+
+    /// <summary><c>m_nActiveSequence</c> (<c>basemodel_panel.h:234</c>), or −1 for <c>ACT_INVALID</c>.</summary>
+    private int _activeSequence = -1;
+
+    /// <summary><c>m_flActiveSequenceDuration</c> — one cycle's length in seconds.</summary>
+    private float _activeSequenceDuration;
+
+    /// <summary>The cycle time <see cref="_activeSequence"/> started at, so its expiry is measured from when it was
+    /// played rather than from whenever <see cref="Tick"/> next happens to run.</summary>
+    private double _activeSequenceStartedAt;
+
+    /// <summary><c>CBaseModelPanel::OnTick</c> runs before <c>CMDLPanel::OnTick</c> every tick (basemodel_panel.cpp:402:
+    /// "Cycle stuff gets handled in mdlpanel::OnTick, so we want to fix up what our sequence is before it gets
+    /// called"); this panel has no separate tick, so <see cref="Tick"/> runs here, immediately before the cycle it
+    /// might reset is read.</summary>
+    public override void Paint(IVguiSurface surface, VguiContext context)
+    {
+        Tick();
+        base.Paint(surface, context);
+    }
 
     /// <inheritdoc/>
     public override void ApplySettings(KeyValuesTree block, VguiContext context)
@@ -415,6 +470,7 @@ public class VguiBaseModelPanel : VguiModelPanel
         CameraOrigin = ModelOrigin;
 
         _animations.Clear();
+        _attachments.Clear();
 
         foreach (KeyValuesTree block in modelBlock.Children)
         {
@@ -422,45 +478,163 @@ public class VguiBaseModelPanel : VguiModelPanel
             {
                 ParseModelAnimInfo(block);
             }
+            else if (string.Equals(block.Name, "attached_model", StringComparison.OrdinalIgnoreCase))
+            {
+                ParseModelAttachInfo(block);
+            }
+        }
+
+        // `SetupModelDefaults` -> `SetupModelAnimDefaults` -> `FindDefaultAnim` (basemodel_panel.cpp:164-188), run
+        // once every animation has been read — not per-animation as it is parsed. `FindDefaultAnim` (:193) returns
+        // the FIRST animation flagged default and stops there; a later one flagged default too is never reached.
+        foreach (ModelPanelAnimation animation in _animations)
+        {
+            if (animation.Default)
+            {
+                SetModelAnim(animation);
+                break;
+            }
         }
     }
 
-    /// <summary><c>ParseModelAnimInfo</c> (<c>basemodel_panel.cpp:122</c>). Pose parameters (:138) are not modelled — see
-    /// <see cref="ModelPanelAnimation"/>.</summary>
+    /// <summary><c>ParseModelAnimInfo</c> (<c>basemodel_panel.cpp:122</c>). Pose parameters (<c>pose_parameters</c>,
+    /// :136-142) are stored on <c>BMPResAnimData_t::m_pPoseParameters</c> and freed by its destructor — grepped
+    /// every <c>tf/</c> and <c>game/client/</c> `.cpp` for another reader and found none, so there is nothing to
+    /// port: the shipped SDK stores this value and never consumes it.</summary>
     /// <param name="animationBlock">The <c>animation</c> block.</param>
     public void ParseModelAnimInfo(KeyValuesTree animationBlock)
     {
         ArgumentNullException.ThrowIfNull(animationBlock);
 
-        ModelPanelAnimation animation = new(
+        _animations.Add(new ModelPanelAnimation(
             Name: animationBlock.Find("name")?.Value ?? string.Empty,
             Sequence: animationBlock.Find("sequence")?.Value,
             Activity: animationBlock.Find("activity")?.Value,
-            Default: string.Equals(animationBlock.Find("default")?.Value, "1", StringComparison.Ordinal));
-
-        _animations.Add(animation);
-
-        if (animation.Default)
-        {
-            ApplyDefaultAnimation(animation);
-        }
+            Default: string.Equals(animationBlock.Find("default")?.Value, "1", StringComparison.Ordinal)));
     }
 
-    /// <summary>Picks the default animation's sequence, by label when one is named or else by activity.</summary>
-    private void ApplyDefaultAnimation(ModelPanelAnimation animation)
+    /// <summary><c>ParseModelAttachInfo</c> (<c>basemodel_panel.cpp:148-159</c>).</summary>
+    /// <param name="attachBlock">The <c>attached_model</c> block.</param>
+    public void ParseModelAttachInfo(KeyValuesTree attachBlock)
+    {
+        ArgumentNullException.ThrowIfNull(attachBlock);
+
+        _attachments.Add(new ModelPanelAttachment(
+            ModelName: attachBlock.Find("modelname")?.Value ?? string.Empty,
+            Skin: ResIntOrDefault(attachBlock, "skin", -1)));
+    }
+
+    /// <summary>
+    /// <c>CBaseModelPanel::SetModelAnim</c> (<c>basemodel_panel.cpp:249-279</c>): an activity first, else the
+    /// <c>sequence</c> label via <c>LookupSequence</c>; either way, <c>SetSequence( iSequence, true )</c> resets the
+    /// cycle clock (<c>mdlpanel.cpp:541-549</c>: <c>bResetSequence</c> sets <c>m_flCycleStartTime =
+    /// GetAutoPlayTime()</c>).
+    /// </summary>
+    /// <param name="animation">The animation to play.</param>
+    /// <remarks>
+    /// **Activity is an EXACT scan, not the weighted selection <c>SequenceWithActivity</c> does.**
+    /// <c>FindSequenceFromActivity</c> (:229-244) walks <c>pStudioHdr-&gt;pSeqdesc(i)</c> in order and returns the
+    /// first whose <c>pszActivityName()</c> matches — no weight, no randomness — so this scans
+    /// <see cref="PropModels.SkinnedModel.Groups"/>'s group 0 the same way rather than reusing the weighted lookup,
+    /// which could pick a different sequence than Valve's own linear scan would for a model with more than one
+    /// sequence sharing the activity.
+    /// </remarks>
+    public void SetModelAnim(ModelPanelAnimation animation)
     {
         if (ResolveModel is not { } resolve || ModelName is not { } modelName || resolve(modelName) is not { } model)
         {
             return;
         }
 
+        int found = -1;
+
         if (animation.Activity is { Length: > 0 } activity)
         {
-            int found = model.SequenceWithActivity(activity);
+            IReadOnlyList<StudioSequence> rootSequences = model.Groups.Count > 0 ? model.Groups[0].Sequences : [];
 
-            if (found >= 0)
+            for (int index = 0; index < rootSequences.Count; index++)
             {
-                Sequence = found;
+                if (string.Equals(rootSequences[index].Activity, activity, StringComparison.OrdinalIgnoreCase))
+                {
+                    found = index;
+                    break;
+                }
+            }
+        }
+        else if (animation.Sequence is { Length: > 0 } sequenceLabel)
+        {
+            found = model.SequenceByLabel(sequenceLabel);
+        }
+
+        if (found < 0)
+        {
+            return;
+        }
+
+        Sequence = found;
+        CycleStartTime = RealTimeSeconds;
+    }
+
+    /// <summary>
+    /// <c>CBaseModelPanel::PlaySequence</c> plays a named sequence temporarily; <c>OnTick</c>
+    /// (<c>basemodel_panel.cpp:402-419</c>) reverts to the default animation once it has run one cycle.
+    /// </summary>
+    /// <param name="sequenceName">A sequence label.</param>
+    /// <remarks>
+    /// **Duration is derived, not read, because nothing at this layer exposes <c>Studio_Duration</c> directly.**
+    /// One cycle's length is the reciprocal of <see cref="PropModels.SkinnedModel.CyclesPerSecond"/> — the same
+    /// quantity <c>Studio_CPS</c> feeds (<c>bone_setup.cpp</c>, cited on <see cref="PropModels.SkinnedModel.BlendedCyclesPerSecond"/>)
+    /// — rather than a second reading of the animation's frame count and fps.
+    /// </remarks>
+    public void PlaySequence(string sequenceName)
+    {
+        if (ResolveModel is not { } resolve || ModelName is not { } modelName || resolve(modelName) is not { } model)
+        {
+            return;
+        }
+
+        int found = model.SequenceByLabel(sequenceName);
+
+        if (found < 0)
+        {
+            return;
+        }
+
+        float cyclesPerSecond = model.CyclesPerSecond(found);
+
+        Sequence = found;
+        CycleStartTime = RealTimeSeconds;
+        _activeSequence = found;
+        _activeSequenceDuration = cyclesPerSecond > 0f ? 1f / cyclesPerSecond : 0f;
+        _activeSequenceStartedAt = RealTimeSeconds;
+    }
+
+    /// <summary>
+    /// <c>CBaseModelPanel::OnTick</c> (<c>basemodel_panel.cpp:402-419</c>): once a sequence <see cref="PlaySequence"/>
+    /// started has run its one cycle, revert to the default animation. Called from <see cref="Paint"/>, which is the
+    /// only place this panel is asked what time it is.
+    /// </summary>
+    public void Tick()
+    {
+        if (_activeSequence < 0)
+        {
+            return;
+        }
+
+        if (RealTimeSeconds - _activeSequenceStartedAt < _activeSequenceDuration)
+        {
+            return;
+        }
+
+        _activeSequence = -1;
+        _activeSequenceDuration = 0f;
+
+        foreach (ModelPanelAnimation animation in _animations)
+        {
+            if (animation.Default)
+            {
+                SetModelAnim(animation);
+                break;
             }
         }
     }
