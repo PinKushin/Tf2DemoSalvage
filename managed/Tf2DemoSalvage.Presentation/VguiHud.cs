@@ -49,7 +49,7 @@ public sealed class VguiHud
 
     /// <summary>Every event any element's `ListenForGameEvent` asked for — the only ones the feed resolves.</summary>
     public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(
-        [.. TfHudDeathNotice.ListensFor, .. TfHudTimeStatus.ListensFor, .. TfHudChat.ListensFor],
+        [.. TfHudDeathNotice.ListensFor, .. TfHudTimeStatus.ListensFor, .. TfHudChat.ListensFor, .. TfHudMatchStatus.ListensFor],
         StringComparer.Ordinal);
 
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
@@ -132,6 +132,11 @@ public sealed class VguiHud
             if (TfHudChat.ListensFor.Contains(fired.Event.Name))
             {
                 Chat.HandleGameEvent(fired.Event, state);
+            }
+
+            if (TfHudMatchStatus.ListensFor.Contains(fired.Event.Name))
+            {
+                MatchStatus.HandleGameEvent(fired);
             }
         }
 

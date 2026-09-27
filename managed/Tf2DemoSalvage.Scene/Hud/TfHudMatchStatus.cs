@@ -119,6 +119,49 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
             TimePanel.Visible = false;
         }
     }
+
+    /// <summary>The events `CTFHudMatchStatus`'s constructor listens for that this port models (:302-303).</summary>
+    /// <remarks>
+    /// `teamplay_round_start` and `show_match_summary` are also listened for in the engine, but their only handling here
+    /// is `ShowRoundSign`/the match-doors animation — 3D model panels, out of this port's scope (see the class remarks).
+    /// `teamplay_round_start` is included anyway so a later pass has somewhere to dispatch it; it is presently a no-op.
+    /// </remarks>
+    public static IReadOnlySet<string> ListensFor { get; } =
+        new HashSet<string>(["restart_timer_time", "teamplay_round_start"], StringComparer.Ordinal);
+
+    /// <summary>`FireGameEvent` (:547), restricted to the 2D countdown label.</summary>
+    /// <param name="fired">The event.</param>
+    public void HandleGameEvent(HudGameEvent fired)
+    {
+        ArgumentNullException.ThrowIfNull(fired);
+
+        if (!ShouldUseMatchHud(HudViewport.Of(this)?.State ?? default))
+        {
+            return;
+        }
+
+        if (fired.Event.Name == "restart_timer_time")
+        {
+            HandleCountdown(fired.Event.GetInt("time"));
+        }
+
+        // `teamplay_round_start`: `ShowRoundSign` when rounds have already been played — out of scope, so nothing 2D
+        // happens here (see `ListensFor`'s remarks).
+    }
+
+    /// <summary>`HandleCountdown` (:614), minus `ShowRoundSign` and `ShowMatchStartDoors` — both 3D model panels.</summary>
+    /// <param name="time">`event->GetInt( "time" )`: seconds left on the restart countdown.</param>
+    private void HandleCountdown(int time)
+    {
+        SetDialogVariable("countdown", time);
+
+        // `case 10:` — the doors branch (`GetRoundsPlayed() == 0`) is 3D and out of scope; the `else` is the 2D one.
+        // `GetRoundsPlayed` is not decoded, so this plays for every round rather than only rounds after the first.
+        if (time == 10)
+        {
+            HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudMatchStatus_ShowCountdown");
+        }
+    }
 }
 
 /// <summary>`CTFHudTimeStatus` (game/client/tf/tf_time_panel.cpp:290): the round timer — its clock, dial and state labels.</summary>
