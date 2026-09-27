@@ -233,6 +233,65 @@ public sealed class CModelPanelConformanceTests
     }
 
     [Test]
+    public void ParticlePanel_TheResBlock_PlacesTheSlamAtTheCentreUnstartedUntilStart0()
+    {
+        TfHudMatchStatus status = Built();
+        HudViewport viewport = (HudViewport)status.Parent!;
+        TfParticlePanel slam = (TfParticlePanel)status.FindChildByName("FrontParticlePanel")!;
+
+        // "c0": the panel's centre; y from the bottom (:421-422); `start_activated` 0, `loop` 0.
+        TfParticlePanel.Effect effect = slam.Effects.ShouldHaveSingleItem();
+        (effect.X, effect.Y, effect.Scale, effect.Loop, effect.Started).ShouldBe((320, 240, 2f, false, false));
+
+        viewport.ParticleSystems = new Dictionary<string, ParticleSystem>(StringComparer.OrdinalIgnoreCase) { ["versus_door_slam"] = Slam() };
+
+        // `RunEventChild FrontParticlePanel PlayDoorSlamParticles` → `FireCommand 0 "start0"` (hudanimations_tf.txt).
+        slam.OnCommand("start0");
+        effect.Started.ShouldBeTrue();
+
+        viewport.Think(viewport.State with { RealTime = 10f });
+        slam.Think();
+        viewport.Think(viewport.State with { RealTime = 10.5f });
+        slam.Think();
+
+        effect.System.ShouldNotBeNull().Particles.Count.ShouldBe(33, "66 a second for half a second, on engine->Time()");
+    }
+
+    [Test]
+    public void OrthoCamera_APointLeftOfAndAboveTheOrigin_LandsWhereTheTranslateAndScalePutIt()
+    {
+        // View x is world −y, view y world z (ComputeViewMatrix); Translate( 320, 240 ) then Scale( 2 ) in a 640×480 ortho.
+        float[] m = TfParticlePanel.OrthoCamera(320, 240, 2f, 640, 480);
+        (float x, float y, float z) world = (0f, -10f, 5f);
+
+        float clipX = (world.x * m[0]) + (world.y * m[4]) + (world.z * m[8]) + m[12];
+        float clipY = (world.x * m[1]) + (world.y * m[5]) + (world.z * m[9]) + m[13];
+
+        clipX.ShouldBe(((320f + 20f) * 2f / 640f) - 1f, 1e-6);
+        clipY.ShouldBe(((240f + 10f) * 2f / 480f) - 1f, 1e-6);
+    }
+
+    private static ParticleSystem Slam() => new(
+        "versus_door_slam",
+        [
+            new ParticleFunction("emit_continuously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["emission_rate"] = new DmxValue(DmxAttributeType.Real, 66d),
+            }),
+        ],
+        [
+            new ParticleFunction("Lifetime Random", "life", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["lifetime_min"] = new DmxValue(DmxAttributeType.Real, 5d),
+                ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 5d),
+            }),
+        ],
+        [],
+        [new ParticleFunction("render_animated_sprites", "draw", new Dictionary<string, DmxValue>(StringComparer.Ordinal))],
+        [],
+        new Dictionary<string, DmxValue>(StringComparer.Ordinal));
+
+    [Test]
     public void SetupModel_StartFramed_FitsTheHeaderBoundsIntoTheFieldOfView()
     {
         // Bounds ±10 × ±20 × 0..40, fov 54 on 640×480: the widest corner's `fabs( z / tanY − x )` is 63.73, ×1.1 is 70.110,
@@ -353,6 +412,11 @@ public sealed class CModelPanelConformanceTests
                     "HudMatchStatus" { "fieldName" "HudMatchStatus" "wide" "640" "tall" "480" "visible" "1" }
                     "CountdownLabel" { "ControlName" "CExLabel" "fieldName" "CountdownLabel" "wide" "40" "tall" "40" "visible" "0" "labelText" "%countdown%" }
                     {{DoorsBlock}}
+                    "FrontParticlePanel"
+                    {
+                        "ControlName" "CTFParticlePanel" "fieldName" "FrontParticlePanel" "wide" "640" "tall" "480" "visible" "1"
+                        "ParticleEffects" { "0" { "particle_xpos" "c0" "particle_ypos" "c0" "particle_scale" "2" "particleName" "versus_door_slam" "start_activated" "0" "loop" "0" } }
+                    }
                 }
                 """),
             ["resource/UI/HudObjectiveTimePanel.res"] = Encoding.UTF8.GetBytes("""

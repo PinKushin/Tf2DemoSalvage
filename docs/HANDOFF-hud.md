@@ -251,7 +251,8 @@ gates.
 4. `localplayer_pickup_weapon`: done — `PlayerPickupWeapon` is kept by name and fired to TfHudPlayerClass. Its other
    listener, the item effect meter (tf_hud_itemeffectmeter.cpp:128), is not ported.
 5. Match-start doors and round sign: done, `VguiModelPanel` (CModelPanel), with the doors' team lists and party names.
-   The rank-up message needs the GC's rating cache (tf_rating_data.cpp:22-41), never in a demo.
+   The rank-up message needs the GC's rating cache (tf_rating_data.cpp:22-41), never in a demo. The door slam is
+   `TfParticlePanel` (CTFParticlePanel).
 6. Model-shader directional local lights: done; a panel's second directional light is one. A map's only directional
    light, light_environment, already reaches world models as the sun.
 7. `_minmode` keys: done — every `.res` read from disk (BuildGroup.cpp:953-960); a change reloads the scheme.

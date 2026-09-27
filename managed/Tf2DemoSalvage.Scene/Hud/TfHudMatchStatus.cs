@@ -39,13 +39,13 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         // (:287-298). The leader avatars are `CAvatarImagePanel`s, whose picture Steam serves; the demo carries no image.
         BlueTeamPanel = new VguiEditablePanel(this, "BlueTeamPanel");
         PlayerListBlue = new VguiSectionedListPanel(BlueTeamPanel, "BluePlayerList");
-        BlueLeaderAvatarImage = new VguiPanel(BlueTeamPanel, "BlueLeaderAvatar");
+        BlueLeaderAvatarImage = new VguiAvatarImagePanel(BlueTeamPanel, "BlueLeaderAvatar");
         BlueLeaderAvatarBg = new VguiEditablePanel(BlueTeamPanel, "BlueLeaderAvatarBG");
         BlueTeamImage = new VguiImagePanel(BlueTeamPanel, "BlueTeamImage");
         BlueTeamName = new TfExLabel(BlueTeamPanel, "BlueTeamLabel");
         RedTeamPanel = new VguiEditablePanel(this, "RedTeamPanel");
         PlayerListRed = new VguiSectionedListPanel(RedTeamPanel, "RedPlayerList");
-        RedLeaderAvatarImage = new VguiPanel(RedTeamPanel, "RedLeaderAvatar");
+        RedLeaderAvatarImage = new VguiAvatarImagePanel(RedTeamPanel, "RedLeaderAvatar");
         RedLeaderAvatarBg = new VguiEditablePanel(RedTeamPanel, "RedLeaderAvatarBG");
         RedTeamImage = new VguiImagePanel(RedTeamPanel, "RedTeamImage");
         RedTeamName = new TfExLabel(RedTeamPanel, "RedTeamLabel");
@@ -64,7 +64,7 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
     public VguiSectionedListPanel PlayerListBlue { get; }
 
     /// <summary>`m_pBlueLeaderAvatarImage`.</summary>
-    public VguiPanel BlueLeaderAvatarImage { get; }
+    public VguiAvatarImagePanel BlueLeaderAvatarImage { get; }
 
     /// <summary>`m_pBlueLeaderAvatarBG`.</summary>
     public VguiEditablePanel BlueLeaderAvatarBg { get; }
@@ -82,7 +82,7 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
     public VguiSectionedListPanel PlayerListRed { get; }
 
     /// <summary>`m_pRedLeaderAvatarImage`.</summary>
-    public VguiPanel RedLeaderAvatarImage { get; }
+    public VguiAvatarImagePanel RedLeaderAvatarImage { get; }
 
     /// <summary>`m_pRedLeaderAvatarBG`.</summary>
     public VguiEditablePanel RedLeaderAvatarBg { get; }
