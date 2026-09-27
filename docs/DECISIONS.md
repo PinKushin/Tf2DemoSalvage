@@ -9327,3 +9327,8 @@ we go after them"*.
 So a red CI coverage floor does not block implementation. A **small** drop is undertesting, left for the mutation
 pass to surface. A **massive** drop is still a defect to investigate now, because it suggests something was deleted
 that should not have been. The local three-phase gate before a merge to main is unchanged.
+
+His reason, added right after: *"things like what we have been doing the last 2 weeks, are massive systems, the
+covereage percentage, is going to drop, because the testing is simply not going to be able to keep up without
+stalling the implementation, unless you wait till the implementation is done to worry about it"*. So coverage
+catch-up belongs after a system's implementation is done, not interleaved with it.
