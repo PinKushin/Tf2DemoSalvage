@@ -44,9 +44,8 @@ public static class Tf2ConfigFiles
     /// <param name="gameFolder">The <c>tf</c> folder, or null to read nothing.</param>
     /// <param name="log">Where to report what was found, or null.</param>
     /// <param name="ownCustomRoot">
-    /// The program's own <c>custom/</c> folder, or null. Checked both flat and under a <c>cfg/</c>
-    /// subfolder (D193), and applied after <paramref name="gameFolder"/>'s configs so what the
-    /// player imported here wins last.
+    /// The program's own <c>custom/</c> folder, or null — searched above the game, as <c>tf/custom</c> is
+    /// (<see cref="GameArchives.WithOwnCustom"/>).
     /// </param>
     /// <returns>The configs' text in exec order; empty when the game is not installed.</returns>
     /// <remarks>
@@ -59,72 +58,44 @@ public static class Tf2ConfigFiles
     {
         List<string> configs = [];
 
-        if (!string.IsNullOrWhiteSpace(gameFolder))
+        // **Our own custom/ is one more search path, above the game's (D193).** `exec` reads the FIRST match on the
+        // search path, so a config there replaces the game's copy of that file rather than running after it.
+        GameArchives archives = GameArchives.Open(gameFolder, log).WithOwnCustom(ownCustomRoot);
+
+        foreach (string path in Order)
         {
-            GameArchives archives = GameArchives.Open(gameFolder, log);
-
-            foreach (string path in Order)
+            // Stryker disable once : a mutant that empties the guard body leaves 'text'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
+            // A config dropped straight into our custom/, with no cfg/ folder, counts as that file too (D193: "check both").
+            if ((ReadFlat(ownCustomRoot, path) ?? Read(archives, path)) is not { } text)
             {
-                // Stryker disable once : a mutant that empties the guard body leaves 'text'
-                // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-                if (Read(archives, path) is not { } text)
-                {
-                    continue;
-                }
-
-                configs.Add(text);
-                log?.Invoke("config", $"{path}: {text.Length} characters");
+                continue;
             }
-        }
 
-        // **The program's OWN custom/ folder, checked in both shapes (D193).** A config a player
-        // pasted in lands in our custom/, and "cfgs can also technically just be put in the cfg
-        // folder" — so both `custom/config.cfg` and `custom/cfg/config.cfg` are read. Applied after
-        // the game's own configs, so what the player deliberately imported here wins last, the same
-        // as `autoexec.cfg` winning over `config.cfg`.
-        if (!string.IsNullOrWhiteSpace(ownCustomRoot) && Directory.Exists(ownCustomRoot))
-        {
-            foreach (string path in Order)
-            {
-                string leaf = Path.GetFileName(path);
-
-                foreach (string candidate in new[]
-                {
-                    Path.Combine(ownCustomRoot, path.Replace('/', Path.DirectorySeparatorChar)),
-                    Path.Combine(ownCustomRoot, leaf),
-                })
-                {
-                    if (ReadFile(candidate) is not { } text)
-                    {
-                        continue;
-                    }
-
-                    configs.Add(text);
-                    log?.Invoke("config", $"{candidate}: {text.Length} characters");
-                }
-            }
+            configs.Add(text);
+            log?.Invoke("config", $"{path}: {text.Length} characters");
         }
 
         return configs;
     }
 
-    /// <summary>One config's text from a loose file on disk, or null when it is not there.</summary>
-    /// <remarks>Same decoding as <see cref="Read(GameArchives, string)"/>: BOM stripped, invalid bytes replaced rather than thrown on.</remarks>
-    private static string? ReadFile(string path)
+    /// <summary>`custom/&lt;name&gt;.cfg`, loose in our own folder, or null.</summary>
+    private static string? ReadFlat(string? ownCustomRoot, string path)
     {
-        if (!File.Exists(path))
+        if (string.IsNullOrWhiteSpace(ownCustomRoot))
         {
             return null;
         }
 
+        string file = Path.Combine(ownCustomRoot, Path.GetFileName(path));
+
         try
         {
-            byte[] bytes = File.ReadAllBytes(path);
-
-            return bytes.Length == 0 ? null : Decode(bytes);
+            return File.Exists(file) && File.ReadAllBytes(file) is { Length: > 0 } bytes ? Decode(bytes) : null;
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
+            // An unreadable config is a missing one, as a damaged archive is in GameArchives: the viewer still starts.
             return null;
         }
     }
@@ -147,7 +118,7 @@ public static class Tf2ConfigFiles
         return bytes is null || bytes.Length == 0 ? null : Decode(bytes);
     }
 
-    /// <summary>Decodes a config's bytes to text, shared by <see cref="Read(GameArchives, string)"/> and <see cref="ReadFile"/>.</summary>
+    /// <summary>Decodes a config's bytes to text, shared by <see cref="Read(GameArchives, string)"/> and <see cref="ReadFlat"/>.</summary>
     private static string Decode(byte[] bytes)
     {
         ReadOnlySpan<byte> span = bytes;

@@ -198,6 +198,46 @@ public sealed class GameArchives
         return stock;
     }
 
+    /// <summary>This search path under the program's own `custom/` folder, mounted the way gameinfo.txt mounts `tf/custom/*` (D193).</summary>
+    /// <param name="root">The program's own `custom/` folder, or null.</param>
+    /// <returns>The view, first match wins as ever; unchanged when there is no such folder.</returns>
+    /// <remarks>
+    /// Each folder and `.vpk` directly inside is one source, in name order as the wildcard enumerates them, all above the
+    /// game — so `custom/mastercomfig.vpk` or `custom/mine/cfg/autoexec.cfg` shadows the game's copy exactly as it would
+    /// under `tf/custom`. The folder itself follows them, so a `custom/cfg/autoexec.cfg` is found as well.
+    /// </remarks>
+    public GameArchives WithOwnCustom(string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+        {
+            return this;
+        }
+
+        List<(string Path, VpkArchive? Archive)> sources = [];
+
+        foreach (string entry in Directory.EnumerateFileSystemEntries(root).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                if (Directory.Exists(entry))
+                {
+                    sources.Add((entry, null));
+                }
+                else if (entry.EndsWith(".vpk", StringComparison.OrdinalIgnoreCase))
+                {
+                    sources.Add((entry, VpkArchive.Open(entry)));
+                }
+            }
+            catch (Exception failure) when (failure is IOException or InvalidDataException or UnauthorizedAccessException)
+            {
+                // A damaged archive costs its content, not the viewer — as in Open.
+            }
+        }
+
+        sources.Add((root, null));
+        return new GameArchives([.. sources, .. _sources]);
+    }
+
     /// <summary>`V_RemoveDotSlashes` (tier1/strtools.cpp:2315) with `/`: separators unified, empty and `.` segments dropped, each `..` taking the directory before it.</summary>
     /// <param name="path">A game path.</param>
     /// <returns>The path, or null where a `..` has no directory to take — the engine's `false`.</returns>

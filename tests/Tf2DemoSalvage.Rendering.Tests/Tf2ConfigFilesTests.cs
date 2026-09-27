@@ -180,6 +180,29 @@ public sealed class Tf2ConfigFilesTests
     }
 
     [Test]
+    public void Read_AConfigInAnAddonFolderOfOwnCustom_ReplacesTheGamesCopy()
+    {
+        // `exec` reads the first match on the search path, and our custom/* sits above the game's (D193):
+        // one config.cfg results, and it is ours.
+        string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-addon-" + Guid.NewGuid());
+        string game = Path.Combine(root, "tf");
+        string custom = Path.Combine(root, "custom");
+        Directory.CreateDirectory(Path.Combine(game, "cfg"));
+        Directory.CreateDirectory(Path.Combine(custom, "mine", "cfg"));
+        File.WriteAllText(Path.Combine(game, "cfg", "config.cfg"), "bind \"e\" \"+game\"");
+        File.WriteAllText(Path.Combine(custom, "mine", "cfg", "config.cfg"), "bind \"e\" \"+ours\"");
+
+        try
+        {
+            Tf2ConfigFiles.Read(game, ownCustomRoot: custom).ShouldBe(["bind \"e\" \"+ours\""]);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public void Read_NoOwnCustomRoot_IsUnaffected()
     {
         Tf2ConfigFiles.Read(null, ownCustomRoot: null).ShouldBeEmpty();
