@@ -43,36 +43,90 @@ public static class Tf2ConfigFiles
     /// <summary>Reads whichever of the player's configs exist.</summary>
     /// <param name="gameFolder">The <c>tf</c> folder, or null to read nothing.</param>
     /// <param name="log">Where to report what was found, or null.</param>
+    /// <param name="ownCustomRoot">
+    /// The program's own <c>custom/</c> folder, or null. Checked both flat and under a <c>cfg/</c>
+    /// subfolder (D193), and applied after <paramref name="gameFolder"/>'s configs so what the
+    /// player imported here wins last.
+    /// </param>
     /// <returns>The configs' text in exec order; empty when the game is not installed.</returns>
     /// <remarks>
     /// **Missing files are normal and are not errors.** A fresh install has no `config.cfg` until
     /// the game has run once, and most players have never created an `autoexec.cfg` at all. The
     /// viewer must start regardless — its own defaults are a working set of controls.
     /// </remarks>
-    public static IReadOnlyList<string> Read(string? gameFolder, Action<string, string>? log = null)
+    public static IReadOnlyList<string> Read(
+        string? gameFolder, Action<string, string>? log = null, string? ownCustomRoot = null)
     {
-        if (string.IsNullOrWhiteSpace(gameFolder))
-        {
-            return [];
-        }
-
-        GameArchives archives = GameArchives.Open(gameFolder, log);
         List<string> configs = [];
 
-        foreach (string path in Order)
+        if (!string.IsNullOrWhiteSpace(gameFolder))
         {
-            // Stryker disable once : a mutant that empties the guard body leaves 'text'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Read(archives, path) is not { } text)
-            {
-                continue;
-            }
+            GameArchives archives = GameArchives.Open(gameFolder, log);
 
-            configs.Add(text);
-            log?.Invoke("config", $"{path}: {text.Length} characters");
+            foreach (string path in Order)
+            {
+                // Stryker disable once : a mutant that empties the guard body leaves 'text'
+                // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
+                if (Read(archives, path) is not { } text)
+                {
+                    continue;
+                }
+
+                configs.Add(text);
+                log?.Invoke("config", $"{path}: {text.Length} characters");
+            }
+        }
+
+        // **The program's OWN custom/ folder, checked in both shapes (D193).** A config a player
+        // pasted in lands in our custom/, and "cfgs can also technically just be put in the cfg
+        // folder" — so both `custom/config.cfg` and `custom/cfg/config.cfg` are read. Applied after
+        // the game's own configs, so what the player deliberately imported here wins last, the same
+        // as `autoexec.cfg` winning over `config.cfg`.
+        if (!string.IsNullOrWhiteSpace(ownCustomRoot) && Directory.Exists(ownCustomRoot))
+        {
+            foreach (string path in Order)
+            {
+                string leaf = Path.GetFileName(path);
+
+                foreach (string candidate in new[]
+                {
+                    Path.Combine(ownCustomRoot, path.Replace('/', Path.DirectorySeparatorChar)),
+                    Path.Combine(ownCustomRoot, leaf),
+                })
+                {
+                    if (ReadFile(candidate) is not { } text)
+                    {
+                        continue;
+                    }
+
+                    configs.Add(text);
+                    log?.Invoke("config", $"{candidate}: {text.Length} characters");
+                }
+            }
         }
 
         return configs;
+    }
+
+    /// <summary>One config's text from a loose file on disk, or null when it is not there.</summary>
+    /// <remarks>Same decoding as <see cref="Read(GameArchives, string)"/>: BOM stripped, invalid bytes replaced rather than thrown on.</remarks>
+    private static string? ReadFile(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            byte[] bytes = File.ReadAllBytes(path);
+
+            return bytes.Length == 0 ? null : Decode(bytes);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     /// <summary>One config's text, or null when it is not there.</summary>
@@ -90,11 +144,12 @@ public static class Tf2ConfigFiles
     {
         byte[]? bytes = archives.Read(path);
 
-        if (bytes is null || bytes.Length == 0)
-        {
-            return null;
-        }
+        return bytes is null || bytes.Length == 0 ? null : Decode(bytes);
+    }
 
+    /// <summary>Decodes a config's bytes to text, shared by <see cref="Read(GameArchives, string)"/> and <see cref="ReadFile"/>.</summary>
+    private static string Decode(byte[] bytes)
+    {
         ReadOnlySpan<byte> span = bytes;
 
         // UTF-8 BOM. Notepad writes one, and left in place it becomes part of the first token —

@@ -137,4 +137,52 @@ public sealed class Tf2ConfigFilesTests
         // makes a VPK readable without this file knowing what one is.
         Tf2ConfigFiles.Read(tf).Count.ShouldBeGreaterThan(0);
     }
+
+    [Test]
+    public void Read_AConfigFlatInOwnCustom_IsFound()
+    {
+        // D193: "cfgs can also technically just be put in the cfg folder, so we have to actually
+        // check both" — a config a player pastes directly into OUR custom/ folder, no cfg/
+        // subfolder, must still be picked up.
+        string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-flat-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "autoexec.cfg"), "bind \"w\" \"+forward\"");
+
+        try
+        {
+            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(null, ownCustomRoot: root);
+
+            configs.ShouldContain(text => text.Contains("+forward", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public void Read_AConfigUnderCfgInOwnCustom_IsAlsoFound()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-cfg-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(root, "cfg"));
+        File.WriteAllText(Path.Combine(root, "cfg", "config.cfg"), "bind \"e\" \"+use\"");
+
+        try
+        {
+            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(null, ownCustomRoot: root);
+
+            configs.ShouldContain(text => text.Contains("+use", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public void Read_NoOwnCustomRoot_IsUnaffected()
+    {
+        Tf2ConfigFiles.Read(null, ownCustomRoot: null).ShouldBeEmpty();
+        Tf2ConfigFiles.Read(null, ownCustomRoot: "   ").ShouldBeEmpty();
+    }
 }
