@@ -2433,6 +2433,10 @@ public sealed class DemoTimeline
                         userMessages.Add(new SceneUserMessage(command.Tick, user.UserMessageType, user.Body));
                         continue;
 
+                    case UserMessage { Name: SceneUserMessage.PlayerPickupWeapon } pickup:
+                        userMessages.Add(new SceneUserMessage(command.Tick, pickup.UserMessageType, pickup.Body) { Name = pickup.Name });
+                        continue;
+
                     case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
                         BaselineBuilder.Apply(create.Entries, decoder);
                         continue;

@@ -249,7 +249,8 @@ gates.
    cannot run: `FSOLID_NOT_SOLID` (entity_capture_flag.cpp:607). Open: a dropped weapon's trace uses its entity-space
    collision box, not the `.phy` hull `SOLID_VPHYSICS` clips against.
 3. `CTFMinigameLogic` refusal in TfHudPlayerStatus.ShouldDraw (tf_hud_playerstatus.cpp:1087).
-4. `localplayer_pickup_weapon`: its user message is dropped (DemoTimeline keeps only chat user messages).
+4. `localplayer_pickup_weapon`: done — `PlayerPickupWeapon` is kept by name and fired to TfHudPlayerClass. Its other
+   listener, the item effect meter (tf_hud_itemeffectmeter.cpp:128), is not ported.
 5. Match-start doors and round sign (CModelPanel) in TfHudMatchStatus.
 6. Model-shader directional local lights (renderer, WorldRenderer.cs:598-625).
 7. `_minmode` keys: only CTFPlayerModelPanel applies them; check EditablePanel/BuildGroup for the general rule.

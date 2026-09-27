@@ -214,6 +214,15 @@ public sealed class VguiHud
         // `HOOK_HUD_MESSAGE`: the chat's user messages, as they are read.
         foreach (Core.Scene.SceneUserMessage message in userMessages ?? [])
         {
+            // `USER_MESSAGE( PlayerPickupWeapon )` fires `localplayer_pickup_weapon` client-side (clientmode_tf.cpp:2469-2475).
+            if (message.Name == Core.Scene.SceneUserMessage.PlayerPickupWeapon)
+            {
+                PlayerStatus.PlayerClass.HandleGameEvent(
+                    new SceneGameEvent(message.Tick, "localplayer_pickup_weapon", new Dictionary<string, object?>(), new Dictionary<int, Core.Net.PlayerInfo>()),
+                    state);
+                continue;
+            }
+
             Chat.HandleUserMessage(message, state);
         }
 
