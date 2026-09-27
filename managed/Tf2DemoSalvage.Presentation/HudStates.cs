@@ -59,6 +59,14 @@ public static class HudStates
             ServerTime = (timeline.ServerTickAt(tick) ?? tick) * interval,
             RoundState = timeline.RoundStateAt(tick),
             RoundTimers = timeline.RoundTimersAt(tick),
+            Teams = timeline.TeamsAt(tick),
+
+            // `IsInTournamentMode()`/`mp_tournament_stopwatch.GetBool()`/`mp_winlimit.GetInt()` —
+            // replicated cvars, so the server's value (or Valve's declared default) rather than
+            // anything this project would otherwise have to take as off.
+            TournamentMode = timeline.ServerConVars.Number("mp_tournament") != 0f,
+            TournamentStopwatch = timeline.ServerConVars.Number("mp_tournament_stopwatch") != 0f,
+            WinLimit = (int)timeline.ServerConVars.Number("mp_winlimit"),
         };
     }
 

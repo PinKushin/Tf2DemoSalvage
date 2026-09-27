@@ -13,9 +13,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// and in the HUD — and shows it outside freeze cam, outside KOTH (whose timers are their own element) unless waiting for
 /// players, and not during the match summary. `tf_use_match_hud` (1) and not Mann vs. Machine loads its `.res` with
 /// `if_match`.
-/// **Not modelled:** the round counter, team status, player lists and avatars, match doors, round sign, countdown and
-/// rank-up labels; `if_large`, which needs the match group's size; `IsInTournamentMode`, a server cvar the demo does not
-/// carry, taken as off; the freeze-cam screenshot test; and an open viewport panel.
+/// **Not modelled:** team status, player lists and avatars, match doors, round sign and rank-up labels; `if_large`, which
+/// needs the match group's size; the freeze-cam screenshot test; and an open viewport panel.
 /// </remarks>
 public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 {
@@ -77,6 +76,12 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         }
 
         bool display = state.ObserverMode != ObserverModes.FreezeCam;
+
+        // `IsInTournamentMode() && IsInWaitingForPlayers()` (:474).
+        if (state.TournamentMode && state.Rules.WaitingForPlayers)
+        {
+            display = false;
+        }
 
         if (display)
         {

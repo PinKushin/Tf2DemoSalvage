@@ -29,6 +29,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="ServerTime">`gpGlobals->curtime` on the server's clock — the one networked times such as a timer's end are on.</param>
 /// <param name="RoundState">`State_Get()`: `m_iRoundState`, or null with no game rules.</param>
 /// <param name="RoundTimers">Every `team_round_timer`.</param>
+/// <param name="Teams">Every `CTFTeam`.</param>
+/// <param name="TournamentMode">`TeamplayRoundBasedRules()->IsInTournamentMode()`: `mp_tournament.GetBool()` (teamplayroundbased_gamerules.cpp:3488).</param>
+/// <param name="TournamentStopwatch">`mp_tournament_stopwatch.GetBool()` (tf_gamerules.cpp:797) — stopwatch mode within a tournament match.</param>
+/// <param name="WinLimit">`mp_winlimit.GetInt()` (teamplayroundbased_gamerules.cpp:227): the round counter's own win limit, 0 for none.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -54,7 +58,11 @@ public readonly record struct HudState(
     IReadOnlyDictionary<int, string>? Names = null,
     float ServerTime = 0f,
     int? RoundState = null,
-    IReadOnlyList<Core.Scene.SceneRoundTimer>? RoundTimers = null)
+    IReadOnlyList<Core.Scene.SceneRoundTimer>? RoundTimers = null,
+    IReadOnlyList<Core.Scene.SceneTeam>? Teams = null,
+    bool TournamentMode = false,
+    bool TournamentStopwatch = false,
+    int WinLimit = 0)
 {
     /// <summary>`GR_STATE_STALEMATE` (teamplayroundbased_gamerules.h:69).</summary>
     public const int RoundStateStalemate = 7;
@@ -68,6 +76,21 @@ public readonly record struct HudState(
             if (timer.EntityIndex == index)
             {
                 return timer;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>`GetGlobalTFTeam( iTeamNum )`: the team by its team number, or null.</summary>
+    /// <param name="teamNumber">2 for RED, 3 for BLU.</param>
+    public Core.Scene.SceneTeam? TeamStanding(int teamNumber)
+    {
+        foreach (Core.Scene.SceneTeam team in Teams ?? [])
+        {
+            if (team.TeamNumber == teamNumber)
+            {
+                return team;
             }
         }
 
