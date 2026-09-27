@@ -29,6 +29,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="ServerTime">`gpGlobals->curtime` on the server's clock — the one networked times such as a timer's end are on.</param>
 /// <param name="RoundState">`State_Get()`: `m_iRoundState`, or null with no game rules.</param>
 /// <param name="RoundTimers">Every `team_round_timer`.</param>
+/// <param name="IdTarget">`C_TFPlayer::GetIDTarget()` — <c>m_iIDEntIndex</c>, precomputed by whoever runs the crosshair
+/// world/entity trace (<see cref="Tf2DemoSalvage.Scene.Hud.IdTargetTrace"/>); null when nothing has computed it yet, in
+/// which case <see cref="Tf2DemoSalvage.Scene.Hud.TfMainTargetId"/> treats it as "no target" rather than guessing.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -54,7 +57,8 @@ public readonly record struct HudState(
     IReadOnlyDictionary<int, string>? Names = null,
     float ServerTime = 0f,
     int? RoundState = null,
-    IReadOnlyList<Core.Scene.SceneRoundTimer>? RoundTimers = null)
+    IReadOnlyList<Core.Scene.SceneRoundTimer>? RoundTimers = null,
+    int? IdTarget = null)
 {
     /// <summary>`GR_STATE_STALEMATE` (teamplayroundbased_gamerules.h:69).</summary>
     public const int RoundStateStalemate = 7;
