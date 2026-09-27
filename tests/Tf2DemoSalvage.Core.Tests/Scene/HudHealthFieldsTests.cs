@@ -25,6 +25,15 @@ public sealed class HudHealthFieldsTests
     }
 
     [Test]
+    public void RulesAt_ThePlayerResource_CarriesThePartyLeadersAndEventTeams()
+    {
+        SceneGameRules rules = DemoTimeline.Build(
+            SyntheticPlayer.DemoWithHudHealth(health: 88, hideHud: 0, maxHealth: 175, maxBuffedHealth: 176, residentHealth: 99)).RulesAt(100);
+
+        (rules.PartyLeaderRed, rules.PartyLeaderBlue, rules.EventTeamStatus, rules.HasPremadeParties).ShouldBe((3, 7, 2, true));
+    }
+
+    [Test]
     public void PlayersAt_TheRecordersLoadout_IsWeaponsThenWearablesUpToTheVectorsLength()
     {
         DemoTimeline timeline = DemoTimeline.Build(

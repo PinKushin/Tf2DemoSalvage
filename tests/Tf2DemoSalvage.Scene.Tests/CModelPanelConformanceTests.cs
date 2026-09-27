@@ -169,6 +169,70 @@ public sealed class CModelPanelConformanceTests
     }
 
     [Test]
+    public void ShowMatchStartDoors_TheResource_FillsEachTeamsListByIndexDescending()
+    {
+        TfHudMatchStatus status = Built();
+        HudState state = ((HudViewport)status.Parent!).State with
+        {
+            ScoreboardPlayers =
+            [
+                new SceneScoreboardPlayer(1) { Connected = true, Team = 2 },
+                new SceneScoreboardPlayer(2) { Connected = true, Team = 3 },
+                new SceneScoreboardPlayer(4) { Connected = false, Team = 2 },
+                new SceneScoreboardPlayer(5) { Connected = true, Team = 2 },
+                new SceneScoreboardPlayer(6) { Connected = true, Team = 1 },
+            ],
+            Names = new Dictionary<int, string> { [1] = "One", [2] = "Two", [5] = "Five" },
+            Teams = [new SceneTeam(2), new SceneTeam(3)],
+        };
+
+        status.UpdatePlayerList(state);
+
+        VguiSectionedListPanel red = status.PlayerListRed;
+        IReadOnlyList<int> order = red.ItemsInPaintOrder();
+        order.Count.ShouldBe(2, "connected RED only (:818-832)");
+        red.GetItemData(order[0])!["name"].ShouldBe("Five", "no \"score\" is ever set, so the higher index first (:766-776)");
+        red.GetItemData(order[1])!["name"].ShouldBe("One");
+        red.GetItemFgColor(order[0]).ShouldBe(((byte)255, (byte)64, (byte)64, (byte)255), "COLOR_RED");
+        red.GetItemBgColor(order[0]).ShouldBe(((byte)120, (byte)120, (byte)120, (byte)80));
+        status.PlayerListBlue.ItemCount.ShouldBe(1);
+    }
+
+    [TestCase(3, 7, true)]
+    [TestCase(3, 0, false)]
+    public void UpdateTeamInfo_PremadeParties_ShowTheLeaderAvatarsInsteadOfTheTeamImages(int red, int blue, bool avatars)
+    {
+        TfHudMatchStatus status = Built();
+        HudState state = ((HudViewport)status.Parent!).State with
+        {
+            ScoreboardPlayers = [],
+            Rules = new SceneGameRules(false, 0, false) { PartyLeaderRed = red, PartyLeaderBlue = blue },
+        };
+
+        status.UpdateTeamInfo(state);
+
+        (status.RedLeaderAvatarImage.Visible, status.BlueTeamName.Visible, status.RedTeamImage.Visible).ShouldBe((avatars, avatars, !avatars));
+    }
+
+    [Test]
+    public void Localized_ACompetitiveTournamentWithParties_NamesTheLeadersTeam()
+    {
+        HudState state = new HudState(true, true, 0, 100, true) with
+        {
+            ConVars = new HudConVars(name => name == "mp_tournament" ? "1" : null),
+            Rules = new SceneGameRules(false, 0, false) { MatchGroup = 2, PartyLeaderRed = 3, PartyLeaderBlue = 7 },
+            ScoreboardPlayers = [new SceneScoreboardPlayer(3) { Connected = true }],
+            Names = new Dictionary<int, string> { [3] = "#50%&co" },
+        };
+        Func<string, string?> find = token => token == "#TF_Team_PartyLeader" ? "Team %s" : null;
+
+        TfTeamNames.Localized(2, state, find).ShouldBe("Team *50*&&co", "UTIL_SafeName (cdll_util.cpp:801-837)");
+        TfTeamNames.Localized(3, state, find).ShouldBe("BLU", "leader 7 is not connected, so the localized name");
+        TfTeamNames.Localized(3, state with { Rules = state.Rules with { EventTeamStatus = 1 } }, token => token == "#TF_Pyro" ? "Pyro" : null)
+            .ShouldBe("Pyro", "INVADERS_ARE_PYRO: BLU is the pyros (:138-140)");
+    }
+
+    [Test]
     public void SetupModel_StartFramed_FitsTheHeaderBoundsIntoTheFieldOfView()
     {
         // Bounds ±10 × ±20 × 0..40, fov 54 on 640×480: the widest corner's `fabs( z / tanY − x )` is 63.73, ×1.1 is 70.110,

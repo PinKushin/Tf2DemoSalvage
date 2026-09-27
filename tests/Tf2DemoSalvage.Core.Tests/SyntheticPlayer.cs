@@ -605,6 +605,7 @@ internal static class SyntheticPlayer
             Table("m_iHealth", "m_iHealth"),
             Table("m_iMaxHealth", "m_iMaxHealth"),
             Table("m_iMaxBuffedHealth", "m_iMaxBuffedHealth"),
+            Int("m_iPartyLeaderRedTeamIndex", bits: 8), Int("m_iPartyLeaderBlueTeamIndex", bits: 8), Int("m_iEventTeamStatus", bits: 3),
         ]));
 
         DemoSchema schema = new(
@@ -627,6 +628,9 @@ internal static class SyntheticPlayer
                 [$"m_iHealth.{Slot}"] = PropertyValue.FromInt(residentHealth),
                 [$"m_iMaxHealth.{Slot}"] = PropertyValue.FromInt(maxHealth),
                 [$"m_iMaxBuffedHealth.{Slot}"] = PropertyValue.FromInt(maxBuffedHealth),
+                ["m_iPartyLeaderRedTeamIndex"] = PropertyValue.FromInt(3),
+                ["m_iPartyLeaderBlueTeamIndex"] = PropertyValue.FromInt(7),
+                ["m_iEventTeamStatus"] = PropertyValue.FromInt(2),
             }),
         ];
 

@@ -622,6 +622,18 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`IsInKothMode()`: `m_bPlayingKoth` (:1507).</summary>
     public bool Koth { get; init; }
 
+    /// <summary>`CTFPlayerResource::GetPartyLeaderRedTeamIndex()`: `m_iPartyLeaderRedTeamIndex` (c_tf_playerresource.cpp:45), 0 unsent.</summary>
+    public int PartyLeaderRed { get; init; }
+
+    /// <summary>`GetPartyLeaderBlueTeamIndex()`: `m_iPartyLeaderBlueTeamIndex` (:46).</summary>
+    public int PartyLeaderBlue { get; init; }
+
+    /// <summary>`GetEventTeamStatus()`: `m_iEventTeamStatus` (:47) — 1 invaders are pyros, 2 heavies.</summary>
+    public int EventTeamStatus { get; init; }
+
+    /// <summary>`HasPremadeParties()` (c_tf_playerresource.h:65): both leaders set.</summary>
+    public bool HasPremadeParties => PartyLeaderRed > 0 && PartyLeaderBlue > 0;
+
     /// <summary>`MapHasMatchSummaryStage()`: `m_bMapHasMatchSummaryStage` (tf_gamerules.cpp:1473).</summary>
     public bool MapHasMatchSummaryStage { get; init; }
 
@@ -3315,6 +3327,9 @@ public sealed class DemoTimeline
                 Koth = gameRules?.Integer("DT_TFGameRules.m_bPlayingKoth") is > 0,
                 ShowMatchSummary = gameRules?.Integer("DT_TFGameRules.m_bShowMatchSummary") is > 0,
                 MapHasMatchSummaryStage = gameRules?.Integer("DT_TFGameRules.m_bMapHasMatchSummaryStage") is > 0,
+                PartyLeaderRed = entities.OfClass(ResourceClass).FirstOrDefault()?.Integer("DT_TFPlayerResource.m_iPartyLeaderRedTeamIndex") ?? 0,
+                PartyLeaderBlue = entities.OfClass(ResourceClass).FirstOrDefault()?.Integer("DT_TFPlayerResource.m_iPartyLeaderBlueTeamIndex") ?? 0,
+                EventTeamStatus = entities.OfClass(ResourceClass).FirstOrDefault()?.Integer("DT_TFPlayerResource.m_iEventTeamStatus") ?? 0,
                 BlueKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hBlueKothTimer")),
                 RedKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hRedKothTimer")),
                 TimerToShowInHud = entities.OfClass(ObjectiveResourceClass).FirstOrDefault()?.Integer("DT_BaseTeamObjectiveResource.m_iTimerToShowInHUD") ?? 0,

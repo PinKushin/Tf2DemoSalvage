@@ -296,6 +296,18 @@ public class VguiSectionedListPanel : VguiPanel
     /// <param name="itemId">The item.</param>
     public bool IsItemIdValid(int itemId) => _items.ContainsKey(itemId);
 
+    /// <summary>The item IDs in the order they paint, after `ReSortList` if one is due.</summary>
+    /// <returns>The IDs.</returns>
+    public IReadOnlyList<int> ItemsInPaintOrder()
+    {
+        if (_sortNeeded)
+        {
+            ReSortList();
+        }
+
+        return _sortedItems.ConvertAll(item => item.Id);
+    }
+
     /// <summary>`GetItemCount` (:1993).</summary>
     public int ItemCount => _items.Count;
 
@@ -322,6 +334,11 @@ public class VguiSectionedListPanel : VguiPanel
     /// <param name="itemId">The item.</param>
     /// <param name="color">The colour.</param>
     public void SetItemBgColor(int itemId, (byte Red, byte Green, byte Blue, byte Alpha) color) => SetItem(itemId, item => item with { BgColor = color });
+
+    /// <summary>`SetItemBgHorizFillInset` (:1374): the background fill's inset.</summary>
+    /// <param name="itemId">The item.</param>
+    /// <param name="inset">The inset.</param>
+    public void SetItemBgHorizFillInset(int itemId, int inset) => SetItem(itemId, item => item with { BgHorizFillInset = inset });
 
     /// <summary>`SetItemFont` (:1383-1390): overrides the row's font for this item alone.</summary>
     /// <param name="itemId">The item.</param>
@@ -592,8 +609,10 @@ public class VguiSectionedListPanel : VguiPanel
         }
         else if (item.BgColor is { } bgColor)
         {
+            // `DrawFilledRect( 0, m_nHorizFillInset, wide, tall - m_nHorizFillInset )` (:533): despite its name, an inset from
+            // the top and bottom.
             surface.DrawSetColor(bgColor);
-            surface.DrawFilledRect(x, y, x + wide, y + tall);
+            surface.DrawFilledRect(x, y + item.BgHorizFillInset, x + wide, y + tall - item.BgHorizFillInset);
         }
 
         int textY = y + Math.Max(0, (tall - surface.GetFontTall(font)) / 2);
@@ -701,5 +720,7 @@ public class VguiSectionedListPanel : VguiPanel
         public (byte, byte, byte, byte)? BgColor { get; init; }
 
         public VguiFontAmalgam? Font { get; init; }
+
+        public int BgHorizFillInset { get; init; }
     }
 }
