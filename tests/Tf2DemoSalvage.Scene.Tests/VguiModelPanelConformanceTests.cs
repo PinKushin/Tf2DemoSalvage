@@ -9,8 +9,8 @@ using Tf2DemoSalvage.Scene.Hud;
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
-/// <c>CPotteryWheelPanel</c>/<c>CMDLPanel</c>'s portable half (<see cref="VguiModelPanel"/>) and
-/// <c>CBaseModelPanel</c>'s <c>.res</c> parsing (<see cref="VguiBaseModelPanel"/>).
+/// <c>CPotteryWheelPanel</c> (<see cref="VguiPotteryWheelPanel"/>), <c>CMDLPanel</c> (<see cref="VguiMdlPanel"/>)
+/// and <c>CBaseModelPanel</c> (<see cref="VguiBaseModelPanel"/>).
 /// </summary>
 public sealed class VguiModelPanelConformanceTests
 {
@@ -21,7 +21,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `CreateDefaultLights` (potterywheelpanel.cpp:316-321): `m_vecAmbientCube[i].Init(0.4f, 0.4f, 0.4f, 1.0f)`
         // for all six faces.
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
 
         panel.Ambient.PositiveX.ShouldBe((0.4f, 0.4f, 0.4f));
         panel.Ambient.NegativeX.ShouldBe((0.4f, 0.4f, 0.4f));
@@ -36,7 +36,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `CreateDefaultLights` (potterywheelpanel.cpp:325-327): `MATERIAL_LIGHT_DIRECTIONAL`, colour
         // (1, 1, 1), direction (0, 0, -1).
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
 
         panel.Sun.ShouldBe(new SunLight(1f, 1f, 1f, 0f, 0f, -1f));
     }
@@ -45,10 +45,10 @@ public sealed class VguiModelPanelConformanceTests
     public void Camera_ANewPanel_MatchesThePotteryWheelPanelConstructor()
     {
         // potterywheelpanel.cpp:250-252.
-        VguiModelPanel.NearZ.ShouldBe(3f);
-        VguiModelPanel.FarZ.ShouldBe(16384f * 1.73205080757f);
+        VguiPotteryWheelPanel.NearZ.ShouldBe(3f);
+        VguiPotteryWheelPanel.FarZ.ShouldBe(16384f * 1.73205080757f);
 
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
 
         panel.FieldOfView.ShouldBe(30f);
     }
@@ -58,7 +58,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `ParseLightsFromKV` (potterywheelpanel.cpp:392-413): the first `directional` entry's colour and
         // (normalised) direction become the light.
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
         KeyValuesTree lights = Resource("""
             lights
             {
@@ -88,7 +88,7 @@ public sealed class VguiModelPanelConformanceTests
         // unconditionally at the end of `ParseLightsFromKV` (potterywheelpanel.cpp:459), even when the block named
         // no directional light. Leaving the panel's previous Sun standing would be the opposite of what a
         // point-only or empty `lights` block does in the engine.
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
         KeyValuesTree pointOnly = Resource("""
             lights
             {
@@ -112,7 +112,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseLightsFromKV_APointEntry_BecomesALocalLightWithOriginColourAttenuationAndRange()
     {
         // potterywheelpanel.cpp:415-429: InitPoint(origin, color) then the point overrides.
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
         KeyValuesTree lights = Resource("""
             lights
             {
@@ -150,7 +150,7 @@ public sealed class VguiModelPanelConformanceTests
         // Not read from ParseLightsFromKV itself — a guard this project adds so the shared LocalLight shader path
         // does not divide by an all-zero denominator, matching the guard its OTHER producer (BSP world lights)
         // already has.
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
         KeyValuesTree lights = Resource("""
             lights
             {
@@ -172,7 +172,7 @@ public sealed class VguiModelPanelConformanceTests
         // inner_cone_angle/outer_cone_angle are read as RADIANS straight into GetFloat with no conversion
         // (lightdesc.h:71-72's own contract for InitSpot's boundary parameters) — 0 and PI/2 here so the cosines
         // are the easy, exact 1 and 0.
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
         KeyValuesTree lights = Resource($$"""
             lights
             {
@@ -210,7 +210,7 @@ public sealed class VguiModelPanelConformanceTests
         // `Assert( nLightCount < MAX_LIGHT_COUNT ); if ( nLightCount >= MAX_LIGHT_COUNT ) break;`
         // (potterywheelpanel.cpp:397-399) — the loop stops outright, so a fifth entry (here a directional one,
         // to prove the break is unconditional and not just "stop reading point/spot") is never reached either.
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
         KeyValuesTree lights = Resource("""
             lights
             {
@@ -235,7 +235,7 @@ public sealed class VguiModelPanelConformanceTests
         // among four point lights must count toward the same MAX_LIGHT_COUNT limit, not a separate one. Ordered so
         // this fails if directional entries were (wrongly) exempted from the count: a fifth point light placed
         // AFTER the directional one would only be dropped if the directional entry consumed a slot.
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
         KeyValuesTree lights = Resource("""
             lights
             {
@@ -260,12 +260,14 @@ public sealed class VguiModelPanelConformanceTests
     {
         // Device3D.DrawPanelModels already threads `instance.Locals` through to `_world.DrawModel` for a panel's
         // models (Device3D.cs:1248/1354) — the renderer side needs no change, only that Paint actually populates it.
-        VguiModelPanel panel = new(null, "model")
+        VguiMdlPanel panel = new(
+            null,
+            "model",
+            path => path == "models/player/demo.mdl"
+                ? SyntheticSkinnedModel.WithBones("root")
+                : SyntheticSkinnedModel.WithBones("root", "muzzle"))
         {
             ModelName = "models/player/demo.mdl",
-            ResolveModel = path => path == "models/player/demo.mdl"
-                ? SyntheticSkinnedModel.WithBones("root")
-                : SyntheticSkinnedModel.WithBones("root", "muzzle"),
             Wide = 100,
             Tall = 100,
         };
@@ -290,7 +292,7 @@ public sealed class VguiModelPanelConformanceTests
     [Test]
     public void ApplySettings_ALightsBlock_IsParsedIntoTheSun()
     {
-        VguiModelPanel panel = new(null, "model");
+        VguiMdlPanel panel = new(null, "model", _ => null);
         KeyValuesTree resource = Resource("""
             lights
             {
@@ -312,7 +314,7 @@ public sealed class VguiModelPanelConformanceTests
     [Test]
     public void Paint_NoModelName_EmitsNoPaint3DCall()
     {
-        VguiModelPanel panel = new(null, "model") { ResolveModel = _ => SyntheticSkinnedModel.WithOneBone() };
+        VguiMdlPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithOneBone());
         RecordingModelSurface surface = new();
 
         panel.Paint(surface, Context());
@@ -323,10 +325,9 @@ public sealed class VguiModelPanelConformanceTests
     [Test]
     public void Paint_ARootModel_EmitsOneDrawCarryingItsPath()
     {
-        VguiModelPanel panel = new(null, "model")
+        VguiMdlPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithOneBone())
         {
             ModelName = "models/player/scout.mdl",
-            ResolveModel = _ => SyntheticSkinnedModel.WithOneBone(),
             Wide = 100,
             Tall = 50,
         };
@@ -352,12 +353,14 @@ public sealed class VguiModelPanelConformanceTests
         // Two bones, one shared name ("root") and one not — `SyntheticSkinnedModel.WithBones`'s own note: a
         // fixture sharing every bone name cannot see a merge failure, so the weapon-shaped model here keeps
         // one bone the wearer does not have.
-        VguiModelPanel panel = new(null, "model")
+        VguiMdlPanel panel = new(
+            null,
+            "model",
+            path => path == "models/player/demo.mdl"
+                ? SyntheticSkinnedModel.WithBones("root")
+                : SyntheticSkinnedModel.WithBones("root", "muzzle"))
         {
             ModelName = "models/player/demo.mdl",
-            ResolveModel = path => path == "models/player/demo.mdl"
-                ? SyntheticSkinnedModel.WithBones("root")
-                : SyntheticSkinnedModel.WithBones("root", "muzzle"),
             Wide = 100,
             Tall = 100,
         };
@@ -380,10 +383,9 @@ public sealed class VguiModelPanelConformanceTests
         // No `.res` file has touched the pivot or offset: pivot identity (SetIdentityMatrix(m_CameraPivot),
         // potterywheelpanel.cpp:242), offset (100, 0, 0) (:248) — `UpdateCameraTransform` (:765-773) then puts the
         // camera at (100, 0, 0) facing the same way the identity pivot does, angles (0, 0, 0).
-        VguiModelPanel panel = new(null, "model")
+        VguiMdlPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithOneBone())
         {
             ModelName = "models/player/scout.mdl",
-            ResolveModel = _ => SyntheticSkinnedModel.WithOneBone(),
             Wide = 100,
             Tall = 100,
         };
@@ -415,10 +417,9 @@ public sealed class VguiModelPanelConformanceTests
         // the model's angles/origin and drew the model at identity).
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone();
 
-        VguiModelPanel panel = new(null, "model")
+        VguiBaseModelPanel panel = new(null, "model", _ => model)
         {
             ModelName = "models/player/scout.mdl",
-            ResolveModel = _ => model,
             ForcePosition = true,
             ModelOrigin = (500f, 0f, 0f),
             Wide = 100,
@@ -452,10 +453,9 @@ public sealed class VguiModelPanelConformanceTests
         // The common case: no stock TF2 HUD .res sets force_pos, so ModelOrigin/ModelAngles are cached but never
         // applied — the model draws wherever AnimatingEntity's own bind pose puts it (the origin, for one bone at
         // the rest position), and the CAMERA is what backs away instead.
-        VguiModelPanel panel = new(null, "model")
+        VguiBaseModelPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithOneBone())
         {
             ModelName = "models/player/scout.mdl",
-            ResolveModel = _ => SyntheticSkinnedModel.WithOneBone(),
             ModelOrigin = (500f, 0f, 0f),
             Wide = 100,
             Tall = 100,
@@ -481,7 +481,7 @@ public sealed class VguiModelPanelConformanceTests
             Models = [AnimatedStudioBytes.OneSecondLoop()],
         };
 
-        (int frame, float fraction) = VguiModelPanel.FrameAt(model, sequence: 0, poseValues: [], cycleTime: 0.5d);
+        (int frame, float fraction) = VguiMdlPanel.FrameAt(model, sequence: 0, poseValues: [], cycleTime: 0.5d);
 
         frame.ShouldBe(15);
         fraction.ShouldBe(0f, 0.0001f);
@@ -501,7 +501,7 @@ public sealed class VguiModelPanelConformanceTests
                 Activity: "idle", ActivityWeight: 1)])],
         };
 
-        (int frame, float fraction) = VguiModelPanel.FrameAt(model, sequence: 0, poseValues: [], cycleTime: 2.5d);
+        (int frame, float fraction) = VguiMdlPanel.FrameAt(model, sequence: 0, poseValues: [], cycleTime: 2.5d);
 
         // 2.5 cycles wraps to 0.5 of a cycle - the same frame 15 the half-second test landed on.
         frame.ShouldBe(15);
@@ -515,12 +515,14 @@ public sealed class VguiModelPanelConformanceTests
         // bones from the root's already-built bone-to-world. `AnimatingEntity.Follows` is this project's version of
         // that (WeaponMergeContentTests already proves it for a real weapon/player pair); this checks the panel
         // actually wires it rather than merely holding both models unmerged.
-        VguiModelPanel panel = new(null, "model")
+        VguiMdlPanel panel = new(
+            null,
+            "model",
+            path => path == "models/player/demo.mdl"
+                ? SyntheticSkinnedModel.WithBones("root")
+                : SyntheticSkinnedModel.WithBones("root", "muzzle"))
         {
             ModelName = "models/player/demo.mdl",
-            ResolveModel = path => path == "models/player/demo.mdl"
-                ? SyntheticSkinnedModel.WithBones("root")
-                : SyntheticSkinnedModel.WithBones("root", "muzzle"),
             Wide = 100,
             Tall = 100,
         };
@@ -540,7 +542,7 @@ public sealed class VguiModelPanelConformanceTests
     [Test]
     public void ModelsToPrecache_ARootAndMergeModels_YieldsRootFirst()
     {
-        VguiModelPanel panel = new(null, "model") { ModelName = "models/player/scout.mdl" };
+        VguiMdlPanel panel = new(null, "model", _ => null) { ModelName = "models/player/scout.mdl" };
 
         panel.MergeModels.Add("models/weapons/c_models/c_scattergun.mdl");
 
@@ -552,7 +554,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseModelResInfo_AModelBlock_ReadsNameSkinAnglesAndOrigin()
     {
         // basemodel_panel.cpp:88-99, defaults at :95-96.
-        VguiBaseModelPanel panel = new(null, "model");
+        VguiBaseModelPanel panel = new(null, "model", _ => null);
         KeyValuesTree modelBlock = Resource("""
             model
             {
@@ -577,7 +579,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseModelResInfo_NoOriginGiven_DefaultsTo110_5_5()
     {
         // basemodel_panel.cpp:95: `GetFloat( "origin_x", 110.0 )`, `"origin_y", 5.0`, `"origin_z", 5.0`.
-        VguiBaseModelPanel panel = new(null, "model");
+        VguiBaseModelPanel panel = new(null, "model", _ => null);
         KeyValuesTree modelBlock = Resource("""
             model
             {
@@ -595,7 +597,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `CBaseModelPanel::ApplySettings` (basemodel_panel.cpp:46-83) reads `fov` itself and then finds the
         // `model` sub-block by name among the resource's other keys.
-        VguiBaseModelPanel panel = new(null, "model");
+        VguiBaseModelPanel panel = new(null, "model", _ => null);
         KeyValuesTree resource = Resource("""
             xpos 0
             fov 45
@@ -616,7 +618,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `inResourceData->GetInt( "fov", flFOV )` (basemodel_panel.cpp:56) is GetInt, not GetFloat — KeyValues'
         // GetInt does `atoi`, which truncates toward zero rather than rounding.
-        VguiBaseModelPanel panel = new(null, "model");
+        VguiBaseModelPanel panel = new(null, "model", _ => null);
         KeyValuesTree resource = Resource("fov 45.9");
 
         panel.ApplySettings(resource, Context());
@@ -628,7 +630,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseModelAnimInfo_TwoAnimationsOneDefault_RecordsBoth()
     {
         // basemodel_panel.cpp:122-134.
-        VguiBaseModelPanel panel = new(null, "model");
+        VguiBaseModelPanel panel = new(null, "model", _ => null);
         KeyValuesTree modelBlock = Resource("""
             model
             {
@@ -660,7 +662,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseModelAttachInfo_AnAttachedModelBlock_RecordsNameAndSkin()
     {
         // basemodel_panel.cpp:148-159.
-        VguiBaseModelPanel panel = new(null, "model");
+        VguiBaseModelPanel panel = new(null, "model", _ => null);
         KeyValuesTree modelBlock = Resource("""
             model
             {
@@ -684,7 +686,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseModelAttachInfo_NoSkinGiven_DefaultsToMinusOne()
     {
         // basemodel_panel.cpp:158: `GetInt( "skin", -1 )`.
-        VguiBaseModelPanel panel = new(null, "model");
+        VguiBaseModelPanel panel = new(null, "model", _ => null);
         KeyValuesTree modelBlock = Resource("""
             model
             {
@@ -703,10 +705,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `FindDefaultAnim` (basemodel_panel.cpp:193-205) returns on the FIRST match; a later animation flagged
         // default too is never reached, so it never becomes the played sequence.
-        VguiBaseModelPanel panel = new(null, "model")
-        {
-            ResolveModel = _ => SyntheticSkinnedModel.WithBones("root"),
-        };
+        VguiBaseModelPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithBones("root"));
 
         panel.ParseModelResInfo(Resource("""
             model
@@ -728,10 +727,9 @@ public sealed class VguiModelPanelConformanceTests
     {
         // basemodel_panel.cpp:270-278: no activity named, so LookupSequence(sequence) — SkinnedModel.SequenceByLabel
         // here — and SetSequence(iSequence, true) resets m_flCycleStartTime to GetAutoPlayTime() (mdlpanel.cpp:547).
-        VguiBaseModelPanel panel = new(null, "model")
+        VguiBaseModelPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithBones("root"))
         {
             ModelName = "models/player/scout.mdl",
-            ResolveModel = _ => SyntheticSkinnedModel.WithBones("root"),
             RealTimeSeconds = 100d,
             CycleStartTime = 1d,
         };
@@ -748,10 +746,10 @@ public sealed class VguiModelPanelConformanceTests
         // FindSequenceFromActivity (basemodel_panel.cpp:229-244) is a plain linear scan for the first exact
         // activity-name match — this model has two sequences sharing "run" so a weighted selector could legally
         // answer either; the exact scan must answer the FIRST one, index 0.
-        VguiBaseModelPanel panel = new(null, "model")
+        VguiBaseModelPanel panel = new(
+            null, "model", _ => SyntheticSkinnedModel.WithActivities(("run_a", "run"), ("run_b", "run")))
         {
             ModelName = "models/player/scout.mdl",
-            ResolveModel = _ => SyntheticSkinnedModel.WithActivities(("run_a", "run"), ("run_b", "run")),
         };
 
         panel.SetModelAnim(new ModelPanelAnimation("run", null, "run", true));
@@ -765,7 +763,7 @@ public sealed class VguiModelPanelConformanceTests
         // SetupModelAnimDefaults (basemodel_panel.cpp:175): SetPoseParameterByName( "move_x", 1.0f ), unconditional.
         // move_x runs -1..1 here, so the raw value 1.0 normalises to the TOP of the range: 1.0, not the 0.5 an
         // unset parameter (raw 0) would leave it at — StudioBlendGrid.Normalize's own contract.
-        float[] values = VguiModelPanel.MoveXPoseValues([new StudioPoseParameter("move_x", -1f, 1f, 0f)]);
+        float[] values = VguiMdlPanel.MoveXPoseValues([new StudioPoseParameter("move_x", -1f, 1f, 0f)]);
 
         values[0].ShouldBe(1f);
     }
@@ -775,7 +773,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // Everything but move_x is left at raw zero — the same "unset" value EntityModelSet.Filled leaves an
         // uncomputed parameter at, which normalises to the MIDDLE of a symmetric range rather than its bottom.
-        float[] values = VguiModelPanel.MoveXPoseValues([new StudioPoseParameter("aim_yaw", -180f, 180f, 360f)]);
+        float[] values = VguiMdlPanel.MoveXPoseValues([new StudioPoseParameter("aim_yaw", -180f, 180f, 360f)]);
 
         values[0].ShouldBe(0.5f);
     }
@@ -785,10 +783,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // CBaseModelPanel::OnTick (basemodel_panel.cpp:402-419): once GetAutoPlayTime() - m_flCycleStartTime passes
         // m_flActiveSequenceDuration, SetupModelDefaults runs again.
-        VguiBaseModelPanel panel = new(null, "model")
-        {
-            ResolveModel = _ => SyntheticSkinnedModel.WithBones("root"),
-        };
+        VguiBaseModelPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithBones("root"));
 
         panel.ParseModelResInfo(Resource("""
             model
@@ -820,7 +815,7 @@ public sealed class VguiModelPanelConformanceTests
         // TIGHTEST constraint, which for this box is the corner nearest the camera (X = -100, where the box's
         // narrow 5-unit half-width still has to clear the frame) - a materially smaller distance of exactly 105,
         // not a number a sphere approximation could produce.
-        VguiBaseModelPanel panel = new(null, "model")
+        VguiBaseModelPanel panel = new(null, "model", _ => null)
         {
             FieldOfView = 90f,
             Wide = 100,
@@ -858,9 +853,8 @@ public sealed class VguiModelPanelConformanceTests
         // Wide/Tall come from a real HUD panel's own .res position/size keys, which this test does not exercise —
         // set directly, and before ApplySettings, so ApplyStartFramed sees the panel's real size the same way it
         // would after a real .res file's xpos/ypos/wide/tall keys had already been applied.
-        VguiBaseModelPanel panel = new(null, "model")
+        VguiBaseModelPanel panel = new(null, "model", _ => model)
         {
-            ResolveModel = _ => model,
             Wide = 100,
             Tall = 100,
         };
