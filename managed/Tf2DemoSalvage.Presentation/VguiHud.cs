@@ -25,6 +25,7 @@ public sealed class VguiHud
     private ScenePlayer? _lastLocal;
     private float _lastCurTime;
     private bool _minMode;
+    private HudState? _thinkState;
     private int _meterPlayer;
     private int _lastClass;
     private int _lastSpawnCounter;
@@ -189,8 +190,17 @@ public sealed class VguiHud
             DeathNotice.Clear();
         }
 
-        // Events are dispatched as their packets are read, before the frame's think and paint — each to the listeners that
-        // asked for it, as `IGameEventManager` delivers.
+        // The host frame (engine.dll `_Host_RunFrame`, 0x1801a4570) runs `_Host_RunFrame_Input` (0x1801a5b90) first, whose
+        // `ClientDLL_ProcessInput` (0x18006ed60) calls `HudProcessInput` and so `CHud::Think` (hud.cpp:1003); only then does
+        // `_Host_RunFrame_Client` (0x1801a5860) read the frame's packets in `CL_ReadPackets` (0x18008d1f0). So the HUD's
+        // show-or-hide sees the state the LAST frame's packets left. **Interpolated:** the first frame, and the first after
+        // a seek, think on this frame's state, where the game's reloaded client would think on none.
+        Viewport.Think(reset ? state : _thinkState ?? state);
+        Viewport.SetState(state);
+        _thinkState = state;
+
+        // Events are dispatched as their packets are read, after the HUD's think and before the render stage — each to the
+        // listeners that asked for it, as `IGameEventManager` delivers.
         foreach (HudGameEvent fired in events ?? [])
         {
             if (TfHudDeathNotice.ListensFor.Contains(fired.Event.Name))
@@ -259,10 +269,9 @@ public sealed class VguiHud
             Chat.HandleUserMessage(message, state);
         }
 
-        Viewport.Think(state);
-
-        // `C_TFPlayer::ClientThink`'s `g_ItemEffectMeterManager.Update( this )` for the local player (c_tf_player.cpp:6021).
-        // **Interpolated:** after the HUD's think rather than before it, so the meters read this frame's state.
+        // `C_TFPlayer::ClientThink`'s `g_ItemEffectMeterManager.Update( this )` for the local player (c_tf_player.cpp:6021),
+        // from `SimulateEntities` at `FRAME_RENDER_START` (cdll_client_int.cpp:2005, :2207, :2279) — which `SCR_UpdateScreen`
+        // (0x1800e8b40) raises in `_Host_RunFrame_Render` (0x1801a5d30), after the packets.
         ItemEffectMeters.ScoreboardVisible = showScoreboard;
         ItemEffectMeters.Update(local);
 

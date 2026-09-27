@@ -1,3 +1,5 @@
+using System.Linq;
+
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
@@ -57,6 +59,27 @@ public sealed class VguiHudItemEffectMeterTests
 
         first.Parent.ShouldBeNull("the old local player's destructor cleared it (:4072)");
         hud.ItemEffectMeters.Meters.Count.ShouldBe(9);
+    }
+
+    [Test]
+    public void Frame_TheHudThink_RunsBeforeTheFramesPackets()
+    {
+        // engine.dll's host frame (0x1801a4570): `_Host_RunFrame_Input` (0x1801a5b90) reaches `HudProcessInput` and so
+        // `CHud::Think` before `_Host_RunFrame_Client` (0x1801a5860) reads this frame's packets; `FRAME_RENDER_START`
+        // comes after both, from `SCR_UpdateScreen` (0x1800e8b40) in `_Host_RunFrame_Render` (0x1801a5d30).
+        (VguiSurfaceHost host, VguiHud hud) = Hud();
+        ScenePlayer alive = Spy(spawnCounter: 0);
+        ScenePlayer dead = alive with { LifeState = 2 };
+
+        Frame(host, hud, alive);
+        TfHudItemEffectMeter cloak = hud.ItemEffectMeters.Meters.Single(meter => meter.GetType() == typeof(TfHudItemEffectMeter));
+        cloak.Visible.ShouldBeFalse("made by this frame's packets, after the HUD thought");
+
+        Frame(host, hud, dead);
+        cloak.Visible.ShouldBeTrue("this frame's think saw the last frame's living spy");
+
+        Frame(host, hud, dead);
+        cloak.Visible.ShouldBeFalse();
     }
 
     private static (VguiSurfaceHost Host, VguiHud Hud) Hud()
