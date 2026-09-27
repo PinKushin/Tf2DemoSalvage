@@ -65,6 +65,26 @@ public readonly record struct SceneBuilding(int EntityIndex)
     /// <summary>`m_iUpgradeLevel`: 1 to 3. `GetTargetIDDataString` hides this for a sentry, which has a model per level.</summary>
     public int UpgradeLevel { get; init; }
 
+    /// <summary>
+    /// `m_iHighestUpgradeLevel` (c_baseobject.h:242, `GetHighestUpgradeLevel`): the level a carried-and-replaced building is
+    /// still catching up to. `CTFPlayer::CanPickupBuilding` (tf_player_shared.cpp:12439) refuses a pickup while
+    /// <see cref="UpgradeLevel"/> has not caught up to this.
+    /// </summary>
+    public int HighestUpgradeLevel { get; init; }
+
+    /// <summary>`m_bPlasmaDisable` (c_baseobject.cpp:878, `IsPlasmaDisabled`): a Short Circuit or similar plasma shutdown.</summary>
+    public bool PlasmaDisabled { get; init; }
+
+    /// <summary>`SENTRY_STATE_UPGRADING` (tf_shareddefs.h:1513): a sentry's <see cref="SentryState"/> mid-upgrade.</summary>
+    public const int SentryStateUpgrading = 3;
+
+    /// <summary>
+    /// `DT_ObjectSentrygun.m_iState` (c_obj_sentrygun.cpp:43); null for anything but a sentry. `C_ObjectSentrygun::IsUpgrading`
+    /// (c_obj_sentrygun.h:86) is this equal to <see cref="SentryStateUpgrading"/> — the only building type
+    /// `C_BaseObject::IsUpgrading` (c_baseobject.h:111) is not hardcoded `false` for.
+    /// </summary>
+    public int? SentryState { get; init; }
+
     /// <summary>`m_iUpgradeMetal`: metal banked toward the next level.</summary>
     public int UpgradeMetal { get; init; }
 

@@ -156,6 +156,15 @@ public static class EngineConVars
         // src/game/shared/tf/tf_gamerules.cpp:782-783, which C_TFTeam::UpdateTeamName shows in a tournament.
         new("mp_tournament_redteamname", "RED", Replicated: true, Cheat: false),
         new("mp_tournament_blueteamname", "BLU", Replicated: true, Cheat: false),
+
+        // `CTFPlayerShared::IsLoser` (tf_player_shared.cpp:127,13656): a cheat that forces every player's loser state.
+        new("tf_always_loser", "0", Replicated: true, Cheat: true),
+
+        // `CTFPlayer::CanPickupBuilding`'s training-mode branch (tf_gamerules.cpp:699-702): server-set, not a player's.
+        new("training_can_pickup_sentry", "1", Replicated: true, Cheat: false),
+        new("training_can_pickup_dispenser", "1", Replicated: true, Cheat: false),
+        new("training_can_pickup_tele_entrance", "1", Replicated: true, Cheat: false),
+        new("training_can_pickup_tele_exit", "1", Replicated: true, Cheat: false),
     ];
 
     private static readonly Dictionary<string, EngineConVar> ByEngineName =
