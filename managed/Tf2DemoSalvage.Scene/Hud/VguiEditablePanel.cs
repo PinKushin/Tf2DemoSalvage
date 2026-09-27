@@ -162,6 +162,10 @@ public sealed class VguiBuildGroup(VguiEditablePanel parent)
         }
     }
 
+    /// <summary>`PanelRemoved`: a deleted panel leaves the group, so a later `.res` never finds it by name.</summary>
+    /// <param name="panel">The panel.</param>
+    internal void PanelRemoved(VguiPanel panel) => _panels.Remove(panel);
+
     /// <summary>`ApplySettings` (:1234): each block to the first registered panel of its name, else a new control.</summary>
     /// <param name="resource">The blocks.</param>
     /// <param name="context">The scheme and screen.</param>
@@ -247,6 +251,8 @@ public static class VguiControlFactory
         ["Label"] = () => new VguiLabel(null, null),
         ["ImagePanel"] = () => new VguiImagePanel(null, null),
         ["ScalableImagePanel"] = () => new VguiScalableImagePanel(null, null),
+        ["ProgressBar"] = () => new VguiProgressBar(null, null),
+        ["ContinuousProgressBar"] = () => new VguiContinuousProgressBar(null, null),
 
         // client.dll's own, registered by its `DECLARE_BUILD_FACTORY` at load.
         ["CExLabel"] = () => new TfExLabel(null, null),

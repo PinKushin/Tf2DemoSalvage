@@ -248,8 +248,11 @@ gates.
 2. Target ID generic targets — done: dropped weapons and revive markers decoded, traced and shown. The flag's branch
    cannot run: `FSOLID_NOT_SOLID` (entity_capture_flag.cpp:607). A dropped weapon is traced against its model's `.phy`.
 3. `CTFMinigameLogic` refusal in TfHudPlayerStatus.ShouldDraw (tf_hud_playerstatus.cpp:1087).
-4. `localplayer_pickup_weapon`: done — `PlayerPickupWeapon` is kept by name and fired to TfHudPlayerClass. Its other
-   listener, the item effect meter (tf_hud_itemeffectmeter.cpp:128), is not ported.
+4. `localplayer_pickup_weapon`: done — `PlayerPickupWeapon` is kept by name and fired to TfHudPlayerClass and to the
+   item effect meters. The meters are ported whole: `TfItemEffectMeterManager`, the cloak meter, every weapon
+   specialisation, the rune and item-attribute meters, on `ContinuousProgressBar`. Two readings to know: a demo's
+   client never runs the charged SMG's `SecondaryAttack`, so its `m_flMinicritStartTime` stays 0; and the manager's
+   `Update` runs after the HUD think, not in `ClientThink` before it.
 5. Match-start doors and round sign: done, `VguiModelPanel` (CModelPanel), with the doors' team lists and party names.
    The rank-up message needs the GC's rating cache (tf_rating_data.cpp:22-41), never in a demo. The door slam is
    `TfParticlePanel` (CTFParticlePanel).

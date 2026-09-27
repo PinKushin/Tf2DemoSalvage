@@ -25,6 +25,9 @@ public sealed class VguiHud
     private ScenePlayer? _lastLocal;
     private float _lastCurTime;
     private bool _minMode;
+    private int _meterPlayer;
+    private int _lastClass;
+    private int _lastSpawnCounter;
 
     /// <summary>The viewport, and every element `DECLARE_HUDELEMENT` makes at `CHud::Init`, before the layout is read.</summary>
     /// <param name="host">The surface the HUD shares with the other roots.</param>
@@ -54,7 +57,11 @@ public sealed class VguiHud
         // `CHud::Think`'s per-element `ShouldDraw`, which is why it is not parented alongside the elements above and
         // starts hidden here rather than defaulting to `VguiPanel.Visible`'s true.
         Scoreboard = new TfClientScoreBoardDialog(Viewport) { Visible = false };
+        ItemEffectMeters = new TfItemEffectMeterManager(Viewport);
     }
+
+    /// <summary>`g_ItemEffectMeterManager`.</summary>
+    public TfItemEffectMeterManager ItemEffectMeters { get; }
 
     /// <summary>`CHudChat`.</summary>
     public TfHudChat Chat { get; }
@@ -66,7 +73,7 @@ public sealed class VguiHud
     public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(
         [
             .. TfHudDeathNotice.ListensFor, .. TfHudTimeStatus.ListensFor, .. TfHudChat.ListensFor, .. TfHudMatchStatus.ListensFor,
-            .. TfHudPlayerClass.ListensFor,
+            .. TfHudPlayerClass.ListensFor, .. TfItemEffectMeterManager.ListensFor,
         ],
         StringComparer.Ordinal);
 
@@ -212,7 +219,14 @@ public sealed class VguiHud
             {
                 PlayerStatus.PlayerClass.HandleGameEvent(fired.Event, state);
             }
+
+            if (TfItemEffectMeterManager.ListensFor.Contains(fired.Event.Name))
+            {
+                ItemEffectMeters.HandleGameEvent(fired.Event, state);
+            }
         }
+
+        LocalPlayerLifecycle(state, reset);
 
         // `localplayer_changedisguise` is fired client-side by `C_TFPlayer::OnDataChanged` (c_tf_player.cpp:4788-4797), so
         // no demo carries it: it is derived here from the local player's last and current state, before the think.
@@ -235,9 +249,10 @@ public sealed class VguiHud
             // `USER_MESSAGE( PlayerPickupWeapon )` fires `localplayer_pickup_weapon` client-side (clientmode_tf.cpp:2469-2475).
             if (message.Name == Core.Scene.SceneUserMessage.PlayerPickupWeapon)
             {
-                PlayerStatus.PlayerClass.HandleGameEvent(
-                    new SceneGameEvent(message.Tick, "localplayer_pickup_weapon", new Dictionary<string, object?>(), new Dictionary<int, Core.Net.PlayerInfo>()),
-                    state);
+                SceneGameEvent pickup = ClientEvent(message.Tick, "localplayer_pickup_weapon");
+
+                PlayerStatus.PlayerClass.HandleGameEvent(pickup, state);
+                ItemEffectMeters.HandleGameEvent(pickup, state);
                 continue;
             }
 
@@ -245,6 +260,11 @@ public sealed class VguiHud
         }
 
         Viewport.Think(state);
+
+        // `C_TFPlayer::ClientThink`'s `g_ItemEffectMeterManager.Update( this )` for the local player (c_tf_player.cpp:6021).
+        // **Interpolated:** after the HUD's think rather than before it, so the meters read this frame's state.
+        ItemEffectMeters.ScoreboardVisible = showScoreboard;
+        ItemEffectMeters.Update(local);
 
         // `CTFClientScoreBoardDialog::ShowPanel`/`OnTick` (tf_clientscoreboard.cpp:400, :939-951): shown or hidden
         // directly by the view rather than `CHud::Think`'s `ShouldDraw`, and rebuilt from this tick's state on every
@@ -271,5 +291,52 @@ public sealed class VguiHud
             KothTimeStatus.RedPanel.RefreshExtraTimePanels();
         }
         Viewport.PaintTraverse(_host.List, _context);
+    }
+
+    /// <summary>An event the client fires itself, with no fields — `FireEventClientSide`.</summary>
+    private static SceneGameEvent ClientEvent(int tick, string name) =>
+        new(tick, name, new Dictionary<string, object?>(), new Dictionary<int, Core.Net.PlayerInfo>());
+
+    /// <summary>
+    /// What the local `C_TFPlayer` does for the item effect meters as its data changes: `OnPlayerClassChange` sets the meters'
+    /// player (c_tf_player.cpp:4536, :5257), a new `m_iSpawnCounter` runs `ClientPlayerRespawn`, which fires
+    /// `localplayer_respawn` (:4543, :7951), and the entity's destructor clears them (:4072).
+    /// </summary>
+    /// <remarks>
+    /// A seek restarts playback, so the local player is made again: its `m_iOldPlayerClass` and `m_iOldSpawnCounter` start
+    /// from a new entity's 0. **Interpolated:** once per frame rather than per packet.
+    /// </remarks>
+    private void LocalPlayerLifecycle(HudState state, bool reset)
+    {
+        ScenePlayer? local = state.HasLocalPlayer ? state.Player(state.LocalIndex) : null;
+
+        if (reset || local?.EntityIndex != _meterPlayer)
+        {
+            if (_meterPlayer != 0)
+            {
+                ItemEffectMeters.ClearExistingMeters();
+            }
+
+            _meterPlayer = local?.EntityIndex ?? 0;
+            _lastClass = 0;
+            _lastSpawnCounter = 0;
+        }
+
+        if (local is not { } player)
+        {
+            return;
+        }
+
+        if ((player.PlayerClass ?? 0) != _lastClass)
+        {
+            _lastClass = player.PlayerClass ?? 0;
+            ItemEffectMeters.SetPlayer(player);
+        }
+
+        if ((player.SpawnCounter ?? 0) != _lastSpawnCounter)
+        {
+            _lastSpawnCounter = player.SpawnCounter ?? 0;
+            ItemEffectMeters.HandleGameEvent(ClientEvent(0, "localplayer_respawn"), state);
+        }
     }
 }

@@ -7231,6 +7231,7 @@ internal class MainForm : Form, IFrameSteps
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
         _vguiHud.MatchStatus.SoundEmitter ??= PlayHudSound;
+        _vguiHud.ItemEffectMeters.SoundEmitter ??= PlayHudSound;
         _clientConVars ??= ClientConVar;
 
         // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in

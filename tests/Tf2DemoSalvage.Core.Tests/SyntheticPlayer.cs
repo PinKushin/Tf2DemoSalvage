@@ -438,6 +438,129 @@ internal static class SyntheticPlayer
                     Body: body)));
     }
 
+    /// <summary>
+    /// The recorder (entity 1) with every field `CHudItemEffectMeter` reads (tf_hud_itemeffectmeter.cpp): the rage, hype,
+    /// revenge, rune and item charge meters, the kart and the spawn counter, and weapon 30 carrying every per-weapon field.
+    /// </summary>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithItemEffectMeterFields()
+    {
+        const int ItemClassId = 1;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(table.Name switch
+            {
+                "DT_TFPlayer" => table with
+                {
+                    Properties =
+                    [
+                        .. table.Properties, Table("playershared", "DT_TFPlayerShared"),
+                        NoScaleFloat("m_flKartNextAvailableBoost"), Int("m_iKartHealth", bits: 10), Int("m_iSpawnCounter", bits: 8),
+                    ],
+                },
+                "DT_BasePlayer" => table with { Properties = [.. table.Properties, Table("m_hMyWeapons", "m_hMyWeapons")] },
+                _ => table,
+            });
+        }
+
+        tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true,
+        [
+            NoScaleFloat("m_flHypeMeter"), UnsignedInt("m_iRevengeCrits", bits: 7), NoScaleFloat("m_flRuneCharge"),
+            Table("tfsharedlocaldata", "DT_TFPlayerSharedLocal"),
+        ]));
+        tables.Add(new SendTable("DT_TFPlayerSharedLocal", NeedsDecoder: true,
+        [
+            NoScaleFloat("m_flRageMeter"), UnsignedInt("m_bRageDraining", bits: 1), Table("m_flItemChargeMeter", "m_flItemChargeMeter"),
+        ]));
+        tables.Add(new SendTable("m_flItemChargeMeter", NeedsDecoder: true,
+            [.. Enumerable.Range(0, 11).Select(slot => NoScaleFloat(slot.ToString("D3", CultureInfo.InvariantCulture)))]));
+        tables.Add(new SendTable("m_hMyWeapons", NeedsDecoder: true, [UnsignedInt("000", bits: 21)]));
+        tables.Add(new SendTable("DT_LocalTFWeaponData", NeedsDecoder: true, [NoScaleFloat("m_flEffectBarRegenTime")]));
+        tables.Add(new SendTable("DT_TFWeaponBase", NeedsDecoder: true,
+        [
+            Table("LocalActiveTFWeaponData", "DT_LocalTFWeaponData"), NoScaleFloat("m_flEnergy"),
+            UnsignedInt("m_nKillComboClass", bits: 4), UnsignedInt("m_nKillComboCount", bits: 2),
+        ]));
+        tables.Add(new SendTable("DT_TFWeaponKnife", NeedsDecoder: true,
+        [
+            UnsignedInt("m_bKnifeExists", bits: 1), NoScaleFloat("m_flKnifeRegenerateDuration"), NoScaleFloat("m_flKnifeMeltTimestamp"),
+        ]));
+        tables.Add(new SendTable("DT_WeaponChargedSMG", NeedsDecoder: true, [NoScaleFloat("m_flMinicritCharge")]));
+        tables.Add(new SendTable("DT_TFWeaponRocketPack", NeedsDecoder: true, [UnsignedInt("m_bEnabled", bits: 1)]));
+        tables.Add(new SendTable("DT_ParticleCannon", NeedsDecoder: true, [NoScaleFloat("m_flChargeBeginTime")]));
+        tables.Add(new SendTable("DT_TFPowerupBottle", NeedsDecoder: true, [UnsignedInt("m_usNumCharges", bits: 8)]));
+        tables.Add(new SendTable("DT_TestItem", NeedsDecoder: true,
+        [
+            Table("base", "DT_TFWeaponBase"), Table("knife", "DT_TFWeaponKnife"), Table("smg", "DT_WeaponChargedSMG"),
+            Table("pack", "DT_TFWeaponRocketPack"), Table("cannon", "DT_ParticleCannon"), Table("bottle", "DT_TFPowerupBottle"),
+            Table("LocalWeaponData", "DT_LocalWeaponData"),
+        ]));
+        tables.Add(new SendTable("DT_LocalWeaponData", NeedsDecoder: true, [Int("m_iPrimaryAmmoType", bits: 8)]));
+
+        DemoSchema schema = new(tables, [.. baseline.ServerClasses, new ServerClass(ItemClassId, "CTFKnife", "DT_TestItem")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        Dictionary<string, PropertyValue> player = new()
+        {
+            ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+            ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+            ["m_lifeState"] = PropertyValue.FromInt(0),
+            ["m_flHypeMeter"] = PropertyValue.FromFloat(41.5f),
+            ["m_iRevengeCrits"] = PropertyValue.FromInt(6),
+            ["m_flRuneCharge"] = PropertyValue.FromFloat(62.5f),
+            ["m_flRageMeter"] = PropertyValue.FromFloat(88.25f),
+            ["m_bRageDraining"] = PropertyValue.FromInt(1),
+            ["m_flItemChargeMeter.001"] = PropertyValue.FromFloat(12.75f),
+            ["m_flItemChargeMeter.010"] = PropertyValue.FromFloat(99.5f),
+            ["m_flKartNextAvailableBoost"] = PropertyValue.FromFloat(203.5f),
+            ["m_iKartHealth"] = PropertyValue.FromInt(137),
+            ["m_iSpawnCounter"] = PropertyValue.FromInt(1),
+            ["m_hMyWeapons.000"] = LoadoutHandle(30),
+        };
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, player),
+            Entity(decoder, ItemClassId, 30, new Dictionary<string, PropertyValue>
+            {
+                ["m_flEffectBarRegenTime"] = PropertyValue.FromFloat(311.25f),
+                ["m_flEnergy"] = PropertyValue.FromFloat(15f),
+                ["m_nKillComboClass"] = PropertyValue.FromInt(7),
+                ["m_nKillComboCount"] = PropertyValue.FromInt(2),
+                ["m_bKnifeExists"] = PropertyValue.FromInt(1),
+                ["m_flKnifeRegenerateDuration"] = PropertyValue.FromFloat(15.5f),
+                ["m_flKnifeMeltTimestamp"] = PropertyValue.FromFloat(290.75f),
+                ["m_flMinicritCharge"] = PropertyValue.FromFloat(64.5f),
+                ["m_bEnabled"] = PropertyValue.FromInt(1),
+                ["DT_ParticleCannon.m_flChargeBeginTime"] = PropertyValue.FromFloat(301.5f),
+                ["m_usNumCharges"] = PropertyValue.FromInt(3),
+                ["m_iPrimaryAmmoType"] = PropertyValue.FromInt(4),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
     /// <summary>Player 1 holding medigun 30 that heals player 2, and player 2 with no weapon.</summary>
     /// <param name="charge">The medigun's `DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel`.</param>
     /// <returns>A demo's bytes.</returns>
