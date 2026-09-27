@@ -496,7 +496,7 @@ public sealed class CorpseProbe : IProbe
             }
 
             int here = carried.Count(item =>
-                wardrobe.BodygroupsOf(item.ItemDefinitionIndex) is
+                wardrobe.BodygroupsOf(item.ItemDefinitionIndex, corpse.Team ?? 0) is
                     { Named.Count: > 0 } or { OverrideGroup: > -1, OverrideState: > -1 });
 
             declaring += here;

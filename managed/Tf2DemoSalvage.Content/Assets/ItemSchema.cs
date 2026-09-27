@@ -25,8 +25,9 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// shipped schema against 29 plain ones, so treating the two alike would put a festive attachment
 /// on every ordinary weapon.
 /// </param>
+/// <param name="Key">The child's name in its block (`"0"`, `"1"`), by which a prefab merge matches it.</param>
 public readonly record struct AttachedModel(
-    string Model, int DisplayFlags, string Team, bool Festive)
+    string Model, int DisplayFlags, string Team, bool Festive, string Key = "")
 {
     /// <summary><c>kAttachedModelDisplayFlag_WorldModel</c>.</summary>
     public const int WorldModel = 0x01;
@@ -170,28 +171,6 @@ public sealed class ItemSchema
         /// </remarks>
         public int? VisionFilterFlags { get; set; }
 
-        /// <summary>A wearer's body part addressed by NUMBER, or -1 (B353).</summary>
-        /// <remarks>
-        /// **`wm_bodygroup_override`, the one arm of `UpdateBodygroups` that uses no name**
-        /// (<c>econ_entity.cpp:2083</c>). Two shipped items declare it — the Purity Fist and the
-        /// Short Circuit — and both replace a hand with a robot arm.
-        ///
-        /// **-1, not 0, and the default is the load-bearing part.** The engine's guard is
-        /// `iBodyOverride &gt; -1 &amp;&amp; iBodyStateOverride &gt; -1` against fields initialised to -1
-        /// (<c>econ_item_schema.h:1065</c>), so a reader defaulting them to 0 satisfies it for every
-        /// item in the schema and sets part 0 to 0 on every player — putting back the hair that
-        /// item 30700's `hat` entry had just removed.
-        /// </remarks>
-        public int WorldModelBodygroupOverride { get; set; } = -1;
-
-        /// <summary>Which alternative <see cref="WorldModelBodygroupOverride"/> takes, or -1.</summary>
-        /// <remarks>
-        /// **Both halves are required**, which is why this is tracked separately rather than folded
-        /// into the pair: `wm_bodygroup_override` without `wm_bodygroup_state_override` is a real
-        /// shape in the schema and the engine ignores it.
-        /// </remarks>
-        public int WorldModelBodygroupStateOverride { get; set; } = -1;
-
         /// <summary>Its definition attributes by NAME, from both shipped forms.</summary>
         /// <remarks>
         /// The named block (<c>"attributes" { "damage bonus" { … "value" "1.1" } }</c>) and the
@@ -332,6 +311,65 @@ public sealed class ItemSchema
     /// <summary>The <c>colors</c> section: each definition's <c>color_name</c> (econ_item_schema.cpp:357).</summary>
     private readonly Dictionary<string, string> _colorNames = new(StringComparer.Ordinal);
 
+    private const string ParticlesSection = "attribute_controlled_attached_particles";
+
+    /// <summary>`m_mapAttributeControlledParticleSystems` by id, and in file order for the by-name search.</summary>
+    private readonly Dictionary<int, AttributeParticleSystem> _particleSystems = [];
+
+    private readonly List<AttributeParticleSystem> _particleOrder = [];
+
+    /// <summary>`GetAttributeControlledParticleSystem( id )` (econ_item_schema.cpp:6850), or null.</summary>
+    /// <param name="id">The system's index — an unusual effect's value, or a killstreak eye's.</param>
+    /// <returns>The system, or null.</returns>
+    public AttributeParticleSystem? AttributeControlledParticleSystem(int id) => _particleSystems.GetValueOrDefault(id);
+
+    /// <summary>`FindAttributeControlledParticleSystem( name )` (econ_item_schema.cpp:6858): the first by name, case ignored.</summary>
+    /// <param name="systemName">The particle system's name.</param>
+    /// <returns>The system, or null.</returns>
+    public AttributeParticleSystem? FindAttributeControlledParticleSystem(string systemName) =>
+        _particleOrder.Find(each => string.Equals(each.SystemName, systemName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>`GetParticleSuffix()`: `particle_suffix` (econ_item_schema.cpp:3268), or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The suffix, or null.</returns>
+    public string? ParticleSuffix(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("particle_suffix"));
+
+    /// <summary>`m_vecItemLevelingData`: each `item_levels` block's levels, in file order (econ_item_schema.cpp:6178).</summary>
+    private readonly Dictionary<string, List<(uint Level, uint Score)>> _itemLevels = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>`m_mapKillEaterScoreTypes`' `level_data` by score type (econ_item_schema.cpp:6209).</summary>
+    private readonly Dictionary<uint, string> _killEaterLevelData = [];
+
+    /// <summary>`GetKillEaterScoreTypeLevelingDataName( type )` (econ_item_schema.cpp:6370), or null for an unknown type.</summary>
+    /// <param name="scoreType">The kill eater score type.</param>
+    /// <returns>The `item_levels` block name, or null.</returns>
+    public string? KillEaterLevelingDataName(uint scoreType) => _killEaterLevelData.GetValueOrDefault(scoreType);
+
+    /// <summary>
+    /// `GetItemLevelForScore( block, score )` (econ_item_schema.cpp:6325): the first level whose `score` exceeds
+    /// <paramref name="score"/>, else the last; null for an unknown or empty block.
+    /// </summary>
+    /// <param name="block">The `item_levels` block.</param>
+    /// <param name="score">The score.</param>
+    /// <returns>The level's number, or null.</returns>
+    public uint? ItemLevelForScore(string block, uint score)
+    {
+        if (!_itemLevels.TryGetValue(block, out List<(uint Level, uint Score)>? levels) || levels.Count == 0)
+        {
+            return null;
+        }
+
+        foreach ((uint level, uint required) in levels)
+        {
+            if (score < required)
+            {
+                return level;
+            }
+        }
+
+        return levels[^1].Level;
+    }
+
     private ItemSchema()
     {
     }
@@ -373,7 +411,9 @@ public sealed class ItemSchema
         ItemStyle? style = null;
         string styleBlock = string.Empty;
         PerClassBlock? perClassBlock = null;
+        AttributeParticleSystem? particle = null;
         string attachedModel = string.Empty;
+        string attachedKey = string.Empty;
         int attachedFlags = AttachedModel.MaskAll;
 
         // The top-level `attributes` section's walk: which definition index is open.
@@ -415,6 +455,17 @@ public sealed class ItemSchema
                     inUsedByClasses = false;
                     sectionChild = key;
                     entry = read.Begin(section, key);
+
+                    // `BInitItemLevels` / `BInitKillEaterScoreTypes` (econ_item_schema.cpp:6185, :6216): true subkeys only.
+                    if (value is null && string.Equals(section, "item_levels", StringComparison.OrdinalIgnoreCase))
+                    {
+                        read._itemLevels[key] = [];
+                    }
+                    else if (value is null && string.Equals(section, "kill_eater_score_types", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // `GetString( "level_data", "KillEaterRank" )` (:6226); `atoi` of the name (:6218).
+                        read._killEaterLevelData[unchecked((uint)GetInt(key, 0))] = "KillEaterRank";
+                    }
 
                     // The top-level `attributes` section: each child is one definition, keyed by
                     // its index as text — the same spelling `instancebaseline` entries use.
@@ -476,6 +527,44 @@ public sealed class ItemSchema
                     read._colorNames[sectionChild] = value;
                     break;
 
+                // `BInitAttributeControlledParticleSystems` (econ_item_schema.cpp:6126-6149): one system per positive index.
+                case 3 when entry is null && value is null
+                    && string.Equals(section, ParticlesSection, StringComparison.OrdinalIgnoreCase):
+                    particle = GetInt(key, 0) is var id and > 0 ? new AttributeParticleSystem(id) : null;
+
+                    if (particle is not null)
+                    {
+                        read._particleSystems[particle.Id] = particle;
+                        read._particleOrder.Add(particle);
+                    }
+
+                    break;
+
+                case 4 when entry is null && value is not null && particle is not null
+                    && string.Equals(section, ParticlesSection, StringComparison.OrdinalIgnoreCase):
+                    particle.Apply(key, value);
+                    break;
+
+                // `CItemLevelingDefinition::BInitFromKV` (econ_item_schema.cpp:7096): the level is `atoi` of the name.
+                case 3 when entry is null && value is null
+                    && read._itemLevels.TryGetValue(sectionChild, out List<(uint Level, uint Score)>? levels)
+                    && string.Equals(section, "item_levels", StringComparison.OrdinalIgnoreCase):
+                    levels.Add((unchecked((uint)GetInt(key, 0)), 0u));
+                    break;
+
+                case 4 when entry is null && value is not null
+                    && string.Equals(key, "score", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(section, "item_levels", StringComparison.OrdinalIgnoreCase)
+                    && read._itemLevels.TryGetValue(sectionChild, out List<(uint Level, uint Score)>? scored) && scored.Count > 0:
+                    scored[^1] = (scored[^1].Level, unchecked((uint)GetInt(value, 0)));
+                    break;
+
+                case 3 when entry is null && value is not null
+                    && string.Equals(key, "level_data", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(section, "kill_eater_score_types", StringComparison.OrdinalIgnoreCase):
+                    read._killEaterLevelData[unchecked((uint)GetInt(sectionChild, 0))] = value;
+                    break;
+
                 case 3 when entry is not null:
                     inUsedByClasses = value is null
                         && string.Equals(key, "used_by_classes", StringComparison.OrdinalIgnoreCase);
@@ -528,15 +617,8 @@ public sealed class ItemSchema
                     && int.TryParse(
                         value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int part):
 
-                    if (key.Equals("wm_bodygroup_override", StringComparison.OrdinalIgnoreCase))
-                    {
-                        entry.WorldModelBodygroupOverride = part;
-                    }
-                    else if (key.Equals(
-                        "wm_bodygroup_state_override", StringComparison.OrdinalIgnoreCase))
-                    {
-                        entry.WorldModelBodygroupStateOverride = part;
-                    }
+                    // Per visuals block: `m_iWorldModelBodyGroupOverride` lives on `perteamvisuals_t` (econ_item_schema.cpp:2674-2680).
+                    entry.VisualKeys[visualsTeam + "/" + key] = part.ToString(CultureInfo.InvariantCulture);
 
                     break;
                 // Stryker restore all
@@ -702,6 +784,7 @@ public sealed class ItemSchema
                 case 5 when entry is not null && inAttached && value is null:
                     attachedModel = string.Empty;
                     attachedFlags = AttachedModel.MaskAll;
+                    attachedKey = key;
                     break;
 
                 case 6 when entry is not null && inAttached && value is not null:
@@ -710,7 +793,7 @@ public sealed class ItemSchema
                         attachedModel = value;
 
                         entry.AttachedModels.Add(new AttachedModel(
-                            attachedModel, attachedFlags, visualsTeam, attachedIsFestive));
+                            attachedModel, attachedFlags, visualsTeam, attachedIsFestive, attachedKey));
                     }
                     // Stryker disable once : removing TryParse leaves 'flags' undeclared in else-if body, CS0165
                     else if (string.Equals(
@@ -728,7 +811,7 @@ public sealed class ItemSchema
                         if (attachedModel.Length > 0 && entry.AttachedModels.Count > 0)
                         {
                             entry.AttachedModels[^1] = new AttachedModel(
-                                attachedModel, attachedFlags, visualsTeam, attachedIsFestive);
+                                attachedModel, attachedFlags, visualsTeam, attachedIsFestive, attachedKey);
                         }
                     }
 
@@ -1225,49 +1308,69 @@ public sealed class ItemSchema
     public IReadOnlyList<AttachedModel> AttachedModelsFor(
         int definitionIndex, int? team, bool festivized)
     {
-        if (!_items.TryGetValue(definitionIndex, out Entry? item))
+        // `GetNumAttachedModels( iTeamNumber )` and its festive twin (econ_item_schema.h:1735-1796): the block
+        // `GetBestVisualTeamData` picks, alone. An unknown team asks as team 0, the base block.
+        if (!_items.TryGetValue(definitionIndex, out Entry? item) || BestVisualSection(item, team ?? 0) is not { } section)
         {
             return [];
         }
 
-        List<AttachedModel> found = [];
+        // `MergeDefinitionPrefab` (econ_item_schema.cpp:2940-2967): prefabs back to front, each after its own prefabs,
+        // then the item; `RecursiveInheritKeyValues` (:2897) replaces a child of the same name in place, else appends.
+        List<AttachedModel> plain = [];
+        List<AttachedModel> festive = [];
 
-        Collect(item, found, LongestChain);
-
-        if (found.Count == 0)
+        foreach (Entry level in MergeOrder(item, LongestChain))
         {
-            return [];
+            foreach (AttachedModel attached in level.AttachedModels)
+            {
+                if (!string.Equals(attached.Team, section, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                List<AttachedModel> into = attached.Festive ? festive : plain;
+                int existing = into.FindIndex(each => string.Equals(each.Key, attached.Key, StringComparison.OrdinalIgnoreCase));
+
+                if (existing >= 0)
+                {
+                    into[existing] = attached;
+                }
+                else
+                {
+                    into.Add(attached);
+                }
+            }
         }
 
-        string wanted = team switch
+        // The festive loop runs after the plain one, and only under `is_festivized` (econ_entity.cpp:1107-1131).
+        if (festivized)
         {
-            RedTeam => "red",
-            BluTeam => "blu",
-            _ => string.Empty,
-        };
-
-        List<AttachedModel> kept = [];
-
-        foreach (AttachedModel attached in found)
-        {
-            if (attached.Festive && !festivized)
-            {
-                continue;
-            }
-
-            // An untagged block applies to both sides; a tagged one only to its own. An unknown
-            // team therefore takes the untagged blocks and nothing else, which is the honest answer
-            // rather than guessing a side.
-            if (attached.Team.Length > 0
-                && !string.Equals(attached.Team, wanted, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            kept.Add(attached);
+            plain.AddRange(festive);
         }
 
-        return kept;
+        return plain;
+    }
+
+    /// <summary>The order `MergeDefinitionPrefab` applies an entry's chain in: the last prefab first, the entry last.</summary>
+    private List<Entry> MergeOrder(Entry entry, int remaining)
+    {
+        List<Entry> order = [];
+
+        if (remaining > 0)
+        {
+            for (int index = entry.Prefabs.Count - 1; index >= 0; index--)
+            {
+                if (_prefabs.TryGetValue(entry.Prefabs[index], out Entry? prefab))
+                {
+                    order.AddRange(MergeOrder(prefab, remaining - 1));
+                }
+            }
+        }
+
+        order.Add(entry);
+
+        return order;
     }
 
     /// <summary><c>TF_TEAM_RED</c>, matching <c>SceneTeams.Red</c>.</summary>
@@ -1290,46 +1393,11 @@ public sealed class ItemSchema
     /// nothing to accumulate and an item saying `"hat" "0"` under a prefab saying `"hat" "1"` is
     /// deliberately putting the part back.
     /// </remarks>
-    public IReadOnlyDictionary<string, int> PlayerBodygroupsFor(int definitionIndex)
-    {
-        if (!_items.TryGetValue(definitionIndex, out Entry? item))
-        {
-            return new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        }
-
-        Dictionary<string, int> found = new(StringComparer.OrdinalIgnoreCase);
-
-        CollectBodygroups(item, found, LongestChain);
-
-        return found;
-    }
-
-    /// <summary>Gathers an entry's bodygroups, then its prefabs' where it is silent.</summary>
     /// <remarks>
-    /// **Nearest definition wins, so the entry is added FIRST and a prefab may not overwrite it.**
-    /// The opposite order would let a class prefab's `hat` state override a cosmetic that
-    /// deliberately restores the part.
+    /// Read from the BASE visuals block only — `GetModifiedBodyGroup( 0, ... )` in both callers (econ_entity.cpp:2045,
+    /// tf_playermodelpanel.cpp:843). The nearest definition wins per name.
     /// </remarks>
-    private void CollectBodygroups(Entry entry, Dictionary<string, int> into, int remaining)
-    {
-        foreach ((string name, int state) in entry.PlayerBodygroups)
-        {
-            _ = into.TryAdd(name, state);
-        }
-
-        if (remaining <= 0)
-        {
-            return;
-        }
-
-        foreach (string name in entry.Prefabs)
-        {
-            if (_prefabs.TryGetValue(name, out Entry? prefab))
-            {
-                CollectBodygroups(prefab, into, remaining - 1);
-            }
-        }
-    }
+    public IReadOnlyDictionary<string, int> BasePlayerBodygroupsFor(int definitionIndex) => BaseBodygroups(definitionIndex);
 
     /// <summary>Whether an item changes those parts only while it is the active weapon.</summary>
     /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
@@ -1360,11 +1428,24 @@ public sealed class ItemSchema
     /// **The two halves are searched independently**, because the chain can split them: an item may
     /// restate the part while taking the state from its prefab.
     /// </remarks>
-    // Stryker disable once : removing TryGetValue leaves 'item' undeclared in ternary, CS0165
-    public (int Group, int State) WorldmodelBodygroupOverrideFor(int definitionIndex) =>
-        _items.TryGetValue(definitionIndex, out Entry? item)
-            ? (Override(item, LongestChain, state: false), Override(item, LongestChain, state: true))
-            : (-1, -1);
+    /// <param name="team">The owner's team — `GetWorldmodelBodygroupOverride( pOwner->GetTeamNumber() )`.</param>
+    /// <remarks>
+    /// `GetBestVisualTeamData( iTeam )` picks the block (econ_item_schema.h:2161-2186); a block leaves each half at -1
+    /// (`perteamvisuals_t()`, :1067-1068). **With no block at all both halves are 0**, which passes the `&gt; -1` guard
+    /// and sets part 0 to 0 — Valve's own return, so reproduced. An index the schema lacks is the `default` item
+    /// (econ_item_schema.cpp:6694), which has no visuals: also 0.
+    /// </remarks>
+    public (int Group, int State) WorldmodelBodygroupOverrideFor(int definitionIndex, int team)
+    {
+        if (!_items.TryGetValue(definitionIndex, out Entry? item) || BestVisualSection(item, team) is not { } section)
+        {
+            return (0, 0);
+        }
+
+        return (
+            GetInt(Search(item, entry => entry.VisualKeys.GetValueOrDefault(section + "/wm_bodygroup_override"), LongestChain), -1),
+            GetInt(Search(item, entry => entry.VisualKeys.GetValueOrDefault(section + "/wm_bodygroup_state_override"), LongestChain), -1));
+    }
 
     /// <summary>The vision a viewer needs before this item is drawn to them (B354).</summary>
     /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
@@ -1406,35 +1487,6 @@ public sealed class ItemSchema
         return null;
     }
 
-    /// <summary>The first stated half of an override in an entry's prefab chain, or -1.</summary>
-    private int Override(Entry entry, int remaining, bool state)
-    {
-        int stated = state
-            ? entry.WorldModelBodygroupStateOverride
-            : entry.WorldModelBodygroupOverride;
-
-        if (stated > -1)
-        {
-            return stated;
-        }
-
-        if (remaining <= 0)
-        {
-            return -1;
-        }
-
-        foreach (string name in entry.Prefabs)
-        {
-            if (_prefabs.TryGetValue(name, out Entry? prefab)
-                && Override(prefab, remaining - 1, state) is var inherited and > -1)
-            {
-                return inherited;
-            }
-        }
-
-        return -1;
-    }
-
     /// <summary>The first answer in an entry's prefab chain, or null when none states it.</summary>
     private bool? DeployedOnly(Entry entry, int remaining)
     {
@@ -1458,30 +1510,6 @@ public sealed class ItemSchema
         }
 
         return null;
-    }
-
-    /// <summary>Gathers attachments from an entry and its prefabs.</summary>
-    /// <remarks>
-    /// **Every level contributes, unlike <see cref="Search"/> which stops at the first answer.** A
-    /// model is one value and the nearest definition wins; attachments are a LIST, and an item that
-    /// adds one does not thereby discard what its prefab hangs on it.
-    /// </remarks>
-    private void Collect(Entry entry, List<AttachedModel> into, int remaining)
-    {
-        into.AddRange(entry.AttachedModels);
-
-        if (remaining <= 0)
-        {
-            return;
-        }
-
-        foreach (string name in entry.Prefabs)
-        {
-            if (_prefabs.TryGetValue(name, out Entry? prefab))
-            {
-                Collect(prefab, into, remaining - 1);
-            }
-        }
     }
 
     /// <summary>The definition index a named attribute resolves to, or null for an unknown name.</summary>
@@ -1525,6 +1553,18 @@ public sealed class ItemSchema
 
         return found;
     }
+
+    /// <summary>
+    /// A STRING attribute an item definition carries (`CAttribute_String`), nearest definition first — such as
+    /// `weapon_uses_stattrak_module` (econ_item_interface.cpp:492). A demo networks attribute values as 32 bits, so a
+    /// string attribute only ever comes from the definition.
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="name">The attribute's name.</param>
+    /// <returns>The value, or null.</returns>
+    public string? DefinitionStringAttribute(int definitionIndex, string name) =>
+        Inherited(definitionIndex, entry => entry.DefinitionAttributes.Find(
+            each => string.Equals(each.Name, name, StringComparison.OrdinalIgnoreCase)).Value);
 
     /// <summary>`CALL_ATTRIB_HOOK_FLOAT` over an item definition's attributes.</summary>
     /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
@@ -1798,9 +1838,7 @@ public sealed class ItemSchema
         && GetInt(Search(item, entry => entry.VisualKeys.GetValueOrDefault(section + "/use_per_class_bodygroups"), LongestChain), 0) != 0;
 
     /// <summary>`GetModifiedBodyGroup( 0, i, state )` (econ_item_schema.h:2057) over the BASE visuals block, prefabs included.</summary>
-    /// <param name="definitionIndex">The item.</param>
-    /// <returns>Each bodygroup name and state.</returns>
-    public IReadOnlyDictionary<string, int> BasePlayerBodygroupsFor(int definitionIndex)
+    private Dictionary<string, int> BaseBodygroups(int definitionIndex)
     {
         Dictionary<string, int> found = new(StringComparer.OrdinalIgnoreCase);
 
@@ -2245,7 +2283,7 @@ public sealed class ItemSchema
 
     /// <summary>The scalar item keys the model panel's calls read (econ_item_schema.cpp:3159-3171, tf_item_schema.cpp:1015).</summary>
     private static readonly HashSet<string> PanelKeys = new(
-        ["model_world", "extra_wearable", "extra_wearable_vm", "anim_slot", "act_as_wearable", "act_as_weapon", "default_skin"],
+        ["model_world", "extra_wearable", "extra_wearable_vm", "anim_slot", "act_as_wearable", "act_as_weapon", "default_skin", "particle_suffix"],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>One scalar key of a style (tf_item_schema.cpp:1154-1160, econ_item_schema.cpp:2831).</summary>

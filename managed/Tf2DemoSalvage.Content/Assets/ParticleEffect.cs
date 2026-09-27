@@ -260,6 +260,12 @@ public sealed class ParticleEffect
         }
     }
 
+    /// <summary>`GetControlPointAtCurrentTime( number )`: the point last set there, the origin when unset.</summary>
+    /// <param name="number">Which one.</param>
+    /// <returns>The control point.</returns>
+    public ParticleControlPoint ControlPoint(int number) =>
+        number >= 0 && number < _points.Count ? _points[number] : ParticleControlPoint.Unoriented(Vector3.Zero);
+
     /// <summary>Advances the effect one step, emitting at the declared rate.</summary>
     /// <param name="at">Where the emitter is — the rocket's own position.</param>
     /// <param name="seconds">How long the step is.</param>

@@ -23,6 +23,7 @@ public sealed class VguiHud
     private readonly VguiSurfaceHost _host;
     private VguiContext? _context;
     private ScenePlayer? _lastLocal;
+    private float _lastCurTime;
 
     /// <summary>The viewport, and every element `DECLARE_HUDELEMENT` makes at `CHud::Init`, before the layout is read.</summary>
     /// <param name="host">The surface the HUD shares with the other roots.</param>
@@ -120,8 +121,15 @@ public sealed class VguiHud
         // `system()->GetCurrentTime()`, which a `RichText` fades on.
         VguiRichText.HudClock = state.RealTime;
 
-        // `CMDLPanel::GetAutoPlayTime()` — the model panel's cycle clock is real time too (mdlpanel.cpp:638).
-        PlayerStatus.PlayerClass.PlayerModelPanel.RealTimeSeconds = state.RealTime;
+        // `CMDLPanel::GetAutoPlayTime()` — the model panel's cycle clock is real time too (mdlpanel.cpp:638) — and its
+        // particles step by `gpGlobals->frametime` (basemodel_panel.cpp:908), the game clock's step, 0 when paused.
+        TfPlayerModelPanel modelPanel = PlayerStatus.PlayerClass.PlayerModelPanel;
+
+        modelPanel.RealTimeSeconds = state.RealTime;
+        modelPanel.FrameTime = Math.Max(0f, state.CurTime - _lastCurTime);
+        modelPanel.ParticleSystems = Viewport.ParticleSystems;
+        modelPanel.ParticleMaterials = Viewport.ParticleMaterials;
+        _lastCurTime = state.CurTime;
 
         if (_context is null || !ReferenceEquals(_context.Surface, _host.List))
         {

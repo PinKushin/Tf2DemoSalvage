@@ -393,7 +393,7 @@ public sealed class PlayerBodygroupWiringTests
         public SceneTaunt? TauntForScene(string scene) => null;
 
         /// <inheritdoc/>
-        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => itemDefinitionIndex switch
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team) => itemDefinitionIndex switch
         {
             Hat or HatAgain => new ItemBodygroups(new Dictionary<string, int> { ["hat"] = 1 }, false),
             HatAndHeadphones => new ItemBodygroups(

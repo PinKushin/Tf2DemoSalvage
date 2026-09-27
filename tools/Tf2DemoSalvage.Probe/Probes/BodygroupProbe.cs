@@ -208,7 +208,7 @@ public sealed class BodygroupProbe : IProbe
             }
 
             foreach ((SceneProp item, ItemBodygroups groups) in worn
-                .Select(item => (item, appearance.BodygroupsOf(item.ItemDefinitionIndex ?? -1)))
+                .Select(item => (item, appearance.BodygroupsOf(item.ItemDefinitionIndex ?? -1, player.Team ?? 0)))
                 .Where(pair => pair.Item2.Named is { Count: > 0 }))
             {
                 output.WriteLine(

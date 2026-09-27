@@ -530,7 +530,7 @@ public static class RagdollProps
             if (item.Weapon)
             {
                 body = PlayerProps.Bodygroup(
-                    item.ItemDefinitionIndex, item.Deployed, appearance, bodygroups, model, body);
+                    item.ItemDefinitionIndex, item.Deployed, appearance, bodygroups, model, body, corpse.Team ?? 0);
             }
         }
 
@@ -541,7 +541,7 @@ public static class RagdollProps
                 // A wearable is never the active weapon, so it can never satisfy the deployed-only
                 // guard — and none of the eight items that set the flag is a wearable.
                 body = PlayerProps.Bodygroup(
-                    item.ItemDefinitionIndex, deployed: false, appearance, bodygroups, model, body);
+                    item.ItemDefinitionIndex, deployed: false, appearance, bodygroups, model, body, corpse.Team ?? 0);
             }
         }
 
@@ -553,7 +553,7 @@ public static class RagdollProps
             if (item is { Weapon: true, Deployed: true })
             {
                 body = PlayerProps.Bodygroup(
-                    item.ItemDefinitionIndex, deployed: true, appearance, bodygroups, model, body);
+                    item.ItemDefinitionIndex, deployed: true, appearance, bodygroups, model, body, corpse.Team ?? 0);
             }
         }
 

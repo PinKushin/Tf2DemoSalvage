@@ -1575,5 +1575,5 @@ internal sealed class NoAppearance : IPlayerAppearance
     /// wearing their own hair under a cosmetic — the state this viewer was in before B352, and a
     /// far better failure than removing a part on a guess.
     /// </remarks>
-    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
+    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team) => ItemBodygroups.None;
 }

@@ -48,5 +48,5 @@ internal sealed class StubAppearance : IPlayerAppearance
     /// that DO are in <c>PlayerBodygroupWiringTests</c>, which supplies its own wardrobe — a shared
     /// stub answering with a hat would change what every other pose test observes.
     /// </remarks>
-    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
+    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team) => ItemBodygroups.None;
 }

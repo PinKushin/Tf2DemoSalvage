@@ -965,6 +965,9 @@ public sealed class VguiModelPanelConformanceTests
     {
         public List<(int Left, int Top, int Right, int Bottom, float[] Camera, IReadOnlyList<ModelInstance> Models)> Draws { get; } = [];
 
+        /// <summary>Each draw's particles, beside <see cref="Draws"/>.</summary>
+        public List<IReadOnlyList<ParticleBatch>> Particles { get; } = [];
+
         public float AlphaMultiplier { get; set; } = 1f;
 
         public void PushMakeCurrent(VguiPanel panel, bool useInset)
@@ -975,8 +978,13 @@ public sealed class VguiModelPanelConformanceTests
         {
         }
 
-        public void Paint3D(int left, int top, int right, int bottom, float[] camera, IReadOnlyList<ModelInstance> models) =>
+        public void Paint3D(
+            int left, int top, int right, int bottom, float[] camera, IReadOnlyList<ModelInstance> models,
+            IReadOnlyList<ParticleBatch>? particles = null)
+        {
             Draws.Add((left, top, right, bottom, camera, models));
+            Particles.Add([.. particles ?? []]);
+        }
 
         public void DrawSetColor((byte Red, byte Green, byte Blue, byte Alpha) color)
         {

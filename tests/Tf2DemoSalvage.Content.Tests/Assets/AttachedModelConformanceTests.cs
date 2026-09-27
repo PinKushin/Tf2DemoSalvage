@@ -68,6 +68,10 @@ public sealed class AttachedModelConformanceTests
                             {
                                 "model" "models/weapons/c_models/c_inherited_pilot.mdl"
                             }
+                            "1"
+                            {
+                                "model" "models/weapons/c_models/c_inherited_second.mdl"
+                            }
                         }
                     }
                 }
@@ -116,6 +120,7 @@ public sealed class AttachedModelConformanceTests
                 }
                 "400"
                 {
+                    "visuals" { "attached_models" { "0" { "model" "models/weapons/c_models/c_base_only.mdl" } } }
                     "visuals_red"
                     {
                         "attached_models"
@@ -224,20 +229,21 @@ public sealed class AttachedModelConformanceTests
 
         schema.AttachedModelsFor(400, Blu, festivized: false)
             .Select(attached => attached.Model)
-            .ShouldBe(["models/weapons/c_models/c_blu_only.mdl"]);
+            .ShouldBe(["models/weapons/c_models/c_blu_only.mdl"], "a team block is used alone (econ_item_schema.h:2240)");
+
+        schema.AttachedModelsFor(400, 0, festivized: false)
+            .Select(attached => attached.Model)
+            .ShouldBe(["models/weapons/c_models/c_base_only.mdl"]);
     }
 
     [Test]
-    public void AttachedModels_AreInheritedFromPrefabsAndAccumulate()
+    public void AttachedModels_FromAPrefab_MergeByChildName()
     {
-        // **Attachments are a LIST, so inheritance adds rather than shadows** — unlike
-        // `model_player`, where the nearest definition wins and the search stops. An item that
-        // hangs its own attachment does not thereby discard the one its prefab hangs, and the
-        // engine never chooses between them: both are in the item definition's arrays by the time
-        // `UpdateAttachmentModels` walks them.
+        // `RecursiveInheritKeyValues` (econ_item_schema.cpp:2897-2929) merges each child by name: the item's "0" replaces
+        // the prefab's "0" in place, and the prefab's "1" stays, after it.
         Read().AttachedModelsFor(215, Red, festivized: false)
             .Select(attached => attached.Model)
-            .ShouldContain("models/weapons/c_models/c_inherited_pilot.mdl");
+            .ShouldBe(["models/weapons/c_models/c_degreaser_pilotlight.mdl", "models/weapons/c_models/c_inherited_second.mdl"]);
     }
 
     [Test]

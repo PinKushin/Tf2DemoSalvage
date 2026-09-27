@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -57,13 +59,43 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
     }
 
     /// <summary>
-    /// `GetItemStyle()` (econ_item_view.cpp:731): `item style override` first. **Partly ported:** `style changes on
-    /// strange level` (:747-776) needs `item_levels`, which the schema does not read yet; the SOC branch (:779) reads an
-    /// inventory the viewer subscribes to (:853), and a demo has none.
+    /// `GetItemStyle()` (econ_item_view.cpp:731): `item style override`, then `style changes on strange level` — the
+    /// `kill eater` score's level in its score type's `item_levels` block, capped at the attribute (:747-776). The SOC
+    /// branch (:779) reads an inventory the viewer subscribes to (:853), and a demo has none.
     /// </summary>
     /// <param name="schema">The schema.</param>
     /// <returns>The style, or null for <c>INVALID_STYLE_INDEX</c>.</returns>
-    public int? Style(ItemSchema schema) => Attribute(schema, "item style override") is { } style ? (int)style.Value : null;
+    public int? Style(ItemSchema schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+
+        // `style_index_t` is a uint8: the float truncates into it.
+        if (Attribute(schema, "item style override") is { } style)
+        {
+            return (byte)style.Value;
+        }
+
+        // `FindAttribute( pAttr, &uint32 )` reads the raw 32 bits.
+        if (Attribute(schema, "style changes on strange level") is not { } maxStyle)
+        {
+            return null;
+        }
+
+        if (Attribute(schema, "kill eater") is not { } score)
+        {
+            return 0;
+        }
+
+        uint scoreType = Attribute(schema, "kill eater score type") is { } type ? (uint)type.Value : 0u;
+        string block = schema.KillEaterLevelingDataName(scoreType) ?? "KillEaterRank";
+
+        if (schema.ItemLevelForScore(block, unchecked((uint)score.RawBits)) is not { } level)
+        {
+            return 0;
+        }
+
+        return (byte)Math.Min(level, unchecked((uint)maxStyle.RawBits));
+    }
 }
 
 /// <summary>
@@ -162,6 +194,9 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         }
 
         _customClassData.Clear();
+
+        // "always allow particle for this panel" (:191-192).
+        UseParticle = true;
 
         if (block.Find("customclassdata") is { } custom)
         {
@@ -328,10 +363,12 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// `SwitchHeldItemTo` (:517): the class again, wearables, the item, its slot, pose parameters.
     /// </summary>
     /// <remarks>
-    /// **Partly ported.** Missing: the StatTrak module (:550-616, a second bone merge onto the weapon, which
-    /// <see cref="VguiMdlPanel"/> cannot do yet); a taunt item's scene or sequence layer (:664-731, choreo and
-    /// <c>SetSequenceLayers</c> have no port); the action-slot and taunt particles (:747-764, see
-    /// <c>docs/HANDOFF-hud.md</c>). The yeti taunt (:528) is a taunt item and falls under the same gap.
+    /// **The taunt branch (:528-535, :664-731, and <c>UpdateTauntEffects</c> :1823) is not reachable from the HUD.**
+    /// `IsTauntItem` requires a taunt slot (:43). tf_hud_playerstatus.cpp:479-512 carries only the weapon entity in
+    /// the held slot and `C_TFWearable` entities; a taunt-slot item is never either, because the server gives it no
+    /// entity — `"no_entity"` items are skipped, and taunts "explicitly bail out there" (tf_player.cpp:4556-4577) — and
+    /// its prop is a separate `tf_taunt_prop` (tf_player.cpp:17531). So the yeti model, the scenes and
+    /// `SetSequenceLayers` never run for the class portrait.
     /// </remarks>
     private void SwitchHeldItemTo(TfItemView item)
     {
@@ -351,6 +388,8 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
 
         CurrentSlotIndex = schema.LoadoutSlot(item.DefinitionIndex, CurrentClassIndex);
 
+        UpdateStatTrack(schema, item);
+
         // "update poseparam" (:733).
         IReadOnlyList<(string Name, float Value)> poses = schema.PlayerPoseParametersFor(item.DefinitionIndex, Team);
 
@@ -365,6 +404,97 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         {
             SetPoseParameterByName("r_hand_grip", 0f);
         }
+
+        // "Check for hand particles (spell book) — always nuke" (:754-764).
+        SafeDeleteParticleData(ref _particleSystems[(int)ParticleSlot.ActionSlot]);
+        _drawActionSlotEffects = string.Equals(schema.ItemClass(item.DefinitionIndex), "tf_weapon_spellbook", StringComparison.Ordinal);
+
+        // "update eyeglows" (:767).
+        _updateEyeGlows = true;
+    }
+
+    /// <summary>`m_bDrawActionSlotEffects`.</summary>
+    private bool _drawActionSlotEffects;
+
+    /// <summary>`UpdateActionSlotEffects` (:1794-1820): a spellbook's hand effect at `effect_hand_R`.</summary>
+    private void UpdateActionSlotEffects(PropModels.ModelFrames studioHdr, BoneAccessor worldMatrix)
+    {
+        int attachment = FindAttachment(studioHdr, "effect_hand_R");
+
+        if (attachment == -1 || !_drawActionSlotEffects || HeldItem is not { } held)
+        {
+            return;
+        }
+
+        ref ParticleData? data = ref _particleSystems[(int)ParticleSlot.ActionSlot];
+
+        data ??= CreateParticleData(SpellBookHandEffect(held.DefinitionIndex, 0));
+        data?.UpdateControlPoints(studioHdr, worldMatrix, [attachment]);
+    }
+
+    /// <summary>`CTFSpellBook::GetHandEffect( pItem, iTier )` (tf_weapon_spellbook.cpp:828-858).</summary>
+    /// <param name="definitionIndex">The spellbook's definition.</param>
+    /// <param name="tier">The spell tier.</param>
+    /// <returns>The hand effect's system.</returns>
+    public static string SpellBookHandEffect(int definitionIndex, int tier) => definitionIndex switch
+    {
+        1069 => tier > 0 ? "spellbook_major_burning" : "spellbook_minor_burning",
+        5605 => "spellbook_rainbow",
+        _ => tier > 0 ? "spellbook_major_fire" : "spellbook_minor_fire",
+    };
+
+    /// <summary>`m_StatTrackModel` (tf_playermodelpanel.h:218): disabled until a StatTrak weapon is held.</summary>
+    public VguiMdl StatTrackModel { get; } = new() { Disabled = true };
+
+    /// <summary>`m_flStatTrackScale`.</summary>
+    public float StatTrackScale { get; private set; } = 1f;
+
+    /// <summary>`g_KillEaterAttr`'s score attributes (econ_item_constants.cpp:486-496).</summary>
+    private static readonly string[] KillEaterScores =
+        ["kill eater", "kill eater 2", "kill eater 3", "kill eater user 1", "kill eater user 2", "kill eater user 3"];
+
+    /// <summary>`AE_STRANGE` (econ_item_constants.h).</summary>
+    private const int QualityStrange = 11;
+
+    /// <summary>
+    /// `SwitchHeldItemTo`'s StatTrak half (:550-616): a paintkitted weapon with `weapon_uses_stattrak_module`
+    /// (`GetStattrak`, econ_item_interface.cpp:483), if strange, shows that module, scaled by
+    /// `weapon_stattrak_module_scale`, in `ACT_IDLE`'s place (sequence 1).
+    /// </summary>
+    /// <remarks>
+    /// `IsErrorModel` (:589) is the module failing to load; here an unloaded module simply draws nothing until the cache
+    /// has it, and it is precached with the rest.
+    /// </remarks>
+    private void UpdateStatTrack(ItemSchema schema, TfItemView held)
+    {
+        StatTrackModel.Disabled = true;
+        StatTrackModel.Path = null;
+
+        if (held.Attribute(schema, "paintkit_proto_def_index") is null
+            || schema.DefinitionStringAttribute(held.DefinitionIndex, "weapon_uses_stattrak_module") is not { Length: > 0 } module)
+        {
+            return;
+        }
+
+        bool strange = held.Quality == QualityStrange;
+
+        foreach (string score in KillEaterScores)
+        {
+            strange |= held.Attribute(schema, score) is not null;
+        }
+
+        if (!strange)
+        {
+            return;
+        }
+
+        // `m_flStatTrackScale = (float&)unFloatAsUint32` from `weapon_stattrak_module_scale`, else 1 (:581-586).
+        StatTrackScale = held.Attribute(schema, "weapon_stattrak_module_scale") is { } scale ? scale.Value : 1f;
+
+        StatTrackModel.Path = module;
+        StatTrackModel.Disabled = false;
+        StatTrackModel.Sequence = 1;
+        StatTrackModel.Paint = ItemPaint.Tint(held.Attributes, schema, held.ForceBlueTeam);
     }
 
     /// <summary>`EquipRequiredLoadoutSlot` (:773), reached only from a taunt's forced slot.</summary>
@@ -457,9 +587,8 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
             SetBody(_body);
         }
 
-        // Valve sets m_nBody here and does not call SetBody (:875); the next SetBody carries it.
-        // **Divergence:** Valve reads the override for `m_iTeam` (:871); the schema reader keeps one pair per item.
-        (int bodyOverride, int stateOverride) = schema.WorldmodelBodygroupOverrideFor(item.DefinitionIndex);
+        // For `m_iTeam` (:871). Valve sets m_nBody here and does not call SetBody (:875); the next SetBody carries it.
+        (int bodyOverride, int stateOverride) = schema.WorldmodelBodygroupOverrideFor(item.DefinitionIndex, Team);
 
         if (bodyOverride > -1 && stateOverride > -1)
         {
@@ -730,6 +859,12 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
 
         SetSkin(skin);
 
+        // "Set the StatTrack model skin" (:1273-1278).
+        if (!StatTrackModel.Disabled)
+        {
+            StatTrackModel.Skin = Team == TeamRed ? 0 : 1;
+        }
+
         foreach ((string path, TfItemView item) in _dynamicAssetsLoaded)
         {
             SetMDLSkinForTeam(GetMergeMDL(path), GetPreviewItem(item), Team);
@@ -756,6 +891,412 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         return match;
     }
 
+    /// <summary>`modelpanel_particle_system_t` (tf_playermodelpanel.h:89-98), indexing `m_aParticleSystems`.</summary>
+    private enum ParticleSlot
+    {
+        Head,
+        Misc1,
+        Misc2,
+        Weapon,
+        ActionSlot,
+        EyeGlowLeft,
+        EyeGlowRight,
+        EyeSparkLeft,
+        EyeSparkRight,
+        Taunt,
+        Count,
+    }
+
+    /// <summary>`CUSTOM_COLOR_CP1` (effect_dispatch_data.h:37).</summary>
+    private const int CustomColorCp1 = 9;
+
+    /// <summary>`s_mergeModelSlot` (:1464-1476).</summary>
+    private static readonly (int Position, ParticleSlot System)[] MergeModelSlot =
+    [
+        (ItemSchema.LoadoutSlotHead, ParticleSlot.Head),
+        (ItemSchema.LoadoutSlotMisc, ParticleSlot.Misc1),
+        (ItemSchema.LoadoutSlotMisc2, ParticleSlot.Misc2),
+        (ItemSchema.LoadoutSlotPrimary, ParticleSlot.Weapon),
+        (ItemSchema.LoadoutSlotSecondary, ParticleSlot.Weapon),
+        (ItemSchema.LoadoutSlotMelee, ParticleSlot.Weapon),
+    ];
+
+    /// <summary>`static bool bAlternate` in `PostPaint3D` (:1370): shared by every panel, flipped each paint.</summary>
+    private static bool s_alternate;
+
+    /// <summary>`bAlternate`'s read-then-flip.</summary>
+    private static bool Alternate()
+    {
+        bool value = s_alternate;
+        s_alternate = !value;
+        return value;
+    }
+
+    private readonly ParticleData?[] _particleSystems = new ParticleData?[(int)ParticleSlot.Count];
+    private bool _playSparks;
+    private bool _updateEyeGlows;
+    private string _eyeGlowParticleName = string.Empty;
+    private Vector3 _eyeGlowColor1;
+    private Vector3 _eyeGlowColor2;
+
+    /// <summary>`C_TFPlayer::GetLocalTFPlayer()->m_Shared.GetDecapitations()` (:1748), for the demoman's left eye.</summary>
+    public int LocalDecapitations { get; set; }
+
+    /// <summary>`m_aParticleSystems`' system names, for a test or a diagnostic; null where a slot is empty.</summary>
+    public IReadOnlyList<string?> ParticleSystemNames
+    {
+        get
+        {
+            string?[] names = new string?[_particleSystems.Length];
+
+            for (int index = 0; index < names.Length; index++)
+            {
+                names[index] = _particleSystems[index]?.Effect.System.Name;
+            }
+
+            return names;
+        }
+    }
+
+    /// <summary>`SetEyeGlowEffect` (:1860-1884).</summary>
+    /// <param name="effectName">The glow system, or null.</param>
+    /// <param name="color1">`m_vEyeGlowColor1`.</param>
+    /// <param name="color2">`m_vEyeGlowColor2`.</param>
+    /// <param name="forceUpdate">Whether to rebuild the glows.</param>
+    /// <param name="playSparks">Whether to play the kill spark.</param>
+    public void SetEyeGlowEffect(string? effectName, Vector3 color1, Vector3 color2, bool forceUpdate, bool playSparks)
+    {
+        _eyeGlowColor1 = color1;
+        _eyeGlowColor2 = color2;
+        _playSparks = playSparks;
+
+        if (forceUpdate)
+        {
+            _updateEyeGlows = true;
+        }
+
+        if (effectName is null)
+        {
+            if (_eyeGlowParticleName.Length > 0)
+            {
+                _updateEyeGlows = true;
+            }
+
+            _eyeGlowParticleName = string.Empty;
+        }
+        else if (!string.Equals(_eyeGlowParticleName, effectName, StringComparison.Ordinal))
+        {
+            _eyeGlowParticleName = effectName;
+            _updateEyeGlows = true;
+        }
+    }
+
+    /// <summary>`PostPaint3D` (:1363-1405): the glow color alternates, flags reset, stale systems deleted, then the base renders.</summary>
+    /// <inheritdoc/>
+    protected override void PostPaint3D(VguiRenderContext renderContext)
+    {
+        Vector3 color = Alternate() ? _eyeGlowColor1 : _eyeGlowColor2;
+
+        foreach (ParticleSlot slot in (ReadOnlySpan<ParticleSlot>)[ParticleSlot.EyeGlowRight, ParticleSlot.EyeSparkRight, ParticleSlot.EyeGlowLeft, ParticleSlot.EyeSparkLeft])
+        {
+            _particleSystems[(int)slot]?.Effect.SetControlPoint(CustomColorCp1, ParticleControlPoint.Unoriented(color));
+        }
+
+        _updateEyeGlows = false;
+        _playSparks = false;
+
+        for (int index = 0; index < _particleSystems.Length; index++)
+        {
+            if (_particleSystems[index] is { IsUpdateToDate: false })
+            {
+                SafeDeleteParticleData(ref _particleSystems[index]);
+            }
+        }
+
+        base.PostPaint3D(renderContext);
+    }
+
+    /// <summary>`RenderingRootModel` (:1411-1425): both eyes, then the action-slot and taunt effects.</summary>
+    /// <inheritdoc/>
+    protected override void RenderingRootModel(
+        VguiRenderContext renderContext, PropModels.ModelFrames studioHdr, string mdlHandle, BoneAccessor worldMatrix)
+    {
+        if (!UseParticle)
+        {
+            return;
+        }
+
+        UpdateEyeGlows(studioHdr, worldMatrix, isRightEye: true);
+        UpdateEyeGlows(studioHdr, worldMatrix, isRightEye: false);
+
+        // "Right hand" (:1420-1421). `UpdateTauntEffects` (:1424) draws only a taunt item's particle, which the HUD
+        // never carries: see the class remarks.
+        UpdateActionSlotEffects(studioHdr, worldMatrix);
+    }
+
+    /// <summary>`RenderingMergedModel` (:1459-1512): the merge model's item by slot, then its unusual effect.</summary>
+    /// <inheritdoc/>
+    protected override void RenderingMergedModel(
+        VguiRenderContext renderContext, PropModels.ModelFrames studioHdr, string mdlHandle, BoneAccessor worldMatrix)
+    {
+        if (!UseParticle)
+        {
+            return;
+        }
+
+        // `pEconItem` is reassigned every iteration (:1485), so a pass that runs on past an up-to-date match ends on
+        // whatever the LAST slot answered — null when that slot has no match.
+        (TfItemView Item, ParticleSlot System, int Position)? picked = null;
+
+        for (int index = 0; index < MergeModelSlot.Length; index++)
+        {
+            (int position, ParticleSlot slot) = MergeModelSlot[index];
+
+            if (GetLoadoutItemFromMDLHandle(position, mdlHandle) is not { } found)
+            {
+                picked = null;
+                continue;
+            }
+
+            picked = (found, slot, position);
+
+            // "this fixes multiple unusual cosmetics with same default loadout to update their particles" (:1491).
+            if (_particleSystems[(int)slot] is not { IsUpdateToDate: true })
+            {
+                break;
+            }
+        }
+
+        if (picked is not { } chosen)
+        {
+            return;
+        }
+
+        UpdateCosmeticParticles(studioHdr, worldMatrix, chosen.System, chosen.Item);
+
+        if (CurrentSlotIndex == chosen.Position)
+        {
+            RenderStatTrack(renderContext, mdlHandle);
+        }
+    }
+
+    /// <summary>`RenderStatTrack` (:1539-1581): the module bone-merged onto the weapon, scaled, and drawn.</summary>
+    private void RenderStatTrack(VguiRenderContext renderContext, string weaponPath)
+    {
+        if (!StatTrackModel.Disabled)
+        {
+            DrawBoneMergedOnto(renderContext, StatTrackModel, weaponPath, StatTrackScale);
+        }
+    }
+
+    /// <summary>`GetLoadoutItemFromMDLHandle` (:1427-1456): the carried item in that slot whose display model is this one.</summary>
+    private TfItemView? GetLoadoutItemFromMDLHandle(int position, string modelName)
+    {
+        if (Schema is not { } schema)
+        {
+            return null;
+        }
+
+        foreach (TfItemView item in _itemsToCarry)
+        {
+            int slot = schema.LoadoutSlot(item.DefinitionIndex, CurrentClassIndex);
+
+            if (((IsMiscSlot(slot) && IsMiscSlot(position)) || (IsValidPickupWeaponSlot(slot) && slot == position))
+                && schema.PlayerDisplayModel(item.DefinitionIndex, CurrentClassIndex, Team, item.Style(schema)) is { } display
+                && string.Equals(modelName, display, StringComparison.Ordinal))
+            {
+                return item;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>`UpdateCosmeticParticles` (:1584-1714).</summary>
+    private void UpdateCosmeticParticles(PropModels.ModelFrames studioHdr, BoneAccessor worldMatrix, ParticleSlot slot, TfItemView item)
+    {
+        if (Schema is not { } schema || _particleSystems[(int)slot] is { IsUpdateToDate: true })
+        {
+            return;
+        }
+
+        // `attach particle effect`, its value read as a float and passed as an int id (:1600-1603). The quality sparkle
+        // (:1609) reads SOC data (econ_item_view.cpp:1080), which a demo lacks: 0.
+        AttributeParticleSystem? particleSystem = item.Attribute(schema, "attach particle effect") is { } effect
+            ? schema.AttributeControlledParticleSystem((int)effect.Value)
+            : null;
+
+        if (particleSystem?.SystemName is not { } baseName)
+        {
+            return;
+        }
+
+        if (Team == TeamBlue && baseName.Contains("_teamcolor_red", StringComparison.OrdinalIgnoreCase))
+        {
+            particleSystem = schema.FindAttributeControlledParticleSystem(baseName.Replace("_teamcolor_red", "_teamcolor_blue", StringComparison.Ordinal));
+
+            if (particleSystem?.SystemName is null)
+            {
+                return;
+            }
+        }
+
+        PropModels.SkinnedModel? model = studioHdr.Skinned;
+        int bone = BoneIndexByName(model, "bip_head");
+
+        if (bone < 0)
+        {
+            bone = BoneIndexByName(model, "prp_helmet");
+
+            if (bone < 0)
+            {
+                bone = BoneIndexByName(model, "prp_hat");
+            }
+        }
+
+        if (bone < 0)
+        {
+            bone = 0;
+        }
+
+        // `if ( !FindAttribute( pAttrDef_UseHead, &iUseHead ) || !iUseHead == 0 )` (:1655): `!iUseHead == 0` is
+        // `iUseHead != 0`, so the attachments are searched when the attribute is absent OR non-zero.
+        List<int> attachments = [];
+        EconAttributeValue? useHeadAttribute = item.Attribute(schema, "particle effect use head origin");
+        uint useHead = useHeadAttribute is { } head ? unchecked((uint)head.RawBits) : 0u;
+
+        if (useHeadAttribute is null || useHead != 0)
+        {
+            foreach (string? name in particleSystem.ControlPoints)
+            {
+                if (name is { Length: > 0 } && FindAttachment(studioHdr, name) is var found and >= 0)
+                {
+                    attachments.Add(found);
+                }
+            }
+        }
+
+        string systemName = particleSystem.SystemName;
+
+        // "Weapon Remap for a Base Effect to be used on a specific weapon" (:1674).
+        if (particleSystem.UseSuffixName && schema.ParticleSuffix(item.DefinitionIndex) is { } suffix)
+        {
+            systemName = systemName + "_" + suffix;
+        }
+
+        ref ParticleData? data = ref _particleSystems[(int)slot];
+
+        if (data is not null)
+        {
+            if (!string.Equals(data.Effect.System.Name, systemName, StringComparison.Ordinal))
+            {
+                SafeDeleteParticleData(ref data);
+                data = CreateParticleData(systemName);
+            }
+        }
+        else
+        {
+            data = CreateParticleData(systemName);
+        }
+
+        if (data is null)
+        {
+            return;
+        }
+
+        Vector3 offset = Vector3.Zero;
+
+        if (useHead > 0 && item.Attribute(schema, "particle effect vertical offset") is { } vertical)
+        {
+            offset = new Vector3(0f, 0f, vertical.Value);
+        }
+
+        data.UpdateControlPoints(studioHdr, worldMatrix, attachments, bone, offset);
+    }
+
+    /// <summary>`UpdateEyeGlows` (:1718-1791).</summary>
+    private void UpdateEyeGlows(PropModels.ModelFrames studioHdr, BoneAccessor worldMatrix, bool isRightEye)
+    {
+        ParticleSlot eyeSystem = isRightEye ? ParticleSlot.EyeGlowRight : ParticleSlot.EyeGlowLeft;
+        ParticleSlot sparkSystem = isRightEye ? ParticleSlot.EyeSparkRight : ParticleSlot.EyeSparkLeft;
+
+        int attachment = FindAttachment(studioHdr, isRightEye ? "eyeglow_R" : "eyeglow_L");
+
+        if (attachment == -1)
+        {
+            return;
+        }
+
+        if (_updateEyeGlows)
+        {
+            string? glowEffectName = _eyeGlowParticleName;
+
+            SafeDeleteParticleData(ref _particleSystems[(int)eyeSystem]);
+
+            // "demo man has a green eyeglow for eyelander if applicable" (:1742).
+            if (!isRightEye && CurrentClassIndex == TfKillStreakEyes.Demoman)
+            {
+                glowEffectName = TfKillStreakEyes.DemomanEyeEffectName(LocalDecapitations);
+            }
+
+            if (glowEffectName is { Length: > 0 })
+            {
+                _particleSystems[(int)eyeSystem] = CreateParticleData(glowEffectName);
+            }
+        }
+
+        if (_playSparks && _eyeGlowColor1 != Vector3.Zero)
+        {
+            SafeDeleteParticleData(ref _particleSystems[(int)sparkSystem]);
+
+            // "Generate an eye spark as well not for demo" (:1763).
+            _particleSystems[(int)sparkSystem] = CreateParticleData("killstreak_t0_lvl1_flash");
+        }
+
+        // `matAttachToWorld` is never set, so its forward column times `flOffset` 0 is zero (:1771-1780).
+        _particleSystems[(int)eyeSystem]?.UpdateControlPoints(studioHdr, worldMatrix, [attachment]);
+        _particleSystems[(int)sparkSystem]?.UpdateControlPoints(studioHdr, worldMatrix, [attachment]);
+    }
+
+    /// <summary>`Studio_FindAttachment` (bone_setup.cpp): the first attachment of that name, case ignored, or -1.</summary>
+    private static int FindAttachment(PropModels.ModelFrames studioHdr, string name)
+    {
+        IReadOnlyList<StudioAttachment> attachments = studioHdr.Attachments ?? [];
+
+        for (int index = 0; index < attachments.Count; index++)
+        {
+            if (string.Equals(attachments[index].Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>`Studio_BoneIndexByName` (bone_setup.cpp): the bone of that name, case ignored, or -1.</summary>
+    private static int BoneIndexByName(PropModels.SkinnedModel? model, string name)
+    {
+        IReadOnlyList<StudioBone> bones = model?.Bones ?? [];
+
+        for (int index = 0; index < bones.Count; index++)
+        {
+            if (string.Equals(bones[index].Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>`IsMiscSlot` (tf_item_constants.h:105).</summary>
+    private static bool IsMiscSlot(int slot) => slot is ItemSchema.LoadoutSlotMisc or ItemSchema.LoadoutSlotMisc2 or ItemSchema.LoadoutSlotHead;
+
+    /// <summary>`IsValidPickupWeaponSlot` (tf_item_constants.h:152).</summary>
+    private static bool IsValidPickupWeaponSlot(int slot) =>
+        slot is ItemSchema.LoadoutSlotPrimary or ItemSchema.LoadoutSlotSecondary or ItemSchema.LoadoutSlotMelee;
+
     /// <summary>The drawn models, then those a load callback still waits on — `RegisterDynamicModel`'s load (:1137).</summary>
     /// <inheritdoc/>
     public override IEnumerable<string> ModelsToPrecache()
@@ -768,6 +1309,11 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         foreach (string path in _pendingLoads)
         {
             yield return path;
+        }
+
+        if (!StatTrackModel.Disabled && StatTrackModel.Path is { } module)
+        {
+            yield return module;
         }
     }
 

@@ -32,8 +32,11 @@ public interface IVguiSurface
     /// <param name="bottom">Bottom.</param>
     /// <param name="camera">The view-projection, row-major with the translation in the last row.</param>
     /// <param name="models">The posed, lit models.</param>
+    /// <param name="particles">The particles rendered after them under the same camera, or null for none.</param>
     /// <remarks>A surface that draws no 3D ignores it.</remarks>
-    public void Paint3D(int left, int top, int right, int bottom, float[] camera, IReadOnlyList<ModelInstance> models)
+    public void Paint3D(
+        int left, int top, int right, int bottom, float[] camera, IReadOnlyList<ModelInstance> models,
+        IReadOnlyList<ParticleBatch>? particles = null)
     {
     }
 
