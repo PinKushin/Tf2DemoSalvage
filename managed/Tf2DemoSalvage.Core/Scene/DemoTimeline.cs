@@ -247,6 +247,12 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_Shared.m_iDisguiseHealth` (:582): the health a disguise shows.</summary>
     public int? DisguiseHealth { get; init; }
 
+    /// <summary>`m_Shared.m_nPlayerState` (tf_player_shared.cpp:543, sent to everyone): `TF_STATE_ACTIVE` 0 … `TF_STATE_DYING` 3.</summary>
+    public int? PlayerState { get; init; }
+
+    /// <summary>`m_bIsMiniBoss` (c_tf_player.cpp:3779): what `C_TFPlayer::IsHealthBarVisible` returns outside MvM's regen case.</summary>
+    public bool IsMiniBoss { get; init; }
+
     /// <summary>`m_Shared.m_nStreaks[ kTFStreak_Kills ]` (:604): the kill streak.</summary>
     public int? KillStreak { get; init; }
 
@@ -2950,6 +2956,8 @@ public sealed class DemoTimeline
                     OwnAttributes = player.EconAttributes(EconAttributeList.Local) is { Count: > 0 } own ? own : null,
                     DisguiseTarget = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseTarget")),
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
+                    PlayerState = player.Integer("DT_TFPlayerShared.m_nPlayerState"),
+                    IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
                     KillStreak = player.Integer("m_nStreaks.000"),
                     Medigun = MedigunOf(player, entities),
                     Fov = player.Integer("DT_BasePlayer.m_iFOV"),

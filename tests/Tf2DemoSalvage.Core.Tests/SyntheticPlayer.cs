@@ -441,6 +441,60 @@ internal static class SyntheticPlayer
     /// <summary>A handle: the slot with a serial above it — `NUM_ENT_ENTRY_BITS` is 11 — so the decoder has to mask.</summary>
     private static PropertyValue LoadoutHandle(int entity) => PropertyValue.FromInt(entity | (7 << 11));
 
+    /// <summary>The recorder with `m_Shared.m_nPlayerState` (tf_player_shared.cpp:543) and `m_bIsMiniBoss` (c_tf_player.cpp:3779).</summary>
+    /// <param name="playerState">`TF_STATE_*`.</param>
+    /// <param name="miniBoss">`m_bIsMiniBoss`.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithPlayerState(int playerState, bool miniBoss)
+    {
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_TFPlayer"
+                    ? table with { Properties = [.. table.Properties, Table("playershared", "DT_TFPlayerShared"), UnsignedInt("m_bIsMiniBoss", bits: 1)] }
+                    : table);
+        }
+
+        tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true, [UnsignedInt("m_nPlayerState", bits: 3)]));
+
+        DemoSchema schema = new(tables, baseline.ServerClasses);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+                ["m_nPlayerState"] = PropertyValue.FromInt(playerState),
+                ["m_bIsMiniBoss"] = PropertyValue.FromInt(miniBoss ? 1 : 0),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
     /// <summary>The recorder (slot 0, entity 1) with what the HUD reads: its own health, its `m_iHideHUD`, the resource's maxima.</summary>
     /// <param name="health">`DT_BasePlayer.m_iHealth`.</param>
     /// <param name="hideHud">`DT_Local.m_iHideHUD`.</param>

@@ -199,6 +199,8 @@ public sealed class PlayerCompletenessTests
         // The target ID's inputs: a disguise worn as player 7 at 90 health, a kill streak, and a half-charged unique medigun.
         DisguiseTarget = 7,
         DisguiseHealth = 90,
+        PlayerState = 3,
+        IsMiniBoss = true,
         KillStreak = 4,
         Medigun = (0.5f, 6, 29),
 
