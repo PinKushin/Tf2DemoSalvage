@@ -85,17 +85,45 @@ Plan, bottom layer first:
      `EntityModelSet.Precache` (:4929) and reaches the GPU only through `Device3D.UploadModels` (Render/Device3D.cs:262)
      — check when MainForm calls it, since a panel's model may be first asked for mid-demo.
    - Step 1's code has no production caller yet, so the branch stays unmerged until a panel paints (D180).
-3. ~~**`CBaseModelPanel`**~~ — done (below), folded into step 2's file rather than a separate one.
+3. ~~**`CBaseModelPanel`**~~ — done (below).
 4. **`CTFPlayerModelPanel`**: class model, team skin, carried weapon and wearables, `HoldItemInSlot`, eye glow;
    `customclassdata` per class.
 5. **`CTFHudPlayerClass`**: `OnThink` (tf_hud_playerstatus.cpp:184) and its 2D fallback.
 
 ### Steps 2 and 3, done 2026-09-27
 
-`managed/Tf2DemoSalvage.Scene/Hud/VguiModelPanel.cs`: `VguiModelPanel` (`CPotteryWheelPanel` + `CMDLPanel`) and
-`VguiBaseModelPanel : VguiModelPanel` (`CBaseModelPanel`), folded into one file — none of the three Valve classes has
-state worth keeping apart at this layer. Tests: `tests/Tf2DemoSalvage.Scene.Tests/VguiModelPanelConformanceTests.cs`
-(37, synthetic fixtures via `SyntheticSkinnedModel`/`AnimatedStudioBytes`, no corpus demos).
+Three classes in `managed/Tf2DemoSalvage.Scene/Hud/`, one per Valve class, each member on the class Valve declares
+it on (the owner rejected an earlier fold into one `VguiModelPanel`: Valve shape always, D163/D196, and step 4's
+`CTFPlayerModelPanel` overrides members from every layer):
+
+- `VguiPotteryWheelPanel : VguiEditablePanel` (potterywheelpanel.h:38), abstract — camera, pivot/offset, lights,
+  `ParseLightsFromKV`, `Paint`, and the abstract `OnPaint3D` (:88).
+- `VguiMdlPanel : VguiPotteryWheelPanel` (mdlpanel.h:40) — root and merge models, cycle clock, skin, virtual
+  `SetModelAnglesAndPosition` (:89), `OnPaint3D` (mdlpanel.cpp:415) with the virtual hooks `PrePaint3D`,
+  `PostPaint3D`, `RenderingRootModel`, `RenderingMergedModel` (:136-139). The MDL cache (`vgui::MDLCache()->FindMDL`,
+  mdlpanel.cpp:185) is a constructor argument, so no panel exists without one.
+- `VguiBaseModelPanel : VguiMdlPanel` (basemodel_panel.h:150) — the `.res` `model` block, `force_pos`, animations,
+  `PlaySequence`, `LookAtBounds`, `OnTick` expiry, and the `SetModelAnglesAndPosition` override that caches
+  `m_angPlayer`/`m_vecPlayerPos` (cpp:322-329).
+
+Tests: `tests/Tf2DemoSalvage.Scene.Tests/VguiModelPanelConformanceTests.cs` (37, synthetic fixtures via
+`SyntheticSkinnedModel`/`AnimatedStudioBytes`, no corpus demos).
+
+**Open for step 4 — `CTFPlayerModelPanel`'s overrides with no seam yet.** It overrides `FireEvent`
+(mdlpanel.h:106, tf_playermodelpanel.h:44), `SetupFlexWeights` (mdlpanel.h:101, tf:64) and `GetOverrideMaterial`
+(mdlpanel.h:140, tf:83). None exists here because the mechanism behind each is unported: animation events
+(`DoAnimationEvents`), flex weights, and `ForcedMaterialOverride`. Each needs its mechanism ported in
+`VguiMdlPanel.OnPaint3D` at the line mdlpanel.cpp calls it (:459 flex, :465/:495 material), not an empty virtual.
+
+**Open divergences carried through the split unchanged** (a pure refactor did not fix them):
+- `force_pos` is applied per paint through a zero camera, and the stored pivot/offset are left alone.
+  `PerformLayout` (basemodel_panel.cpp:381-387) overwrites them instead. So `LookAtBounds`' centring
+  `CameraOffset` (:763) is discarded by any later paint, because `LookAtBounds` also sets `ForcePosition`, which
+  Valve's does not.
+- `move_x` = 1 (`SetupModelAnimDefaults`, basemodel_panel.cpp:175) is applied in `VguiMdlPanel.OnPaint3D` for every
+  panel, where Valve sets it only from `CBaseModelPanel` into `m_PoseParameters`.
+- `ModelName`/`Sequence`/`Skin` are plain properties; Valve's `SetMDL` (mdlpanel.cpp:153-178, overridden at
+  basemodel_panel.cpp:284-317) resets the cycle start, pose parameters and sequence, then runs `SetupModelDefaults`.
 
 **Reviewed by a coordinator against basemodel_panel.cpp after the first pass (5353203b) and found not done** — nine
 items, all addressed in follow-up commits the same day: the camera/model transform was backwards (fixed, below),
@@ -138,7 +166,7 @@ after the first is sent with its RAW, untransformed position — but only `CPott
 light in the editor) ever moves `m_LightToWorld` away from identity, and this project models no mouse input at
 all. With `m_LightToWorld` always identity, "transformed" and "raw" are the same numbers, so parsing straight into
 world-space values (no separate transform stage) reproduces exactly what the bug also produces whenever nothing
-has moved the light. Full reasoning in `VguiModelPanel.ParseLightsFromKV`'s own remarks.
+has moved the light. Full reasoning in `VguiPotteryWheelPanel.ParseLightsFromKV`'s own remarks.
 
 Tests: `ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOldOne`,
 `ParseLightsFromKV_APointEntry_BecomesALocalLightWithOriginColourAttenuationAndRange`,
@@ -154,7 +182,7 @@ Tests: `ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOld
   unbuffered (a handful of models, not hundreds a frame), `EntityModelSet` keeps its per-entity reused buffer.
 - **Precache reuses the existing upload path with no change needed.** `EntityModelSet.Precache` sets `Grown`, and
   `MomentScene.Pack` already checks `_models.Grown` every frame regardless of what added to it (`MomentScene.cs:633`,
-  written for B363) — so `VguiModelPanel.ModelsToPrecache()` handed to the same `EntityModelSet.Precache` a caller
+  written for B363) — so `VguiMdlPanel.ModelsToPrecache()` handed to the same `EntityModelSet.Precache` a caller
   already calls is enough; a model panel's model reaches the GPU the next frame with no `MainForm`/`Device3D` change.
 - **Frame stepping is wired** (fixed after coordinator review, 2026-09-27): `FrameAt` feeds `CycleTime` through
   `SkinnedModel.BlendedCyclesPerSecond` and `StudioSequences.ClampCycle`/`FrameAt` — the same closed-form path
