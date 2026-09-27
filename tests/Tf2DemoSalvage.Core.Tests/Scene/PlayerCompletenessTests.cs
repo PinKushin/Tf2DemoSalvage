@@ -201,6 +201,7 @@ public sealed class PlayerCompletenessTests
         DisguiseHealth = 90,
         PlayerState = 3,
         IsMiniBoss = true,
+        ActiveWeaponClip = 6,
         KillStreak = 4,
         Medigun = (0.5f, 6, 29),
         ActiveMedigun = (3, 0.5f),

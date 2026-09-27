@@ -50,6 +50,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     private protected VguiLabel? _nameLabel;
     private protected VguiLabel? _dataLabel;
     private protected VguiPanel? _killStreakIcon;
+    private VguiPanel? _ammoIcon;
     private protected VguiPanel? _avatar;
     private TfImagePanel? _bgPanel;
     private protected (byte, byte, byte, byte) _labelColorDefault = (255, 255, 255, 255);
@@ -115,6 +116,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         _dataLabel = FindChildByName("TargetDataLabel") as VguiLabel;
         _bgPanel = FindChildByName("TargetIDBG") as TfImagePanel;
         _killStreakIcon = FindChildByName("KillStreakIcon");
+        _ammoIcon = FindChildByName("AmmoIcon");
         _avatar = FindChildByName("AvatarImage");
 
         // `Reset`'s default label colour.
@@ -473,7 +475,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         }
 
         bool inSameTeam = InSameDisguisedTeam(local, target.Team ?? 0, target);
-        (string data, bool killStreakData) = DataString(local, target, disguisedTarget);
+        (string data, DataKind kind) = DataString(local, target, disguisedTarget);
         string? format = null;
         bool showHealth = false;
 
@@ -514,9 +516,15 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
         string id = format is null ? string.Empty : VguiLocalize.ConstructString(Find(format), IdChars, Prepend, name);
 
+        // "Show target's clip state to attached medics" (:852).
+        if (_ammoIcon is not null)
+        {
+            _ammoIcon.Visible = kind == DataKind.Ammo && data.Length > 0 && IsHealTargetOf(local, target);
+        }
+
         if (_killStreakIcon is not null)
         {
-            _killStreakIcon.Visible = killStreakData && data.Length > 0;
+            _killStreakIcon.Visible = kind == DataKind.KillStreak && data.Length > 0;
         }
 
         return (id, data, health, maxHealth, maxBuffedHealth, targetTeam);
@@ -526,7 +534,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     private protected virtual string Prepend => string.Empty;
 
     /// <summary>`C_TFPlayer::GetTargetIDDataString` (c_tf_player.cpp:9748).</summary>
-    private (string Data, bool KillStreak) DataString(ScenePlayer local, ScenePlayer target, bool disguised)
+    private (string Data, DataKind Kind) DataString(ScenePlayer local, ScenePlayer target, bool disguised)
     {
         string data = string.Empty;
         bool enemy = IsEnemyPlayer(local.Team ?? 0, target.Team ?? 0);
@@ -555,23 +563,43 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
             return (target.Medigun is { Quality: not 0 } medigun
                 ? VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge_wpn"), IdChars, charge, HudViewport.Of(this)?.ItemName?.Invoke(medigun.Definition, medigun.Quality) ?? string.Empty)
-                : VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge"), IdChars, charge), false);
+                : VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge"), IdChars, charge), DataKind.None);
         }
 
         if (disguised && target.DisguiseClass == ClassMedic && enemy)
         {
             // "Show a fake charge level for a disguised enemy medic."
-            return (VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge"), IdChars, "0"), false);
+            return (VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge"), IdChars, "0"), DataKind.None);
         }
 
-        // A local medic's no-heal and clip lines (:9809) need the local medigun's heal target — not modelled; then the streak.
+        // A local medic sees his heal target's clip (:9809-9840). **Not modelled:** `weapon_blocks_healing`'s no-heal line
+        // (:9815), which needs the target's weapon's attributes — a recording carries only the recorder's own items.
+        if (local.PlayerClass == ClassMedic && target.ActiveWeapon is not null && data.Length == 0
+            && target.ActiveWeaponClip is { } clip and >= 0 && IsHealTargetOf(local, target))
+        {
+            return (VguiLocalize.ConstructString(Find("#TF_playerid_ammo"), IdChars, clip.ToString(CultureInfo.InvariantCulture)), DataKind.Ammo);
+        }
+
+        // "Check for kill streak data".
         if (target.KillStreak is > 0 and var streak)
         {
-            return (VguiLocalize.ConstructString(Find("#TF_playerid_ammo"), IdChars, streak.ToString(CultureInfo.InvariantCulture)), true);
+            return (VguiLocalize.ConstructString(Find("#TF_playerid_ammo"), IdChars, streak.ToString(CultureInfo.InvariantCulture)), DataKind.KillStreak);
         }
 
-        return (data, false);
+        return (data, DataKind.None);
     }
+
+    /// <summary>`bIsAmmoData` / `bIsKillStreakData`: which icon the data line wants.</summary>
+    private enum DataKind
+    {
+        None,
+        Ammo,
+        KillStreak,
+    }
+
+    /// <summary>`ToTFPlayer( pLocalTFPlayer->MedicGetHealTarget() ) == pPlayer` (tf_player_shared.cpp:13021).</summary>
+    private static bool IsHealTargetOf(ScenePlayer local, ScenePlayer target) =>
+        local.PlayerClass == ClassMedic && local.ActiveMedigun?.HealTarget == target.EntityIndex;
 
     /// <summary>`C_BaseObject::GetTargetIDString` (c_baseobject.cpp:892), not as a spectator.</summary>
     private string ObjectIdString(HudState state, ScenePlayer local, SceneBuilding obj)

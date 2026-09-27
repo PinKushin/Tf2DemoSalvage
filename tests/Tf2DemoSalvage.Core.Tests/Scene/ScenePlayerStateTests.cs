@@ -6,10 +6,10 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class ScenePlayerStateTests
 {
     [Test]
-    public void PlayersAt_DyingMiniBoss_ReadsStateAndMiniBoss()
+    public void PlayersAt_DyingMiniBossWithAClipForHisMedic_ReadsStateMiniBossAndClip()
     {
         ScenePlayer player = DemoTimeline.Build(SyntheticPlayer.DemoWithPlayerState(playerState: 3, miniBoss: true)).PlayersAt(100).ShouldHaveSingleItem();
 
-        (player.PlayerState, player.IsMiniBoss).ShouldBe(((int?)3, true));
+        (player.PlayerState, player.IsMiniBoss, player.ActiveWeaponClip).ShouldBe(((int?)3, true, (int?)6));
     }
 }

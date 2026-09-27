@@ -253,6 +253,12 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_bIsMiniBoss` (c_tf_player.cpp:3779): what `C_TFPlayer::IsHealthBarVisible` returns outside MvM's regen case.</summary>
     public bool IsMiniBoss { get; init; }
 
+    /// <summary>
+    /// `m_nActiveWpnClip` (tf_player.cpp:760): the active weapon's clip, sent only to the medics healing this player
+    /// (`SendProxy_SendHealersDataTable`, :505) — so a medic's recording carries his heal target's; null otherwise.
+    /// </summary>
+    public int? ActiveWeaponClip { get; init; }
+
     /// <summary>`m_Shared.m_nStreaks[ kTFStreak_Kills ]` (:604): the kill streak.</summary>
     public int? KillStreak { get; init; }
 
@@ -3044,6 +3050,7 @@ public sealed class DemoTimeline
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
                     PlayerState = player.Integer("DT_TFPlayerShared.m_nPlayerState"),
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
+                    ActiveWeaponClip = player.Integer("DT_TFSendHealersDataTable.m_nActiveWpnClip"),
                     KillStreak = player.Integer("m_nStreaks.000"),
                     Medigun = MedigunOf(player, entities),
                     ActiveMedigun = player.ActiveWeapon() is { } inHand && entities.TryGet(inHand, out EntityState? heldWeapon)

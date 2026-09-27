@@ -524,11 +524,21 @@ internal static class SyntheticPlayer
         {
             tables.Add(
                 table.Name == "DT_TFPlayer"
-                    ? table with { Properties = [.. table.Properties, Table("playershared", "DT_TFPlayerShared"), UnsignedInt("m_bIsMiniBoss", bits: 1)] }
+                    ? table with
+                    {
+                        Properties =
+                        [
+                            .. table.Properties,
+                            Table("playershared", "DT_TFPlayerShared"),
+                            UnsignedInt("m_bIsMiniBoss", bits: 1),
+                            Table("TFSendHealersDataTable", "DT_TFSendHealersDataTable"),
+                        ],
+                    }
                     : table);
         }
 
         tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true, [UnsignedInt("m_nPlayerState", bits: 3)]));
+        tables.Add(new SendTable("DT_TFSendHealersDataTable", NeedsDecoder: true, [UnsignedInt("m_nActiveWpnClip", bits: 8)]));
 
         DemoSchema schema = new(tables, baseline.ServerClasses);
         EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
@@ -542,6 +552,7 @@ internal static class SyntheticPlayer
                 ["m_lifeState"] = PropertyValue.FromInt(0),
                 ["m_nPlayerState"] = PropertyValue.FromInt(playerState),
                 ["m_bIsMiniBoss"] = PropertyValue.FromInt(miniBoss ? 1 : 0),
+                ["m_nActiveWpnClip"] = PropertyValue.FromInt(6),
             }),
         ];
 

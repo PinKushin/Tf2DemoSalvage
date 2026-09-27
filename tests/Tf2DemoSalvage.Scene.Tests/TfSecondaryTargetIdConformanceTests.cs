@@ -46,6 +46,22 @@ public sealed class TfSecondaryTargetIdConformanceTests
     }
 
     [Test]
+    public void ShouldDraw_ALocalMedicHealingAStreakingSoldier_ShowsTheClipInsteadOfTheStreakAndTheAmmoIcon()
+    {
+        // `GetTargetIDDataString` (c_tf_player.cpp:9829): a medic's heal target shows its `m_nActiveWpnClip`, which then
+        // suppresses the kill streak (:9844); `UpdateID` shows the ammo icon for it (tf_hud_target_id.cpp:852).
+        (TfSecondaryTargetId secondary, _, HudViewport viewport) = Built();
+        HudState state = State(Local(medic: true) with { ActiveMedigun = (2, 0.5f) });
+
+        viewport.Think(state with
+        {
+            Players = [state.Players![0], state.Players[1] with { ActiveWeapon = 40, ActiveWeaponClip = 4, KillStreak = 3 }],
+        });
+
+        (secondary.TargetData, secondary.FindChildByName("AmmoIcon")!.Visible).ShouldBe(("Clip 4", true));
+    }
+
+    [Test]
     public void ShouldDraw_NotHealingOrHealed_IsHidden() =>
         Built().Secondary.ShouldDraw(State(Local(medic: false))).ShouldBeFalse();
 
@@ -78,6 +94,7 @@ public sealed class TfSecondaryTargetIdConformanceTests
                 {
                     "TargetNameLabel" { "ControlName" "Label" "fieldName" "TargetNameLabel" "wide" "720" "tall" "27" "labelText" "%targetname%" }
                     "TargetDataLabel" { "ControlName" "Label" "fieldName" "TargetDataLabel" "wide" "315" "tall" "17" "labelText" "%targetdata%" }
+                    "AmmoIcon" { "ControlName" "ImagePanel" "fieldName" "AmmoIcon" "visible" "0" }
                 }
                 """),
         };
@@ -87,6 +104,7 @@ public sealed class TfSecondaryTargetIdConformanceTests
             ["TF_playerid_healtarget"] = "Healing: ",
             ["TF_playerid_healer"] = "Healer: ",
             ["TF_playerid_mediccharge"] = "Uber: %s1%",
+            ["TF_playerid_ammo"] = "Clip %s1",
         };
 
         KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
