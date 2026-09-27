@@ -456,6 +456,7 @@ public readonly record struct TimelinePhases(
 /// null before one arrived.
 /// </param>
 /// <param name="RoundTimers">Every `team_round_timer`, or null when there is none.</param>
+/// <param name="Teams">Every `CTFTeam` (RED, BLU, and any others sent), or null when there is none.</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
@@ -463,7 +464,8 @@ public readonly record struct TimelineFrame(
     int? RoundState = null,
     SceneGameRules Rules = default,
     int? ServerTick = null,
-    IReadOnlyList<SceneRoundTimer>? RoundTimers = null);
+    IReadOnlyList<SceneRoundTimer>? RoundTimers = null,
+    IReadOnlyList<SceneTeam>? Teams = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -768,6 +770,9 @@ public sealed class DemoTimeline
     /// <summary>A `team_round_timer`.</summary>
     private const string RoundTimerClass = "CTeamRoundTimer";
 
+    /// <summary>A team entity — `DT_TFTeam`, which inherits `DT_Team` (`tf_team.cpp:43`, `team.cpp:40`).</summary>
+    private const string TeamClass = "CTFTeam";
+
     /// <summary>Every round timer, as the time panel reads it; null when there is none, which costs no allocation.</summary>
     private static List<SceneRoundTimer>? RoundTimers(EntityStateTable entities)
     {
@@ -796,6 +801,24 @@ public sealed class DemoTimeline
         }
 
         return timers;
+    }
+
+    /// <summary>Every team entity, as `CTFHudMatchStatus` reads scores; null when there is none, which costs no allocation.</summary>
+    private static List<SceneTeam>? Teams(EntityStateTable entities)
+    {
+        List<SceneTeam>? teams = null;
+
+        foreach (EntityState team in entities.OfClass(TeamClass))
+        {
+            (teams ??= []).Add(new SceneTeam(team.Integer("DT_Team.m_iTeamNum") ?? 0)
+            {
+                Score = team.Integer("DT_Team.m_iScore") ?? 0,
+                RoundsWon = team.Integer("DT_Team.m_iRoundsWon") ?? 0,
+                Name = team.Text("DT_Team.m_szTeamname") ?? string.Empty,
+            });
+        }
+
+        return teams;
     }
 
 
@@ -2937,15 +2960,16 @@ public sealed class DemoTimeline
 
             int? serverTick = entities.PacketTick > 0 ? entities.PacketTick : null;
             IReadOnlyList<SceneRoundTimer>? roundTimers = RoundTimers(entities);
+            IReadOnlyList<SceneTeam>? teams = Teams(entities);
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, teams);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, teams));
         }
 
         Backfill(frames);
@@ -5282,6 +5306,10 @@ public sealed class DemoTimeline
     /// <summary>Every `team_round_timer` at a tick.</summary>
     /// <param name="tick">The demo tick.</param>
     public IReadOnlyList<SceneRoundTimer> RoundTimersAt(int tick) => FrameAt(tick)?.RoundTimers ?? [];
+
+    /// <summary>Every `CTFTeam` at a tick.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public IReadOnlyList<SceneTeam> TeamsAt(int tick) => FrameAt(tick)?.Teams ?? [];
 
     /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
     /// <param name="tick">The moment being asked about.</param>
