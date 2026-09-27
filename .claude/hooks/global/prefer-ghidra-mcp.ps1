@@ -30,7 +30,8 @@ if ($command -match '(?i)analyzeHeadless' -and $command -notmatch '(?i)\s-import
     $refuse = $true
 }
 
-if ($command -match '(?i)\bcurl\b[^|;&]*(127\.0\.0\.1|localhost):8089\b' -and $command -notmatch '(?i)/mcp/schema') {
+# Any GhidraMCP server port, not only 8089: a second headless server on 8090 was read by curl on 2026-09-27.
+if ($command -match '(?i)\bcurl\b[^|;&]*(127\.0\.0\.1|localhost):80[89]\d\b' -and $command -notmatch '(?i)/mcp/schema') {
     $refuse = $true
 }
 
