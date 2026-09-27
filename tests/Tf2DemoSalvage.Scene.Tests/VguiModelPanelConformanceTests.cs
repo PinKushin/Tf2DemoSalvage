@@ -241,6 +241,19 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     [Test]
+    public void ApplySettings_AFractionalFov_Truncates()
+    {
+        // `inResourceData->GetInt( "fov", flFOV )` (basemodel_panel.cpp:56) is GetInt, not GetFloat — KeyValues'
+        // GetInt does `atoi`, which truncates toward zero rather than rounding.
+        VguiBaseModelPanel panel = new(null, "model");
+        KeyValuesTree resource = Resource("fov 45.9");
+
+        panel.ApplySettings(resource, Context());
+
+        panel.FieldOfView.ShouldBe(45f);
+    }
+
+    [Test]
     public void ParseModelAnimInfo_TwoAnimationsOneDefault_RecordsBoth()
     {
         // basemodel_panel.cpp:122-134.

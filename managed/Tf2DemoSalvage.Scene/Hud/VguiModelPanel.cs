@@ -361,12 +361,11 @@ public class VguiBaseModelPanel : VguiModelPanel
 
         base.ApplySettings(block, context);
 
-        // `CBaseModelPanel::ApplySettings` (basemodel_panel.cpp:46): `fov` overrides the camera's field of view
-        // regardless of whether a `model` block follows.
-        if (block.Find("fov")?.Value is { } fov &&
-            float.TryParse(fov, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsedFov))
+        // `CBaseModelPanel::ApplySettings` (basemodel_panel.cpp:56): `inResourceData->GetInt( "fov", flFOV )` —
+        // GetInt, not GetFloat, so a fractional `fov` truncates toward zero (`atoi`) rather than rounding.
+        if (block.Find("fov")?.Value is { } fov)
         {
-            FieldOfView = parsedFov;
+            FieldOfView = PanelLayout.Atoi(fov);
         }
 
         // `for ( KeyValues *pData = inResourceData->GetFirstSubKey() ...` (:74): every sub-block named `model`, not
