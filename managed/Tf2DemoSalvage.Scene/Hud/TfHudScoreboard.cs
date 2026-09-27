@@ -11,8 +11,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// lists, over `CClientScoreBoardDialog` (`game_controls/clientscoreboarddialog.cpp`).
 /// </summary>
 /// <remarks>
-/// **Not wired into the viewer's key bindings or `MainForm` yet** — `+showscores` and this dialog's own visibility are
-/// left for later; this element only builds and updates its two lists.
+/// Wired to `+showscores`/TAB through <c>Tf2DemoSalvage.Presentation.VguiHud.Scoreboard</c> — see its remarks for how
+/// this panel is shown and updated, since it is a viewport panel rather than a `CHudElement`.
 ///
 /// **Not modelled:**
 /// <list type="bullet">
