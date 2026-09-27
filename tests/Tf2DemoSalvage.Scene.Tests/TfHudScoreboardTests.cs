@@ -154,6 +154,25 @@ public sealed class TfHudScoreboardTests
     }
 
     [Test]
+    public void UpdatePlayerList_AnAlivePlayer_TakesTheTeamColourOnASeeThroughBlackRow()
+    {
+        // `clr = g_PR->GetTeamColor( nTeam )` (:1545) — COLOR_RED and COLOR_BLUE (shareddefs.h:565) — and
+        // `SetItemBgColor( itemID, Color( 0, 0, 0, 80 ) )` for every row (:1569).
+        TfClientScoreBoardDialog dialog = new(null);
+
+        SceneScoreboardPlayer[] players =
+        [
+            new(2) { Connected = true, Valid = true, Team = SceneTeams.Red, Alive = true },
+            new(3) { Connected = true, Valid = true, Team = SceneTeams.Blu, Alive = true },
+        ];
+
+        dialog.UpdatePlayerList(players, names: null, localPlayerIndex: 0);
+
+        (dialog.PlayerListRed.GetItemFgColor(0), dialog.PlayerListBlue.GetItemFgColor(0), dialog.PlayerListRed.GetItemBgColor(0))
+            .ShouldBe((((byte)255, (byte)64, (byte)64, (byte)255), ((byte)153, (byte)204, (byte)255, (byte)255), ((byte)0, (byte)0, (byte)0, (byte)80)));
+    }
+
+    [Test]
     public void UpdateTeamInfo_ConnectedPlayersOnEachTeam_CountsEachList()
     {
         SceneScoreboardPlayer[] players =

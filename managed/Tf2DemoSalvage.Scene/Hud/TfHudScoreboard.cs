@@ -274,18 +274,22 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
 
             int itemId = list.AddItem(0, data);
 
-            // The dead-player colour (:1541-1566): Valve's own literals, changed by team and by
-            // whether this is the local player.
+            // `g_PR->GetTeamColor( nTeam )` (:1545): `COLOR_RED`/`COLOR_BLUE` (shareddefs.h:565), set by
+            // `C_TFPlayerResource` (c_tf_playerresource.cpp:61) — then the dead-player colour (:1548-1566): Valve's own
+            // literals, changed by team and by whether this is the local player.
+            (byte, byte, byte, byte) colour = player.Team == TeamRed ? ((byte)255, (byte)64, (byte)64, (byte)255) : ((byte)153, (byte)204, (byte)255, (byte)255);
+
             if (!player.Alive)
             {
-                (byte, byte, byte, byte) dead = player.Team switch
+                colour = player.Team switch
                 {
                     TeamRed => player.EntityIndex == localPlayerIndex ? ((byte)182, (byte)75, (byte)75, (byte)255) : ((byte)135, (byte)83, (byte)83, (byte)255),
                     _ => player.EntityIndex == localPlayerIndex ? ((byte)123, (byte)153, (byte)187, (byte)255) : ((byte)81, (byte)97, (byte)129, (byte)255),
                 };
-
-                list.SetItemFgColor(itemId, dead);
             }
+
+            list.SetItemFgColor(itemId, colour);
+            list.SetItemBgColor(itemId, (0, 0, 0, 80));
         }
     }
 

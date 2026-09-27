@@ -295,6 +295,11 @@ public class VguiSectionedListPanel : VguiPanel
     public (byte Red, byte Green, byte Blue, byte Alpha)? GetItemFgColor(int itemId) =>
         _items.TryGetValue(itemId, out Item? item) ? item.FgColor : null;
 
+    /// <summary>The row background <see cref="SetItemBgColor"/> set, or null when the row draws none.</summary>
+    /// <param name="itemId">The item.</param>
+    public (byte Red, byte Green, byte Blue, byte Alpha)? GetItemBgColor(int itemId) =>
+        _items.TryGetValue(itemId, out Item? item) ? item.BgColor : null;
+
     /// <summary>`SetItemBgColor` (:1362): enables the row's own background fill.</summary>
     /// <param name="itemId">The item.</param>
     /// <param name="color">The colour.</param>
