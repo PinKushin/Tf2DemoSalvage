@@ -267,6 +267,14 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string ScreenshotFolderCommand = "cl_screenshot_folder";
 
+    /// <summary>Command name for the chosen HUD.</summary>
+    /// <remarks>
+    /// **This viewer's own name, not Valve's** — TF2 has no equivalent, because it cannot switch
+    /// HUDs without deleting one from <c>custom/</c> (D193's departure). No cvar prefix fits, so it
+    /// keeps the picker's own vocabulary rather than borrowing one that would look like Valve's.
+    /// </remarks>
+    public const string ChosenHudCommand = "hud_chosen";
+
     /// <summary>Command name for the viewmodel's field of view.</summary>
     /// <remarks>
     /// **TF2 lets a player change this, so this viewer does too** — the standing rule in
@@ -438,6 +446,13 @@ public sealed record ViewerSettings
     /// would refuse a setting that becomes valid the moment a drive is plugged in.
     /// </remarks>
     public string? ScreenshotFolder { get; init; }
+
+    /// <summary>The HUD the picker chose — a folder or <c>.vpk</c> under the program's own <c>custom/</c>, or null for TF2's stock HUD (D193).</summary>
+    /// <remarks>
+    /// Read by <c>MainForm</c> at startup as the fallback when <c>--hud</c> was not passed, and
+    /// written back whenever the picker changes the choice, so it survives the next launch.
+    /// </remarks>
+    public string? ChosenHud { get; init; }
 
     /// <summary>How full screen is entered.</summary>
     /// <remarks>
@@ -884,6 +899,12 @@ public sealed record ViewerSettings
             settings = settings with { ScreenshotFolder = folder };
         }
 
+        if (values.TryGetValue(ChosenHudCommand, out string? hud) &&
+            !string.IsNullOrWhiteSpace(hud))
+        {
+            settings = settings with { ChosenHud = hud };
+        }
+
         if (Read(values, VerticalSyncCommand) is { } sync)
         {
             settings = settings with { VerticalSync = sync != 0 };
@@ -1153,6 +1174,14 @@ public sealed record ViewerSettings
             ScreenshotFolderCommand,
             ScreenshotFolder is { Length: > 0 } where ? $"\"{where}\"" : string.Empty,
             ScreenshotFolder is null);
+        text.AppendLine();
+        text.AppendLine("// The HUD the picker chose, a folder or .vpk under this program's own");
+        text.AppendLine("// custom/ folder. Empty draws TF2's stock HUD (D193).");
+        Setting(
+            text,
+            ChosenHudCommand,
+            ChosenHud is { Length: > 0 } hud ? $"\"{hud}\"" : string.Empty,
+            ChosenHud is null);
         text.AppendLine();
         text.AppendLine("// 1 presents in step with the display. Off by default: it adds latency,");
         text.AppendLine("// and a driver that disables it globally ignores the request anyway.");

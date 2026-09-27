@@ -97,6 +97,24 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
+    public void Load_NoFile_HasNoChosenHud()
+    {
+        // No HUD chosen means TF2's stock HUD (D193) - the picker's starting point on a fresh install.
+        ViewerSettings.Load(Path.Combine(_folder, "absent.cfg")).ChosenHud.ShouldBeNull();
+    }
+
+    [Test]
+    public void SaveThenLoad_KeepsTheChosenHud()
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        string hud = Path.Combine(_folder, "custom", "frag_hud");
+
+        new ViewerSettings { ChosenHud = hud }.Save(file).ShouldBeNull();
+
+        ViewerSettings.Load(file).ChosenHud.ShouldBe(hud);
+    }
+
+    [Test]
     public void SaveThenLoad_KeepsTheViewmodelFieldOfView()
     {
         // **TF2 lets a player change this, so this viewer does too** — the standing rule in
