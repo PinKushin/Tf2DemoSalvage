@@ -19,5 +19,6 @@ public sealed class ScenePlayerClassHudTests
         player.Velocity.ShouldBe((100f, -50f, 25f));
         player.WeaponAccountId.ShouldBe(0x80000123u);
         player.WeaponQuality.ShouldBe(11);
+        player.HasTheFlag.ShouldBeTrue("m_hItem names entity 31, a CCaptureFlag");
     }
 }

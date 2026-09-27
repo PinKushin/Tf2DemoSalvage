@@ -306,6 +306,12 @@ public readonly record struct ScenePlayer(
     public int? WeaponQuality { get; init; }
 
     /// <summary>
+    /// `HasTheFlag()` (tf_player_shared.cpp:11223) with no exceptions: `m_hItem` (tf_player.cpp:798, sent to everyone) names
+    /// an item whose `GetItemID()` is `TF_ITEM_CAPTURE_FLAG` — a `CCaptureFlag`, the only `C_TFItem` there is.
+    /// </summary>
+    public bool HasTheFlag { get; init; }
+
+    /// <summary>
     /// The medigun among the weapons that arrived — `Weapon_OwnsThisID( TF_WEAPON_MEDIGUN )` over `m_hMyWeapons` — as its
     /// `m_flChargeLevel`, `m_iEntityQuality` and definition; null when none arrived, which for anyone but the recorder is
     /// every point-of-view demo.
@@ -3147,6 +3153,9 @@ public sealed class DemoTimeline
                     WeaponQuality = player.ActiveWeapon() is { } graded && entities.TryGet(graded, out EntityState? gradedWeapon)
                         ? gradedWeapon.Integer("DT_ScriptCreatedItem.m_iEntityQuality")
                         : null,
+                    HasTheFlag = EntityState.Slot(player.Integer("DT_TFPlayer.m_hItem")) is { } heldItem
+                        && entities.TryGet(heldItem, out EntityState? heldEntity)
+                        && heldEntity.ClassName == "CCaptureFlag",
                     Medigun = MedigunOf(player, entities),
                     ActiveMedigun = player.ActiveWeapon() is { } inHand && entities.TryGet(inHand, out EntityState? heldWeapon)
                         && heldWeapon.ClassName == "CWeaponMedigun"

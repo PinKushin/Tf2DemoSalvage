@@ -212,6 +212,7 @@ public sealed class PlayerCompletenessTests
         Velocity = (1f, 2f, 3f),
         WeaponAccountId = 1234u,
         WeaponQuality = 6,
+        HasTheFlag = true,
         Medigun = (0.5f, 6, 29),
         ActiveMedigun = (3, 0.5f),
 

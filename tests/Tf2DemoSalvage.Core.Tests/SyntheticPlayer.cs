@@ -2119,6 +2119,7 @@ internal static class SyntheticPlayer
         float invisChangeCompleteTime, float cloakMeter, int disguiseWeapon, (float X, float Y, float Z) velocity, uint accountId, int quality)
     {
         const int WeaponClassId = 1;
+        const int FlagClassId = 2;
         DemoSchema baseline = Schema(OriginTable.NonLocal);
         List<SendTable> tables = [];
 
@@ -2126,7 +2127,10 @@ internal static class SyntheticPlayer
         {
             tables.Add(table.Name switch
             {
-                "DT_TFPlayer" => table with { Properties = [.. table.Properties, Table("playershared", "DT_TFPlayerShared")] },
+                "DT_TFPlayer" => table with
+                {
+                    Properties = [.. table.Properties, Table("playershared", "DT_TFPlayerShared"), UnsignedInt("m_hItem", bits: 21)],
+                },
                 "DT_BasePlayer" => table with
                 {
                     Properties = [.. table.Properties, Table("localdata", "DT_LocalPlayerExclusive"), Table("bcc", "DT_BaseCombatCharacter")],
@@ -2149,8 +2153,15 @@ internal static class SyntheticPlayer
             UnsignedInt("m_iItemDefinitionIndex", bits: 20), UnsignedInt("m_iAccountID", bits: 32), Int("m_iEntityQuality", bits: 5),
         ]));
         tables.Add(new SendTable("DT_TestWeapon", NeedsDecoder: true, [Table("m_Item", "DT_ScriptCreatedItem")]));
+        tables.Add(new SendTable("DT_CaptureFlag", NeedsDecoder: true, [Int("m_nFlagStatus", bits: 3)]));
 
-        DemoSchema schema = new(tables, [.. baseline.ServerClasses, new ServerClass(WeaponClassId, "CTFScatterGun", "DT_TestWeapon")]);
+        DemoSchema schema = new(
+            tables,
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(WeaponClassId, "CTFScatterGun", "DT_TestWeapon"),
+                new ServerClass(FlagClassId, "CCaptureFlag", "DT_CaptureFlag"),
+            ]);
         EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
         List<DecodedEntity> entities =
@@ -2167,6 +2178,7 @@ internal static class SyntheticPlayer
                 ["m_vecVelocity[1]"] = PropertyValue.FromFloat(velocity.Y),
                 ["m_vecVelocity[2]"] = PropertyValue.FromFloat(velocity.Z),
                 ["DT_BaseCombatCharacter.m_hActiveWeapon"] = LoadoutHandle(30),
+                ["m_hItem"] = LoadoutHandle(31),
             }),
             Entity(decoder, WeaponClassId, 30, new Dictionary<string, PropertyValue>
             {
@@ -2174,6 +2186,7 @@ internal static class SyntheticPlayer
                 ["m_iAccountID"] = PropertyValue.FromInt(unchecked((int)accountId)),
                 ["m_iEntityQuality"] = PropertyValue.FromInt(quality),
             }),
+            Entity(decoder, FlagClassId, 31, new Dictionary<string, PropertyValue> { ["m_nFlagStatus"] = PropertyValue.FromInt(1) }),
         ];
 
         byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
