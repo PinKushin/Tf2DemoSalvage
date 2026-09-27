@@ -18,7 +18,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <c>m_vecAmbientCube</c> (:152), <c>m_vecCameraOffset</c> (:155). The model and its clock are
 /// <see cref="VguiMdlPanel"/>'s; the <c>.res</c> <c>model</c> block is <see cref="VguiBaseModelPanel"/>'s.
 /// </remarks>
-public abstract class VguiPotteryWheelPanel : VguiPanel
+public abstract class VguiPotteryWheelPanel : VguiEditablePanel
 {
     /// <summary><c>CPotteryWheelPanel( parent, name )</c> (<c>potterywheelpanel.h:44</c>).</summary>
     /// <param name="parent">The parent, or null.</param>
