@@ -108,23 +108,36 @@ was already correct on review — a test was added to confirm it rather than lea
 - **Camera and lights are exact**: `NearZ` 3, `FarZ` 16384·√3, `FieldOfView` 30 (potterywheelpanel.cpp:250-252);
   ambient cube 0.4 all six faces and one white sun down `(0,0,-1)` (`CreateDefaultLights`, :316-333).
 
-#### Divergence: `ParseLightsFromKV` (potterywheelpanel.cpp:392-460)
+#### `ParseLightsFromKV` (potterywheelpanel.cpp:392-460) — point and spot now ported (fixed 2026-09-27)
 
-`ModelInstance` carries exactly one optional `SunLight` and one `AmbientCube`; Valve's `m_Lights` is up to
-`MAX_LIGHT_COUNT` entries of THREE kinds (`directional`/`point`/`spot`), and the ambient cube is never touched by
-this function at all (only ever confirmed here, not previously guessed). What is actually dropped, per entry kind:
+Point and spot lights carry through to the renderer as `LocalLight` entries in `ModelInstance.Locals` — the SAME
+structure a world prop's nearby BSP lights use, and `Device3D.DrawPanelModels` already threaded `instance.Locals`
+through to `_world.DrawModel` before this fix (`Device3D.cs:1248,1354`), so no renderer change was needed, only that
+`Paint` populates it. Origin, colour, attenuation (0/1/2), `maxDistance` (range), and for `spot` also direction,
+cone angles (as cosines) and exponent are all read. `nLightCount`'s `MAX_LIGHT_COUNT` cap
+(`LocalLights.MaximumLocalLights` = 4) is ONE counter shared by every kind, directional included, matching
+`potterywheelpanel.cpp:394-459`.
 
-- **`directional`**: nothing — colour and (normalised) direction is everything `InitDirectional` reads, and both
-  reach `Sun`. Only the FIRST directional entry survives; Valve keeps every one up to the light count.
-- **`point`**: dropped entirely — origin, attenuation (0/1/2), `maxDistance`. No stock HUD `.res` file writes one.
-- **`spot`**: dropped entirely — everything `point` has, plus `inner_cone_angle`/`outer_cone_angle`/`exponent`
-  (falloff). No stock HUD `.res` file writes one either.
-- **Replace, not merge**: Valve's `m_nLightCount = nLightCount` runs unconditionally at the end, so a `lights` block
-  naming only point/spot lights — or none at all — REPLACES the directional light with nothing. `VguiModelPanel.Sun`
-  is `SunLight?` for exactly this reason: `ParseLightsFromKV` sets it to null before scanning, same as Valve's list
-  going to zero directional lights, and only a matching `directional` entry gives it a value again.
+**One remaining structural limit, not a bug**: only the FIRST `directional` entry survives, because
+`ModelInstance.Sun` — what the renderer actually draws a model's directional light with — is a single `SunLight`,
+the same as every world prop. No stock HUD `.res` file writes more than one, and adding a second slot would be a
+new lighting path for an untested case, not a parity gap this panel can close alone.
 
-Test: `ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOldOne`.
+**`SetupRenderState`'s per-light transform bug (potterywheelpanel.cpp:723-731) is reproduced by construction,
+not separately coded.** For light `i > 0`, Valve transforms into `pDesc[0]` instead of `pDesc[i]`, so every light
+after the first is sent with its RAW, untransformed position — but only `CPotteryWheelManip` (mouse-dragging a
+light in the editor) ever moves `m_LightToWorld` away from identity, and this project models no mouse input at
+all. With `m_LightToWorld` always identity, "transformed" and "raw" are the same numbers, so parsing straight into
+world-space values (no separate transform stage) reproduces exactly what the bug also produces whenever nothing
+has moved the light. Full reasoning in `VguiModelPanel.ParseLightsFromKV`'s own remarks.
+
+Tests: `ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOldOne`,
+`ParseLightsFromKV_APointEntry_BecomesALocalLightWithOriginColourAttenuationAndRange`,
+`ParseLightsFromKV_AllZeroAttenuation_NormalisesToConstantOne`,
+`ParseLightsFromKV_ASpotEntry_BecomesALocalLightWithConesAndExponent`,
+`ParseLightsFromKV_MoreThanFourNonDirectionalEntries_StopsAtMaximumLocalLights`,
+`ParseLightsFromKV_ADirectionalEntryAmongFourLocals_CountsTowardTheSharedLimit`,
+`Paint_WithLocalLights_CarriesThemOnEveryModelInstance`.
 - **Posing reuses `AnimatingEntity`/`SkeletonPose` directly**, keyed by model PATH in a small dictionary the panel
   owns — its own version of `EntityModelSet.EntityFor`, since a panel has no entity index. Bone merge is
   `AnimatingEntity.Follows`; skinning (bone-to-world folded with bind pose) is `BoneSkinning.Fill`, extracted from

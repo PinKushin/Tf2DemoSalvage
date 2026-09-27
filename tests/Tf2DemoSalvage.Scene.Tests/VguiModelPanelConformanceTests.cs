@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -103,6 +105,186 @@ public sealed class VguiModelPanelConformanceTests
         panel.ParseLightsFromKV(pointOnly);
 
         panel.Sun.ShouldBeNull();
+        panel.Locals.Count.ShouldBe(1);
+    }
+
+    [Test]
+    public void ParseLightsFromKV_APointEntry_BecomesALocalLightWithOriginColourAttenuationAndRange()
+    {
+        // potterywheelpanel.cpp:415-429: InitPoint(origin, color) then the point overrides.
+        VguiModelPanel panel = new(null, "model");
+        KeyValuesTree lights = Resource("""
+            lights
+            {
+                "light1"
+                {
+                    "name" "point"
+                    "color" "1 0.5 0.25"
+                    "origin" "10 20 30"
+                    "attenuation" "0 1 0.5"
+                    "maxDistance" "512"
+                }
+            }
+            """).Find("lights")!;
+
+        panel.ParseLightsFromKV(lights);
+
+        panel.Locals.Count.ShouldBe(1);
+        LocalLight local = panel.Locals[0];
+        local.X.ShouldBe(10f);
+        local.Y.ShouldBe(20f);
+        local.Z.ShouldBe(30f);
+        local.Red.ShouldBe(1f);
+        local.Green.ShouldBe(0.5f);
+        local.Blue.ShouldBe(0.25f);
+        local.Constant.ShouldBe(0f);
+        local.Linear.ShouldBe(1f);
+        local.Quadratic.ShouldBe(0.5f);
+        local.Range.ShouldBe(512f);
+        local.Spot.ShouldBeFalse();
+    }
+
+    [Test]
+    public void ParseLightsFromKV_AllZeroAttenuation_NormalisesToConstantOne()
+    {
+        // Not read from ParseLightsFromKV itself — a guard this project adds so the shared LocalLight shader path
+        // does not divide by an all-zero denominator, matching the guard its OTHER producer (BSP world lights)
+        // already has.
+        VguiModelPanel panel = new(null, "model");
+        KeyValuesTree lights = Resource("""
+            lights
+            {
+                "light1" { "name" "point" "color" "1 1 1" "origin" "0 0 0" "attenuation" "0 0 0" }
+            }
+            """).Find("lights")!;
+
+        panel.ParseLightsFromKV(lights);
+
+        panel.Locals[0].Constant.ShouldBe(1f);
+        panel.Locals[0].Linear.ShouldBe(0f);
+        panel.Locals[0].Quadratic.ShouldBe(0f);
+    }
+
+    [Test]
+    public void ParseLightsFromKV_ASpotEntry_BecomesALocalLightWithConesAndExponent()
+    {
+        // potterywheelpanel.cpp:431-451: InitSpot, then direction/attenuation/maxDistance/exponent overrides.
+        // inner_cone_angle/outer_cone_angle are read as RADIANS straight into GetFloat with no conversion
+        // (lightdesc.h:71-72's own contract for InitSpot's boundary parameters) — 0 and PI/2 here so the cosines
+        // are the easy, exact 1 and 0.
+        VguiModelPanel panel = new(null, "model");
+        KeyValuesTree lights = Resource($$"""
+            lights
+            {
+                "light1"
+                {
+                    "name" "spot"
+                    "color" "1 1 1"
+                    "origin" "0 0 50"
+                    "attenuation" "1 0 0"
+                    "maxDistance" "256"
+                    "direction" "0 0 -1"
+                    "inner_cone_angle" "0"
+                    "outer_cone_angle" "{{MathF.PI / 2}}"
+                    "exponent" "3"
+                }
+            }
+            """).Find("lights")!;
+
+        panel.ParseLightsFromKV(lights);
+
+        panel.Locals.Count.ShouldBe(1);
+        LocalLight local = panel.Locals[0];
+        local.Spot.ShouldBeTrue();
+        local.Z.ShouldBe(50f);
+        local.Range.ShouldBe(256f);
+        local.Direction.Z.ShouldBe(-1f);
+        local.SpotInner.ShouldBe(1f, 0.0001f);
+        local.SpotOuter.ShouldBe(0f, 0.0001f);
+        local.SpotExponent.ShouldBe(3f);
+    }
+
+    [Test]
+    public void ParseLightsFromKV_MoreThanFourNonDirectionalEntries_StopsAtMaximumLocalLights()
+    {
+        // `Assert( nLightCount < MAX_LIGHT_COUNT ); if ( nLightCount >= MAX_LIGHT_COUNT ) break;`
+        // (potterywheelpanel.cpp:397-399) — the loop stops outright, so a fifth entry (here a directional one,
+        // to prove the break is unconditional and not just "stop reading point/spot") is never reached either.
+        VguiModelPanel panel = new(null, "model");
+        KeyValuesTree lights = Resource("""
+            lights
+            {
+                "l1" { "name" "point" "color" "1 1 1" "origin" "0 0 0" "attenuation" "1 0 0" }
+                "l2" { "name" "point" "color" "1 1 1" "origin" "1 0 0" "attenuation" "1 0 0" }
+                "l3" { "name" "point" "color" "1 1 1" "origin" "2 0 0" "attenuation" "1 0 0" }
+                "l4" { "name" "point" "color" "1 1 1" "origin" "3 0 0" "attenuation" "1 0 0" }
+                "l5" { "name" "directional" "color" "1 1 1" "direction" "0 0 -1" }
+            }
+            """).Find("lights")!;
+
+        panel.ParseLightsFromKV(lights);
+
+        panel.Locals.Count.ShouldBe(4);
+        panel.Sun.ShouldBeNull();
+    }
+
+    [Test]
+    public void ParseLightsFromKV_ADirectionalEntryAmongFourLocals_CountsTowardTheSharedLimit()
+    {
+        // `nLightCount` is ONE counter shared by every kind (potterywheelpanel.cpp:394-459) — a directional entry
+        // among four point lights must count toward the same MAX_LIGHT_COUNT limit, not a separate one. Ordered so
+        // this fails if directional entries were (wrongly) exempted from the count: a fifth point light placed
+        // AFTER the directional one would only be dropped if the directional entry consumed a slot.
+        VguiModelPanel panel = new(null, "model");
+        KeyValuesTree lights = Resource("""
+            lights
+            {
+                "l1" { "name" "directional" "color" "1 1 1" "direction" "0 0 -1" }
+                "l2" { "name" "point" "color" "1 1 1" "origin" "0 0 0" "attenuation" "1 0 0" }
+                "l3" { "name" "point" "color" "1 1 1" "origin" "1 0 0" "attenuation" "1 0 0" }
+                "l4" { "name" "point" "color" "1 1 1" "origin" "2 0 0" "attenuation" "1 0 0" }
+                "l5" { "name" "point" "color" "1 1 1" "origin" "3 0 0" "attenuation" "1 0 0" }
+            }
+            """).Find("lights")!;
+
+        panel.ParseLightsFromKV(lights);
+
+        // One directional (slot 1) plus three points (slots 2-4) is the four MAX_LIGHT_COUNT allows; the fourth
+        // point light (l5) never gets read.
+        panel.Sun.ShouldNotBeNull();
+        panel.Locals.Count.ShouldBe(3);
+    }
+
+    [Test]
+    public void Paint_WithLocalLights_CarriesThemOnEveryModelInstance()
+    {
+        // Device3D.DrawPanelModels already threads `instance.Locals` through to `_world.DrawModel` for a panel's
+        // models (Device3D.cs:1248/1354) — the renderer side needs no change, only that Paint actually populates it.
+        VguiModelPanel panel = new(null, "model")
+        {
+            ModelName = "models/player/demo.mdl",
+            ResolveModel = path => path == "models/player/demo.mdl"
+                ? SyntheticSkinnedModel.WithBones("root")
+                : SyntheticSkinnedModel.WithBones("root", "muzzle"),
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.MergeModels.Add("models/weapons/c_models/c_stickybomb_launcher.mdl");
+
+        panel.ParseLightsFromKV(Resource("""
+            lights
+            {
+                "light1" { "name" "point" "color" "1 1 1" "origin" "0 0 0" "attenuation" "1 0 0" }
+            }
+            """).Find("lights")!);
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+
+        surface.Draws[0].Models[0].Locals!.Count.ShouldBe(1);
+        surface.Draws[0].Models[1].Locals!.Count.ShouldBe(1);
     }
 
     [Test]

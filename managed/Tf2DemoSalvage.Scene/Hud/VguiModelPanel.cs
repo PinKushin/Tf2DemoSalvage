@@ -132,7 +132,22 @@ public class VguiModelPanel : VguiPanel
     /// every parse (<c>m_nLightCount = nLightCount</c>, potterywheelpanel.cpp:459) rather than leaving the old light
     /// standing beside whatever the block actually named.
     /// </summary>
+    /// <remarks>
+    /// **Structurally one, where Valve's own <c>m_Lights</c> can hold several directional entries up to
+    /// <c>MAX_LIGHT_COUNT</c>.** <c>ModelInstance.Sun</c> — what the renderer actually draws a model's directional
+    /// light with — is a single <see cref="SunLight"/>, the same as every world prop draws with; adding a second
+    /// directional slot would be a new lighting path for a case no stock HUD `.res` file exercises (none writes more
+    /// than one <c>directional</c> entry), not a parity gap this panel can close by itself. The first entry wins,
+    /// matching what a caller would see if it only ever looked at the first.
+    /// </remarks>
     public SunLight? Sun { get; set; } = new(1f, 1f, 1f, 0f, 0f, -1f);
+
+    /// <summary>
+    /// <c>m_Lights[1..]</c>: every <c>point</c>/<c>spot</c> entry <c>ParseLightsFromKV</c> parsed, up to
+    /// <see cref="LocalLights.MaximumLocalLights"/> — the SAME structure a world prop's nearby BSP lights use
+    /// (<c>ModelInstance.Locals</c>, already drawn by <c>Device3D.DrawPanelModels</c>: <c>locals: instance.Locals</c>).
+    /// </summary>
+    public IReadOnlyList<LocalLight> Locals { get; set; } = [];
 
     /// <summary>The root model's path, or null to draw nothing.</summary>
     public string? ModelName { get; set; }
@@ -199,40 +214,151 @@ public class VguiModelPanel : VguiPanel
     }
 
     /// <summary>
-    /// <c>ParseLightsFromKV</c> (<c>potterywheelpanel.cpp:392-460</c>): the first <c>directional</c> entry becomes
-    /// <see cref="Sun"/>. This is a DIVERGENCE from Valve, not a reading of the same behaviour through a narrower
-    /// window — see <c>docs/HANDOFF-hud.md</c>'s "Divergence: ParseLightsFromKV" for the full list of what is
-    /// dropped and why (<see cref="ModelInstance"/> has no representation for a point or spot light, and this
-    /// project keeps one sun where Valve's own light LIST replaces itself wholesale every parse).
+    /// <c>ParseLightsFromKV</c> (<c>potterywheelpanel.cpp:392-460</c>), all three kinds: the first <c>directional</c>
+    /// entry becomes <see cref="Sun"/> (only one — see its own remarks); every <c>point</c>/<c>spot</c> entry becomes
+    /// a <see cref="LocalLight"/> in <see cref="Locals"/>, up to <see cref="LocalLights.MaximumLocalLights"/>.
     /// </summary>
     /// <param name="lightsBlock">The <c>lights</c> block.</param>
+    /// <remarks>
+    /// **<c>SetupRenderState</c>'s per-light transform bug (potterywheelpanel.cpp:723-731) is not separately coded,
+    /// and that is not a gap.** For light <c>i</c>, Valve writes `pDesc[i] = m_Lights[i].m_Desc` (correct) then
+    /// `VectorTransform( ..., pDesc-&gt;m_Position )` — `pDesc` with no index, always `pDesc[0]` — so every light
+    /// after the first is SENT with its RAW, untransformed position/direction rather than one rotated by its own
+    /// `m_LightToWorld`. The only thing that moves `m_LightToWorld` away from identity is
+    /// `CPotteryWheelManip`/mouse dragging a light in the editor, which this project does not model at all (no
+    /// mouse input reaches a panel here — the same exclusion `VguiPanel`'s own remarks state). With
+    /// `m_LightToWorld` always identity, "transformed" and "raw" are the SAME NUMBERS, so Valve's buggy indexing
+    /// and its intended one are indistinguishable — and parsing straight into world-space values here (no separate
+    /// transform stage at all) reproduces exactly that: correct for every light, which is what the bug ALSO
+    /// produces whenever nothing has moved the light. The divergence only becomes observable if this project ever
+    /// grows light manipulation, at which point this note is where to look.
+    /// </remarks>
     public void ParseLightsFromKV(KeyValuesTree lightsBlock)
     {
         ArgumentNullException.ThrowIfNull(lightsBlock);
 
         // Valve's own loop (`FOR_EACH_SUBKEY`) replaces `m_nLightCount` unconditionally at the end, even when it
-        // finds zero usable entries — so this block being present at all REPLACES the light, and only a matching
-        // `directional` entry gives it a new value.
+        // finds zero usable entries — so this block being present at all REPLACES every light, and only a matching
+        // entry gives one a new value.
         Sun = null;
+
+        List<LocalLight> locals = [];
+
+        // `nLightCount` counts every entry actually initialised — directional included, since it and point/spot
+        // all share Valve's one `m_Lights[MAX_LIGHT_COUNT]` array — so the break below is checked before dispatching
+        // on the entry's TYPE, not only before a point/spot one.
+        int count = 0;
 
         foreach (KeyValuesTree entry in lightsBlock.Children)
         {
-            if (!string.Equals(entry.Find("name")?.Value, "directional", StringComparison.OrdinalIgnoreCase))
+            if (count >= LocalLights.MaximumLocalLights)
             {
-                // Dropped, not read: `point` (:415) carries origin/attenuation/maxDistance, and `spot` (:431) carries
-                // all of that plus inner/outer cone angle and falloff — none of which `ModelInstance.Sun` (a plain
-                // directional light) has anywhere to put. Listed in docs/HANDOFF-hud.md, not just here.
+                // `Assert( nLightCount < MAX_LIGHT_COUNT ); if ( nLightCount >= MAX_LIGHT_COUNT ) break;`
+                // (potterywheelpanel.cpp:397-399) — the WHOLE loop stops here, whatever kind the next entry is.
+                break;
+            }
+
+            string? kind = entry.Find("name")?.Value;
+
+            if (string.Equals(kind, "directional", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Sun is null)
+                {
+                    (float Red, float Green, float Blue) color = Vector3Of(entry.Find("color")?.Value);
+                    (float X, float Y, float Z) direction = Normalized(Vector3Of(entry.Find("direction")?.Value));
+
+                    Sun = new SunLight(color.Red, color.Green, color.Blue, direction.X, direction.Y, direction.Z);
+                }
+
+                count++;
                 continue;
             }
 
-            (float Red, float Green, float Blue) color = Vector3Of(entry.Find("color")?.Value);
-            (float X, float Y, float Z) direction = Normalized(Vector3Of(entry.Find("direction")?.Value));
+            if (string.Equals(kind, "point", StringComparison.OrdinalIgnoreCase))
+            {
+                locals.Add(ParsePointLight(entry));
+                count++;
+            }
+            else if (string.Equals(kind, "spot", StringComparison.OrdinalIgnoreCase))
+            {
+                locals.Add(ParseSpotLight(entry));
+                count++;
+            }
 
-            Sun = new SunLight(color.Red, color.Green, color.Blue, direction.X, direction.Y, direction.Z);
-
-            return;
+            // `AssertMsg1( 0, "Failed to initialize light with type '%s'", pType )` (:454) for anything else —
+            // an assert in Valve's own debug build, silently skipped here as everywhere else this project reads
+            // a `.res` file leniently, and `nLightCount` is not advanced for it either (Valve's own `continue`s
+            // for the two known types both `++nLightCount` before continuing; an unrecognised type falls through
+            // to the assert and never reaches that increment).
         }
+
+        Locals = locals;
     }
+
+    /// <summary><c>LightDesc_t::InitPoint</c> then the <c>point</c> overrides (potterywheelpanel.cpp:415-429):
+    /// origin, colour, attenuation (0/1/2) and <c>maxDistance</c> (range).</summary>
+    private static LocalLight ParsePointLight(KeyValuesTree entry)
+    {
+        (float X, float Y, float Z) origin = Vector3Of(entry.Find("origin")?.Value);
+        (float Red, float Green, float Blue) color = Vector3Of(entry.Find("color")?.Value);
+        (float Constant, float Linear, float Quadratic) attenuation = NormalizedAttenuation(
+            Vector3Of(entry.Find("attenuation")?.Value));
+        float range = ResFloatOrDefault(entry, "maxDistance", 0f);
+
+        return new LocalLight(
+            origin.X, origin.Y, origin.Z,
+            color.Red, color.Green, color.Blue,
+            attenuation.Constant, attenuation.Linear, attenuation.Quadratic,
+            range);
+    }
+
+    /// <summary>
+    /// <c>LightDesc_t::InitSpot</c> then the <c>spot</c> overrides (potterywheelpanel.cpp:431-451): origin, colour,
+    /// attenuation, <c>maxDistance</c>, <c>direction</c> (overwriting <c>InitSpot</c>'s own look-at-derived one), and
+    /// <c>exponent</c> (falloff).
+    /// </summary>
+    /// <remarks>
+    /// **<c>inner_cone_angle</c>/<c>outer_cone_angle</c> are read straight into <c>InitSpot</c>'s <c>float
+    /// inner_cone_boundary</c>/<c>outer_cone_boundary</c> parameters, which <c>lightdesc.h:71-72</c> documents as
+    /// RADIANS** ("cone boundaries in radians") — <c>GetFloat</c> does no unit conversion, so a `.res` author must
+    /// already write radians despite the key names reading like degrees. Ported literally: no `* PI / 180`. This
+    /// project's <see cref="LocalLight.SpotInner"/>/<see cref="LocalLight.SpotOuter"/> want cosines
+    /// (<c>m_ThetaDot</c>/<c>m_PhiDot</c>, <c>RecalculateDerivedValues</c>), so the conversion this method does add
+    /// is <c>cos()</c> of that same (radian) value — not a degrees-to-radians step.
+    /// </remarks>
+    private static LocalLight ParseSpotLight(KeyValuesTree entry)
+    {
+        (float X, float Y, float Z) origin = Vector3Of(entry.Find("origin")?.Value);
+        (float Red, float Green, float Blue) color = Vector3Of(entry.Find("color")?.Value);
+        (float Constant, float Linear, float Quadratic) attenuation = NormalizedAttenuation(
+            Vector3Of(entry.Find("attenuation")?.Value));
+        float range = ResFloatOrDefault(entry, "maxDistance", 0f);
+        (float X, float Y, float Z) direction = Normalized(Vector3Of(entry.Find("direction")?.Value));
+        float innerRadians = ResFloatOrDefault(entry, "inner_cone_angle", 0f);
+        float outerRadians = ResFloatOrDefault(entry, "outer_cone_angle", 0f);
+        float exponent = ResFloatOrDefault(entry, "exponent", 5f);
+
+        return new LocalLight(
+            origin.X, origin.Y, origin.Z,
+            color.Red, color.Green, color.Blue,
+            attenuation.Constant, attenuation.Linear, attenuation.Quadratic,
+            range,
+            direction,
+            MathF.Cos(innerRadians),
+            MathF.Cos(outerRadians),
+            exponent,
+            Spot: true);
+    }
+
+    /// <summary>
+    /// The three attenuation coefficients Valve writes unchecked from the <c>attenuation</c> string — except that
+    /// all three at zero is left as (0, 0, 0) here to (1, 0, 0) instead, a guard this method adds rather than one
+    /// <c>ParseLightsFromKV</c> itself has, so a light this project's own shader divides by does not receive the
+    /// same all-zero degenerate case <see cref="LocalLight"/>'s other producer (the BSP world-light reader) already
+    /// guards against — see its own remarks on why an unguarded zero is a divide-by-zero in the shading formula.
+    /// </summary>
+    private static (float Constant, float Linear, float Quadratic) NormalizedAttenuation((float X, float Y, float Z) attenuation) =>
+        attenuation is (0f, 0f, 0f) ? (1f, 0f, 0f) : attenuation;
 
     /// <summary>
     /// <c>CMDLPanel::OnPaint3D</c> (<c>mdlpanel.cpp:415</c>): root <c>SetUpBones</c>, then each merge model
@@ -276,7 +402,8 @@ public class VguiModelPanel : VguiPanel
                 Ambient,
                 Sun,
                 Bones: Skinned(rootModel.Bones, root.Bones),
-                SkinSwap: Skin >= 0 ? new Dictionary<int, int> { [0] = Skin } : null),
+                SkinSwap: Skin >= 0 ? new Dictionary<int, int> { [0] = Skin } : null,
+                Locals: Locals),
         ];
 
         foreach (string mergeName in MergeModels)
@@ -291,7 +418,7 @@ public class VguiModelPanel : VguiPanel
             merged.SetupBones(FullBoneMask, CycleTime);
 
             models.Add(new ModelInstance(
-                mergeName, Identity4x4, Ambient, Sun, Bones: Skinned(mergeModel.Bones, merged.Bones)));
+                mergeName, Identity4x4, Ambient, Sun, Bones: Skinned(mergeModel.Bones, merged.Bones), Locals: Locals));
         }
 
         // `PerformLayout`'s `force_pos` branch (basemodel_panel.cpp:381-387): `ResetCameraPivot(); SetCameraOffset(
@@ -408,6 +535,20 @@ public class VguiModelPanel : VguiPanel
 
         return values;
     }
+
+    /// <summary><c>GetInt( name, fallback )</c>'s shape — used by both this class and <c>VguiBaseModelPanel</c>'s
+    /// <c>.res</c> parsing, hence <c>private protected</c> rather than <c>private</c>.</summary>
+    private protected static int ResIntOrDefault(KeyValuesTree tree, string name, int fallback) =>
+        tree.Find(name)?.Value is { } value && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+            ? parsed
+            : fallback;
+
+    /// <summary><c>GetFloat( name, fallback )</c>'s shape — see <see cref="ResIntOrDefault"/> for why this is not
+    /// <c>private</c>.</summary>
+    private protected static float ResFloatOrDefault(KeyValuesTree tree, string name, float fallback) =>
+        tree.Find(name)?.Value is { } value && float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed)
+            ? parsed
+            : fallback;
 
     /// <summary>This panel's own posing entry for one model path — <see cref="EntityModelSet.EntityFor"/>'s shape, keyed
     /// by path because a model panel has no entity index (<c>docs/HANDOFF-hud.md</c>, "our pieces").</summary>
@@ -818,13 +959,4 @@ public class VguiBaseModelPanel : VguiModelPanel
         }
     }
 
-    private static int ResIntOrDefault(KeyValuesTree tree, string name, int fallback) =>
-        tree.Find(name)?.Value is { } value && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
-            ? parsed
-            : fallback;
-
-    private static float ResFloatOrDefault(KeyValuesTree tree, string name, float fallback) =>
-        tree.Find(name)?.Value is { } value && float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed)
-            ? parsed
-            : fallback;
 }
