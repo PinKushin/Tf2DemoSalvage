@@ -24,6 +24,18 @@ outcome, the better model wins.
 - Always name the model; the hook refuses an omitted one.
 - Review stays mandatory (D145) whichever model ran.
 
+## Early in the weekly limit: one subagent at a time, main loop by default (2026-09-28)
+
+Not a permanent rule; it depends on where the week's token budget stands. Early in the week, do the work directly
+and run at most one subagent, only for a bounded task that is cheaper on sonnet. Late in the week, with tokens left
+over, several at once is fine.
+
+**Check the budget, do not guess:** `mcp__ccd_session_mgmt__get_usage` (deferred; load via ToolSearch) reports the
+5-hour and weekly limits with percent used and reset time. The weekly limit resets Sunday 10:00 local.
+
+**Why:** each new agent pays input tokens to rebuild context and re-reads files it may not need; the main loop
+already holds those reads.
+
 ## D168: Haiku refused for code and analysis subagents
 
 Haiku produced wrong answers on decompiler output and SDK analysis. Pass `model: "haiku"` only for a purely
