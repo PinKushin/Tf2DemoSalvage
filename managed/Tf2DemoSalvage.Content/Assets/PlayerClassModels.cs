@@ -78,6 +78,8 @@ public sealed class PlayerClassModels
     /// <summary>Classes whose script sets <c>DontDoNewJump</c>, so landing plays no gesture.</summary>
     private readonly HashSet<int> _noLandGesture = [];
 
+    private readonly Dictionary<int, int> _health = [];
+
     private PlayerClassModels()
     {
     }
@@ -149,6 +151,11 @@ public sealed class PlayerClassModels
             {
                 models._noLandGesture.Add(playerClass);
             }
+
+            if (ClassScript.Health(script) is { } health)
+            {
+                models._health[playerClass] = health;
+            }
         }
 
         return models;
@@ -188,6 +195,11 @@ public sealed class PlayerClassModels
     /// class that does land.
     /// </remarks>
     public bool Lands(int playerClass) => !_noLandGesture.Contains(playerClass);
+
+    /// <summary>`TFPlayerClassData_t::m_nMaxHealth` — what `GetDisguiseMaxHealth` (tf_player_shared.cpp:8358) returns.</summary>
+    /// <param name="playerClass">The class number.</param>
+    /// <returns>The script's <c>"health"</c>, or null when the class has no script.</returns>
+    public int? MaxHealth(int playerClass) => _health.TryGetValue(playerClass, out int health) ? health : null;
 
     /// <summary>The class number of the demoman, from <c>tf_shareddefs.h</c>'s order.</summary>
     /// <remarks>
