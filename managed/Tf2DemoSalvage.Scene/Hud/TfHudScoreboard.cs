@@ -360,7 +360,6 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
                 list.SetItemFont(itemId, font);
             }
 
-
             if (player.EntityIndex == localPlayerIndex)
             {
                 list.SetSelectedItem(itemId);
