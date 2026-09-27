@@ -247,10 +247,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // shape and a highlight; the same lamp folded into the cube gives it neither, which is
             // the whole of B170's missing term.
             //
-            // xyz is where the light is, world space. w is unused — it held a per-slot "is this
-            // live" flag until the shader was made to match Valve's, which uses a COUNT and nested
-            // ifs instead. Left rather than repacked: the layout test pins the buffer's size, and
-            // shuffling fields to reclaim four floats is how the material buffer got its strobe.
+            // xyz is where the light is, world space. w is 1 for a directional light — Valve's
+            // `color.w` type code, moved here because this colour's w carries the range.
             float4 localLightPosition[4];
 
             // rgb is the light's own intensity, linear and in the ambient cube's scale. w is the
@@ -587,8 +585,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         // **One local light's attenuation at a world point — Valve's VertexAttenInternal.**
-        // `common_vs_fxc.h:762`, minus the directional bypass: the sun travels its own path here, so
-        // that branch would be dead code pretending to be parity.
+        // `common_vs_fxc.h:762`, directional bypass included (:806): a model panel's second directional
+        // light is a local one, flagged by its position's w.
         //
         // Returns zero for a light beyond its range. Valve does not cull in the shader at all,
         // because `LightDesc_t::ComputeLightAtPoints` culled on the CPU before the light was
@@ -621,7 +619,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float spotAtten = (cosTheta - localLightSpot[lamp].z) * localLightSpot[lamp].w;
             spotAtten = saturate(pow(max(0.0001f, spotAtten), localLightSpot[lamp].x));
 
-            return lerp(distanceAtten, distanceAtten * spotAtten, localLightDirection[lamp].w);
+            float atten = lerp(distanceAtten, distanceAtten * spotAtten, localLightDirection[lamp].w);
+
+            // "Select between above and directional (no attenuation)".
+            return lerp(atten, 1.0f, localLightPosition[lamp].w);
         }
 
         VsOut VsMain(VsIn input)
@@ -772,7 +773,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 return float3(0.0f, 0.0f, 0.0f);
             }
 
-            float towards = dot(normal, normalize(localLightPosition[lamp].xyz - wpos));
+            // `CosineTermInternal` (common_vs_fxc.h:814-817): toward the light, or against a directional one's travel.
+            float3 toward = lerp(
+                normalize(localLightPosition[lamp].xyz - wpos), -localLightDirection[lamp].xyz, localLightPosition[lamp].w);
+            float towards = dot(normal, toward);
 
             // The same DiffuseTerm the sun takes, so a half-Lambert material shades both the same
             // way — Valve applies it inside DoLightInternal for every light, warp included.
@@ -3863,8 +3867,36 @@ internal sealed unsafe class WorldRenderer : IDisposable
         //
         // 56 is where the fixed part ends: sixteen for the matrix, twenty-four for the cube, and
         // four each for the sun, its direction, the frame blend and the skinning switch.
-        const int LocalLightBase = 56;
+        WriteLocalLights(contents, locals);
 
+        context.Unmap(_model, 0);
+
+        // **Both stages, because both read it now.** The vertex shader takes the matrix and the
+        // pixel shader takes the ambient cube. This was bound to the vertex stage alone, with a
+        // comment saying the pixel shader had no use for it - true when the buffer held only a
+        // matrix, and false the moment lighting arrived.
+        //
+        // The failure is silent in the worst way: D3D hands the pixel shader zeros, so the cube's
+        // "is this real" flag reads false and every model draws exactly as it did before. Two
+        // captures of the same view came back byte for byte identical, which is the only reason
+        // it was noticed. The camera buffer made this same mistake once and cost a session.
+        context.VSSetConstantBuffers(2, 1, ref _model);
+        context.PSSetConstantBuffers(2, 1, ref _model);
+    }
+
+    /// <summary>Where the lamp arrays start in the model constants.</summary>
+    public const int LocalLightBase = 56;
+
+    /// <summary>The lamps' slots in the model constants, cleared beforehand.</summary>
+    /// <param name="contents">The model constants.</param>
+    /// <param name="locals">The lamps, strongest first, or null.</param>
+    /// <remarks>
+    /// A directional lamp — a model panel's second directional light — carries `color.w = 1`, Valve's type code
+    /// (`VertexAttenInternal`, `CosineTermInternal`, common_vs_fxc.h:806, :817), in its position's w; its position is
+    /// `m_Direction * 2.0e6` (lightdesc.cpp:41-42).
+    /// </remarks>
+    public static void WriteLocalLights(Span<float> contents, IReadOnlyList<LocalLight>? locals)
+    {
         if (locals is { Count: > 0 })
         {
             int lamps = Math.Min(locals.Count, LocalLightSlots);
@@ -3922,22 +3954,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // a division by nothing.
                     contents[spot + 3] = spread > 1.0e-10f ? 1f / spread : 1f;
                 }
+                else if (lamp.Directional)
+                {
+                    int direction = LocalLightBase + (LocalLightSlots * 12) + (slot * 4);
+
+                    contents[position] = lamp.Direction.X * 2.0e6f;
+                    contents[position + 1] = lamp.Direction.Y * 2.0e6f;
+                    contents[position + 2] = lamp.Direction.Z * 2.0e6f;
+                    contents[position + 3] = 1f;
+                    contents[direction] = lamp.Direction.X;
+                    contents[direction + 1] = lamp.Direction.Y;
+                    contents[direction + 2] = lamp.Direction.Z;
+                }
             }
         }
-
-        context.Unmap(_model, 0);
-
-        // **Both stages, because both read it now.** The vertex shader takes the matrix and the
-        // pixel shader takes the ambient cube. This was bound to the vertex stage alone, with a
-        // comment saying the pixel shader had no use for it - true when the buffer held only a
-        // matrix, and false the moment lighting arrived.
-        //
-        // The failure is silent in the worst way: D3D hands the pixel shader zeros, so the cube's
-        // "is this real" flag reads false and every model draws exactly as it did before. Two
-        // captures of the same view came back byte for byte identical, which is the only reason
-        // it was noticed. The camera buffer made this same mistake once and cost a session.
-        context.VSSetConstantBuffers(2, 1, ref _model);
-        context.PSSetConstantBuffers(2, 1, ref _model);
     }
 
     /// <summary>Floats in the model constant buffer: a matrix, six cube faces, the sun, four lamps.</summary>
