@@ -281,7 +281,7 @@ public sealed class ViewerSettingsTests
         ViewerSettings settings = ViewerSettings.Parse(
             """
             hud_deathnotice_time 10
-            cl_hud_killstreak_display_time 5
+            cl_hud_killstreak_display_time 4.5
             cl_hud_killstreak_display_fontsize 2
             cl_hud_killstreak_display_alpha 255
             hud_saytext_time 20
@@ -289,7 +289,7 @@ public sealed class ViewerSettingsTests
             """);
 
         settings.HudDeathNoticeTime.ShouldBe(10f);
-        settings.KillStreakDisplayTime.ShouldBe(5);
+        settings.KillStreakDisplayTime.ShouldBe(4.5f, "a float cvar: tf_hud_deathnotice.cpp:569 reads GetFloat()");
         settings.KillStreakDisplayFontSize.ShouldBe(2);
         settings.KillStreakDisplayAlpha.ShouldBe(255);
         settings.SayTextTime.ShouldBe(20f);
@@ -302,7 +302,7 @@ public sealed class ViewerSettingsTests
         ViewerSettings settings = ViewerSettings.Parse("texture_quality 256");
 
         settings.HudDeathNoticeTime.ShouldBe(6f);
-        settings.KillStreakDisplayTime.ShouldBe(3);
+        settings.KillStreakDisplayTime.ShouldBe(3f);
         settings.KillStreakDisplayFontSize.ShouldBe(0);
         settings.KillStreakDisplayAlpha.ShouldBe(120);
         settings.SayTextTime.ShouldBe(12f);

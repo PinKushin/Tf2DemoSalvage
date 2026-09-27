@@ -696,7 +696,7 @@ public sealed record ViewerSettings
     public float HudDeathNoticeTime { get; init; } = 6f;
 
     /// <summary>`cl_hud_killstreak_display_time` — see <see cref="KillStreakDisplayTimeCommand"/>.</summary>
-    public int KillStreakDisplayTime { get; init; } = 3;
+    public float KillStreakDisplayTime { get; init; } = 3f;
 
     /// <summary>`cl_hud_killstreak_display_fontsize` — see <see cref="KillStreakDisplayFontSizeCommand"/>.</summary>
     public int KillStreakDisplayFontSize { get; init; }
@@ -914,7 +914,7 @@ public sealed record ViewerSettings
 
         if (ReadNumber(values, KillStreakDisplayTimeCommand) is { } killStreakTime)
         {
-            settings = settings with { KillStreakDisplayTime = (int)killStreakTime };
+            settings = settings with { KillStreakDisplayTime = killStreakTime };
         }
 
         if (Read(values, KillStreakDisplayFontSizeCommand) is { } killStreakFontSize)

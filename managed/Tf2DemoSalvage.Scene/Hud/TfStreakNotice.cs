@@ -63,8 +63,8 @@ public sealed class TfStreakNotice : VguiEditablePanel
         _label = new TfExLabel(this, "SplashLabel");
     }
 
-    /// <summary>`cl_hud_killstreak_display_time`.</summary>
-    public int DisplayTime { get; set; } = 3;
+    /// <summary>`cl_hud_killstreak_display_time`, as the cvar holds it: read `GetInt` (truncated) in some places and `GetFloat` in another.</summary>
+    public float DisplayTime { get; set; } = 3f;
 
     /// <summary>`cl_hud_killstreak_display_fontsize`.</summary>
     public int FontSize { get; set; }
@@ -263,7 +263,8 @@ public sealed class TfStreakNotice : VguiEditablePanel
         ArgumentNullException.ThrowIfNull(surface);
 
         HudState state = HudViewport.Of(this)?.State ?? default;
-        int displayTime = Math.Clamp(DisplayTime, 1, 100);
+        // `clamp( cl_hud_killstreak_display_time.GetInt(), 1, 100 )` (tf_hud_deathnotice.cpp:161).
+        int displayTime = Math.Clamp((int)DisplayTime, 1, 100);
 
         if (_lastMessageTime + displayTime < state.RealTime)
         {
