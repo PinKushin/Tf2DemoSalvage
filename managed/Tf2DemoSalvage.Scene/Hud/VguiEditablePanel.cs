@@ -239,6 +239,7 @@ public static class VguiControlFactory
         ["CIconPanel"] = () => new VguiIconPanel(null, null),
         ["CTFProgressBar"] = () => new TfProgressBar(null, null),
         ["CAvatarImagePanel"] = () => new VguiAvatarImagePanel(null, null),
+        ["SectionedListPanel"] = () => new VguiSectionedListPanel(null, null),
     };
 
     /// <summary>`InstancePanel`: a new control of that class, or null when none is registered.</summary>
