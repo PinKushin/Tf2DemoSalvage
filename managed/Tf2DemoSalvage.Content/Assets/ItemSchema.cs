@@ -216,6 +216,68 @@ public sealed class ItemSchema
         /// without case, as the engine's `Q_stricmp` does for both.
         /// </summary>
         public Dictionary<string, string> WeaponSounds { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Scalar keys the model panel reads (`model_world`, `extra_wearable`, `anim_slot`, ...), by key.</summary>
+        public Dictionary<string, string> Keys { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Whether it declares a `taunt` block (tf_item_schema.cpp:1041).</summary>
+        public bool HasTauntData { get; set; }
+
+        /// <summary>Visuals scalars (`skin`, `use_per_class_bodygroups`), keyed <c>block/key</c>.</summary>
+        public Dictionary<string, string> VisualKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>`player_poseparam` per visuals block (econ_item_schema.cpp:2583).</summary>
+        public Dictionary<string, List<(string Name, float Value)>> PlayerPoseParams { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The visuals blocks with an `animation_*` entry for `taunt_concept` (econ_item_schema.cpp:2551-2582).</summary>
+        public HashSet<string> TauntConceptBlocks { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>`player_bodygroups` of the base `visuals` block alone.</summary>
+        public Dictionary<string, int> BasePlayerBodygroups { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The base visuals block's `styles`, or null when it declares none (econ_item_schema.cpp:2686-2693).</summary>
+        public List<ItemStyle>? Styles { get; set; }
+    }
+
+    /// <summary>One `model_player_per_class*` block: class entries and an optional `basename` (tf_item_schema.cpp:489).</summary>
+    private sealed class PerClassBlock
+    {
+        public Dictionary<string, string> PerClass { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public string? BaseName { get; set; }
+    }
+
+    /// <summary>`CTFStyleInfo` (tf_item_schema.cpp:1150) plus `CEconStyleInfo::BInitFromKV` (econ_item_schema.cpp:2824).</summary>
+    private sealed class ItemStyle
+    {
+        /// <summary>`skin`, or null: it sets every team (:2831).</summary>
+        public int? CommonSkin { get; set; }
+
+        /// <summary>`skin_red`, default 0 (tf_item_schema.cpp:1154).</summary>
+        public int SkinRed { get; set; }
+
+        /// <summary>`skin_blu`, default 0 (:1155).</summary>
+        public int SkinBlu { get; set; }
+
+        /// <summary>`model_player` (:1160, econ_item_schema.cpp:2864).</summary>
+        public string? ModelPlayer { get; set; }
+
+        /// <summary>`m_pszPlayerDisplayModel[0]`: the last of `model_player_per_class`/`_red` (:1170-1171).</summary>
+        public PerClassBlock? Red { get; set; }
+
+        /// <summary>`m_pszPlayerDisplayModel[1]`: `model_player_per_class_blue` (:1172).</summary>
+        public PerClassBlock? Blue { get; set; }
+
+        /// <summary>`additional_hidden_bodygroups` names (econ_item_schema.cpp:2853).</summary>
+        public List<string> HideBodygroups { get; } = [];
+
+        /// <summary>`CEconStyleInfo::GetSkin( iTeam, false )` (econ_item_schema.h:994).</summary>
+        public int Skin(int team) => CommonSkin ?? team switch
+        {
+            RedTeam => SkinRed,
+            BluTeam => SkinBlu,
+            _ => 0,
+        };
     }
 
     /// <summary>`pWeaponSoundCategories` (`weapon_parse.cpp:20`), indexed by `WeaponSound_t`.</summary>
@@ -303,6 +365,14 @@ public sealed class ItemSchema
         bool inBodygroups = false;
         bool inCustomParticle = false;
         bool attachedIsFestive = false;
+
+        // The model panel's visuals blocks: `styles`, `player_poseparam`, and `animation_*`.
+        bool inStyles = false;
+        bool inPoseParam = false;
+        bool inAnimation = false;
+        ItemStyle? style = null;
+        string styleBlock = string.Empty;
+        PerClassBlock? perClassBlock = null;
         string attachedModel = string.Empty;
         int attachedFlags = AttachedModel.MaskAll;
 
@@ -326,6 +396,7 @@ public sealed class ItemSchema
                 case 1:
                     section = key;
                     entry = null;
+                    inStyles = inPoseParam = inAnimation = false;
                     inPerClass = false;
                     inVisuals = false;
                     inAttached = false;
@@ -335,6 +406,7 @@ public sealed class ItemSchema
                     break;
 
                 case 2:
+                    inStyles = inPoseParam = inAnimation = false;
                     inPerClass = false;
                     inVisuals = false;
                     inAttached = false;
@@ -427,6 +499,12 @@ public sealed class ItemSchema
 
                     inAttached = false;
                     inCustomParticle = false;
+                    inStyles = inPoseParam = inAnimation = false;
+
+                    if (value is null && string.Equals(key, "taunt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        entry.HasTauntData = true;
+                    }
 
                     // The two definition-attribute forms open here; every other depth-3 key closes
                     // both, so a stray pair after the block cannot be swallowed into it.
@@ -478,6 +556,13 @@ public sealed class ItemSchema
                     entry.WeaponSounds[visualsTeam + "/" + key] = value;
                     break;
 
+                // `skin` and `use_per_class_bodygroups` (econ_item_schema.cpp:2615-2622), per block.
+                case 4 when entry is not null && inVisuals && value is not null
+                    && (key.Equals("skin", StringComparison.OrdinalIgnoreCase) ||
+                        key.Equals("use_per_class_bodygroups", StringComparison.OrdinalIgnoreCase)):
+                    entry.VisualKeys[visualsTeam + "/" + key] = value;
+                    break;
+
                 case 4 when entry is not null && inUsedByClasses && value is not null:
                     entry.UsedByClasses[key] = value;
                     break;
@@ -515,6 +600,76 @@ public sealed class ItemSchema
                     inCustomParticle =
                         key.Equals(CustomParticleKey, StringComparison.OrdinalIgnoreCase);
 
+                    // "Styles are only valid in the base "visuals" section" (econ_item_schema.cpp:2689).
+                    inStyles = visualsTeam.Length == 0 && key.Equals("styles", StringComparison.OrdinalIgnoreCase);
+                    inPoseParam = key.Equals("player_poseparam", StringComparison.OrdinalIgnoreCase);
+                    inAnimation = key.StartsWith("animation_", StringComparison.OrdinalIgnoreCase);
+                    style = null;
+
+                    if (inStyles)
+                    {
+                        entry.Styles = [];
+                    }
+
+                    break;
+
+                case 5 when entry is not null && inPoseParam && value is not null:
+                    if (!entry.PlayerPoseParams.TryGetValue(visualsTeam, out List<(string Name, float Value)>? poses))
+                    {
+                        poses = [];
+                        entry.PlayerPoseParams[visualsTeam] = poses;
+                    }
+
+                    poses.Add((key, float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float pose) ? pose : 0f));
+                    break;
+
+                case 5 when entry is not null && inAnimation && value is not null
+                    && key.Equals("taunt_concept", StringComparison.OrdinalIgnoreCase):
+                    entry.TauntConceptBlocks.Add(visualsTeam);
+                    break;
+
+                // `FOR_EACH_SUBKEY( pKVStyles, pKVStyle )` (econ_item_schema.cpp:2810): one style per child, in order.
+                case 5 when entry is not null && inStyles && value is null && entry.Styles is { } styles:
+                    style = new ItemStyle();
+                    styles.Add(style);
+                    styleBlock = string.Empty;
+                    break;
+
+                case 6 when style is not null && inStyles && value is not null:
+                    ApplyStyle(style, key, value);
+                    break;
+
+                case 6 when style is not null && inStyles && value is null:
+                    styleBlock = key;
+                    perClassBlock = null;
+
+                    // `InitPerClassStringArray` replaces the whole array on each block it is given (:1170-1172).
+                    if (key.Equals("model_player_per_class", StringComparison.OrdinalIgnoreCase)
+                        || key.Equals("model_player_per_class_red", StringComparison.OrdinalIgnoreCase))
+                    {
+                        perClassBlock = style.Red = new PerClassBlock();
+                    }
+                    else if (key.Equals("model_player_per_class_blue", StringComparison.OrdinalIgnoreCase))
+                    {
+                        perClassBlock = style.Blue = new PerClassBlock();
+                    }
+
+                    break;
+
+                case 7 when style is not null && inStyles && value is not null:
+                    if (styleBlock.Equals("additional_hidden_bodygroups", StringComparison.OrdinalIgnoreCase))
+                    {
+                        style.HideBodygroups.Add(key);
+                    }
+                    else if (perClassBlock is not null && key.Equals("basename", StringComparison.OrdinalIgnoreCase))
+                    {
+                        perClassBlock.BaseName = value;
+                    }
+                    else if (perClassBlock is not null)
+                    {
+                        perClassBlock.PerClass[key] = value;
+                    }
+
                     break;
 
                 // **`custom_particlesystem { system … }`**, `iCustomType` 1 (`econ_item_schema.cpp:2533`): the system a
@@ -532,6 +687,12 @@ public sealed class ItemSchema
                     && int.TryParse(
                         value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int state):
                     entry.PlayerBodygroups[key] = state;
+
+                    if (visualsTeam.Length == 0)
+                    {
+                        entry.BasePlayerBodygroups[key] = state;
+                    }
+
                     break;
                 // Stryker restore all
 
@@ -1492,6 +1653,382 @@ public sealed class ItemSchema
     /// <returns>The system, such as <c>medicgun_beam_attrib_overheal_red</c>.</returns>
     public string? CustomParticle(int definitionIndex, int team) => Visual(definitionIndex, team, CustomParticleKey);
 
+    /// <summary>`anim_slot "FORCE_NOT_USED"` (tf_item_schema.cpp:1018): the item never drives the player's animation.</summary>
+    public const int AnimSlotNotUsed = -2;
+
+    /// <summary>`g_szWeaponTypeSubstrings` (tf_item_schema.cpp:1591), indexed by `TF_WPN_TYPE_*`.</summary>
+    public static IReadOnlyList<string> WeaponTypeSubstrings { get; } =
+    [
+        "PRIMARY", "SECONDARY", "MELEE", "GRENADE", "BUILDING", "PDA", "ITEM1", "ITEM2", "HEAD", "MISC",
+        "MELEE_ALLCLASS", "SECONDARY2", "PRIMARY2", "ITEM3", "ITEM4", "PASSTIME_BALL",
+    ];
+
+    /// <summary>`GetAnimSlot()`: `m_iAnimationSlot`, -1 by default (tf_item_schema.cpp:1015-1026).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>A `TF_WPN_TYPE_*`, <see cref="AnimSlotNotUsed"/>, or -1.</returns>
+    public int AnimSlot(int definitionIndex)
+    {
+        if (Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("anim_slot")) is not { } raw)
+        {
+            return -1;
+        }
+
+        if (string.Equals(raw, "FORCE_NOT_USED", StringComparison.OrdinalIgnoreCase))
+        {
+            return AnimSlotNotUsed;
+        }
+
+        // `StringFieldToInt` (econ_item.cpp:33): `Q_stricmp` against the table, -1 when none matches.
+        for (int index = 0; index < WeaponTypeSubstrings.Count; index++)
+        {
+            if (string.Equals(raw, WeaponTypeSubstrings[index], StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>`IsWearableSlot` (tf_item_constants.h:131): head, misc, action, misc2 and the taunt slots.</summary>
+    /// <param name="slot">A loadout slot.</param>
+    /// <returns>Whether an item there is worn.</returns>
+    public static bool IsWearableSlot(int slot) => slot is LoadoutSlotHead or LoadoutSlotMisc or LoadoutSlotAction or LoadoutSlotMisc2 or LoadoutSlotTaunt;
+
+    /// <summary><c>LOADOUT_POSITION_MISC2</c> (<c>tf_item_constants.h:68</c>).</summary>
+    public const int LoadoutSlotMisc2 = 10;
+
+    /// <summary>`CTFItemDefinition::IsAWearable` (tf_item_schema.cpp:1287).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>Whether it is worn rather than wielded.</returns>
+    public bool IsAWearable(int definitionIndex) =>
+        (IsWearableSlot(DefaultLoadoutSlot(definitionIndex)) && GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("act_as_weapon")), 0) == 0)
+        || GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("act_as_wearable")), 0) != 0;
+
+    /// <summary>`GetWorldDisplayModel()`: `model_world` (econ_item_schema.cpp:3160), or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The path, or null.</returns>
+    public string? WorldDisplayModel(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("model_world"));
+
+    /// <summary>`GetExtraWearableModel()`: `extra_wearable` (econ_item_schema.cpp:3161), or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The path, or null.</returns>
+    public string? ExtraWearableModel(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("extra_wearable"));
+
+    /// <summary>`GetExtraWearableViewModel()`: `extra_wearable_vm` (econ_item_schema.cpp:3162), or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The path, or null.</returns>
+    public string? ExtraWearableViewModel(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("extra_wearable_vm"));
+
+    /// <summary>`GetNumStyles()` (econ_item_schema.h:1683): the base visuals block's style count.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The count.</returns>
+    public int StyleCount(int definitionIndex) => StylesOf(definitionIndex)?.Count ?? 0;
+
+    /// <summary>
+    /// `CEconItemView::GetPlayerDisplayModel( iClass, iTeam )` (econ_item_view.cpp:924): the style's per-class model
+    /// (`CTFStyleInfo::GetPlayerDisplayModel`, tf_item_schema.cpp:1253, blue only where set), its `model_player`, then
+    /// <see cref="ModelFor"/>.
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="playerClass">The class.</param>
+    /// <param name="team">The team.</param>
+    /// <param name="style">`GetItemStyle()`, or null for `INVALID_STYLE_INDEX`.</param>
+    /// <returns>The path, or null.</returns>
+    public string? PlayerDisplayModel(int definitionIndex, int playerClass, int team, int? style)
+    {
+        if (StyleAt(definitionIndex, style) is { } picked)
+        {
+            if (picked.ModelPlayer is { } common)
+            {
+                return common;
+            }
+
+            if (team == BluTeam && picked.Blue is { } blue && ExpandPerClass(blue, playerClass) is { Length: > 0 } blueModel)
+            {
+                return blueModel;
+            }
+
+            if (picked.Red is { } red && ExpandPerClass(red, playerClass) is { } redModel)
+            {
+                return redModel;
+            }
+        }
+
+        return ModelFor(definitionIndex, playerClass);
+    }
+
+    /// <summary>
+    /// `CEconItemView::GetSkin( iTeam )` (econ_item_view.cpp:975): 0 outside the five visuals sections; with styles the
+    /// style's skin or `default_skin`; else the best visuals block's `skin` (-1 unset), else `default_skin` (-1).
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The team.</param>
+    /// <param name="style">`GetItemStyle()`, or null for `INVALID_STYLE_INDEX`.</param>
+    /// <returns>The skin, or -1 for "use the team skin".</returns>
+    public int Skin(int definitionIndex, int team, int? style)
+    {
+        if (team is < 0 or >= TeamVisualSections)
+        {
+            return 0;
+        }
+
+        int defaultSkin = GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("default_skin")), -1);
+
+        if (StyleCount(definitionIndex) > 0)
+        {
+            return StyleAt(definitionIndex, style) is { } picked ? picked.Skin(team) : defaultSkin;
+        }
+
+        if (!_items.TryGetValue(definitionIndex, out Entry? item) || BestVisualSection(item, team) is not { } section)
+        {
+            return defaultSkin;
+        }
+
+        return GetInt(Search(item, entry => entry.VisualKeys.GetValueOrDefault(section + "/skin"), LongestChain), -1);
+    }
+
+    /// <summary>`UsesPerClassBodygroups( iTeam )` (econ_item_schema.h:2191): the best block's `use_per_class_bodygroups`.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The team.</param>
+    /// <returns>Whether bodygroup 1 selects the class.</returns>
+    public bool UsesPerClassBodygroups(int definitionIndex, int team) =>
+        _items.TryGetValue(definitionIndex, out Entry? item)
+        && BestVisualSection(item, team) is { } section
+        && GetInt(Search(item, entry => entry.VisualKeys.GetValueOrDefault(section + "/use_per_class_bodygroups"), LongestChain), 0) != 0;
+
+    /// <summary>`GetModifiedBodyGroup( 0, i, state )` (econ_item_schema.h:2057) over the BASE visuals block, prefabs included.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>Each bodygroup name and state.</returns>
+    public IReadOnlyDictionary<string, int> BasePlayerBodygroupsFor(int definitionIndex)
+    {
+        Dictionary<string, int> found = new(StringComparer.OrdinalIgnoreCase);
+
+        if (_items.TryGetValue(definitionIndex, out Entry? item))
+        {
+            Walk(item, LongestChain, entry =>
+            {
+                foreach ((string name, int state) in entry.BasePlayerBodygroups)
+                {
+                    _ = found.TryAdd(name, state);
+                }
+            });
+        }
+
+        return found;
+    }
+
+    /// <summary>`CEconStyleInfo::GetAdditionalHideBodygroups()` (econ_item_schema.h:1009) of one style.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="style">The style, or null.</param>
+    /// <returns>The names, empty without that style.</returns>
+    public IReadOnlyList<string> StyleHiddenBodygroups(int definitionIndex, int? style) =>
+        StyleAt(definitionIndex, style)?.HideBodygroups ?? [];
+
+    /// <summary>`GetPlayerPoseParameters( iTeam, i )` (econ_item_schema.h:1878): the best block's `player_poseparam`.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The team.</param>
+    /// <returns>Each name and value, in schema order.</returns>
+    public IReadOnlyList<(string Name, float Value)> PlayerPoseParametersFor(int definitionIndex, int team)
+    {
+        if (!_items.TryGetValue(definitionIndex, out Entry? item) || BestVisualSection(item, team) is not { } section)
+        {
+            return [];
+        }
+
+        List<(string Name, float Value)>? found = null;
+
+        Walk(item, LongestChain, entry =>
+        {
+            if (found is null && entry.PlayerPoseParams.TryGetValue(section, out List<(string Name, float Value)>? poses))
+            {
+                found = poses;
+            }
+        });
+
+        return found ?? [];
+    }
+
+    /// <summary>
+    /// `IsTauntItem` (tf_playermodelpanel.cpp:41): a taunt slot, then `GetTauntData()` or an `animation_*` entry for
+    /// `taunt_concept` in the best visuals block.
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The team.</param>
+    /// <param name="playerClass">The class.</param>
+    /// <returns>Whether the model panel plays it as a taunt.</returns>
+    public bool IsTauntItem(int definitionIndex, int team, int playerClass)
+    {
+        if (LoadoutSlot(definitionIndex, playerClass) != LoadoutSlotTaunt || !_items.TryGetValue(definitionIndex, out Entry? item))
+        {
+            return false;
+        }
+
+        if (Search(item, entry => entry.HasTauntData ? "taunt" : null, LongestChain) is not null)
+        {
+            return true;
+        }
+
+        return BestVisualSection(item, team) is { } section
+            && Search(item, entry => entry.TauntConceptBlocks.Contains(section) ? "taunt_concept" : null, LongestChain) is not null;
+    }
+
+    /// <summary>
+    /// `GetDefaultBodygroupStateMap()` (econ_item_schema.h:2620): every `player_bodygroups` name an item declares, each
+    /// at 0 — "the schemas are all authored assuming that the default is 0" (`AssignDefaultBodygroupState`, :5096).
+    /// </summary>
+    public IReadOnlyDictionary<string, int> DefaultBodygroupStates => _defaultBodygroupStates ??= BuildDefaultBodygroupStates();
+
+    private Dictionary<string, int>? _defaultBodygroupStates;
+
+    private Dictionary<string, int> BuildDefaultBodygroupStates()
+    {
+        Dictionary<string, int> states = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (Entry item in _items.Values)
+        {
+            Walk(item, LongestChain, entry =>
+            {
+                foreach (string name in entry.PlayerBodygroups.Keys)
+                {
+                    states[name] = 0;
+                }
+            });
+        }
+
+        return states;
+    }
+
+    /// <summary>
+    /// `CTFInventoryManager::GetBaseItemForClass( iClass, iSlot )` (tf_item_inventory.cpp:656): the first base item by
+    /// definition index (`GenerateBaseItems`, :245-251) whose slot for that class is <paramref name="slot"/>, or null —
+    /// the invalid `m_pDefaultItem` — for a slot from head up (:705).
+    /// </summary>
+    /// <param name="playerClass">The class.</param>
+    /// <param name="slot">The loadout slot.</param>
+    /// <returns>A definition index, or null.</returns>
+    /// <remarks>The action slot's spellbook/grappling hook/canteen branch (:672-703) is reached only by a taunt's forced
+    /// slot, which the panel cannot run (see <c>TfPlayerModelPanel.SwitchHeldItemTo</c>).</remarks>
+    public int? BaseItemForClass(int playerClass, int slot)
+    {
+        if (playerClass < 1 || playerClass > 10 || slot < 0 || slot >= LoadoutSlotHead)
+        {
+            return null;
+        }
+
+        int? found = null;
+
+        foreach ((int index, Entry entry) in _items)
+        {
+            if (entry.IsBaseItem && (found is null || index < found) && LoadoutSlot(index, playerClass) == slot)
+            {
+                found = index;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>`TEAM_VISUAL_SECTIONS` (econ_item_schema.cpp:77).</summary>
+    private const int TeamVisualSections = 5;
+
+    /// <summary>`GetBestVisualTeamData` (econ_item_schema.h:2240) as a block name, or null when that block is absent.</summary>
+    private string? BestVisualSection(Entry item, int team)
+    {
+        string? section = team switch
+        {
+            0 => string.Empty,
+            RedTeam => "red",
+            BluTeam => "blu",
+            MvmBossTeam => "mvm_boss",
+            _ => null,
+        };
+
+        if (team is < 0 or >= TeamVisualSections || (team > 0 && (section is null || !Declares(item, section))))
+        {
+            section = string.Empty;
+        }
+
+        return Declares(item, section!) ? section : null;
+    }
+
+    /// <summary>The nearest styles block in an item's chain.</summary>
+    private List<ItemStyle>? StylesOf(int definitionIndex)
+    {
+        List<ItemStyle>? found = null;
+
+        if (_items.TryGetValue(definitionIndex, out Entry? item))
+        {
+            Walk(item, LongestChain, entry => found ??= entry.Styles);
+        }
+
+        return found;
+    }
+
+    /// <summary>`GetStyleInfo( unStyle )` (econ_item_schema.h:1722): null for an invalid index.</summary>
+    private ItemStyle? StyleAt(int definitionIndex, int? style) =>
+        style is { } index && StylesOf(definitionIndex) is { } styles && index >= 0 && index < styles.Count ? styles[index] : null;
+
+    /// <summary>Visits an entry and then its prefabs, depth first, nearest first.</summary>
+    private void Walk(Entry entry, int remaining, Action<Entry> visit)
+    {
+        visit(entry);
+
+        if (remaining <= 0)
+        {
+            return;
+        }
+
+        foreach (string name in entry.Prefabs)
+        {
+            if (_prefabs.TryGetValue(name, out Entry? prefab))
+            {
+                Walk(prefab, remaining - 1, visit);
+            }
+        }
+    }
+
+    /// <summary>`KeyValues::GetInt`: the value as an integer, truncating a float, 0 for text, the default when absent.</summary>
+    private static int GetInt(string? value, int fallback)
+    {
+        if (value is null)
+        {
+            return fallback;
+        }
+
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int integer))
+        {
+            return integer;
+        }
+
+        return float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number) ? (int)number : 0;
+    }
+
+    /// <summary>`InitPerClassStringArray` (tf_item_schema.cpp:489) for one class: its own entry, else `basename` expanded;
+    /// class 0 takes the first class that has one (:542).</summary>
+    private static string? ExpandPerClass(PerClassBlock block, int playerClass)
+    {
+        if (playerClass <= 0 || playerClass >= ClassNames.Length)
+        {
+            for (int candidate = 1; candidate < ClassNames.Length; candidate++)
+            {
+                if (ExpandPerClass(block, candidate) is { } first)
+                {
+                    return first;
+                }
+            }
+
+            return null;
+        }
+
+        if (block.PerClass.TryGetValue(ClassNames[playerClass], out string? named) && named.Length > 0)
+        {
+            return named;
+        }
+
+        return block.BaseName?.Replace("%s", playerClass == Demoman ? "demo" : ClassNames[playerClass], StringComparison.Ordinal);
+    }
+
     /// <summary>The visuals block naming an item's custom particle.</summary>
     private const string CustomParticleKey = "custom_particlesystem";
 
@@ -1697,6 +2234,41 @@ public sealed class ItemSchema
         if (string.Equals(key, "baseitem", StringComparison.OrdinalIgnoreCase))
         {
             entry.IsBaseItem = value != "0";
+            return;
+        }
+
+        if (PanelKeys.Contains(key))
+        {
+            entry.Keys[key] = value;
+        }
+    }
+
+    /// <summary>The scalar item keys the model panel's calls read (econ_item_schema.cpp:3159-3171, tf_item_schema.cpp:1015).</summary>
+    private static readonly HashSet<string> PanelKeys = new(
+        ["model_world", "extra_wearable", "extra_wearable_vm", "anim_slot", "act_as_wearable", "act_as_weapon", "default_skin"],
+        StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>One scalar key of a style (tf_item_schema.cpp:1154-1160, econ_item_schema.cpp:2831).</summary>
+    private static void ApplyStyle(ItemStyle style, string key, string value)
+    {
+        int number = GetInt(value, 0);
+
+        switch (key.ToUpperInvariant())
+        {
+            case "SKIN":
+                style.CommonSkin = number == -1 ? null : number;
+                break;
+            case "SKIN_RED":
+                style.SkinRed = number;
+                break;
+            case "SKIN_BLU":
+                style.SkinBlu = number;
+                break;
+            case "MODEL_PLAYER":
+                style.ModelPlayer = value;
+                break;
+            default:
+                break;
         }
     }
 }

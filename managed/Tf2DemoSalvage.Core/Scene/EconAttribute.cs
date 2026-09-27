@@ -103,7 +103,14 @@ public sealed record EconAttributeWire(
 /// <param name="DefinitionIndex">`m_iItemDefinitionIndex`, or null when unsent.</param>
 /// <param name="Wire">Its networked attribute inputs.</param>
 /// <param name="IsWeapon">Whether it came from `m_hMyWeapons` — `PROVIDER_WEAPON`, which never provides to another weapon.</param>
-public sealed record SceneItem(int EntityIndex, string? ClassName, int? DefinitionIndex, EconAttributeWire Wire, bool IsWeapon);
+public sealed record SceneItem(int EntityIndex, string? ClassName, int? DefinitionIndex, EconAttributeWire Wire, bool IsWeapon)
+{
+    /// <summary>`m_iEntityQuality` (econ_item_view.cpp:188), or null when unsent.</summary>
+    public int? Quality { get; init; }
+
+    /// <summary>`CTFWearable::m_bDisguiseWearable` (tf_item_wearable.cpp:33): worn only while disguised.</summary>
+    public bool IsDisguiseWearable { get; init; }
+}
 
 /// <summary>Resolving which attribute list answers, as the engine resolves it.</summary>
 public static class EconAttributes

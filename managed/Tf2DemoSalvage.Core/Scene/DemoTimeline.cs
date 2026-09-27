@@ -293,6 +293,9 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_Shared.m_hDisguiseWeapon` (:584) as its entity slot, or null for none.</summary>
     public int? DisguiseWeapon { get; init; }
 
+    /// <summary>The item <see cref="DisguiseWeapon"/> is, or null for none or unsent.</summary>
+    public SceneItem? DisguiseWeaponItem { get; init; }
+
     /// <summary>
     /// `m_vecVelocity` (player.cpp:8140-8142, `DT_LocalPlayerExclusive`): the recorder's own velocity, which is its
     /// `GetAbsVelocity` on the client; null for anyone else.
@@ -1099,13 +1102,27 @@ public sealed class DemoTimeline
             {
                 if (entities.TryGet(slot, out EntityState? item))
                 {
-                    items.Add(new SceneItem(slot, item.ClassName, item.ItemDefinitionIndex(), EconWire(item), isWeapon));
+                    items.Add(ItemOf(slot, item, isWeapon));
                 }
             }
         }
 
         return items;
     }
+
+    /// <summary>One item entity as a <see cref="SceneItem"/>, with its quality and `m_bDisguiseWearable` (tf_item_wearable.cpp:33).</summary>
+    private static SceneItem ItemOf(int slot, EntityState item, bool isWeapon) =>
+        new(slot, item.ClassName, item.ItemDefinitionIndex(), EconWire(item), isWeapon)
+        {
+            Quality = item.Integer("DT_ScriptCreatedItem.m_iEntityQuality"),
+            IsDisguiseWearable = item.Integer("DT_TFWearable.m_bDisguiseWearable") is > 0,
+        };
+
+    /// <summary>`m_Shared.GetDisguiseWeapon()`'s item (tf_hud_playerstatus.cpp:457), or null.</summary>
+    private static SceneItem? DisguiseWeaponItem(EntityState player, EntityStateTable entities) =>
+        EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseWeapon")) is { } slot && entities.TryGet(slot, out EntityState? weapon)
+            ? ItemOf(slot, weapon, isWeapon: true)
+            : null;
 
     /// <summary>`m_iAmmo`, sent to its owner alone (`DT_BCCLocalPlayerExclusive`); null when this player's never arrived.</summary>
     private static int[]? AmmoCounts(EntityState player)
@@ -3144,6 +3161,7 @@ public sealed class DemoTimeline
                     InvisChangeCompleteTime = player.Number("DT_TFPlayerShared.m_flInvisChangeCompleteTime"),
                     CloakMeter = player.Number("DT_TFPlayerShared.m_flCloakMeter"),
                     DisguiseWeapon = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseWeapon")),
+                    DisguiseWeaponItem = DisguiseWeaponItem(player, entities),
                     Velocity = player.Number("DT_LocalPlayerExclusive.m_vecVelocity[0]") is { } velocityX
                         ? (velocityX,
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,
