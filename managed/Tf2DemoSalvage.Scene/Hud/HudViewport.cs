@@ -53,6 +53,11 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <see cref="Tf2DemoSalvage.Scene.Hud.TfTargetId"/>. Null when nothing is bound, which the panel shows as no key rather
 /// than guessing one.
 /// </param>
+/// <param name="AlwaysLoser">`tf_always_loser.GetBool()` (tf_player_shared.cpp:127,13656) — the server's value, replicated.</param>
+/// <param name="TrainingCanPickupSentry">`training_can_pickup_sentry.GetBool()` (tf_gamerules.cpp:699).</param>
+/// <param name="TrainingCanPickupDispenser">`training_can_pickup_dispenser.GetBool()` (:700).</param>
+/// <param name="TrainingCanPickupTeleEntrance">`training_can_pickup_tele_entrance.GetBool()` (:701).</param>
+/// <param name="TrainingCanPickupTeleExit">`training_can_pickup_tele_exit.GetBool()` (:702).</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -89,7 +94,12 @@ public readonly record struct HudState(
     float[]? WorldToScreen = null,
     string TournamentRedTeamName = "RED",
     string TournamentBlueTeamName = "BLU",
-    string? BuildingPickupKey = null)
+    string? BuildingPickupKey = null,
+    bool AlwaysLoser = false,
+    bool TrainingCanPickupSentry = true,
+    bool TrainingCanPickupDispenser = true,
+    bool TrainingCanPickupTeleEntrance = true,
+    bool TrainingCanPickupTeleExit = true)
 {
     /// <summary>`cl_entitylist->GetEnt` for a building: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>
@@ -311,6 +321,12 @@ public sealed class HudViewport : VguiEditablePanel
 
     /// <summary>`CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( player, value, name )`: a player's attributes applied to a value; null where no schema is open.</summary>
     public Func<Core.Scene.ScenePlayer, string, float, float>? PlayerAttribute { get; set; }
+
+    /// <summary>
+    /// `CALL_ATTRIB_HOOK_FLOAT( value, name )` on one of the player's weapons — `AttributeHooks.OnWeapon`; null where no
+    /// schema is open.
+    /// </summary>
+    public Func<Core.Scene.ScenePlayer, Core.Scene.SceneItem, string, float, float>? WeaponAttribute { get; set; }
 
     /// <summary>The weapon and class scripts, for what a weapon's script tells the HUD; null where no install is open.</summary>
     public TfWeaponData? Scripts { get; set; }

@@ -77,6 +77,13 @@ public static class HudStates
             TournamentBlueTeamName = timeline.ServerConVars.Value("mp_tournament_blueteamname") ?? string.Empty,
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
             BuildingPickupKey = bindings is null ? null : Key(bindings.KeyFor(ViewerAction.CycleTargetReverse)),
+
+            // `CTFPlayer::CanPickupBuilding`'s replicated cvars — server value, or Valve's declared default.
+            AlwaysLoser = timeline.ServerConVars.Number("tf_always_loser") != 0f,
+            TrainingCanPickupSentry = timeline.ServerConVars.Number("training_can_pickup_sentry") != 0f,
+            TrainingCanPickupDispenser = timeline.ServerConVars.Number("training_can_pickup_dispenser") != 0f,
+            TrainingCanPickupTeleEntrance = timeline.ServerConVars.Number("training_can_pickup_tele_entrance") != 0f,
+            TrainingCanPickupTeleExit = timeline.ServerConVars.Number("training_can_pickup_tele_exit") != 0f,
         };
     }
 

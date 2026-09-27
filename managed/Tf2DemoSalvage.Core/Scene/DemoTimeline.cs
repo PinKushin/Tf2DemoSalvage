@@ -256,6 +256,19 @@ public readonly record struct ScenePlayer(
     /// </summary>
     public bool CarryingObject { get; init; }
 
+    /// <summary>
+    /// `m_iStunFlags` (tf_player_shared.cpp:372, sent to everyone): `TF_STUN_CONTROLS`/`TF_STUN_LOSER_STATE` etc
+    /// (tf_shareddefs.h:1333-1342). On the client this is what `GetActiveStunInfo()->iStunFlags` reads
+    /// (tf_player_shared.cpp:7462-7463) — the client keeps no separate stun list.
+    /// </summary>
+    public int? StunFlags { get; init; }
+
+    /// <summary>
+    /// `m_iStunIndex` (:420, sent to everyone): `GetActiveStunInfo()` on the client is non-null exactly when this is
+    /// `&gt;= 0` (:7474-7475).
+    /// </summary>
+    public int? StunIndex { get; init; }
+
     /// <summary>`m_bIsMiniBoss` (c_tf_player.cpp:3779): what `C_TFPlayer::IsHealthBarVisible` returns outside MvM's regen case.</summary>
     public bool IsMiniBoss { get; init; }
 
@@ -551,6 +564,23 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
 
     /// <summary>`GetRedKothRoundTimer()`: `m_hRedKothTimer`'s entity index (:1512), or null.</summary>
     public int? RedKothTimer { get; init; }
+
+    /// <summary>`IsInTraining()`: `m_bIsInTraining` (tf_gamerules.h:678,1161; RecvPropBool tf_gamerules.cpp:1427).</summary>
+    public bool InTraining { get; init; }
+
+    /// <summary>
+    /// `GetWinningTeam()`: `m_iWinningTeam` (teamplayroundbased_gamerules.h:1747,1754; RecvPropInt
+    /// teamplayroundbased_gamerules.cpp:89) — null before any round has been won.
+    /// </summary>
+    public int? WinningTeam { get; init; }
+
+    /// <summary>
+    /// `IsMatchTypeCompetitive()` (tf_gamerules.cpp:2237): competitive ONLY, unlike <see cref="IsCompetitiveMode"/> — of
+    /// the registered groups, only ladder 6v6 (2) and the event placeholder (8) set `MATCH_TYPE_COMPETITIVE`
+    /// (`tf_match_description_comp.cpp`'s `CLadderMatchGroupDescription`, which the placeholder also derives from); casual
+    /// 12v12 (7) sets `MATCH_TYPE_CASUAL` (`tf_match_description_casual.cpp:54`).
+    /// </summary>
+    public bool IsMatchTypeCompetitive => MatchGroup is 2 or 8;
 }
 
 /// <summary>One corpse, as <c>DT_TFRagdoll</c> describes it.</summary>
@@ -3073,6 +3103,8 @@ public sealed class DemoTimeline
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
                     PlayerState = player.Integer("DT_TFPlayerShared.m_nPlayerState"),
                     CarryingObject = player.Integer("DT_TFPlayerShared.m_bCarryingObject") is > 0,
+                    StunFlags = player.Integer("DT_TFPlayerShared.m_iStunFlags"),
+                    StunIndex = player.Integer("DT_TFPlayerShared.m_iStunIndex"),
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
                     ActiveWeaponClip = player.Integer("DT_TFSendHealersDataTable.m_nActiveWpnClip"),
                     KillStreak = player.Integer("m_nStreaks.000"),
@@ -3118,6 +3150,8 @@ public sealed class DemoTimeline
                 BlueKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hBlueKothTimer")),
                 RedKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hRedKothTimer")),
                 TimerToShowInHud = entities.OfClass(ObjectiveResourceClass).FirstOrDefault()?.Integer("DT_BaseTeamObjectiveResource.m_iTimerToShowInHUD") ?? 0,
+                InTraining = gameRules?.Integer("DT_TFGameRules.m_bIsInTraining") is > 0,
+                WinningTeam = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_iWinningTeam"),
             };
 
             int? serverTick = entities.PacketTick > 0 ? entities.PacketTick : null;

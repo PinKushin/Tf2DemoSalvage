@@ -201,6 +201,8 @@ public sealed class PlayerCompletenessTests
         DisguiseHealth = 90,
         PlayerState = 3,
         CarryingObject = true,
+        StunFlags = 2,
+        StunIndex = 0,
         IsMiniBoss = true,
         ActiveWeaponClip = 6,
         KillStreak = 4,

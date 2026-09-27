@@ -7142,6 +7142,7 @@ internal class MainForm : Form, IFrameSteps
                 ? TfItemName.Generate(items, index, quality, token => _vguiHud.Viewport.Context?.Localize?.Invoke(token))
                 : null;
             _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
+            _vguiHud.Viewport.WeaponAttribute = _hudHooks.OnWeapon;
         }
 
         int hudTick = _transport.CurrentTick;
