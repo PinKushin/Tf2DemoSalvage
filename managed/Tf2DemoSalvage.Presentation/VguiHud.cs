@@ -36,6 +36,7 @@ public sealed class VguiHud
         Weapon = new TfHudWeapon(Viewport);
         Crosshair = new TfHudCrosshair(Viewport);
         SpectatorTargetId = new TfSpectatorTargetId(Viewport);
+        MainTargetId = new TfMainTargetId(Viewport);
         MatchStatus = new TfHudMatchStatus(Viewport);
         KothTimeStatus = new TfHudKothTimeStatus(Viewport);
         Chat = new TfHudChat(Viewport);
@@ -54,6 +55,9 @@ public sealed class VguiHud
 
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
     public TfHudMatchStatus MatchStatus { get; }
+
+    /// <summary>`CMainTargetID`: a living local player's own crosshair target.</summary>
+    public TfMainTargetId MainTargetId { get; }
 
     /// <summary>`CSpectatorTargetID`.</summary>
     public TfSpectatorTargetId SpectatorTargetId { get; }

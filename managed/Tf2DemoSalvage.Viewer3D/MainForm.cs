@@ -6337,6 +6337,51 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`FL_DUCKING`.</summary>
     private const int Ducking = 1 << 1;
 
+    /// <summary>`C_TFPlayer::GetIDTarget()` for the local player this frame — <see cref="IdTargetTrace"/> from the view.</summary>
+    /// <remarks>
+    /// Traced only where `CMainTargetID` can draw: a point-of-view demo's living recorder outside any observer mode. The
+    /// view is the first-person camera, `MainViewOrigin()` and `MainViewForward()`; the world is the BSP, the players
+    /// their hulls and posed hitboxes (<see cref="IdTargetTraces"/>).
+    /// </remarks>
+    private int? IdTargetNow(HudState state, int tick)
+    {
+        if (!state.HasLocalPlayer || !state.Alive || state.ObserverMode > Core.Scene.ObserverModes.None
+            || _timeline is not { HasRecordedView: true } timeline || _loaded?.Level is not { } level
+            || FirstPersonCamera() is not { } eye)
+        {
+            return null;
+        }
+
+        List<BulletTarget> targets = [];
+        Dictionary<int, int> teams = [];
+
+        foreach (ScenePlayer player in timeline.PlayersAt(tick))
+        {
+            if ((player.LifeState ?? Alive) == Alive)
+            {
+                targets.Add(new BulletTarget(player.EntityIndex, new Vector3(player.X, player.Y, player.Z), ((player.Flags ?? 0) & Ducking) != 0));
+                teams[player.EntityIndex] = player.Team ?? 0;
+            }
+        }
+
+        IdTargetTraces traces = new(
+            targets,
+            teams,
+            (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f),
+            HitboxesOrUntested);
+        (float x, float y, float z) = AngleVectors.Forward(eye.Angles.Pitch, eye.Angles.Yaw);
+
+        return IdTargetTrace.GetIdTarget(
+            new Vector3(eye.Origin.X, eye.Origin.Y, eye.Origin.Z),
+            new Vector3(x, y, z),
+            state.LocalIndex,
+            state.Team,
+            isObserver: false,
+            observerTarget: 0,
+            traces.Solid,
+            traces.Shot);
+    }
+
     /// <summary>A player's hitboxes against a ray, as <see cref="PlayerBulletTrace.ClipRayToEntity"/> asks for them.</summary>
     /// <remarks>
     /// **A miss is a full-length trace, 1, not "untested"**: `ClipRayToHitboxes` (engine.dll `0x180190a40`) returns true for
@@ -7083,6 +7128,8 @@ internal class MainForm : Form, IFrameSteps
                 ObserverTarget = _followingAPlayer ? _spectator.Followed(hudTick) ?? 0 : 0,
             };
         }
+
+        hudState = hudState with { IdTarget = IdTargetNow(hudState, hudTick) };
 
         _vguiHud.Frame(
             hudState,

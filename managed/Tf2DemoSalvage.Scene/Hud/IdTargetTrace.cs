@@ -24,11 +24,12 @@ public readonly record struct IdTraceHit(int? Entity, bool IsPlayer, int Team, b
 /// when it did not start solid (unless the hit is an enemy player, who "we sometimes press right against") and hit a
 /// non-world entity that isn't the tracer's own entity.
 ///
-/// **Not modelled:** the revive-marker mask bit (`CALL_ATTRIB_HOOK_INT( iReviveMedic, revive )`, :7083) — there is no
-/// revive-marker entity in the Scene layer yet to trace against, so its absence from the mask changes nothing
-/// observable here; and the actual world/entity geometry, which is this method's caller's job (a BSP + entity sweep,
-/// same shape as <see cref="PlayerBulletTrace"/>'s injected callbacks) — this class takes the trace as a delegate so it
-/// is unit-testable without one, and is not yet wired into `HudStates` or `MainForm`.
+/// **The revive attribute changes nothing**: `iReviveMedic` is computed from the `revive` hook and the medic check
+/// (:7083) and never read — the mask is `MASK_SOLID | CONTENTS_DEBRIS` either way, which is what this ports.
+/// The world and entity geometry is the caller's: the traces are delegates, and the viewer answers them with the BSP
+/// sweep, the players' collision hulls for `MASK_SOLID` and their hitboxes for `MASK_SHOT`.
+/// **Not modelled here:** the branches before the trace — `mp_fadetoblack`, a forced ID target, and death cam or chase
+/// naming the observer target (:7051-7068) — which only the spectator's ID reads, and it takes its target itself.
 /// </remarks>
 public static class IdTargetTrace
 {
