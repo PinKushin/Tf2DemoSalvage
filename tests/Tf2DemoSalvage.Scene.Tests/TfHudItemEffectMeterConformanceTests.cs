@@ -330,6 +330,28 @@ public sealed class TfHudItemEffectMeterConformanceTests
         cloak.X.ShouldBe(80, "SetPos( xPos - m_iXOffset ) (:452)");
     }
 
+    [TestCase(10.099f, null)]
+    [TestCase(10.1f, 51)]
+    public void OnThink_ALostItem_IsLookedForAgainOnlyOnTheHundredMillisecondTick(float realTime, int? found)
+    {
+        (HudViewport viewport, TfItemEffectMeterManager manager, _) = Built();
+        viewport.Items = ItemSchema.Read(Encoding.UTF8.GetBytes("""
+            "items_game" { "items" { "7" { "item_slot" "secondary" "used_by_classes" { "heavy" "1" } } } }
+            """));
+        SceneItem Worn(int entity) => new(entity, "CTFWearable", 7, new EconAttributeWire([], [], false), IsWeapon: false);
+        ScenePlayer heavy = Local(6) with { Items = [Worn(50)] };
+        viewport.Think(State(heavy) with { RealTime = 10f });
+        TfItemAttributeEffectMeter meter = new(manager, heavy, 1, "#TF_SecondaryMeter", beeps: true);
+        meter.Item().ShouldNotBeNull().EntityIndex.ShouldBe(50);
+
+        // Entity 50 is gone and 51 is worn in its slot; `AddTickSignal( GetVPanel(), 100 )` (:1661) asks again at 10.1 s.
+        ScenePlayer swapped = heavy with { Items = [Worn(51)] };
+        viewport.Think(State(swapped) with { RealTime = realTime });
+        meter.Think();
+
+        (meter.Item()?.EntityIndex).ShouldBe(found);
+    }
+
     private static SceneItem Weapon(int entity, string className) => new(entity, className, 1, new EconAttributeWire([], [], false), IsWeapon: true);
 
     private static ScenePlayer Local(int playerClass) => new(1, 0f, 0f, 0f, Team: 2, Health: 100, PlayerClass: playerClass, LifeState: 0);
