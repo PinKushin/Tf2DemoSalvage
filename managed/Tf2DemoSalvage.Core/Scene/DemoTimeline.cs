@@ -586,6 +586,10 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`m_flMapResetTime` (teamplayroundbased_gamerules.cpp:95), server time the map clock started.</summary>
     public float MapResetTime { get; init; }
 
+    /// <summary>`CTFMinigameLogic::GetMinigameLogic()->GetActiveMinigame()` (tf_logic_halloween_2014.h:190): the logic
+    /// entity's `m_hActiveMinigame` (tf_logic_halloween_2014.cpp:726) names an entity.</summary>
+    public bool ActiveMinigame { get; init; }
+
     /// <summary>`IsInKothMode()`: `m_bPlayingKoth` (:1507).</summary>
     public bool Koth { get; init; }
 
@@ -3214,6 +3218,8 @@ public sealed class DemoTimeline
                 GameType = gameRules?.Integer("DT_TFGameRules.m_nGameType") ?? 0,
                 RoundsPlayed = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_nRoundsPlayed") ?? 0,
                 MapResetTime = gameRules?.Number("DT_TeamplayRoundBasedRules.m_flMapResetTime") ?? 0f,
+                ActiveMinigame = entities.OfClass("CTFMinigameLogic").FirstOrDefault() is { } minigameLogic
+                    && EntityState.Slot(minigameLogic.Integer("DT_TFMinigameLogic.m_hActiveMinigame")) is not null,
                 MatchGroup = gameRules?.Integer("DT_TFGameRules.m_nMatchGroupType") ?? -1,
                 Koth = gameRules?.Integer("DT_TFGameRules.m_bPlayingKoth") is > 0,
                 ShowMatchSummary = gameRules?.Integer("DT_TFGameRules.m_bShowMatchSummary") is > 0,

@@ -499,13 +499,14 @@ public sealed class TfHudPlayerStatus : VguiEditablePanel, IHudElement
     public int HiddenBits => HudVisibility.HideHealth | HudVisibility.HidePlayerDead;
 
     /// <summary>
-    /// `CTFHudPlayerStatus::ShouldDraw` (:1087): not as a Halloween ghost, nor under the match summary, then
-    /// `CHudElement::ShouldDraw`. **Not modelled:** an active minigame (`CTFMinigameLogic`), which is not decoded.
+    /// `CTFHudPlayerStatus::ShouldDraw` (:1087): not as a Halloween ghost, nor in an active minigame, nor under the match
+    /// summary, then `CHudElement::ShouldDraw`.
     /// </summary>
     /// <param name="state">The game state.</param>
     /// <returns>Whether it draws.</returns>
     public bool ShouldDraw(HudState state) =>
-        !state.Conditions.Has(ConditionHalloweenGhostMode) && !state.Rules.ShowMatchSummary && HudVisibility.ShouldDraw(state, this);
+        !state.Conditions.Has(ConditionHalloweenGhostMode) && !state.Rules.ActiveMinigame && !state.Rules.ShowMatchSummary
+        && HudVisibility.ShouldDraw(state, this);
 
     /// <summary>`TF_COND_HALLOWEEN_GHOST_MODE` (tf_shareddefs.h:767).</summary>
     private const int ConditionHalloweenGhostMode = 77;

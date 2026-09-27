@@ -24,4 +24,11 @@ public sealed class TfHudPlayerStatusShouldDrawConformanceTests
         ((IHudElement)new TfHudPlayerStatus(new HudViewport(), new EntityModelSet()))
             .ShouldDraw(Alive with { Rules = new SceneGameRules(false, 0, false) { ShowMatchSummary = true } })
             .ShouldBeFalse();
+
+    [Test]
+    public void ShouldDraw_InAnActiveMinigame_IsHidden() =>
+        // `CTFMinigameLogic::GetMinigameLogic()->GetActiveMinigame()` (:1093).
+        ((IHudElement)new TfHudPlayerStatus(new HudViewport(), new EntityModelSet()))
+            .ShouldDraw(Alive with { Rules = new SceneGameRules(false, 0, false) { ActiveMinigame = true } })
+            .ShouldBeFalse();
 }
