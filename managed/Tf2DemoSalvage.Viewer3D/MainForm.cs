@@ -7201,7 +7201,7 @@ internal class MainForm : Form, IFrameSteps
         // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
         // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is passed: `Precache` re-reads
         // a model that failed to load, which must not happen sixty times a second.
-        string panelModels = string.Join('\n', _vguiHud.PlayerStatus.PlayerClass.PlayerModelPanel.ModelsToPrecache());
+        string panelModels = string.Join('\n', _vguiHud.ModelsToPrecache());
 
         if (!string.Equals(panelModels, _panelModelsPrecached, StringComparison.Ordinal))
         {
@@ -7211,6 +7211,7 @@ internal class MainForm : Form, IFrameSteps
         _vguiHud.Crosshair.Settings = _settings.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
+        _vguiHud.MatchStatus.SoundEmitter ??= PlayHudSound;
         _clientConVars ??= ClientConVar;
 
         // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in

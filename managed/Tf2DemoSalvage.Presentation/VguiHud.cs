@@ -44,7 +44,7 @@ public sealed class VguiHud
         SecondaryTargetId = new TfSecondaryTargetId(Viewport);
         SpectatorTargetId = new TfSpectatorTargetId(Viewport);
         MainTargetId = new TfMainTargetId(Viewport);
-        MatchStatus = new TfHudMatchStatus(Viewport);
+        MatchStatus = new TfHudMatchStatus(Viewport, mdlCache);
         KothTimeStatus = new TfHudKothTimeStatus(Viewport);
         Chat = new TfHudChat(Viewport);
 
@@ -68,6 +68,15 @@ public sealed class VguiHud
             .. TfHudPlayerClass.ListensFor,
         ],
         StringComparer.Ordinal);
+
+    /// <summary>Every model a HUD model panel will draw, for precaching.</summary>
+    /// <returns>The class panel's, then the match doors' and the round sign's.</returns>
+    public IEnumerable<string> ModelsToPrecache() =>
+    [
+        .. PlayerStatus.PlayerClass.PlayerModelPanel.ModelsToPrecache(),
+        .. MatchStatus.MatchStartModelPanel.ModelsToPrecache(),
+        .. MatchStatus.RoundSignModel.ModelsToPrecache(),
+    ];
 
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
     public TfHudMatchStatus MatchStatus { get; }
@@ -127,6 +136,8 @@ public sealed class VguiHud
 
         modelPanel.RealTimeSeconds = state.RealTime;
         modelPanel.FrameTime = Math.Max(0f, state.CurTime - _lastCurTime);
+        MatchStatus.MatchStartModelPanel.FrameTime = modelPanel.FrameTime;
+        MatchStatus.RoundSignModel.FrameTime = modelPanel.FrameTime;
         modelPanel.ParticleSystems = Viewport.ParticleSystems;
         modelPanel.ParticleMaterials = Viewport.ParticleMaterials;
         _lastCurTime = state.CurTime;

@@ -251,7 +251,8 @@ gates.
 3. `CTFMinigameLogic` refusal in TfHudPlayerStatus.ShouldDraw (tf_hud_playerstatus.cpp:1087).
 4. `localplayer_pickup_weapon`: done — `PlayerPickupWeapon` is kept by name and fired to TfHudPlayerClass. Its other
    listener, the item effect meter (tf_hud_itemeffectmeter.cpp:128), is not ported.
-5. Match-start doors and round sign (CModelPanel) in TfHudMatchStatus.
+5. Match-start doors and round sign: done, `VguiModelPanel` (CModelPanel). Not ported: its vcd, start_framed and
+   HWM paths (no HUD block uses them), the door team lists and rank-up message (GC data), FrontParticlePanel.
 6. Model-shader directional local lights (renderer, WorldRenderer.cs:598-625).
 7. `_minmode` keys: only CTFPlayerModelPanel applies them; check EditablePanel/BuildGroup for the general rule.
 

@@ -488,7 +488,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
     /// <summary><c>AngleMatrix( angRot, vecPos, matrix )</c>: a row of <c>(forward[i], left[i], up[i], origin[i])</c>
     /// per axis — <c>matrix3x4_t</c>'s own layout, which <c>StudioBones.Concatenate</c> already assumes.</summary>
-    private static float[] AngleMatrix3x4((float X, float Y, float Z) angles, (float X, float Y, float Z) origin)
+    internal static float[] AngleMatrix3x4((float X, float Y, float Z) angles, (float X, float Y, float Z) origin)
     {
         FreeCamera basis = new() { Origin = origin, Angles = (angles.X, angles.Y, angles.Z) };
 
@@ -522,7 +522,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     }
 
     /// <summary><see cref="BoneSkinning.Fill"/>, unbuffered: a model panel poses a handful of models.</summary>
-    private static float[][] Skinned(IReadOnlyList<StudioBone> bones, BoneAccessor accessor)
+    internal static float[][] Skinned(IReadOnlyList<StudioBone> bones, BoneAccessor accessor)
     {
         float[][] skinned = new float[accessor.Count][];
 

@@ -745,6 +745,7 @@ internal static class SyntheticPlayer
                 [
                     UnsignedInt("m_nGameType", bits: 4), UnsignedInt("m_bPlayingKoth", bits: 1), UnsignedInt("m_bShowMatchSummary", bits: 1),
                     UnsignedInt("m_hRedKothTimer", bits: 21), UnsignedInt("m_hBlueKothTimer", bits: 21),
+                    UnsignedInt("m_bMapHasMatchSummaryStage", bits: 1),
                 ]),
             new SendTable(
                 "DT_TFGameRulesProxy",
@@ -795,6 +796,7 @@ internal static class SyntheticPlayer
                 // A handle is the slot in the low 11 bits and a serial above; all 21 bits set is none.
                 ["m_hRedKothTimer"] = PropertyValue.FromInt((1 << 21) - 1),
                 ["m_hBlueKothTimer"] = PropertyValue.FromInt(42 | (5 << 11)),
+                ["m_bMapHasMatchSummaryStage"] = PropertyValue.FromInt(1),
             }),
             Entity(decoder, TimerClassId, 42, new Dictionary<string, PropertyValue>
             {

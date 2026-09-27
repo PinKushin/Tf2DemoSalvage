@@ -13,7 +13,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// and in the HUD — and shows it outside freeze cam, outside KOTH (whose timers are their own element) unless waiting for
 /// players, and not during the match summary. `tf_use_match_hud` (1) and not Mann vs. Machine loads its `.res` with
 /// `if_match`.
-/// **Not modelled:** team status, player lists and avatars, match doors, round sign and rank-up labels; `if_large`, which
+/// The match doors and the round sign are <see cref="VguiModelPanel"/>s driven by the countdown, the round start and the
+/// match summary. **Not modelled:** team status, player lists and avatars, and the rank-up message; `if_large`, which
 /// needs the match group's size; the freeze-cam screenshot test; and an open viewport panel. The round counter is its own
 /// panel, <see cref="TfRoundCounterPanel"/> — see its remarks for what it leaves out.
 /// </remarks>
@@ -21,14 +22,26 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 {
     private bool _usedMatchHud;
 
-    /// <summary>`CTFHudMatchStatus( "HudMatchStatus" )`: parented to the viewport, its time panel made up front.</summary>
+    /// <summary>`CTFHudMatchStatus( "HudMatchStatus" )` (:268): parented to the viewport, its panels made up front.</summary>
     /// <param name="viewport">The viewport.</param>
-    public TfHudMatchStatus(VguiPanel viewport)
+    /// <param name="mdlCache">The models the two model panels draw.</param>
+    public TfHudMatchStatus(VguiPanel viewport, IMdlCache mdlCache)
         : base(viewport, "HudMatchStatus")
     {
+        MatchStartModelPanel = new VguiModelPanel(this, "MatchDoors", mdlCache);
         RoundCounter = new TfRoundCounterPanel(this);
         TimePanel = new TfHudTimeStatus(this, "ObjectiveStatusTimePanel");
+        RoundSignModel = new VguiModelPanel(this, "RoundSignModel", mdlCache);
     }
+
+    /// <summary>`m_pMatchStartModelPanel`: the versus doors.</summary>
+    public VguiModelPanel MatchStartModelPanel { get; }
+
+    /// <summary>`m_pRoundSignModel`: the round banner.</summary>
+    public VguiModelPanel RoundSignModel { get; }
+
+    /// <summary>Plays a `game_sounds.txt` script — the match-start sound (:718).</summary>
+    public HudSoundEmitter? SoundEmitter { get; set; }
 
     /// <summary>`m_pRoundCounter`.</summary>
     public TfRoundCounterPanel RoundCounter { get; }
@@ -119,16 +132,11 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         }
     }
 
-    /// <summary>The events `CTFHudMatchStatus`'s constructor listens for that this port models (:302-303).</summary>
-    /// <remarks>
-    /// `teamplay_round_start` and `show_match_summary` are also listened for in the engine, but their only handling here
-    /// is `ShowRoundSign`/the match-doors animation — 3D model panels, out of this port's scope (see the class remarks).
-    /// `teamplay_round_start` is included anyway so a later pass has somewhere to dispatch it; it is presently a no-op.
-    /// </remarks>
+    /// <summary>The events `CTFHudMatchStatus`'s constructor listens for (:303-305).</summary>
     public static IReadOnlySet<string> ListensFor { get; } =
-        new HashSet<string>(["restart_timer_time", "teamplay_round_start"], StringComparer.Ordinal);
+        new HashSet<string>(["teamplay_round_start", "restart_timer_time", "show_match_summary"], StringComparer.Ordinal);
 
-    /// <summary>`FireGameEvent` (:547), restricted to the 2D countdown label.</summary>
+    /// <summary>`FireGameEvent` (:547).</summary>
     /// <param name="fired">The event.</param>
     public void HandleGameEvent(HudGameEvent fired)
     {
@@ -139,26 +147,170 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
             return;
         }
 
-        if (fired.Event.Name == "restart_timer_time")
-        {
-            HandleCountdown(fired.Event.GetInt("time"), fired.Rules.RoundsPlayed);
-        }
+        SceneGameRules rules = fired.Rules;
 
-        // `teamplay_round_start`: `ShowRoundSign` when rounds have already been played — out of scope, so nothing 2D
-        // happens here (see `ListensFor`'s remarks).
+        switch (fired.Event.Name)
+        {
+            case "teamplay_round_start":
+                // "Drop the round sign right when the match starts on rounds > 1".
+                if (rules.RoundsPlayed > 0)
+                {
+                    ShowRoundSign(rules);
+                }
+
+                break;
+
+            case "restart_timer_time":
+                HandleCountdown(fired.Event.GetInt("time"), rules);
+                break;
+
+            case "show_match_summary":
+                ShowMatchSummary(rules);
+                break;
+
+            default:
+                break;
+        }
     }
 
-    /// <summary>`HandleCountdown` (:614), minus `ShowRoundSign` and `ShowMatchStartDoors` — both 3D model panels.</summary>
+    /// <summary>`show_match_summary` (:564-612): the team panels hidden, the doors refreshed and shut.</summary>
+    private void ShowMatchSummary(SceneGameRules rules)
+    {
+        if (FindChildByName("BlueTeamPanel") is { } blue)
+        {
+            blue.Visible = false;
+        }
+
+        if (FindChildByName("RedTeamPanel") is { } red)
+        {
+            red.Visible = false;
+        }
+
+        if (TfMatchGroupDescription.For(rules.MatchGroup) is not { } description)
+        {
+            return;
+        }
+
+        // "FIX: Refresh versus doors so late-joiners do not see the wrong skin".
+        if (description.RoundDoor is { } door)
+        {
+            SetDoors(door);
+        }
+
+        if (description.UsesPostRoundDoors)
+        {
+            HudViewport.Of(this)?.Animations?.StartAnimationSequence(
+                this,
+                rules.MapHasMatchSummaryStage && description.UseMatchSummaryStage
+                    ? "HudMatchStatus_ShowMatchWinDoors"
+                    : "HudMatchStatus_ShowMatchWinDoors_NoOpen");
+        }
+    }
+
+    /// <summary>`HandleCountdown` (:615).</summary>
     /// <param name="time">`event->GetInt( "time" )`: seconds left on the restart countdown.</param>
-    /// <param name="roundsPlayed">`TFGameRules()->GetRoundsPlayed()`.</param>
-    private void HandleCountdown(int time, int roundsPlayed)
+    /// <param name="rules">The game rules at the event.</param>
+    private void HandleCountdown(int time, SceneGameRules rules)
     {
         SetDialogVariable("countdown", time);
 
-        // `case 10:` — on the first round `ShowMatchStartDoors`, a 3D model panel not modelled here; after it the 2D countdown.
-        if (time == 10 && roundsPlayed != 0)
+        switch (time)
         {
-            HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudMatchStatus_ShowCountdown");
+            case 2:
+                // "Drop the round sign with 2 seconds to go on the 1st round".
+                if (rules.RoundsPlayed == 0)
+                {
+                    ShowRoundSign(rules);
+                }
+
+                break;
+
+            case 10:
+                if (rules.RoundsPlayed == 0)
+                {
+                    ShowMatchStartDoors(rules);
+                }
+                else
+                {
+                    HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudMatchStatus_ShowCountdown");
+                }
+
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>`ShowMatchStartDoors` (:646).</summary>
+    /// <remarks>
+    /// The rank-up message (:677-709) needs the local player's GC rating, which playback never has — so with sticky ranks the
+    /// labels are shown and no message is set. The team lists (:657-658) and the class menus (:712-713) are not ported.
+    /// </remarks>
+    private void ShowMatchStartDoors(SceneGameRules rules)
+    {
+        if (TfMatchGroupDescription.For(rules.MatchGroup) is not { RoundDoor: { } door } description)
+        {
+            return;
+        }
+
+        SetDoors(door);
+        HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudMatchStatus_ShowMatchStartDoors");
+
+        SetControlVisible("RankUpLabel", description.UsesStickyRanks);
+        SetControlVisible("RankUpShadowLabel", description.UsesStickyRanks);
+
+        if (description.MatchStartSound is { } sound)
+        {
+            SoundEmitter?.Invoke(sound);
+        }
+    }
+
+    /// <summary>The doors' model, logo bodygroup and skin (:660-667).</summary>
+    private void SetDoors((int Skin, int LogoBodyGroup) door)
+    {
+        if (!MatchStartModelPanel.HasModel)
+        {
+            MatchStartModelPanel.UpdateModel();
+        }
+
+        MatchStartModelPanel.SetBodyGroup("logos", door.LogoBodyGroup);
+        MatchStartModelPanel.UpdateModel();
+        MatchStartModelPanel.SetSkin(door.Skin);
+    }
+
+    /// <summary>`ShowRoundSign` (:726).</summary>
+    private void ShowRoundSign(SceneGameRules rules)
+    {
+        if (RoundSignModel.ModelInfo is not { } info
+            || TfMatchGroupDescription.For(rules.MatchGroup)?.RoundStartBanner is not { } banner)
+        {
+            return;
+        }
+
+        (int skin, int bodyGroup) = banner(rules.RoundsPlayed);
+
+        if (!RoundSignModel.HasModel)
+        {
+            RoundSignModel.UpdateModel();
+        }
+
+        // "Change the skin and bodygroup to be correct for the mode and round", then "Make the model actually update".
+        RoundSignModel.SetBodyGroup("logos", bodyGroup);
+        info.Skin = skin;
+        RoundSignModel.SetPanelDirty();
+        RoundSignModel.UpdateModel();
+
+        // "Play the sign drop anim".
+        HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudTournament_ShowRoundSign");
+    }
+
+    /// <summary>`SetControlVisible( name, visible, bRecurseDown = true )`.</summary>
+    private void SetControlVisible(string name, bool visible)
+    {
+        if (FindChildByName(name, recurseDown: true) is { } control)
+        {
+            control.Visible = visible;
         }
     }
 }

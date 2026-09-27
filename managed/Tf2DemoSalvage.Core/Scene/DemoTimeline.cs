@@ -622,6 +622,9 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`IsInKothMode()`: `m_bPlayingKoth` (:1507).</summary>
     public bool Koth { get; init; }
 
+    /// <summary>`MapHasMatchSummaryStage()`: `m_bMapHasMatchSummaryStage` (tf_gamerules.cpp:1473).</summary>
+    public bool MapHasMatchSummaryStage { get; init; }
+
     /// <summary>`ShowMatchSummary()`: `m_bShowMatchSummary` (:1540).</summary>
     public bool ShowMatchSummary { get; init; }
 
@@ -3309,6 +3312,7 @@ public sealed class DemoTimeline
                 MatchGroup = gameRules?.Integer("DT_TFGameRules.m_nMatchGroupType") ?? -1,
                 Koth = gameRules?.Integer("DT_TFGameRules.m_bPlayingKoth") is > 0,
                 ShowMatchSummary = gameRules?.Integer("DT_TFGameRules.m_bShowMatchSummary") is > 0,
+                MapHasMatchSummaryStage = gameRules?.Integer("DT_TFGameRules.m_bMapHasMatchSummaryStage") is > 0,
                 BlueKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hBlueKothTimer")),
                 RedKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hRedKothTimer")),
                 TimerToShowInHud = entities.OfClass(ObjectiveResourceClass).FirstOrDefault()?.Integer("DT_BaseTeamObjectiveResource.m_iTimerToShowInHUD") ?? 0,
