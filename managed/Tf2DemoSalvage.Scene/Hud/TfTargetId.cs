@@ -18,8 +18,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// tick past losing it unless the target kept a retain field of view, then `IsValidIDTarget` (:340), then `UpdateID`
 /// (:719) fills the labels. `PerformLayout` (:599) sizes to the labels, plus the health panel when it is drawn inside.
 /// `IsValidIDTarget` makes, shows and deletes the floating health icon (<see cref="TfFloatingHealthIcon"/>).
-/// **Not modelled here:** flags, dropped weapons and revive markers as targets (none is decoded); the local medic's no-heal
-/// line; `m_bIsCoaching`; Steam avatars — `tf_hud_target_id_show_avatars` 2 asks the Steam friends list, which a
+/// **Not modelled here:** flags, dropped weapons and revive markers as targets (none is decoded); `m_bIsCoaching`; Steam avatars — `tf_hud_target_id_show_avatars` 2 asks the Steam friends list, which a
 /// recording does not carry; the arena class-layout offset; and `IsHealthBarVisible`'s MvM regeneration case. The moveable
 /// sub-panel's pick-up prompt, including <see cref="CanPickupBuilding"/> in full, IS modelled.
 /// </remarks>
@@ -971,12 +970,22 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             return (VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge"), IdChars, "0"), DataKind.None);
         }
 
-        // A local medic sees his heal target's clip (:9809-9840). **Not modelled:** `weapon_blocks_healing`'s no-heal line
-        // (:9815), which needs the target's weapon's attributes — a recording carries only the recorder's own items.
-        if (local.PlayerClass == ClassMedic && target.ActiveWeapon is not null && data.Length == 0
-            && target.ActiveWeaponClip is { } clip and >= 0 && IsHealTargetOf(local, target))
+        if (local.PlayerClass == ClassMedic && target.ActiveWeapon is not null)
         {
-            return (VguiLocalize.ConstructString(Find("#TF_playerid_ammo"), IdChars, clip.ToString(CultureInfo.InvariantCulture)), DataKind.Ammo);
+            // "Check for weapon_blocks_healing" (:9814-9827), on the target's active weapon.
+            if (ActiveWeaponItem(target) is { } weapon && (int)WeaponAttribute(target, weapon, "weapon_blocks_healing") != 0)
+            {
+                data = weapon.DefinitionIndex is { } definition
+                    ? VguiLocalize.ConstructString(
+                        Find("#TF_playerid_noheal"), IdChars, HudViewport.Of(this)?.ItemName?.Invoke(definition, weapon.Quality ?? 0) ?? string.Empty)
+                    : VguiLocalize.ConstructString(Find("#TF_playerid_noheal_unknown"), IdChars);
+            }
+
+            // "Show target's clip state to attached medics" (:9829-9840).
+            if (data.Length == 0 && target.ActiveWeaponClip is { } clip and >= 0 && IsHealTargetOf(local, target))
+            {
+                return (VguiLocalize.ConstructString(Find("#TF_playerid_ammo"), IdChars, clip.ToString(CultureInfo.InvariantCulture)), DataKind.Ammo);
+            }
         }
 
         // "Check for kill streak data".
