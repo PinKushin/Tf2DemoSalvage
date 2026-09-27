@@ -238,6 +238,28 @@ verifiably different numbers, not the same answer read two ways), `ApplyStartFra
 same category `VguiPanel`'s own remarks already exclude — "Input, navigation... not modelled: a demo's HUD takes no
 input" — and stays excluded for the same reason: an offline demo renderer has no mouse to drive it.
 
+## Remaining HUD work (2026-09-27, `feat/hud-model-panel`, not yet on main)
+
+On this branch: model panels in CMDL shape (edd41c62), CTFPlayerModelPanel dressing (1ed93891), client cvars through
+the ConVar lookup (261e4e69), server time limit (133bed1e), no-heal line (5a0087af). Merge to main needs all three
+gates.
+
+1. CTFPlayerModelPanel partials — a subagent is on these: per-team world-model bodygroup override (:871),
+   GetBestVisualTeamData for attached models (:1034), strange-level styles (econ_item_view.cpp:747-776), eye glow and
+   unusual particles (:1584-1889), StatTrak (:550-616, :1539), taunt branch (:664-731).
+2. Target ID generic targets — `TfTargetId` remarks say "none is decoded", which is unverified. Valve:
+   `C_BaseEntity::IsVisibleToTargetID` (c_baseentity.h:748) overridden by `CCaptureFlag` (entity_capture_flag.cpp:435:
+   not disabled, point value > 0, ShouldDraw) and `CTFDroppedWeapon` (tf_dropped_weapon.cpp:473: CanPickupDroppedWeapon);
+   UpdateID's generic branch tf_hud_target_id.cpp:926-998 (flag points, dropped weapon name/charge/owner, revive marker
+   respawn). The ID trace must hit them.
+3. `CTFMinigameLogic` refusal in TfHudPlayerStatus.ShouldDraw (tf_hud_playerstatus.cpp:1087).
+4. `localplayer_pickup_weapon`: its user message is dropped (DemoTimeline keeps only chat user messages).
+5. Match-start doors and round sign (CModelPanel) in TfHudMatchStatus.
+6. Model-shader directional local lights (renderer, WorldRenderer.cs:598-625).
+7. `_minmode` keys: only CTFPlayerModelPanel applies them; check EditablePanel/BuildGroup for the general rule.
+
+clangd on the SDK: `find_symbol` returns nothing until a document is opened (`open_document` first).
+
 ## Traps
 
 - Positions measure against the SCREEN unless `proportionalToParent` is 1 — not the parent.
