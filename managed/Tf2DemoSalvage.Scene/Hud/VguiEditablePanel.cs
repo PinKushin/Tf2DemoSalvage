@@ -67,15 +67,25 @@ public class VguiEditablePanel : VguiPanel
     /// <summary>`LoadControlSettings( resourceName )`: the file read through the context, `#base` merged.</summary>
     /// <param name="path">The `.res` file.</param>
     /// <param name="context">The scheme, screen and filesystem.</param>
-    /// <remarks>A missing file is an empty one: `BuildGroup::LoadControlSettings` only prints "not found".</remarks>
+    /// <remarks>
+    /// A missing file is an empty one: `BuildGroup::LoadControlSettings` only prints "not found". A file read from disk
+    /// has its `_minmode` keys promoted under `cl_hud_minmode` (BuildGroup.cpp:953-960), for every panel alike.
+    /// </remarks>
     /// <param name="conditions">`pConditions`: the condition blocks to promote, such as `if_match`.</param>
     public void LoadControlSettings(string path, VguiContext context, IReadOnlyList<string>? conditions = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         Func<string, byte[]?> read = context.Read ?? (_ => null);
+        byte[]? bytes = read(path);
+        KeyValuesTree resource = KeyValuesTree.Load(bytes ?? [], path, read);
 
-        LoadControlSettings(KeyValuesTree.Load(read(path) ?? [], path, read), context, conditions);
+        if (bytes is not null && HudViewport.ConVarsOf(this).GetBool("cl_hud_minmode"))
+        {
+            resource.ProcessResolutionKeys("_minmode");
+        }
+
+        LoadControlSettings(resource, context, conditions);
     }
 
     /// <summary>`SetDialogVariable( name, const char * )`.</summary>

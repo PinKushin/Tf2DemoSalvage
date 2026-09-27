@@ -24,6 +24,7 @@ public sealed class VguiHud
     private VguiContext? _context;
     private ScenePlayer? _lastLocal;
     private float _lastCurTime;
+    private bool _minMode;
 
     /// <summary>The viewport, and every element `DECLARE_HUDELEMENT` makes at `CHud::Init`, before the layout is read.</summary>
     /// <param name="host">The surface the HUD shares with the other roots.</param>
@@ -142,8 +143,14 @@ public sealed class VguiHud
         modelPanel.ParticleMaterials = Viewport.ParticleMaterials;
         _lastCurTime = state.CurTime;
 
-        if (_context is null || !ReferenceEquals(_context.Surface, _host.List))
+        // `cl_hud_minmode`'s change callback runs `hud_reloadscheme` (clientmode_tf.cpp:284-287), which this reload is; the
+        // ConVars are in place first, as the engine's are before any `.res` loads.
+        Viewport.SetConVars(state.ConVars);
+        bool minMode = state.ConVars.GetBool("cl_hud_minmode");
+
+        if (_context is null || !ReferenceEquals(_context.Surface, _host.List) || minMode != _minMode)
         {
+            _minMode = minMode;
             _context = _host.LoadScheme(SchemePath);
             (Viewport.Wide, Viewport.Tall) = (_host.Wide, _host.Tall);
             Viewport.Context = _context;

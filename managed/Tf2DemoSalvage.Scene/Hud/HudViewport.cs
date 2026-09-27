@@ -403,6 +403,10 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>This frame's game state — what an element's `OnThink` reads of the local player and `gpGlobals`.</summary>
     public HudState State { get; private set; }
 
+    /// <summary>The ConVars in force now, before the frame's think: they exist before any `.res` is loaded.</summary>
+    /// <param name="conVars">This frame's ConVars.</param>
+    public void SetConVars(HudConVars conVars) => State = State with { ConVars = conVars };
+
     /// <summary>The viewport a panel sits under, for its `OnThink` to read <see cref="State"/>; null when it has none.</summary>
     /// <param name="panel">The panel.</param>
     /// <returns>The viewport.</returns>

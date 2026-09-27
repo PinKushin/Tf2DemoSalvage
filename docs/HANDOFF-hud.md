@@ -254,7 +254,7 @@ gates.
 5. Match-start doors and round sign: done, `VguiModelPanel` (CModelPanel). Not ported: its vcd, start_framed and
    HWM paths (no HUD block uses them), the door team lists and rank-up message (GC data), FrontParticlePanel.
 6. Model-shader directional local lights (renderer, WorldRenderer.cs:598-625).
-7. `_minmode` keys: only CTFPlayerModelPanel applies them; check EditablePanel/BuildGroup for the general rule.
+7. `_minmode` keys: done — every `.res` read from disk (BuildGroup.cpp:953-960); a change reloads the scheme.
 
 clangd on the SDK: `find_symbol` returns nothing until a document is opened (`open_document` first).
 
