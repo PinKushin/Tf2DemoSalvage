@@ -62,6 +62,45 @@ public sealed class VguiSectionedListPanelConformanceTests
     }
 
     [Test]
+    public void SetItemFont_Overrides_PaintsTheRowInThatFont()
+    {
+        VguiSectionedListPanel list = Build(out TextRecorder surface);
+        VguiFontAmalgam itemFont = new();
+
+        list.AddSection(1, "s");
+        list.AddColumnToSection(1, "a", "A", 0, 40);
+        int itemId = list.AddItem(1, new Dictionary<string, string> { ["a"] = "x" });
+        list.SetItemFont(itemId, itemFont);
+
+        list.Paint(surface, null!);
+
+        // The header paints first (list.HeaderFont), then the row: the last font set is the item's own.
+        surface.FontsUsed[^1].ShouldBeSameAs(itemFont);
+    }
+
+    [Test]
+    public void SetSelectedItem_Selected_PaintsTheOutOfFocusSelectedBackgroundInsteadOfTheItemsOwn()
+    {
+        // `CItemButton::PaintBackground` (SectionedListPanel.cpp:511-533): selected and not in edit mode always
+        // overrides the row's own background — `m_ArmedBgColor` while focused, `m_SelectionBG2Color` otherwise.
+        // The scoreboard never has real vgui focus in this viewer (see remarks), so the out-of-focus colour is the
+        // only branch that ever paints here.
+        VguiSectionedListPanel list = Build(out TextRecorder surface);
+        list.OutOfFocusSelectedBgColor = (9, 8, 7, 255);
+
+        list.AddSection(1, "s");
+        list.AddColumnToSection(1, "a", "A", 0, 40);
+        int itemId = list.AddItem(1, new Dictionary<string, string> { ["a"] = "x" });
+        list.SetItemBgColor(itemId, (1, 2, 3, 80));
+        list.SetSelectedItem(itemId);
+
+        list.Paint(surface, null!);
+
+        surface.Calls.ShouldContain("color 9 8 7 255");
+        surface.Calls.ShouldNotContain("color 1 2 3 80");
+    }
+
+    [Test]
     public void AddColumnToSection_ColumnRight_RightAlignsTheText()
     {
         VguiSectionedListPanel list = Build(out TextRecorder surface);
