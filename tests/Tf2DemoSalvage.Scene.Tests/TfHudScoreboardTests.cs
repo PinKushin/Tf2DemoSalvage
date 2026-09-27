@@ -174,6 +174,70 @@ public sealed class TfHudScoreboardTests
     }
 
     [Test]
+    public void UpdatePlayerList_ScoreFontDefaultSet_EveryRowGetsIt()
+    {
+        // `SetItemFont( itemID, m_hScoreFontDefault )` (tf_clientscoreboard.cpp:1570).
+        TfClientScoreBoardDialog dialog = new(null);
+        VguiFontAmalgam font = new();
+        dialog.ScoreFontDefault = font;
+
+        SceneScoreboardPlayer[] players =
+        [
+            new(2) { Connected = true, Valid = true, Team = SceneTeams.Red, Alive = true },
+            new(5) { Connected = true, Valid = true, Team = SceneTeams.Blu, Alive = true },
+        ];
+
+        dialog.UpdatePlayerList(players, names: null, localPlayerIndex: 0);
+
+        dialog.PlayerListRed.GetItemFont(0).ShouldBeSameAs(font);
+        dialog.PlayerListBlue.GetItemFont(0).ShouldBeSameAs(font);
+    }
+
+    [Test]
+    public void UpdatePlayerList_NoScoreFontYet_LeavesTheRowOnTheListsDefaultFont()
+    {
+        // `ApplySchemeSettings` has not run yet — see remarks on `ScoreFontDefault` — so nothing is set rather than
+        // a null font being forced onto the row.
+        TfClientScoreBoardDialog dialog = new(null);
+
+        SceneScoreboardPlayer[] players = [new(2) { Connected = true, Valid = true, Team = SceneTeams.Red, Alive = true }];
+
+        dialog.UpdatePlayerList(players, names: null, localPlayerIndex: 0);
+
+        dialog.PlayerListRed.GetItemFont(0).ShouldBeNull();
+    }
+
+    [Test]
+    public void UpdatePlayerList_TheLocalPlayersRow_IsSelected()
+    {
+        // `iSelectedPlayerIndex == playerIndex` -> `pPlayerList->SetSelectedItem( itemID )` (:1572-1576).
+        TfClientScoreBoardDialog dialog = new(null);
+
+        SceneScoreboardPlayer[] players =
+        [
+            new(2) { Connected = true, Valid = true, Team = SceneTeams.Red, Alive = true },
+            new(5) { Connected = true, Valid = true, Team = SceneTeams.Blu, Alive = true },
+        ];
+
+        dialog.UpdatePlayerList(players, names: null, localPlayerIndex: 5);
+
+        dialog.PlayerListBlue.SelectedItem.ShouldBe(0);
+        dialog.PlayerListRed.SelectedItem.ShouldBe(-1);
+    }
+
+    [Test]
+    public void UpdatePlayerList_NoPlayerMatchesLocalIndex_SelectsNothing()
+    {
+        TfClientScoreBoardDialog dialog = new(null);
+
+        SceneScoreboardPlayer[] players = [new(2) { Connected = true, Valid = true, Team = SceneTeams.Red, Alive = true }];
+
+        dialog.UpdatePlayerList(players, names: null, localPlayerIndex: 99);
+
+        dialog.PlayerListRed.SelectedItem.ShouldBe(-1);
+    }
+
+    [Test]
     public void UpdateTeamInfo_RedAndBlueTeams_SetsScoreLocalizedNameAndPluralizedCount()
     {
         // `C_TFTeam::UpdateTeamName` outside a tournament: `#TF_RedTeam_Name`/`#TF_BlueTeam_Name` (c_tf_team.cpp:170-195),
