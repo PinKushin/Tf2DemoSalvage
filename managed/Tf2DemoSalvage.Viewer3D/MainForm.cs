@@ -7047,11 +7047,12 @@ internal class MainForm : Form, IFrameSteps
 
         int hudTick = _transport.CurrentTick;
         IReadOnlyList<HudGameEvent>? hudEvents = null;
+        IReadOnlyList<Core.Scene.SceneUserMessage>? hudMessages = null;
         bool hudReset = false;
 
         if (_timeline is { } hudTimeline)
         {
-            (hudReset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed) = _hudEvents.Advance(hudTimeline, hudTick);
+            (hudReset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed, hudMessages) = _hudEvents.Advance(hudTimeline, hudTick);
             hudEvents = HudEventFeed.Resolve(hudTimeline, crossed, _demo?.MapName ?? string.Empty, _hudHooks);
         }
 
@@ -7086,7 +7087,8 @@ internal class MainForm : Form, IFrameSteps
         _vguiHud.Frame(
             hudState,
             hudEvents,
-            hudReset);
+            hudReset,
+            hudMessages);
         _vguiTools.Frame(
             _vguiClock.Elapsed.TotalSeconds,
             _clock.LastFrameSeconds,

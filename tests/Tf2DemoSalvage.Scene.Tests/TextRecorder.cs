@@ -72,8 +72,16 @@ internal sealed class TextRecorder : IVguiSurface
 
     public void DrawSetTextFont(VguiFontAmalgam font) => Calls.Add("font");
 
-    public void DrawSetTextColor((byte Red, byte Green, byte Blue, byte Alpha) color) =>
-        Calls.Add($"text color {color.Red} {color.Green} {color.Blue} {color.Alpha}");
+    public void DrawSetTextColor((byte Red, byte Green, byte Blue, byte Alpha) color)
+    {
+        _textColor = $"{color.Red} {color.Green} {color.Blue} {color.Alpha}";
+        Calls.Add("text color " + _textColor);
+    }
+
+    private string _textColor = string.Empty;
+
+    /// <summary>Each `DrawPrintText` with the text colour it was drawn in.</summary>
+    public List<(string Text, string Colour)> Runs { get; } = [];
 
     public void DrawSetTextPos(int x, int y) => _pen = (x, y);
 
@@ -87,6 +95,8 @@ internal sealed class TextRecorder : IVguiSurface
 
     public void DrawPrintText(string text, VguiFontDrawType drawType = VguiFontDrawType.Default)
     {
+        Runs.Add((text, _textColor));
+
         foreach (char character in text)
         {
             DrawUnicodeChar(character, drawType);
