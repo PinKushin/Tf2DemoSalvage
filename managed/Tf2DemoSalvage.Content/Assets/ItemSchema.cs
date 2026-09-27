@@ -25,8 +25,9 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// shipped schema against 29 plain ones, so treating the two alike would put a festive attachment
 /// on every ordinary weapon.
 /// </param>
+/// <param name="Key">The child's name in its block (`"0"`, `"1"`), by which a prefab merge matches it.</param>
 public readonly record struct AttachedModel(
-    string Model, int DisplayFlags, string Team, bool Festive)
+    string Model, int DisplayFlags, string Team, bool Festive, string Key = "")
 {
     /// <summary><c>kAttachedModelDisplayFlag_WorldModel</c>.</summary>
     public const int WorldModel = 0x01;
@@ -352,6 +353,7 @@ public sealed class ItemSchema
         string styleBlock = string.Empty;
         PerClassBlock? perClassBlock = null;
         string attachedModel = string.Empty;
+        string attachedKey = string.Empty;
         int attachedFlags = AttachedModel.MaskAll;
 
         // The top-level `attributes` section's walk: which definition index is open.
@@ -673,6 +675,7 @@ public sealed class ItemSchema
                 case 5 when entry is not null && inAttached && value is null:
                     attachedModel = string.Empty;
                     attachedFlags = AttachedModel.MaskAll;
+                    attachedKey = key;
                     break;
 
                 case 6 when entry is not null && inAttached && value is not null:
@@ -681,7 +684,7 @@ public sealed class ItemSchema
                         attachedModel = value;
 
                         entry.AttachedModels.Add(new AttachedModel(
-                            attachedModel, attachedFlags, visualsTeam, attachedIsFestive));
+                            attachedModel, attachedFlags, visualsTeam, attachedIsFestive, attachedKey));
                     }
                     // Stryker disable once : removing TryParse leaves 'flags' undeclared in else-if body, CS0165
                     else if (string.Equals(
@@ -699,7 +702,7 @@ public sealed class ItemSchema
                         if (attachedModel.Length > 0 && entry.AttachedModels.Count > 0)
                         {
                             entry.AttachedModels[^1] = new AttachedModel(
-                                attachedModel, attachedFlags, visualsTeam, attachedIsFestive);
+                                attachedModel, attachedFlags, visualsTeam, attachedIsFestive, attachedKey);
                         }
                     }
 
@@ -1196,49 +1199,69 @@ public sealed class ItemSchema
     public IReadOnlyList<AttachedModel> AttachedModelsFor(
         int definitionIndex, int? team, bool festivized)
     {
-        if (!_items.TryGetValue(definitionIndex, out Entry? item))
+        // `GetNumAttachedModels( iTeamNumber )` and its festive twin (econ_item_schema.h:1735-1796): the block
+        // `GetBestVisualTeamData` picks, alone. An unknown team asks as team 0, the base block.
+        if (!_items.TryGetValue(definitionIndex, out Entry? item) || BestVisualSection(item, team ?? 0) is not { } section)
         {
             return [];
         }
 
-        List<AttachedModel> found = [];
+        // `MergeDefinitionPrefab` (econ_item_schema.cpp:2940-2967): prefabs back to front, each after its own prefabs,
+        // then the item; `RecursiveInheritKeyValues` (:2897) replaces a child of the same name in place, else appends.
+        List<AttachedModel> plain = [];
+        List<AttachedModel> festive = [];
 
-        Collect(item, found, LongestChain);
-
-        if (found.Count == 0)
+        foreach (Entry level in MergeOrder(item, LongestChain))
         {
-            return [];
+            foreach (AttachedModel attached in level.AttachedModels)
+            {
+                if (!string.Equals(attached.Team, section, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                List<AttachedModel> into = attached.Festive ? festive : plain;
+                int existing = into.FindIndex(each => string.Equals(each.Key, attached.Key, StringComparison.OrdinalIgnoreCase));
+
+                if (existing >= 0)
+                {
+                    into[existing] = attached;
+                }
+                else
+                {
+                    into.Add(attached);
+                }
+            }
         }
 
-        string wanted = team switch
+        // The festive loop runs after the plain one, and only under `is_festivized` (econ_entity.cpp:1107-1131).
+        if (festivized)
         {
-            RedTeam => "red",
-            BluTeam => "blu",
-            _ => string.Empty,
-        };
-
-        List<AttachedModel> kept = [];
-
-        foreach (AttachedModel attached in found)
-        {
-            if (attached.Festive && !festivized)
-            {
-                continue;
-            }
-
-            // An untagged block applies to both sides; a tagged one only to its own. An unknown
-            // team therefore takes the untagged blocks and nothing else, which is the honest answer
-            // rather than guessing a side.
-            if (attached.Team.Length > 0
-                && !string.Equals(attached.Team, wanted, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            kept.Add(attached);
+            plain.AddRange(festive);
         }
 
-        return kept;
+        return plain;
+    }
+
+    /// <summary>The order `MergeDefinitionPrefab` applies an entry's chain in: the last prefab first, the entry last.</summary>
+    private List<Entry> MergeOrder(Entry entry, int remaining)
+    {
+        List<Entry> order = [];
+
+        if (remaining > 0)
+        {
+            for (int index = entry.Prefabs.Count - 1; index >= 0; index--)
+            {
+                if (_prefabs.TryGetValue(entry.Prefabs[index], out Entry? prefab))
+                {
+                    order.AddRange(MergeOrder(prefab, remaining - 1));
+                }
+            }
+        }
+
+        order.Add(entry);
+
+        return order;
     }
 
     /// <summary><c>TF_TEAM_RED</c>, matching <c>SceneTeams.Red</c>.</summary>
@@ -1378,30 +1401,6 @@ public sealed class ItemSchema
         }
 
         return null;
-    }
-
-    /// <summary>Gathers attachments from an entry and its prefabs.</summary>
-    /// <remarks>
-    /// **Every level contributes, unlike <see cref="Search"/> which stops at the first answer.** A
-    /// model is one value and the nearest definition wins; attachments are a LIST, and an item that
-    /// adds one does not thereby discard what its prefab hangs on it.
-    /// </remarks>
-    private void Collect(Entry entry, List<AttachedModel> into, int remaining)
-    {
-        into.AddRange(entry.AttachedModels);
-
-        if (remaining <= 0)
-        {
-            return;
-        }
-
-        foreach (string name in entry.Prefabs)
-        {
-            if (_prefabs.TryGetValue(name, out Entry? prefab))
-            {
-                Collect(prefab, into, remaining - 1);
-            }
-        }
     }
 
     /// <summary>The definition index a named attribute resolves to, or null for an unknown name.</summary>
