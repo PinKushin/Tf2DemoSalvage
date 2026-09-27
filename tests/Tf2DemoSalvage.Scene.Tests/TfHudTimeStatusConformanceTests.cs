@@ -54,10 +54,10 @@ public sealed class TfHudTimeStatusConformanceTests
     public void OnThink_TournamentModeWaitingForPlayers_HidesTheTimer()
     {
         // `IsInTournamentMode() && IsInWaitingForPlayers()` (tf_hud_match_status.cpp:474).
-        Thought(Playing() with { TournamentMode = true, Rules = Rules() with { WaitingForPlayers = true } })
+        Thought(Playing() with { ConVars = TestConVars.Of(("mp_tournament", "1")), Rules = Rules() with { WaitingForPlayers = true } })
             .TimePanel.Visible.ShouldBeFalse();
 
-        Thought(Playing() with { TournamentMode = true }).TimePanel.Visible.ShouldBeTrue("the control — tournament mode alone does not hide it");
+        Thought(Playing() with { ConVars = TestConVars.Of(("mp_tournament", "1")) }).TimePanel.Visible.ShouldBeTrue("the control — tournament mode alone does not hide it");
         Thought(Playing() with { Rules = Rules() with { WaitingForPlayers = true } }).TimePanel.Visible.ShouldBeTrue("the control — waiting alone does not hide it outside tournament mode");
     }
 
