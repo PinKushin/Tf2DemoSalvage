@@ -167,6 +167,35 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     [Test]
+    public void Paint_AMergeModelSharingABoneName_TakesTheRootsBoneToWorldForThatBone()
+    {
+        // `CMDLPanel::OnPaint3D` (mdlpanel.cpp:493): `SetupBonesWithBoneMerge` folds the merge model's shared-named
+        // bones from the root's already-built bone-to-world. `AnimatingEntity.Follows` is this project's version of
+        // that (WeaponMergeContentTests already proves it for a real weapon/player pair); this checks the panel
+        // actually wires it rather than merely holding both models unmerged.
+        VguiModelPanel panel = new(null, "model")
+        {
+            ModelName = "models/player/demo.mdl",
+            ResolveModel = path => path == "models/player/demo.mdl"
+                ? SyntheticSkinnedModel.WithBones("root")
+                : SyntheticSkinnedModel.WithBones("root", "muzzle"),
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.MergeModels.Add("models/weapons/c_models/c_stickybomb_launcher.mdl");
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+
+        float[] rootBone = surface.Draws[0].Models[0].Bones![0];
+        float[] mergeBone = surface.Draws[0].Models[1].Bones![0];
+
+        mergeBone.ShouldBe(rootBone);
+    }
+
+    [Test]
     public void ModelsToPrecache_ARootAndMergeModels_YieldsRootFirst()
     {
         VguiModelPanel panel = new(null, "model") { ModelName = "models/player/scout.mdl" };
