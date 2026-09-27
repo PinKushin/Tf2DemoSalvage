@@ -158,6 +158,13 @@ public static class EngineConVars
         new("mp_tournament_redteamname", "RED", Replicated: true, Cheat: false),
         new("mp_tournament_blueteamname", "BLU", Replicated: true, Cheat: false),
 
+        // `GetNextRespawnWave` and `GetRespawnWaveMaxLength` (teamplayroundbased_gamerules.cpp:200,233; c_baseplayer.cpp:112-113,
+        // the non-CSTRIKE branch): what a revive marker's respawn time is built from.
+        new("mp_respawnwavetime", "10.0", Replicated: true, Cheat: false),
+        new("mp_disable_respawn_times", "0", Replicated: true, Cheat: false),
+        new("spec_freeze_time", "4.0", Replicated: true, Cheat: true),
+        new("spec_freeze_traveltime", "0.4", Replicated: true, Cheat: true),
+
         // `CTFPlayerShared::IsLoser` (tf_player_shared.cpp:127,13656): a cheat that forces every player's loser state.
         new("tf_always_loser", "0", Replicated: true, Cheat: true),
 

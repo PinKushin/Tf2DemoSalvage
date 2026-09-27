@@ -313,6 +313,7 @@ public static class PlayerProps
     /// for, because only the model set has the <c>.mdl</c> and only it knows which index a part's
     /// name has on this model.
     /// </param>
+    /// <param name="viewerHalloweenVision">Whether the recorder has Halloween vision, for `BRenderAsZombie` (c_tf_player.cpp:7754).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **<paramref name="into"/> is read as well as written, and the order is the reason it is a
@@ -325,7 +326,8 @@ public static class PlayerProps
         IReadOnlyList<ScenePlayer> players,
         IList<SceneProp> into,
         IPlayerAppearance appearance,
-        IModelBodygroups bodygroups)
+        IModelBodygroups bodygroups,
+        bool viewerHalloweenVision = false)
     {
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(into);
@@ -425,14 +427,11 @@ public static class PlayerProps
                     // team, not a value the server sends for players. Props are the opposite case:
                     // a capture point's skin comes from ownership on the server and must be read.
                     //
-                    // Not reproduced: the client's two skin OVERRIDES applied straight after —
-                    // AdjustSkinIndexForZombie for Halloween, and the gold ragdoll from
-                    // TF_DMG_CUSTOM_GOLD_WRENCH.
                     // **Via the disguise, which changes both the team and the family.**
                     // `C_TFPlayer::GetSkin` (`c_tf_player.cpp:7801`) substitutes the disguise team
                     // for an enemy and then adds a mask offset; `Disguise.VisibleSkin` carries
                     // those branches, with the ones it does not implement named at its declaration.
-                    Skin = Disguise.VisibleSkin(player),
+                    Skin = Disguise.VisibleSkin(player, viewerHalloweenVision),
 
                     // **The other half of the mask, and the half that was missing.** `GetSkin`
                     // above decides WHICH mask is painted; the mask MESH is a body part, and at

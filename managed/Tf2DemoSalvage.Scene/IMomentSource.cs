@@ -70,6 +70,11 @@ public interface IMomentSource
     /// </remarks>
     public int? RoundStateAt(double tick);
 
+    /// <summary>The holiday half of the local player's `GetVisionFilterFlags` (c_tf_player.cpp:8090-8095) at a tick.</summary>
+    /// <param name="tick">The moment being shown.</param>
+    /// <returns>`TF_VISION_FILTER_HALLOWEEN` (2) during Halloween or a full moon, else 0.</returns>
+    public int HolidayVisionFlagsAt(double tick) => 0;
+
     /// <summary>The player the demo was recorded from, or null for a SourceTV recording.</summary>
     /// <remarks>
     /// **Asked because the viewer of a demo IS its recorder, and one drawing rule turns on that**
@@ -292,6 +297,16 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
     /// <inheritdoc />
     public int? RoundStateAt(double tick) => timeline.RoundStateAt(tick);
+
+    /// <inheritdoc />
+    public int HolidayVisionFlagsAt(double tick) =>
+        TfHolidays.IsHalloweenOrFullMoonActive(
+            timeline.ServerConVars.Value, timeline.RulesAt((int)Math.Floor(tick)).MapHolidayType, WatcherClock.Value)
+            ? VisionVisibility.HalloweenFlag
+            : 0;
+
+    /// <summary>`UTIL_CalculateHolidays` reads the clock once per process (util_shared.cpp:1374-1377).</summary>
+    private static readonly Lazy<DateTime> WatcherClock = new(() => DateTime.Now);
 
     /// <inheritdoc />
     public int? Recorder => timeline.RecorderEntityIndex;

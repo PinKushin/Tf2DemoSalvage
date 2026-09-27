@@ -118,7 +118,6 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
 public sealed class TfPlayerModelPanel : VguiBaseModelPanel
 {
     private const int ClassUndefined = 0;
-    private const int ClassSpy = 8;
     private const int TeamRed = 2;
     private const int TeamBlue = 3;
 
@@ -875,7 +874,7 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// <param name="playerClass">The class.</param>
     /// <param name="skin">The base skin.</param>
     /// <returns>The zombie skin.</returns>
-    public static int AdjustSkinIndexForZombie(int playerClass, int skin) => skin + (playerClass == ClassSpy ? 22 : 4);
+    public static int AdjustSkinIndexForZombie(int playerClass, int skin) => PlayerSkin.AdjustSkinIndexForZombie(playerClass, skin);
 
     /// <summary>`GetPreviewItem` (:1295): the carried item equal to it, else itself.</summary>
     private TfItemView GetPreviewItem(TfItemView match)

@@ -110,6 +110,12 @@ public sealed record SceneItem(int EntityIndex, string? ClassName, int? Definiti
 
     /// <summary>`CTFWearable::m_bDisguiseWearable` (tf_item_wearable.cpp:33): worn only while disguised.</summary>
     public bool IsDisguiseWearable { get; init; }
+
+    /// <summary>
+    /// A pipebomb launcher's (and so a bow's) `m_flChargeBeginTime`, `DT_PipebombLauncherLocalData`
+    /// (tf_weapon_pipebomblauncher.cpp:44) — its owner's alone; 0 when unsent or not charging.
+    /// </summary>
+    public float ChargeBeginTime { get; init; }
 }
 
 /// <summary>Resolving which attribute list answers, as the engine resolves it.</summary>

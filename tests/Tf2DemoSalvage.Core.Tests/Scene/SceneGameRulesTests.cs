@@ -19,5 +19,10 @@ public sealed class SceneGameRulesTests
     public void RulesAt_WithAPlayerDestructionLogic_SaysSo() =>
         DemoTimeline.Build(SyntheticPlayer.DemoWithGameRules(mannVsMachine: false, halloweenScenario: 0, playerDestruction: true))
             .RulesAt(100)
-            .ShouldBe(new SceneGameRules(MannVsMachine: false, HalloweenScenario: 0, PlayerDestruction: true));
+            .ShouldBe(new SceneGameRules(MannVsMachine: false, HalloweenScenario: 0, PlayerDestruction: true)
+            {
+                // Player destruction's logic derives from robot destruction's, so it is `GetRobotDestructionLogic()`; its
+                // respawn scales are unsent here.
+                RobotDestructionRespawnScale = (0f, 0f),
+            });
 }

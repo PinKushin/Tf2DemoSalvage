@@ -245,16 +245,17 @@ gates.
 1. CTFPlayerModelPanel partials — a subagent is on these: per-team world-model bodygroup override (:871),
    GetBestVisualTeamData for attached models (:1034), strange-level styles (econ_item_view.cpp:747-776), eye glow and
    unusual particles (:1584-1889), StatTrak (:550-616, :1539), taunt branch (:664-731).
-2. Target ID generic targets — `TfTargetId` remarks say "none is decoded", which is unverified. Valve:
-   `C_BaseEntity::IsVisibleToTargetID` (c_baseentity.h:748) overridden by `CCaptureFlag` (entity_capture_flag.cpp:435:
-   not disabled, point value > 0, ShouldDraw) and `CTFDroppedWeapon` (tf_dropped_weapon.cpp:473: CanPickupDroppedWeapon);
-   UpdateID's generic branch tf_hud_target_id.cpp:926-998 (flag points, dropped weapon name/charge/owner, revive marker
-   respawn). The ID trace must hit them.
+2. Target ID generic targets — done: dropped weapons and revive markers decoded, traced and shown. The flag's branch
+   cannot run: `FSOLID_NOT_SOLID` (entity_capture_flag.cpp:607). Open: a dropped weapon's trace uses its entity-space
+   collision box, not the `.phy` hull `SOLID_VPHYSICS` clips against.
 3. `CTFMinigameLogic` refusal in TfHudPlayerStatus.ShouldDraw (tf_hud_playerstatus.cpp:1087).
-4. `localplayer_pickup_weapon`: its user message is dropped (DemoTimeline keeps only chat user messages).
-5. Match-start doors and round sign (CModelPanel) in TfHudMatchStatus.
-6. Model-shader directional local lights (renderer, WorldRenderer.cs:598-625).
-7. `_minmode` keys: only CTFPlayerModelPanel applies them; check EditablePanel/BuildGroup for the general rule.
+4. `localplayer_pickup_weapon`: done — `PlayerPickupWeapon` is kept by name and fired to TfHudPlayerClass. Its other
+   listener, the item effect meter (tf_hud_itemeffectmeter.cpp:128), is not ported.
+5. Match-start doors and round sign: done, `VguiModelPanel` (CModelPanel). Not ported: its vcd, start_framed and
+   HWM paths (no HUD block uses them), the door team lists and rank-up message (GC data), FrontParticlePanel.
+6. Model-shader directional local lights: done; a panel's second directional light is one. A map's only directional
+   light, light_environment, already reaches world models as the sun.
+7. `_minmode` keys: done — every `.res` read from disk (BuildGroup.cpp:953-960); a change reloads the scheme.
 
 clangd on the SDK: `find_symbol` returns nothing until a document is opened (`open_document` first).
 

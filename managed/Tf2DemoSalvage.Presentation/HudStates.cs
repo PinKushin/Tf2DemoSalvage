@@ -67,6 +67,7 @@ public static class HudStates
             RoundTimers = timeline.RoundTimersAt(tick),
             Teams = timeline.TeamsAt(tick),
             Buildings = timeline.BuildingsAt(tick),
+            IdEntities = timeline.IdEntitiesAt(tick),
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
 
             // Replicated cvars: what the server sent, or Valve's declared default (FCVAR_REPLICATED, iconvar.h).

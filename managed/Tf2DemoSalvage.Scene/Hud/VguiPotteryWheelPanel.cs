@@ -68,10 +68,7 @@ public abstract class VguiPotteryWheelPanel : VguiEditablePanel
     /// standing beside whatever the block actually named.
     /// </summary>
     /// <remarks>
-    /// **Structurally one, where Valve's own <c>m_Lights</c> can hold several directional entries up to
-    /// <c>MAX_LIGHT_COUNT</c>.** <c>ModelInstance.Sun</c> — what the renderer actually draws a model's directional
-    /// light with — is a single <see cref="SunLight"/>, the same as every world prop draws with; a second directional
-    /// slot needs a new shader path (<c>docs/HANDOFF-hud.md</c>). The first entry wins.
+    /// The first directional entry; a later one joins <see cref="Locals"/> as a directional <see cref="LocalLight"/>.
     /// </remarks>
     public SunLight? Sun { get; set; } = new(1f, 1f, 1f, 0f, 0f, -1f);
 
@@ -152,8 +149,8 @@ public abstract class VguiPotteryWheelPanel : VguiEditablePanel
 
     /// <summary>
     /// <c>ParseLightsFromKV</c> (<c>potterywheelpanel.cpp:392-460</c>), all three kinds: the first <c>directional</c>
-    /// entry becomes <see cref="Sun"/> (only one — see its own remarks); every <c>point</c>/<c>spot</c> entry becomes
-    /// a <see cref="LocalLight"/> in <see cref="Locals"/>, up to <see cref="LocalLights.MaximumLocalLights"/>.
+    /// entry becomes <see cref="Sun"/>; every other entry becomes a <see cref="LocalLight"/> in <see cref="Locals"/>,
+    /// up to <see cref="LocalLights.MaximumLocalLights"/> in all.
     /// </summary>
     /// <param name="lightsBlock">The <c>lights</c> block.</param>
     /// <remarks>
@@ -198,12 +195,18 @@ public abstract class VguiPotteryWheelPanel : VguiEditablePanel
 
             if (string.Equals(kind, "directional", StringComparison.OrdinalIgnoreCase))
             {
+                (float Red, float Green, float Blue) color = Vector3Of(entry.Find("color")?.Value);
+                (float X, float Y, float Z) direction = Normalized(Vector3Of(entry.Find("direction")?.Value));
+
+                // The first is the model's own directional light; every later one a local light of that type, as
+                // `InitDirectional` (lightdesc.h:131) makes it — unattenuated, no range.
                 if (Sun is null)
                 {
-                    (float Red, float Green, float Blue) color = Vector3Of(entry.Find("color")?.Value);
-                    (float X, float Y, float Z) direction = Normalized(Vector3Of(entry.Find("direction")?.Value));
-
                     Sun = new SunLight(color.Red, color.Green, color.Blue, direction.X, direction.Y, direction.Z);
+                }
+                else
+                {
+                    locals.Add(new LocalLight(0f, 0f, 0f, color.Red, color.Green, color.Blue, 1f, 0f, 0f, 0f, direction, Directional: true));
                 }
 
                 count++;

@@ -9,8 +9,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// `MASK_SOLID` stops on the world or a player's collision hull (`CONTENTS_SOLID` on the player's bounding box);
 /// `MASK_SHOT` on the world or a player's hitboxes (`CONTENTS_HITBOX`), each tested only where the hull is reached, as
 /// `ClipRayToEntity` does. The nearest hit wins; a player is always `IsPlayer`.
-/// A building is a `SOLID_BBOX` — its networked collision box, axis-aligned — whose `CONTENTS_SOLID` both masks stop on.
-/// **Not modelled:** props, flags, dropped weapons and revive markers, which stop neither trace here.
+/// A building or revive marker is a `SOLID_BBOX` — its networked collision box, axis-aligned — whose `CONTENTS_SOLID` both
+/// masks stop on; a dropped weapon (`COLLISION_GROUP_DEBRIS`, which `COLLISION_GROUP_NONE` collides with — gamerules.cpp:713)
+/// is its box in entity space. A flag is `FSOLID_NOT_SOLID` (entity_capture_flag.cpp:607), which no trace stops on.
+/// **Not modelled:** props.
 /// </remarks>
 /// <param name="players">Everyone the traces can hit: alive and present.</param>
 /// <param name="teams">Each player's team by entity index.</param>
@@ -85,9 +87,18 @@ public sealed class IdTargetTraces(
         return new IdTraceHit(hit.Entity, true, teams.GetValueOrDefault(hit.Entity), best <= 0f, true);
     }
 
-    /// <summary>A ray against an axis-aligned box by slabs: the entry fraction, 0 when it starts inside, null for a miss.</summary>
+    /// <summary>A ray against a box by slabs: the entry fraction, 0 when it starts inside, null for a miss.</summary>
+    /// <remarks>A box with angles is in entity space (`IsBoundsDefinedInEntitySpace`), so the ray is moved into it first.</remarks>
     private static float? ClipRayToBox(IdTargetBox box, Vector3 start, Vector3 end)
     {
+        if (box.Angles is { } angles)
+        {
+            (Vector3 forward, Vector3 left, Vector3 up) = StaticPropCollision.AngleMatrix(angles.X, angles.Y, angles.Z);
+            Vector3 Local(Vector3 point) => new(Vector3.Dot(point - box.Origin, forward), Vector3.Dot(point - box.Origin, left), Vector3.Dot(point - box.Origin, up));
+
+            (start, end) = (Local(start), Local(end));
+        }
+
         Vector3 delta = end - start;
         float enter = 0f;
         float leave = 1f;
@@ -124,9 +135,11 @@ public sealed class IdTargetTraces(
     }
 }
 
-/// <summary>A building's world-space collision box for the ID traces: `GetAbsOrigin()` plus `m_Collision`'s mins and maxs.</summary>
+/// <summary>An entity's collision box for the ID traces: `GetAbsOrigin()` plus `m_Collision`'s mins and maxs.</summary>
 /// <param name="Entity">Its entity index.</param>
 /// <param name="Team">Its team.</param>
-/// <param name="Mins">The box's low corner.</param>
+/// <param name="Mins">The box's low corner: world space, or entity space when <paramref name="Angles"/> is set.</param>
 /// <param name="Maxs">The box's high corner.</param>
-public readonly record struct IdTargetBox(int Entity, int Team, Vector3 Mins, Vector3 Maxs);
+/// <param name="Origin">Where an entity-space box sits.</param>
+/// <param name="Angles">An entity-space box's pitch, yaw and roll; null for a world-space one.</param>
+public readonly record struct IdTargetBox(int Entity, int Team, Vector3 Mins, Vector3 Maxs, Vector3 Origin = default, Vector3? Angles = null);

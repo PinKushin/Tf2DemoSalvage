@@ -52,6 +52,12 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// Null as a whole where no bindings are open.
 /// </param>
 /// <param name="AccountIds">Each player's `userinfo` `friendsID` by entity index — see <see cref="AccountId"/>.</param>
+/// <param name="IdEntities">Every dropped weapon and revive marker — `cl_entitylist` for the target ID's generic branch.</param>
+/// <param name="WeaponPickupTraceHit">
+/// What `GetDroppedWeaponInRange`'s trace stops on (tf_player_shared.cpp:14761): `TF_WEAPON_PICKUP_RANGE` from the local
+/// eye, `MASK_SOLID | CONTENTS_DEBRIS` — precomputed by whoever runs the ID trace, null when nothing was hit or run.
+/// </param>
+/// <param name="EyePosition">The local player's `EyePosition()`, or null where no first-person eye is known.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -85,8 +91,27 @@ public readonly record struct HudState(
     float[]? WorldToScreen = null,
     HudConVars ConVars = default,
     Func<string, string?>? KeyLookupBinding = null,
-    IReadOnlyDictionary<int, uint>? AccountIds = null)
+    IReadOnlyDictionary<int, uint>? AccountIds = null,
+    IReadOnlyList<Core.Scene.SceneIdEntity>? IdEntities = null,
+    int? WeaponPickupTraceHit = null,
+    (float X, float Y, float Z)? EyePosition = null)
 {
+    /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
+    /// <param name="index">The entity index.</param>
+    /// <returns>The entity.</returns>
+    public Core.Scene.SceneIdEntity? IdEntity(int index)
+    {
+        foreach (Core.Scene.SceneIdEntity entity in IdEntities ?? [])
+        {
+            if (entity.EntityIndex == index)
+            {
+                return entity;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// `C_BasePlayer::GetSteamID( &amp;id ).GetAccountID()` (c_baseplayer.cpp:2878) by entity index: the `userinfo` `friendsID`,
     /// and 0 — the default `CSteamID`'s account — where there is none or it is 0, as `GetSteamID` then fails.
@@ -377,6 +402,10 @@ public sealed class HudViewport : VguiEditablePanel
 
     /// <summary>This frame's game state — what an element's `OnThink` reads of the local player and `gpGlobals`.</summary>
     public HudState State { get; private set; }
+
+    /// <summary>The ConVars in force now, before the frame's think: they exist before any `.res` is loaded.</summary>
+    /// <param name="conVars">This frame's ConVars.</param>
+    public void SetConVars(HudConVars conVars) => State = State with { ConVars = conVars };
 
     /// <summary>The viewport a panel sits under, for its `OnThink` to read <see cref="State"/>; null when it has none.</summary>
     /// <param name="panel">The panel.</param>

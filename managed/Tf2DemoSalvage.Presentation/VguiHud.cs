@@ -24,6 +24,7 @@ public sealed class VguiHud
     private VguiContext? _context;
     private ScenePlayer? _lastLocal;
     private float _lastCurTime;
+    private bool _minMode;
 
     /// <summary>The viewport, and every element `DECLARE_HUDELEMENT` makes at `CHud::Init`, before the layout is read.</summary>
     /// <param name="host">The surface the HUD shares with the other roots.</param>
@@ -44,7 +45,7 @@ public sealed class VguiHud
         SecondaryTargetId = new TfSecondaryTargetId(Viewport);
         SpectatorTargetId = new TfSpectatorTargetId(Viewport);
         MainTargetId = new TfMainTargetId(Viewport);
-        MatchStatus = new TfHudMatchStatus(Viewport);
+        MatchStatus = new TfHudMatchStatus(Viewport, mdlCache);
         KothTimeStatus = new TfHudKothTimeStatus(Viewport);
         Chat = new TfHudChat(Viewport);
 
@@ -68,6 +69,15 @@ public sealed class VguiHud
             .. TfHudPlayerClass.ListensFor,
         ],
         StringComparer.Ordinal);
+
+    /// <summary>Every model a HUD model panel will draw, for precaching.</summary>
+    /// <returns>The class panel's, then the match doors' and the round sign's.</returns>
+    public IEnumerable<string> ModelsToPrecache() =>
+    [
+        .. PlayerStatus.PlayerClass.PlayerModelPanel.ModelsToPrecache(),
+        .. MatchStatus.MatchStartModelPanel.ModelsToPrecache(),
+        .. MatchStatus.RoundSignModel.ModelsToPrecache(),
+    ];
 
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
     public TfHudMatchStatus MatchStatus { get; }
@@ -127,12 +137,20 @@ public sealed class VguiHud
 
         modelPanel.RealTimeSeconds = state.RealTime;
         modelPanel.FrameTime = Math.Max(0f, state.CurTime - _lastCurTime);
+        MatchStatus.MatchStartModelPanel.FrameTime = modelPanel.FrameTime;
+        MatchStatus.RoundSignModel.FrameTime = modelPanel.FrameTime;
         modelPanel.ParticleSystems = Viewport.ParticleSystems;
         modelPanel.ParticleMaterials = Viewport.ParticleMaterials;
         _lastCurTime = state.CurTime;
 
-        if (_context is null || !ReferenceEquals(_context.Surface, _host.List))
+        // `cl_hud_minmode`'s change callback runs `hud_reloadscheme` (clientmode_tf.cpp:284-287), which this reload is; the
+        // ConVars are in place first, as the engine's are before any `.res` loads.
+        Viewport.SetConVars(state.ConVars);
+        bool minMode = state.ConVars.GetBool("cl_hud_minmode");
+
+        if (_context is null || !ReferenceEquals(_context.Surface, _host.List) || minMode != _minMode)
         {
+            _minMode = minMode;
             _context = _host.LoadScheme(SchemePath);
             (Viewport.Wide, Viewport.Tall) = (_host.Wide, _host.Tall);
             Viewport.Context = _context;
@@ -214,6 +232,15 @@ public sealed class VguiHud
         // `HOOK_HUD_MESSAGE`: the chat's user messages, as they are read.
         foreach (Core.Scene.SceneUserMessage message in userMessages ?? [])
         {
+            // `USER_MESSAGE( PlayerPickupWeapon )` fires `localplayer_pickup_weapon` client-side (clientmode_tf.cpp:2469-2475).
+            if (message.Name == Core.Scene.SceneUserMessage.PlayerPickupWeapon)
+            {
+                PlayerStatus.PlayerClass.HandleGameEvent(
+                    new SceneGameEvent(message.Tick, "localplayer_pickup_weapon", new Dictionary<string, object?>(), new Dictionary<int, Core.Net.PlayerInfo>()),
+                    state);
+                continue;
+            }
+
             Chat.HandleUserMessage(message, state);
         }
 

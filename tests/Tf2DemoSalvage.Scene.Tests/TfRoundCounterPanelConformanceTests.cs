@@ -78,7 +78,7 @@ public sealed class TfRoundCounterPanelConformanceTests
     {
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
-        TfHudMatchStatus status = new(viewport);
+        TfHudMatchStatus status = new(viewport, new EntityModelSet());
 
         state = (state with { ObserverMode = ObserverModes.None }).WithMatchHud(useMatchHud);
         viewport.Think(state);

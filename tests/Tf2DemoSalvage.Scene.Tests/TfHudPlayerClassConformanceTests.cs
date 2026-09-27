@@ -188,6 +188,20 @@ public sealed class TfHudPlayerClassConformanceTests
     }
 
     [Test]
+    public void HandleGameEvent_LocalPlayerPickupWeapon_RefreshesTheModelPanel()
+    {
+        (_, TfHudPlayerClass panel, _) = Built();
+        HudState state = State(Local(Red, Soldier), curTime: 1f, usePlayerModel: true);
+
+        panel.Think(state);
+        panel.ClassImage.Visible = true;
+
+        // `else if ( FStrEq( "localplayer_pickup_weapon", pszEventName ) ) UpdateModelPanel();` (tf_hud_playerstatus.cpp:558-560).
+        panel.HandleGameEvent(new SceneGameEvent(0, "localplayer_pickup_weapon", new Dictionary<string, object?>(), new Dictionary<int, PlayerInfo>()), state);
+        panel.ClassImage.Visible.ShouldBeFalse("UpdateModelPanel hides the 2D image (:436-442)");
+    }
+
+    [Test]
     public void LocalPlayerChangeDisguise_ASpyPuttingOnADisguise_FiresDisguised()
     {
         ScenePlayer plain = Local(Red, Spy);

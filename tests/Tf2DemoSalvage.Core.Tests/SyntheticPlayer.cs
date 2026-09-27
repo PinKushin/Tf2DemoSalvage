@@ -745,6 +745,7 @@ internal static class SyntheticPlayer
                 [
                     UnsignedInt("m_nGameType", bits: 4), UnsignedInt("m_bPlayingKoth", bits: 1), UnsignedInt("m_bShowMatchSummary", bits: 1),
                     UnsignedInt("m_hRedKothTimer", bits: 21), UnsignedInt("m_hBlueKothTimer", bits: 21),
+                    UnsignedInt("m_bMapHasMatchSummaryStage", bits: 1),
                 ]),
             new SendTable(
                 "DT_TFGameRulesProxy",
@@ -795,6 +796,7 @@ internal static class SyntheticPlayer
                 // A handle is the slot in the low 11 bits and a serial above; all 21 bits set is none.
                 ["m_hRedKothTimer"] = PropertyValue.FromInt((1 << 21) - 1),
                 ["m_hBlueKothTimer"] = PropertyValue.FromInt(42 | (5 << 11)),
+                ["m_bMapHasMatchSummaryStage"] = PropertyValue.FromInt(1),
             }),
             Entity(decoder, TimerClassId, 42, new Dictionary<string, PropertyValue>
             {
@@ -913,6 +915,132 @@ internal static class SyntheticPlayer
                 ["m_vecMaxs"] = PropertyValue.FromVector(20f, 20f, 66f),
                 ["m_nSolidType"] = PropertyValue.FromInt(2), // SOLID_BBOX
                 ["m_usSolidFlags"] = PropertyValue.FromInt(4), // FSOLID_NOT_SOLID
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
+    /// <summary>
+    /// A player, a `CTFDroppedWeapon` (entity 60), a `CTFReviveMarker` (61), and game rules carrying the respawn-wave arrays
+    /// and a robot destruction logic — every field the target ID's generic branch reads, set to a distinctive value.
+    /// </summary>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithIdEntities()
+    {
+        const int WeaponClassId = 1;
+        const int MarkerClassId = 2;
+        const int RulesClassId = 3;
+        const int RobotLogicClassId = 4;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables =
+        [
+            .. baseline.Tables,
+            new SendTable("DT_CollisionProperty", NeedsDecoder: true,
+            [
+                NoScaleVector("m_vecMins"), NoScaleVector("m_vecMaxs"), UnsignedInt("m_nSolidType", bits: 3), UnsignedInt("m_usSolidFlags", bits: 10),
+            ]),
+            new SendTable("DT_ScriptCreatedItem", NeedsDecoder: true,
+            [
+                UnsignedInt("m_iItemDefinitionIndex", bits: 16), UnsignedInt("m_iEntityQuality", bits: 8), UnsignedInt("m_iAccountID", bits: 32),
+                UnsignedInt("m_bInitialized", bits: 1),
+            ]),
+            new SendTable("DT_TFDroppedWeapon", NeedsDecoder: true,
+            [
+                Table("m_Item", "DT_ScriptCreatedItem"), NoScaleFloat("m_flChargeLevel"),
+                VectorXy("m_vecOrigin", bits: 32), Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32), NoScaleVector("m_angRotation"),
+                Table("baseclass", "DT_BaseEntity"), Table("m_Collision", "DT_CollisionProperty"),
+            ]),
+            new SendTable("DT_TFReviveMarker", NeedsDecoder: true,
+            [
+                UnsignedInt("m_hOwner", bits: 21), Int("m_iHealth", bits: 16), Int("m_iMaxHealth", bits: 16),
+                VectorXy("m_vecOrigin", bits: 32), Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32),
+                Table("baseclass", "DT_BaseEntity"), Table("m_Collision", "DT_CollisionProperty"),
+            ]),
+            new SendTable("m_flNextRespawnWave", NeedsDecoder: false, [NoScaleFloat("000"), NoScaleFloat("001"), NoScaleFloat("002"), NoScaleFloat("003")]),
+            new SendTable("m_TeamRespawnWaveTimes", NeedsDecoder: false, [NoScaleFloat("000"), NoScaleFloat("001"), NoScaleFloat("002"), NoScaleFloat("003")]),
+            new SendTable("DT_TeamplayRoundBasedRules", NeedsDecoder: true,
+            [
+                Table("m_flNextRespawnWave", "m_flNextRespawnWave"), Table("m_TeamRespawnWaveTimes", "m_TeamRespawnWaveTimes"),
+            ]),
+            new SendTable("DT_TFGameRulesProxy", NeedsDecoder: true, [Table("teamplayroundbased_gamerules_data", "DT_TeamplayRoundBasedRules")]),
+            new SendTable("DT_TFRobotDestructionLogic", NeedsDecoder: true, [NoScaleFloat("m_flBlueTeamRespawnScale"), NoScaleFloat("m_flRedTeamRespawnScale")]),
+        ];
+
+        DemoSchema schema = new(
+            tables,
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(WeaponClassId, "CTFDroppedWeapon", "DT_TFDroppedWeapon"),
+                new ServerClass(MarkerClassId, "CTFReviveMarker", "DT_TFReviveMarker"),
+                new ServerClass(RulesClassId, "CTFGameRulesProxy", "DT_TFGameRulesProxy"),
+                new ServerClass(RobotLogicClassId, "CTFRobotDestructionLogic", "DT_TFRobotDestructionLogic"),
+            ]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+            Entity(decoder, WeaponClassId, 60, new Dictionary<string, PropertyValue>
+            {
+                ["m_iItemDefinitionIndex"] = PropertyValue.FromInt(211),
+                ["m_iEntityQuality"] = PropertyValue.FromInt(11),
+                ["m_iAccountID"] = PropertyValue.FromInt(123456789),
+                ["m_bInitialized"] = PropertyValue.FromInt(1),
+                ["m_flChargeLevel"] = PropertyValue.FromFloat(0.625f),
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(10.5f, -20.25f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(4.75f),
+                ["m_angRotation"] = PropertyValue.FromVector(0f, 90f, 0f),
+                ["m_vecMins"] = PropertyValue.FromVector(-30f, -4f, -2f),
+                ["m_vecMaxs"] = PropertyValue.FromVector(30f, 4f, 6f),
+                ["m_nSolidType"] = PropertyValue.FromInt(6), // SOLID_VPHYSICS
+                ["m_usSolidFlags"] = PropertyValue.FromInt(0x200), // FSOLID_NOT_STANDABLE
+            }),
+            Entity(decoder, MarkerClassId, 61, new Dictionary<string, PropertyValue>
+            {
+                ["m_hOwner"] = PropertyValue.FromInt(1),
+                ["m_iHealth"] = PropertyValue.FromInt(37),
+                ["m_iMaxHealth"] = PropertyValue.FromInt(85),
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(-100f, 50f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(8f),
+                ["m_vecMins"] = PropertyValue.FromVector(-12f, -12f, 0f),
+                ["m_vecMaxs"] = PropertyValue.FromVector(12f, 12f, 48f),
+                ["m_nSolidType"] = PropertyValue.FromInt(2), // SOLID_BBOX
+                ["m_usSolidFlags"] = PropertyValue.FromInt(8), // FSOLID_TRIGGER
+            }),
+            Entity(decoder, RulesClassId, 40, new Dictionary<string, PropertyValue>
+            {
+                ["m_flNextRespawnWave.002"] = PropertyValue.FromFloat(120.5f),
+                ["m_flNextRespawnWave.003"] = PropertyValue.FromFloat(131.25f),
+                ["m_TeamRespawnWaveTimes.002"] = PropertyValue.FromFloat(6f),
+                ["m_TeamRespawnWaveTimes.003"] = PropertyValue.FromFloat(-1f),
+            }),
+            Entity(decoder, RobotLogicClassId, 41, new Dictionary<string, PropertyValue>
+            {
+                ["m_flRedTeamRespawnScale"] = PropertyValue.FromFloat(0.25f),
+                ["m_flBlueTeamRespawnScale"] = PropertyValue.FromFloat(0.5f),
             }),
         ];
 
@@ -2103,6 +2231,9 @@ internal static class SyntheticPlayer
                     Body: body)));
     }
 
+    /// <summary>The recorder's `m_flDeathTime` in <see cref="DemoWithPlayerClassHud"/>.</summary>
+    public const float DeathTime = 77.25f;
+
     /// <summary>
     /// The recorder (entity 1) with what `CTFHudPlayerClass::OnThink` reads (tf_hud_playerstatus.cpp:184): the spy fields of
     /// `DT_TFPlayerShared` (tf_player_shared.cpp:576-586), its own `m_vecVelocity` (player.cpp:8140), and weapon 30 in hand
@@ -2115,6 +2246,7 @@ internal static class SyntheticPlayer
     /// <param name="accountId">The held item's `m_iAccountID`.</param>
     /// <param name="quality">The held item's `m_iEntityQuality`.</param>
     /// <returns>A demo's bytes.</returns>
+    /// <remarks>Its `m_flDeathTime` is <see cref="DeathTime"/>.</remarks>
     public static byte[] DemoWithPlayerClassHud(
         float invisChangeCompleteTime, float cloakMeter, int disguiseWeapon, (float X, float Y, float Z) velocity, uint accountId, int quality)
     {
@@ -2145,14 +2277,18 @@ internal static class SyntheticPlayer
         ]));
         tables.Add(new SendTable("DT_LocalPlayerExclusive", NeedsDecoder: true,
         [
-            NoScaleFloat("m_vecVelocity[0]"), NoScaleFloat("m_vecVelocity[1]"), NoScaleFloat("m_vecVelocity[2]"),
+            NoScaleFloat("m_vecVelocity[0]"), NoScaleFloat("m_vecVelocity[1]"), NoScaleFloat("m_vecVelocity[2]"), NoScaleFloat("m_flDeathTime"),
         ]));
         tables.Add(new SendTable("DT_BaseCombatCharacter", NeedsDecoder: true, [UnsignedInt("m_hActiveWeapon", bits: 21)]));
         tables.Add(new SendTable("DT_ScriptCreatedItem", NeedsDecoder: true,
         [
             UnsignedInt("m_iItemDefinitionIndex", bits: 20), UnsignedInt("m_iAccountID", bits: 32), Int("m_iEntityQuality", bits: 5),
         ]));
-        tables.Add(new SendTable("DT_TestWeapon", NeedsDecoder: true, [Table("m_Item", "DT_ScriptCreatedItem")]));
+        tables.Add(new SendTable("DT_PipebombLauncherLocalData", NeedsDecoder: true, [NoScaleFloat("m_flChargeBeginTime")]));
+        tables.Add(new SendTable("DT_TestWeapon", NeedsDecoder: true,
+        [
+            Table("m_Item", "DT_ScriptCreatedItem"), Table("PipebombLauncherLocalData", "DT_PipebombLauncherLocalData"),
+        ]));
         tables.Add(new SendTable("DT_CaptureFlag", NeedsDecoder: true, [Int("m_nFlagStatus", bits: 3)]));
 
         DemoSchema schema = new(
@@ -2177,6 +2313,7 @@ internal static class SyntheticPlayer
                 ["m_vecVelocity[0]"] = PropertyValue.FromFloat(velocity.X),
                 ["m_vecVelocity[1]"] = PropertyValue.FromFloat(velocity.Y),
                 ["m_vecVelocity[2]"] = PropertyValue.FromFloat(velocity.Z),
+                ["m_flDeathTime"] = PropertyValue.FromFloat(DeathTime),
                 ["DT_BaseCombatCharacter.m_hActiveWeapon"] = LoadoutHandle(30),
                 ["m_hItem"] = LoadoutHandle(31),
             }),
@@ -2185,6 +2322,7 @@ internal static class SyntheticPlayer
                 ["m_iItemDefinitionIndex"] = PropertyValue.FromInt(13),
                 ["m_iAccountID"] = PropertyValue.FromInt(unchecked((int)accountId)),
                 ["m_iEntityQuality"] = PropertyValue.FromInt(quality),
+                ["m_flChargeBeginTime"] = PropertyValue.FromFloat(3.5f),
             }),
             Entity(decoder, FlagClassId, 31, new Dictionary<string, PropertyValue> { ["m_nFlagStatus"] = PropertyValue.FromInt(1) }),
         ];

@@ -6366,15 +6366,16 @@ internal class MainForm : Form, IFrameSteps
     /// <remarks>
     /// Traced only where `CMainTargetID` can draw: a point-of-view demo's living recorder outside any observer mode. The
     /// view is the first-person camera, `MainViewOrigin()` and `MainViewForward()`; the world is the BSP, the players
-    /// their hulls and posed hitboxes (<see cref="IdTargetTraces"/>).
+    /// their hulls and posed hitboxes (<see cref="IdTargetTraces"/>). The same traces answer `GetDroppedWeaponInRange`'s
+    /// (tf_player_shared.cpp:14761), `TF_WEAPON_PICKUP_RANGE` long.
     /// </remarks>
-    private int? IdTargetNow(HudState state, int tick)
+    private HudState WithIdTraces(HudState state, int tick)
     {
         if (!state.HasLocalPlayer || !state.Alive || state.ObserverMode > Core.Scene.ObserverModes.None
             || _timeline is not { HasRecordedView: true } timeline || _loaded?.Level is not { } level
             || FirstPersonCamera() is not { } eye)
         {
-            return null;
+            return state with { IdTarget = null };
         }
 
         List<BulletTarget> targets = [];
@@ -6404,6 +6405,26 @@ internal class MainForm : Form, IFrameSteps
             }
         }
 
+        // A revive marker's `SOLID_BBOX`, world-aligned; a dropped weapon's box in entity space (`IsBoundsDefinedInEntitySpace`).
+        // ponytail: a dropped weapon is `SOLID_VPHYSICS`, which the engine clips against its model's .phy hull
+        // (`ClipRayToCollideable`); its collision box stands in — StaticPropCollision over that hull is the upgrade.
+        foreach (Core.Scene.SceneIdEntity entity in timeline.IdEntitiesAt(tick))
+        {
+            if (entity is { IsSolid: true, Position: { } at, Mins: { } mins, Maxs: { } maxs })
+            {
+                bool entitySpace = entity.Kind == Core.Scene.SceneIdEntityKind.DroppedWeapon;
+                Vector3 origin = new(at.X, at.Y, at.Z);
+                Vector3 low = new(mins.X, mins.Y, mins.Z);
+                Vector3 high = new(maxs.X, maxs.Y, maxs.Z);
+
+                Vector3 rotation = entity.Angles is { } angles ? new Vector3(angles.Pitch, angles.Yaw, angles.Roll) : Vector3.Zero;
+
+                boxes.Add(entitySpace
+                    ? new IdTargetBox(entity.EntityIndex, entity.Team ?? 0, low, high, origin, rotation)
+                    : new IdTargetBox(entity.EntityIndex, entity.Team ?? 0, origin + low, origin + high));
+            }
+        }
+
         IdTargetTraces traces = new(
             targets,
             teams,
@@ -6411,16 +6432,18 @@ internal class MainForm : Form, IFrameSteps
             HitboxesOrUntested,
             boxes);
         (float x, float y, float z) = AngleVectors.Forward(eye.Angles.Pitch, eye.Angles.Yaw);
+        Vector3 from = new(eye.Origin.X, eye.Origin.Y, eye.Origin.Z);
+        Vector3 forward = new(x, y, z);
 
-        return IdTargetTrace.GetIdTarget(
-            new Vector3(eye.Origin.X, eye.Origin.Y, eye.Origin.Z),
-            new Vector3(x, y, z),
-            state.LocalIndex,
-            state.Team,
-            isObserver: false,
-            observerTarget: 0,
-            traces.Solid,
-            traces.Shot);
+        return state with
+        {
+            IdTarget = IdTargetTrace.GetIdTarget(
+                from, forward, state.LocalIndex, state.Team, isObserver: false, observerTarget: 0, traces.Solid, traces.Shot),
+
+            // `EyePosition() + vecForward * TF_WEAPON_PICKUP_RANGE`, the same mask and filter as the ID trace.
+            WeaponPickupTraceHit = traces.Solid(from, from + (forward * 150f), state.LocalIndex).Entity,
+            EyePosition = (eye.Origin.X, eye.Origin.Y, eye.Origin.Z),
+        };
     }
 
     /// <summary>A player's hitboxes against a ray, as <see cref="PlayerBulletTrace.ClipRayToEntity"/> asks for them.</summary>
@@ -7178,7 +7201,7 @@ internal class MainForm : Form, IFrameSteps
         // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
         // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is passed: `Precache` re-reads
         // a model that failed to load, which must not happen sixty times a second.
-        string panelModels = string.Join('\n', _vguiHud.PlayerStatus.PlayerClass.PlayerModelPanel.ModelsToPrecache());
+        string panelModels = string.Join('\n', _vguiHud.ModelsToPrecache());
 
         if (!string.Equals(panelModels, _panelModelsPrecached, StringComparison.Ordinal))
         {
@@ -7188,6 +7211,7 @@ internal class MainForm : Form, IFrameSteps
         _vguiHud.Crosshair.Settings = _settings.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
+        _vguiHud.MatchStatus.SoundEmitter ??= PlayHudSound;
         _clientConVars ??= ClientConVar;
 
         // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
@@ -7221,7 +7245,7 @@ internal class MainForm : Form, IFrameSteps
             };
         }
 
-        hudState = hudState with { IdTarget = IdTargetNow(hudState, hudTick) };
+        hudState = WithIdTraces(hudState, hudTick);
 
         _hudReplaying = hudReset;
 

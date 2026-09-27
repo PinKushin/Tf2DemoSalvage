@@ -29,4 +29,16 @@ public sealed class SceneUserMessageTests
                 (10, SceneUserMessage.SayText, System.Convert.ToHexString(sayText)),
             ]);
     }
+
+    [Test]
+    public void UserMessages_PlayerPickupWeapon_IsKeptByItsRegisteredName()
+    {
+        // `USER_MESSAGE( PlayerPickupWeapon )` (clientmode_tf.cpp:2469) fires `localplayer_pickup_weapon`; id 75 in today's
+        // table, so it is matched by the name the reader gives the id, not by a number that moves between eras.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessages(
+            new UserMessage(75, "PlayerPickupWeapon", 0, Body: System.Array.Empty<byte>())));
+
+        SceneUserMessage kept = timeline.UserMessages.ShouldHaveSingleItem();
+        (kept.Tick, kept.Type, kept.Name).ShouldBe((10, 75, SceneUserMessage.PlayerPickupWeapon));
+    }
 }

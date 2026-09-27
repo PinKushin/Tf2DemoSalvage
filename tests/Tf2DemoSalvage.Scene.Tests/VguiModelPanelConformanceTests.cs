@@ -82,6 +82,29 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     [Test]
+    public void ParseLightsFromKV_ASecondDirectionalEntry_BecomesADirectionalLocalLight()
+    {
+        // Every `m_Lights` entry is sent (potterywheelpanel.cpp:723-731); the second directional one is `InitDirectional`'s
+        // (lightdesc.h:131): attenuation (1, 0, 0), no range, lighting along its direction.
+        VguiMdlPanel panel = new(null, "model", Cache.None);
+        KeyValuesTree lights = Resource("""
+            lights
+            {
+                "l1" { "name" "directional" "color" "1 0 0" "direction" "0 0 -1" }
+                "l2" { "name" "directional" "color" "0 0.5 0" "direction" "0 3 4" }
+            }
+            """).Find("lights")!;
+
+        panel.ParseLightsFromKV(lights);
+
+        panel.Sun!.Value.Red.ShouldBe(1f, "the first stays the model's own");
+        LocalLight second = panel.Locals.ShouldHaveSingleItem();
+        (second.Directional, second.Spot, second.Green, second.Constant, second.Range).ShouldBe((true, false, 0.5f, 1f, 0f));
+        second.Direction.Y.ShouldBe(0.6f, 0.0001f);
+        second.Direction.Z.ShouldBe(0.8f, 0.0001f);
+    }
+
+    [Test]
     public void ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOldOne()
     {
         // Valve's own list REPLACES itself wholesale every parse — `m_nLightCount = nLightCount` runs
