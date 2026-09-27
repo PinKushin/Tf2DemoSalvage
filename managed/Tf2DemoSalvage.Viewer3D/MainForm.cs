@@ -7179,11 +7179,20 @@ internal class MainForm : Form, IFrameSteps
 
         hudState = hudState with { IdTarget = IdTargetNow(hudState, hudTick) };
 
-        _vguiHud.Frame(
-            hudState,
-            hudEvents,
-            hudReset,
-            hudMessages);
+        _hudReplaying = hudReset;
+
+        try
+        {
+            _vguiHud.Frame(
+                hudState,
+                hudEvents,
+                hudReset,
+                hudMessages);
+        }
+        finally
+        {
+            _hudReplaying = false;
+        }
         _vguiTools.Frame(
             _vguiClock.Elapsed.TotalSeconds,
             _clock.LastFrameSeconds,
@@ -7406,13 +7415,25 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
 
+    /// <summary>Whether the HUD is handling a seek's replayed events, which <see cref="PlayHudSound"/> keeps silent.</summary>
+    private bool _hudReplaying;
+
     /// <summary>
     /// Wired into the HUD as its <c>HudSoundEmitter</c>: resolves a `game_sounds.txt` name the same way a world sound
     /// does (<see cref="HudSounds"/>) and hands it to the presenter, at the current tick, from the local player.
     /// </summary>
     /// <param name="scriptName">The script the HUD element asked for.</param>
+    /// <remarks>
+    /// **Silent while a seek replays the events before it.** They fired before the tick the viewer landed on, so the
+    /// sounds they ask for were over before then — the notices are rebuilt, and a burst of every kill in the window is not.
+    /// </remarks>
     private void PlayHudSound(string scriptName)
     {
+        if (_hudReplaying)
+        {
+            return;
+        }
+
         if (_sound.Scripts is { } scripts && HudSounds.Emit(_transport.CurrentTick, scriptName, scripts.Entries) is { } sound)
         {
             _sound.Emit(sound);

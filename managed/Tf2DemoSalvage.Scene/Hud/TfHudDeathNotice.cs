@@ -1064,6 +1064,15 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
             multipleKillers = true;
         }
 
+        int penetrations = e.Values.ContainsKey("playerpenetratecount") ? e.GetInt("playerpenetratecount") : 0;
+
+        // "This happens too frequently in Coop/TD" (tf_hud_deathnotice.cpp:887): forced off in MvM. Before the rivalry
+        // sounds, as :894 is.
+        if (penetrations > 0 && !fired.Rules.MannVsMachine)
+        {
+            SoundEmitter?.Invoke("Game.PenetrationKill");
+        }
+
         int deathFlags = e.GetInt("death_flags");
 
         if (!objectDestroyed)
@@ -1102,13 +1111,6 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
         }
 
         DeathNoticeItem item = _notices[index];
-        int penetrations = e.Values.ContainsKey("playerpenetratecount") ? e.GetInt("playerpenetratecount") : 0;
-
-        // "This happens too frequently in Coop/TD" (tf_hud_deathnotice.cpp:887): forced off in MvM.
-        if (penetrations > 0 && !fired.Rules.MannVsMachine)
-        {
-            SoundEmitter?.Invoke("Game.PenetrationKill");
-        }
 
         CustomKill(fired, item, custom, penetrations, multipleKillers);
 

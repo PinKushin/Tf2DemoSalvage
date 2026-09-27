@@ -106,6 +106,14 @@ public sealed class TfHudDeathNoticeConformanceTests
     }
 
     [Test]
+    public void HandleGameEvent_APenetratingRevengeByTheRecorder_PlaysThePenetrationSoundFirst()
+    {
+        Fed(Death(attacker: 11, victim: 14, weapon: "sniperrifle", deathFlags: 0x0004, penetrateCount: 1), out List<string> sounds);
+
+        sounds.ShouldBe(["Game.PenetrationKill", "Game.Revenge"], "tf_hud_deathnotice.cpp:894 emits before the rivalry block at :903");
+    }
+
+    [Test]
     public void HandleGameEvent_APenetrationKillInMannVsMachine_PlaysNoSound()
     {
         Fed(Death(attacker: 12, victim: 14, weapon: "sniperrifle", penetrateCount: 1, rules: new SceneGameRules(true, 0, false)), out List<string> sounds);
