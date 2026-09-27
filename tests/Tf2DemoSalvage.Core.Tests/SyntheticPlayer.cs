@@ -2102,4 +2102,97 @@ internal static class SyntheticPlayer
                     UpdateBaseline: false,
                     Body: body)));
     }
+
+    /// <summary>
+    /// The recorder (entity 1) with what `CTFHudPlayerClass::OnThink` reads (tf_hud_playerstatus.cpp:184): the spy fields of
+    /// `DT_TFPlayerShared` (tf_player_shared.cpp:576-586), its own `m_vecVelocity` (player.cpp:8140), and weapon 30 in hand
+    /// carrying `m_iAccountID` and `m_iEntityQuality` (econ_item_view.cpp:187-188).
+    /// </summary>
+    /// <param name="invisChangeCompleteTime">`m_flInvisChangeCompleteTime`.</param>
+    /// <param name="cloakMeter">`m_flCloakMeter`.</param>
+    /// <param name="disguiseWeapon">The slot `m_hDisguiseWeapon` names.</param>
+    /// <param name="velocity">`m_vecVelocity[0..2]`.</param>
+    /// <param name="accountId">The held item's `m_iAccountID`.</param>
+    /// <param name="quality">The held item's `m_iEntityQuality`.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithPlayerClassHud(
+        float invisChangeCompleteTime, float cloakMeter, int disguiseWeapon, (float X, float Y, float Z) velocity, uint accountId, int quality)
+    {
+        const int WeaponClassId = 1;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(table.Name switch
+            {
+                "DT_TFPlayer" => table with { Properties = [.. table.Properties, Table("playershared", "DT_TFPlayerShared")] },
+                "DT_BasePlayer" => table with
+                {
+                    Properties = [.. table.Properties, Table("localdata", "DT_LocalPlayerExclusive"), Table("bcc", "DT_BaseCombatCharacter")],
+                },
+                _ => table,
+            });
+        }
+
+        tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true,
+        [
+            NoScaleFloat("m_flInvisChangeCompleteTime"), NoScaleFloat("m_flCloakMeter"), UnsignedInt("m_hDisguiseWeapon", bits: 21),
+        ]));
+        tables.Add(new SendTable("DT_LocalPlayerExclusive", NeedsDecoder: true,
+        [
+            NoScaleFloat("m_vecVelocity[0]"), NoScaleFloat("m_vecVelocity[1]"), NoScaleFloat("m_vecVelocity[2]"),
+        ]));
+        tables.Add(new SendTable("DT_BaseCombatCharacter", NeedsDecoder: true, [UnsignedInt("m_hActiveWeapon", bits: 21)]));
+        tables.Add(new SendTable("DT_ScriptCreatedItem", NeedsDecoder: true,
+        [
+            UnsignedInt("m_iItemDefinitionIndex", bits: 20), UnsignedInt("m_iAccountID", bits: 32), Int("m_iEntityQuality", bits: 5),
+        ]));
+        tables.Add(new SendTable("DT_TestWeapon", NeedsDecoder: true, [Table("m_Item", "DT_ScriptCreatedItem")]));
+
+        DemoSchema schema = new(tables, [.. baseline.ServerClasses, new ServerClass(WeaponClassId, "CTFScatterGun", "DT_TestWeapon")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+                ["m_flInvisChangeCompleteTime"] = PropertyValue.FromFloat(invisChangeCompleteTime),
+                ["m_flCloakMeter"] = PropertyValue.FromFloat(cloakMeter),
+                ["m_hDisguiseWeapon"] = LoadoutHandle(disguiseWeapon),
+                ["m_vecVelocity[0]"] = PropertyValue.FromFloat(velocity.X),
+                ["m_vecVelocity[1]"] = PropertyValue.FromFloat(velocity.Y),
+                ["m_vecVelocity[2]"] = PropertyValue.FromFloat(velocity.Z),
+                ["DT_BaseCombatCharacter.m_hActiveWeapon"] = LoadoutHandle(30),
+            }),
+            Entity(decoder, WeaponClassId, 30, new Dictionary<string, PropertyValue>
+            {
+                ["m_iItemDefinitionIndex"] = PropertyValue.FromInt(13),
+                ["m_iAccountID"] = PropertyValue.FromInt(unchecked((int)accountId)),
+                ["m_iEntityQuality"] = PropertyValue.FromInt(quality),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
 }

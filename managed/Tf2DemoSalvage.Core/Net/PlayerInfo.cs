@@ -43,7 +43,16 @@ public readonly record struct PlayerInfo(
     private const int UserIdOffset = 32;
     private const int SteamIdOffset = 36;
     private const int SteamIdBytes = 32;
+    private const int FriendsIdOffset = 72;
     private const int FakePlayerOffset = 108;
+
+    /// <summary>`friendsID` (public/cdll_int.h): the Steam account ID, 0 for a bot.</summary>
+    /// <remarks>
+    /// What `C_BasePlayer::GetSteamID` (c_baseplayer.cpp:2878) makes a `CSteamID` from — and fails on when it is 0, leaving
+    /// the caller's default id, whose account is also 0. `CTFHudPlayerClass::OnThink` (tf_hud_playerstatus.cpp:318)
+    /// compares it with the held item's `m_iAccountID`.
+    /// </remarks>
+    public uint FriendsId { get; init; }
     private const int SourceTvOffset = 109;
 
     /// <summary>Where each field this reads sits, by the engine's name for it.</summary>
@@ -62,6 +71,7 @@ public readonly record struct PlayerInfo(
         ("name", NameOffset),
         ("userID", UserIdOffset),
         ("guid", SteamIdOffset),
+        ("friendsID", FriendsIdOffset),
         ("fakeplayer", FakePlayerOffset),
         ("ishltv", SourceTvOffset),
     ];
@@ -94,7 +104,10 @@ public readonly record struct PlayerInfo(
             ReadFixedString(data.Slice(SteamIdOffset, SteamIdBytes)),
             entityIndex,
             data[FakePlayerOffset] != 0,
-            data[SourceTvOffset] != 0);
+            data[SourceTvOffset] != 0)
+        {
+            FriendsId = BinaryPrimitives.ReadUInt32LittleEndian(data[FriendsIdOffset..]),
+        };
     }
 
     /// <summary>
