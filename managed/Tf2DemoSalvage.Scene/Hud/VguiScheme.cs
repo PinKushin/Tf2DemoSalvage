@@ -72,6 +72,12 @@ public sealed class VguiScheme
         return _baseSettings.Find(name)?.Value is { } setting ? Lookup(setting) : name;
     }
 
+    /// <summary>`IScheme::GetResourceString` (vtable slot 1, 0x18000d700): `BaseSettings`'s string for the name, as it is — no lookup.</summary>
+    /// <param name="name">The setting.</param>
+    /// <returns>The string, or empty when the scheme has none.</returns>
+    /// <remarks>`m_pkvBaseSettings->GetString( name, "" )`: the default at 0x18005cb50 is an empty string.</remarks>
+    public string GetResourceString(string name) => _baseSettings.Find(name)?.Value ?? string.Empty;
+
     /// <summary>`IScheme::GetColor`.</summary>
     /// <param name="name">A colour or base setting name.</param>
     /// <param name="fallback">What an unresolved name answers.</param>

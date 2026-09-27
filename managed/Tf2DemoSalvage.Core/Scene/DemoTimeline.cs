@@ -1513,6 +1513,9 @@ public sealed class DemoTimeline
     /// <summary>Every named game event but `hltv_chase`, in stream order — what the HUD's listeners hear.</summary>
     public IReadOnlyList<SceneGameEvent> GameEvents { get; private init; } = [];
 
+    /// <summary>The chat's user messages — `SayText`, `SayText2`, `TextMsg` — in stream order, bodies as sent.</summary>
+    public IReadOnlyList<SceneUserMessage> UserMessages { get; private init; } = [];
+
     /// <summary>Which entity a person named on the command line is.</summary>
     /// <param name="who">A player name, a user id, or an entity index.</param>
     /// <returns>The entity index to spectate, or null when nobody matches.</returns>
@@ -1977,6 +1980,7 @@ public sealed class DemoTimeline
 
         // The game events, each sharing one copy of the roster until the roster next changes.
         List<SceneGameEvent> gameEvents = [];
+        List<SceneUserMessage> userMessages = [];
         IReadOnlyDictionary<int, PlayerInfo>? rosterAtEvent = null;
 
         int walked = 0;
@@ -2082,6 +2086,16 @@ public sealed class DemoTimeline
                     case GameEventMessage { Name: { } eventName } gameEvent:
                         rosterAtEvent ??= new Dictionary<int, PlayerInfo>(bySlot);
                         gameEvents.Add(new SceneGameEvent(command.Tick, eventName, gameEvent.Values, rosterAtEvent));
+                        continue;
+
+                    // **The chat's user messages, bodies kept** — the reader parses `SayText2` into a chat line, but the
+                    // HUD needs what `CBaseHudChat::MsgFunc_SayText2` reads, colour codes and all.
+                    case ChatMessage chat:
+                        userMessages.Add(new SceneUserMessage(command.Tick, SceneUserMessage.SayText2, chat.Body));
+                        continue;
+
+                    case UserMessage { UserMessageType: SceneUserMessage.SayText or SceneUserMessage.SayText2 or SceneUserMessage.TextMsg } user:
+                        userMessages.Add(new SceneUserMessage(command.Tick, user.UserMessageType, user.Body));
                         continue;
 
                     case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
@@ -2996,6 +3010,7 @@ public sealed class DemoTimeline
             IntervalPerTick = interval,
             Roster = everyone,
             GameEvents = gameEvents,
+            UserMessages = userMessages,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             Explosions = feeds.Explosions,

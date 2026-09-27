@@ -35,6 +35,7 @@ public sealed class HudProbe : IProbe
         GameArchives archives = custom ? all : all.WithoutCustom();
         HudState state = arguments.Contains("playing") ? new HudState(true, true, 0, 60, true, 125, 185, 1f) : default;
         IReadOnlyList<HudGameEvent> events = [];
+        IReadOnlyList<Tf2DemoSalvage.Core.Scene.SceneUserMessage> messages = [];
 
         // `hud <demo> <tick>`: the state HudStates reads there — the production route — instead of a made-up one — and the
         // game events a seek to that tick replays, as the viewer's feed delivers them.
@@ -58,8 +59,9 @@ public sealed class HudProbe : IProbe
                     ObserverTarget = int.Parse(arguments[spectate + 1], CultureInfo.InvariantCulture),
                 };
             }
-            events = HudEventFeed.Resolve(timeline, new HudEventFeed().Advance(timeline, tick).Events, Path.GetFileNameWithoutExtension(arguments[0]), hooks);
-            output.WriteLine($"events replayed: {events.Count}");
+            (_, IReadOnlyList<Tf2DemoSalvage.Core.Scene.SceneGameEvent> crossed, messages) = new HudEventFeed().Advance(timeline, tick);
+            events = HudEventFeed.Resolve(timeline, crossed, Path.GetFileNameWithoutExtension(arguments[0]), hooks);
+            output.WriteLine($"events replayed: {events.Count}; chat messages replayed: {messages.Count}");
         }
 
         output.WriteLine($"state: {state}");
@@ -78,7 +80,7 @@ public sealed class HudProbe : IProbe
 
         // Two frames: a panel's scheme pass runs children first, so what a parent's `.res` sets reaches them on the next.
         host.BeginFrame(1920, 1080);
-        hud.Frame(state, events, reset: true);
+        hud.Frame(state, events, reset: true, messages);
         host.BeginFrame(1920, 1080);
         hud.Frame(state with { CurTime = state.CurTime + 0.1f });
 
@@ -86,6 +88,7 @@ public sealed class HudProbe : IProbe
         output.WriteLine($"icons: {hud.Viewport.Icons?.Count ?? 0}; death notices: {hud.DeathNotice.Notices.Count}");
         output.WriteLine(
             $"round timer: {hud.MatchStatus.TimePanel.TimerIndex} '{hud.MatchStatus.TimePanel.TimeValue.Text}' shown {hud.MatchStatus.TimePanel.Visible} (match status shown {hud.MatchStatus.Visible})");
+        output.WriteLine($"chat history: '{hud.Chat.History.Text.Replace("\n", " | ", StringComparison.Ordinal)}' shown {hud.Chat.Visible}");
         output.WriteLine(
             $"koth timers: blue {hud.KothTimeStatus.BluePanel.TimerIndex} '{hud.KothTimeStatus.BluePanel.TimeValue.Text}', red {hud.KothTimeStatus.RedPanel.TimerIndex} '{hud.KothTimeStatus.RedPanel.TimeValue.Text}' shown {hud.KothTimeStatus.Visible}");
         output.WriteLine($"target id: {hud.SpectatorTargetId.TargetIndex} '{hud.SpectatorTargetId.TargetName}' / '{hud.SpectatorTargetId.TargetData}' shown {hud.SpectatorTargetId.Visible}");
