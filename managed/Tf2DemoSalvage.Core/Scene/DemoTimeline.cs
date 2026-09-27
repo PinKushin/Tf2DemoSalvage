@@ -263,6 +263,13 @@ public readonly record struct ScenePlayer(
     /// </summary>
     public (float Charge, int Quality, int? Definition)? Medigun { get; init; }
 
+    /// <summary>
+    /// The medigun in hand, when the active weapon is one: its `m_hHealingTarget` (`GetHealTarget`, what `MedicGetHealTarget`
+    /// returns — tf_player_shared.cpp:13021) and its `m_flChargeLevel`, which `CWeaponMedigun::ClientThink` hands the heal
+    /// target's `SetHealer` (tf_weapon_medigun.cpp:2299). Both are sent to everyone, so every medic in view has one.
+    /// </summary>
+    public (int? HealTarget, float Charge)? ActiveMedigun { get; init; }
+
     /// <summary>`m_iFOV` (player.cpp:8186, sent to everyone): the zoomed field of view, 0 for none.</summary>
     public int? Fov { get; init; }
 
@@ -858,6 +865,8 @@ public sealed class DemoTimeline
                 SentryAmmoRockets = building.Integer("DT_ObjectSentrygun.m_iAmmoRockets"),
                 DispenserAmmoMetal = building.Integer("DT_ObjectDispenser.m_iAmmoMetal"),
                 TeleporterState = building.Integer("DT_ObjectTeleporter.m_iState"),
+                TeleporterRechargeTime = building.Number("DT_ObjectTeleporter.m_flRechargeTime"),
+                TeleporterRechargeDuration = building.Number("DT_ObjectTeleporter.m_flCurrentRechargeDuration"),
                 Position = building.Origin(),
             });
         }
@@ -2986,6 +2995,12 @@ public sealed class DemoTimeline
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
                     KillStreak = player.Integer("m_nStreaks.000"),
                     Medigun = MedigunOf(player, entities),
+                    ActiveMedigun = player.ActiveWeapon() is { } inHand && entities.TryGet(inHand, out EntityState? heldWeapon)
+                        && heldWeapon.ClassName == "CWeaponMedigun"
+                            ? (EntityState.Slot(heldWeapon.Integer("DT_WeaponMedigun.m_hHealingTarget")),
+                                heldWeapon.Number("DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel")
+                                    ?? heldWeapon.Number("DT_LocalTFWeaponMedigunData.m_flChargeLevel") ?? 0f)
+                            : null,
                     Fov = player.Integer("DT_BasePlayer.m_iFOV"),
                     FovStart = player.Integer("DT_BasePlayer.m_iFOVStart"),
                     FovTime = player.Number("DT_BasePlayer.m_flFOVTime"),

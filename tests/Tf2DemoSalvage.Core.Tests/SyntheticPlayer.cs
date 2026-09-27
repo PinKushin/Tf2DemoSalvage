@@ -438,6 +438,76 @@ internal static class SyntheticPlayer
                     Body: body)));
     }
 
+    /// <summary>Player 1 holding medigun 30 that heals player 2, and player 2 with no weapon.</summary>
+    /// <param name="charge">The medigun's `DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel`.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithMedigun(float charge)
+    {
+        const int MedigunClassId = 1;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_BasePlayer"
+                    ? table with { Properties = [.. table.Properties, Table("bcc", "DT_BaseCombatCharacter")] }
+                    : table);
+        }
+
+        tables.Add(new SendTable("DT_BaseCombatCharacter", NeedsDecoder: true, [UnsignedInt("m_hActiveWeapon", bits: 21)]));
+        tables.Add(new SendTable("DT_TFWeaponMedigunDataNonLocal", NeedsDecoder: true, [NoScaleFloat("m_flChargeLevel")]));
+        tables.Add(new SendTable("DT_WeaponMedigun", NeedsDecoder: true,
+        [
+            UnsignedInt("m_hHealingTarget", bits: 21),
+            Table("NonLocalTFWeaponMedigunData", "DT_TFWeaponMedigunDataNonLocal"),
+        ]));
+
+        DemoSchema schema = new(tables, [.. baseline.ServerClasses, new ServerClass(MedigunClassId, "CWeaponMedigun", "DT_WeaponMedigun")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+                ["DT_BaseCombatCharacter.m_hActiveWeapon"] = LoadoutHandle(30),
+            }),
+            Entity(decoder, PlayerClassId, 2, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+            Entity(decoder, MedigunClassId, 30, new Dictionary<string, PropertyValue>
+            {
+                ["DT_WeaponMedigun.m_hHealingTarget"] = LoadoutHandle(2),
+                ["DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel"] = PropertyValue.FromFloat(charge),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
     /// <summary>A handle: the slot with a serial above it — `NUM_ENT_ENTRY_BITS` is 11 — so the decoder has to mask.</summary>
     private static PropertyValue LoadoutHandle(int entity) => PropertyValue.FromInt(entity | (7 << 11));
 

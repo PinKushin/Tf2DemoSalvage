@@ -9,11 +9,8 @@ namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>`CMainTargetID` over `CTargetID` (game/client/tf/tf_hud_target_id.cpp:1201).</summary>
 /// <remarks>
-/// The local player is entity 1, RED (team 2), a medic (class 5, so `bMedic` at :799 shows an enemy's health), not
-/// observing. Player 2 "Blue" is a BLU soldier. An ordinary RED soldier looking at an ordinary enemy would show
-/// nothing at all here — `printFormatString` stays null unless same team, spy, medic, heavy, a disguised-enemy spy,
-/// or the local player is dying (`#TF_playerid_diffteam`, :811-816, not modelled: no "dying state" is decoded) — which
-/// is genuine TF2 behaviour, not a gap in <see cref="TfMainTargetId"/>.
+/// The local player is entity 1, RED (team 2), a medic, not observing. Player 2 "Mate" is a RED soldier: an enemy is not a
+/// target at all unless the viewer is a spy or sees enemy health (`IsValidIDTarget`, :455) — medic or not.
 /// </remarks>
 public sealed class TfMainTargetIdConformanceTests
 {
@@ -22,7 +19,7 @@ public sealed class TfMainTargetIdConformanceTests
     {
         TfMainTargetId id = Thought(Playing() with { IdTarget = 2 });
 
-        (id.TargetIndex, id.TargetName).ShouldBe((2, "Blue"));
+        (id.TargetIndex, id.TargetName).ShouldBe((2, "Mate"));
     }
 
     [Test]
@@ -36,8 +33,8 @@ public sealed class TfMainTargetIdConformanceTests
 
     private static HudState Playing() =>
         new(true, true, 0, 0, true, CurTime: 1f, Team: 2, ObserverMode: ObserverModes.None, LocalIndex: 1, PlayerClass: 5,
-            Players: [new(1, 0f, 0f, 0f, 2, 0, 5), new(2, 0f, 0f, 0f, 3, 200, 3) { EntityHealth = 200, MaxHealth = 200, MaxHealthForBuffing = 200 }],
-            Names: new Dictionary<int, string> { [2] = "Blue" });
+            Players: [new(1, 0f, 0f, 0f, 2, 0, 5), new(2, 0f, 0f, 0f, 2, 200, 3) { EntityHealth = 200, MaxHealth = 200, MaxHealthForBuffing = 200 }],
+            Names: new Dictionary<int, string> { [2] = "Mate" });
 
     private static TfMainTargetId Thought(HudState state)
     {

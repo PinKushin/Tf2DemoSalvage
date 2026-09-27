@@ -7125,6 +7125,7 @@ internal class MainForm : Form, IFrameSteps
             _vguiHud.Viewport.ItemName = (definition, quality) => definition is { } index
                 ? TfItemName.Generate(items, index, quality, token => _vguiHud.Viewport.Context?.Localize?.Invoke(token))
                 : null;
+            _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
         }
 
         int hudTick = _transport.CurrentTick;

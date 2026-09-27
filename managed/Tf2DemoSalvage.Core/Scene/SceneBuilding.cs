@@ -86,6 +86,12 @@ public readonly record struct SceneBuilding(int EntityIndex)
     /// <summary>`DT_ObjectTeleporter.m_iState` (a `teleporter_state_t`), or null for anything but a teleporter.</summary>
     public int? TeleporterState { get; init; }
 
+    /// <summary>`DT_ObjectTeleporter.m_flRechargeTime` (tf_obj_teleporter.cpp:51), on the server clock; null for anything else.</summary>
+    public float? TeleporterRechargeTime { get; init; }
+
+    /// <summary>`DT_ObjectTeleporter.m_flCurrentRechargeDuration` (:52); null for anything but a teleporter.</summary>
+    public float? TeleporterRechargeDuration { get; init; }
+
     /// <summary>The world position, when the entity has sent one.</summary>
     public (float X, float Y, float Z)? Position { get; init; }
 }

@@ -36,6 +36,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="TournamentMode">`TeamplayRoundBasedRules()->IsInTournamentMode()`: `mp_tournament.GetBool()` (teamplayroundbased_gamerules.cpp:3488).</param>
 /// <param name="TournamentStopwatch">`mp_tournament_stopwatch.GetBool()` (tf_gamerules.cpp:797) — stopwatch mode within a tournament match.</param>
 /// <param name="WinLimit">`mp_winlimit.GetInt()` (teamplayroundbased_gamerules.cpp:227): the round counter's own win limit, 0 for none.</param>
+/// <param name="Buildings">Every Engineer building — `cl_entitylist` for the target ID's object branch.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -66,8 +67,40 @@ public readonly record struct HudState(
     IReadOnlyList<Core.Scene.SceneTeam>? Teams = null,
     bool TournamentMode = false,
     bool TournamentStopwatch = false,
-    int WinLimit = 0)
+    int WinLimit = 0,
+    IReadOnlyList<Core.Scene.SceneBuilding>? Buildings = null)
 {
+    /// <summary>`cl_entitylist->GetEnt` for a building: the one at that index, or null.</summary>
+    /// <param name="index">The entity index.</param>
+    public Core.Scene.SceneBuilding? Building(int index)
+    {
+        foreach (Core.Scene.SceneBuilding building in Buildings ?? [])
+        {
+            if (building.EntityIndex == index)
+            {
+                return building;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// `CTFPlayerShared::GetMaxBuffedHealth` (tf_player_shared.cpp:2235) on the client: `tf_max_health_boost` (1.5,
+    /// `FCVAR_DEVELOPMENTONLY`) of the buffing base floored to a 5, never below the larger of the max and current health.
+    /// </summary>
+    /// <param name="maxHealthForBuffing">`GetMaxHealthForBuffing()` — or, for a disguise, `GetDisguiseMaxHealth()` (:2299).</param>
+    /// <param name="maxHealth">`GetMaxHealth()`.</param>
+    /// <param name="health">`GetHealth()`.</param>
+    /// <returns>The overheal maximum.</returns>
+    public static int GetMaxBuffedHealth(int maxHealthForBuffing, int maxHealth, int health)
+    {
+        int roundDown = (int)MathF.Floor(maxHealthForBuffing * 1.5f / 5f) * 5;
+
+        // "Don't allow overheal total to be less than the buffable + unbuffable max health or the current health" (:2258).
+        return Math.Max(roundDown, Math.Max(maxHealth, health));
+    }
+
     /// <summary>`GR_STATE_STALEMATE` (teamplayroundbased_gamerules.h:69).</summary>
     public const int RoundStateStalemate = 7;
 
@@ -216,6 +249,9 @@ public sealed class HudViewport : VguiEditablePanel
 
     /// <summary>An item's full name as its description shows it, by definition and quality — or null where nothing names items.</summary>
     public Func<int?, int, string?>? ItemName { get; set; }
+
+    /// <summary>`CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( player, value, name )`: a player's attributes applied to a value; null where no schema is open.</summary>
+    public Func<Core.Scene.ScenePlayer, string, float, float>? PlayerAttribute { get; set; }
 
     /// <summary>The weapon and class scripts, for what a weapon's script tells the HUD; null where no install is open.</summary>
     public TfWeaponData? Scripts { get; set; }

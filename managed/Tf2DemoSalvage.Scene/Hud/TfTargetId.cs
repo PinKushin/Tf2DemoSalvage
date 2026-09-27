@@ -8,28 +8,35 @@ using Tf2DemoSalvage.Core.Scene;
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>
-/// `CTargetID` (game/client/tf/tf_hud_target_id.cpp): shared behaviour for a target-ID panel — a player's name, health and
-/// data line, whichever entity supplies <see cref="TargetIndex"/>. `CMainTargetID` and `CSpectatorTargetID` are siblings
-/// under it (not one another), so each is its own sealed class in this file; only the index calculation, the extra
-/// `ShouldDraw` gate and the background layout differ between them.
+/// `CTargetID` (game/client/tf/tf_hud_target_id.cpp): shared behaviour for a target-ID panel — a player's or a building's
+/// name, health and data line, whichever entity supplies <see cref="TargetIndex"/>. `CMainTargetID` and
+/// `CSpectatorTargetID` are siblings under it (not one another), so each is its own sealed class in this file; only the
+/// index calculation, the extra `ShouldDraw` gate and the layout differ between them.
 /// </summary>
 /// <remarks>
 /// `ApplySchemeSettings` (:274) loads `resource/UI/TargetID.res`; `ShouldDraw` (:504) reuses the previous target for one
-/// tick past losing it, then `IsValidIDTarget` (:340) for a player target, then `UpdateID` (:719) fills the labels.
-/// `PerformLayout` (:599) sizes to the health panel plus the wider label and centres at the `.res` y.
-/// **Not modelled here (base):** buildings, flags, dropped weapons and revive markers as targets (no such entity is
-/// decoded into <see cref="Core.Scene.ScenePlayer"/> or a sibling type yet — a Scene-layer decode gap, not a HUD one);
-/// the floating health icon panel itself (`CFloatingHealthIcon`, a screen-projected overlay — `DrawHealthIcon`'s convar
-/// gate IS modelled, via <see cref="DisableFloatingHealth"/>); `tf_spectator_target_location` other than 0; the arena
-/// offset; avatars; and the item-name line of a non-stock medigun, which waits for the econ name generator.
+/// tick past losing it unless the target kept a retain field of view, then `IsValidIDTarget` (:340), then `UpdateID`
+/// (:719) fills the labels. `PerformLayout` (:599) sizes to the labels, plus the health panel when it is drawn inside.
+/// **Not modelled here:** flags, dropped weapons and revive markers as targets (none is decoded); the floating health
+/// icon panel itself (`CFloatingHealthIcon`); the moveable sub-panel's pick-up prompt (`CanPickupBuilding`,
+/// tf_player_shared.cpp:12421); the local medic's no-heal and clip lines and `CSecondaryTargetID`, which need a medigun's
+/// heal target; `m_bIsCoaching`; Steam avatars — `tf_hud_target_id_show_avatars` 2 asks the Steam friends list, which a
+/// recording does not carry; the arena class-layout offset; and `IsHealthBarVisible`'s MvM regeneration case.
 /// </remarks>
 public abstract class TfTargetId : VguiEditablePanel, IHudElement
 {
     private protected const int TeamSpectator = 1;
     private protected const int TeamRed = 2;
-    private protected const int ClassMedic = 5;
+    private protected const int TeamBlue = 3;
     private protected const int ClassSpy = 8;
+    private protected const int ClassMedic = 5;
+    private const int ClassHeavy = 6;
     private const int ConditionTaunting = 7;
+    private const int StateDying = 3;
+    private const int ObjectSentrygun = 2;
+    private const int ObjectTeleporter = 1;
+    private const int TeleporterStateIdle = 1;
+    private const int TeleporterStateRecharging = 4;
     private const int IdChars = 256;
 
     // `g_aPlayerClassNames` (tf_shareddefs.cpp:38).
@@ -44,10 +51,12 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     private protected VguiLabel? _dataLabel;
     private protected VguiPanel? _killStreakIcon;
     private protected VguiPanel? _avatar;
+    private TfImagePanel? _bgPanel;
     private protected (byte, byte, byte, byte) _labelColorDefault = (255, 255, 255, 255);
     private protected int _originalY;
     private protected int _lastEntIndex;
     private protected float _lastChangeTime;
+    private float _targetRetainFov;
     private protected bool _layoutOnUpdate;
     private protected int _screenWide = 640;
     private protected int _screenTall = 480;
@@ -70,6 +79,9 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
     /// <summary>`tf_hud_target_id_disable_floating_health`: 0.</summary>
     public bool DisableFloatingHealth { get; set; }
+
+    /// <summary>`tf_hud_target_id_offset`: 0 — the `.res` Y offset, in 480-high units.</summary>
+    public int YOffset { get; set; }
 
     /// <summary>The name line as set.</summary>
     public string TargetName { get; private protected set; } = string.Empty;
@@ -101,6 +113,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
         _nameLabel = FindChildByName("TargetNameLabel") as VguiLabel;
         _dataLabel = FindChildByName("TargetDataLabel") as VguiLabel;
+        _bgPanel = FindChildByName("TargetIDBG") as TfImagePanel;
         _killStreakIcon = FindChildByName("KillStreakIcon");
         _avatar = FindChildByName("AvatarImage");
 
@@ -118,7 +131,8 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             return false;
         }
 
-        if (HudVisibility.IsHidden(state, HiddenBits) || state.Conditions.Has(ConditionTaunting))
+        if (HudVisibility.IsHidden(state, HiddenBits) || state.Rules.ShowMatchSummary || state.Player(state.LocalIndex) is null
+            || state.Conditions.Has(ConditionTaunting))
         {
             return false;
         }
@@ -127,14 +141,17 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
         if (TargetIndex == 0)
         {
-            // "Check to see if we should clear our ID", else keep the old one.
-            if (_lastChangeTime != 0f && state.CurTime > _lastChangeTime)
+            if (_targetRetainFov == 0f)
             {
-                (_lastChangeTime, _lastEntIndex) = (0f, 0);
-            }
-            else
-            {
-                TargetIndex = _lastEntIndex;
+                // "Check to see if we should clear our ID", else "Keep re-using the old one".
+                if (_lastChangeTime != 0f && state.CurTime > _lastChangeTime)
+                {
+                    (_lastChangeTime, _lastEntIndex) = (0f, 0);
+                }
+                else
+                {
+                    TargetIndex = _lastEntIndex;
+                }
             }
         }
         else
@@ -142,7 +159,9 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             _lastChangeTime = state.CurTime;
         }
 
-        if (!IsValidIdTarget(state))
+        bool valid = IsValidIdTarget(state, TargetIndex, out float retainFov);
+
+        if (!valid)
         {
             _lastEntIndex = 0;
             return false;
@@ -152,6 +171,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         {
             _lastEntIndex = TargetIndex;
             _layoutOnUpdate = true;
+            _targetRetainFov = retainFov;
 
             if (_avatar is not null)
             {
@@ -171,136 +191,352 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     /// <param name="state">The local player.</param>
     private protected abstract int CalculateTargetIndex(HudState state);
 
+    /// <summary>`CTargetID::DrawHealthIcon` (:205): the health panel draws inside for a building, or with floating health off.</summary>
+    private protected bool DrawHealthIcon(HudState state) => state.Building(TargetIndex) is not null || DisableFloatingHealth;
+
     /// <inheritdoc/>
-    /// <remarks>`CTargetID::PerformLayout` (:599).</remarks>
+    /// <remarks>`CTargetID::PerformLayout` (:599), `UseVR` off and no arena panel.</remarks>
     protected override void PerformLayout()
     {
         base.PerformLayout();
 
-        if (_nameLabel is null || _dataLabel is null)
+        HudState state = HudViewport.Of(this)?.State ?? default;
+        bool drawHealthIcon = DrawHealthIcon(state);
+        bool avatarVisible = _avatar is { Visible: true };
+        int width = XRes(5) + XRes(10);
+
+        if (drawHealthIcon)
         {
-            return;
+            width += TargetHealth.Wide;
         }
 
-        int width = TargetHealth.Wide + XRes(5) + XRes(10);
-        (int nameWide, _) = _nameLabel.GetContentSize();
-        (int dataWide, _) = _dataLabel.GetContentSize();
+        if (avatarVisible)
+        {
+            width += _avatar!.Wide + XRes(2);
+        }
 
-        width += Math.Max(nameWide, dataWide);
+        if (_nameLabel is not null && _dataLabel is not null)
+        {
+            (int nameWide, _) = _nameLabel.GetContentSize();
+            (int dataWide, _) = _dataLabel.GetContentSize();
+
+            width += Math.Max(nameWide, dataWide);
+
+            if (_bgPanel is not null)
+            {
+                (_bgPanel.Wide, _bgPanel.Tall) = (width, Tall);
+            }
+
+            int wideExtra = (drawHealthIcon ? TargetHealth.Wide : 0) + (avatarVisible ? _avatar!.Wide + XRes(4) : 0);
+            int buffer = avatarVisible ? 6 : 8;
+
+            _nameLabel.X = XRes(buffer) + wideExtra;
+            _dataLabel.X = XRes(buffer) + wideExtra;
+
+            if (_killStreakIcon is not null)
+            {
+                // `cl_hud_minmode` 0.
+                _killStreakIcon.X = XRes(9) + wideExtra;
+            }
+        }
+
         Wide = width;
-
-        int buffer = _avatar is { Visible: true } ? 6 : 8;
-
-        _nameLabel.X = XRes(buffer) + TargetHealth.Wide;
-        _dataLabel.X = XRes(buffer) + TargetHealth.Wide;
-
-        if (_killStreakIcon is not null)
-        {
-            _killStreakIcon.X = XRes(10) + TargetHealth.Wide;
-        }
-
-        (X, Y) = ((int)((_screenWide - width) * 0.5), _originalY);
+        (X, Y) = ((int)((_screenWide - width) * 0.5), _originalY + YRes(YOffset));
     }
 
-    /// <summary>
-    /// `IsValidIDTarget` (:340) for a player target: the health-branch condition at :455 (spectator, same team, or a spy
-    /// seeing through a disguise/stealth) is the only case ported for the health string; but :483-490 is unconditional
-    /// once that first branch doesn't already show health — `pEnt->IsVisibleToTargetID()` — so an ordinary enemy who
-    /// isn't stealthed is still a valid target, just without a health line (<see cref="UpdateId"/> gates that
-    /// separately via its own `showHealth`).
-    /// </summary>
-    private protected virtual bool IsValidIdTarget(HudState state)
+    /// <summary>`CTargetID::IsValidIDTarget` (:340), with no retain field of view to test against — as `ShouldDraw` calls it.</summary>
+    /// <param name="state">The local player.</param>
+    /// <param name="index">The candidate.</param>
+    /// <param name="retainFov">`flNewTargetRetainFOV`: non-zero for a target kept while it stays in view.</param>
+    /// <returns>Whether it is a target to show.</returns>
+    private protected virtual bool IsValidIdTarget(HudState state, int index, out float retainFov)
     {
-        if (TargetIndex == 0 || state.Player(TargetIndex) is not { } target)
+        retainFov = 0f;
+
+        if (index == 0 || state.Player(state.LocalIndex) is not { } local)
         {
             return false;
         }
 
-        bool spectator = state.Team == TeamSpectator;
-        bool stealthed = target.Conditions.IsStealthed;
+        ScenePlayer? player = state.Player(index);
+        SceneBuilding? building = state.Building(index);
 
-        return spectator || target.Team == state.Team || !stealthed;
+        if (player is null && building is null)
+        {
+            return false;
+        }
+
+        int targetTeam = player?.Team ?? building?.Team ?? 0;
+        int hideEnemyHealth = (int)LocalAttribute(local, "hide_enemy_health");
+        bool inSameTeam = InSameDisguisedTeam(local, targetTeam, player);
+        bool spy = state.PlayerClass == ClassSpy && hideEnemyHealth == 0;
+
+        if (state.Rules.MannVsMachine)
+        {
+            // "We don't want to show health bars to the spy in MVM because it's distracting".
+            spy = false;
+
+            if (local.Conditions.Has(PlayerConditions.Disguised) && local.DisguiseTeam != local.Team)
+            {
+                int theirApparentTeam = player is { } disguised && disguised.Conditions.Has(PlayerConditions.Disguised)
+                    ? disguised.DisguiseTeam ?? 0
+                    : targetTeam;
+
+                if (local.DisguiseTeam == theirApparentTeam)
+                {
+                    inSameTeam = false;
+                }
+            }
+        }
+
+        bool spectator = state.Team == TeamSpectator;
+        bool valid = false;
+        bool healthBarVisible = ShouldHealthBarBeVisible(state, local, player);
+        bool show = healthBarVisible;
+
+        if (player is { } target)
+        {
+            bool stealthed = false;
+            int seeEnemyHealth = 0;
+
+            if (target.Conditions.IsStealthed)
+            {
+                stealthed = true;
+                healthBarVisible = false;
+                show = false;
+            }
+
+            if (!stealthed)
+            {
+                seeEnemyHealth = (int)LocalAttribute(local, "see_enemy_health");
+            }
+
+            bool maintainInFov = local.Team != targetTeam;
+
+            if (healthBarVisible)
+            {
+                bool enemyMiniBoss = target.IsMiniBoss && targetTeam != local.Team;
+
+                show = enemyMiniBoss;
+
+                if (show)
+                {
+                    // "Minibosses keep the health indicator up within a small FOV until a different valid target is selected".
+                    maintainInFov = true;
+                }
+            }
+
+            if (maintainInFov)
+            {
+                // The retain FOV (:449-452) — non-zero, whatever the distance, which is all `ShouldDraw` reads of it.
+                float distance = EyeDistance(local, target);
+                float interp = (800f - Math.Min(distance, 800f)) / 800f;
+
+                retainFov = (interp * interp * 13f) + 0.75f;
+            }
+
+            valid = spectator || local.Team == targetTeam || ((inSameTeam || spy || seeEnemyHealth != 0) && !stealthed);
+        }
+
+        if (!show && !healthBarVisible && building is not null && (inSameTeam || spy))
+        {
+            valid = true;
+        }
+
+        return valid;
     }
 
-    /// <summary>`CTargetID::UpdateID` (:719) for a player.</summary>
+    /// <summary>`ShouldHealthBarBeVisible` (:78): whether the floating health bar would follow this target.</summary>
+    private bool ShouldHealthBarBeVisible(HudState state, ScenePlayer local, ScenePlayer? target)
+    {
+        if (DisableFloatingHealth)
+        {
+            return false;
+        }
+
+        // `IsHealthBarVisible`: a building's is the base's false; a player's is `IsMiniBoss()` (c_tf_player.cpp:10731).
+        if (target is { IsMiniBoss: true })
+        {
+            return true;
+        }
+
+        if (target is not { } player)
+        {
+            return false;
+        }
+
+        int targetTeam = player.Team ?? 0;
+
+        if ((int)LocalAttribute(local, "hide_enemy_health") > 0 && local.Team != targetTeam)
+        {
+            return false;
+        }
+
+        return state.PlayerClass == ClassSpy || local.Team == targetTeam || InSameDisguisedTeam(local, targetTeam, target)
+            || (int)LocalAttribute(local, "see_enemy_health") != 0;
+    }
+
+    /// <summary>`CTargetID::UpdateID` (:719).</summary>
     private protected void UpdateId(HudState state)
     {
-        if (state.Player(TargetIndex) is not { } target)
+        if (state.Player(state.LocalIndex) is not { } local)
         {
             return;
         }
 
-        string name = state.Names?.GetValueOrDefault(TargetIndex) ?? string.Empty;
-        bool disguised = target.Conditions.Has(PlayerConditions.Disguised) && !target.Conditions.IsStealthed;
-        bool spectator = state.Team == TeamSpectator;
-        bool sameTeam = target.Team == state.Team;
-        bool enemy = IsEnemyPlayer(state.Team, target.Team ?? 0);
+        ScenePlayer? player = state.Player(TargetIndex);
+        SceneBuilding? building = state.Building(TargetIndex);
 
-        // "is the target a disguised enemy spy?" — with a disguise target, the name becomes theirs.
-        bool disguisedEnemy = disguised && enemy && target.DisguiseTarget is not null;
-
-        if (disguisedEnemy)
+        if (player is null && building is null)
         {
-            name = state.Names?.GetValueOrDefault(target.DisguiseTarget!.Value) ?? string.Empty;
+            return;
         }
 
-        (string data, bool killStreakData) = DataString(target, disguised, enemy);
-        bool showHealth = spectator || sameTeam || state.PlayerClass is ClassSpy or ClassMedic or 6 || disguisedEnemy;
         string id = string.Empty;
-
-        if (showHealth)
-        {
-            id = VguiLocalize.ConstructString(Find("#TF_playerid_sameteam"), IdChars, string.Empty, name);
-        }
-
-        int health = disguisedEnemy ? target.DisguiseHealth ?? 0 : target.EntityHealth ?? 0;
-        int maxHealth = target.MaxHealth ?? 1;
-        int maxBuffed = (int)MathF.Floor((target.MaxHealthForBuffing ?? 1) * 1.5f / 5f) * 5;
-
-        if ((target.LifeState ?? 0) != 0)
-        {
-            // "fixup for health being 1 when dead"
-            health = 0;
-        }
+        string data = string.Empty;
+        float health = 0f;
+        float maxHealth = 1f;
+        int maxBuffedHealth = 0;
+        int targetTeam = player?.Team ?? building?.Team ?? 0;
 
         TargetHealth.Building = false;
         TargetHealth.SetLevel(-1);
 
-        if (showHealth)
+        if (player is { } target)
         {
-            TargetHealth.SetHealth(health, maxHealth, maxBuffed);
+            (id, data, health, maxHealth, maxBuffedHealth, targetTeam) = PlayerId(state, local, target, targetTeam);
         }
-        else
+        else if (building is { } obj)
         {
-            TargetHealth.SetHealth(0, 1, 0);
+            id = ObjectIdString(state, local, obj);
+            data = ObjectDataString(state, obj);
+            (health, maxHealth) = (obj.Health, obj.MaxHealth);
+            TargetHealth.Building = true;
+
+            if (_killStreakIcon is not null)
+            {
+                _killStreakIcon.Visible = false;
+            }
         }
 
-        TargetHealth.Visible = DisableFloatingHealth;
+        // "fixup for health being 1 when dead".
+        if (player is { IsAlive: false })
+        {
+            health = 0f;
+        }
+
+        TargetHealth.SetHealth((int)health, (int)maxHealth, maxBuffedHealth);
+        TargetHealth.Visible = DrawHealthIcon(state);
+
+        SetLabels(id, data);
+
+        if (_bgPanel is not null)
+        {
+            _bgPanel.LocalTeam = targetTeam;
+            _bgPanel.SetAnimationValue("alpha", (float)BackgroundAlpha);
+        }
+    }
+
+    /// <summary>`UpdateID`'s player branch (:754-865).</summary>
+    private (string Id, string Data, float Health, float MaxHealth, int MaxBuffedHealth, int TargetTeam) PlayerId(
+        HudState state, ScenePlayer local, ScenePlayer target, int targetTeam)
+    {
+        string name = state.Names?.GetValueOrDefault(TargetIndex) ?? string.Empty;
+        bool disguisedTarget = false;
+        bool disguisedEnemy = false;
+
+        // "determine if the target is a disguised spy (either friendly or enemy)".
+        if (target.Conditions.Has(PlayerConditions.Disguised) && !target.Conditions.IsStealthed)
+        {
+            disguisedTarget = true;
+
+            if (local.Team != targetTeam)
+            {
+                targetTeam = target.DisguiseTeam ?? 0;
+            }
+
+            if (IsEnemyPlayer(local.Team ?? 0, target.Team ?? 0) && target.DisguiseTarget is { } disguise)
+            {
+                disguisedEnemy = true;
+                name = state.Names?.GetValueOrDefault(disguise) ?? string.Empty;
+            }
+        }
+
+        bool inSameTeam = InSameDisguisedTeam(local, target.Team ?? 0, target);
+        (string data, bool killStreakData) = DataString(local, target, disguisedTarget);
+        string? format = null;
+        bool showHealth = false;
+
+        if (state.Team == TeamSpectator || inSameTeam || state.PlayerClass is ClassSpy or ClassMedic or ClassHeavy || disguisedEnemy)
+        {
+            format = "#TF_playerid_sameteam";
+            showHealth = true;
+        }
+        else if (local.PlayerState == StateDying)
+        {
+            // "We're looking at an enemy who killed us."
+            format = "#TF_playerid_diffteam";
+            showHealth = true;
+        }
+
+        float health = 0f;
+        float maxHealth = 1f;
+        int maxBuffedHealth = 0;
+
+        if (showHealth)
+        {
+            if (disguisedEnemy)
+            {
+                // `GetDisguiseMaxHealth` (tf_player_shared.cpp:8358): the disguise class's own, else the player's.
+                int disguiseMax = HudViewport.Of(this)?.Scripts?.ClassMaxHealth(target.DisguiseClass ?? 0) ?? target.MaxHealth ?? 1;
+                int disguiseHealth = target.DisguiseHealth ?? 0;
+
+                (health, maxHealth, maxBuffedHealth) = (disguiseHealth, disguiseMax, HudState.GetMaxBuffedHealth(disguiseMax, disguiseMax, disguiseHealth));
+            }
+            else
+            {
+                int current = target.EntityHealth ?? 0;
+                int max = target.MaxHealth ?? 1;
+
+                (health, maxHealth, maxBuffedHealth) = (current, max, HudState.GetMaxBuffedHealth(target.MaxHealthForBuffing ?? 1, max, current));
+            }
+        }
+
+        string id = format is null ? string.Empty : VguiLocalize.ConstructString(Find(format), IdChars, Prepend, name);
 
         if (_killStreakIcon is not null)
         {
             _killStreakIcon.Visible = killStreakData && data.Length > 0;
         }
 
-        SetLabels(id, data);
+        return (id, data, health, maxHealth, maxBuffedHealth, targetTeam);
     }
 
-    /// <summary>`C_TFPlayer::GetTargetIDDataString` (c_tf_player.cpp:9748) as a spectator — or anyone not a medic — sees it.</summary>
-    private protected (string Data, bool KillStreak) DataString(ScenePlayer target, bool disguised, bool enemy)
+    /// <summary>`GetPrepend()`: empty but for `CSecondaryTargetID`'s "healing"/"healer" line.</summary>
+    private protected virtual string Prepend => string.Empty;
+
+    /// <summary>`C_TFPlayer::GetTargetIDDataString` (c_tf_player.cpp:9748).</summary>
+    private (string Data, bool KillStreak) DataString(ScenePlayer local, ScenePlayer target, bool disguised)
     {
         string data = string.Empty;
+        bool enemy = IsEnemyPlayer(local.Team ?? 0, target.Team ?? 0);
 
-        if (disguised && !enemy)
+        if (disguised)
         {
-            // "a disguised friendly spy": the disguise's team and class.
-            bool asEnemy = target.DisguiseTeam != target.Team;
-            int disguiseClass = target.DisguiseClass ?? 0;
+            if (!enemy)
+            {
+                // "The target is a disguised friendly spy": the disguise's team and class.
+                bool asEnemy = target.DisguiseTeam != target.Team;
 
-            data = VguiLocalize.ConstructString(
-                Find("#TF_playerid_friendlyspy_disguise"),
-                IdChars,
-                Find(asEnemy ? "#TF_enemy" : "#TF_friendly") ?? string.Empty,
-                Find(ClassNames[Math.Clamp(disguiseClass, 0, ClassNames.Length - 1)]) ?? string.Empty);
+                data = VguiLocalize.ConstructString(
+                    Find("#TF_playerid_friendlyspy_disguise"), IdChars, Find(asEnemy ? "#TF_enemy" : "#TF_friendly") ?? string.Empty, LocalizedClassName(target.DisguiseClass));
+            }
+            else if (target.DisguiseClass == ClassSpy)
+            {
+                // "an enemy spy disguised as a friendly spy. Show a fake team & class ID element."
+                data = VguiLocalize.ConstructString(
+                    Find("#TF_playerid_friendlyspy_disguise"), IdChars, Find("#TF_enemy") ?? string.Empty, LocalizedClassName(target.DisguiseMaskClass));
+            }
         }
 
         if (target.PlayerClass == ClassMedic)
@@ -314,10 +550,11 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
         if (disguised && target.DisguiseClass == ClassMedic && enemy)
         {
+            // "Show a fake charge level for a disguised enemy medic."
             return (VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge"), IdChars, "0"), false);
         }
 
-        // A local medic's no-heal and clip lines need the local medigun's target, which a spectator has not; then the streak.
+        // A local medic's no-heal and clip lines (:9809) need the local medigun's heal target — not modelled; then the streak.
         if (target.KillStreak is > 0 and var streak)
         {
             return (VguiLocalize.ConstructString(Find("#TF_playerid_ammo"), IdChars, streak.ToString(CultureInfo.InvariantCulture)), true);
@@ -326,13 +563,126 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         return (data, false);
     }
 
+    /// <summary>`C_BaseObject::GetTargetIDString` (c_baseobject.cpp:892), not as a spectator.</summary>
+    private string ObjectIdString(HudState state, ScenePlayer local, SceneBuilding obj)
+    {
+        if (!InSameDisguisedTeam(local, obj.Team ?? 0, null) && state.PlayerClass != ClassSpy)
+        {
+            return string.Empty;
+        }
+
+        (string? statusName, string? modeName, int altModes) = ObjectInfo(obj);
+        string objectName = Find(StatusName(obj, statusName)) ?? string.Empty;
+        string builder = obj.BuilderEntityIndex is { } owner ? state.Names?.GetValueOrDefault(owner) ?? string.Empty : string.Empty;
+        string format = obj.MiniBuilding && !obj.DisposableBuilding ? "#TF_playerid_object_mini" : "#TF_playerid_object";
+
+        if (altModes > 0)
+        {
+            // Valve's own string drops the '#' here; `Find` skips one only when present.
+            return Find("TF_playerid_object_mode") is { } withMode
+                ? VguiLocalize.ConstructString(withMode, IdChars, objectName, builder, Find(modeName ?? string.Empty) ?? string.Empty)
+                : string.Empty;
+        }
+
+        return Find(format) is { } localized ? VguiLocalize.ConstructString(localized, IdChars, objectName, builder) : string.Empty;
+    }
+
+    /// <summary>`C_BaseObject::GetTargetIDDataString` (c_baseobject.cpp:965), and a teleporter's override (c_obj_teleporter.cpp:334).</summary>
+    private string ObjectDataString(HudState state, SceneBuilding obj)
+    {
+        // "Sentryguns have models for each level, so we don't show it in their target ID."
+        bool showLevel = obj.ObjectType != ObjectSentrygun;
+        string level = obj.UpgradeLevel.ToString(CultureInfo.InvariantCulture);
+        string baseString = string.Empty;
+
+        if (obj.UpgradeLevel >= 3)
+        {
+            if (showLevel)
+            {
+                baseString = VguiLocalize.ConstructString(Find("#TF_playerid_object_level"), IdChars, level);
+            }
+        }
+        else if (!obj.MiniBuilding && !obj.DisposableBuilding)
+        {
+            // "level 1 and 2 show upgrade progress".
+            string progress = string.Create(CultureInfo.InvariantCulture, $"{obj.UpgradeMetal} / {obj.UpgradeMetalRequired}");
+
+            baseString = showLevel
+                ? VguiLocalize.ConstructString(Find("#TF_playerid_object_upgrading_level"), IdChars, level, progress)
+                : VguiLocalize.ConstructString(Find("#TF_playerid_object_upgrading"), IdChars, progress);
+        }
+
+        if (obj.ObjectType != ObjectTeleporter)
+        {
+            return baseString;
+        }
+
+        string data = string.Empty;
+
+        if (obj.TeleporterState == TeleporterStateRecharging && obj.TeleporterRechargeTime is { } recharge && state.ServerTime < recharge)
+        {
+            float duration = obj.TeleporterRechargeDuration ?? 0f;
+            float percent = Math.Clamp((recharge - state.ServerTime) / duration, 0f, 1f);
+            string recharging = MathF.Round(100f - (percent * 100f)).ToString("0", CultureInfo.InvariantCulture);
+
+            data = VguiLocalize.ConstructString(Find("#TF_playerid_object_recharging"), IdChars, recharging);
+        }
+        else if (obj.TeleporterState == TeleporterStateIdle)
+        {
+            data = VguiLocalize.ConstructString(Find("#TF_playerid_teleporter_nomatch"), IdChars);
+        }
+
+        // "Concatenate the base level string".
+        return data + "   " + baseString;
+    }
+
+    /// <summary>`GetObjectInfo( GetType() )`'s alt mode for this building's mode.</summary>
+    private (string? StatusName, string? ModeName, int AltModes) ObjectInfo(SceneBuilding obj) =>
+        HudViewport.Of(this)?.Scripts?.ObjectInfo(obj.ObjectType, obj.ObjectMode) ?? (null, null, 0);
+
+    /// <summary>`GetStatusName()`: a sentry's override (c_obj_sentrygun.cpp:748), else the object info's (c_baseobject.cpp:365).</summary>
+    private static string StatusName(SceneBuilding obj, string? statusName)
+    {
+        if (obj.ObjectType != ObjectSentrygun)
+        {
+            return statusName ?? string.Empty;
+        }
+
+        return obj.DisposableBuilding ? "#TF_Object_Sentry_Disp" : "#TF_Object_Sentry";
+    }
+
+    /// <summary>`C_TFPlayer::InSameDisguisedTeam` (c_tf_player.cpp:10129), `m_bIsCoaching` not modelled.</summary>
+    private protected static bool InSameDisguisedTeam(ScenePlayer local, int targetTeam, ScenePlayer? target)
+    {
+        int localTeam = local.Team ?? 0;
+        int myApparentTeam = local.Conditions.Has(PlayerConditions.Disguised) ? local.DisguiseTeam ?? 0 : localTeam;
+        int theirApparentTeam = target is { } player && player.Conditions.Has(PlayerConditions.Disguised) ? player.DisguiseTeam ?? 0 : targetTeam;
+
+        return myApparentTeam == theirApparentTeam || localTeam == targetTeam || theirApparentTeam == localTeam;
+    }
+
     /// <summary>`C_TFPlayer::IsEnemyPlayer` (c_tf_player.cpp:5384): only RED against BLU and back.</summary>
     private protected static bool IsEnemyPlayer(int localTeam, int targetTeam) => localTeam switch
     {
-        TeamRed => targetTeam == 3,
-        3 => targetTeam == TeamRed,
+        TeamRed => targetTeam == TeamBlue,
+        TeamBlue => targetTeam == TeamRed,
         _ => false,
     };
+
+    /// <summary>`CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( pLocalTFPlayer, …, name )` from 0.</summary>
+    private float LocalAttribute(ScenePlayer local, string attributeClass) =>
+        HudViewport.Of(this)?.PlayerAttribute?.Invoke(local, attributeClass, 0f) ?? 0f;
+
+    /// <summary>`VectorNormalize( pEnt->EyePosition() - pLocalTFPlayer->EyePosition() )`, both at their origins' height.</summary>
+    /// <remarks>**Interpolated:** eye heights (`m_vecViewOffset`) are left out; only whether the result is non-zero is read.</remarks>
+    private static float EyeDistance(ScenePlayer local, ScenePlayer target)
+    {
+        float dx = target.X - local.X;
+        float dy = target.Y - local.Y;
+        float dz = target.Z - local.Z;
+
+        return MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+    }
 
     /// <summary>The labels' text and colours, and a layout when either changed width (:1066).</summary>
     private protected void SetLabels(string id, string data)
@@ -379,9 +729,16 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         }
     }
 
-    private protected string? Find(string token) => HudViewport.Of(this)?.Context?.Localize?.Invoke(token[1..]);
+    /// <summary>A class's localized name, `g_aPlayerClassNames[ index ]`.</summary>
+    private string LocalizedClassName(int? playerClass) => Find(ClassNames[Math.Clamp(playerClass ?? 0, 0, ClassNames.Length - 1)]) ?? string.Empty;
+
+    /// <summary>`g_pVGuiLocalize->Find`: a leading '#' is skipped when there is one.</summary>
+    private protected string? Find(string token) =>
+        HudViewport.Of(this)?.Context?.Localize?.Invoke(token.StartsWith('#') ? token[1..] : token);
 
     private protected int XRes(int x) => (int)(x * (_screenWide / 640.0));
+
+    private protected int YRes(int y) => (int)(y * (_screenTall / 480.0));
 }
 
 /// <summary>`CSpectatorTargetID` over `CTargetID`: the spectated player's name, health and data.</summary>
@@ -389,9 +746,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 /// Drawn only in an observer mode other than freeze cam (:1213). The target is the observer target in eye (:1243), else
 /// `GetIDTarget()` — the observer target in death cam and chase (`UpdateIDTarget`, c_tf_player.cpp:7061). Its own
 /// `ApplySchemeSettings` (:1263) additionally hides `TargetIDBG` and shows the blue spectator background; its own
-/// `PerformLayout` (:1284) recolours that background red or blue by the target's team, on top of the shared layout.
-/// **Not modelled here:** `GetIDTarget`'s trace (see <see cref="IdTargetTrace"/>, which is not needed by this sibling —
-/// a spectator's target always comes from the observer target, never the crosshair).
+/// `PerformLayout` (:1284) always counts the health panel and recolours that background red or blue by the target's team.
 /// </remarks>
 public sealed class TfSpectatorTargetId : TfTargetId
 {
@@ -448,7 +803,24 @@ public sealed class TfSpectatorTargetId : TfTargetId
     /// <remarks>`CSpectatorTargetID::PerformLayout` (:1284), `tf_spectator_target_location` 0.</remarks>
     protected override void PerformLayout()
     {
-        base.PerformLayout();
+        if (_nameLabel is not null && _dataLabel is not null)
+        {
+            (int nameWide, _) = _nameLabel.GetContentSize();
+            (int dataWide, _) = _dataLabel.GetContentSize();
+            int width = TargetHealth.Wide + XRes(5) + XRes(10) + Math.Max(nameWide, dataWide);
+            int buffer = _avatar is { Visible: true } ? 6 : 8;
+
+            Wide = width;
+            _nameLabel.X = XRes(buffer) + TargetHealth.Wide;
+            _dataLabel.X = XRes(buffer) + TargetHealth.Wide;
+
+            if (_killStreakIcon is not null)
+            {
+                _killStreakIcon.X = XRes(10) + TargetHealth.Wide;
+            }
+
+            (X, Y) = ((int)((_screenWide - width) * 0.5), _originalY);
+        }
 
         foreach (VguiPanel? background in (ReadOnlySpan<VguiPanel?>)[_specBlue, _specRed])
         {
@@ -476,11 +848,9 @@ public sealed class TfSpectatorTargetId : TfTargetId
 /// Drawn only while the local player is not in any observer mode (:1201) — `ShouldDraw` returns `BaseClass::ShouldDraw()`
 /// with no other override, and `CalculateTargetIndex` is not overridden either, so both are `CTargetID`'s own: the target
 /// is `GetIDTarget()` (<see cref="IdTargetTrace"/>) minus whatever `CSecondaryTargetID` is already showing (:702), and
-/// layout is the shared `CTargetID::PerformLayout` with no team-coloured background swap.
-/// **Not modelled here:** the "minus `CSecondaryTargetID`'s current target" subtraction (:707) — `CSecondaryTargetID`
-/// (the medic heal-target/healer line) is not ported in this pass, so there is nothing yet to subtract against; wiring
-/// `IdTargetTrace`'s result into <see cref="HudState"/> from a real world/entity trace (`MainForm`'s job, left for a
-/// follow-up so as not to touch that file here).
+/// layout is the shared `CTargetID::PerformLayout`.
+/// **Not modelled here:** the "minus `CSecondaryTargetID`'s current target" subtraction (:707) — `CSecondaryTargetID` is
+/// not ported yet.
 /// </remarks>
 public sealed class TfMainTargetId : TfTargetId
 {
