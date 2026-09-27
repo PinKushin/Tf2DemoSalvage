@@ -21,8 +21,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// **Not modelled here:** flags, dropped weapons and revive markers as targets (none is decoded); the local medic's no-heal
 /// line; `m_bIsCoaching`; Steam avatars — `tf_hud_target_id_show_avatars` 2 asks the Steam friends list, which a
 /// recording does not carry; the arena class-layout offset; and `IsHealthBarVisible`'s MvM regeneration case. The moveable
-/// sub-panel's pick-up prompt IS modelled; what <see cref="CanPickupBuilding"/> cannot answer from a demo is stated in its
-/// own remarks rather than here.
+/// sub-panel's pick-up prompt, including <see cref="CanPickupBuilding"/> in full, IS modelled.
 /// </remarks>
 public abstract class TfTargetId : VguiEditablePanel, IHudElement
 {
@@ -43,14 +42,29 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     /// <summary>`TF_BUILDING_PICKUP_RANGE` (tf_player_shared.cpp:217): 150 units, squared for `CanPickupBuilding`'s compare.</summary>
     private const float BuildingPickupRangeSq = 150f * 150f;
 
+    /// <summary>`TF_BUILDING_RESCUE_MIN_RANGE_SQ` (tf_player_shared.cpp:218): 250 * 250, the `building_teleporting_pickup` deadzone.</summary>
+    private const float RescueMinRangeSq = 250f * 250f;
+
     /// <summary>`TF_COND_GRAPPLINGHOOK` (tf_shareddefs.h:788).</summary>
     private const int ConditionGrapplingHook = 98;
 
     /// <summary>`TF_COND_RUNE_KNOCKOUT` (tf_shareddefs.h:793): `GetCarryingRuneType() == RUNE_KNOCKOUT`, read as the condition it is.</summary>
     private const int ConditionRuneKnockout = 103;
 
+    /// <summary>`TF_COND_STUNNED` (tf_shareddefs.h:705): "Any type of stun. Check iStunFlags for more info."</summary>
+    private const int ConditionStunned = 15;
+
+    /// <summary>`TF_STUN_CONTROLS` (tf_shareddefs.h:1334): `1&lt;&lt;1`.</summary>
+    private const int StunControls = 1 << 1;
+
+    /// <summary>`TF_STUN_LOSER_STATE` (:1339): `1&lt;&lt;6`.</summary>
+    private const int StunLoserState = 1 << 6;
+
     /// <summary>`GR_STATE_RND_RUNNING` (teamplayroundbased_gamerules.h:59).</summary>
     private const int RoundStateRndRunning = 4;
+
+    /// <summary>`GR_STATE_TEAM_WIN` (:63).</summary>
+    private const int RoundStateTeamWin = 5;
 
     /// <summary>`GR_STATE_BETWEEN_RNDS` (:78).</summary>
     private const int RoundStateBetweenRounds = 10;
@@ -631,25 +645,8 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         }
     }
 
-    /// <summary>
-    /// `CTFPlayer::CanPickupBuilding` (tf_player_shared.cpp:12421) — the checks this project's decoded state can answer.
-    /// </summary>
-    /// <remarks>
-    /// **Not ported, and stated rather than guessed:**
-    /// <list type="bullet">
-    /// <item><c>IsLoserStateStunned</c>/<c>IsControlStunned</c>/<c>IsLoser</c> (:12447-12451): each needs
-    /// <c>m_iStunFlags</c> and the per-attacker <c>GetActiveStunInfo()</c> record, plus (for <c>IsLoser</c>)
-    /// <c>tf_always_loser</c> and <c>IsMatchTypeCompetitive()</c> — none of which this project decodes.</item>
-    /// <item>The active weapon's <c>AutoFiresFullClip() &amp;&amp; Clip1() &gt; 0</c> (:12462): an attribute hook on the
-    /// WEAPON's own econ item, distinct from <see cref="LocalAttribute"/>'s player-attribute hook.</item>
-    /// <item>The <c>building_teleporting_pickup</c> extended-range branch (:12481): the same weapon-attribute gap, plus
-    /// <c>TF_AMMO_METAL</c>'s ammo-type index is not itself decoded.</item>
-    /// <item>Training-mode pickup restrictions (:12492): four client <c>ConVarRef</c>s this project has no route to.</item>
-    /// </list>
-    /// Every condition above defaults to "does not block the pickup" — the same fallthrough
-    /// <c>CanPickupBuilding</c> itself uses once past its own gates.
-    /// </remarks>
-    private static bool CanPickupBuilding(HudState state, ScenePlayer local, SceneBuilding obj)
+    /// <summary>`CTFPlayer::CanPickupBuilding` (tf_player_shared.cpp:12421), ported in full.</summary>
+    private bool CanPickupBuilding(HudState state, ScenePlayer local, SceneBuilding obj)
     {
         if (obj.Building) // :12426
         {
@@ -687,6 +684,16 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             return false;
         }
 
+        if (IsLoserStateStunned(local) || IsControlStunned(local)) // :12447
+        {
+            return false;
+        }
+
+        if (IsLoser(state, local)) // :12450
+        {
+            return false;
+        }
+
         // `State_Get() != GR_STATE_RND_RUNNING && != GR_STATE_STALEMATE && != GR_STATE_BETWEEN_RNDS` (:12452).
         if (state.RoundState is not (RoundStateRndRunning or HudState.RoundStateStalemate or RoundStateBetweenRounds))
         {
@@ -694,6 +701,14 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         }
 
         if (local.Conditions.Has(ConditionGrapplingHook)) // :12457
+        {
+            return false;
+        }
+
+        // "There's ammo in the clip... no switching away!" (:12461-12462).
+        if (ActiveWeaponItem(local) is { } activeWeapon
+            && WeaponAttribute(local, activeWeapon, "auto_fires_full_clip") != 0f
+            && (local.WeaponClip1 ?? -1) > 0)
         {
             return false;
         }
@@ -713,9 +728,116 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         float dx = origin.X - local.X;
         float dy = origin.Y - local.Y;
         float dz = origin.Z - local.Z;
+        float distanceSq = (dx * dx) + (dy * dy) + (dz * dz);
 
-        return ((dx * dx) + (dy * dy) + (dz * dz)) <= BuildingPickupRangeSq;
+        // `CALL_ATTRIB_HOOK_INT_ON_OTHER( pWeapon, iIncreasedRangeCost, building_teleporting_pickup )` (:12481) — an
+        // attribute hooked on the WEAPON, applying its OWNER's providers (`AttributeHooks.OnWeapon`), same as :12462.
+        float increasedRangeCost = ActiveWeaponItem(local) is { } rangeWeapon
+            ? WeaponAttribute(local, rangeWeapon, "building_teleporting_pickup")
+            : 0f;
+
+        if (increasedRangeCost != 0f)
+        {
+            // "False on deadzone" (:12486).
+            if (distanceSq > BuildingPickupRangeSq && distanceSq < RescueMinRangeSq)
+            {
+                return false;
+            }
+
+            int metal = local.Ammo is { } ammo && Tf2DemoSalvage.Scene.TfWeaponData.AmmoMetal < ammo.Count
+                ? ammo[Tf2DemoSalvage.Scene.TfWeaponData.AmmoMetal]
+                : 0;
+
+            if (distanceSq >= RescueMinRangeSq && metal < increasedRangeCost)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        if (distanceSq > BuildingPickupRangeSq)
+        {
+            return false;
+        }
+
+        if (state.Rules.InTraining) // :12492
+        {
+            return obj.ObjectType switch
+            {
+                SceneBuilding.Dispenser => state.TrainingCanPickupDispenser,
+                SceneBuilding.Teleporter => obj.ObjectMode == SceneBuilding.TeleporterEntrance
+                    ? state.TrainingCanPickupTeleEntrance
+                    : state.TrainingCanPickupTeleExit,
+                SceneBuilding.Sentrygun => state.TrainingCanPickupSentry,
+                _ => true,
+            };
+        }
+
+        return true;
     }
+
+    /// <summary>`CTFPlayerShared::IsLoserStateStunned` (tf_player_shared.cpp:9966): stunned, and the stun says so.</summary>
+    /// <remarks>
+    /// `GetActiveStunInfo()` on the CLIENT is non-null exactly when `m_iStunIndex &gt;= 0` (:7474-7475) and its
+    /// `iStunFlags` is `m_iStunFlags` verbatim (:7462-7463) — the client keeps no separate per-attacker stun list, so
+    /// this reads the two networked fields directly rather than reconstructing one.
+    /// </remarks>
+    private static bool IsLoserStateStunned(ScenePlayer local) =>
+        local.StunIndex is >= 0 && local.Conditions.Has(ConditionStunned) && ((local.StunFlags ?? 0) & StunLoserState) != 0;
+
+    /// <summary>`CTFPlayerShared::IsControlStunned` (:9952) — as <see cref="IsLoserStateStunned"/>, `TF_STUN_CONTROLS`.</summary>
+    private static bool IsControlStunned(ScenePlayer local) =>
+        local.StunIndex is >= 0 && local.Conditions.Has(ConditionStunned) && ((local.StunFlags ?? 0) & StunControls) != 0;
+
+    /// <summary>`CTFPlayerShared::IsLoser` (:13654).</summary>
+    private static bool IsLoser(HudState state, ScenePlayer local)
+    {
+        if (state.AlwaysLoser) // `tf_always_loser.GetBool()`, :13656
+        {
+            return true;
+        }
+
+        // "No loser mode in competitive" (:13663) — `IsMatchTypeCompetitive()`, not `IsCompetitiveMode()` (D89 audit).
+        if (state.Rules.IsMatchTypeCompetitive)
+        {
+            return false;
+        }
+
+        if (state.RoundState != RoundStateTeamWin) // :13666
+        {
+            return IsLoserStateStunned(local);
+        }
+
+        bool loser = state.Rules.WinningTeam != local.Team; // :13671
+
+        // "don't reveal disguised spies" (:13675-13680).
+        if (loser && local.PlayerClass == ClassSpy && local.Conditions.Has(PlayerConditions.Disguised)
+            && local.DisguiseTeam == state.Rules.WinningTeam)
+        {
+            loser = false;
+        }
+
+        return loser;
+    }
+
+    /// <summary>The active weapon among a player's items, or null — the same lookup `TfAmmo.For` makes.</summary>
+    private static SceneItem? ActiveWeaponItem(ScenePlayer local)
+    {
+        foreach (SceneItem item in local.Items ?? [])
+        {
+            if (item.EntityIndex == local.ActiveWeapon)
+            {
+                return item;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>`CALL_ATTRIB_HOOK_INT( value, name )` on a weapon (`AttributeHooks.OnWeapon`), from 0.</summary>
+    private float WeaponAttribute(ScenePlayer local, SceneItem weapon, string attributeClass) =>
+        HudViewport.Of(this)?.WeaponAttribute?.Invoke(local, weapon, attributeClass, 0f) ?? 0f;
 
     /// <summary>`UpdateID`'s player branch (:754-865).</summary>
     private (string Id, string Data, float Health, float MaxHealth, int MaxBuffedHealth, int TargetTeam) PlayerId(

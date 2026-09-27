@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -165,6 +166,160 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
     }
 
     [Test]
+    public void CanPickupBuilding_LoserStateStunned_HidesThePrompt()
+    {
+        TfMainTargetId id = Thought(
+            Playing(OwnBuilding(), meConditions: new PlayerConditions(1 << 15, 0, 0, 0, 0), meStunFlags: 1 << 6, meStunIndex: 0)
+                with { IdTarget = 55 });
+
+        id.FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("TF_STUN_LOSER_STATE, IsLoserStateStunned (:9966)");
+    }
+
+    [Test]
+    public void CanPickupBuilding_ControlStunned_HidesThePrompt()
+    {
+        TfMainTargetId id = Thought(
+            Playing(OwnBuilding(), meConditions: new PlayerConditions(1 << 15, 0, 0, 0, 0), meStunFlags: 1 << 1, meStunIndex: 0)
+                with { IdTarget = 55 });
+
+        id.FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("TF_STUN_CONTROLS, IsControlStunned (:9952)");
+    }
+
+    [Test]
+    public void CanPickupBuilding_StunnedButNoActiveStunIndex_ShowsThePrompt()
+    {
+        // `GetActiveStunInfo()` on the client is null unless `m_iStunIndex >= 0` (:7474-7475) — the flag bits alone,
+        // without an active index, mean nothing is currently stunning.
+        TfMainTargetId id = Thought(
+            Playing(OwnBuilding(), meConditions: new PlayerConditions(1 << 15, 0, 0, 0, 0), meStunFlags: 1 << 1, meStunIndex: -1)
+                with { IdTarget = 55 });
+
+        id.FindChildByName("MoveableSubPanel")!.Visible.ShouldBeTrue();
+    }
+
+    [Test]
+    public void CanPickupBuilding_AlwaysLoserConVar_HidesThePrompt()
+    {
+        TfMainTargetId id = Thought(Playing(OwnBuilding()) with { IdTarget = 55, AlwaysLoser = true });
+
+        id.FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("tf_always_loser.GetBool(), the first line of IsLoser (:13656)");
+    }
+
+    [Test]
+    public void CanPickupBuilding_LostTheRound_HidesThePrompt()
+    {
+        HudState state = Playing(OwnBuilding()) with
+        {
+            IdTarget = 55,
+            RoundState = 5, // GR_STATE_TEAM_WIN.
+            Rules = new SceneGameRules(false, 0, false) { WinningTeam = 3 }, // Local is team 2 (RED); BLU won.
+        };
+
+        Thought(state).FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse(
+            "GetWinningTeam() != GetTeamNumber() (:13671) — and independently, the round-state gate (:12452) at GR_STATE_TEAM_WIN");
+    }
+
+    [Test]
+    public void CanPickupBuilding_WonInCompetitiveDuringTeamWin_HidesThePromptRegardlessOfIsLoser()
+    {
+        // A genuine finding, not a guess: `IsLoser`'s `WinningTeam` compare (:13671) only runs when
+        // `State_Get() == GR_STATE_TEAM_WIN`, and CanPickupBuilding's OWN round-state gate (:12452) rejects every
+        // pickup during `GR_STATE_TEAM_WIN` regardless of what `IsLoser` returns — so a competitive match (which
+        // bypasses `IsLoser` entirely, :13663) still cannot pick up mid-`GR_STATE_TEAM_WIN`. Ported both gates exactly
+        // as Valve orders them rather than "simplifying" away the one that looks redundant.
+        HudState state = Playing(OwnBuilding()) with
+        {
+            IdTarget = 55,
+            RoundState = 5, // GR_STATE_TEAM_WIN.
+            Rules = new SceneGameRules(false, 0, false) { MatchGroup = 2, WinningTeam = 2 }, // Local's own team WON.
+        };
+
+        Thought(state).FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void CanPickupBuilding_AutoFiresFullClipWithAmmoInTheClip_HidesThePrompt()
+    {
+        SceneItem weapon = new(9, "CTFRocketLauncher", null, new EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
+        HudState state = Playing(OwnBuilding(), meItems: [weapon], meActiveWeapon: 9, meWeaponClip1: 4) with { IdTarget = 55 };
+
+        Thought(state, (_, _, attributeClass, value) => attributeClass == "auto_fires_full_clip" ? 1f : value)
+            .FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("\"There's ammo in the clip... no switching away!\" (:12461-12462)");
+    }
+
+    [Test]
+    public void CanPickupBuilding_AutoFiresFullClipButTheClipIsEmpty_ShowsThePrompt()
+    {
+        SceneItem weapon = new(9, "CTFRocketLauncher", null, new EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
+        HudState state = Playing(OwnBuilding(), meItems: [weapon], meActiveWeapon: 9, meWeaponClip1: 0) with { IdTarget = 55 };
+
+        Thought(state, (_, _, attributeClass, value) => attributeClass == "auto_fires_full_clip" ? 1f : value)
+            .FindChildByName("MoveableSubPanel")!.Visible.ShouldBeTrue("Clip1() > 0 is false at zero");
+    }
+
+    [Test]
+    public void CanPickupBuilding_TeleportingPickupInTheDeadzone_HidesThePrompt()
+    {
+        // 200 units: beyond TF_BUILDING_PICKUP_RANGE (150) but under TF_BUILDING_RESCUE_MIN_RANGE_SQ's root (250).
+        SceneItem weapon = new(9, "CTFWeaponMedigun", null, new EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
+        HudState state = Playing(OwnBuilding() with { Position = (200f, 0f, 0f) }, meItems: [weapon], meActiveWeapon: 9)
+            with { IdTarget = 55 };
+
+        Thought(state, (_, _, attributeClass, value) => attributeClass == "building_teleporting_pickup" ? 20f : value)
+            .FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("\"False on deadzone\" (:12486)");
+    }
+
+    [Test]
+    public void CanPickupBuilding_TeleportingPickupBeyondTheDeadzoneWithEnoughMetal_ShowsThePrompt()
+    {
+        SceneItem weapon = new(9, "CTFWeaponMedigun", null, new EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
+        HudState state = Playing(OwnBuilding() with { Position = (300f, 0f, 0f) }, meItems: [weapon], meActiveWeapon: 9)
+            with { IdTarget = 55 };
+        state = state with { Players = [state.Players![0] with { Ammo = [0, 0, 0, 100] }] };
+
+        Thought(state, (_, _, attributeClass, value) => attributeClass == "building_teleporting_pickup" ? 20f : value)
+            .FindChildByName("MoveableSubPanel")!.Visible.ShouldBeTrue("beyond the deadzone with metal >= the attribute's cost");
+    }
+
+    [Test]
+    public void CanPickupBuilding_TeleportingPickupBeyondTheDeadzoneWithoutEnoughMetal_HidesThePrompt()
+    {
+        SceneItem weapon = new(9, "CTFWeaponMedigun", null, new EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
+        HudState state = Playing(OwnBuilding() with { Position = (300f, 0f, 0f) }, meItems: [weapon], meActiveWeapon: 9)
+            with { IdTarget = 55 };
+        state = state with { Players = [state.Players![0] with { Ammo = [0, 0, 0, 5] }] };
+
+        Thought(state, (_, _, attributeClass, value) => attributeClass == "building_teleporting_pickup" ? 20f : value)
+            .FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("metal (5) is under the attribute's cost (20)");
+    }
+
+    [Test]
+    public void CanPickupBuilding_TrainingConVarFalse_HidesThePrompt()
+    {
+        HudState state = Playing(OwnBuilding()) with
+        {
+            IdTarget = 55,
+            Rules = new SceneGameRules(false, 0, false) { InTraining = true },
+            TrainingCanPickupDispenser = false,
+        };
+
+        Thought(state).FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("training_can_pickup_dispenser 0");
+    }
+
+    [Test]
+    public void CanPickupBuilding_TrainingConVarTrue_ShowsThePrompt()
+    {
+        HudState state = Playing(OwnBuilding()) with
+        {
+            IdTarget = 55,
+            Rules = new SceneGameRules(false, 0, false) { InTraining = true },
+            TrainingCanPickupDispenser = true,
+        };
+
+        Thought(state).FindChildByName("MoveableSubPanel")!.Visible.ShouldBeTrue();
+    }
+
+    [Test]
     public void PerformLayout_ThePromptVisible_AddsItsWidthToThePanel()
     {
         TfMainTargetId shown = Thought(Playing(OwnBuilding()) with { IdTarget = 55, BuildingPickupKey = "MOUSE2" });
@@ -204,23 +359,39 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
     };
 
     private static HudState Playing(
-        SceneBuilding building, bool meAlive = true, bool meCarrying = false, PlayerConditions meConditions = default) =>
+        SceneBuilding building, bool meAlive = true, bool meCarrying = false, PlayerConditions meConditions = default,
+        int? meStunFlags = null, int? meStunIndex = null, int? meDisguiseClass = null, int? meDisguiseTeam = null,
+        IReadOnlyList<SceneItem>? meItems = null, int meActiveWeapon = 0, int? meWeaponClip1 = null) =>
         new(true, true, 0, 100, true, CurTime: 1f, Team: 2, ObserverMode: ObserverModes.None, LocalIndex: 1, PlayerClass: 3,
             RoundState: 4, // GR_STATE_RND_RUNNING.
-            Players: [new(1, 0f, 0f, 0f, 2, 100, 3, LifeState: meAlive ? 0 : 1, Conditions: meConditions) { CarryingObject = meCarrying }],
+            Players:
+            [
+                new(1, 0f, 0f, 0f, 2, 100, 3, LifeState: meAlive ? 0 : 1, Conditions: meConditions,
+                    DisguiseClass: meDisguiseClass, DisguiseTeam: meDisguiseTeam, ActiveWeapon: meActiveWeapon)
+                {
+                    CarryingObject = meCarrying,
+                    StunFlags = meStunFlags,
+                    StunIndex = meStunIndex,
+                    Items = meItems,
+                    WeaponClip1 = meWeaponClip1,
+                },
+            ],
             Names: new Dictionary<int, string> { [1] = "Me" },
             Buildings: [building]);
 
-    private static TfMainTargetId Thought(HudState state)
+    private static TfMainTargetId Thought(HudState state) => Thought(state, weaponAttribute: null);
+
+    private static TfMainTargetId Thought(
+        HudState state, Func<ScenePlayer, SceneItem, string, float, float>? weaponAttribute)
     {
-        TfMainTargetId id = Built();
+        TfMainTargetId id = Built(weaponAttribute);
 
         ((HudViewport)id.Parent!).Think(state);
         id.Visible.ShouldBeTrue();
         return id;
     }
 
-    private static TfMainTargetId Built()
+    private static TfMainTargetId Built(Func<ScenePlayer, SceneItem, string, float, float>? weaponAttribute = null)
     {
         Dictionary<string, byte[]> files = new()
         {
@@ -290,6 +461,7 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
             Context = context,
             Scripts = new TfWeaponData(files.GetValueOrDefault),
             Icons = HudTextures.Load(context),
+            WeaponAttribute = weaponAttribute,
         };
         TfMainTargetId id = new(viewport);
 
