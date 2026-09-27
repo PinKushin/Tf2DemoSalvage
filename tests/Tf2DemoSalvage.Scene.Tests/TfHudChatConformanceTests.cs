@@ -83,6 +83,43 @@ public sealed class TfHudChatConformanceTests
     }
 
     [Test]
+    public void SayText2_WantsToChat_PlaysHudChatMessage()
+    {
+        TfHudChat chat = Built();
+        List<string> sounds = [];
+
+        chat.SoundEmitter = sounds.Add;
+        chat.HandleUserMessage(SayText2(2, true, "TF_Chat_All", "Blue", "hi"), State());
+
+        sounds.ShouldBe(["HudChat.Message"]);
+    }
+
+    [Test]
+    public void SayText2_AServerString_PlaysNoSound()
+    {
+        // `wantsToChat` false: only the `ChatPrintf`/sound pair inside that branch runs (hud_basechat.cpp:858).
+        TfHudChat chat = Built();
+        List<string> sounds = [];
+
+        chat.SoundEmitter = sounds.Add;
+        chat.HandleUserMessage(Message(SceneUserMessage.SayText2, [2, 0], "#game_joined", "Blue", string.Empty, string.Empty, string.Empty), State());
+
+        sounds.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void SayText_APlayersLine_PlaysHudChatMessage()
+    {
+        TfHudChat chat = Built();
+        List<string> sounds = [];
+
+        chat.SoundEmitter = sounds.Add;
+        chat.HandleUserMessage(Message(SceneUserMessage.SayText, [2], "hi", [1]), State());
+
+        sounds.ShouldBe(["HudChat.Message"]);
+    }
+
+    [Test]
     public void HltvChat_TheEvent_IsTheLocalPlayersSourceTvLine()
     {
         TfHudChat chat = Built();

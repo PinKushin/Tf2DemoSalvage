@@ -25,7 +25,11 @@ public enum TfStreakType
 /// registered HUD element, so `CHud::Think` never asks its `ShouldDraw` and it shows and hides itself. Its clock is
 /// `gpGlobals->realtime`, not the demo's. `cl_hud_killstreak_display_time` 3, `…_fontsize` 0 and `…_alpha` 120 are the
 /// convar defaults (:53). A string's `\x01`–`\x03` mark where the text turns normal, team and second colour.
-/// **Not ported:** the `Game.KillStreak` sound when the local player's streak grows.
+/// **One sound name for every streak type, and that is Valve's own dead code rather than a gap here**:
+/// `pszSoundName` defaults to `"Game.KillStreak"` (:399) and every tier- and type-specific override after it —
+/// `"Announcer.DuckStreak_Level…"`, `"Announcer.KillStreak_Level…"` — is commented out (:290–305, :450–472), so the
+/// shipped client plays `Game.KillStreak` for a duck streak exactly as it does for a kill streak. Gated only on
+/// `iLocalPlayerIndex == iKillerID` (:534), with no type test at all.
 /// **ponytail:** made once, where the game makes a new one each time the death notice's scheme is applied and leaves the
 /// last one fading; only a resolution change mid-banner differs.
 /// </remarks>
@@ -73,6 +77,9 @@ public sealed class TfStreakNotice : VguiEditablePanel
 
     /// <summary>`m_nCurrStreakType`.</summary>
     public TfStreakType CurrentStreakType { get; private set; }
+
+    /// <summary>Plays a `game_sounds.txt` script — see <see cref="HudSoundEmitter"/>.</summary>
+    public HudSoundEmitter? SoundEmitter { get; set; }
 
     /// <summary>The label's text, the colour marks included.</summary>
     public string Text => _label.Text;
@@ -195,6 +202,13 @@ public sealed class TfStreakNotice : VguiEditablePanel
             format, 256, Truncate(fired.PlayerName(player)), streak.ToString(CultureInfo.InvariantCulture));
 
         SetText(text, TeamColor(fired.Team(player)), custom);
+
+        // "Play Local Sound" (:531): `Game.KillStreak` for every streak type — see the remarks above.
+        if (player == fired.LocalPlayerIndex)
+        {
+            SoundEmitter?.Invoke("Game.KillStreak");
+        }
+
         _lastMessageTime = realTime + (tier / 2.0f);
         Visible = true;
     }

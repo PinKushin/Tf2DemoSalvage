@@ -7103,6 +7103,17 @@ internal class MainForm : Form, IFrameSteps
 
         _vguiHud.Viewport.Scripts = _hudScripts;
         _vguiHud.Crosshair.Settings = _settings.Crosshair;
+        _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
+        _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
+        _vguiHud.DeathNotice.NoticeTime = _settings.HudDeathNoticeTime;
+        _vguiHud.Chat.SayTextTime = _settings.SayTextTime;
+        _vguiHud.Chat.FilterFlags = _settings.ChatFilters;
+
+        if (_vguiHud.DeathNotice.Streak is { } streak)
+        {
+            (streak.DisplayTime, streak.FontSize, streak.DisplayAlpha) =
+                (_settings.KillStreakDisplayTime, _settings.KillStreakDisplayFontSize, _settings.KillStreakDisplayAlpha);
+        }
 
         // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
         // eye, where `GetFOV` follows the HLTV camera's target.
@@ -7357,6 +7368,19 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
+
+    /// <summary>
+    /// Wired into the HUD as its <c>HudSoundEmitter</c>: resolves a `game_sounds.txt` name the same way a world sound
+    /// does (<see cref="HudSounds"/>) and hands it to the presenter, at the current tick, from the local player.
+    /// </summary>
+    /// <param name="scriptName">The script the HUD element asked for.</param>
+    private void PlayHudSound(string scriptName)
+    {
+        if (_sound.Scripts is { } scripts && HudSounds.Emit(_transport.CurrentTick, scriptName, scripts.Entries) is { } sound)
+        {
+            _sound.Emit(sound);
+        }
+    }
 
     /// <summary>The registered game systems, told about every level load and teardown.</summary>
     /// <remarks>

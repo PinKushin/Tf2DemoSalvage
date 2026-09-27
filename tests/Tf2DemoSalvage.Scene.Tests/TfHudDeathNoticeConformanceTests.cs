@@ -66,6 +66,70 @@ public sealed class TfHudDeathNoticeConformanceTests
     }
 
     [Test]
+    public void HandleGameEvent_ADominationByTheRecorder_PlaysGameDomination()
+    {
+        Fed(Death(attacker: 11, victim: 14, weapon: "scattergun", deathFlags: 0x0001), out List<string> sounds);
+
+        sounds.ShouldBe(["Game.Domination"]);
+    }
+
+    [Test]
+    public void HandleGameEvent_ADominationOfTheRecorder_PlaysGameNemesis()
+    {
+        Fed(Death(attacker: 12, victim: 11, weapon: "scattergun", deathFlags: 0x0001), out List<string> sounds);
+
+        sounds.ShouldBe(["Game.Nemesis"]);
+    }
+
+    [Test]
+    public void HandleGameEvent_ARevengeKillNotInvolvingTheRecorder_PlaysNoSound()
+    {
+        Fed(Death(attacker: 12, victim: 13, weapon: "scattergun", deathFlags: 0x0001), out List<string> sounds);
+
+        sounds.ShouldBeEmpty("neither side is the local player, so `PlayRivalrySounds` returns before naming a sound");
+    }
+
+    [Test]
+    public void HandleGameEvent_ARevengeKillByTheRecorder_PlaysGameRevenge()
+    {
+        Fed(Death(attacker: 11, victim: 14, weapon: "scattergun", deathFlags: 0x0004), out List<string> sounds);
+
+        sounds.ShouldBe(["Game.Revenge"]);
+    }
+
+    [Test]
+    public void HandleGameEvent_APenetrationKill_PlaysGamePenetrationKill()
+    {
+        Fed(Death(attacker: 12, victim: 14, weapon: "sniperrifle", penetrateCount: 1), out List<string> sounds);
+
+        sounds.ShouldBe(["Game.PenetrationKill"]);
+    }
+
+    [Test]
+    public void HandleGameEvent_APenetrationKillInMannVsMachine_PlaysNoSound()
+    {
+        Fed(Death(attacker: 12, victim: 14, weapon: "sniperrifle", penetrateCount: 1, rules: new SceneGameRules(true, 0, false)), out List<string> sounds);
+
+        sounds.ShouldBeEmpty("`bPenetrateSound` is forced false in MvM (tf_hud_deathnotice.cpp:887)");
+    }
+
+    [Test]
+    public void HandleGameEvent_AFifthKillByTheRecorder_PlaysGameKillStreak()
+    {
+        Fed(Death(attacker: 11, victim: 14, weapon: "scattergun", killStreakTotal: 5), out List<string> sounds);
+
+        sounds.ShouldBe(["Game.KillStreak"]);
+    }
+
+    [Test]
+    public void HandleGameEvent_AFifthKillByAnotherPlayer_PlaysNoSound()
+    {
+        Fed(Death(attacker: 12, victim: 14, weapon: "scattergun", killStreakTotal: 5), out List<string> sounds);
+
+        sounds.ShouldBeEmpty("`iLocalPlayerIndex == iKillerID` gates the streak sound (tf_hud_deathnotice.cpp:534)");
+    }
+
+    [Test]
     public void HandleGameEvent_AFall_IsSelfInflictedWithTheFallText()
     {
         DeathNoticeItem notice = Fed(Death(attacker: 0, victim: 14, weapon: "world", damageBits: 1 << 5)).Notices[0];
@@ -274,8 +338,19 @@ public sealed class TfHudDeathNoticeConformanceTests
         return feed;
     }
 
+    private static void Fed(HudGameEvent fired, out List<string> sounds)
+    {
+        TfHudDeathNotice feed = Feed();
+        List<string> heard = [];
+
+        feed.SoundEmitter = heard.Add;
+        feed.HandleGameEvent(fired);
+        sounds = heard;
+    }
+
     private static HudGameEvent Death(
-        int attacker, int victim, string weapon, int assister = -1, int deathFlags = 0, int damageBits = 0, int killStreakTotal = 0, int killStreakVictim = 0) =>
+        int attacker, int victim, string weapon, int assister = -1, int deathFlags = 0, int damageBits = 0, int killStreakTotal = 0,
+        int killStreakVictim = 0, int penetrateCount = 0, SceneGameRules rules = default) =>
         Fire("player_death", new()
         {
             ["userid"] = victim,
@@ -286,7 +361,8 @@ public sealed class TfHudDeathNoticeConformanceTests
             ["damagebits"] = damageBits,
             ["kill_streak_total"] = killStreakTotal,
             ["kill_streak_victim"] = killStreakVictim,
-        });
+            ["playerpenetratecount"] = penetrateCount,
+        }, rules);
 
     private static HudGameEvent Fire(string name, Dictionary<string, object?> values, SceneGameRules rules = default)
     {
