@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -37,7 +38,9 @@ public sealed class TfPlayerModelPanelConformanceTests
                 "142" { "name" "set item tint rgb" }
                 "261" { "name" "set item tint rgb 2" }
                 "1000" { "name" "player skin override" }
+                "134" { "name" "attach particle effect" }
             }
+            "attribute_controlled_attached_particles" { "cosmetic_unusual_effects" { "13" { "system" "superrare_burning1" } } }
         }
         """;
 
@@ -182,6 +185,69 @@ public sealed class TfPlayerModelPanelConformanceTests
         panel.MergeMdls.ShouldHaveSingleItem().Path.ShouldBe(Scattergun);
     }
 
+    /// <summary>A system that emits every step, drawn as sprites, with no material key — the materials' "" entry.</summary>
+    private static ParticleSystem System(string name) => new(
+        name,
+        [new ParticleFunction("emit_continuously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal) { ["emission_rate"] = new DmxValue(DmxAttributeType.Real, 66d) })],
+        [new ParticleFunction("Lifetime Random", "life", new Dictionary<string, DmxValue>(StringComparer.Ordinal) { ["lifetime_min"] = new DmxValue(DmxAttributeType.Real, 1d), ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 1d) })],
+        [],
+        [new ParticleFunction("render_animated_sprites", "draw", new Dictionary<string, DmxValue>(StringComparer.Ordinal))],
+        [],
+        new Dictionary<string, DmxValue>(StringComparer.Ordinal));
+
+    private static void GiveParticles(TfPlayerModelPanel panel, params string[] names)
+    {
+        Dictionary<string, ParticleSystem> systems = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string name in names)
+        {
+            systems[name] = System(name);
+        }
+
+        panel.ParticleSystems = systems;
+        panel.ParticleMaterials = new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase)
+        {
+            [string.Empty] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
+        };
+        panel.FrameTime = 1f / 66f;
+        panel.ApplySettings(KeyValuesTree.Load(Encoding.UTF8.GetBytes("r { }"), "r.res", _ => null), VguiModelPanelConformanceTests.Context());
+    }
+
+    [Test]
+    public void SetEyeGlowEffect_WithAnEyeglowAttachment_RendersTheGlowThere()
+    {
+        (TfPlayerModelPanel panel, _) = Panel(ScoutModel, Scattergun);
+        GiveParticles(panel, "killstreak_t1_lvl1", "killstreak_t0_lvl1_flash");
+        panel.SetToPlayerClass(1);
+
+        // tf_hud_playerstatus.cpp:400 hands over the effect and colors; UpdateEyeGlows builds it at eyeglow_R (:1731-1783).
+        panel.SetEyeGlowEffect("killstreak_t1_lvl1", Vector3.One, Vector3.UnitX, forceUpdate: true, playSparks: true);
+
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        panel.ParticleSystemNames[6].ShouldBe("killstreak_t1_lvl1", "SYSTEM_EYEGLOW_RIGHT");
+        panel.ParticleSystemNames[8].ShouldBe("killstreak_t0_lvl1_flash", "SYSTEM_EYESPARK_RIGHT: sparks with a non-zero color 1 (:1759)");
+        panel.ParticleSystemNames[5].ShouldBeNull("no eyeglow_L on this model (:1732)");
+        surface.Particles.ShouldHaveSingleItem().ShouldNotBeEmpty("PostPaint3D renders them after the models (basemodel_panel.cpp:904-912)");
+    }
+
+    [Test]
+    public void RenderingMergedModel_AnUnusualHat_RunsItsAttachedParticle()
+    {
+        (TfPlayerModelPanel panel, _) = Panel(ScoutModel, Scattergun, Hat);
+        GiveParticles(panel, "superrare_burning1");
+
+        panel.SetToPlayerClass(1);
+        panel.AddCarriedItem(Item(13));
+        panel.AddCarriedItem(Item(51, new EconAttributeValue(134, BitConverter.SingleToInt32Bits(13f))));
+        panel.HoldItemInSlot(ItemSchema.LoadoutSlotPrimary);
+
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
+
+        panel.ParticleSystemNames[0].ShouldBe("superrare_burning1", "SYSTEM_HEAD: a misc item matches the HEAD row first (:1439)");
+    }
+
     /// <summary>Models by path with the activities the panel asks for, and bodygroups as radix-16 digits.</summary>
     private sealed class FakeCache(IEnumerable<string> loaded) : IMdlCache
     {
@@ -189,12 +255,26 @@ public sealed class TfPlayerModelPanelConformanceTests
 
         public void Load(string path) => _loaded.Add(path);
 
-        public PropModels.ModelFrames? FindMdl(string path) =>
-            _loaded.Contains(path)
-                ? new PropModels.ModelFrames(
-                    [], new Dictionary<int, (int, int, float)>(), [], [],
-                    Skinned: SyntheticSkinnedModel.WithActivities(("stand_primary", "ACT_MP_STAND_PRIMARY"), ("stand_secondary", "ACT_MP_STAND_SECONDARY")))
+        public PropModels.ModelFrames? FindMdl(string path)
+        {
+            if (!_loaded.Contains(path))
+            {
+                return null;
+            }
+
+            IReadOnlyList<StudioAttachment>? attachments = path == ScoutModel
+                ? [new StudioAttachment("eyeglow_R", 0u, 0, [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 64f])]
                 : null;
+
+            // One bone, `bip_head`, so an attachment and a particle's default bone have something to hang from.
+            PropModels.SkinnedModel activities = SyntheticSkinnedModel.WithActivities(
+                ("stand_primary", "ACT_MP_STAND_PRIMARY"), ("stand_secondary", "ACT_MP_STAND_SECONDARY"));
+
+            return new PropModels.ModelFrames(
+                [], new Dictionary<int, (int, int, float)>(), [], [],
+                Skinned: SyntheticSkinnedModel.WithBones("bip_head") with { Sequences = activities.Sequences, Groups = activities.Groups },
+                Attachments: attachments);
+        }
 
         public int FindBodygroup(string modelPath, string group) => group switch
         {

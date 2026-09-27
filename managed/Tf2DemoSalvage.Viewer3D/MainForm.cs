@@ -7172,6 +7172,8 @@ internal class MainForm : Form, IFrameSteps
 
         _vguiHud.Viewport.Scripts = _hudScripts;
         _vguiHud.Viewport.ClassModels = _game.Classes;
+        _vguiHud.Viewport.ParticleSystems = _loaded?.Assets?.ParticleSystemsByName;
+        _vguiHud.Viewport.ParticleMaterials = _loaded?.Assets?.ParticleMaterials;
 
         // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
         // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is passed: `Precache` re-reads

@@ -877,6 +877,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 urine: instance.Urine);
         }
 
+        // `CBaseModelPanel::PostPaint3D` renders the panel's particles after its models, under its camera
+        // (basemodel_panel.cpp:904-912).
+        _panelParticles.Clear();
+        Drawable(draw.Particles ?? [], _panelParticles);
+        DrawParticleBatches(_panelParticles, draw.Camera);
+
         // `End3DPaint`: the HUD's own viewport, depth off, and the world's camera constant back for next frame.
         Viewport whole = new(0f, 0f, _width, _height, 0f, 1f);
 
@@ -1816,7 +1822,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         ArgumentNullException.ThrowIfNull(batches);
 
         _particleBatches.Clear();
+        Drawable(batches, _particleBatches);
+    }
 
+    /// <summary>Each batch with corners and a sheet, its sheet uploaded once, into <paramref name="into"/>.</summary>
+    private void Drawable(
+        IReadOnlyList<ParticleBatch> batches,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, IReadOnlyList<DetailSpriteVertex> Corners)> into)
+    {
         foreach (ParticleBatch batch in batches)
         {
             if (batch.Corners.Count == 0 || batch.Material.Sheet is not { } sheet)
@@ -1833,7 +1846,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 _particleSheets[sheet] = view;
             }
 
-            _particleBatches.Add((view, batch.Material.Blend, batch.Corners));
+            into.Add((view, batch.Material.Blend, batch.Corners));
         }
     }
 
@@ -1847,9 +1860,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// **One renderer reused across them**, because the corners are re-uploaded per batch anyway and
     /// a renderer per material would mean a shader and a layout per material for no gain.
     /// </remarks>
-    private void DrawParticleBatches(float[] viewProjection)
+    private void DrawParticleBatches(float[] viewProjection) => DrawParticleBatches(_particleBatches, viewProjection);
+
+    /// <summary>Draws the given batches under one camera — the world's, or a model panel's.</summary>
+    private void DrawParticleBatches(
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, IReadOnlyList<DetailSpriteVertex> Corners)> batches,
+        float[] viewProjection)
     {
-        if (_particleBatches.Count == 0)
+        if (batches.Count == 0)
         {
             return;
         }
@@ -1858,7 +1876,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         foreach ((ComPtr<ID3D11ShaderResourceView> sheet,
                   SpriteBlend blend,
-                  IReadOnlyList<DetailSpriteVertex> corners) in _particleBatches)
+                  IReadOnlyList<DetailSpriteVertex> corners) in batches)
         {
             _particleSprites.SetSheet(sheet);
             _particleSprites.SetBlend(blend);
@@ -1871,6 +1889,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     /// <summary>One uploaded texture per particle material, kept for the map's lifetime.</summary>
     private readonly Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> _particleSheets = [];
+
+    /// <summary>One model panel's batches, reused.</summary>
+    private readonly List<(
+        ComPtr<ID3D11ShaderResourceView> Sheet,
+        SpriteBlend Blend,
+        IReadOnlyList<DetailSpriteVertex> Corners)> _panelParticles = [];
 
     /// <summary>This frame's batches, reused so a frame costs no allocation.</summary>
     private readonly List<(

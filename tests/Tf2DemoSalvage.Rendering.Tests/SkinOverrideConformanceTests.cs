@@ -76,18 +76,16 @@ public sealed class SkinOverrideConformanceTests
 
         player.ShouldContain("AdjustSkinIndexForZombie( m_iClass, m_nSkin )");
 
-        // The gap, with its control, so this marker fails when the override lands (D45).
-        SchemaGap.AnyProductionAssemblyMentions(SchemaGap.KnownPresent).ShouldBeTrue(
-            "the search cannot find a name that is demonstrably compiled in");
-
-        SchemaGap.AnyProductionAssemblyMentions("Zombie").ShouldBeFalse(
-            "a zombie skin path now exists — replace this marker with a parity test, and check it "
-            + "is per CLASS rather than one shared index");
+        // **The port, per class** (c_tf_player.cpp:7731-7749): the spy's mask skins take +22, every other class +4.
+        // It landed with the HUD's class model panel (tf_playermodelpanel.cpp:1257), which is its first caller.
+        player.ShouldContain("iSkinIndex += 22;");
+        Scene.Hud.TfPlayerModelPanel.AdjustSkinIndexForZombie(8, 1).ShouldBe(23, "a BLU spy");
+        Scene.Hud.TfPlayerModelPanel.AdjustSkinIndexForZombie(3, 0).ShouldBe(4, "a RED soldier");
+        Scene.Hud.TfPlayerModelPanel.AdjustSkinIndexForZombie(6, 1).ShouldBe(5, "a BLU heavy");
 
         Assert.Ignore(
-            "the zombie skin override is not implemented. AdjustSkinIndexForZombie rewrites the " +
-            "skin per CLASS (c_tf_player.cpp:725), so Halloween players draw in their ordinary " +
-            "team skin here.");
+            "world players do not apply it yet: c_tf_player.cpp:725 gates it on BRenderAsZombie(), which is not " +
+            "ported, so Halloween players draw in their ordinary team skin in the world.");
     }
 
     [Test]

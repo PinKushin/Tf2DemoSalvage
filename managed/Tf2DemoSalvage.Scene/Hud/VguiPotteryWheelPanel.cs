@@ -115,15 +115,6 @@ public abstract class VguiPotteryWheelPanel : VguiEditablePanel
     {
         ArgumentNullException.ThrowIfNull(surface);
 
-        List<ModelInstance> models = [];
-
-        OnPaint3D(models);
-
-        if (models.Count == 0)
-        {
-            return;
-        }
-
         ((float X, float Y, float Z) origin, (float Pitch, float Yaw, float Roll) angles) =
             ComputeCameraTransform(pivotOrigin, pivotAngles, offset);
 
@@ -137,13 +128,27 @@ public abstract class VguiPotteryWheelPanel : VguiEditablePanel
             Aspect = Tall > 0 ? (float)Wide / Tall : 1f,
         };
 
-        surface.Paint3D(0, 0, Wide, Tall, camera.ToMatrix(), models);
+        (_, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = camera.Basis();
+
+        VguiRenderContext renderContext = new(
+            new System.Numerics.Vector3(origin.X, origin.Y, origin.Z),
+            new System.Numerics.Vector3(right.X, right.Y, right.Z),
+            new System.Numerics.Vector3(up.X, up.Y, up.Z));
+
+        OnPaint3D(renderContext);
+
+        if (renderContext.Models.Count == 0)
+        {
+            return;
+        }
+
+        surface.Paint3D(0, 0, Wide, Tall, camera.ToMatrix(), renderContext.Models, renderContext.Particles);
     }
 
     /// <summary><c>virtual void OnPaint3D() = 0</c> (<c>potterywheelpanel.h:88</c>): draw the scene. Here, add what
     /// would be drawn to <paramref name="renderContext"/>, which <see cref="Paint"/> hands to the surface in one call.</summary>
-    /// <param name="renderContext">The models drawn this frame, in draw order.</param>
-    protected abstract void OnPaint3D(IList<ModelInstance> renderContext);
+    /// <param name="renderContext">The models and particles drawn this frame, and the camera they are drawn under.</param>
+    protected abstract void OnPaint3D(VguiRenderContext renderContext);
 
     /// <summary>
     /// <c>ParseLightsFromKV</c> (<c>potterywheelpanel.cpp:392-460</c>), all three kinds: the first <c>directional</c>

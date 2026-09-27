@@ -296,6 +296,9 @@ public readonly record struct ScenePlayer(
     /// <summary>The item <see cref="DisguiseWeapon"/> is, or null for none or unsent.</summary>
     public SceneItem? DisguiseWeaponItem { get; init; }
 
+    /// <summary>`m_Shared.m_iDecapitations` (tf_player_shared.cpp:558, sent to everyone): the Eyelander's heads, or null.</summary>
+    public int? Decapitations { get; init; }
+
     /// <summary>
     /// `m_vecVelocity` (player.cpp:8140-8142, `DT_LocalPlayerExclusive`): the recorder's own velocity, which is its
     /// `GetAbsVelocity` on the client; null for anyone else.
@@ -3162,6 +3165,7 @@ public sealed class DemoTimeline
                     CloakMeter = player.Number("DT_TFPlayerShared.m_flCloakMeter"),
                     DisguiseWeapon = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseWeapon")),
                     DisguiseWeaponItem = DisguiseWeaponItem(player, entities),
+                    Decapitations = player.Integer("DT_TFPlayerShared.m_iDecapitations"),
                     Velocity = player.Number("DT_LocalPlayerExclusive.m_vecVelocity[0]") is { } velocityX
                         ? (velocityX,
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,

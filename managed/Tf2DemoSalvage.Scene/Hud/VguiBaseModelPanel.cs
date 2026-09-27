@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Scene.Hud;
@@ -45,6 +47,175 @@ public class VguiBaseModelPanel : VguiMdlPanel
         : base(parent, name, mdlCache)
     {
     }
+
+    /// <summary>`particle_data_t` (basemodel_panel.h): one particle collection and whether it was placed this frame.</summary>
+    /// <param name="Effect">`m_pParticleSystem`.</param>
+    public sealed class ParticleData(ParticleEffect Effect)
+    {
+        /// <summary>`m_pParticleSystem`.</summary>
+        public ParticleEffect Effect { get; } = Effect;
+
+        /// <summary>`m_bIsUpdateToDate`.</summary>
+        public bool IsUpdateToDate { get; set; }
+
+        /// <summary>
+        /// `particle_data_t::UpdateControlPoints` (basemodel_panel.cpp:788-821): each attachment's matrix is control point
+        /// i, offset added; with none, the default bone is control point 0.
+        /// </summary>
+        /// <param name="studioHdr">The model the attachments are on.</param>
+        /// <param name="worldMatrix">Its bone-to-world matrices.</param>
+        /// <param name="attachments">Attachment indices, in control point order.</param>
+        /// <param name="defaultBone">The bone used when there are none.</param>
+        /// <param name="particleOffset">Added to every position.</param>
+        public void UpdateControlPoints(
+            PropModels.ModelFrames studioHdr,
+            BoneAccessor worldMatrix,
+            IReadOnlyList<int> attachments,
+            int defaultBone = 0,
+            Vector3 particleOffset = default)
+        {
+            ArgumentNullException.ThrowIfNull(studioHdr);
+            ArgumentNullException.ThrowIfNull(worldMatrix);
+            ArgumentNullException.ThrowIfNull(attachments);
+
+            // The indices came from `Studio_FindAttachment` on this model, so its table holds them.
+            if (attachments.Count > 0)
+            {
+                IReadOnlyList<StudioAttachment> table = studioHdr.Attachments ?? [];
+
+                for (int index = 0; index < attachments.Count && attachments[index] < table.Count; index++)
+                {
+                    StudioAttachment attach = table[attachments[index]];
+
+                    // `MatrixMultiply( pWorldMatrix[ attach.localbone ], attach.local, matAttachToWorld )`.
+                    Place(index, MatrixConvention.Concatenate(worldMatrix.Bone(attach.Bone).ToArray(), attach.Local), particleOffset);
+                }
+            }
+            else if (defaultBone >= 0 && defaultBone < worldMatrix.Count)
+            {
+                Place(0, worldMatrix.Bone(defaultBone).ToArray(), particleOffset);
+            }
+
+            IsUpdateToDate = true;
+        }
+
+        /// <summary>`SetControlPointOrientation` from `MatrixVectors` (forward, right, up) and `SetControlPoint` at the translation.</summary>
+        private void Place(int point, float[] matrix, Vector3 offset)
+        {
+            // matrix3x4_t rows: column 0 forward, column 1 left, column 2 up, column 3 origin (MatrixVectors negates left).
+            Vector3 forward = new(matrix[0], matrix[4], matrix[8]);
+            Vector3 right = new(-matrix[1], -matrix[5], -matrix[9]);
+            Vector3 up = new(matrix[2], matrix[6], matrix[10]);
+            Vector3 position = new Vector3(matrix[3], matrix[7], matrix[11]) + offset;
+
+            Effect.SetControlPoint(point, new ParticleControlPoint(position, forward, right, up));
+        }
+    }
+
+    private readonly List<ParticleData> _particleList = [];
+    private readonly ParticleEffects _particleRenderer = new();
+
+    /// <summary>`m_bUseParticle`: false unless a subclass turns it on (`CTFPlayerModelPanel::ApplySettings`, :192).</summary>
+    protected bool UseParticle { get; set; }
+
+    /// <summary>`g_pParticleSystemMgr`'s definitions, by name; null where no map's particles are loaded.</summary>
+    public IReadOnlyDictionary<string, ParticleSystem>? ParticleSystems { get; set; }
+
+    /// <summary>The particle materials, by normalised name; null where none are loaded.</summary>
+    public IReadOnlyDictionary<string, ParticleMaterial>? ParticleMaterials { get; set; }
+
+    /// <summary>`gpGlobals->frametime`: the game clock's step this frame, 0 while paused.</summary>
+    public float FrameTime { get; set; }
+
+    /// <summary>`m_particleList`, for a test or a diagnostic.</summary>
+    public IReadOnlyList<ParticleData> ParticleList => _particleList;
+
+    /// <summary>`CreateParticleData( name )` (basemodel_panel.cpp:827-844): a collection by name, or null.</summary>
+    /// <param name="particleName">The system's name.</param>
+    /// <returns>The data, or null when particles are off or no such system exists.</returns>
+    protected ParticleData? CreateParticleData(string particleName)
+    {
+        if (!UseParticle || ParticleSystems is not { } systems || !systems.TryGetValue(particleName, out ParticleSystem? system))
+        {
+            return null;
+        }
+
+        ParticleData data = new(new ParticleEffect(system, systems, SheetOf));
+
+        _particleList.Add(data);
+
+        return data;
+    }
+
+    /// <summary>`SafeDeleteParticleData` (basemodel_panel.cpp:850-869): removes it from the list and clears the slot.</summary>
+    /// <param name="data">The slot.</param>
+    /// <returns>Whether it was deleted.</returns>
+    protected bool SafeDeleteParticleData(ref ParticleData? data)
+    {
+        if (!UseParticle || data is null || !_particleList.Remove(data))
+        {
+            return false;
+        }
+
+        data = null;
+
+        return true;
+    }
+
+    /// <summary>`CBaseModelPanel::PrePaint3D` (basemodel_panel.cpp:875-885): every effect marked stale.</summary>
+    /// <inheritdoc/>
+    protected override void PrePaint3D(VguiRenderContext renderContext)
+    {
+        if (!UseParticle)
+        {
+            return;
+        }
+
+        foreach (ParticleData data in _particleList)
+        {
+            data.IsUpdateToDate = false;
+        }
+    }
+
+    /// <summary>`CBaseModelPanel::PostPaint3D` (basemodel_panel.cpp:891-916): each placed effect simulated a frame, then rendered.</summary>
+    /// <inheritdoc/>
+    protected override void PostPaint3D(VguiRenderContext renderContext)
+    {
+        ArgumentNullException.ThrowIfNull(renderContext);
+
+        if (!UseParticle)
+        {
+            return;
+        }
+
+        List<ParticleEffect> rendered = [];
+
+        foreach (ParticleData data in _particleList)
+        {
+            if (data.IsUpdateToDate)
+            {
+                // `Simulate( gpGlobals->frametime )`: control point 0 is where UpdateControlPoints put it.
+                data.Effect.Step(data.Effect.ControlPoint(0), FrameTime);
+                rendered.Add(data.Effect);
+                data.IsUpdateToDate = false;
+            }
+        }
+
+        if (rendered.Count > 0 && ParticleMaterials is { } materials)
+        {
+            foreach (ParticleBatch batch in _particleRenderer.Build(rendered, renderContext.Eye, renderContext.Right, renderContext.Up, materials))
+            {
+                renderContext.Particles.Add(batch with { Corners = [.. batch.Corners] });
+            }
+        }
+    }
+
+    /// <summary>A collection's `m_Sheet`: its material's sequences, null for none.</summary>
+    private IReadOnlyList<SheetSequence>? SheetOf(ParticleSystem system) =>
+        ParticleMaterials is { } materials && materials.TryGetValue(ParticleEffects.MaterialOf(system), out ParticleMaterial material)
+            && material.Sequences.Count > 0
+            ? material.Sequences
+            : null;
 
     /// <summary><c>ACT_IDLE</c> (ai_activity.h): 1, which <c>SetMDL</c> passes to <c>SetSequence</c> as a SEQUENCE
     /// index (basemodel_panel.cpp:309).</summary>

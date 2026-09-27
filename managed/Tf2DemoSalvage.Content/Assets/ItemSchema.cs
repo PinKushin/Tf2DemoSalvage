@@ -311,6 +311,29 @@ public sealed class ItemSchema
     /// <summary>The <c>colors</c> section: each definition's <c>color_name</c> (econ_item_schema.cpp:357).</summary>
     private readonly Dictionary<string, string> _colorNames = new(StringComparer.Ordinal);
 
+    private const string ParticlesSection = "attribute_controlled_attached_particles";
+
+    /// <summary>`m_mapAttributeControlledParticleSystems` by id, and in file order for the by-name search.</summary>
+    private readonly Dictionary<int, AttributeParticleSystem> _particleSystems = [];
+
+    private readonly List<AttributeParticleSystem> _particleOrder = [];
+
+    /// <summary>`GetAttributeControlledParticleSystem( id )` (econ_item_schema.cpp:6850), or null.</summary>
+    /// <param name="id">The system's index — an unusual effect's value, or a killstreak eye's.</param>
+    /// <returns>The system, or null.</returns>
+    public AttributeParticleSystem? AttributeControlledParticleSystem(int id) => _particleSystems.GetValueOrDefault(id);
+
+    /// <summary>`FindAttributeControlledParticleSystem( name )` (econ_item_schema.cpp:6858): the first by name, case ignored.</summary>
+    /// <param name="systemName">The particle system's name.</param>
+    /// <returns>The system, or null.</returns>
+    public AttributeParticleSystem? FindAttributeControlledParticleSystem(string systemName) =>
+        _particleOrder.Find(each => string.Equals(each.SystemName, systemName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>`GetParticleSuffix()`: `particle_suffix` (econ_item_schema.cpp:3268), or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The suffix, or null.</returns>
+    public string? ParticleSuffix(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("particle_suffix"));
+
     /// <summary>`m_vecItemLevelingData`: each `item_levels` block's levels, in file order (econ_item_schema.cpp:6178).</summary>
     private readonly Dictionary<string, List<(uint Level, uint Score)>> _itemLevels = new(StringComparer.OrdinalIgnoreCase);
 
@@ -388,6 +411,7 @@ public sealed class ItemSchema
         ItemStyle? style = null;
         string styleBlock = string.Empty;
         PerClassBlock? perClassBlock = null;
+        AttributeParticleSystem? particle = null;
         string attachedModel = string.Empty;
         string attachedKey = string.Empty;
         int attachedFlags = AttachedModel.MaskAll;
@@ -501,6 +525,24 @@ public sealed class ItemSchema
                     && string.Equals(section, "colors", StringComparison.OrdinalIgnoreCase)
                     && string.Equals(key, "color_name", StringComparison.OrdinalIgnoreCase):
                     read._colorNames[sectionChild] = value;
+                    break;
+
+                // `BInitAttributeControlledParticleSystems` (econ_item_schema.cpp:6126-6149): one system per positive index.
+                case 3 when entry is null && value is null
+                    && string.Equals(section, ParticlesSection, StringComparison.OrdinalIgnoreCase):
+                    particle = GetInt(key, 0) is var id and > 0 ? new AttributeParticleSystem(id) : null;
+
+                    if (particle is not null)
+                    {
+                        read._particleSystems[particle.Id] = particle;
+                        read._particleOrder.Add(particle);
+                    }
+
+                    break;
+
+                case 4 when entry is null && value is not null && particle is not null
+                    && string.Equals(section, ParticlesSection, StringComparison.OrdinalIgnoreCase):
+                    particle.Apply(key, value);
                     break;
 
                 // `CItemLevelingDefinition::BInitFromKV` (econ_item_schema.cpp:7096): the level is `atoi` of the name.
@@ -2229,7 +2271,7 @@ public sealed class ItemSchema
 
     /// <summary>The scalar item keys the model panel's calls read (econ_item_schema.cpp:3159-3171, tf_item_schema.cpp:1015).</summary>
     private static readonly HashSet<string> PanelKeys = new(
-        ["model_world", "extra_wearable", "extra_wearable_vm", "anim_slot", "act_as_wearable", "act_as_weapon", "default_skin"],
+        ["model_world", "extra_wearable", "extra_wearable_vm", "anim_slot", "act_as_wearable", "act_as_weapon", "default_skin", "particle_suffix"],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>One scalar key of a style (tf_item_schema.cpp:1154-1160, econ_item_schema.cpp:2831).</summary>

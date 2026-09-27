@@ -212,6 +212,14 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
 
         _lastCurTime = state.CurTime;
 
+        // `CTFPlayerShared::ClientKillStreakBuffThink` runs every client frame (tf_player_shared.cpp:6520), not on the
+        // HUD's half second: it keeps the eye state `SetEyeGlowEffect` reads below.
+        if (state.HasLocalPlayer && state.Player(state.LocalIndex) is { } local
+            && HudViewport.Of(this) is { Items: { } schema, WeaponAttribute: { } hook })
+        {
+            _killStreakEyes.Think(local, state, schema, hook);
+        }
+
         if (_nextThink > state.CurTime)
         {
             return;
@@ -344,14 +352,16 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
 
             _killStreak = killStreak;
 
-            // `m_pPlayerModelPanel->SetEyeGlowEffect( ..., bForceEyeUpdate, bPlaySparks )` (:400) — a `CTFPlayerModelPanel`
-            // method; these are its two flags, handed over when that class is ported.
-            EyeGlowUpdate = (forceEyeUpdate, playSparks);
+            // `SetEyeGlowEffect( pPlayer->GetEyeGlowEffect(), GetEyeGlowColor( false ), GetEyeGlowColor( true ), ... )` (:400):
+            // `GetEyeGlowColor( bAlternate )` is color1 when true (c_tf_player.h:502).
+            PlayerModelPanel.LocalDecapitations = player.Decapitations ?? 0;
+            PlayerModelPanel.SetEyeGlowEffect(
+                _killStreakEyes.EffectName, _killStreakEyes.Color2, _killStreakEyes.Color1, forceEyeUpdate, playSparks);
         }
     }
 
-    /// <summary>The last `bForceEyeUpdate`/`bPlaySparks` pair `OnThink` (:391-401) computed for `SetEyeGlowEffect`.</summary>
-    public (bool Force, bool Sparks) EyeGlowUpdate { get; private set; }
+    /// <summary>The local `C_TFPlayer`'s killstreak eye state.</summary>
+    private readonly TfKillStreakEyes _killStreakEyes = new();
 
     /// <summary>`FireGameEvent` (:519), named as the other elements' handlers are.</summary>
     /// <param name="gameEvent">The event.</param>

@@ -325,6 +325,12 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>`GetItemSchema()`: `items_game.txt`, for an item's per-class slot and rarity color; null where none is open.</summary>
     public Content.Assets.ItemSchema? Items { get; set; }
 
+    /// <summary>`g_pParticleSystemMgr`'s definitions by name — the map's `.pcf` systems; null before a map loads.</summary>
+    public IReadOnlyDictionary<string, Content.Assets.ParticleSystem>? ParticleSystems { get; set; }
+
+    /// <summary>The particle materials by normalised name; null before a map loads.</summary>
+    public IReadOnlyDictionary<string, ParticleMaterial>? ParticleMaterials { get; set; }
+
     /// <summary>`GetPlayerClassData( class )->GetModelName()` (tf_playermodelpanel.cpp:225): the class scripts' models; null where no install is open.</summary>
     public Content.Assets.PlayerClassModels? ClassModels { get; set; }
 

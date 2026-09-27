@@ -107,6 +107,44 @@ public sealed class ItemSchemaModelPanelTests
         }
         """;
 
+    private const string Particles = """
+        "items_game"
+        {
+            "items" { "9" { "particle_suffix" "sword" } }
+            "attribute_controlled_attached_particles"
+            {
+                "cosmetic_unusual_effects"
+                {
+                    "13" { "system" "superrare_burning1" "attachment" "bip_head" "control_point_2" "eyes" }
+                    "0" { "system" "never" }
+                }
+                "other_particles"
+                {
+                    "701" { "system" "killstreak_t1_teamcolor_red" "use_suffix_name" "1" "refire_time" "2.5" "attach_to_rootbone" "1" }
+                    "702" { "system" "killstreak_t1_teamcolor_blue" }
+                }
+            }
+        }
+        """;
+
+    [Test]
+    public void AttributeControlledParticleSystem_ByIndex_CarriesItsKeys()
+    {
+        ItemSchema schema = ItemSchema.Read(Encoding.UTF8.GetBytes(Particles));
+
+        AttributeParticleSystem burning = schema.AttributeControlledParticleSystem(13).ShouldNotBeNull();
+        burning.SystemName.ShouldBe("superrare_burning1");
+        burning.ControlPoints.ShouldBe(["bip_head", null, "eyes", null, null, null, null]);
+        burning.UseSuffixName.ShouldBeFalse();
+
+        AttributeParticleSystem eyes = schema.AttributeControlledParticleSystem(701).ShouldNotBeNull();
+        (eyes.UseSuffixName, eyes.RefireTime, eyes.FollowRootBone).ShouldBe((true, 2.5f, true));
+
+        schema.AttributeControlledParticleSystem(0).ShouldBeNull("an index must be positive (econ_item_schema.cpp:6133)");
+        schema.FindAttributeControlledParticleSystem("KILLSTREAK_T1_TEAMCOLOR_BLUE").ShouldNotBeNull().Id.ShouldBe(702);
+        schema.ParticleSuffix(9).ShouldBe("sword");
+    }
+
     [Test]
     public void ItemLevelForScore_BelowEachThreshold_IsTheFirstLevelNotReached()
     {

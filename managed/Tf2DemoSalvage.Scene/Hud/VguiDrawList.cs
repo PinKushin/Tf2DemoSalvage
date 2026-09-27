@@ -54,7 +54,10 @@ public readonly record struct VguiQuad(
 /// <param name="Tall">The viewport's height.</param>
 /// <param name="Camera">The panel's view-projection, row-major with the translation in the last row.</param>
 /// <param name="Models">The posed, lit models to draw.</param>
-public readonly record struct VguiModelDraw(int Before, int X, int Y, int Wide, int Tall, float[] Camera, IReadOnlyList<ModelInstance> Models);
+/// <param name="Particles">The panel's particles, drawn after the models under the same camera (basemodel_panel.cpp:904-912); null for none.</param>
+public readonly record struct VguiModelDraw(
+    int Before, int X, int Y, int Wide, int Tall, float[] Camera, IReadOnlyList<ModelInstance> Models,
+    IReadOnlyList<ParticleBatch>? Particles = null);
 
 /// <summary>`vgui::Vertex_t`: a position and a texture coordinate.</summary>
 /// <param name="X">X.</param>
@@ -115,12 +118,15 @@ public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize,
     }
 
     /// <inheritdoc/>
-    public void Paint3D(int left, int top, int right, int bottom, float[] camera, IReadOnlyList<ModelInstance> models)
+    public void Paint3D(
+        int left, int top, int right, int bottom, float[] camera, IReadOnlyList<ModelInstance> models,
+        IReadOnlyList<ParticleBatch>? particles = null)
     {
         ArgumentNullException.ThrowIfNull(camera);
         ArgumentNullException.ThrowIfNull(models);
 
-        _models.Add(new VguiModelDraw(_quads.Count, _offsetX + left, _offsetY + top, right - left, bottom - top, camera, models));
+        _models.Add(new VguiModelDraw(
+            _quads.Count, _offsetX + left, _offsetY + top, right - left, bottom - top, camera, models, particles));
     }
 
     /// <inheritdoc/>
