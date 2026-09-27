@@ -42,6 +42,20 @@ public readonly record struct VguiQuad(
     bool Additive = false,
     (VguiVertex A, VguiVertex B, VguiVertex C)? Triangle = null);
 
+/// <summary>
+/// A panel's 3D paint: `Begin3DPaint` … `End3DPaint` (vguimatsurface `CMatSystemSurface_Begin3DPaint`, 0x180008db0) with
+/// the models drawn between them — placed in paint order before the quad at <paramref name="Before"/>.
+/// </summary>
+/// <param name="Before">How many quads were recorded before it: it draws after those and before the rest.</param>
+/// <param name="X">The viewport's left, in screen pixels: the painting panel's origin plus the left it passed.</param>
+/// <param name="Y">The viewport's top.</param>
+/// <param name="Wide">The viewport's width — the whole panel, NOT clipped to its parent: `Begin3DPaint` calls
+/// `Viewport( x + left, y + top, right - left, bottom - top )` with no scissor.</param>
+/// <param name="Tall">The viewport's height.</param>
+/// <param name="Camera">The panel's view-projection, row-major with the translation in the last row.</param>
+/// <param name="Models">The posed, lit models to draw.</param>
+public readonly record struct VguiModelDraw(int Before, int X, int Y, int Wide, int Tall, float[] Camera, IReadOnlyList<ModelInstance> Models);
+
 /// <summary>`vgui::Vertex_t`: a position and a texture coordinate.</summary>
 /// <param name="X">X.</param>
 /// <param name="Y">Y.</param>
@@ -71,6 +85,7 @@ public readonly record struct VguiVertex(float X, float Y, float S, float T);
 public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize, VguiFontManager? fonts = null) : IVguiSurface
 {
     private readonly List<VguiQuad> _quads = [];
+    private readonly List<VguiModelDraw> _models = [];
     private readonly VguiGlyphCache _glyphs = new();
     private VguiFontAmalgam? _textFont;
     private (byte Red, byte Green, byte Blue, byte Alpha) _textColor;
@@ -86,11 +101,27 @@ public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize,
     /// <summary>The quads, in paint order.</summary>
     public IReadOnlyList<VguiQuad> Quads => _quads;
 
+    /// <summary>The 3D paints, in paint order, each marking where among <see cref="Quads"/> it falls.</summary>
+    public IReadOnlyList<VguiModelDraw> Models => _models;
+
     /// <inheritdoc/>
     public float AlphaMultiplier { get; set; } = 1f;
 
     /// <summary>Empties the list for the next frame.</summary>
-    public void Clear() => _quads.Clear();
+    public void Clear()
+    {
+        _quads.Clear();
+        _models.Clear();
+    }
+
+    /// <inheritdoc/>
+    public void Paint3D(int left, int top, int right, int bottom, float[] camera, IReadOnlyList<ModelInstance> models)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        ArgumentNullException.ThrowIfNull(models);
+
+        _models.Add(new VguiModelDraw(_quads.Count, _offsetX + left, _offsetY + top, right - left, bottom - top, camera, models));
+    }
 
     /// <inheritdoc/>
     public void PushMakeCurrent(VguiPanel panel, bool useInset)

@@ -25,6 +25,22 @@ public sealed class VguiDrawListConformanceTests
     }
 
     [Test]
+    public void Paint3D_BetweenTwoQuads_TakesThePanelsWholeRectangleUnclippedAndItsPlaceInPaintOrder()
+    {
+        // `CMatSystemSurface_Begin3DPaint` (0x180008db0): `Viewport( x + left, y + top, right - left, bottom - top )` from
+        // the current panel's origin, with no scissor — so the 100-wide rectangle is not cut at the clip's right of 60.
+        VguiDrawList list = Current(out _, useInset: false);
+        float[] camera = new float[16];
+
+        list.DrawSetColor((1, 2, 3, 255));
+        list.DrawFilledRect(0, 0, 1, 1);
+        list.Paint3D(0, 0, 100, 200, camera, []);
+        list.DrawFilledRect(0, 0, 1, 1);
+
+        list.Models.ShouldHaveSingleItem().ShouldBe(new VguiModelDraw(1, 10, 20, 100, 200, camera, list.Models[0].Models));
+    }
+
+    [Test]
     public void DrawSetColor_BakesTheAlphaMultiplierInWhenSet()
     {
         VguiDrawList list = Current(out _, useInset: false);

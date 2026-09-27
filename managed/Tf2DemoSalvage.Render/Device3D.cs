@@ -821,6 +821,70 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         ReapplyCamera();
     }
 
+    /// <summary>
+    /// One vgui panel's 3D paint — `CPotteryWheelPanel::Paint` (matsys_controls/potterywheelpanel.cpp:842) between
+    /// `Begin3DPaint` and `End3DPaint` — drawn at its place in the HUD's paint order.
+    /// </summary>
+    /// <param name="draw">The panel's rectangle, camera and models.</param>
+    /// <remarks>
+    /// `Begin3DPaint` (vguimatsurface `CMatSystemSurface_Begin3DPaint`, 0x180008db0) sets the viewport to the whole panel,
+    /// unclipped; `CPotteryWheelPanel::Paint` then clears depth — colour only for a render texture, which the HUD's panels
+    /// are not (`render_texture` 0) — and draws with its own camera, depth tested. `End3DPaint` puts the HUD's full-screen
+    /// viewport back.
+    /// **Interpolated:** the whole depth buffer is cleared where Source's `ClearBuffers` clears the viewport; nothing after the
+    /// HUD begins reads the world's depth, and every later panel clears its own, so what is drawn is the same.
+    /// </remarks>
+    private void DrawPanelModels(VguiModelDraw draw)
+    {
+        if (_world is null || draw.Wide <= 0 || draw.Tall <= 0)
+        {
+            return;
+        }
+
+        Viewport panel = new(draw.X, draw.Y, draw.Wide, draw.Tall, 0f, 1f);
+
+        _context.RSSetViewports(1, in panel);
+        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+        _world.SetCamera(_device, _context, draw.Camera, _worldCamera?.Colours ?? false, _specular, _fullbright, _debug, _phong);
+        _context.OMSetDepthStencilState(_depthOn, 0);
+
+        foreach (ModelInstance instance in draw.Models)
+        {
+            if (instance.Bones is { Count: > 0 } bones)
+            {
+                _world.SetBones(_context, bones);
+            }
+
+            _world.DrawModel(
+                _context,
+                instance.ModelPath,
+                instance.Matrix,
+                _world.ModelBatches(instance.ModelPath, instance.Frame),
+                instance.Light,
+                instance.Sun,
+                instance.Blend,
+                instance.Bones?.Count ?? 0,
+                instance.SkinSwap,
+                ModelPass.EntireModel,
+                instance.BodyParts,
+                instance.Body,
+                instance.Mirrored,
+                origin: instance.Origin,
+                locals: instance.Locals,
+                overrideMaterial: instance.MaterialOverride,
+                paint: instance.Paint,
+                burn: instance.Burn,
+                urine: instance.Urine);
+        }
+
+        // `End3DPaint`: the HUD's own viewport, depth off, and the world's camera constant back for next frame.
+        Viewport whole = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in whole);
+        _context.OMSetDepthStencilState(_depthOff, 0);
+        ReapplyCamera();
+    }
+
     /// <summary>When the viewmodel pass last reported, so it cannot report per frame.</summary>
     private long _viewmodelReportedAt;
 
@@ -1361,7 +1425,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // Last, so it is over everything, with depth off because a HUD is not in the world. Before
         // Present, so it lands in the presented frame and therefore in an F12 capture, which reads
         // the back buffer afterwards.
-        if (vgui is { Quads.Count: > 0 } && _vguiResolve is not null)
+        if (vgui is not null && (vgui.Quads.Count > 0 || vgui.Models.Count > 0) && _vguiResolve is not null)
         {
             Viewport vguiViewport = new(0f, 0f, _width, _height, 0f, 1f);
             _context.RSSetViewports(1, in vguiViewport);
@@ -1369,7 +1433,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _context.OMSetDepthStencilState(_depthOff, 0);
 
             _vgui ??= VguiRenderer.Create(_device, _context);
-            _vgui.Draw(_device, _context, vgui, _vguiResolve, _width, _height);
+            _vgui.Draw(_device, _context, vgui, _vguiResolve, _width, _height, DrawPanelModels);
 
             // VGUI sets an alpha blend and the world expects none, so it is put back rather than
             // left for whatever draws first next frame to discover.

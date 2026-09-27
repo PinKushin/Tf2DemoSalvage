@@ -152,59 +152,59 @@ internal sealed unsafe class VguiRenderer : IDisposable
     /// <param name="resolve">A material name to its texture, null when it does not resolve.</param>
     /// <param name="viewportWidth">Render target width.</param>
     /// <param name="viewportHeight">Render target height.</param>
+    /// <param name="drawModels">
+    /// Draws one panel's 3D paint (<see cref="VguiModelDraw"/>) and leaves the full-screen HUD viewport, depth off,
+    /// behind it; null to skip them. Each is drawn at its place in paint order, between the quads around it.
+    /// </param>
     public void Draw(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         VguiDrawList list,
         Func<string, MapTexture?> resolve,
         int viewportWidth,
-        int viewportHeight)
+        int viewportHeight,
+        Action<VguiModelDraw>? drawModels = null)
     {
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(resolve);
 
         IReadOnlyList<VguiQuad> quads = list.Quads;
+        IReadOnlyList<VguiModelDraw> models = list.Models;
 
         UploadPages(device, context, list.Pages);
 
-        if (quads.Count == 0 || viewportWidth <= 0 || viewportHeight <= 0)
+        if (viewportWidth <= 0 || viewportHeight <= 0)
         {
             return;
         }
 
-        float[] vertices = BuildVertices(quads, viewportWidth, viewportHeight);
-
-        EnsureCapacity(device, quads.Count);
-        Upload(context, vertices);
-
-        uint stride = VertexStride;
-        uint offset = 0;
-
-        context.IASetInputLayout(_layout);
-        context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
-        context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
-        context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-        context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-        context.PSSetSamplers(0, 1, ref _sampler);
-
-        int start = 0;
-
-        while (start < quads.Count)
+        if (quads.Count > 0)
         {
-            string? texture = quads[start].Texture;
-            bool forcedAdditive = quads[start].Additive;
-            int end = start + 1;
+            EnsureCapacity(device, quads.Count);
+            Upload(context, BuildVertices(quads, viewportWidth, viewportHeight));
+        }
 
-            while (end < quads.Count
-                && string.Equals(quads[end].Texture, texture, StringComparison.OrdinalIgnoreCase)
-                && quads[end].Additive == forcedAdditive)
+        // A 3D paint changes shaders, buffers and viewport, so the quads' own state is bound again after each.
+        bool bound = false;
+
+        foreach ((int model, int start, int end) in Steps(quads, models))
+        {
+            if (model >= 0)
             {
-                end++;
+                drawModels?.Invoke(models[model]);
+                bound = false;
+                continue;
             }
 
-            (ComPtr<ID3D11ShaderResourceView> view, bool additive) = Source(device, context, texture, resolve);
+            if (!bound)
+            {
+                Bind(context);
+                bound = true;
+            }
 
-            additive |= forcedAdditive;
+            (ComPtr<ID3D11ShaderResourceView> view, bool additive) = Source(device, context, quads[start].Texture, resolve);
+
+            additive |= quads[start].Additive;
 
             if (view.Handle is not null)
             {
@@ -218,9 +218,65 @@ internal sealed unsafe class VguiRenderer : IDisposable
                 context.PSSetShaderResources(0, 1, ref view);
                 context.Draw((uint)((end - start) * VerticesPerQuad), (uint)(start * VerticesPerQuad));
             }
+        }
+    }
 
+    /// <summary>
+    /// The draw order: runs of quads sharing a texture and blend, broken at each 3D paint, which comes exactly where the
+    /// panel painted it — after the quads recorded before it.
+    /// </summary>
+    /// <param name="quads">The quads.</param>
+    /// <param name="models">The 3D paints.</param>
+    /// <returns>Each step: a model's index (its range unused), or -1 with a run's quad range.</returns>
+    internal static List<(int Model, int Start, int End)> Steps(IReadOnlyList<VguiQuad> quads, IReadOnlyList<VguiModelDraw> models)
+    {
+        ArgumentNullException.ThrowIfNull(quads);
+        ArgumentNullException.ThrowIfNull(models);
+
+        List<(int, int, int)> steps = [];
+        int nextModel = 0;
+        int start = 0;
+
+        while (start < quads.Count || nextModel < models.Count)
+        {
+            if (nextModel < models.Count && models[nextModel].Before <= start)
+            {
+                steps.Add((nextModel, 0, 0));
+                nextModel++;
+                continue;
+            }
+
+            string? texture = quads[start].Texture;
+            bool forcedAdditive = quads[start].Additive;
+            int limit = nextModel < models.Count ? Math.Min(models[nextModel].Before, quads.Count) : quads.Count;
+            int end = start + 1;
+
+            while (end < limit
+                && string.Equals(quads[end].Texture, texture, StringComparison.OrdinalIgnoreCase)
+                && quads[end].Additive == forcedAdditive)
+            {
+                end++;
+            }
+
+            steps.Add((-1, start, end));
             start = end;
         }
+
+        return steps;
+    }
+
+    /// <summary>The quads' pipeline: layout, triangle list, their vertex buffer, shaders and sampler.</summary>
+    private void Bind(ComPtr<ID3D11DeviceContext> context)
+    {
+        uint stride = VertexStride;
+        uint offset = 0;
+
+        context.IASetInputLayout(_layout);
+        context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+        context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
+        context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetSamplers(0, 1, ref _sampler);
     }
 
     /// <summary>Screen quads to clip-space triangles, colour per corner.</summary>
