@@ -170,28 +170,6 @@ public sealed class ItemSchema
         /// </remarks>
         public int? VisionFilterFlags { get; set; }
 
-        /// <summary>A wearer's body part addressed by NUMBER, or -1 (B353).</summary>
-        /// <remarks>
-        /// **`wm_bodygroup_override`, the one arm of `UpdateBodygroups` that uses no name**
-        /// (<c>econ_entity.cpp:2083</c>). Two shipped items declare it — the Purity Fist and the
-        /// Short Circuit — and both replace a hand with a robot arm.
-        ///
-        /// **-1, not 0, and the default is the load-bearing part.** The engine's guard is
-        /// `iBodyOverride &gt; -1 &amp;&amp; iBodyStateOverride &gt; -1` against fields initialised to -1
-        /// (<c>econ_item_schema.h:1065</c>), so a reader defaulting them to 0 satisfies it for every
-        /// item in the schema and sets part 0 to 0 on every player — putting back the hair that
-        /// item 30700's `hat` entry had just removed.
-        /// </remarks>
-        public int WorldModelBodygroupOverride { get; set; } = -1;
-
-        /// <summary>Which alternative <see cref="WorldModelBodygroupOverride"/> takes, or -1.</summary>
-        /// <remarks>
-        /// **Both halves are required**, which is why this is tracked separately rather than folded
-        /// into the pair: `wm_bodygroup_override` without `wm_bodygroup_state_override` is a real
-        /// shape in the schema and the engine ignores it.
-        /// </remarks>
-        public int WorldModelBodygroupStateOverride { get; set; } = -1;
-
         /// <summary>Its definition attributes by NAME, from both shipped forms.</summary>
         /// <remarks>
         /// The named block (<c>"attributes" { "damage bonus" { … "value" "1.1" } }</c>) and the
@@ -528,15 +506,8 @@ public sealed class ItemSchema
                     && int.TryParse(
                         value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int part):
 
-                    if (key.Equals("wm_bodygroup_override", StringComparison.OrdinalIgnoreCase))
-                    {
-                        entry.WorldModelBodygroupOverride = part;
-                    }
-                    else if (key.Equals(
-                        "wm_bodygroup_state_override", StringComparison.OrdinalIgnoreCase))
-                    {
-                        entry.WorldModelBodygroupStateOverride = part;
-                    }
+                    // Per visuals block: `m_iWorldModelBodyGroupOverride` lives on `perteamvisuals_t` (econ_item_schema.cpp:2674-2680).
+                    entry.VisualKeys[visualsTeam + "/" + key] = part.ToString(CultureInfo.InvariantCulture);
 
                     break;
                 // Stryker restore all
@@ -1290,46 +1261,11 @@ public sealed class ItemSchema
     /// nothing to accumulate and an item saying `"hat" "0"` under a prefab saying `"hat" "1"` is
     /// deliberately putting the part back.
     /// </remarks>
-    public IReadOnlyDictionary<string, int> PlayerBodygroupsFor(int definitionIndex)
-    {
-        if (!_items.TryGetValue(definitionIndex, out Entry? item))
-        {
-            return new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        }
-
-        Dictionary<string, int> found = new(StringComparer.OrdinalIgnoreCase);
-
-        CollectBodygroups(item, found, LongestChain);
-
-        return found;
-    }
-
-    /// <summary>Gathers an entry's bodygroups, then its prefabs' where it is silent.</summary>
     /// <remarks>
-    /// **Nearest definition wins, so the entry is added FIRST and a prefab may not overwrite it.**
-    /// The opposite order would let a class prefab's `hat` state override a cosmetic that
-    /// deliberately restores the part.
+    /// Read from the BASE visuals block only — `GetModifiedBodyGroup( 0, ... )` in both callers (econ_entity.cpp:2045,
+    /// tf_playermodelpanel.cpp:843). The nearest definition wins per name.
     /// </remarks>
-    private void CollectBodygroups(Entry entry, Dictionary<string, int> into, int remaining)
-    {
-        foreach ((string name, int state) in entry.PlayerBodygroups)
-        {
-            _ = into.TryAdd(name, state);
-        }
-
-        if (remaining <= 0)
-        {
-            return;
-        }
-
-        foreach (string name in entry.Prefabs)
-        {
-            if (_prefabs.TryGetValue(name, out Entry? prefab))
-            {
-                CollectBodygroups(prefab, into, remaining - 1);
-            }
-        }
-    }
+    public IReadOnlyDictionary<string, int> BasePlayerBodygroupsFor(int definitionIndex) => BaseBodygroups(definitionIndex);
 
     /// <summary>Whether an item changes those parts only while it is the active weapon.</summary>
     /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
@@ -1360,11 +1296,24 @@ public sealed class ItemSchema
     /// **The two halves are searched independently**, because the chain can split them: an item may
     /// restate the part while taking the state from its prefab.
     /// </remarks>
-    // Stryker disable once : removing TryGetValue leaves 'item' undeclared in ternary, CS0165
-    public (int Group, int State) WorldmodelBodygroupOverrideFor(int definitionIndex) =>
-        _items.TryGetValue(definitionIndex, out Entry? item)
-            ? (Override(item, LongestChain, state: false), Override(item, LongestChain, state: true))
-            : (-1, -1);
+    /// <param name="team">The owner's team — `GetWorldmodelBodygroupOverride( pOwner->GetTeamNumber() )`.</param>
+    /// <remarks>
+    /// `GetBestVisualTeamData( iTeam )` picks the block (econ_item_schema.h:2161-2186); a block leaves each half at -1
+    /// (`perteamvisuals_t()`, :1067-1068). **With no block at all both halves are 0**, which passes the `&gt; -1` guard
+    /// and sets part 0 to 0 — Valve's own return, so reproduced. An index the schema lacks is the `default` item
+    /// (econ_item_schema.cpp:6694), which has no visuals: also 0.
+    /// </remarks>
+    public (int Group, int State) WorldmodelBodygroupOverrideFor(int definitionIndex, int team)
+    {
+        if (!_items.TryGetValue(definitionIndex, out Entry? item) || BestVisualSection(item, team) is not { } section)
+        {
+            return (0, 0);
+        }
+
+        return (
+            GetInt(Search(item, entry => entry.VisualKeys.GetValueOrDefault(section + "/wm_bodygroup_override"), LongestChain), -1),
+            GetInt(Search(item, entry => entry.VisualKeys.GetValueOrDefault(section + "/wm_bodygroup_state_override"), LongestChain), -1));
+    }
 
     /// <summary>The vision a viewer needs before this item is drawn to them (B354).</summary>
     /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
@@ -1404,35 +1353,6 @@ public sealed class ItemSchema
         }
 
         return null;
-    }
-
-    /// <summary>The first stated half of an override in an entry's prefab chain, or -1.</summary>
-    private int Override(Entry entry, int remaining, bool state)
-    {
-        int stated = state
-            ? entry.WorldModelBodygroupStateOverride
-            : entry.WorldModelBodygroupOverride;
-
-        if (stated > -1)
-        {
-            return stated;
-        }
-
-        if (remaining <= 0)
-        {
-            return -1;
-        }
-
-        foreach (string name in entry.Prefabs)
-        {
-            if (_prefabs.TryGetValue(name, out Entry? prefab)
-                && Override(prefab, remaining - 1, state) is var inherited and > -1)
-            {
-                return inherited;
-            }
-        }
-
-        return -1;
     }
 
     /// <summary>The first answer in an entry's prefab chain, or null when none states it.</summary>
@@ -1798,9 +1718,7 @@ public sealed class ItemSchema
         && GetInt(Search(item, entry => entry.VisualKeys.GetValueOrDefault(section + "/use_per_class_bodygroups"), LongestChain), 0) != 0;
 
     /// <summary>`GetModifiedBodyGroup( 0, i, state )` (econ_item_schema.h:2057) over the BASE visuals block, prefabs included.</summary>
-    /// <param name="definitionIndex">The item.</param>
-    /// <returns>Each bodygroup name and state.</returns>
-    public IReadOnlyDictionary<string, int> BasePlayerBodygroupsFor(int definitionIndex)
+    private Dictionary<string, int> BaseBodygroups(int definitionIndex)
     {
         Dictionary<string, int> found = new(StringComparer.OrdinalIgnoreCase);
 

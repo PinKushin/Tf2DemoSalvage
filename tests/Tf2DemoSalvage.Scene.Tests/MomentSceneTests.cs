@@ -785,6 +785,6 @@ public sealed class MomentSceneTests
         public SceneTaunt? TauntForScene(string scene) => null;
 
         // These tests are about which props a moment produces, not about what the props wear.
-        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team) => ItemBodygroups.None;
     }
 }

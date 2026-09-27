@@ -257,6 +257,6 @@ public sealed class DisguiseDrawProbe
         public SceneTaunt? TauntForScene(string scene) => null;
 
         // This probe asks which players are drawn, so what they wear is deliberately not modelled.
-        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team) => ItemBodygroups.None;
     }
 }

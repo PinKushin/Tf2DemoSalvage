@@ -22,27 +22,42 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// state 2) and 528, The Short Circuit (`wm_bodygroup_override 2`, state 2). Both replace a hand
 /// with a robot arm, so the part being switched is the wearer's arm rather than a cosmetic slot.
 ///
-/// **BOTH keys are required, and the default is -1** (<c>econ_item_schema.h:1065</c>). That matters
-/// more than it looks: a reader defaulting them to 0 satisfies `> -1` for every item in the schema
-/// and sets part 0 to 0 on every player — and part 0 is `hat` on several class models, so the
-/// mistake would silently put every hidden hair back.
+/// **BOTH keys are required, and a visuals block defaults each to -1** (`perteamvisuals_t()`,
+/// <c>econ_item_schema.h:1067-1068</c>). **An item with no visuals block at all reads 0 for both**
+/// (<c>econ_item_schema.h:2166-2167, 2181-2182</c>: `!GetPerTeamVisual(iTeam)` returns 0), which passes
+/// the guard and sets part 0 to 0. That reverses this file's earlier -1 for such an item, which read
+/// the block's default as the item's.
 /// </remarks>
 public sealed class WorldmodelBodygroupOverrideConformanceTests
 {
+    private const int Red = 2;
+    private const int Blu = 3;
+
     [Test]
     public void WorldmodelBodygroupOverride_ForAnItemDeclaringBoth_IsThePartAndTheState()
     {
-        Read().WorldmodelBodygroupOverrideFor(524).ShouldBe((1, 2));
+        Read().WorldmodelBodygroupOverrideFor(524, Red).ShouldBe((1, 2));
     }
 
-    /// <remarks>
-    /// The control, and the one that catches a zero default. An item with no override must not set
-    /// part 0 to 0 — which is a real change on a model whose part 0 is `hat`.
-    /// </remarks>
     [Test]
-    public void WorldmodelBodygroupOverride_ForAnItemDeclaringNeither_IsMinusOneForBoth()
+    public void WorldmodelBodygroupOverride_ForAnItemWithNoVisualsBlock_IsZeroForBoth()
     {
-        Read().WorldmodelBodygroupOverrideFor(999).ShouldBe((-1, -1));
+        Read().WorldmodelBodygroupOverrideFor(999, Red).ShouldBe((0, 0));
+        Read().WorldmodelBodygroupOverrideFor(12345, Red).ShouldBe((0, 0), "an unknown index is the default item, which has no visuals");
+    }
+
+    [Test]
+    public void WorldmodelBodygroupOverride_ForAVisualsBlockDeclaringNeither_IsMinusOneForBoth()
+    {
+        Read().WorldmodelBodygroupOverrideFor(603, Red).ShouldBe((-1, -1));
+    }
+
+    /// <remarks>`GetBestVisualTeamData( iTeam )` (econ_item_schema.h:2240): a team's own block, alone, else the base.</remarks>
+    [Test]
+    public void WorldmodelBodygroupOverride_ATeamBlock_AnswersForThatTeamAlone()
+    {
+        Read().WorldmodelBodygroupOverrideFor(604, Blu).ShouldBe((7, 3));
+        Read().WorldmodelBodygroupOverrideFor(604, Red).ShouldBe((1, 1));
     }
 
     /// <remarks>
@@ -53,7 +68,7 @@ public sealed class WorldmodelBodygroupOverrideConformanceTests
     [Test]
     public void WorldmodelBodygroupOverride_ForAnItemDeclaringOnlyThePart_LeavesTheStateAtMinusOne()
     {
-        Read().WorldmodelBodygroupOverrideFor(600).ShouldBe((3, -1));
+        Read().WorldmodelBodygroupOverrideFor(600, Red).ShouldBe((3, -1));
     }
 
     /// <remarks>
@@ -65,7 +80,7 @@ public sealed class WorldmodelBodygroupOverrideConformanceTests
     [Test]
     public void WorldmodelBodygroupOverride_ForAnItemDeclaringOnlyTheViewmodelPair_IsMinusOneForBoth()
     {
-        Read().WorldmodelBodygroupOverrideFor(601).ShouldBe((-1, -1));
+        Read().WorldmodelBodygroupOverrideFor(601, Red).ShouldBe((-1, -1));
     }
 
     /// <remarks>
@@ -75,7 +90,7 @@ public sealed class WorldmodelBodygroupOverrideConformanceTests
     [Test]
     public void WorldmodelBodygroupOverride_IsInheritedFromAPrefab()
     {
-        Read().WorldmodelBodygroupOverrideFor(602).ShouldBe((5, 1));
+        Read().WorldmodelBodygroupOverrideFor(602, Red).ShouldBe((5, 1));
     }
 
     private static ItemSchema Read() => ItemSchema.Read(Encoding.UTF8.GetBytes(Schema));
@@ -128,6 +143,17 @@ public sealed class WorldmodelBodygroupOverrideConformanceTests
                 {
                     "name" "inherits the arm"
                     "prefab" "robot_arm"
+                }
+                "603"
+                {
+                    "name" "a block without the keys"
+                    "visuals" { "skin" "1" }
+                }
+                "604"
+                {
+                    "name" "per team"
+                    "visuals" { "wm_bodygroup_override" "1" "wm_bodygroup_state_override" "1" }
+                    "visuals_blu" { "wm_bodygroup_override" "7" "wm_bodygroup_state_override" "3" }
                 }
                 "999"
                 {

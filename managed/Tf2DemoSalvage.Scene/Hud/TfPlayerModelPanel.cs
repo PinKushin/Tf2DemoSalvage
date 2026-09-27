@@ -457,9 +457,8 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
             SetBody(_body);
         }
 
-        // Valve sets m_nBody here and does not call SetBody (:875); the next SetBody carries it.
-        // **Divergence:** Valve reads the override for `m_iTeam` (:871); the schema reader keeps one pair per item.
-        (int bodyOverride, int stateOverride) = schema.WorldmodelBodygroupOverrideFor(item.DefinitionIndex);
+        // For `m_iTeam` (:871). Valve sets m_nBody here and does not call SetBody (:875); the next SetBody carries it.
+        (int bodyOverride, int stateOverride) = schema.WorldmodelBodygroupOverrideFor(item.DefinitionIndex, Team);
 
         if (bodyOverride > -1 && stateOverride > -1)
         {

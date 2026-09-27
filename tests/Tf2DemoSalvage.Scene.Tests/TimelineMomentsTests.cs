@@ -171,7 +171,7 @@ public sealed class TimelineMomentsTests
     private sealed class HidesTheHead : IPlayerAppearance
     {
         /// <inheritdoc/>
-        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) =>
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team) =>
             itemDefinitionIndex == Hat
                 ? new ItemBodygroups(new Dictionary<string, int>(), false, HeadGroup, 1)
                 : ItemBodygroups.None;
