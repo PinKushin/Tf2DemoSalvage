@@ -71,12 +71,38 @@ public sealed class VguiModelPanelConformanceTests
 
         panel.ParseLightsFromKV(lights);
 
-        panel.Sun.Red.ShouldBe(1f);
-        panel.Sun.Green.ShouldBe(0f);
-        panel.Sun.Blue.ShouldBe(0f);
-        panel.Sun.DirectionX.ShouldBe(0f);
-        panel.Sun.DirectionY.ShouldBe(0.6f, 0.0001f);
-        panel.Sun.DirectionZ.ShouldBe(0.8f, 0.0001f);
+        panel.Sun!.Value.Red.ShouldBe(1f);
+        panel.Sun.Value.Green.ShouldBe(0f);
+        panel.Sun.Value.Blue.ShouldBe(0f);
+        panel.Sun.Value.DirectionX.ShouldBe(0f);
+        panel.Sun.Value.DirectionY.ShouldBe(0.6f, 0.0001f);
+        panel.Sun.Value.DirectionZ.ShouldBe(0.8f, 0.0001f);
+    }
+
+    [Test]
+    public void ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOldOne()
+    {
+        // Valve's own list REPLACES itself wholesale every parse — `m_nLightCount = nLightCount` runs
+        // unconditionally at the end of `ParseLightsFromKV` (potterywheelpanel.cpp:459), even when the block named
+        // no directional light. Leaving the panel's previous Sun standing would be the opposite of what a
+        // point-only or empty `lights` block does in the engine.
+        VguiModelPanel panel = new(null, "model");
+        KeyValuesTree pointOnly = Resource("""
+            lights
+            {
+                "light1"
+                {
+                    "name" "point"
+                    "color" "1 1 1"
+                    "origin" "0 0 100"
+                    "attenuation" "1 0 0"
+                }
+            }
+            """).Find("lights")!;
+
+        panel.ParseLightsFromKV(pointOnly);
+
+        panel.Sun.ShouldBeNull();
     }
 
     [Test]
@@ -97,8 +123,8 @@ public sealed class VguiModelPanelConformanceTests
 
         panel.ApplySettings(resource, Context());
 
-        panel.Sun.Green.ShouldBe(1f);
-        panel.Sun.DirectionZ.ShouldBe(1f);
+        panel.Sun!.Value.Green.ShouldBe(1f);
+        panel.Sun.Value.DirectionZ.ShouldBe(1f);
     }
 
     [Test]

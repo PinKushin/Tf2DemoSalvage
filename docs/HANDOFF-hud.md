@@ -99,9 +99,24 @@ state worth keeping apart at this layer. Tests: `tests/Tf2DemoSalvage.Scene.Test
 
 - **Camera and lights are exact**: `NearZ` 3, `FarZ` 16384·√3, `FieldOfView` 30 (potterywheelpanel.cpp:250-252);
   ambient cube 0.4 all six faces and one white sun down `(0,0,-1)` (`CreateDefaultLights`, :316-333).
-  `ParseLightsFromKV` is narrowed to what this project's lighting carries: the first `directional` entry becomes the
-  sun. Valve's own version never touches the ambient cube (only ever confirmed here, not previously) and can hold
-  several point lights; neither exists on `ModelInstance`, so `point` entries are skipped rather than misread.
+
+#### Divergence: `ParseLightsFromKV` (potterywheelpanel.cpp:392-460)
+
+`ModelInstance` carries exactly one optional `SunLight` and one `AmbientCube`; Valve's `m_Lights` is up to
+`MAX_LIGHT_COUNT` entries of THREE kinds (`directional`/`point`/`spot`), and the ambient cube is never touched by
+this function at all (only ever confirmed here, not previously guessed). What is actually dropped, per entry kind:
+
+- **`directional`**: nothing — colour and (normalised) direction is everything `InitDirectional` reads, and both
+  reach `Sun`. Only the FIRST directional entry survives; Valve keeps every one up to the light count.
+- **`point`**: dropped entirely — origin, attenuation (0/1/2), `maxDistance`. No stock HUD `.res` file writes one.
+- **`spot`**: dropped entirely — everything `point` has, plus `inner_cone_angle`/`outer_cone_angle`/`exponent`
+  (falloff). No stock HUD `.res` file writes one either.
+- **Replace, not merge**: Valve's `m_nLightCount = nLightCount` runs unconditionally at the end, so a `lights` block
+  naming only point/spot lights — or none at all — REPLACES the directional light with nothing. `VguiModelPanel.Sun`
+  is `SunLight?` for exactly this reason: `ParseLightsFromKV` sets it to null before scanning, same as Valve's list
+  going to zero directional lights, and only a matching `directional` entry gives it a value again.
+
+Test: `ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOldOne`.
 - **Posing reuses `AnimatingEntity`/`SkeletonPose` directly**, keyed by model PATH in a small dictionary the panel
   owns — its own version of `EntityModelSet.EntityFor`, since a panel has no entity index. Bone merge is
   `AnimatingEntity.Follows`; skinning (bone-to-world folded with bind pose) is a small unbuffered copy of

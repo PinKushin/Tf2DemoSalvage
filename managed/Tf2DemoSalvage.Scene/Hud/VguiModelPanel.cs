@@ -96,9 +96,12 @@ public class VguiModelPanel : VguiPanel
 
     /// <summary>
     /// <c>m_Lights[0]</c>: one white directional light down <c>(0, 0, -1)</c> (<c>potterywheelpanel.cpp:316-333</c>), or
-    /// whatever a <c>.res</c> <c>lights</c> block's first <c>directional</c> entry replaced it with.
+    /// whatever a <c>.res</c> <c>lights</c> block's first <c>directional</c> entry replaced it with — or null when a
+    /// <c>lights</c> block was given and named no <c>directional</c> entry, since Valve's own list REPLACES itself on
+    /// every parse (<c>m_nLightCount = nLightCount</c>, potterywheelpanel.cpp:459) rather than leaving the old light
+    /// standing beside whatever the block actually named.
     /// </summary>
-    public SunLight Sun { get; set; } = new(1f, 1f, 1f, 0f, 0f, -1f);
+    public SunLight? Sun { get; set; } = new(1f, 1f, 1f, 0f, 0f, -1f);
 
     /// <summary>The root model's path, or null to draw nothing.</summary>
     public string? ModelName { get; set; }
@@ -165,21 +168,29 @@ public class VguiModelPanel : VguiPanel
     }
 
     /// <summary>
-    /// <c>ParseLightsFromKV</c> (<c>potterywheelpanel.cpp:392</c>), narrowed to what this project's lighting carries:
-    /// the first <c>directional</c> entry becomes <see cref="Sun"/>. Valve's own version never touches the ambient
-    /// cube and can hold several point lights besides; neither exists on <see cref="ModelInstance"/>, so a <c>point</c>
-    /// entry — none of the HUD's own <c>.res</c> files write one — is skipped rather than silently misread as another
-    /// sun.
+    /// <c>ParseLightsFromKV</c> (<c>potterywheelpanel.cpp:392-460</c>): the first <c>directional</c> entry becomes
+    /// <see cref="Sun"/>. This is a DIVERGENCE from Valve, not a reading of the same behaviour through a narrower
+    /// window — see <c>docs/HANDOFF-hud.md</c>'s "Divergence: ParseLightsFromKV" for the full list of what is
+    /// dropped and why (<see cref="ModelInstance"/> has no representation for a point or spot light, and this
+    /// project keeps one sun where Valve's own light LIST replaces itself wholesale every parse).
     /// </summary>
     /// <param name="lightsBlock">The <c>lights</c> block.</param>
     public void ParseLightsFromKV(KeyValuesTree lightsBlock)
     {
         ArgumentNullException.ThrowIfNull(lightsBlock);
 
+        // Valve's own loop (`FOR_EACH_SUBKEY`) replaces `m_nLightCount` unconditionally at the end, even when it
+        // finds zero usable entries — so this block being present at all REPLACES the light, and only a matching
+        // `directional` entry gives it a new value.
+        Sun = null;
+
         foreach (KeyValuesTree entry in lightsBlock.Children)
         {
             if (!string.Equals(entry.Find("name")?.Value, "directional", StringComparison.OrdinalIgnoreCase))
             {
+                // Dropped, not read: `point` (:415) carries origin/attenuation/maxDistance, and `spot` (:431) carries
+                // all of that plus inner/outer cone angle and falloff — none of which `ModelInstance.Sun` (a plain
+                // directional light) has anywhere to put. Listed in docs/HANDOFF-hud.md, not just here.
                 continue;
             }
 
