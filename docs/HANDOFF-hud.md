@@ -95,7 +95,7 @@ Plan, bottom layer first:
 `managed/Tf2DemoSalvage.Scene/Hud/VguiModelPanel.cs`: `VguiModelPanel` (`CPotteryWheelPanel` + `CMDLPanel`) and
 `VguiBaseModelPanel : VguiModelPanel` (`CBaseModelPanel`), folded into one file — none of the three Valve classes has
 state worth keeping apart at this layer. Tests: `tests/Tf2DemoSalvage.Scene.Tests/VguiModelPanelConformanceTests.cs`
-(34, synthetic fixtures via `SyntheticSkinnedModel`/`AnimatedStudioBytes`, no corpus demos).
+(37, synthetic fixtures via `SyntheticSkinnedModel`/`AnimatedStudioBytes`, no corpus demos).
 
 **Reviewed by a coordinator against basemodel_panel.cpp after the first pass (5353203b) and found not done** — nine
 items, all addressed in follow-up commits the same day: the camera/model transform was backwards (fixed, below),
@@ -164,23 +164,31 @@ Tests: `ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOld
   `Paint_ForcePosition_PutsTheCameraAtTheWorldOriginAndTheModelAtModelOrigin`,
   `Paint_NoForcePosition_LeavesTheModelAtTheOriginRegardlessOfModelOrigin`.
 
-#### Divergence: `start_framed` (`CBaseModelPanel::LookAtBounds`, basemodel_panel.cpp:649-769)
+#### `start_framed` (`CBaseModelPanel::LookAtBounds`, basemodel_panel.cpp:649-769) — ported in full (fixed 2026-09-27)
 
-**Not fully ported.** What runs (`VguiBaseModelPanel.ApplyStartFramed`) is the SIMPLER
-`CPotteryWheelPanel::LookAt( float radius )` (potterywheelpanel.cpp:668-693): the camera backs away from the origin
-along its own forward axis until a sphere of the given radius fills the frame at the current (aspect-corrected)
-field of view. Two real differences from Valve's actual `LookAtBounds`, not a rounding error:
+`VguiBaseModelPanel.LookAtBounds` is the whole algorithm: the box's eight corners reprojected through the model's
+own rotation, the panel's aspect ratio and field of view (`CalcFovY`, `mathlib_base.cpp:3893`, ported literally —
+including feeding it a HALF angle where its own parameter comment says a full one, which is what Valve's caller
+actually does); the MODEL repositioned to the fitting distance (`ModelOrigin`, with `ForcePosition` set so `Paint`
+does not ignore it); the camera only nudged to centre the result (`CameraOffset`, X left at 0 — the model carries
+the distance, not the camera).
 
-- **The bounding volume is wrong shape.** Valve reads the model's real render bounds
-  (`studiohdr_t::hull_min`/`hull_max`, i.e. actual vertex extents) and reprojects its eight CORNER points through the
-  panel's rotation and aspect ratio — a box, fit exactly. This project has no vertex data at the panel layer, only
-  each bone's bind-pose `Position` (`StudioBone.Position`), so `ApplyStartFramed` treats the model as a SPHERE around
-  the largest bone-to-origin distance — smaller than the true mesh bounds, since a bone sits inside the surface it
-  drives rather than on it, so the fitted camera sits closer than Valve's would.
-- **The model is not repositioned.** `LookAtBounds` moves the MODEL (`SetModelAnglesAndPosition`, computed from the
-  reprojection) as well as the camera; this only moves the camera. `allow_rotation`/`allow_pitch`'s offset-zeroing
-  branch (:763-766) is not ported either, since there is no mouse-driven rotation to zero it against — see the input
-  note below.
+**The bounding box itself is Valve's own header fields, not a bone-position approximation.**
+`StudioRenderBounds.Of` (`Content/Assets/StudioRenderBounds.cs`) reads `view_bbmin`/`view_bbmax` when authored, else
+`hull_min`/`hull_max` (`StudioLayout.HeaderHullMinOffset`/`HeaderViewBoundsMinOffset` etc.), which is exactly what
+`GetBoundingBox`/`GetRenderBounds` reads too — not vertex data, but the SAME header boxes Valve's own function
+prefers. `PropModels.SkinnedModel.RenderBounds()` exposes it.
+
+**Not ported**: `allow_rotation`/`allow_pitch`'s offset-zeroing branch (:763-766) — it exists so a mouse-draggable
+panel does not fight the player's own rotation, and this project has no mouse input at all (the same exclusion
+`VguiPanel`'s own remarks state, see below), so the branch's condition is permanently false and porting it would be
+dead code.
+
+Tests: `LookAtBounds_ALongThinBox_FitsTheTighterAxisNotABoundingSphere` (a 200×10×10 box: a bounding-sphere
+approximation would back the camera to ~141.7 units at a 90° fov; the real box fit gives exactly 105 — the two are
+verifiably different numbers, not the same answer read two ways), `ApplyStartFramed_AModelWithAuthoredHullBounds_FitsTheCameraToThem`
+(the same box, written into synthetic `.mdl` header bytes at the real offsets and read back through
+`start_framed 1` in a `.res` file end to end).
 
 #### Not modelled: mouse-driven manipulation
 

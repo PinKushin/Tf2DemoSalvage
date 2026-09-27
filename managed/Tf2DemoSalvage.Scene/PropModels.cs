@@ -1559,6 +1559,12 @@ public static class PropModels
         IReadOnlyList<StudioPoseParameter> PoseParameters,
         IReadOnlyList<IReadOnlyList<int>> MasterPose)
     {
+        /// <summary><c>StudioRenderBounds.Of</c> on this model's root bytes — the box
+        /// <c>CBaseModelPanel::LookAtBounds</c> fits a camera against.</summary>
+        /// <returns>Min and max corners, model space; both default when the model has no bytes.</returns>
+        public ((float X, float Y, float Z) Min, (float X, float Y, float Z) Max) RenderBounds() =>
+            Models.Count > 0 ? StudioRenderBounds.Of(Models[0]) : (default, default);
+
         /// <summary>Whether the model was compiled with <c>$staticprop</c>.</summary>
         /// <remarks>
         /// **<c>STUDIOHDR_FLAGS_STATIC_PROP</c>, and it decides whether a sequence change resets the

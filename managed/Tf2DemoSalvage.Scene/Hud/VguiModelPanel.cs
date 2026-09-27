@@ -756,13 +756,8 @@ public class VguiBaseModelPanel : VguiModelPanel
     }
 
     /// <summary>
-    /// <c>CBaseModelPanel::LookAtBounds</c> (<c>basemodel_panel.cpp:649-769</c>), NOT fully ported — see
-    /// <c>docs/HANDOFF-hud.md</c>'s "Divergence: start_framed" for exactly which half is missing and why. What runs
-    /// here is <c>CPotteryWheelPanel::LookAt( float radius )</c> (<c>potterywheelpanel.cpp:668-693</c>) instead: the
-    /// camera backs away from the model's origin until a sphere of the given radius fills the frame at the current
-    /// field of view, aspect-corrected. <c>LookAtBounds</c> additionally repositions the MODEL (not just the
-    /// camera) and reprojects its eight corner points through the actual aspect ratio and rotation rather than
-    /// treating it as a sphere — both real differences from what this does, not a rounding error.
+    /// <c>studiohdr_t::hull_min</c>/<c>hull_max</c> or <c>view_bbmin</c>/<c>view_bbmax</c>
+    /// (<c>StudioRenderBounds.Of</c>) fed to <see cref="LookAtBounds"/>.
     /// </summary>
     private void ApplyStartFramed()
     {
@@ -771,50 +766,143 @@ public class VguiBaseModelPanel : VguiModelPanel
             return;
         }
 
-        float radius = BoundingRadius(model.Bones);
+        ((float X, float Y, float Z) min, (float X, float Y, float Z) max) = model.RenderBounds();
 
-        if (radius <= 0f)
+        if (min == default && max == default)
         {
             return;
         }
 
-        float aspect = Tall > 0 ? (float)Wide / Tall : 1f;
-        float halfFovRadians = FieldOfView * (MathF.PI / 360f);
-
-        // `if ( h < w ) flFOVx = atan( h * tan( flFOVx ) / w );` (potterywheelpanel.cpp:686-688) — the HORIZONTAL
-        // half-fov is narrowed to the vertical one when the panel is wider than it is tall, so the fit is against
-        // whichever axis is actually the tighter constraint.
-        float effectiveHalfFov = aspect > 1f
-            ? MathF.Atan(MathF.Tan(halfFovRadians) / aspect)
-            : halfFovRadians;
-
-        CameraPivotOrigin = (0f, 0f, 0f);
-        CameraOffset = (-(radius / MathF.Sin(effectiveHalfFov)), 0f, 0f);
+        LookAtBounds(min, max);
     }
 
-    /// <summary>A sphere around the origin big enough to hold every bone's bind-pose position.</summary>
+    /// <summary>
+    /// <c>CBaseModelPanel::LookAtBounds</c> (<c>basemodel_panel.cpp:649-769</c>), in full: reprojects the box's
+    /// eight corners through the model's own rotation, the panel's aspect ratio and field of view, moves the MODEL
+    /// to the distance that makes the box fill the frame, and nudges the camera (not the model) to centre it —
+    /// <c>CameraOffset</c>'s X stays 0 here; the fitting distance is baked into where the model is placed,
+    /// not into how far the camera backs away.
+    /// </summary>
+    /// <param name="boundsMin">The box's lower corner, model space.</param>
+    /// <param name="boundsMax">The box's upper corner, model space.</param>
     /// <remarks>
-    /// **Bones, not vertices — a real divergence from <c>GetBoundingBox</c>, not an equivalent reading of it.**
-    /// Valve's bounds come from the model's actual render bounds (<c>studiohdr_t::hull_min</c>/<c>hull_max</c>);
-    /// nothing at this layer has vertex data, only <see cref="StudioBone.Position"/> for each bone's rest
-    /// placement, which is a smaller box than the mesh that skins to those bones (a bone sits inside the surface
-    /// it drives, not on it). Documented in <c>docs/HANDOFF-hud.md</c> rather than silently accepted.
+    /// **`m_bAllowRotation`/`m_bAllowPitch`'s offset-zeroing branch (:763-766) is not ported** — it exists so a
+    /// mouse-draggable panel does not fight the player's own horizontal rotation, and this project has no mouse
+    /// input at all (the same exclusion `VguiPanel`'s own remarks state), so the branch's condition is permanently
+    /// false here and porting it would be dead code.
     /// </remarks>
-    private static float BoundingRadius(IReadOnlyList<StudioBone> bones)
+    public void LookAtBounds((float X, float Y, float Z) boundsMin, (float X, float Y, float Z) boundsMax)
     {
-        float radius = 0f;
+        (float X, float Y, float Z) center = (
+            (boundsMax.X + boundsMin.X) * 0.5f, (boundsMax.Y + boundsMin.Y) * 0.5f, (boundsMax.Z + boundsMin.Z) * 0.5f);
 
-        foreach (StudioBone bone in bones)
+        (float X, float Y, float Z) min = (boundsMin.X - center.X, boundsMin.Y - center.Y, boundsMin.Z - center.Z);
+        (float X, float Y, float Z) max = (boundsMax.X - center.X, boundsMax.Y - center.Y, boundsMax.Z - center.Z);
+
+        (float X, float Y, float Z)[] corners =
+        [
+            (max.X, max.Y, max.Z), (min.X, max.Y, max.Z), (max.X, min.Y, max.Z), (min.X, min.Y, max.Z),
+            (max.X, max.Y, min.Z), (min.X, max.Y, min.Z), (max.X, min.Y, min.Z), (min.X, min.Y, min.Z),
+        ];
+
+        // `AngleMatrix( m_angModelPoseRot, matRotation )`: rotation only, no translation — the same row layout
+        // `AngleMatrix3x4` builds, read here through `FreeCamera.Basis()` rather than a second basis computation.
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) =
+            new FreeCamera { Angles = ModelAngles }.Basis();
+
+        (float X, float Y, float Z) left = (-right.X, -right.Y, -right.Z);
+
+        (float X, float Y, float Z) Rotate((float X, float Y, float Z) v) => (
+            (v.X * forward.X) + (v.Y * left.X) + (v.Z * up.X),
+            (v.X * forward.Y) + (v.Y * left.Y) + (v.Z * up.Y),
+            (v.X * forward.Z) + (v.Y * left.Z) + (v.Z * up.Z));
+
+        (float X, float Y, float Z)[] xformed = new (float X, float Y, float Z)[8];
+
+        for (int point = 0; point < 8; point++)
         {
-            float distance = MathF.Sqrt(
-                (bone.Position.X * bone.Position.X) +
-                (bone.Position.Y * bone.Position.Y) +
-                (bone.Position.Z * bone.Position.Z));
-
-            radius = MathF.Max(radius, distance);
+            xformed[point] = Rotate(corners[point]);
         }
 
-        return radius;
+        // `VectorTransform( -vecTranslateCenter, matRotation, vecXFormCenter )` where `vecTranslateCenter =
+        // -vecCenter`, so `-vecTranslateCenter = vecCenter` — this is `Rotate(center)`, not a second vector.
+        (float X, float Y, float Z) xformCenter = Rotate(center);
+
+        float width = Wide;
+        float height = Tall;
+        float aspect = height > 0f ? width / height : 1f;
+
+        // `flFOVx = DEG2RAD( m_flFOV * 0.5f )` — HALF the field of view, in radians.
+        float fovXRadians = FieldOfView * 0.5f * (MathF.PI / 180f);
+
+        // `flFOVy = DEG2RAD( CalcFovY( m_flFOV * 0.5f, w / h ) )` — `CalcFovY` is fed the SAME half-angle as if it
+        // were a full one; ported literally (`CalcFovY`, mathlib_base.cpp:3893), not rationalised.
+        float fovYRadians = CalcFovY(FieldOfView * 0.5f, aspect) * (MathF.PI / 180f);
+
+        float tanFovX = MathF.Tan(fovXRadians);
+        float tanFovY = MathF.Tan(fovYRadians);
+
+        float distance = 0f;
+
+        foreach ((float X, float Y, float Z) point in xformed)
+        {
+            float distanceY = MathF.Abs(point.Y / tanFovX) - point.X;
+            float distanceZ = MathF.Abs(point.Z / tanFovY) - point.X;
+
+            distance = MathF.Max(distance, MathF.Max(distanceY, distanceZ));
+        }
+
+        (float X, float Y) screenMin = (99999f, 99999f);
+        (float X, float Y) screenMax = (-99999f, -99999f);
+
+        foreach ((float X, float Y, float Z) point in xformed)
+        {
+            (float X, float Y, float Z) camera = (point.X + distance, point.Y, point.Z);
+
+            float screenX = ((camera.Y / (tanFovX * camera.X) * 0.5f) + 0.5f) * width;
+            float screenY = ((camera.Z / (tanFovY * camera.X) * 0.5f) + 0.5f) * height;
+
+            screenMin = (MathF.Min(screenMin.X, screenX), MathF.Min(screenMin.Y, screenY));
+            screenMax = (MathF.Max(screenMax.X, screenX), MathF.Max(screenMax.Y, screenY));
+        }
+
+        // `vecModelPos.x = flDist - vecXFormCenter.x; .y = -vecXFormCenter.y; .z = -vecXFormCenter.z;` then
+        // `SetModelAnglesAndPosition( m_angModelPoseRot, vecModelPos )` — always, regardless of `force_pos`, which
+        // is why this sets `ForcePosition` too: without it `Paint` would compute this position and then ignore it.
+        ModelOrigin = (distance - xformCenter.X, -xformCenter.Y, -xformCenter.Z);
+        ForcePosition = true;
+
+        (float X, float Y) panelCenter = (width * 0.5f, height * 0.5f);
+        (float X, float Y) screenCenter = ((screenMax.X + screenMin.X) * 0.5f, (screenMax.Y + screenMin.Y) * 0.5f);
+
+        float panelCameraX = (((panelCenter.X / width) * 2f) - 0.5f) * (tanFovX * distance);
+        float panelCameraY = (((panelCenter.Y / height) * 2f) - 0.5f) * (tanFovY * distance);
+        float screenCameraX = (((screenCenter.X / width) * 2f) - 0.5f) * (tanFovX * distance);
+        float screenCameraY = (((screenCenter.Y / height) * 2f) - 0.5f) * (tanFovY * distance);
+
+        float cameraOffsetX = panelCameraX - screenCameraX;
+        float cameraOffsetY = panelCameraY - screenCameraY;
+
+        // `ResetCameraPivot(); ... SetCameraOffset( Vector( 0.0f, -vecCameraOffset.x, -vecCameraOffset.y ) );` — the
+        // camera's OWN distance offset (X) stays zero; the fitting distance lives in the model's position instead.
+        CameraPivotOrigin = (0f, 0f, 0f);
+        CameraPivotAngles = (0f, 0f, 0f);
+        CameraOffset = (0f, -cameraOffsetX, -cameraOffsetY);
+    }
+
+    /// <summary><c>CalcFovY</c> (<c>mathlib_base.cpp:3893</c>): the vertical fov a horizontal one implies at an
+    /// aspect ratio. Ported for <see cref="LookAtBounds"/>, which is the only caller in this project — everywhere
+    /// else derives a vertical field of view through <c>FreeCamera</c>'s own projection instead.</summary>
+    private static float CalcFovY(float fovXDegrees, float aspect)
+    {
+        if (fovXDegrees is < 1f or > 179f)
+        {
+            fovXDegrees = 90f;
+        }
+
+        float value = MathF.Atan(MathF.Tan(fovXDegrees * (MathF.PI / 180f) * 0.5f) / aspect);
+
+        return value * (180f / MathF.PI) * 2f;
     }
 
     /// <summary><c>ParseModelAnimInfo</c> (<c>basemodel_panel.cpp:122</c>). Pose parameters (<c>pose_parameters</c>,

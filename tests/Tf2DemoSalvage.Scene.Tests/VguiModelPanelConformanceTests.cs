@@ -811,6 +811,79 @@ public sealed class VguiModelPanelConformanceTests
         panel.CycleStartTime.ShouldBe(1_000_000d);
     }
 
+    [Test]
+    public void LookAtBounds_ALongThinBox_FitsTheTighterAxisNotABoundingSphere()
+    {
+        // A box 200 long (X) and 10 across (Y and Z) — a bounding SPHERE around it has radius sqrt(100^2+5^2+5^2)
+        // ~= 100.25, and CPotteryWheelPanel::LookAt's own formula (radius / sin(halfFov)) would back a camera off
+        // to ~141.7 units at a 90-degree fov. The real box fit instead reprojects all eight corners and finds the
+        // TIGHTEST constraint, which for this box is the corner nearest the camera (X = -100, where the box's
+        // narrow 5-unit half-width still has to clear the frame) - a materially smaller distance of exactly 105,
+        // not a number a sphere approximation could produce.
+        VguiBaseModelPanel panel = new(null, "model")
+        {
+            FieldOfView = 90f,
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.LookAtBounds((-100f, -5f, -5f), (100f, 5f, 5f));
+
+        panel.ForcePosition.ShouldBeTrue();
+        panel.ModelOrigin.X.ShouldBe(105f, 0.01f);
+        panel.ModelOrigin.Y.ShouldBe(0f, 0.01f);
+        panel.ModelOrigin.Z.ShouldBe(0f, 0.01f);
+
+        // Symmetric in Y and Z, so the reprojected screen bounds centre exactly on the panel and the camera needs
+        // no centring nudge at all.
+        panel.CameraOffset.X.ShouldBe(0f, 0.01f);
+        panel.CameraOffset.Y.ShouldBe(0f, 0.01f);
+        panel.CameraOffset.Z.ShouldBe(0f, 0.01f);
+    }
+
+    [Test]
+    public void ApplyStartFramed_AModelWithAuthoredHullBounds_FitsTheCameraToThem()
+    {
+        // basemodel_panel.cpp:390-397: `start_framed` calls GetBoundingBox then LookAtBounds with whatever it
+        // returns. Here that box comes from the model's own hull_min/hull_max header fields
+        // (StudioLayout.HeaderHullMinOffset/MaxOffset), written directly into synthetic .mdl bytes — the same
+        // long, thin box as the direct LookAtBounds test above, so the expected distance is the same 105.
+        byte[] file = new byte[200];
+
+        WriteVector3(file, 104, (-100f, -5f, -5f)); // hull_min
+        WriteVector3(file, 116, (100f, 5f, 5f));    // hull_max
+
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("root") with { Models = [file] };
+
+        // Wide/Tall come from a real HUD panel's own .res position/size keys, which this test does not exercise —
+        // set directly, and before ApplySettings, so ApplyStartFramed sees the panel's real size the same way it
+        // would after a real .res file's xpos/ypos/wide/tall keys had already been applied.
+        VguiBaseModelPanel panel = new(null, "model")
+        {
+            ResolveModel = _ => model,
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.ApplySettings(Resource("""
+            fov 90
+            start_framed 1
+            model
+            {
+                "modelname" "models/player/scout.mdl"
+            }
+            """), Context());
+
+        panel.ModelOrigin.X.ShouldBe(105f, 0.01f);
+    }
+
+    private static void WriteVector3(byte[] file, int offset, (float X, float Y, float Z) value)
+    {
+        BitConverter.GetBytes(value.X).CopyTo(file, offset);
+        BitConverter.GetBytes(value.Y).CopyTo(file, offset + 4);
+        BitConverter.GetBytes(value.Z).CopyTo(file, offset + 8);
+    }
+
     /// <summary>Wraps a body in a root block, the way <c>Panel::ApplySettings</c>'s caller already has one.</summary>
     private static KeyValuesTree Resource(string body) =>
         KeyValuesTree.Load(Encoding.UTF8.GetBytes("Resource\n{\n" + body + "\n}"), "test.res", _ => null);
