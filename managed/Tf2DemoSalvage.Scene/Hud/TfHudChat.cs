@@ -85,6 +85,12 @@ public sealed class TfHudChat : VguiEditablePanel, IHudElement
     /// <inheritdoc/>
     public int HiddenBits => HudVisibility.HideChat;
 
+    /// <summary>"global", then `RegisterForRenderGroup( "mid" )` (tf_hud_chat.cpp:177).</summary>
+    public IReadOnlyList<string> RenderGroups { get; } = ["global", "mid"];
+
+    /// <summary>35, "less than statpanel" (tf_hud_chat.h:87).</summary>
+    public int RenderGroupPriority => 35;
+
     /// <summary>The events `Init` listens for.</summary>
     public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(["hltv_chat"], StringComparer.Ordinal);
 

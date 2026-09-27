@@ -171,11 +171,16 @@ public interface IHudElement
     /// <summary>`m_iHiddenBits`.</summary>
     public int HiddenBits { get; }
 
-    /// <summary>`ShouldDraw` (hud.cpp:288): not hidden by <see cref="HudVisibility.IsHidden"/>.</summary>
+    /// <summary>`m_HudRenderGroups`: "global" from the constructor (hud.cpp:245), plus whatever the element registers.</summary>
+    public IReadOnlyList<string> RenderGroups => HudVisibility.GlobalOnly;
+
+    /// <summary>`GetRenderGroupPriority` (hud.cpp:372): 0 unless the element overrides it.</summary>
+    public int RenderGroupPriority => 0;
+
+    /// <summary>`CHudElement::ShouldDraw` (hud.cpp:288): not hidden by <see cref="HudVisibility.IsHidden"/>, nor locked out.</summary>
     /// <param name="state">The game state.</param>
     /// <returns>Whether to draw.</returns>
-    /// <remarks>Render groups are not modelled: TF registers every element in "global", which nothing locks.</remarks>
-    public bool ShouldDraw(HudState state) => !HudVisibility.IsHidden(state, HiddenBits);
+    public bool ShouldDraw(HudState state) => HudVisibility.ShouldDraw(state, this);
 }
 
 /// <summary>`CHud`'s visibility rule and the `HIDEHUD_` bits (game/shared/shareddefs.h:206).</summary>
@@ -211,6 +216,38 @@ public static class HudVisibility
     /// <summary>`HIDEHUD_MATCH_STATUS`.</summary>
     public const int HideMatchStatus = 1 << 17;
 
+    /// <summary>Only "global", which `CHudElement`'s constructor registers every element in.</summary>
+    public static IReadOnlyList<string> GlobalOnly { get; } = ["global"];
+
+    /// <summary>`CHudElement::ShouldDraw` (hud.cpp:288): not hidden, and no group of its locked against it.</summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="element">The element.</param>
+    /// <returns>Whether to draw.</returns>
+    public static bool ShouldDraw(HudState state, IHudElement element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+
+        if (IsHidden(state, element.HiddenBits))
+        {
+            return false;
+        }
+
+        if (element is not VguiPanel panel || HudViewport.Of(panel) is not { } viewport)
+        {
+            return true;
+        }
+
+        foreach (string group in element.RenderGroups)
+        {
+            if (viewport.IsRenderGroupLockedFor(element, group))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>`CHud::IsHidden` (hud.cpp:951).</summary>
     /// <param name="state">The game state.</param>
     /// <param name="hudFlags">The element's hidden bits.</param>
@@ -243,6 +280,7 @@ public static class HudVisibility
 public sealed class HudViewport : VguiEditablePanel
 {
     private readonly List<IHudElement> _elements = [];
+    private readonly Dictionary<string, List<IHudElement>> _lockers = new(StringComparer.Ordinal);
     private bool _teamSent;
 
     private const string AnimationManifest = "scripts/hudanimations_manifest.txt";
@@ -347,6 +385,68 @@ public sealed class HudViewport : VguiEditablePanel
                 panel.Visible = element.ShouldDraw(state);
             }
         }
+    }
+
+    /// <summary>`CHud::LockRenderGroup` (hud.cpp:1016): an element joins the group's lockers once.</summary>
+    /// <param name="group">The group's name.</param>
+    /// <param name="locker">The element hiding lower-priority ones.</param>
+    public void LockRenderGroup(string group, IHudElement locker)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(locker);
+
+        if (!_lockers.TryGetValue(group, out List<IHudElement>? lockers))
+        {
+            _lockers[group] = lockers = [];
+        }
+
+        if (!lockers.Contains(locker))
+        {
+            lockers.Add(locker);
+        }
+    }
+
+    /// <summary>`CHud::UnlockRenderGroup` (hud.cpp:1065).</summary>
+    /// <param name="group">The group's name.</param>
+    /// <param name="locker">The element releasing its lock.</param>
+    public void UnlockRenderGroup(string group, IHudElement locker)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        if (_lockers.TryGetValue(group, out List<IHudElement>? lockers))
+        {
+            lockers.Remove(locker);
+        }
+    }
+
+    /// <summary>
+    /// `CHud::IsRenderGroupLockedFor` (hud.cpp:1104): the queue's head — the highest-priority locker — hides an element
+    /// of strictly lower priority.
+    /// </summary>
+    /// <param name="element">The element asking.</param>
+    /// <param name="group">One of its groups.</param>
+    /// <returns>Whether that group hides it.</returns>
+    /// <remarks>**Interpolated:** of lockers of equal top priority the first to lock is the head; a heap's order among ties is its own.</remarks>
+    public bool IsRenderGroupLockedFor(IHudElement element, string group)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+
+        if (!_lockers.TryGetValue(group, out List<IHudElement>? lockers) || lockers.Count == 0)
+        {
+            return false;
+        }
+
+        IHudElement head = lockers[0];
+
+        foreach (IHudElement locker in lockers)
+        {
+            if (locker.RenderGroupPriority > head.RenderGroupPriority)
+            {
+                head = locker;
+            }
+        }
+
+        return !ReferenceEquals(head, element) && head.RenderGroupPriority > element.RenderGroupPriority;
     }
 
     private static void SetLocalTeam(VguiPanel panel, int team)

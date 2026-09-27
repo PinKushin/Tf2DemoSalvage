@@ -94,10 +94,21 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     /// <inheritdoc/>
     public int HiddenBits => HudVisibility.HideMiscStatus | HudVisibility.HideTargetId;
 
+    /// <summary>"global", then "mid", "commentary" and "arena_target_id" (tf_hud_target_id.cpp:147-153).</summary>
+    public IReadOnlyList<string> RenderGroups { get; } = ["global", "mid", "commentary", "arena_target_id"];
+
+    /// <summary>`m_iRenderPriority`: 5 (:150) until the `.res` says `priority` (:304).</summary>
+    public int RenderGroupPriority { get; private set; } = 5;
+
     /// <inheritdoc/>
     public override void ApplySettings(KeyValuesTree block, VguiContext context)
     {
+        ArgumentNullException.ThrowIfNull(block);
+
         base.ApplySettings(block, context);
+
+        // `inResourceData->GetInt( "priority" )` — 0 when absent, as `GetInt` answers.
+        RenderGroupPriority = PanelLayout.Atoi(block.Find("priority")?.Value ?? "0");
 
         // `GetPos( x, m_nOriginalY )` after the layout file places it.
         _originalY = Y;
@@ -127,7 +138,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     /// <summary>`CTargetID::ShouldDraw` (:504), gated by each sibling's own extra condition (:1201, :1213).</summary>
     /// <param name="state">The local player.</param>
     /// <returns>Whether it draws.</returns>
-    public bool ShouldDraw(HudState state)
+    public virtual bool ShouldDraw(HudState state)
     {
         if (!state.HasLocalPlayer || !ExtraShouldDrawGate(state))
         {
@@ -136,7 +147,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
         _floatingHealthIcon?.Tick(state);
 
-        if (HudVisibility.IsHidden(state, HiddenBits) || state.Rules.ShowMatchSummary || state.Player(state.LocalIndex) is null
+        if (!HudVisibility.ShouldDraw(state, this) || state.Rules.ShowMatchSummary || state.Player(state.LocalIndex) is null
             || state.Conditions.Has(ConditionTaunting))
         {
             UpdateFloatingHealthIconVisibility(state, visible: false);
@@ -983,6 +994,7 @@ public sealed class TfSecondaryTargetId : TfTargetId
 {
     private const int ClassMedicId = 5;
     private string _prepend = string.Empty;
+    private bool _wasHidingLowerElements;
 
     /// <summary>`CTargetID( "CSecondaryTargetID" )`.</summary>
     /// <param name="viewport">The viewport.</param>
@@ -993,6 +1005,30 @@ public sealed class TfSecondaryTargetId : TfTargetId
 
     /// <inheritdoc/>
     private protected override string Prepend => _prepend;
+
+    /// <summary>`CSecondaryTargetID::ShouldDraw` (:1138): drawing locks the "mid" group against lower priorities; not, unlocks it.</summary>
+    /// <param name="state">The local player.</param>
+    /// <returns>Whether it draws.</returns>
+    public override bool ShouldDraw(HudState state)
+    {
+        bool draw = base.ShouldDraw(state);
+
+        if (HudViewport.Of(this) is { } viewport && draw != _wasHidingLowerElements)
+        {
+            if (draw)
+            {
+                viewport.LockRenderGroup("mid", this);
+            }
+            else
+            {
+                viewport.UnlockRenderGroup("mid", this);
+            }
+
+            _wasHidingLowerElements = draw;
+        }
+
+        return draw;
+    }
 
     /// <summary>No gate of its own: `CSecondaryTargetID::ShouldDraw` calls `BaseClass::ShouldDraw()` directly.</summary>
     private protected override bool ExtraShouldDrawGate(HudState state) => true;

@@ -62,8 +62,33 @@ public sealed class TfSecondaryTargetIdConformanceTests
     }
 
     [Test]
+    public void ShouldDraw_WhileDrawn_LocksMidAgainstLowerPrioritiesAndUnlocksAfter()
+    {
+        // `CSecondaryTargetID::ShouldDraw` (:1138): `HideLowerPriorityHudElementsInGroup( "mid" )` while it draws.
+        (TfSecondaryTargetId _, TfMainTargetId _, HudViewport viewport) = Built();
+        Lower lower = new(viewport);
+        HudState healing = State(Local(medic: true) with { ActiveMedigun = (2, 0.5f) });
+
+        viewport.Think(healing);
+        bool lockedWhileHealing = viewport.IsRenderGroupLockedFor(lower, "mid");
+
+        // A tick later: the old target is kept only while `curtime` has not passed the last change (:538).
+        viewport.Think(State(Local(medic: true)) with { CurTime = 2f });
+
+        (lockedWhileHealing, viewport.IsRenderGroupLockedFor(lower, "mid")).ShouldBe((true, false));
+    }
+
+    [Test]
     public void ShouldDraw_NotHealingOrHealed_IsHidden() =>
         Built().Secondary.ShouldDraw(State(Local(medic: false))).ShouldBeFalse();
+
+    /// <summary>A "mid" element below the secondary's priority (5 with no layout file).</summary>
+    private sealed class Lower(VguiPanel viewport) : VguiPanel(viewport, "Lower"), IHudElement
+    {
+        public int HiddenBits => 0;
+
+        public IReadOnlyList<string> RenderGroups => ["global", "mid"];
+    }
 
     private static ScenePlayer Local(bool medic) => new(1, 0f, 0f, 0f, 2, 150, medic ? 5 : 3);
 
