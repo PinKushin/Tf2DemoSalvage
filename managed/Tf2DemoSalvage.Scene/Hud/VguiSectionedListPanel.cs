@@ -52,13 +52,12 @@ public delegate bool SectionedListSortFunc(VguiSectionedListPanel list, int item
 /// Each cell draws through a <see cref="VguiTextImage"/>, the way `CItemButton`/`SectionedListPanelHeader` draw through a
 /// `TextImage` (:297-:470, :107-:180): `SetText`, `SetDrawWidth` to the column's content width, `SetPos`, `Paint` — so a
 /// cell too wide for its column truncates with `TextImage`'s own ellipsis (`RecalculateEllipsesPosition`), not an
-/// approximation of it. The alignment math (`ComputeAlignment`, mirrored in <see cref="DrawCell"/>) still measures the
-/// image's *full, untruncated* width, exactly as `TextImage::GetContentSize` does — the ellipsis shortens what is drawn,
-/// never what centring or right-alignment measures.
+/// approximation of it. The alignment measures the image's *full, untruncated* width, as `TextImage::GetContentSize` does —
+/// the ellipsis shortens what is drawn, never what centring or right-alignment measures.
 /// **Not modelled:** mouse and keyboard selection, the edit mode and its sub-panel, the context and edit menus, drag and
 /// drop, the scroll bar's own drawing (only its value offsets `y`, as `LayoutPanels` reads `m_pScrollBar->GetValue()`),
 /// actual images (a `COLUMN_IMAGE` cell tracks an image index but draws nothing unless an image list is set and asked
-/// for a texture), and the header's "draw over the next blank header" column merge.
+/// for a texture), and per-column fallback fonts and colour overrides.
 /// </remarks>
 public class VguiSectionedListPanel : VguiPanel
 {
@@ -474,13 +473,38 @@ public class VguiSectionedListPanel : VguiPanel
         int textY = y + Math.Max(0, (tall - surface.GetFontTall(font)) / 2);
         int xpos = 0;
 
-        foreach (Column column in section.Columns)
+        // `SectionedListPanelHeader::PerformLayout` (:142-:203): no first-column indent and no centring; a left-aligned
+        // header may draw over each later column whose header is blank (a `HEADER_IMAGE`'s null image, or empty text).
+        for (int i = 0; i < section.Columns.Count; i++)
         {
-            if (!column.Flags.HasFlag(SectionedListColumn.HeaderImage))
+            Column column = section.Columns[i];
+
+            if (column.Flags.HasFlag(SectionedListColumn.HeaderImage))
             {
-                DrawCell(surface, font, column.Text, column.Flags, xpos, column.Width, isFirstColumn: false, x, textY, color);
+                xpos += column.Width;
+                continue;
             }
 
+            VguiTextImage image = CellImage(font, column.Text, color);
+            int contentWide = image.GetContentSize(surface).Wide;
+            int maxWidth = column.Width;
+
+            if (!column.Flags.HasFlag(SectionedListColumn.ColumnRight))
+            {
+                for (int j = i + 1; j < section.Columns.Count; j++)
+                {
+                    Column next = section.Columns[j];
+
+                    if (next.Flags.HasFlag(SectionedListColumn.HeaderImage) || CellImage(font, next.Text, color).GetContentSize(surface).Wide == 0)
+                    {
+                        maxWidth += next.Width;
+                    }
+                }
+            }
+
+            int cellX = column.Flags.HasFlag(SectionedListColumn.ColumnRight) ? xpos + maxWidth - contentWide : xpos;
+
+            Draw(surface, image, x + cellX, textY, maxWidth - ColumnDataGap);
             xpos += column.Width;
         }
 
@@ -523,69 +547,50 @@ public class VguiSectionedListPanel : VguiPanel
             (byte, byte, byte, byte) color = item.FgColor
                 ?? (column.Flags.HasFlag(SectionedListColumn.ColumnBright) ? BrightTextColor : RowTextColor);
 
-            DrawCell(surface, font, text, column.Flags, xpos, column.Width, isFirstColumn: i == 0, x, textY, color);
+            // `CItemButton::PerformLayout` (:426-:471): the image's width scaled to the row's height, then placed.
+            VguiTextImage image = CellImage(font, text, color);
+            (int contentWide, int contentTall) = image.GetContentSize(surface);
+            int imageWide = contentTall != 0 ? Math.Min(contentTall, tall) * contentWide / contentTall : 0;
+            int columnWidth = column.Width;
+            int cellX = xpos;
+            int drawWidth = columnWidth - ColumnDataGap;
+
+            if (i == 0)
+            {
+                cellX = xpos + ColumnDataIndent;
+                drawWidth = columnWidth - (ColumnDataIndent + ColumnDataGap);
+            }
+            else if (column.Flags.HasFlag(SectionedListColumn.ColumnCenter))
+            {
+                int offset = (columnWidth / 2) - (imageWide / 2);
+                cellX = xpos + offset;
+                drawWidth = columnWidth - offset - ColumnDataGap;
+            }
+            else if (column.Flags.HasFlag(SectionedListColumn.ColumnRight))
+            {
+                cellX = xpos + columnWidth - imageWide;
+            }
+
+            Draw(surface, image, x + cellX, textY, drawWidth);
             xpos += column.Width;
         }
     }
 
-    /// <summary>
-    /// The per-column placement `CItemButton::PerformLayout`/`SectionedListPanelHeader::PerformLayout` compute (:450-:470),
-    /// then a <see cref="VguiTextImage"/> drawn the way `CItemButton`/`SectionedListPanelHeader` draw their `TextImage`:
-    /// text and font set, `SetDrawWidth` to the column's content width (so a too-wide cell truncates with an ellipsis),
-    /// positioned, and painted. The alignment above still measures the FULL text width — Valve's `GetContentSize` does
-    /// not shorten for the ellipsis either, so a right-aligned cell's edge is where the untruncated text would end.
-    /// </summary>
-    private static void DrawCell(
-        IVguiSurface surface,
-        VguiFontAmalgam font,
-        string text,
-        SectionedListColumn flags,
-        int columnX,
-        int columnWidth,
-        bool isFirstColumn,
-        int panelX,
-        int textY,
-        (byte, byte, byte, byte) color)
+    /// <summary>A cell's `TextImage`: its font, colour and text.</summary>
+    private static VguiTextImage CellImage(VguiFontAmalgam font, string text, (byte, byte, byte, byte) color)
     {
-        int maxWidth = isFirstColumn ? columnWidth - (ColumnDataIndent + ColumnDataGap) : columnWidth - ColumnDataGap;
-        int textWidth = MeasureWidth(surface, text);
-        int cellX;
-
-        if (isFirstColumn)
-        {
-            cellX = columnX + ColumnDataIndent;
-        }
-        else if (flags.HasFlag(SectionedListColumn.ColumnCenter))
-        {
-            cellX = columnX + (columnWidth / 2) - (textWidth / 2);
-        }
-        else if (flags.HasFlag(SectionedListColumn.ColumnRight))
-        {
-            cellX = columnX + columnWidth - textWidth;
-        }
-        else
-        {
-            cellX = columnX;
-        }
-
         VguiTextImage image = new(font) { Color = color };
 
         image.SetText(text, localize: null);
-        image.SetDrawWidth(Math.Max(0, maxWidth));
-        image.SetPos(panelX + cellX, textY);
-        image.Paint(surface);
+        return image;
     }
 
-    private static int MeasureWidth(IVguiSurface surface, string text)
+    /// <summary>`SetImageBounds` then the label's paint: a too-wide text truncates with `TextImage`'s own ellipsis.</summary>
+    private static void Draw(IVguiSurface surface, VguiTextImage image, int x, int y, int drawWidth)
     {
-        int width = 0;
-
-        foreach (char character in text)
-        {
-            width += surface.GetCharacterWidth(null!, character);
-        }
-
-        return width;
+        image.SetDrawWidth(Math.Max(0, drawWidth));
+        image.SetPos(x, y);
+        image.Paint(surface);
     }
 
     private Section? FindSection(int sectionId) => _sections.Find(section => section.Id == sectionId);

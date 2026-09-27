@@ -200,6 +200,41 @@ public sealed class VguiSectionedListPanelConformanceTests
         surface.Glyphs[^5..].ShouldBe(["a@15,28", "b@25,28", ".@35,28", ".@39,28", ".@43,28"]);
     }
 
+    [Test]
+    public void Paint_ACentredCellNearlyItsColumnsWidth_LosesTheOffsetFromItsDrawWidth()
+    {
+        VguiSectionedListPanel list = Build(out TextRecorder surface);
+
+        list.AddSection(1, "s");
+        list.AddColumnToSection(1, "a", "A", 0, 40);
+        list.AddColumnToSection(1, "b", "B", SectionedListColumn.ColumnCenter, 100);
+        list.AddItem(1, new Dictionary<string, string> { ["a"] = "-", ["b"] = "aaaaaaaaa.." });
+
+        list.Paint(surface, null!);
+
+        // 98 wide: offset (100 / 2) - (98 / 2) = 1, bound 100 - 1 - 2 = 97 (CItemButton::PerformLayout :459-:460), so the
+        // text no longer fits and truncates, starting at x = 5 + 40 + 1.
+        List<string> cell = [.. surface.Glyphs.SkipWhile(g => g[0] != '-').Skip(1)];
+        string.Concat(cell.Select(glyph => glyph[0])).ShouldBe("aaaaaaaa...");
+        cell[0].ShouldBe("a@46,28");
+    }
+
+    [Test]
+    public void Paint_AHeaderBesideABlankOne_DrawsOverIt()
+    {
+        VguiSectionedListPanel list = Build(out TextRecorder surface);
+
+        // "Name" is 40 wide in a 10-wide column; the next header is empty, so its 60 joins the bound (:163-:180): 68.
+        list.AddSection(1, "s");
+        list.AddColumnToSection(1, "a", "Name", 0, 10);
+        list.AddColumnToSection(1, "b", string.Empty, 0, 60);
+        list.SetSectionAlwaysVisible(1, true);
+
+        list.Paint(surface, null!);
+
+        string.Concat(surface.Glyphs.Select(glyph => glyph[0])).ShouldBe("Name");
+    }
+
     private static VguiSectionedListPanel Build(out TextRecorder surface)
     {
         TextRecorder recorder = new();
