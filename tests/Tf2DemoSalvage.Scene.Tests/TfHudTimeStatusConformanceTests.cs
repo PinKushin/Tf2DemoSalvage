@@ -140,6 +140,45 @@ public sealed class TfHudTimeStatusConformanceTests
         string.Concat(surface.Glyphs.Select(glyph => glyph[0])).ShouldBe("+1:30");
     }
 
+    [TestCase(3725, "1:02:05")]
+    [TestCase(125, "02:05")]
+    [TestCase(-40, "00:00")]
+    public void OnThink_ShowingTheServerTimeLimit_WritesTheMapTimeLeft(int secondsLeft, string expected)
+    {
+        // `GetTimeLeft` (teamplayroundbased_gamerules.cpp:1226): mp_timelimit * 60 + m_flMapResetTime - curtime, floored at
+        // 0; formatted by tf_time_panel.cpp:782-806 through TF_HUD_ServerTimeLeft / ...NoHours / ...ChangeOnRoundEnd.
+        TfHudMatchStatus status = Thought(ServerLimited(secondsLeft));
+
+        VguiLabel label = (VguiLabel)status.TimePanel.FindChildByName("ServerTimeLimitLabel")!;
+
+        (label.Visible, label.Text).ShouldBe((true, expected));
+    }
+
+    [Test]
+    public void OnThink_ServerTimeLimitCvarOff_HidesTheLabel()
+    {
+        TfHudMatchStatus status = Thought(ServerLimited(125) with { ConVars = TestConVars.Of(("mp_timelimit", "30")) });
+
+        status.TimePanel.FindChildByName("ServerTimeLimitLabel")!.Visible.ShouldBeFalse("tf_hud_show_servertimelimit defaults to 0");
+    }
+
+    [Test]
+    public void OnThink_ServerTimeLimitInSetup_HidesTheLabel()
+    {
+        HudState state = ServerLimited(125);
+        TfHudMatchStatus status = Thought(state with { Rules = state.Rules with { Setup = true } });
+
+        status.TimePanel.FindChildByName("ServerTimeLimitLabel")!.Visible.ShouldBeFalse("!TFGameRules()->InSetup() (:748)");
+    }
+
+    /// <summary>A 30-minute map limit with <paramref name="secondsLeft"/> left at curtime 10, and the cvar on.</summary>
+    private static HudState ServerLimited(int secondsLeft) =>
+        Playing() with
+        {
+            ConVars = TestConVars.Of(("tf_hud_show_servertimelimit", "1"), ("mp_timelimit", "30")),
+            Rules = Rules() with { MapResetTime = 10f + secondsLeft - 1800f },
+        };
+
     private static HudState Playing() =>
         new(true, true, 0, 125, true, CurTime: 10f, Team: 3, LocalIndex: 1, ServerTime: 100f, Rules: Rules(), RoundTimers: [Timer()]);
 
@@ -205,8 +244,19 @@ public sealed class TfHudTimeStatusConformanceTests
                     "SuddenDeathBG" { "ControlName" "CTFImagePanel" "fieldName" "SuddenDeathBG" "visible" "0" }
                     "SetupLabel" { "ControlName" "CExLabel" "fieldName" "SetupLabel" "visible" "0" "labelText" "#game_Setup" }
                     "SetupBG" { "ControlName" "CTFImagePanel" "fieldName" "SetupBG" "visible" "0" }
+                    "ServerTimeLimitLabel" { "ControlName" "CExLabel" "fieldName" "ServerTimeLimitLabel" "visible" "0" "labelText" "%servertimeleft%" }
+                    "ServerTimeLimitLabelBG" { "ControlName" "CTFImagePanel" "fieldName" "ServerTimeLimitLabelBG" "visible" "0" }
                 }
                 """),
+        };
+
+        // As tf_english.txt ships them.
+        Dictionary<string, string> strings = new()
+        {
+            ["TF_HUD_ServerTimeLeft"] = "%s1:%s2:%s3",
+            ["TF_HUD_ServerTimeLeftNoHours"] = "%s1:%s2",
+            ["TF_HUD_ServerNoTimeLimit"] = string.Empty,
+            ["TF_HUD_ServerChangeOnRoundEnd"] = "00:00",
         };
 
         KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
@@ -216,7 +266,7 @@ public sealed class TfHudTimeStatusConformanceTests
         {
             Surface = new TextRecorder(),
             Read = files.GetValueOrDefault,
-            Localize = _ => null,
+            Localize = strings.GetValueOrDefault,
         };
     }
 }

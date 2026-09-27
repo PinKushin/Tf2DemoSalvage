@@ -340,11 +340,23 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
                 bar.Percentage = totalTime == 0 ? 0f : ((float)totalTime - timeRemaining) / totalTime;
             }
 
-            // `tf_hud_show_servertimelimit` is 0, so the server time limit stays hidden.
+            // "Optional display of mp_timelimit on HUD" (tf_time_panel.cpp:741).
             if (_serverTimeLabel is not null && _serverTimeBg is not null)
             {
-                _serverTimeLabel.Visible = false;
-                _serverTimeBg.Visible = false;
+                int serverTimeLimit = state.ConVars.GetInt("mp_timelimit") * 60;
+                bool display = state.ConVars.GetInt("tf_hud_show_servertimelimit") != 0
+                    && !state.Rules.Setup
+                    && !state.Rules.WaitingForPlayers
+                    && timer.MaxLength > 0 // `IsRoundMaxTimerSet()` (teamplay_round_timer.h:82)
+                    && serverTimeLimit != 0;
+
+                _serverTimeLabel.Visible = display;
+                _serverTimeBg.Visible = display;
+
+                if (display)
+                {
+                    SetDialogVariable("servertimeleft", ServerTimeLeft(state));
+                }
             }
         }
 
@@ -531,11 +543,43 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
 
         if (_serverTimeLabel is not null && _serverTimeBg is not null)
         {
-            // "This appears in the same space after SetUp and WaitingForPlayers is gone" — off with the cvar's 0.
-            _serverTimeLabel.Visible = false;
-            _serverTimeBg.Visible = false;
+            // "This appears in the same space after SetUp and WaitingForPlayers is gone" (tf_time_panel.cpp:593).
+            bool display = state.ConVars.GetInt("tf_hud_show_servertimelimit") != 0 && !inSetup && !waiting;
+
+            _serverTimeLabel.Visible = display;
+            _serverTimeBg.Visible = display;
         }
     }
+
+    /// <summary>The `servertimeleft` text (tf_time_panel.cpp:770-806) from `GetTimeLeft()` (teamplayroundbased_gamerules.cpp:1226).</summary>
+    private string ServerTimeLeft(HudState state)
+    {
+        const int Chars = 128;
+
+        if (state.ConVars.GetInt("mp_timelimit") * 60 == 0)
+        {
+            return VguiLocalize.ConstructString(Find("TF_HUD_ServerNoTimeLimit"), Chars);
+        }
+
+        float timeLimit = state.ConVars.GetInt("mp_timelimit") * 60;
+        int timeLeft = Math.Max((int)(state.Rules.MapResetTime + timeLimit - state.CurTime), 0);
+
+        if (timeLeft == 0)
+        {
+            return VguiLocalize.ConstructString(Find("TF_HUD_ServerChangeOnRoundEnd"), Chars);
+        }
+
+        int hours = timeLeft / 3600;
+        string minutes = ((timeLeft % 3600) / 60).ToString("00", CultureInfo.InvariantCulture);
+        string seconds = (timeLeft % 60).ToString("00", CultureInfo.InvariantCulture);
+
+        return hours == 0
+            ? VguiLocalize.ConstructString(Find("TF_HUD_ServerTimeLeftNoHours"), Chars, minutes, seconds)
+            : VguiLocalize.ConstructString(
+                Find("TF_HUD_ServerTimeLeft"), Chars, hours.ToString(CultureInfo.InvariantCulture), minutes, seconds);
+    }
+
+    private string? Find(string token) => HudViewport.Of(this)?.Context?.Localize?.Invoke(token);
 
     /// <summary>`CheckClockLabelLength` (:412): a label wider than its text box grows about its centre; wider than its background, the background hides.</summary>
     private static void CheckClockLabelLength(VguiLabel label, VguiPanel background)

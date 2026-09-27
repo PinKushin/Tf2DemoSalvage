@@ -580,6 +580,9 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`GetRoundsPlayed()`: `m_nRoundsPlayed` (teamplayroundbased_gamerules.cpp:116).</summary>
     public int RoundsPlayed { get; init; }
 
+    /// <summary>`m_flMapResetTime` (teamplayroundbased_gamerules.cpp:95), server time the map clock started.</summary>
+    public float MapResetTime { get; init; }
+
     /// <summary>`IsInKothMode()`: `m_bPlayingKoth` (:1507).</summary>
     public bool Koth { get; init; }
 
@@ -3192,6 +3195,7 @@ public sealed class DemoTimeline
                 StopWatch = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bStopWatch") is > 0,
                 GameType = gameRules?.Integer("DT_TFGameRules.m_nGameType") ?? 0,
                 RoundsPlayed = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_nRoundsPlayed") ?? 0,
+                MapResetTime = gameRules?.Number("DT_TeamplayRoundBasedRules.m_flMapResetTime") ?? 0f,
                 MatchGroup = gameRules?.Integer("DT_TFGameRules.m_nMatchGroupType") ?? -1,
                 Koth = gameRules?.Integer("DT_TFGameRules.m_bPlayingKoth") is > 0,
                 ShowMatchSummary = gameRules?.Integer("DT_TFGameRules.m_bShowMatchSummary") is > 0,
