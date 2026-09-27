@@ -7153,6 +7153,7 @@ internal class MainForm : Form, IFrameSteps
                 : null;
             _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
             _vguiHud.Viewport.WeaponAttribute = _hudHooks.OnWeapon;
+            _vguiHud.Viewport.Items = items;
         }
 
         int hudTick = _transport.CurrentTick;

@@ -282,6 +282,36 @@ public readonly record struct ScenePlayer(
     public int? KillStreak { get; init; }
 
     /// <summary>
+    /// `m_Shared.m_flInvisChangeCompleteTime` (tf_player_shared.cpp:576, `SendPropTime`, sent to everyone): when a cloak or
+    /// decloak finishes, on the server's clock — what `InvisibilityThink` (:7977) ramps `GetPercentInvisible` by. Null unsent.
+    /// </summary>
+    public float? InvisChangeCompleteTime { get; init; }
+
+    /// <summary>`m_Shared.m_flCloakMeter` (:586): 0..100 — a motion cloak at 0 fades by speed (`InvisibilityThink`, :8019).</summary>
+    public float? CloakMeter { get; init; }
+
+    /// <summary>`m_Shared.m_hDisguiseWeapon` (:584) as its entity slot, or null for none.</summary>
+    public int? DisguiseWeapon { get; init; }
+
+    /// <summary>
+    /// `m_vecVelocity` (player.cpp:8140-8142, `DT_LocalPlayerExclusive`): the recorder's own velocity, which is its
+    /// `GetAbsVelocity` on the client; null for anyone else.
+    /// </summary>
+    public (float X, float Y, float Z)? Velocity { get; init; }
+
+    /// <summary>The active weapon's `m_iAccountID` (econ_item_view.cpp:187): whose item it is; null with none held or unsent.</summary>
+    public uint? WeaponAccountId { get; init; }
+
+    /// <summary>The active weapon's `m_iEntityQuality` (econ_item_view.cpp:188).</summary>
+    public int? WeaponQuality { get; init; }
+
+    /// <summary>
+    /// `HasTheFlag()` (tf_player_shared.cpp:11223) with no exceptions: `m_hItem` (tf_player.cpp:798, sent to everyone) names
+    /// an item whose `GetItemID()` is `TF_ITEM_CAPTURE_FLAG` — a `CCaptureFlag`, the only `C_TFItem` there is.
+    /// </summary>
+    public bool HasTheFlag { get; init; }
+
+    /// <summary>
     /// The medigun among the weapons that arrived — `Weapon_OwnsThisID( TF_WEAPON_MEDIGUN )` over `m_hMyWeapons` — as its
     /// `m_flChargeLevel`, `m_iEntityQuality` and definition; null when none arrived, which for anyone but the recorder is
     /// every point-of-view demo.
@@ -3108,6 +3138,24 @@ public sealed class DemoTimeline
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
                     ActiveWeaponClip = player.Integer("DT_TFSendHealersDataTable.m_nActiveWpnClip"),
                     KillStreak = player.Integer("m_nStreaks.000"),
+                    InvisChangeCompleteTime = player.Number("DT_TFPlayerShared.m_flInvisChangeCompleteTime"),
+                    CloakMeter = player.Number("DT_TFPlayerShared.m_flCloakMeter"),
+                    DisguiseWeapon = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseWeapon")),
+                    Velocity = player.Number("DT_LocalPlayerExclusive.m_vecVelocity[0]") is { } velocityX
+                        ? (velocityX,
+                            player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,
+                            player.Number("DT_LocalPlayerExclusive.m_vecVelocity[2]") ?? 0f)
+                        : null,
+                    WeaponAccountId = player.ActiveWeapon() is { } owned && entities.TryGet(owned, out EntityState? ownedWeapon)
+                        && ownedWeapon.Integer("DT_ScriptCreatedItem.m_iAccountID") is { } account
+                            ? unchecked((uint)account)
+                            : null,
+                    WeaponQuality = player.ActiveWeapon() is { } graded && entities.TryGet(graded, out EntityState? gradedWeapon)
+                        ? gradedWeapon.Integer("DT_ScriptCreatedItem.m_iEntityQuality")
+                        : null,
+                    HasTheFlag = EntityState.Slot(player.Integer("DT_TFPlayer.m_hItem")) is { } heldItem
+                        && entities.TryGet(heldItem, out EntityState? heldEntity)
+                        && heldEntity.ClassName == "CCaptureFlag",
                     Medigun = MedigunOf(player, entities),
                     ActiveMedigun = player.ActiveWeapon() is { } inHand && entities.TryGet(inHand, out EntityState? heldWeapon)
                         && heldWeapon.ClassName == "CWeaponMedigun"

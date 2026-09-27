@@ -237,6 +237,7 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string DetailFadeCommand = "cl_detailfade";
 
+
     /// <summary>`cl_interp`, default "0.1" (`cdll_bounded_cvars.cpp`).</summary>
     public const string InterpCommand = "cl_interp";
 
@@ -975,6 +976,7 @@ public sealed record ViewerSettings
         {
             settings = settings with { ThreeDimensionalSky = sky };
         }
+
 
         // **Zero is accepted and negative is not**, which is the same rule the frame rate limit
         // keeps and for the same reason: `low.cfg` ships `cl_detaildist 0` and it means "draw no

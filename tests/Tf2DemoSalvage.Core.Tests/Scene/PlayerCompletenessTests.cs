@@ -206,6 +206,13 @@ public sealed class PlayerCompletenessTests
         IsMiniBoss = true,
         ActiveWeaponClip = 6,
         KillStreak = 4,
+        InvisChangeCompleteTime = 5.5f,
+        CloakMeter = 42f,
+        DisguiseWeapon = 31,
+        Velocity = (1f, 2f, 3f),
+        WeaponAccountId = 1234u,
+        WeaponQuality = 6,
+        HasTheFlag = true,
         Medigun = (0.5f, 6, 29),
         ActiveMedigun = (3, 0.5f),
 

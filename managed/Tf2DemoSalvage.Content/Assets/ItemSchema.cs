@@ -88,6 +88,12 @@ public sealed class ItemSchema
         /// <summary>Its <c>item_slot</c>, or null when it does not say.</summary>
         public string? LoadoutSlot { get; set; }
 
+        /// <summary>Its <c>used_by_classes</c> block, class name to "1" or a slot name (tf_item_schema.cpp:958).</summary>
+        public Dictionary<string, string> UsedByClasses { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Its <c>item_rarity</c>, or null (econ_item_schema.cpp:3081).</summary>
+        public string? ItemRarity { get; set; }
+
         /// <summary>Its <c>model_player_per_class</c> entries, keyed by the schema's class name.</summary>
         public Dictionary<string, string> PerClass { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -258,6 +264,12 @@ public sealed class ItemSchema
     /// <summary>Each attribute definition's <c>description_format</c>, which decides how a hook applies it.</summary>
     private readonly Dictionary<int, string> _attributeFormat = [];
 
+    /// <summary>The <c>rarities</c> section by name: each one's <c>value</c> and <c>color</c> (econ_item_schema.cpp:329).</summary>
+    private readonly Dictionary<string, (int? Value, string Color)> _rarities = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The <c>colors</c> section: each definition's <c>color_name</c> (econ_item_schema.cpp:357).</summary>
+    private readonly Dictionary<string, string> _colorNames = new(StringComparer.Ordinal);
+
     private ItemSchema()
     {
     }
@@ -303,6 +315,10 @@ public sealed class ItemSchema
         bool inItemAttributes = false;
         string pendingAttributeName = string.Empty;
 
+        // `used_by_classes` inside an entry, and the name of the `rarities`/`colors` child being read.
+        bool inUsedByClasses = false;
+        string sectionChild = string.Empty;
+
         KeyValuesReader.Read(schema, (key, value, depth) =>
         {
             switch (depth)
@@ -324,6 +340,8 @@ public sealed class ItemSchema
                     inAttached = false;
                     inStaticAttrs = false;
                     inItemAttributes = false;
+                    inUsedByClasses = false;
+                    sectionChild = key;
                     entry = read.Begin(section, key);
 
                     // The top-level `attributes` section: each child is one definition, keyed by
@@ -362,7 +380,34 @@ public sealed class ItemSchema
 
                     break;
 
+                // `CEconItemRarityDefinition::BInitFromKV` (econ_item_schema.cpp:331, :336) and
+                // `CEconColorDefinition::BInitFromKV` (:360).
+                case 3 when entry is null && value is not null
+                    && string.Equals(section, "rarities", StringComparison.OrdinalIgnoreCase):
+                    (int? Value, string Color) rarity = read._rarities.GetValueOrDefault(sectionChild, (null, string.Empty));
+
+                    if (string.Equals(key, "value", StringComparison.OrdinalIgnoreCase))
+                    {
+                        rarity.Value = int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int rarityValue) ? rarityValue : -1;
+                    }
+                    else if (string.Equals(key, "color", StringComparison.OrdinalIgnoreCase))
+                    {
+                        rarity.Color = value;
+                    }
+
+                    read._rarities[sectionChild] = rarity;
+                    break;
+
+                case 3 when entry is null && value is not null
+                    && string.Equals(section, "colors", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(key, "color_name", StringComparison.OrdinalIgnoreCase):
+                    read._colorNames[sectionChild] = value;
+                    break;
+
                 case 3 when entry is not null:
+                    inUsedByClasses = value is null
+                        && string.Equals(key, "used_by_classes", StringComparison.OrdinalIgnoreCase);
+
                     inPerClass =
                         value is null &&
                         string.Equals(key, "model_player_per_class", StringComparison.OrdinalIgnoreCase);
@@ -431,6 +476,10 @@ public sealed class ItemSchema
                     && (key.Equals("muzzle_flash", StringComparison.OrdinalIgnoreCase) ||
                         key.Equals("tracer_effect", StringComparison.OrdinalIgnoreCase)):
                     entry.WeaponSounds[visualsTeam + "/" + key] = value;
+                    break;
+
+                case 4 when entry is not null && inUsedByClasses && value is not null:
+                    entry.UsedByClasses[key] = value;
                     break;
 
                 // `static_attrs` is flat: the pair IS the attribute.
@@ -853,6 +902,83 @@ public sealed class ItemSchema
 
         return LoadoutSlotInvalid;
     }
+
+    /// <summary><c>CTFItemDefinition::GetLoadoutSlot( iLoadoutClass )</c> (tf_item_schema.cpp:1271).</summary>
+    /// <param name="itemDefinitionIndex">The item.</param>
+    /// <param name="playerClass">The class asking, 1 Scout through 9 Engineer.</param>
+    /// <returns>The slot, or <see cref="LoadoutSlotInvalid"/> for a class the item is not used by.</returns>
+    /// <remarks>
+    /// Outside 1..9 the default slot (:1278). Otherwise `m_iLoadoutSlots[ class ]`, filled from `used_by_classes`
+    /// (:958-981): the default slot for a value starting with '1', else the named slot when it is one — the class table
+    /// matched without case, and with no "head" rewrite. The prefab chain's blocks merge, the item's own keys winning
+    /// (`MergeDefinitionPrefab`, econ_item_schema.cpp:2940).
+    /// </remarks>
+    public int LoadoutSlot(int itemDefinitionIndex, int playerClass)
+    {
+        int defaultSlot = DefaultLoadoutSlot(itemDefinitionIndex);
+
+        if (playerClass <= 0 || playerClass >= ClassNames.Length)
+        {
+            return defaultSlot;
+        }
+
+        if (Inherited(itemDefinitionIndex, entry => entry.UsedByClasses.GetValueOrDefault(ClassNames[playerClass])) is not { } value)
+        {
+            return LoadoutSlotInvalid;
+        }
+
+        // Valve's own test (:972). No slot name starts with '1', so this branch and the fallback below agree on every
+        // value — kept for the shape, and an equivalent mutant.
+        if (value.StartsWith('1'))
+        {
+            return defaultSlot;
+        }
+
+        int named = Array.FindIndex(LoadoutSlotStrings, slot => slot.Length > 0 && string.Equals(slot, value, StringComparison.OrdinalIgnoreCase));
+
+        return named >= 0 ? named : defaultSlot;
+    }
+
+    /// <summary><c>GetItemSchema()-&gt;GetRarityColor( GetItemDefinition()-&gt;GetRarity() )</c> (econ_item_schema.cpp:6633).</summary>
+    /// <param name="itemDefinitionIndex">The item.</param>
+    /// <returns>A scheme color name, or null where the item has no rarity definition — the caller's "TanLight".</returns>
+    /// <remarks>
+    /// `item_rarity` (:3081, prefabs included) names a rarity, "any" being `k_unItemRarity_Any`; the rarity found by its
+    /// `value` (`GetRarityDefinition`, :6597) gives a `color`, which `GetAttribColorIndexForName`
+    /// (econ_item_constants.cpp:293) matches exactly against `g_AttribColorDefs` — index 0, `desc_level`, when none —
+    /// and whose `color_name` in the `colors` section answers, or "ItemAttribNeutral" when that section lacks it (:311).
+    /// </remarks>
+    public string? RarityColor(int itemDefinitionIndex)
+    {
+        if (Inherited(itemDefinitionIndex, entry => entry.ItemRarity) is not { } rarityName
+            || string.Equals(rarityName, "any", StringComparison.OrdinalIgnoreCase)
+            || !_rarities.TryGetValue(rarityName, out (int? Value, string Color) named))
+        {
+            return null;
+        }
+
+        // `GetRarityDefinition( value )`: the map is keyed by value, so the first rarity carrying it answers.
+        foreach ((int? value, string color) in _rarities.Values)
+        {
+            if (value == named.Value)
+            {
+                string colorDef = Array.IndexOf(AttribColorDefs, color) is var index and >= 0 ? AttribColorDefs[index] : AttribColorDefs[0];
+
+                return _colorNames.GetValueOrDefault(colorDef, "ItemAttribNeutral");
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>`g_AttribColorDefs` (econ_item_constants.cpp:263-289), in `attrib_colors_t` order.</summary>
+    private static readonly string[] AttribColorDefs =
+    [
+        "desc_level", "desc_attrib_neutral", "desc_attrib_positive", "desc_attrib_negative", "desc_itemset_name",
+        "desc_itemset_equipped", "desc_itemset_missing", "desc_bundle", "desc_limited_use", "desc_flags",
+        "desc_limited_quantity", "desc_default", "desc_common", "desc_uncommon", "desc_rare", "desc_mythical",
+        "desc_legendary", "desc_ancient", "desc_immortal", "desc_arcana", "desc_strange", "desc_unusual",
+    ];
 
     /// <summary>The stock item's model for a weapon entity class, such as <c>tf_weapon_wrench</c>.</summary>
     /// <param name="itemClass">The weapon's entity class, from its script name.</param>
@@ -1544,6 +1670,12 @@ public sealed class ItemSchema
         if (string.Equals(key, "item_slot", StringComparison.OrdinalIgnoreCase))
         {
             entry.LoadoutSlot = value;
+            return;
+        }
+
+        if (string.Equals(key, "item_rarity", StringComparison.OrdinalIgnoreCase))
+        {
+            entry.ItemRarity = value;
             return;
         }
 
