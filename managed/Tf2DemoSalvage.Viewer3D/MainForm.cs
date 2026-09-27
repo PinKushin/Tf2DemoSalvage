@@ -7160,6 +7160,9 @@ internal class MainForm : Form, IFrameSteps
         {
             RealTime = (float)_vguiClock.Elapsed.TotalSeconds,
             Fov = ViewFovNow().World,
+
+            // `engine->WorldToScreenMatrix()`, which `GetVectorInHudSpace` projects through.
+            WorldToScreen = ViewMatrix(),
         };
 
         // **On SourceTV the local player's observer mode and target are the HLTV camera's** (`C_BasePlayer::GetObserverMode`,

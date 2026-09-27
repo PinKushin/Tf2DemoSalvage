@@ -17,10 +17,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// `ApplySchemeSettings` (:274) loads `resource/UI/TargetID.res`; `ShouldDraw` (:504) reuses the previous target for one
 /// tick past losing it unless the target kept a retain field of view, then `IsValidIDTarget` (:340), then `UpdateID`
 /// (:719) fills the labels. `PerformLayout` (:599) sizes to the labels, plus the health panel when it is drawn inside.
-/// **Not modelled here:** flags, dropped weapons and revive markers as targets (none is decoded); the floating health
-/// icon panel itself (`CFloatingHealthIcon`); the moveable sub-panel's pick-up prompt (`CanPickupBuilding`,
-/// tf_player_shared.cpp:12421); the local medic's no-heal and clip lines and `CSecondaryTargetID`, which need a medigun's
-/// heal target; `m_bIsCoaching`; Steam avatars — `tf_hud_target_id_show_avatars` 2 asks the Steam friends list, which a
+/// `IsValidIDTarget` makes, shows and deletes the floating health icon (<see cref="TfFloatingHealthIcon"/>).
+/// **Not modelled here:** flags, dropped weapons and revive markers as targets (none is decoded); the moveable sub-panel's
+/// pick-up prompt (`CanPickupBuilding`, tf_player_shared.cpp:12421); the local medic's no-heal line; `m_bIsCoaching`; Steam avatars — `tf_hud_target_id_show_avatars` 2 asks the Steam friends list, which a
 /// recording does not carry; the arena class-layout offset; and `IsHealthBarVisible`'s MvM regeneration case.
 /// </remarks>
 public abstract class TfTargetId : VguiEditablePanel, IHudElement
@@ -58,6 +57,8 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     private protected int _lastEntIndex;
     private protected float _lastChangeTime;
     private float _targetRetainFov;
+    private int _lastScannedEntIndex;
+    private TfFloatingHealthIcon? _floatingHealthIcon;
     private protected bool _layoutOnUpdate;
     private protected int _screenWide = 640;
     private protected int _screenTall = 480;
@@ -133,9 +134,12 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             return false;
         }
 
+        _floatingHealthIcon?.Tick(state);
+
         if (HudVisibility.IsHidden(state, HiddenBits) || state.Rules.ShowMatchSummary || state.Player(state.LocalIndex) is null
             || state.Conditions.Has(ConditionTaunting))
         {
+            UpdateFloatingHealthIconVisibility(state, visible: false);
             return false;
         }
 
@@ -155,10 +159,20 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
                     TargetIndex = _lastEntIndex;
                 }
             }
+
+            // "If we're showing a floating health icon, and no longer have a target, hide it".
+            UpdateFloatingHealthIconVisibility(state, visible: false);
         }
         else
         {
             _lastChangeTime = state.CurTime;
+
+            if (TargetIndex != _lastScannedEntIndex)
+            {
+                // "If we switched to another, valid target for a floating health icon, recreate it on the next pass".
+                DeleteFloatingHealthIcon();
+                _lastScannedEntIndex = TargetIndex;
+            }
         }
 
         bool valid = IsValidIdTarget(state, TargetIndex, out float retainFov);
@@ -184,6 +198,28 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         UpdateId(state);
         return true;
     }
+
+    /// <summary>`m_pFloatingHealthIcon`, or null.</summary>
+    public TfFloatingHealthIcon? FloatingHealthIcon => _floatingHealthIcon;
+
+    /// <summary>`UpdateFloatingHealthIconVisibility` (:321), comparing against the icon's own `IsVisible` override.</summary>
+    private void UpdateFloatingHealthIconVisibility(HudState state, bool visible)
+    {
+        if (_floatingHealthIcon is { } icon && icon.IsVisibleNow(state) != visible)
+        {
+            icon.SetVisible(state, visible);
+        }
+    }
+
+    /// <summary>`m_pFloatingHealthIcon->MarkForDeletion(); m_pFloatingHealthIcon = NULL;`.</summary>
+    private void DeleteFloatingHealthIcon()
+    {
+        _floatingHealthIcon?.SetParent(null);
+        _floatingHealthIcon = null;
+    }
+
+    /// <summary>`LevelShutdown` (:159): the icon goes with the level.</summary>
+    public void LevelShutdown() => DeleteFloatingHealthIcon();
 
     /// <summary>The extra gate each sibling's own `ShouldDraw` checks before `CTargetID::ShouldDraw`'s common body.</summary>
     /// <param name="state">The local player.</param>
@@ -350,9 +386,36 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             valid = spectator || local.Team == targetTeam || ((inSameTeam || spy || seeEnemyHealth != 0) && !stealthed);
         }
 
-        if (!show && !healthBarVisible && building is not null && (inSameTeam || spy))
+        if (show || healthBarVisible)
+        {
+            // "See if we're re-targeting our previous".
+            if (_floatingHealthIcon is { } icon)
+            {
+                if (icon.Entity == index)
+                {
+                    UpdateFloatingHealthIconVisibility(state, visible: true);
+                }
+                else
+                {
+                    DeleteFloatingHealthIcon();
+                }
+            }
+
+            // "Recreate the floating health icon if there isn't one, we're not a spectator, and we're not a spy or this was a
+            // robot from Robot Destruction-Mode".
+            if (_floatingHealthIcon is null && !spectator && (!spy || healthBarVisible) && !DrawHealthIcon(state) && Parent is { } viewport)
+            {
+                _floatingHealthIcon = new TfFloatingHealthIcon(
+                    viewport, index, player is { IsMiniBoss: true }, (now, target) => now.Player(now.LocalIndex) is { } me && ShouldHealthBarBeVisible(now, me, target), state.RealTime);
+            }
+        }
+        else if (building is not null && (inSameTeam || spy))
         {
             valid = true;
+        }
+        else
+        {
+            UpdateFloatingHealthIconVisibility(state, visible: false);
         }
 
         return valid;

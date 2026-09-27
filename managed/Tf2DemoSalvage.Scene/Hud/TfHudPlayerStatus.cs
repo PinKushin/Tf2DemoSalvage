@@ -365,7 +365,7 @@ public class TfHudPlayerHealth : VguiEditablePanel
             {
                 float boostMax = maxBuffedHealth - _maxHealth;
 
-                if (_bonusOrigin.Wide != -1 && _animState != AnimState.Bonus)
+                if (_bonusOrigin.Wide != -1 && AllowAnimations && _animState != AnimState.Bonus)
                 {
                     Animate("HudHealthDyingPulseStop");
                     Animate("HudHealthBonusPulse");
@@ -379,7 +379,7 @@ public class TfHudPlayerHealth : VguiEditablePanel
                 float boostMax = _maxHealth * warning;
                 (byte, byte, byte, byte) colour = GetColor("HealthDeathWarningColor");
 
-                if (_bonusOrigin.Wide != -1 && _animState != AnimState.Dying)
+                if (_bonusOrigin.Wide != -1 && AllowAnimations && _animState != AnimState.Dying)
                 {
                     Animate("HudHealthBonusPulseStop");
                     Animate("HudHealthDyingPulse");
@@ -425,8 +425,11 @@ public class TfHudPlayerHealth : VguiEditablePanel
         (_healthBonusImage.Wide, _healthBonusImage.Tall) = (_bonusOrigin.Wide + (2 * adjust), _bonusOrigin.Tall + (2 * adjust));
     }
 
+    /// <summary>`SetAllowAnimations` (tf_hud_playerstatus.h:176): `m_bAnimate`, true from the constructor (:691).</summary>
+    public bool AllowAnimations { get; set; } = true;
+
     /// <summary>`HideHealthBonusImage` (:890): back to its own bounds, and hidden.</summary>
-    private void HideHealthBonusImage()
+    public void HideHealthBonusImage()
     {
         if (!_healthBonusImage.Visible)
         {
