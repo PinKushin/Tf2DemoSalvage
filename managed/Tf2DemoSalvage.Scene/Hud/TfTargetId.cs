@@ -18,9 +18,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// tick past losing it unless the target kept a retain field of view, then `IsValidIDTarget` (:340), then `UpdateID`
 /// (:719) fills the labels. `PerformLayout` (:599) sizes to the labels, plus the health panel when it is drawn inside.
 /// `IsValidIDTarget` makes, shows and deletes the floating health icon (<see cref="TfFloatingHealthIcon"/>).
-/// **Not modelled here:** flags, dropped weapons and revive markers as targets (none is decoded); the moveable sub-panel's
-/// pick-up prompt (`CanPickupBuilding`, tf_player_shared.cpp:12421); the local medic's no-heal line; `m_bIsCoaching`; Steam avatars — `tf_hud_target_id_show_avatars` 2 asks the Steam friends list, which a
-/// recording does not carry; the arena class-layout offset; and `IsHealthBarVisible`'s MvM regeneration case.
+/// **Not modelled here:** flags, dropped weapons and revive markers as targets (none is decoded); the local medic's no-heal
+/// line; `m_bIsCoaching`; Steam avatars — `tf_hud_target_id_show_avatars` 2 asks the Steam friends list, which a
+/// recording does not carry; the arena class-layout offset; and `IsHealthBarVisible`'s MvM regeneration case. The moveable
+/// sub-panel's pick-up prompt, including <see cref="CanPickupBuilding"/> in full, IS modelled.
 /// </remarks>
 public abstract class TfTargetId : VguiEditablePanel, IHudElement
 {
@@ -38,6 +39,39 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     private const int TeleporterStateRecharging = 4;
     private const int IdChars = 256;
 
+    /// <summary>
+    /// `TF_BUILDING_PICKUP_RANGE` squared (tf_player_shared.cpp:217): `int nPickUpRangeSq = TF_BUILDING_PICKUP_RANGE *
+    /// TF_BUILDING_PICKUP_RANGE` (:12475) — an int, so <see cref="CanPickupBuilding"/> compares as one.
+    /// </summary>
+    private const int BuildingPickupRangeSq = 150 * 150;
+
+    /// <summary>`TF_BUILDING_RESCUE_MIN_RANGE_SQ` (tf_player_shared.cpp:218): 250 * 250, the `building_teleporting_pickup` deadzone.</summary>
+    private const int RescueMinRangeSq = 250 * 250;
+
+    /// <summary>`TF_COND_GRAPPLINGHOOK` (tf_shareddefs.h:788).</summary>
+    private const int ConditionGrapplingHook = 98;
+
+    /// <summary>`TF_COND_RUNE_KNOCKOUT` (tf_shareddefs.h:793): `GetCarryingRuneType() == RUNE_KNOCKOUT`, read as the condition it is.</summary>
+    private const int ConditionRuneKnockout = 103;
+
+    /// <summary>`TF_COND_STUNNED` (tf_shareddefs.h:705): "Any type of stun. Check iStunFlags for more info."</summary>
+    private const int ConditionStunned = 15;
+
+    /// <summary>`TF_STUN_CONTROLS` (tf_shareddefs.h:1334): `1&lt;&lt;1`.</summary>
+    private const int StunControls = 1 << 1;
+
+    /// <summary>`TF_STUN_LOSER_STATE` (:1339): `1&lt;&lt;6`.</summary>
+    private const int StunLoserState = 1 << 6;
+
+    /// <summary>`GR_STATE_RND_RUNNING` (teamplayroundbased_gamerules.h:59).</summary>
+    private const int RoundStateRndRunning = 4;
+
+    /// <summary>`GR_STATE_TEAM_WIN` (:63).</summary>
+    private const int RoundStateTeamWin = 5;
+
+    /// <summary>`GR_STATE_BETWEEN_RNDS` (:78).</summary>
+    private const int RoundStateBetweenRounds = 10;
+
     // `g_aPlayerClassNames` (tf_shareddefs.cpp:38).
     private static readonly string[] ClassNames =
     [
@@ -52,6 +86,11 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     private VguiPanel? _ammoIcon;
     private protected VguiPanel? _avatar;
     private TfImagePanel? _bgPanel;
+    private VguiEditablePanel? _moveableSubPanel;
+    private VguiIconPanel? _moveableIcon;
+    private VguiScalableImagePanel? _moveableSymbolIcon;
+    private VguiIconPanel? _moveableIconBg;
+    private VguiLabel? _moveableKeyLabel;
     private protected (byte, byte, byte, byte) _labelColorDefault = (255, 255, 255, 255);
     private protected int _originalY;
     private protected int _lastEntIndex;
@@ -130,6 +169,16 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         _killStreakIcon = FindChildByName("KillStreakIcon");
         _ammoIcon = FindChildByName("AmmoIcon");
         _avatar = FindChildByName("AvatarImage");
+
+        _moveableSubPanel = FindChildByName("MoveableSubPanel") as VguiEditablePanel;
+
+        if (_moveableSubPanel is not null)
+        {
+            _moveableIcon = _moveableSubPanel.FindChildByName("MoveableIcon") as VguiIconPanel;
+            _moveableSymbolIcon = _moveableSubPanel.FindChildByName("MoveableSymbolIcon") as VguiScalableImagePanel;
+            _moveableIconBg = _moveableSubPanel.FindChildByName("MoveableIconBG") as VguiIconPanel;
+            _moveableKeyLabel = _moveableSubPanel.FindChildByName("MoveableKeyLabel") as VguiLabel;
+        }
 
         // `Reset`'s default label colour.
         _labelColorDefault = context.Scheme.GetColor("Label.TextColor", (255, 255, 255, 255));
@@ -297,6 +346,30 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
                 // `cl_hud_minmode` 0.
                 _killStreakIcon.X = XRes(9) + wideExtra;
             }
+        }
+
+        // "Put the moveable icon to the right hand of our panel" (:658).
+        if (_moveableSubPanel is { Visible: true } subPanel)
+        {
+            if (_moveableKeyLabel is { } keyLabel && _moveableIcon is { } icon && _moveableSymbolIcon is { } symbolIcon
+                && _moveableIconBg is { } iconBg)
+            {
+                keyLabel.SizeToContents();
+
+                int indent = XRes(4);
+                int moveWide = Math.Max(XRes(16) + keyLabel.Wide + indent, icon.Wide + indent + XRes(8));
+                keyLabel.Wide = moveWide;
+                (subPanel.Wide, subPanel.Tall) = (moveWide, Tall);
+                (subPanel.X, subPanel.Y) = (width - indent, 0);
+
+                int y = keyLabel.Y;
+                (symbolIcon.X, symbolIcon.Y) = ((moveWide - symbolIcon.Wide) / 2, y - symbolIcon.Tall);
+                (icon.X, icon.Y) = ((moveWide - icon.Wide) / 2, y - icon.Tall);
+                (iconBg.Wide, iconBg.Tall) = (subPanel.Wide, subPanel.Tall);
+            }
+
+            // "Now add our extra width to the total size" (:680).
+            width += subPanel.Wide;
         }
 
         Wide = width;
@@ -484,6 +557,8 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         float maxHealth = 1f;
         int maxBuffedHealth = 0;
         int targetTeam = player?.Team ?? building?.Team ?? 0;
+        string? actionIcon = null;
+        string? actionCommand = null;
 
         TargetHealth.Building = false;
         TargetHealth.SetLevel(-1);
@@ -503,6 +578,29 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             {
                 _killStreakIcon.Visible = false;
             }
+
+            // "Switch the icon to the right object" (:885) — only for a building the local Engineer built himself.
+            if (obj.BuilderEntityIndex == local.EntityIndex)
+            {
+                if (CanPickupBuilding(state, local, obj))
+                {
+                    actionCommand = "+attack2";
+                }
+
+                actionIcon = obj.ObjectType switch
+                {
+                    SceneBuilding.Teleporter => obj.ObjectMode == SceneBuilding.TeleporterEntrance
+                        ? "obj_status_tele_entrance"
+                        : "obj_status_tele_exit",
+                    SceneBuilding.Sentrygun => obj.UpgradeLevel switch
+                    {
+                        3 => "obj_status_sentrygun_3",
+                        2 => "obj_status_sentrygun_2",
+                        _ => "obj_status_sentrygun_1",
+                    },
+                    _ => "obj_status_dispenser",
+                };
+            }
         }
 
         // "fixup for health being 1 when dead".
@@ -514,6 +612,33 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         TargetHealth.SetHealth((int)health, (int)maxHealth, maxBuffedHealth);
         TargetHealth.Visible = DrawHealthIcon(state);
 
+        // The moveable sub-panel — the builder's own pick-up prompt (:1010-1047).
+        if (_moveableSubPanel is { } subPanel)
+        {
+            bool showActionKey = actionCommand is not null;
+
+            if (subPanel.Visible != showActionKey)
+            {
+                subPanel.Visible = showActionKey;
+                _layoutOnUpdate = true;
+            }
+
+            if (subPanel.Visible)
+            {
+                subPanel.SetDialogVariable("movekey", state.BuildingPickupKey ?? string.Empty);
+            }
+
+            if (_moveableIcon is not null)
+            {
+                if (actionIcon is not null)
+                {
+                    _moveableIcon.SetIcon(actionIcon);
+                }
+
+                _moveableIcon.Visible = actionIcon is not null;
+            }
+        }
+
         SetLabels(id, data);
 
         if (_bgPanel is not null)
@@ -522,6 +647,205 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             _bgPanel.SetAnimationValue("alpha", (float)BackgroundAlpha);
         }
     }
+
+    /// <summary>`CTFPlayer::CanPickupBuilding` (tf_player_shared.cpp:12421), ported in full.</summary>
+    private bool CanPickupBuilding(HudState state, ScenePlayer local, SceneBuilding obj)
+    {
+        if (obj.Building) // :12426
+        {
+            return false;
+        }
+
+        // `IsUpgrading()`: hardcoded false except for a sentry's `SENTRY_STATE_UPGRADING` (:12429).
+        if (obj.ObjectType == SceneBuilding.Sentrygun && obj.SentryState == SceneBuilding.SentryStateUpgrading)
+        {
+            return false;
+        }
+
+        if (obj.Sapped) // `HasSapper()`, :12432
+        {
+            return false;
+        }
+
+        if (obj.PlasmaDisabled) // :12435
+        {
+            return false;
+        }
+
+        if (obj.UpgradeLevel != obj.HighestUpgradeLevel) // :12439
+        {
+            return false;
+        }
+
+        if (!local.IsAlive) // :12442
+        {
+            return false;
+        }
+
+        if (local.CarryingObject) // `IsCarryingObject()`, :12445
+        {
+            return false;
+        }
+
+        if (IsLoserStateStunned(local) || IsControlStunned(local)) // :12447
+        {
+            return false;
+        }
+
+        if (IsLoser(state, local)) // :12450
+        {
+            return false;
+        }
+
+        // `State_Get() != GR_STATE_RND_RUNNING && != GR_STATE_STALEMATE && != GR_STATE_BETWEEN_RNDS` (:12452).
+        if (state.RoundState is not (RoundStateRndRunning or HudState.RoundStateStalemate or RoundStateBetweenRounds))
+        {
+            return false;
+        }
+
+        if (local.Conditions.Has(ConditionGrapplingHook)) // :12457
+        {
+            return false;
+        }
+
+        // "There's ammo in the clip... no switching away!" (:12461-12462).
+        if (ActiveWeaponItem(local) is { } activeWeapon
+            && WeaponAttribute(local, activeWeapon, "auto_fires_full_clip") != 0f
+            && (local.WeaponClip1 ?? -1) > 0)
+        {
+            return false;
+        }
+
+        if (local.Conditions.Has(ConditionRuneKnockout)) // `GetCarryingRuneType() == RUNE_KNOCKOUT`, :12464
+        {
+            return false;
+        }
+
+        // `(EyePosition() - pPickupObject->GetAbsOrigin()).LengthSqr()` (:12477). `EyePosition()` is `GetAbsOrigin() +
+        // GetViewOffset()` (baseentity_shared.cpp) — the same placement `FreeCamera.AtEye` uses for the first-person
+        // camera — not the feet `local.X/Y/Z` alone.
+        if (obj.Position is not { } origin)
+        {
+            return false;
+        }
+
+        float eyeZ = local.Z + (local.IsCrouched ? PlayerEye.Ducking(state.PlayerClass) : PlayerEye.Standing(state.PlayerClass));
+
+        float dx = origin.X - local.X;
+        float dy = origin.Y - local.Y;
+        float dz = origin.Z - eyeZ;
+
+        // `int nSqrDist = (...).LengthSqr()` (:12477) truncates to int before every compare below.
+        int distanceSq = (int)((dx * dx) + (dy * dy) + (dz * dz));
+
+        // `CALL_ATTRIB_HOOK_INT_ON_OTHER( pWeapon, iIncreasedRangeCost, building_teleporting_pickup )` (:12481) — an
+        // attribute hooked on the WEAPON, applying its OWNER's providers (`AttributeHooks.OnWeapon`), same as :12462.
+        float increasedRangeCost = ActiveWeaponItem(local) is { } rangeWeapon
+            ? WeaponAttribute(local, rangeWeapon, "building_teleporting_pickup")
+            : 0f;
+
+        if (increasedRangeCost != 0f)
+        {
+            // "False on deadzone" (:12486).
+            if (distanceSq > BuildingPickupRangeSq && distanceSq < RescueMinRangeSq)
+            {
+                return false;
+            }
+
+            int metal = local.Ammo is { } ammo && Tf2DemoSalvage.Scene.TfWeaponData.AmmoMetal < ammo.Count
+                ? ammo[Tf2DemoSalvage.Scene.TfWeaponData.AmmoMetal]
+                : 0;
+
+            if (distanceSq >= RescueMinRangeSq && metal < increasedRangeCost)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        if (distanceSq > BuildingPickupRangeSq)
+        {
+            return false;
+        }
+
+        if (state.Rules.InTraining) // :12492
+        {
+            return obj.ObjectType switch
+            {
+                SceneBuilding.Dispenser => state.TrainingCanPickupDispenser,
+                SceneBuilding.Teleporter => obj.ObjectMode == SceneBuilding.TeleporterEntrance
+                    ? state.TrainingCanPickupTeleEntrance
+                    : state.TrainingCanPickupTeleExit,
+                SceneBuilding.Sentrygun => state.TrainingCanPickupSentry,
+                _ => true,
+            };
+        }
+
+        return true;
+    }
+
+    /// <summary>`CTFPlayerShared::IsLoserStateStunned` (tf_player_shared.cpp:9966): stunned, and the stun says so.</summary>
+    /// <remarks>
+    /// `GetActiveStunInfo()` on the CLIENT is non-null exactly when `m_iStunIndex &gt;= 0` (:7474-7475) and its
+    /// `iStunFlags` is `m_iStunFlags` verbatim (:7462-7463) — the client keeps no separate per-attacker stun list, so
+    /// this reads the two networked fields directly rather than reconstructing one.
+    /// </remarks>
+    private static bool IsLoserStateStunned(ScenePlayer local) =>
+        local.StunIndex is >= 0 && local.Conditions.Has(ConditionStunned) && ((local.StunFlags ?? 0) & StunLoserState) != 0;
+
+    /// <summary>`CTFPlayerShared::IsControlStunned` (:9952) — as <see cref="IsLoserStateStunned"/>, `TF_STUN_CONTROLS`.</summary>
+    private static bool IsControlStunned(ScenePlayer local) =>
+        local.StunIndex is >= 0 && local.Conditions.Has(ConditionStunned) && ((local.StunFlags ?? 0) & StunControls) != 0;
+
+    /// <summary>`CTFPlayerShared::IsLoser` (:13654).</summary>
+    private static bool IsLoser(HudState state, ScenePlayer local)
+    {
+        if (state.AlwaysLoser) // `tf_always_loser.GetBool()`, :13656
+        {
+            return true;
+        }
+
+        // "No loser mode in competitive" (:13663) — `IsMatchTypeCompetitive()`, not `IsCompetitiveMode()` (D89 audit).
+        if (state.Rules.IsMatchTypeCompetitive)
+        {
+            return false;
+        }
+
+        if (state.RoundState != RoundStateTeamWin) // :13666
+        {
+            return IsLoserStateStunned(local);
+        }
+
+        bool loser = state.Rules.WinningTeam != local.Team; // :13671
+
+        // "don't reveal disguised spies" (:13675-13680).
+        if (loser && local.PlayerClass == ClassSpy && local.Conditions.Has(PlayerConditions.Disguised)
+            && local.DisguiseTeam == state.Rules.WinningTeam)
+        {
+            loser = false;
+        }
+
+        return loser;
+    }
+
+    /// <summary>The active weapon among a player's items, or null — the same lookup `TfAmmo.For` makes.</summary>
+    private static SceneItem? ActiveWeaponItem(ScenePlayer local)
+    {
+        foreach (SceneItem item in local.Items ?? [])
+        {
+            if (item.EntityIndex == local.ActiveWeapon)
+            {
+                return item;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>`CALL_ATTRIB_HOOK_INT( value, name )` on a weapon (`AttributeHooks.OnWeapon`), from 0.</summary>
+    private float WeaponAttribute(ScenePlayer local, SceneItem weapon, string attributeClass) =>
+        HudViewport.Of(this)?.WeaponAttribute?.Invoke(local, weapon, attributeClass, 0f) ?? 0f;
 
     /// <summary>`UpdateID`'s player branch (:754-865).</summary>
     private (string Id, string Data, float Health, float MaxHealth, int MaxBuffedHealth, int TargetTeam) PlayerId(
