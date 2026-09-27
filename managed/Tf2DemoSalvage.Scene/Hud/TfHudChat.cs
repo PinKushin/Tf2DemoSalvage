@@ -20,9 +20,6 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// </remarks>
 public sealed class TfHudChat : VguiEditablePanel, IHudElement
 {
-    /// <summary>`hud_saytext_time` (hud_basechat.cpp:37).</summary>
-    public const float SayTextTime = 12f;
-
     private const float HistoryIdleFadeTime = 2.5f;
     private const float HistoryFadeTime = 0.25f;
     private const int HistoryAlpha = 127;
@@ -72,6 +69,12 @@ public sealed class TfHudChat : VguiEditablePanel, IHudElement
 
     /// <summary>`cl_chatfilters`: 63, every filter on.</summary>
     public int FilterFlags { get; set; } = 63;
+
+    /// <summary>`hud_saytext_time` (hud_basechat.cpp:37): how long a line stays before its idle fade.</summary>
+    public float SayTextTime { get; set; } = 12f;
+
+    /// <summary>Plays a `game_sounds.txt` script — see <see cref="HudSoundEmitter"/>.</summary>
+    public HudSoundEmitter? SoundEmitter { get; set; }
 
     /// <summary>`m_flHistoryFadeTime`, set only by message mode, which a demo never enters.</summary>
     public float HistoryFadeTimeAt { get; set; }
@@ -174,6 +177,9 @@ public sealed class TfHudChat : VguiEditablePanel, IHudElement
         {
             ChatPrintf(0, ChatFilterNone, text, state);
         }
+
+        // `HudChat.Message`, unconditional on either branch (hud_basechat.cpp:793).
+        SoundEmitter?.Invoke("HudChat.Message");
     }
 
     /// <summary>`MsgFunc_SayText2` (:812): the format looked up, the name and text with their colour codes normalised, joined.</summary>
@@ -195,6 +201,9 @@ public sealed class TfHudChat : VguiEditablePanel, IHudElement
             int filter = client > 0 && TeamOf(state, client) != TeamOf(state, state.LocalIndex) ? ChatFilterPublicChat : ChatFilterNone;
 
             ChatPrintf(client, filter, line, state);
+
+            // `HudChat.Message`, only on the "wants to chat" branch (hud_basechat.cpp:858).
+            SoundEmitter?.Invoke("HudChat.Message");
         }
         else
         {

@@ -276,6 +276,40 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
+    public void Parse_HudCvars_AreRead()
+    {
+        ViewerSettings settings = ViewerSettings.Parse(
+            """
+            hud_deathnotice_time 10
+            cl_hud_killstreak_display_time 5
+            cl_hud_killstreak_display_fontsize 2
+            cl_hud_killstreak_display_alpha 255
+            hud_saytext_time 20
+            cl_chatfilters 4
+            """);
+
+        settings.HudDeathNoticeTime.ShouldBe(10f);
+        settings.KillStreakDisplayTime.ShouldBe(5);
+        settings.KillStreakDisplayFontSize.ShouldBe(2);
+        settings.KillStreakDisplayAlpha.ShouldBe(255);
+        settings.SayTextTime.ShouldBe(20f);
+        settings.ChatFilters.ShouldBe(4);
+    }
+
+    [Test]
+    public void Parse_NoHudCvars_KeepsValvesDefaults()
+    {
+        ViewerSettings settings = ViewerSettings.Parse("texture_quality 256");
+
+        settings.HudDeathNoticeTime.ShouldBe(6f);
+        settings.KillStreakDisplayTime.ShouldBe(3);
+        settings.KillStreakDisplayFontSize.ShouldBe(0);
+        settings.KillStreakDisplayAlpha.ShouldBe(120);
+        settings.SayTextTime.ShouldBe(12f);
+        settings.ChatFilters.ShouldBe(63);
+    }
+
+    [Test]
     public void Load_CorruptFile_GivesDefaultsRatherThanThrowing()
     {
         string file = Path.Combine(_folder, "broken.cfg");
