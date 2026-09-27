@@ -88,6 +88,14 @@ public sealed class HudProbe : IProbe
         output.WriteLine($"icons: {hud.Viewport.Icons?.Count ?? 0}; death notices: {hud.DeathNotice.Notices.Count}");
         output.WriteLine(
             $"round timer: {hud.MatchStatus.TimePanel.TimerIndex} '{hud.MatchStatus.TimePanel.TimeValue.Text}' shown {hud.MatchStatus.TimePanel.Visible} (match status shown {hud.MatchStatus.Visible})");
+        output.WriteLine(
+            $"teams: RED {state.TeamStanding(2)?.Score.ToString(CultureInfo.InvariantCulture) ?? "(none)"} " +
+            $"BLU {state.TeamStanding(3)?.Score.ToString(CultureInfo.InvariantCulture) ?? "(none)"} " +
+            $"(tournament {state.TournamentMode}, stopwatch {state.TournamentStopwatch}, winlimit {state.WinLimit})");
+        output.WriteLine(
+            $"round counter: shown {hud.MatchStatus.RoundCounter.Visible}, round dots blue/red visible " +
+            $"{hud.MatchStatus.RoundCounter.BlueRoundIndicators.Count(indicator => indicator.Visible)}/{hud.MatchStatus.RoundCounter.RedRoundIndicators.Count(indicator => indicator.Visible)}, " +
+            $"win lights blue/red visible {hud.MatchStatus.RoundCounter.BlueWinIndicators.Count(indicator => indicator.Visible)}/{hud.MatchStatus.RoundCounter.RedWinIndicators.Count(indicator => indicator.Visible)}");
         output.WriteLine($"chat history: '{hud.Chat.History.Text.Replace("\n", " | ", StringComparison.Ordinal)}' shown {hud.Chat.Visible}");
         output.WriteLine(
             $"koth timers: blue {hud.KothTimeStatus.BluePanel.TimerIndex} '{hud.KothTimeStatus.BluePanel.TimeValue.Text}', red {hud.KothTimeStatus.RedPanel.TimerIndex} '{hud.KothTimeStatus.RedPanel.TimeValue.Text}' shown {hud.KothTimeStatus.Visible}");
