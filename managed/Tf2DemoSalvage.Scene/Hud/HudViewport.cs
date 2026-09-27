@@ -36,6 +36,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="TournamentMode">`TeamplayRoundBasedRules()->IsInTournamentMode()`: `mp_tournament.GetBool()` (teamplayroundbased_gamerules.cpp:3488).</param>
 /// <param name="TournamentStopwatch">`mp_tournament_stopwatch.GetBool()` (tf_gamerules.cpp:797) — stopwatch mode within a tournament match.</param>
 /// <param name="WinLimit">`mp_winlimit.GetInt()` (teamplayroundbased_gamerules.cpp:227): the round counter's own win limit, 0 for none.</param>
+/// <param name="TournamentRedTeamName">`mp_tournament_redteamname` (tf_gamerules.cpp:782): "RED" unless the server set it.</param>
+/// <param name="TournamentBlueTeamName">`mp_tournament_blueteamname` (:783): "BLU" unless the server set it.</param>
 /// <param name="WorldToScreen">
 /// `engine->WorldToScreenMatrix()`: the view's world-to-clip matrix, row-major with the translation in the last row (this
 /// project's convention — <c>FreeCamera.ToMatrix</c>); null where no view is drawn.
@@ -78,7 +80,9 @@ public readonly record struct HudState(
     int WinLimit = 0,
     IReadOnlyList<Core.Scene.SceneBuilding>? Buildings = null,
     IReadOnlyList<Core.Scene.SceneScoreboardPlayer>? ScoreboardPlayers = null,
-    float[]? WorldToScreen = null)
+    float[]? WorldToScreen = null,
+    string TournamentRedTeamName = "RED",
+    string TournamentBlueTeamName = "BLU")
 {
     /// <summary>`cl_entitylist->GetEnt` for a building: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

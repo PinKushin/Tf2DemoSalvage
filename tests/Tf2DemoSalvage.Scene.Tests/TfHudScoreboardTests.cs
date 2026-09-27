@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene.Hud;
 
@@ -173,40 +174,63 @@ public sealed class TfHudScoreboardTests
     }
 
     [Test]
-    public void UpdateTeamInfo_ConnectedPlayersOnEachTeam_CountsEachList()
+    public void UpdateTeamInfo_RedAndBlueTeams_SetsScoreLocalizedNameAndPluralizedCount()
     {
-        SceneScoreboardPlayer[] players =
-        [
-            new(1) { Connected = true, Valid = true, Team = SceneTeams.Red },
-            new(2) { Connected = true, Valid = true, Team = SceneTeams.Red },
-            new(3) { Connected = true, Valid = true, Team = SceneTeams.Blu },
-            new(4) { Connected = false, Valid = false, Team = SceneTeams.Blu },
-        ];
+        // `C_TFTeam::UpdateTeamName` outside a tournament: `#TF_RedTeam_Name`/`#TF_BlueTeam_Name` (c_tf_team.cpp:170-195),
+        // never the server's `m_szTeamname`.
+        TfClientScoreBoardDialog dialog = Localized();
 
-        (int blue, int red) = TfClientScoreBoardDialog.UpdateTeamInfo(players);
+        dialog.UpdateTeamInfo(Teams() with { TournamentMode = false });
 
-        blue.ShouldBe(1);
-        red.ShouldBe(2);
+        (dialog.DialogVariable("redteamscore"), dialog.DialogVariable("redteamname"), dialog.DialogVariable("redteamplayercount"))
+            .ShouldBe(("3", "Red Team", "2 players"));
+        (dialog.DialogVariable("blueteamscore"), dialog.DialogVariable("blueteamname"), dialog.DialogVariable("blueteamplayercount"))
+            .ShouldBe(("5", "Blu Team", "1 player"));
     }
 
     [Test]
-    public void UpdateTeamInfo_RedAndBlueTeams_SetsScoreNameAndPluralizedCount()
+    public void UpdateTeamInfo_ATournamentOutsideMatchmaking_NamesTeamsByTheTournamentConVars()
     {
+        // :159-167: `mp_tournament_redteamname`/`mp_tournament_blueteamname`.
+        TfClientScoreBoardDialog dialog = Localized();
+
+        dialog.UpdateTeamInfo(Teams());
+
+        (dialog.DialogVariable("redteamname"), dialog.DialogVariable("blueteamname")).ShouldBe(("Cats", "Dogs"));
+    }
+
+    [Test]
+    public void UpdateTeamInfo_ATournamentInCasualMatchmaking_KeepsTheLocalizedNames()
+    {
+        // `IsCompetitiveMode()` (tf_gamerules.cpp:2214): casual 12v12 (7) is `MATCH_TYPE_CASUAL`; with no premade party the
+        // name falls through to the localized one (:118-158).
+        TfClientScoreBoardDialog dialog = Localized();
+
+        dialog.UpdateTeamInfo(Teams() with { Rules = new SceneGameRules(false, 0, false) { MatchGroup = 7 } });
+
+        dialog.DialogVariable("redteamname").ShouldBe("Red Team");
+    }
+
+    [Test]
+    public void UpdateTeamInfo_MannVsMachine_NamesRedTheDefenders()
+    {
+        TfClientScoreBoardDialog dialog = Localized();
+
+        dialog.UpdateTeamInfo(Teams() with { TournamentMode = false, Rules = new SceneGameRules(true, 0, false) });
+
+        dialog.DialogVariable("redteamname").ShouldBe("Defenders");
+    }
+
+    [Test]
+    public void UpdateTeamInfo_NoLocalization_FallsBackToValvesLiterals()
+    {
+        // `if ( !pwzName ) pwzName = L"RED"` (:190-194); a missing count format constructs nothing.
         TfClientScoreBoardDialog dialog = new(null);
-        SceneTeam[] teams =
-        [
-            new(TfClientScoreBoardDialog.TeamRed) { Score = 3, Name = "Red", Players = [1, 2] },
-            new(TfClientScoreBoardDialog.TeamBlue) { Score = 5, Name = "Blue", Players = [3] },
-        ];
 
-        dialog.UpdateTeamInfo(teams, tournamentMode: false, mannVsMachine: false);
+        dialog.UpdateTeamInfo(Teams() with { TournamentMode = false });
 
-        dialog.DialogVariable("redteamscore").ShouldBe("3");
-        dialog.DialogVariable("redteamname").ShouldBe("Red");
-        dialog.DialogVariable("redteamplayercount").ShouldBe("2 players");
-        dialog.DialogVariable("blueteamscore").ShouldBe("5");
-        dialog.DialogVariable("blueteamname").ShouldBe("Blue");
-        dialog.DialogVariable("blueteamplayercount").ShouldBe("1 player");
+        (dialog.DialogVariable("redteamname"), dialog.DialogVariable("blueteamname"), dialog.DialogVariable("redteamplayercount"))
+            .ShouldBe(("RED", "BLU", string.Empty));
     }
 
     [Test]
@@ -214,10 +238,9 @@ public sealed class TfHudScoreboardTests
     {
         TfClientScoreBoardDialog dialog = new(null);
 
-        dialog.UpdateTeamInfo([], tournamentMode: false, mannVsMachine: false);
+        dialog.UpdateTeamInfo(Teams() with { TournamentMode = false });
 
-        dialog.RedTeamName.Visible.ShouldBeFalse();
-        dialog.BlueTeamName.Visible.ShouldBeFalse();
+        (dialog.RedTeamName.Visible, dialog.BlueTeamName.Visible).ShouldBe((false, false));
     }
 
     [Test]
@@ -225,10 +248,9 @@ public sealed class TfHudScoreboardTests
     {
         TfClientScoreBoardDialog dialog = new(null);
 
-        dialog.UpdateTeamInfo([], tournamentMode: true, mannVsMachine: false);
+        dialog.UpdateTeamInfo(Teams());
 
-        dialog.RedTeamName.Visible.ShouldBeTrue();
-        dialog.BlueTeamName.Visible.ShouldBeTrue();
+        (dialog.RedTeamName.Visible, dialog.BlueTeamName.Visible).ShouldBe((true, true));
     }
 
     [Test]
@@ -236,10 +258,42 @@ public sealed class TfHudScoreboardTests
     {
         TfClientScoreBoardDialog dialog = new(null);
 
-        dialog.UpdateTeamInfo([], tournamentMode: true, mannVsMachine: true);
+        dialog.UpdateTeamInfo(Teams() with { Rules = new SceneGameRules(true, 0, false) });
 
-        dialog.RedTeamName.Visible.ShouldBeFalse();
-        dialog.BlueTeamName.Visible.ShouldBeFalse();
+        (dialog.RedTeamName.Visible, dialog.BlueTeamName.Visible).ShouldBe((false, false));
+    }
+
+    private static HudState Teams() => new(true, true, 0, 0, true)
+    {
+        TournamentMode = true,
+        TournamentRedTeamName = "Cats",
+        TournamentBlueTeamName = "Dogs",
+        Teams =
+        [
+            new(TfClientScoreBoardDialog.TeamRed) { Score = 3, Name = "SentRed", Players = [1, 2] },
+            new(TfClientScoreBoardDialog.TeamBlue) { Score = 5, Name = "SentBlue", Players = [3] },
+        ],
+    };
+
+    private static TfClientScoreBoardDialog Localized()
+    {
+        Dictionary<string, string> strings = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["TF_RedTeam_Name"] = "Red Team",
+            ["TF_BlueTeam_Name"] = "Blu Team",
+            ["TF_Defenders"] = "Defenders",
+            ["TF_ScoreBoard_Player"] = "%s1 player",
+            ["TF_ScoreBoard_Players"] = "%s1 players",
+        };
+        KeyValuesTree scheme = KeyValuesTree.Load(System.Text.Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
+        VguiScheme colours = VguiScheme.Load(scheme);
+        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english")
+        {
+            Localize = strings.GetValueOrDefault,
+        };
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
+
+        return new TfClientScoreBoardDialog(viewport);
     }
 
     private static Dictionary<string, string> Row(int playerIndex, int score, int connected) => new(System.StringComparer.Ordinal)

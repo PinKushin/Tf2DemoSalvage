@@ -152,6 +152,10 @@ public static class EngineConVars
         new("mp_tournament", "0", Replicated: true, Cheat: false),
         new("mp_tournament_stopwatch", "1", Replicated: true, Cheat: false),
         new("mp_winlimit", "0", Replicated: true, Cheat: false),
+
+        // src/game/shared/tf/tf_gamerules.cpp:782-783, which C_TFTeam::UpdateTeamName shows in a tournament.
+        new("mp_tournament_redteamname", "RED", Replicated: true, Cheat: false),
+        new("mp_tournament_blueteamname", "BLU", Replicated: true, Cheat: false),
     ];
 
     private static readonly Dictionary<string, EngineConVar> ByEngineName =

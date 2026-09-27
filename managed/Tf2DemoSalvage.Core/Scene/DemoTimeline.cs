@@ -519,6 +519,15 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`m_nGameType` (tf_gamerules.cpp:1486); `IsInArenaMode()` is <see cref="GameTypeArena"/>.</summary>
     public int GameType { get; init; }
 
+    /// <summary>`GetCurrentMatchGroup()`: `m_nMatchGroupType` (tf_gamerules.cpp:1536), `k_eTFMatchGroup_Invalid` (-1) unsent.</summary>
+    public int MatchGroup { get; init; } = -1;
+
+    /// <summary>
+    /// `IsCompetitiveMode()` (tf_gamerules.cpp:2214): the match group's description is competitive or casual — of the
+    /// registered groups, ladder 6v6 (2), casual 12v12 (7) and the event placeholder (8; tf_match_description_*.cpp).
+    /// </summary>
+    public bool IsCompetitiveMode => MatchGroup is 2 or 7 or 8;
+
     /// <summary>`GetRoundsPlayed()`: `m_nRoundsPlayed` (teamplayroundbased_gamerules.cpp:116).</summary>
     public int RoundsPlayed { get; init; }
 
@@ -3093,6 +3102,7 @@ public sealed class DemoTimeline
                 StopWatch = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bStopWatch") is > 0,
                 GameType = gameRules?.Integer("DT_TFGameRules.m_nGameType") ?? 0,
                 RoundsPlayed = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_nRoundsPlayed") ?? 0,
+                MatchGroup = gameRules?.Integer("DT_TFGameRules.m_nMatchGroupType") ?? -1,
                 Koth = gameRules?.Integer("DT_TFGameRules.m_bPlayingKoth") is > 0,
                 ShowMatchSummary = gameRules?.Integer("DT_TFGameRules.m_bShowMatchSummary") is > 0,
                 BlueKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hBlueKothTimer")),

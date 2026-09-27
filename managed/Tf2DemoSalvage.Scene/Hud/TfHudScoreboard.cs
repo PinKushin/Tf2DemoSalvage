@@ -36,10 +36,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// the bot ping icon branch (:1398-1409) is not modelled; ping is always a plain number.
 /// </description></item>
 /// <item><description>
-/// `C_TFTeam::UpdateTeamName`'s tournament-mode name overrides (`c_tf_team.cpp:111` onward) — party-leader and
-/// event-team names need `CTF_PlayerResource::HasPremadeParties`/`GetEventTeamStatus`, neither modelled here, so
-/// <see cref="Core.Scene.SceneTeam.Name"/> (the server's own `m_szTeamname`) is used as-is for `redteamname`/
-/// `blueteamname`, and premade-party leader avatars are not drawn at all.
+/// `C_TFTeam::UpdateTeamName`'s party-leader and event-team names (`c_tf_team.cpp:118-156`) — they need
+/// `HasPremadeParties`/`GetEventTeamStatus`, neither decoded, so such a match shows the localized name — and the
+/// premade-party leader avatars.
 /// </description></item>
 /// <item><description>
 /// `m_nExtraSpace` (:907), which widens the name column to fill whatever space avatars and a hidden scrollbar
@@ -199,48 +198,18 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
         return playerIndex1 > playerIndex2;
     }
 
-    /// <summary>`UpdateTeamInfo` (:980-1062): here, only the player count each list would show — see remarks.</summary>
-    /// <param name="players">Every scoreboard slot this tick.</param>
-    /// <returns>Blue and red player counts.</returns>
-    public static (int Blue, int Red) UpdateTeamInfo(IReadOnlyList<SceneScoreboardPlayer>? players)
-    {
-        int blue = 0;
-        int red = 0;
-
-        foreach (SceneScoreboardPlayer player in players ?? [])
-        {
-            if (!player.Connected && !player.Valid)
-            {
-                continue;
-            }
-
-            switch (player.Team)
-            {
-                case TeamBlue:
-                    blue++;
-                    break;
-                case TeamRed:
-                    red++;
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        return (blue, red);
-    }
-
     /// <summary>
     /// `UpdateTeamInfo` (:980-1062): `redteamscore`/`blueteamscore`, `redteamname`/`blueteamname`, the pluralized
     /// `redteamplayercount`/`blueteamplayercount`, and the `m_pRedTeamName`/`m_pBlueTeamName` labels' tournament-mode
     /// visibility (:1029-1037). Party-leader avatars (:1038-1054) are not modelled — see remarks.
     /// </summary>
-    /// <param name="teams">Every `CTFTeam` this tick, off <see cref="Core.Scene.SceneTeam"/>.</param>
-    /// <param name="tournamentMode">`mp_tournament.GetBool()`.</param>
-    /// <param name="mannVsMachine">`TFGameRules()->IsMannVsMachineMode()`.</param>
-    public void UpdateTeamInfo(IReadOnlyList<Core.Scene.SceneTeam>? teams, bool tournamentMode, bool mannVsMachine)
+    /// <param name="state">The frame: its teams, rules and tournament ConVars.</param>
+    public void UpdateTeamInfo(HudState state)
     {
-        foreach (Core.Scene.SceneTeam team in teams ?? [])
+        bool tournamentMode = state.TournamentMode;
+        bool mannVsMachine = state.Rules.MannVsMachine;
+
+        foreach (Core.Scene.SceneTeam team in state.Teams ?? [])
         {
             (string scoreVar, string countVar, string nameVar) = team.TeamNumber switch
             {
@@ -257,18 +226,44 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
             int count = team.Players.Count;
 
             // `#TF_ScoreBoard_Player` for exactly one, else `#TF_ScoreBoard_Players` — both take `%s1` as the count.
-            string format = Find(count == 1 ? "#TF_ScoreBoard_Player" : "#TF_ScoreBoard_Players")
-                ?? (count == 1 ? "%s1 player" : "%s1 players");
+            string? format = Find(count == 1 ? "#TF_ScoreBoard_Player" : "#TF_ScoreBoard_Players");
 
             SetDialogVariable(countVar, VguiLocalize.ConstructString(format, IdChars, count.ToString(CultureInfo.InvariantCulture)));
             SetDialogVariable(scoreVar, team.Score);
-            SetDialogVariable(nameVar, team.Name);
+            SetDialogVariable(nameVar, LocalizedTeamName(team.TeamNumber, state));
         }
 
         bool showTournamentName = tournamentMode && !mannVsMachine;
 
         RedTeamName.Visible = showTournamentName;
         BlueTeamName.Visible = showTournamentName;
+    }
+
+    /// <summary>`C_TFTeam::Get_Localized_Name` after `UpdateTeamName` (c_tf_team.cpp:111).</summary>
+    /// <remarks>
+    /// **Not modelled:** in competitive or casual matchmaking, a premade party's leader or an event team names the team
+    /// (:120-156); `HasPremadeParties`/`GetEventTeamStatus` are not decoded, so the name falls through to the localized one,
+    /// as it does for a match with neither.
+    /// </remarks>
+    private string LocalizedTeamName(int teamNumber, HudState state)
+    {
+        if (state.TournamentMode && teamNumber is TeamRed or TeamBlue && !state.Rules.IsCompetitiveMode)
+        {
+            string name = teamNumber == TeamBlue ? state.TournamentBlueTeamName : state.TournamentRedTeamName;
+
+            if (name.Length > 0)
+            {
+                return name;
+            }
+        }
+
+        return teamNumber switch
+        {
+            TeamBlue => Find("#TF_BlueTeam_Name") ?? "BLU",
+            TeamRed when state.Rules.MannVsMachine => Find("#TF_Defenders") ?? "DEFENDERS",
+            TeamRed => Find("#TF_RedTeam_Name") ?? "RED",
+            _ => string.Empty,
+        };
     }
 
     // `ConstructString_safe`'s destination buffer size (:1013) — how many characters a formatted string may reach.
