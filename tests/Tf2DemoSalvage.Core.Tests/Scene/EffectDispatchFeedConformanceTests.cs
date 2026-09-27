@@ -87,6 +87,44 @@ public sealed class EffectDispatchFeedConformanceTests
     }
 
     [Test]
+    public void Record_EveryRemainingField_IsReadIntoItsOwnSlot()
+    {
+        // `DT_EffectData` (`effect_dispatch_data.cpp:36`): each field lands where `CEffectData` keeps it, and a name
+        // the table does not declare is ignored.
+        EffectDispatchFeed feed = new();
+
+        feed.Record(
+            EffectDispatchFeed.EventClassName,
+            Effect(
+                Vector("m_vNormal", (0f, 0f, 1f)),
+                Vector("m_vAngles", (10f, 20f, 30f)),
+                Int("m_fFlags", 5),
+                Float("m_flScale", 2.5f),
+                Int("m_nAttachmentIndex", 3),
+                Int("m_nMaterial", 7),
+                Int("m_nDamageType", 64),
+                Int("m_nHitBox", 9),
+                Int("entindex", 12),
+                Int("m_nColor", 2),
+                Int("m_nNotAField", 99)),
+            4);
+
+        SceneEffectDispatch dispatch = feed.All[0];
+
+        dispatch.Tick.ShouldBe(4);
+        dispatch.Normal.ShouldBe((0f, 0f, 1f));
+        dispatch.Angles.ShouldBe((10f, 20f, 30f));
+        dispatch.Flags.ShouldBe(5);
+        dispatch.Scale.ShouldBe(2.5f);
+        dispatch.Attachment.ShouldBe(3);
+        dispatch.Material.ShouldBe(7);
+        dispatch.DamageType.ShouldBe(64);
+        dispatch.HitBox.ShouldBe(9);
+        dispatch.Entity.ShouldBe(12);
+        dispatch.Colour.ShouldBe(2);
+    }
+
+    [Test]
     public void Record_AnotherClass_IsNotADispatch()
     {
         new EffectDispatchFeed().Record("CTETFBlood", Effect(), 1).ShouldBeFalse();
