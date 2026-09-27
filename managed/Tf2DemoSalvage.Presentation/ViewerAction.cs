@@ -177,6 +177,10 @@ public enum ViewerAction
     /// <summary>Draw the lighting alone.</summary>
     /// <remarks>TF2's `mat_fullbright 2`.</remarks>
     FullbrightLightingOnly,
+
+    /// <summary>Show the scoreboard while held.</summary>
+    /// <remarks>TF2's `+showscores` (`IN_ScoreDown`/`IN_ScoreUp`, `game/client/in_main.cpp`).</remarks>
+    ShowScores,
 }
 
 /// <summary>
@@ -360,6 +364,10 @@ public sealed class KeyBindings
             [ViewerAction.FullbrightOff] = "CTRL+0",
             [ViewerAction.FullbrightNoLighting] = "CTRL+1",
             [ViewerAction.FullbrightLightingOnly] = "CTRL+2",
+
+            // **`TAB`, because that is what `tf/cfg/config_default.cfg` binds** (`bind "TAB" "+showscores"`) and TAB
+            // is free here — this viewer has no tab-order focus traversal to steal it from (D69).
+            [ViewerAction.ShowScores] = "TAB",
         };
 
     /// <summary>The Source command each action answers to.</summary>
@@ -424,6 +432,9 @@ public sealed class KeyBindings
             // Valve's to borrow.
             [ViewerAction.ResetCamera] = "resetcamera",
             [ViewerAction.OpenDemo] = "opendemo",
+
+            // Valve's own name, so `bind "TAB" "+showscores"` out of a real config lands without translation (D69).
+            [ViewerAction.ShowScores] = "+showscores",
 
             // **`demo_timescale` is Valve's, but it is a ConCommand taking an argument** — "Sets
             // demo replay speed" — so `demo_timescale 1` would be the faithful spelling. It is not

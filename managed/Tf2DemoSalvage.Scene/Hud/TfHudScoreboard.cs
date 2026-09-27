@@ -11,8 +11,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// lists, over `CClientScoreBoardDialog` (`game_controls/clientscoreboarddialog.cpp`).
 /// </summary>
 /// <remarks>
-/// **Not wired into the viewer's key bindings or `MainForm` yet** — `+showscores` and this dialog's own visibility are
-/// left for later; this element only builds and updates its two lists.
+/// Wired to `+showscores`/TAB through <c>Tf2DemoSalvage.Presentation.VguiHud.Scoreboard</c> — see its remarks for how
+/// this panel is shown and updated, since it is a viewport panel rather than a `CHudElement`.
 ///
 /// **Not modelled:**
 /// <list type="bullet">
@@ -115,6 +115,14 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
     /// <summary>`ShowAvatars()` (`clientscoreboarddialog.h:50`): `IsPC()`, always true here.</summary>
     public static bool ShowAvatars => true;
 
+    /// <summary>
+    /// `m_hScoreFontDefault` (`ApplySchemeSettings`, :317): <c>pScheme->GetFont( "Default", true )</c> — always
+    /// proportional, regardless of this dialog's own <see cref="VguiPanel.Proportional"/>.
+    /// </summary>
+    /// <remarks>Null until <see cref="ApplySchemeSettings"/> has run once; <see cref="UpdatePlayerList"/> leaves a
+    /// row on its list's own default font rather than forcing a null one (see its own remarks).</remarks>
+    public VguiFontAmalgam? ScoreFontDefault { get; set; }
+
     /// <inheritdoc/>
     /// <remarks>`ApplySchemeSettings` (:304): loads the `.res`, then re-inits both lists.</remarks>
     public override void ApplySchemeSettings(VguiContext context)
@@ -125,6 +133,8 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
 
         InitPlayerList(PlayerListBlue);
         InitPlayerList(PlayerListRed);
+
+        ScoreFontDefault = context.GetFont("Default", proportional: true);
     }
 
     /// <summary>`InitPlayerList` (:886-925): the section, its sort func, and every column in Valve's order.</summary>
@@ -279,6 +289,8 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
     /// <param name="localPlayerIndex">`GetLocalPlayerIndex()`.</param>
     public void UpdatePlayerList(IReadOnlyList<SceneScoreboardPlayer>? players, IReadOnlyDictionary<int, string>? names, int localPlayerIndex)
     {
+        PlayerListBlue.ClearSelection();
+        PlayerListRed.ClearSelection();
         PlayerListBlue.ClearItems();
         PlayerListRed.ClearItems();
 
@@ -342,6 +354,17 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
 
             list.SetItemFgColor(itemId, colour);
             list.SetItemBgColor(itemId, (0, 0, 0, 80));
+
+            if (ScoreFontDefault is { } font)
+            {
+                list.SetItemFont(itemId, font);
+            }
+
+
+            if (player.EntityIndex == localPlayerIndex)
+            {
+                list.SetSelectedItem(itemId);
+            }
         }
     }
 

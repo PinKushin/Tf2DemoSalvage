@@ -41,6 +41,13 @@ public sealed class KeyBindingsTests
     }
 
     [Test]
+    public void Defaults_ShowScores_IsTabAsTf2sConfigDefaultBindsIt()
+    {
+        // `tf/cfg/config_default.cfg:13`: `bind "TAB" "+showscores"`.
+        new KeyBindings().KeyFor(ViewerAction.ShowScores).ShouldBe("TAB");
+    }
+
+    [Test]
     public void Defaults_EveryAction_IsBoundToSomething()
     {
         // **An unbound action is a feature the user cannot reach**, and it fails silently: the key

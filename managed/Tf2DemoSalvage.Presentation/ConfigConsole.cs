@@ -146,6 +146,10 @@ public sealed class ConfigConsole
         ViewerAction.FlyUp,
         ViewerAction.FlyDown,
         ViewerAction.FlyWalk,
+
+        // `+showscores`/`-showscores`: the scoreboard shows only while the key is down, the same
+        // shape as the flight keys — see `TfClientScoreBoardDialog`.
+        ViewerAction.ShowScores,
     };
 
     /// <summary>Whether a key drives anything this console holds down.</summary>

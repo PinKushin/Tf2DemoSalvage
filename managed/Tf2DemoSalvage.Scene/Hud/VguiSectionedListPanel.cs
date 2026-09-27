@@ -74,6 +74,7 @@ public class VguiSectionedListPanel : VguiPanel
     private readonly List<Item> _sortedItems = [];
     private int _nextItemId;
     private bool _sortNeeded;
+    private int _selectedItemId = -1;
 
     /// <summary>`SectionedListPanel( parent, name )`.</summary>
     /// <param name="parent">The parent, or null.</param>
@@ -121,6 +122,18 @@ public class VguiSectionedListPanel : VguiPanel
     /// <summary>`SectionedListPanel.BrightTextColor`: a `COLUMN_BRIGHT` cell's colour, unless the item overrides it.</summary>
     public (byte Red, byte Green, byte Blue, byte Alpha) BrightTextColor { get; set; } = (255, 255, 255, 255);
 
+    /// <summary>
+    /// `SectionedListPanel.OutOfFocusSelectedBgColor` (`CItemButton::PaintBackground`, SectionedListPanel.cpp:526):
+    /// the selected row's background whenever it (or a descendant) does not have real vgui focus.
+    /// </summary>
+    /// <remarks>
+    /// **`m_ArmedBgColor` (the focused branch) is not modelled.** This viewer never gives the scoreboard panel real
+    /// input focus — see <see cref="VguiSectionedListPanel"/>'s own remarks and
+    /// <c>TfClientScoreBoardDialog</c>'s — so `HasFocus()` is always false and `CItemButton::PaintBackground`'s
+    /// `IsSelected() &amp;&amp; HasFocus()` branch never runs; only this colour ever paints a selected row.
+    /// </remarks>
+    public (byte Red, byte Green, byte Blue, byte Alpha) OutOfFocusSelectedBgColor { get; set; }
+
     /// <summary>`SetImageList`: only tracked so a `COLUMN_IMAGE` cell can be asked for its index; nothing is drawn from it.</summary>
     public object? ImageList { get; set; }
 
@@ -136,6 +149,7 @@ public class VguiSectionedListPanel : VguiPanel
         DividerColor = context.Scheme.GetColor("SectionedListPanel.DividerColor", DividerColor);
         RowTextColor = context.Scheme.GetColor("SectionedListPanel.TextColor", RowTextColor);
         BrightTextColor = context.Scheme.GetColor("SectionedListPanel.BrightTextColor", BrightTextColor);
+        OutOfFocusSelectedBgColor = context.Scheme.GetColor("SectionedListPanel.OutOfFocusSelectedBgColor", OutOfFocusSelectedBgColor);
         HeaderFont ??= context.GetFont("DefaultVerySmall", Proportional);
 
         if (RowFont is null && context.Scheme.GetResourceString("SectionedListPanel.Font") is { Length: > 0 } fontName)
@@ -300,10 +314,43 @@ public class VguiSectionedListPanel : VguiPanel
     public (byte Red, byte Green, byte Blue, byte Alpha)? GetItemBgColor(int itemId) =>
         _items.TryGetValue(itemId, out Item? item) ? item.BgColor : null;
 
+    /// <summary>The per-item font override <see cref="SetItemFont"/> set, or null when the item uses the row default.</summary>
+    /// <param name="itemId">The item.</param>
+    public VguiFontAmalgam? GetItemFont(int itemId) => _items.TryGetValue(itemId, out Item? item) ? item.Font : null;
+
     /// <summary>`SetItemBgColor` (:1362): enables the row's own background fill.</summary>
     /// <param name="itemId">The item.</param>
     /// <param name="color">The colour.</param>
     public void SetItemBgColor(int itemId, (byte Red, byte Green, byte Blue, byte Alpha) color) => SetItem(itemId, item => item with { BgColor = color });
+
+    /// <summary>`SetItemFont` (:1383-1390): overrides the row's font for this item alone.</summary>
+    /// <param name="itemId">The item.</param>
+    /// <param name="font">The font.</param>
+    public void SetItemFont(int itemId, VguiFontAmalgam font)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+
+        SetItem(itemId, item => item with { Font = font });
+    }
+
+    /// <summary>
+    /// `SetSelectedItem( int itemID )` (:1943-1948): the previous selection (if any) is simply overwritten, as
+    /// `SetSelectedItem( CItemButton* )` does — there is only ever one.
+    /// </summary>
+    /// <param name="itemId">The item to select.</param>
+    public void SetSelectedItem(int itemId)
+    {
+        if (_items.ContainsKey(itemId))
+        {
+            _selectedItemId = itemId;
+        }
+    }
+
+    /// <summary>`GetSelectedItem` (:1931-1936): the selected item's ID, or -1 when nothing is selected.</summary>
+    public int SelectedItem => _selectedItemId;
+
+    /// <summary>`ClearSelection` (`SetSelectedItem( (CItemButton *)NULL )`, :1674).</summary>
+    public void ClearSelection() => _selectedItemId = -1;
 
     /// <summary>`SetSectionFgColor` (:1407): a section's header text colour.</summary>
     /// <param name="sectionId">The section.</param>
@@ -529,12 +576,21 @@ public class VguiSectionedListPanel : VguiPanel
 
     private void PaintRow(IVguiSurface surface, Section section, Item item, int x, int y, int wide, int tall)
     {
-        if (RowFont is not { } font)
+        VguiFontAmalgam? rowFont = item.Font ?? RowFont;
+
+        if (rowFont is not { } font)
         {
             return;
         }
 
-        if (item.BgColor is { } bgColor)
+        // `CItemButton::PaintBackground` (SectionedListPanel.cpp:511-533): a selected row always overrides its own
+        // background, never blends with it — see `OutOfFocusSelectedBgColor`'s remarks for why only that branch runs.
+        if (item.Id == _selectedItemId)
+        {
+            surface.DrawSetColor(OutOfFocusSelectedBgColor);
+            surface.DrawFilledRect(x, y, x + wide, y + tall);
+        }
+        else if (item.BgColor is { } bgColor)
         {
             surface.DrawSetColor(bgColor);
             surface.DrawFilledRect(x, y, x + wide, y + tall);
@@ -643,5 +699,7 @@ public class VguiSectionedListPanel : VguiPanel
         public (byte, byte, byte, byte)? FgColor { get; init; }
 
         public (byte, byte, byte, byte)? BgColor { get; init; }
+
+        public VguiFontAmalgam? Font { get; init; }
     }
 }

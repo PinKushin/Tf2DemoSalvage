@@ -7207,7 +7207,8 @@ internal class MainForm : Form, IFrameSteps
                 hudState,
                 hudEvents,
                 hudReset,
-                hudMessages);
+                hudMessages,
+                _console.IsHeld(ViewerAction.ShowScores));
         }
         finally
         {

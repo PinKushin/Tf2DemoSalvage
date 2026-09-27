@@ -37,6 +37,14 @@ public sealed class HeldKeyTests
     }
 
     [Test]
+    public void IsHeldKey_ForShowScores_IsTrue()
+    {
+        // `+showscores` shows the scoreboard only while TAB is down (`IN_ScoreUp`/`IN_ScoreDown`,
+        // in_main.cpp), the same shape as the flight keys.
+        ConfigConsole.IsHeldKey("TAB", Bound).ShouldBeTrue();
+    }
+
+    [Test]
     public void IsHeldKey_ForNothing_IsFalse()
     {
         // A `Keys` value with no Source name resolves to an empty string, which must not be treated

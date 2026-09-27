@@ -70,7 +70,14 @@ internal sealed class TextRecorder : IVguiSurface
 
     public (int Wide, int Tall) DrawGetTextureSize(string texture) => (64, 64);
 
-    public void DrawSetTextFont(VguiFontAmalgam font) => Calls.Add("font");
+    public void DrawSetTextFont(VguiFontAmalgam font)
+    {
+        Calls.Add("font");
+        FontsUsed.Add(font);
+    }
+
+    /// <summary>Every font a cell was drawn with, one entry per <see cref="DrawSetTextFont"/> call, in order.</summary>
+    public List<VguiFontAmalgam> FontsUsed { get; } = [];
 
     public void DrawSetTextColor((byte Red, byte Green, byte Blue, byte Alpha) color)
     {

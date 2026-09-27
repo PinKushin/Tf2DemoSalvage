@@ -43,6 +43,12 @@ public sealed class VguiHud
         MatchStatus = new TfHudMatchStatus(Viewport);
         KothTimeStatus = new TfHudKothTimeStatus(Viewport);
         Chat = new TfHudChat(Viewport);
+
+        // `CTFClientScoreBoardDialog` is a viewport panel added by `CBaseViewport::CreatePanelByName`, not a
+        // `CHudElement` — `ShowPanel( PANEL_SCOREBOARD, ... )` drives its visibility directly rather than
+        // `CHud::Think`'s per-element `ShouldDraw`, which is why it is not parented alongside the elements above and
+        // starts hidden here rather than defaulting to `VguiPanel.Visible`'s true.
+        Scoreboard = new TfClientScoreBoardDialog(Viewport) { Visible = false };
     }
 
     /// <summary>`CHudChat`.</summary>
@@ -77,6 +83,9 @@ public sealed class VguiHud
     /// <summary>`CTFHudDeathNotice`.</summary>
     public TfHudDeathNotice DeathNotice { get; }
 
+    /// <summary>`CTFClientScoreBoardDialog`, shown only while <see cref="Frame"/>'s <c>showScoreboard</c> is held.</summary>
+    public TfClientScoreBoardDialog Scoreboard { get; }
+
     /// <summary>`CTFHudWeaponAmmo`.</summary>
     public TfHudWeaponAmmo WeaponAmmo { get; }
 
@@ -91,7 +100,16 @@ public sealed class VguiHud
     /// <param name="events">The game events fired since the last frame, or null for none.</param>
     /// <param name="reset">Whether this frame follows a seek — `VidInit` empties the feed first.</param>
     /// <param name="userMessages">The chat's user messages read since the last frame, or null for none.</param>
-    public void Frame(HudState state, IReadOnlyList<HudGameEvent>? events = null, bool reset = false, IReadOnlyList<Core.Scene.SceneUserMessage>? userMessages = null)
+    /// <param name="showScoreboard">
+    /// Whether <c>+showscores</c> is currently held — `ShowPanel( PANEL_SCOREBOARD, ... )`'s argument, decided by the
+    /// view from <see cref="ConfigConsole.IsHeld"/> rather than read here.
+    /// </param>
+    public void Frame(
+        HudState state,
+        IReadOnlyList<HudGameEvent>? events = null,
+        bool reset = false,
+        IReadOnlyList<Core.Scene.SceneUserMessage>? userMessages = null,
+        bool showScoreboard = false)
     {
         // `system()->GetCurrentTime()`, which a `RichText` fades on.
         VguiRichText.HudClock = state.RealTime;
@@ -116,6 +134,12 @@ public sealed class VguiHud
             // The scheme applied now, as the game applies it at `CHud::Init` long before any packet: an element caches
             // icons and fonts there, and the events below may be the first thing it handles.
             VguiLayout.SolveTraverse(Viewport, _context);
+
+            // **Forced rather than left to `SolveTraverse`'s own scheme pass**, which only visits VISIBLE children
+            // (`VguiLayout.SchemeSettingsTraverse`) — a simplification this port's tree walk makes that real vgui's
+            // scheme reload does not. The scoreboard starts hidden, so without this its `.res` and score font would
+            // never load until the first time TAB is held, which is also the first frame it needs to paint correctly.
+            Scoreboard.ApplySchemeSettings(_context);
         }
 
         if (reset)
@@ -157,6 +181,20 @@ public sealed class VguiHud
         }
 
         Viewport.Think(state);
+
+        // `CTFClientScoreBoardDialog::ShowPanel`/`OnTick` (tf_clientscoreboard.cpp:400, :939-951): shown or hidden
+        // directly by the view rather than `CHud::Think`'s `ShouldDraw`, and rebuilt from this tick's state on every
+        // frame it is shown — TF's own `Update()` override drops `CClientScoreBoardDialog`'s 1-second throttle
+        // (`NeedsUpdate`, ClientScoreBoardDialog.cpp:260-301) and runs unconditionally from `OnTick` instead, and a
+        // demo tick is already coarser than a real frame, so there is no throttle left to reproduce.
+        Scoreboard.Visible = showScoreboard;
+
+        if (showScoreboard)
+        {
+            Scoreboard.UpdateTeamInfo(state);
+            Scoreboard.UpdatePlayerList(state.ScoreboardPlayers, state.Names, state.LocalIndex);
+        }
+
         VguiLayout.SolveTraverse(Viewport, _context);
 
         // A seek lands where the game, skipping forward through every packet, would have had the last
