@@ -700,6 +700,99 @@ internal static class SyntheticPlayer
                     Body: body)));
     }
 
+    /// <summary>A demo carrying one player (the builder) and one `CObjectSentrygun`, every field of the object set to a distinctive value.</summary>
+    public static byte[] DemoWithBuilding()
+    {
+        const int BuilderClassId = PlayerClassId;
+        const int SentrygunClassId = 1;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables =
+        [
+            .. baseline.Tables,
+            new SendTable(
+                "DT_BaseObject",
+                NeedsDecoder: true,
+                [
+                    Int("m_iHealth", bits: 16), Int("m_iMaxHealth", bits: 16), UnsignedInt("m_bHasSapper", bits: 1),
+                    UnsignedInt("m_iObjectType", bits: 8), UnsignedInt("m_bBuilding", bits: 1), UnsignedInt("m_bPlacing", bits: 1),
+                    UnsignedInt("m_bCarried", bits: 1), UnsignedInt("m_bMiniBuilding", bits: 1), UnsignedInt("m_bDisabled", bits: 1),
+                    UnsignedInt("m_hBuilder", bits: 21), UnsignedInt("m_iUpgradeLevel", bits: 3), UnsignedInt("m_iUpgradeMetal", bits: 10),
+                    UnsignedInt("m_iUpgradeMetalRequired", bits: 10), UnsignedInt("m_iObjectMode", bits: 2),
+                    UnsignedInt("m_bDisposableBuilding", bits: 1), NoScaleFloat("m_flPercentageConstructed"),
+                    VectorXy("m_vecOrigin", bits: 32), Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32),
+                    Table("baseclass", "DT_BaseEntity"),
+                ]),
+            new SendTable(
+                "DT_ObjectSentrygun",
+                NeedsDecoder: true,
+                [
+                    Int("m_iAmmoShells", bits: 16), Int("m_iAmmoRockets", bits: 16), Table("baseclass", "DT_BaseObject"),
+                ]),
+        ];
+
+        DemoSchema schema = new(
+            tables,
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(SentrygunClassId, "CObjectSentrygun", "DT_ObjectSentrygun"),
+            ]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, BuilderClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+            Entity(decoder, SentrygunClassId, 55, new Dictionary<string, PropertyValue>
+            {
+                ["m_iHealth"] = PropertyValue.FromInt(111),
+                ["m_iMaxHealth"] = PropertyValue.FromInt(150),
+                ["m_bHasSapper"] = PropertyValue.FromInt(1),
+                ["m_iObjectType"] = PropertyValue.FromInt(2), // OBJ_SENTRYGUN
+                ["m_bBuilding"] = PropertyValue.FromInt(1),
+                ["m_bPlacing"] = PropertyValue.FromInt(0),
+                ["m_bCarried"] = PropertyValue.FromInt(1),
+                ["m_bMiniBuilding"] = PropertyValue.FromInt(0),
+                ["m_bDisabled"] = PropertyValue.FromInt(1),
+
+                // A handle is the slot in the low 11 bits and a serial above; entity 1's serial is 0.
+                ["m_hBuilder"] = PropertyValue.FromInt(1),
+                ["m_iUpgradeLevel"] = PropertyValue.FromInt(3),
+                ["m_iUpgradeMetal"] = PropertyValue.FromInt(197),
+                ["m_iUpgradeMetalRequired"] = PropertyValue.FromInt(200),
+                ["m_iObjectMode"] = PropertyValue.FromInt(1),
+                ["m_bDisposableBuilding"] = PropertyValue.FromInt(1),
+                ["m_flPercentageConstructed"] = PropertyValue.FromFloat(0.75f),
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(128.5f, -64.25f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(32.75f),
+                ["m_iAmmoShells"] = PropertyValue.FromInt(140),
+                ["m_iAmmoRockets"] = PropertyValue.FromInt(6),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
     /// <summary>A decoder over the default schema, which the encoder also needs.</summary>
     public static EntityDecoder Decoder()
     {
