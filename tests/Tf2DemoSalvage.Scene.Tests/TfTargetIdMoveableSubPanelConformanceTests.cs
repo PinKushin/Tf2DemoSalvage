@@ -152,9 +152,47 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
     [Test]
     public void CanPickupBuilding_AtExactlyTheRangeBoundary_ShowsThePrompt()
     {
-        TfMainTargetId id = Thought(Playing(OwnBuilding() with { Position = (150f, 0f, 0f) }) with { IdTarget = 55 });
+        // Level with the local player's own EYE (68 units up, Soldier's standing height) so the horizontal distance
+        // alone is the range: 150 units flat, at the boundary.
+        TfMainTargetId id = Thought(Playing(OwnBuilding() with { Position = (150f, 0f, 68f) }) with { IdTarget = 55 });
 
         id.FindChildByName("MoveableSubPanel")!.Visible.ShouldBeTrue("150 units is `<=`, not `<`");
+    }
+
+    [Test]
+    public void CanPickupBuilding_FeetInRangeButEyeOutOfRange_HidesThePrompt()
+    {
+        // Feet-to-origin: 140 units (in range). Eye-to-origin: the eye sits 68 up (Soldier standing), so straight down
+        // to a building 140 below the FEET is 208 from the eye — out of TF_BUILDING_PICKUP_RANGE (150). `EyePosition()`
+        // (:12477), not the feet, is what Valve measures from.
+        TfMainTargetId id = Thought(Playing(OwnBuilding() with { Position = (0f, 0f, -140f) }) with { IdTarget = 55 });
+
+        id.FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("208 units from the eye, though only 140 from the feet");
+    }
+
+    [Test]
+    public void CanPickupBuilding_EyeInRangeButFeetOutOfRange_ShowsThePrompt()
+    {
+        // Level with the eye (Z 68), 145 units out horizontally: feet-to-origin is sqrt(145^2 + 68^2) ~= 160.15, over
+        // the 150 range; eye-to-origin is 145 flat, under it.
+        TfMainTargetId id = Thought(Playing(OwnBuilding() with { Position = (145f, 0f, 68f) }) with { IdTarget = 55 });
+
+        id.FindChildByName("MoveableSubPanel")!.Visible.ShouldBeTrue("145 units from the eye, though ~160 from the feet");
+    }
+
+    [Test]
+    public void CanPickupBuilding_DuckedLocalPlayer_MeasuresFromTheLowerDuckedEye()
+    {
+        // Straight down, 100 below the feet. Standing eye (68 up): 168 from the eye — out of range. Ducked eye (45
+        // up, VEC_DUCK_VIEW): 145 from the eye — in range. Same building, same feet position, only the duck flag
+        // differs.
+        SceneBuilding building = OwnBuilding() with { Position = (0f, 0f, -100f) };
+
+        Thought(Playing(building) with { IdTarget = 55 })
+            .FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("168 units from the standing eye (100 + 68)");
+
+        Thought(Playing(building, meFlags: PlayerActivityState.Ducking) with { IdTarget = 55 })
+            .FindChildByName("MoveableSubPanel")!.Visible.ShouldBeTrue("145 units from the ducked eye (100 + 45)");
     }
 
     [Test]
@@ -361,13 +399,13 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
     private static HudState Playing(
         SceneBuilding building, bool meAlive = true, bool meCarrying = false, PlayerConditions meConditions = default,
         int? meStunFlags = null, int? meStunIndex = null, int? meDisguiseClass = null, int? meDisguiseTeam = null,
-        IReadOnlyList<SceneItem>? meItems = null, int meActiveWeapon = 0, int? meWeaponClip1 = null) =>
+        IReadOnlyList<SceneItem>? meItems = null, int meActiveWeapon = 0, int? meWeaponClip1 = null, int? meFlags = null) =>
         new(true, true, 0, 100, true, CurTime: 1f, Team: 2, ObserverMode: ObserverModes.None, LocalIndex: 1, PlayerClass: 3,
             RoundState: 4, // GR_STATE_RND_RUNNING.
             Players:
             [
                 new(1, 0f, 0f, 0f, 2, 100, 3, LifeState: meAlive ? 0 : 1, Conditions: meConditions,
-                    DisguiseClass: meDisguiseClass, DisguiseTeam: meDisguiseTeam, ActiveWeapon: meActiveWeapon)
+                    DisguiseClass: meDisguiseClass, DisguiseTeam: meDisguiseTeam, ActiveWeapon: meActiveWeapon, Flags: meFlags)
                 {
                     CarryingObject = meCarrying,
                     StunFlags = meStunFlags,

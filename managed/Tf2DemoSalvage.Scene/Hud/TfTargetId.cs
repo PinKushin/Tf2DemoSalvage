@@ -39,11 +39,14 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     private const int TeleporterStateRecharging = 4;
     private const int IdChars = 256;
 
-    /// <summary>`TF_BUILDING_PICKUP_RANGE` (tf_player_shared.cpp:217): 150 units, squared for `CanPickupBuilding`'s compare.</summary>
-    private const float BuildingPickupRangeSq = 150f * 150f;
+    /// <summary>
+    /// `TF_BUILDING_PICKUP_RANGE` squared (tf_player_shared.cpp:217): `int nPickUpRangeSq = TF_BUILDING_PICKUP_RANGE *
+    /// TF_BUILDING_PICKUP_RANGE` (:12475) — an int, so <see cref="CanPickupBuilding"/> compares as one.
+    /// </summary>
+    private const int BuildingPickupRangeSq = 150 * 150;
 
     /// <summary>`TF_BUILDING_RESCUE_MIN_RANGE_SQ` (tf_player_shared.cpp:218): 250 * 250, the `building_teleporting_pickup` deadzone.</summary>
-    private const float RescueMinRangeSq = 250f * 250f;
+    private const int RescueMinRangeSq = 250 * 250;
 
     /// <summary>`TF_COND_GRAPPLINGHOOK` (tf_shareddefs.h:788).</summary>
     private const int ConditionGrapplingHook = 98;
@@ -718,17 +721,22 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             return false;
         }
 
-        // `TF_BUILDING_PICKUP_RANGE` (:12475), eye-to-origin — the same view-offset simplification `EyeDistance` already
-        // makes (view offset excluded; only the outcome is read).
+        // `(EyePosition() - pPickupObject->GetAbsOrigin()).LengthSqr()` (:12477). `EyePosition()` is `GetAbsOrigin() +
+        // GetViewOffset()` (baseentity_shared.cpp) — the same placement `FreeCamera.AtEye` uses for the first-person
+        // camera — not the feet `local.X/Y/Z` alone.
         if (obj.Position is not { } origin)
         {
             return false;
         }
 
+        float eyeZ = local.Z + (local.IsCrouched ? PlayerEye.Ducking(state.PlayerClass) : PlayerEye.Standing(state.PlayerClass));
+
         float dx = origin.X - local.X;
         float dy = origin.Y - local.Y;
-        float dz = origin.Z - local.Z;
-        float distanceSq = (dx * dx) + (dy * dy) + (dz * dz);
+        float dz = origin.Z - eyeZ;
+
+        // `int nSqrDist = (...).LengthSqr()` (:12477) truncates to int before every compare below.
+        int distanceSq = (int)((dx * dx) + (dy * dy) + (dz * dz));
 
         // `CALL_ATTRIB_HOOK_INT_ON_OTHER( pWeapon, iIncreasedRangeCost, building_teleporting_pickup )` (:12481) — an
         // attribute hooked on the WEAPON, applying its OWNER's providers (`AttributeHooks.OnWeapon`), same as :12462.
