@@ -118,10 +118,19 @@ cone angles (as cosines) and exponent are all read. `nLightCount`'s `MAX_LIGHT_C
 (`LocalLights.MaximumLocalLights` = 4) is ONE counter shared by every kind, directional included, matching
 `potterywheelpanel.cpp:394-459`.
 
-**One remaining structural limit, not a bug**: only the FIRST `directional` entry survives, because
-`ModelInstance.Sun` — what the renderer actually draws a model's directional light with — is a single `SunLight`,
-the same as every world prop. No stock HUD `.res` file writes more than one, and adding a second slot would be a
-new lighting path for an untested case, not a parity gap this panel can close alone.
+**Checked whether a 2nd+ directional entry could go into `Locals` instead (coordinator review, 2026-09-27) — it
+cannot, without building a new shader path.** `LocalLight` (`Content/Bsp/LocalLights.cs`) carries no directional
+case (`IsLocal`, :348-349, explicitly excludes the sky light kind — "The sun is excluded deliberately", :330-334),
+and the model shader that actually consumes `Locals` is unconditionally positional:
+`WorldRenderer.cs:598-625` (`LampAttenuation`) computes `toLamp = localLightPosition[lamp].xyz - world` and divides
+by `dot(atten, (1, distance, distance²))` for every lamp — there is no branch that skips the distance term, and
+`localLightDirection[lamp].w` only `lerp`s between POINT and SPOT falloff (:624), never selects a third,
+distance-independent case. A directional local light needs constant illumination regardless of distance, which is
+structurally the one thing this attenuation formula cannot produce without a new branch — building that branch
+would be the "new lighting path" this task was told not to build, so this stays exactly where it was: only the
+FIRST `directional` entry survives, because `ModelInstance.Sun` — what the renderer actually draws a model's
+directional light with — is a single `SunLight`, the same as every world prop. No stock HUD `.res` file writes more
+than one.
 
 **`SetupRenderState`'s per-light transform bug (potterywheelpanel.cpp:723-731) is reproduced by construction,
 not separately coded.** For light `i > 0`, Valve transforms into `pDesc[0]` instead of `pDesc[i]`, so every light
