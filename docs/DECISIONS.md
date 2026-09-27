@@ -9315,3 +9315,15 @@ valve parity everywhere"*.
 **What it replaced.** One `FieldOfView` setting read from both `fov_desired` and `demo_fov_override`. Only the free
 camera used it; the in-eye and chase cameras sat at a compiled-in 90 until the commit before this one. Scope zoom was
 never applied.
+
+## D195 — CI gates are not hard constraints yet; a small coverage drop is undertesting
+
+**2026-09-27, owner direction.** Given mid-session, to stop spending on CI and keep implementing: *"i dont care
+about the ci right now, so keep going with implementations, you can fix the ci gates later, they are not hard
+constraints on this project yet, because it moves very fast, and as long as its not a massive drop, showing
+something got deleted that shouldnt, a small drop is just undertesting and will show up in surviving mutants when
+we go after them"*.
+
+So a red CI coverage floor does not block implementation. A **small** drop is undertesting, left for the mutation
+pass to surface. A **massive** drop is still a defect to investigate now, because it suggests something was deleted
+that should not have been. The local three-phase gate before a merge to main is unchanged.

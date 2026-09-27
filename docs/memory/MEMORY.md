@@ -147,3 +147,4 @@
 - [Review subagents deeply](review-subagents-deeply.md) — full-context briefs, line-by-line review, no nested hand-offs.
 - [Announce before launching](announce-before-launching.md) — say a desktop-taking run is starting before the call, never after.
 - [$TEMP is shared across worktrees](temp-is-shared-across-worktrees.md) — name logs per run; trust the exit code and trx.
+- [CI gates are soft for now](ci-gates-are-soft-for-now.md) — D195; a small coverage drop is undertesting, only a massive one matters.
