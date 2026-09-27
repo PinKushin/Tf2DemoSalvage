@@ -193,6 +193,140 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     [Test]
+    public void Paint_DefaultCameraState_MatchesThePotteryWheelPanelConstructor()
+    {
+        // No `.res` file has touched the pivot or offset: pivot identity (SetIdentityMatrix(m_CameraPivot),
+        // potterywheelpanel.cpp:242), offset (100, 0, 0) (:248) — `UpdateCameraTransform` (:765-773) then puts the
+        // camera at (100, 0, 0) facing the same way the identity pivot does, angles (0, 0, 0).
+        VguiModelPanel panel = new(null, "model")
+        {
+            ModelName = "models/player/scout.mdl",
+            ResolveModel = _ => SyntheticSkinnedModel.WithOneBone(),
+            Wide = 100,
+            Tall = 100,
+        };
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+
+        // Read back through the actual camera matrix rather than a settable property (there is none any more —
+        // CameraOrigin/CameraAngles are COMPUTED, per the coordinator's finding that the previous code stored them
+        // directly and skipped the pivot/offset arithmetic entirely). Index 14 always carries the projection's own
+        // NearZ*FarZ/(NearZ-FarZ) constant (about -3) EVEN AT the true world origin — that term does not vanish —
+        // but a camera 100 units out along its own forward axis (the identity pivot's forward is +X, the same axis
+        // the offset is along) makes it substantially MORE negative on top of that; -50 comfortably separates the
+        // two (measured: about -103 here, about -3 at the true origin).
+        float[] camera = surface.Draws[0].Camera;
+
+        camera[14].ShouldBeLessThan(
+            -50f, "the camera never left the world origin, so the default 100-unit offset was not applied");
+    }
+
+    [Test]
+    public void Paint_ForcePosition_PutsTheCameraAtTheWorldOriginAndTheModelAtModelOrigin()
+    {
+        // PerformLayout's force_pos branch (basemodel_panel.cpp:381-387): ResetCameraPivot(); SetCameraOffset(0,0,0);
+        // SetCameraPositionAndAngles(vec3_origin, vec3_angle) puts the CAMERA at the origin, and
+        // SetModelAnglesAndPosition(m_angPlayer, m_vecPlayerPos) moves the MODEL to what ParseModelResInfo cached —
+        // the exact swap the coordinator's review flagged: the previous code did the opposite (moved the camera to
+        // the model's angles/origin and drew the model at identity).
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone();
+
+        VguiModelPanel panel = new(null, "model")
+        {
+            ModelName = "models/player/scout.mdl",
+            ResolveModel = _ => model,
+            ForcePosition = true,
+            ModelOrigin = (500f, 0f, 0f),
+            Wide = 100,
+            Tall = 100,
+        };
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+
+        float[] camera = surface.Draws[0].Camera;
+
+        // The camera's translation row's X and Y are zero: it never left the world origin. Index 14 is the
+        // projection's own NearZ*FarZ/(NearZ-FarZ) constant (about -3) — present even at the true origin, so it is
+        // close to that small constant rather than zero, and specifically NOT the far-more-negative value (about
+        // -103) the default-camera test sees for a camera 100 units out along its forward axis.
+        camera[12].ShouldBe(0f, 0.001f);
+        camera[13].ShouldBe(0f, 0.001f);
+        camera[14].ShouldBeGreaterThan(-50f);
+
+        // The model's one bone sits at ModelOrigin now, not at the origin AngleMatrix3x4 would leave it at
+        // without ForcePosition.
+        float[] rootBone = surface.Draws[0].Models[0].Bones![0];
+
+        rootBone[3].ShouldBe(500f, 0.001f);
+    }
+
+    [Test]
+    public void Paint_NoForcePosition_LeavesTheModelAtTheOriginRegardlessOfModelOrigin()
+    {
+        // The common case: no stock TF2 HUD .res sets force_pos, so ModelOrigin/ModelAngles are cached but never
+        // applied — the model draws wherever AnimatingEntity's own bind pose puts it (the origin, for one bone at
+        // the rest position), and the CAMERA is what backs away instead.
+        VguiModelPanel panel = new(null, "model")
+        {
+            ModelName = "models/player/scout.mdl",
+            ResolveModel = _ => SyntheticSkinnedModel.WithOneBone(),
+            ModelOrigin = (500f, 0f, 0f),
+            Wide = 100,
+            Tall = 100,
+        };
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+
+        float[] rootBone = surface.Draws[0].Models[0].Bones![0];
+
+        rootBone[3].ShouldBe(0f, 0.001f);
+    }
+
+    [Test]
+    public void FrameAt_HalfASecondIntoAOneCyclePerSecondSequence_IsFrame15Of31()
+    {
+        // AnimatedStudioBytes.OneSecondLoop: 31 frames at 30 fps is exactly one cycle a second
+        // (Studio_CPS divides by numframes - 1 = 30). Half a second is half a cycle: frame 15 of 30 steps,
+        // landing exactly on a frame with no fraction left over.
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("root") with
+        {
+            Models = [AnimatedStudioBytes.OneSecondLoop()],
+        };
+
+        (int frame, float fraction) = VguiModelPanel.FrameAt(model, sequence: 0, poseValues: [], cycleTime: 0.5d);
+
+        frame.ShouldBe(15);
+        fraction.ShouldBe(0f, 0.0001f);
+    }
+
+    [Test]
+    public void FrameAt_TwoAndAHalfCyclesIntoALoopingSequence_WrapsToTheFraction()
+    {
+        // Same fixture, but far enough past one cycle that a non-looping sequence would already be held on its
+        // last frame — this asserts the LOOPING path specifically wraps rather than holds.
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("root") with
+        {
+            Models = [AnimatedStudioBytes.OneSecondLoop()],
+            Groups = [(0, [new StudioSequence(
+                // STUDIO_LOOPING, studio.h:3078 — StudioFlags is internal to Content.Assets and not visible here.
+                Animation: 0, Flags: 0x0001, Label: "idle", Blend: null,
+                Activity: "idle", ActivityWeight: 1)])],
+        };
+
+        (int frame, float fraction) = VguiModelPanel.FrameAt(model, sequence: 0, poseValues: [], cycleTime: 2.5d);
+
+        // 2.5 cycles wraps to 0.5 of a cycle - the same frame 15 the half-second test landed on.
+        frame.ShouldBe(15);
+        fraction.ShouldBe(0f, 0.0001f);
+    }
+
+    [Test]
     public void Paint_AMergeModelSharingABoneName_TakesTheRootsBoneToWorldForThatBone()
     {
         // `CMDLPanel::OnPaint3D` (mdlpanel.cpp:493): `SetupBonesWithBoneMerge` folds the merge model's shared-named

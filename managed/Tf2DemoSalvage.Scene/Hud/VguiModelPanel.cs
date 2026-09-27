@@ -87,11 +87,32 @@ public class VguiModelPanel : VguiPanel
     private readonly BoneFrameCounter _clock = new();
     private readonly Dictionary<string, AnimatingEntity> _entities = new(StringComparer.Ordinal);
 
-    /// <summary>Where the camera sits, in the panel's own little world.</summary>
-    public (float X, float Y, float Z) CameraOrigin { get; set; }
+    /// <summary><c>m_CameraPivot</c>'s translation — <c>SetCameraPositionAndAngles</c>'s <c>vecPos</c>
+    /// (<c>potterywheelpanel.cpp:637-647</c>). Identity until <see cref="ForcePosition"/> or a caller moves it.</summary>
+    public (float X, float Y, float Z) CameraPivotOrigin { get; set; }
 
-    /// <summary>Pitch, yaw, roll in degrees, Valve's <c>QAngle</c> order.</summary>
-    public (float Pitch, float Yaw, float Roll) CameraAngles { get; set; }
+    /// <summary><c>m_CameraPivot</c>'s rotation — <c>SetCameraPositionAndAngles</c>'s <c>angDir</c>.</summary>
+    public (float Pitch, float Yaw, float Roll) CameraPivotAngles { get; set; }
+
+    /// <summary><c>m_vecCameraOffset</c>, default <c>(100, 0, 0)</c> (<c>potterywheelpanel.cpp:248</c>) — the
+    /// camera's position relative to the pivot, in the PIVOT's own local axes.</summary>
+    public (float X, float Y, float Z) CameraOffset { get; set; } = (100f, 0f, 0f);
+
+    /// <summary><c>m_bForcePos</c> — <c>force_pos</c> in the <c>.res</c> <c>model</c> block
+    /// (<c>basemodel_panel.cpp:90</c>). When set, <c>PerformLayout</c> (:381-387) resets the pivot and offset to the
+    /// world origin and moves the MODEL to <see cref="ModelAngles"/>/<see cref="ModelOrigin"/> instead of leaving it
+    /// at the identity <c>CMDLPanel</c> itself starts at (<c>SetIdentityMatrix( m_RootMDL.m_MDLToWorld )</c>,
+    /// <c>mdlpanel.cpp:75</c>).</summary>
+    public bool ForcePosition { get; set; }
+
+    /// <summary><c>m_angModelPoseRot</c> — the model's own rotation, applied only when <see cref="ForcePosition"/>
+    /// is set (<c>SetModelAnglesAndPosition</c>, <c>mdlpanel.cpp:233-237</c>: <c>AngleMatrix( angRot, vecPos,
+    /// m_RootMDL.m_MDLToWorld )</c>). Identity otherwise, matching <c>CMDLPanel</c>'s own constructor.</summary>
+    public (float X, float Y, float Z) ModelAngles { get; set; }
+
+    /// <summary><c>m_vecOriginOffset</c> — the model's own position, under the same condition as
+    /// <see cref="ModelAngles"/>.</summary>
+    public (float X, float Y, float Z) ModelOrigin { get; set; }
 
     /// <summary>Horizontal field of view in degrees. <c>fov</c> in the <c>.res</c> file overrides it (<c>basemodel_panel.cpp:56</c>).</summary>
     public float FieldOfView { get; set; } = DefaultFieldOfView;
@@ -236,9 +257,13 @@ public class VguiModelPanel : VguiPanel
 
         if (root.Pose is SkeletonPose rootPose)
         {
-            rootPose.Sequence = Sequence >= 0 ? Sequence : 0;
-            rootPose.EntityTransform ??= Identity3x4;
+            int sequence = Sequence >= 0 ? Sequence : 0;
+
+            rootPose.Sequence = sequence;
+            rootPose.EntityTransform = ForcePosition ? AngleMatrix3x4(ModelAngles, ModelOrigin) : Identity3x4;
             rootPose.PoseValues = MoveXPoseValues(rootModel.PoseParameters);
+
+            (rootPose.Frame, rootPose.FrameFraction) = FrameAt(rootModel, sequence, rootPose.PoseValues, CycleTime);
         }
 
         root.SetupBones(FullBoneMask, CycleTime);
@@ -269,10 +294,18 @@ public class VguiModelPanel : VguiPanel
                 mergeName, Identity4x4, Ambient, Sun, Bones: Skinned(mergeModel.Bones, merged.Bones)));
         }
 
+        // `PerformLayout`'s `force_pos` branch (basemodel_panel.cpp:381-387): `ResetCameraPivot(); SetCameraOffset(
+        // Vector( 0, 0, 0 ) ); SetCameraPositionAndAngles( vec3_origin, vec3_angle );` — the pivot and offset both
+        // go to the world origin FOR THIS FRAME, rather than the stored pivot/offset being overwritten, since
+        // nothing here re-runs a persisted layout pass once `ForcePosition` is turned off again.
+        ((float X, float Y, float Z) origin, (float Pitch, float Yaw, float Roll) angles) = ForcePosition
+            ? ComputeCameraTransform((0f, 0f, 0f), (0f, 0f, 0f), (0f, 0f, 0f))
+            : ComputeCameraTransform(CameraPivotOrigin, CameraPivotAngles, CameraOffset);
+
         FreeCamera camera = new()
         {
-            Origin = CameraOrigin,
-            Angles = CameraAngles,
+            Origin = origin,
+            Angles = angles,
             FieldOfView = FieldOfView,
             NearZ = NearZ,
             FarZ = FarZ,
@@ -280,6 +313,80 @@ public class VguiModelPanel : VguiPanel
         };
 
         surface.Paint3D(0, 0, Wide, Tall, camera.ToMatrix(), models);
+    }
+
+    /// <summary>
+    /// <c>CPotteryWheelPanel::UpdateCameraTransform</c> (<c>potterywheelpanel.cpp:765-773</c>): the camera's
+    /// position and angles, built from the pivot and an offset expressed in the pivot's OWN local axes —
+    /// <c>ConcatTransforms( m_CameraPivot, offset, worldToCamera )</c> where <c>offset</c> is a pure translation, so
+    /// the rotation carries straight through and only the translation is rotated into world space by the pivot.
+    /// </summary>
+    private static ((float X, float Y, float Z) Origin, (float Pitch, float Yaw, float Roll) Angles) ComputeCameraTransform(
+        (float X, float Y, float Z) pivotOrigin, (float Pitch, float Yaw, float Roll) pivotAngles, (float X, float Y, float Z) offset)
+    {
+        FreeCamera pivot = new() { Origin = pivotOrigin, Angles = pivotAngles };
+
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) =
+            pivot.Basis();
+
+        (float X, float Y, float Z) left = (-right.X, -right.Y, -right.Z);
+
+        (float X, float Y, float Z) world = (
+            (offset.X * forward.X) + (offset.Y * left.X) + (offset.Z * up.X),
+            (offset.X * forward.Y) + (offset.Y * left.Y) + (offset.Z * up.Y),
+            (offset.X * forward.Z) + (offset.Y * left.Z) + (offset.Z * up.Z));
+
+        return ((pivotOrigin.X + world.X, pivotOrigin.Y + world.Y, pivotOrigin.Z + world.Z), pivotAngles);
+    }
+
+    /// <summary><c>AngleMatrix( angRot, vecPos, matrix )</c>: a row of <c>(forward[i], left[i], up[i], origin[i])</c>
+    /// per axis — <c>matrix3x4_t</c>'s own layout, which <c>StudioBones.Concatenate</c> already assumes.</summary>
+    private static float[] AngleMatrix3x4((float X, float Y, float Z) angles, (float X, float Y, float Z) origin)
+    {
+        FreeCamera basis = new() { Origin = origin, Angles = (angles.X, angles.Y, angles.Z) };
+
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) =
+            basis.Basis();
+
+        (float X, float Y, float Z) left = (-right.X, -right.Y, -right.Z);
+
+        return
+        [
+            forward.X, left.X, up.X, origin.X,
+            forward.Y, left.Y, up.Y, origin.Y,
+            forward.Z, left.Z, up.Z, origin.Z,
+        ];
+    }
+
+    /// <summary>
+    /// <c>StandardBlendingRules</c>' realtime/closed-form split (<c>EntityModels.cs:763-788</c>), fed by
+    /// <see cref="CycleTime"/> instead of a demo-time advance — this panel has no per-tick integration, only a
+    /// clock that has run continuously since <see cref="CycleStartTime"/>, which is exactly what the REALTIME
+    /// branch already assumes for a sequence carrying that flag. A sequence that does NOT carry it still uses the
+    /// same closed form, because there is nothing here that behaves differently from one frame to the next: no
+    /// discontinuity to preserve across, unlike a player whose playback rate can change mid-cycle.
+    /// </summary>
+    /// <param name="model">The model.</param>
+    /// <param name="sequence">Its chosen sequence.</param>
+    /// <param name="poseValues">This model's current pose parameters, for <c>BlendedCyclesPerSecond</c>.</param>
+    /// <param name="cycleTime">Seconds since the sequence started.</param>
+    /// <returns>The frame and how far past it, as <see cref="SkeletonPose.Frame"/>/<see cref="SkeletonPose.FrameFraction"/> want them.</returns>
+    public static (int Frame, float Fraction) FrameAt(
+        PropModels.SkinnedModel model, int sequence, IReadOnlyList<float> poseValues, double cycleTime)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(poseValues);
+
+        float raw = (float)(cycleTime * model.BlendedCyclesPerSecond(sequence, poseValues));
+
+        // `cycle = cycle - (int)cycle` (bone_setup.cpp's STUDIO_REALTIME branch) and `ClampCycle( x, true )` are the
+        // same function for every x >= 0 — `docs/memory` already establishes this equivalence — so the realtime
+        // branch is expressed as a call to the same helper rather than a second implementation of `- (int)`.
+        float phase = model.Realtime(sequence)
+            ? StudioSequences.ClampCycle(raw, loops: true)
+            : StudioSequences.ClampCycle(raw, model.Loops(sequence));
+
+        return StudioSequences.FrameAt(phase, model.Frames(sequence), model.Loops(sequence));
     }
 
     /// <summary><c>SetupModelAnimDefaults</c> (<c>basemodel_panel.cpp:175</c>): <c>SetPoseParameterByName( "move_x",
@@ -383,14 +490,11 @@ public class VguiBaseModelPanel : VguiModelPanel
     {
     }
 
-    /// <summary><c>m_BMPResData.m_angModelPoseRot</c> (<c>basemodel_panel.cpp:94</c>).</summary>
-    public (float X, float Y, float Z) ModelAngles { get; private set; }
-
-    /// <summary><c>m_BMPResData.m_vecOriginOffset</c>, default <c>(110, 5, 5)</c> (<c>basemodel_panel.cpp:95</c>).</summary>
-    public (float X, float Y, float Z) ModelOrigin { get; private set; } = (110f, 5f, 5f);
-
     /// <summary><c>m_BMPResData.m_bUseSpotlight</c> (<c>basemodel_panel.cpp:99</c>).</summary>
     public bool UseSpotlight { get; private set; }
+
+    /// <summary><c>m_bStartFramed</c> (<c>basemodel_panel.h:238</c>): <c>start_framed</c>, default <c>"0"</c>.</summary>
+    public bool StartFramed { get; private set; }
 
     /// <summary><c>m_BMPResData.m_aAnimations</c> (<c>ParseModelAnimInfo</c>, <c>basemodel_panel.cpp:122</c>).</summary>
     public IReadOnlyList<ModelPanelAnimation> Animations => _animations;
@@ -435,6 +539,11 @@ public class VguiBaseModelPanel : VguiModelPanel
             FieldOfView = PanelLayout.Atoi(fov);
         }
 
+        // `CPanelAnimationVar( bool, m_bStartFramed, "start_framed", "0" )` (basemodel_panel.h:238) — a top-level
+        // key, applied by the generic animation-var mechanism the base `Panel::ApplySettings` runs; read directly
+        // here since this panel has no scheme-driven animation vars of its own to declare it through.
+        StartFramed = block.Find("start_framed")?.Value == "1";
+
         // `for ( KeyValues *pData = inResourceData->GetFirstSubKey() ...` (:74): every sub-block named `model`, not
         // only the first — Valve's own loop keeps looking after a match.
         foreach (KeyValuesTree modelBlock in block.Children)
@@ -456,6 +565,12 @@ public class VguiBaseModelPanel : VguiModelPanel
         Skin = ResIntOrDefault(modelBlock, "skin", -1);
         UseSpotlight = ResIntOrDefault(modelBlock, "spotlight", 0) == 1;
 
+        // `m_bForcePos` (basemodel_panel.cpp:90) — whether `PerformLayout` moves the MODEL to these angles/origin at
+        // all; see `ForcePosition`'s remarks on `VguiModelPanel` for what happens when it is left false, which is
+        // the common case (no stock TF2 HUD `.res` file sets it — the model draws at whatever `AnimatingEntity`'s
+        // bind pose already is, and the camera backs away from THAT instead).
+        ForcePosition = ResIntOrDefault(modelBlock, "force_pos", 0) == 1;
+
         ModelAngles = (
             ResFloatOrDefault(modelBlock, "angles_x", 0f),
             ResFloatOrDefault(modelBlock, "angles_y", 0f),
@@ -465,9 +580,6 @@ public class VguiBaseModelPanel : VguiModelPanel
             ResFloatOrDefault(modelBlock, "origin_x", 110f),
             ResFloatOrDefault(modelBlock, "origin_y", 5f),
             ResFloatOrDefault(modelBlock, "origin_z", 5f));
-
-        CameraAngles = ModelAngles;
-        CameraOrigin = ModelOrigin;
 
         _animations.Clear();
         _attachments.Clear();
@@ -495,6 +607,73 @@ public class VguiBaseModelPanel : VguiModelPanel
                 break;
             }
         }
+
+        if (StartFramed)
+        {
+            ApplyStartFramed();
+        }
+    }
+
+    /// <summary>
+    /// <c>CBaseModelPanel::LookAtBounds</c> (<c>basemodel_panel.cpp:649-769</c>), NOT fully ported — see
+    /// <c>docs/HANDOFF-hud.md</c>'s "Divergence: start_framed" for exactly which half is missing and why. What runs
+    /// here is <c>CPotteryWheelPanel::LookAt( float radius )</c> (<c>potterywheelpanel.cpp:668-693</c>) instead: the
+    /// camera backs away from the model's origin until a sphere of the given radius fills the frame at the current
+    /// field of view, aspect-corrected. <c>LookAtBounds</c> additionally repositions the MODEL (not just the
+    /// camera) and reprojects its eight corner points through the actual aspect ratio and rotation rather than
+    /// treating it as a sphere — both real differences from what this does, not a rounding error.
+    /// </summary>
+    private void ApplyStartFramed()
+    {
+        if (ResolveModel is not { } resolve || ModelName is not { } modelName || resolve(modelName) is not { } model)
+        {
+            return;
+        }
+
+        float radius = BoundingRadius(model.Bones);
+
+        if (radius <= 0f)
+        {
+            return;
+        }
+
+        float aspect = Tall > 0 ? (float)Wide / Tall : 1f;
+        float halfFovRadians = FieldOfView * (MathF.PI / 360f);
+
+        // `if ( h < w ) flFOVx = atan( h * tan( flFOVx ) / w );` (potterywheelpanel.cpp:686-688) — the HORIZONTAL
+        // half-fov is narrowed to the vertical one when the panel is wider than it is tall, so the fit is against
+        // whichever axis is actually the tighter constraint.
+        float effectiveHalfFov = aspect > 1f
+            ? MathF.Atan(MathF.Tan(halfFovRadians) / aspect)
+            : halfFovRadians;
+
+        CameraPivotOrigin = (0f, 0f, 0f);
+        CameraOffset = (-(radius / MathF.Sin(effectiveHalfFov)), 0f, 0f);
+    }
+
+    /// <summary>A sphere around the origin big enough to hold every bone's bind-pose position.</summary>
+    /// <remarks>
+    /// **Bones, not vertices — a real divergence from <c>GetBoundingBox</c>, not an equivalent reading of it.**
+    /// Valve's bounds come from the model's actual render bounds (<c>studiohdr_t::hull_min</c>/<c>hull_max</c>);
+    /// nothing at this layer has vertex data, only <see cref="StudioBone.Position"/> for each bone's rest
+    /// placement, which is a smaller box than the mesh that skins to those bones (a bone sits inside the surface
+    /// it drives, not on it). Documented in <c>docs/HANDOFF-hud.md</c> rather than silently accepted.
+    /// </remarks>
+    private static float BoundingRadius(IReadOnlyList<StudioBone> bones)
+    {
+        float radius = 0f;
+
+        foreach (StudioBone bone in bones)
+        {
+            float distance = MathF.Sqrt(
+                (bone.Position.X * bone.Position.X) +
+                (bone.Position.Y * bone.Position.Y) +
+                (bone.Position.Z * bone.Position.Z));
+
+            radius = MathF.Max(radius, distance);
+        }
+
+        return radius;
     }
 
     /// <summary><c>ParseModelAnimInfo</c> (<c>basemodel_panel.cpp:122</c>). Pose parameters (<c>pose_parameters</c>,

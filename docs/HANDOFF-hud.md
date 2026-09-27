@@ -95,7 +95,15 @@ Plan, bottom layer first:
 `managed/Tf2DemoSalvage.Scene/Hud/VguiModelPanel.cs`: `VguiModelPanel` (`CPotteryWheelPanel` + `CMDLPanel`) and
 `VguiBaseModelPanel : VguiModelPanel` (`CBaseModelPanel`), folded into one file — none of the three Valve classes has
 state worth keeping apart at this layer. Tests: `tests/Tf2DemoSalvage.Scene.Tests/VguiModelPanelConformanceTests.cs`
-(13, synthetic fixtures via `SyntheticSkinnedModel`, no corpus demos).
+(34, synthetic fixtures via `SyntheticSkinnedModel`/`AnimatedStudioBytes`, no corpus demos).
+
+**Reviewed by a coordinator against basemodel_panel.cpp after the first pass (5353203b) and found not done** — nine
+items, all addressed in follow-up commits the same day: the camera/model transform was backwards (fixed, below),
+frame stepping was unwired (fixed, below), `fov` parsed as a float rather than truncating `GetInt` (fixed), the
+`SetModelAnim` fallback order and `move_x`/`attached_model` parsing were missing (fixed), `ParseLightsFromKV`'s gaps
+were undersold as "narrowed" rather than listed (fixed, divergence section below), and a skinning loop was
+duplicated between this file and `EntityModelSet` (fixed via `BoneSkinning.Fill`). Bone merge (`AnimatingEntity.Follows`)
+was already correct on review — a test was added to confirm it rather than leaving that unverified.
 
 - **Camera and lights are exact**: `NearZ` 3, `FarZ` 16384·√3, `FieldOfView` 30 (potterywheelpanel.cpp:250-252);
   ambient cube 0.4 all six faces and one white sun down `(0,0,-1)` (`CreateDefaultLights`, :316-333).
@@ -119,25 +127,54 @@ this function at all (only ever confirmed here, not previously guessed). What is
 Test: `ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOldOne`.
 - **Posing reuses `AnimatingEntity`/`SkeletonPose` directly**, keyed by model PATH in a small dictionary the panel
   owns — its own version of `EntityModelSet.EntityFor`, since a panel has no entity index. Bone merge is
-  `AnimatingEntity.Follows`; skinning (bone-to-world folded with bind pose) is a small unbuffered copy of
-  `EntityModelSet.Skinning` (`EntityModels.cs:3478`) — a model panel poses a handful of models, not hundreds a
-  frame, so there is nothing here to protect with a reused buffer.
+  `AnimatingEntity.Follows`; skinning (bone-to-world folded with bind pose) is `BoneSkinning.Fill`, extracted from
+  `EntityModelSet.Skinning` (`EntityModels.cs:3478`) so both share one implementation — the model panel calls it
+  unbuffered (a handful of models, not hundreds a frame), `EntityModelSet` keeps its per-entity reused buffer.
 - **Precache reuses the existing upload path with no change needed.** `EntityModelSet.Precache` sets `Grown`, and
   `MomentScene.Pack` already checks `_models.Grown` every frame regardless of what added to it (`MomentScene.cs:633`,
   written for B363) — so `VguiModelPanel.ModelsToPrecache()` handed to the same `EntityModelSet.Precache` a caller
   already calls is enough; a model panel's model reaches the GPU the next frame with no `MainForm`/`Device3D` change.
-- **Frame stepping is NOT wired — the one deliberate gap.** `CMDLPanel::OnTick` (mdlpanel.cpp:638) sets
-  `m_flTime = GetAutoPlayTime() - m_flCycleStartTime`; the engine turns that into a frame and blend fraction deep
-  inside `StudioRender`, off the sequence's own compressed animation data. This project's `SkeletonPose` takes an
-  explicit integer frame and fraction, and nothing at this layer (or in `PropModels.SkinnedModel`) exposes a
-  sequence's authored frame rate to convert time into one. `CycleTime` is tracked and exposed on the panel so a
-  future stepper has somewhere to read from, but `Paint` currently poses every model at frame 0 of its chosen
-  sequence — correct bones, correct merge, correct lighting, no motion. Needed before step 4/5 draw anything that
-  should visibly animate (a taunt, an idle sway).
-- **Interpolated, not settled**: the projection matrix is `FreeCamera.ToMatrix`'s shape, as flagged when this step
-  was filed — the `camerautils.cpp`/`client.dll` import to settle `ComputeProjectionMatrix` against the closed
-  engine was not carried further this session; budget went to the panel itself instead. Revisit before relying on
-  exact off-axis or non-square-aspect framing.
+- **Frame stepping is wired** (fixed after coordinator review, 2026-09-27): `FrameAt` feeds `CycleTime` through
+  `SkinnedModel.BlendedCyclesPerSecond` and `StudioSequences.ClampCycle`/`FrameAt` — the same closed-form path
+  `EntityModelSet.Simulate` already uses for every drawn prop (`EntityModels.cs:763-788`), just fed by a continuous
+  clock instead of a per-tick advance. Tests: `FrameAt_HalfASecondIntoAOneCyclePerSecondSequence_IsFrame15Of31`,
+  `FrameAt_TwoAndAHalfCyclesIntoALoopingSequence_WrapsToTheFraction`.
+- **The model/camera transform was backwards, and is now fixed** (coordinator review, 2026-09-27):
+  `ParseModelResInfo` caches `ModelAngles`/`ModelOrigin` (`m_angPlayer`/`m_vecPlayerPos`, basemodel_panel.cpp:101-102)
+  but only `PerformLayout`'s `force_pos` branch (:381-387) ever actually MOVES anything with them — the previous
+  code assigned them straight to the camera and drew the model at identity, the opposite of both of Valve's actual
+  branches. Now: `ForcePosition` (`force_pos` in the `model` block) picks between `SetModelAnglesAndPosition` moving
+  the MODEL while the camera resets to the world origin, and the default — model stays at its `AnimatingEntity` bind
+  pose while the camera sits at `CameraPivotOrigin`/`CameraPivotAngles` (identity by default) plus `CameraOffset`
+  (`(100,0,0)`, potterywheelpanel.cpp:248) rotated into the pivot's own axes — `ComputeCameraTransform`, porting
+  `UpdateCameraTransform` (:765-773). Tests: `Paint_DefaultCameraState_MatchesThePotteryWheelPanelConstructor`,
+  `Paint_ForcePosition_PutsTheCameraAtTheWorldOriginAndTheModelAtModelOrigin`,
+  `Paint_NoForcePosition_LeavesTheModelAtTheOriginRegardlessOfModelOrigin`.
+
+#### Divergence: `start_framed` (`CBaseModelPanel::LookAtBounds`, basemodel_panel.cpp:649-769)
+
+**Not fully ported.** What runs (`VguiBaseModelPanel.ApplyStartFramed`) is the SIMPLER
+`CPotteryWheelPanel::LookAt( float radius )` (potterywheelpanel.cpp:668-693): the camera backs away from the origin
+along its own forward axis until a sphere of the given radius fills the frame at the current (aspect-corrected)
+field of view. Two real differences from Valve's actual `LookAtBounds`, not a rounding error:
+
+- **The bounding volume is wrong shape.** Valve reads the model's real render bounds
+  (`studiohdr_t::hull_min`/`hull_max`, i.e. actual vertex extents) and reprojects its eight CORNER points through the
+  panel's rotation and aspect ratio — a box, fit exactly. This project has no vertex data at the panel layer, only
+  each bone's bind-pose `Position` (`StudioBone.Position`), so `ApplyStartFramed` treats the model as a SPHERE around
+  the largest bone-to-origin distance — smaller than the true mesh bounds, since a bone sits inside the surface it
+  drives rather than on it, so the fitted camera sits closer than Valve's would.
+- **The model is not repositioned.** `LookAtBounds` moves the MODEL (`SetModelAnglesAndPosition`, computed from the
+  reprojection) as well as the camera; this only moves the camera. `allow_rotation`/`allow_pitch`'s offset-zeroing
+  branch (:763-766) is not ported either, since there is no mouse-driven rotation to zero it against — see the input
+  note below.
+
+#### Not modelled: mouse-driven manipulation
+
+`m_bAllowFullManipulation`/`m_bAllowRotation`/`m_bAllowPitch` and `PerformLayout`'s manipulation branch
+(basemodel_panel.cpp:354-378) exist to let a player drag a class-selection model around with the mouse. This is the
+same category `VguiPanel`'s own remarks already exclude — "Input, navigation... not modelled: a demo's HUD takes no
+input" — and stays excluded for the same reason: an offline demo renderer has no mouse to drive it.
 
 ## Traps
 
