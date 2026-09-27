@@ -49,6 +49,28 @@ so a real TF2 HUD (stock or `tf/custom`) loads and draws exactly as the game doe
 4. **`AnimationController`**: `scripts/hudanimations_manifest.txt`, events fired by the elements.
 5. Auto-resize on a parent resize (`_autoResizeDirection`); `SolveTraverse`'s exact order in `vguimatsurface.dll`.
 
+## In progress — model panels (`feat/hud-model-panel`, 2026-09-27)
+
+Everything else on the owner's HUD list reached main at `8bb70037`. What remains draws a 3D model inside a vgui panel:
+the class portrait (`CTFHudPlayerClass`'s `classmodelpanel`, a `CTFPlayerModelPanel`, on by default through
+`cl_hud_playerclass_use_playermodel`), and the match-start doors and round sign (`CModelPanel`, matchmaking only).
+
+Valve's shape: `CPotteryWheelPanel::Paint` (matsys_controls/potterywheelpanel.cpp:842) does `Begin3DPaint` on the
+panel's rectangle, clears depth (colour too only for a render texture), sets the panel's own camera and lights, draws,
+`End3DPaint` — in the middle of the vgui paint order. Chain: `CPotteryWheelPanel` → `CMDLPanel` → `CBaseModelPanel`
+(game_controls/basemodel_panel.cpp) → `CTFPlayerModelPanel` (tf/vgui/tf_playermodelpanel.cpp, 2992 lines).
+
+Plan, bottom layer first:
+1. **Render**: a model-draw record in `VguiDrawList`, kept in paint order among the quads; `VguiRenderer` splits its
+   runs at it; `Device3D` draws the record's `ModelInstance`s with its camera into the panel rectangle (viewport and
+   scissor, depth cleared there). Today nothing renders into a sub-rectangle.
+2. **`CPotteryWheelPanel`/`CMDLPanel`**: camera (origin, angles, `fov`), lighting state, the model's pose at a
+   sequence and cycle.
+3. **`CBaseModelPanel`**: `ApplySettings`/`ParseModelResInfo` (the `.res` `model` block), animations.
+4. **`CTFPlayerModelPanel`**: class model, team skin, carried weapon and wearables, `HoldItemInSlot`, eye glow;
+   `customclassdata` per class.
+5. **`CTFHudPlayerClass`**: `OnThink` (tf_hud_playerstatus.cpp:184) and its 2D fallback.
+
 ## Traps
 
 - Positions measure against the SCREEN unless `proportionalToParent` is 1 — not the parent.
