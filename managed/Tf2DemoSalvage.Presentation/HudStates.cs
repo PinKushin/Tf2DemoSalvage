@@ -22,7 +22,12 @@ public static class HudStates
     /// </remarks>
     /// <param name="scripts">The weapon and class scripts, or null where no install is open.</param>
     /// <param name="hooks">The attribute hooks, or null likewise.</param>
-    public static HudState For(DemoTimeline? timeline, int tick, TfWeaponData? scripts = null, AttributeHooks? hooks = null)
+    /// <param name="bindings">
+    /// The viewer's key bindings, or null where none is open. `Key_LookupBinding( "+attack2" )` (tf_hud_target_id.cpp:1034)
+    /// for the target ID's moveable sub-panel — see <see cref="HudState.BuildingPickupKey"/>.
+    /// </param>
+    public static HudState For(
+        DemoTimeline? timeline, int tick, TfWeaponData? scripts = null, AttributeHooks? hooks = null, KeyBindings? bindings = null)
     {
         if (timeline is null)
         {
@@ -71,8 +76,12 @@ public static class HudStates
             TournamentRedTeamName = timeline.ServerConVars.Value("mp_tournament_redteamname") ?? string.Empty,
             TournamentBlueTeamName = timeline.ServerConVars.Value("mp_tournament_blueteamname") ?? string.Empty,
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
+            BuildingPickupKey = bindings is null ? null : Key(bindings.KeyFor(ViewerAction.CycleTargetReverse)),
         };
     }
+
+    /// <summary>A bound key, or null for one that resolved to nothing — `Key_LookupBinding`'s own null (D101).</summary>
+    private static string? Key(string key) => string.IsNullOrEmpty(key) ? null : key;
 
     /// <summary>`GetPlayerName` by entity index: the `userinfo` name of whoever last held the slot.</summary>
     /// <remarks>

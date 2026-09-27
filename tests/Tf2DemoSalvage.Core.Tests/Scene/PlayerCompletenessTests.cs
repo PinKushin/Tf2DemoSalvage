@@ -200,6 +200,7 @@ public sealed class PlayerCompletenessTests
         DisguiseTarget = 7,
         DisguiseHealth = 90,
         PlayerState = 3,
+        CarryingObject = true,
         IsMiniBoss = true,
         ActiveWeaponClip = 6,
         KillStreak = 4,

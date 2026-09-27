@@ -250,6 +250,12 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_Shared.m_nPlayerState` (tf_player_shared.cpp:543, sent to everyone): `TF_STATE_ACTIVE` 0 … `TF_STATE_DYING` 3.</summary>
     public int? PlayerState { get; init; }
 
+    /// <summary>
+    /// `m_Shared.m_bCarryingObject` (tf_player_shared.cpp:562, sent to everyone): `IsCarryingObject()`
+    /// (tf_player_shared.h:601) — set while a building is on the Engineer's back.
+    /// </summary>
+    public bool CarryingObject { get; init; }
+
     /// <summary>`m_bIsMiniBoss` (c_tf_player.cpp:3779): what `C_TFPlayer::IsHealthBarVisible` returns outside MvM's regen case.</summary>
     public bool IsMiniBoss { get; init; }
 
@@ -878,9 +884,12 @@ public sealed class DemoTimeline
                 MiniBuilding = building.Integer("DT_BaseObject.m_bMiniBuilding") is > 0,
                 DisposableBuilding = building.Integer("DT_BaseObject.m_bDisposableBuilding") is > 0,
                 UpgradeLevel = building.Integer("DT_BaseObject.m_iUpgradeLevel") ?? 0,
+                HighestUpgradeLevel = building.Integer("DT_BaseObject.m_iHighestUpgradeLevel") ?? 0,
+                PlasmaDisabled = building.Integer("DT_BaseObject.m_bPlasmaDisable") is > 0,
                 UpgradeMetal = building.Integer("DT_BaseObject.m_iUpgradeMetal") ?? 0,
                 UpgradeMetalRequired = building.Integer("DT_BaseObject.m_iUpgradeMetalRequired") ?? 0,
                 PercentageConstructed = building.Number("DT_BaseObject.m_flPercentageConstructed") ?? 0f,
+                SentryState = building.Integer("DT_ObjectSentrygun.m_iState"),
                 SentryAmmoShells = building.Integer("DT_ObjectSentrygun.m_iAmmoShells"),
                 SentryAmmoRockets = building.Integer("DT_ObjectSentrygun.m_iAmmoRockets"),
                 DispenserAmmoMetal = building.Integer("DT_ObjectDispenser.m_iAmmoMetal"),
@@ -3063,6 +3072,7 @@ public sealed class DemoTimeline
                     DisguiseTarget = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseTarget")),
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
                     PlayerState = player.Integer("DT_TFPlayerShared.m_nPlayerState"),
+                    CarryingObject = player.Integer("DT_TFPlayerShared.m_bCarryingObject") is > 0,
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
                     ActiveWeaponClip = player.Integer("DT_TFSendHealersDataTable.m_nActiveWpnClip"),
                     KillStreak = player.Integer("m_nStreaks.000"),

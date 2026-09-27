@@ -47,6 +47,12 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// Every player slot `CTFClientScoreBoardDialog::UpdatePlayerList` would list, off the player
 /// resource — see <see cref="Tf2DemoSalvage.Core.Scene.SceneScoreboardPlayer"/>.
 /// </param>
+/// <param name="BuildingPickupKey">
+/// `engine->Key_LookupBinding( "+attack2" )` (tf_hud_target_id.cpp:1034): the target ID's moveable sub-panel reads this
+/// through its own key binding table rather than a hardcoded name (D101) — see
+/// <see cref="Tf2DemoSalvage.Scene.Hud.TfTargetId"/>. Null when nothing is bound, which the panel shows as no key rather
+/// than guessing one.
+/// </param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -82,7 +88,8 @@ public readonly record struct HudState(
     IReadOnlyList<Core.Scene.SceneScoreboardPlayer>? ScoreboardPlayers = null,
     float[]? WorldToScreen = null,
     string TournamentRedTeamName = "RED",
-    string TournamentBlueTeamName = "BLU")
+    string TournamentBlueTeamName = "BLU",
+    string? BuildingPickupKey = null)
 {
     /// <summary>`cl_entitylist->GetEnt` for a building: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>
