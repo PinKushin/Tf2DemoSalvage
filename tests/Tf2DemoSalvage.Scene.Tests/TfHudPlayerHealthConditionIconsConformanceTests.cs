@@ -71,6 +71,30 @@ public sealed class TfHudPlayerHealthConditionIconsConformanceTests
     }
 
     [Test]
+    public void Think_TwoConditions_StepAHundredApartFromThePlusSign()
+    {
+        // Starting over the '+' (its x, 0 here) nudged 25, each shown icon moving the next 100 on (:955-959, :920).
+        TfHudPlayerHealth health = Panel();
+        PlayerConditions bleedingAndMilk = new(Cond: (1 << 25) | (1 << 27), Ex: 0, Ex2: 0, Ex3: 0, Ex4: 0);
+
+        health.Think(Playing(bleedingAndMilk));
+
+        (Image(health, "PlayerStatusBleedImage").X, Image(health, "PlayerStatusMilkImage").X).ShouldBe((25, 125));
+    }
+
+    [Test]
+    public void Think_HookBleedingWithBleeding_DrawsOnTopOfIt()
+    {
+        // "draw this on top of bleeding": the hook icon takes the X bleeding started from, and moves nothing after it.
+        TfHudPlayerHealth health = Panel();
+        PlayerConditions both = new(Cond: (1 << 25) | (1 << 27), Ex: 0, Ex2: 0, Ex3: 1 << (101 - 96), Ex4: 0);
+
+        health.Think(Playing(both));
+
+        (Image(health, "PlayerStatusHookBleedImage").X, Image(health, "PlayerStatusMilkImage").X).ShouldBe((25, 125));
+    }
+
+    [Test]
     public void Think_MarkedForDeathSilentAndPasstimePenalty_ShareOnePanel()
     {
         TfHudPlayerHealth health = Panel();
