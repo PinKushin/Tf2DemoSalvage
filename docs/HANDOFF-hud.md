@@ -85,10 +85,44 @@ Plan, bottom layer first:
      `EntityModelSet.Precache` (:4929) and reaches the GPU only through `Device3D.UploadModels` (Render/Device3D.cs:262)
      — check when MainForm calls it, since a panel's model may be first asked for mid-demo.
    - Step 1's code has no production caller yet, so the branch stays unmerged until a panel paints (D180).
-3. **`CBaseModelPanel`**: `ApplySettings`/`ParseModelResInfo` (the `.res` `model` block), animations.
+3. ~~**`CBaseModelPanel`**~~ — done (below), folded into step 2's file rather than a separate one.
 4. **`CTFPlayerModelPanel`**: class model, team skin, carried weapon and wearables, `HoldItemInSlot`, eye glow;
    `customclassdata` per class.
 5. **`CTFHudPlayerClass`**: `OnThink` (tf_hud_playerstatus.cpp:184) and its 2D fallback.
+
+### Steps 2 and 3, done 2026-09-27
+
+`managed/Tf2DemoSalvage.Scene/Hud/VguiModelPanel.cs`: `VguiModelPanel` (`CPotteryWheelPanel` + `CMDLPanel`) and
+`VguiBaseModelPanel : VguiModelPanel` (`CBaseModelPanel`), folded into one file — none of the three Valve classes has
+state worth keeping apart at this layer. Tests: `tests/Tf2DemoSalvage.Scene.Tests/VguiModelPanelConformanceTests.cs`
+(13, synthetic fixtures via `SyntheticSkinnedModel`, no corpus demos).
+
+- **Camera and lights are exact**: `NearZ` 3, `FarZ` 16384·√3, `FieldOfView` 30 (potterywheelpanel.cpp:250-252);
+  ambient cube 0.4 all six faces and one white sun down `(0,0,-1)` (`CreateDefaultLights`, :316-333).
+  `ParseLightsFromKV` is narrowed to what this project's lighting carries: the first `directional` entry becomes the
+  sun. Valve's own version never touches the ambient cube (only ever confirmed here, not previously) and can hold
+  several point lights; neither exists on `ModelInstance`, so `point` entries are skipped rather than misread.
+- **Posing reuses `AnimatingEntity`/`SkeletonPose` directly**, keyed by model PATH in a small dictionary the panel
+  owns — its own version of `EntityModelSet.EntityFor`, since a panel has no entity index. Bone merge is
+  `AnimatingEntity.Follows`; skinning (bone-to-world folded with bind pose) is a small unbuffered copy of
+  `EntityModelSet.Skinning` (`EntityModels.cs:3478`) — a model panel poses a handful of models, not hundreds a
+  frame, so there is nothing here to protect with a reused buffer.
+- **Precache reuses the existing upload path with no change needed.** `EntityModelSet.Precache` sets `Grown`, and
+  `MomentScene.Pack` already checks `_models.Grown` every frame regardless of what added to it (`MomentScene.cs:633`,
+  written for B363) — so `VguiModelPanel.ModelsToPrecache()` handed to the same `EntityModelSet.Precache` a caller
+  already calls is enough; a model panel's model reaches the GPU the next frame with no `MainForm`/`Device3D` change.
+- **Frame stepping is NOT wired — the one deliberate gap.** `CMDLPanel::OnTick` (mdlpanel.cpp:638) sets
+  `m_flTime = GetAutoPlayTime() - m_flCycleStartTime`; the engine turns that into a frame and blend fraction deep
+  inside `StudioRender`, off the sequence's own compressed animation data. This project's `SkeletonPose` takes an
+  explicit integer frame and fraction, and nothing at this layer (or in `PropModels.SkinnedModel`) exposes a
+  sequence's authored frame rate to convert time into one. `CycleTime` is tracked and exposed on the panel so a
+  future stepper has somewhere to read from, but `Paint` currently poses every model at frame 0 of its chosen
+  sequence — correct bones, correct merge, correct lighting, no motion. Needed before step 4/5 draw anything that
+  should visibly animate (a taunt, an idle sway).
+- **Interpolated, not settled**: the projection matrix is `FreeCamera.ToMatrix`'s shape, as flagged when this step
+  was filed — the `camerautils.cpp`/`client.dll` import to settle `ComputeProjectionMatrix` against the closed
+  engine was not carried further this session; budget went to the panel itself instead. Revisit before relying on
+  exact off-axis or non-square-aspect framing.
 
 ## Traps
 
