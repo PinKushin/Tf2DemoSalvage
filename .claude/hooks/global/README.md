@@ -10,9 +10,9 @@ drifted from the thing it backs up restores something that was never running.
 
 | file | matches | does |
 |---|---|---|
-| `block-expensive-subagents.ps1` | `Agent`, `Workflow` | refuses any subagent that is not `haiku` — including a `Workflow` script whose `agent()` calls do not name one |
-| `prefer-lsp-for-symbols.ps1` (+ `.tests.json`) | `Grep`, `Bash`, `PowerShell` | refuses a text search for a C# symbol and names the agent-lsp tools that answer it (D178) |
-| `prefer-ghidra-mcp.ps1` (+ `.tests.json`) | `Grep`, `Bash`, `PowerShell` | refuses an `analyzeHeadless` read script against the vphysics project and names the headless GhidraMCP server's endpoints (D178) |
+| `block-expensive-subagents.ps1` | `Agent`, `Workflow` | requires a named subagent model: `sonnet` for a bounded task, `opus` for implementation work (D196), `haiku` only for the sabotage verifier; a `Workflow` script's `agent()` calls must say `sonnet` |
+| `prefer-lsp-for-symbols.ps1` (+ `.tests.json`) | `Grep`, `Bash`, `PowerShell` | refuses a text search for a C# or C/C++ symbol and names the agent-lsp or clangd tools that answer it (D178, D196) |
+| `prefer-ghidra-mcp.ps1` (+ `.tests.json`) | `Grep`, `Bash`, `PowerShell` | refuses reading a binary by shell — `analyzeHeadless` read scripts, curl to the GhidraMCP server, grep over dumps under `D:\ghidra-proj` — and names the `mcp__ghidra__*` tools (D178, D196) |
 
 ## Why this directory exists at all, 2026-09-07
 

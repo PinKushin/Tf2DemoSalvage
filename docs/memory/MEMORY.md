@@ -82,7 +82,7 @@
 - [One look can be two mechanisms](one-look-can-be-two-mechanisms.md) — right texture, undrawn mesh.
 - [Parity is the search, not the defence](parity-is-the-search-not-the-defence.md) — read every branch.
 - [Take your own screenshot](take-your-own-screenshot.md) — TF2VIEW_CAMERA plus --shot; a still capture is a PAUSED frame.
-- [Subagents on sonnet, reviewed](one-subagent-and-prefer-cheap-models.md) — pass `model: sonnet`; haiku refused (D168).
+- [Subagent models, reviewed](one-subagent-and-prefer-cheap-models.md) — opus for implementation (D196), sonnet for a bounded task, haiku only for sabotage.
 - [A dropped field falls to a computed default](a-dropped-field-falls-to-a-computed-default.md) — the last transform sets it.
 - [The player send table excludes the animation](the-player-send-table-excludes-the-animation.md) — the client rebuilds it.
 - [Filing a divergence is not fixing it](filing-a-divergence-is-not-fixing-it.md) — rarity sets priority, not permission.

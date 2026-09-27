@@ -9332,3 +9332,29 @@ His reason, added right after: *"things like what we have been doing the last 2 
 covereage percentage, is going to drop, because the testing is simply not going to be able to keep up without
 stalling the implementation, unless you wait till the implementation is done to worry about it"*. So coverage
 catch-up belongs after a system's implementation is done, not interleaved with it.
+
+## D196 — Opus subagents for implementation work; the lookup hooks cover C/C++ and Ghidra
+
+**2026-09-28, owner direction, three parts.**
+
+**Subagent model.** *"if you are using subagents for real code work like this they should probably be other opus 5.5
+models, the hook was made with the idea that subagents were only doing very very basic work, like creating a single
+known method, or a single known branch to look at. not doing full implementation work like this"*. What prompted it:
+every sonnet first pass on the HUD's model panels and target ID under-ported. Items came back "narrowed", "stated
+unavailable" or "deferred", and every one turned out portable, at two or three review rounds and 500–700k tokens per
+agent. So the global subagent hook now allows `opus` on Agent for full implementation work. `sonnet` stays for a
+bounded, known task, and the model must still be named. This amends D168, which made sonnet the only option; it does
+not remove D145's review requirement.
+
+**C/C++ lookups.** *"we need a hook that forces you to use the lsp for c++ code, I have one for C# already ... but you
+are constantly going back to grep for fucking c++"*. The C# rule's trigger was `.cs`, so greps over the Source SDK
+were never caught. The same hook now refuses a symbol-shaped grep over C/C++ files or the SDK tree and names clangd.
+
+**Ghidra.** *"it should also force the use of the mcp/lsp for ghidra and the stuff that helps keep tokens low during
+reversing too, thats the whole point in the lsps and MCPs"*. The Ghidra hook covered only vphysics reads by
+`analyzeHeadless`. It now also refuses read scripts against any project, curl to the MCP server, and greps over dumps,
+and it names the `mcp__ghidra__*` tools.
+
+**Also decided the same day:** keep Valve's class shape for the model panels (*"yes do both, valve shape always"*),
+so the folded `VguiModelPanel` is split back into `CPotteryWheelPanel` / `CMDLPanel` / `CBaseModelPanel`; and
+`HudState` stops growing one field per convar, in favor of one convar lookup.

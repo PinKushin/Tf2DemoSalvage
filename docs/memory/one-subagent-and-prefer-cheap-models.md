@@ -1,20 +1,30 @@
 ---
 name: one-subagent-and-prefer-cheap-models
-description: "Subagent model selection: Sonnet for code/analysis, Haiku only for mechanical log-passing monitor tasks with a fully self-contained prompt."
+description: "Subagent model selection: opus for full implementation work (D196), sonnet for a bounded known task, haiku only for the sabotage verifier."
 metadata:
   type: feedback
 ---
 
+## D196: Opus for implementation work
+
+Full implementation work goes to `model: "opus"`: porting a Valve class, a feature across several files, anything
+with judgment calls about what the engine does. The owner, 2026-09-28: the subagent rule "was made with the idea
+that subagents were only doing very very basic work, like creating a single known method, or a single known branch
+to look at. not doing full implementation work like this".
+
+**Why:** sonnet first passes on the HUD kept under-porting ("narrowed", "stated unavailable", "deferred"). Every one
+turned out portable, at two or three review rounds and 500–700k tokens per agent. Measured in tokens per GOOD
+outcome, the better model wins.
+
+**How to apply:**
+
+- `opus`: implementation work.
+- `sonnet`: a bounded, known task — one method, one branch, one lookup with a stated answer shape.
+- `haiku`: only the sabotage verifier (D177).
+- Always name the model; the hook refuses an omitted one.
+- Review stays mandatory (D145) whichever model ran.
+
 ## D168: Haiku refused for code and analysis subagents
 
-Haiku has produced wrong answers on decompiler output reading and SDK analysis. Whether that was prompt or model is unknown, but the failure only appeared with Haiku. Sonnet is the floor for any subagent that reads code, makes a judgment, or synthesises findings.
-
-**Pass `model: "haiku"` only when ALL of these hold:**
-
-1. The task is purely mechanical — read a remote log, extract a number, pass it along.
-2. No code inspection, no SDK reading, no synthesis, no judgment call.
-3. The prompt is fully self-contained and tells the agent exactly what to find and return.
-
-**Use `model: "sonnet"` (the default) for everything else**, including any subagent that touches code, docs, or makes a decision.
-
-**Why:** Haiku failures on this project were on decompiler/SDK reads. For pure log-monitoring (mutation box check, "did the run finish, what was the score") the prompt is fully mechanical and Haiku is fine. (Owner stated 2026-09-19.)
+Haiku produced wrong answers on decompiler output and SDK analysis. Pass `model: "haiku"` only for a purely
+mechanical task with a fully self-contained prompt, such as the sabotage verifier or a remote-log number read.
