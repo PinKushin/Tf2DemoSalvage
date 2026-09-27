@@ -7,23 +7,28 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Hud;
 
-/// <summary>`CSpectatorTargetID` over `CTargetID` (game/client/tf/tf_hud_target_id.cpp): the spectated player's name, health and data.</summary>
+/// <summary>
+/// `CTargetID` (game/client/tf/tf_hud_target_id.cpp): shared behaviour for a target-ID panel — a player's name, health and
+/// data line, whichever entity supplies <see cref="TargetIndex"/>. `CMainTargetID` and `CSpectatorTargetID` are siblings
+/// under it (not one another), so each is its own sealed class in this file; only the index calculation, the extra
+/// `ShouldDraw` gate and the background layout differ between them.
+/// </summary>
 /// <remarks>
-/// Hidden by `HIDEHUD_MISCSTATUS | HIDEHUD_TARGET_ID`; drawn only in an observer mode other than freeze cam. The target is the
-/// observer target in eye (:1243), else `GetIDTarget()` — the observer target in death cam and chase (`UpdateIDTarget`,
-/// c_tf_player.cpp:7061). `ApplySchemeSettings` loads `resource/UI/TargetID.res`, hides `TargetIDBG` and shows the blue
-/// spectator background; `PerformLayout` (:1284) sizes to the health panel plus the wider label and centres at the `.res`
-/// y, the background red or blue by the target's team. `UpdateID` (:719) fills the labels for a player target.
-/// **Not modelled:** `GetIDTarget`'s trace — free cam and the alive player's own ID; buildings, flags, dropped weapons and
-/// revive markers as targets; the floating health icon; `tf_spectator_target_location` other than 0; the arena offset;
-/// avatars; and the item-name line of a non-stock medigun, which waits for the econ name generator.
+/// `ApplySchemeSettings` (:274) loads `resource/UI/TargetID.res`; `ShouldDraw` (:504) reuses the previous target for one
+/// tick past losing it, then `IsValidIDTarget` (:340) for a player target, then `UpdateID` (:719) fills the labels.
+/// `PerformLayout` (:599) sizes to the health panel plus the wider label and centres at the `.res` y.
+/// **Not modelled here (base):** buildings, flags, dropped weapons and revive markers as targets (no such entity is
+/// decoded into <see cref="Core.Scene.ScenePlayer"/> or a sibling type yet — a Scene-layer decode gap, not a HUD one);
+/// the floating health icon panel itself (`CFloatingHealthIcon`, a screen-projected overlay — `DrawHealthIcon`'s convar
+/// gate IS modelled, via <see cref="DisableFloatingHealth"/>); `tf_spectator_target_location` other than 0; the arena
+/// offset; avatars; and the item-name line of a non-stock medigun, which waits for the econ name generator.
 /// </remarks>
-public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
+public abstract class TfTargetId : VguiEditablePanel, IHudElement
 {
-    private const int TeamSpectator = 1;
-    private const int TeamRed = 2;
-    private const int ClassMedic = 5;
-    private const int ClassSpy = 8;
+    private protected const int TeamSpectator = 1;
+    private protected const int TeamRed = 2;
+    private protected const int ClassMedic = 5;
+    private protected const int ClassSpy = 8;
     private const int ConditionTaunting = 7;
     private const int IdChars = 256;
 
@@ -35,31 +40,30 @@ public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
         "#TF_Class_Name_Civilian",
     ];
 
-    private VguiLabel? _nameLabel;
-    private VguiLabel? _dataLabel;
-    private VguiPanel? _specBlue;
-    private VguiPanel? _specRed;
-    private VguiPanel? _killStreakIcon;
-    private VguiPanel? _avatar;
-    private (byte, byte, byte, byte) _labelColorDefault = (255, 255, 255, 255);
-    private int _originalY;
-    private int _lastEntIndex;
-    private float _lastChangeTime;
-    private bool _layoutOnUpdate;
-    private int _screenWide = 640;
-    private int _screenTall = 480;
+    private protected VguiLabel? _nameLabel;
+    private protected VguiLabel? _dataLabel;
+    private protected VguiPanel? _killStreakIcon;
+    private protected VguiPanel? _avatar;
+    private protected (byte, byte, byte, byte) _labelColorDefault = (255, 255, 255, 255);
+    private protected int _originalY;
+    private protected int _lastEntIndex;
+    private protected float _lastChangeTime;
+    private protected bool _layoutOnUpdate;
+    private protected int _screenWide = 640;
+    private protected int _screenTall = 480;
 
-    /// <summary>`CTargetID( "CSpectatorTargetID" )`: parented to the viewport, its health panel made up front.</summary>
+    /// <summary>`CTargetID( pElementName )`: parented to the viewport, its health panel made up front.</summary>
     /// <param name="viewport">The viewport.</param>
-    public TfSpectatorTargetId(VguiPanel viewport)
-        : base(viewport, "CSpectatorTargetID") =>
+    /// <param name="name">The panel name — `"CMainTargetID"` or `"CSpectatorTargetID"`.</param>
+    private protected TfTargetId(VguiPanel viewport, string name)
+        : base(viewport, name) =>
         TargetHealth = new TfSpectatorGuiHealth(this, "SpectatorGUIHealth");
 
     /// <summary>`m_pTargetHealth`.</summary>
     public TfSpectatorGuiHealth TargetHealth { get; }
 
     /// <summary>`m_iTargetEntIndex`.</summary>
-    public int TargetIndex { get; private set; }
+    public int TargetIndex { get; private protected set; }
 
     /// <summary>`tf_hud_target_id_alpha`: 100.</summary>
     public int BackgroundAlpha { get; set; } = 100;
@@ -68,10 +72,10 @@ public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
     public bool DisableFloatingHealth { get; set; }
 
     /// <summary>The name line as set.</summary>
-    public string TargetName { get; private set; } = string.Empty;
+    public string TargetName { get; private protected set; } = string.Empty;
 
     /// <summary>The data line as set.</summary>
-    public string TargetData { get; private set; } = string.Empty;
+    public string TargetData { get; private protected set; } = string.Empty;
 
     /// <inheritdoc/>
     public int HiddenBits => HudVisibility.HideMiscStatus | HudVisibility.HideTargetId;
@@ -86,7 +90,7 @@ public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
     }
 
     /// <inheritdoc/>
-    /// <remarks>`CTargetID::ApplySchemeSettings` (:274), then `CSpectatorTargetID`'s (:1263).</remarks>
+    /// <remarks>`CTargetID::ApplySchemeSettings` (:274).</remarks>
     public override void ApplySchemeSettings(VguiContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -99,29 +103,17 @@ public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
         _dataLabel = FindChildByName("TargetDataLabel") as VguiLabel;
         _killStreakIcon = FindChildByName("KillStreakIcon");
         _avatar = FindChildByName("AvatarImage");
-        _specBlue = FindChildByName("TargetIDBG_Spec_Blue");
-        _specRed = FindChildByName("TargetIDBG_Spec_Red");
 
         // `Reset`'s default label colour.
         _labelColorDefault = context.Scheme.GetColor("Label.TextColor", (255, 255, 255, 255));
-
-        if (FindChildByName("TargetIDBG") is { } background)
-        {
-            background.Visible = false;
-        }
-
-        if (_specBlue is not null)
-        {
-            _specBlue.Visible = true;
-        }
     }
 
-    /// <summary>`CSpectatorTargetID::ShouldDraw` (:1213), then `CTargetID::ShouldDraw` (:504).</summary>
+    /// <summary>`CTargetID::ShouldDraw` (:504), gated by each sibling's own extra condition (:1201, :1213).</summary>
     /// <param name="state">The local player.</param>
     /// <returns>Whether it draws.</returns>
     public bool ShouldDraw(HudState state)
     {
-        if (!state.HasLocalPlayer || state.ObserverMode <= ObserverModes.None || state.ObserverMode == ObserverModes.FreezeCam)
+        if (!state.HasLocalPlayer || !ExtraShouldDrawGate(state))
         {
             return false;
         }
@@ -171,8 +163,16 @@ public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
         return true;
     }
 
+    /// <summary>The extra gate each sibling's own `ShouldDraw` checks before `CTargetID::ShouldDraw`'s common body.</summary>
+    /// <param name="state">The local player.</param>
+    private protected abstract bool ExtraShouldDrawGate(HudState state);
+
+    /// <summary>`CalculateTargetIndex( C_TFPlayer* )`, which each sibling overrides its own way.</summary>
+    /// <param name="state">The local player.</param>
+    private protected abstract int CalculateTargetIndex(HudState state);
+
     /// <inheritdoc/>
-    /// <remarks>`CSpectatorTargetID::PerformLayout` (:1284), `tf_spectator_target_location` 0.</remarks>
+    /// <remarks>`CTargetID::PerformLayout` (:599).</remarks>
     protected override void PerformLayout()
     {
         base.PerformLayout();
@@ -200,60 +200,30 @@ public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
         }
 
         (X, Y) = ((int)((_screenWide - width) * 0.5), _originalY);
-
-        foreach (VguiPanel? background in (ReadOnlySpan<VguiPanel?>)[_specBlue, _specRed])
-        {
-            if (background is not null)
-            {
-                (background.Wide, background.Tall) = (width, Tall);
-            }
-        }
-
-        if (_specBlue is not null && _specRed is not null && TargetIndex != 0
-            && HudViewport.Of(this)?.State.Player(TargetIndex) is { } target)
-        {
-            bool red = target.Team == TeamRed;
-
-            _specBlue.Visible = !red;
-            _specRed.Visible = red;
-            _specBlue.SetAnimationValue("alpha", (float)BackgroundAlpha);
-            _specRed.SetAnimationValue("alpha", (float)BackgroundAlpha);
-        }
     }
 
-    /// <summary>`CSpectatorTargetID::CalculateTargetIndex` over `CTargetID`'s `GetIDTarget()`.</summary>
-    private static int CalculateTargetIndex(HudState state)
-    {
-        if (state.ObserverMode == ObserverModes.InEye && state.ObserverTarget != 0)
-        {
-            return state.ObserverTarget;
-        }
-
-        // `UpdateIDTarget`: "If we're in deathcam, ID our killer" — and in chase.
-        return state.ObserverMode is ObserverModes.DeathCam or ObserverModes.Chase
-            && state.ObserverTarget != 0 && state.ObserverTarget != state.LocalIndex
-            ? state.ObserverTarget
-            : 0;
-    }
-
-    /// <summary>`IsValidIDTarget` (:340) for a player target: a spectator sees anyone not stealthed.</summary>
-    private bool IsValidIdTarget(HudState state)
+    /// <summary>
+    /// `IsValidIDTarget` (:340) for a player target: the health-branch condition at :455 (spectator, same team, or a spy
+    /// seeing through a disguise/stealth) is the only case ported for the health string; but :483-490 is unconditional
+    /// once that first branch doesn't already show health — `pEnt->IsVisibleToTargetID()` — so an ordinary enemy who
+    /// isn't stealthed is still a valid target, just without a health line (<see cref="UpdateId"/> gates that
+    /// separately via its own `showHealth`).
+    /// </summary>
+    private protected virtual bool IsValidIdTarget(HudState state)
     {
         if (TargetIndex == 0 || state.Player(TargetIndex) is not { } target)
         {
             return false;
         }
 
-        HudState local = state;
-        bool spectator = local.Team == TeamSpectator;
+        bool spectator = state.Team == TeamSpectator;
         bool stealthed = target.Conditions.IsStealthed;
 
-        // `bReturn = ( bSpectator || InSameTeam || ( ( bInSameTeam || bSpy || iSeeEnemyHealth ) && !bStealthed ) )`.
-        return spectator || target.Team == local.Team || (local.PlayerClass == ClassSpy && !stealthed);
+        return spectator || target.Team == state.Team || !stealthed;
     }
 
     /// <summary>`CTargetID::UpdateID` (:719) for a player.</summary>
-    private void UpdateId(HudState state)
+    private protected void UpdateId(HudState state)
     {
         if (state.Player(TargetIndex) is not { } target)
         {
@@ -316,7 +286,7 @@ public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
     }
 
     /// <summary>`C_TFPlayer::GetTargetIDDataString` (c_tf_player.cpp:9748) as a spectator — or anyone not a medic — sees it.</summary>
-    private (string Data, bool KillStreak) DataString(ScenePlayer target, bool disguised, bool enemy)
+    private protected (string Data, bool KillStreak) DataString(ScenePlayer target, bool disguised, bool enemy)
     {
         string data = string.Empty;
 
@@ -357,7 +327,7 @@ public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
     }
 
     /// <summary>`C_TFPlayer::IsEnemyPlayer` (c_tf_player.cpp:5384): only RED against BLU and back.</summary>
-    private static bool IsEnemyPlayer(int localTeam, int targetTeam) => localTeam switch
+    private protected static bool IsEnemyPlayer(int localTeam, int targetTeam) => localTeam switch
     {
         TeamRed => targetTeam == 3,
         3 => targetTeam == TeamRed,
@@ -365,7 +335,7 @@ public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
     };
 
     /// <summary>The labels' text and colours, and a layout when either changed width (:1066).</summary>
-    private void SetLabels(string id, string data)
+    private protected void SetLabels(string id, string data)
     {
         if (_nameLabel is null || _dataLabel is null)
         {
@@ -409,7 +379,122 @@ public sealed class TfSpectatorTargetId : VguiEditablePanel, IHudElement
         }
     }
 
-    private string? Find(string token) => HudViewport.Of(this)?.Context?.Localize?.Invoke(token[1..]);
+    private protected string? Find(string token) => HudViewport.Of(this)?.Context?.Localize?.Invoke(token[1..]);
 
-    private int XRes(int x) => (int)(x * (_screenWide / 640.0));
+    private protected int XRes(int x) => (int)(x * (_screenWide / 640.0));
+}
+
+/// <summary>`CSpectatorTargetID` over `CTargetID`: the spectated player's name, health and data.</summary>
+/// <remarks>
+/// Drawn only in an observer mode other than freeze cam (:1213). The target is the observer target in eye (:1243), else
+/// `GetIDTarget()` — the observer target in death cam and chase (`UpdateIDTarget`, c_tf_player.cpp:7061). Its own
+/// `ApplySchemeSettings` (:1263) additionally hides `TargetIDBG` and shows the blue spectator background; its own
+/// `PerformLayout` (:1284) recolours that background red or blue by the target's team, on top of the shared layout.
+/// **Not modelled here:** `GetIDTarget`'s trace (see <see cref="IdTargetTrace"/>, which is not needed by this sibling —
+/// a spectator's target always comes from the observer target, never the crosshair).
+/// </remarks>
+public sealed class TfSpectatorTargetId : TfTargetId
+{
+    private VguiPanel? _specBlue;
+    private VguiPanel? _specRed;
+
+    /// <summary>`CTargetID( "CSpectatorTargetID" )`.</summary>
+    /// <param name="viewport">The viewport.</param>
+    public TfSpectatorTargetId(VguiPanel viewport)
+        : base(viewport, "CSpectatorTargetID")
+    {
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>`CTargetID::ApplySchemeSettings` (:274), then `CSpectatorTargetID`'s (:1263).</remarks>
+    public override void ApplySchemeSettings(VguiContext context)
+    {
+        base.ApplySchemeSettings(context);
+
+        _specBlue = FindChildByName("TargetIDBG_Spec_Blue");
+        _specRed = FindChildByName("TargetIDBG_Spec_Red");
+
+        if (FindChildByName("TargetIDBG") is { } background)
+        {
+            background.Visible = false;
+        }
+
+        if (_specBlue is not null)
+        {
+            _specBlue.Visible = true;
+        }
+    }
+
+    /// <summary>`CSpectatorTargetID::ShouldDraw` (:1213)'s extra gate, before `CTargetID::ShouldDraw`'s common body.</summary>
+    private protected override bool ExtraShouldDrawGate(HudState state) =>
+        state.ObserverMode > ObserverModes.None && state.ObserverMode != ObserverModes.FreezeCam;
+
+    /// <summary>`CSpectatorTargetID::CalculateTargetIndex` (:1243) over `CTargetID`'s `GetIDTarget()`.</summary>
+    private protected override int CalculateTargetIndex(HudState state)
+    {
+        if (state.ObserverMode == ObserverModes.InEye && state.ObserverTarget != 0)
+        {
+            return state.ObserverTarget;
+        }
+
+        // `UpdateIDTarget`: "If we're in deathcam, ID our killer" — and in chase.
+        return state.ObserverMode is ObserverModes.DeathCam or ObserverModes.Chase
+            && state.ObserverTarget != 0 && state.ObserverTarget != state.LocalIndex
+            ? state.ObserverTarget
+            : 0;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>`CSpectatorTargetID::PerformLayout` (:1284), `tf_spectator_target_location` 0.</remarks>
+    protected override void PerformLayout()
+    {
+        base.PerformLayout();
+
+        foreach (VguiPanel? background in (ReadOnlySpan<VguiPanel?>)[_specBlue, _specRed])
+        {
+            if (background is not null)
+            {
+                (background.Wide, background.Tall) = (Wide, Tall);
+            }
+        }
+
+        if (_specBlue is not null && _specRed is not null && TargetIndex != 0
+            && HudViewport.Of(this)?.State.Player(TargetIndex) is { } target)
+        {
+            bool red = target.Team == TeamRed;
+
+            _specBlue.Visible = !red;
+            _specRed.Visible = red;
+            _specBlue.SetAnimationValue("alpha", (float)BackgroundAlpha);
+            _specRed.SetAnimationValue("alpha", (float)BackgroundAlpha);
+        }
+    }
+}
+
+/// <summary>`CMainTargetID` over `CTargetID`: the crosshair target's name, health and data while not spectating.</summary>
+/// <remarks>
+/// Drawn only while the local player is not in any observer mode (:1201) — `ShouldDraw` returns `BaseClass::ShouldDraw()`
+/// with no other override, and `CalculateTargetIndex` is not overridden either, so both are `CTargetID`'s own: the target
+/// is `GetIDTarget()` (<see cref="IdTargetTrace"/>) minus whatever `CSecondaryTargetID` is already showing (:702), and
+/// layout is the shared `CTargetID::PerformLayout` with no team-coloured background swap.
+/// **Not modelled here:** the "minus `CSecondaryTargetID`'s current target" subtraction (:707) — `CSecondaryTargetID`
+/// (the medic heal-target/healer line) is not ported in this pass, so there is nothing yet to subtract against; wiring
+/// `IdTargetTrace`'s result into <see cref="HudState"/> from a real world/entity trace (`MainForm`'s job, left for a
+/// follow-up so as not to touch that file here).
+/// </remarks>
+public sealed class TfMainTargetId : TfTargetId
+{
+    /// <summary>`CTargetID( "CMainTargetID" )`.</summary>
+    /// <param name="viewport">The viewport.</param>
+    public TfMainTargetId(VguiPanel viewport)
+        : base(viewport, "CMainTargetID")
+    {
+    }
+
+    /// <summary>`CMainTargetID::ShouldDraw` (:1201)'s extra gate: not in any observer mode.</summary>
+    private protected override bool ExtraShouldDrawGate(HudState state) => state.ObserverMode <= ObserverModes.None;
+
+    /// <summary>`CTargetID::CalculateTargetIndex` (:702): `GetIDTarget()` — <see cref="HudState.IdTarget"/>, the crosshair
+    /// trace precomputed by whoever drives the world/entity trace (<see cref="IdTargetTrace"/>).</summary>
+    private protected override int CalculateTargetIndex(HudState state) => state.IdTarget ?? 0;
 }
