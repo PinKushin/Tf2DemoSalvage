@@ -471,6 +471,10 @@ public readonly record struct TimelinePhases(
 /// <param name="RoundTimers">Every `team_round_timer`, or null when there is none.</param>
 /// <param name="Buildings">Every Engineer building, or null when there is none.</param>
 /// <param name="Teams">Every `CTFTeam` (RED, BLU, and any others sent), or null when there is none.</param>
+/// <param name="ScoreboardPlayers">
+/// Every player slot the scoreboard's `UpdatePlayerList` would list, or null when there is no
+/// resource entity. See <see cref="SceneScoreboardPlayer"/>.
+/// </param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
@@ -480,7 +484,8 @@ public readonly record struct TimelineFrame(
     int? ServerTick = null,
     IReadOnlyList<SceneRoundTimer>? RoundTimers = null,
     IReadOnlyList<SceneBuilding>? Buildings = null,
-    IReadOnlyList<SceneTeam>? Teams = null);
+    IReadOnlyList<SceneTeam>? Teams = null,
+    IReadOnlyList<SceneScoreboardPlayer>? ScoreboardPlayers = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -890,6 +895,52 @@ public sealed class DemoTimeline
         }
 
         return teams;
+    }
+
+    /// <summary>`MAX_PLAYERS` on `TF_DLL` (`shareddefs.h:254`): how many resource slots to walk.</summary>
+    private const int MaxPlayerSlots = 101;
+
+    /// <summary>
+    /// Every player slot `CTFClientScoreBoardDialog::UpdatePlayerList` would list — connected or
+    /// valid, whether or not the slot has a positioned entity this tick (`tf_clientscoreboard.cpp:1284-1286`);
+    /// null when there is no resource entity, which costs no allocation.
+    /// </summary>
+    private static List<SceneScoreboardPlayer>? ScoreboardPlayers(EntityStateTable entities)
+    {
+        if (entities.OfClass(ResourceClass).FirstOrDefault() is not { } resource)
+        {
+            return null;
+        }
+
+        List<SceneScoreboardPlayer>? players = null;
+
+        for (int playerIndex = 1; playerIndex <= MaxPlayerSlots; playerIndex++)
+        {
+            string slot = playerIndex.ToString("D3", CultureInfo.InvariantCulture);
+            bool connected = resource.Integer($"m_bConnected.{slot}") is > 0;
+            bool valid = resource.Integer($"m_bValid.{slot}") is > 0;
+
+            if (!connected && !valid)
+            {
+                continue;
+            }
+
+            (players ??= []).Add(new SceneScoreboardPlayer(playerIndex)
+            {
+                Connected = connected,
+                Valid = valid,
+                Team = resource.Integer($"m_iTeam.{slot}"),
+                Alive = resource.Integer($"m_bAlive.{slot}") is > 0,
+                Score = resource.Integer($"m_iScore.{slot}") ?? 0,
+                TotalScore = resource.Integer($"m_iTotalScore.{slot}") ?? 0,
+                Deaths = resource.Integer($"m_iDeaths.{slot}") ?? 0,
+                Ping = resource.Integer($"m_iPing.{slot}") ?? 0,
+                PlayerClass = resource.Integer($"m_iPlayerClass.{slot}"),
+                ActiveDominations = resource.Integer($"m_iActiveDominations.{slot}") ?? 0,
+            });
+        }
+
+        return players;
     }
 
     private static readonly string[] TeamProperties =
@@ -3041,15 +3092,16 @@ public sealed class DemoTimeline
             IReadOnlyList<SceneRoundTimer>? roundTimers = RoundTimers(entities);
             IReadOnlyList<SceneBuilding>? buildings = Buildings(entities);
             IReadOnlyList<SceneTeam>? teams = Teams(entities);
+            IReadOnlyList<SceneScoreboardPlayer>? scoreboardPlayers = ScoreboardPlayers(entities);
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers));
         }
 
         Backfill(frames);
@@ -5394,6 +5446,10 @@ public sealed class DemoTimeline
     /// <summary>Every `CTFTeam` at a tick.</summary>
     /// <param name="tick">The demo tick.</param>
     public IReadOnlyList<SceneTeam> TeamsAt(int tick) => FrameAt(tick)?.Teams ?? [];
+
+    /// <summary>Every player slot the scoreboard would list at a tick.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public IReadOnlyList<SceneScoreboardPlayer> ScoreboardPlayersAt(int tick) => FrameAt(tick)?.ScoreboardPlayers ?? [];
 
     /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
     /// <param name="tick">The moment being asked about.</param>

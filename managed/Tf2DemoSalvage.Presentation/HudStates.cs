@@ -68,6 +68,7 @@ public static class HudStates
             TournamentMode = timeline.ServerConVars.Number("mp_tournament") != 0f,
             TournamentStopwatch = timeline.ServerConVars.Number("mp_tournament_stopwatch") != 0f,
             WinLimit = (int)timeline.ServerConVars.Number("mp_winlimit"),
+            ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
         };
     }
 

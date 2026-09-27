@@ -290,6 +290,11 @@ public class VguiSectionedListPanel : VguiPanel
     /// <param name="color">The colour.</param>
     public void SetItemFgColor(int itemId, (byte Red, byte Green, byte Blue, byte Alpha) color) => SetItem(itemId, item => item with { FgColor = color });
 
+    /// <summary>The per-item colour override <see cref="SetItemFgColor"/> set, or null when the item uses the row default.</summary>
+    /// <param name="itemId">The item.</param>
+    public (byte Red, byte Green, byte Blue, byte Alpha)? GetItemFgColor(int itemId) =>
+        _items.TryGetValue(itemId, out Item? item) ? item.FgColor : null;
+
     /// <summary>`SetItemBgColor` (:1362): enables the row's own background fill.</summary>
     /// <param name="itemId">The item.</param>
     /// <param name="color">The colour.</param>

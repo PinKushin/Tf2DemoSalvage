@@ -37,6 +37,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="TournamentStopwatch">`mp_tournament_stopwatch.GetBool()` (tf_gamerules.cpp:797) — stopwatch mode within a tournament match.</param>
 /// <param name="WinLimit">`mp_winlimit.GetInt()` (teamplayroundbased_gamerules.cpp:227): the round counter's own win limit, 0 for none.</param>
 /// <param name="Buildings">Every Engineer building — `cl_entitylist` for the target ID's object branch.</param>
+/// <param name="ScoreboardPlayers">
+/// Every player slot `CTFClientScoreBoardDialog::UpdatePlayerList` would list, off the player
+/// resource — see <see cref="Tf2DemoSalvage.Core.Scene.SceneScoreboardPlayer"/>.
+/// </param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -68,7 +72,8 @@ public readonly record struct HudState(
     bool TournamentMode = false,
     bool TournamentStopwatch = false,
     int WinLimit = 0,
-    IReadOnlyList<Core.Scene.SceneBuilding>? Buildings = null)
+    IReadOnlyList<Core.Scene.SceneBuilding>? Buildings = null,
+    IReadOnlyList<Core.Scene.SceneScoreboardPlayer>? ScoreboardPlayers = null)
 {
     /// <summary>`cl_entitylist->GetEnt` for a building: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>
