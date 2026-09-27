@@ -203,6 +203,7 @@ public sealed class TfWeaponData(Func<string, byte[]?> read)
                 count++;
             }
 
+            count--;
         }
 
         KeyValuesTree? altMode = info.Find("AltModes")?.Find("AltMode" + mode.ToString(CultureInfo.InvariantCulture));
