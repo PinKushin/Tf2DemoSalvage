@@ -33,11 +33,6 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// world/entity trace (<see cref="Tf2DemoSalvage.Scene.Hud.IdTargetTrace"/>); null when nothing has computed it yet, in
 /// which case <see cref="Tf2DemoSalvage.Scene.Hud.TfMainTargetId"/> treats it as "no target" rather than guessing.</param>
 /// <param name="Teams">Every `CTFTeam`.</param>
-/// <param name="TournamentMode">`TeamplayRoundBasedRules()->IsInTournamentMode()`: `mp_tournament.GetBool()` (teamplayroundbased_gamerules.cpp:3488).</param>
-/// <param name="TournamentStopwatch">`mp_tournament_stopwatch.GetBool()` (tf_gamerules.cpp:797) — stopwatch mode within a tournament match.</param>
-/// <param name="WinLimit">`mp_winlimit.GetInt()` (teamplayroundbased_gamerules.cpp:227): the round counter's own win limit, 0 for none.</param>
-/// <param name="TournamentRedTeamName">`mp_tournament_redteamname` (tf_gamerules.cpp:782): "RED" unless the server set it.</param>
-/// <param name="TournamentBlueTeamName">`mp_tournament_blueteamname` (:783): "BLU" unless the server set it.</param>
 /// <param name="WorldToScreen">
 /// `engine->WorldToScreenMatrix()`: the view's world-to-clip matrix, row-major with the translation in the last row (this
 /// project's convention — <c>FreeCamera.ToMatrix</c>); null where no view is drawn.
@@ -47,17 +42,15 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// Every player slot `CTFClientScoreBoardDialog::UpdatePlayerList` would list, off the player
 /// resource — see <see cref="Tf2DemoSalvage.Core.Scene.SceneScoreboardPlayer"/>.
 /// </param>
-/// <param name="BuildingPickupKey">
-/// `engine->Key_LookupBinding( "+attack2" )` (tf_hud_target_id.cpp:1034): the target ID's moveable sub-panel reads this
-/// through its own key binding table rather than a hardcoded name (D101) — see
-/// <see cref="Tf2DemoSalvage.Scene.Hud.TfTargetId"/>. Null when nothing is bound, which the panel shows as no key rather
-/// than guessing one.
+/// <param name="ConVars">
+/// Every console variable the HUD reads, by name — `ConVarRef` / `cvar->FindVar` rather than a field per var. A
+/// replicated var reads the server's value off the demo; one nothing set reads Valve's declared default.
 /// </param>
-/// <param name="AlwaysLoser">`tf_always_loser.GetBool()` (tf_player_shared.cpp:127,13656) — the server's value, replicated.</param>
-/// <param name="TrainingCanPickupSentry">`training_can_pickup_sentry.GetBool()` (tf_gamerules.cpp:699).</param>
-/// <param name="TrainingCanPickupDispenser">`training_can_pickup_dispenser.GetBool()` (:700).</param>
-/// <param name="TrainingCanPickupTeleEntrance">`training_can_pickup_tele_entrance.GetBool()` (:701).</param>
-/// <param name="TrainingCanPickupTeleExit">`training_can_pickup_tele_exit.GetBool()` (:702).</param>
+/// <param name="KeyLookupBinding">
+/// `engine->Key_LookupBinding( command )` (e.g. tf_hud_target_id.cpp:1034's "+attack2"): the key bound to a command in
+/// the viewer's own binding table (D101), or null when nothing is bound — shown as no key rather than a guessed one.
+/// Null as a whole where no bindings are open.
+/// </param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -86,20 +79,11 @@ public readonly record struct HudState(
     IReadOnlyList<Core.Scene.SceneRoundTimer>? RoundTimers = null,
     int? IdTarget = null,
     IReadOnlyList<Core.Scene.SceneTeam>? Teams = null,
-    bool TournamentMode = false,
-    bool TournamentStopwatch = false,
-    int WinLimit = 0,
     IReadOnlyList<Core.Scene.SceneBuilding>? Buildings = null,
     IReadOnlyList<Core.Scene.SceneScoreboardPlayer>? ScoreboardPlayers = null,
     float[]? WorldToScreen = null,
-    string TournamentRedTeamName = "RED",
-    string TournamentBlueTeamName = "BLU",
-    string? BuildingPickupKey = null,
-    bool AlwaysLoser = false,
-    bool TrainingCanPickupSentry = true,
-    bool TrainingCanPickupDispenser = true,
-    bool TrainingCanPickupTeleEntrance = true,
-    bool TrainingCanPickupTeleExit = true)
+    HudConVars ConVars = default,
+    Func<string, string?>? KeyLookupBinding = null)
 {
     /// <summary>`cl_entitylist->GetEnt` for a building: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

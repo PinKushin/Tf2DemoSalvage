@@ -216,7 +216,8 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
     /// <param name="state">The frame: its teams, rules and tournament ConVars.</param>
     public void UpdateTeamInfo(HudState state)
     {
-        bool tournamentMode = state.TournamentMode;
+        // `IsInTournamentMode()`: `mp_tournament.GetBool()` (teamplayroundbased_gamerules.cpp:3488).
+        bool tournamentMode = state.ConVars.GetBool("mp_tournament");
         bool mannVsMachine = state.Rules.MannVsMachine;
 
         foreach (Core.Scene.SceneTeam team in state.Teams ?? [])
@@ -257,9 +258,10 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
     /// </remarks>
     private string LocalizedTeamName(int teamNumber, HudState state)
     {
-        if (state.TournamentMode && teamNumber is TeamRed or TeamBlue && !state.Rules.IsCompetitiveMode)
+        if (state.ConVars.GetBool("mp_tournament") && teamNumber is TeamRed or TeamBlue && !state.Rules.IsCompetitiveMode)
         {
-            string name = teamNumber == TeamBlue ? state.TournamentBlueTeamName : state.TournamentRedTeamName;
+            // mp_tournament_blueteamname / mp_tournament_redteamname (tf_gamerules.cpp:782-783).
+            string name = state.ConVars.GetString(teamNumber == TeamBlue ? "mp_tournament_blueteamname" : "mp_tournament_redteamname");
 
             if (name.Length > 0)
             {

@@ -88,8 +88,9 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 
         bool display = state.ObserverMode != ObserverModes.FreezeCam;
 
-        // `IsInTournamentMode() && IsInWaitingForPlayers()` (:474).
-        if (state.TournamentMode && state.Rules.WaitingForPlayers)
+        // `IsInTournamentMode() && IsInWaitingForPlayers()` (:474); the former is `mp_tournament.GetBool()`
+        // (teamplayroundbased_gamerules.cpp:3488).
+        if (state.ConVars.GetBool("mp_tournament") && state.Rules.WaitingForPlayers)
         {
             display = false;
         }

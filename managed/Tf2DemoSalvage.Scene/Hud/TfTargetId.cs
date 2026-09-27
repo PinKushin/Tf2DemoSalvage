@@ -625,7 +625,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
             if (subPanel.Visible)
             {
-                subPanel.SetDialogVariable("movekey", state.BuildingPickupKey ?? string.Empty);
+                subPanel.SetDialogVariable("movekey", state.KeyLookupBinding?.Invoke("+attack2") ?? string.Empty);
             }
 
             if (_moveableIcon is not null)
@@ -773,11 +773,12 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         {
             return obj.ObjectType switch
             {
-                SceneBuilding.Dispenser => state.TrainingCanPickupDispenser,
-                SceneBuilding.Teleporter => obj.ObjectMode == SceneBuilding.TeleporterEntrance
-                    ? state.TrainingCanPickupTeleEntrance
-                    : state.TrainingCanPickupTeleExit,
-                SceneBuilding.Sentrygun => state.TrainingCanPickupSentry,
+                // training_can_pickup_* (tf_gamerules.cpp:699-702).
+                SceneBuilding.Dispenser => state.ConVars.GetBool("training_can_pickup_dispenser"),
+                SceneBuilding.Teleporter => state.ConVars.GetBool(obj.ObjectMode == SceneBuilding.TeleporterEntrance
+                    ? "training_can_pickup_tele_entrance"
+                    : "training_can_pickup_tele_exit"),
+                SceneBuilding.Sentrygun => state.ConVars.GetBool("training_can_pickup_sentry"),
                 _ => true,
             };
         }
@@ -801,7 +802,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     /// <summary>`CTFPlayerShared::IsLoser` (:13654).</summary>
     private static bool IsLoser(HudState state, ScenePlayer local)
     {
-        if (state.AlwaysLoser) // `tf_always_loser.GetBool()`, :13656
+        if (state.ConVars.GetBool("tf_always_loser")) // :13656
         {
             return true;
         }

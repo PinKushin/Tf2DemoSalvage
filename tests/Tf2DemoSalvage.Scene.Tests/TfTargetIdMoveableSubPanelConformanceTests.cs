@@ -22,7 +22,7 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
     [Test]
     public void UpdateId_AnOwnDispenserInRange_ShowsThePickupPromptWithItsIcon()
     {
-        TfMainTargetId id = Thought(Playing(OwnBuilding()) with { IdTarget = 55, BuildingPickupKey = "MOUSE2" });
+        TfMainTargetId id = Thought(Playing(OwnBuilding()) with { IdTarget = 55, KeyLookupBinding = TestConVars.Binding("+attack2", "MOUSE2") });
 
         id.FindChildByName("MoveableSubPanel")!.Visible.ShouldBeTrue("+attack2 is offered: nothing here blocks the pickup");
         ((VguiIconPanel)id.FindChildByName("MoveableIcon", recurseDown: true)!).Icon!.TextureFile.ShouldBe("vgui/hud/obj_status_dispenser.vmt");
@@ -32,7 +32,7 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
     [Test]
     public void UpdateId_NoKeyBound_LeavesTheDialogVariableEmpty()
     {
-        TfMainTargetId id = Thought(Playing(OwnBuilding()) with { IdTarget = 55, BuildingPickupKey = null });
+        TfMainTargetId id = Thought(Playing(OwnBuilding()) with { IdTarget = 55, KeyLookupBinding = TestConVars.Binding("+attack", "MOUSE1") });
 
         ((VguiEditablePanel)id.FindChildByName("MoveableSubPanel")!).DialogVariable("movekey").ShouldBe(string.Empty);
     }
@@ -238,7 +238,7 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
     [Test]
     public void CanPickupBuilding_AlwaysLoserConVar_HidesThePrompt()
     {
-        TfMainTargetId id = Thought(Playing(OwnBuilding()) with { IdTarget = 55, AlwaysLoser = true });
+        TfMainTargetId id = Thought(Playing(OwnBuilding()) with { IdTarget = 55, ConVars = TestConVars.Of(("tf_always_loser", "1")) });
 
         id.FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("tf_always_loser.GetBool(), the first line of IsLoser (:13656)");
     }
@@ -338,7 +338,7 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
         {
             IdTarget = 55,
             Rules = new SceneGameRules(false, 0, false) { InTraining = true },
-            TrainingCanPickupDispenser = false,
+            ConVars = TestConVars.Of(("training_can_pickup_dispenser", "0")),
         };
 
         Thought(state).FindChildByName("MoveableSubPanel")!.Visible.ShouldBeFalse("training_can_pickup_dispenser 0");
@@ -351,7 +351,7 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
         {
             IdTarget = 55,
             Rules = new SceneGameRules(false, 0, false) { InTraining = true },
-            TrainingCanPickupDispenser = true,
+            ConVars = TestConVars.Of(("training_can_pickup_dispenser", "1")),
         };
 
         Thought(state).FindChildByName("MoveableSubPanel")!.Visible.ShouldBeTrue();
@@ -360,7 +360,7 @@ public sealed class TfTargetIdMoveableSubPanelConformanceTests
     [Test]
     public void PerformLayout_ThePromptVisible_AddsItsWidthToThePanel()
     {
-        TfMainTargetId shown = Thought(Playing(OwnBuilding()) with { IdTarget = 55, BuildingPickupKey = "MOUSE2" });
+        TfMainTargetId shown = Thought(Playing(OwnBuilding()) with { IdTarget = 55, KeyLookupBinding = TestConVars.Binding("+attack2", "MOUSE2") });
         VguiLayout.SolveTraverse(shown.Parent!, ((HudViewport)shown.Parent!).Context!);
         int wideWithPrompt = shown.Wide;
 

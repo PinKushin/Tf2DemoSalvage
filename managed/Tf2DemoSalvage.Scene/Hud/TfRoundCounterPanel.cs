@@ -133,17 +133,20 @@ public sealed class TfRoundCounterPanel : VguiEditablePanel
         int step = GetInt("indicator_max_wide");
         int center = Wide / 2;
 
-        LayoutPanels(_blueRoundIndicators, Alignment.West, center - startOffset, step, state.WinLimit);
-        VisibleCondition(_blueRoundIndicators, state.WinLimit);
+        // `mp_winlimit.GetInt()` (teamplayroundbased_gamerules.cpp:227).
+        int winLimit = state.ConVars.GetInt("mp_winlimit");
 
-        LayoutPanels(_redRoundIndicators, Alignment.East, center + startOffset, step, state.WinLimit);
-        VisibleCondition(_redRoundIndicators, state.WinLimit);
+        LayoutPanels(_blueRoundIndicators, Alignment.West, center - startOffset, step, winLimit);
+        VisibleCondition(_blueRoundIndicators, winLimit);
 
-        LayoutPanels(_blueWinIndicators, Alignment.West, center - startOffset, step, state.WinLimit);
-        VisibleCondition(_blueWinIndicators, Math.Min(state.WinLimit, blue.Score));
+        LayoutPanels(_redRoundIndicators, Alignment.East, center + startOffset, step, winLimit);
+        VisibleCondition(_redRoundIndicators, winLimit);
 
-        LayoutPanels(_redWinIndicators, Alignment.East, center + startOffset, step, state.WinLimit);
-        VisibleCondition(_redWinIndicators, Math.Min(state.WinLimit, red.Score));
+        LayoutPanels(_blueWinIndicators, Alignment.West, center - startOffset, step, winLimit);
+        VisibleCondition(_blueWinIndicators, Math.Min(winLimit, blue.Score));
+
+        LayoutPanels(_redWinIndicators, Alignment.East, center + startOffset, step, winLimit);
+        VisibleCondition(_redWinIndicators, Math.Min(winLimit, red.Score));
     }
 
     /// <summary>`VisibleCondition` (:167), minus the stopwatch veto (out of scope — see the class remarks).</summary>

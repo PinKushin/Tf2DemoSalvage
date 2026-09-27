@@ -24,7 +24,7 @@ public static class HudStates
     /// <param name="hooks">The attribute hooks, or null likewise.</param>
     /// <param name="bindings">
     /// The viewer's key bindings, or null where none is open. `Key_LookupBinding( "+attack2" )` (tf_hud_target_id.cpp:1034)
-    /// for the target ID's moveable sub-panel — see <see cref="HudState.BuildingPickupKey"/>.
+    /// for the target ID's moveable sub-panel — see <see cref="HudState.KeyLookupBinding"/>.
     /// </param>
     public static HudState For(
         DemoTimeline? timeline, int tick, TfWeaponData? scripts = null, AttributeHooks? hooks = null, KeyBindings? bindings = null)
@@ -66,29 +66,20 @@ public static class HudStates
             RoundTimers = timeline.RoundTimersAt(tick),
             Teams = timeline.TeamsAt(tick),
             Buildings = timeline.BuildingsAt(tick),
-
-            // `IsInTournamentMode()`/`mp_tournament_stopwatch.GetBool()`/`mp_winlimit.GetInt()` —
-            // replicated cvars, so the server's value (or Valve's declared default) rather than
-            // anything this project would otherwise have to take as off.
-            TournamentMode = timeline.ServerConVars.Number("mp_tournament") != 0f,
-            TournamentStopwatch = timeline.ServerConVars.Number("mp_tournament_stopwatch") != 0f,
-            WinLimit = (int)timeline.ServerConVars.Number("mp_winlimit"),
-            TournamentRedTeamName = timeline.ServerConVars.Value("mp_tournament_redteamname") ?? string.Empty,
-            TournamentBlueTeamName = timeline.ServerConVars.Value("mp_tournament_blueteamname") ?? string.Empty,
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
-            BuildingPickupKey = bindings is null ? null : Key(bindings.KeyFor(ViewerAction.CycleTargetReverse)),
 
-            // `CTFPlayer::CanPickupBuilding`'s replicated cvars — server value, or Valve's declared default.
-            AlwaysLoser = timeline.ServerConVars.Number("tf_always_loser") != 0f,
-            TrainingCanPickupSentry = timeline.ServerConVars.Number("training_can_pickup_sentry") != 0f,
-            TrainingCanPickupDispenser = timeline.ServerConVars.Number("training_can_pickup_dispenser") != 0f,
-            TrainingCanPickupTeleEntrance = timeline.ServerConVars.Number("training_can_pickup_tele_entrance") != 0f,
-            TrainingCanPickupTeleExit = timeline.ServerConVars.Number("training_can_pickup_tele_exit") != 0f,
+            // Replicated cvars: what the server sent, or Valve's declared default (FCVAR_REPLICATED, iconvar.h).
+            ConVars = new HudConVars(timeline.ServerConVars.Value),
+            KeyLookupBinding = bindings is null ? null : command => KeyLookupBinding(bindings, command),
         };
     }
 
-    /// <summary>A bound key, or null for one that resolved to nothing — `Key_LookupBinding`'s own null (D101).</summary>
-    private static string? Key(string key) => string.IsNullOrEmpty(key) ? null : key;
+    /// <summary>
+    /// `engine->Key_LookupBinding( command )` over the viewer's own table (D101): the key bound to the command, or null
+    /// when the command is not one the viewer names or nothing is bound to it.
+    /// </summary>
+    private static string? KeyLookupBinding(KeyBindings bindings, string command) =>
+        KeyBindings.ActionOf(command) is { } action && bindings.KeyFor(action) is { Length: > 0 } key ? key : null;
 
     /// <summary>`GetPlayerName` by entity index: the `userinfo` name of whoever last held the slot.</summary>
     /// <remarks>
