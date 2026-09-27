@@ -276,17 +276,18 @@ public class VguiModelPanel : VguiPanel
         return created;
     }
 
-    /// <summary>Bone-to-world folded with the model's bind pose — <c>EntityModelSet.Skinning</c>'s shape
-    /// (<c>EntityModels.cs:3478</c>), unbuffered: a model panel poses a handful of models, not hundreds a frame, so
-    /// there is no allocation this needs to avoid.</summary>
+    /// <summary><see cref="BoneSkinning.Fill"/>, unbuffered: a model panel poses a handful of models, not hundreds
+    /// a frame, so there is no allocation to avoid the way <c>EntityModelSet.Skinning</c> does.</summary>
     private static float[][] Skinned(IReadOnlyList<StudioBone> bones, BoneAccessor accessor)
     {
         float[][] skinned = new float[accessor.Count][];
 
         for (int bone = 0; bone < skinned.Length; bone++)
         {
-            skinned[bone] = StudioBones.Concatenate(accessor.Bone(bone), bones[bone].PoseToBone.Span);
+            skinned[bone] = new float[12];
         }
+
+        BoneSkinning.Fill(bones, accessor, skinned);
 
         return skinned;
     }

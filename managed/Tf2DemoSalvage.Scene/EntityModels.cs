@@ -3502,11 +3502,7 @@ public sealed class EntityModelSet : IModelBodygroups
             _skinning[entity] = buffer;
         }
 
-        for (int bone = 0; bone < accessor.Count; bone++)
-        {
-            StudioBones.Concatenate(
-                accessor.Bone(bone), bones[bone].PoseToBone.Span, buffer[bone]);
-        }
+        BoneSkinning.Fill(bones, accessor, buffer);
 
         return buffer;
     }
