@@ -131,6 +131,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Automation id of the View menu, which has to be opened to reach its items.</summary>
     public const string ViewMenuId = "ViewMenu";
 
+    /// <summary>Automation id of the Hud menu — the picker over the program's own <c>custom/</c> folder (D193).</summary>
+    public const string HudMenuId = "HudMenu";
+
     /// <summary>Accessible names of the menu entries, which is how automation reaches them.</summary>
     /// <remarks>
     /// **A WinForms menu item exposes no AutomationId.** Its accessible object does not implement
@@ -923,7 +926,11 @@ internal class MainForm : Form, IFrameSteps
 
         _settings = _launch.Settings;
         _spectator.Spectating = _launch.Spectate;
-        _chosenHud = _launch.Hud;
+
+        // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
+        // launch option is for one run; the settings file is what the picker changes and expects to
+        // stick without being passed again every time.
+        _chosenHud = _launch.Hud ?? _settings.ChosenHud;
 
         // **`--look` and `--zoom` were parsed here and read by nobody** (B226). D98 removed the
         // orthographic camera they were written for and kept the fields with a note saying what
@@ -1205,13 +1212,18 @@ internal class MainForm : Form, IFrameSteps
                 SetDebugMode: SetDebugMode,
                 SetSpecular: SetSpecular,
                 SetPhong: SetPhong,
-                Screenshot: CaptureViewportToFile),
+                Screenshot: CaptureViewportToFile,
+                SetChosenHud: SetChosenHud),
             _settings,
 
             // **The menu's shortcuts come from the same table the flight keys do** (B214, D101).
             // Fourteen `ShortcutKeys = Keys.<something>` literals lived in `ViewerMenu` until now,
             // six of them on keys TF2 binds to something else.
-            _bindings);
+            _bindings,
+
+            // **Our OWN custom/ folder, never `tf/custom`** (D193) — the picker lists what a player
+            // imported into the program, not what is in their TF2 install.
+            HudCatalog.Options(ProgramCustomFolder));
 
         MenuStrip menu = _menu.Strip;
 
@@ -1769,7 +1781,7 @@ internal class MainForm : Form, IFrameSteps
         // **Assigned only when something was actually read**, which is what the old body did by
         // returning early. `LoadFrom` answers null rather than handing back its own defaults, so an
         // unreadable config cannot quietly replace the bindings this form already has.
-        if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog) is { } loaded)
+        if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog, ProgramCustomFolder) is { } loaded)
         {
             _bindings = loaded;
         }
@@ -7030,10 +7042,35 @@ internal class MainForm : Form, IFrameSteps
     /// first element that reads the local player lands.
     /// </remarks>
     /// <summary>
-    /// The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193). `--hud` sets it at launch; the
-    /// picker over our `custom/` folder will set it at runtime, and the HUD's files are remade on the next frame.
+    /// The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193). `--hud` sets it at launch, the
+    /// remembered choice from settings is the fallback, and the picker sets it at runtime; the HUD's files are remade
+    /// the next time <see cref="HudArchives"/> is asked, which is every frame — no restart needed.
     /// </summary>
-    private readonly string? _chosenHud;
+    private string? _chosenHud;
+
+    /// <summary>Where the picker looks for HUDs: this program's OWN <c>custom/</c> folder, never `tf/custom` (D193).</summary>
+    private static string ProgramCustomFolder { get; } =
+        System.IO.Path.Combine(AppContext.BaseDirectory, "custom");
+
+    /// <summary>Changes the HUD and remembers the choice, hot-swapped with no restart.</summary>
+    /// <param name="hud">A folder or `.vpk` under <see cref="ProgramCustomFolder"/>, or null for TF2's stock HUD.</param>
+    /// <remarks>
+    /// **The rebuild is not done here.** <see cref="HudArchives"/> already compares the stored choice
+    /// against what it last built and remakes itself when they differ, so setting the field is the
+    /// whole swap; the next frame's <see cref="VguiHud"/> reads through the new archives.
+    /// </remarks>
+    private void SetChosenHud(string? hud)
+    {
+        _chosenHud = hud;
+        _settings = _settings with { ChosenHud = hud };
+
+        string? failure = _settings.Save();
+
+        if (failure is not null)
+        {
+            _status.Text = ViewerSettings.SavedForThisSessionOnly(failure);
+        }
+    }
 
     /// <summary>The files the HUD reads: the chosen HUD over the stock files, remade when the install or the choice changes.</summary>
     private GameArchives? HudArchives()

@@ -67,6 +67,22 @@ public sealed class ConfigConsoleLoadFromTests
     }
 
     [Test]
+    public void LoadFrom_WithNoInstallButAConfigInOwnCustom_StillLoadsIt()
+    {
+        // D193: the program's own custom/ is checked even when TF2 itself is not installed at all -
+        // a config a player pasted there does not depend on the game being found.
+        string ownCustom = TempFolder();
+        File.WriteAllText(Path.Combine(ownCustom, "autoexec.cfg"), "bind \"h\" \"+forward\"\n");
+
+        RecordingLogger log = new();
+
+        KeyBindings? bindings = ConfigConsole.WithDefaults()
+            .LoadFrom(NowhereFolder(), NullLoggerFactory.Instance, log, ownCustom);
+
+        bindings.ShouldNotBeNull();
+    }
+
+    [Test]
     public void LoadFrom_WithoutALogger_Refuses()
     {
         Should.Throw<ArgumentNullException>(
