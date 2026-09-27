@@ -14,7 +14,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// players, and not during the match summary. `tf_use_match_hud` (1) and not Mann vs. Machine loads its `.res` with
 /// `if_match`.
 /// **Not modelled:** team status, player lists and avatars, match doors, round sign and rank-up labels; `if_large`, which
-/// needs the match group's size; the freeze-cam screenshot test; and an open viewport panel.
+/// needs the match group's size; the freeze-cam screenshot test; and an open viewport panel. The round counter is its own
+/// panel, <see cref="TfRoundCounterPanel"/> — see its remarks for what it leaves out.
 /// </remarks>
 public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 {
@@ -23,8 +24,14 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
     /// <summary>`CTFHudMatchStatus( "HudMatchStatus" )`: parented to the viewport, its time panel made up front.</summary>
     /// <param name="viewport">The viewport.</param>
     public TfHudMatchStatus(VguiPanel viewport)
-        : base(viewport, "HudMatchStatus") =>
+        : base(viewport, "HudMatchStatus")
+    {
+        RoundCounter = new TfRoundCounterPanel(this);
         TimePanel = new TfHudTimeStatus(this, "ObjectiveStatusTimePanel");
+    }
+
+    /// <summary>`m_pRoundCounter`.</summary>
+    public TfRoundCounterPanel RoundCounter { get; }
 
     /// <summary>`m_pTimePanel`.</summary>
     public TfHudTimeStatus TimePanel { get; }
@@ -56,6 +63,10 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 
         _usedMatchHud = ShouldUseMatchHud(state);
         TimePanel.UseMatchHud = _usedMatchHud;
+        RoundCounter.UseMatchHud = _usedMatchHud;
+
+        // `SetPanelsVisible` (:339): `m_pRoundCounter->SetVisible( ShouldUseMatchHUD() )`.
+        RoundCounter.Visible = _usedMatchHud;
         LoadControlSettings("resource/UI/HudMatchStatus.res", context, _usedMatchHud ? ["if_match"] : null);
     }
 
