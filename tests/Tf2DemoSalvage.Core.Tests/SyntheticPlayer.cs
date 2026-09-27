@@ -984,6 +984,135 @@ internal static class SyntheticPlayer
     }
 
     /// <summary>
+    /// A schema whose <c>CTFPlayerResource</c> also carries the scoreboard's own fields —
+    /// connected, valid, alive, score, total score, deaths, ping and active dominations — on top
+    /// of the team and class <see cref="SchemaWithResource"/> already declares.
+    /// </summary>
+    /// <remarks>
+    /// A rebuild of <see cref="SchemaWithResource"/>'s own tables rather than an edit to it, the
+    /// same reasoning as <see cref="SchemaWithConditions"/>: appending to a table every other
+    /// fixture shares would shift flattened indices under tests that never asked for these fields.
+    /// </remarks>
+    public static DemoSchema SchemaWithScoreboard()
+    {
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+
+        return new DemoSchema(
+            [
+                .. baseline.Tables,
+
+                // Every array's own sub-table declared BEFORE the table that references it,
+                // matching SchemaWithResource's own order exactly.
+                ArrayTable("m_iTeam"),
+                ArrayTable("m_iPlayerClass"),
+                // bits: 2, not 1 — ArrayTable's elements are SIGNED (`Int`), and a 1-bit signed
+                // field can only hold -1 and 0; writing 1 into it corrupts the whole entity's
+                // decode, not just this property.
+                ArrayTable("m_bConnected", bits: 2),
+                ArrayTable("m_bValid", bits: 2),
+                ArrayTable("m_bAlive", bits: 2),
+                ArrayTable("m_iScore", bits: 10),
+                ArrayTable("m_iTotalScore", bits: 10),
+                ArrayTable("m_iDeaths", bits: 10),
+                ArrayTable("m_iPing", bits: 10),
+                ArrayTable("m_iActiveDominations", bits: 5),
+                new SendTable("DT_TFPlayerResource", NeedsDecoder: true,
+                [
+                    Table("m_iTeam", "m_iTeam"),
+                    Table("m_iPlayerClass", "m_iPlayerClass"),
+                    Table("m_bConnected", "m_bConnected"),
+                    Table("m_bValid", "m_bValid"),
+                    Table("m_bAlive", "m_bAlive"),
+                    Table("m_iScore", "m_iScore"),
+                    Table("m_iTotalScore", "m_iTotalScore"),
+                    Table("m_iDeaths", "m_iDeaths"),
+                    Table("m_iPing", "m_iPing"),
+                    Table("m_iActiveDominations", "m_iActiveDominations"),
+                ]),
+            ],
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(ResourceClassId, "CTFPlayerResource", "DT_TFPlayerResource"),
+            ]);
+    }
+
+    /// <summary>
+    /// A demo carrying only a <c>CTFPlayerResource</c>, stating every field
+    /// <c>CTFClientScoreBoardDialog::UpdatePlayerList</c> reads for each slot.
+    /// </summary>
+    /// <param name="players">Each connected or valid slot's resource fields.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
+    /// <remarks>
+    /// **A camera entity carries the only position, at an index no scoreboard slot uses.** The
+    /// scoreboard's own loop reads the resource for every slot that is connected or valid, whether
+    /// or not that slot has a positioned <c>CTFPlayer</c> this tick — this fixture's resource slots
+    /// carry no position at all, the same as a spectator or a mid-connect player. A frame is only
+    /// recorded when the packet moved something, so one positioned entity is what makes the frame
+    /// exist for <see cref="Core.Scene.DemoTimeline.ScoreboardPlayersAt"/> to find, exactly as
+    /// <see cref="DemoWithBuilding"/> pairs its building with a player entity for the same reason.
+    /// </remarks>
+    public static byte[] DemoWithScoreboard(
+        params (int EntityIndex, bool Connected, bool Valid, int Team, bool Alive, int Score, int TotalScore, int Deaths, int Ping, int PlayerClass, int ActiveDominations)[] players)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+
+        const int CameraEntityIndex = 90;
+
+        DemoSchema schema = SchemaWithScoreboard();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        Dictionary<string, PropertyValue> arrays = [];
+
+        foreach ((int entityIndex, bool connected, bool valid, int team, bool alive, int score, int totalScore, int deaths, int ping, int playerClass, int activeDominations) in players)
+        {
+            string slot = entityIndex.ToString("D3", CultureInfo.InvariantCulture);
+            arrays[$"m_bConnected.{slot}"] = PropertyValue.FromInt(connected ? 1 : 0);
+            arrays[$"m_bValid.{slot}"] = PropertyValue.FromInt(valid ? 1 : 0);
+            arrays[$"m_iTeam.{slot}"] = PropertyValue.FromInt(team);
+            arrays[$"m_bAlive.{slot}"] = PropertyValue.FromInt(alive ? 1 : 0);
+            arrays[$"m_iScore.{slot}"] = PropertyValue.FromInt(score);
+            arrays[$"m_iTotalScore.{slot}"] = PropertyValue.FromInt(totalScore);
+            arrays[$"m_iDeaths.{slot}"] = PropertyValue.FromInt(deaths);
+            arrays[$"m_iPing.{slot}"] = PropertyValue.FromInt(ping);
+            arrays[$"m_iPlayerClass.{slot}"] = PropertyValue.FromInt(playerClass);
+            arrays[$"m_iActiveDominations.{slot}"] = PropertyValue.FromInt(activeDominations);
+        }
+
+        // Ascending entity index, because entities are delta-coded and the encoder writes
+        // ascending gaps (the same reasoning DemoWithResource's own comment gives).
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, ResourceClassId, ResourceEntityIndex, arrays),
+            Entity(decoder, PlayerClassId, CameraEntityIndex, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+        ];
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
+    /// <summary>
     /// A demo whose one player is at a different place on each of several ticks.
     /// </summary>
     /// <param name="intervalPerTick">
