@@ -428,11 +428,32 @@ public class VguiPanel
         ApplyOverridableColors();
     }
 
+    /// <summary>`SetScheme`: this panel's own scheme — a second scheme file, such as `ChatScheme.res` — or null to inherit.</summary>
+    public VguiContext? SchemeContext { get; set; }
+
+    /// <summary>`GetScheme` (Panel.cpp): this panel's scheme, else the nearest parent's, else the one the traversal carries.</summary>
+    /// <param name="fallback">The traversal's scheme.</param>
+    /// <returns>The scheme this panel applies.</returns>
+    public VguiContext EffectiveScheme(VguiContext fallback)
+    {
+        for (VguiPanel? at = this; at is not null; at = at.Parent)
+        {
+            if (at.SchemeContext is { } own)
+            {
+                return own;
+            }
+        }
+
+        return fallback;
+    }
+
     /// <summary>`PerformApplySchemeSettings` (Panel.cpp): the defaults if still pending, then the scheme once.</summary>
     /// <param name="context">The scheme.</param>
     public void PerformApplySchemeSettings(VguiContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        context = EffectiveScheme(context);
 
         if (_needsDefaultSettings)
         {
@@ -631,6 +652,8 @@ public class VguiPanel
         {
             return;
         }
+
+        context = EffectiveScheme(context);
 
         float oldAlpha = surface.AlphaMultiplier;
         float newAlpha = oldAlpha * GetFloat("alpha") * 1.0f / 255.0f;
