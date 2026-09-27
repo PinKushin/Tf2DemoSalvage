@@ -1089,6 +1089,15 @@ public sealed class EntityState
             ? value.AsFloat
             : null;
 
+    /// <summary>Reads a string property.</summary>
+    /// <param name="key">Qualified name, e.g. <c>DT_TFTeam.m_szTeamname</c>.</param>
+    /// <returns>The value, or <c>null</c> if absent or not a string.</returns>
+    public string? Text(string key) =>
+        _properties.TryGetValue(key, out PropertyValue value) &&
+        value.Kind == PropertyValueKind.String
+            ? value.AsString
+            : null;
+
     /// <summary>Whether the entity should be drawn at all right now.</summary>
     /// <remarks>
     /// **A taken health pack is hidden, not destroyed, because it respawns.**

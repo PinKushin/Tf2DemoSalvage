@@ -1783,4 +1783,77 @@ internal static class SyntheticPlayer
 
     private static SendProperty Table(string name, string referenced) =>
         new(SendPropType.DataTable, name, 0, referenced, 0f, 0f, 0, 0);
+
+    private static SendProperty String(string name) =>
+        new(SendPropType.String, name, 0, string.Empty, 0f, 0f, 0, 0);
+
+    /// <summary>A demo whose single snapshot carries RED and BLU team entities, each with a score.</summary>
+    public static byte[] DemoWithTeams(int redScore, int blueScore, int redRoundsWon = 0, int blueRoundsWon = 0)
+    {
+        const int TeamClassId = 2;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables =
+        [
+            .. baseline.Tables,
+            new SendTable(
+                "DT_Team",
+                NeedsDecoder: true,
+                [
+                    UnsignedInt("m_iTeamNum", bits: 5), Int("m_iScore", bits: 32),
+                    Int("m_iRoundsWon", bits: 8), String("m_szTeamname"),
+                ]),
+            new SendTable("DT_TFTeam", NeedsDecoder: true, [Table("baseclass", "DT_Team")]),
+        ];
+
+        DemoSchema schema = new(
+            tables,
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(TeamClassId, "CTFTeam", "DT_TFTeam"),
+            ]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+            Entity(decoder, TeamClassId, 2, new Dictionary<string, PropertyValue>
+            {
+                ["m_iTeamNum"] = PropertyValue.FromInt(2),
+                ["m_iScore"] = PropertyValue.FromInt(redScore),
+                ["m_iRoundsWon"] = PropertyValue.FromInt(redRoundsWon),
+                ["m_szTeamname"] = PropertyValue.FromString("Red"),
+            }),
+            Entity(decoder, TeamClassId, 3, new Dictionary<string, PropertyValue>
+            {
+                ["m_iTeamNum"] = PropertyValue.FromInt(3),
+                ["m_iScore"] = PropertyValue.FromInt(blueScore),
+                ["m_iRoundsWon"] = PropertyValue.FromInt(blueRoundsWon),
+                ["m_szTeamname"] = PropertyValue.FromString("Blue"),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
 }

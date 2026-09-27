@@ -463,6 +463,7 @@ public readonly record struct TimelinePhases(
 /// </param>
 /// <param name="RoundTimers">Every `team_round_timer`, or null when there is none.</param>
 /// <param name="Buildings">Every Engineer building, or null when there is none.</param>
+/// <param name="Teams">Every `CTFTeam` (RED, BLU, and any others sent), or null when there is none.</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
@@ -471,7 +472,8 @@ public readonly record struct TimelineFrame(
     SceneGameRules Rules = default,
     int? ServerTick = null,
     IReadOnlyList<SceneRoundTimer>? RoundTimers = null,
-    IReadOnlyList<SceneBuilding>? Buildings = null);
+    IReadOnlyList<SceneBuilding>? Buildings = null,
+    IReadOnlyList<SceneTeam>? Teams = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -776,6 +778,9 @@ public sealed class DemoTimeline
     /// <summary>A `team_round_timer`.</summary>
     private const string RoundTimerClass = "CTeamRoundTimer";
 
+    /// <summary>A team entity — `DT_TFTeam`, which inherits `DT_Team` (`tf_team.cpp:43`, `team.cpp:40`).</summary>
+    private const string TeamClass = "CTFTeam";
+
     /// <summary>Every round timer, as the time panel reads it; null when there is none, which costs no allocation.</summary>
     private static List<SceneRoundTimer>? RoundTimers(EntityStateTable entities)
     {
@@ -855,6 +860,24 @@ public sealed class DemoTimeline
         }
 
         return buildings;
+    }
+
+    /// <summary>Every team entity, as `CTFHudMatchStatus` reads scores; null when there is none, which costs no allocation.</summary>
+    private static List<SceneTeam>? Teams(EntityStateTable entities)
+    {
+        List<SceneTeam>? teams = null;
+
+        foreach (EntityState team in entities.OfClass(TeamClass))
+        {
+            (teams ??= []).Add(new SceneTeam(team.Integer("DT_Team.m_iTeamNum") ?? 0)
+            {
+                Score = team.Integer("DT_Team.m_iScore") ?? 0,
+                RoundsWon = team.Integer("DT_Team.m_iRoundsWon") ?? 0,
+                Name = team.Text("DT_Team.m_szTeamname") ?? string.Empty,
+            });
+        }
+
+        return teams;
     }
 
     private static readonly string[] TeamProperties =
@@ -2998,15 +3021,16 @@ public sealed class DemoTimeline
             int? serverTick = entities.PacketTick > 0 ? entities.PacketTick : null;
             IReadOnlyList<SceneRoundTimer>? roundTimers = RoundTimers(entities);
             IReadOnlyList<SceneBuilding>? buildings = Buildings(entities);
+            IReadOnlyList<SceneTeam>? teams = Teams(entities);
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams));
         }
 
         Backfill(frames);
@@ -5347,6 +5371,10 @@ public sealed class DemoTimeline
     /// <summary>Every Engineer building at a tick.</summary>
     /// <param name="tick">The demo tick.</param>
     public IReadOnlyList<SceneBuilding> BuildingsAt(int tick) => FrameAt(tick)?.Buildings ?? [];
+
+    /// <summary>Every `CTFTeam` at a tick.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public IReadOnlyList<SceneTeam> TeamsAt(int tick) => FrameAt(tick)?.Teams ?? [];
 
     /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
     /// <param name="tick">The moment being asked about.</param>
