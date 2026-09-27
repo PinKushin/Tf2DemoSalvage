@@ -716,7 +716,14 @@ public sealed class TfItemAttributeEffectMeter : TfHudItemEffectMeter
         {
             MeterEnabled = false;
         }
+
+        _nextTick = RealTimeMilliseconds() + TickMilliseconds;
     }
+
+    // `AddTickSignal`'s interval (:1661).
+    private const long TickMilliseconds = 100;
+
+    private long _nextTick;
 
     /// <summary>`GetItem` (:1666): the item while its handle holds.</summary>
     /// <returns>The item, or null.</returns>
@@ -766,19 +773,35 @@ public sealed class TfItemAttributeEffectMeter : TfHudItemEffectMeter
 
     /// <inheritdoc/>
     /// <remarks>
-    /// `OnTick` (:1697), every 100 ms by `AddTickSignal`: a lost item is looked for again. **Interpolated:** each frame's
-    /// think, which finds the same item no later than the tick would.
+    /// `ivgui()->AddTickSignal( GetVPanel(), 100 )` (:1661): `OnTick` once every 100 ms of vgui's real-time clock, the first
+    /// 100 ms after the meter is made. **Interpolated:** the tick is checked at each think, and the next one is due 100 ms
+    /// after the one that fired — the scheduler itself is in the closed `vgui2.dll`.
     /// </remarks>
     protected override void OnThink()
+    {
+        long now = RealTimeMilliseconds();
+
+        if (now >= _nextTick)
+        {
+            _nextTick = now + TickMilliseconds;
+            OnTick();
+        }
+
+        base.OnThink();
+    }
+
+    /// <summary>`OnTick` (:1697): "if the handle for the item is no longer valid, look for it again".</summary>
+    private void OnTick()
     {
         if (Item() is null && Player is { } player && Manager.Viewport.Items is { } schema
             && EntityForLoadoutSlot(player, _loadoutSlot, schema) is { } found)
         {
             _entity = found.EntityIndex;
         }
-
-        base.OnThink();
     }
+
+    /// <summary>`system()-&gt;GetTimeMillis()`: `gpGlobals-&gt;realtime` in whole milliseconds.</summary>
+    private long RealTimeMilliseconds() => (long)Math.Round(State.RealTime * 1000.0);
 
     /// <summary>
     /// `GetEntityForLoadoutSlot( slot, true )` (tf_player_shared.cpp:11928): a worn item in that slot first, then the first

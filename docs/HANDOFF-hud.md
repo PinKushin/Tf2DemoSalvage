@@ -252,7 +252,10 @@ gates.
    item effect meters. The meters are ported whole: `TfItemEffectMeterManager`, the cloak meter, every weapon
    specialisation, the rune and item-attribute meters, on `ContinuousProgressBar`. Two readings to know: a demo's
    client never runs the charged SMG's `SecondaryAttack`, so its `m_flMinicritStartTime` stays 0; and the manager's
-   `Update` runs after the HUD think, not in `ClientThink` before it.
+   `Update` runs after the HUD think — `CHud::Think` is reached from `HudProcessInput` (hud.cpp:1003) and
+   `ClientThink` from `FRAME_RENDER_START`'s `SimulateEntities` (cdll_client_int.cpp:2005, :2207, :2279); the host's
+   order of those two stages is in the closed engine and not yet read from its disassembly. The attribute meter's
+   re-lookup ticks every 100 ms of real time (`AddTickSignal`, :1661).
 5. Match-start doors and round sign: done, `VguiModelPanel` (CModelPanel), with the doors' team lists and party names.
    The rank-up message needs the GC's rating cache (tf_rating_data.cpp:22-41), never in a demo. The door slam is
    `TfParticlePanel` (CTFParticlePanel).
