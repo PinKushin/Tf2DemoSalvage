@@ -1781,7 +1781,7 @@ internal class MainForm : Form, IFrameSteps
         // **Assigned only when something was actually read**, which is what the old body did by
         // returning early. `LoadFrom` answers null rather than handing back its own defaults, so an
         // unreadable config cannot quietly replace the bindings this form already has.
-        if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog) is { } loaded)
+        if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog, ProgramCustomFolder) is { } loaded)
         {
             _bindings = loaded;
         }
