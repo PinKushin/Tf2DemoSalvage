@@ -35,6 +35,9 @@ public sealed class VguiHud
         // **Interpolated:** the game's element order comes from its factory list, which the SDK does not fix.
         Weapon = new TfHudWeapon(Viewport);
         Crosshair = new TfHudCrosshair(Viewport);
+        // The secondary before the other two, so the index they subtract is this frame's.
+        // **Interpolated:** the element factory's order.
+        SecondaryTargetId = new TfSecondaryTargetId(Viewport);
         SpectatorTargetId = new TfSpectatorTargetId(Viewport);
         MainTargetId = new TfMainTargetId(Viewport);
         MatchStatus = new TfHudMatchStatus(Viewport);
@@ -55,6 +58,9 @@ public sealed class VguiHud
 
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
     public TfHudMatchStatus MatchStatus { get; }
+
+    /// <summary>`CSecondaryTargetID`: the local medic's heal target, or the local player's healer.</summary>
+    public TfSecondaryTargetId SecondaryTargetId { get; }
 
     /// <summary>`CMainTargetID`: a living local player's own crosshair target.</summary>
     public TfMainTargetId MainTargetId { get; }

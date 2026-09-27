@@ -191,6 +191,16 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     /// <param name="state">The local player.</param>
     private protected abstract int CalculateTargetIndex(HudState state);
 
+    /// <summary>
+    /// `CTargetID::CalculateTargetIndex`'s tail (:706): "If our target entity is already in our secondary ID, don't show it
+    /// in primary."
+    /// </summary>
+    /// <param name="index">`GetIDTarget()`.</param>
+    private protected int WithoutSecondary(int index) =>
+        Parent?.FindChildByName("CSecondaryTargetID") is TfSecondaryTargetId secondary && !ReferenceEquals(secondary, this) && secondary.TargetIndex == index
+            ? 0
+            : index;
+
     /// <summary>`CTargetID::DrawHealthIcon` (:205): the health panel draws inside for a building, or with floating health off.</summary>
     private protected bool DrawHealthIcon(HudState state) => state.Building(TargetIndex) is not null || DisableFloatingHealth;
 
@@ -793,10 +803,10 @@ public sealed class TfSpectatorTargetId : TfTargetId
         }
 
         // `UpdateIDTarget`: "If we're in deathcam, ID our killer" — and in chase.
-        return state.ObserverMode is ObserverModes.DeathCam or ObserverModes.Chase
+        return WithoutSecondary(state.ObserverMode is ObserverModes.DeathCam or ObserverModes.Chase
             && state.ObserverTarget != 0 && state.ObserverTarget != state.LocalIndex
             ? state.ObserverTarget
-            : 0;
+            : 0);
     }
 
     /// <inheritdoc/>
@@ -866,5 +876,91 @@ public sealed class TfMainTargetId : TfTargetId
 
     /// <summary>`CTargetID::CalculateTargetIndex` (:702): `GetIDTarget()` — <see cref="HudState.IdTarget"/>, the crosshair
     /// trace precomputed by whoever drives the world/entity trace (<see cref="IdTargetTrace"/>).</summary>
-    private protected override int CalculateTargetIndex(HudState state) => state.IdTarget ?? 0;
+    private protected override int CalculateTargetIndex(HudState state) => WithoutSecondary(state.IdTarget ?? 0);
+}
+
+/// <summary>`CSecondaryTargetID` (:1126): the local medic's heal target, or the medic healing the local player.</summary>
+/// <remarks>
+/// `ShouldDraw` (:1138) is `CTargetID`'s with no observer gate; its hiding of lower-priority "mid" elements waits for the
+/// render groups. `CalculateTargetIndex` (:1165): `MedicGetHealTarget()` first, then `GetHealer()` — which each medigun's
+/// `ClientThink` (tf_weapon_medigun.cpp:2273) sets on its heal target through `SetHealer` (c_tf_player.cpp:8852), keeping
+/// the highest charge.
+/// **Interpolated:** mediguns think in entity order here, so of two equal charges the later entity wins; the game's
+/// order is its client-think list's.
+/// </remarks>
+public sealed class TfSecondaryTargetId : TfTargetId
+{
+    private const int ClassMedicId = 5;
+    private string _prepend = string.Empty;
+
+    /// <summary>`CTargetID( "CSecondaryTargetID" )`.</summary>
+    /// <param name="viewport">The viewport.</param>
+    public TfSecondaryTargetId(VguiPanel viewport)
+        : base(viewport, "CSecondaryTargetID")
+    {
+    }
+
+    /// <inheritdoc/>
+    private protected override string Prepend => _prepend;
+
+    /// <summary>No gate of its own: `CSecondaryTargetID::ShouldDraw` calls `BaseClass::ShouldDraw()` directly.</summary>
+    private protected override bool ExtraShouldDrawGate(HudState state) => true;
+
+    /// <summary>`CSecondaryTargetID::CalculateTargetIndex` (:1165).</summary>
+    private protected override int CalculateTargetIndex(HudState state)
+    {
+        // "If we're a medic & we're healing someone, target him." `MedicGetHealTarget` (tf_player_shared.cpp:13021).
+        if (state.Player(state.LocalIndex) is { PlayerClass: ClassMedicId, ActiveMedigun: { HealTarget: { } healTarget } } && healTarget != 0)
+        {
+            if (healTarget != TargetIndex)
+            {
+                _prepend = Find("#TF_playerid_healtarget") ?? string.Empty;
+            }
+
+            return healTarget;
+        }
+
+        // "If we have a healer, target him."
+        if (Healer(state) is { } healer)
+        {
+            if (healer != TargetIndex)
+            {
+                _prepend = Find("#TF_playerid_healer") ?? string.Empty;
+            }
+
+            return healer;
+        }
+
+        if (TargetIndex != 0)
+        {
+            _prepend = string.Empty;
+        }
+
+        return 0;
+    }
+
+    /// <summary>`GetHealer()`: of the living medics whose medigun in hand heals the local player, the highest charge.</summary>
+    private static int? Healer(HudState state)
+    {
+        int? healer = null;
+        float healerCharge = 0f;
+
+        foreach (ScenePlayer medic in state.Players ?? [])
+        {
+            if (medic.ActiveMedigun is not { HealTarget: { } target, Charge: var charge } || target != state.LocalIndex || !medic.IsAlive)
+            {
+                continue;
+            }
+
+            // `SetHealer`: "if ( m_flHealerChargeLevel > flChargeLevel ) return;".
+            if (healer is not null && healerCharge > charge)
+            {
+                continue;
+            }
+
+            (healer, healerCharge) = (medic.EntityIndex, charge);
+        }
+
+        return healer;
+    }
 }
