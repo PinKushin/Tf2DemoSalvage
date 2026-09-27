@@ -363,10 +363,12 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// `SwitchHeldItemTo` (:517): the class again, wearables, the item, its slot, pose parameters.
     /// </summary>
     /// <remarks>
-    /// **Partly ported.** Missing: the StatTrak module (:550-616, a second bone merge onto the weapon, which
-    /// <see cref="VguiMdlPanel"/> cannot do yet); a taunt item's scene or sequence layer (:664-731, choreo and
-    /// <c>SetSequenceLayers</c> have no port); the action-slot and taunt particles (:747-764, see
-    /// <c>docs/HANDOFF-hud.md</c>). The yeti taunt (:528) is a taunt item and falls under the same gap.
+    /// **The taunt branch (:528-535, :664-731, and <c>UpdateTauntEffects</c> :1823) is not reachable from the HUD.**
+    /// `IsTauntItem` requires a taunt slot (:43). tf_hud_playerstatus.cpp:479-512 carries only the weapon entity in
+    /// the held slot and `C_TFWearable` entities; a taunt-slot item is never either, because the server gives it no
+    /// entity — `"no_entity"` items are skipped, and taunts "explicitly bail out there" (tf_player.cpp:4556-4577) — and
+    /// its prop is a separate `tf_taunt_prop` (tf_player.cpp:17531). So the yeti model, the scenes and
+    /// `SetSequenceLayers` never run for the class portrait.
     /// </remarks>
     private void SwitchHeldItemTo(TfItemView item)
     {
@@ -402,7 +404,44 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         {
             SetPoseParameterByName("r_hand_grip", 0f);
         }
+
+        // "Check for hand particles (spell book) — always nuke" (:754-764).
+        SafeDeleteParticleData(ref _particleSystems[(int)ParticleSlot.ActionSlot]);
+        _drawActionSlotEffects = string.Equals(schema.ItemClass(item.DefinitionIndex), "tf_weapon_spellbook", StringComparison.Ordinal);
+
+        // "update eyeglows" (:767).
+        _updateEyeGlows = true;
     }
+
+    /// <summary>`m_bDrawActionSlotEffects`.</summary>
+    private bool _drawActionSlotEffects;
+
+    /// <summary>`UpdateActionSlotEffects` (:1794-1820): a spellbook's hand effect at `effect_hand_R`.</summary>
+    private void UpdateActionSlotEffects(PropModels.ModelFrames studioHdr, BoneAccessor worldMatrix)
+    {
+        int attachment = FindAttachment(studioHdr, "effect_hand_R");
+
+        if (attachment == -1 || !_drawActionSlotEffects || HeldItem is not { } held)
+        {
+            return;
+        }
+
+        ref ParticleData? data = ref _particleSystems[(int)ParticleSlot.ActionSlot];
+
+        data ??= CreateParticleData(SpellBookHandEffect(held.DefinitionIndex, 0));
+        data?.UpdateControlPoints(studioHdr, worldMatrix, [attachment]);
+    }
+
+    /// <summary>`CTFSpellBook::GetHandEffect( pItem, iTier )` (tf_weapon_spellbook.cpp:828-858).</summary>
+    /// <param name="definitionIndex">The spellbook's definition.</param>
+    /// <param name="tier">The spell tier.</param>
+    /// <returns>The hand effect's system.</returns>
+    public static string SpellBookHandEffect(int definitionIndex, int tier) => definitionIndex switch
+    {
+        1069 => tier > 0 ? "spellbook_major_burning" : "spellbook_minor_burning",
+        5605 => "spellbook_rainbow",
+        _ => tier > 0 ? "spellbook_major_fire" : "spellbook_minor_fire",
+    };
 
     /// <summary>`m_StatTrackModel` (tf_playermodelpanel.h:218): disabled until a StatTrak weapon is held.</summary>
     public VguiMdl StatTrackModel { get; } = new() { Disabled = true };
@@ -989,6 +1028,10 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
 
         UpdateEyeGlows(studioHdr, worldMatrix, isRightEye: true);
         UpdateEyeGlows(studioHdr, worldMatrix, isRightEye: false);
+
+        // "Right hand" (:1420-1421). `UpdateTauntEffects` (:1424) draws only a taunt item's particle, which the HUD
+        // never carries: see the class remarks.
+        UpdateActionSlotEffects(studioHdr, worldMatrix);
     }
 
     /// <summary>`RenderingMergedModel` (:1459-1512): the merge model's item by slot, then its unusual effect.</summary>

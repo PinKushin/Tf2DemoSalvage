@@ -31,6 +31,7 @@ public sealed class TfPlayerModelPanelConformanceTests
                     "model_player" "models/player/items/scout/hat.mdl"
                     "visuals" { "use_per_class_bodygroups" "1" "player_bodygroups" { "hat" "1" } }
                 }
+                "1069" { "item_slot" "action" "act_as_weapon" "1" "item_class" "tf_weapon_spellbook" "used_by_classes" { "scout" "1" } "model_player" "models/weapons/w_pistol.mdl" }
                 "51" { "item_slot" "misc" "used_by_classes" { "scout" "1" } "visuals" { "skin" "3" } "model_player" "models/player/items/scout/hat.mdl" }
             }
             "attributes"
@@ -252,6 +253,25 @@ public sealed class TfPlayerModelPanelConformanceTests
         panel.ParticleSystemNames[0].ShouldBe("superrare_burning1", "SYSTEM_HEAD: a misc item matches the HEAD row first (:1439)");
     }
 
+    [Test]
+    public void UpdateActionSlotEffects_AHeldSpellbook_RunsItsHandEffect()
+    {
+        (TfPlayerModelPanel panel, _) = Panel(ScoutModel, Pistol);
+        GiveParticles(panel, "spellbook_minor_burning");
+
+        panel.SetToPlayerClass(1);
+        panel.AddCarriedItem(Item(1069));
+        panel.HoldItemInSlot(ItemSchema.LoadoutSlotAction).ShouldBeTrue();
+
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
+
+        // `m_bDrawActionSlotEffects` for a `tf_weapon_spellbook` (:761-764), then GetHandEffect's fancy book (:830-841).
+        panel.ParticleSystemNames[4].ShouldBe("spellbook_minor_burning", "SYSTEM_ACTIONSLOT");
+        TfPlayerModelPanel.SpellBookHandEffect(1069, 1).ShouldBe("spellbook_major_burning");
+        TfPlayerModelPanel.SpellBookHandEffect(5605, 0).ShouldBe("spellbook_rainbow");
+        TfPlayerModelPanel.SpellBookHandEffect(1070, 0).ShouldBe("spellbook_minor_fire");
+    }
+
     private const string StatTrak = "models/weapons/c_models/stattrack.mdl";
 
     [Test]
@@ -309,7 +329,11 @@ public sealed class TfPlayerModelPanelConformanceTests
             }
 
             IReadOnlyList<StudioAttachment>? attachments = path == ScoutModel
-                ? [new StudioAttachment("eyeglow_R", 0u, 0, [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 64f])]
+                ?
+                [
+                    new StudioAttachment("eyeglow_R", 0u, 0, [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 64f]),
+                    new StudioAttachment("effect_hand_R", 0u, 0, [1f, 0f, 0f, 10f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 30f]),
+                ]
                 : null;
 
             // One bone, `bip_head`, so an attachment and a particle's default bone have something to hang from.

@@ -87,11 +87,9 @@ Plan, bottom layer first:
    - Step 1's code has no production caller yet, so the branch stays unmerged until a panel paints (D180).
 3. ~~**`CBaseModelPanel`**~~ — done (below).
 4. **`CTFPlayerModelPanel`** — dressing done (`TfPlayerModelPanel`, wired in `TfHudPlayerClass.UpdateModelPanel`).
-   Open: particles (`SetEyeGlowEffect` :1860, `UpdateEyeGlows` :1718, `UpdateCosmeticParticles` :1584, action-slot
-   and taunt effects) — the world's `Scene/ParticleEffects.cs` is entity-keyed and drawn with the world camera, and
-   `VguiModelDraw` carries models only, so a panel needs that carriage plus `attribute_controlled_attached_particles`
-   and `C_TFPlayer::UpdateKillStreakEffects` (c_tf_player.cpp:10414) for the eye-glow inputs. Also open: StatTrak
-   (:550-616, :1539), taunt scenes/sequence layers (:664-731), `style changes on strange level` (econ_item_view.cpp:747).
+   Eye glows, unusual effects, the spellbook hand effect and StatTrak are ported too. The taunt branch is
+   unreachable from the HUD (proof on `TfPlayerModelPanel.SwitchHeldItemTo`). Still open, outside the panel:
+   world players' `BRenderAsZombie` skin (c_tf_player.cpp:725), and `FireEvent`/flex/`GetOverrideMaterial` below.
 5. **`CTFHudPlayerClass`**: `OnThink` (tf_hud_playerstatus.cpp:184) and its 2D fallback.
 
 ### Steps 2 and 3, done 2026-09-27
