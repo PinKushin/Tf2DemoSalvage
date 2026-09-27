@@ -61,11 +61,30 @@ panel's rectangle, clears depth (colour too only for a render texture), sets the
 (game_controls/basemodel_panel.cpp) → `CTFPlayerModelPanel` (tf/vgui/tf_playermodelpanel.cpp, 2992 lines).
 
 Plan, bottom layer first:
-1. **Render**: a model-draw record in `VguiDrawList`, kept in paint order among the quads; `VguiRenderer` splits its
-   runs at it; `Device3D` draws the record's `ModelInstance`s with its camera into the panel rectangle (viewport and
-   scissor, depth cleared there). Today nothing renders into a sub-rectangle.
+1. ~~**Render**~~ — done (`5a8f3004`): `IVguiSurface.Paint3D` → `VguiModelDraw` in paint order, `VguiRenderer.Steps`,
+   `Device3D.DrawPanelModels`. `Begin3DPaint` (vguimatsurface 0x180008db0) is the whole panel, unclipped, no scissor.
 2. **`CPotteryWheelPanel`/`CMDLPanel`**: camera (origin, angles, `fov`), lighting state, the model's pose at a
-   sequence and cycle.
+   sequence and cycle. What is known so far:
+   - Camera (potterywheelpanel.cpp:225-265): `m_flZNear` 3, `m_flZFar` 16384·√3, `m_flFOV` 30 until the `.res` says.
+     `ComputeViewMatrix`/`ComputeProjectionMatrix` are tier2 (`camerautils.h`), closed, linked into `client.dll` —
+     import started into `D:\ghidra-proj\tf2client` (`import-client.bat`, pmux `ghidra-import-client`) to settle
+     whether the projection is `MatrixBuildPerspectiveX( fov, w / h, near, far )` (fov horizontal, as `LookAt` treats
+     it). `FreeCamera.ToMatrix` already builds that shape.
+   - Lights (`CreateDefaultLights`, :316): ambient cube 0.4 on all six faces, one white directional light down
+     (0, 0, −1) — maps onto `ModelInstance.Light` (`AmbientCube`) and `ModelInstance.Sun` (`SunLight`), so no renderer
+     change. `SetupRenderState` (:723-731) transforms every light into `pDesc[0]` (`pDesc->m_Position`), a Valve bug
+     that only matters with more than one light. A `.res` `lights` block overrides (`ParseLightsFromKV`, :271).
+   - Cycle (`CMDLPanel::OnTick`, mdlpanel.cpp:638): `m_flTime = GetAutoPlayTime() - m_flCycleStartTime`, real time.
+     Draw (`OnPaint3D`, :415): root `SetUpBones`, then each merge model `SetupBonesWithBoneMerge` onto it; the default
+     env cubemap is bound for reflections.
+   - Our pieces (mapped 2026-09-27): posing is `SkeletonPose` + `AnimatingEntity.SetupBones`
+     (Animation/Animating/AnimatingEntity.cs:147), built per entity in `EntityModelSet.EntityFor`
+     (Scene/EntityModels.cs:1462) — keyed by entity index, so a panel needs its own keyed entry, not a fake index;
+     bone merge is `AnimatingEntity.Follows` (:88); sequence by activity is `SkinnedModel.SequenceWithActivity`
+     (Scene/PropModels.cs:2444); skin is `EntityModelSet.SkinSwap` (:4500); a model loads with
+     `EntityModelSet.Precache` (:4929) and reaches the GPU only through `Device3D.UploadModels` (Render/Device3D.cs:262)
+     — check when MainForm calls it, since a panel's model may be first asked for mid-demo.
+   - Step 1's code has no production caller yet, so the branch stays unmerged until a panel paints (D180).
 3. **`CBaseModelPanel`**: `ApplySettings`/`ParseModelResInfo` (the `.res` `model` block), animations.
 4. **`CTFPlayerModelPanel`**: class model, team skin, carried weapon and wearables, `HoldItemInSlot`, eye glow;
    `customclassdata` per class.
