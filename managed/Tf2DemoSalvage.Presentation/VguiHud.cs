@@ -26,10 +26,11 @@ public sealed class VguiHud
 
     /// <summary>The viewport, and every element `DECLARE_HUDELEMENT` makes at `CHud::Init`, before the layout is read.</summary>
     /// <param name="host">The surface the HUD shares with the other roots.</param>
-    public VguiHud(VguiSurfaceHost host)
+    /// <param name="mdlCache">`vgui::MDLCache()` — the viewer's model set — for the model panels.</param>
+    public VguiHud(VguiSurfaceHost host, IMdlCache mdlCache)
     {
         _host = host ?? throw new System.ArgumentNullException(nameof(host));
-        PlayerStatus = new TfHudPlayerStatus(Viewport);
+        PlayerStatus = new TfHudPlayerStatus(Viewport, mdlCache);
         WeaponAmmo = new TfHudWeaponAmmo(Viewport);
         DeathNotice = new TfHudDeathNotice(Viewport);
 
@@ -118,6 +119,9 @@ public sealed class VguiHud
     {
         // `system()->GetCurrentTime()`, which a `RichText` fades on.
         VguiRichText.HudClock = state.RealTime;
+
+        // `CMDLPanel::GetAutoPlayTime()` — the model panel's cycle clock is real time too (mdlpanel.cpp:638).
+        PlayerStatus.PlayerClass.PlayerModelPanel.RealTimeSeconds = state.RealTime;
 
         if (_context is null || !ReferenceEquals(_context.Surface, _host.List))
         {

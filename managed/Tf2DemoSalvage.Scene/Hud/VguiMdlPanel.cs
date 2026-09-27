@@ -26,6 +26,9 @@ public sealed class VguiMdl
 
     /// <summary><c>m_bDisabled</c> (merge models only, mdlpanel.cpp:481).</summary>
     public bool Disabled { get; set; }
+
+    /// <summary>The <c>ItemTintColor</c> proxy's colour from <c>m_pProxyData</c>, the item it draws (mdlpanel.cpp:845), or null.</summary>
+    public (float Red, float Green, float Blue)? Paint { get; set; }
 }
 
 /// <summary>
@@ -125,7 +128,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
     /// <summary>The model paths this panel needs precached, root first.</summary>
     /// <returns>The root's path, then each merge model's.</returns>
-    public IEnumerable<string> ModelsToPrecache()
+    public virtual IEnumerable<string> ModelsToPrecache()
     {
         if (_root.Path is { Length: > 0 } root)
         {
@@ -425,6 +428,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             SkinSwap: skinSwap,
             BodyParts: frames.BodyParts,
             Body: mdl.Body,
+            Paint: mdl.Paint,
             Locals: Locals);
     }
 

@@ -951,7 +951,7 @@ public sealed class VguiModelPanelConformanceTests
     private static KeyValuesTree Resource(string body) =>
         KeyValuesTree.Load(Encoding.UTF8.GetBytes("Resource\n{\n" + body + "\n}"), "test.res", _ => null);
 
-    private static VguiContext Context()
+    internal static VguiContext Context()
     {
         KeyValuesTree scheme = KeyValuesTree.Load(
             Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
@@ -961,7 +961,7 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     /// <summary>Every <see cref="IVguiSurface"/> member no-op except <see cref="IVguiSurface.Paint3D"/>, which records.</summary>
-    private sealed class RecordingModelSurface : IVguiSurface
+    internal sealed class RecordingModelSurface : IVguiSurface
     {
         public List<(int Left, int Top, int Right, int Bottom, float[] Camera, IReadOnlyList<ModelInstance> Models)> Draws { get; } = [];
 

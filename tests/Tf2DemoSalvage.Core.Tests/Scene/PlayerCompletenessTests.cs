@@ -209,6 +209,7 @@ public sealed class PlayerCompletenessTests
         InvisChangeCompleteTime = 5.5f,
         CloakMeter = 42f,
         DisguiseWeapon = 31,
+        DisguiseWeaponItem = new SceneItem(31, "CTFRevolver", 24, new EconAttributeWire([], [], HasValidItemId: true), IsWeapon: true) { Quality = 6 },
         Velocity = (1f, 2f, 3f),
         WeaponAccountId = 1234u,
         WeaponQuality = 6,

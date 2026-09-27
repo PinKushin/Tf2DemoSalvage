@@ -457,16 +457,7 @@ public class VguiBaseModelPanel : VguiMdlPanel
 
         if (animation.Activity is { Length: > 0 } activity)
         {
-            IReadOnlyList<StudioSequence> rootSequences = model.Groups.Count > 0 ? model.Groups[0].Sequences : [];
-
-            for (int index = 0; index < rootSequences.Count; index++)
-            {
-                if (string.Equals(rootSequences[index].Activity, activity, StringComparison.OrdinalIgnoreCase))
-                {
-                    found = index;
-                    break;
-                }
-            }
+            found = FindSequenceFromActivity(model, activity);
         }
         else if (animation.Sequence is { Length: > 0 } sequenceLabel)
         {
@@ -479,6 +470,28 @@ public class VguiBaseModelPanel : VguiMdlPanel
         }
 
         SetSequence(found, resetSequence: true);
+    }
+
+    /// <summary><c>CBaseModelPanel::FindSequenceFromActivity</c> (basemodel_panel.cpp:229-244): the first sequence whose
+    /// activity name matches, case ignored, or −1 (<c>ACT_INVALID</c>).</summary>
+    /// <param name="model">The root model.</param>
+    /// <param name="activity">The activity name.</param>
+    /// <returns>The sequence, or −1.</returns>
+    protected static int FindSequenceFromActivity(PropModels.SkinnedModel model, string? activity)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        IReadOnlyList<StudioSequence> rootSequences = model.Groups.Count > 0 ? model.Groups[0].Sequences : [];
+
+        for (int index = 0; activity is not null && index < rootSequences.Count; index++)
+        {
+            if (string.Equals(rootSequences[index].Activity, activity, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>

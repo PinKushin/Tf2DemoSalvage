@@ -424,6 +424,9 @@ internal class MainForm : Form, IFrameSteps
     // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
     private readonly EntityModelSet _models;
 
+    /// <summary>The class model panel's model set last handed to <see cref="EntityModelSet.Precache"/>.</summary>
+    private string? _panelModelsPrecached;
+
     // `_weapons` was here until the load set stopped asking the window for it. The form held a
     // second reference to `GameContent.Weapons` so `DemoModelPaths` could reach it — and keeping the
     // two in step was the reason both were assigned in one block. `DemoModels` reads it off the
@@ -7131,7 +7134,7 @@ internal class MainForm : Form, IFrameSteps
             path => HudArchives()?.FullPathOnDisk(path),
             _gdi,
             material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0));
-        _vguiHud ??= new VguiHud(_vguiHost);
+        _vguiHud ??= new VguiHud(_vguiHost, _models);
         _vguiTools ??= new VguiTools(_vguiHost);
 
         if (_device is { } device && !ReferenceEquals(device, _vguiResolverDevice))
@@ -7168,6 +7171,18 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _vguiHud.Viewport.Scripts = _hudScripts;
+        _vguiHud.Viewport.ClassModels = _game.Classes;
+
+        // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
+        // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is passed: `Precache` re-reads
+        // a model that failed to load, which must not happen sixty times a second.
+        string panelModels = string.Join('\n', _vguiHud.PlayerStatus.PlayerClass.PlayerModelPanel.ModelsToPrecache());
+
+        if (!string.Equals(panelModels, _panelModelsPrecached, StringComparison.Ordinal))
+        {
+            _panelModelsPrecached = panelModels;
+            _models.Precache(panelModels.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
         _vguiHud.Crosshair.Settings = _settings.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;

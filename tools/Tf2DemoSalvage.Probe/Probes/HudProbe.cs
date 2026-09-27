@@ -66,7 +66,7 @@ public sealed class HudProbe : IProbe
 
         output.WriteLine($"state: {state}");
         VguiSurfaceHost host = new(archives.Read, archives.FullPathOnDisk, new NoFonts(), _ => (64, 64));
-        VguiHud hud = new(host);
+        VguiHud hud = new(host, new EntityModelSet());
 
         hud.Viewport.Scripts = new TfWeaponData(archives.Read);
 

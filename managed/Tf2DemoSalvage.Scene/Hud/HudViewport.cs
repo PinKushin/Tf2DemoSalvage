@@ -325,6 +325,9 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>`GetItemSchema()`: `items_game.txt`, for an item's per-class slot and rarity color; null where none is open.</summary>
     public Content.Assets.ItemSchema? Items { get; set; }
 
+    /// <summary>`GetPlayerClassData( class )->GetModelName()` (tf_playermodelpanel.cpp:225): the class scripts' models; null where no install is open.</summary>
+    public Content.Assets.PlayerClassModels? ClassModels { get; set; }
+
     /// <summary>The weapon and class scripts, for what a weapon's script tells the HUD; null where no install is open.</summary>
     public TfWeaponData? Scripts { get; set; }
 

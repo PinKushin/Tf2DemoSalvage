@@ -21,4 +21,18 @@ public sealed class ScenePlayerClassHudTests
         player.WeaponQuality.ShouldBe(11);
         player.HasTheFlag.ShouldBeTrue("m_hItem names entity 31, a CCaptureFlag");
     }
+
+    [Test]
+    public void PlayersAt_ADisguiseWeaponHandle_CarriesThatWeaponsItem()
+    {
+        // `GetDisguiseWeapon()->GetAttributeContainer()->GetItem()` (tf_hud_playerstatus.cpp:459): the handle names weapon 30.
+        ScenePlayer player = DemoTimeline.Build(SyntheticPlayer.DemoWithPlayerClassHud(
+                invisChangeCompleteTime: 0f, cloakMeter: 0f, disguiseWeapon: 30, velocity: (0f, 0f, 0f), accountId: 1u, quality: 11))
+            .PlayersAt(100).ShouldHaveSingleItem();
+
+        SceneItem item = player.DisguiseWeaponItem.ShouldNotBeNull();
+        item.EntityIndex.ShouldBe(30);
+        item.DefinitionIndex.ShouldBe(13);
+        item.Quality.ShouldBe(11);
+    }
 }
