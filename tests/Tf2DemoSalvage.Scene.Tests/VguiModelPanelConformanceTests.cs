@@ -529,6 +529,11 @@ public sealed class VguiModelPanelConformanceTests
 
         panel.MergeModels.Add("models/weapons/c_models/c_stickybomb_launcher.mdl");
 
+        // Move the ROOT away from the origin (m_RootMDL.m_MDLToWorld, mdlpanel.cpp:233-237). With both models left
+        // at identity, an unmerged weapon bone also sits at the origin and equals the root's by coincidence, so the
+        // comparison below could not fail — measured: removing `Follows` left this test green before this line.
+        panel.SetModelAnglesAndPosition((0f, 0f, 0f), (500f, 0f, 0f));
+
         RecordingModelSurface surface = new();
 
         panel.Paint(surface, Context());
@@ -536,6 +541,7 @@ public sealed class VguiModelPanelConformanceTests
         float[] rootBone = surface.Draws[0].Models[0].Bones![0];
         float[] mergeBone = surface.Draws[0].Models[1].Bones![0];
 
+        rootBone[3].ShouldBe(500f, 0.001f);
         mergeBone.ShouldBe(rootBone);
     }
 
