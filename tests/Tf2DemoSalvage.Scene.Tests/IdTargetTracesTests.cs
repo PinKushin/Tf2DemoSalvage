@@ -66,21 +66,19 @@ public sealed class IdTargetTracesTests
         Traces(worldFraction: 1f, withSentry: true, sentryBottom: 50f).Solid(Start, End, 0).Entity.ShouldBe(2);
 
     [Test]
-    public void Solid_AnEntitySpaceBoxTurnedNinetyDegrees_IsMetOnItsTurnedExtent()
+    public void Solid_AVphysicsWeapon_IsClippedAgainstItsHullNotItsBox()
     {
-        // A dropped weapon's box, 60 long on its own X, yawed 90° at x 40: in the world it is 8 deep on X (36..44) and 60
-        // wide on Y. A ray 20 off the axis meets it only because it is turned; unturned it would be 8 wide on Y and missed.
-        IdTargetBox weapon = new(60, 0, new Vector3(-30f, -4f, -2f), new Vector3(30f, 4f, 6f), new Vector3(40f, 20f, 40f), new Vector3(0f, 90f, 0f));
+        // The hull is the one-ledge box at x 100 yawed 90° (±9.84 along world x); the bounding box sits elsewhere entirely.
+        StaticPropCollision hull = StaticPropCollision.From(
+            [new Content.Bsp.BspStaticProp("models/w.mdl", 100f, 0f, 40f, 0f, 90f, 0f, 1f, Solid: 6)],
+            _ => StaticPropCollisionConformanceTests.Collide(),
+            _ => -1);
+        IdTargetBox weapon = new(60, 0, new Vector3(500f, 500f, 500f), new Vector3(510f, 510f, 510f), hull);
         IdTargetTraces traces = new([], new Dictionary<int, int>(), (_, _) => 1f, (_, _, _) => null, [weapon]);
 
-        IdTraceHit hit = traces.Solid(new Vector3(0f, 0f, 40f), new Vector3(100f, 0f, 40f), 0);
-
-        (hit.Entity, hit.IsPlayer).ShouldBe((60, false));
-        traces.Solid(new Vector3(0f, 0f, 40f), new Vector3(100f, 0f, 40f), 60).Entity.ShouldBeNull();
-
-        IdTargetTraces unturned = new([], new Dictionary<int, int>(), (_, _) => 1f, (_, _, _) => null, [weapon with { Angles = Vector3.Zero }]);
-
-        unturned.Solid(new Vector3(0f, 0f, 40f), new Vector3(100f, 0f, 40f), 0).Entity.ShouldBeNull("unturned, 8 wide on Y, 20 off the ray");
+        (traces.Solid(new Vector3(0f, 0f, 40f), new Vector3(200f, 0f, 40f), 0).Entity).ShouldBe(60);
+        traces.Solid(new Vector3(0f, 12f, 40f), new Vector3(200f, 12f, 40f), 0).Entity.ShouldBe(60, "39.37 wide along y once yawed");
+        traces.Solid(new Vector3(0f, 45f, 40f), new Vector3(200f, 45f, 40f), 0).Entity.ShouldBeNull("past the hull");
     }
 
     private static IdTargetTraces Traces(float worldFraction, System.Func<int, float?>? hitboxes = null, bool withSentry = false, float sentryBottom = 0f) =>

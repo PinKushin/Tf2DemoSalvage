@@ -6362,6 +6362,12 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`FL_DUCKING`.</summary>
     private const int Ducking = 1 << 1;
 
+    /// <summary>`SOLID_VPHYSICS`.</summary>
+    private const int SolidVphysics = 6;
+
+    /// <summary>Each dropped weapon model's collide, read once.</summary>
+    private readonly Dictionary<string, Tf2DemoSalvage.Animation.Animating.IvpStaticPropCollide?> _modelCollides = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>`C_TFPlayer::GetIDTarget()` for the local player this frame — <see cref="IdTargetTrace"/> from the view.</summary>
     /// <remarks>
     /// Traced only where `CMainTargetID` can draw: a point-of-view demo's living recorder outside any observer mode. The
@@ -6405,23 +6411,36 @@ internal class MainForm : Form, IFrameSteps
             }
         }
 
-        // A revive marker's `SOLID_BBOX`, world-aligned; a dropped weapon's box in entity space (`IsBoundsDefinedInEntitySpace`).
-        // ponytail: a dropped weapon is `SOLID_VPHYSICS`, which the engine clips against its model's .phy hull
-        // (`ClipRayToCollideable`); its collision box stands in — StaticPropCollision over that hull is the upgrade.
+        // A `SOLID_BBOX` — a revive marker, or a dropped weapon whose `VPhysicsInitNormal` failed (tf_dropped_weapon.cpp:113-116)
+        // — is its box, world-aligned; a `SOLID_VPHYSICS` weapon its model's collide, placed (`ClipRayToCollideable`).
         foreach (Core.Scene.SceneIdEntity entity in timeline.IdEntitiesAt(tick))
         {
             if (entity is { IsSolid: true, Position: { } at, Mins: { } mins, Maxs: { } maxs })
             {
-                bool entitySpace = entity.Kind == Core.Scene.SceneIdEntityKind.DroppedWeapon;
                 Vector3 origin = new(at.X, at.Y, at.Z);
-                Vector3 low = new(mins.X, mins.Y, mins.Z);
-                Vector3 high = new(maxs.X, maxs.Y, maxs.Z);
+                StaticPropCollision? hull = null;
 
-                Vector3 rotation = entity.Angles is { } angles ? new Vector3(angles.Pitch, angles.Yaw, angles.Roll) : Vector3.Zero;
+                if (entity is { SolidType: SolidVphysics, Model: { } model } && _game is { } game)
+                {
+                    (float pitch, float yaw, float roll) = entity.Angles ?? (0f, 0f, 0f);
 
-                boxes.Add(entitySpace
-                    ? new IdTargetBox(entity.EntityIndex, entity.Team ?? 0, low, high, origin, rotation)
-                    : new IdTargetBox(entity.EntityIndex, entity.Team ?? 0, origin + low, origin + high));
+                    hull = StaticPropCollision.From(
+                        [new BspStaticProp(model, at.X, at.Y, at.Z, pitch, yaw, roll, 1f, Solid: SolidVphysics)],
+                        path =>
+                        {
+                            if (!_modelCollides.TryGetValue(path, out Tf2DemoSalvage.Animation.Animating.IvpStaticPropCollide? known))
+                            {
+                                known = IvpMapWorld.ModelCollide(path, game, _mapLog);
+                                _modelCollides[path] = known;
+                            }
+
+                            return known;
+                        },
+                        _ => -1);
+                }
+
+                boxes.Add(new IdTargetBox(
+                    entity.EntityIndex, entity.Team ?? 0, origin + new Vector3(mins.X, mins.Y, mins.Z), origin + new Vector3(maxs.X, maxs.Y, maxs.Z), hull));
             }
         }
 

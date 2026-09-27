@@ -105,7 +105,8 @@ public sealed class StaticPropCollisionConformanceTests
     private static BspStaticProp Prop(float yaw) =>
         new("models/props/box.mdl", 100f, 0f, 0f, 0f, yaw, 0f, 1f, Solid: 6);
 
-    private static IvpStaticPropCollide Collide(Vector3? unused = null)
+    /// <summary>The fixture's one-ledge box: ±39.37 by ±9.84 by ±3.94 inches in Source.</summary>
+    internal static IvpStaticPropCollide Collide(Vector3? unused = null)
     {
         List<Vector3> points = [];
 

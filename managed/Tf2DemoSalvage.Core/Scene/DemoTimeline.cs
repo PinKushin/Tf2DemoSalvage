@@ -1016,7 +1016,7 @@ public sealed class DemoTimeline
     /// Every dropped weapon and revive marker — the entities whose `IsVisibleToTargetID` can answer true
     /// (tf_dropped_weapon.cpp:473, tf_revive.h:58); null when there is none, which costs no allocation.
     /// </summary>
-    private static List<SceneIdEntity>? IdEntities(EntityStateTable entities)
+    private static List<SceneIdEntity>? IdEntities(EntityStateTable entities, Func<int, string?> modelPath)
     {
         List<SceneIdEntity>? found = null;
 
@@ -1024,6 +1024,8 @@ public sealed class DemoTimeline
         {
             (found ??= []).Add(IdEntity(weapon, SceneIdEntityKind.DroppedWeapon) with
             {
+                // `SetModel` (tf_dropped_weapon.cpp:98): `VPhysicsInitNormal` (:113) collides as this model's .phy.
+                Model = weapon.ModelIndex() is { } index ? modelPath(index) : null,
                 ItemValid = weapon.Integer("DT_ScriptCreatedItem.m_bInitialized") is > 0,
                 ItemDefinition = weapon.ItemDefinitionIndex(),
                 ItemQuality = weapon.Integer("DT_ScriptCreatedItem.m_iEntityQuality") ?? 0,
@@ -3333,7 +3335,7 @@ public sealed class DemoTimeline
             IReadOnlyList<SceneBuilding>? buildings = Buildings(entities);
             IReadOnlyList<SceneTeam>? teams = Teams(entities);
             IReadOnlyList<SceneScoreboardPlayer>? scoreboardPlayers = ScoreboardPlayers(entities);
-            IReadOnlyList<SceneIdEntity>? idEntities = IdEntities(entities);
+            IReadOnlyList<SceneIdEntity>? idEntities = IdEntities(entities, index => precache.Path(ModelPrecache.Unpack(index, protocol)));
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {

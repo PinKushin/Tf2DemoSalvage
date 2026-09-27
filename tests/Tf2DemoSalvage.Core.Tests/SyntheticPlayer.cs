@@ -943,6 +943,7 @@ internal static class SyntheticPlayer
     /// and a robot destruction logic — every field the target ID's generic branch reads, set to a distinctive value.
     /// </summary>
     /// <returns>A demo's bytes.</returns>
+    /// <remarks>The dropped weapon's model, index 2 in the model precache.</remarks>
     public static byte[] DemoWithIdEntities()
     {
         const int WeaponClassId = 1;
@@ -1005,6 +1006,7 @@ internal static class SyntheticPlayer
             }),
             Entity(decoder, WeaponClassId, 60, new Dictionary<string, PropertyValue>
             {
+                ["m_nModelIndex"] = PropertyValue.FromInt(2),
                 ["m_iItemDefinitionIndex"] = PropertyValue.FromInt(211),
                 ["m_iEntityQuality"] = PropertyValue.FromInt(11),
                 ["m_iAccountID"] = PropertyValue.FromInt(123456789),
@@ -1048,7 +1050,11 @@ internal static class SyntheticPlayer
 
         return SyntheticDemo.From(
             SyntheticDemo.DefaultProtocol,
-            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                ServerInfo(),
+                SyntheticDemo.StringTable(ModelPrecache.TableName, [string.Empty, "models/a.mdl", DroppedWeaponModel], maxEntries: 8)),
             SyntheticDemo.DataTables(schema),
             SyntheticDemo.Packet(
                 SyntheticDemo.DefaultProtocol,
@@ -1063,6 +1069,9 @@ internal static class SyntheticPlayer
                     UpdateBaseline: false,
                     Body: body)));
     }
+
+    /// <summary>The model <see cref="DemoWithIdEntities"/>'s dropped weapon names.</summary>
+    public const string DroppedWeaponModel = "models/weapons/w_models/w_shotgun.mdl";
 
     /// <summary>A decoder over the default schema, which the encoder also needs.</summary>
     public static EntityDecoder Decoder()

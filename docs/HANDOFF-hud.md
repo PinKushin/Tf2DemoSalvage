@@ -246,8 +246,7 @@ gates.
    GetBestVisualTeamData for attached models (:1034), strange-level styles (econ_item_view.cpp:747-776), eye glow and
    unusual particles (:1584-1889), StatTrak (:550-616, :1539), taunt branch (:664-731).
 2. Target ID generic targets — done: dropped weapons and revive markers decoded, traced and shown. The flag's branch
-   cannot run: `FSOLID_NOT_SOLID` (entity_capture_flag.cpp:607). Open: a dropped weapon's trace uses its entity-space
-   collision box, not the `.phy` hull `SOLID_VPHYSICS` clips against.
+   cannot run: `FSOLID_NOT_SOLID` (entity_capture_flag.cpp:607). A dropped weapon is traced against its model's `.phy`.
 3. `CTFMinigameLogic` refusal in TfHudPlayerStatus.ShouldDraw (tf_hud_playerstatus.cpp:1087).
 4. `localplayer_pickup_weapon`: done — `PlayerPickupWeapon` is kept by name and fired to TfHudPlayerClass. Its other
    listener, the item effect meter (tf_hud_itemeffectmeter.cpp:128), is not ported.
