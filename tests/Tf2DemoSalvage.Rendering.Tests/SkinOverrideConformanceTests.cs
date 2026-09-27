@@ -83,9 +83,12 @@ public sealed class SkinOverrideConformanceTests
         Scene.Hud.TfPlayerModelPanel.AdjustSkinIndexForZombie(3, 0).ShouldBe(4, "a RED soldier");
         Scene.Hud.TfPlayerModelPanel.AdjustSkinIndexForZombie(6, 1).ShouldBe(5, "a BLU heavy");
 
-        Assert.Ignore(
-            "world players do not apply it yet: c_tf_player.cpp:725 gates it on BRenderAsZombie(), which is not " +
-            "ported, so Halloween players draw in their ordinary team skin in the world.");
+        // And world players, through `BRenderAsZombie` (c_tf_player.cpp:7751) in `Disguise.VisibleSkin`.
+        player.ShouldContain("if ( BRenderAsZombie() )");
+        Scene.Disguise.VisibleSkin(
+                new ScenePlayer(1, 0f, 0f, 0f, Team: SceneTeams.Blu, Health: 100, PlayerClass: 6) { PlayerSkinOverride = 1 },
+                viewerHalloweenVision: true)
+            .ShouldBe(5);
     }
 
     [Test]

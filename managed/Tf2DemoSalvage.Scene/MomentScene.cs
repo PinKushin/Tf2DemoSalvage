@@ -351,7 +351,13 @@ public sealed class MomentScene : IGameSystemPerFrame
         // mask is a bodygroup named `spyMask` whose index differs per model, so the rule
         // (`Disguise.WearsMask`) and the arithmetic (`WithBodygroup`) meet here — the same shape as
         // `Appearance`, which the player prop already asks for its model and weapon suffix.
-        PlayerProps.Add(players, _drawn, Appearance, _models);
+        // `GetVisionFilterFlags` of the local player (c_tf_player.cpp:8028-8105): what the recorder's gear opts into,
+        // plus Halloween while the holiday is active. Asked before the players join, of the gear already listed.
+        int viewerFlags = VisionVisibility.ViewerFlags(_drawn, info.Recorder, VisionGrantedBy) | info.HolidayVisionFlags;
+
+        PlayerProps.Add(
+            players, _drawn, Appearance, _models,
+            (viewerFlags & VisionVisibility.HalloweenFlag) == VisionVisibility.HalloweenFlag);
 
         // **The engine does not draw the player whose eyes you are using**, and cosmetics merge onto
         // their wearer's bones, so the hat goes with them. Without this the first-person view is the
@@ -416,7 +422,7 @@ public sealed class MomentScene : IGameSystemPerFrame
                 _drawn,
                 VisionVisibility.Visible(
                     _drawn,
-                    VisionVisibility.ViewerFlags(_drawn, info.Recorder, VisionGrantedBy),
+                    viewerFlags,
                     vision.VisionFilterFlagsFor));
         }
 

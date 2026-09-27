@@ -296,6 +296,12 @@ public readonly record struct ScenePlayer(
     /// <summary>The item <see cref="DisguiseWeapon"/> is, or null for none or unsent.</summary>
     public SceneItem? DisguiseWeaponItem { get; init; }
 
+    /// <summary>`GetSkinOverride()`: `m_iPlayerSkinOverride` (c_tf_player.cpp:3833), 1 for a zombie; null when unsent.</summary>
+    public int? PlayerSkinOverride { get; init; }
+
+    /// <summary>`GetDisguisedSkinOverride()`: `m_Shared.m_nDisguiseSkinOverride` (tf_player_shared.cpp:579).</summary>
+    public int? DisguiseSkinOverride { get; init; }
+
     /// <summary>`m_Shared.m_iDecapitations` (tf_player_shared.cpp:558, sent to everyone): the Eyelander's heads, or null.</summary>
     public int? Decapitations { get; init; }
 
@@ -624,6 +630,9 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// 12v12 (7) sets `MATCH_TYPE_CASUAL` (`tf_match_description_casual.cpp:54`).
     /// </summary>
     public bool IsMatchTypeCompetitive => MatchGroup is 2 or 8;
+
+    /// <summary>`IsHolidayMap( n )`: `m_nMapHolidayType` (tf_gamerules.h:595), 0 (`kHoliday_None`) when unsent.</summary>
+    public int MapHolidayType { get; init; }
 }
 
 /// <summary>One corpse, as <c>DT_TFRagdoll</c> describes it.</summary>
@@ -3170,6 +3179,8 @@ public sealed class DemoTimeline
                     DisguiseWeapon = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseWeapon")),
                     DisguiseWeaponItem = DisguiseWeaponItem(player, entities),
                     Decapitations = player.Integer("DT_TFPlayerShared.m_iDecapitations"),
+                    PlayerSkinOverride = player.Integer("DT_TFPlayer.m_iPlayerSkinOverride"),
+                    DisguiseSkinOverride = player.Integer("DT_TFPlayerShared.m_nDisguiseSkinOverride"),
                     Velocity = player.Number("DT_LocalPlayerExclusive.m_vecVelocity[0]") is { } velocityX
                         ? (velocityX,
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,
@@ -3232,6 +3243,7 @@ public sealed class DemoTimeline
                 TimerToShowInHud = entities.OfClass(ObjectiveResourceClass).FirstOrDefault()?.Integer("DT_BaseTeamObjectiveResource.m_iTimerToShowInHUD") ?? 0,
                 InTraining = gameRules?.Integer("DT_TFGameRules.m_bIsInTraining") is > 0,
                 WinningTeam = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_iWinningTeam"),
+                MapHolidayType = gameRules?.Integer("DT_TFGameRules.m_nMapHolidayType") ?? 0,
             };
 
             int? serverTick = entities.PacketTick > 0 ? entities.PacketTick : null;

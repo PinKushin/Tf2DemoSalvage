@@ -24,6 +24,7 @@ namespace Tf2DemoSalvage.Scene;
 /// The player the demo was recorded from, whose vision filters decide which items are drawn at all
 /// (B354). Null is a SourceTV recording, whose viewer is a spectator carrying nothing.
 /// </param>
+/// <param name="HolidayVisionFlags">`TF_VISION_FILTER_HALLOWEEN` while Halloween or a full moon is active, else 0.</param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -88,7 +89,10 @@ public readonly record struct MomentInfo(
     // Null is a SourceTV recording, whose viewer is a spectator carrying nothing, and that is a
     // real answer rather than a missing one: a live spectator sees no Pyroland either, because
     // `tf_spectate_pyrovision` defaults to 0.
-    int? Recorder = null)
+    int? Recorder = null,
+
+    // The holiday half of the recorder's vision filter flags (c_tf_player.cpp:8090-8095).
+    int HolidayVisionFlags = 0)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

@@ -210,6 +210,8 @@ public sealed class PlayerCompletenessTests
         CloakMeter = 42f,
         DisguiseWeapon = 31,
         Decapitations = 3,
+        PlayerSkinOverride = 1,
+        DisguiseSkinOverride = 1,
         DisguiseWeaponItem = new SceneItem(31, "CTFRevolver", 24, new EconAttributeWire([], [], HasValidItemId: true), IsWeapon: true) { Quality = 6 },
         Velocity = (1f, 2f, 3f),
         WeaponAccountId = 1234u,
