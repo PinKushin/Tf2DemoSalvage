@@ -481,10 +481,11 @@ public sealed class TfHudPlayerStatus : VguiEditablePanel, IHudElement
 {
     /// <summary>Parented to the viewport, the class panel then the health panel under it (:1062-1063).</summary>
     /// <param name="viewport">The viewport.</param>
-    public TfHudPlayerStatus(VguiPanel viewport)
+    /// <param name="mdlCache">`vgui::MDLCache()`, for the class model panel.</param>
+    public TfHudPlayerStatus(VguiPanel viewport, IMdlCache mdlCache)
         : base(viewport, "HudPlayerStatus")
     {
-        PlayerClass = new TfHudPlayerClass(this, "HudPlayerClass");
+        PlayerClass = new TfHudPlayerClass(this, "HudPlayerClass", mdlCache);
         Health = new TfHudPlayerHealth(this, "HudPlayerHealth");
     }
 

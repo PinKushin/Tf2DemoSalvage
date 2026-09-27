@@ -10,18 +10,18 @@ public sealed class TfHudPlayerStatusShouldDrawConformanceTests
 
     [Test]
     public void ShouldDraw_AnOrdinaryLivingPlayer_Draws() =>
-        ((IHudElement)new TfHudPlayerStatus(new HudViewport())).ShouldDraw(Alive).ShouldBeTrue();
+        ((IHudElement)new TfHudPlayerStatus(new HudViewport(), new EntityModelSet())).ShouldDraw(Alive).ShouldBeTrue();
 
     [Test]
     public void ShouldDraw_AHalloweenGhost_IsHidden() =>
         // TF_COND_HALLOWEEN_GHOST_MODE = 77 (tf_shareddefs.h:767): Ex2 bit 77 - 64.
-        ((IHudElement)new TfHudPlayerStatus(new HudViewport()))
+        ((IHudElement)new TfHudPlayerStatus(new HudViewport(), new EntityModelSet()))
             .ShouldDraw(Alive with { Conditions = new PlayerConditions(0, 0, 1 << (77 - 64), 0, 0) })
             .ShouldBeFalse();
 
     [Test]
     public void ShouldDraw_UnderTheMatchSummary_IsHidden() =>
-        ((IHudElement)new TfHudPlayerStatus(new HudViewport()))
+        ((IHudElement)new TfHudPlayerStatus(new HudViewport(), new EntityModelSet()))
             .ShouldDraw(Alive with { Rules = new SceneGameRules(false, 0, false) { ShowMatchSummary = true } })
             .ShouldBeFalse();
 }

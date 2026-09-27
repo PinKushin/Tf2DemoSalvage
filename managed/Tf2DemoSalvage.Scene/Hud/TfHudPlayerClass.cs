@@ -66,8 +66,7 @@ public sealed class TfClassImage(VguiPanel? parent, string? name) : VguiImagePan
 /// `OnThink` (:184) runs every 0.5 s of `curtime`. On any change of class, team, cloak level, loadout slot of the held
 /// weapon, `cl_hud_playerclass_use_playermodel`, or — for a spy — disguise, it either shows the 3D model panel
 /// (`m_bUsePlayerModel &amp;&amp; m_pPlayerModelPanel &amp;&amp; m_pPlayerModelPanelBG`, :269) or the 2D class image
-/// (:276). <see cref="PlayerModelPanel"/> is null until `CTFPlayerModelPanel` is ported, and with it null Valve's own
-/// code takes the 2D path.
+/// (:276).
 /// </para>
 /// <para>
 /// **Not ported:** the one-time `ShowConfirmDialog` in `UpdateModelPanel` (:425-434), a modal asking whether to keep the
@@ -109,10 +108,12 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
     /// <summary>`CTFHudPlayerClass( parent, name )`, its `.res` children made up front so the `.res` finds them by name.</summary>
     /// <param name="parent">The parent.</param>
     /// <param name="name">The name.</param>
-    public TfHudPlayerClass(VguiPanel? parent, string? name)
+    /// <param name="mdlCache">`vgui::MDLCache()`, for `classmodelpanel`.</param>
+    public TfHudPlayerClass(VguiPanel? parent, string? name, IMdlCache mdlCache)
         : base(parent, name)
     {
         _classImage = new TfClassImage(this, "PlayerStatusClassImage");
+        PlayerModelPanel = new TfPlayerModelPanel(this, "classmodelpanel", mdlCache);
         _spyImage = new TfImagePanel(this, "PlayerStatusSpyImage");
         _spyOutlineImage = new TfImagePanel(this, "PlayerStatusSpyOutlineImage");
         _classImageBg = new TfImagePanel(this, "PlayerStatusClassImageBG");
@@ -130,8 +131,8 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
     /// <summary>`cl_hud_playerclass_use_playermodel` (:39, "1", `FCVAR_ARCHIVE`) — the watcher's, from their config.</summary>
     private bool UsePlayerModelConVar => HudViewport.ConVarsOf(this).GetBool("cl_hud_playerclass_use_playermodel");
 
-    /// <summary>`m_pPlayerModelPanel`: `classmodelpanel`, a `CTFPlayerModelPanel` — null until that class is ported.</summary>
-    public VguiBaseModelPanel? PlayerModelPanel { get; set; }
+    /// <summary>`m_pPlayerModelPanel`: `classmodelpanel`, a `CTFPlayerModelPanel` (:167).</summary>
+    public TfPlayerModelPanel PlayerModelPanel { get; }
 
     /// <summary>`m_pClassImage`.</summary>
     public TfClassImage ClassImage => _classImage;
@@ -268,9 +269,11 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
 
         bool playerClassModeChange = false;
 
-        if (_usePlayerModel != UsePlayerModelConVar)
+        bool usePlayerModel = state.ConVars.GetBool("cl_hud_playerclass_use_playermodel");
+
+        if (_usePlayerModel != usePlayerModel)
         {
-            _usePlayerModel = UsePlayerModelConVar;
+            _usePlayerModel = usePlayerModel;
             playerClassModeChange = true;
         }
 
@@ -303,7 +306,7 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
                 _disguiseWeapon = null;
             }
 
-            if (_usePlayerModel && PlayerModelPanel is not null)
+            if (_usePlayerModel)
             {
                 PlayerModelPanel.Visible = true;
                 _playerModelPanelBg.Visible = true;
@@ -312,11 +315,7 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
             }
             else
             {
-                if (PlayerModelPanel is not null)
-                {
-                    PlayerModelPanel.Visible = false;
-                }
-
+                PlayerModelPanel.Visible = false;
                 _playerModelPanelBg.Visible = false;
                 _classImage.Visible = true;
                 _classImageBg.Visible = true;
@@ -338,7 +337,7 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
 
         UpdateCarryingWeapon(state, player, viewport);
 
-        if (_usePlayerModel && PlayerModelPanel is not null)
+        if (_usePlayerModel)
         {
             int killStreak = player.KillStreak ?? 0;
             bool playSparks = killStreak != _killStreak && killStreak > 0;
@@ -431,9 +430,99 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
         _classImage.Visible = false;
         _classImageBg.Visible = false;
 
-        // :444-513, under `m_pPlayerModelPanel && m_pPlayerModelPanel->IsVisible()`, dresses the model: class, team, the
-        // weapon in `m_nLoadoutPosition` (or the disguise weapon's slot), and every wearable. Every call there is a
-        // `CTFPlayerModelPanel` method, so it lands with that class; with the panel null, Valve's guard skips it too.
+        if (!PlayerModelPanel.Visible || HudViewport.Of(this)?.Items is not { } schema)
+        {
+            return;
+        }
+
+        int itemSlot = _loadoutPosition;
+        TfItemView? weapon = null;
+        int playerClass;
+        int team;
+        bool disguised = player.Value.Conditions.Has(PlayerConditions.Disguised);
+
+        if (disguised)
+        {
+            playerClass = player.Value.DisguiseClass ?? ClassUndefined;
+            team = player.Value.DisguiseTeam ?? TeamUnassigned;
+
+            if (player.Value.DisguiseWeaponItem is { } disguiseWeapon && TfItemView.From(disguiseWeapon, schema) is { } view)
+            {
+                weapon = view;
+                itemSlot = schema.LoadoutSlot(view.DefinitionIndex, playerClass);
+            }
+        }
+        else
+        {
+            playerClass = player.Value.PlayerClass ?? ClassUndefined;
+            team = player.Value.Team ?? TeamUnassigned;
+
+            if (WeaponForLoadoutSlot(player.Value, itemSlot, schema) is { } held)
+            {
+                weapon = TfItemView.From(held, schema);
+            }
+        }
+
+        PlayerModelPanel.ClearCarriedItems();
+        PlayerModelPanel.SetToPlayerClass(playerClass);
+        PlayerModelPanel.SetTeam(team);
+
+        if (weapon is not null)
+        {
+            PlayerModelPanel.AddCarriedItem(weapon);
+        }
+
+        // `for ( int wbl = pPlayer->GetNumWearables()-1; wbl >= 0; wbl-- )` (:488): last worn first.
+        IReadOnlyList<SceneItem> items = player.Value.Items ?? [];
+
+        for (int index = items.Count - 1; index >= 0; index--)
+        {
+            SceneItem item = items[index];
+
+            // `IsViewModelWearable()`: a `CTFWearableVM` (tf_item_wearable.cpp:58); then the disguise filters (:497-501).
+            if (item.IsWeapon || item.ClassName == "CTFWearableVM" || item.IsDisguiseWearable != disguised)
+            {
+                continue;
+            }
+
+            if (TfItemView.From(item, schema) is { } worn)
+            {
+                PlayerModelPanel.AddCarriedItem(worn);
+            }
+        }
+
+        PlayerModelPanel.HoldItemInSlot(itemSlot);
+    }
+
+    /// <summary>
+    /// `dynamic_cast&lt; CTFWeaponBase* &gt;( GetEntityForLoadoutSlot( slot ) )` (tf_player_shared.cpp:11928): in a wearable
+    /// slot a matching wearable answers first and fails the cast; otherwise the first weapon whose slot matches.
+    /// </summary>
+    private static SceneItem? WeaponForLoadoutSlot(ScenePlayer player, int slot, Content.Assets.ItemSchema schema)
+    {
+        int playerClass = player.PlayerClass ?? ClassUndefined;
+        IReadOnlyList<SceneItem> items = player.Items ?? [];
+
+        if (Content.Assets.ItemSchema.IsWearableSlot(slot))
+        {
+            foreach (SceneItem item in items)
+            {
+                if (!item.IsWeapon && item.DefinitionIndex is { } worn && schema.LoadoutSlot(worn, playerClass) == slot)
+                {
+                    return null;
+                }
+            }
+        }
+
+        foreach (SceneItem item in items)
+        {
+            if (item.IsWeapon && item.DefinitionIndex is { } definition && schema.LoadoutSlot(definition, playerClass) == slot)
+            {
+                return item;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The carried-weapon panel (:305-389): shown with a weapon someone else owns, sized to its two labels.</summary>
