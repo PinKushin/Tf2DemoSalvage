@@ -39,6 +39,10 @@ public sealed class HudConVarsConformanceTests
         new HudConVars(_ => "abc").GetFloat("mp_winlimit").ShouldBe(0f);
 
     [Test]
+    public void GetFloat_LeadingNumberThenText_IsTheLeadingNumber() =>
+        new HudConVars(_ => " 3.5abc").GetFloat("mp_winlimit").ShouldBe(3.5f, "atof reads the leading number (convar.cpp:792)");
+
+    [Test]
     public void GetBool_HalfValue_IsFalse() =>
         // `GetBool() { return !!GetInt(); }` (convar.h:520): 0.5 truncates to 0.
         new HudConVars(_ => "0.5").GetBool("mp_tournament").ShouldBeFalse();

@@ -28,9 +28,7 @@ public readonly record struct HudConVars(Func<string, string?>? Find)
     /// <summary>`GetFloat()`: `m_fValue = ( float )atof( value )` (convar.cpp:792).</summary>
     /// <param name="name">The ConVar's engine name.</param>
     /// <returns>The value as a float, 0 when it is not a number.</returns>
-    // ponytail: whole-string parse, not atof's leading-prefix parse ("3abc" reads 0, atof 3); no HUD var carries such text.
-    public float GetFloat(string name) =>
-        float.TryParse(GetString(name), NumberStyles.Float, CultureInfo.InvariantCulture, out float value) ? value : 0f;
+    public float GetFloat(string name) => PanelLayout.Atof(GetString(name));
 
     /// <summary>`GetInt()`: `m_nValue = ( int )( fNewValue )` (convar.cpp:802) — the float, truncated.</summary>
     /// <param name="name">The ConVar's engine name.</param>
