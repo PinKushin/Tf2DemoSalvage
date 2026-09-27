@@ -237,6 +237,16 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string DetailFadeCommand = "cl_detailfade";
 
+    /// <summary>Command name for the class portrait's 3D model — Valve's <c>cl_hud_playerclass_use_playermodel</c>.</summary>
+    /// <remarks>
+    /// <c>ConVar cl_hud_playerclass_use_playermodel( "cl_hud_playerclass_use_playermodel", "1", FCVAR_ARCHIVE, … )</c>
+    /// (<c>tf_hud_playerstatus.cpp:39</c>), read with <c>GetBool</c> by <c>CTFHudPlayerClass</c>. Config-only.
+    /// </remarks>
+    public const string HudPlayerClassUsePlayerModelCommand = "cl_hud_playerclass_use_playermodel";
+
+    /// <summary>Whether the class portrait uses the player model — <c>cl_hud_playerclass_use_playermodel</c>, on by default.</summary>
+    public bool HudPlayerClassUsePlayerModel { get; init; } = true;
+
     /// <summary>`cl_interp`, default "0.1" (`cdll_bounded_cvars.cpp`).</summary>
     public const string InterpCommand = "cl_interp";
 
@@ -1021,6 +1031,12 @@ public sealed record ViewerSettings
         if (Read(values, ThreeDimensionalSkyCommand) is { } sky)
         {
             settings = settings with { ThreeDimensionalSky = sky };
+        }
+
+        // `GetBool()` is `!!GetInt()` — nonzero is on.
+        if (Read(values, HudPlayerClassUsePlayerModelCommand) is { } usePlayerModel)
+        {
+            settings = settings with { HudPlayerClassUsePlayerModel = usePlayerModel != 0 };
         }
 
         // **Zero is accepted and negative is not**, which is the same rule the frame rate limit

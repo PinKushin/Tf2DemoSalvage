@@ -7143,6 +7143,7 @@ internal class MainForm : Form, IFrameSteps
                 : null;
             _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
             _vguiHud.Viewport.WeaponAttribute = _hudHooks.OnWeapon;
+            _vguiHud.Viewport.Items = items;
         }
 
         int hudTick = _transport.CurrentTick;
@@ -7158,6 +7159,7 @@ internal class MainForm : Form, IFrameSteps
 
         _vguiHud.Viewport.Scripts = _hudScripts;
         _vguiHud.Crosshair.Settings = _settings.Crosshair;
+        _vguiHud.PlayerStatus.PlayerClass.UsePlayerModelConVar = _settings.HudPlayerClassUsePlayerModel;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
         _vguiHud.DeathNotice.NoticeTime = _settings.HudDeathNoticeTime;

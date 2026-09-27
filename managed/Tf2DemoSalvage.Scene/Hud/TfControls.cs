@@ -34,8 +34,13 @@ public sealed class TfExLabel(VguiPanel? parent, string? name) : VguiLabel(paren
         SetColorStr(_color, context);
     }
 
-    private void SetColorStr(string color, VguiContext context)
+    /// <summary>`CExLabel::SetColorStr` (econ_controls.cpp): a scheme color by name, kept to be reapplied with the scheme.</summary>
+    /// <param name="color">The scheme color's name.</param>
+    /// <param name="context">The scheme.</param>
+    public void SetColorStr(string color, VguiContext context)
     {
+        ArgumentNullException.ThrowIfNull(context);
+
         (byte red, byte green, byte blue, byte alpha) = context.Scheme.GetColor(color, (0, 255, 0, 255));
 
         _color = string.Create(CultureInfo.InvariantCulture, $"{red} {green} {blue} {alpha}");

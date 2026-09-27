@@ -59,6 +59,7 @@ public static class HudStates
             LocalIndex = timeline.RecorderEntityIndex ?? 0,
             Players = players,
             Names = Names(timeline),
+            AccountIds = AccountIds(timeline),
 
             // The server's clock, which a timer's end time is on: the last `net_Tick`.
             ServerTime = (timeline.ServerTickAt(tick) ?? tick) * interval,
@@ -105,6 +106,20 @@ public static class HudStates
         }
 
         return names;
+    }
+
+    /// <summary>Each slot's `userinfo` `friendsID`, which `C_BasePlayer::GetSteamID` (c_baseplayer.cpp:2878) makes an account ID from.</summary>
+    /// <remarks>**Interpolated** as <see cref="Names"/> is: a slot held in turn answers with the later player throughout.</remarks>
+    private static Dictionary<int, uint> AccountIds(DemoTimeline timeline)
+    {
+        Dictionary<int, uint> accounts = [];
+
+        foreach (Core.Net.PlayerInfo player in timeline.Roster.Values)
+        {
+            accounts[player.EntityIndex] = player.FriendsId;
+        }
+
+        return accounts;
     }
 
     /// <summary>The state for a local player at a tick.</summary>

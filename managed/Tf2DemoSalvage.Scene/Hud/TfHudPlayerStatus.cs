@@ -475,35 +475,21 @@ public sealed class TfSpectatorGuiHealth(VguiPanel? parent, string? name) : TfHu
     }
 }
 
-/// <summary>`CTFHudPlayerStatus` (tf_hud_playerstatus.cpp:1057): the element `HudPlayerStatus`, holding the health panel.</summary>
-/// <remarks>
-/// Hidden by `HIDEHUD_HEALTH | HIDEHUD_PLAYERDEAD`.
-///
-/// **Not modelled, and why:**
-///
-/// <list type="bullet">
-/// <item><description>
-/// <c>CTFHudPlayerClass</c> (<c>HudPlayerClass</c>, :89–562) — the class portrait. Its 2D path
-/// (<c>m_pClassImage</c>/<c>m_pClassImageBG</c>, team-coloured `../hud/class_&lt;class&gt;&lt;team&gt;` with a
-/// `_cloak`/`_halfcloak` suffix from <c>GetPercentInvisible</c>, and <c>m_pSpyImage</c>/<c>m_pSpyOutlineImage</c> faded
-/// by the <c>localplayer_changedisguise</c> event) is portable and unimplemented here — it is genuinely missing, not
-/// a 3D-panel casualty. <c>m_pPlayerModelPanel</c> (<c>CTFPlayerModelPanel</c>, gated by
-/// <c>cl_hud_playerclass_use_playermodel</c>, on by default) IS the casualty: it renders the player's actual model,
-/// carried weapon and worn cosmetics into a `vgui::Panel`-hosted 3D view (`UpdateModelPanel`, :412), and this project
-/// has no VGUI panel that hosts a 3D render target — the whole reason the 2D class image exists as its fallback is
-/// the convar the engine ships already defaulting away from it. Porting only the 2D path would show it EXCEPT on a
-/// default-configured client, backwards from what a viewer aiming for parity should default to; better to leave the
-/// whole element off and say so than draw a picture nobody with default settings sees.
-/// </description></item>
-/// </list>
-/// </remarks>
+/// <summary>`CTFHudPlayerStatus` (tf_hud_playerstatus.cpp:1057): the element `HudPlayerStatus`, holding the class and health panels.</summary>
+/// <remarks>Hidden by `HIDEHUD_HEALTH | HIDEHUD_PLAYERDEAD`.</remarks>
 public sealed class TfHudPlayerStatus : VguiEditablePanel, IHudElement
 {
-    /// <summary>Parented to the viewport, the health panel under it.</summary>
+    /// <summary>Parented to the viewport, the class panel then the health panel under it (:1062-1063).</summary>
     /// <param name="viewport">The viewport.</param>
     public TfHudPlayerStatus(VguiPanel viewport)
-        : base(viewport, "HudPlayerStatus") =>
+        : base(viewport, "HudPlayerStatus")
+    {
+        PlayerClass = new TfHudPlayerClass(this, "HudPlayerClass");
         Health = new TfHudPlayerHealth(this, "HudPlayerHealth");
+    }
+
+    /// <summary>`m_pHudPlayerClass`.</summary>
+    public TfHudPlayerClass PlayerClass { get; }
 
     /// <summary>`m_pHudPlayerHealth`.</summary>
     public TfHudPlayerHealth Health { get; }

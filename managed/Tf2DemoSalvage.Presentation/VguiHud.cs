@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Presentation;
@@ -21,6 +22,7 @@ public sealed class VguiHud
 
     private readonly VguiSurfaceHost _host;
     private VguiContext? _context;
+    private ScenePlayer? _lastLocal;
 
     /// <summary>The viewport, and every element `DECLARE_HUDELEMENT` makes at `CHud::Init`, before the layout is read.</summary>
     /// <param name="host">The surface the HUD shares with the other roots.</param>
@@ -59,7 +61,10 @@ public sealed class VguiHud
 
     /// <summary>Every event any element's `ListenForGameEvent` asked for — the only ones the feed resolves.</summary>
     public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(
-        [.. TfHudDeathNotice.ListensFor, .. TfHudTimeStatus.ListensFor, .. TfHudChat.ListensFor, .. TfHudMatchStatus.ListensFor],
+        [
+            .. TfHudDeathNotice.ListensFor, .. TfHudTimeStatus.ListensFor, .. TfHudChat.ListensFor, .. TfHudMatchStatus.ListensFor,
+            .. TfHudPlayerClass.ListensFor,
+        ],
         StringComparer.Ordinal);
 
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
@@ -172,7 +177,27 @@ public sealed class VguiHud
             {
                 MatchStatus.HandleGameEvent(fired);
             }
+
+            if (TfHudPlayerClass.ListensFor.Contains(fired.Event.Name))
+            {
+                PlayerStatus.PlayerClass.HandleGameEvent(fired.Event, state);
+            }
         }
+
+        // `localplayer_changedisguise` is fired client-side by `C_TFPlayer::OnDataChanged` (c_tf_player.cpp:4788-4797), so
+        // no demo carries it: it is derived here from the local player's last and current state, before the think.
+        // **Interpolated:** once per frame rather than per packet, so two changes inside one frame fire once.
+        ScenePlayer? local = state.HasLocalPlayer ? state.Player(state.LocalIndex) : null;
+
+        if (!reset && _lastLocal is { } before && local is { } after
+            && TfHudPlayerClass.LocalPlayerChangeDisguise(before, after) is { } disguised)
+        {
+            PlayerStatus.PlayerClass.HandleGameEvent(
+                new SceneGameEvent(0, "localplayer_changedisguise", new Dictionary<string, object?> { ["disguised"] = disguised }, new Dictionary<int, Core.Net.PlayerInfo>()),
+                state);
+        }
+
+        _lastLocal = local;
 
         // `HOOK_HUD_MESSAGE`: the chat's user messages, as they are read.
         foreach (Core.Scene.SceneUserMessage message in userMessages ?? [])

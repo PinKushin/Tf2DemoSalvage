@@ -58,6 +58,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="TrainingCanPickupDispenser">`training_can_pickup_dispenser.GetBool()` (:700).</param>
 /// <param name="TrainingCanPickupTeleEntrance">`training_can_pickup_tele_entrance.GetBool()` (:701).</param>
 /// <param name="TrainingCanPickupTeleExit">`training_can_pickup_tele_exit.GetBool()` (:702).</param>
+/// <param name="AccountIds">Each player's `userinfo` `friendsID` by entity index — see <see cref="AccountId"/>.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -99,8 +100,17 @@ public readonly record struct HudState(
     bool TrainingCanPickupSentry = true,
     bool TrainingCanPickupDispenser = true,
     bool TrainingCanPickupTeleEntrance = true,
-    bool TrainingCanPickupTeleExit = true)
+    bool TrainingCanPickupTeleExit = true,
+    IReadOnlyDictionary<int, uint>? AccountIds = null)
 {
+    /// <summary>
+    /// `C_BasePlayer::GetSteamID( &amp;id ).GetAccountID()` (c_baseplayer.cpp:2878) by entity index: the `userinfo` `friendsID`,
+    /// and 0 — the default `CSteamID`'s account — where there is none or it is 0, as `GetSteamID` then fails.
+    /// </summary>
+    /// <param name="index">The entity index.</param>
+    /// <returns>The account ID.</returns>
+    public uint AccountId(int index) => AccountIds?.GetValueOrDefault(index) ?? 0u;
+
     /// <summary>`cl_entitylist->GetEnt` for a building: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>
     public Core.Scene.SceneBuilding? Building(int index)
@@ -327,6 +337,9 @@ public sealed class HudViewport : VguiEditablePanel
     /// schema is open.
     /// </summary>
     public Func<Core.Scene.ScenePlayer, Core.Scene.SceneItem, string, float, float>? WeaponAttribute { get; set; }
+
+    /// <summary>`GetItemSchema()`: `items_game.txt`, for an item's per-class slot and rarity color; null where none is open.</summary>
+    public Content.Assets.ItemSchema? Items { get; set; }
 
     /// <summary>The weapon and class scripts, for what a weapon's script tells the HUD; null where no install is open.</summary>
     public TfWeaponData? Scripts { get; set; }
