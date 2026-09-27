@@ -92,12 +92,4 @@ internal static class ClassScript
     /// </remarks>
     public static string? Hands(ReadOnlySpan<byte> script) =>
         ScriptKeyValue.First(script, "model_hands")?.Replace('\\', '/');
-
-    /// <summary>`m_nMaxHealth`: <c>GetInt( "health" )</c> (tf_classdata.cpp), or null when the script omits it.</summary>
-    /// <param name="script">The decrypted class script.</param>
-    public static int? Health(ReadOnlySpan<byte> script) =>
-        ScriptKeyValue.First(script, "health") is { } value &&
-        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int health)
-            ? health
-            : null;
 }
