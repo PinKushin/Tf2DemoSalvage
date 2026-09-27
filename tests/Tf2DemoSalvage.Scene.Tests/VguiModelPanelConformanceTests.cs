@@ -21,7 +21,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `CreateDefaultLights` (potterywheelpanel.cpp:316-321): `m_vecAmbientCube[i].Init(0.4f, 0.4f, 0.4f, 1.0f)`
         // for all six faces.
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
 
         panel.Ambient.PositiveX.ShouldBe((0.4f, 0.4f, 0.4f));
         panel.Ambient.NegativeX.ShouldBe((0.4f, 0.4f, 0.4f));
@@ -36,7 +36,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `CreateDefaultLights` (potterywheelpanel.cpp:325-327): `MATERIAL_LIGHT_DIRECTIONAL`, colour
         // (1, 1, 1), direction (0, 0, -1).
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
 
         panel.Sun.ShouldBe(new SunLight(1f, 1f, 1f, 0f, 0f, -1f));
     }
@@ -48,7 +48,7 @@ public sealed class VguiModelPanelConformanceTests
         VguiPotteryWheelPanel.NearZ.ShouldBe(3f);
         VguiPotteryWheelPanel.FarZ.ShouldBe(16384f * 1.73205080757f);
 
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
 
         panel.FieldOfView.ShouldBe(30f);
     }
@@ -58,7 +58,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `ParseLightsFromKV` (potterywheelpanel.cpp:392-413): the first `directional` entry's colour and
         // (normalised) direction become the light.
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
         KeyValuesTree lights = Resource("""
             lights
             {
@@ -88,7 +88,7 @@ public sealed class VguiModelPanelConformanceTests
         // unconditionally at the end of `ParseLightsFromKV` (potterywheelpanel.cpp:459), even when the block named
         // no directional light. Leaving the panel's previous Sun standing would be the opposite of what a
         // point-only or empty `lights` block does in the engine.
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
         KeyValuesTree pointOnly = Resource("""
             lights
             {
@@ -112,7 +112,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseLightsFromKV_APointEntry_BecomesALocalLightWithOriginColourAttenuationAndRange()
     {
         // potterywheelpanel.cpp:415-429: InitPoint(origin, color) then the point overrides.
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
         KeyValuesTree lights = Resource("""
             lights
             {
@@ -150,7 +150,7 @@ public sealed class VguiModelPanelConformanceTests
         // Not read from ParseLightsFromKV itself — a guard this project adds so the shared LocalLight shader path
         // does not divide by an all-zero denominator, matching the guard its OTHER producer (BSP world lights)
         // already has.
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
         KeyValuesTree lights = Resource("""
             lights
             {
@@ -172,7 +172,7 @@ public sealed class VguiModelPanelConformanceTests
         // inner_cone_angle/outer_cone_angle are read as RADIANS straight into GetFloat with no conversion
         // (lightdesc.h:71-72's own contract for InitSpot's boundary parameters) — 0 and PI/2 here so the cosines
         // are the easy, exact 1 and 0.
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
         KeyValuesTree lights = Resource($$"""
             lights
             {
@@ -210,7 +210,7 @@ public sealed class VguiModelPanelConformanceTests
         // `Assert( nLightCount < MAX_LIGHT_COUNT ); if ( nLightCount >= MAX_LIGHT_COUNT ) break;`
         // (potterywheelpanel.cpp:397-399) — the loop stops outright, so a fifth entry (here a directional one,
         // to prove the break is unconditional and not just "stop reading point/spot") is never reached either.
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
         KeyValuesTree lights = Resource("""
             lights
             {
@@ -235,7 +235,7 @@ public sealed class VguiModelPanelConformanceTests
         // among four point lights must count toward the same MAX_LIGHT_COUNT limit, not a separate one. Ordered so
         // this fails if directional entries were (wrongly) exempted from the count: a fifth point light placed
         // AFTER the directional one would only be dropped if the directional entry consumed a slot.
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
         KeyValuesTree lights = Resource("""
             lights
             {
@@ -263,16 +263,16 @@ public sealed class VguiModelPanelConformanceTests
         VguiMdlPanel panel = new(
             null,
             "model",
-            path => path == "models/player/demo.mdl"
+            Cache.Of(path => path == "models/player/demo.mdl"
                 ? SyntheticSkinnedModel.WithBones("root")
-                : SyntheticSkinnedModel.WithBones("root", "muzzle"))
+                : SyntheticSkinnedModel.WithBones("root", "muzzle")))
         {
-            ModelName = "models/player/demo.mdl",
             Wide = 100,
             Tall = 100,
         };
 
-        panel.MergeModels.Add("models/weapons/c_models/c_stickybomb_launcher.mdl");
+        panel.SetMDL("models/player/demo.mdl");
+        panel.SetMergeMDL("models/weapons/c_models/c_stickybomb_launcher.mdl");
 
         panel.ParseLightsFromKV(Resource("""
             lights
@@ -292,7 +292,7 @@ public sealed class VguiModelPanelConformanceTests
     [Test]
     public void ApplySettings_ALightsBlock_IsParsedIntoTheSun()
     {
-        VguiMdlPanel panel = new(null, "model", _ => null);
+        VguiMdlPanel panel = new(null, "model", Cache.None);
         KeyValuesTree resource = Resource("""
             lights
             {
@@ -314,7 +314,7 @@ public sealed class VguiModelPanelConformanceTests
     [Test]
     public void Paint_NoModelName_EmitsNoPaint3DCall()
     {
-        VguiMdlPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithOneBone());
+        VguiMdlPanel panel = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithOneBone()));
         RecordingModelSurface surface = new();
 
         panel.Paint(surface, Context());
@@ -325,12 +325,13 @@ public sealed class VguiModelPanelConformanceTests
     [Test]
     public void Paint_ARootModel_EmitsOneDrawCarryingItsPath()
     {
-        VguiMdlPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithOneBone())
+        VguiMdlPanel panel = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithOneBone()))
         {
-            ModelName = "models/player/scout.mdl",
             Wide = 100,
             Tall = 50,
         };
+
+        panel.SetMDL("models/player/scout.mdl");
 
         RecordingModelSurface surface = new();
 
@@ -356,16 +357,16 @@ public sealed class VguiModelPanelConformanceTests
         VguiMdlPanel panel = new(
             null,
             "model",
-            path => path == "models/player/demo.mdl"
+            Cache.Of(path => path == "models/player/demo.mdl"
                 ? SyntheticSkinnedModel.WithBones("root")
-                : SyntheticSkinnedModel.WithBones("root", "muzzle"))
+                : SyntheticSkinnedModel.WithBones("root", "muzzle")))
         {
-            ModelName = "models/player/demo.mdl",
             Wide = 100,
             Tall = 100,
         };
 
-        panel.MergeModels.Add("models/weapons/c_models/c_stickybomb_launcher.mdl");
+        panel.SetMDL("models/player/demo.mdl");
+        panel.SetMergeMDL("models/weapons/c_models/c_stickybomb_launcher.mdl");
 
         RecordingModelSurface surface = new();
 
@@ -383,12 +384,13 @@ public sealed class VguiModelPanelConformanceTests
         // No `.res` file has touched the pivot or offset: pivot identity (SetIdentityMatrix(m_CameraPivot),
         // potterywheelpanel.cpp:242), offset (100, 0, 0) (:248) — `UpdateCameraTransform` (:765-773) then puts the
         // camera at (100, 0, 0) facing the same way the identity pivot does, angles (0, 0, 0).
-        VguiMdlPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithOneBone())
+        VguiMdlPanel panel = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithOneBone()))
         {
-            ModelName = "models/player/scout.mdl",
             Wide = 100,
             Tall = 100,
         };
+
+        panel.SetMDL("models/player/scout.mdl");
 
         RecordingModelSurface surface = new();
 
@@ -417,17 +419,19 @@ public sealed class VguiModelPanelConformanceTests
         // the model's angles/origin and drew the model at identity).
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone();
 
-        VguiBaseModelPanel panel = new(null, "model", _ => model)
+        VguiBaseModelPanel panel = new(null, "model", Cache.Of(_ => model))
         {
-            ModelName = "models/player/scout.mdl",
             ForcePosition = true,
             ModelOrigin = (500f, 0f, 0f),
             Wide = 100,
             Tall = 100,
         };
 
+        panel.SetMDL("models/player/scout.mdl");
+
         RecordingModelSurface surface = new();
 
+        VguiLayout.SolveTraverse(panel, Context());
         panel.Paint(surface, Context());
 
         float[] camera = surface.Draws[0].Camera;
@@ -453,16 +457,18 @@ public sealed class VguiModelPanelConformanceTests
         // The common case: no stock TF2 HUD .res sets force_pos, so ModelOrigin/ModelAngles are cached but never
         // applied — the model draws wherever AnimatingEntity's own bind pose puts it (the origin, for one bone at
         // the rest position), and the CAMERA is what backs away instead.
-        VguiBaseModelPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithOneBone())
+        VguiBaseModelPanel panel = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithOneBone()))
         {
-            ModelName = "models/player/scout.mdl",
             ModelOrigin = (500f, 0f, 0f),
             Wide = 100,
             Tall = 100,
         };
 
+        panel.SetMDL("models/player/scout.mdl");
+
         RecordingModelSurface surface = new();
 
+        VguiLayout.SolveTraverse(panel, Context());
         panel.Paint(surface, Context());
 
         float[] rootBone = surface.Draws[0].Models[0].Bones![0];
@@ -518,16 +524,16 @@ public sealed class VguiModelPanelConformanceTests
         VguiMdlPanel panel = new(
             null,
             "model",
-            path => path == "models/player/demo.mdl"
+            Cache.Of(path => path == "models/player/demo.mdl"
                 ? SyntheticSkinnedModel.WithBones("root")
-                : SyntheticSkinnedModel.WithBones("root", "muzzle"))
+                : SyntheticSkinnedModel.WithBones("root", "muzzle")))
         {
-            ModelName = "models/player/demo.mdl",
             Wide = 100,
             Tall = 100,
         };
 
-        panel.MergeModels.Add("models/weapons/c_models/c_stickybomb_launcher.mdl");
+        panel.SetMDL("models/player/demo.mdl");
+        panel.SetMergeMDL("models/weapons/c_models/c_stickybomb_launcher.mdl");
 
         // Move the ROOT away from the origin (m_RootMDL.m_MDLToWorld, mdlpanel.cpp:233-237). With both models left
         // at identity, an unmerged weapon bone also sits at the origin and equals the root's by coincidence, so the
@@ -546,11 +552,57 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     [Test]
+    public void Paint_ASkinAndBody_DrawTheModelsOwnSkinRowAndBodyNumber()
+    {
+        // CMDL::Draw with m_nSkin/m_nBody (mdlpanel.cpp:469, :499): a skin picks a row of the model's own skin table,
+        // an out-of-range one falls back to row 0; each merge model carries its own (SetMergeMDL's nSkin, :845).
+        IReadOnlyDictionary<int, int> red = new Dictionary<int, int> { [0] = 10 };
+        IReadOnlyDictionary<int, int> blue = new Dictionary<int, int> { [0] = 11 };
+        IReadOnlyList<(int Base, int Count)> parts = [(1, 2)];
+
+        VguiMdlPanel panel = new(null, "model", new FramesCache(path => new PropModels.ModelFrames(
+            [], new Dictionary<int, (int, int, float)>(), [], [],
+            Skinned: SyntheticSkinnedModel.WithBones("root"),
+            SkinSwaps: [red, blue],
+            BodyParts: parts)))
+        {
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.SetMDL("models/player/scout.mdl");
+        panel.SetSkin(1);
+        panel.SetBody(1);
+        panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl", skin: 7);
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+
+        ModelInstance root = surface.Draws[0].Models[0];
+        ModelInstance merge = surface.Draws[0].Models[1];
+
+        (root.SkinSwap, root.Body, root.BodyParts).ShouldBe((blue, 1, parts));
+        merge.SkinSwap.ShouldBe(red, "skin 7 is past the table's two rows, so row 0");
+    }
+
+    [Test]
+    public void SetMergeMDL_WithNoRootModel_IsRefused()
+    {
+        // "Verify that we have a root model to merge to." (mdlpanel.cpp:835-837).
+        VguiMdlPanel panel = new(null, "model", Cache.None);
+
+        panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl").ShouldBeNull();
+        panel.MergeMdls.ShouldBeEmpty();
+    }
+
+    [Test]
     public void ModelsToPrecache_ARootAndMergeModels_YieldsRootFirst()
     {
-        VguiMdlPanel panel = new(null, "model", _ => null) { ModelName = "models/player/scout.mdl" };
+        VguiMdlPanel panel = new(null, "model", Cache.None);
 
-        panel.MergeModels.Add("models/weapons/c_models/c_scattergun.mdl");
+        panel.SetMDL("models/player/scout.mdl");
+        panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl");
 
         panel.ModelsToPrecache().ShouldBe(
             ["models/player/scout.mdl", "models/weapons/c_models/c_scattergun.mdl"]);
@@ -560,7 +612,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseModelResInfo_AModelBlock_ReadsNameSkinAnglesAndOrigin()
     {
         // basemodel_panel.cpp:88-99, defaults at :95-96.
-        VguiBaseModelPanel panel = new(null, "model", _ => null);
+        VguiBaseModelPanel panel = new(null, "model", Cache.None);
         KeyValuesTree modelBlock = Resource("""
             model
             {
@@ -574,8 +626,9 @@ public sealed class VguiModelPanelConformanceTests
 
         panel.ParseModelResInfo(modelBlock);
 
-        panel.ModelName.ShouldBe("models/player/scout.mdl");
-        panel.Skin.ShouldBe(2);
+        panel.ResModelName.ShouldBe("models/player/scout.mdl");
+        panel.ResSkin.ShouldBe(2);
+        panel.ModelName.ShouldBeNull("CBaseModelPanel stores m_pszModelName and never calls SetMDL with it");
         panel.ModelAngles.ShouldBe((0f, 90f, 0f));
         panel.ModelOrigin.ShouldBe((50f, 5f, 5f));
         panel.UseSpotlight.ShouldBeTrue();
@@ -585,7 +638,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseModelResInfo_NoOriginGiven_DefaultsTo110_5_5()
     {
         // basemodel_panel.cpp:95: `GetFloat( "origin_x", 110.0 )`, `"origin_y", 5.0`, `"origin_z", 5.0`.
-        VguiBaseModelPanel panel = new(null, "model", _ => null);
+        VguiBaseModelPanel panel = new(null, "model", Cache.None);
         KeyValuesTree modelBlock = Resource("""
             model
             {
@@ -603,7 +656,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `CBaseModelPanel::ApplySettings` (basemodel_panel.cpp:46-83) reads `fov` itself and then finds the
         // `model` sub-block by name among the resource's other keys.
-        VguiBaseModelPanel panel = new(null, "model", _ => null);
+        VguiBaseModelPanel panel = new(null, "model", Cache.None);
         KeyValuesTree resource = Resource("""
             xpos 0
             fov 45
@@ -616,7 +669,7 @@ public sealed class VguiModelPanelConformanceTests
         panel.ApplySettings(resource, Context());
 
         panel.FieldOfView.ShouldBe(45f);
-        panel.ModelName.ShouldBe("models/player/scout.mdl");
+        panel.ResModelName.ShouldBe("models/player/scout.mdl");
     }
 
     [Test]
@@ -624,7 +677,7 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `inResourceData->GetInt( "fov", flFOV )` (basemodel_panel.cpp:56) is GetInt, not GetFloat — KeyValues'
         // GetInt does `atoi`, which truncates toward zero rather than rounding.
-        VguiBaseModelPanel panel = new(null, "model", _ => null);
+        VguiBaseModelPanel panel = new(null, "model", Cache.None);
         KeyValuesTree resource = Resource("fov 45.9");
 
         panel.ApplySettings(resource, Context());
@@ -636,7 +689,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseModelAnimInfo_TwoAnimationsOneDefault_RecordsBoth()
     {
         // basemodel_panel.cpp:122-134.
-        VguiBaseModelPanel panel = new(null, "model", _ => null);
+        VguiBaseModelPanel panel = new(null, "model", Cache.None);
         KeyValuesTree modelBlock = Resource("""
             model
             {
@@ -668,7 +721,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseModelAttachInfo_AnAttachedModelBlock_RecordsNameAndSkin()
     {
         // basemodel_panel.cpp:148-159.
-        VguiBaseModelPanel panel = new(null, "model", _ => null);
+        VguiBaseModelPanel panel = new(null, "model", Cache.None);
         KeyValuesTree modelBlock = Resource("""
             model
             {
@@ -692,7 +745,7 @@ public sealed class VguiModelPanelConformanceTests
     public void ParseModelAttachInfo_NoSkinGiven_DefaultsToMinusOne()
     {
         // basemodel_panel.cpp:158: `GetInt( "skin", -1 )`.
-        VguiBaseModelPanel panel = new(null, "model", _ => null);
+        VguiBaseModelPanel panel = new(null, "model", Cache.None);
         KeyValuesTree modelBlock = Resource("""
             model
             {
@@ -711,21 +764,21 @@ public sealed class VguiModelPanelConformanceTests
     {
         // `FindDefaultAnim` (basemodel_panel.cpp:193-205) returns on the FIRST match; a later animation flagged
         // default too is never reached, so it never becomes the played sequence.
-        VguiBaseModelPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithBones("root"));
+        VguiBaseModelPanel panel = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithBones("root")));
+
+        panel.SetMDL("models/player/scout.mdl");
+        panel.RealTimeSeconds = 5d;
 
         panel.ParseModelResInfo(Resource("""
             model
             {
-                "modelname" "models/player/scout.mdl"
                 "animation" { "name" "a" "sequence" "idle" "default" "1" }
                 "animation" { "name" "b" "sequence" "idle" "default" "1" }
             }
             """).Find("model")!);
 
-        // Both animations name the same sequence here on purpose — the assertion that matters is which of the two
-        // ACTUALLY ran (resetting the cycle clock), not which sequence number it landed on, so CycleStartTime is
-        // what distinguishes "the first one's SetModelAnim ran" from "nothing ran at all".
-        panel.CycleStartTime.ShouldBe(panel.RealTimeSeconds);
+        // The default animation's SetSequence( iSequence, true ) moved the cycle start off SetMDL's zero.
+        panel.CycleStartTime.ShouldBe(5d);
     }
 
     [Test]
@@ -733,12 +786,11 @@ public sealed class VguiModelPanelConformanceTests
     {
         // basemodel_panel.cpp:270-278: no activity named, so LookupSequence(sequence) — SkinnedModel.SequenceByLabel
         // here — and SetSequence(iSequence, true) resets m_flCycleStartTime to GetAutoPlayTime() (mdlpanel.cpp:547).
-        VguiBaseModelPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithBones("root"))
-        {
-            ModelName = "models/player/scout.mdl",
-            RealTimeSeconds = 100d,
-            CycleStartTime = 1d,
-        };
+        VguiBaseModelPanel panel = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithBones("root")));
+
+        panel.SetMDL("models/player/scout.mdl");
+        panel.RealTimeSeconds = 100d;
+        panel.CycleStartTime = 1d;
 
         panel.SetModelAnim(new ModelPanelAnimation("idle", "idle", null, true));
 
@@ -753,35 +805,47 @@ public sealed class VguiModelPanelConformanceTests
         // activity-name match — this model has two sequences sharing "run" so a weighted selector could legally
         // answer either; the exact scan must answer the FIRST one, index 0.
         VguiBaseModelPanel panel = new(
-            null, "model", _ => SyntheticSkinnedModel.WithActivities(("run_a", "run"), ("run_b", "run")))
-        {
-            ModelName = "models/player/scout.mdl",
-        };
+            null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithActivities(("run_a", "run"), ("run_b", "run"))));
 
+        panel.SetMDL("models/player/scout.mdl");
         panel.SetModelAnim(new ModelPanelAnimation("run", null, "run", true));
 
         panel.Sequence.ShouldBe(0);
     }
 
     [Test]
-    public void MoveXPoseValues_AMoveXParameter_NormalisesToOne()
+    public void SetMDL_OnABaseModelPanel_SetsMoveXToOneAndLeavesTheRestAtTheirDefaults()
     {
-        // SetupModelAnimDefaults (basemodel_panel.cpp:175): SetPoseParameterByName( "move_x", 1.0f ), unconditional.
-        // move_x runs -1..1 here, so the raw value 1.0 normalises to the TOP of the range: 1.0, not the 0.5 an
-        // unset parameter (raw 0) would leave it at — StudioBlendGrid.Normalize's own contract.
-        float[] values = VguiMdlPanel.MoveXPoseValues([new StudioPoseParameter("move_x", -1f, 1f, 0f)]);
+        // CBaseModelPanel::SetMDL (basemodel_panel.cpp:284-317) -> SetupModelAnimDefaults (:175):
+        // SetPoseParameterByName( "move_x", 1.0f ) over CMDLPanel::SetMDL's Studio_CalcDefaultPoseParameters, which
+        // sets every parameter to raw 0. move_x runs -1..1 so 1 normalises to 1; aim_yaw -180..180 so 0 is 0.5.
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("root") with
+        {
+            PoseParameters = [new StudioPoseParameter("aim_yaw", -180f, 180f, 360f), new StudioPoseParameter("move_x", -1f, 1f, 0f)],
+        };
 
-        values[0].ShouldBe(1f);
+        VguiBaseModelPanel panel = new(null, "model", Cache.Of(_ => model));
+
+        panel.SetMDL("models/player/scout.mdl");
+
+        panel.PoseParameters[0].ShouldBe(0.5f);
+        panel.PoseParameters[1].ShouldBe(1f);
     }
 
     [Test]
-    public void MoveXPoseValues_AnUnrelatedParameter_StaysAtRawZeroNormalised()
+    public void SetMDL_OnAPlainMdlPanel_LeavesMoveXAtItsDefault()
     {
-        // Everything but move_x is left at raw zero — the same "unset" value EntityModelSet.Filled leaves an
-        // uncomputed parameter at, which normalises to the MIDDLE of a symmetric range rather than its bottom.
-        float[] values = VguiMdlPanel.MoveXPoseValues([new StudioPoseParameter("aim_yaw", -180f, 180f, 360f)]);
+        // move_x is CBaseModelPanel's (basemodel_panel.cpp:175), not CMDLPanel's.
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("root") with
+        {
+            PoseParameters = [new StudioPoseParameter("move_x", -1f, 1f, 0f)],
+        };
 
-        values[0].ShouldBe(0.5f);
+        VguiMdlPanel panel = new(null, "model", Cache.Of(_ => model));
+
+        panel.SetMDL("models/player/scout.mdl");
+
+        panel.PoseParameters[0].ShouldBe(0.5f);
     }
 
     [Test]
@@ -789,12 +853,12 @@ public sealed class VguiModelPanelConformanceTests
     {
         // CBaseModelPanel::OnTick (basemodel_panel.cpp:402-419): once GetAutoPlayTime() - m_flCycleStartTime passes
         // m_flActiveSequenceDuration, SetupModelDefaults runs again.
-        VguiBaseModelPanel panel = new(null, "model", _ => SyntheticSkinnedModel.WithBones("root"));
+        VguiBaseModelPanel panel = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithBones("root")));
 
+        panel.SetMDL("models/player/scout.mdl");
         panel.ParseModelResInfo(Resource("""
             model
             {
-                "modelname" "models/player/scout.mdl"
                 "animation" { "name" "idle" "sequence" "idle" "default" "1" }
             }
             """).Find("model")!);
@@ -821,7 +885,7 @@ public sealed class VguiModelPanelConformanceTests
         // TIGHTEST constraint, which for this box is the corner nearest the camera (X = -100, where the box's
         // narrow 5-unit half-width still has to clear the frame) - a materially smaller distance of exactly 105,
         // not a number a sphere approximation could produce.
-        VguiBaseModelPanel panel = new(null, "model", _ => null)
+        VguiBaseModelPanel panel = new(null, "model", Cache.None)
         {
             FieldOfView = 90f,
             Wide = 100,
@@ -830,7 +894,6 @@ public sealed class VguiModelPanelConformanceTests
 
         panel.LookAtBounds((-100f, -5f, -5f), (100f, 5f, 5f));
 
-        panel.ForcePosition.ShouldBeTrue();
         panel.ModelOrigin.X.ShouldBe(105f, 0.01f);
         panel.ModelOrigin.Y.ShouldBe(0f, 0.01f);
         panel.ModelOrigin.Z.ShouldBe(0f, 0.01f);
@@ -859,20 +922,20 @@ public sealed class VguiModelPanelConformanceTests
         // Wide/Tall come from a real HUD panel's own .res position/size keys, which this test does not exercise —
         // set directly, and before ApplySettings, so ApplyStartFramed sees the panel's real size the same way it
         // would after a real .res file's xpos/ypos/wide/tall keys had already been applied.
-        VguiBaseModelPanel panel = new(null, "model", _ => model)
+        VguiBaseModelPanel panel = new(null, "model", Cache.Of(_ => model))
         {
             Wide = 100,
             Tall = 100,
         };
 
+        panel.SetMDL("models/player/scout.mdl");
         panel.ApplySettings(Resource("""
             fov 90
             start_framed 1
-            model
-            {
-                "modelname" "models/player/scout.mdl"
-            }
             """), Context());
+
+        // `PerformLayout` (basemodel_panel.cpp:390-397) is where start_framed acts.
+        VguiLayout.SolveTraverse(panel, Context());
 
         panel.ModelOrigin.X.ShouldBe(105f, 0.01f);
     }
@@ -980,5 +1043,30 @@ public sealed class VguiModelPanelConformanceTests
         public (int A, int B, int C) GetCharAbcWide(VguiFontAmalgam font, char character) => (0, 0, 0);
 
         public int GetCharacterWidth(VguiFontAmalgam font, char character) => 0;
+    }
+
+    /// <summary>An <see cref="IMdlCache"/> over synthetic skinned models, with no skins, parts or bodygroups.</summary>
+    private sealed class Cache(Func<string, PropModels.SkinnedModel?> find) : IMdlCache
+    {
+        public static Cache None { get; } = new(_ => null);
+
+        public static Cache Of(Func<string, PropModels.SkinnedModel?> find) => new(find);
+
+        public PropModels.ModelFrames? FindMdl(string path) =>
+            find(path) is { } model ? new PropModels.ModelFrames([], new Dictionary<int, (int, int, float)>(), [], [], Skinned: model) : null;
+
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body;
+    }
+
+    /// <summary>An <see cref="IMdlCache"/> answering whole <see cref="PropModels.ModelFrames"/>.</summary>
+    private sealed class FramesCache(Func<string, PropModels.ModelFrames?> find) : IMdlCache
+    {
+        public PropModels.ModelFrames? FindMdl(string path) => find(path);
+
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body;
     }
 }

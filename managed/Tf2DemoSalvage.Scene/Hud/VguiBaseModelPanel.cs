@@ -40,14 +40,26 @@ public class VguiBaseModelPanel : VguiMdlPanel
     /// <summary><c>CBaseModelPanel( parent, name )</c> (<c>basemodel_panel.h:157</c>).</summary>
     /// <param name="parent">The parent, or null.</param>
     /// <param name="name">The panel's name, or null.</param>
-    /// <param name="findMdl">See <see cref="VguiMdlPanel"/>'s constructor.</param>
-    public VguiBaseModelPanel(VguiPanel? parent, string? name, Func<string, PropModels.SkinnedModel?> findMdl)
-        : base(parent, name, findMdl)
+    /// <param name="mdlCache">See <see cref="VguiMdlPanel"/>'s constructor.</param>
+    public VguiBaseModelPanel(VguiPanel? parent, string? name, IMdlCache mdlCache)
+        : base(parent, name, mdlCache)
     {
     }
 
-    /// <summary><c>m_BMPResData.m_bUseSpotlight</c> (<c>basemodel_panel.h:95</c>, cpp:99).</summary>
+    /// <summary><c>ACT_IDLE</c> (ai_activity.h): 1, which <c>SetMDL</c> passes to <c>SetSequence</c> as a SEQUENCE
+    /// index (basemodel_panel.cpp:309).</summary>
+    private const int ActIdle = 1;
+
+    /// <summary><c>m_BMPResData.m_bUseSpotlight</c> (<c>basemodel_panel.h:95</c>, cpp:99) — stored and never read in
+    /// the shipped SDK.</summary>
     public bool UseSpotlight { get; private set; }
+
+    /// <summary><c>m_BMPResData.m_pszModelName</c> (cpp:91): stored, not loaded — <c>CBaseModelPanel</c> never calls
+    /// <c>SetMDL</c> with it; a subclass that wants it does.</summary>
+    public string? ResModelName { get; private set; }
+
+    /// <summary><c>m_BMPResData.m_nSkin</c> (cpp:98): stored, like <see cref="ResModelName"/>.</summary>
+    public int ResSkin { get; private set; } = -1;
 
     /// <summary><c>m_bStartFramed</c> (<c>basemodel_panel.h:238</c>): <c>start_framed</c>, default <c>"0"</c>.</summary>
     public bool StartFramed { get; private set; }
@@ -89,28 +101,58 @@ public class VguiBaseModelPanel : VguiMdlPanel
     /// <c>CBaseModelPanel::OnTick</c> runs before <c>CMDLPanel::OnTick</c> every tick (basemodel_panel.cpp:402:
     /// "Cycle stuff gets handled in mdlpanel::OnTick, so we want to fix up what our sequence is before it gets
     /// called"); this panel has no separate tick, so <see cref="Tick"/> runs here, immediately before the cycle it
-    /// might reset is read. Then <c>PerformLayout</c>'s <c>force_pos</c> branch (:381-387).
+    /// might reset is read.
     /// </summary>
-    /// <remarks>
-    /// **<c>force_pos</c> is applied per frame, not persisted.** Valve's <c>PerformLayout</c> calls
-    /// <c>ResetCameraPivot(); SetCameraOffset( 0 ); SetCameraPositionAndAngles( vec3_origin, vec3_angle )</c>, which
-    /// OVERWRITE the stored camera; here the stored pivot and offset are left alone and the frame is painted through
-    /// a zero camera instead, and a panel with <see cref="ForcePosition"/> off draws its model at identity every
-    /// frame. A known divergence, carried unchanged through the class split; see <c>docs/HANDOFF-hud.md</c>.
-    /// </remarks>
     public override void Paint(IVguiSurface surface, VguiContext context)
     {
         Tick();
+        base.Paint(surface, context);
+    }
 
-        if (!ForcePosition)
+    /// <summary>
+    /// <c>CBaseModelPanel::SetMDL( handle, pProxyData )</c> (basemodel_panel.cpp:284-317): <c>SetSequence( ACT_IDLE )</c>,
+    /// the base's <c>SetMDL</c>, <c>SetupModelDefaults()</c>, and a layout.
+    /// </summary>
+    /// <inheritdoc/>
+    public override void SetMDL(string? modelName)
+    {
+        // "Clear our current sequence" (:308) — `ACT_IDLE`, an activity, passed where a sequence index goes.
+        SetSequence(ActIdle);
+
+        base.SetMDL(modelName);
+
+        SetupModelDefaults();
+
+        InvalidateLayout();
+    }
+
+    /// <summary>
+    /// <c>CBaseModelPanel::PerformLayout</c> (basemodel_panel.cpp:345-398). With <see cref="ForcePosition"/>: camera
+    /// pivot reset, offset zeroed, camera at the origin looking down +X, and the MODEL moved to
+    /// <see cref="ModelAngles"/>/<see cref="ModelOrigin"/>. With <see cref="StartFramed"/>: <see cref="LookAtBounds"/>
+    /// over the root's bounds.
+    /// </summary>
+    /// <remarks>
+    /// **The `allow_manip` branch (:354-379) is not ported**: it builds a camera for mouse manipulation, and no mouse
+    /// reaches a panel here; no stock HUD `.res` sets it.
+    /// </remarks>
+    protected override void PerformLayout()
+    {
+        base.PerformLayout();
+
+        if (ForcePosition)
         {
-            ResetModelToWorld();
-            base.Paint(surface, context);
-            return;
+            // `ResetCameraPivot(); SetCameraOffset( 0 ); SetCameraPositionAndAngles( vec3_origin, vec3_angle );`
+            CameraPivotOrigin = (0f, 0f, 0f);
+            CameraPivotAngles = (0f, 0f, 0f);
+            CameraOffset = (0f, 0f, 0f);
+            SetModelAnglesAndPosition(ModelAngles, ModelOrigin);
         }
 
-        SetModelAnglesAndPosition(ModelAngles, ModelOrigin);
-        Paint3D(surface, (0f, 0f, 0f), (0f, 0f, 0f), (0f, 0f, 0f));
+        if (StartFramed)
+        {
+            ApplyStartFramed();
+        }
     }
 
     /// <summary><c>CBaseModelPanel::SetModelAnglesAndPosition</c> (<c>basemodel_panel.h:163</c>, cpp:322-329): the
@@ -160,14 +202,11 @@ public class VguiBaseModelPanel : VguiMdlPanel
     {
         ArgumentNullException.ThrowIfNull(modelBlock);
 
-        ModelName = modelBlock.Find("modelname")?.Value;
-        Skin = ResIntOrDefault(modelBlock, "skin", -1);
+        ResModelName = modelBlock.Find("modelname")?.Value;
+        ResSkin = ResIntOrDefault(modelBlock, "skin", -1);
         UseSpotlight = ResIntOrDefault(modelBlock, "spotlight", 0) == 1;
 
-        // `m_bForcePos` (basemodel_panel.cpp:90) — whether `PerformLayout` moves the MODEL to these angles/origin at
-        // all; see `ForcePosition`'s remarks for what happens when it is left false, which is the common case (no
-        // stock TF2 HUD `.res` file sets it — the model draws at whatever `AnimatingEntity`'s bind pose already is,
-        // and the camera backs away from THAT instead).
+        // `m_bForcePos` (basemodel_panel.cpp:90) — whether `PerformLayout` moves the MODEL to these angles/origin.
         ForcePosition = ResIntOrDefault(modelBlock, "force_pos", 0) == 1;
 
         ModelAngles = (
@@ -195,9 +234,18 @@ public class VguiBaseModelPanel : VguiMdlPanel
             }
         }
 
-        // `SetupModelDefaults` -> `SetupModelAnimDefaults` -> `FindDefaultAnim` (basemodel_panel.cpp:164-188), run
-        // once every animation has been read — not per-animation as it is parsed. `FindDefaultAnim` (:193) returns
-        // the FIRST animation flagged default and stops there; a later one flagged default too is never reached.
+        // `SetupModelDefaults()` (:116), once every animation has been read.
+        SetupModelDefaults();
+    }
+
+    /// <summary>
+    /// <c>SetupModelDefaults</c> -> <c>SetupModelAnimDefaults</c> (basemodel_panel.cpp:164-188): <c>move_x</c> at 1 "so
+    /// the run activity works", then the FIRST animation flagged default (<c>FindDefaultAnim</c>, :193).
+    /// </summary>
+    private void SetupModelDefaults()
+    {
+        SetPoseParameterByName("move_x", 1f);
+
         foreach (ModelPanelAnimation animation in _animations)
         {
             if (animation.Default)
@@ -205,11 +253,6 @@ public class VguiBaseModelPanel : VguiMdlPanel
                 SetModelAnim(animation);
                 break;
             }
-        }
-
-        if (StartFramed)
-        {
-            ApplyStartFramed();
         }
     }
 
@@ -325,10 +368,8 @@ public class VguiBaseModelPanel : VguiMdlPanel
         }
 
         // `vecModelPos.x = flDist - vecXFormCenter.x; .y = -vecXFormCenter.y; .z = -vecXFormCenter.z;` then
-        // `SetModelAnglesAndPosition( m_angModelPoseRot, vecModelPos )` — always, regardless of `force_pos`, which
-        // is why this sets `ForcePosition` too: without it `Paint` would compute this position and then ignore it.
-        ModelOrigin = (distance - xformCenter.X, -xformCenter.Y, -xformCenter.Z);
-        ForcePosition = true;
+        // `SetModelAnglesAndPosition( m_angModelPoseRot, vecModelPos )` — always, regardless of `force_pos`.
+        SetModelAnglesAndPosition(ModelAngles, (distance - xformCenter.X, -xformCenter.Y, -xformCenter.Z));
 
         (float X, float Y) panelCenter = (width * 0.5f, height * 0.5f);
         (float X, float Y) screenCenter = ((screenMax.X + screenMin.X) * 0.5f, (screenMax.Y + screenMin.Y) * 0.5f);
@@ -437,8 +478,7 @@ public class VguiBaseModelPanel : VguiMdlPanel
             return;
         }
 
-        Sequence = found;
-        CycleStartTime = RealTimeSeconds;
+        SetSequence(found, resetSequence: true);
     }
 
     /// <summary>
@@ -468,8 +508,7 @@ public class VguiBaseModelPanel : VguiMdlPanel
 
         float cyclesPerSecond = model.CyclesPerSecond(found);
 
-        Sequence = found;
-        CycleStartTime = RealTimeSeconds;
+        SetSequence(found, resetSequence: true);
         _activeSequence = found;
         _activeSequenceDuration = cyclesPerSecond > 0f ? 1f / cyclesPerSecond : 0f;
         _activeSequenceStartedAt = RealTimeSeconds;
