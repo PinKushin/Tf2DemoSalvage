@@ -15,6 +15,12 @@ public sealed class HudEventFeedTests
     private static readonly IReadOnlyList<SceneGameEvent> Events =
         [.. Enumerable.Range(1, 20).Select(i => new SceneGameEvent(i * 100, "player_death", new Dictionary<string, object?>(), new Dictionary<int, PlayerInfo>()))];
 
+    [TestCase("player_death")]
+    [TestCase("teamplay_update_timer")]
+    [TestCase("teamplay_timer_time_added")]
+    public void ListensFor_EveryElementsEvents_AreResolved(string name) =>
+        VguiHud.ListensFor.ShouldContain(name);
+
     [Test]
     public void Advance_PlayingForward_DeliversEachEventOnceAsItsTickIsReached()
     {

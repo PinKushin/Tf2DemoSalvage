@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 using Tf2DemoSalvage.Core.Scene;
@@ -157,6 +158,10 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
 
     /// <summary>`m_pTimeValue`.</summary>
     public TfExLabel TimeValue { get; }
+
+    /// <summary>The events the constructor listens for (:320); `localplayer_changeteam` is the team change `OnThink` sees.</summary>
+    public static IReadOnlySet<string> ListensFor { get; } =
+        new HashSet<string>(["teamplay_update_timer", "teamplay_timer_time_added", "localplayer_changeteam"], StringComparer.Ordinal);
 
     /// <inheritdoc/>
     public override string ClassName => "CTFHudTimeStatus";

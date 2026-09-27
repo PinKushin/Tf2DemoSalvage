@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Scene.Hud;
@@ -40,6 +41,11 @@ public sealed class VguiHud
 
     /// <summary>`CTFHudKothTimeStatus`.</summary>
     public TfHudKothTimeStatus KothTimeStatus { get; }
+
+    /// <summary>Every event any element's `ListenForGameEvent` asked for — the only ones the feed resolves.</summary>
+    public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(
+        [.. TfHudDeathNotice.ListensFor, .. TfHudTimeStatus.ListensFor],
+        StringComparer.Ordinal);
 
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
     public TfHudMatchStatus MatchStatus { get; }
@@ -95,13 +101,21 @@ public sealed class VguiHud
             DeathNotice.Clear();
         }
 
-        // Events are dispatched as their packets are read, before the frame's think and paint.
+        // Events are dispatched as their packets are read, before the frame's think and paint — each to the listeners that
+        // asked for it, as `IGameEventManager` delivers.
         foreach (HudGameEvent fired in events ?? [])
         {
-            DeathNotice.HandleGameEvent(fired with { RealTime = state.RealTime });
-            MatchStatus.TimePanel.HandleGameEvent(fired);
-            KothTimeStatus.BluePanel.HandleGameEvent(fired);
-            KothTimeStatus.RedPanel.HandleGameEvent(fired);
+            if (TfHudDeathNotice.ListensFor.Contains(fired.Event.Name))
+            {
+                DeathNotice.HandleGameEvent(fired with { RealTime = state.RealTime });
+            }
+
+            if (TfHudTimeStatus.ListensFor.Contains(fired.Event.Name))
+            {
+                MatchStatus.TimePanel.HandleGameEvent(fired);
+                KothTimeStatus.BluePanel.HandleGameEvent(fired);
+                KothTimeStatus.RedPanel.HandleGameEvent(fired);
+            }
         }
 
         Viewport.Think(state);

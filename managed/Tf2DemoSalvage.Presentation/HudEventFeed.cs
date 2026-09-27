@@ -83,7 +83,7 @@ public sealed class HudEventFeed
 
         foreach (SceneGameEvent fired in events)
         {
-            if (!TfHudDeathNotice.ListensFor.Contains(fired.Name))
+            if (!VguiHud.ListensFor.Contains(fired.Name))
             {
                 continue;
             }
