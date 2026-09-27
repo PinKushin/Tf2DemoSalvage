@@ -138,7 +138,7 @@ public sealed class StaticPropCollision
     }
 
     /// <summary>`AngleMatrix` (`mathlib_base.cpp`): the local axes' directions in the world.</summary>
-    internal static (Vector3 Forward, Vector3 Left, Vector3 Up) AngleMatrix(float pitch, float yaw, float roll)
+    private static (Vector3 Forward, Vector3 Left, Vector3 Up) AngleMatrix(float pitch, float yaw, float roll)
     {
         (float sp, float cp) = MathF.SinCos(pitch * (MathF.PI / 180f));
         (float sy, float cy) = MathF.SinCos(yaw * (MathF.PI / 180f));

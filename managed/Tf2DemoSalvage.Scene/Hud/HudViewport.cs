@@ -512,6 +512,24 @@ public sealed class HudViewport : VguiEditablePanel
         return !ReferenceEquals(head, element) && head.RenderGroupPriority > element.RenderGroupPriority;
     }
 
+    /// <summary>
+    /// `gHUD.RemoveHudElement( p ); delete p;` (tf_hud_itemeffectmeter.cpp:95-96): the element leaves the HUD's list, and the
+    /// deleted panel leaves the viewport and its build group.
+    /// </summary>
+    /// <param name="element">The element, parented here.</param>
+    public void RemoveHudElement(VguiPanel element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+
+        if (element is IHudElement hudElement)
+        {
+            _elements.Remove(hudElement);
+        }
+
+        OwnGroup.PanelRemoved(element);
+        element.SetParent(null);
+    }
+
     private static void SetLocalTeam(VguiPanel panel, int team)
     {
         if (panel is TfImagePanel image)

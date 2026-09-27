@@ -27,10 +27,10 @@ public readonly record struct TfAmmoState(
 /// then `mult_clipsize`; then, for a blast weapon, `mult_clipsize_upgrade_atomic` and `clipsize_increase_on_kill` projectiles
 /// added, otherwise `mult_clipsize_upgrade`.</item>
 /// <item>`CTFPlayer::GetMaxAmmo` (tf_player_shared.cpp:12979): the class's `AmmoMax`, through the ammo's `mult_maxammo_*`;
-/// `TF_AMMO_GRENADES3` is always 1.</item>
+/// `TF_AMMO_GRENADES3` is 1; then the haste rune doubles it.</item>
 /// <item>`UsesPrimaryAmmo` is false for an energy weapon; `UberChargeAmmoPerShot` is `ubercharge_ammo` × 0.01.</item>
 /// </list>
-/// **Not modelled:** the Mannpower runes (haste doubles clips and ammo; precision and vampire multiply blast clips) and
+/// **Not modelled:** the Mannpower runes' clip changes (haste doubles clips; precision and vampire multiply blast clips) and
 /// the decapitations `clipsize_increase_on_kill` counts, which are not read yet — each changes only the low-ammo warning's
 /// threshold, never a number drawn.
 /// </remarks>
@@ -78,9 +78,8 @@ public static class TfAmmo
             return default;
         }
 
-        (int scriptClip, int scriptAmmo, bool namesAmmo) = scripts.Weapon(className, player.PlayerClass);
-        int ammoType = player.WeaponPrimaryAmmoType
-            ?? (namesAmmo && Int(hooks.OnWeapon(player, weapon, "mod_use_metal_ammo_type", 0f)) != 0 ? TfWeaponData.AmmoMetal : scriptAmmo);
+        int scriptClip = scripts.Weapon(className, player.PlayerClass).MaxClip1;
+        int ammoType = player.WeaponPrimaryAmmoType ?? PrimaryAmmoType(player, weapon, scripts, hooks.OnWeapon);
 
         bool energy = EnergyWeapons.Contains(className);
         bool usesPrimary = !energy && ammoType >= 0;
@@ -94,7 +93,7 @@ public static class TfAmmo
             UsesClips: maxClip != -1,
             Clip1: player.WeaponClip1 ?? -1,
             Reserve: ammoType >= 0 && player.Ammo is { } ammo && ammoType < ammo.Count ? ammo[ammoType] : 0,
-            MaxAmmo: ammoType >= 0 && player.PlayerClass is { } playerClass ? MaxAmmo(player, playerClass, ammoType, scripts, hooks) : 0,
+            MaxAmmo: ammoType >= 0 && player.PlayerClass is { } playerClass ? MaxAmmo(player, playerClass, ammoType, scripts, hooks.OnPlayer) : 0,
             MaxClip1: maxClip);
     }
 
@@ -125,13 +124,44 @@ public static class TfAmmo
         return Int(hooks.OnWeapon(player, weapon, "mult_clipsize_upgrade", (int)clip));
     }
 
-    /// <summary>`CTFPlayer::GetMaxAmmo`.</summary>
-    private static int MaxAmmo(ScenePlayer player, int playerClass, int ammoType, TfWeaponData scripts, AttributeHooks hooks)
+    /// <summary>
+    /// `m_iPrimaryAmmoType` as `CBaseCombatWeapon::Precache` sets it (basecombatweapon_shared.cpp:254): the networked value
+    /// when it arrived, otherwise the script's `primary_ammo`, or `TF_AMMO_METAL` for `mod_use_metal_ammo_type`.
+    /// </summary>
+    /// <param name="player">The weapon's owner.</param>
+    /// <param name="weapon">The weapon.</param>
+    /// <param name="scripts">The weapon and class scripts.</param>
+    /// <param name="onWeapon">`CALL_ATTRIB_HOOK_FLOAT` on the weapon.</param>
+    /// <returns>The ammo type, -1 for none.</returns>
+    public static int PrimaryAmmoType(
+        ScenePlayer player, SceneItem weapon, TfWeaponData scripts, Func<ScenePlayer, SceneItem, string, float, float> onWeapon)
     {
-        if (ammoType == AmmoGrenades3)
+        ArgumentNullException.ThrowIfNull(weapon);
+        ArgumentNullException.ThrowIfNull(scripts);
+        ArgumentNullException.ThrowIfNull(onWeapon);
+
+        if (weapon.PrimaryAmmoType is { } networked)
         {
-            return 1;
+            return networked;
         }
+
+        (_, int scriptAmmo, bool namesAmmo) = scripts.Weapon(weapon.ClassName ?? string.Empty, player.PlayerClass);
+
+        return namesAmmo && Int(onWeapon(player, weapon, "mod_use_metal_ammo_type", 0f)) != 0 ? TfWeaponData.AmmoMetal : scriptAmmo;
+    }
+
+    /// <summary>`CTFPlayer::GetMaxAmmo` (tf_player_shared.cpp:12979).</summary>
+    /// <param name="player">The player.</param>
+    /// <param name="playerClass">`m_PlayerClass`'s class.</param>
+    /// <param name="ammoType">The ammo index.</param>
+    /// <param name="scripts">The class scripts' `AmmoMax`.</param>
+    /// <param name="onPlayer">`CALL_ATTRIB_HOOK_INT` on the player.</param>
+    /// <returns>The maximum.</returns>
+    public static int MaxAmmo(
+        ScenePlayer player, int playerClass, int ammoType, TfWeaponData scripts, Func<ScenePlayer, string, float, float> onPlayer)
+    {
+        ArgumentNullException.ThrowIfNull(scripts);
+        ArgumentNullException.ThrowIfNull(onPlayer);
 
         int max = scripts.AmmoMax(playerClass, ammoType);
         string? hook = ammoType switch
@@ -143,8 +173,46 @@ public static class TfAmmo
             _ => null,
         };
 
-        return hook is null ? max : Int(hooks.OnPlayer(player, hook, max));
+        if (hook is not null)
+        {
+            max = Int(onPlayer(player, hook, max));
+        }
+        else if (ammoType == AmmoGrenades3)
+        {
+            // "All classes by default can carry a max of 1 'Grenade3' which is being used as ACTIONSLOT Throwables".
+            max = 1;
+        }
+
+        // "Haste Powerup Rune adds multiplier to Max Ammo": `iMax *= 2.0f`, a float product truncated back.
+        return CarryingRuneType(player.Conditions) == RuneHaste ? (int)(max * 2.0f) : max;
     }
+
+    // `RUNE_HASTE` (tf_shareddefs.h:2642).
+    private const int RuneHaste = 1;
+
+    /// <summary>
+    /// `CTFPlayerShared::GetCarryingRuneType` (tf_player_shared.cpp:11498): the first rune, in `RuneTypes_t` order, whose
+    /// condition is set — `GetConditionFromRuneType` maps them to `TF_COND_RUNE_STRENGTH` (90) through `TF_COND_RUNE_REGEN`
+    /// (92) and on; -1 for none.
+    /// </summary>
+    /// <param name="conditions">The player's conditions.</param>
+    /// <returns>The rune type.</returns>
+    public static int CarryingRuneType(PlayerConditions conditions)
+    {
+        for (int rune = 0; rune < RuneConditions.Length; rune++)
+        {
+            if (conditions.Has(RuneConditions[rune]))
+            {
+                return rune;
+            }
+        }
+
+        return -1;
+    }
+
+    // `GetConditionFromRuneType` (tf_shareddefs.h:2659), `RUNE_STRENGTH` through `RUNE_SUPERNOVA`, with the conditions'
+    // numbers from `ETFCond` (tf_shareddefs.h:780-801).
+    private static readonly int[] RuneConditions = [90, 91, 92, 93, 94, 95, 96, 97, 103, 109, 110, 111];
 
     private static int Int(float value) => AttributeHooks.RoundFloatToInt(value);
 }

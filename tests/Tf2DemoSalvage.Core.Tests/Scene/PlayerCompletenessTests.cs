@@ -210,6 +210,17 @@ public sealed class PlayerCompletenessTests
         CloakMeter = 42f,
         DisguiseWeapon = 31,
         Decapitations = 3,
+
+        // The item effect meters' inputs: each non-default, the draining flag set.
+        RageMeter = 64f,
+        RageDraining = true,
+        ItemChargeMeter = [0f, 50f],
+        HypeMeter = 33f,
+        RevengeCrits = 2,
+        RuneCharge = 12f,
+        KartNextAvailableBoost = 8.5f,
+        KartHealth = 40,
+        SpawnCounter = 1,
         PlayerSkinOverride = 1,
         DisguiseSkinOverride = 1,
         DisguiseWeaponItem = new SceneItem(31, "CTFRevolver", 24, new EconAttributeWire([], [], HasValidItemId: true), IsWeapon: true) { Quality = 6 },

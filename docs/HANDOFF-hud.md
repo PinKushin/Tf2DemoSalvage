@@ -246,13 +246,16 @@ gates.
    GetBestVisualTeamData for attached models (:1034), strange-level styles (econ_item_view.cpp:747-776), eye glow and
    unusual particles (:1584-1889), StatTrak (:550-616, :1539), taunt branch (:664-731).
 2. Target ID generic targets — done: dropped weapons and revive markers decoded, traced and shown. The flag's branch
-   cannot run: `FSOLID_NOT_SOLID` (entity_capture_flag.cpp:607). Open: a dropped weapon's trace uses its entity-space
-   collision box, not the `.phy` hull `SOLID_VPHYSICS` clips against.
+   cannot run: `FSOLID_NOT_SOLID` (entity_capture_flag.cpp:607). A dropped weapon is traced against its model's `.phy`.
 3. `CTFMinigameLogic` refusal in TfHudPlayerStatus.ShouldDraw (tf_hud_playerstatus.cpp:1087).
-4. `localplayer_pickup_weapon`: done — `PlayerPickupWeapon` is kept by name and fired to TfHudPlayerClass. Its other
-   listener, the item effect meter (tf_hud_itemeffectmeter.cpp:128), is not ported.
-5. Match-start doors and round sign: done, `VguiModelPanel` (CModelPanel). Not ported: its vcd, start_framed and
-   HWM paths (no HUD block uses them), the door team lists and rank-up message (GC data), FrontParticlePanel.
+4. `localplayer_pickup_weapon`: done — `PlayerPickupWeapon` is kept by name and fired to TfHudPlayerClass and to the
+   item effect meters. The meters are ported whole: `TfItemEffectMeterManager`, the cloak meter, every weapon
+   specialisation, the rune and item-attribute meters, on `ContinuousProgressBar`. Two readings to know: a demo's
+   client never runs the charged SMG's `SecondaryAttack`, so its `m_flMinicritStartTime` stays 0; and the manager's
+   `Update` runs after the HUD think, not in `ClientThink` before it.
+5. Match-start doors and round sign: done, `VguiModelPanel` (CModelPanel), with the doors' team lists and party names.
+   The rank-up message needs the GC's rating cache (tf_rating_data.cpp:22-41), never in a demo. The door slam is
+   `TfParticlePanel` (CTFParticlePanel).
 6. Model-shader directional local lights: done; a panel's second directional light is one. A map's only directional
    light, light_environment, already reaches world models as the sun.
 7. `_minmode` keys: done — every `.res` read from disk (BuildGroup.cpp:953-960); a change reloads the scheme.

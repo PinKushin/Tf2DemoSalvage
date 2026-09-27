@@ -16,6 +16,7 @@ public sealed class SceneIdEntityTests
         found.Count.ShouldBe(2);
         found[0].ShouldBe(new SceneIdEntity(60, SceneIdEntityKind.DroppedWeapon)
         {
+            Model = SyntheticPlayer.DroppedWeaponModel,
             ItemValid = true,
             ItemDefinition = 211,
             ItemQuality = 11,

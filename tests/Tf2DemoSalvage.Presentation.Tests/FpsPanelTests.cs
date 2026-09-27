@@ -116,7 +116,7 @@ public sealed class FpsPanelTests
     }
 
     /// <summary>A GDI whose every glyph is a solid block, 6 wide in a 10-tall font: placement, not shapes, is under test.</summary>
-    private sealed class SolidGdi : IVguiGdi
+    internal sealed class SolidGdi : IVguiGdi
     {
         private (int Wide, int Tall) _bitmap;
 

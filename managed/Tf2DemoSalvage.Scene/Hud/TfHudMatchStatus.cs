@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -14,7 +15,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// players, and not during the match summary. `tf_use_match_hud` (1) and not Mann vs. Machine loads its `.res` with
 /// `if_match`.
 /// The match doors and the round sign are <see cref="VguiModelPanel"/>s driven by the countdown, the round start and the
-/// match summary. **Not modelled:** team status, player lists and avatars, and the rank-up message; `if_large`, which
+/// match summary, with the doors' team lists and names. **Not modelled:** team status; the Steam avatars' pictures; and the
+/// rank-up message, whose rating is the local player's GC shared-object cache (`YieldingGetPlayerRatingDataBySteamID`,
+/// tf_rating_data.cpp:22-41) — Steam's GC, never in a demo — so it is never set; `if_large`, which
 /// needs the match group's size; the freeze-cam screenshot test; and an open viewport panel. The round counter is its own
 /// panel, <see cref="TfRoundCounterPanel"/> — see its remarks for what it leaves out.
 /// </remarks>
@@ -32,7 +35,73 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         RoundCounter = new TfRoundCounterPanel(this);
         TimePanel = new TfHudTimeStatus(this, "ObjectiveStatusTimePanel");
         RoundSignModel = new VguiModelPanel(this, "RoundSignModel", mdlCache);
+
+        // (:287-298). The leader avatars are `CAvatarImagePanel`s, whose picture Steam serves; the demo carries no image.
+        BlueTeamPanel = new VguiEditablePanel(this, "BlueTeamPanel");
+        PlayerListBlue = new VguiSectionedListPanel(BlueTeamPanel, "BluePlayerList");
+        BlueLeaderAvatarImage = new VguiAvatarImagePanel(BlueTeamPanel, "BlueLeaderAvatar");
+        BlueLeaderAvatarBg = new VguiEditablePanel(BlueTeamPanel, "BlueLeaderAvatarBG");
+        BlueTeamImage = new VguiImagePanel(BlueTeamPanel, "BlueTeamImage");
+        BlueTeamName = new TfExLabel(BlueTeamPanel, "BlueTeamLabel");
+        RedTeamPanel = new VguiEditablePanel(this, "RedTeamPanel");
+        PlayerListRed = new VguiSectionedListPanel(RedTeamPanel, "RedPlayerList");
+        RedLeaderAvatarImage = new VguiAvatarImagePanel(RedTeamPanel, "RedLeaderAvatar");
+        RedLeaderAvatarBg = new VguiEditablePanel(RedTeamPanel, "RedLeaderAvatarBG");
+        RedTeamImage = new VguiImagePanel(RedTeamPanel, "RedTeamImage");
+        RedTeamName = new TfExLabel(RedTeamPanel, "RedTeamLabel");
+
+        // tf_hud_match_status.h:128-131.
+        DeclareAnimationVar("avatar_width", VguiPanelVarType.Whole, "34");
+        DeclareAnimationVar("spacer", VguiPanelVarType.ProportionalInt, "5");
+        DeclareAnimationVar("name_width", VguiPanelVarType.ProportionalInt, "136");
+        DeclareAnimationVar("horiz_inset", VguiPanelVarType.ProportionalInt, "4");
     }
+
+    /// <summary>`m_pBlueTeamPanel`.</summary>
+    public VguiEditablePanel BlueTeamPanel { get; }
+
+    /// <summary>`m_pPlayerListBlue`.</summary>
+    public VguiSectionedListPanel PlayerListBlue { get; }
+
+    /// <summary>`m_pBlueLeaderAvatarImage`.</summary>
+    public VguiAvatarImagePanel BlueLeaderAvatarImage { get; }
+
+    /// <summary>`m_pBlueLeaderAvatarBG`.</summary>
+    public VguiEditablePanel BlueLeaderAvatarBg { get; }
+
+    /// <summary>`m_pBlueTeamImage`.</summary>
+    public VguiImagePanel BlueTeamImage { get; }
+
+    /// <summary>`m_pBlueTeamName`.</summary>
+    public TfExLabel BlueTeamName { get; }
+
+    /// <summary>`m_pRedTeamPanel`.</summary>
+    public VguiEditablePanel RedTeamPanel { get; }
+
+    /// <summary>`m_pPlayerListRed`.</summary>
+    public VguiSectionedListPanel PlayerListRed { get; }
+
+    /// <summary>`m_pRedLeaderAvatarImage`.</summary>
+    public VguiAvatarImagePanel RedLeaderAvatarImage { get; }
+
+    /// <summary>`m_pRedLeaderAvatarBG`.</summary>
+    public VguiEditablePanel RedLeaderAvatarBg { get; }
+
+    /// <summary>`m_pRedTeamImage`.</summary>
+    public VguiImagePanel RedTeamImage { get; }
+
+    /// <summary>`m_pRedTeamName`.</summary>
+    public TfExLabel RedTeamName { get; }
+
+    /// <summary>`g_PR->GetTeamColor` for TF (c_tf_playerresource.cpp:59-62): `COLOR_RED`, `COLOR_BLUE` (shareddefs.h:565-566).</summary>
+    /// <param name="team">The team.</param>
+    /// <returns>Its colour; `COLOR_TF_SPECTATOR` teams are never listed here.</returns>
+    public static (byte, byte, byte, byte) TeamColor(int team) => team == TeamBlue ? Blue : Red;
+
+    private static readonly (byte, byte, byte, byte) Red = (255, 64, 64, 255);
+    private static readonly (byte, byte, byte, byte) Blue = (153, 204, 255, 255);
+
+    private VguiFontAmalgam? _playerListFont;
 
     /// <summary>`m_pMatchStartModelPanel`: the versus doors.</summary>
     public VguiModelPanel MatchStartModelPanel { get; }
@@ -79,7 +148,153 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         // `SetPanelsVisible` (:339): `m_pRoundCounter->SetVisible( ShouldUseMatchHUD() )`.
         RoundCounter.Visible = _usedMatchHud;
         LoadControlSettings("resource/UI/HudMatchStatus.res", context, _usedMatchHud ? ["if_match"] : null);
+
+        // (:386-395): the lists made again, the "Default" font proportional, and filled.
+        InitPlayerList(PlayerListBlue);
+        InitPlayerList(PlayerListRed);
+        _playerListFont = context.GetFont("Default", proportional: true);
+        UpdatePlayerList(state);
+        UpdateTeamInfo(state);
     }
+
+    private const int TeamRed = 2;
+    private const int TeamBlue = 3;
+
+    /// <summary>`TFPlayerSortFunc` (:759): "score" — which `UpdatePlayerList` never sets — then the higher player index.</summary>
+    /// <param name="list">The list.</param>
+    /// <param name="itemId1">The item placed.</param>
+    /// <param name="itemId2">The item compared against.</param>
+    /// <returns>Whether the first sorts before the second.</returns>
+    public static bool PlayerSortFunc(VguiSectionedListPanel list, int itemId1, int itemId2)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+
+        int Int(int item, string key) =>
+            list.GetItemData(item)?.GetValueOrDefault(key) is { } value ? PanelLayout.Atoi(value) : 0;
+
+        int score1 = Int(itemId1, "score");
+        int score2 = Int(itemId2, "score");
+
+        if (score1 != score2)
+        {
+            return score1 > score2;
+        }
+
+        // "if score is the same, use player index to get deterministic sort".
+        return Int(itemId1, "playerIndex") > Int(itemId2, "playerIndex");
+    }
+
+    /// <summary>`InitPlayerList` (:782): one always-visible section of avatar, spacer and a name column filling the rest.</summary>
+    private void InitPlayerList(VguiSectionedListPanel list)
+    {
+        const int ColumnDataIndent = 6; // SectionedListPanel::COLUMN_DATA_INDENT
+
+        list.ClearItems();
+        list.RemoveAllSections();
+        list.AddSection(0, "Players", PlayerSortFunc);
+        list.SetSectionAlwaysVisible(0, true);
+        list.SetSectionDrawDividerBar(0, false);
+
+        int avatarWidth = GetInt("avatar_width");
+        int spacerWidth = GetInt("spacer");
+        int nameWidth = GetInt("name_width");
+
+        list.AddColumnToSection(0, "avatar", string.Empty, SectionedListColumn.ColumnImage | SectionedListColumn.ColumnRight, avatarWidth);
+        list.AddColumnToSection(0, "spacer", string.Empty, SectionedListColumn.None, spacerWidth);
+
+        // "the player avatar is always a fixed size, so as we change resolutions we need to vary the size of the name column".
+        int extraSpace = list.Wide - avatarWidth - spacerWidth - nameWidth - (2 * ColumnDataIndent);
+
+        list.AddColumnToSection(0, "name", string.Empty, SectionedListColumn.None, nameWidth + extraSpace);
+    }
+
+    /// <summary>`UpdatePlayerList` (:805): every connected RED and BLU slot of the player resource, in its team's list.</summary>
+    /// <param name="state">The frame.</param>
+    /// <remarks>
+    /// `UpdatePlayerAvatar` (:859) gives a row its Steam avatar's image index; the picture is Steam's, and no image draws in a
+    /// list cell here, so no "avatar" is set.
+    /// </remarks>
+    public void UpdatePlayerList(HudState state)
+    {
+        PlayerListRed.ClearItems();
+        PlayerListBlue.ClearItems();
+
+        // `if ( !g_TF_PR ) return;`
+        if (state.ScoreboardPlayers is not { } resource)
+        {
+            return;
+        }
+
+        foreach (SceneScoreboardPlayer slot in resource.OrderBy(slot => slot.EntityIndex))
+        {
+            if (!slot.Connected)
+            {
+                continue;
+            }
+
+            VguiSectionedListPanel? list = slot.Team switch
+            {
+                TeamBlue => PlayerListBlue,
+                TeamRed => PlayerListRed,
+                _ => null,
+            };
+
+            if (list is null)
+            {
+                continue;
+            }
+
+            int itemId = list.AddItem(0, new Dictionary<string, string>
+            {
+                ["playerIndex"] = slot.EntityIndex.ToString(CultureInfo.InvariantCulture),
+                ["name"] = state.Names?.GetValueOrDefault(slot.EntityIndex) ?? string.Empty,
+            });
+
+            list.SetItemFgColor(itemId, TeamColor(slot.Team ?? 0));
+            list.SetItemBgColor(itemId, (120, 120, 120, 80));
+            list.SetItemBgHorizFillInset(itemId, GetInt("horiz_inset"));
+
+            if (_playerListFont is { } font)
+            {
+                list.SetItemFont(itemId, font);
+            }
+        }
+
+        PlayerListRed.SetSectionFgColor(0, TeamColor(TeamRed));
+        PlayerListBlue.SetSectionFgColor(0, TeamColor(TeamBlue));
+    }
+
+    /// <summary>`UpdateTeamInfo` (:900): each team panel's name, and the party leaders' avatars when both sides are premade.</summary>
+    /// <param name="state">The frame.</param>
+    public void UpdateTeamInfo(HudState state)
+    {
+        foreach (SceneTeam team in state.Teams ?? [])
+        {
+            (string variable, VguiEditablePanel? panel) = team.TeamNumber switch
+            {
+                TeamRed => ("redteamname", RedTeamPanel),
+                TeamBlue => ("blueteamname", BlueTeamPanel),
+                _ => (string.Empty, (VguiEditablePanel?)null),
+            };
+
+            panel?.SetDialogVariable(variable, TfTeamNames.Localized(team.TeamNumber, state, Find));
+        }
+
+        bool showAvatars = state.ScoreboardPlayers is not null && state.Rules.HasPremadeParties;
+
+        RedLeaderAvatarImage.Visible = showAvatars;
+        RedLeaderAvatarBg.Visible = showAvatars;
+        RedTeamName.Visible = showAvatars;
+        RedTeamImage.Visible = !showAvatars;
+
+        BlueLeaderAvatarImage.Visible = showAvatars;
+        BlueLeaderAvatarBg.Visible = showAvatars;
+        BlueTeamName.Visible = showAvatars;
+        BlueTeamImage.Visible = !showAvatars;
+    }
+
+    private string? Find(string token) =>
+        HudViewport.Of(this)?.Context?.Localize?.Invoke(token.StartsWith('#') ? token[1..] : token);
 
     /// <inheritdoc/>
     protected override void OnThink()
@@ -176,15 +391,8 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
     /// <summary>`show_match_summary` (:564-612): the team panels hidden, the doors refreshed and shut.</summary>
     private void ShowMatchSummary(SceneGameRules rules)
     {
-        if (FindChildByName("BlueTeamPanel") is { } blue)
-        {
-            blue.Visible = false;
-        }
-
-        if (FindChildByName("RedTeamPanel") is { } red)
-        {
-            red.Visible = false;
-        }
+        BlueTeamPanel.Visible = false;
+        RedTeamPanel.Visible = false;
 
         if (TfMatchGroupDescription.For(rules.MatchGroup) is not { } description)
         {
@@ -254,6 +462,10 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
             return;
         }
 
+        HudState state = HudViewport.Of(this)?.State ?? default;
+
+        UpdatePlayerList(state);
+        UpdateTeamInfo(state);
         SetDoors(door);
         HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudMatchStatus_ShowMatchStartDoors");
 

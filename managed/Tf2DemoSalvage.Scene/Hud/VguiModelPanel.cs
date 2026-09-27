@@ -24,6 +24,9 @@ public sealed class VguiModelPanelModelInfo
     /// <summary>`m_pszModelName`.</summary>
     public string? ModelName { get; set; }
 
+    /// <summary>`m_pszModelName_HWM`: the hardware-morph model, used only when `UseHWMorphModels()`.</summary>
+    public string? ModelNameHwm { get; set; }
+
     /// <summary>`m_nSkin`: -1 leaves the model's own.</summary>
     public int Skin { get; set; } = -1;
 
@@ -61,9 +64,9 @@ public sealed class VguiModelPanelModelInfo
 /// `CBaseModelPanel`: no pottery-wheel camera, and its own lights (<c>Paint</c>, :542).
 /// </summary>
 /// <remarks>
-/// **Not ported:** a <c>vcd</c> (`SetupVCD`, :282, a client-only choreo scene), <c>start_framed</c>
-/// (`CalculateFrameDistanceInternal`, :796, which needs the engine's `GetModelRenderBounds`), and `modelname_hwm`
-/// (`UseHWMorphModels`). None of the HUD's two `CModelPanel` blocks (`HudMatchStatus.res`) sets any of them.
+/// **Not ported:** a <c>vcd</c> (`SetupVCD`, :282): a client-only `C_SceneEntity` playing a choreo scene on the model,
+/// which needs a `.vcd`/`scenes.image` event player and flex weights this project has neither of. No HUD `CModelPanel`
+/// block sets one.
 /// </remarks>
 public class VguiModelPanel : VguiEditablePanel
 {
@@ -106,6 +109,9 @@ public class VguiModelPanel : VguiEditablePanel
 
     /// <summary>`m_nFOV`: 54 (:47) until the <c>.res</c> says <c>fov</c>.</summary>
     public int FieldOfView { get; set; } = 54;
+
+    /// <summary>`m_bStartFramed`.</summary>
+    public bool StartFramed { get; private set; }
 
     /// <summary>`m_bAllowOffscreen`.</summary>
     public bool AllowOffscreen { get; private set; }
@@ -163,6 +169,7 @@ public class VguiModelPanel : VguiEditablePanel
         base.ApplySettings(block, context);
 
         FieldOfView = Int(block, "fov", 54);
+        StartFramed = Int(block, "start_framed", 0) != 0;
         AllowOffscreen = Int(block, "allow_offscreen", 0) != 0;
 
         foreach (KeyValuesTree data in block.Children)
@@ -183,6 +190,7 @@ public class VguiModelPanel : VguiEditablePanel
         VguiModelPanelModelInfo info = new()
         {
             ModelName = data.Find("modelname")?.Value,
+            ModelNameHwm = data.Find("modelname_hwm")?.Value,
             Skin = Int(data, "skin", -1),
             AbsAngles = (Float(data, "angles_x", 0f), Float(data, "angles_y", 0f), Float(data, "angles_z", 0f)),
             OriginOffset = (Float(data, "origin_x", 110f), Float(data, "origin_y", 5f), Float(data, "origin_z", 5f)),
@@ -359,7 +367,7 @@ public class VguiModelPanel : VguiEditablePanel
 
         _model = null;
 
-        if (info.ModelName is not { Length: > 0 } path || _mdlCache.FindMdl(path) is not { Skinned: { } skinned } frames)
+        if (DrawnModelName is not { Length: > 0 } path || _mdlCache.FindMdl(path) is not { Skinned: { } skinned } frames)
         {
             return;
         }
@@ -417,6 +425,96 @@ public class VguiModelPanel : VguiEditablePanel
         }
 
         _model = model;
+
+        // `CalculateFrameDistance` (:905): `m_flFrameDistance = 0`, then only a started-framed panel frames its model.
+        if (StartFramed)
+        {
+            CalculateFrameDistanceInternal(info, frames.HeaderBounds);
+        }
+    }
+
+    /// <summary>
+    /// `GetModelName` (:344): the HWM model when `UseHWMorphModels()` and it loads, else the plain one. `UseHWMorphModels`
+    /// returns false unconditionally (baseplayer_shared.cpp:94-105, its convar branch commented out), so it is the plain one.
+    /// </summary>
+    public string? DrawnModelName => ModelInfo?.ModelName;
+
+    /// <summary>
+    /// `CalculateFrameDistanceInternal` (:796): the origin offset and viewport offset that fit the model's bounds, rotated
+    /// by the panel's angles, into the field of view.
+    /// </summary>
+    /// <remarks>
+    /// **Interpolated:** `modelinfo->GetModelRenderBounds` is engine.dll, outside the SDK; taken as the studio header's box —
+    /// the clipping box when authored, else the hull — the same box `C_BaseAnimating::GetRenderBounds` starts from
+    /// (c_baseanimating.cpp:4548-4559) before it adds a sequence's.
+    /// </remarks>
+    private void CalculateFrameDistanceInternal(VguiModelPanelModelInfo info, StudioBox bounds)
+    {
+        (float X, float Y, float Z) center = ((bounds.MaxX + bounds.MinX) * 0.5f, (bounds.MaxY + bounds.MinY) * 0.5f, (bounds.MaxZ + bounds.MinZ) * 0.5f);
+        (float X, float Y, float Z) min = (bounds.MinX - center.X, bounds.MinY - center.Y, bounds.MinZ - center.Z);
+        (float X, float Y, float Z) max = (bounds.MaxX - center.X, bounds.MaxY - center.Y, bounds.MaxZ - center.Z);
+
+        (float X, float Y, float Z)[] corners =
+        [
+            (max.X, max.Y, max.Z), (min.X, max.Y, max.Z), (max.X, min.Y, max.Z), (min.X, min.Y, max.Z),
+            (max.X, max.Y, min.Z), (min.X, max.Y, min.Z), (max.X, min.Y, min.Z), (min.X, min.Y, min.Z),
+        ];
+
+        // `AngleMatrix( angPanelAngles, matRotation )` and `VectorTransform` with it.
+        float[] rotation = VguiMdlPanel.AngleMatrix3x4(info.AbsAngles, (0f, 0f, 0f));
+
+        (float X, float Y, float Z) Rotate((float X, float Y, float Z) v) => (
+            (v.X * rotation[0]) + (v.Y * rotation[1]) + (v.Z * rotation[2]),
+            (v.X * rotation[4]) + (v.Y * rotation[5]) + (v.Z * rotation[6]),
+            (v.X * rotation[8]) + (v.Y * rotation[9]) + (v.Z * rotation[10]));
+
+        (float X, float Y, float Z)[] xformed = Array.ConvertAll(corners, corner => Rotate(corner));
+
+        // `VectorTransform( -vecTranslateCenter, … )`, and `vecTranslateCenter = -vecCenter`.
+        (float X, float Y, float Z) xformCenter = Rotate(center);
+
+        float width = Wide;
+        float height = Tall;
+        float tanFovX = MathF.Tan(FieldOfView * 0.5f * (MathF.PI / 180f));
+
+        // `CalcFovY( ( m_nFOV * 0.5f ), flW/flH )`: the half angle, as Valve passes it.
+        float tanFovY = MathF.Tan(VguiBaseModelPanel.CalcFovY(FieldOfView * 0.5f, height > 0f ? width / height : 1f) * (MathF.PI / 180f));
+        float distance = 0f;
+
+        foreach ((float X, float Y, float Z) point in xformed)
+        {
+            // `fabs( z / tanY - x )` and `fabs( y / tanX - x )`: the whole difference, unlike CBaseModelPanel's.
+            float distanceZ = MathF.Abs((point.Z / tanFovY) - point.X);
+            float distanceY = MathF.Abs((point.Y / tanFovX) - point.X);
+
+            distance = MathF.Max(distance, MathF.Max(distanceZ, distanceY));
+        }
+
+        // "Scale the object down by 10%", then "Add the framing offset".
+        distance *= 1.10f;
+        xformCenter = (xformCenter.X + info.FramedOriginOffset.X, xformCenter.Y + info.FramedOriginOffset.Y, xformCenter.Z + info.FramedOriginOffset.Z);
+        info.OriginOffset = (distance - xformCenter.X, -xformCenter.Y, -xformCenter.Z);
+
+        (float X, float Y) screenMin = (99999f, 99999f);
+        (float X, float Y) screenMax = (-99999f, -99999f);
+
+        foreach ((float X, float Y, float Z) point in xformed)
+        {
+            float cameraX = point.X + distance;
+            float screenX = ((point.Y / (tanFovX * cameraX) * 0.5f) + 0.5f) * width;
+            float screenY = ((point.Z / (tanFovY * cameraX) * 0.5f) + 0.5f) * height;
+
+            screenMin = (MathF.Min(screenMin.X, screenX), MathF.Min(screenMin.Y, screenY));
+            screenMax = (MathF.Max(screenMax.X, screenX), MathF.Max(screenMax.Y, screenY));
+        }
+
+        screenMin = (Math.Clamp(screenMin.X, 0f, width), Math.Clamp(screenMin.Y, 0f, height));
+        screenMax = (Math.Clamp(screenMax.X, 0f, width), Math.Clamp(screenMax.Y, 0f, height));
+
+        // "Offset the view port based on the calculated model 2D center and the center of the viewport."
+        (float X, float Y) screenCenter = ((screenMax.X + screenMin.X) * 0.5f, (screenMax.Y + screenMin.Y) * 0.5f);
+
+        info.ViewportOffset = (-((width * 0.5f) - screenCenter.X), -((height * 0.5f) - screenCenter.Y));
     }
 
     /// <summary>`CModelPanel::Paint` (:542).</summary>

@@ -36,9 +36,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// the bot ping icon branch (:1398-1409) is not modelled; ping is always a plain number.
 /// </description></item>
 /// <item><description>
-/// `C_TFTeam::UpdateTeamName`'s party-leader and event-team names (`c_tf_team.cpp:118-156`) — they need
-/// `HasPremadeParties`/`GetEventTeamStatus`, neither decoded, so such a match shows the localized name — and the
-/// premade-party leader avatars.
+/// The premade-party leader avatars, whose pictures are Steam's.
 /// </description></item>
 /// <item><description>
 /// `m_nExtraSpace` (:907), which widens the name column to fill whatever space avatars and a hidden scrollbar
@@ -250,33 +248,8 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
         BlueTeamName.Visible = showTournamentName;
     }
 
-    /// <summary>`C_TFTeam::Get_Localized_Name` after `UpdateTeamName` (c_tf_team.cpp:111).</summary>
-    /// <remarks>
-    /// **Not modelled:** in competitive or casual matchmaking, a premade party's leader or an event team names the team
-    /// (:120-156); `HasPremadeParties`/`GetEventTeamStatus` are not decoded, so the name falls through to the localized one,
-    /// as it does for a match with neither.
-    /// </remarks>
-    private string LocalizedTeamName(int teamNumber, HudState state)
-    {
-        if (state.ConVars.GetBool("mp_tournament") && teamNumber is TeamRed or TeamBlue && !state.Rules.IsCompetitiveMode)
-        {
-            // mp_tournament_blueteamname / mp_tournament_redteamname (tf_gamerules.cpp:782-783).
-            string name = state.ConVars.GetString(teamNumber == TeamBlue ? "mp_tournament_blueteamname" : "mp_tournament_redteamname");
-
-            if (name.Length > 0)
-            {
-                return name;
-            }
-        }
-
-        return teamNumber switch
-        {
-            TeamBlue => Find("#TF_BlueTeam_Name") ?? "BLU",
-            TeamRed when state.Rules.MannVsMachine => Find("#TF_Defenders") ?? "DEFENDERS",
-            TeamRed => Find("#TF_RedTeam_Name") ?? "RED",
-            _ => string.Empty,
-        };
-    }
+    /// <summary>`C_TFTeam::Get_Localized_Name` — <see cref="TfTeamNames.Localized"/>.</summary>
+    private string LocalizedTeamName(int teamNumber, HudState state) => TfTeamNames.Localized(teamNumber, state, Find);
 
     // `ConstructString_safe`'s destination buffer size (:1013) — how many characters a formatted string may reach.
     private const int IdChars = 1024;

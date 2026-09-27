@@ -35,6 +35,9 @@ public readonly record struct SceneIdEntity(int EntityIndex, SceneIdEntityKind K
     /// <summary>A dropped weapon's `m_flChargeLevel`: a medigun's banked charge, 0 to 1.</summary>
     public float ChargeLevel { get; init; }
 
+    /// <summary>A dropped weapon's model path, from `m_nModelIndex`, or null.</summary>
+    public string? Model { get; init; }
+
     /// <summary>`GetAbsOrigin()`, when sent.</summary>
     public (float X, float Y, float Z)? Position { get; init; }
 
