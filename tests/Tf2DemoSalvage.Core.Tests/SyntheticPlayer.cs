@@ -1987,9 +1987,24 @@ internal static class SyntheticPlayer
         new(SendPropType.String, name, 0, string.Empty, 0f, 0f, 0, 0);
 
     /// <summary>A demo whose single snapshot carries RED and BLU team entities, each with a score.</summary>
-    public static byte[] DemoWithTeams(int redScore, int blueScore, int redRoundsWon = 0, int blueRoundsWon = 0)
+    /// <param name="redScore">RED's `m_iScore`.</param>
+    /// <param name="blueScore">BLU's `m_iScore`.</param>
+    /// <param name="redRoundsWon">RED's `m_iRoundsWon`.</param>
+    /// <param name="blueRoundsWon">BLU's `m_iRoundsWon`.</param>
+    /// <param name="redPlayers">`player_array` entity indices for RED; empty when not asserted.</param>
+    /// <param name="bluePlayers">`player_array` entity indices for BLU; empty when not asserted.</param>
+    public static byte[] DemoWithTeams(
+        int redScore,
+        int blueScore,
+        int redRoundsWon = 0,
+        int blueRoundsWon = 0,
+        IReadOnlyList<int>? redPlayers = null,
+        IReadOnlyList<int>? bluePlayers = null)
     {
         const int TeamClassId = 2;
+        const int PlayerArraySlots = 4;
+        redPlayers ??= [];
+        bluePlayers ??= [];
         DemoSchema baseline = Schema(OriginTable.NonLocal);
         List<SendTable> tables =
         [
@@ -2000,8 +2015,11 @@ internal static class SyntheticPlayer
                 [
                     UnsignedInt("m_iTeamNum", bits: 5), Int("m_iScore", bits: 32),
                     Int("m_iRoundsWon", bits: 8), String("m_szTeamname"),
+                    Table("player_array", "player_array"),
                 ]),
             new SendTable("DT_TFTeam", NeedsDecoder: true, [Table("baseclass", "DT_Team")]),
+            new SendTable("player_array", NeedsDecoder: true,
+                [.. Enumerable.Range(0, PlayerArraySlots).Select(slot => UnsignedInt(slot.ToString("D3", CultureInfo.InvariantCulture), bits: 11))]),
         ];
 
         DemoSchema schema = new(
@@ -2020,21 +2038,27 @@ internal static class SyntheticPlayer
                 ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
                 ["m_lifeState"] = PropertyValue.FromInt(0),
             }),
-            Entity(decoder, TeamClassId, 2, new Dictionary<string, PropertyValue>
-            {
-                ["m_iTeamNum"] = PropertyValue.FromInt(2),
-                ["m_iScore"] = PropertyValue.FromInt(redScore),
-                ["m_iRoundsWon"] = PropertyValue.FromInt(redRoundsWon),
-                ["m_szTeamname"] = PropertyValue.FromString("Red"),
-            }),
-            Entity(decoder, TeamClassId, 3, new Dictionary<string, PropertyValue>
-            {
-                ["m_iTeamNum"] = PropertyValue.FromInt(3),
-                ["m_iScore"] = PropertyValue.FromInt(blueScore),
-                ["m_iRoundsWon"] = PropertyValue.FromInt(blueRoundsWon),
-                ["m_szTeamname"] = PropertyValue.FromString("Blue"),
-            }),
+            Entity(decoder, TeamClassId, 2, PlayerArrayEntity(2, redScore, redRoundsWon, "Red", redPlayers)),
+            Entity(decoder, TeamClassId, 3, PlayerArrayEntity(3, blueScore, blueRoundsWon, "Blue", bluePlayers)),
         ];
+
+        static Dictionary<string, PropertyValue> PlayerArrayEntity(int teamNum, int score, int roundsWon, string name, IReadOnlyList<int> players)
+        {
+            Dictionary<string, PropertyValue> data = new()
+            {
+                ["m_iTeamNum"] = PropertyValue.FromInt(teamNum),
+                ["m_iScore"] = PropertyValue.FromInt(score),
+                ["m_iRoundsWon"] = PropertyValue.FromInt(roundsWon),
+                ["m_szTeamname"] = PropertyValue.FromString(name),
+            };
+
+            for (int slot = 0; slot < players.Count; slot++)
+            {
+                data[$"player_array.{slot:D3}"] = PropertyValue.FromInt(players[slot]);
+            }
+
+            return data;
+        }
 
         byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
 

@@ -1895,6 +1895,33 @@ public sealed class EntityState
     public int? ActiveWeapon() =>
         Slot(Integer($"{CombatCharacterTable}.{ActiveWeaponProperty}"));
 
+    /// <summary>`MAX_PLAYERS` on `TF_DLL` (`shareddefs.h:254`): `player_array`'s fixed length.</summary>
+    private const int MaxTeamPlayers = 101;
+
+    /// <summary>`m_aPlayers`: every entity index on this team, in array order.</summary>
+    /// <returns>The entity indices; empty when none were sent.</returns>
+    /// <remarks>
+    /// `RecvPropArray2( "player_array", RecvPropInt( "player_array_element", ... ), MAX_PLAYERS )`
+    /// (`c_team.cpp:37-43`) on `DT_Team`. Each element is already a raw entity index —
+    /// `GetPlayer` (`:105`) hands it straight to `cl_entitylist->GetEnt` — so unlike `m_hMyWeapons`
+    /// this is not an `EHANDLE` array and needs no <see cref="Slot"/> masking. A zero element is an
+    /// unfilled slot (`SetSize` grows with zeros, `:27-28`), never a valid entity index.
+    /// </remarks>
+    public IReadOnlyList<int> TeamPlayers()
+    {
+        List<int> players = [];
+
+        for (int element = 0; element < MaxTeamPlayers; element++)
+        {
+            if (Integer($"player_array.{element:D3}") is { } playerIndex and > 0)
+            {
+                players.Add(playerIndex);
+            }
+        }
+
+        return players;
+    }
+
     /// <summary>`m_hMyWeapons`: every weapon the player carries, as entity slots, in array order.</summary>
     /// <returns>The slots; empty when none were sent.</returns>
     /// <remarks>`SendPropArray3( m_hMyWeapons )` on `DT_BaseCombatCharacter`, `MAX_WEAPONS` (48) elements.</remarks>
