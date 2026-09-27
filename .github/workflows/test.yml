@@ -718,4 +718,5 @@ jobs:
           path: |
             ~/AppData/Local/Tf2DemoSalvage/viewer-*.log
             ~/AppData/Local/Tf2DemoSalvage/*.png
+            ~/AppData/Local/Temp/tf2ds-ui-captures/last-run/*.png
           if-no-files-found: ignore
